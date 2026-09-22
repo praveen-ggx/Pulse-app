@@ -225,6 +225,13 @@ export function ComplianceTripCard({
   const verification = verificationStatusVisual(summary);
   const payment = paymentStatusVisual(summary);
   const showPaymentPill = shouldShowPaymentStatusPill(summary);
+  /** Pending-docs cards already show status in the header — hide the duplicate footer pill + Verify Docs. */
+  const isPendingDocsCard = verification.kind === "pending_docs";
+  const showVerificationPill = !isPendingDocsCard;
+  const showVerifyDocsAction = !isPendingDocsCard;
+  const showPayAction = Boolean(canManageFinance && readiness.paymentReady && onPay);
+  const showCardFooter =
+    showVerificationPill || showPaymentPill || showVerifyDocsAction || showPayAction;
   const requiredTone = groupToneVisual(checklistTone(required.verified, required.total));
   const tripId = complianceTripDisplayId(trip);
   const when = formatComplianceTimestamp(complianceEventAt(trip));
@@ -357,90 +364,102 @@ export function ComplianceTripCard({
           </View>
         </View>
 
-        <View style={styles.cardFooter}>
-          <View style={styles.pillRow}>
-            <View
-              style={[
-                styles.stagePill,
-                styles.stagePillWide,
-                { backgroundColor: verification.tone.bg },
-              ]}
-              accessibilityLabel={`Verification: ${verification.label}`}
-            >
-              {verification.kind === "verified" ? (
-                <Check size={10} color={verification.tone.fg} strokeWidth={2.6} />
-              ) : (
-                <View style={[styles.stageDot, { backgroundColor: verification.tone.fg }]} />
-              )}
-              <Text
-                style={[styles.stagePillText, { color: verification.tone.fg }]}
-                numberOfLines={1}
-              >
-                {verification.label}
-              </Text>
-            </View>
-            {showPaymentPill ? (
-              <View
-                style={[
-                  styles.stagePill,
-                  styles.stagePillWide,
-                  { backgroundColor: payment.tone.bg },
-                ]}
-                accessibilityLabel={`Payment: ${payment.label}`}
-              >
-                {summary.stage === "payment_settled" ? (
-                  <Check size={10} color={payment.tone.fg} strokeWidth={2.6} />
-                ) : (
-                  <View style={[styles.stageDot, { backgroundColor: payment.tone.fg }]} />
-                )}
-                <Text
-                  style={[styles.stagePillText, { color: payment.tone.fg }]}
-                  numberOfLines={1}
-                >
-                  {payment.label}
-                </Text>
+        {showCardFooter ? (
+          <View style={styles.cardFooter}>
+            {showVerificationPill || showPaymentPill ? (
+              <View style={styles.pillRow}>
+                {showVerificationPill ? (
+                  <View
+                    style={[
+                      styles.stagePill,
+                      styles.stagePillWide,
+                      { backgroundColor: verification.tone.bg },
+                    ]}
+                    accessibilityLabel={`Verification: ${verification.label}`}
+                  >
+                    {verification.kind === "verified" ? (
+                      <Check size={10} color={verification.tone.fg} strokeWidth={2.6} />
+                    ) : (
+                      <View style={[styles.stageDot, { backgroundColor: verification.tone.fg }]} />
+                    )}
+                    <Text
+                      style={[styles.stagePillText, { color: verification.tone.fg }]}
+                      numberOfLines={1}
+                    >
+                      {verification.label}
+                    </Text>
+                  </View>
+                ) : null}
+                {showPaymentPill ? (
+                  <View
+                    style={[
+                      styles.stagePill,
+                      styles.stagePillWide,
+                      { backgroundColor: payment.tone.bg },
+                    ]}
+                    accessibilityLabel={`Payment: ${payment.label}`}
+                  >
+                    {summary.stage === "payment_settled" ? (
+                      <Check size={10} color={payment.tone.fg} strokeWidth={2.6} />
+                    ) : (
+                      <View style={[styles.stageDot, { backgroundColor: payment.tone.fg }]} />
+                    )}
+                    <Text
+                      style={[styles.stagePillText, { color: payment.tone.fg }]}
+                      numberOfLines={1}
+                    >
+                      {payment.label}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : (
+              <View />
+            )}
+            {showVerifyDocsAction || showPayAction ? (
+              <View style={styles.footerActions}>
+                {showVerifyDocsAction ? (
+                  fullyVerified ? (
+                    <TouchableOpacity
+                      style={styles.verifiedBtn}
+                      onPress={() => onReviewDocuments("trip")}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Documents verified"
+                    >
+                      <Check
+                        size={12}
+                        color={Theme.complianceVerifiedPillFg}
+                        strokeWidth={2.4}
+                      />
+                      <Text style={styles.verifiedBtnText}>Verified</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.verifyBtn}
+                      onPress={() => onReviewDocuments("trip")}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Verify documents"
+                    >
+                      <Check size={12} color={Theme.buttonPrimaryText} strokeWidth={2.4} />
+                      <Text style={styles.verifyBtnText}>Verify Docs</Text>
+                    </TouchableOpacity>
+                  )
+                ) : null}
+                {showPayAction ? (
+                  <TouchableOpacity
+                    style={styles.verifyBtn}
+                    onPress={onPay}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.verifyBtnText}>Pay</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
             ) : null}
           </View>
-          <View style={styles.footerActions}>
-            {fullyVerified ? (
-              <TouchableOpacity
-                style={styles.verifiedBtn}
-                onPress={() => onReviewDocuments("trip")}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                accessibilityRole="button"
-                accessibilityLabel="Documents verified"
-              >
-                <Check
-                  size={12}
-                  color={Theme.complianceVerifiedPillFg}
-                  strokeWidth={2.4}
-                />
-                <Text style={styles.verifiedBtnText}>Verified</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                style={styles.verifyBtn}
-                onPress={() => onReviewDocuments("trip")}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                accessibilityRole="button"
-                accessibilityLabel="Verify documents"
-              >
-                <Check size={12} color={Theme.buttonPrimaryText} strokeWidth={2.4} />
-                <Text style={styles.verifyBtnText}>Verify Docs</Text>
-              </TouchableOpacity>
-            )}
-            {canManageFinance && readiness.paymentReady && onPay ? (
-              <TouchableOpacity
-                style={styles.verifyBtn}
-                onPress={onPay}
-                accessibilityRole="button"
-              >
-                <Text style={styles.verifyBtnText}>Pay</Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
-        </View>
+        ) : null}
       </View>
     </View>
   );

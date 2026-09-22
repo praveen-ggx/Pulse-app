@@ -3,6 +3,13 @@ import { complianceReportToCsv, type ComplianceReportRow } from "@/features/trip
 const ROW: ComplianceReportRow = {
   tripId: "TRP001",
   tripDisplayNumber: "TRP001",
+  tripDate: "2026-09-22",
+  fromLocation: "Chennai",
+  toLocation: "Bangalore",
+  tripVerification: "Verified",
+  vehicleVerification: "Pending",
+  driverVerification: "Verified",
+  requiredDate: "2026-09-22",
   tripStatus: "delivered",
   client: "Acme, Inc.", // deliberately contains a comma to exercise CSV escaping
   driver: "Ravi",
@@ -32,6 +39,13 @@ describe("complianceReportToCsv", () => {
     expect(header).toBe(
       [
         "Trip ID",
+        "Date",
+        "From Location",
+        "To Location",
+        "Trip Document Verification",
+        "Vehicle Verification",
+        "Driver Verification",
+        "Required Date",
         "Trip Status",
         "Client",
         "Driver",
@@ -59,6 +73,16 @@ describe("complianceReportToCsv", () => {
   it("escapes a value containing a comma", () => {
     const csv = complianceReportToCsv([ROW]);
     expect(csv).toContain('"Acme, Inc."');
+  });
+
+  it("includes Trip ID and verification columns in the data row", () => {
+    const csv = complianceReportToCsv([ROW]);
+    const data = csv.split("\n")[1];
+    expect(data.startsWith("TRP001,")).toBe(true);
+    expect(data).toContain("Chennai");
+    expect(data).toContain("Bangalore");
+    expect(data).toContain("Verified");
+    expect(data).toContain("Pending");
   });
 
   it("produces one data line per row plus the header", () => {

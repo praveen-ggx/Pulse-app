@@ -25,9 +25,9 @@ import {
     getSupplierById,
     getSupplierDetails,
 } from "@/features/suppliers/services/suppliers.service";
-import { getVehicleDocumentViewUrl, getVehicleDocumentViewUrls } from "@/features/vehicles/services/vehicleDocuments.service";
+import { getVehicleDocumentViewUrl, getVehicleDocumentViewUrls, mergeEntityDocumentsIntoVehicleVault } from "@/features/vehicles/services/vehicleDocuments.service";
 import { resolveTripDocumentPreviewUrl } from "@/features/tripCompliance/services/vehicleDocumentReuse.service";
-import { getVehicleById } from "@/features/vehicles/services/vehicles.service";
+import { getVehicleById, getVehicleForTripViewer } from "@/features/vehicles/services/vehicles.service";
 import type { VehicleDocuments } from "@/features/vehicles/utils/vehicleDocuments.util";
 import {
     DOCUMENT_EXPIRY_ORDER,
@@ -1548,26 +1548,47 @@ export function useTripDetail({
       setVehicleLabel(formatIndianVehicleNumber(aggregateVehicleDisplay));
       setVehicleDocs(null);
     } else if (trip.vehicle_id) {
-      const applyVehicleRow = (v: NonNullable<Awaited<ReturnType<typeof getVehicleById>>["vehicle"]>) => {
+      const applyVehicleRow = async (
+        v: NonNullable<Awaited<ReturnType<typeof getVehicleById>>["vehicle"]>,
+      ) => {
         const parts = [v.vehicle_number];
         if (v.vehicle_type) parts.push(v.vehicle_type);
         setVehicleLabel(parts.join(" · "));
-        setVehicleDocs(v.documents ?? null);
+        const merged = await mergeEntityDocumentsIntoVehicleVault(
+          trip.vehicle_id!,
+          orgId,
+          v.documents ?? null,
+        );
+        if (!cancelled) setVehicleDocs(merged);
       };
-      getVehicleById(orgId, trip.vehicle_id).then((res) => {
+      getVehicleById(orgId, trip.vehicle_id).then(async (res) => {
         if (cancelled) return;
         if (res.vehicle) {
-          applyVehicleRow(res.vehicle);
+          await applyVehicleRow(res.vehicle);
           return;
         }
-        if (!trip.supplier_id) return;
+        const viewer = await getVehicleForTripViewer(trip.vehicle_id!, trip.id, orgId);
+        if (cancelled) return;
+        if (viewer.vehicle) {
+          await applyVehicleRow(viewer.vehicle);
+          return;
+        }
+        if (!trip.supplier_id) {
+          const mergedOnly = await mergeEntityDocumentsIntoVehicleVault(
+            trip.vehicle_id!,
+            orgId,
+            null,
+          );
+          if (!cancelled && mergedOnly) setVehicleDocs(mergedOnly);
+          return;
+        }
         getSupplierById(orgId, trip.supplier_id).then((r) => {
           if (cancelled) return;
           const linkedOrgId = r.supplier?.linked_organization_id;
           if (!linkedOrgId) return;
-          getVehicleById(linkedOrgId, trip.vehicle_id!).then((res2) => {
+          getVehicleById(linkedOrgId, trip.vehicle_id!).then(async (res2) => {
             if (cancelled || !res2.vehicle) return;
-            applyVehicleRow(res2.vehicle);
+            await applyVehicleRow(res2.vehicle);
           });
         });
       });

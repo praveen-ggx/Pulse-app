@@ -2,16 +2,22 @@
  * Shared document-row derivation — used by the Trip Detail document table,
  * the Compliance trip card, the list-level table's expandable rows, and the
  * document review sheet, so all four surfaces agree on exactly the same
- * Missing/Pending/Verified/Rejected classification from one place.
+ * Missing/Pending/Verified/Rejected/Expired classification from one place.
  */
 import {
   COMPLIANCE_TRIP_OTHER_DOCUMENT_TYPES,
   REQUIRED_COMPLIANCE_DOCUMENT_TYPES,
+  documentRequiresExpiry,
+  isRequiredDriverDocumentType,
+  isRequiredVehicleDocumentType,
   type ComplianceDocumentRow,
   type ComplianceDocumentStatus,
   type ComplianceEntityDocument,
 } from "@/features/tripCompliance/tripCompliance.types";
-import { isEntityDocumentSlotVerified } from "@/features/tripCompliance/utils/complianceChecklist.util";
+import {
+  isEntityDocumentExpired,
+  isEntityDocumentSlotVerified,
+} from "@/features/tripCompliance/utils/complianceChecklist.util";
 
 export const DOC_TYPE_LABEL: Record<string, string> = {
   lr: "LR",
@@ -34,7 +40,7 @@ export function labelForDocType(type: string): string {
   return DOC_TYPE_LABEL[type] ?? type.replace(/_/g, " ");
 }
 
-export type ComplianceDocRowStatus = ComplianceDocumentStatus | "missing";
+export type ComplianceDocRowStatus = ComplianceDocumentStatus | "missing" | "expired";
 
 export type ComplianceDocRow = {
   key: string;
@@ -71,15 +77,25 @@ function latestEntityDoc(documents: ComplianceEntityDocument[]): ComplianceEntit
   return [...list].sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null;
 }
 
-function entityRowStatus(doc: ComplianceEntityDocument | null, now = new Date()): ComplianceDocRowStatus {
+function isEntityDocRequired(type: string): boolean {
+  return isRequiredVehicleDocumentType(type) || isRequiredDriverDocumentType(type);
+}
+
+function entityRowStatus(
+  doc: ComplianceEntityDocument | null,
+  now = new Date(),
+  docType?: string,
+): ComplianceDocRowStatus {
   if (!doc) return "missing";
   if (doc.status === "rejected") return "rejected";
+  if (doc.status === "expired" || isEntityDocumentExpired(doc, now)) return "expired";
+  if (docType && documentRequiresExpiry(docType) && !doc.expiry_date?.trim()) return "pending";
   if (doc.status === "pending") return "pending";
-  if (isEntityDocumentSlotVerified(doc, now)) return "verified";
+  if (isEntityDocumentSlotVerified(doc, now, docType ?? doc.doc_type)) return "verified";
   return "pending";
 }
 
-/** Required vehicle or driver types from `entity_documents`. */
+/** Vehicle or driver types from vault / entity_documents. */
 export function deriveEntityComplianceRows(
   types: readonly string[],
   documents: ComplianceEntityDocument[],
@@ -96,8 +112,8 @@ export function deriveEntityComplianceRows(
     return {
       key: type,
       type,
-      required: true,
-      status: entityRowStatus(entityDoc, now),
+      required: isEntityDocRequired(type),
+      status: entityRowStatus(entityDoc, now, type),
       doc: null,
       entityDoc,
     };
@@ -124,7 +140,7 @@ export function groupComplianceReviewRows(rows: ComplianceDocRow[]): {
   const pending: ComplianceDocRow[] = [];
   const verified: ComplianceDocRow[] = [];
   for (const row of rows) {
-    if (row.status === "rejected") needsAction.push(row);
+    if (row.status === "rejected" || row.status === "expired") needsAction.push(row);
     else if (row.status === "missing") missing.push(row);
     else if (row.status === "verified") verified.push(row);
     else pending.push(row);
@@ -133,12 +149,18 @@ export function groupComplianceReviewRows(rows: ComplianceDocRow[]): {
 }
 
 export function requirementScopeLabel(required: boolean): string {
-  return required ? "Required" : "Additional";
+  return required ? "Required" : "Optional";
 }
 
 export function requiredRowNextAction(row: ComplianceDocRow): string {
   if (row.status === "missing") return "Upload a file before Approve / Decline.";
-  if (row.status === "pending") return "Preview then Approve or Decline.";
+  if (row.status === "expired") return "Replace the expired file, then Approve.";
+  if (row.status === "pending") {
+    if (documentRequiresExpiry(row.type) && !row.entityDoc?.expiry_date?.trim()) {
+      return "Add expiry date, then Approve.";
+    }
+    return "Preview then Approve or Decline.";
+  }
   if (row.status === "rejected") return "Replace the file, then Approve.";
   return "View, or Decline if this file should not stay verified.";
 }

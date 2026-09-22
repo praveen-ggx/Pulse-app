@@ -65,7 +65,9 @@ import {
   deleteVehicleDocument,
   deleteVehicleExtraDocument,
   getVehicleDocumentViewUrl,
+  resolveVehicleDocumentsWriteTarget,
   uploadAndSaveVehicleDocument,
+  uploadAndSaveVehicleDocumentForTrip,
   uploadAndSaveVehicleExtraDocuments,
 } from "@/features/vehicles/services/vehicleDocuments.service";
 import {
@@ -75,6 +77,7 @@ import {
   vehicleComplianceOnFileSummary,
   type VehicleComplianceDocType,
 } from "@/features/vehicles/utils/vehicleDocuments.util";
+import { getSupplierById } from "@/features/suppliers/services/suppliers.service";
 import Feather from "@expo/vector-icons/Feather";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import * as DocumentPicker from "expo-document-picker";
@@ -1356,7 +1359,16 @@ export default function TripDetailScreen({
     const pending = pendingVaultUpload;
     const tripIdForUpload = detail.trip?.id;
     const uploaderId = detail.currentUserId;
-    if (!pending || !tripIdForUpload || !uploaderId || uploadingDocId) return;
+    if (!pending) return;
+    if (!tripIdForUpload) {
+      Alert.alert("Upload failed", "Trip is still loading. Try again in a moment.");
+      return;
+    }
+    if (!uploaderId) {
+      Alert.alert("Upload failed", "Your session expired. Sign in again, then retry.");
+      return;
+    }
+    if (uploadingDocId) return;
 
     setUploadingDocId(pending.slotId);
     try {
@@ -1376,16 +1388,38 @@ export default function TripDetailScreen({
       } | null = null;
 
       if (pending.docType === "vehicle_extra") {
-        const orgId =
-          detail.trip?.organization_id ?? currentOrganization?.id ?? null;
         const vehicleId = detail.trip?.vehicle_id ?? null;
-        if (!orgId || !vehicleId) {
+        if (!vehicleId) {
           Alert.alert(
             "Assign a vehicle",
             "Assign a vehicle to this trip before adding vehicle documents.",
           );
           return;
         }
+
+        const preferredOrgIds: Array<string | null | undefined> = [
+          detail.trip?.organization_id,
+          currentOrganization?.id,
+        ];
+        if (detail.trip?.supplier_id && currentOrganization?.id) {
+          const { supplier } = await getSupplierById(
+            currentOrganization.id,
+            detail.trip.supplier_id,
+          );
+          preferredOrgIds.push(supplier?.linked_organization_id);
+        }
+        const resolved = await resolveVehicleDocumentsWriteTarget(vehicleId, preferredOrgIds);
+        // Viewer org (trip/current) — required for cross-org storage + trip RPC fallback.
+        const viewerOrgId =
+          detail.trip?.organization_id ?? currentOrganization?.id ?? null;
+        if (!viewerOrgId) {
+          Alert.alert(
+            "Upload failed",
+            "Could not resolve the organization for this trip.",
+          );
+          return;
+        }
+
         const buffers: {
           arrayBuffer: ArrayBuffer;
           fileName: string;
@@ -1424,13 +1458,17 @@ export default function TripDetailScreen({
             Alert.alert("Upload failed", "No file selected.");
             return;
           }
-          const { documents, error } = await uploadAndSaveVehicleDocument(
-            orgId,
+          const { documents, error } = await uploadAndSaveVehicleDocumentForTrip(
+            viewerOrgId,
+            tripIdForUpload,
             vehicleId,
             complianceKind,
             first,
-            detail.vehicleDocs?.[complianceKind]?.expiryDate ?? "",
-            detail.vehicleDocs,
+            detail.vehicleDocs?.[complianceKind]?.expiryDate ??
+              resolved?.documents?.[complianceKind]?.expiryDate ??
+              "",
+            resolved?.documents ?? detail.vehicleDocs,
+            preferredOrgIds,
           );
           if (error) {
             Alert.alert("Upload failed", error.message);
@@ -1440,10 +1478,10 @@ export default function TripDetailScreen({
           if (documents) detail.setVehicleDocs(documents);
         } else {
           const { documents, error } = await uploadAndSaveVehicleExtraDocuments(
-            orgId,
+            viewerOrgId,
             vehicleId,
             buffers,
-            detail.vehicleDocs,
+            resolved?.documents ?? detail.vehicleDocs,
           );
           if (error) {
             Alert.alert("Upload failed", error.message);
@@ -1576,6 +1614,7 @@ export default function TripDetailScreen({
     detail.trip?.id,
     detail.trip?.organization_id,
     detail.trip?.vehicle_id,
+    detail.trip?.supplier_id,
     detail.currentUserId,
     detail.vehicleDocs,
     detail.setVehicleDocs,
@@ -6722,7 +6761,9 @@ export default function TripDetailScreen({
                                 </Text>
                                 <Text style={styles.docModalHint}>
                                   {doc.storagePath
-                                    ? "Generating secure link…"
+                                    ? detail.docPreviewLoading
+                                      ? "Generating secure link…"
+                                      : "Couldn’t open this file. Try View again, or re-upload if it still fails."
                                     : "No document uploaded yet."}
                                 </Text>
                               </View>

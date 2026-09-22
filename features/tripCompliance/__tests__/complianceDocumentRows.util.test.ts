@@ -106,32 +106,68 @@ describe("deriveEntityComplianceRows", () => {
       doc_type: overrides.doc_type ?? "rc",
       status: overrides.status ?? "pending",
       storage_path: overrides.storage_path ?? "path",
-      expiry_date: overrides.expiry_date ?? "2027-01-01",
+      expiry_date: overrides.expiry_date === undefined ? "2027-01-01" : overrides.expiry_date,
       verified_at: overrides.verified_at ?? null,
       notes: overrides.notes ?? null,
       created_at: overrides.created_at ?? "2026-09-01",
     };
   }
 
-  it("lists vehicle RC/insurance/FC/permit/pollution/tax", () => {
+  it("lists vehicle RC/insurance/FC as required and permit/pollution/tax as optional", () => {
     const rows = deriveEntityComplianceRows(COMPLIANCE_VEHICLE_DOCUMENT_TYPES, []);
     expect(rows.map((r) => r.type)).toEqual(["rc", "insurance", "fitness", "permit", "pollution", "road_tax"]);
-    expect(rows.every((r) => r.required && r.status === "missing")).toBe(true);
+    expect(rows.filter((r) => r.required).map((r) => r.type)).toEqual(["rc", "insurance", "fitness"]);
+    expect(rows.filter((r) => !r.required).map((r) => r.type)).toEqual(["permit", "pollution", "road_tax"]);
+    expect(rows.every((r) => r.status === "missing")).toBe(true);
   });
 
-  it("treats active unexpired entity docs as verified", () => {
+  it("treats active unexpired entity docs as verified; Aadhaar stays optional", () => {
     const rows = deriveEntityComplianceRows(COMPLIANCE_DRIVER_DOCUMENT_TYPES, [
       entityDoc({ id: "d1", entity_type: "driver", entity_id: "dr1", doc_type: "license", status: "active" }),
     ]);
     expect(rows.find((r) => r.type === "license")?.status).toBe("verified");
+    expect(rows.find((r) => r.type === "license")?.required).toBe(true);
     expect(rows.find((r) => r.type === "aadhaar")?.status).toBe("missing");
+    expect(rows.find((r) => r.type === "aadhaar")?.required).toBe(false);
+  });
+
+  it("marks insurance without expiry as pending, not verified", () => {
+    const rows = deriveEntityComplianceRows(COMPLIANCE_VEHICLE_DOCUMENT_TYPES, [
+      entityDoc({
+        id: "ins",
+        entity_type: "vehicle",
+        entity_id: "v1",
+        doc_type: "insurance",
+        status: "active",
+        expiry_date: null,
+      }),
+    ]);
+    expect(rows.find((r) => r.type === "insurance")?.status).toBe("pending");
+  });
+
+  it("marks past-expiry fitness as expired", () => {
+    const rows = deriveEntityComplianceRows(
+      COMPLIANCE_VEHICLE_DOCUMENT_TYPES,
+      [
+        entityDoc({
+          id: "fc",
+          entity_type: "vehicle",
+          entity_id: "v1",
+          doc_type: "fitness",
+          status: "active",
+          expiry_date: "2020-01-01",
+        }),
+      ],
+      new Date("2026-09-01T00:00:00Z"),
+    );
+    expect(rows.find((r) => r.type === "fitness")?.status).toBe("expired");
   });
 });
 
 describe("requirementScopeLabel", () => {
-  it("labels hardcoded trip extras as Additional, not Optional", () => {
+  it("labels extras as Optional", () => {
     expect(requirementScopeLabel(true)).toBe("Required");
-    expect(requirementScopeLabel(false)).toBe("Additional");
+    expect(requirementScopeLabel(false)).toBe("Optional");
   });
 });
 

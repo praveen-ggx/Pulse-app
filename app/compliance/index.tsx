@@ -300,7 +300,7 @@ export default function ComplianceScreen() {
           summaries={visible}
           onOpenTrip={openTrip}
           onOpenDetails={openDetails}
-          onReview={(tripId, documentKey) => setReview({ tripId, documentKey, scope: "trip" })}
+          onReview={(tripId, documentKey, scope = "trip") => setReview({ tripId, documentKey, scope })}
           onPay={(tripId) => {
             const summary = visible.find((s) => s.trip.id === tripId);
             if (summary) openPay(summary);

@@ -535,7 +535,7 @@ export async function buildComplianceTripSummaries(
       (trip.owner_vehicle_id ? vaultVehicleDocs.get(trip.owner_vehicle_id) : undefined) ??
       vaultVehicleDocs.get(normalizeVaultVehicleNumber(trip.vehicle_display_number)) ??
       [];
-    const vehicleDocuments = mergeComplianceEntityDocs(vaultVehicle, entityVehicleDocs);
+    const vehicleDocuments = mergeComplianceEntityDocs(entityVehicleDocs, vaultVehicle);
     const entityDriverDocs = trip.driver_id
       ? (entityDocsById.get(trip.driver_id) ?? []).filter((d) => d.entity_type === "driver").map(toEntityDocument)
       : [];

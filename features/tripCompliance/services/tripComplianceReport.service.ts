@@ -1,6 +1,11 @@
-import { getTripsByOrganization } from "@/features/trips/services/trips.service";
+import { getTripsByOrganization, getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { buildComplianceTripSummaries } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import { COMPLIANCE_STAGE_LABEL, type ComplianceStage, type ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
+import { complianceEventAt } from "@/features/tripCompliance/utils/complianceCardVisual.util";
+import {
+  checklistGroupStatusLabel,
+  ensureComplianceChecklist,
+} from "@/features/tripCompliance/utils/complianceChecklist.util";
 
 const PAGE_SIZE = 200;
 const MAX_TRIPS = 2000; // bounded — a report is a batch job, not a live list; this caps worst-case query count at 10.
@@ -16,6 +21,13 @@ export type ComplianceReportFilters = {
 export type ComplianceReportRow = {
   tripId: string;
   tripDisplayNumber: string;
+  tripDate: string;
+  fromLocation: string;
+  toLocation: string;
+  tripVerification: string;
+  vehicleVerification: string;
+  driverVerification: string;
+  requiredDate: string;
   tripStatus: string;
   client: string;
   driver: string;
@@ -67,15 +79,25 @@ function paymentStatusOf(summary: ComplianceTripSummary): ComplianceReportFilter
 
 function toReportRow(summary: ComplianceTripSummary): ComplianceReportRow {
   const t = summary.trip;
+  const checklist = ensureComplianceChecklist(summary);
+  const requiredDate = complianceEventAt(t) ?? "";
+  const tripId = getTripDisplayNumber(t);
   return {
-    tripId: t.booking_ref ?? t.id,
-    tripDisplayNumber: t.booking_ref ?? t.id.slice(0, 8),
+    tripId,
+    tripDisplayNumber: tripId,
+    tripDate: requiredDate,
+    fromLocation: t.pickup_area?.trim() || "",
+    toLocation: t.drop_location?.trim() || t.drop_area?.trim() || "",
+    tripVerification: checklistGroupStatusLabel(checklist.groups[0]),
+    vehicleVerification: checklistGroupStatusLabel(checklist.groups[1]),
+    driverVerification: checklistGroupStatusLabel(checklist.groups[2]),
+    requiredDate,
     tripStatus: t.status,
     client: t.client_name || "",
     driver: t.driver_display_name || "",
     vehicle: t.vehicle_display_number || "",
     complianceStatus: COMPLIANCE_STAGE_LABEL[summary.stage],
-    documentStatus: `${summary.checklist.verified}/${summary.checklist.total} verified`,
+    documentStatus: `${checklist.verified}/${checklist.total} verified`,
     complianceVerifiedAt: summary.complianceVerifiedAt ?? "",
     advanceAmount: summary.advance ? String(summary.advance.amount) : "",
     advanceStatus: summary.advance ? "PROCESSED" : "PENDING",
@@ -114,6 +136,13 @@ export async function fetchComplianceReportRows(
 
 const CSV_HEADERS: { key: keyof ComplianceReportRow; label: string }[] = [
   { key: "tripId", label: "Trip ID" },
+  { key: "tripDate", label: "Date" },
+  { key: "fromLocation", label: "From Location" },
+  { key: "toLocation", label: "To Location" },
+  { key: "tripVerification", label: "Trip Document Verification" },
+  { key: "vehicleVerification", label: "Vehicle Verification" },
+  { key: "driverVerification", label: "Driver Verification" },
+  { key: "requiredDate", label: "Required Date" },
   { key: "tripStatus", label: "Trip Status" },
   { key: "client", label: "Client" },
   { key: "driver", label: "Driver" },

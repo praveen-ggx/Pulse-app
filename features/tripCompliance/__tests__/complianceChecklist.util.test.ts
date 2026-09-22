@@ -1,6 +1,12 @@
 import type { DocumentRow } from "@/features/compliance/services/documents.service";
 import type { ComplianceDocumentRow } from "@/features/tripCompliance/tripCompliance.types";
-import { buildComplianceChecklist, checklistTone, ensureComplianceChecklist } from "@/features/tripCompliance/utils/complianceChecklist.util";
+import {
+  buildComplianceChecklist,
+  checklistGroupStatusLabel,
+  checklistTone,
+  ensureComplianceChecklist,
+  isEntityDocumentSlotVerified,
+} from "@/features/tripCompliance/utils/complianceChecklist.util";
 
 function tripDoc(type: string, status: ComplianceDocumentRow["status"] = "verified"): ComplianceDocumentRow {
   return {
@@ -27,7 +33,7 @@ function entityDoc(overrides: Partial<DocumentRow> & Pick<DocumentRow, "doc_type
     doc_label: null,
     doc_number: null,
     issued_date: null,
-    expiry_date: overrides.expiry_date ?? "2027-01-01",
+    expiry_date: overrides.expiry_date === undefined ? "2027-01-01" : overrides.expiry_date,
     issued_by: null,
     status: overrides.status ?? "active",
     storage_path: "path",
@@ -41,7 +47,7 @@ function entityDoc(overrides: Partial<DocumentRow> & Pick<DocumentRow, "doc_type
 }
 
 describe("buildComplianceChecklist", () => {
-  it("uses trip LR/e-way/invoice, six vehicle docs, and license + Aadhaar", () => {
+  it("counts only mandatory vehicle (RC/Insurance/FC) and driver (DL) slots toward totals", () => {
     const checklist = buildComplianceChecklist({
       tripDocuments: [],
       vehicleDocuments: [],
@@ -57,12 +63,14 @@ describe("buildComplianceChecklist", () => {
       "road_tax",
     ]);
     expect(checklist.groups[2].slots.map((s) => s.type)).toEqual(["license", "aadhaar"]);
-    expect(checklist.total).toBe(11);
+    expect(checklist.groups[1].total).toBe(3);
+    expect(checklist.groups[2].total).toBe(1);
+    expect(checklist.total).toBe(7);
     expect(checklist.verified).toBe(0);
     expect(checklist.tone).toBe("danger");
   });
 
-  it("counts verified trip docs and active vehicle/driver docs into groups", () => {
+  it("counts verified trip docs and active mandatory vehicle/driver docs into groups", () => {
     const checklist = buildComplianceChecklist({
       tripDocuments: [
         tripDoc("lr"),
@@ -71,7 +79,7 @@ describe("buildComplianceChecklist", () => {
         tripDoc("pod"),
       ],
       vehicleDocuments: [
-        entityDoc({ entity_type: "vehicle", entity_id: "v1", doc_type: "rc", status: "verified" }),
+        entityDoc({ entity_type: "vehicle", entity_id: "v1", doc_type: "rc", status: "verified", expiry_date: null }),
         entityDoc({ entity_type: "vehicle", entity_id: "v1", doc_type: "insurance", status: "active" }),
         entityDoc({ entity_type: "vehicle", entity_id: "v1", doc_type: "fitness", status: "active" }),
       ],
@@ -81,10 +89,10 @@ describe("buildComplianceChecklist", () => {
       now: new Date("2026-09-01T00:00:00Z"),
     });
     expect(checklist.groups[0]).toMatchObject({ verified: 3, total: 3, tone: "success" });
-    expect(checklist.groups[1]).toMatchObject({ verified: 3, total: 6, tone: "warning" });
-    expect(checklist.groups[2]).toMatchObject({ verified: 1, total: 2, tone: "warning" });
+    expect(checklist.groups[1]).toMatchObject({ verified: 3, total: 3, tone: "success" });
+    expect(checklist.groups[2]).toMatchObject({ verified: 1, total: 1, tone: "success" });
     expect(checklist.verified).toBe(7);
-    expect(checklist.tone).toBe("warning");
+    expect(checklist.tone).toBe("success");
   });
 
   it("does not count expired entity documents as verified", () => {
@@ -99,16 +107,39 @@ describe("buildComplianceChecklist", () => {
     expect(checklist.groups[1].verified).toBe(0);
   });
 
-  it("is success only when every required slot is verified", () => {
+  it("does not count insurance/FC/DL without expiry as verified", () => {
+    expect(
+      isEntityDocumentSlotVerified(
+        { status: "active", storage_path: "p", expiry_date: null },
+        new Date("2026-09-01"),
+        "insurance",
+      ),
+    ).toBe(false);
+    expect(
+      isEntityDocumentSlotVerified(
+        { status: "active", storage_path: "p", expiry_date: null },
+        new Date("2026-09-01"),
+        "rc",
+      ),
+    ).toBe(true);
+  });
+
+  it("is success when every mandatory slot is verified (optional docs ignored)", () => {
     const tripDocuments = ["lr", "eway_bill", "invoice"].map((type) => tripDoc(type));
-    const vehicleDocuments = ["rc", "insurance", "fitness", "permit", "pollution", "road_tax"].map((doc_type) =>
-      entityDoc({ entity_type: "vehicle", entity_id: "v1", doc_type, status: "verified" }),
+    const vehicleDocuments = ["rc", "insurance", "fitness"].map((doc_type) =>
+      entityDoc({
+        entity_type: "vehicle",
+        entity_id: "v1",
+        doc_type,
+        status: "verified",
+        expiry_date: doc_type === "rc" ? null : "2027-01-01",
+      }),
     );
-    const driverDocuments = ["license", "aadhaar"].map((doc_type) =>
-      entityDoc({ entity_type: "driver", entity_id: "d1", doc_type, status: "verified" }),
-    );
+    const driverDocuments = [
+      entityDoc({ entity_type: "driver", entity_id: "d1", doc_type: "license", status: "verified" }),
+    ];
     const checklist = buildComplianceChecklist({ tripDocuments, vehicleDocuments, driverDocuments });
-    expect(checklist.verified).toBe(11);
+    expect(checklist.verified).toBe(7);
     expect(checklist.tone).toBe("success");
     expect(checklist.groups.every((group) => group.tone === "success")).toBe(true);
   });
@@ -122,6 +153,19 @@ describe("checklistTone", () => {
   });
 });
 
+describe("checklistGroupStatusLabel", () => {
+  it("returns Verified or Pending from group progress", () => {
+    const empty = buildComplianceChecklist({ tripDocuments: [], vehicleDocuments: [], driverDocuments: [] });
+    expect(checklistGroupStatusLabel(empty.groups[0])).toBe("Pending");
+    const full = buildComplianceChecklist({
+      tripDocuments: ["lr", "eway_bill", "invoice"].map((type) => tripDoc(type)),
+      vehicleDocuments: [],
+      driverDocuments: [],
+    });
+    expect(checklistGroupStatusLabel(full.groups[0])).toBe("Verified");
+  });
+});
+
 describe("ensureComplianceChecklist", () => {
   it("rebuilds from trip documents when persisted cache has no checklist", () => {
     const checklist = ensureComplianceChecklist({
@@ -129,7 +173,7 @@ describe("ensureComplianceChecklist", () => {
     });
     expect(checklist.tone).toBe("warning");
     expect(checklist.groups[0].verified).toBe(2);
-    expect(checklist.total).toBe(11);
+    expect(checklist.total).toBe(7);
   });
 
   it("rebuilds the old 15-slot mock checklist into the current types", () => {
@@ -143,7 +187,9 @@ describe("ensureComplianceChecklist", () => {
   it("rebuilds vehicle and driver slots from entity documents", () => {
     const checklist = ensureComplianceChecklist({
       documents: [tripDoc("lr")],
-      vehicleDocuments: [entityDoc({ doc_type: "rc", entity_id: "v1", entity_type: "vehicle", status: "verified" })],
+      vehicleDocuments: [
+        entityDoc({ doc_type: "rc", entity_id: "v1", entity_type: "vehicle", status: "verified", expiry_date: null }),
+      ],
       driverDocuments: [entityDoc({ doc_type: "license", entity_id: "d1", entity_type: "driver", status: "active" })],
     });
     expect(checklist.groups[0].verified).toBe(1);
@@ -155,6 +201,6 @@ describe("ensureComplianceChecklist", () => {
     const checklist = ensureComplianceChecklist(undefined);
     expect(checklist.tone).toBe("danger");
     expect(checklist.groups).toHaveLength(3);
-    expect(checklist.total).toBe(11);
+    expect(checklist.total).toBe(7);
   });
 });

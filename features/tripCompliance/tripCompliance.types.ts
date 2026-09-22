@@ -167,17 +167,42 @@ export const COMPLIANCE_TRIP_OTHER_DOCUMENT_TYPES: readonly string[] = [
 ];
 
 /** Vehicle checklist — RC, insurance, FC, permit, pollution, tax. */
-export const COMPLIANCE_VEHICLE_DOCUMENT_TYPES: readonly string[] = [
+export const REQUIRED_VEHICLE_DOCUMENT_TYPES: readonly string[] = [
   "rc",
   "insurance",
   "fitness",
+];
+
+export const OPTIONAL_VEHICLE_DOCUMENT_TYPES: readonly string[] = [
   "permit",
   "pollution",
   "road_tax",
 ];
 
-/** Driver checklist — licence and Aadhaar only. */
-export const COMPLIANCE_DRIVER_DOCUMENT_TYPES: readonly string[] = [
-  "license",
-  "aadhaar",
+export const COMPLIANCE_VEHICLE_DOCUMENT_TYPES: readonly string[] = [
+  ...REQUIRED_VEHICLE_DOCUMENT_TYPES,
+  ...OPTIONAL_VEHICLE_DOCUMENT_TYPES,
 ];
+
+/** Driver checklist — licence mandatory; Aadhaar optional. */
+export const REQUIRED_DRIVER_DOCUMENT_TYPES: readonly string[] = ["license"];
+
+export const OPTIONAL_DRIVER_DOCUMENT_TYPES: readonly string[] = ["aadhaar"];
+
+export const COMPLIANCE_DRIVER_DOCUMENT_TYPES: readonly string[] = [
+  ...REQUIRED_DRIVER_DOCUMENT_TYPES,
+  ...OPTIONAL_DRIVER_DOCUMENT_TYPES,
+];
+
+/** Insurance, FC, and DL require an expiry date; RC does not. */
+export function documentRequiresExpiry(docType: string): boolean {
+  return docType === "insurance" || docType === "fitness" || docType === "license";
+}
+
+export function isRequiredVehicleDocumentType(docType: string): boolean {
+  return (REQUIRED_VEHICLE_DOCUMENT_TYPES as readonly string[]).includes(docType);
+}
+
+export function isRequiredDriverDocumentType(docType: string): boolean {
+  return (REQUIRED_DRIVER_DOCUMENT_TYPES as readonly string[]).includes(docType);
+}

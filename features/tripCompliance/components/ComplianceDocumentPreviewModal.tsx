@@ -13,11 +13,12 @@ import {
   type ComplianceDocumentActivityEntry,
 } from "@/features/tripCompliance/utils/complianceDocumentActivity.util";
 import type { StopProofDocumentSummary } from "@/features/driver/job-card/deliveryProof";
-import { X } from "lucide-react-native";
-import React from "react";
+import { Download, X } from "lucide-react-native";
+import React, { useCallback } from "react";
 import {
   ActivityIndicator,
   Image,
+  Linking,
   Modal,
   Pressable,
   StyleSheet,
@@ -59,6 +60,11 @@ export function ComplianceDocumentPreviewModal({
   const log = activity ?? [];
   const details = actorDetails ?? {};
 
+  const handleDownload = useCallback(() => {
+    if (!url) return;
+    void Linking.openURL(url);
+  }, [url]);
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable
@@ -77,6 +83,17 @@ export function ComplianceDocumentPreviewModal({
                 </Text>
               ) : null}
             </View>
+            {url ? (
+              <TouchableOpacity
+                onPress={handleDownload}
+                style={styles.closeBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Download document"
+              >
+                <Download size={16} color={Theme.textPrimary} strokeWidth={2.2} />
+                <Text style={styles.closeText}>Download</Text>
+              </TouchableOpacity>
+            ) : null}
             <TouchableOpacity
               onPress={onClose}
               style={styles.closeBtn}

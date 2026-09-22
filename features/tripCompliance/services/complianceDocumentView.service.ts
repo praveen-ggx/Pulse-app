@@ -2,6 +2,11 @@
  * Resolve a Compliance checklist file to a viewable HTTPS URL.
  * Driver-app pattern: sign the stored object path once on its source bucket.
  * Do not probe extra vault extensions or download blobs (that fans out Storage/RLS).
+ *
+ * Vehicle RC/insurance/FC may live in `vehicle-documents` (vault) or
+ * `compliance-documents` (entity_documents fallback). Cross-org vault paths
+ * often cannot be signed by the trip org — rewrite under the viewer org and
+ * look up entity_documents when the primary sign fails.
  */
 import { getComplianceDocumentSignedUrl } from "@/features/compliance/services/documents.service";
 import { tryGetDocumentViewUrl } from "@/features/trips/services/tripDocuments.service";
@@ -19,11 +24,40 @@ import {
 
 export type ComplianceViewSource = "vehicle-vault" | "driver-kyc" | "entity" | "trip" | null | undefined;
 
+function rewriteStoragePathOrg(path: string, organizationId: string): string | null {
+  const parts = path.split("/").filter(Boolean);
+  if (parts.length < 2) return null;
+  if (parts[0] === organizationId) return null;
+  return [organizationId, ...parts.slice(1)].join("/");
+}
+
+async function lookupEntityDocumentStoragePath(input: {
+  organizationId: string;
+  entityId: string;
+  docType: string;
+}): Promise<string | null> {
+  const { data, error } = await supabase()
+    .from("entity_documents")
+    .select("storage_path")
+    .eq("organization_id", input.organizationId)
+    .eq("entity_type", "vehicle")
+    .eq("entity_id", input.entityId)
+    .eq("doc_type", input.docType)
+    .neq("status", "replaced")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data?.storage_path) return null;
+  return String(data.storage_path).trim() || null;
+}
+
 export async function signCompliancePreviewUrl(input: {
   storagePath: string | null | undefined;
   source?: ComplianceViewSource;
   sourceEntityDocumentId?: string | null;
   organizationId?: string | null;
+  entityId?: string | null;
+  docType?: string | null;
 }): Promise<string | null> {
   const raw = (input.storagePath ?? "").trim();
   if (input.sourceEntityDocumentId || isVehicleDocumentReferencePath(raw)) {
@@ -39,17 +73,47 @@ export async function signCompliancePreviewUrl(input: {
   const path = parsed.value.trim();
   if (!path) return null;
   const source = input.source ?? "trip";
+  const orgId = (input.organizationId ?? "").trim();
+
   try {
-    if (source === "vehicle-vault") return await getVehicleDocumentViewUrl(path);
+    if (source === "vehicle-vault") {
+      const candidates = [path];
+      if (orgId) {
+        const rewritten = rewriteStoragePathOrg(path, orgId);
+        if (rewritten) candidates.push(rewritten);
+      }
+      for (const candidate of candidates) {
+        const url = await getVehicleDocumentViewUrl(candidate);
+        if (url) return url;
+      }
+      if (orgId && input.entityId && input.docType) {
+        const entityPath = await lookupEntityDocumentStoragePath({
+          organizationId: orgId,
+          entityId: input.entityId,
+          docType: input.docType,
+        });
+        if (entityPath) {
+          const { url } = await getComplianceDocumentSignedUrl(entityPath);
+          if (url) return url;
+          const viaVehicleHelper = await getVehicleDocumentViewUrl(entityPath);
+          if (viaVehicleHelper) return viaVehicleHelper;
+        }
+      }
+      return null;
+    }
     if (source === "entity") {
       const { url } = await getComplianceDocumentSignedUrl(path);
-      return url;
+      if (url) return url;
+      return await getVehicleDocumentViewUrl(path);
     }
     if (source === "driver-kyc") {
       const { data } = await supabase().storage.from("driver-documents").createSignedUrl(path, 3600);
       return data?.signedUrl ?? null;
     }
-    return await tryGetDocumentViewUrl(path);
+    const tripUrl = await tryGetDocumentViewUrl(path);
+    if (tripUrl) return tripUrl;
+    // Last resort: path may actually be a vehicle/compliance object.
+    return await getVehicleDocumentViewUrl(path);
   } catch {
     return null;
   }

@@ -13,7 +13,7 @@ import {
   verifyDocument,
 } from "@/features/compliance/services/documents.service";
 import { getVehicleById } from "@/features/vehicles/services/vehicles.service";
-import { uploadAndSaveVehicleDocument } from "@/features/vehicles/services/vehicleDocuments.service";
+import { uploadAndSaveVehicleDocument, resolveVehicleDocumentsWriteTarget } from "@/features/vehicles/services/vehicleDocuments.service";
 import type { VehicleComplianceDocType } from "@/features/vehicles/utils/vehicleDocuments.util";
 import { describeStopProofDocument, type StopProofDocumentSummary } from "@/features/driver/job-card/deliveryProof";
 import { ComplianceDocumentPreviewModal } from "@/features/tripCompliance/components/ComplianceDocumentPreviewModal";
@@ -39,6 +39,7 @@ import { canApproveComplianceWithException, canMarkComplianceVerified } from "@/
 import {
   COMPLIANCE_DRIVER_DOCUMENT_TYPES,
   COMPLIANCE_VEHICLE_DOCUMENT_TYPES,
+  documentRequiresExpiry,
   type ComplianceChecklistGroup,
   type ComplianceDocumentRow,
   type ComplianceEntityDocument,
@@ -183,6 +184,10 @@ export function ComplianceDocumentReviewSheet({
   const [uploadingMissing, setUploadingMissing] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [retryType, setRetryType] = useState<string | null>(null);
+  const [expiryPrompt, setExpiryPrompt] = useState<{
+    docType: string;
+    resolve: (value: string | null) => void;
+  } | null>(null);
   const [markingVerified, setMarkingVerified] = useState(false);
   const [markVerifiedError, setMarkVerifiedError] = useState<string | null>(null);
   const [exceptionPanelOpen, setExceptionPanelOpen] = useState(false);
@@ -302,6 +307,8 @@ export function ComplianceDocumentReviewSheet({
             source: scope === "trip" ? "trip" : row.entityDoc?.source,
             sourceEntityDocumentId: row.doc?.source_entity_document_id,
             organizationId,
+            entityId: row.entityDoc?.entity_id ?? entityId,
+            docType: row.type,
           }),
           resolveComplianceActorDetails(activity.map((entry) => entry.actorId), organizationId),
         ]);
@@ -328,7 +335,7 @@ export function ComplianceDocumentReviewSheet({
         setViewingKey(null);
       }
     },
-    [scope, stopProofForRow, canViewDocuments, organizationId],
+    [scope, stopProofForRow, canViewDocuments, organizationId, entityId],
   );
 
   const selectedStopProof = stopProofForRow(selected);
@@ -460,6 +467,29 @@ export function ComplianceDocumentReviewSheet({
     onChanged();
   }, [exceptionComment, tripId, onChanged]);
 
+  const promptExpiryDate = useCallback((docType: string) => {
+    return new Promise<string | null>((resolve) => {
+      setExpiryPrompt({ docType, resolve });
+    });
+  }, []);
+
+  const resolveExpiryForUpload = useCallback(
+    async (type: string): Promise<string | null> => {
+      const existing = rows.find((row) => row.type === type)?.entityDoc?.expiry_date?.trim() ?? "";
+      if (!documentRequiresExpiry(type)) return existing;
+      if (existing && /^\d{4}-\d{2}-\d{2}$/.test(existing)) return existing;
+      const entered = await promptExpiryDate(type);
+      if (!entered) return null;
+      const trimmed = entered.trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+        alertMessage("Invalid expiry date", "Use YYYY-MM-DD (for example 2027-03-15).");
+        return null;
+      }
+      return trimmed;
+    },
+    [promptExpiryDate, rows],
+  );
+
   const handleAddMissing = useCallback(
     async (type: string) => {
       if (!actorId) return;
@@ -494,6 +524,13 @@ export function ComplianceDocumentReviewSheet({
           byteLength: arrayBuffer.byteLength,
         });
         if (!format.ok) throw new Error(format.reason);
+
+        let expiryDate: string | null = null;
+        if (scope === "vehicle" || scope === "driver") {
+          expiryDate = await resolveExpiryForUpload(type);
+          if (documentRequiresExpiry(type) && !expiryDate) return;
+        }
+
         if (scope === "trip") {
           const { error } = await uploadTripDocument(
             tripId,
@@ -505,24 +542,72 @@ export function ComplianceDocumentReviewSheet({
           );
           if (error) throw error;
         } else if (scope === "vehicle" && VAULT_VEHICLE_TYPES.has(type) && vehicleId) {
-          const { vehicle, error: vehicleError } = await getVehicleById(organizationId, vehicleId);
-          if (vehicleError) throw vehicleError;
-          const expiry =
-            rows.find((row) => row.type === type)?.entityDoc?.expiry_date ??
-            new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-          const { error } = await uploadAndSaveVehicleDocument(
-            organizationId,
-            vehicleId,
-            type as VehicleComplianceDocType,
-            {
-              arrayBuffer,
-              fileName,
-              mimeType: format.mimeType,
-            },
-            expiry,
-            vehicle?.documents ?? null,
-          );
-          if (error) throw error;
+          // Prefer the vehicle vault (vehicles.documents) when this org owns the
+          // truck. Cross-org / RLS-blocked vault writes fall back to
+          // entity_documents so Compliance can still collect mandatory RC/FC/etc.
+          const owned = await getVehicleById(organizationId, vehicleId);
+          if (owned.error) throw owned.error;
+
+          let savedToVault = false;
+          if (owned.vehicle) {
+            const { error: vaultError } = await uploadAndSaveVehicleDocument(
+              organizationId,
+              vehicleId,
+              type as VehicleComplianceDocType,
+              {
+                arrayBuffer,
+                fileName,
+                mimeType: format.mimeType,
+              },
+              expiryDate ?? "",
+              owned.vehicle.documents ?? null,
+            );
+            savedToVault = !vaultError;
+          } else {
+            // Vehicle may live on a supplier-linked org — resolve owning org then retry vault write.
+            const resolved = await resolveVehicleDocumentsWriteTarget(vehicleId, [organizationId]);
+            if (resolved) {
+              const { error: vaultError } = await uploadAndSaveVehicleDocument(
+                resolved.orgId,
+                vehicleId,
+                type as VehicleComplianceDocType,
+                {
+                  arrayBuffer,
+                  fileName,
+                  mimeType: format.mimeType,
+                },
+                expiryDate ?? "",
+                resolved.documents,
+              );
+              savedToVault = !vaultError;
+            }
+          }
+
+          if (!savedToVault) {
+            const existing = rows.find((row) => row.type === type)?.entityDoc;
+            if (existing?.source === "driver-kyc") {
+              throw new Error("Replace this file from Trip Operations Asset Vault.");
+            }
+            const upload = {
+              orgId: organizationId,
+              entityType: "vehicle" as const,
+              entityId: vehicleId,
+              docType: type,
+              file: {
+                arrayBuffer,
+                mimeType: format.mimeType,
+                fileName,
+              },
+              uploadedBy: actorId,
+              expiryDate: expiryDate || null,
+            };
+            const canReplaceEntity =
+              Boolean(existing?.id) && (existing?.source === "entity" || !existing?.source);
+            const { error } = canReplaceEntity
+              ? await replaceComplianceDocument({ existingDocId: existing!.id, upload })
+              : await uploadComplianceDocument(upload);
+            if (error) throw error;
+          }
         } else {
           const existing = rows.find((row) => row.type === type)?.entityDoc;
           if (existing?.source === "vehicle-vault" || existing?.source === "driver-kyc") {
@@ -539,6 +624,7 @@ export function ComplianceDocumentReviewSheet({
               fileName,
             },
             uploadedBy: actorId,
+            expiryDate: expiryDate || null,
           };
           const { error } = existing?.id
             ? await replaceComplianceDocument({ existingDocId: existing.id, upload })
@@ -561,7 +647,20 @@ export function ComplianceDocumentReviewSheet({
         setUploadingMissing(false);
       }
     },
-    [tripId, actorId, onChanged, scope, entityAssigned, entityId, organizationId, rows, unassignedMessage, vehicleId, uploadingMissing],
+    [
+      tripId,
+      actorId,
+      onChanged,
+      scope,
+      entityAssigned,
+      entityId,
+      organizationId,
+      rows,
+      unassignedMessage,
+      vehicleId,
+      uploadingMissing,
+      resolveExpiryForUpload,
+    ],
   );
 
   const uploadedAt = selected?.doc?.uploaded_at ?? selected?.entityDoc?.created_at ?? null;
@@ -1091,6 +1190,27 @@ export function ComplianceDocumentReviewSheet({
           setRejectTarget(null);
         }}
         onSubmit={handleRejectSubmit}
+      />
+      <ComplianceInputModal
+        visible={expiryPrompt != null}
+        title={`Expiry date — ${expiryPrompt ? labelForDocType(expiryPrompt.docType) : "Document"}`}
+        fields={[
+          {
+            key: "expiry",
+            label: "Expiry date (YYYY-MM-DD)",
+            placeholder: "2027-03-15",
+            required: true,
+          },
+        ]}
+        confirmLabel="Continue"
+        onCancel={() => {
+          expiryPrompt?.resolve(null);
+          setExpiryPrompt(null);
+        }}
+        onSubmit={(values) => {
+          expiryPrompt?.resolve(values.expiry ?? null);
+          setExpiryPrompt(null);
+        }}
       />
       <ComplianceDocumentPreviewModal
         visible={lightbox != null}

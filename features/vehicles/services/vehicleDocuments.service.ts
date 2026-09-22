@@ -44,6 +44,48 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Resolve the org that owns `vehicles.documents` for this vehicle.
+ * Trip detail often passes the trip/viewer org, while the truck may live on a
+ * supplier-linked org — using the wrong orgId makes UPDATE match 0 rows.
+ */
+export async function resolveVehicleDocumentsWriteTarget(
+  vehicleId: string,
+  preferredOrgIds: Array<string | null | undefined> = [],
+): Promise<{ orgId: string; documents: VehicleDocuments | null } | null> {
+  const tried = new Set<string>();
+  for (const candidate of preferredOrgIds) {
+    const orgId = (candidate ?? "").trim();
+    if (!orgId || tried.has(orgId)) continue;
+    tried.add(orgId);
+    const { data, error } = await supabase()
+      .from("vehicles")
+      .select("organization_id, documents")
+      .eq("id", vehicleId)
+      .eq("organization_id", orgId)
+      .maybeSingle();
+    if (!error && data?.organization_id) {
+      return {
+        orgId: String(data.organization_id),
+        documents: (data.documents ?? null) as VehicleDocuments | null,
+      };
+    }
+  }
+
+  const { data } = await supabase()
+    .from("vehicles")
+    .select("organization_id, documents")
+    .eq("id", vehicleId)
+    .maybeSingle();
+  if (data?.organization_id) {
+    return {
+      orgId: String(data.organization_id),
+      documents: (data.documents ?? null) as VehicleDocuments | null,
+    };
+  }
+  return null;
+}
+
 function isTransientStorageError(message: string): boolean {
   const m = message.toLowerCase();
   return (
@@ -130,17 +172,96 @@ export function validateDocumentFile(file: { arrayBuffer: ArrayBuffer; mimeType:
 
 /**
  * Get a time-limited signed URL for viewing a vehicle document.
- * Cached for ~58 minutes; concurrent callers share one in-flight request.
+ * Vault files live in `vehicle-documents`; trip fallback uploads may live in
+ * `compliance-documents` (entity_documents path shape: org/vehicle|driver/... ).
  */
 export async function getVehicleDocumentViewUrl(storagePath: string): Promise<string | null> {
-  return vehicleDocSignedUrls.getUrl(storagePath);
+  const path = (storagePath ?? "").trim();
+  if (!path) return null;
+
+  const looksLikeComplianceEntityPath = /\/(vehicle|driver|trip)\//i.test(path);
+
+  if (looksLikeComplianceEntityPath) {
+    try {
+      const { getComplianceDocumentSignedUrl } = await import(
+        "@/features/compliance/services/documents.service"
+      );
+      const { url } = await getComplianceDocumentSignedUrl(path);
+      if (url) return url;
+    } catch {
+      /* try vehicle bucket below */
+    }
+  }
+
+  const fromVehicleBucket = await vehicleDocSignedUrls.getUrl(path);
+  if (fromVehicleBucket) return fromVehicleBucket;
+
+  try {
+    const { getComplianceDocumentSignedUrl } = await import(
+      "@/features/compliance/services/documents.service"
+    );
+    const { url } = await getComplianceDocumentSignedUrl(path);
+    return url;
+  } catch {
+    return null;
+  }
 }
 
-/** One storage round-trip for all uncached vehicle document paths. */
+/** Resolve preview URLs for many paths (vehicle vault and/or compliance). */
 export async function getVehicleDocumentViewUrls(
   storagePaths: string[],
 ): Promise<Record<string, string | null>> {
-  return vehicleDocSignedUrls.getUrls(storagePaths);
+  const unique = [...new Set(storagePaths.map((p) => (p ?? "").trim()).filter(Boolean))];
+  const byPath: Record<string, string | null> = {};
+  await Promise.all(
+    unique.map(async (path) => {
+      byPath[path] = await getVehicleDocumentViewUrl(path);
+    }),
+  );
+  const out: Record<string, string | null> = {};
+  for (const raw of storagePaths) {
+    const path = (raw ?? "").trim();
+    out[raw] = path ? byPath[path] ?? null : null;
+  }
+  return out;
+}
+
+/**
+ * Fill empty vault slots from viewer-org entity_documents (trip fallback uploads).
+ * Vault JSON wins when both exist for the same type.
+ */
+export async function mergeEntityDocumentsIntoVehicleVault(
+  vehicleId: string,
+  viewerOrgId: string,
+  base: VehicleDocuments | null,
+): Promise<VehicleDocuments | null> {
+  const { data, error } = await supabase()
+    .from("entity_documents")
+    .select("doc_type, storage_path, expiry_date, created_at, status")
+    .eq("organization_id", viewerOrgId)
+    .eq("entity_type", "vehicle")
+    .eq("entity_id", vehicleId)
+    .neq("status", "replaced")
+    .order("created_at", { ascending: false });
+  if (error || !data?.length) return base;
+
+  const merged: VehicleDocuments = { ...(base ?? {}) };
+  const filled = new Set<string>();
+  for (const row of data) {
+    const type = row.doc_type as VehicleComplianceDocType;
+    if (type !== "rc" && type !== "insurance" && type !== "fitness" && type !== "pollution") {
+      continue;
+    }
+    if (filled.has(type) || merged[type]?.url) continue;
+    if (!row.storage_path) continue;
+    filled.add(type);
+    merged[type] = {
+      url: row.storage_path,
+      expiryDate: row.expiry_date ?? "",
+      uploadedAt: row.created_at ?? undefined,
+    };
+  }
+  return filled.size > 0 ? merged : base;
 }
 
 function extraDocumentId(): string {
@@ -217,23 +338,32 @@ export async function uploadAndSaveVehicleDocument(
   expiryDate: string,
   existingDocuments: VehicleDocuments | null,
 ): Promise<{ documents: VehicleDocuments | null; error: Error | null }> {
-  // 1. Upload to storage
-  const { storagePath, error: uploadErr } = await uploadVehicleDocument(orgId, vehicleId, docType, file);
+  const resolved = await resolveVehicleDocumentsWriteTarget(vehicleId, [orgId]);
+  const owningOrgId = resolved?.orgId ?? orgId;
+  const baseDocuments = resolved?.documents ?? existingDocuments;
+
+  // 1. Upload to storage (path must use the vehicle's owning org folder)
+  const { storagePath, error: uploadErr } = await uploadVehicleDocument(
+    owningOrgId,
+    vehicleId,
+    docType,
+    file,
+  );
   if (uploadErr || !storagePath) return { documents: null, error: uploadErr ?? new Error('Upload failed') };
 
   // 2. Build updated JSONB
-  const updated: VehicleDocuments = { ...(existingDocuments ?? {}) };
+  const updated: VehicleDocuments = { ...(baseDocuments ?? {}) };
   updated[docType] = {
     url: storagePath,
     expiryDate,
     uploadedAt: new Date().toISOString(),
   };
 
-  // 3. Persist to vehicles.documents
+  // 3. Persist to vehicles.documents on the owning org row
   const { data: savedRow, error: dbError } = await supabase()
     .from('vehicles')
     .update({ documents: updated })
-    .eq('organization_id', orgId)
+    .eq('organization_id', owningOrgId)
     .eq('id', vehicleId)
     .select('id, documents')
     .maybeSingle();
@@ -245,13 +375,135 @@ export async function uploadAndSaveVehicleDocument(
       documents: null,
       error: new Error(
         dbError?.message ??
-          'Vehicle document metadata was not saved (row not found or insufficient permission).',
+          'Could not save this document to the vehicle vault. You may not have permission to update this vehicle, or the vehicle record was not found.',
       ),
     };
   }
 
   const persistedDocs = (savedRow.documents ?? {}) as VehicleDocuments;
   return { documents: persistedDocs, error: null };
+}
+
+/**
+ * Trip Manifest vault write for RC / insurance / FC / PUC.
+ * 1) Try the normal org-owned vault path.
+ * 2) If that fails (cross-org truck / RLS), upload under the viewer org's
+ *    storage folder and persist via save_vehicle_document_for_trip RPC.
+ */
+export async function uploadAndSaveVehicleDocumentForTrip(
+  viewerOrgId: string,
+  tripId: string,
+  vehicleId: string,
+  docType: VehicleComplianceDocType,
+  file: { arrayBuffer: ArrayBuffer; fileName: string; mimeType: string; blob?: Blob },
+  expiryDate: string,
+  existingDocuments: VehicleDocuments | null,
+  preferredOrgIds: Array<string | null | undefined> = [],
+): Promise<{ documents: VehicleDocuments | null; error: Error | null }> {
+  const preferred = [viewerOrgId, ...preferredOrgIds];
+  const resolved = await resolveVehicleDocumentsWriteTarget(vehicleId, preferred);
+  if (resolved) {
+    const owned = await uploadAndSaveVehicleDocument(
+      resolved.orgId,
+      vehicleId,
+      docType,
+      file,
+      expiryDate,
+      resolved.documents ?? existingDocuments,
+    );
+    if (!owned.error) return owned;
+  } else {
+    const owned = await uploadAndSaveVehicleDocument(
+      viewerOrgId,
+      vehicleId,
+      docType,
+      file,
+      expiryDate,
+      existingDocuments,
+    );
+    if (!owned.error) return owned;
+  }
+
+  // Cross-org fallback: storage under viewer org + SECURITY DEFINER metadata write.
+  const { storagePath, error: uploadErr } = await uploadVehicleDocument(
+    viewerOrgId,
+    vehicleId,
+    docType,
+    file,
+  );
+  if (uploadErr || !storagePath) {
+    return { documents: null, error: uploadErr ?? new Error("Upload failed") };
+  }
+
+  const { data, error: rpcError } = await supabase().rpc("save_vehicle_document_for_trip", {
+    p_trip_id: tripId,
+    p_vehicle_id: vehicleId,
+    p_viewer_org_id: viewerOrgId,
+    p_doc_type: docType,
+    p_storage_path: storagePath,
+    p_expiry_date: expiryDate || null,
+  });
+
+  if (rpcError) {
+    await deleteVehicleDocumentFile(storagePath).catch(() => {});
+    const msg = rpcError.message || "";
+    // Trip RPC may be missing on preprod (404 / PGRST202). Always try
+    // entity_documents under the viewer org so Save to vault still works.
+    try {
+      const { uploadComplianceDocument } = await import(
+        "@/features/compliance/services/documents.service"
+      );
+      const { data: authData } = await supabase().auth.getUser();
+      const actorId = authData.user?.id;
+      if (!actorId) {
+        return {
+          documents: null,
+          error: new Error("Could not save vehicle document. Sign in again and retry."),
+        };
+      }
+      const { document, error: entityError } = await uploadComplianceDocument({
+        orgId: viewerOrgId,
+        entityType: "vehicle",
+        entityId: vehicleId,
+        docType,
+        file: {
+          arrayBuffer: file.arrayBuffer,
+          mimeType: file.mimeType,
+          fileName: file.fileName,
+        },
+        uploadedBy: actorId,
+        expiryDate: expiryDate || null,
+      });
+      if (entityError || !document) {
+        return {
+          documents: null,
+          error:
+            entityError ??
+            new Error(msg || "Could not save vehicle document."),
+        };
+      }
+      const merged: VehicleDocuments = {
+        ...(existingDocuments ?? {}),
+        [docType]: {
+          url: document.storage_path,
+          expiryDate: document.expiry_date ?? "",
+          uploadedAt: document.created_at,
+        },
+      };
+      return { documents: merged, error: null };
+    } catch (fallbackErr) {
+      return {
+        documents: null,
+        error: new Error(
+          fallbackErr instanceof Error
+            ? fallbackErr.message
+            : msg || "Could not save vehicle document.",
+        ),
+      };
+    }
+  }
+
+  return { documents: (data ?? null) as VehicleDocuments | null, error: null };
 }
 
 /**
@@ -268,6 +520,10 @@ export async function uploadAndSaveVehicleExtraDocuments(
     return { documents: existingDocuments, error: new Error('No files selected') };
   }
 
+  const resolved = await resolveVehicleDocumentsWriteTarget(vehicleId, [orgId]);
+  const owningOrgId = resolved?.orgId ?? orgId;
+  const baseDocuments = resolved?.documents ?? existingDocuments;
+
   const uploaded: VehicleExtraDocument[] = [];
   for (const file of files) {
     const validationError = validateDocumentFile(file);
@@ -277,7 +533,7 @@ export async function uploadAndSaveVehicleExtraDocuments(
     }
     const extraId = extraDocumentId();
     const ext = file.fileName.split('.').pop()?.toLowerCase() || 'jpg';
-    const path = `${orgId}/${vehicleId}/extras/${extraId}.${ext}`;
+    const path = `${owningOrgId}/${vehicleId}/extras/${extraId}.${ext}`;
     const { error } = await runWithStorageRetry(
       () =>
         supabase()
@@ -304,14 +560,14 @@ export async function uploadAndSaveVehicleExtraDocuments(
   }
 
   const updated: VehicleDocuments = {
-    ...(existingDocuments ?? {}),
-    extras: [...(existingDocuments?.extras ?? []), ...uploaded],
+    ...(baseDocuments ?? {}),
+    extras: [...(baseDocuments?.extras ?? []), ...uploaded],
   };
 
   const { data: savedRow, error: dbError } = await supabase()
     .from('vehicles')
     .update({ documents: updated })
-    .eq('organization_id', orgId)
+    .eq('organization_id', owningOrgId)
     .eq('id', vehicleId)
     .select('id, documents')
     .maybeSingle();
@@ -322,7 +578,7 @@ export async function uploadAndSaveVehicleExtraDocuments(
       documents: null,
       error: new Error(
         dbError?.message ??
-          'Vehicle document metadata was not saved (row not found or insufficient permission).',
+          'Could not save this document to the vehicle vault. You may not have permission to update this vehicle, or the vehicle record was not found.',
       ),
     };
   }

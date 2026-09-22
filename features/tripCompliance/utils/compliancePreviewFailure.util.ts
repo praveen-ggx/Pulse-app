@@ -49,7 +49,8 @@ export function classifyPreviewFailure(input: {
   if (!input.url && !input.error) {
     return {
       kind: "signed_url_failed",
-      message: "Couldn't create a preview link for this file. Try again.",
+      message:
+        "Couldn't create a preview link for this file. The file may be missing from storage — try Replace to upload it again.",
     };
   }
 

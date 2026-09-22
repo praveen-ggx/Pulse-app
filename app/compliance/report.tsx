@@ -7,9 +7,12 @@ import React, { useCallback, useState } from "react";
 import { ActivityIndicator, Platform, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
+import { useRouter } from "expo-router";
+import { ChevronLeft } from "lucide-react-native";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { useLayoutInsets } from "@/lib/layoutInsets";
+import { ROUTES } from "@/lib/routes";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import { useComplianceProductEnabled } from "@/features/tripCompliance/hooks/useComplianceProductEnabled";
 import { useOptionalOrganization } from "@/contexts/OrganizationContext";
@@ -59,11 +62,20 @@ const PAYMENT_STATUS_OPTIONS: { id: ComplianceReportFilters["paymentStatus"]; la
 
 export default function ComplianceReportScreen() {
   const layout = useLayoutInsets();
+  const router = useRouter();
   const { can: canSurface, isLoading: accessLoading } = useMemberAccess();
   const canViewFinance = canSurface("trip_compliance.finance.view");
   const { enabled: complianceEnabled, isLoading: productsLoading } = useComplianceProductEnabled();
   const orgCtx = useOptionalOrganization();
   const orgId = orgCtx?.currentOrganization?.id ?? "";
+
+  const goBackToCompliance = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace(ROUTES.COMPLIANCE as Parameters<typeof router.replace>[0]);
+  }, [router]);
 
   const [stage, setStage] = useState<ComplianceReportFilters["stage"]>("all");
   const [paymentStatus, setPaymentStatus] = useState<ComplianceReportFilters["paymentStatus"]>("any");
@@ -124,6 +136,17 @@ export default function ComplianceReportScreen() {
         { paddingBottom: layout.scrollBottomPadding(24), paddingHorizontal: Layout.screenPaddingHorizontal },
       ]}
     >
+      <TouchableOpacity
+        onPress={goBackToCompliance}
+        style={styles.backBtn}
+        accessibilityRole="button"
+        accessibilityLabel="Back to Compliance Verification"
+        hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+      >
+        <ChevronLeft size={16} color={Theme.textMuted} strokeWidth={2.2} />
+        <Text style={styles.backText}>Back</Text>
+      </TouchableOpacity>
+
       <Text style={styles.title}>Compliance Report</Text>
 
       <Text style={styles.subheader}>Compliance stage</Text>
@@ -197,6 +220,14 @@ export default function ComplianceReportScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: Theme.compliancePageBg },
   content: { paddingTop: Layout.spacingMedium, gap: Layout.spacingLarge },
+  backBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    alignSelf: "flex-start",
+    minHeight: Layout.minTouchTargetSize,
+  },
+  backText: { fontSize: 13, fontWeight: "600", color: Theme.textMuted },
   title: { fontSize: 20, fontWeight: "800", color: Theme.textPrimaryDark, lineHeight: 24 },
   subheader: { fontSize: 12, fontWeight: "700", color: Theme.textMuted },
   chipScrollContent: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 2, paddingRight: 4 },

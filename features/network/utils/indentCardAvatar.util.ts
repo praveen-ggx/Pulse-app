@@ -89,7 +89,10 @@ function linkedOrgAvatarFields(
  * present on the row, else match CRM clients by name (case-insensitive).
  */
 export function resolveGiveLoadClient(
-  load: Pick<IndentRow, "client_id" | "client_name">,
+  // Widened from Pick<IndentRow, ...>: IndentRow types `client_name` as a plain
+  // string, but callers legitimately pass null (e.g. a synthetic client, or a
+  // trip with no client set). The body already normalizes null safely.
+  load: { client_id?: string | null; client_name?: string | null },
   clientById: Map<string, ClientRow>,
 ): ClientRow | undefined {
   const clientId = String(load.client_id ?? "").trim();

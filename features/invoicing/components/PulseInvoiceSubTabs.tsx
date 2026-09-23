@@ -9,7 +9,7 @@ import { usePathname, useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 const TABS = [
-  { key: "create", label: "Create Invoice", href: ROUTES.PULSE_INVOICE },
+  { key: "create", label: "Invoice", href: ROUTES.PULSE_INVOICE },
   { key: "pod", label: "POD", href: ROUTES.PULSE_INVOICE_POD },
 ] as const;
 
@@ -69,7 +69,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   label: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: "700",
     letterSpacing: 0.3,
     textTransform: "uppercase",

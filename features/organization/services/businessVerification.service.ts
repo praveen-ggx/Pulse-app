@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { moderatedFetch } from '@/lib/platform/moderator';
 import type { AddressProofType, RegistrationType } from '@/types/organization';
 
 const VERIFICATION_BUCKET = 'verification-documents';
@@ -58,7 +59,7 @@ export async function validateGstin(
 
   const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
   try {
-    const res = await fetch(`${supabaseUrl}/functions/v1/validate-gstin`, {
+    const res = await moderatedFetch(`${supabaseUrl}/functions/v1/validate-gstin`, {
       method:  'POST',
       headers: {
         'Content-Type':  'application/json',

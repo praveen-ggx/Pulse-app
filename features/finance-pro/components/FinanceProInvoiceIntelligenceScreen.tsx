@@ -23,9 +23,6 @@ export function FinanceProInvoiceIntelligenceScreen() {
     <FinanceProWorkspaceFrame title="Invoice intelligence" hideTitle>
       {(model) => {
         const ready = pipelineStageById(model.pipeline, "ready_to_invoice");
-        const readyTrips = model.tripFacts.filter(
-          (t) => t.completed && t.podReceived && !t.invoiced,
-        );
         const exposureByInvoice = (tripIds: string[]) =>
           tripIds.reduce((sum, id) => {
             const trip = model.tripFacts.find((t) => t.tripId === id);
@@ -68,12 +65,18 @@ export function FinanceProInvoiceIntelligenceScreen() {
               render: (r) => formatFinanceInr(r.documentAmount),
             },
             {
-              key: "t",
-              label: "Trips",
-              flex: 0.6,
-              minWidth: 64,
-              align: "right",
-              render: (r) => formatCount(r.tripIds.length),
+              key: "src",
+              label: "Source",
+              flex: 0.9,
+              minWidth: 96,
+              render: (r) => r.sourceLabel ?? "Trip",
+            },
+            {
+              key: "ref",
+              label: "Reference",
+              flex: 1,
+              minWidth: 110,
+              render: (r) => r.sourceReference ?? "—",
             },
             { key: "d", label: "Date", flex: 0.9, minWidth: 100, render: (r) => r.invoiceDate },
             { key: "s", label: "Status", flex: 0.8, minWidth: 88, render: (r) => r.status },
@@ -131,20 +134,25 @@ export function FinanceProInvoiceIntelligenceScreen() {
             </FinanceProKpiRow>
 
             <FinanceProDataTable
-              title="Ready trips"
-              kicker="Physical POD in, not on an issued invoice · issue in Pulse Invoice"
-              searchPlaceholder="Search ready trips…"
+              title="Create invoice"
+              kicker="Finance workspace: trips or Manual Invoice. Commerce Orders stay separate."
+              searchPlaceholder=""
               action={
-                <FinanceProQuietAction
-                  label="Open Pulse Invoice"
-                  onPress={() => router.push(FINANCE_PRO_LAUNCH.pulseInvoice(pathname))}
-                />
+                <>
+                  <FinanceProQuietAction
+                    label="Open Pulse Invoice"
+                    onPress={() => router.push(FINANCE_PRO_LAUNCH.pulseInvoice(pathname))}
+                  />
+                  <FinanceProQuietAction
+                    label="Create Manual Invoice"
+                    onPress={() => router.push(ROUTES.INVOICING_EXECUTE)}
+                  />
+                </>
               }
               columns={tripCols}
-              rows={readyTrips}
+              rows={[]}
               keyExtractor={(r) => r.tripId}
-              onRowPress={(row) => router.push(ROUTES.financeProTrip(row.tripId))}
-              empty="No trips currently ready to bill on physical POD."
+              empty="Open Finance Pro to invoice trips or create a Manual Invoice for the selected client."
             />
 
             <FinanceProDataTable

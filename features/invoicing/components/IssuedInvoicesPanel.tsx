@@ -6,20 +6,36 @@ import Layout from "@/constants/Layout";
 import { IssuedInvoiceCard } from "@/features/invoicing/components/IssuedInvoiceCard";
 import type { IssuedInvoiceListRow } from "@/features/invoicing/services/invoiceList.service";
 import { issuedInvoicesForPodToggle } from "@/features/invoicing/utils/invoicePodRequired.util";
-import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { issuedInvoicesForClient } from "@/features/invoicing/utils/issuedInvoiceMatch.util";
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 
 export function IssuedInvoicesPanel({
   invoices,
   podRequired,
   refreshing,
   onRefresh,
+  partnerClientId,
+  partnerLabel,
+  onSelect,
+  selectedId,
 }: {
   invoices: IssuedInvoiceListRow[];
   podRequired: boolean;
   refreshing?: boolean;
   onRefresh?: () => void;
+  partnerClientId?: string | null;
+  partnerLabel?: string | null;
+  onSelect?: (invoice: IssuedInvoiceListRow) => void;
+  selectedId?: string | null;
 }) {
-  const rows = issuedInvoicesForPodToggle(invoices, podRequired);
+  const visible = issuedInvoicesForPodToggle(invoices, podRequired);
+  const rows =
+    partnerClientId || partnerLabel
+      ? issuedInvoicesForClient(visible, {
+          clientId: partnerClientId,
+          clientName: partnerLabel,
+        })
+      : visible;
 
   return (
     <FlatList
@@ -44,7 +60,24 @@ export function IssuedInvoicesPanel({
           </Text>
         </View>
       }
-      renderItem={({ item }) => <IssuedInvoiceCard item={item} />}
+      renderItem={({ item }) =>
+        onSelect ? (
+          <Pressable
+            onPress={() => onSelect(item)}
+            accessibilityRole="button"
+            accessibilityLabel={`Invoice ${item.invoice_number}`}
+            accessibilityState={{ selected: selectedId === item.id }}
+          >
+            <IssuedInvoiceCard
+              item={item}
+              compact
+              selected={selectedId === item.id}
+            />
+          </Pressable>
+        ) : (
+          <IssuedInvoiceCard item={item} />
+        )
+      }
     />
   );
 }

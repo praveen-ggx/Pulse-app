@@ -819,7 +819,7 @@ describe('SignIn Component', () => {
   it('navigates to driver sign in when driver link is pressed', async () => {
     const { getByText } = await renderSignIn();
 
-    const driverLink = getByText('Sign in with your phone number');
+    const driverLink = getByText('Sign in as a driver');
     fireEvent.press(driverLink);
 
     await waitFor(() => {
@@ -827,18 +827,17 @@ describe('SignIn Component', () => {
     });
   });
 
-  it('navigates to the suite sign up href when the footer link is pressed', async () => {
+  it('navigates to the onboarding hub when the footer sign-up link is pressed', async () => {
+    // The footer link no longer routes through buildSuiteSignUpHref — sign-up
+    // now starts at the onboarding hub, which branches to business / driver /
+    // join-team. The label here comes from the mocked suiteSignInCopy above.
     const { getByText } = await renderSignIn();
 
     fireEvent.press(getByText('Sign Up'));
 
     await waitFor(() => {
-      expect(buildSuiteSignUpHref).toHaveBeenCalledWith({
-        productId: 'test-product',
-        returnTo: '/activate',
-      });
+      expect(mockRouterPush).toHaveBeenCalledWith('/onboarding');
     });
-    expect(mockRouterPush).toHaveBeenCalledWith('/sign-up?product=test-product');
   });
 
   it('navigates back to the onboarding hub when Back is pressed', async () => {

@@ -4,9 +4,10 @@ import {
   type HubGridPageSize,
 } from "@/components/hub/hubGridCardLayout";
 import {
+  Platform,
+  Pressable,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
 
@@ -56,14 +57,13 @@ export function HubListPaginationBar({
     <View style={styles.right}>
       <View style={styles.pageSizeWrap}>
         {HUB_GRID_PAGE_SIZE_OPTIONS.map((n) => (
-          <TouchableOpacity
+          <Pressable
             key={n}
             style={[
               styles.pageSizePill,
               pageSize === n && styles.pageSizePillActive,
             ]}
             onPress={() => onPageSizeChange(n)}
-            activeOpacity={0.85}
             accessibilityRole="button"
             accessibilityState={{ selected: pageSize === n }}
           >
@@ -75,25 +75,29 @@ export function HubListPaginationBar({
             >
               {n}
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         ))}
       </View>
-      <TouchableOpacity
+      <Pressable
         style={[styles.navBtn, atFirst && styles.navBtnDisabled]}
         onPress={onPrev}
         disabled={atFirst}
-        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel="Previous page"
+        accessibilityState={{ disabled: atFirst }}
       >
         <Text style={styles.navText}>Prev</Text>
-      </TouchableOpacity>
-      <TouchableOpacity
+      </Pressable>
+      <Pressable
         style={[styles.navBtn, atLast && styles.navBtnDisabled]}
         onPress={onNext}
         disabled={atLast}
-        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel="Next page"
+        accessibilityState={{ disabled: atLast }}
       >
         <Text style={styles.navText}>Next</Text>
-      </TouchableOpacity>
+      </Pressable>
     </View>
   );
 
@@ -134,9 +138,9 @@ const styles = StyleSheet.create({
   controlsOnlyRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-start",
     gap: 6,
-    width: "100%",
+    flexShrink: 0,
   },
   meta: {
     fontSize: 9,
@@ -165,11 +169,15 @@ const styles = StyleSheet.create({
   },
   pageSizePill: {
     minWidth: 34,
+    minHeight: 28,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
+    ...Platform.select({
+      web: { cursor: "pointer" } as object,
+    }),
   },
   pageSizePillActive: {
     backgroundColor: Theme.darkBackground,
@@ -188,8 +196,13 @@ const styles = StyleSheet.create({
     borderColor: Theme.borderLight,
     backgroundColor: Theme.screenBackground,
     borderRadius: 8,
+    minHeight: 28,
     paddingHorizontal: 10,
     paddingVertical: 5,
+    justifyContent: "center",
+    ...Platform.select({
+      web: { cursor: "pointer" } as object,
+    }),
   },
   navBtnDisabled: {
     opacity: 0.4,

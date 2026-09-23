@@ -120,9 +120,15 @@ import {
     forceSetTripStatusSimulated,
     getTripDisplayNumber,
     isTripCompleted,
+    simulateBusinessTripStage,
     updateTripStatus,
     type TripRow,
 } from "../../services/trips.service";
+import {
+    appendBisimNote,
+    lastBisimCoordinate,
+    resolveSimulateStageCoordinate,
+} from "../../utils/simulateTripStage.util";
 import { AggregateTripOtpPanel } from "../AggregateTripOtpPanel";
 import { TripAssignmentBlock } from "../TripAssignmentBlock";
 import { ReassignSheet } from "../reassign/ReassignSheet";
@@ -970,6 +976,7 @@ export default function TripDetailScreen({
   const [simulating, setSimulating] = useState(false);
   const [revokingSimulation, setRevokingSimulation] = useState(false);
   const [simError, setSimError] = useState<string | null>(null);
+  const simulateAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setMapRouteDistanceKm(null);
@@ -2594,6 +2601,7 @@ export default function TripDetailScreen({
     currentPosition: trackingState?.currentPosition ?? null,
     driverLocation: detail.driverLocation ?? null,
     trail: mapDbLocationTrail,
+    simulatedLocation: lastBisimCoordinate(simLogEntries),
   });
   const mapTruckStatus =
     detail.tripCompleted || !mapTruckLocation
@@ -2646,51 +2654,55 @@ export default function TripDetailScreen({
     if (!canTripSimulate) return null;
     const s = String(trip.status ?? "").toLowerCase();
     const loc = detail.driverLocation;
-    const driverLat = loc?.latitude ?? null;
-    const driverLng = loc?.longitude ?? null;
-    const driverLocLabel = detail.driverLocationAddress?.trim() || null;
+    const live = {
+      lat: loc?.latitude ?? null,
+      lng: loc?.longitude ?? null,
+    };
+    const pinFor = (targetStatus: string) => {
+      const pin = resolveSimulateStageCoordinate(trip, targetStatus, live);
+      const usedLive = live.lat != null && live.lng != null;
+      return {
+        driverLat: pin.lat,
+        driverLng: pin.lng,
+        driverLocLabel: usedLive
+          ? detail.driverLocationAddress?.trim() || null
+          : targetStatus === "at_drop" || targetStatus === "completed"
+            ? (trip.drop_location ?? trip.drop_area ?? "").trim() || "Drop-off"
+            : (trip.pickup_area ?? "").trim() || "Pickup",
+      };
+    };
     const now = new Date().toISOString();
     if (s === "pending_acceptance")
       return {
         label: "Driver accepts assignment",
         targetStatus: "assigned",
-        driverLat,
-        driverLng,
-        driverLocLabel,
+        ...pinFor("assigned"),
       };
     if (["draft", "assigned"].includes(s))
       return {
         label: "Driver arrived at pickup",
         targetStatus: "in_progress",
         started_at: now,
-        driverLat,
-        driverLng,
-        driverLocLabel,
+        ...pinFor("in_progress"),
       };
     if (["in_progress", "picked_up"].includes(s))
       return {
         label: "Package collected — in transit",
         targetStatus: "in_transit",
-        driverLat,
-        driverLng,
-        driverLocLabel,
+        ...pinFor("in_transit"),
       };
     if (s === "in_transit")
       return {
         label: "Driver arrived at drop-off",
         targetStatus: "at_drop",
-        driverLat,
-        driverLng,
-        driverLocLabel,
+        ...pinFor("at_drop"),
       };
     if (s === "at_drop")
       return {
         label: "Trip delivered & completed",
         targetStatus: "completed",
         completed_at: now,
-        driverLat,
-        driverLng,
-        driverLocLabel,
+        ...pinFor("completed"),
       };
     return null;
   })();
@@ -2732,68 +2744,52 @@ export default function TripDetailScreen({
     currentTripStatusLower === lastSimulatedTransition.toStatus &&
     !!lastSimulatedTransition.fromStatus;
 
-  // Execute simulation: advance status + append log marker to notes
+  // Execute simulation: one timed status+notes write (no extra preflight SELECTs).
   const handleConfirmSimulate = async () => {
     if (!simConfirmStep || !canTripSimulate) return;
+    simulateAbortRef.current?.abort();
+    const abort = new AbortController();
+    simulateAbortRef.current = abort;
     setSimulating(true);
     setSimError(null);
     try {
-      const updateData: {
-        status: string;
-        started_at?: string;
-        completed_at?: string;
-        status_change_origin?: string;
-      } = {
-        status: simConfirmStep.targetStatus,
-        status_change_origin: "business_simulated",
-      };
-      if (simConfirmStep.started_at)
-        updateData.started_at = simConfirmStep.started_at;
-      if (simConfirmStep.completed_at)
-        updateData.completed_at = simConfirmStep.completed_at;
-
-      const { error } = await updateTripStatus(trip.id, updateData);
+      const pin = resolveSimulateStageCoordinate(trip, simConfirmStep.targetStatus, {
+        lat: simConfirmStep.driverLat,
+        lng: simConfirmStep.driverLng,
+      });
+      const userName = detail.profile?.full_name?.trim() || "Business";
+      const notes = appendBisimNote({
+        existingNotes: trip.notes,
+        targetStatus: simConfirmStep.targetStatus,
+        fromStatus: String(trip.status ?? "").trim().toLowerCase(),
+        userName,
+        lat: pin.lat,
+        lng: pin.lng,
+      });
+      const { error, cancelled } = await simulateBusinessTripStage({
+        tripId: trip.id,
+        targetStatus: simConfirmStep.targetStatus,
+        fromStatus: String(trip.status ?? "").trim().toLowerCase(),
+        notes,
+        startedAt: simConfirmStep.started_at,
+        completedAt: simConfirmStep.completed_at,
+        signal: abort.signal,
+      });
+      if (cancelled || abort.signal.aborted) return;
       if (error) {
-        // Simulation fallback: allow final completion even when strict business validation
-        // (e.g. supplier-link checks) blocks status transition in normal flows.
-        if (simConfirmStep.targetStatus === "completed") {
-          const { error: fallbackError } = await forceSetTripStatusSimulated(trip.id, {
-            status: "completed",
-            completedAt: simConfirmStep.completed_at ?? new Date().toISOString(),
-            startedAt: simConfirmStep.started_at || undefined,
-            statusChangeOrigin: "business_simulated",
-          });
-          if (fallbackError) {
-            setSimError(fallbackError.message);
-            setSimulating(false);
-            return;
-          }
-        } else {
-          setSimError(error.message);
-          setSimulating(false);
-          return;
-        }
+        setSimError(error.message);
+        return;
       }
 
-      // DB trigger posts Trip System lines to `trip_messages`; refetch in-app trip chat
-      // (realtime may be unavailable). Same pattern as ledger → chat bridge.
       notifyTripChatMessagesChanged();
-
-      const userName = detail.profile?.full_name?.trim() || "Business";
-      const simEntry = `[BISIM|${simConfirmStep.targetStatus}|${new Date().toISOString()}|${simConfirmStep.driverLat ?? ""}|${simConfirmStep.driverLng ?? ""}|${userName}|${String(trip.status ?? "").trim().toLowerCase()}]`;
-      const existingNotes = trip.notes?.trim() || "";
-      await supabase()
-        .from("trips")
-        .update({
-          notes: existingNotes ? `${existingNotes}\n${simEntry}` : simEntry,
-        })
-        .eq("id", trip.id);
-
+      detail.clearWaitingForNewDriverLocation();
       setSimConfirmStep(null);
       detail.handleRefresh();
     } catch (e: unknown) {
+      if (abort.signal.aborted) return;
       setSimError(e instanceof Error ? e.message : "Simulation failed");
     } finally {
+      if (simulateAbortRef.current === abort) simulateAbortRef.current = null;
       setSimulating(false);
     }
   };
@@ -4666,8 +4662,11 @@ export default function TripDetailScreen({
                               <TouchableOpacity
                                 style={neoStyles.simModalCancel}
                                 onPress={() => {
+                                  simulateAbortRef.current?.abort();
+                                  simulateAbortRef.current = null;
                                   setSimConfirmStep(null);
                                   setSimError(null);
+                                  setSimulating(false);
                                 }}
                                 activeOpacity={0.8}
                               >

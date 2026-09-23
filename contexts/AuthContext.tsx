@@ -310,7 +310,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     signOutRequestedRef.current = true;
     try {
-      await withTimeout(authService.signOut(), AUTH_TIMEOUT_MS);
+      await withTimeout(() => authService.signOut(), AUTH_TIMEOUT_MS);
     } catch (e) {
       // Local state is cleared below regardless, so a remote-revoke timeout is
       // not an error — same rationale as signOut().
@@ -343,7 +343,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
 
         try {
-          return await withTimeout(loadVerifiedProfile(), PROFILE_VERIFY_TIMEOUT_MS);
+          return await withTimeout(() => loadVerifiedProfile(), PROFILE_VERIFY_TIMEOUT_MS);
         } catch (e) {
           // A timeout whose underlying fetch failed with PGRST002/PGRST003/5xx
           // means the API layer is down. Re-running the same load immediately
@@ -357,7 +357,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
           if (isTimeoutError(e)) {
             try {
-              return await withTimeout(loadVerifiedProfile(), PROFILE_VERIFY_TIMEOUT_MS);
+              return await withTimeout(() => loadVerifiedProfile(), PROFILE_VERIFY_TIMEOUT_MS);
             } catch (retryErr) {
               if (isTimeoutError(retryErr)) {
                 logAuth("profile_verification_timeout", { uid, retried: true });
@@ -496,7 +496,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const session = await withTimeout(authService.getSession(), AUTH_TIMEOUT_MS).catch(() => null);
+        const session = await withTimeout(() => authService.getSession(), AUTH_TIMEOUT_MS).catch(() => null);
         if (!mounted || !isCurrentAuthAttempt(initAttemptId)) return;
         if (session) {
           // On web there is no AppState "background" event, so the keep-signed-in
@@ -537,7 +537,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 if (!tokenFresh) {
                   try {
                     const refreshed = await withTimeout(
-                      authService.refreshSession(),
+                      () => authService.refreshSession(),
                       AUTH_RESTORE_REFRESH_TIMEOUT_MS,
                     );
                     if (!mounted || !isCurrentAuthAttempt(initAttemptId)) return;
@@ -675,7 +675,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Only force sign-out here when the local session token is also gone, meaning
       // the app already has no credentials to restore on reload.
       try {
-        const stored = await withTimeout(authService.getSession(), AUTH_TIMEOUT_MS).catch(() => null);
+        const stored = await withTimeout(() => authService.getSession(), AUTH_TIMEOUT_MS).catch(() => null);
         if (stored) {
           logAuth("zombie_recovery_deferred_session_present", { uid: user.uid });
           return;
@@ -711,7 +711,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       resetCircuitBreaker();
       await setKeepSignedIn(keepSignedIn);
       if (!isCurrentAuthAttempt(signInAttemptId)) return { error: null };
-      await refreshSessionInternal();
+      // SIGNED_IN already hydrates profile. Extra getUser + profiles.select here
+      // stacked on password grant during the 2026-09-22 unhealthy cascade.
     }
     return wrapActionResult(result);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -726,7 +727,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       resetCircuitBreaker();
       await setKeepSignedIn(keepSignedIn);
       if (!isCurrentAuthAttempt(signInAttemptId)) return { error: null };
-      await refreshSessionInternal();
     }
     return { ...wrapActionResult(result), metadataStatus: result.metadataStatus };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -750,7 +750,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const refreshAttemptId = beginAuthAttempt();
     try {
       const session = await withTimeout(
-        authService.refreshSession(),
+        () => authService.refreshSession(),
         AUTH_RESTORE_REFRESH_TIMEOUT_MS,
       );
       if (!isCurrentAuthAttempt(refreshAttemptId)) return;
@@ -833,7 +833,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signOutRequestedRef.current = true;
     clearAllRealtimeChannels();
     try {
-      await withTimeout(authService.signOut(), AUTH_TIMEOUT_MS);
+      await withTimeout(() => authService.signOut(), AUTH_TIMEOUT_MS);
     } catch (e) {
       // Local state is cleared below either way, so the user is signed out even
       // when the remote revoke times out on a flaky network. Warn, don't error.

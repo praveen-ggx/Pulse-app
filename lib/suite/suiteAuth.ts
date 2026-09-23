@@ -19,6 +19,7 @@ import {
   resolveSuiteProduct,
   type SuiteProductId,
 } from './suiteProducts';
+import { isLockedProductPath, isSuiteProductLocked } from './productLock';
 
 export type { SuiteNavigationIntent };
 export {
@@ -57,7 +58,9 @@ export function parseReturnTo(raw: string | string[] | undefined): string | null
 }
 
 export function resolveSuiteAuthContext(query: SuiteAuthQuery) {
-  const productId = parseSuiteProductId(query.product);
+  const parsed = parseSuiteProductId(query.product);
+  const productId =
+    parsed && isSuiteProductLocked(parsed) ? null : parsed;
   const product = resolveSuiteProduct(productId);
   const explicitReturnTo = parseReturnTo(query.returnTo);
   const defaultReturnTo =
@@ -150,6 +153,16 @@ type RouterReplace = (href: string) => void;
  */
 export function navigateAfterSuiteAuth(returnTo: string, routerReplace?: RouterReplace): void {
   const target = normalizeSuiteReturnTo(returnTo);
+  if (isLockedProductPath(target)) {
+    if (routerReplace) {
+      routerReplace('/trips');
+      return;
+    }
+    if (typeof window !== 'undefined') {
+      window.location.assign('/trips');
+    }
+    return;
+  }
   if (typeof window !== 'undefined' && isSuiteExternalAppPath(target)) {
     openSuiteProductApp(target);
     return;

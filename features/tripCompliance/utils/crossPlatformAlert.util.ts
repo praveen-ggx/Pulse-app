@@ -12,7 +12,7 @@ import { Alert, Platform } from "react-native";
 
 export function alertMessage(title: string, message: string): void {
   if (Platform.OS === "web") {
-    // eslint-disable-next-line no-alert
+     
     window.alert(`${title}\n\n${message}`);
     return;
   }
@@ -25,7 +25,7 @@ export async function confirmAction(
   confirmLabel: string,
 ): Promise<boolean> {
   if (Platform.OS === "web") {
-    // eslint-disable-next-line no-alert
+     
     return window.confirm(`${title}\n\n${message}`);
   }
   return new Promise((resolve) => {

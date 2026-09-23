@@ -646,7 +646,6 @@ export default function DriverSignUpScreen() {
               'Your account is created, but one or more documents could not be uploaded. You can re-upload them from profile documents.',
           );
         }
-        await supabase().auth.refreshSession();
       }
 
       // Show success only once the profile photo/documents are actually

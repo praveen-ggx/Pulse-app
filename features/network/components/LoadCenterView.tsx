@@ -124,7 +124,20 @@ import { formatINR } from "@/lib/format";
 import { ROUTES } from "@/lib/routes";
 import { resolveLoadCenterPromoVariant } from "@/lib/loadCenterPromoAssets";
 import { useAppQueryGate } from "@/lib/hooks/useAppQueryGate";
-import { listOpenMarketplaceLoadsForOrg } from "@/features/network/services/findLoadsForOrg.service";
+import {
+  APP_QUERY_GATE_UI_MAX_WAIT_MS,
+  isEnabledListQueryPending,
+} from "@/lib/hooks/appQueryGate.util";
+import {
+    listOpenMarketplaceLoadsPage,
+    type OrgOpenMarketplaceLoad,
+} from "@/features/network/services/findLoadsForOrg.service";
+import { MARKETPLACE_LOAD_PAGE_SIZE } from "@/features/network/utils/marketplaceLoadsPage.util";
+import {
+    MarketplaceRouteGrid,
+    MarketplaceSpecChips,
+    titleCaseWord,
+} from "@/features/network/components/MarketplaceLoadCardChrome";
 import { useRouter } from "expo-router";
 import {
     useIndentOfferCountsQuery,
@@ -146,7 +159,7 @@ import {
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { Compass, Search } from "lucide-react-native";
 import { type FlashListRef } from "@shopify/flash-list";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import * as Linking from "expo-linking";
 
 
@@ -155,6 +168,8 @@ import {
     ActivityIndicator,
     Alert,
     Modal,
+    type NativeScrollEvent,
+    type NativeSyntheticEvent,
     Platform,
     Pressable,
     RefreshControl,
@@ -261,7 +276,33 @@ export function LoadCenterView({
   const [localBidHistoryByIndentId, setLocalBidHistoryByIndentId] = useState<
     Record<string, { amount: number; updatedAt: string }[]>
   >({});
-  const { data: indents = [], isLoading } = useIndentsQuery(orgId);
+  const { data: indents = [], isLoading, isError: indentsError, refetch: refetchIndents } =
+    useIndentsQuery(orgId);
+  const loadQueriesOpen = useAppQueryGate(orgId, { urgent: !isTripsPresentation });
+  const [uiWaitExpired, setUiWaitExpired] = useState(false);
+  const [enrichmentOpen, setEnrichmentOpen] = useState(false);
+  useEffect(() => {
+    if (!orgId || isTripsPresentation || loadQueriesOpen) {
+      setUiWaitExpired(true);
+      return;
+    }
+    setUiWaitExpired(false);
+    const t = setTimeout(() => setUiWaitExpired(true), APP_QUERY_GATE_UI_MAX_WAIT_MS);
+    return () => clearTimeout(t);
+  }, [orgId, isTripsPresentation, loadQueriesOpen]);
+  useEffect(() => {
+    if (!loadQueriesOpen) {
+      setEnrichmentOpen(false);
+      return;
+    }
+    const t = setTimeout(
+      () => setEnrichmentOpen(true),
+      isTripsPresentation ? 400 : 2_500,
+    );
+    return () => clearTimeout(t);
+  }, [loadQueriesOpen, isTripsPresentation]);
+  const enrichmentOrgId = enrichmentOpen ? orgId : null;
+  const marketQueryEnabled = loadQueriesOpen && !isTripsPresentation;
   const {
     data: marketIndents = [],
     isLoading: marketLoading,
@@ -273,27 +314,47 @@ export function LoadCenterView({
     urgent: !isTripsPresentation,
     enabled: !isTripsPresentation,
   });
-  const marketPending =
-    !isTripsPresentation && (marketLoading || (!marketFetched && !marketError));
-  const marketplaceLoadsQ = useQuery({
-    queryKey: queryKeys.findLoadsForOrg.list(orgId ?? ""),
-    queryFn: async () => {
-      const { error, loads } = await listOpenMarketplaceLoadsForOrg(orgId!);
+  const marketPending = isEnabledListQueryPending({
+    enabled: marketQueryEnabled,
+    isLoading: marketLoading,
+    isFetched: marketFetched,
+    isError: marketError,
+  });
+  const marketplaceQueryEnabled =
+    marketQueryEnabled &&
+    (marketFetched || marketError) &&
+    enrichmentOpen;
+  const marketplaceLoadsQ = useInfiniteQuery({
+    queryKey: queryKeys.findLoadsForOrg.infinite(
+      orgId ?? "",
+      MARKETPLACE_LOAD_PAGE_SIZE,
+    ),
+    queryFn: async ({ pageParam }) => {
+      const { error, loads, nextOffset } = await listOpenMarketplaceLoadsPage(
+        orgId!,
+        pageParam,
+        MARKETPLACE_LOAD_PAGE_SIZE,
+      );
       if (error) throw error;
-      return loads;
+      return { loads, nextOffset };
     },
-    enabled: useAppQueryGate(orgId, { urgent: !isTripsPresentation }) && !isTripsPresentation,
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => lastPage.nextOffset,
+    enabled: marketplaceQueryEnabled,
     staleTime: STALE.frequent,
-    refetchOnMount: true,
     retry: shouldRetryQuery,
     placeholderData: (previousData) => previousData,
   });
-  const marketplaceLoads = marketplaceLoadsQ.data ?? [];
-  const marketplacePending =
+  const marketplaceLoads = useMemo(
+    () => marketplaceLoadsQ.data?.pages.flatMap((p) => p.loads) ?? [],
+    [marketplaceLoadsQ.data],
+  );
+  const waitingForLoadGate =
+    Boolean(orgId) &&
     !isTripsPresentation &&
-    (marketplaceLoadsQ.isLoading ||
-      (!marketplaceLoadsQ.isFetched && !marketplaceLoadsQ.isError));
-  const getLoadPending = marketPending || marketplacePending;
+    !loadQueriesOpen &&
+    !uiWaitExpired;
+  const getLoadPending = waitingForLoadGate || marketPending;
   const commercePlanIds = useMemo(
     () =>
       extractCommercePlanIds(
@@ -311,13 +372,13 @@ export function LoadCenterView({
   );
   const { data: myQuotes = [], refetch: refetchMyQuotes } =
     useMyDirectQuotesQuery(orgId, { urgent: !isTripsPresentation });
-  const { data: trips = [] } = useTripsQuery(orgId);
-  const { data: drivers = [] } = useDriversQuery(orgId);
-  useVehiclesQuery(orgId);
-  const { data: suppliers = [] } = useSuppliersQuery(orgId);
+  const { data: trips = [] } = useTripsQuery(enrichmentOrgId);
+  const { data: drivers = [] } = useDriversQuery(enrichmentOrgId);
+  useVehiclesQuery(enrichmentOrgId);
+  const { data: suppliers = [] } = useSuppliersQuery(enrichmentOrgId);
   const { data: liveConnectedSupplierOrgIds = [] } =
-    useConnectedSupplierOrgIdsQuery(orgId);
-  const { data: clients = [] } = useClientsQuery(orgId);
+    useConnectedSupplierOrgIdsQuery(enrichmentOrgId);
+  const { data: clients = [] } = useClientsQuery(enrichmentOrgId);
   const linkedOrgByOrganizationId = useLinkedOrgProfileMap(clients, suppliers);
   const integratedSuppliers = useMemo(
     () =>
@@ -462,6 +523,96 @@ export function LoadCenterView({
     loadMatchesSearch,
   } = filters;
 
+  const extraMarketplaceLoads = useMemo(() => {
+    const seen = new Set(findWorkLoads.map((load) => load.id));
+    return marketplaceLoads.filter((load) => !seen.has(load.id));
+  }, [findWorkLoads, marketplaceLoads]);
+
+  const maybeLoadMoreMarketplace = useCallback(() => {
+    if (
+      !marketplaceQueryEnabled ||
+      !marketplaceLoadsQ.hasNextPage ||
+      marketplaceLoadsQ.isFetchingNextPage
+    ) {
+      return;
+    }
+    void marketplaceLoadsQ.fetchNextPage();
+  }, [
+    marketplaceQueryEnabled,
+    marketplaceLoadsQ.hasNextPage,
+    marketplaceLoadsQ.isFetchingNextPage,
+    marketplaceLoadsQ.fetchNextPage,
+  ]);
+
+  const onGetLoadScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (loadSubTab !== "GET_LOAD") return;
+      const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+      if (contentOffset.y + layoutMeasurement.height < contentSize.height - 280) {
+        return;
+      }
+      maybeLoadMoreMarketplace();
+    },
+    [loadSubTab, maybeLoadMoreMarketplace],
+  );
+
+  const renderGetLoadMarketplaceStrip = () => {
+    if (
+      extraMarketplaceLoads.length === 0 &&
+      !marketplaceLoadsQ.isFetching &&
+      !marketplaceLoadsQ.isFetchingNextPage
+    ) {
+      return null;
+    }
+    return (
+      <View style={styles.marketplaceLazyWrap}>
+        <View style={styles.loadSectionRow}>
+          <Text style={styles.loadSectionTitle}>Marketplace</Text>
+          <View style={styles.loadSectionPill}>
+            <Text style={styles.loadSectionPillText}>
+              {extraMarketplaceLoads.length}
+              {marketplaceLoadsQ.hasNextPage ? "+" : ""}
+            </Text>
+          </View>
+        </View>
+        {extraMarketplaceLoads.map((load: OrgOpenMarketplaceLoad) => {
+          const shipper = titleCaseWord(
+            (load.creator_organization_name ?? "").trim() || "Shipper",
+          );
+          const specChips = [load.vehicle_type, load.load_type]
+            .map((v) => (v ?? "").trim())
+            .filter(Boolean)
+            .map(titleCaseWord);
+          return (
+            <Pressable
+              key={load.id}
+              onPress={() =>
+                router.push(ROUTES.FIND_LOADS as import("expo-router").Href)
+              }
+              style={styles.marketplaceLazyCard}
+            >
+              <Text style={styles.marketplaceLazyShipper} numberOfLines={1}>
+                {shipper}
+              </Text>
+              <MarketplaceRouteGrid
+                pickup={load.pickup_area}
+                drop={load.drop_location}
+              />
+              <MarketplaceSpecChips chips={specChips} dateLabel={load.pickup_date} />
+            </Pressable>
+          );
+        })}
+        {marketplaceLoadsQ.isFetchingNextPage ||
+        (marketplaceLoadsQ.isFetching && extraMarketplaceLoads.length === 0) ? (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator size="small" color={Theme.primary} />
+            <Text style={styles.loadingText}>Loading marketplace…</Text>
+          </View>
+        ) : null}
+      </View>
+    );
+  };
+
   /**
    * `restrictToIndentIds` membership overrides this component's own
    * OPEN/QUOTED/AWARDED/DONE status-tab filtering for GIVE_LOAD — the caller
@@ -499,7 +650,9 @@ export function LoadCenterView({
     return map;
   }, [suppliers]);
 
-  const { data: acceptedQuotes = [] } = useAcceptedDirectQuotesForFinanceQuery(orgId);
+  const { data: acceptedQuotes = [] } = useAcceptedDirectQuotesForFinanceQuery(
+    enrichmentOrgId,
+  );
 
   const awardedVendorOrgIdByIndentId = useMemo(() => {
     const map: Record<string, string> = {};
@@ -810,7 +963,7 @@ export function LoadCenterView({
     posts: getLoadOpportunityPosts,
     viewerBidByPostId: getLoadOppViewerBids,
   } = useLoadCenterOpportunityPosts(
-    showLoadCenterChrome ? orgId : null,
+    showLoadCenterChrome ? enrichmentOrgId : null,
     "get",
     connectedSupplierOrgIds,
     connectedClientOrgIds,
@@ -2037,6 +2190,14 @@ export function LoadCenterView({
                     <ActivityIndicator size="small" color={Theme.primary} />
                     <Text style={styles.loadingText}>Loading…</Text>
                   </View>
+                ) : indentsError ? (
+                  <ContentErrorState
+                    variant="loads"
+                    layout="embedded"
+                    onRetry={() => {
+                      void refetchIndents();
+                    }}
+                  />
                 ) : (
                   renderGiveLoadTripsCards()
                 )}
@@ -2058,13 +2219,17 @@ export function LoadCenterView({
           ]}
           showsVerticalScrollIndicator={false}
           nestedScrollEnabled
+          scrollEventThrottle={400}
+          onScroll={onGetLoadScroll}
           {...(isMobileView ? tabBarScrollProps : {})}
           refreshControl={
             loadSubTab === "GET_LOAD" ? (
               <RefreshControl
                 refreshing={
                   (marketRefetching && !marketLoading) ||
-                  (marketplaceLoadsQ.isFetching && !marketplaceLoadsQ.isLoading)
+                  (marketplaceLoadsQ.isFetching &&
+                    !marketplaceLoadsQ.isFetchingNextPage &&
+                    !marketplaceLoadsQ.isLoading)
                 }
                 onRefresh={() => {
                   void refetchMarketIndents();
@@ -2247,6 +2412,7 @@ export function LoadCenterView({
                     orgId={orgId}
                     mode={loadSubTab === "GET_LOAD" ? "get" : "give"}
                     onViewAll={openNetworkForParties}
+                    enabled={enrichmentOpen}
                   />
                 </View>
               ) : null}
@@ -2266,6 +2432,7 @@ export function LoadCenterView({
                       mode={loadSubTab === "GET_LOAD" ? "get" : "give"}
                       onViewAll={openNetworkForParties}
                       compact
+                      enabled={enrichmentOpen}
                     />
                   </View>
                 ) : null}
@@ -2276,6 +2443,14 @@ export function LoadCenterView({
                   <ActivityIndicator size="small" color={Theme.primary} />
                   <Text style={styles.loadingText}>Loading…</Text>
                 </View>
+              ) : indentsError ? (
+                <ContentErrorState
+                  variant="loads"
+                  layout="embedded"
+                  onRetry={() => {
+                    void refetchIndents();
+                  }}
+                />
               ) : isTripsPresentation ? (
                 renderGiveLoadTripsCards()
               ) : !isMobileView ? (
@@ -2370,49 +2545,48 @@ export function LoadCenterView({
                 <ActivityIndicator size="small" color={Theme.primary} />
                 <Text style={styles.loadingText}>Loading…</Text>
               </View>
-            ) : marketError || marketplaceLoadsQ.isError ? (
+            ) : marketError ? (
               <ContentErrorState
                 variant="loads"
                 layout="embedded"
                 onRetry={() => {
                   void refetchMarketIndents();
-                  void marketplaceLoadsQ.refetch();
                 }}
-                retrying={marketRefetching || marketplaceLoadsQ.isFetching}
+                retrying={marketRefetching}
               />
             ) : !isMobileView ? (
               findWorkLoads.length === 0 &&
               awardedLoads.length === 0 &&
               findWorkDoneUnionLoads.length === 0 &&
               getLoadOpportunityPosts.length === 0 &&
-              marketplaceLoads.length === 0 ? (
+              extraMarketplaceLoads.length === 0 &&
+              !marketplaceLoadsQ.isFetching ? (
                 renderLoadCenterEmptyPromo()
               ) : (
-                <LoadCenterKanbanBoard
-                  title="Market opportunities by stage"
-                  columns={getLoadKanbanColumnsWithOpps}
-                  renderCard={renderGetLoadGridCard}
-                  highlightedIndentId={highlightedIndentId}
-                  matchHeight={desktopBoardHeight}
-                  onColumnPress={(col) => openKanbanColumn("get", col)}
-                />
+                <>
+                  {findWorkLoads.length > 0 ||
+                  awardedLoads.length > 0 ||
+                  findWorkDoneUnionLoads.length > 0 ? (
+                    <LoadCenterKanbanBoard
+                      title="Market opportunities by stage"
+                      columns={getLoadKanbanColumnsWithOpps}
+                      renderCard={renderGetLoadGridCard}
+                      highlightedIndentId={highlightedIndentId}
+                      matchHeight={desktopBoardHeight}
+                      onColumnPress={(col) => openKanbanColumn("get", col)}
+                    />
+                  ) : null}
+                  {renderGetLoadMarketplaceStrip()}
+                </>
               )
             ) : filteredFindWorkList.length === 0 &&
               getLoadOpportunityPosts.length === 0 &&
-              marketplaceLoads.length === 0 ? (
+              extraMarketplaceLoads.length === 0 &&
+              !marketplaceLoadsQ.isFetching ? (
               renderLoadCenterEmptyPromo()
             ) : filteredFindWorkList.length === 0 ? (
               <LoadCenterHubMobileListCanvas>
-                <PulsePillButton
-                  label={`${marketplaceLoads.length || getLoadOpportunityPosts.length} Marketplace load${(marketplaceLoads.length || getLoadOpportunityPosts.length) === 1 ? "" : "s"}`}
-                  size="compact"
-                  variant="outline"
-                  showPlusIcon
-                  IconComponent={Compass}
-                  onPress={() =>
-                    router.push(ROUTES.FIND_LOADS as import("expo-router").Href)
-                  }
-                />
+                {renderGetLoadMarketplaceStrip()}
               </LoadCenterHubMobileListCanvas>
             ) : useGridLayout ? (
               <View style={styles.gridList}>
@@ -2436,6 +2610,7 @@ export function LoadCenterView({
                     {renderGetLoadGridCard(load)}
                   </View>
                 ))}
+                {renderGetLoadMarketplaceStrip()}
               </View>
             ) : (
               <LoadCenterHubMobileListCanvas>
@@ -2463,6 +2638,7 @@ export function LoadCenterView({
                       : renderGetLoadListCard(load)}
                   </View>
                 ))}
+                {renderGetLoadMarketplaceStrip()}
               </LoadCenterHubMobileListCanvas>
             ))}
               </View>
@@ -3117,6 +3293,25 @@ const styles = StyleSheet.create({
   loadSectionHeaderBlock: {
     width: "100%",
     marginBottom: 12,
+  },
+  marketplaceLazyWrap: {
+    width: "100%",
+    marginTop: 16,
+    gap: 10,
+  },
+  marketplaceLazyCard: {
+    width: "100%",
+    backgroundColor: Theme.screenBackground,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    borderRadius: 12,
+    padding: 12,
+    gap: 8,
+  },
+  marketplaceLazyShipper: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: Theme.textPrimary,
   },
   loadSectionSub: {
     fontSize: 11,

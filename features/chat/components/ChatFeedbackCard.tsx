@@ -83,7 +83,7 @@ export function ChatFeedbackCard({
 
   const [phase, setPhase] = useState<FeedbackCardPhase>(() => {
     if (isFeedbackRequestAlreadyRatedMeta(meta)) return "already_rated";
-    const raw = (message.metadata ?? {}) as Record<string, unknown>;
+    const raw = (message?.metadata ?? {}) as Record<string, unknown>;
     if (typeof raw.submitted_at === "string" && raw.submitted_at.trim()) {
       return "already_rated";
     }
@@ -152,7 +152,10 @@ export function ChatFeedbackCard({
 
   const onSubmitDebrief = useCallback(async () => {
     if (!canSubmit || pickedScore == null) return;
-    if (audience !== "driver" && !meta) return;
+    // The non-driver path submits against a specific message id, so it needs a
+    // real message. The driver path above tolerates a null one (messageId is
+    // passed as `message?.id ?? null`).
+    if (audience !== "driver" && (!meta || !message)) return;
     setErr(null);
     setPhase("submitting");
 
@@ -178,9 +181,13 @@ export function ChatFeedbackCard({
       return;
     }
 
+    // Narrowed via the `!message` guard at the top of this callback; the local
+    // makes that narrowing survive the intervening awaits.
+    const messageId = message?.id;
+    if (!messageId) return;
     const { error } = await useChatStore
       .getState()
-      .submitSmileyFeedback(message.id, pickedScore, {
+      .submitSmileyFeedback(messageId, pickedScore, {
         comment: feedbackComment.trim() || undefined,
       });
 

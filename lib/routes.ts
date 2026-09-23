@@ -162,6 +162,11 @@ export const ROUTES = {
   INVOICING_EXECUTE: '/invoicing-execute' as const,
   /** Full-page invoice draft / issue form (opened from Pending Billing). */
   INVOICING_EXECUTE_CREATE: '/invoicing-execute/create' as const,
+  /** Commerce order → one invoice (no trip selection). */
+  pulseInvoiceOrder: (orderId: string) =>
+    `/pulse-invoice/order/${encodeURIComponent(orderId)}` as const,
+  /** Finance Pro Manual Invoice — typed lines against a selected client. */
+  INVOICING_MANUAL: "/pulse-invoice/manual" as const,
   /** Members & access inside the workspace flex-card (not `MODALS.TEAM`). */
   WORKSPACE_TEAM:    '/workspace?panel=team' as const,
   /** Step-through business verification wizard (Sprint 1). */

@@ -6,7 +6,7 @@
 import type { InvoiceIssuerWorkspace } from '@/features/invoicing/services/invoiceIssuerIdentity.service';
 import { sanitizeOptionalHttpLogoUrl } from '@/features/invoicing/services/invoiceIssuerIdentity.service';
 
-export const INVOICE_LINE_TYPES = ['freight', 'fuel', 'additional'] as const;
+export const INVOICE_LINE_TYPES = ['freight', 'fuel', 'additional', 'goods', 'plan'] as const;
 export type InvoiceLineType = (typeof INVOICE_LINE_TYPES)[number];
 
 /** Stored on public.invoices.issuer_snapshot */
@@ -170,7 +170,7 @@ export function buildInvoiceLineSnapshot(input: {
     throw new Error('Line snapshot requires description and unit.');
   }
   if (!isLineType(input.line_type)) {
-    throw new Error('Line snapshot line_type must be freight, fuel, or additional.');
+    throw new Error('Line snapshot line_type must be freight, fuel, additional, goods, or plan.');
   }
   return {
     trip_id: trimOrNull(input.trip_id),

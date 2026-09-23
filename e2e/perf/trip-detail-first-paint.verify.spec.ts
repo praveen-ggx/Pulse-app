@@ -331,7 +331,7 @@ test.describe("Trip detail first-paint verification", () => {
     }
 
     writeFileSync("/tmp/first-paint-verify.json", JSON.stringify(report, null, 2));
-    // eslint-disable-next-line no-console
+     
     console.log("FIRST_PAINT_VERIFY_JSON " + JSON.stringify(report, null, 2));
     expect(report.coreListClick).toBeTruthy();
   });

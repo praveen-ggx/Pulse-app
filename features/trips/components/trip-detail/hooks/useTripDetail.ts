@@ -3072,6 +3072,7 @@ export function useTripDetail({
     /** UI-only — do not pass through useTrackingState overrides. True for 3s after ping timeout. */
     isPingTimedOut: driverPing.pingTimedOut,
     waitingForNewDriverLocation,
+    clearWaitingForNewDriverLocation: () => setWaitingForNewDriverLocation(false),
 
     // Documents
     tripDocuments,

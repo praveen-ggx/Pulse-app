@@ -96,6 +96,8 @@ type Props = {
    * (starts minimized so loads stay primary).
    */
   compact?: boolean;
+  /** Discover is expensive — keep off until Load primary lists have settled. */
+  enabled?: boolean;
 };
 
 function RecommendationRow({
@@ -277,6 +279,7 @@ export function LoadCenterPartnerRecommendations({
   onOpenProfile,
   onViewAll,
   compact = false,
+  enabled = true,
 }: Props) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -285,8 +288,9 @@ export function LoadCenterPartnerRecommendations({
   const { orgs, loading, error, refetch, invalidateCache } = useNetworkDiscovery({
     orgId,
     search: "",
+    enabled,
   });
-  const sentQ = useConnectionRequestsSentQuery(orgId);
+  const sentQ = useConnectionRequestsSentQuery(enabled ? orgId : null);
   const invalidateNetwork = useInvalidateNetwork(orgId);
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => new Set());

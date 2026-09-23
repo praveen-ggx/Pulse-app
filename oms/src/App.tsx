@@ -27,8 +27,14 @@ import {
 } from '@/pages/execution/detail';
 import { DispatchPage } from '@/pages/execution/dispatch';
 import { DriverTripPage } from '@/pages/execution/driver';
+import { CommerceLockedPage } from '@/pages/locked';
+import { isSuiteProductLocked } from '@pulse-suite/productLock';
 
 export default function App() {
+  if (isSuiteProductLocked('commerce')) {
+    return <CommerceLockedPage />;
+  }
+
   return (
     <AuthProvider>
       <OrganizationProvider>

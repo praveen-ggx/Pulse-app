@@ -2,6 +2,7 @@
  * Direct quotes — supplier quotes on indents that have no marketplace listing
  * (circulation_target offline / integrated_supplier). Backed by public.direct_quotes.
  */
+import { shouldFallbackDirectQuotesToTable } from '@/features/indents/utils/bidding/indentReviewHubOffers.util';
 import { FINITE_LIST_CAP } from '@/lib/pagination';
 import { supabase } from '@/lib/supabase';
 
@@ -27,7 +28,7 @@ export interface DirectQuoteRow {
    * Hub channel. Default / omitted = org direct_quotes.
    * `driver_direct_bid` = Pilot / independent FO bid on the linked Pulse story.
    */
-  offer_source?: "direct_quote" | "driver_direct_bid";
+  offer_source?: "direct_quote" | "driver_direct_bid" | "market_bid";
   /** Pilot / FO bidder face (from profiles via list_driver_direct_bids_for_post). */
   bidder_avatar_url?: string | null;
   bidder_avatar_seed?: string | null;
@@ -103,9 +104,23 @@ export async function getDirectQuotesByIndentId(
     p_indent_id: indentId,
   });
 
-  if (error) return { error: new Error(error.message), quotes: [] };
-  const rows = (data ?? []) as (DirectQuoteRow & { bidder_organization_name?: string })[];
-  return { error: null, quotes: rows };
+  if (!shouldFallbackDirectQuotesToTable(error, data)) {
+    const rows = (data ?? []) as (DirectQuoteRow & { bidder_organization_name?: string })[];
+    return { error: null, quotes: rows };
+  }
+
+  const { data: tableRows, error: tableError } = await supabase()
+    .from('direct_quotes')
+    .select(MY_DIRECT_QUOTES_SELECT)
+    .eq('indent_id', indentId)
+    .order('created_at', { ascending: false });
+  if (tableError) {
+    return {
+      error: new Error(error?.message ?? tableError.message),
+      quotes: [],
+    };
+  }
+  return { error: null, quotes: (tableRows ?? []) as DirectQuoteRow[] };
 }
 
 /**

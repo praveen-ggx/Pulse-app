@@ -6,6 +6,7 @@
  */
 import type { AuthProfile, AuthUser } from "@/features/auth/services/auth.service";
 import { captureMessage } from "@/lib/crashReporter";
+import { runWithFetchAbortScope } from "@/lib/supabaseAbort.util";
 
 // ---------------------------------------------------------------------------
 // AuthStatus — single source of truth replaces loading + sessionExpired
@@ -296,22 +297,39 @@ export function isTimeoutError(e: unknown): e is Error {
 }
 
 /**
- * Race a promise against a timeout. Includes random jitter (0–500 ms)
- * to avoid thundering-herd when many devices wake from background simultaneously.
+ * Race work against a timeout and abort the underlying HTTPS request.
+ * Prefer the factory form so the fetch starts inside the abort scope:
+ *   withTimeout((signal) => supabase().rpc(..., { abortSignal: signal }), 15_000)
+ * Passing an already-started Promise still aborts the scope for later
+ * retries, but cannot cancel a fetch that already left the client.
  */
 export async function withTimeout<T>(
-  promise: Promise<T>,
+  work: Promise<T> | ((signal: AbortSignal) => Promise<T>),
   ms: number,
   { jitter = true }: { jitter?: boolean } = {},
 ): Promise<T> {
+  const controller = new AbortController();
   const jitterMs = jitter ? Math.random() * 500 : 0;
   const deadline = ms + jitterMs;
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new TimeoutError(ms)), deadline);
-    promise.then(
-      (v) => { clearTimeout(timer); resolve(v); },
-      (e) => { clearTimeout(timer); reject(e); },
-    );
+
+  return runWithFetchAbortScope(controller.signal, () => {
+    const promise = typeof work === "function" ? work(controller.signal) : work;
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        controller.abort();
+        reject(new TimeoutError(ms));
+      }, deadline);
+      promise.then(
+        (v) => {
+          clearTimeout(timer);
+          resolve(v);
+        },
+        (e) => {
+          clearTimeout(timer);
+          reject(e);
+        },
+      );
+    });
   });
 }
 

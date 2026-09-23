@@ -27,8 +27,13 @@ describe("loadCenter status tabs", () => {
     expect(statusMatchesFilter("quoted", "OPEN")).toBe(true);
   });
 
-  it("still lists quoted under the Quoted tab", () => {
-    expect(statusMatchesFilter("quoted", "QUOTED")).toBe(true);
+  it("no longer lists quoted under the Quoted tab", () => {
+    // `status='quoted'` is a deprecated DB value, not an active business state:
+    // no new indents enter it after migration 20270128103100 (trigger dropped +
+    // backfill). It is kept in OPEN only so a residual legacy row still shows as
+    // open-for-bidding, and deliberately dropped from QUOTED — that tab now means
+    // "Receiving Bids", which is derived from bid_count, not from this status.
+    expect(statusMatchesFilter("quoted", "QUOTED")).toBe(false);
   });
 
   it("does not leak terminal or awarded loads into Open", () => {

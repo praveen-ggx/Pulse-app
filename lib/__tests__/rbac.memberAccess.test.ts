@@ -200,7 +200,15 @@ describe("TC-05..08 — role presets do not leak across domains", () => {
       .flatMap((d) =>
         (d.grantsCaps ?? d.anyOfCaps).map((c) => `${d.id} grants ${c}`),
       )
-      .filter((entry) => !entry.endsWith("finance_view"));
+      // finance_view AND finance_manage are finance's own capabilities — a
+      // finance member holding them on a cross-domain surface (e.g. the
+      // Compliance settlement panel) is the intended behaviour, not a leak.
+      // The leak this guards against is a non-finance cap: dispatch,
+      // dispatch_for_own_fleet, fleet_management.
+      .filter(
+        (entry) =>
+          !entry.endsWith("finance_view") && !entry.endsWith("finance_manage"),
+      );
 
     expect(leaking).toEqual([]);
   });
@@ -216,13 +224,33 @@ describe("TC-05..08 — role presets do not leak across domains", () => {
     expect(caps).not.toContain("fleet_management");
   });
 
-  it("TC-07: sales preset touches only the sales domain", () => {
-    expect([...domainsTouched("sales")]).toEqual(["sales"]);
+  it("TC-07: sales preset touches sales, plus tripops via the indent surfaces", () => {
+    // Indent surfaces are catalogued under `domain: "sales"` but hang off
+    // `tripops.tab` on purpose: /indent/:id is its own top-level route, and
+    // parenting them to `sales.tab` silently unlocked the whole Network tab for
+    // a Trip Ops member (see lib/memberSurfaces.ts "tripops.indents.view" and
+    // the RBAC changelog entry for that fix). Sales therefore legitimately
+    // touches `tripops` — what still must not happen is any *capability* leak,
+    // which TC-06b and TC-07b assert.
+    expect([...domainsTouched("sales")].sort()).toEqual(["sales", "tripops"]);
   });
 
-  it("TC-08: tripops preset stays within tripops + fleet", () => {
+  it("TC-07b: sales preset confers no fleet capability", () => {
+    const caps = capabilitiesFromMemberSurfaces(
+      HYBRID,
+      defaultSurfacesForRole("sales", HYBRID),
+    );
+    expect(caps).not.toContain("fleet_management");
+  });
+
+  it("TC-08: tripops preset stays within tripops + fleet + sales-catalogued indents", () => {
+    // `sales` appears because the indent surfaces are catalogued under
+    // `domain: "sales"` (that is where they render) while parenting to
+    // `tripops.tab` — the deliberate split described in TC-21A. Trip Ops
+    // therefore touches the sales *domain label* without gaining the Sales tab
+    // itself; TC-08b pins the capability side, which is what actually matters.
     const touched = [...domainsTouched("tripops")].sort();
-    expect(touched).toEqual(["fleet", "tripops"]);
+    expect(touched).toEqual(["fleet", "sales", "tripops"]);
   });
 
   it("TC-05: admin preset covers every org-allowed surface", () => {
@@ -279,12 +307,24 @@ describe("TC-21A — Indents render under Sales and stay grantable", () => {
     expect(blocked).toEqual([]);
   });
 
-  it("indent parents hang off sales.tab, not tripops.tab", () => {
+  it("per-indent surfaces hang off tripops.tab, not sales.tab", () => {
+    // Inverted deliberately: requiring `sales.tab` made domainsFromSurfaces flip
+    // the sales-domain check, unlocking the entire Network tab for a Trip Ops
+    // member who only needed to open one awarded indent. These surfaces keep
+    // `domain: "sales"` (that is where they render) while parenting to
+    // `tripops.tab`. @see docs/RBAC_OPERATING_MODEL_CHANGELOG.md
+    //
+    // `tripops.pulse_loads` is deliberately excluded: it is the loads-hub
+    // landing screen inside the Network tab, not a per-indent route, so it
+    // stays parented to `sales.tab`.
     const parents = MEMBER_SURFACE_CATALOG.filter(
-      (d) => INDENT_SURFACES.includes(d.id) && d.requires,
+      (d) =>
+        INDENT_SURFACES.includes(d.id) &&
+        d.id !== "tripops.pulse_loads" &&
+        d.requires,
     ).map((d) => d.requires);
 
-    expect(parents).not.toContain("tripops.tab");
+    expect(parents).not.toContain("sales.tab");
   });
 });
 
@@ -443,9 +483,20 @@ describe("catalog integrity (smoke)", () => {
   });
 
   it("a child never sits in a different domain from its parent", () => {
+    /**
+     * One sanctioned split: `tripops.indents.view` renders under Sales
+     * (`domain: "sales"`) but parents to `tripops.tab`, because parenting it to
+     * `sales.tab` unlocked the whole Network tab for Trip Ops members who only
+     * needed one indent. Its own children inherit the split via this parent, so
+     * they are checked against it rather than re-flagged.
+     * @see docs/RBAC_OPERATING_MODEL_CHANGELOG.md
+     */
+    const SANCTIONED_SPLITS = new Set<MemberSurfaceId>(["tripops.indents.view"]);
+
     const byId = new Map(MEMBER_SURFACE_CATALOG.map((d) => [d.id, d]));
     const split = MEMBER_SURFACE_CATALOG.filter((d) => {
       if (!d.requires) return false;
+      if (SANCTIONED_SPLITS.has(d.id)) return false;
       const parent = byId.get(d.requires);
       return parent && parent.domain !== d.domain;
     }).map((d) => `${d.id} (${d.domain}) -> ${d.requires}`);

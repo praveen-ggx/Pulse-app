@@ -20,7 +20,33 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { configurePlatformDb } from '@/lib/platform';
-import { isRetryableHttpResponse } from '@/lib/supabaseHttp.util';
+import { currentFetchAbortSignals } from '@/lib/supabaseAbort.util';
+import {
+  AUTH_TOKEN_MAX_RETRIES,
+  FETCH_MAX_RETRIES,
+  TIMEOUT_MAX_RETRIES,
+  authTokenRetryDelayMs,
+  canRetryFetchAttempt,
+  dataFetchConcurrencyGate,
+  admitSupabaseRequest,
+  finishSupabaseCircuitProbe,
+  isOriginDownHttpStatus,
+  isRetryableHttpResponse,
+  noteSupabaseHealthy,
+  noteSupabaseOriginDown,
+  noteSupabaseOriginDownIfClientTimeout,
+  recordSupabaseHttp5xx,
+  recordSupabaseHttpTimeout,
+  retryDelayMs,
+  shouldQueueDataFetch,
+  supabaseCircuitOpenError,
+} from '@/lib/supabaseHttp.util';
+import {
+  classifyRequest,
+  moderate,
+  recordOutcome,
+  recordShapeViolation,
+} from '@/lib/platform/moderator';
 
 // Lazy-load SecureStore so we can fall back to AsyncStorage if native module is missing (Expo Go, etc.)
 let SecureStore: typeof import('expo-secure-store') | null = null;
@@ -33,14 +59,21 @@ try {
 }
 
 const REQUEST_TIMEOUT_MS = 12_000;
-const MAX_RETRIES = 3;   // 4 total attempts: initial + 3 retries (HTTP 5xx / network)
-/** Timeout aborts: one extra attempt only (12s + 12s), not 4×25s LogBox storms. */
-const TIMEOUT_MAX_RETRIES = 1;
-/** Exponential backoff: attempt 1 → 2s, attempt 2 → 4s */
-function retryDelayMs(attempt: number): number {
-  return Math.min(2_000 * Math.pow(2, attempt - 1), 8_000);
-}
+/** Writes (indent/trip insert) can wait on triggers; aborting them mid-commit looks like a failed create. */
+const WRITE_REQUEST_TIMEOUT_MS = 20_000;
 
+function requestTimeoutMs(init?: RequestInit): number {
+  const method = String(init?.method ?? "GET").toUpperCase();
+  if (
+    method === "POST" ||
+    method === "PATCH" ||
+    method === "PUT" ||
+    method === "DELETE"
+  ) {
+    return WRITE_REQUEST_TIMEOUT_MS;
+  }
+  return REQUEST_TIMEOUT_MS;
+}
 // /auth/v1/token (session refresh) gets its own retry policy with jitter.
 // During a sustained DB/auth outage (see 2026-07-05 incident: clients retried
 // refresh_token every 15-20s with no effective backoff, adding load while the
@@ -49,19 +82,9 @@ function retryDelayMs(attempt: number): number {
 //
 // IMPORTANT: every caller of authService.refreshSession() wraps it in
 // withTimeout(..., AUTH_TIMEOUT_MS) or withTimeout(..., AUTH_RESTORE_REFRESH_TIMEOUT_MS)
-// (lib/authEngine.ts — 15s / 25s). withTimeout() races the promise but does not
-// abort the underlying fetch, so retries that would run past the caller's
-// timeout are not just wasted — the abandoned fetch keeps running in the
-// background. Keep this ceiling comfortably under the smallest caller timeout
-// (15s) so the full retry sequence always resolves (or exhausts) before any
-// caller gives up on it.
-const AUTH_TOKEN_MAX_RETRIES = 2; // 3 total attempts: initial + 2 retries
-function authTokenRetryDelayMs(attempt: number): number {
-  const base = Math.min(2_000 * Math.pow(2, attempt - 1), 8_000); // 2s, then 4s
-  // +/-20% jitter so many devices recovering from the same outage don't retry in lockstep.
-  const jitter = base * 0.2 * (Math.random() * 2 - 1);
-  return Math.round(base + jitter);
-}
+// (lib/authEngine.ts — 15s / 25s). withTimeout() aborts the scoped fetch
+// when the deadline fires so abandoned HTTPS work does not keep holding
+// PostgREST. Prefer the factory form so the request starts inside that scope.
 function isAuthTokenRequest(input: RequestInfo | URL): boolean {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
   return url.includes('/auth/v1/token');
@@ -83,8 +106,8 @@ function isAuthTokenRequest(input: RequestInfo | URL): boolean {
 /**
  * True when a 5xx body is a Postgres statement timeout (57014).
  *
- * PostgREST maps 57014 to HTTP 500, which `isRetryableHttpResponse` treats as
- * transient. It is not: the statement already ran to the timeout limit, so each
+ * PostgREST maps 57014 to HTTP 500, which used to be retried as transient.
+ * It is not: the statement already ran to the timeout limit, so each
  * retry re-runs the same slow query and holds a pool connection for another full
  * timeout window. One 25s call becomes ~100s of pool hold across 4 attempts —
  * the amplifier behind the 2026-09-19 bootstrap incident. Retrying cannot help,
@@ -172,12 +195,12 @@ function toCancelError(): Error {
 }
 
 /** Fetch with timeout and retry to cope with flaky networks and backend outages. */
-async function fetchWithTimeoutAndRetry(
+async function fetchWithTimeoutAndRetryRaw(
   input: RequestInfo | URL,
   init?: RequestInit
 ): Promise<Response> {
   const isAuthToken = isAuthTokenRequest(input);
-  const maxRetries = isAuthToken ? AUTH_TOKEN_MAX_RETRIES : MAX_RETRIES;
+  const maxRetries = isAuthToken ? AUTH_TOKEN_MAX_RETRIES : FETCH_MAX_RETRIES;
   const delayForAttempt = isAuthToken ? authTokenRetryDelayMs : retryDelayMs;
   const doFetch = (signal?: AbortSignal): Promise<Response> => {
     const controller = new AbortController();
@@ -185,7 +208,7 @@ async function fetchWithTimeoutAndRetry(
     const timeoutId = setTimeout(() => {
       timedOut = true;
       controller.abort();
-    }, REQUEST_TIMEOUT_MS);
+    }, requestTimeoutMs(init));
     const combinedSignal = signal
       ? abortSignalAny(controller.signal, signal)
       : controller.signal;
@@ -201,51 +224,128 @@ async function fetchWithTimeoutAndRetry(
       })
       .finally(() => clearTimeout(timeoutId));
   };
-  let lastError: Error | null = null;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const res = await doFetch(init?.signal ?? undefined);
-      if (
-        isRetryableHttpResponse(res) &&
-        attempt < maxRetries &&
-        !(await isStatementTimeoutResponse(res))
-      ) {
-        await new Promise((r) => setTimeout(r, delayForAttempt(attempt)));
-        continue;
-      }
-      // JWT-expiry recovery: on the FIRST attempt of a non-auth request, if the
-      // response is a true token-expiry, refresh once (deduped) and retry once so
-      // the SDK re-sends with the rotated token. attempt===0 + single continue
-      // bounds this to exactly one extra attempt — no loop. Never runs for
-      // /auth/v1/token requests, so refreshSession() cannot recurse into itself.
-      if (!isAuthToken && attempt === 0 && (await isJwtExpiryResponse(res))) {
-        const recovered = await recoverAuthOnce();
-        if (recovered) continue;
-        // Not recovered → return the expiry response; GoTrue's SIGNED_OUT →
-        // AuthContext does clear-state + route-to-login + "expired" flash.
-      }
-      return res;
-    } catch (e) {
-      lastError = e instanceof Error ? e : new Error(String(e));
-      if (init?.signal?.aborted || lastError.name === 'AbortError') {
-        throw lastError.name === 'AbortError' ? lastError : toCancelError();
-      }
-      const isTimeout = lastError.name === 'TimeoutError';
-      const isRetryable =
-        (isTimeout
-          ? attempt < TIMEOUT_MAX_RETRIES
-          : attempt < maxRetries) &&
-        (isTimeout ||
-          lastError.message === 'Network request failed' ||
-          lastError.message === 'Load failed' ||
-          /timeout|network|failed|access control checks|schema cache/i.test(
-            lastError.message,
-          ));
-      if (!isRetryable) throw lastError;
-      await new Promise((r) => setTimeout(r, delayForAttempt(attempt)));
-    }
+  const scoped = [init?.signal, ...currentFetchAbortSignals()].filter(
+    (s): s is AbortSignal => !!s,
+  );
+  const requestSignal =
+    scoped.length === 0
+      ? undefined
+      : scoped.length === 1
+        ? scoped[0]
+        : abortSignalAny(...scoped);
+
+  const queued = shouldQueueDataFetch(input, init);
+  const admission = isAuthToken ? 'allow' : admitSupabaseRequest();
+  if (admission === 'reject') {
+    throw supabaseCircuitOpenError();
   }
-  throw lastError ?? new Error('Network request failed');
+  if (queued) {
+    await dataFetchConcurrencyGate.acquire(requestSignal);
+  }
+  try {
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        // Same request already holds the half-open probe; do not re-admit.
+        const res = await doFetch(requestSignal);
+        if (res.ok) {
+          if (admission === 'probe') finishSupabaseCircuitProbe(true);
+          else noteSupabaseHealthy();
+        } else if (isOriginDownHttpStatus(res.status)) {
+          recordSupabaseHttp5xx(res.status);
+          if (admission === 'probe') finishSupabaseCircuitProbe(false);
+          else noteSupabaseOriginDown();
+        } else if (admission === 'probe') {
+          finishSupabaseCircuitProbe(true);
+        }
+        if (
+          isRetryableHttpResponse(res) &&
+          attempt < maxRetries &&
+          !(await isStatementTimeoutResponse(res))
+        ) {
+          await new Promise((r) => setTimeout(r, delayForAttempt(attempt)));
+          continue;
+        }
+        // JWT-expiry recovery: on the FIRST attempt of a non-auth request, if the
+        // response is a true token-expiry, refresh once (deduped) and retry once so
+        // the SDK re-sends with the rotated token. attempt===0 + single continue
+        // bounds this to exactly one extra attempt — no loop. Never runs for
+        // /auth/v1/token requests, so refreshSession() cannot recurse into itself.
+        if (!isAuthToken && attempt === 0 && (await isJwtExpiryResponse(res))) {
+          const recovered = await recoverAuthOnce();
+          if (recovered) continue;
+          // Not recovered → return the expiry response; GoTrue's SIGNED_OUT →
+          // AuthContext does clear-state + route-to-login + "expired" flash.
+        }
+        return res;
+      } catch (e) {
+        lastError = e instanceof Error ? e : new Error(String(e));
+        if (requestSignal?.aborted || lastError.name === 'AbortError') {
+          throw lastError.name === 'AbortError' ? lastError : toCancelError();
+        }
+        if (!isAuthToken && noteSupabaseOriginDownIfClientTimeout(lastError)) {
+          recordSupabaseHttpTimeout();
+        }
+        if (
+          !canRetryFetchAttempt({
+            attempt,
+            maxRetries,
+            timeoutMaxRetries: TIMEOUT_MAX_RETRIES,
+            error: lastError,
+          })
+        ) {
+          throw lastError;
+        }
+        await new Promise((r) => setTimeout(r, delayForAttempt(attempt)));
+      }
+    }
+    throw lastError ?? new Error('Network request failed');
+  } finally {
+    if (queued) dataFetchConcurrencyGate.release();
+  }
+}
+
+/**
+ * Moderated entry point — the client's actual `global.fetch`.
+ *
+ * Wraps fetchWithTimeoutAndRetryRaw (transport: timeouts, retries, the shared
+ * origin circuit and concurrency gate) in the Requests Moderator, which governs
+ * the request *stream* above it: per-device concurrency, priority lanes,
+ * coalescing of duplicate reads and invalidation debouncing.
+ *
+ * The two layers are complementary, not competing — the transport decides
+ * whether a single request should be retried or shed; the Moderator decides how
+ * many run at once and in what order. It ships in observeOnly mode, where this
+ * only records counters and behaviour is identical to calling the raw fn.
+ *
+ * Auth, storage and realtime bypass moderation entirely — queuing a token
+ * refresh behind data reads is how a recovering client deadlocks.
+ */
+async function fetchWithTimeoutAndRetry(
+  input: RequestInfo | URL,
+  init?: RequestInit
+): Promise<Response> {
+  const { lane, coalesceKey, violations, isAuth } = classifyRequest(input, init);
+
+  if (isAuth) {
+    return fetchWithTimeoutAndRetryRaw(input, init);
+  }
+
+  if (__DEV__ && violations.length > 0) {
+    violations.forEach(recordShapeViolation);
+  }
+
+  return moderate(
+    lane,
+    async () => {
+      const res = await fetchWithTimeoutAndRetryRaw(input, init);
+      // Feed the circuit breaker: 5xx and statement timeouts mean the DB itself
+      // is struggling, unlike a 4xx which is a client-side problem.
+      recordOutcome(res.status >= 500);
+      return res;
+    },
+    coalesceKey,
+  );
 }
 
 /** Combine two AbortSignals so aborting either aborts the result. */

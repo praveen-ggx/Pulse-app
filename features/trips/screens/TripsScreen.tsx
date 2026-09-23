@@ -82,6 +82,11 @@ import {
   TRIP_METRIC_ORDER,
   type TripMetricId,
 } from "@/features/trips/utils/tripHubMetrics";
+import { sliceHubListPage } from "@/features/trips/utils/hubListPageSlice.util";
+import {
+  HUB_ASSIGNMENT_AUDIT_TRIP_LIMIT,
+  hubAssignmentAuditTripIds,
+} from "@/features/trips/utils/hubAssignmentAuditTripIds.util";
 import {
   indentMatchesHubDateFilter,
   indentMatchesHubSearch,
@@ -132,7 +137,6 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TripsPromoCard } from "@/features/trips/components/TripsPromoCard";
 import {
-    Alert,
     NativeScrollEvent,
     NativeSyntheticEvent,
     Platform,
@@ -409,13 +413,14 @@ export default function TripsScreen() {
    * Cards use the same trip ticket shell with indent bidding status +
    * circulation_target source tags.
    */
-  const unallocatedIndentIds = useMemo(
-    () => unallocatedIndents.map((i) => i.id),
-    [unallocatedIndents],
+  /** Offer/story satellites follow the visible hub page, not every unallocated indent. */
+  const hubSatelliteIndentIds = useMemo(
+    () => visibleUnallocatedIndents.slice(0, HUB_ASSIGNMENT_AUDIT_TRIP_LIMIT).map((i) => i.id),
+    [visibleUnallocatedIndents],
   );
   const { data: indentOfferCounts = {} } = useIndentOfferCountsQuery(
     activeMetricTab === "all" || activeMetricTab === "indent" ? orgId : null,
-    unallocatedIndentIds,
+    hubSatelliteIndentIds,
   );
   const indentHubActionOrgId =
     activeMetricTab === "all" || activeMetricTab === "indent" ? orgId : null;
@@ -427,7 +432,7 @@ export default function TripsScreen() {
   );
   const indentHubActions = useGiveLoadIndentActions({
     orgId: indentHubActionOrgId,
-    indentIds: unallocatedIndentIds,
+    indentIds: hubSatelliteIndentIds,
     onOpenIndent: handleOpenUnallocatedIndent,
     insets,
   });
@@ -458,13 +463,16 @@ export default function TripsScreen() {
     return m;
   }, [hubTripSubcontracts]);
   const { record: tripFinanceAdjRecord, isLoading: tripFinanceAdjLoading } =
-    useTripFinanceAdjustmentsMap(orgId, tripIds);
+    useTripFinanceAdjustmentsMap(
+      orgId,
+      tripsLoading ? [] : hubAssignmentAuditTripIds(tripIds),
+    );
   /** Until loaded, hub uses raw trip rates (same as trip list before this feature). */
   const tripFinanceAdjForHub = tripFinanceAdjLoading
     ? undefined
     : tripFinanceAdjRecord;
   const { refetch: refetchAssignment } = useAssignmentAuditQuery(
-    tripsLoading ? [] : tripIds,
+    tripsLoading ? [] : hubAssignmentAuditTripIds(tripIds),
   );
 
   useRealtimeTripsInvalidation(orgId);
@@ -955,12 +963,10 @@ export default function TripsScreen() {
     () =>
       [
         effectiveListLayout,
-        filtered.length,
         searchQuery,
         tripFilter,
         activeMetricTab,
         activeHistoryMetricTab ?? "",
-        activeOpsTripIdsSorted.slice(0, 120),
         supplyFilter,
         attributionFilter,
         sortBy,
@@ -972,12 +978,10 @@ export default function TripsScreen() {
       ].join("|"),
     [
       effectiveListLayout,
-      filtered.length,
       searchQuery,
       tripFilter,
       activeMetricTab,
       activeHistoryMetricTab,
-      activeOpsTripIdsSorted,
       supplyFilter,
       attributionFilter,
       sortBy,
@@ -1000,14 +1004,37 @@ export default function TripsScreen() {
     Record<string, string>
   >({});
 
-  const tripsHubPaginationTotal =
-    hubToolbarMatchCount ?? filtered.length;
+  const hubTripMatchCount =
+    activeMetricTab === "indent"
+      ? 0
+      : (hubToolbarMatchCount ?? filtered.length);
+  const hubIndentMatchCount =
+    activeMetricTab === "all" || activeMetricTab === "indent"
+      ? visibleUnallocatedIndents.length
+      : 0;
+  const tripsHubPaginationTotal = hubIndentMatchCount + hubTripMatchCount;
 
   const tripsTableTotalPages = Math.max(
     1,
     Math.ceil(tripsHubPaginationTotal / tripsTablePageSize),
   );
-  const tripsTablePageSafe = Math.min(tripsTablePage, tripsTableTotalPages - 1);
+  const tripsTablePageSafe = Math.min(
+    tripsTablePage,
+    Math.max(0, tripsTableTotalPages - 1),
+  );
+  const hubListPageSlice = sliceHubListPage({
+    indentCount: hubIndentMatchCount,
+    tripCount: hubTripMatchCount,
+    page: tripsTablePageSafe,
+    pageSize: tripsTablePageSize,
+  });
+  const paginatedHubIndents =
+    Platform.OS === "web" && !isMobileViewport
+      ? visibleUnallocatedIndents.slice(
+          hubListPageSlice.indentOffset,
+          hubListPageSlice.indentOffset + hubListPageSlice.indentLimit,
+        )
+      : visibleUnallocatedIndents;
 
   useEffect(() => {
     setHubToolbarMatchCount(null);
@@ -1018,10 +1045,12 @@ export default function TripsScreen() {
   }, [tripsTableResetKey]);
 
   useEffect(() => {
-    const total = hubToolbarMatchCount ?? filtered.length;
-    const maxPage = Math.max(0, Math.ceil(total / tripsTablePageSize) - 1);
+    const maxPage = Math.max(
+      0,
+      Math.ceil(tripsHubPaginationTotal / tripsTablePageSize) - 1,
+    );
     setTripsTablePage((p) => Math.min(p, maxPage));
-  }, [hubToolbarMatchCount, filtered.length, tripsTablePageSize]);
+  }, [tripsHubPaginationTotal, tripsTablePageSize]);
 
   useEffect(() => {
     setTripsTablePage(0);
@@ -1039,12 +1068,12 @@ export default function TripsScreen() {
         contentOffset.y + layoutMeasurement.height >= contentSize.height - 360;
       if (!nearBottom) return;
       setMobileVisibleCount((prev) => {
-        const total = hubToolbarMatchCount ?? filtered.length;
+        const total = tripsHubPaginationTotal;
         if (prev >= total) return prev;
         return Math.min(total, prev + MOBILE_HUB_BATCH_STEP);
       });
     },
-    [tabBarScrollProps, isMobileViewport, hubToolbarMatchCount, filtered.length],
+    [tabBarScrollProps, isMobileViewport, tripsHubPaginationTotal],
   );
 
   const loadTypeOptions = useMemo(() => {
@@ -1614,8 +1643,11 @@ export default function TripsScreen() {
    * renders — not a separate Load Center page. Cards share the Trip ticket
    * shell; status comes from Give Load bid-count derivation.
    */
-  const renderUnallocatedIndentCards = (hubGrid: boolean) =>
-    visibleUnallocatedIndents.map((indent) => {
+  const renderUnallocatedIndentCards = (
+    hubGrid: boolean,
+    indents: IndentRow[],
+  ) =>
+    indents.map((indent) => {
       const status = (indent.status || "").toLowerCase();
       const isDraft = status === "draft";
       const isAwardedPendingTrip = status === "awarded";
@@ -1679,7 +1711,9 @@ export default function TripsScreen() {
       );
     });
 
-  const renderIndentStageBody = () => {
+  const renderIndentStageBody = (
+    indents: IndentRow[] = paginatedHubIndents,
+  ) => {
     if (visibleUnallocatedIndents.length === 0) {
       return (
         <View style={emptyBannerStageStyle}>
@@ -1696,12 +1730,14 @@ export default function TripsScreen() {
     }
     if (isLargeScreen) {
       return (
-        <View style={styles.gridContainer}>{renderUnallocatedIndentCards(true)}</View>
+        <View style={styles.gridContainer}>
+          {renderUnallocatedIndentCards(true, indents)}
+        </View>
       );
     }
     return (
       <TripsHubMobileTripListCanvas>
-        {renderUnallocatedIndentCards(false)}
+        {renderUnallocatedIndentCards(false, indents)}
       </TripsHubMobileTripListCanvas>
     );
   };
@@ -1813,7 +1849,12 @@ export default function TripsScreen() {
 
   const webTripsPagination =
     Platform.OS === "web"
-      ? { page: tripsTablePageSafe, pageSize: tripsTablePageSize }
+      ? {
+          page: tripsTablePageSafe,
+          pageSize: tripsTablePageSize,
+          offset: hubListPageSlice.tripOffset,
+          limit: hubListPageSlice.tripLimit,
+        }
       : undefined;
 
   const mobileTripsPagination =
@@ -1823,10 +1864,20 @@ export default function TripsScreen() {
 
   const tripsListPagination = webTripsPagination ?? mobileTripsPagination;
 
+  const handleTripsPagePrev = useCallback(
+    () => setTripsTablePage((p) => Math.max(0, p - 1)),
+    [],
+  );
+  const handleTripsPageNext = useCallback(
+    () =>
+      setTripsTablePage((p) => Math.min(tripsTableTotalPages - 1, p + 1)),
+    [tripsTableTotalPages],
+  );
+
   const showTripsPaginationFooter =
     Platform.OS === "web" &&
     !isMobileViewport &&
-    (hubToolbarMatchCount ?? filtered.length) > 0;
+    tripsHubPaginationTotal > 0;
 
   if (!canAccess) {
     return (
@@ -1923,11 +1974,8 @@ export default function TripsScreen() {
                     pageSize: tripsTablePageSize,
                     onPageSizeChange: setTripsTablePageSize,
                     itemLabel: "trips",
-                    onPrev: () => setTripsTablePage((p) => Math.max(0, p - 1)),
-                    onNext: () =>
-                      setTripsTablePage((p) =>
-                        Math.min(tripsTableTotalPages - 1, p + 1),
-                      ),
+                    onPrev: handleTripsPagePrev,
+                    onNext: handleTripsPageNext,
                   }
                 : undefined
             }
@@ -2334,13 +2382,13 @@ export default function TripsScreen() {
             <TripsHubTableView
               trips={[]}
               hideBody
-              renderAboveBody={renderIndentStageBody()}
+              renderAboveBody={renderIndentStageBody(paginatedHubIndents)}
               renderBody={() => null}
               toolbarCountLabel={`Showing ${visibleUnallocatedIndents.length} of ${dateFilteredUnallocatedIndents.length}`}
               searchQuery={searchQuery}
               onSearchQueryChange={setSearchQuery}
               pagination={tripsListPagination}
-              onDisplayedTripsLengthChange={setHubToolbarMatchCount}
+              onDisplayedTripsLengthChange={undefined}
               currentOrganizationId={currentOrganization?.id ?? null}
               getStageLabel={getStageLabelForTrip}
               transactionsByTripId={transactionsByTripId}
@@ -2401,9 +2449,8 @@ export default function TripsScreen() {
                     activeMetricTab === "all" ? allToolbarCountLabel : undefined
                   }
                   renderAboveBody={
-                    activeMetricTab === "all" &&
-                    visibleUnallocatedIndents.length > 0
-                      ? renderIndentStageBody()
+                    activeMetricTab === "all" && paginatedHubIndents.length > 0
+                      ? renderIndentStageBody(paginatedHubIndents)
                       : null
                   }
                   dateRangeFilter={toolbarDateRangeFilter}
@@ -2422,7 +2469,8 @@ export default function TripsScreen() {
                   softPodTripIds={tripIdsWithDocuments}
                   hardPodTripIds={hardPodTripIds}
                 />
-                {filtered.length === 0 ? (
+                {filtered.length === 0 &&
+                visibleUnallocatedIndents.length === 0 ? (
                   <View style={emptyBannerStageStyle}>
                     <TripsPromoCard
                       variant={tripsEmptyPromoVariant}
@@ -2462,9 +2510,8 @@ export default function TripsScreen() {
                   activeMetricTab === "all" ? allToolbarCountLabel : undefined
                 }
                 renderAboveBody={
-                  activeMetricTab === "all" &&
-                  visibleUnallocatedIndents.length > 0
-                    ? renderIndentStageBody()
+                  activeMetricTab === "all" && paginatedHubIndents.length > 0
+                    ? renderIndentStageBody(paginatedHubIndents)
                     : null
                 }
                 dateRangeFilter={toolbarDateRangeFilter}
@@ -2483,7 +2530,9 @@ export default function TripsScreen() {
                 softPodTripIds={tripIdsWithDocuments}
                 hardPodTripIds={hardPodTripIds}
                 renderBody={(rows) =>
-                  rows.length === 0 ? (
+                  rows.length === 0 &&
+                  filtered.length === 0 &&
+                  visibleUnallocatedIndents.length === 0 ? (
                     <View style={emptyBannerStageStyle}>
                       <TripsPromoCard
                         variant={tripsEmptyPromoVariant}

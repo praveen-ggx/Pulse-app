@@ -1058,7 +1058,13 @@ export type TripsHubTableViewProps = {
   /** Label for the inline Add Trip button (e.g. translated "Add trip"). Defaults to "Add Trip". */
   addTripLabel?: string;
   /** When set, table body shows one page of rows after hub search/sort (full list still in `trips`). */
-  pagination?: { page: number; pageSize: number };
+  pagination?: {
+    page: number;
+    pageSize: number;
+    /** Absolute slice into the filtered trip list (used when ALL mixes indent cards). */
+    offset?: number;
+    limit?: number;
+  };
   /** Fired with count of trips matching toolbar search/sort (full unpaginated length). */
   onDisplayedTripsLengthChange?: (n: number) => void;
   /** Trip ids with a digital POD document (batched). */
@@ -1236,6 +1242,12 @@ export function TripsHubTableView({
 
   const rowsForTableBody = useMemo(() => {
     if (!pagination) return displayedTrips;
+    if (pagination.offset != null && pagination.limit != null) {
+      return displayedTrips.slice(
+        pagination.offset,
+        pagination.offset + pagination.limit,
+      );
+    }
     const start = pagination.page * pagination.pageSize;
     return displayedTrips.slice(start, start + pagination.pageSize);
   }, [displayedTrips, pagination]);
@@ -2939,6 +2951,20 @@ export function TripsHubAuditFooter({
     <HubScreenBottomBar
       left={
         <>
+          {pagination ? (
+            <HubListPaginationBar
+              embedded
+              layoutMode="controls-only"
+              page={pagination.page}
+              totalPages={pagination.totalPages}
+              totalItems={pagination.totalItems}
+              pageSize={pagination.pageSize}
+              onPageSizeChange={pagination.onPageSizeChange}
+              onPrev={pagination.onPrev}
+              onNext={pagination.onNext}
+              itemLabel={pagination.itemLabel}
+            />
+          ) : null}
           <View style={styles.auditFooterIcon}>
             <FontAwesome name="line-chart" size={16} color={Theme.positive} />
           </View>
@@ -2953,22 +2979,6 @@ export function TripsHubAuditFooter({
             </Text>
           </View>
         </>
-      }
-      center={
-        pagination ? (
-          <HubListPaginationBar
-            embedded
-            layoutMode="controls-only"
-            page={pagination.page}
-            totalPages={pagination.totalPages}
-            totalItems={pagination.totalItems}
-            pageSize={pagination.pageSize}
-            onPageSizeChange={pagination.onPageSizeChange}
-            onPrev={pagination.onPrev}
-            onNext={pagination.onNext}
-            itemLabel={pagination.itemLabel}
-          />
-        ) : null
       }
       right={
         <TouchableOpacity

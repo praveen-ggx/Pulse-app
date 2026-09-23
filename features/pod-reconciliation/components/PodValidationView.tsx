@@ -646,7 +646,7 @@ export function PodValidationView({ trip, onClose, isTablet }: PodValidationView
             return (
               <View key={att.id} style={[styles.attachmentItem, isSelected && { borderColor: Theme.primary }]}>
                 <Pressable onPress={() => { setSelectedDocIndex(idx); if (Platform.OS !== 'web') Linking.openURL(att.docUrl); }}>
-                  {att.file_type && att.file_type.startsWith('image/') ? (
+                  {att.file_type && att.file_type.startsWith('image/') && att.imageSource ? (
                     <Image 
                       source={att.imageSource}
                       style={{ width: '100%', height: 100, borderRadius: 8 }} 

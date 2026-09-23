@@ -27,7 +27,7 @@ describe("Invoice Issue action ownership (F1)", () => {
     expect(panelSrc).toMatch(/accessibilityLabel="Issue Invoice"/);
     expect(panelSrc).toMatch(/Issue Invoice/);
     expect(executeSrc).toMatch(/isTripInvoiceable=\{isTripInvoiceable\}/);
-    expect(executeSrc).toMatch(/isTripEligibleForInvoicePodPolicy/);
+    expect(executeSrc).toMatch(/evaluateFinanceWorkflowTrip|workflowForInvoiceTrip/);
     expect(executeSrc).not.toMatch(/isTripInvoiceable=\{\(\) => true\}/);
     expect(executeSrc).toMatch(/selectedInvoiceIssueBlockedReason/);
     expect(executeSrc).toMatch(/useExecuteInvoiceMutation/);

@@ -1,13 +1,15 @@
-// Lazy import: `clients.service` carries the trips/links subgraph; loading it
-// at startup contaminates the dispatcher dock chunk. The only call site is
-// inside `fetchInboundProtocolSnapshot`, which runs post-bootstrap.
-const loadClientsService = () => import('@/features/clients/services/clients.service');
+import { runSingleflight } from '@/lib/cache/singleflight';
 import type { InboundPartnerDisplay, InboundProtocolInviteItem } from '@/lib/globalSync/inboundProtocol.types';
 import { getSignedAvatarUrl } from '@/lib/avatarUpload';
 import { resolveOrgAvatarUri } from '@/features/vehicles/utils/fleetAvatar.util';
 import { normalizePhoneForInviteeLookup } from '@/lib/phoneLookup';
 import type { ConnectionRequestRow } from '@/features/connections/services/connectionRequests.service';
 import { REGISTRY_PAGE_SIZE } from '@/lib/globalSync/registryFeed.constants';
+
+// Lazy import: `clients.service` carries the trips/links subgraph; loading it
+// at startup contaminates the dispatcher dock chunk. The only call site is
+// inside `fetchInboundProtocolSnapshot`, which runs post-bootstrap.
+const loadClientsService = () => import('@/features/clients/services/clients.service');
 
 export function connectionRequestTypeLabel(row: ConnectionRequestRow): string {
   const reqClient = Boolean(row.request_shipper_client);
@@ -202,11 +204,14 @@ export async function fetchInboundProtocolSnapshot(
   partnerOwnerIdByOrgId: Record<string, string>;
 }> {
   const partnerOrgIds = collectPartnerOrgIds(received, sent, true);
-  const { getLinkedOrgProfilesBatch } = await loadClientsService();
-  const partnerDisplayByOrgId = await getLinkedOrgProfilesBatch(partnerOrgIds);
-  const partnerOwnerIdByOrgId = partnerOwnerIdByOrgFromDisplay(partnerDisplayByOrgId);
-  const partnerAvatarUriByOrgId = await resolvePartnerAvatarUris(partnerDisplayByOrgId);
-  return { partnerDisplayByOrgId, partnerAvatarUriByOrgId, partnerOwnerIdByOrgId };
+  const snapshotKey = `inboundProtocol.snapshot:${_orgId}:${[...partnerOrgIds].sort().join(',')}`;
+  return runSingleflight(snapshotKey, async () => {
+    const { getLinkedOrgProfilesBatch } = await loadClientsService();
+    const partnerDisplayByOrgId = await getLinkedOrgProfilesBatch(partnerOrgIds);
+    const partnerOwnerIdByOrgId = partnerOwnerIdByOrgFromDisplay(partnerDisplayByOrgId);
+    const partnerAvatarUriByOrgId = await resolvePartnerAvatarUris(partnerDisplayByOrgId);
+    return { partnerDisplayByOrgId, partnerAvatarUriByOrgId, partnerOwnerIdByOrgId };
+  });
 }
 
 /**

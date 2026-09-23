@@ -10,7 +10,6 @@
  *   sent_at IS NOT NULL → processed (regardless of delivery outcome)
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { ingestLog } from "../_shared/logWatcherIngest.ts";
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 const BATCH_SIZE = 100;
 interface PushOutboxRow {

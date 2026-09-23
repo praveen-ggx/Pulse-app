@@ -3,6 +3,7 @@
  */
 import Theme from "@/constants/Theme";
 import type { IssuedInvoiceListRow } from "@/features/invoicing/services/invoiceList.service";
+import { financeInvoiceHistoryFields } from "@/features/invoicing/utils/invoiceSource.util";
 import { StyleSheet, Text, View } from "react-native";
 
 function formatInr(n: number): string {
@@ -15,13 +16,26 @@ function formatInr(n: number): string {
 export function IssuedInvoiceCard({
   item,
   compact,
+  selected,
 }: {
   item: IssuedInvoiceListRow;
   /** Tighter padding for the Pending Billing side rail. */
   compact?: boolean;
+  selected?: boolean;
 }) {
+  const source = financeInvoiceHistoryFields({
+    invoice_source: item.invoice_source,
+    sales_order_number: item.sales_order_number,
+    trip_ids: item.trip_ids,
+  });
   return (
-    <View style={[styles.card, compact && styles.cardCompact]}>
+    <View
+      style={[
+        styles.card,
+        compact && styles.cardCompact,
+        selected && styles.cardSelected,
+      ]}
+    >
       <View style={styles.cardTop}>
         <Text style={styles.number} numberOfLines={1}>
           {item.invoice_number || "—"}
@@ -40,7 +54,7 @@ export function IssuedInvoiceCard({
       <View style={styles.metaRow}>
         <Text style={styles.total}>{formatInr(item.total_amount)}</Text>
         <Text style={styles.meta}>
-          {item.trip_ids.length} trip{item.trip_ids.length === 1 ? "" : "s"}
+          {source.source} · {source.reference}
         </Text>
       </View>
       <Text style={styles.unsupported}>
@@ -60,10 +74,14 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   cardCompact: {
-    padding: 12,
-    marginBottom: 8,
-    borderRadius: 8,
+    padding: 10,
+    marginBottom: 6,
+    borderRadius: 6,
     borderColor: Theme.borderMedium,
+  },
+  cardSelected: {
+    borderColor: Theme.primary,
+    backgroundColor: Theme.brandBlueWashSubtle,
   },
   cardTop: {
     flexDirection: "row",

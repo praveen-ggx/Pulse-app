@@ -4,6 +4,7 @@
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "@/lib/supabase";
+import { isSupabaseCircuitOpen } from "@/lib/supabaseHttp.util";
 
 const ADJ_SELECT_FULL =
   "id, trip_id, organization_id, type, impact, amount, reason, mission_key, created_at, voided_at, void_reason";
@@ -444,6 +445,8 @@ export async function fetchTripFinanceAdjustmentsByTripIds(
   const out = new Map<string, TripAdjustment[]>();
   const uniq = [...new Set(tripIds.filter(Boolean).map((id) => String(id)))];
   if (uniq.length === 0) return out;
+
+  if (isSupabaseCircuitOpen()) return out;
 
   for (let i = 0; i < uniq.length; i += ADJ_FETCH_CHUNK) {
     const chunk = uniq.slice(i, i + ADJ_FETCH_CHUNK);

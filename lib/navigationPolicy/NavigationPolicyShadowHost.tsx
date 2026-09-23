@@ -34,7 +34,12 @@ export function NavigationPolicyShadowHost({ children }: { children: ReactNode }
   const profile = auth?.profile ?? null;
   const operatingModel = organization?.currentOrganization?.operatingModel ?? null;
   const [predicateVersion, setPredicateVersion] = useState(getPredicateSignalVersion);
+  const [rootNavigatorMounted, setRootNavigatorMounted] = useState(false);
   const enforce = isNavigationPolicyEnforceEnabled();
+
+  useEffect(() => {
+    setRootNavigatorMounted(true);
+  }, []);
 
   useEffect(() => {
     void hydrateSignupFlowFlags();
@@ -91,8 +96,8 @@ export function NavigationPolicyShadowHost({ children }: { children: ReactNode }
       operatingModel={operatingModel}
       predicates={predicates}
       platform={platform}
-      enforce={enforce}
-      navigate={navigate}
+      enforce={enforce && rootNavigatorMounted}
+      navigate={rootNavigatorMounted ? navigate : undefined}
     >
       {children}
     </NavigationPolicyProvider>

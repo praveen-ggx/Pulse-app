@@ -3,7 +3,6 @@
 // Checks the GST public registry: status must be ACTIVE and declared name must
 // fuzzy-match the registry legal name (to block typoed / falsified names).
 // On API timeout/error → returns MANUAL_REVIEW so operations are never blocked.
-import { ingestLog } from '../_shared/logWatcherIngest.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin':  '*',

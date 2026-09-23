@@ -21,6 +21,13 @@ import {
   overlayIssuedInvoiceOnTrip,
   tripHardPodStamp,
 } from "../utils/podIssuedInvoiceOverlay.util";
+import { fetchClientInvoicePodPolicies } from "@/features/clients/services/clients.service";
+import { effectiveInvoicePodPolicyFromClientRaw } from "@/features/invoicing/utils/invoicePodEnforcement.util";
+import {
+  evaluateFinanceWorkflowTrip,
+  financeInvoiceStatusLabel,
+  financePodStatusLabel,
+} from "@/features/invoicing/utils/financeWorkflowState.util";
 import {
   podOperatorDisplayName,
   podTripLane,
@@ -260,23 +267,46 @@ export async function fetchReconciliationTrips(
       lrByTripId = await loadLrPodIndexByTripIds(internalIds);
     }
 
+    const policyClientIds = Array.from(
+      new Set(filtered.map((t) => str(t.client_id)).filter(Boolean)),
+    );
+    const policyRes =
+      policyClientIds.length > 0
+        ? await fetchClientInvoicePodPolicies(orgId, policyClientIds)
+        : { error: null, policies: {} as Record<string, unknown> };
+    const clientPolicies = policyRes.policies ?? {};
+
     const mapped = filtered.map(trip => {
-      let invoice_status_display = 'Invoice Pending';
       const inv1 = str(trip.invoice_status_1).toLowerCase();
       const podReceivedAt = tripHardPodStamp(trip);
       const podReceived = tripPodIsReceived({
         pod_received_at: podReceivedAt,
         pod_status: trip.pod_status,
       });
-      const isRaised = inv1.includes('raised') || trip.invoice_no;
-      const isApproved = (inv1.includes('pending') || inv1.includes('data shared')) && podReceived;
-      const isReceived = podReceived && !isApproved && !isRaised;
-      
-      if (isRaised) invoice_status_display = 'Invoiced';
-      else if (isApproved) invoice_status_display = 'Ready for Invoice';
-      else if (isReceived) invoice_status_display = 'Received';
-
+      const isRaised = Boolean(inv1.includes('raised') || trip.invoice_no);
       const docs = lrByTripId.get(str(trip.id));
+      const clientId = str(trip.client_id);
+      const resolvedPolicy = effectiveInvoicePodPolicyFromClientRaw({
+        clientPolicyRaw: clientId ? clientPolicies[clientId] : null,
+      });
+      const workflow = evaluateFinanceWorkflowTrip({
+        tripStatus: str(trip.status || trip.trip_status),
+        policy: resolvedPolicy.ok ? resolvedPolicy.policy : null,
+        physicalPodReceived: podReceived,
+        digitalPodPresent: docs?.hasPodDocument === true,
+        invoiced: isRaised,
+      });
+      const invoice_status_display = workflow
+        ? financeInvoiceStatusLabel(workflow.invoiceState)
+        : isRaised
+          ? "Invoiced"
+          : "Invoice Pending";
+      const podStatusLabel = workflow
+        ? financePodStatusLabel(workflow.podState)
+        : podReceived
+          ? "Received"
+          : str(trip.pod_status) || "Pending";
+
       const allLrNumbers = docs?.lrNumbers ?? [];
       const finalReceivedLRs = receivedLrNumbersForTrip(allLrNumbers, {
         tripReceived: podReceived,
@@ -325,7 +355,7 @@ export async function fetchReconciliationTrips(
         amount: num(trip.client_price || trip.total_client_value),
         date: tripDate,
         trip_date: tripDate,
-        pod_status: podReceived ? 'Received' : str(trip.pod_status) || 'Pending',
+        pod_status: podStatusLabel,
         pod_received_date: podReceivedAt ? podReceivedAt.slice(0, 10) : null,
         invoice_status_1: isRaised
           ? "Raised"

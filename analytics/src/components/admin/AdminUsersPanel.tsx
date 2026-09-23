@@ -6,7 +6,7 @@
  * Now gated behind 'platform_admin.manage' permission.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, Mail, RefreshCw, ShieldCheck, Trash2, UserPlus, Lock } from 'lucide-react';
+import { Loader2, Mail, RefreshCw, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
 import { usePermission } from '@/hooks/usePermission';
 import { AccessDenied } from '@/components/auth/PermissionGate';
 import {

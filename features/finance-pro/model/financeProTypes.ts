@@ -131,6 +131,8 @@ export type FinanceProModel = {
     documentAmount: number;
     status: string;
     tripIds: string[];
+    sourceLabel?: string;
+    sourceReference?: string;
   }[];
   issuedThisMonthValue: number;
   issuedThisMonthCount: number;

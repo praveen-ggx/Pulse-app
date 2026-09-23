@@ -27,6 +27,7 @@ import {
     isPublicAuthRoute,
     shouldMountAuthenticatedDataPlane,
     shouldMountRootOverlayTabBar,
+    shouldApplyUnsignedDataPlaneRedirect,
     shouldRedirectDataPlaneRouteWithoutSession,
     shouldRenderPublicAuthTree,
 } from '@/lib/bootGate';
@@ -85,7 +86,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { useFonts } from 'expo-font';
 import { Redirect, Stack, usePathname, useRouter, useSegments, type ErrorBoundaryProps } from 'expo-router';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ViewStyle } from 'react-native';
 import { LogBox, Platform, StyleSheet, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -138,9 +139,14 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   const sessionExpired = isSessionExpiredError(error);
 
   useEffect(() => {
-    if (sessionExpired) {
-      authService.signOut().catch(() => {});
+    if (!sessionExpired) return;
+    authService.signOut().catch(() => {});
+    try {
       router.replace(ROUTES.SIGN_IN_DIRECT);
+    } catch {
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.location.replace(ROUTES.SIGN_IN_DIRECT);
+      }
     }
   }, [sessionExpired, router]);
 
@@ -525,12 +531,16 @@ function RootLayoutNav() {
   const pathname = usePathname();
   const segments = useSegments();
   const auth = useOptionalAuth();
+  const [rootNavigatorMounted, setRootNavigatorMounted] = useState(false);
   const isDriverRole = auth?.profile?.role === 'driver';
   const isChatRoute =
     pathname === ROUTES.CHAT || pathname.startsWith('/chat');
   const isDispatcherChatRouteActive =
     !isDriverRole &&
     (isFloatingChatHostRoute(pathname) || isChatRoute);
+  useEffect(() => {
+    setRootNavigatorMounted(true);
+  }, []);
   useEffect(() => {
     rememberCurrentPath(pathname);
   }, [pathname]);
@@ -544,17 +554,19 @@ function RootLayoutNav() {
     };
   }, []);
 
-  if (
-    shouldRedirectDataPlaneRouteWithoutSession(
-      Boolean(auth?.sessionAttached),
-      pathname,
-      segments,
-    )
-  ) {
+  const bounceUnsigned = shouldRedirectDataPlaneRouteWithoutSession(
+    Boolean(auth?.sessionAttached),
+    pathname,
+    segments,
+  );
+
+  // First paint must include Stack/Slot. Redirect on that same render throws
+  // "Attempted to navigate before mounting the Root Layout".
+  if (shouldApplyUnsignedDataPlaneRedirect(bounceUnsigned, rootNavigatorMounted)) {
     return <Redirect href={ROUTES.SIGN_IN_DIRECT} />;
   }
 
-  return (
+  const navTree = (
     <NavigationPolicyShadowHost>
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <DemoTabBarScrollProvider>
@@ -599,6 +611,7 @@ function RootLayoutNav() {
               <Stack.Screen name="track" options={{ animation: 'slide_from_right', headerShown: false }} />
               <Stack.Screen name="fleet-operations" options={{ animation: 'slide_from_right', headerShown: false }} />
               <Stack.Screen name="compliance" options={{ animation: 'slide_from_right', headerShown: false }} />
+              <Stack.Screen name="pulse-loads" options={{ animation: 'slide_from_right', headerShown: false }} />
               <Stack.Screen name="create-indent" options={{ presentation: 'fullScreenModal' }} />
               <Stack.Screen name="log-incoming-pods" options={{ presentation: 'card', animation: 'slide_from_right' }} />
               <Stack.Screen name="invoicing-execute" options={{ presentation: 'card', animation: 'slide_from_right' }} />
@@ -630,6 +643,14 @@ function RootLayoutNav() {
     </ThemeProvider>
     </NavigationPolicyShadowHost>
   );
+
+  // One-frame Stack paint on a leftover data-plane URL must not throw
+  // useOrganization (PublicAuthTree has no org provider).
+  if (bounceUnsigned) {
+    return <OrganizationProvider>{navTree}</OrganizationProvider>;
+  }
+
+  return navTree;
 }
 
 function RootOverlayTabBar() {
@@ -669,7 +690,13 @@ function RootOverlayTabBar() {
 
   useEffect(() => {
     if (!showOnRootScreens || auth?.profile?.role === 'driver') return;
-    scheduleDispatcherTabPreloads(undefined, { queryClient, orgId });
+    // Chunk-only. Finance/trips RPCs on this overlay duplicated tabs-layout
+    // warmup and piled onto Auth at sign-in (2026-09-22 unhealthy cascade).
+    scheduleDispatcherTabPreloads(undefined, {
+      queryClient,
+      orgId,
+      warmFinanceData: false,
+    });
   }, [showOnRootScreens, orgId, queryClient, auth?.profile?.role]);
 
   if (!showOnRootScreens) return null;

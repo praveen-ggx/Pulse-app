@@ -1,10 +1,8 @@
 import { getPlatformEventBus } from '../events/InProcessEventBus';
 import type { EventBus } from '../events/EventBus.contract';
-import { CustomerService } from '../services/CustomerService';
 import { ExecutionPlanService } from '../services/ExecutionPlanService';
 import { IndentService } from '../services/IndentService';
 import { OrderService } from '../services/OrderService';
-import { WarehouseService } from '../services/WarehouseService';
 import { indentRepository } from '../repositories/indentRepository';
 import type { ExecutionOrchestrator } from './ExecutionOrchestrator.contract';
 import { summarizeStopsByType } from './summarizeStopLocations';

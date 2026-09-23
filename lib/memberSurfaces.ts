@@ -799,7 +799,12 @@ export const MEMBER_SURFACE_CATALOG: readonly MemberSurfaceDef[] = [
     label: "Compliance tab",
     hint: "Open the Trip Compliance workspace",
     domain: "trip_compliance",
+    // DISP is the org availability gate only. Opening the workspace confers no
+    // capability of its own — the actions inside it are gated by their own
+    // surfaces. Without this, granting a finance member the Compliance tab
+    // handed them `dispatch` + `dispatch_for_own_fleet` (TC-06/TC-06b).
     anyOfCaps: DISP,
+    grantsCaps: [],
   },
   {
     id: "trip_compliance.documents.view",
@@ -830,7 +835,10 @@ export const MEMBER_SURFACE_CATALOG: readonly MemberSurfaceDef[] = [
     label: "View compliance settlement",
     hint: "See advance/balance payment and POD settlement state on Compliance",
     domain: "trip_compliance",
+    // FIN is a union gate (finance_view | finance_manage); a read-only surface
+    // must not confer finance_manage. Mirrors finance.* read surfaces.
     anyOfCaps: FIN,
+    grantsCaps: ["finance_view"],
     requires: "trip_compliance.tab",
   },
   {

@@ -6,6 +6,7 @@ import {
   type PlanStopLocationRow,
 } from "@/features/network/utils/executionPlanRouteSummary";
 import { throwIfCancelled, withAbortSignal } from "@/lib/supabaseAbort.util";
+import { isCommerceDataQueryEnabled } from "@/lib/suite/productLock";
 
 /** Stop columns only — nested `client_warehouses` embeds 57014 under load. */
 export const EXECUTION_PLAN_STOP_SELECT =
@@ -19,6 +20,7 @@ export async function fetchExecutionPlanRouteSummaries(
   planIds: string[],
   signal?: AbortSignal,
 ): Promise<Record<string, ExecutionPlanRouteSummary>> {
+  if (!isCommerceDataQueryEnabled()) return {};
   const ids = [...new Set(planIds.map((id) => id.trim()).filter(Boolean))];
   if (ids.length === 0) return {};
 

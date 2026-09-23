@@ -33,6 +33,11 @@ import {
   podReceivedAtIso,
   type PodReceivedDatePreset,
 } from "@/features/log-pods/utils/podReceivedDate.util";
+import {
+  displayOperationalField,
+  fillMissingInvoiceTripLrNumbers,
+  type InvoiceTripOperationalSeed,
+} from "@/features/invoicing/utils/invoiceTripOperational.util";
 import { TripCompletionStatusTag } from "@/features/trips/components/TripPodStatusTags";
 import {
   countTripsByCompletion,
@@ -71,9 +76,14 @@ const TRIP_LIST_TABS: { id: LogIncomingPodsListTab; label: string }[] = [
 export function LogIncomingPodsModal({
   visible,
   onClose,
+  preselectedTripIds,
+  seedTrips,
 }: {
   visible: boolean;
   onClose: () => void;
+  preselectedTripIds?: string[];
+  expectedClientId?: string | null;
+  seedTrips?: InvoiceTripOperationalSeed[];
 }) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -81,11 +91,24 @@ export function LogIncomingPodsModal({
   const { currentOrganization } = useOrganization();
   const orgId = currentOrganization?.id ?? null;
 
-  const suppliersQuery = useLogIncomingPodsSuppliersQuery(visible ? orgId : null);
-  const driversQuery = useLogIncomingPodsDriversQuery(visible ? orgId : null);
-  const tripsQuery = useLogIncomingPodsTripsQuery(visible ? orgId : null, {
+  const lockedTripKey = (preselectedTripIds ?? []).filter(Boolean).join(",");
+  const lockedTripIds = useMemo(
+    () => lockedTripKey.split(",").filter(Boolean),
+    [lockedTripKey],
+  );
+  const lockToPreselected = lockedTripIds.length > 0;
+  const suppliersQuery = useLogIncomingPodsSuppliersQuery(
+    visible && !lockToPreselected ? orgId : null,
+  );
+  const driversQuery = useLogIncomingPodsDriversQuery(
+    visible && !lockToPreselected ? orgId : null,
+  );
+  const tripsQuery = useLogIncomingPodsTripsQuery(
+    visible && !lockToPreselected ? orgId : null,
+    {
     includeReceived: true,
-  });
+    },
+  );
   const markReceived = useMarkHardCopyPodsReceivedMutation(orgId);
 
   const [partyKind, setPartyKind] = useState<LogPodsPartyKind>("supplier");
@@ -106,6 +129,10 @@ export function LogIncomingPodsModal({
   const [courierSearch, setCourierSearch] = useState("");
   const [typedCourierName, setTypedCourierName] = useState("");
   const [awb, setAwb] = useState("");
+  const [remarks, setRemarks] = useState("");
+  const [enrichedSeeds, setEnrichedSeeds] = useState<
+    InvoiceTripOperationalSeed[]
+  >([]);
 
   const couriersQuery = useCourierPartnersQuery();
 
@@ -123,8 +150,27 @@ export function LogIncomingPodsModal({
       setCourierSearch("");
       setTypedCourierName("");
       setAwb("");
+      setRemarks("");
+      setEnrichedSeeds([]);
     }
   }, [visible]);
+
+  useEffect(() => {
+    if (!visible || !lockToPreselected) return;
+    setSelectedIds(lockedTripIds);
+    setReceiveStep("details");
+  }, [lockToPreselected, lockedTripIds, visible]);
+
+  useEffect(() => {
+    if (!visible || !lockToPreselected) return;
+    let cancelled = false;
+    void fillMissingInvoiceTripLrNumbers(seedTrips ?? []).then((next) => {
+      if (!cancelled) setEnrichedSeeds(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [lockToPreselected, seedTrips, visible]);
 
   const driverOptions = useMemo(() => {
     const byId = new Map<string, LogPodsPartyOption>();
@@ -177,13 +223,40 @@ export function LogIncomingPodsModal({
     return partyTrips.length;
   };
 
-  const selectedTripViews = useMemo(
-    () =>
-      (tripsQuery.data ?? []).filter((trip) =>
-        selectedIds.includes(trip.internal_id),
-      ),
-    [selectedIds, tripsQuery.data],
-  );
+  const selectedTripViews = useMemo(() => {
+    if (lockToPreselected) {
+      const source = enrichedSeeds.length > 0 ? enrichedSeeds : seedTrips ?? [];
+      return source.map(
+        (seed): LogPodsTripView => ({
+          id: seed.id,
+          internal_id: seed.internal_id,
+          client: seed.client,
+          supplier_id: "",
+          supplier_name: seed.supplier_name,
+          driver_id: "",
+          driver_name: seed.driver_name ?? "",
+          lane: "market",
+          from: seed.from ?? "—",
+          to: seed.to ?? "—",
+          amount: null,
+          status: "completed",
+          lrNumbers: seed.lr_number ? [seed.lr_number] : [],
+          receivedLRs: [],
+          date: "",
+          hardCopyReceived: false,
+        }),
+      );
+    }
+    return (tripsQuery.data ?? []).filter((trip) =>
+      selectedIds.includes(trip.internal_id),
+    );
+  }, [
+    enrichedSeeds,
+    lockToPreselected,
+    seedTrips,
+    selectedIds,
+    tripsQuery.data,
+  ]);
   const courierDirectory = useMemo(
     () =>
       mergeCourierPartnerLists(
@@ -260,6 +333,7 @@ export function LogIncomingPodsModal({
         method: receiveMethod,
         courierName: selectedCourierName,
         trackingId: awb.trim(),
+        comment: remarks.trim() || null,
       },
       {
         onSuccess: (result) => {
@@ -283,14 +357,17 @@ export function LogIncomingPodsModal({
 
   const handleFooterBack = () => {
     if (receiveStep === "preview") setReceiveStep("details");
-    else if (receiveStep === "details") setReceiveStep("trips");
-    else onClose();
+    else if (receiveStep === "details" && !lockToPreselected) {
+      setReceiveStep("trips");
+    } else onClose();
   };
 
-  const loading =
-    suppliersQuery.isLoading || driversQuery.isLoading || tripsQuery.isLoading;
-  const errorMessage =
-    suppliersQuery.error instanceof Error
+  const loading = lockToPreselected
+    ? false
+    : suppliersQuery.isLoading || driversQuery.isLoading || tripsQuery.isLoading;
+  const errorMessage = lockToPreselected
+    ? null
+    : suppliersQuery.error instanceof Error
       ? suppliersQuery.error.message
       : driversQuery.error instanceof Error
         ? driversQuery.error.message
@@ -371,6 +448,35 @@ export function LogIncomingPodsModal({
             <View style={styles.wizardBody}>
               {receiveStep === "details" ? (
                 <View style={styles.stepBody}>
+                  {lockToPreselected
+                    ? selectedTripViews.map((trip) => (
+                        <View key={trip.internal_id} style={styles.previewCard}>
+                          <Text style={styles.previewRow}>
+                            Trip · {displayOperationalField(trip.id)}
+                          </Text>
+                          <Text style={styles.previewRow}>
+                            Client · {displayOperationalField(trip.client)}
+                          </Text>
+                          <Text style={styles.previewRow}>
+                            Supplier ·{" "}
+                            {displayOperationalField(trip.supplier_name)}
+                          </Text>
+                          <Text style={styles.previewRow}>
+                            Driver · {displayOperationalField(trip.driver_name)}
+                          </Text>
+                          <Text style={styles.previewRow}>
+                            LR No ·{" "}
+                            {displayOperationalField(trip.lrNumbers[0])}
+                          </Text>
+                          <Text style={styles.previewRow}>
+                            Pickup · {displayOperationalField(trip.from)}
+                          </Text>
+                          <Text style={styles.previewRow}>
+                            Drop · {displayOperationalField(trip.to)}
+                          </Text>
+                        </View>
+                      ))
+                    : null}
                   <View style={styles.wizardSegmentWrap}>
                     <Pressable
                       style={[
@@ -577,6 +683,14 @@ export function LogIncomingPodsModal({
                       </Text>
                     </Pressable>
                   </View>
+                  <Text style={styles.fieldLabel}>Reference / remarks</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    placeholder="Optional"
+                    placeholderTextColor={Theme.textMuted}
+                    value={remarks}
+                    onChangeText={setRemarks}
+                  />
                 </View>
               ) : (
                 <ScrollView

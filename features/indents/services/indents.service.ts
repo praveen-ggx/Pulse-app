@@ -18,6 +18,7 @@ import type { CacheDomain, DeltaResponse } from "@/lib/cache/deltaTypes";
 import { syncDomainRows } from "@/lib/cache/domainSync";
 import { mergeDeltaRows } from "@/lib/cache/mergeDelta";
 import { DEFAULT_PAGE_SIZE, FINITE_LIST_CAP, type PageOpts } from "@/lib/pagination";
+import { isIndentWriteTimeout } from "@/features/indents/utils/indentCreateTimeout.util";
 import { supabase } from "@/lib/supabase";
 import {
   VALIDATION,
@@ -88,6 +89,13 @@ export interface IndentStopInput {
 export interface IndentRow {
   id: string;
   organization_id: string;
+  /**
+   * Commerce (multi-order e-commerce) execution plan this indent belongs to.
+   * Not a column on `indents` — it is resolved at read time from the linked
+   * commerce records and attached to the row, so it is optional. Consumers
+   * (LoadCenterView, indentStoryPosts) read it to flag commerce loads.
+   */
+  execution_plan_id?: string | null;
   /** Operational identity code, e.g. GGV234-IND-001 */
   indent_code?: string | null;
   /** Enterprise operational identity code, e.g. GGV234ABCIND000001 */
@@ -159,6 +167,41 @@ function normalizeIndentRow(
     indent_number: getIndentOperationalDisplay(row),
     trip_number: tripRef === "—" ? null : tripRef,
   };
+}
+
+/** PostgREST can commit the insert after the client aborts; reuse that row. */
+async function recoverCreatedIndentAfterTimeout(
+  orgId: string,
+  payload: Record<string, unknown>,
+): Promise<IndentRow | null> {
+  const pickup = String(payload.pickup_area ?? "").trim();
+  const drop = String(payload.drop_location ?? "").trim();
+  const clientName = String(payload.client_name ?? "").trim();
+  if (!pickup || !drop || !clientName) return null;
+
+  const since = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+  let query = supabase()
+    .from("indents")
+    .select("*")
+    .eq("organization_id", orgId)
+    .eq("pickup_area", pickup)
+    .eq("drop_location", drop)
+    .eq("client_name", clientName)
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  const createdBy =
+    typeof payload.created_by_user_id === "string"
+      ? payload.created_by_user_id
+      : "";
+  if (createdBy) {
+    query = query.eq("created_by_user_id", createdBy);
+  }
+
+  const { data, error } = await query.maybeSingle();
+  if (error || !data) return null;
+  return data as IndentRow;
 }
 
 async function ensurePublicUserRecord(userId?: string | null): Promise<void> {
@@ -929,6 +972,23 @@ export async function createIndent(
     .single();
 
   if (error) {
+    if (isIndentWriteTimeout(error)) {
+      const recovered = await recoverCreatedIndentAfterTimeout(orgId, payload);
+      if (recovered) {
+        const indent = recovered;
+        if (action === "share") {
+          void ensureIndentStory(orgId, indent).then(({ error: storyErr }) => {
+            if (storyErr && __DEV__) {
+              console.warn(
+                "[indents] createIndent: default 24h story failed:",
+                storyErr.message,
+              );
+            }
+          });
+        }
+        return { error: null, indent };
+      }
+    }
     const msg =
       [error.message, error.details, error.hint].filter(Boolean).join(" — ") ||
       error.message;
@@ -1153,7 +1213,30 @@ export async function shareDraftIndent(
     .select()
     .maybeSingle();
 
-  if (error) return { error: toIndentUpdateError(error.message), indent: null };
+  if (error) {
+    if (isIndentWriteTimeout(error)) {
+      const { data: existing } = await supabase()
+        .from("indents")
+        .select("*")
+        .eq("id", indentId)
+        .maybeSingle();
+      if (existing && (existing as IndentRow).status === "broadcast") {
+        const indent = existing as IndentRow;
+        void ensureIndentStory(indent.organization_id, indent).then(
+          ({ error: storyErr }) => {
+            if (storyErr && __DEV__) {
+              console.warn(
+                "[indents] shareDraftIndent: default 24h story failed:",
+                storyErr.message,
+              );
+            }
+          },
+        );
+        return { error: null, indent };
+      }
+    }
+    return { error: toIndentUpdateError(error.message), indent: null };
+  }
   if (!data)
     return {
       error: new Error("This indent has already been shared"),

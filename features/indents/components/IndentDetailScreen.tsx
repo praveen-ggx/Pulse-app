@@ -74,10 +74,15 @@ import {
     useVehiclesQuery,
 } from "@/lib/queries";
 import {
+    useDriverDirectBidsForPostQuery,
+    useMarketBidsForIndentQuery,
+} from "@/lib/queries/useBidsQuery";
+import {
     useIndentDirectQuotesQuery,
     useInvalidateIndents,
     useMyDirectQuotesQuery,
 } from "@/lib/queries/useIndentsQuery";
+import { mergeIndentReviewHubOffers } from "@/features/indents/utils/bidding/indentReviewHubOffers.util";
 import { useInvalidatePosts, useIndentStoryStatesQuery } from "@/lib/queries/usePostsQuery";
 import { BoostSheet } from "@/features/reach/components/BoostSheet";
 import { queryKeys } from "@/lib/queryKeys";
@@ -86,7 +91,8 @@ import { useCapabilities } from "@/lib/useCapabilities";
 import { useLinkedOrgProfileMap } from "@/lib/useLinkedOrgProfileMap";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { STALE, shouldRetryQuery } from "@/lib/queryClient";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -218,13 +224,15 @@ export function IndentDetailScreen({
   const queryClient = useQueryClient();
   const invalidateIndents = useInvalidateIndents();
   const invalidatePosts = useInvalidatePosts(orgId);
-  const { data: trips = [] } = useTripsQuery(orgId);
-  const { data: drivers = [] } = useDriversQuery(orgId);
-  const { data: vehicles = [] } = useVehiclesQuery(orgId);
+  const [enrichmentOpen, setEnrichmentOpen] = useState(false);
+  const enrichmentOrgId = enrichmentOpen ? orgId : null;
+  const { data: trips = [] } = useTripsQuery(enrichmentOrgId);
+  const { data: drivers = [] } = useDriversQuery(enrichmentOrgId);
+  const { data: vehicles = [] } = useVehiclesQuery(enrichmentOrgId);
   const { data: suppliers = [] } = useSuppliersQuery(
-    canUseSuppliers ? orgId : null,
+    canUseSuppliers ? enrichmentOrgId : null,
   );
-  const { data: clients = [] } = useClientsQuery(orgId);
+  const { data: clients = [] } = useClientsQuery(enrichmentOrgId);
   const linkedOrgByOrganizationId = useLinkedOrgProfileMap(clients, suppliers);
   const integratedSuppliers = useMemo(
     () =>
@@ -297,10 +305,59 @@ export function IndentDetailScreen({
     setLoading(seed == null);
   }, [indentId]);
 
-  const { data: quotes = [], refetch: refetchQuotes } =
-    useIndentDirectQuotesQuery(indentId);
+  useEffect(() => {
+    if (!indent?.id) {
+      setEnrichmentOpen(false);
+      return;
+    }
+    const t = setTimeout(() => setEnrichmentOpen(true), 1_600);
+    return () => clearTimeout(t);
+  }, [indent?.id]);
+
+  const isLikelyOwner = !indent || indent.organization_id === orgId;
+  const {
+    data: directQuotes = [],
+    refetch: refetchQuotes,
+    isPending: directQuotesPending,
+    isFetched: directQuotesFetched,
+  } = useIndentDirectQuotesQuery(indentId);
+  const linkedPostQ = useQuery({
+    queryKey: ["q", "posts", "latest-load-for-indent", indentId ?? ""],
+    queryFn: async () => {
+      const { getLatestLoadPostIdForIndent } = await import(
+        "@/features/network/services/bids.service"
+      );
+      const res = await getLatestLoadPostIdForIndent(indentId!);
+      if (res.error) throw res.error;
+      return res.postId;
+    },
+    enabled: Boolean(indentId && orgId && isLikelyOwner),
+    staleTime: STALE.moderate,
+    retry: shouldRetryQuery,
+  });
+  const driverDirectBidsQ = useDriverDirectBidsForPostQuery(
+    isLikelyOwner ? (linkedPostQ.data ?? null) : null,
+  );
+  const marketBidsQ = useMarketBidsForIndentQuery(
+    isLikelyOwner ? indentId : null,
+  );
+  const quotes = useMemo(
+    () =>
+      mergeIndentReviewHubOffers({
+        indentId: indentId ?? "",
+        directQuotes,
+        driverBids: driverDirectBidsQ.data,
+        marketBids: marketBidsQ.data,
+      }),
+    [indentId, directQuotes, driverDirectBidsQ.data, marketBidsQ.data],
+  );
+  const quotesLoading =
+    (directQuotesPending && !directQuotesFetched) ||
+    (Boolean(isLikelyOwner && indentId) &&
+      marketBidsQ.isPending &&
+      !marketBidsQ.isFetched);
   const { data: myQuotes = [], refetch: refetchMyQuotes } =
-    useMyDirectQuotesQuery(orgId);
+    useMyDirectQuotesQuery(orgId, { immediate: true });
 
   const load = useCallback(async () => {
     if (!indentId) {
@@ -455,19 +512,44 @@ export function IndentDetailScreen({
       try {
         setAwarding(true);
         setSelectedQuoteId(winner.id);
-        const { error: acceptErr } = await updateDirectQuoteStatus(
-          winner.id,
-          "accepted",
-        );
-        if (acceptErr) {
-          Alert.alert("Could not award", acceptErr.message);
-          return;
+        const source = winner.offer_source ?? "direct_quote";
+        if (source === "driver_direct_bid") {
+          const { acceptDriverDirectBid } = await import(
+            "@/features/network/services/bids.service"
+          );
+          const { error: acceptErr } = await acceptDriverDirectBid(winner.id);
+          if (acceptErr) {
+            Alert.alert("Could not award", acceptErr.message);
+            return;
+          }
+        } else if (source === "market_bid") {
+          const { awardMarketBid } = await import(
+            "@/features/network/services/marketBids.service"
+          );
+          const { error: acceptErr } = await awardMarketBid(winner.id);
+          if (acceptErr) {
+            Alert.alert("Could not award", acceptErr.message);
+            return;
+          }
+        } else {
+          const { error: acceptErr } = await updateDirectQuoteStatus(
+            winner.id,
+            "accepted",
+          );
+          if (acceptErr) {
+            Alert.alert("Could not award", acceptErr.message);
+            return;
+          }
+          await Promise.allSettled(
+            pendingQuotes
+              .filter(
+                (q) =>
+                  q.id !== winner.id &&
+                  (q.offer_source ?? "direct_quote") === "direct_quote",
+              )
+              .map((q) => updateDirectQuoteStatus(q.id, "rejected")),
+          );
         }
-        await Promise.allSettled(
-          pendingQuotes
-            .filter((q) => q.id !== winner.id)
-            .map((q) => updateDirectQuoteStatus(q.id, "rejected")),
-        );
         const awardedAmount = Number(winner.amount ?? 0);
         // Status only — bundling supplier_target here fails on broadcast indents
         // (enforce_indent_draft_broadcast_rules blocks commercial edits), which
@@ -1306,6 +1388,7 @@ export function IndentDetailScreen({
                       }
                       showHammer={false}
                       quotes={quotes}
+                      quotesLoading={quotesLoading}
                       clientPriceInr={clientPriceNum}
                       targetRateInr={effectiveSupplierAmount}
                       pickupDateIso={indent.pickup_date}
@@ -1455,6 +1538,7 @@ export function IndentDetailScreen({
             }
             showHammer={liveBidsCount > 0}
             quotes={quotes}
+            quotesLoading={quotesLoading}
             clientPriceInr={clientPriceNum}
             targetRateInr={effectiveSupplierAmount}
             pickupDateIso={indent.pickup_date}

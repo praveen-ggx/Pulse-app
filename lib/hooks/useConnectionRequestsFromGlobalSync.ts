@@ -10,6 +10,7 @@ import { STALE } from '@/lib/queryClient';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { shouldFallbackConnectionRequestFetch } from '@/lib/hooks/connectionRequestQueryGate.util';
 
 type Options = {
   enabled?: boolean;
@@ -34,12 +35,13 @@ function useConnectionRequestsQuery(
   const refreshInboundProtocol = useGlobalSyncStore((s) => s.refreshInboundProtocol);
   const { status: authStatus } = useAuth();
 
-  const shouldFetch =
-    !!orgId &&
-    options?.enabled !== false &&
-    !bootstrapReady &&
-    bootstrapStatus !== 'loading' &&
-    authStatus === 'authenticated';
+  const shouldFetch = shouldFallbackConnectionRequestFetch({
+    orgId,
+    enabled: options?.enabled,
+    bootstrapReady,
+    bootstrapStatus,
+    authStatus,
+  });
 
   const queryKey =
     kind === 'received'

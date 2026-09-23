@@ -1,7 +1,6 @@
 import { InProcessEventBus } from '../../events/InProcessEventBus';
 import {
   clearPlatformEventLog,
-  getPlatformEventLogByCorrelationId,
   setPlatformEventLogEnabled,
 } from '../../events/PlatformEventLog';
 import type { SalesOrderForPublish } from '../../repositories/orderRepository';

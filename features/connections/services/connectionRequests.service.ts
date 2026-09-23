@@ -22,6 +22,7 @@
  * - Mutual invites (A→B and B→A): two separate rows; each approval creates one directional relationship.
  * - Re-invite after existing connection: duplicate insert prevented as above; existing client/supplier rows are updated by trigger when linked_organization_id already exists.
  */
+import { runSingleflight } from '@/lib/cache/singleflight';
 import { supabase } from '@/lib/supabase';
 import { todayPendingInviteCountFromSent } from '@/lib/todayPendingInviteCount';
 
@@ -526,29 +527,43 @@ export async function getLatestConnectionRequestStatus(
 /**
  * List connection requests received by the given org. Single RPC, O(n) in result size.
  */
-export async function getConnectionRequestsReceived(orgId: string): Promise<{
+export async function getConnectionRequestsReceived(
+  orgId: string,
+  opts?: { signal?: AbortSignal },
+): Promise<{
   error: Error | null;
   requests: ConnectionRequestRow[];
 }> {
-  const { data, error } = await supabase().rpc('get_connection_requests_received_with_names', {
-    p_org_id: orgId,
+  return runSingleflight(`connectionRequests.received:${orgId}`, async () => {
+    const { data, error } = await supabase().rpc(
+      'get_connection_requests_received_with_names',
+      { p_org_id: orgId },
+      { abortSignal: opts?.signal },
+    );
+    if (error) return { error: new Error(error.message), requests: [] };
+    return { error: null, requests: (data ?? []) as ConnectionRequestRow[] };
   });
-  if (error) return { error: new Error(error.message), requests: [] };
-  return { error: null, requests: (data ?? []) as ConnectionRequestRow[] };
 }
 
 /**
  * List connection requests sent by the given org. Single RPC, O(n) in result size.
  */
-export async function getConnectionRequestsSent(orgId: string): Promise<{
+export async function getConnectionRequestsSent(
+  orgId: string,
+  opts?: { signal?: AbortSignal },
+): Promise<{
   error: Error | null;
   requests: ConnectionRequestRow[];
 }> {
-  const { data, error } = await supabase().rpc('get_connection_requests_sent_with_names', {
-    p_org_id: orgId,
+  return runSingleflight(`connectionRequests.sent:${orgId}`, async () => {
+    const { data, error } = await supabase().rpc(
+      'get_connection_requests_sent_with_names',
+      { p_org_id: orgId },
+      { abortSignal: opts?.signal },
+    );
+    if (error) return { error: new Error(error.message), requests: [] };
+    return { error: null, requests: (data ?? []) as ConnectionRequestRow[] };
   });
-  if (error) return { error: new Error(error.message), requests: [] };
-  return { error: null, requests: (data ?? []) as ConnectionRequestRow[] };
 }
 
 /** True if today’s pending sent count is at or above the daily cap (extra fetch; server still enforces). */

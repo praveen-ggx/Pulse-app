@@ -111,15 +111,15 @@ describe('getLinkedOrgProfilesBatch session guard', () => {
     expect(mockRpc).toHaveBeenCalledTimes(2);
   });
 
-  it('chunks partner-display RPC so LATERAL counts stay off the timeout cliff', async () => {
+  it('chunks partner-display RPC so one page is one or two calls, not one per 8 ids', async () => {
     mockGetSession.mockResolvedValue({
       data: { session: { access_token: 'jwt', user: { id: 'user-1' } } },
     });
     mockRpc.mockResolvedValue({ data: {}, error: null });
-    const ids = Array.from({ length: 9 }, (_, i) => `org-${i + 1}`);
+    const ids = Array.from({ length: 25 }, (_, i) => `org-${i + 1}`);
     await getLinkedOrgProfilesBatch(ids);
     expect(mockRpc).toHaveBeenCalledTimes(2);
-    expect(mockRpc.mock.calls[0][1].p_linked_organization_ids).toHaveLength(8);
+    expect(mockRpc.mock.calls[0][1].p_linked_organization_ids).toHaveLength(24);
     expect(mockRpc.mock.calls[1][1].p_linked_organization_ids).toHaveLength(1);
   });
 

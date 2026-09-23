@@ -29,7 +29,7 @@ export const hubScreenBottomBarStyles = StyleSheet.create({
     gap: 10,
     flexShrink: 1,
     minWidth: 0,
-    maxWidth: "40%",
+    flex: 1,
   },
   center: {
     flex: 1,
@@ -37,6 +37,7 @@ export const hubScreenBottomBarStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     minWidth: 0,
+    zIndex: 2,
   },
   right: {
     flexDirection: "row",

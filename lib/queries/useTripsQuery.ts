@@ -18,10 +18,12 @@ import { refetchOnMountIfEntityListEmpty } from '@/lib/queries/entityListQueryOp
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { isStartupComplete, markStartupPhase } from '@/lib/startupMetrics';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAppQueryGate } from '@/lib/hooks/useAppQueryGate';
 
 /** Full list (no pagination). Use for Trips tab. Includes trips where org is owner or supplier on a shared load trip. */
 export function useTripsQuery(orgId: string | null) {
   const { status } = useAuth();
+  const bootQuietOpen = useAppQueryGate(orgId);
   return useQuery<TripRow[], Error>({
     queryKey: queryKeys.trips.finite(orgId ?? ''),
     queryFn: async () => {
@@ -30,7 +32,7 @@ export function useTripsQuery(orgId: string | null) {
       if (!isStartupComplete()) markStartupPhase('trips_query_done');
       return res.trips;
     },
-    enabled: !!orgId && status !== 'restoring',
+    enabled: !!orgId && status !== 'restoring' && bootQuietOpen,
     staleTime: STALE.realtime,
     refetchOnMount: refetchOnMountIfEntityListEmpty<TripRow[]>(),
   });
@@ -39,6 +41,7 @@ export function useTripsQuery(orgId: string | null) {
 /** Per-party trip counts for Network cards — not the full trip catalog. */
 export function useTripPartyCountsQuery(orgId: string | null) {
   const { status } = useAuth();
+  const bootQuietOpen = useAppQueryGate(orgId);
   return useQuery<TripPartyCounts, Error>({
     queryKey: queryKeys.trips.partyCounts(orgId ?? ''),
     queryFn: async () => {
@@ -46,7 +49,7 @@ export function useTripPartyCountsQuery(orgId: string | null) {
       if (res.error) throw res.error;
       return res.counts;
     },
-    enabled: !!orgId && status !== 'restoring',
+    enabled: !!orgId && status !== 'restoring' && bootQuietOpen,
     staleTime: STALE.moderate,
   });
 }

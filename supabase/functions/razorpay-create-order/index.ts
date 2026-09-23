@@ -15,7 +15,6 @@
 // key_id is Razorpay's public identifier, safe to hand to the client for
 // checkout.
 
-import { createClient as createClientDirect } from 'npm:@supabase/supabase-js@2';
 
 const corsAllowHeaders = 'authorization, x-client-info, apikey, content-type';
 

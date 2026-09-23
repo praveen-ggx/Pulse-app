@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.1"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -667,6 +667,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "clients"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_conversations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_kyc_review_queue"
+            referencedColumns: ["driver_id"]
           },
           {
             foreignKeyName: "chat_conversations_driver_id_fkey"
@@ -1758,6 +1765,8 @@ export type Database = {
           client_id: string
           created_at: string
           created_by: string | null
+          default_load_tons: number | null
+          default_load_type: string | null
           deleted_at: string | null
           destination_address: string | null
           destination_gstin: string | null
@@ -1792,6 +1801,8 @@ export type Database = {
           client_id: string
           created_at?: string
           created_by?: string | null
+          default_load_tons?: number | null
+          default_load_type?: string | null
           deleted_at?: string | null
           destination_address?: string | null
           destination_gstin?: string | null
@@ -1826,6 +1837,8 @@ export type Database = {
           client_id?: string
           created_at?: string
           created_by?: string | null
+          default_load_tons?: number | null
+          default_load_type?: string | null
           deleted_at?: string | null
           destination_address?: string | null
           destination_gstin?: string | null
@@ -2473,10 +2486,81 @@ export type Database = {
           },
         ]
       }
+      dco_payees: {
+        Row: {
+          created_at: string
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dco_payees_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "dco_profiles"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      dco_profiles: {
+        Row: {
+          created_at: string
+          decision_reason: string | null
+          requested_at: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          decision_reason?: string | null
+          requested_at?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          decision_reason?: string | null
+          requested_at?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dco_profiles_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       direct_quotes: {
         Row: {
           amount: number
           bidder_organization_id: string
+          counter_amount: number | null
           created_at: string | null
           driver_id: string | null
           id: string
@@ -2489,6 +2573,7 @@ export type Database = {
         Insert: {
           amount: number
           bidder_organization_id: string
+          counter_amount?: number | null
           created_at?: string | null
           driver_id?: string | null
           id?: string
@@ -2501,6 +2586,7 @@ export type Database = {
         Update: {
           amount?: number
           bidder_organization_id?: string
+          counter_amount?: number | null
           created_at?: string | null
           driver_id?: string | null
           id?: string
@@ -2524,6 +2610,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "direct_quotes_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_kyc_review_queue"
+            referencedColumns: ["driver_id"]
           },
           {
             foreignKeyName: "direct_quotes_driver_id_fkey"
@@ -2701,6 +2794,82 @@ export type Database = {
           },
         ]
       }
+      driver_direct_bids: {
+        Row: {
+          amount: number
+          counter_amount: number | null
+          created_at: string
+          driver_user_id: string
+          id: string
+          note: string | null
+          post_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          counter_amount?: number | null
+          created_at?: string
+          driver_user_id: string
+          id?: string
+          note?: string | null
+          post_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          counter_amount?: number | null
+          created_at?: string
+          driver_user_id?: string
+          id?: string
+          note?: string | null
+          post_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_direct_bids_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      driver_fleet_owner_profiles: {
+        Row: {
+          created_at: string
+          enabled_at: string
+          preferred_view: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          enabled_at?: string
+          preferred_view?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          enabled_at?: string
+          preferred_view?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_fleet_owner_profiles_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       driver_invites: {
         Row: {
           commission_per_km: number | null
@@ -2767,6 +2936,13 @@ export type Database = {
             foreignKeyName: "driver_invites_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "driver_kyc_review_queue"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_invites_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -2792,6 +2968,156 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      driver_kyc_doc_requirements: {
+        Row: {
+          doc_type: string
+          is_mandatory: boolean
+          label: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          doc_type: string
+          is_mandatory?: boolean
+          label: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          doc_type?: string
+          is_mandatory?: boolean
+          label?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      driver_kyc_documents: {
+        Row: {
+          created_at: string
+          deleted_at: string | null
+          doc_label: string | null
+          doc_type: string
+          driver_user_id: string
+          file_name: string | null
+          file_size_bytes: number | null
+          id: string
+          is_mandatory: boolean
+          mime_type: string | null
+          rejection_notes: string | null
+          status: string
+          storage_path: string | null
+          updated_at: string
+          uploaded_by: string | null
+          verified_at: string | null
+          verified_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          deleted_at?: string | null
+          doc_label?: string | null
+          doc_type: string
+          driver_user_id: string
+          file_name?: string | null
+          file_size_bytes?: number | null
+          id?: string
+          is_mandatory?: boolean
+          mime_type?: string | null
+          rejection_notes?: string | null
+          status?: string
+          storage_path?: string | null
+          updated_at?: string
+          uploaded_by?: string | null
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          deleted_at?: string | null
+          doc_label?: string | null
+          doc_type?: string
+          driver_user_id?: string
+          file_name?: string | null
+          file_size_bytes?: number | null
+          id?: string
+          is_mandatory?: boolean
+          mime_type?: string | null
+          rejection_notes?: string | null
+          status?: string
+          storage_path?: string | null
+          updated_at?: string
+          uploaded_by?: string | null
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Relationships: []
+      }
+      driver_kyc_submission_events: {
+        Row: {
+          actor_id: string | null
+          attempt: number
+          created_at: string
+          driver_user_id: string
+          event: string
+          id: string
+          notes: string | null
+        }
+        Insert: {
+          actor_id?: string | null
+          attempt: number
+          created_at?: string
+          driver_user_id: string
+          event: string
+          id?: string
+          notes?: string | null
+        }
+        Update: {
+          actor_id?: string | null
+          attempt?: number
+          created_at?: string
+          driver_user_id?: string
+          event?: string
+          id?: string
+          notes?: string | null
+        }
+        Relationships: []
+      }
+      driver_kyc_submissions: {
+        Row: {
+          attempt_count: number
+          created_at: string
+          driver_user_id: string
+          review_notes: string | null
+          review_status: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          submitted_at: string
+          updated_at: string
+        }
+        Insert: {
+          attempt_count?: number
+          created_at?: string
+          driver_user_id: string
+          review_notes?: string | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          submitted_at?: string
+          updated_at?: string
+        }
+        Update: {
+          attempt_count?: number
+          created_at?: string
+          driver_user_id?: string
+          review_notes?: string | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          submitted_at?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       driver_ledger: {
         Row: {
@@ -2840,6 +3166,13 @@ export type Database = {
           type?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "driver_ledger_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_kyc_review_queue"
+            referencedColumns: ["driver_id"]
+          },
           {
             foreignKeyName: "driver_ledger_driver_id_fkey"
             columns: ["driver_id"]
@@ -2957,6 +3290,13 @@ export type Database = {
             foreignKeyName: "driver_locations_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "driver_kyc_review_queue"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_locations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -3066,6 +3406,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "driver_presence_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: true
+            referencedRelation: "driver_kyc_review_queue"
+            referencedColumns: ["driver_id"]
+          },
           {
             foreignKeyName: "driver_presence_driver_id_fkey"
             columns: ["driver_id"]
@@ -3258,6 +3605,13 @@ export type Database = {
             foreignKeyName: "driver_salary_requests_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "driver_kyc_review_queue"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_salary_requests_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -3329,6 +3683,13 @@ export type Database = {
             foreignKeyName: "driver_signup_matches_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "driver_kyc_review_queue"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_signup_matches_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -3388,6 +3749,13 @@ export type Database = {
             foreignKeyName: "driver_tenures_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "driver_kyc_review_queue"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_tenures_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -3432,6 +3800,13 @@ export type Database = {
             foreignKeyName: "driver_trip_counters_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: true
+            referencedRelation: "driver_kyc_review_queue"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_trip_counters_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: true
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -3466,6 +3841,8 @@ export type Database = {
           payable_amount: number | null
           phone: string | null
           phone_normalised: string | null
+          relationship_origin: string | null
+          relationship_status: string | null
           status: string
           tracking_only: boolean
           updated_at: string | null
@@ -3492,6 +3869,8 @@ export type Database = {
           payable_amount?: number | null
           phone?: string | null
           phone_normalised?: string | null
+          relationship_origin?: string | null
+          relationship_status?: string | null
           status?: string
           tracking_only?: boolean
           updated_at?: string | null
@@ -3518,6 +3897,8 @@ export type Database = {
           payable_amount?: number | null
           phone?: string | null
           phone_normalised?: string | null
+          relationship_origin?: string | null
+          relationship_status?: string | null
           status?: string
           tracking_only?: boolean
           updated_at?: string | null
@@ -3926,46 +4307,73 @@ export type Database = {
       }
       execution_plan_stops: {
         Row: {
+          address_line: string | null
+          city: string | null
           contact_name: string | null
           contact_phone: string | null
           created_at: string
+          display_name: string | null
           execution_plan_id: string
           id: string
           label: string | null
+          latitude: number | null
+          longitude: number | null
           notes: string | null
           organization_id: string
+          pincode: string | null
           pod_required: boolean
           sequence: number
+          source_id: string | null
+          source_type: string
+          state: string | null
           stop_type: string
-          warehouse_id: string
+          warehouse_id: string | null
         }
         Insert: {
+          address_line?: string | null
+          city?: string | null
           contact_name?: string | null
           contact_phone?: string | null
           created_at?: string
+          display_name?: string | null
           execution_plan_id: string
           id?: string
           label?: string | null
+          latitude?: number | null
+          longitude?: number | null
           notes?: string | null
           organization_id: string
+          pincode?: string | null
           pod_required?: boolean
           sequence?: number
+          source_id?: string | null
+          source_type?: string
+          state?: string | null
           stop_type: string
-          warehouse_id: string
+          warehouse_id?: string | null
         }
         Update: {
+          address_line?: string | null
+          city?: string | null
           contact_name?: string | null
           contact_phone?: string | null
           created_at?: string
+          display_name?: string | null
           execution_plan_id?: string
           id?: string
           label?: string | null
+          latitude?: number | null
+          longitude?: number | null
           notes?: string | null
           organization_id?: string
+          pincode?: string | null
           pod_required?: boolean
           sequence?: number
+          source_id?: string | null
+          source_type?: string
+          state?: string | null
           stop_type?: string
-          warehouse_id?: string
+          warehouse_id?: string | null
         }
         Relationships: [
           {
@@ -4102,6 +4510,13 @@ export type Database = {
           trip_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "geofence_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_kyc_review_queue"
+            referencedColumns: ["driver_id"]
+          },
           {
             foreignKeyName: "geofence_events_driver_id_fkey"
             columns: ["driver_id"]
@@ -4298,6 +4713,7 @@ export type Database = {
           deleted_at: string | null
           display_indent_id: string | null
           drop_location: string
+          execution_plan_id: string | null
           id: string
           indent_code: string | null
           indent_number: string
@@ -4315,9 +4731,11 @@ export type Database = {
           sequence_number: number | null
           shared_at: string | null
           status: string
+          supplier_rate_basis: string | null
           supplier_target: number
           updated_at: string | null
           vehicle_type: string | null
+          warehouse_id: string | null
           weight: number | null
         }
         Insert: {
@@ -4332,6 +4750,7 @@ export type Database = {
           deleted_at?: string | null
           display_indent_id?: string | null
           drop_location: string
+          execution_plan_id?: string | null
           id?: string
           indent_code?: string | null
           indent_number: string
@@ -4349,9 +4768,11 @@ export type Database = {
           sequence_number?: number | null
           shared_at?: string | null
           status?: string
+          supplier_rate_basis?: string | null
           supplier_target?: number
           updated_at?: string | null
           vehicle_type?: string | null
+          warehouse_id?: string | null
           weight?: number | null
         }
         Update: {
@@ -4366,6 +4787,7 @@ export type Database = {
           deleted_at?: string | null
           display_indent_id?: string | null
           drop_location?: string
+          execution_plan_id?: string | null
           id?: string
           indent_code?: string | null
           indent_number?: string
@@ -4383,9 +4805,11 @@ export type Database = {
           sequence_number?: number | null
           shared_at?: string | null
           status?: string
+          supplier_rate_basis?: string | null
           supplier_target?: number
           updated_at?: string | null
           vehicle_type?: string | null
+          warehouse_id?: string | null
           weight?: number | null
         }
         Relationships: [
@@ -4404,10 +4828,31 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "indents_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "indents_created_by_user_id_fkey"
             columns: ["created_by_user_id"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "indents_execution_plan_id_fkey"
+            columns: ["execution_plan_id"]
+            isOneToOne: false
+            referencedRelation: "execution_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "indents_lane_id_fkey"
+            columns: ["lane_id"]
+            isOneToOne: false
+            referencedRelation: "client_lane_rates"
             referencedColumns: ["id"]
           },
           {
@@ -4436,6 +4881,13 @@ export type Database = {
             columns: ["sales_order_id"]
             isOneToOne: false
             referencedRelation: "sales_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "indents_warehouse_id_fkey"
+            columns: ["warehouse_id"]
+            isOneToOne: false
+            referencedRelation: "client_warehouses"
             referencedColumns: ["id"]
           },
         ]
@@ -4478,9 +4930,12 @@ export type Database = {
       }
       invoices: {
         Row: {
+          billing_period_end: string | null
+          billing_period_start: string | null
           cgst_amount: number
           client_id: string | null
           client_name: string | null
+          client_snapshot: Json | null
           created_at: string
           created_by: string | null
           due_date: string | null
@@ -4490,26 +4945,33 @@ export type Database = {
           igst_amount: number
           invoice_date: string
           invoice_number: string
+          invoice_source: string
+          issue_idempotency_key: string | null
+          issuer_snapshot: Json | null
+          line_items: Json | null
+          manual_plan_snapshot: Json | null
           notes: string | null
           org_id: string
-          issuer_snapshot: Json | null
-          client_snapshot: Json | null
-          line_items: Json | null
-          tax_snapshot: Json | null
           payment_terms: string | null
           pdf_storage_path: string | null
+          plan_id: string | null
           pod_annexure_snapshot: Json | null
+          sales_order_id: string | null
           sgst_amount: number
           status: string
           subtotal: number
+          tax_snapshot: Json | null
           total_amount: number
           trip_ids: string[]
           updated_at: string
         }
         Insert: {
+          billing_period_end?: string | null
+          billing_period_start?: string | null
           cgst_amount?: number
           client_id?: string | null
           client_name?: string | null
+          client_snapshot?: Json | null
           created_at?: string
           created_by?: string | null
           due_date?: string | null
@@ -4519,26 +4981,33 @@ export type Database = {
           igst_amount?: number
           invoice_date?: string
           invoice_number: string
+          invoice_source?: string
+          issue_idempotency_key?: string | null
+          issuer_snapshot?: Json | null
+          line_items?: Json | null
+          manual_plan_snapshot?: Json | null
           notes?: string | null
           org_id: string
-          issuer_snapshot?: Json | null
-          client_snapshot?: Json | null
-          line_items?: Json | null
-          tax_snapshot?: Json | null
           payment_terms?: string | null
           pdf_storage_path?: string | null
+          plan_id?: string | null
           pod_annexure_snapshot?: Json | null
+          sales_order_id?: string | null
           sgst_amount?: number
           status?: string
           subtotal?: number
+          tax_snapshot?: Json | null
           total_amount?: number
           trip_ids?: string[]
           updated_at?: string
         }
         Update: {
+          billing_period_end?: string | null
+          billing_period_start?: string | null
           cgst_amount?: number
           client_id?: string | null
           client_name?: string | null
+          client_snapshot?: Json | null
           created_at?: string
           created_by?: string | null
           due_date?: string | null
@@ -4548,18 +5017,22 @@ export type Database = {
           igst_amount?: number
           invoice_date?: string
           invoice_number?: string
+          invoice_source?: string
+          issue_idempotency_key?: string | null
+          issuer_snapshot?: Json | null
+          line_items?: Json | null
+          manual_plan_snapshot?: Json | null
           notes?: string | null
           org_id?: string
-          issuer_snapshot?: Json | null
-          client_snapshot?: Json | null
-          line_items?: Json | null
-          tax_snapshot?: Json | null
           payment_terms?: string | null
           pdf_storage_path?: string | null
+          plan_id?: string | null
           pod_annexure_snapshot?: Json | null
+          sales_order_id?: string | null
           sgst_amount?: number
           status?: string
           subtotal?: number
+          tax_snapshot?: Json | null
           total_amount?: number
           trip_ids?: string[]
           updated_at?: string
@@ -4584,6 +5057,13 @@ export type Database = {
             columns: ["org_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoices_sales_order_id_fkey"
+            columns: ["sales_order_id"]
+            isOneToOne: false
+            referencedRelation: "sales_orders"
             referencedColumns: ["id"]
           },
         ]
@@ -4692,6 +5172,249 @@ export type Database = {
           },
         ]
       }
+      market_bids: {
+        Row: {
+          accepted_at: string | null
+          amount: number
+          bidder_organization_id: string | null
+          bidder_type: string
+          bidder_user_id: string
+          created_at: string
+          fee_payment_status: string
+          id: string
+          indent_id: string
+          note: string | null
+          owner_vehicle_id: string | null
+          platform_fee_amount: number | null
+          platform_fee_calc_snapshot: Json | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          amount: number
+          bidder_organization_id?: string | null
+          bidder_type: string
+          bidder_user_id: string
+          created_at?: string
+          fee_payment_status?: string
+          id?: string
+          indent_id: string
+          note?: string | null
+          owner_vehicle_id?: string | null
+          platform_fee_amount?: number | null
+          platform_fee_calc_snapshot?: Json | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          accepted_at?: string | null
+          amount?: number
+          bidder_organization_id?: string | null
+          bidder_type?: string
+          bidder_user_id?: string
+          created_at?: string
+          fee_payment_status?: string
+          id?: string
+          indent_id?: string
+          note?: string | null
+          owner_vehicle_id?: string | null
+          platform_fee_amount?: number | null
+          platform_fee_calc_snapshot?: Json | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "market_bids_bidder_organization_id_fkey"
+            columns: ["bidder_organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "market_bids_bidder_organization_id_fkey"
+            columns: ["bidder_organization_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "market_bids_indent_id_fkey"
+            columns: ["indent_id"]
+            isOneToOne: false
+            referencedRelation: "indents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "market_bids_indent_id_fkey"
+            columns: ["indent_id"]
+            isOneToOne: false
+            referencedRelation: "v_open_indents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "market_bids_owner_vehicle_id_fkey"
+            columns: ["owner_vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "owner_vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      marketplace_fee_components: {
+        Row: {
+          component_type: string
+          config_id: string
+          created_at: string
+          flat_amount: number | null
+          id: string
+          percentage_rate: number | null
+          sort_order: number
+        }
+        Insert: {
+          component_type: string
+          config_id: string
+          created_at?: string
+          flat_amount?: number | null
+          id?: string
+          percentage_rate?: number | null
+          sort_order?: number
+        }
+        Update: {
+          component_type?: string
+          config_id?: string
+          created_at?: string
+          flat_amount?: number | null
+          id?: string
+          percentage_rate?: number | null
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "marketplace_fee_components_config_id_fkey"
+            columns: ["config_id"]
+            isOneToOne: false
+            referencedRelation: "marketplace_fee_configs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      marketplace_fee_configs: {
+        Row: {
+          comparison_mode: string
+          created_at: string
+          id: string
+          is_active: boolean
+          max_fee: number | null
+          name: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          comparison_mode?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          max_fee?: number | null
+          name: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          comparison_mode?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          max_fee?: number | null
+          name?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      marketplace_fee_payments: {
+        Row: {
+          amount: number
+          bidder_organization_id: string | null
+          bidder_type: string
+          bidder_user_id: string
+          created_at: string
+          currency: string
+          failed_at: string | null
+          failure_reason: string | null
+          id: string
+          market_bid_id: string
+          paid_at: string | null
+          provider: string | null
+          provider_event_id: string | null
+          provider_order_id: string | null
+          provider_payment_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          bidder_organization_id?: string | null
+          bidder_type: string
+          bidder_user_id: string
+          created_at?: string
+          currency?: string
+          failed_at?: string | null
+          failure_reason?: string | null
+          id?: string
+          market_bid_id: string
+          paid_at?: string | null
+          provider?: string | null
+          provider_event_id?: string | null
+          provider_order_id?: string | null
+          provider_payment_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          bidder_organization_id?: string | null
+          bidder_type?: string
+          bidder_user_id?: string
+          created_at?: string
+          currency?: string
+          failed_at?: string | null
+          failure_reason?: string | null
+          id?: string
+          market_bid_id?: string
+          paid_at?: string | null
+          provider?: string | null
+          provider_event_id?: string | null
+          provider_order_id?: string | null
+          provider_payment_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "marketplace_fee_payments_bidder_organization_id_fkey"
+            columns: ["bidder_organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketplace_fee_payments_bidder_organization_id_fkey"
+            columns: ["bidder_organization_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketplace_fee_payments_market_bid_id_fkey"
+            columns: ["market_bid_id"]
+            isOneToOne: false
+            referencedRelation: "market_bids"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       network_conversations: {
         Row: {
           created_at: string
@@ -4780,6 +5503,7 @@ export type Database = {
           created_at: string
           id: string
           is_read_by_other: boolean
+          metadata: Json
           read_at: string | null
           sender_avatar_seed: string | null
           sender_name: string
@@ -4792,6 +5516,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_read_by_other?: boolean
+          metadata?: Json
           read_at?: string | null
           sender_avatar_seed?: string | null
           sender_name: string
@@ -4804,6 +5529,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_read_by_other?: boolean
+          metadata?: Json
           read_at?: string | null
           sender_avatar_seed?: string | null
           sender_name?: string
@@ -4816,6 +5542,126 @@ export type Database = {
             columns: ["conversation_id"]
             isOneToOne: false
             referencedRelation: "network_conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      network_notifications: {
+        Row: {
+          actor_org_id: string | null
+          amount_meta: number | null
+          bid_id: string | null
+          created_at: string
+          dedupe_key: string | null
+          event_type: string
+          handled_at: string | null
+          handled_by_user_id: string | null
+          id: string
+          indent_id: string | null
+          organization_id: string
+          payload_json: Json
+          quote_id: string | null
+          read_at: string | null
+          status: string
+          subtitle: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          actor_org_id?: string | null
+          amount_meta?: number | null
+          bid_id?: string | null
+          created_at?: string
+          dedupe_key?: string | null
+          event_type: string
+          handled_at?: string | null
+          handled_by_user_id?: string | null
+          id?: string
+          indent_id?: string | null
+          organization_id: string
+          payload_json?: Json
+          quote_id?: string | null
+          read_at?: string | null
+          status?: string
+          subtitle?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          actor_org_id?: string | null
+          amount_meta?: number | null
+          bid_id?: string | null
+          created_at?: string
+          dedupe_key?: string | null
+          event_type?: string
+          handled_at?: string | null
+          handled_by_user_id?: string | null
+          id?: string
+          indent_id?: string | null
+          organization_id?: string
+          payload_json?: Json
+          quote_id?: string | null
+          read_at?: string | null
+          status?: string
+          subtitle?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "network_notifications_actor_org_id_fkey"
+            columns: ["actor_org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_notifications_actor_org_id_fkey"
+            columns: ["actor_org_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_notifications_bid_id_fkey"
+            columns: ["bid_id"]
+            isOneToOne: false
+            referencedRelation: "bids"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_notifications_indent_id_fkey"
+            columns: ["indent_id"]
+            isOneToOne: false
+            referencedRelation: "indents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_notifications_indent_id_fkey"
+            columns: ["indent_id"]
+            isOneToOne: false
+            referencedRelation: "v_open_indents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_notifications_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_notifications_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "network_notifications_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: false
+            referencedRelation: "direct_quotes"
             referencedColumns: ["id"]
           },
         ]
@@ -5116,6 +5962,63 @@ export type Database = {
           },
         ]
       }
+      organization_domain_join_requests: {
+        Row: {
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          email: string
+          email_domain: string
+          id: string
+          organization_id: string
+          requester_name: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          email: string
+          email_domain: string
+          id?: string
+          organization_id: string
+          requester_name?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          email?: string
+          email_domain?: string
+          id?: string
+          organization_id?: string
+          requester_name?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_domain_join_requests_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "organization_domain_join_requests_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       organization_kyc_documents: {
         Row: {
           created_at: string
@@ -5300,6 +6203,49 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organization_member_warehouses: {
+        Row: {
+          created_at: string
+          id: string
+          organization_member_id: string
+          warehouse_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          organization_member_id: string
+          warehouse_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          organization_member_id?: string
+          warehouse_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_member_warehouses_organization_member_id_fkey"
+            columns: ["organization_member_id"]
+            isOneToOne: false
+            referencedRelation: "organization_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "organization_member_warehouses_organization_member_id_fkey"
+            columns: ["organization_member_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "organization_member_warehouses_warehouse_id_fkey"
+            columns: ["warehouse_id"]
+            isOneToOne: false
+            referencedRelation: "client_warehouses"
             referencedColumns: ["id"]
           },
         ]
@@ -5523,10 +6469,12 @@ export type Database = {
           profile_sector: string | null
           profile_website: string | null
           profile_youtube: string | null
+          referral_code: string | null
           registration_type:
             | Database["public"]["Enums"]["registration_type_enum"]
             | null
           rejection_reasons: Json | null
+          settings: Json
           slug: string | null
           state: string | null
           submitted_at: string | null
@@ -5583,10 +6531,12 @@ export type Database = {
           profile_sector?: string | null
           profile_website?: string | null
           profile_youtube?: string | null
+          referral_code?: string | null
           registration_type?:
             | Database["public"]["Enums"]["registration_type_enum"]
             | null
           rejection_reasons?: Json | null
+          settings?: Json
           slug?: string | null
           state?: string | null
           submitted_at?: string | null
@@ -5643,10 +6593,12 @@ export type Database = {
           profile_sector?: string | null
           profile_website?: string | null
           profile_youtube?: string | null
+          referral_code?: string | null
           registration_type?:
             | Database["public"]["Enums"]["registration_type_enum"]
             | null
           rejection_reasons?: Json | null
+          settings?: Json
           slug?: string | null
           state?: string | null
           submitted_at?: string | null
@@ -5662,6 +6614,198 @@ export type Database = {
           zone?: string | null
         }
         Relationships: []
+      }
+      owner_vehicle_documents: {
+        Row: {
+          created_at: string
+          document_number: string | null
+          document_type: string
+          expires_at: string | null
+          file_name: string | null
+          file_size_bytes: number | null
+          id: string
+          issued_at: string | null
+          metadata: Json
+          mime_type: string | null
+          owner_user_id: string
+          owner_vehicle_id: string
+          replaced_by: string | null
+          status: string
+          storage_path: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          document_number?: string | null
+          document_type: string
+          expires_at?: string | null
+          file_name?: string | null
+          file_size_bytes?: number | null
+          id?: string
+          issued_at?: string | null
+          metadata?: Json
+          mime_type?: string | null
+          owner_user_id: string
+          owner_vehicle_id: string
+          replaced_by?: string | null
+          status?: string
+          storage_path: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          document_number?: string | null
+          document_type?: string
+          expires_at?: string | null
+          file_name?: string | null
+          file_size_bytes?: number | null
+          id?: string
+          issued_at?: string | null
+          metadata?: Json
+          mime_type?: string | null
+          owner_user_id?: string
+          owner_vehicle_id?: string
+          replaced_by?: string | null
+          status?: string
+          storage_path?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_vehicle_documents_owner_user_id_fkey"
+            columns: ["owner_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_vehicle_documents_owner_vehicle_id_fkey"
+            columns: ["owner_vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "owner_vehicles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_vehicle_documents_replaced_by_fkey"
+            columns: ["replaced_by"]
+            isOneToOne: false
+            referencedRelation: "owner_vehicle_documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_vehicles: {
+        Row: {
+          avatar_seed: string | null
+          avatar_url: string | null
+          capacity: string | null
+          created_at: string
+          deleted_at: string | null
+          documents: Json
+          fuel_type: string | null
+          id: string
+          owner_user_id: string
+          status: string
+          updated_at: string
+          vehicle_axle: string | null
+          vehicle_body_type: string | null
+          vehicle_brand: string | null
+          vehicle_model: string | null
+          vehicle_number: string
+          vehicle_size: string | null
+          vehicle_type: string | null
+        }
+        Insert: {
+          avatar_seed?: string | null
+          avatar_url?: string | null
+          capacity?: string | null
+          created_at?: string
+          deleted_at?: string | null
+          documents?: Json
+          fuel_type?: string | null
+          id?: string
+          owner_user_id: string
+          status?: string
+          updated_at?: string
+          vehicle_axle?: string | null
+          vehicle_body_type?: string | null
+          vehicle_brand?: string | null
+          vehicle_model?: string | null
+          vehicle_number: string
+          vehicle_size?: string | null
+          vehicle_type?: string | null
+        }
+        Update: {
+          avatar_seed?: string | null
+          avatar_url?: string | null
+          capacity?: string | null
+          created_at?: string
+          deleted_at?: string | null
+          documents?: Json
+          fuel_type?: string | null
+          id?: string
+          owner_user_id?: string
+          status?: string
+          updated_at?: string
+          vehicle_axle?: string | null
+          vehicle_body_type?: string | null
+          vehicle_brand?: string | null
+          vehicle_model?: string | null
+          vehicle_number?: string
+          vehicle_size?: string | null
+          vehicle_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_vehicles_owner_user_id_fkey"
+            columns: ["owner_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      platform_events: {
+        Row: {
+          actor_user_id: string | null
+          created_at: string
+          event_type: string
+          id: string
+          org_id: string | null
+          payload: Json
+        }
+        Insert: {
+          actor_user_id?: string | null
+          created_at?: string
+          event_type: string
+          id?: string
+          org_id?: string | null
+          payload?: Json
+        }
+        Update: {
+          actor_user_id?: string | null
+          created_at?: string
+          event_type?: string
+          id?: string
+          org_id?: string | null
+          payload?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "platform_events_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "platform_events_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       platform_identity_audit_events: {
         Row: {
@@ -5738,6 +6882,150 @@ export type Database = {
         }
         Relationships: []
       }
+      platform_permissions: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          key: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          key: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          key?: string
+        }
+        Relationships: []
+      }
+      platform_role_members: {
+        Row: {
+          granted_at: string
+          granted_by: string | null
+          platform_user_id: string
+          role_id: string
+        }
+        Insert: {
+          granted_at?: string
+          granted_by?: string | null
+          platform_user_id: string
+          role_id: string
+        }
+        Update: {
+          granted_at?: string
+          granted_by?: string | null
+          platform_user_id?: string
+          role_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "platform_role_members_platform_user_id_fkey"
+            columns: ["platform_user_id"]
+            isOneToOne: false
+            referencedRelation: "platform_users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "platform_role_members_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "platform_roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      platform_role_permissions: {
+        Row: {
+          permission_id: string
+          role_id: string
+        }
+        Insert: {
+          permission_id: string
+          role_id: string
+        }
+        Update: {
+          permission_id?: string
+          role_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "platform_role_permissions_permission_id_fkey"
+            columns: ["permission_id"]
+            isOneToOne: false
+            referencedRelation: "platform_permissions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "platform_role_permissions_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "platform_roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      platform_roles: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      platform_users: {
+        Row: {
+          created_at: string
+          department: string | null
+          employee_id: string | null
+          id: string
+          last_active_at: string | null
+          last_active_ip: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          department?: string | null
+          employee_id?: string | null
+          id?: string
+          last_active_at?: string | null
+          last_active_ip?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          department?: string | null
+          employee_id?: string | null
+          id?: string
+          last_active_at?: string | null
+          last_active_ip?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       posts: {
         Row: {
           author_user_id: string
@@ -5749,8 +7037,9 @@ export type Database = {
           is_active: boolean
           load_date: string | null
           material: string | null
-          organization_id: string
+          organization_id: string | null
           origin: string | null
+          owner_vehicle_id: string | null
           rate_offer: number | null
           source_indent_id: string | null
           type: string
@@ -5769,8 +7058,9 @@ export type Database = {
           is_active?: boolean
           load_date?: string | null
           material?: string | null
-          organization_id: string
+          organization_id?: string | null
           origin?: string | null
+          owner_vehicle_id?: string | null
           rate_offer?: number | null
           source_indent_id?: string | null
           type: string
@@ -5789,8 +7079,9 @@ export type Database = {
           is_active?: boolean
           load_date?: string | null
           material?: string | null
-          organization_id?: string
+          organization_id?: string | null
           origin?: string | null
+          owner_vehicle_id?: string | null
           rate_offer?: number | null
           source_indent_id?: string | null
           type?: string
@@ -5812,6 +7103,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "posts_owner_vehicle_id_fkey"
+            columns: ["owner_vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "owner_vehicles"
             referencedColumns: ["id"]
           },
           {
@@ -6136,6 +7434,18 @@ export type Database = {
         }
         Relationships: []
       }
+      public_email_domains: {
+        Row: {
+          domain: string
+        }
+        Insert: {
+          domain: string
+        }
+        Update: {
+          domain?: string
+        }
+        Relationships: []
+      }
       pulse_audit_actions: {
         Row: {
           action: string
@@ -6240,6 +7550,155 @@ export type Database = {
           },
         ]
       }
+      pulse_credit_referrals: {
+        Row: {
+          created_at: string
+          credited_at: string | null
+          id: string
+          referred_org_id: string
+          referrer_org_id: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          credited_at?: string | null
+          id?: string
+          referred_org_id: string
+          referrer_org_id: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          credited_at?: string | null
+          id?: string
+          referred_org_id?: string
+          referrer_org_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pulse_credit_referrals_referred_org_id_fkey"
+            columns: ["referred_org_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pulse_credit_referrals_referred_org_id_fkey"
+            columns: ["referred_org_id"]
+            isOneToOne: true
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pulse_credit_referrals_referrer_org_id_fkey"
+            columns: ["referrer_org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pulse_credit_referrals_referrer_org_id_fkey"
+            columns: ["referrer_org_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pulse_credit_transactions: {
+        Row: {
+          amount: number
+          balance_after: number
+          created_at: string
+          created_by: string | null
+          id: string
+          notes: string | null
+          org_id: string
+          reference_id: string | null
+          reference_type: string | null
+          type: string
+        }
+        Insert: {
+          amount: number
+          balance_after: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          notes?: string | null
+          org_id: string
+          reference_id?: string | null
+          reference_type?: string | null
+          type: string
+        }
+        Update: {
+          amount?: number
+          balance_after?: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          notes?: string | null
+          org_id?: string
+          reference_id?: string | null
+          reference_type?: string | null
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pulse_credit_transactions_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pulse_credit_transactions_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pulse_credit_wallets: {
+        Row: {
+          balance: number
+          lifetime_earned: number
+          lifetime_spent: number
+          org_id: string
+          updated_at: string
+        }
+        Insert: {
+          balance?: number
+          lifetime_earned?: number
+          lifetime_spent?: number
+          org_id: string
+          updated_at?: string
+        }
+        Update: {
+          balance?: number
+          lifetime_earned?: number
+          lifetime_spent?: number
+          org_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pulse_credit_wallets_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pulse_credit_wallets_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: true
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ratings: {
         Row: {
           comment: string | null
@@ -6338,6 +7797,536 @@ export type Database = {
             referencedColumns: ["trip_id"]
           },
         ]
+      }
+      reach_campaign_daily_metrics: {
+        Row: {
+          bids: number
+          campaign_id: string
+          credits_used: number
+          day: string
+          impressions: number
+          views: number
+        }
+        Insert: {
+          bids?: number
+          campaign_id: string
+          credits_used?: number
+          day: string
+          impressions?: number
+          views?: number
+        }
+        Update: {
+          bids?: number
+          campaign_id?: string
+          credits_used?: number
+          day?: string
+          impressions?: number
+          views?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reach_campaign_daily_metrics_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "reach_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reach_campaign_purchases: {
+        Row: {
+          amount_inr_charged: number
+          campaign_id: string
+          created_at: string
+          credits_charged: number
+          id: string
+          payment_method: string
+          plan_id: string
+          status: string
+        }
+        Insert: {
+          amount_inr_charged?: number
+          campaign_id: string
+          created_at?: string
+          credits_charged?: number
+          id?: string
+          payment_method: string
+          plan_id: string
+          status?: string
+        }
+        Update: {
+          amount_inr_charged?: number
+          campaign_id?: string
+          created_at?: string
+          credits_charged?: number
+          id?: string
+          payment_method?: string
+          plan_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reach_campaign_purchases_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "reach_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reach_campaign_purchases_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "reach_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reach_campaign_targets: {
+        Row: {
+          bid_at: string | null
+          campaign_id: string
+          converted_at: string | null
+          id: string
+          is_verified: boolean
+          org_id: string
+          released_at: string
+          viewed_at: string | null
+          wave: number
+        }
+        Insert: {
+          bid_at?: string | null
+          campaign_id: string
+          converted_at?: string | null
+          id?: string
+          is_verified?: boolean
+          org_id: string
+          released_at?: string
+          viewed_at?: string | null
+          wave: number
+        }
+        Update: {
+          bid_at?: string | null
+          campaign_id?: string
+          converted_at?: string | null
+          id?: string
+          is_verified?: boolean
+          org_id?: string
+          released_at?: string
+          viewed_at?: string | null
+          wave?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reach_campaign_targets_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "reach_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reach_campaign_targets_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reach_campaign_targets_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reach_campaigns: {
+        Row: {
+          archived_at: string | null
+          cancel_reason: string | null
+          completed_at: string | null
+          completion_reason: string | null
+          created_at: string
+          created_by: string
+          distribution_channels: string[]
+          driver_reward_enabled: boolean
+          expires_at: string | null
+          id: string
+          metadata: Json
+          org_id: string
+          plan_id: string
+          post_id: string | null
+          published_at: string | null
+          reward_amount: number
+          reward_budget: number
+          reward_paid: number
+          reward_refunded: number
+          reward_reserved: number
+          reward_type: string
+          scheduled_at: string | null
+          snapshot_content: string | null
+          snapshot_destination: string | null
+          snapshot_material: string | null
+          snapshot_origin: string | null
+          snapshot_post_type: string | null
+          snapshot_posted_at: string | null
+          snapshot_rate_offer: number | null
+          snapshot_source_indent_id: string | null
+          snapshot_title: string | null
+          snapshot_vehicle_type: string | null
+          source_deleted_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          archived_at?: string | null
+          cancel_reason?: string | null
+          completed_at?: string | null
+          completion_reason?: string | null
+          created_at?: string
+          created_by: string
+          distribution_channels?: string[]
+          driver_reward_enabled?: boolean
+          expires_at?: string | null
+          id?: string
+          metadata?: Json
+          org_id: string
+          plan_id: string
+          post_id?: string | null
+          published_at?: string | null
+          reward_amount?: number
+          reward_budget?: number
+          reward_paid?: number
+          reward_refunded?: number
+          reward_reserved?: number
+          reward_type?: string
+          scheduled_at?: string | null
+          snapshot_content?: string | null
+          snapshot_destination?: string | null
+          snapshot_material?: string | null
+          snapshot_origin?: string | null
+          snapshot_post_type?: string | null
+          snapshot_posted_at?: string | null
+          snapshot_rate_offer?: number | null
+          snapshot_source_indent_id?: string | null
+          snapshot_title?: string | null
+          snapshot_vehicle_type?: string | null
+          source_deleted_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          archived_at?: string | null
+          cancel_reason?: string | null
+          completed_at?: string | null
+          completion_reason?: string | null
+          created_at?: string
+          created_by?: string
+          distribution_channels?: string[]
+          driver_reward_enabled?: boolean
+          expires_at?: string | null
+          id?: string
+          metadata?: Json
+          org_id?: string
+          plan_id?: string
+          post_id?: string | null
+          published_at?: string | null
+          reward_amount?: number
+          reward_budget?: number
+          reward_paid?: number
+          reward_refunded?: number
+          reward_reserved?: number
+          reward_type?: string
+          scheduled_at?: string | null
+          snapshot_content?: string | null
+          snapshot_destination?: string | null
+          snapshot_material?: string | null
+          snapshot_origin?: string | null
+          snapshot_post_type?: string | null
+          snapshot_posted_at?: string | null
+          snapshot_rate_offer?: number | null
+          snapshot_source_indent_id?: string | null
+          snapshot_title?: string | null
+          snapshot_vehicle_type?: string | null
+          source_deleted_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reach_campaigns_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reach_campaigns_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reach_campaigns_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "reach_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reach_campaigns_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reach_events: {
+        Row: {
+          actor_org_id: string | null
+          actor_user_id: string | null
+          campaign_id: string
+          created_at: string
+          event_type: string
+          id: string
+        }
+        Insert: {
+          actor_org_id?: string | null
+          actor_user_id?: string | null
+          campaign_id: string
+          created_at?: string
+          event_type: string
+          id?: string
+        }
+        Update: {
+          actor_org_id?: string | null
+          actor_user_id?: string | null
+          campaign_id?: string
+          created_at?: string
+          event_type?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reach_events_actor_org_id_fkey"
+            columns: ["actor_org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reach_events_actor_org_id_fkey"
+            columns: ["actor_org_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reach_events_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "reach_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reach_plans: {
+        Row: {
+          audience_scope: string
+          code: string
+          created_at: string
+          credit_price: number
+          duration_hours: number
+          estimated_reach_max: number
+          estimated_reach_min: number
+          id: string
+          is_active: boolean
+          name: string
+          price_inr: number
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          audience_scope?: string
+          code: string
+          created_at?: string
+          credit_price: number
+          duration_hours?: number
+          estimated_reach_max: number
+          estimated_reach_min: number
+          id?: string
+          is_active?: boolean
+          name: string
+          price_inr: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          audience_scope?: string
+          code?: string
+          created_at?: string
+          credit_price?: number
+          duration_hours?: number
+          estimated_reach_max?: number
+          estimated_reach_min?: number
+          id?: string
+          is_active?: boolean
+          name?: string
+          price_inr?: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      reach_referrals: {
+        Row: {
+          bid_id: string | null
+          campaign_id: string
+          created_at: string
+          decided_at: string | null
+          driver_user_id: string
+          fleet_org_id: string
+          id: string
+          note: string | null
+          reason: string | null
+          reward_amount: number
+          rewarded_at: string | null
+          status: string
+          suggested_rate: number | null
+          trip_id: string | null
+        }
+        Insert: {
+          bid_id?: string | null
+          campaign_id: string
+          created_at?: string
+          decided_at?: string | null
+          driver_user_id: string
+          fleet_org_id: string
+          id?: string
+          note?: string | null
+          reason?: string | null
+          reward_amount?: number
+          rewarded_at?: string | null
+          status?: string
+          suggested_rate?: number | null
+          trip_id?: string | null
+        }
+        Update: {
+          bid_id?: string | null
+          campaign_id?: string
+          created_at?: string
+          decided_at?: string | null
+          driver_user_id?: string
+          fleet_org_id?: string
+          id?: string
+          note?: string | null
+          reason?: string | null
+          reward_amount?: number
+          rewarded_at?: string | null
+          status?: string
+          suggested_rate?: number | null
+          trip_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reach_referrals_bid_id_fkey"
+            columns: ["bid_id"]
+            isOneToOne: false
+            referencedRelation: "bids"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reach_referrals_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "reach_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reach_referrals_fleet_org_id_fkey"
+            columns: ["fleet_org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reach_referrals_fleet_org_id_fkey"
+            columns: ["fleet_org_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reach_referrals_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reach_referrals_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips_driver_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reach_referrals_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips_supplier_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reach_referrals_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_active_trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reach_referrals_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_driver_tracking_health"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reach_referrals_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_long_haul_health"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
+      reward_rules: {
+        Row: {
+          created_at: string
+          credit_amount: number
+          id: string
+          is_active: boolean
+          key: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          credit_amount: number
+          id?: string
+          is_active?: boolean
+          key: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          credit_amount?: number
+          id?: string
+          is_active?: boolean
+          key?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       rpc_rate_limits: {
         Row: {
@@ -6852,6 +8841,122 @@ export type Database = {
           },
         ]
       }
+      stop_execution_state: {
+        Row: {
+          arrived_at: string | null
+          completed_at: string | null
+          created_at: string
+          driver_id: string | null
+          failure_reason: string | null
+          id: string
+          sequence: number
+          skip_reason: string | null
+          status: string
+          stop_id: string
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          arrived_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          driver_id?: string | null
+          failure_reason?: string | null
+          id?: string
+          sequence: number
+          skip_reason?: string | null
+          status?: string
+          stop_id: string
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          arrived_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          driver_id?: string | null
+          failure_reason?: string | null
+          id?: string
+          sequence?: number
+          skip_reason?: string | null
+          status?: string
+          stop_id?: string
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stop_execution_state_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_kyc_review_queue"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "stop_execution_state_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stop_execution_state_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "v_driver_balances"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "stop_execution_state_stop_id_fkey"
+            columns: ["stop_id"]
+            isOneToOne: false
+            referencedRelation: "execution_plan_stops"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stop_execution_state_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stop_execution_state_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips_driver_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stop_execution_state_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips_supplier_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stop_execution_state_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_active_trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stop_execution_state_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_driver_tracking_health"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stop_execution_state_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_long_haul_health"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
       story_views: {
         Row: {
           id: string
@@ -7334,6 +9439,13 @@ export type Database = {
             foreignKeyName: "supplier_fleet_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "driver_kyc_review_queue"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "supplier_fleet_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -7704,6 +9816,296 @@ export type Database = {
           },
         ]
       }
+      support_ticket_activity: {
+        Row: {
+          action: string
+          actor_user_id: string | null
+          created_at: string
+          detail: string | null
+          id: string
+          ticket_id: string
+        }
+        Insert: {
+          action: string
+          actor_user_id?: string | null
+          created_at?: string
+          detail?: string | null
+          id?: string
+          ticket_id: string
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string | null
+          created_at?: string
+          detail?: string | null
+          id?: string
+          ticket_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_ticket_activity_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "support_tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      support_ticket_attachments: {
+        Row: {
+          comment_id: string | null
+          created_at: string
+          id: string
+          mime_type: string | null
+          size_bytes: number | null
+          storage_path: string
+          ticket_id: string
+          uploaded_by_user_id: string
+        }
+        Insert: {
+          comment_id?: string | null
+          created_at?: string
+          id?: string
+          mime_type?: string | null
+          size_bytes?: number | null
+          storage_path: string
+          ticket_id: string
+          uploaded_by_user_id: string
+        }
+        Update: {
+          comment_id?: string | null
+          created_at?: string
+          id?: string
+          mime_type?: string | null
+          size_bytes?: number | null
+          storage_path?: string
+          ticket_id?: string
+          uploaded_by_user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_ticket_attachments_comment_id_fkey"
+            columns: ["comment_id"]
+            isOneToOne: false
+            referencedRelation: "support_ticket_comments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_ticket_attachments_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "support_tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      support_ticket_comments: {
+        Row: {
+          author_type: string
+          author_user_id: string | null
+          body: string
+          created_at: string
+          id: string
+          ticket_id: string
+          visibility: string
+        }
+        Insert: {
+          author_type?: string
+          author_user_id?: string | null
+          body: string
+          created_at?: string
+          id?: string
+          ticket_id: string
+          visibility?: string
+        }
+        Update: {
+          author_type?: string
+          author_user_id?: string | null
+          body?: string
+          created_at?: string
+          id?: string
+          ticket_id?: string
+          visibility?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_ticket_comments_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "support_tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      support_tickets: {
+        Row: {
+          agent_last_read_at: string | null
+          assigned_to: string | null
+          category: string
+          closed_at: string | null
+          created_at: string
+          created_by_user_id: string
+          description: string
+          display_id: string
+          id: string
+          indent_id: string | null
+          last_public_activity_at: string
+          last_public_author_type: string
+          market_bid_id: string | null
+          organization_id: string | null
+          organization_name: string | null
+          owner_vehicle_id: string | null
+          priority: string
+          reporter_display_name: string | null
+          resolved_at: string | null
+          source_screen: string | null
+          status: string
+          subject: string
+          trip_id: string | null
+          updated_at: string
+          user_last_read_at: string | null
+        }
+        Insert: {
+          agent_last_read_at?: string | null
+          assigned_to?: string | null
+          category: string
+          closed_at?: string | null
+          created_at?: string
+          created_by_user_id: string
+          description: string
+          display_id: string
+          id?: string
+          indent_id?: string | null
+          last_public_activity_at?: string
+          last_public_author_type?: string
+          market_bid_id?: string | null
+          organization_id?: string | null
+          organization_name?: string | null
+          owner_vehicle_id?: string | null
+          priority?: string
+          reporter_display_name?: string | null
+          resolved_at?: string | null
+          source_screen?: string | null
+          status?: string
+          subject: string
+          trip_id?: string | null
+          updated_at?: string
+          user_last_read_at?: string | null
+        }
+        Update: {
+          agent_last_read_at?: string | null
+          assigned_to?: string | null
+          category?: string
+          closed_at?: string | null
+          created_at?: string
+          created_by_user_id?: string
+          description?: string
+          display_id?: string
+          id?: string
+          indent_id?: string | null
+          last_public_activity_at?: string
+          last_public_author_type?: string
+          market_bid_id?: string | null
+          organization_id?: string | null
+          organization_name?: string | null
+          owner_vehicle_id?: string | null
+          priority?: string
+          reporter_display_name?: string | null
+          resolved_at?: string | null
+          source_screen?: string | null
+          status?: string
+          subject?: string
+          trip_id?: string | null
+          updated_at?: string
+          user_last_read_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_tickets_indent_id_fkey"
+            columns: ["indent_id"]
+            isOneToOne: false
+            referencedRelation: "indents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_tickets_indent_id_fkey"
+            columns: ["indent_id"]
+            isOneToOne: false
+            referencedRelation: "v_open_indents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_tickets_market_bid_id_fkey"
+            columns: ["market_bid_id"]
+            isOneToOne: false
+            referencedRelation: "market_bids"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_tickets_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_tickets_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_tickets_owner_vehicle_id_fkey"
+            columns: ["owner_vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "owner_vehicles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_tickets_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_tickets_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips_driver_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_tickets_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips_supplier_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_tickets_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_active_trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_tickets_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_driver_tracking_health"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_tickets_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_long_haul_health"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
       transactions: {
         Row: {
           amount_in: number
@@ -7723,6 +10125,7 @@ export type Database = {
           organization_id: string
           party_name: string
           payment_ref: string | null
+          payment_reference: string | null
           transaction_date: string
           trip_id: string | null
         }
@@ -7744,6 +10147,7 @@ export type Database = {
           organization_id: string
           party_name: string
           payment_ref?: string | null
+          payment_reference?: string | null
           transaction_date?: string
           trip_id?: string | null
         }
@@ -7765,6 +10169,7 @@ export type Database = {
           organization_id?: string
           party_name?: string
           payment_ref?: string | null
+          payment_reference?: string | null
           transaction_date?: string
           trip_id?: string | null
         }
@@ -7894,6 +10299,13 @@ export type Database = {
             foreignKeyName: "trip_assignment_audit_driver_id_new_fkey"
             columns: ["driver_id_new"]
             isOneToOne: false
+            referencedRelation: "driver_kyc_review_queue"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_assignment_audit_driver_id_new_fkey"
+            columns: ["driver_id_new"]
+            isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -7902,6 +10314,13 @@ export type Database = {
             columns: ["driver_id_new"]
             isOneToOne: false
             referencedRelation: "v_driver_balances"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_assignment_audit_driver_id_prev_fkey"
+            columns: ["driver_id_prev"]
+            isOneToOne: false
+            referencedRelation: "driver_kyc_review_queue"
             referencedColumns: ["driver_id"]
           },
           {
@@ -8034,6 +10453,13 @@ export type Database = {
             foreignKeyName: "trip_conversations_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "driver_kyc_review_queue"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_conversations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -8097,43 +10523,61 @@ export type Database = {
       }
       trip_documents: {
         Row: {
+          document_number: string | null
           document_type: string
           file_name: string
           id: string
           mime_type: string | null
           ocr_job_id: string | null
+          rejection_reason: string | null
           size_bytes: number | null
           source_entity_document_id: string | null
+          status: string
+          stop_id: string | null
           storage_path: string
           trip_id: string
           uploaded_at: string
           uploaded_by: string | null
+          verified_at: string | null
+          verified_by: string | null
         }
         Insert: {
+          document_number?: string | null
           document_type?: string
           file_name: string
           id?: string
           mime_type?: string | null
           ocr_job_id?: string | null
+          rejection_reason?: string | null
           size_bytes?: number | null
           source_entity_document_id?: string | null
+          status?: string
+          stop_id?: string | null
           storage_path: string
           trip_id: string
           uploaded_at?: string
           uploaded_by?: string | null
+          verified_at?: string | null
+          verified_by?: string | null
         }
         Update: {
+          document_number?: string | null
           document_type?: string
           file_name?: string
           id?: string
           mime_type?: string | null
           ocr_job_id?: string | null
+          rejection_reason?: string | null
           size_bytes?: number | null
-          storage_path?: string
           source_entity_document_id?: string | null
+          status?: string
+          stop_id?: string | null
+          storage_path?: string
           trip_id?: string
           uploaded_at?: string
           uploaded_by?: string | null
+          verified_at?: string | null
+          verified_by?: string | null
         }
         Relationships: [
           {
@@ -8148,6 +10592,13 @@ export type Database = {
             columns: ["source_entity_document_id"]
             isOneToOne: false
             referencedRelation: "entity_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_documents_stop_id_fkey"
+            columns: ["stop_id"]
+            isOneToOne: false
+            referencedRelation: "execution_plan_stops"
             referencedColumns: ["id"]
           },
           {
@@ -8492,6 +10943,13 @@ export type Database = {
           trip_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "trip_location_checkpoints_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_kyc_review_queue"
+            referencedColumns: ["driver_id"]
+          },
           {
             foreignKeyName: "trip_location_checkpoints_driver_id_fkey"
             columns: ["driver_id"]
@@ -9282,6 +11740,13 @@ export type Database = {
             foreignKeyName: "trip_subcontracts_sub_driver_id_fkey"
             columns: ["sub_driver_id"]
             isOneToOne: false
+            referencedRelation: "driver_kyc_review_queue"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_subcontracts_sub_driver_id_fkey"
+            columns: ["sub_driver_id"]
+            isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -9556,6 +12021,13 @@ export type Database = {
             foreignKeyName: "trip_tracking_sessions_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
+            referencedRelation: "driver_kyc_review_queue"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_tracking_sessions_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
             referencedRelation: "drivers"
             referencedColumns: ["id"]
           },
@@ -9725,12 +12197,17 @@ export type Database = {
           client_name: string
           client_price: number
           completed_at: string | null
+          compliance_decision: string | null
+          compliance_exception_reason: string | null
+          compliance_outstanding_summary: Json | null
+          compliance_verified_at: string | null
+          compliance_verified_by: string | null
           converted_by: string | null
           converted_from_indent_at: string | null
           created_at: string | null
           created_by_user_id: string | null
-          deleted_at: string | null
           dco_payee_id: string | null
+          deleted_at: string | null
           display_trip_id: string | null
           distance: number | null
           distance_discrepancy_km: number | null
@@ -9744,11 +12221,13 @@ export type Database = {
           drop_lon: number | null
           end_odometer_km: number | null
           estimated_duration: string | null
+          execution_type: string | null
           gps_distance_km: number | null
           id: string
           indent_id: string | null
           indent_reference_code: string | null
           is_guaranteed: boolean
+          lane_id: string | null
           last_location_at: string | null
           last_location_chat_at: string | null
           load_tons: number | null
@@ -9760,27 +12239,37 @@ export type Database = {
           odometer_updated_at: string | null
           odometer_updated_by: string | null
           odometer_verification_state: string
-          operating_mode: string | null
+          operating_mode: string
           organization_id: string
           owner_user_id: string | null
+          owner_vehicle_id: string | null
           payment_status: string
           pickup_area: string
           pickup_date: string | null
           pickup_lat: number | null
           pickup_lon: number | null
           platform_fee: number
+          platform_fee_calc_snapshot: Json | null
+          pod_hard_copy_awb_number: string | null
+          pod_hard_copy_courier: string | null
+          pod_hard_copy_received_by: string | null
           pod_received_at: string | null
           pod_required: boolean
+          sale_rate_basis: string | null
+          sale_unit_rate: number | null
           sequence_number: number | null
           source: string
+          source_bid_id: string | null
           source_indent_code: string | null
           source_indent_id: string | null
+          source_market_bid_id: string | null
           start_odometer_km: number | null
           started_at: string | null
           status: string
           status_change_origin: string | null
           supplier_id: string | null
           supplier_rate: number
+          supplier_rate_basis: string | null
           supplier_trip_sequence: number | null
           trip_code: string | null
           trip_number: string
@@ -9800,12 +12289,17 @@ export type Database = {
           client_name: string
           client_price?: number
           completed_at?: string | null
+          compliance_decision?: string | null
+          compliance_exception_reason?: string | null
+          compliance_outstanding_summary?: Json | null
+          compliance_verified_at?: string | null
+          compliance_verified_by?: string | null
           converted_by?: string | null
           converted_from_indent_at?: string | null
           created_at?: string | null
           created_by_user_id?: string | null
-          deleted_at?: string | null
           dco_payee_id?: string | null
+          deleted_at?: string | null
           display_trip_id?: string | null
           distance?: number | null
           distance_discrepancy_km?: number | null
@@ -9819,11 +12313,13 @@ export type Database = {
           drop_lon?: number | null
           end_odometer_km?: number | null
           estimated_duration?: string | null
+          execution_type?: string | null
           gps_distance_km?: number | null
           id?: string
           indent_id?: string | null
           indent_reference_code?: string | null
           is_guaranteed?: boolean
+          lane_id?: string | null
           last_location_at?: string | null
           last_location_chat_at?: string | null
           load_tons?: number | null
@@ -9835,27 +12331,37 @@ export type Database = {
           odometer_updated_at?: string | null
           odometer_updated_by?: string | null
           odometer_verification_state?: string
-          operating_mode?: string | null
+          operating_mode?: string
           organization_id: string
           owner_user_id?: string | null
+          owner_vehicle_id?: string | null
           payment_status?: string
           pickup_area: string
           pickup_date?: string | null
           pickup_lat?: number | null
           pickup_lon?: number | null
           platform_fee?: number
+          platform_fee_calc_snapshot?: Json | null
+          pod_hard_copy_awb_number?: string | null
+          pod_hard_copy_courier?: string | null
+          pod_hard_copy_received_by?: string | null
           pod_received_at?: string | null
           pod_required?: boolean
+          sale_rate_basis?: string | null
+          sale_unit_rate?: number | null
           sequence_number?: number | null
           source?: string
+          source_bid_id?: string | null
           source_indent_code?: string | null
           source_indent_id?: string | null
+          source_market_bid_id?: string | null
           start_odometer_km?: number | null
           started_at?: string | null
           status?: string
           status_change_origin?: string | null
           supplier_id?: string | null
           supplier_rate?: number
+          supplier_rate_basis?: string | null
           supplier_trip_sequence?: number | null
           trip_code?: string | null
           trip_number: string
@@ -9875,12 +12381,17 @@ export type Database = {
           client_name?: string
           client_price?: number
           completed_at?: string | null
+          compliance_decision?: string | null
+          compliance_exception_reason?: string | null
+          compliance_outstanding_summary?: Json | null
+          compliance_verified_at?: string | null
+          compliance_verified_by?: string | null
           converted_by?: string | null
           converted_from_indent_at?: string | null
           created_at?: string | null
           created_by_user_id?: string | null
-          deleted_at?: string | null
           dco_payee_id?: string | null
+          deleted_at?: string | null
           display_trip_id?: string | null
           distance?: number | null
           distance_discrepancy_km?: number | null
@@ -9894,11 +12405,13 @@ export type Database = {
           drop_lon?: number | null
           end_odometer_km?: number | null
           estimated_duration?: string | null
+          execution_type?: string | null
           gps_distance_km?: number | null
           id?: string
           indent_id?: string | null
           indent_reference_code?: string | null
           is_guaranteed?: boolean
+          lane_id?: string | null
           last_location_at?: string | null
           last_location_chat_at?: string | null
           load_tons?: number | null
@@ -9910,27 +12423,37 @@ export type Database = {
           odometer_updated_at?: string | null
           odometer_updated_by?: string | null
           odometer_verification_state?: string
-          operating_mode?: string | null
+          operating_mode?: string
           organization_id?: string
           owner_user_id?: string | null
+          owner_vehicle_id?: string | null
           payment_status?: string
           pickup_area?: string
           pickup_date?: string | null
           pickup_lat?: number | null
           pickup_lon?: number | null
           platform_fee?: number
+          platform_fee_calc_snapshot?: Json | null
+          pod_hard_copy_awb_number?: string | null
+          pod_hard_copy_courier?: string | null
+          pod_hard_copy_received_by?: string | null
           pod_received_at?: string | null
           pod_required?: boolean
+          sale_rate_basis?: string | null
+          sale_unit_rate?: number | null
           sequence_number?: number | null
           source?: string
+          source_bid_id?: string | null
           source_indent_code?: string | null
           source_indent_id?: string | null
+          source_market_bid_id?: string | null
           start_odometer_km?: number | null
           started_at?: string | null
           status?: string
           status_change_origin?: string | null
           supplier_id?: string | null
           supplier_rate?: number
+          supplier_rate_basis?: string | null
           supplier_trip_sequence?: number | null
           trip_code?: string | null
           trip_number?: string
@@ -9963,6 +12486,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "trips_dco_payee_id_fkey"
+            columns: ["dco_payee_id"]
+            isOneToOne: false
+            referencedRelation: "dco_payees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_kyc_review_queue"
+            referencedColumns: ["driver_id"]
+          },
+          {
             foreignKeyName: "trips_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
@@ -9991,6 +12528,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "trips_lane_id_fkey"
+            columns: ["lane_id"]
+            isOneToOne: false
+            referencedRelation: "client_lane_rates"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "trips_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
@@ -10012,6 +12556,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "trips_owner_vehicle_id_fkey"
+            columns: ["owner_vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "owner_vehicles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_source_bid_id_fkey"
+            columns: ["source_bid_id"]
+            isOneToOne: false
+            referencedRelation: "driver_direct_bids"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "trips_source_indent_id_fkey"
             columns: ["source_indent_id"]
             isOneToOne: false
@@ -10023,6 +12581,13 @@ export type Database = {
             columns: ["source_indent_id"]
             isOneToOne: false
             referencedRelation: "v_open_indents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_source_market_bid_id_fkey"
+            columns: ["source_market_bid_id"]
+            isOneToOne: false
+            referencedRelation: "market_bids"
             referencedColumns: ["id"]
           },
           {
@@ -10431,6 +12996,13 @@ export type Database = {
           vehicle_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "vehicle_odometer_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_kyc_review_queue"
+            referencedColumns: ["driver_id"]
+          },
           {
             foreignKeyName: "vehicle_odometer_events_driver_id_fkey"
             columns: ["driver_id"]
@@ -11004,6 +13576,41 @@ export type Database = {
       }
     }
     Views: {
+      driver_kyc_review_queue: {
+        Row: {
+          attempt_count: number | null
+          document_count: number | null
+          driver_id: string | null
+          driver_name: string | null
+          driver_phone: string | null
+          driver_user_id: string | null
+          optional_not_provided: string | null
+          organization_name: string | null
+          pending_count: number | null
+          rejected_count: number | null
+          review_notes: string | null
+          review_status: string | null
+          reviewed_at: string | null
+          submitted_at: string | null
+          verified_count: number | null
+        }
+        Relationships: []
+      }
+      driver_kyc_status: {
+        Row: {
+          attempt_count: number | null
+          driver_user_id: string | null
+          is_verified: boolean | null
+          required_docs: number | null
+          review_notes: string | null
+          review_status: string | null
+          reviewed_at: string | null
+          submitted_at: string | null
+          uploaded_docs: number | null
+          verified_docs: number | null
+        }
+        Relationships: []
+      }
       trip_messages_archive_candidates: {
         Row: {
           content: string | null
@@ -11106,8 +13713,12 @@ export type Database = {
         }
         Insert: {
           client_price?: number | null
+          completed_at?: string | null
           created_at?: string | null
+          dco_payee_id?: string | null
           distance?: number | null
+          distance_discrepancy_km?: number | null
+          distance_source?: string | null
           driver_commission?: number | null
           driver_display_trip_id?: string | null
           driver_id?: string | null
@@ -11116,23 +13727,44 @@ export type Database = {
           dropoff_address?: string | null
           dropoff_location?: string | null
           dropoff_scheduled_at?: never
+          end_odometer_km?: number | null
+          gps_distance_km?: number | null
           id?: string | null
+          indent_id?: string | null
           instructions?: string | null
+          odometer_distance_km?: number | null
+          odometer_notes?: string | null
+          odometer_updated_at?: string | null
+          odometer_verification_state?: string | null
+          operating_mode?: string | null
+          organization_id?: string | null
+          organization_name?: never
+          owner_vehicle_id?: string | null
           pickup_address?: string | null
           pickup_lat?: number | null
           pickup_location?: string | null
           pickup_lon?: number | null
           pickup_scheduled_at?: string | null
+          source?: string | null
+          source_indent_id?: string | null
+          start_odometer_km?: number | null
           started_at?: string | null
           status?: string | null
+          supplier_id?: string | null
           supplier_rate?: number | null
+          trip_number?: string | null
+          trip_payout_mode?: string | null
           updated_at?: string | null
           vehicle_id?: string | null
         }
         Update: {
           client_price?: number | null
+          completed_at?: string | null
           created_at?: string | null
+          dco_payee_id?: string | null
           distance?: number | null
+          distance_discrepancy_km?: number | null
+          distance_source?: string | null
           driver_commission?: number | null
           driver_display_trip_id?: string | null
           driver_id?: string | null
@@ -11141,20 +13773,51 @@ export type Database = {
           dropoff_address?: string | null
           dropoff_location?: string | null
           dropoff_scheduled_at?: never
+          end_odometer_km?: number | null
+          gps_distance_km?: number | null
           id?: string | null
+          indent_id?: string | null
           instructions?: string | null
+          odometer_distance_km?: number | null
+          odometer_notes?: string | null
+          odometer_updated_at?: string | null
+          odometer_verification_state?: string | null
+          operating_mode?: string | null
+          organization_id?: string | null
+          organization_name?: never
+          owner_vehicle_id?: string | null
           pickup_address?: string | null
           pickup_lat?: number | null
           pickup_location?: string | null
           pickup_lon?: number | null
           pickup_scheduled_at?: string | null
+          source?: string | null
+          source_indent_id?: string | null
+          start_odometer_km?: number | null
           started_at?: string | null
           status?: string | null
+          supplier_id?: string | null
           supplier_rate?: number | null
+          trip_number?: string | null
+          trip_payout_mode?: string | null
           updated_at?: string | null
           vehicle_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "trips_dco_payee_id_fkey"
+            columns: ["dco_payee_id"]
+            isOneToOne: false
+            referencedRelation: "dco_payees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_kyc_review_queue"
+            referencedColumns: ["driver_id"]
+          },
           {
             foreignKeyName: "trips_driver_id_fkey"
             columns: ["driver_id"]
@@ -11168,6 +13831,62 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_driver_balances"
             referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trips_indent_id_fkey"
+            columns: ["indent_id"]
+            isOneToOne: false
+            referencedRelation: "indents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_indent_id_fkey"
+            columns: ["indent_id"]
+            isOneToOne: false
+            referencedRelation: "v_open_indents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_owner_vehicle_id_fkey"
+            columns: ["owner_vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "owner_vehicles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_source_indent_id_fkey"
+            columns: ["source_indent_id"]
+            isOneToOne: false
+            referencedRelation: "indents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_source_indent_id_fkey"
+            columns: ["source_indent_id"]
+            isOneToOne: false
+            referencedRelation: "v_open_indents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "trips_vehicle_id_fkey"
@@ -11237,6 +13956,13 @@ export type Database = {
           vehicle_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "trips_driver_id_fkey"
+            columns: ["assigned_driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_kyc_review_queue"
+            referencedColumns: ["driver_id"]
+          },
           {
             foreignKeyName: "trips_driver_id_fkey"
             columns: ["assigned_driver_id"]
@@ -11582,11 +14308,29 @@ export type Database = {
       }
     }
     Functions: {
+      _ensure_mover_asset_trip: {
+        Args: {
+          p_actor_user_id?: string
+          p_driver_id?: string
+          p_indent_id: string
+          p_vehicle_display_number?: string
+          p_vehicle_id?: string
+        }
+        Returns: undefined
+      }
+      _next_support_ticket_display_id: { Args: never; Returns: string }
+      _resolve_or_create_market_driver: {
+        Args: { p_bidder_user_id: string; p_organization_id: string }
+        Returns: string
+      }
+      _trip_status_rank: { Args: { p_status: string }; Returns: number }
       accept_bid: {
         Args: { p_actor_org_id: string; p_bid_id: string }
         Returns: undefined
       }
+      accept_driver_direct_bid: { Args: { p_bid_id: string }; Returns: Json }
       accept_driver_invite: { Args: { p_invite_id: string }; Returns: Json }
+      accept_market_bid: { Args: { p_bid_id: string }; Returns: Json }
       accept_partner_view: {
         Args: {
           contact_id?: string
@@ -11614,6 +14358,7 @@ export type Database = {
         }
         Returns: number
       }
+      activate_platform_user: { Args: never; Returns: undefined }
       add_driver_ledger_entry: {
         Args: {
           p_amount: number
@@ -11627,12 +14372,38 @@ export type Database = {
         }
         Returns: string
       }
+      admin_add_internal_note: {
+        Args: { p_body: string; p_ticket_id: string }
+        Returns: Json
+      }
       admin_approve_profile: {
         Args: { p_admin_id: string; p_notes?: string; p_org_id: string }
         Returns: Json
       }
+      admin_change_support_ticket_priority: {
+        Args: { p_priority: string; p_ticket_id: string }
+        Returns: Json
+      }
+      admin_change_support_ticket_status: {
+        Args: { p_status: string; p_ticket_id: string }
+        Returns: Json
+      }
       admin_force_unlock_profile: {
         Args: { p_admin_id: string; p_org_id: string; p_reason: string }
+        Returns: Json
+      }
+      admin_list_support_tickets: {
+        Args: {
+          p_limit?: number
+          p_offset?: number
+          p_search?: string
+          p_status?: string
+          p_unassigned_only?: boolean
+        }
+        Returns: Json
+      }
+      admin_mark_support_ticket_read: {
+        Args: { p_ticket_id: string }
         Returns: Json
       }
       admin_reject_profile: {
@@ -11642,6 +14413,15 @@ export type Database = {
           p_org_id: string
           p_rejection_reasons: Json
         }
+        Returns: Json
+      }
+      admin_reply_to_support_ticket: {
+        Args: { p_body: string; p_ticket_id: string }
+        Returns: Json
+      }
+      admin_support_attention_count: { Args: never; Returns: number }
+      admin_support_ticket_context_labels: {
+        Args: { p_ticket_id: string }
         Returns: Json
       }
       allocate_invoice_number: {
@@ -11664,10 +14444,16 @@ export type Database = {
           client_name: string
           client_price: number
           completed_at: string | null
+          compliance_decision: string | null
+          compliance_exception_reason: string | null
+          compliance_outstanding_summary: Json | null
+          compliance_verified_at: string | null
+          compliance_verified_by: string | null
           converted_by: string | null
           converted_from_indent_at: string | null
           created_at: string | null
           created_by_user_id: string | null
+          dco_payee_id: string | null
           deleted_at: string | null
           display_trip_id: string | null
           distance: number | null
@@ -11682,11 +14468,13 @@ export type Database = {
           drop_lon: number | null
           end_odometer_km: number | null
           estimated_duration: string | null
+          execution_type: string | null
           gps_distance_km: number | null
           id: string
           indent_id: string | null
           indent_reference_code: string | null
           is_guaranteed: boolean
+          lane_id: string | null
           last_location_at: string | null
           last_location_chat_at: string | null
           load_tons: number | null
@@ -11698,26 +14486,37 @@ export type Database = {
           odometer_updated_at: string | null
           odometer_updated_by: string | null
           odometer_verification_state: string
+          operating_mode: string
           organization_id: string
           owner_user_id: string | null
+          owner_vehicle_id: string | null
           payment_status: string
           pickup_area: string
           pickup_date: string | null
           pickup_lat: number | null
           pickup_lon: number | null
           platform_fee: number
+          platform_fee_calc_snapshot: Json | null
+          pod_hard_copy_awb_number: string | null
+          pod_hard_copy_courier: string | null
+          pod_hard_copy_received_by: string | null
           pod_received_at: string | null
           pod_required: boolean
+          sale_rate_basis: string | null
+          sale_unit_rate: number | null
           sequence_number: number | null
           source: string
+          source_bid_id: string | null
           source_indent_code: string | null
           source_indent_id: string | null
+          source_market_bid_id: string | null
           start_odometer_km: number | null
           started_at: string | null
           status: string
           status_change_origin: string | null
           supplier_id: string | null
           supplier_rate: number
+          supplier_rate_basis: string | null
           supplier_trip_sequence: number | null
           trip_code: string | null
           trip_number: string
@@ -11734,6 +14533,30 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      approve_org_domain_join_request: {
+        Args: { p_request_id: string }
+        Returns: {
+          created_at: string | null
+          id: string
+          joined_at: string
+          organization_id: string
+          permissions: Json
+          role: string
+          status: string
+          updated_at: string | null
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "organization_members"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      approve_trip_compliance_with_exception: {
+        Args: { p_comment: string; p_trip_id: string }
+        Returns: undefined
+      }
       archive_chat_messages: {
         Args: { p_batch?: number; p_older_than?: string }
         Returns: number
@@ -11742,11 +14565,16 @@ export type Database = {
         Args: { p_org_a: string; p_org_b: string }
         Returns: boolean
       }
+      are_orgs_connected_or_reach_target: {
+        Args: { p_author_org: string; p_post_id: string; p_viewer_org: string }
+        Returns: boolean
+      }
       assign_aggregate_trip_driver: {
         Args: {
           p_driver_name?: string
           p_driver_org_id: string
           p_driver_phone: string
+          p_execution_type?: string
           p_trip_id: string
           p_vehicle_display_number?: string
           p_vehicle_id?: string
@@ -11754,6 +14582,10 @@ export type Database = {
         Returns: Json
       }
       auth_org_id: { Args: never; Returns: string }
+      award_direct_quote: {
+        Args: { p_indent_id: string; p_winning_quote_id: string }
+        Returns: Json
+      }
       award_indent_to_trip: {
         Args: {
           p_driver_id?: string
@@ -11774,10 +14606,16 @@ export type Database = {
           client_name: string
           client_price: number
           completed_at: string | null
+          compliance_decision: string | null
+          compliance_exception_reason: string | null
+          compliance_outstanding_summary: Json | null
+          compliance_verified_at: string | null
+          compliance_verified_by: string | null
           converted_by: string | null
           converted_from_indent_at: string | null
           created_at: string | null
           created_by_user_id: string | null
+          dco_payee_id: string | null
           deleted_at: string | null
           display_trip_id: string | null
           distance: number | null
@@ -11792,11 +14630,13 @@ export type Database = {
           drop_lon: number | null
           end_odometer_km: number | null
           estimated_duration: string | null
+          execution_type: string | null
           gps_distance_km: number | null
           id: string
           indent_id: string | null
           indent_reference_code: string | null
           is_guaranteed: boolean
+          lane_id: string | null
           last_location_at: string | null
           last_location_chat_at: string | null
           load_tons: number | null
@@ -11808,26 +14648,37 @@ export type Database = {
           odometer_updated_at: string | null
           odometer_updated_by: string | null
           odometer_verification_state: string
+          operating_mode: string
           organization_id: string
           owner_user_id: string | null
+          owner_vehicle_id: string | null
           payment_status: string
           pickup_area: string
           pickup_date: string | null
           pickup_lat: number | null
           pickup_lon: number | null
           platform_fee: number
+          platform_fee_calc_snapshot: Json | null
+          pod_hard_copy_awb_number: string | null
+          pod_hard_copy_courier: string | null
+          pod_hard_copy_received_by: string | null
           pod_received_at: string | null
           pod_required: boolean
+          sale_rate_basis: string | null
+          sale_unit_rate: number | null
           sequence_number: number | null
           source: string
+          source_bid_id: string | null
           source_indent_code: string | null
           source_indent_id: string | null
+          source_market_bid_id: string | null
           start_odometer_km: number | null
           started_at: string | null
           status: string
           status_change_origin: string | null
           supplier_id: string | null
           supplier_rate: number
+          supplier_rate_basis: string | null
           supplier_trip_sequence: number | null
           trip_code: string | null
           trip_number: string
@@ -11844,6 +14695,7 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      award_market_bid: { Args: { p_bid_id: string }; Returns: Json }
       backfill_trip_room_operational_batch: {
         Args: { p_limit?: number }
         Returns: number
@@ -11851,6 +14703,10 @@ export type Database = {
       batch_award_indents_to_trips: {
         Args: { p_org_id: string }
         Returns: number
+      }
+      calculate_marketplace_platform_fee: {
+        Args: { p_bid_amount: number }
+        Returns: Json
       }
       can_access_trip_location: {
         Args: { p_trip_id: string }
@@ -11860,9 +14716,19 @@ export type Database = {
         Args: { p_org_id: string }
         Returns: boolean
       }
+      can_manage_platform_admins: { Args: never; Returns: boolean }
+      can_manage_support: { Args: never; Returns: boolean }
+      can_read_trip_document: { Args: { p_trip_id: string }; Returns: boolean }
+      can_review_dco: { Args: never; Returns: boolean }
+      can_review_driver_kyc: { Args: never; Returns: boolean }
+      can_view_support: { Args: never; Returns: boolean }
       cancel_pending_sent_connections_to_partner_owner: {
         Args: { p_from_org_id: string; p_partner_owner_id: string }
         Returns: string[]
+      }
+      cancel_reach_campaign: {
+        Args: { p_campaign_id: string; p_reason?: string }
+        Returns: Json
       }
       cancel_team_invite_pending: {
         Args: { p_invite_id: string }
@@ -11871,6 +14737,10 @@ export type Database = {
       change_operating_model: {
         Args: { p_new_model: string; p_org_id: string }
         Returns: Json
+      }
+      change_platform_role: {
+        Args: { p_new_role_id: string; p_platform_user_id: string }
+        Returns: undefined
       }
       change_trip_status_with_notification: {
         Args: {
@@ -11897,6 +14767,7 @@ export type Database = {
         Returns: Json
       }
       check_ocr_scan_quota: { Args: { p_org_id: string }; Returns: Json }
+      check_org_for_email_domain: { Args: { p_email: string }; Returns: Json }
       check_rate_limit: {
         Args: {
           p_max: number
@@ -11940,6 +14811,19 @@ export type Database = {
         Args: { p_org_id: string; p_vehicle_id: string }
         Returns: Json
       }
+      confirm_marketplace_fee_payment: {
+        Args: {
+          p_expected_market_bid_id?: string
+          p_failure_reason?: string
+          p_outcome?: string
+          p_provider?: string
+          p_provider_amount: number
+          p_provider_event_id: string
+          p_provider_order_id: string
+          p_provider_payment_id: string
+        }
+        Returns: Json
+      }
       confirm_to_accounting_books: {
         Args: { p_message_id: string; p_org_id: string }
         Returns: Json
@@ -11949,6 +14833,14 @@ export type Database = {
         Returns: Json
       }
       consume_driver_invite: { Args: { p_invite_id: string }; Returns: boolean }
+      convert_reach_referral: {
+        Args: { p_referral_id: string; p_trip_id: string }
+        Returns: Json
+      }
+      counter_driver_direct_bid: {
+        Args: { p_bid_id: string; p_counter_amount: number }
+        Returns: Json
+      }
       create_driver_direct: {
         Args: {
           p_commission_per_km?: number
@@ -11960,6 +14852,190 @@ export type Database = {
           p_phone: string
         }
         Returns: Json
+      }
+      create_execution_plan_with_graph: {
+        Args: {
+          p_allocations: Json
+          p_client_plan_id: string
+          p_orders: Json
+          p_org_id: string
+          p_stops: Json
+          p_vehicle_type: string
+        }
+        Returns: {
+          plan_id: string
+          plan_number: string
+        }[]
+      }
+      create_fleet_owner_capacity_story: {
+        Args: {
+          p_available_from?: string
+          p_content?: string
+          p_destination?: string
+          p_expires_at?: string
+          p_origin?: string
+          p_owner_vehicle_id: string
+          p_rate_offer?: number
+        }
+        Returns: {
+          author_user_id: string
+          content: string | null
+          created_at: string
+          destination: string | null
+          expires_at: string | null
+          id: string
+          is_active: boolean
+          load_date: string | null
+          material: string | null
+          organization_id: string | null
+          origin: string | null
+          owner_vehicle_id: string | null
+          rate_offer: number | null
+          source_indent_id: string | null
+          type: string
+          updated_at: string
+          vehicle_type: string | null
+          view_count: number
+          weight_tonnes: number | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "posts"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      create_market_trip_after_fee_payment: {
+        Args: { p_bid_id: string }
+        Returns: Json
+      }
+      create_mover_asset_trip: {
+        Args: {
+          p_driver_id?: string
+          p_indent_id: string
+          p_vehicle_display_number?: string
+          p_vehicle_id?: string
+        }
+        Returns: {
+          actual_distance_traveled_km: number | null
+          advance_paid: number
+          amount_paid: number
+          assigned_by_user_id: string | null
+          booking_ref: string | null
+          client_id: string | null
+          client_name: string
+          client_price: number
+          completed_at: string | null
+          compliance_decision: string | null
+          compliance_exception_reason: string | null
+          compliance_outstanding_summary: Json | null
+          compliance_verified_at: string | null
+          compliance_verified_by: string | null
+          converted_by: string | null
+          converted_from_indent_at: string | null
+          created_at: string | null
+          created_by_user_id: string | null
+          dco_payee_id: string | null
+          deleted_at: string | null
+          display_trip_id: string | null
+          distance: number | null
+          distance_discrepancy_km: number | null
+          distance_source: string | null
+          driver_commission: number
+          driver_display_name: string | null
+          driver_display_trip_id: string | null
+          driver_id: string | null
+          drop_lat: number | null
+          drop_location: string
+          drop_lon: number | null
+          end_odometer_km: number | null
+          estimated_duration: string | null
+          execution_type: string | null
+          gps_distance_km: number | null
+          id: string
+          indent_id: string | null
+          indent_reference_code: string | null
+          is_guaranteed: boolean
+          lane_id: string | null
+          last_location_at: string | null
+          last_location_chat_at: string | null
+          load_tons: number | null
+          load_type: string | null
+          margin: number | null
+          notes: string | null
+          odometer_distance_km: number | null
+          odometer_notes: string | null
+          odometer_updated_at: string | null
+          odometer_updated_by: string | null
+          odometer_verification_state: string
+          operating_mode: string
+          organization_id: string
+          owner_user_id: string | null
+          owner_vehicle_id: string | null
+          payment_status: string
+          pickup_area: string
+          pickup_date: string | null
+          pickup_lat: number | null
+          pickup_lon: number | null
+          platform_fee: number
+          platform_fee_calc_snapshot: Json | null
+          pod_hard_copy_awb_number: string | null
+          pod_hard_copy_courier: string | null
+          pod_hard_copy_received_by: string | null
+          pod_received_at: string | null
+          pod_required: boolean
+          sale_rate_basis: string | null
+          sale_unit_rate: number | null
+          sequence_number: number | null
+          source: string
+          source_bid_id: string | null
+          source_indent_code: string | null
+          source_indent_id: string | null
+          source_market_bid_id: string | null
+          start_odometer_km: number | null
+          started_at: string | null
+          status: string
+          status_change_origin: string | null
+          supplier_id: string | null
+          supplier_rate: number
+          supplier_rate_basis: string | null
+          supplier_trip_sequence: number | null
+          trip_code: string | null
+          trip_number: string
+          trip_operational_code: string | null
+          trip_payout_mode: string | null
+          updated_at: string | null
+          vehicle_display_number: string | null
+          vehicle_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "trips"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      create_org_domain_join_request: {
+        Args: { p_organization_id: string }
+        Returns: {
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          email: string
+          email_domain: string
+          id: string
+          organization_id: string
+          requester_name: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "organization_domain_join_requests"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       create_team_invite_pending: {
         Args: {
@@ -12010,10 +15086,16 @@ export type Database = {
           client_name: string
           client_price: number
           completed_at: string | null
+          compliance_decision: string | null
+          compliance_exception_reason: string | null
+          compliance_outstanding_summary: Json | null
+          compliance_verified_at: string | null
+          compliance_verified_by: string | null
           converted_by: string | null
           converted_from_indent_at: string | null
           created_at: string | null
           created_by_user_id: string | null
+          dco_payee_id: string | null
           deleted_at: string | null
           display_trip_id: string | null
           distance: number | null
@@ -12028,11 +15110,13 @@ export type Database = {
           drop_lon: number | null
           end_odometer_km: number | null
           estimated_duration: string | null
+          execution_type: string | null
           gps_distance_km: number | null
           id: string
           indent_id: string | null
           indent_reference_code: string | null
           is_guaranteed: boolean
+          lane_id: string | null
           last_location_at: string | null
           last_location_chat_at: string | null
           load_tons: number | null
@@ -12044,26 +15128,37 @@ export type Database = {
           odometer_updated_at: string | null
           odometer_updated_by: string | null
           odometer_verification_state: string
+          operating_mode: string
           organization_id: string
           owner_user_id: string | null
+          owner_vehicle_id: string | null
           payment_status: string
           pickup_area: string
           pickup_date: string | null
           pickup_lat: number | null
           pickup_lon: number | null
           platform_fee: number
+          platform_fee_calc_snapshot: Json | null
+          pod_hard_copy_awb_number: string | null
+          pod_hard_copy_courier: string | null
+          pod_hard_copy_received_by: string | null
           pod_received_at: string | null
           pod_required: boolean
+          sale_rate_basis: string | null
+          sale_unit_rate: number | null
           sequence_number: number | null
           source: string
+          source_bid_id: string | null
           source_indent_code: string | null
           source_indent_id: string | null
+          source_market_bid_id: string | null
           start_odometer_km: number | null
           started_at: string | null
           status: string
           status_change_origin: string | null
           supplier_id: string | null
           supplier_rate: number
+          supplier_rate_basis: string | null
           supplier_trip_sequence: number | null
           trip_code: string | null
           trip_number: string
@@ -12080,171 +15175,157 @@ export type Database = {
           isSetofReturn: true
         }
       }
-      create_trip_from_direct_quote:
-        | {
-            Args: { p_quote_id: string }
-            Returns: {
-              actual_distance_traveled_km: number | null
-              advance_paid: number
-              amount_paid: number
-              assigned_by_user_id: string | null
-              booking_ref: string | null
-              client_id: string | null
-              client_name: string
-              client_price: number
-              completed_at: string | null
-              converted_by: string | null
-              converted_from_indent_at: string | null
-              created_at: string | null
-              created_by_user_id: string | null
-              deleted_at: string | null
-              display_trip_id: string | null
-              distance: number | null
-              distance_discrepancy_km: number | null
-              distance_source: string | null
-              driver_commission: number
-              driver_display_name: string | null
-              driver_display_trip_id: string | null
-              driver_id: string | null
-              drop_lat: number | null
-              drop_location: string
-              drop_lon: number | null
-              end_odometer_km: number | null
-              estimated_duration: string | null
-              gps_distance_km: number | null
-              id: string
-              indent_id: string | null
-              indent_reference_code: string | null
-              is_guaranteed: boolean
-              last_location_at: string | null
-              last_location_chat_at: string | null
-              load_tons: number | null
-              load_type: string | null
-              margin: number | null
-              notes: string | null
-              odometer_distance_km: number | null
-              odometer_notes: string | null
-              odometer_updated_at: string | null
-              odometer_updated_by: string | null
-              odometer_verification_state: string
-              organization_id: string
-              owner_user_id: string | null
-              payment_status: string
-              pickup_area: string
-              pickup_date: string | null
-              pickup_lat: number | null
-              pickup_lon: number | null
-              platform_fee: number
-              pod_received_at: string | null
-              pod_required: boolean
-              sequence_number: number | null
-              source: string
-              source_indent_code: string | null
-              source_indent_id: string | null
-              start_odometer_km: number | null
-              started_at: string | null
-              status: string
-              status_change_origin: string | null
-              supplier_id: string | null
-              supplier_rate: number
-              supplier_trip_sequence: number | null
-              trip_code: string | null
-              trip_number: string
-              trip_operational_code: string | null
-              trip_payout_mode: string | null
-              updated_at: string | null
-              vehicle_display_number: string | null
-              vehicle_id: string | null
-            }[]
-            SetofOptions: {
-              from: "*"
-              to: "trips"
-              isOneToOne: false
-              isSetofReturn: true
-            }
-          }
-        | {
-            Args: { p_quote_id: string; p_vehicle_display_number?: string }
-            Returns: {
-              actual_distance_traveled_km: number | null
-              advance_paid: number
-              amount_paid: number
-              assigned_by_user_id: string | null
-              booking_ref: string | null
-              client_id: string | null
-              client_name: string
-              client_price: number
-              completed_at: string | null
-              converted_by: string | null
-              converted_from_indent_at: string | null
-              created_at: string | null
-              created_by_user_id: string | null
-              deleted_at: string | null
-              display_trip_id: string | null
-              distance: number | null
-              distance_discrepancy_km: number | null
-              distance_source: string | null
-              driver_commission: number
-              driver_display_name: string | null
-              driver_display_trip_id: string | null
-              driver_id: string | null
-              drop_lat: number | null
-              drop_location: string
-              drop_lon: number | null
-              end_odometer_km: number | null
-              estimated_duration: string | null
-              gps_distance_km: number | null
-              id: string
-              indent_id: string | null
-              indent_reference_code: string | null
-              is_guaranteed: boolean
-              last_location_at: string | null
-              last_location_chat_at: string | null
-              load_tons: number | null
-              load_type: string | null
-              margin: number | null
-              notes: string | null
-              odometer_distance_km: number | null
-              odometer_notes: string | null
-              odometer_updated_at: string | null
-              odometer_updated_by: string | null
-              odometer_verification_state: string
-              organization_id: string
-              owner_user_id: string | null
-              payment_status: string
-              pickup_area: string
-              pickup_date: string | null
-              pickup_lat: number | null
-              pickup_lon: number | null
-              platform_fee: number
-              pod_received_at: string | null
-              pod_required: boolean
-              sequence_number: number | null
-              source: string
-              source_indent_code: string | null
-              source_indent_id: string | null
-              start_odometer_km: number | null
-              started_at: string | null
-              status: string
-              status_change_origin: string | null
-              supplier_id: string | null
-              supplier_rate: number
-              supplier_trip_sequence: number | null
-              trip_code: string | null
-              trip_number: string
-              trip_operational_code: string | null
-              trip_payout_mode: string | null
-              updated_at: string | null
-              vehicle_display_number: string | null
-              vehicle_id: string | null
-            }[]
-            SetofOptions: {
-              from: "*"
-              to: "trips"
-              isOneToOne: false
-              isSetofReturn: true
-            }
-          }
+      create_trip_from_direct_quote: {
+        Args: { p_quote_id: string; p_vehicle_display_number?: string }
+        Returns: {
+          actual_distance_traveled_km: number | null
+          advance_paid: number
+          amount_paid: number
+          assigned_by_user_id: string | null
+          booking_ref: string | null
+          client_id: string | null
+          client_name: string
+          client_price: number
+          completed_at: string | null
+          compliance_decision: string | null
+          compliance_exception_reason: string | null
+          compliance_outstanding_summary: Json | null
+          compliance_verified_at: string | null
+          compliance_verified_by: string | null
+          converted_by: string | null
+          converted_from_indent_at: string | null
+          created_at: string | null
+          created_by_user_id: string | null
+          dco_payee_id: string | null
+          deleted_at: string | null
+          display_trip_id: string | null
+          distance: number | null
+          distance_discrepancy_km: number | null
+          distance_source: string | null
+          driver_commission: number
+          driver_display_name: string | null
+          driver_display_trip_id: string | null
+          driver_id: string | null
+          drop_lat: number | null
+          drop_location: string
+          drop_lon: number | null
+          end_odometer_km: number | null
+          estimated_duration: string | null
+          execution_type: string | null
+          gps_distance_km: number | null
+          id: string
+          indent_id: string | null
+          indent_reference_code: string | null
+          is_guaranteed: boolean
+          lane_id: string | null
+          last_location_at: string | null
+          last_location_chat_at: string | null
+          load_tons: number | null
+          load_type: string | null
+          margin: number | null
+          notes: string | null
+          odometer_distance_km: number | null
+          odometer_notes: string | null
+          odometer_updated_at: string | null
+          odometer_updated_by: string | null
+          odometer_verification_state: string
+          operating_mode: string
+          organization_id: string
+          owner_user_id: string | null
+          owner_vehicle_id: string | null
+          payment_status: string
+          pickup_area: string
+          pickup_date: string | null
+          pickup_lat: number | null
+          pickup_lon: number | null
+          platform_fee: number
+          platform_fee_calc_snapshot: Json | null
+          pod_hard_copy_awb_number: string | null
+          pod_hard_copy_courier: string | null
+          pod_hard_copy_received_by: string | null
+          pod_received_at: string | null
+          pod_required: boolean
+          sale_rate_basis: string | null
+          sale_unit_rate: number | null
+          sequence_number: number | null
+          source: string
+          source_bid_id: string | null
+          source_indent_code: string | null
+          source_indent_id: string | null
+          source_market_bid_id: string | null
+          start_odometer_km: number | null
+          started_at: string | null
+          status: string
+          status_change_origin: string | null
+          supplier_id: string | null
+          supplier_rate: number
+          supplier_rate_basis: string | null
+          supplier_trip_sequence: number | null
+          trip_code: string | null
+          trip_number: string
+          trip_operational_code: string | null
+          trip_payout_mode: string | null
+          updated_at: string | null
+          vehicle_display_number: string | null
+          vehicle_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "trips"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      dco_reopen_rejected: {
+        Args: { p_user_id: string }
+        Returns: {
+          created_at: string
+          decision_reason: string | null
+          requested_at: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "dco_profiles"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      deactivate_fleet_owner_capacity_story: {
+        Args: { p_post_id: string }
+        Returns: boolean
+      }
+      decide_reach_referral: {
+        Args: { p_approve: boolean; p_referral_id: string }
+        Returns: Json
+      }
+      decline_org_domain_join_request: {
+        Args: { p_request_id: string }
+        Returns: {
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          email: string
+          email_domain: string
+          id: string
+          organization_id: string
+          requester_name: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "organization_domain_join_requests"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      detect_cron_incident_guarded: { Args: never; Returns: undefined }
       discover_extract_city: { Args: { p_location: string }; Returns: string }
       discover_organizations: {
         Args: {
@@ -12269,14 +15350,20 @@ export type Database = {
           recommendation_score: number
           state: string
           trip_count: number
+          verification_status: string
         }[]
       }
       dismiss_driver_signup_match: {
         Args: { p_driver_id: string }
         Returns: Json
       }
+      dispatch_log_watcher_scheduler: { Args: never; Returns: undefined }
       dispatch_push_notifications: { Args: never; Returns: undefined }
       dispatch_verification_workers: { Args: never; Returns: undefined }
+      driver_decline_pending_assignment: {
+        Args: { p_trip_id: string }
+        Returns: Json
+      }
       driver_has_assigned_trip_for_supplier: {
         Args: { p_supplier_id: string }
         Returns: boolean
@@ -12289,11 +15376,85 @@ export type Database = {
         Args: { p_current_trip_id?: string; p_driver_id: string }
         Returns: boolean
       }
+      driver_kyc_reopen_submission: {
+        Args: { p_driver_user_id: string; p_reason: string }
+        Returns: {
+          attempt_count: number
+          created_at: string
+          driver_user_id: string
+          review_notes: string | null
+          review_status: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          submitted_at: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "driver_kyc_submissions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       driver_phone_has_other_active_trip: {
         Args: { p_current_trip_id?: string; p_driver_id: string }
         Returns: boolean
       }
       driver_reject_trip: { Args: { p_trip_id: string }; Returns: undefined }
+      driver_resubmit_kyc_document: {
+        Args: {
+          p_document_id: string
+          p_file_name: string
+          p_file_size?: number
+          p_mime_type: string
+          p_storage_path: string
+        }
+        Returns: {
+          created_at: string
+          deleted_at: string | null
+          doc_label: string | null
+          doc_type: string
+          driver_user_id: string
+          file_name: string | null
+          file_size_bytes: number | null
+          id: string
+          is_mandatory: boolean
+          mime_type: string | null
+          rejection_notes: string | null
+          status: string
+          storage_path: string | null
+          updated_at: string
+          uploaded_by: string | null
+          verified_at: string | null
+          verified_by: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "driver_kyc_documents"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      driver_submit_kyc_for_verification: {
+        Args: never
+        Returns: {
+          attempt_count: number
+          created_at: string
+          driver_user_id: string
+          review_notes: string | null
+          review_status: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          submitted_at: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "driver_kyc_submissions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       driver_update_trip_status: {
         Args: {
           p_completed_at?: string
@@ -12301,6 +15462,10 @@ export type Database = {
           p_status: string
           p_trip_id: string
         }
+        Returns: undefined
+      }
+      driver_withdraw_kyc_document: {
+        Args: { p_document_id: string }
         Returns: undefined
       }
       emit_event: {
@@ -12317,6 +15482,42 @@ export type Database = {
         }
         Returns: string
       }
+      emit_network_notification: {
+        Args: {
+          p_actor_org_id: string
+          p_amount_meta: number
+          p_bid_id: string
+          p_dedupe_key: string
+          p_event_type: string
+          p_indent_id: string
+          p_organization_id: string
+          p_payload?: Json
+          p_quote_id: string
+          p_subtitle: string
+          p_title: string
+        }
+        Returns: undefined
+      }
+      emit_platform_event: {
+        Args: { p_event_type: string; p_org_id?: string; p_payload?: Json }
+        Returns: string
+      }
+      enable_driver_fleet_owner: {
+        Args: never
+        Returns: {
+          created_at: string
+          enabled_at: string
+          preferred_view: string
+          updated_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "driver_fleet_owner_profiles"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       enforce_rpc_rate_limit: {
         Args: { p_max_requests: number; p_scope: string; p_window: string }
         Returns: undefined
@@ -12324,6 +15525,10 @@ export type Database = {
       enqueue_driver_signup_matches: {
         Args: { p_phone: string; p_user_id: string }
         Returns: number
+      }
+      ensure_asset_completion_auto_entries: {
+        Args: { p_trip_id: string }
+        Returns: undefined
       }
       ensure_chat_channel: {
         Args: {
@@ -12493,6 +15698,10 @@ export type Database = {
         Args: { p_email: string }
         Returns: number
       }
+      extract_ledger_meta_trip_number: {
+        Args: { p_description: string }
+        Returns: string
+      }
       find_org_matches_for_counterparty: {
         Args: { p_min_similarity?: number; p_name: string; p_phone?: string }
         Returns: {
@@ -12508,6 +15717,11 @@ export type Database = {
           request_id: string
           same_pair: boolean
         }[]
+      }
+      fn_aggregate_reach_daily_metrics: { Args: never; Returns: undefined }
+      fn_allocate_reach_targets: {
+        Args: { p_campaign_id: string; p_count: number; p_wave: number }
+        Returns: number
       }
       fn_build_chat_lanes: { Args: { p_unified: Json }; Returns: Json }
       fn_can_access_trip_for_chat: {
@@ -12530,6 +15744,10 @@ export type Database = {
       fn_chat_is_participant: {
         Args: { p_conversation_id: string }
         Returns: boolean
+      }
+      fn_complete_reach_campaigns_for_indents: {
+        Args: { p_indent_ids: string[] }
+        Returns: number
       }
       fn_ensure_trip_chat_room: {
         Args: { p_trip_id: string }
@@ -12595,6 +15813,7 @@ export type Database = {
         Args: { p_trip_id: string }
         Returns: undefined
       }
+      fn_expire_reach_campaigns: { Args: never; Returns: undefined }
       fn_expire_workspace_products: { Args: never; Returns: undefined }
       fn_insert_driver_location_log_chat: {
         Args: {
@@ -12609,6 +15828,7 @@ export type Database = {
         Args: { p_msg_id: string }
         Returns: boolean
       }
+      fn_pace_reach_campaigns: { Args: never; Returns: undefined }
       fn_post_system_log_to_trip_chats: {
         Args: {
           p_content: string
@@ -12652,9 +15872,17 @@ export type Database = {
         }
         Returns: undefined
       }
+      fn_reach_wave_size: {
+        Args: { p_cap: number; p_wave: number }
+        Returns: number
+      }
       fn_reconcile_trip_conversation_unread: {
         Args: { p_conversation_id: string }
         Returns: number
+      }
+      fn_release_reach_referral_escrow: {
+        Args: { p_campaign_id: string }
+        Returns: undefined
       }
       fn_storage_trip_doc_access: { Args: { p_name: string }; Returns: boolean }
       fn_sync_trip_room_participants: {
@@ -12685,6 +15913,7 @@ export type Database = {
         Args: { entity_type: string; org_id: string }
         Returns: string
       }
+      generate_referral_code: { Args: { p_org_id: string }; Returns: string }
       generate_trip_otp: {
         Args: { p_trip_id: string; p_ttl_minutes?: number }
         Returns: {
@@ -12738,6 +15967,7 @@ export type Database = {
         }
         Returns: Json
       }
+      get_boost_control_center: { Args: never; Returns: Json }
       get_chat_inbox: {
         Args: { p_before?: string; p_limit?: number; p_organization_id: string }
         Returns: {
@@ -12890,15 +16120,32 @@ export type Database = {
           to_organization_id: string
         }[]
       }
+      get_customer_ledger_inputs: {
+        Args: { p_apply_adjustments?: boolean; p_org_id: string }
+        Returns: Json
+      }
       get_db_capabilities: { Args: never; Returns: Json }
       get_db_observability_summary: { Args: never; Returns: Json }
       get_db_snapshot: { Args: never; Returns: Json }
+      get_dco_ledger_aggregation: {
+        Args: { p_org_id: string }
+        Returns: {
+          dco_payee_id: string
+          dco_user_id: string
+          due: number
+          outstanding: number
+          paid: number
+          trips_count: number
+        }[]
+      }
+      get_dco_payee_id: { Args: { p_user_id: string }; Returns: string }
       get_direct_quotes_with_bidder_names: {
         Args: { p_indent_id: string }
         Returns: {
           amount: number
           bidder_organization_id: string
           bidder_organization_name: string
+          counter_amount: number
           created_at: string
           driver_id: string
           id: string
@@ -12971,6 +16218,17 @@ export type Database = {
           to_user_id: string
         }[]
       }
+      get_driver_kyc_reviewer_profiles: {
+        Args: { p_driver_user_ids: string[] }
+        Returns: {
+          avatar_seed: string
+          avatar_url: string
+          email: string
+          full_name: string
+          id: string
+          phone: string
+        }[]
+      }
       get_driver_latest_location: {
         Args: { p_driver_id: string }
         Returns: {
@@ -12978,6 +16236,16 @@ export type Database = {
           latitude: number
           longitude: number
           recorded_at: string
+        }[]
+      }
+      get_driver_ledger_aggregation: {
+        Args: { p_org_id: string }
+        Returns: {
+          driver_id: string
+          due: number
+          paid: number
+          pending: number
+          trips_count: number
         }[]
       }
       get_driver_location_history_for_trip: {
@@ -13022,6 +16290,40 @@ export type Database = {
         Args: { p_driver_ids: string[] }
         Returns: Json
       }
+      get_driver_reach_stories: {
+        Args: never
+        Returns: {
+          campaign_id: string
+          campaign_org_id: string
+          campaign_status: string
+          direct_bid_amount: number
+          direct_bid_counter_amount: number
+          direct_bid_status: string
+          driver_reward_enabled: boolean
+          expires_at: string
+          org_logo_url: string
+          org_name: string
+          post_id: string
+          posted_at: string
+          published_at: string
+          recommended_at: string
+          referral_id: string
+          referral_reward_amount: number
+          referral_status: string
+          reward_amount: number
+          reward_available: boolean
+          rewarded_at: string
+          snapshot_content: string
+          snapshot_destination: string
+          snapshot_material: string
+          snapshot_origin: string
+          snapshot_post_type: string
+          snapshot_rate_offer: number
+          snapshot_title: string
+          snapshot_vehicle_type: string
+          source_deleted_at: string
+        }[]
+      }
       get_driver_signup_match_status: {
         Args: { p_driver_id: string }
         Returns: {
@@ -13056,6 +16358,54 @@ export type Database = {
           left_at: string
           organization_id: string
           trip_count: number
+        }[]
+      }
+      get_driver_trip_stop_orders: {
+        Args: { p_trip_id: string }
+        Returns: {
+          address_line: string
+          arrived_at: string
+          attachment_role: string
+          city: string
+          completed_at: string
+          contact_name: string
+          contact_phone: string
+          currency: string
+          customer_id: string
+          customer_name: string
+          customer_phone: string
+          delivery_window_end: string
+          delivery_window_start: string
+          display_name: string
+          execution_plan_id: string
+          failure_reason: string
+          indent_id: string
+          label: string
+          latitude: number
+          longitude: number
+          notes: string
+          order_completed_drop_stop_count: number
+          order_distinct_drop_stop_count: number
+          order_number: string
+          order_total_amount: number
+          pincode: string
+          pod_required: boolean
+          priority: string
+          product_id: string
+          product_image_path: string
+          product_name: string
+          product_sku: string
+          quantity: number
+          sales_order_id: string
+          sales_order_line_id: string
+          sequence: number
+          source_type: string
+          state: string
+          stop_distinct_drop_order_count: number
+          stop_execution_status: string
+          stop_id: string
+          stop_type: string
+          trip_id: string
         }[]
       }
       get_drivers_delta: {
@@ -13101,6 +16451,23 @@ export type Database = {
       }
       get_global_app_bootstrap: { Args: { p_org_id: string }; Returns: Json }
       get_identity_health: { Args: { p_since?: string }; Returns: Json }
+      get_incident_details: { Args: { p_incident_id: string }; Returns: Json }
+      get_incidents_summary: {
+        Args: { p_limit?: number; p_status?: string }
+        Returns: {
+          confidence: number
+          diagnosis: string
+          event_count: number
+          first_seen: string
+          id: string
+          investigation_status: string
+          last_seen: string
+          service: string
+          severity: string
+          status: string
+          title: string
+        }[]
+      }
       get_indents_delta: {
         Args: { p_limit?: number; p_org_id: string; p_since: string }
         Returns: Json
@@ -13117,10 +16484,6 @@ export type Database = {
         Returns: Json
       }
       get_integrated_partners: { Args: { p_org_id: string }; Returns: Json }
-      is_active_org_member_phone: {
-        Args: { p_org_id: string; p_phone: string }
-        Returns: boolean
-      }
       get_invitee_by_phone: {
         Args: { p_org_id: string; p_phone: string }
         Returns: {
@@ -13164,6 +16527,32 @@ export type Database = {
         Args: { p_trip_id: string }
         Returns: Json
       }
+      get_linked_client_org_locations: {
+        Args: { p_client_id: string; p_org_id: string }
+        Returns: {
+          address_line: string
+          city: string
+          department: string
+          id: string
+          is_verified: boolean
+          location_type: string
+          name: string
+          organization_id: string
+          sort_order: number
+          state: string
+        }[]
+      }
+      get_load_chain_ancestor_orgs: {
+        Args: { p_indent_id: string; p_max_depth?: number }
+        Returns: {
+          hop: number
+          org_id: string
+        }[]
+      }
+      get_mover_asset_client_paid: {
+        Args: { p_trip_id: string }
+        Returns: number
+      }
       get_multi_lane_bootstrap: {
         Args: {
           p_hub_trip_bucket?: string
@@ -13182,6 +16571,22 @@ export type Database = {
           avatar_url: string
           id: string
           name: string
+        }[]
+      }
+      get_my_pending_domain_join_request: {
+        Args: never
+        Returns: {
+          created_at: string
+          id: string
+          organization_id: string
+          organization_name: string
+          status: string
+        }[]
+      }
+      get_my_platform_permissions: {
+        Args: never
+        Returns: {
+          permission_key: string
         }[]
       }
       get_my_team_invites: {
@@ -13209,13 +16614,16 @@ export type Database = {
           expires_at: string
           id: string
           is_active: boolean
+          is_sponsored: boolean
           load_date: string
           material: string
           org_avatar_seed: string
+          org_avatar_url: string
           org_name: string
           organization_id: string
           origin: string
           rate_offer: number
+          reach_campaign_id: string
           source_indent_id: string
           type: string
           vehicle_type: string
@@ -13263,6 +16671,18 @@ export type Database = {
           avatar_url: string
           logo_url: string
           organization_id: string
+        }[]
+      }
+      get_org_domain_join_requests: {
+        Args: { p_org_id: string }
+        Returns: {
+          created_at: string
+          email: string
+          id: string
+          organization_id: string
+          requester_name: string
+          status: string
+          user_id: string
         }[]
       }
       get_org_ledger_summary: {
@@ -13347,10 +16767,16 @@ export type Database = {
           client_name: string
           client_price: number
           completed_at: string | null
+          compliance_decision: string | null
+          compliance_exception_reason: string | null
+          compliance_outstanding_summary: Json | null
+          compliance_verified_at: string | null
+          compliance_verified_by: string | null
           converted_by: string | null
           converted_from_indent_at: string | null
           created_at: string | null
           created_by_user_id: string | null
+          dco_payee_id: string | null
           deleted_at: string | null
           display_trip_id: string | null
           distance: number | null
@@ -13365,11 +16791,13 @@ export type Database = {
           drop_lon: number | null
           end_odometer_km: number | null
           estimated_duration: string | null
+          execution_type: string | null
           gps_distance_km: number | null
           id: string
           indent_id: string | null
           indent_reference_code: string | null
           is_guaranteed: boolean
+          lane_id: string | null
           last_location_at: string | null
           last_location_chat_at: string | null
           load_tons: number | null
@@ -13381,26 +16809,37 @@ export type Database = {
           odometer_updated_at: string | null
           odometer_updated_by: string | null
           odometer_verification_state: string
+          operating_mode: string
           organization_id: string
           owner_user_id: string | null
+          owner_vehicle_id: string | null
           payment_status: string
           pickup_area: string
           pickup_date: string | null
           pickup_lat: number | null
           pickup_lon: number | null
           platform_fee: number
+          platform_fee_calc_snapshot: Json | null
+          pod_hard_copy_awb_number: string | null
+          pod_hard_copy_courier: string | null
+          pod_hard_copy_received_by: string | null
           pod_received_at: string | null
           pod_required: boolean
+          sale_rate_basis: string | null
+          sale_unit_rate: number | null
           sequence_number: number | null
           source: string
+          source_bid_id: string | null
           source_indent_code: string | null
           source_indent_id: string | null
+          source_market_bid_id: string | null
           start_odometer_km: number | null
           started_at: string | null
           status: string
           status_change_origin: string | null
           supplier_id: string | null
           supplier_rate: number
+          supplier_rate_basis: string | null
           supplier_trip_sequence: number | null
           trip_code: string | null
           trip_number: string
@@ -13431,6 +16870,59 @@ export type Database = {
           received_sum: number
         }[]
       }
+      get_reach_campaign_delivery: {
+        Args: { p_campaign_id: string }
+        Returns: {
+          bids: number
+          conversions: number
+          released_at: string
+          targets: number
+          verified_targets: number
+          viewed: number
+          wave: number
+        }[]
+      }
+      get_reach_campaign_metrics: {
+        Args: { p_campaign_id: string }
+        Returns: {
+          bids: number
+          credits_used: number
+          impressions: number
+          views: number
+        }[]
+      }
+      get_reach_org_summary: { Args: { p_org_id: string }; Returns: Json }
+      get_reach_referral_inbox: {
+        Args: { p_fleet_org_id: string }
+        Returns: {
+          campaign_id: string
+          campaign_org_id: string
+          campaign_status: string
+          created_at: string
+          decided_at: string
+          driver_name: string
+          driver_phone: string
+          driver_referrals_converted: number
+          driver_referrals_total: number
+          driver_trips_completed: number
+          driver_user_id: string
+          id: string
+          note: string
+          post_id: string
+          reason: string
+          reward_amount: number
+          rewarded_at: string
+          snapshot_destination: string
+          snapshot_material: string
+          snapshot_origin: string
+          snapshot_post_type: string
+          snapshot_title: string
+          snapshot_vehicle_type: string
+          status: string
+          suggested_rate: number
+        }[]
+      }
+      get_referrer_name_by_code: { Args: { p_code: string }; Returns: string }
       get_safe_fallback_indent_number: { Args: never; Returns: string }
       get_safe_fallback_trip_number: { Args: never; Returns: string }
       get_shared_ledger_entries: {
@@ -13508,6 +17000,13 @@ export type Database = {
         }[]
       }
       get_sqids_alphabet: { Args: never; Returns: string }
+      get_story_closed_info: {
+        Args: { p_post_id: string }
+        Returns: {
+          indent_status: string
+          reason: string
+        }[]
+      }
       get_story_preview: {
         Args: { p_post_id: string }
         Returns: {
@@ -13524,6 +17023,24 @@ export type Database = {
         }[]
       }
       get_supplier_details: { Args: { p_supplier_id: string }; Returns: Json }
+      get_supplier_driver_salary_requests: {
+        Args: { p_supplier_id: string; p_viewer_org_id: string }
+        Returns: Json
+      }
+      get_supplier_ledger_aggregation: {
+        Args: { p_apply_adjustments?: boolean; p_org_id: string }
+        Returns: {
+          due: number
+          paid: number
+          supplier_id: string
+          trips_count: number
+          unsettled: number
+        }[]
+      }
+      get_supplier_linked_drivers: {
+        Args: { p_supplier_id: string; p_viewer_org_id: string }
+        Returns: Json
+      }
       get_supplier_management_bundle: {
         Args: { p_org_id: string; p_supplier_id: string }
         Returns: Json
@@ -13647,6 +17164,13 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      get_trip_checkpoint_distance_sums: {
+        Args: { p_trip_ids: string[] }
+        Returns: {
+          total_distance_m: number
+          trip_id: string
+        }[]
+      }
       get_trip_detail_bundle: {
         Args: { p_trip_id: string; p_viewer_org_id: string }
         Returns: Json
@@ -13709,10 +17233,16 @@ export type Database = {
           client_name: string
           client_price: number
           completed_at: string | null
+          compliance_decision: string | null
+          compliance_exception_reason: string | null
+          compliance_outstanding_summary: Json | null
+          compliance_verified_at: string | null
+          compliance_verified_by: string | null
           converted_by: string | null
           converted_from_indent_at: string | null
           created_at: string | null
           created_by_user_id: string | null
+          dco_payee_id: string | null
           deleted_at: string | null
           display_trip_id: string | null
           distance: number | null
@@ -13727,11 +17257,13 @@ export type Database = {
           drop_lon: number | null
           end_odometer_km: number | null
           estimated_duration: string | null
+          execution_type: string | null
           gps_distance_km: number | null
           id: string
           indent_id: string | null
           indent_reference_code: string | null
           is_guaranteed: boolean
+          lane_id: string | null
           last_location_at: string | null
           last_location_chat_at: string | null
           load_tons: number | null
@@ -13743,26 +17275,37 @@ export type Database = {
           odometer_updated_at: string | null
           odometer_updated_by: string | null
           odometer_verification_state: string
+          operating_mode: string
           organization_id: string
           owner_user_id: string | null
+          owner_vehicle_id: string | null
           payment_status: string
           pickup_area: string
           pickup_date: string | null
           pickup_lat: number | null
           pickup_lon: number | null
           platform_fee: number
+          platform_fee_calc_snapshot: Json | null
+          pod_hard_copy_awb_number: string | null
+          pod_hard_copy_courier: string | null
+          pod_hard_copy_received_by: string | null
           pod_received_at: string | null
           pod_required: boolean
+          sale_rate_basis: string | null
+          sale_unit_rate: number | null
           sequence_number: number | null
           source: string
+          source_bid_id: string | null
           source_indent_code: string | null
           source_indent_id: string | null
+          source_market_bid_id: string | null
           start_odometer_km: number | null
           started_at: string | null
           status: string
           status_change_origin: string | null
           supplier_id: string | null
           supplier_rate: number
+          supplier_rate_basis: string | null
           supplier_trip_sequence: number | null
           trip_code: string | null
           trip_number: string
@@ -13849,6 +17392,14 @@ export type Database = {
           user_id: string
         }[]
       }
+      get_vehicle_for_trip_viewer: {
+        Args: {
+          p_trip_id: string
+          p_vehicle_id: string
+          p_viewer_org_id: string
+        }
+        Returns: Json
+      }
       get_vehicle_monthly_analytics: {
         Args: { p_months_back?: number; p_org_id: string; p_vehicle_id: string }
         Returns: {
@@ -13898,6 +17449,28 @@ export type Database = {
           secondary_ref: string
         }[]
       }
+      ground_ops_missing_mandatory_documents: {
+        Args: { p_org_id: string; p_trip_id: string }
+        Returns: string[]
+      }
+      harness_submit_marketplace_bid: {
+        Args: {
+          p_amount: number
+          p_bidder_org_id: string
+          p_bidder_user_id: string
+          p_note?: string
+          p_post_id: string
+        }
+        Returns: Json
+      }
+      has_member_surface: {
+        Args: { p_org_id: string; p_surface_id: string }
+        Returns: boolean
+      }
+      has_platform_permission: {
+        Args: { p_permission: string; p_user_id: string }
+        Returns: boolean
+      }
       idempotency_acquire: {
         Args: {
           p_entity_type: string
@@ -13915,6 +17488,20 @@ export type Database = {
       idempotency_fail: {
         Args: { p_error: string; p_key: string }
         Returns: undefined
+      }
+      increment_credit_wallet: {
+        Args: {
+          p_amount: number
+          p_notes?: string
+          p_org_id: string
+          p_reference_id?: string
+          p_reference_type?: string
+          p_type: string
+        }
+        Returns: {
+          balance: number
+          transaction_id: string
+        }[]
       }
       increment_product_usage: {
         Args: {
@@ -13940,13 +17527,52 @@ export type Database = {
           trip_number: string
         }[]
       }
+      indent_has_convertible_sale: {
+        Args: { p_indent: Database["public"]["Tables"]["indents"]["Row"] }
+        Returns: boolean
+      }
+      indent_open_for_marketplace_bids: {
+        Args: { p_indent_id: string }
+        Returns: boolean
+      }
+      indent_route_label: {
+        Args: { p_indent: Database["public"]["Tables"]["indents"]["Row"] }
+        Returns: string
+      }
       indent_target_for_broadcast: {
         Args: { indent_id: string }
         Returns: {
           id: string
           organization_id: string
+          supplier_rate_basis: string
           supplier_target: number
+          weight: number
         }[]
+      }
+      ingest_application_log: {
+        Args: {
+          p_error_type?: string
+          p_latency_ms?: number
+          p_level: string
+          p_message: string
+          p_metadata?: Json
+          p_method?: string
+          p_request_id?: string
+          p_route?: string
+          p_service: string
+          p_source?: string
+          p_status_code?: number
+          p_user_id_hash?: string
+        }
+        Returns: number
+      }
+      initiate_marketplace_fee_payment_order: {
+        Args: {
+          p_bid_id: string
+          p_provider?: string
+          p_provider_order_id: string
+        }
+        Returns: Json
       }
       invite_driver: {
         Args: {
@@ -13960,19 +17586,164 @@ export type Database = {
         }
         Returns: Json
       }
+      invite_existing_user_to_org: {
+        Args: {
+          p_org_id: string
+          p_permissions?: Json
+          p_role: string
+          p_user_id: string
+        }
+        Returns: {
+          created_at: string | null
+          id: string
+          joined_at: string
+          organization_id: string
+          permissions: Json
+          role: string
+          status: string
+          updated_at: string | null
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "organization_members"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      invite_platform_admin: {
+        Args: { p_role_id: string; p_target_user_id: string }
+        Returns: string
+      }
+      is_active_org_member_phone: {
+        Args: { p_org_id: string; p_phone: string }
+        Returns: boolean
+      }
+      is_active_platform_user: { Args: { p_user_id: string }; Returns: boolean }
       is_app_migration_applied: {
         Args: { p_version: string }
+        Returns: boolean
+      }
+      is_approved_supplier: {
+        Args: { p_bidder_org: string; p_owner_org: string }
         Returns: boolean
       }
       is_compliance_blocking: {
         Args: { p_driver_id?: string; p_vehicle_id?: string }
         Returns: Json
       }
+      is_current_user_dco_eligible: { Args: never; Returns: boolean }
+      is_dco_eligible: { Args: { p_user_id: string }; Returns: boolean }
+      is_driver_available: { Args: { p_user_id: string }; Returns: boolean }
+      is_driver_fleet_owner: { Args: { p_user_id?: string }; Returns: boolean }
       is_org_admin: { Args: { org_id: string }; Returns: boolean }
       is_org_member: { Args: { org_id: string }; Returns: boolean }
+      is_org_owner: { Args: { org_id: string }; Returns: boolean }
+      is_org_staff: { Args: { org_id: string }; Returns: boolean }
       is_uuidv4: { Args: { p_id: string }; Returns: boolean }
       is_uuidv7: { Args: { p_id: string }; Returns: boolean }
       is_valid_business_reference: { Args: { p_ref: string }; Returns: boolean }
+      issue_customer_invoice: {
+        Args: {
+          p_cgst_amount: number
+          p_client_id: string
+          p_client_name: string
+          p_created_by?: string
+          p_draft_id?: string
+          p_due_date?: string
+          p_gst_rate: number
+          p_idempotency_key?: string
+          p_igst_amount: number
+          p_invoice_date?: string
+          p_notes?: string
+          p_org_id: string
+          p_sgst_amount: number
+          p_subtotal: number
+          p_total_amount: number
+          p_trip_ids: string[]
+        }
+        Returns: string
+      }
+      issue_manual_invoice: {
+        Args: {
+          p_cgst_amount: number
+          p_client_id: string
+          p_client_name: string
+          p_client_snapshot?: Json
+          p_created_by?: string
+          p_draft_id?: string
+          p_due_date?: string
+          p_gst_rate: number
+          p_idempotency_key?: string
+          p_igst_amount: number
+          p_invoice_date?: string
+          p_issuer_snapshot?: Json
+          p_line_items?: Json
+          p_notes?: string
+          p_org_id: string
+          p_payment_terms?: string
+          p_sgst_amount: number
+          p_subtotal: number
+          p_tax_snapshot?: Json
+          p_total_amount: number
+        }
+        Returns: string
+      }
+      issue_manual_plan_invoice: {
+        Args: {
+          p_billing_period_end: string
+          p_billing_period_start: string
+          p_cgst_amount: number
+          p_client_id: string
+          p_client_name: string
+          p_client_snapshot?: Json
+          p_created_by?: string
+          p_draft_id?: string
+          p_due_date?: string
+          p_gst_rate: number
+          p_idempotency_key?: string
+          p_igst_amount: number
+          p_invoice_date?: string
+          p_issuer_snapshot?: Json
+          p_line_items?: Json
+          p_manual_plan_snapshot?: Json
+          p_notes?: string
+          p_org_id: string
+          p_payment_terms?: string
+          p_plan_id: string
+          p_sgst_amount: number
+          p_subtotal: number
+          p_tax_snapshot?: Json
+          p_total_amount: number
+        }
+        Returns: string
+      }
+      issue_sales_order_invoice: {
+        Args: {
+          p_cgst_amount: number
+          p_client_id: string
+          p_client_name: string
+          p_client_snapshot?: Json
+          p_created_by?: string
+          p_draft_id?: string
+          p_due_date?: string
+          p_gst_rate: number
+          p_idempotency_key?: string
+          p_igst_amount: number
+          p_invoice_date?: string
+          p_issuer_snapshot?: Json
+          p_line_items?: Json
+          p_notes?: string
+          p_org_id: string
+          p_payment_terms?: string
+          p_sales_order_id: string
+          p_sgst_amount: number
+          p_subtotal: number
+          p_tax_snapshot?: Json
+          p_total_amount: number
+        }
+        Returns: string
+      }
       join_product_waitlist: {
         Args: {
           p_company_name?: string
@@ -13994,10 +17765,149 @@ export type Database = {
           terminated: boolean
         }[]
       }
+      kyc_missing_required_documents: {
+        Args: { p_org_id: string }
+        Returns: string[]
+      }
       leave_fleet: { Args: { p_organization_id: string }; Returns: undefined }
       link_driver_phone: {
         Args: { p_driver_id: string; p_phone: string }
         Returns: Json
+      }
+      list_dco_review_queue: {
+        Args: never
+        Returns: {
+          decision_reason: string
+          driver_email: string
+          driver_name: string
+          driver_phone: string
+          requested_at: string
+          reviewed_at: string
+          status: string
+          user_id: string
+        }[]
+      }
+      list_driver_direct_bids_for_post: {
+        Args: { p_post_id: string }
+        Returns: {
+          amount: number
+          counter_amount: number
+          created_at: string
+          driver_avatar_seed: string
+          driver_avatar_url: string
+          driver_display_name: string
+          driver_user_id: string
+          id: string
+          is_fleet_owner: boolean
+          note: string
+          post_id: string
+          status: string
+          updated_at: string
+        }[]
+      }
+      list_market_bids_for_indent: {
+        Args: { p_indent_id: string }
+        Returns: {
+          accepted_at: string
+          amount: number
+          bidder_display_name: string
+          bidder_masked_phone: string
+          bidder_organization_id: string
+          bidder_organization_name: string
+          bidder_phone: string
+          bidder_type: string
+          bidder_user_id: string
+          created_at: string
+          fee_payment_status: string
+          id: string
+          indent_id: string
+          is_fleet_owner: boolean
+          note: string
+          platform_fee_amount: number
+          status: string
+          updated_at: string
+          vehicle_body_type: string
+          vehicle_brand: string
+          vehicle_capacity: string
+          vehicle_model: string
+          vehicle_number: string
+        }[]
+      }
+      list_my_org_market_bids: {
+        Args: { p_limit?: number; p_org_id: string }
+        Returns: {
+          accepted_at: string
+          amount: number
+          created_at: string
+          drop_location: string
+          fee_payment_status: string
+          id: string
+          indent_id: string
+          indent_number: string
+          load_type: string
+          note: string
+          owner_masked_phone: string
+          owner_organization_id: string
+          owner_organization_name: string
+          owner_phone: string
+          pickup_area: string
+          pickup_date: string
+          platform_fee_amount: number
+          status: string
+        }[]
+      }
+      list_open_marketplace_loads_for_fleet_owner: {
+        Args: { p_limit?: number }
+        Returns: {
+          circulation_target: string
+          created_at: string
+          creator_organization_avatar_seed: string
+          creator_organization_id: string
+          creator_organization_logo_url: string
+          creator_organization_name: string
+          drop_location: string
+          id: string
+          indent_number: string
+          load_type: string
+          pickup_area: string
+          pickup_date: string
+          rate_offer: number
+          status: string
+          vehicle_type: string
+        }[]
+      }
+      list_open_marketplace_loads_for_org: {
+        Args: { p_limit?: number; p_org_id: string }
+        Returns: {
+          circulation_target: string
+          created_at: string
+          creator_organization_id: string
+          creator_organization_name: string
+          drop_location: string
+          id: string
+          indent_number: string
+          is_sponsored: boolean
+          load_type: string
+          pickup_area: string
+          pickup_date: string
+          rate_offer: number
+          reach_campaign_id: string
+          status: string
+          vehicle_type: string
+        }[]
+      }
+      list_platform_admins: {
+        Args: never
+        Returns: {
+          created_at: string
+          email: string
+          last_sign_in_at: string
+          platform_user_id: string
+          role_id: string
+          role_name: string
+          status: string
+          user_id: string
+        }[]
       }
       lock_driver_phone: { Args: { p_last10: string }; Returns: undefined }
       log_client_audit: {
@@ -14054,12 +17964,28 @@ export type Database = {
         Args: { p_conversation_id: string; p_reader_org_id: string }
         Returns: undefined
       }
+      mark_reach_campaign_source_deleted: {
+        Args: { p_campaign_id: string }
+        Returns: Json
+      }
+      mark_reach_referral_bid: {
+        Args: { p_bid_id: string; p_referral_id: string }
+        Returns: Json
+      }
       mark_shared_ledger_notification_handled: {
         Args: { p_id: string; p_org_id: string }
         Returns: undefined
       }
       mark_shared_ledger_notification_read: {
         Args: { p_id: string; p_org_id: string }
+        Returns: undefined
+      }
+      mark_support_ticket_read_by_user: {
+        Args: { p_ticket_id: string }
+        Returns: Json
+      }
+      mark_trip_compliance_verified: {
+        Args: { p_trip_id: string }
         Returns: undefined
       }
       market_indents_for_org: {
@@ -14086,6 +18012,7 @@ export type Database = {
           weight: number
         }[]
       }
+      mask_phone_last4: { Args: { p_phone: string }; Returns: string }
       match_driver_by_phone: {
         Args: {
           p_org_id: string
@@ -14113,6 +18040,8 @@ export type Database = {
           payable_amount: number | null
           phone: string | null
           phone_normalised: string | null
+          relationship_origin: string | null
+          relationship_status: string | null
           status: string
           tracking_only: boolean
           updated_at: string | null
@@ -14124,6 +18053,14 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      member_role_permissions_unchanged: {
+        Args: {
+          p_member_id: string
+          p_new_permissions: Json
+          p_new_role: string
+        }
+        Returns: boolean
       }
       my_organization_ids: { Args: never; Returns: string[] }
       next_indent_number: { Args: { p_org_id: string }; Returns: string }
@@ -14150,14 +18087,191 @@ export type Database = {
         }
         Returns: Json
       }
+      org_display_name: { Args: { p_org_id: string }; Returns: string }
       org_has_kyc_document: {
         Args: { p_org_id: string; p_types: string[] }
         Returns: boolean
       }
       organization_name_is_taken: { Args: { p_name: string }; Returns: boolean }
+      platform_approve_dco: {
+        Args: { p_user_id: string }
+        Returns: {
+          created_at: string
+          decision_reason: string | null
+          requested_at: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "dco_profiles"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      platform_approve_driver_kyc_document: {
+        Args: { p_document_id: string; p_notes?: string }
+        Returns: {
+          created_at: string
+          deleted_at: string | null
+          doc_label: string | null
+          doc_type: string
+          driver_user_id: string
+          file_name: string | null
+          file_size_bytes: number | null
+          id: string
+          is_mandatory: boolean
+          mime_type: string | null
+          rejection_notes: string | null
+          status: string
+          storage_path: string | null
+          updated_at: string
+          uploaded_by: string | null
+          verified_at: string | null
+          verified_by: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "driver_kyc_documents"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      platform_approve_verification: {
+        Args: { p_notes?: string; p_org_id: string }
+        Returns: Json
+      }
       platform_next_canonical_code: {
         Args: { p_prefix: string; p_width?: number }
         Returns: string
+      }
+      platform_reinstate_dco: {
+        Args: { p_user_id: string }
+        Returns: {
+          created_at: string
+          decision_reason: string | null
+          requested_at: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "dco_profiles"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      platform_reject_dco: {
+        Args: { p_reason: string; p_user_id: string }
+        Returns: {
+          created_at: string
+          decision_reason: string | null
+          requested_at: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "dco_profiles"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      platform_reject_driver_kyc_document: {
+        Args: { p_document_id: string; p_rejection_reason: string }
+        Returns: {
+          created_at: string
+          deleted_at: string | null
+          doc_label: string | null
+          doc_type: string
+          driver_user_id: string
+          file_name: string | null
+          file_size_bytes: number | null
+          id: string
+          is_mandatory: boolean
+          mime_type: string | null
+          rejection_notes: string | null
+          status: string
+          storage_path: string | null
+          updated_at: string
+          uploaded_by: string | null
+          verified_at: string | null
+          verified_by: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "driver_kyc_documents"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      platform_reject_verification: {
+        Args: { p_notes?: string; p_org_id: string; p_rejection_reasons: Json }
+        Returns: Json
+      }
+      platform_review_driver_kyc_submission: {
+        Args: { p_driver_user_id: string; p_notes?: string; p_status: string }
+        Returns: {
+          attempt_count: number
+          created_at: string
+          driver_user_id: string
+          review_notes: string | null
+          review_status: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          submitted_at: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "driver_kyc_submissions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      platform_suspend_dco: {
+        Args: { p_reason: string; p_user_id: string }
+        Returns: {
+          created_at: string
+          decision_reason: string | null
+          requested_at: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "dco_profiles"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      platform_user_holds_any_role: {
+        Args: { p_user_id: string }
+        Returns: boolean
+      }
+      platform_user_holds_role: {
+        Args: { p_platform_user_id: string; p_role_name: string }
+        Returns: boolean
+      }
+      platform_user_id_for_auth_user: {
+        Args: { p_user_id: string }
+        Returns: string
+      }
+      platform_would_remove_last_super_admin: {
+        Args: { p_excluding_platform_user_id: string }
+        Returns: boolean
       }
       precheck_team_invite_contact: {
         Args: { p_email?: string; p_org_id: string; p_phone: string }
@@ -14172,7 +18286,22 @@ export type Database = {
         }
         Returns: Json
       }
+      prune_cron_incident_snapshots: { Args: never; Returns: undefined }
       prune_cron_job_run_details: { Args: never; Returns: undefined }
+      publish_reach_campaign: {
+        Args: {
+          p_distribution_channels?: string[]
+          p_driver_reward_enabled?: boolean
+          p_org_id: string
+          p_payment_method: string
+          p_plan_id: string
+          p_post_id: string
+          p_reward_amount?: number
+          p_reward_budget?: number
+          p_reward_type?: string
+        }
+        Returns: Json
+      }
       quoted_indents_for_org: {
         Args: { org_id: string }
         Returns: {
@@ -14194,7 +18323,18 @@ export type Database = {
           supplier_target: number
           updated_at: string
           vehicle_type: string
+          weight: number
         }[]
+      }
+      recommend_reach_campaign: {
+        Args: {
+          p_campaign_id: string
+          p_fleet_org_id: string
+          p_note?: string
+          p_reason?: string
+          p_suggested_rate?: number
+        }
+        Returns: Json
       }
       record_activity: {
         Args: {
@@ -14211,6 +18351,46 @@ export type Database = {
           p_target_type: string
         }
         Returns: string
+      }
+      record_reach_driver_event: {
+        Args: { p_campaign_id: string; p_event_type: string }
+        Returns: undefined
+      }
+      record_reach_event: {
+        Args: {
+          p_actor_org_id: string
+          p_campaign_id: string
+          p_event_type: string
+        }
+        Returns: undefined
+      }
+      record_referral: {
+        Args: { p_referred_org_id: string; p_referrer_org_id: string }
+        Returns: string
+      }
+      record_referral_by_code: {
+        Args: { p_code: string; p_referred_org_id: string }
+        Returns: string
+      }
+      record_support_ticket_attachment: {
+        Args: {
+          p_comment_id?: string
+          p_mime_type?: string
+          p_size_bytes?: number
+          p_storage_path: string
+          p_ticket_id: string
+        }
+        Returns: string
+      }
+      record_trip_hard_copy_pod: {
+        Args: {
+          p_awb_number?: string
+          p_comment?: string
+          p_courier?: string
+          p_received_by?: string
+          p_trip_id: string
+        }
+        Returns: boolean
       }
       refresh_dashboard_trip_metrics: { Args: never; Returns: undefined }
       refresh_trip_chat_room_team: {
@@ -14264,11 +18444,63 @@ export type Database = {
         }
         Returns: Json
       }
+      reject_driver_direct_bid: { Args: { p_bid_id: string }; Returns: Json }
       reject_driver_invite: {
         Args: { p_invite_id: string }
         Returns: undefined
       }
+      reject_market_bid: { Args: { p_bid_id: string }; Returns: Json }
       reject_team_invite: { Args: { p_org_id: string }; Returns: undefined }
+      release_and_reopen_indent: {
+        Args: { p_indent_id: string }
+        Returns: {
+          assigned_supplier_id: string | null
+          assigned_supplier_rate: number | null
+          circulation_target: string | null
+          client_id: string | null
+          client_name: string
+          client_price: number
+          created_at: string | null
+          created_by_user_id: string | null
+          deleted_at: string | null
+          display_indent_id: string | null
+          drop_location: string
+          execution_plan_id: string | null
+          id: string
+          indent_code: string | null
+          indent_number: string
+          indent_operational_code: string | null
+          lane_id: string | null
+          last_saved_at: string | null
+          load_type: string | null
+          organization_id: string
+          owner_user_id: string | null
+          pickup_area: string
+          pickup_date: string | null
+          sale_rate_basis: string | null
+          sale_unit_rate: number | null
+          sales_order_id: string | null
+          sequence_number: number | null
+          shared_at: string | null
+          status: string
+          supplier_rate_basis: string | null
+          supplier_target: number
+          updated_at: string | null
+          vehicle_type: string | null
+          warehouse_id: string | null
+          weight: number | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "indents"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      remove_platform_admin: {
+        Args: { p_platform_user_id: string }
+        Returns: undefined
+      }
       reopen_driver_invite: {
         Args: {
           p_commission_per_km?: number
@@ -14281,6 +18513,30 @@ export type Database = {
         }
         Returns: Json
       }
+      reply_to_support_ticket: {
+        Args: { p_body: string; p_ticket_id: string }
+        Returns: Json
+      }
+      request_dco_status: {
+        Args: never
+        Returns: {
+          created_at: string
+          decision_reason: string | null
+          requested_at: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "dco_profiles"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      request_kyc_document_review: { Args: { p_org_id: string }; Returns: Json }
       reset_driver_signup_invite: {
         Args: { p_driver_id: string }
         Returns: Json
@@ -14347,6 +18603,10 @@ export type Database = {
           status: string
         }[]
       }
+      revoke_ground_ops_pickup_status: {
+        Args: { p_trip_id: string }
+        Returns: Json
+      }
       run_db_health_monitor: { Args: never; Returns: undefined }
       run_db_health_monitor_guarded: { Args: never; Returns: undefined }
       run_monitor_watchdog: { Args: never; Returns: undefined }
@@ -14377,6 +18637,10 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      seed_stop_execution_state_for_trip: {
+        Args: { p_trip_id: string }
+        Returns: undefined
       }
       send_chat_message: {
         Args: {
@@ -14467,15 +18731,35 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      set_member_role: {
+        Args: { p_member_id: string; p_permissions: Json; p_role: string }
+        Returns: Json
+      }
+      set_member_surfaces_as_manager: {
+        Args: { p_member_id: string; p_surfaces: Json }
+        Returns: Json
+      }
+      set_platform_user_status: {
+        Args: { p_platform_user_id: string; p_status: string }
+        Returns: undefined
+      }
+      set_trip_owner_vehicle: {
+        Args: { p_owner_vehicle_id: string; p_trip_id: string }
+        Returns: Json
+      }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
-      soft_delete_trip_chat_by_storage_path: {
-        Args: { p_storage_path: string; p_trip_id: string }
-        Returns: number
+      simulate_ground_ops_pickup_status: {
+        Args: { p_new_status: string; p_trip_id: string }
+        Returns: Json
       }
       soft_delete_trip: {
         Args: { p_org_id: string; p_trip_id: string }
         Returns: undefined
+      }
+      soft_delete_trip_chat_by_storage_path: {
+        Args: { p_storage_path: string; p_trip_id: string }
+        Returns: number
       }
       sqids_encode_booking_ref: { Args: { p_num: number }; Returns: string }
       sqids_encode_id: { Args: { p_num: number }; Returns: string }
@@ -14520,12 +18804,6 @@ export type Database = {
         }
         Returns: Json
       }
-      request_kyc_document_review: {
-        Args: {
-          p_org_id: string
-        }
-        Returns: Json
-      }
       submit_business_verification: {
         Args: {
           p_address_pincode?: string
@@ -14537,12 +18815,49 @@ export type Database = {
         }
         Returns: Json
       }
+      submit_driver_direct_bid: {
+        Args: { p_amount: number; p_note?: string; p_post_id: string }
+        Returns: Json
+      }
+      submit_driver_shipper_feedback: {
+        Args: {
+          p_comment?: string
+          p_message_id: string
+          p_score: number
+          p_trip_id: string
+        }
+        Returns: Json
+      }
+      submit_market_bid: {
+        Args: {
+          p_amount: number
+          p_bidder_organization_id?: string
+          p_indent_id: string
+          p_note?: string
+          p_owner_vehicle_id?: string
+        }
+        Returns: Json
+      }
       submit_pulse_bid_with_direct_quote: {
         Args: {
           p_amount: number
           p_bidder_org_id: string
           p_note: string
           p_post_id: string
+        }
+        Returns: Json
+      }
+      submit_support_ticket: {
+        Args: {
+          p_category: string
+          p_description: string
+          p_indent_id?: string
+          p_market_bid_id?: string
+          p_organization_id?: string
+          p_owner_vehicle_id?: string
+          p_source_screen?: string
+          p_subject: string
+          p_trip_id?: string
         }
         Returns: Json
       }
@@ -14576,6 +18891,17 @@ export type Database = {
         }
         Returns: Json
       }
+      tracking_detect_geofence_transition: {
+        Args: {
+          p_driver_id: string
+          p_latitude: number
+          p_longitude: number
+          p_org_id: string
+          p_recorded_at: string
+          p_trip_id: string
+        }
+        Returns: undefined
+      }
       tracking_record_checkpoint: {
         Args: {
           p_accuracy?: number
@@ -14600,6 +18926,10 @@ export type Database = {
         Args: { p_code: string }
         Returns: undefined
       }
+      update_incident_status: {
+        Args: { p_incident_id: string; p_new_status: string }
+        Returns: boolean
+      }
       update_organization_logo: {
         Args: { p_logo_url: string; p_org_id: string }
         Returns: undefined
@@ -14612,6 +18942,22 @@ export type Database = {
           p_pan?: string
         }
         Returns: Json
+      }
+      upgrade_reach_campaign: {
+        Args: {
+          p_campaign_id: string
+          p_new_plan_id: string
+          p_payment_method: string
+        }
+        Returns: Json
+      }
+      upsert_driver_org_membership: {
+        Args: {
+          p_organization_id: string
+          p_status?: string
+          p_user_id: string
+        }
+        Returns: undefined
       }
       upsert_entity_anchor: {
         Args: {
@@ -14653,9 +18999,25 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      use_vehicle_document_for_trip: {
+        Args: {
+          p_document_type: string
+          p_entity_document_id: string
+          p_trip_id: string
+        }
+        Returns: Json
+      }
       uuidv7_generate: { Args: never; Returns: string }
       uuidv7_timestamp: { Args: { p_id: string }; Returns: string }
       validate_identity_integrity: { Args: { p_since?: string }; Returns: Json }
+      verify_trip_document: {
+        Args: {
+          p_document_id: string
+          p_rejection_reason?: string
+          p_status: string
+        }
+        Returns: undefined
+      }
       windowed_trip_message_history: {
         Args: {
           p_before?: string
@@ -14760,12 +19122,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -14789,11 +19151,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -14814,11 +19176,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -14839,11 +19201,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -14856,11 +19218,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

@@ -29,8 +29,10 @@
  */
 
 import { markAppQueryGateBootstrapReady } from '@/lib/hooks/appQueryGateState';
+import { isSupabaseCircuitOpen } from '@/lib/supabaseHttp.util';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
+import { runSingleflight } from '@/lib/cache/singleflight';
 import { supabase } from '@/lib/supabase';
 import { withTimeout } from '@/lib/authEngine';
 import { fetchInboundProtocolSnapshot } from '@/lib/globalSync/inboundProtocol.util';
@@ -70,6 +72,8 @@ import {
 
 /** Prevents duplicate concurrent get_global_app_bootstrap (Strict Mode / remounts). */
 let globalBootstrapInFlightFor: string | null = null;
+/** Incremented on every bootstrap/reset so a superseded in-flight write cannot land. */
+let globalBootstrapEpoch = 0;
 
 // ── Default values ────────────────────────────────────────────────────────────
 
@@ -350,39 +354,53 @@ export const useGlobalSyncStore = create<GlobalSyncStore>()(
     networkStatus:            { ...DEFAULT_NETWORK_STATUS },
 
     refreshInboundProtocol: async (orgId) => {
-      try {
-        const { data: { session } } = await supabase().auth.getSession();
-        if (!session) return;
-        const { getConnectionRequestsReceived, getConnectionRequestsSent } =
-          await loadConnectionRequestsService();
-        const [receivedRes, sentRes] = await withTimeout(
-          Promise.all([
-            getConnectionRequestsReceived(orgId),
-            getConnectionRequestsSent(orgId),
-          ]),
-          15_000,
-        );
-        const received = receivedRes.error ? [] : receivedRes.requests;
-        const sent = sentRes.error ? [] : sentRes.requests;
-        const { partnerDisplayByOrgId, partnerAvatarUriByOrgId, partnerOwnerIdByOrgId } =
-          await withTimeout(fetchInboundProtocolSnapshot(orgId, received, sent), 15_000);
-        set({
-          connectionRequestsReceived: received,
-          connectionRequestsSent: sent,
-          partnerDisplayByOrgId,
-          partnerAvatarUriByOrgId,
-          partnerOwnerIdByOrgId,
-        });
-      } catch (err) {
-        if (__DEV__) {
-          console.warn("[globalSync] refreshInboundProtocol failed", err);
+      if (isSupabaseCircuitOpen()) return;
+      return runSingleflight(`globalSync.refreshInboundProtocol:${orgId}`, async () => {
+        try {
+          const { data: { session } } = await supabase().auth.getSession();
+          if (!session) return;
+          const { getConnectionRequestsReceived, getConnectionRequestsSent } =
+            await loadConnectionRequestsService();
+          const [receivedRes, sentRes] = await withTimeout(
+            (signal) =>
+              Promise.all([
+                getConnectionRequestsReceived(orgId, { signal }),
+                getConnectionRequestsSent(orgId, { signal }),
+              ]),
+            15_000,
+          );
+          const received = receivedRes.error ? [] : receivedRes.requests;
+          const sent = sentRes.error ? [] : sentRes.requests;
+          const { partnerDisplayByOrgId, partnerAvatarUriByOrgId, partnerOwnerIdByOrgId } =
+            await withTimeout(
+              () => fetchInboundProtocolSnapshot(orgId, received, sent),
+              15_000,
+            );
+          set({
+            connectionRequestsReceived: received,
+            connectionRequestsSent: sent,
+            partnerDisplayByOrgId,
+            partnerAvatarUriByOrgId,
+            partnerOwnerIdByOrgId,
+          });
+        } catch (err) {
+          if (__DEV__) {
+            console.warn("[globalSync] refreshInboundProtocol failed", err);
+          }
         }
-      }
+      });
     },
 
     // ── bootstrap ────────────────────────────────────────────────────────────
     bootstrap: async (orgId, options) => {
       const force = options?.force === true;
+      if (isSupabaseCircuitOpen()) {
+        if (get().bootstrapStatus !== 'ready') {
+          set({ bootstrapStatus: 'error', bootstrapError: 'origin_down' });
+          markAppQueryGateBootstrapReady();
+        }
+        return;
+      }
       if (
         !force &&
         get().bootstrappedOrgId === orgId &&
@@ -390,9 +408,15 @@ export const useGlobalSyncStore = create<GlobalSyncStore>()(
       ) {
         return;
       }
+      // Set the in-flight key synchronously — before any await — so StrictMode
+      // remounts and parallel callers cannot both pass the guard.
       if (!force && globalBootstrapInFlightFor === orgId) {
         return;
       }
+      if (!force) {
+        globalBootstrapInFlightFor = orgId;
+      }
+      const bootstrapEpoch = ++globalBootstrapEpoch;
 
       // Abort if there is no valid session. Bootstrap fans out to several calls;
       // without this guard a token gap (SIGNED_OUT → SIGNED_IN, or a failed
@@ -402,13 +426,18 @@ export const useGlobalSyncStore = create<GlobalSyncStore>()(
       // bootstrappedOrgId is not set, so the next call proceeds.
       const { data: { session } } = await supabase().auth.getSession();
       if (!session) {
+        if (globalBootstrapInFlightFor === orgId) {
+          globalBootstrapInFlightFor = null;
+        }
         if (get().bootstrapStatus !== 'ready') {
           set({ bootstrapStatus: 'idle', bootstrapError: 'no_session' });
         }
         return;
       }
 
-      globalBootstrapInFlightFor = orgId;
+      if (force) {
+        globalBootstrapInFlightFor = orgId;
+      }
       set({ bootstrapStatus: 'loading', bootstrapError: null });
       const t0 = Date.now();
 
@@ -426,15 +455,20 @@ export const useGlobalSyncStore = create<GlobalSyncStore>()(
 
         const [bootstrapRes, salaryRes, receivedRes, sentRes] =
           await withTimeout(
-            Promise.all([
-              supabase().rpc('get_global_app_bootstrap', { p_org_id: orgId }),
-              getSalaryRequestsByOrganization(orgId, {
-                limit: REGISTRY_BOOTSTRAP_SALARY_LIMIT,
-                offset: 0,
-              }),
-              getConnectionRequestsReceived(orgId),
-              getConnectionRequestsSent(orgId),
-            ]),
+            (signal) =>
+              Promise.all([
+                supabase().rpc(
+                  'get_global_app_bootstrap',
+                  { p_org_id: orgId },
+                  { abortSignal: signal },
+                ),
+                getSalaryRequestsByOrganization(orgId, {
+                  limit: REGISTRY_BOOTSTRAP_SALARY_LIMIT,
+                  offset: 0,
+                }),
+                getConnectionRequestsReceived(orgId, { signal }),
+                getConnectionRequestsSent(orgId, { signal }),
+              ]),
             20_000,
           );
 
@@ -444,7 +478,10 @@ export const useGlobalSyncStore = create<GlobalSyncStore>()(
         const received = receivedRes.error ? [] : receivedRes.requests;
         const sent = sentRes.error ? [] : sentRes.requests;
         const { partnerDisplayByOrgId, partnerAvatarUriByOrgId, partnerOwnerIdByOrgId } =
-          await withTimeout(fetchInboundProtocolSnapshot(orgId, received, sent), 15_000);
+          await withTimeout(
+            () => fetchInboundProtocolSnapshot(orgId, received, sent),
+            15_000,
+          );
         const duration = Date.now() - t0;
 
         const notifRows: GlobalNotificationRow[] = Array.isArray(
@@ -452,6 +489,10 @@ export const useGlobalSyncStore = create<GlobalSyncStore>()(
         )
           ? payload.notifications.rows
           : [];
+
+        if (bootstrapEpoch !== globalBootstrapEpoch) {
+          return;
+        }
 
         set({
           bootstrapStatus:         'ready',
@@ -479,11 +520,15 @@ export const useGlobalSyncStore = create<GlobalSyncStore>()(
         });
         markAppQueryGateBootstrapReady();
       } catch (err) {
+        if (bootstrapEpoch !== globalBootstrapEpoch) {
+          return;
+        }
         set({
           bootstrapStatus:   'error',
           bootstrapDuration: Date.now() - t0,
           bootstrapError:    err instanceof Error ? err.message : String(err),
         });
+        markAppQueryGateBootstrapReady();
       } finally {
         if (globalBootstrapInFlightFor === orgId) {
           globalBootstrapInFlightFor = null;
@@ -494,6 +539,7 @@ export const useGlobalSyncStore = create<GlobalSyncStore>()(
     // ── reset ─────────────────────────────────────────────────────────────────
     reset: () => {
       globalBootstrapInFlightFor = null;
+      globalBootstrapEpoch += 1;
       set({
         bootstrapStatus:         'idle',
         bootstrappedOrgId:       null,

@@ -8,6 +8,11 @@ import {
   isBundledActiveProduct,
   type ProductId,
 } from "@/lib/productRegistry";
+import {
+  isCommercePlatformModule,
+  isWorkspaceProductLocked,
+  isCommerceDataQueryEnabled,
+} from "@/lib/suite/productLock";
 
 export type PlatformSuiteId =
   | "execution"
@@ -86,6 +91,7 @@ export const PULSE_PLATFORM_CATALOG: PlatformSuite[] = [
         label: "Catalog",
         productId: "pulse_marketplace",
         activeProductIds: ["pulse_marketplace", "pulse_core"],
+        future: true,
       },
       {
         id: "commerce_inventory",
@@ -99,12 +105,14 @@ export const PULSE_PLATFORM_CATALOG: PlatformSuite[] = [
         label: "Orders",
         productId: "pulse_marketplace",
         activeProductIds: ["pulse_marketplace", "pulse_core"],
+        future: true,
       },
       {
         id: "commerce_merge",
         label: "Merge",
         productId: "pulse_marketplace",
         activeProductIds: ["pulse_marketplace", "pulse_core"],
+        future: true,
       },
     ],
   },
@@ -142,6 +150,7 @@ export const PULSE_PLATFORM_CATALOG: PlatformSuite[] = [
         id: "finance_hub",
         label: "Finance",
         productId: "pulse_finance_pro",
+        future: true,
       },
     ],
   },
@@ -261,9 +270,15 @@ export function isPlatformModuleActive(
   activeProductIds: Set<ProductId>,
 ): boolean {
   if (module.future) return false;
+  if (isCommercePlatformModule(module.id) && !isCommerceDataQueryEnabled()) {
+    return false;
+  }
+  if (isWorkspaceProductLocked(module.productId)) return false;
   const ids = module.activeProductIds ?? [module.productId];
   return ids.some(
-    (id) => activeProductIds.has(id) || isBundledActiveProduct(id),
+    (id) =>
+      !isWorkspaceProductLocked(id) &&
+      (activeProductIds.has(id) || isBundledActiveProduct(id)),
   );
 }
 

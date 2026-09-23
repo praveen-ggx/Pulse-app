@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { moderatedFetch } from '@/lib/platform/moderator';
 import { subscribeSharedPostgresChanges } from '@/lib/realtimeRegistry';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -140,7 +141,7 @@ export async function triggerPennyDrop(
   const token = session?.access_token ?? '';
 
   try {
-    const res = await fetch(`${supabaseUrl}/functions/v1/penny-drop`, {
+    const res = await moderatedFetch(`${supabaseUrl}/functions/v1/penny-drop`, {
       method:  'POST',
       headers: {
         'Content-Type':  'application/json',
@@ -170,7 +171,7 @@ export async function submitBiometricResult(
   const token = session?.access_token ?? '';
 
   try {
-    const res = await fetch(`${supabaseUrl}/functions/v1/biometric-verify`, {
+    const res = await moderatedFetch(`${supabaseUrl}/functions/v1/biometric-verify`, {
       method:  'POST',
       headers: {
         'Content-Type':  'application/json',

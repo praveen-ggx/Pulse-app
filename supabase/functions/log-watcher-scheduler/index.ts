@@ -161,7 +161,7 @@ async function createInvestigation(
 }
 
 // Trigger the AI investigation agent via HTTP call to the investigate function
-async function triggerInvestigationAgent(investigationId: string, incidentId: string): Promise<boolean> {
+async function triggerInvestigationAgent(investigationId: string, _incidentId: string): Promise<boolean> {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');

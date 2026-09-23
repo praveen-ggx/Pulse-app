@@ -2,8 +2,6 @@ import {
   exchangeMagicLinkForSession,
   generateDriverMagicLinkToken,
 } from '../_shared/driverSessionExchange.ts';
-import { ingestLog } from '../_shared/logWatcherIngest.ts';
-import { createClient as createClientDirect } from 'npm:@supabase/supabase-js@2';
 // TEMPORARY / INSECURE: signs a driver in from a phone number alone, with NO real
 // OTP verification — Supabase's SMS provider is not configured yet ("Unsupported
 // phone provider"), so there is currently no way to prove phone possession. This

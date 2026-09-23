@@ -8,6 +8,7 @@ import {
   type AwardEligibility,
 } from '@/features/connections/services/relationshipService';
 import { supabase } from '@/lib/supabase';
+import { isSupabaseCircuitOpen } from '@/lib/supabaseHttp.util';
 import { runWithConcurrencyLimit } from '@/features/trips/services/tripDocumentLrPod.service';
 
 const DRIVER_AVAILABILITY_CONCURRENCY = 3;
@@ -544,6 +545,8 @@ export async function getIndentOfferCountsForOwnerIndents(
   indentIds: string[],
 ): Promise<{ error: Error | null; counts: Record<string, number> }> {
   if (indentIds.length === 0) return { error: null, counts: {} };
+
+  if (isSupabaseCircuitOpen()) return { error: null, counts: {} };
 
   const POSTGREST_IN_CHUNK = 40;
   const uniqueIds = [...new Set(indentIds.filter(Boolean))];

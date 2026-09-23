@@ -5,6 +5,7 @@ import { USER_2D_AVATARS } from '@/constants/UserAvatars';
 import { useSuiteAuthContext } from '@/features/auth/hooks/useSuiteAuthContext';
 import { ROUTES } from '@/lib/routes';
 import { openSuiteProductApp } from '@/lib/suite/suiteAuth';
+import { isSuiteProductLocked } from '@/lib/suite/productLock';
 import type { SignUpFlow } from '../hooks/useBusinessSignUpFlow';
 import { SignUpPulseFormStep } from '../SignUpPulseFormStep';
 import { SignUpWorkspaceReadyCard } from '../components/SignUpWorkspaceReadyCard';
@@ -14,7 +15,7 @@ export function SuccessStep({ flow }: { flow: SignUpFlow }) {
   const { productId, returnTo } = useSuiteAuthContext();
   const enterOperations = () => {
     flow.finishBusinessSignup();
-    if (productId === 'commerce') {
+    if (productId === 'commerce' && !isSuiteProductLocked('commerce')) {
       openSuiteProductApp(returnTo);
       return;
     }

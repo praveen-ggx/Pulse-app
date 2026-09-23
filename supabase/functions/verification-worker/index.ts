@@ -14,7 +14,6 @@
 // On completion: updates verification_jobs → trigger auto_upgrade_verification_tier
 // fires → upgrades organizations.verification_tier if thresholds met.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { ingestLog } from '../_shared/logWatcherIngest.ts';
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',

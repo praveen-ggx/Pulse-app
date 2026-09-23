@@ -156,7 +156,7 @@ BEGIN
      AND t.deleted_at IS NULL
     WHERE c.organization_id = p_org_id
       AND c.deleted_at IS NULL
-      AND c.linked_organization_id IN (SELECT id FROM base_candidates)
+      AND c.linked_organization_id IN (SELECT bc.id FROM base_candidates bc)
     GROUP BY c.linked_organization_id
   ),
   avg_ratings AS (
@@ -178,7 +178,7 @@ BEGIN
        AND r.organization_id = p_org_id
       WHERE c.organization_id = p_org_id
         AND c.deleted_at IS NULL
-        AND c.linked_organization_id IN (SELECT id FROM base_candidates)
+        AND c.linked_organization_id IN (SELECT bc.id FROM base_candidates bc)
 
       UNION ALL
 
@@ -189,7 +189,7 @@ BEGIN
        AND r.organization_id = p_org_id
       WHERE s.organization_id = p_org_id
         AND s.deleted_at IS NULL
-        AND s.linked_organization_id IN (SELECT id FROM base_candidates)
+        AND s.linked_organization_id IN (SELECT bc.id FROM base_candidates bc)
     ) all_ratings
     GROUP BY all_ratings.org_id
   ),

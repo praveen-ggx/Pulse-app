@@ -136,6 +136,17 @@ export function shouldRedirectDataPlaneRouteWithoutSession(
 }
 
 /**
+ * Expo Router throws if `<Redirect>` / `router.replace` runs before the root
+ * layout has painted a Slot/Stack. Hold the unsigned bounce until then.
+ */
+export function shouldApplyUnsignedDataPlaneRedirect(
+  bounce: boolean,
+  rootNavigatorMounted: boolean,
+): boolean {
+  return bounce && rootNavigatorMounted;
+}
+
+/**
  * Public sign-in tree without org providers. Waiting for hydrate (cached JWT,
  * status may already be authenticated) is neither this nor the data plane —
  * that path is splash-only.

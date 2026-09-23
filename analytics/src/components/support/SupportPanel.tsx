@@ -56,7 +56,6 @@ import {
   type SupportTicketCommentRow,
   type SupportTicketContextLabels,
   type SupportTicketPriority,
-  type SupportTicketRow,
   type SupportTicketStatus,
 } from '@/lib/supportTickets';
 
@@ -101,7 +100,7 @@ function AttachmentStrip({ attachments }: { attachments: SupportTicketAttachment
       active = false;
     };
     // attachmentsRef is read inside, deliberately not a dependency.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [pathKey]);
 
   if (!attachments.length) return null;

@@ -20,13 +20,10 @@ import {
   useInvoiceClientPodPoliciesQuery,
   useInvoiceDigitalPodTripIdsQuery,
 } from "@/lib/queries/useInvoicingExecuteQueries";
-import { loadWorkspaceInvoicePodRequired } from "@/features/invoicing/utils/invoicePodRequired.util";
 import {
   invoicePodPolicyLabel,
   parseInvoicePodPolicy,
-  resolveInvoicePodPolicy,
 } from "@/features/invoicing/utils/invoicePodPolicy.util";
-import { useQuery } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text } from "react-native";
 import { financeProRouteParam } from "./financeProRouteParam";
@@ -61,15 +58,6 @@ function TripBody({
     trip ? [trip.tripId] : [],
     Boolean(trip),
   );
-  const workspacePodQ = useQuery({
-    queryKey: orgId
-      ? (["q", "invoicing", "workspace-pod-required", orgId] as const)
-      : (["q", "invoicing", "workspace-pod-required", "none"] as const),
-    queryFn: () => loadWorkspaceInvoicePodRequired(orgId!),
-    enabled: Boolean(orgId && trip),
-    staleTime: 60_000,
-  });
-
   if (!trip) {
     return (
       <Text style={styles.note}>Trip is not in the current customer ledger inputs.</Text>
@@ -79,11 +67,7 @@ function TripBody({
   const parsed = parseInvoicePodPolicy(
     trip.clientId ? policiesQ.data?.[trip.clientId] : null,
   );
-  const clientPolicy = parsed.ok ? parsed.policy : null;
-  const resolved = resolveInvoicePodPolicy({
-    clientPolicy,
-    workspacePodRequired: workspacePodQ.data ?? true,
-  });
+  const resolved = parsed.ok ? parsed.policy : null;
   const digitalReceived = Boolean(digitalQ.data?.has(trip.tripId));
   const invoices = model.issuedInvoiceDocuments.filter((d) =>
     d.tripIds.includes(trip.tripId),
@@ -95,7 +79,9 @@ function TripBody({
       ? "Physical POD is the billing gate (HARD_COPY)."
       : resolved === "soft_copy"
         ? "Digital POD is the billing gate (SOFT_COPY)."
-        : "No POD billing gate (NONE).";
+        : resolved === "none"
+          ? "No POD billing gate (NONE)."
+          : "POD policy is unconfigured. Invoicing is blocked until a client policy is set.";
 
   const stories: string[] = [];
   if (trip.remainingDue > 0) {
@@ -167,7 +153,8 @@ function TripBody({
             />
           </FinanceProFactGrid>
           <Text style={styles.note}>
-            {billingGate} Policy {invoicePodPolicyLabel(resolved)}
+            {billingGate} Policy{" "}
+            {resolved ? invoicePodPolicyLabel(resolved) : "unconfigured"}
             {clientPolicy == null ? " (workspace default)" : ""}.
           </Text>
           {invoices.map((d) => (

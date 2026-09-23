@@ -9,18 +9,11 @@ import {
   INVOICE_POD_POLICIES,
   invoicePodPolicyLabel,
   parseInvoicePodPolicy,
-  resolveInvoicePodPolicy,
   type InvoicePodPolicy,
 } from "@/features/invoicing/utils/invoicePodPolicy.util";
-import {
-  invoicePodRequiredStorageKey,
-  parseInvoicePodRequiredStored,
-} from "@/features/invoicing/utils/invoicePodRequired.util";
 import { queryKeys } from "@/lib/queryKeys";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -52,8 +45,6 @@ export function ClientInvoicePodPolicySection({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const workspaceQueryKey = ["q", "workspace-invoice-pod-required", orgId] as const;
-
   const policyQ = useQuery({
     queryKey: policyQueryKey,
     queryFn: async () => {
@@ -64,16 +55,6 @@ export function ClientInvoicePodPolicySection({
     enabled: Boolean(orgId && clientId),
     staleTime: 60_000,
     initialData: rawPolicy,
-  });
-
-  const workspaceQ = useQuery({
-    queryKey: workspaceQueryKey,
-    queryFn: async () => {
-      const raw = await AsyncStorage.getItem(invoicePodRequiredStorageKey(orgId));
-      return parseInvoicePodRequiredStored(raw);
-    },
-    enabled: Boolean(orgId),
-    staleTime: 15_000,
   });
 
   const authQ = useQuery({
@@ -87,32 +68,9 @@ export function ClientInvoicePodPolicySection({
     staleTime: 60_000,
   });
 
-  useFocusEffect(
-    useCallback(() => {
-      let cancelled = false;
-      void AsyncStorage.getItem(invoicePodRequiredStorageKey(orgId)).then((raw) => {
-        if (cancelled) return;
-        queryClient.setQueryData(
-          workspaceQueryKey,
-          parseInvoicePodRequiredStored(raw),
-        );
-      });
-      return () => {
-        cancelled = true;
-      };
-    }, [orgId, queryClient]),
-  );
-
-  const workspacePodRequired = workspaceQ.data ?? true;
   const canEdit = authQ.data === true;
   const parsed = parseInvoicePodPolicy(policyQ.data);
   const configuredPolicy = parsed.ok ? parsed.policy : null;
-  const effectivePolicy = parsed.ok
-    ? resolveInvoicePodPolicy({
-        clientPolicy: configuredPolicy,
-        workspacePodRequired,
-      })
-    : null;
 
   const persist = async (next: InvoicePodPolicy | null) => {
     if (!canEdit || saving) return;
@@ -143,6 +101,10 @@ export function ClientInvoicePodPolicySection({
   return (
     <View style={styles.wrap} accessibilityLabel="POD for Invoicing">
       <Text style={styles.kicker}>POD for Invoicing</Text>
+      <Text style={styles.effective}>
+        ON maps to hard-copy receipt. OFF maps to no POD gating. Soft copy stays
+        a separate digital capability.
+      </Text>
       {parsed.ok ? (
         configuredPolicy ? (
           <Text style={styles.status}>
@@ -150,9 +112,10 @@ export function ClientInvoicePodPolicySection({
           </Text>
         ) : (
           <View>
-            <Text style={styles.status}>Using workspace default</Text>
+            <Text style={styles.status}>Unconfigured</Text>
             <Text style={styles.effective}>
-              Effective: {invoicePodPolicyLabel(effectivePolicy ?? "hard_copy")}
+              Invoicing is blocked until none, soft copy, or hard copy is set.
+              Device “POD Required” is not used.
             </Text>
           </View>
         )
@@ -205,10 +168,10 @@ export function ClientInvoicePodPolicySection({
             }}
             disabled={saving}
             accessibilityRole="button"
-            accessibilityLabel="Use workspace default"
+            accessibilityLabel="Clear POD policy"
           >
             <Text style={styles.resetText} numberOfLines={1}>
-              Use workspace default
+              Clear policy
             </Text>
           </Pressable>
         ) : null}

@@ -23,7 +23,7 @@ export function parseInvoicePodRequiredStored(raw: string | null): boolean {
   return INVOICE_POD_REQUIRED_DEFAULT;
 }
 
-/** Existing workspace POD Required mechanism (AsyncStorage). Used at Issue when client policy is NULL. */
+/** Display-only workspace POD Required toggle. Must not change invoice eligibility. */
 export async function loadWorkspaceInvoicePodRequired(
   workspaceId: string,
 ): Promise<boolean> {

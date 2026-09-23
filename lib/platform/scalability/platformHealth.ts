@@ -16,6 +16,11 @@ import {
   SUBSCRIPTION_BUDGETS,
 } from "./performanceBudgets";
 import { getChatHealthCounters } from "@/lib/chatPerf";
+import {
+  getModeratorConfig,
+  getModeratorMetrics,
+  getInvalidationSchedulerMetrics,
+} from "../moderator";
 
 /**
  * Registry channel keys used by chat (driver + business + platform lanes —
@@ -95,6 +100,16 @@ export type PlatformHealthSnapshot = {
       channels: ReturnType<typeof listRealtimeRegistryEntries>;
     };
   cache: ReturnType<typeof getQueryCacheMetrics>;
+  /**
+   * Requests Moderator counters. In observeOnly mode (the default) these are
+   * pure measurement: they describe the real request profile without the
+   * Moderator having changed it. @see docs/DB_LOAD_ARCHITECTURE_REVIEW.md
+   */
+  moderator: {
+    config: ReturnType<typeof getModeratorConfig>;
+    metrics: ReturnType<typeof getModeratorMetrics>;
+    invalidation: ReturnType<typeof getInvalidationSchedulerMetrics>;
+  };
   budgets: {
     subscription: typeof SUBSCRIPTION_BUDGETS;
     successTargets: typeof PLATFORM_SUCCESS_TARGETS;
@@ -135,6 +150,11 @@ export function getPlatformHealthSnapshot(): PlatformHealthSnapshot {
       channels,
     },
     cache: getQueryCacheMetrics(),
+    moderator: {
+      config: getModeratorConfig(),
+      metrics: getModeratorMetrics(),
+      invalidation: getInvalidationSchedulerMetrics(),
+    },
     budgets: {
       subscription: SUBSCRIPTION_BUDGETS,
       successTargets: PLATFORM_SUCCESS_TARGETS,

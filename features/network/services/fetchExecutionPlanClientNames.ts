@@ -1,6 +1,7 @@
 import { uniqueClientNameFromCustomers } from "@/features/network/utils/indentCardAvatar.util";
 import { chunkIds } from "@/features/network/utils/commercePlanIds.util";
 import { supabase } from "@/lib/supabase";
+import { isCommerceDataQueryEnabled } from "@/lib/suite/productLock";
 
 type ClientJoin = {
   id?: string | null;
@@ -60,6 +61,7 @@ export async function fetchExecutionPlanClients(
   orgId: string,
   planIds: string[],
 ): Promise<Record<string, ExecutionPlanClientParty[]>> {
+  if (!isCommerceDataQueryEnabled()) return {};
   const ids = [...new Set(planIds.map((id) => id.trim()).filter(Boolean))];
   if (!orgId.trim() || ids.length === 0) return {};
 

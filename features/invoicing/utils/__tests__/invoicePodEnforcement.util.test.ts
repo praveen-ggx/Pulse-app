@@ -4,6 +4,7 @@ import {
   INVOICE_POD_LEGACY_REQUIRED,
   INVOICE_POD_MULTI_CLIENT,
   INVOICE_POD_OPTIONS_CONFLICT,
+  INVOICE_POD_POLICY_UNCONFIGURED,
   INVOICE_POD_SOFT_COPY_REQUIRED,
   conflictingInvoicePodOptions,
   distinctInvoiceClientIds,
@@ -70,21 +71,21 @@ describe("P2.2 policy resolution via resolveInvoicePodPolicy", () => {
       }),
     ).toBe("hard_copy");
   });
-  it("7. NULL + workspace ON -> HARD_COPY", () => {
+  it("7. NULL + workspace ON -> unconfigured", () => {
     expect(
       resolveInvoicePodPolicy({
         clientPolicy: null,
         workspacePodRequired: true,
       }),
-    ).toBe("hard_copy");
+    ).toBeNull();
   });
-  it("8. NULL + workspace OFF -> NONE", () => {
+  it("8. NULL + workspace OFF -> unconfigured", () => {
     expect(
       resolveInvoicePodPolicy({
         clientPolicy: null,
         workspacePodRequired: false,
       }),
-    ).toBe("none");
+    ).toBeNull();
   });
 });
 
@@ -166,6 +167,12 @@ describe("P2.2 client identity", () => {
         workspacePodRequired: true,
       }),
     ).toEqual({ ok: true, policy: "soft_copy", source: "client" });
+    expect(
+      effectiveInvoicePodPolicyFromClientRaw({
+        clientPolicyRaw: null,
+        workspacePodRequired: true,
+      }),
+    ).toEqual({ ok: false, error: INVOICE_POD_POLICY_UNCONFIGURED });
   });
   it("22. multiple client_ids -> block", () => {
     expect(

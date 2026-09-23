@@ -19,10 +19,10 @@ export function preloadTabForRoute(route: string, orgId?: string | null): void {
   if (route === '/(tabs)/finance') preloadTabScreen('finance');
   else if (route === '/(tabs)/trips') {
     preloadTabScreen('trips');
-    preloadChatRoute(orgId);
+    preloadChatRoute(orgId, { bootstrap: false });
   } else if (route === '/(tabs)/network' || route.includes('/network/hub')) {
     preloadTabScreen('network');
-    preloadChatRoute(orgId);
+    preloadChatRoute(orgId, { bootstrap: false });
   }
 }
 
@@ -36,9 +36,9 @@ export function scheduleDispatcherTabPreloads(
     queryClient?: QueryClient;
     orgId?: string | null;
     /**
-     * Warm the finance data set (trips + transactions RPCs). Callers pass false
-     * for functional-role members who can reach neither finance nor trips, so a
-     * Sales-only member doesn't fire finance/trips RPCs on boot. Default true.
+     * Warm the finance data set (trips + transactions RPCs). Default false:
+     * sign-in must not fire get_trips_for_org + transactions.select(*) in
+     * parallel with Auth (2026-09-22). Pass true only from an explicit Fiscal tap.
      */
     warmFinanceData?: boolean;
   },
@@ -47,7 +47,7 @@ export function scheduleDispatcherTabPreloads(
     // Idle preloads of large lazy chunks race with Fast Refresh in dev and
     // surface as "Requiring unknown module NNNN" on the next navigation.
     const orgId = opts?.orgId ?? null;
-    const warmFinanceData = opts?.warmFinanceData ?? true;
+    const warmFinanceData = opts?.warmFinanceData ?? false;
     if (__DEV__) {
       if (lastTabRoute) preloadTabForRoute(lastTabRoute, orgId);
       return;

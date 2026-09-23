@@ -9,6 +9,7 @@
  */
 import React from 'react';
 import { render, waitFor, act } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import DriverProfileScreen from '../DriverProfileScreen';
 import { useAuth } from '@/contexts/AuthContext';
 import * as driversService from '@/features/drivers/services/drivers.service';
@@ -37,6 +38,14 @@ jest.mock('@/lib/useAvatar', () => ({
 }));
 jest.mock('@/features/auth/components/EditProfileModal', () => ({
   EditProfileModal: () => null,
+}));
+// Rendered by the screen; unmocked it resolves to undefined and React throws
+// "Element type is invalid" before any subscription effect runs.
+jest.mock('@/features/experience/components/MilestoneHowToModal', () => ({
+  MilestoneHowToModal: () => null,
+}));
+jest.mock('@/lib/queries/useDcoStatusQuery', () => ({
+  useDcoStatusQuery: () => ({ data: null, isLoading: false }),
 }));
 jest.mock('@/lib/queries/useDriverFleetOwnerQuery', () => ({
   useDriverFleetOwnerQuery: () => ({ isFleetOwner: false }),
@@ -76,12 +85,12 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
 jest.mock('@react-navigation/native', () => ({ useFocusEffect: jest.fn() }));
-jest.mock('lucide-react-native', () => ({
-  Camera: 'Camera', ChevronLeft: 'ChevronLeft', ChevronRight: 'ChevronRight', Crown: 'Crown',
-  Dna: 'Dna', Edit3: 'Edit3', Fuel: 'Fuel', Gauge: 'Gauge', Globe: 'Globe', History: 'History',
-  LogOut: 'LogOut', Milestone: 'Milestone', Quote: 'Quote', Share2: 'Share2', Shield: 'Shield',
-  Star: 'Star', Thermometer: 'Thermometer', Trophy: 'Trophy', Truck: 'Truck',
-  UserPlus: 'UserPlus', Wrench: 'Wrench',
+// Proxy instead of a hand-maintained list: any icon the screen imports resolves
+// to a harmless host component. A literal map silently returns undefined for a
+// newly-added icon, which React then rejects with "Element type is invalid" —
+// that is what previously broke this suite when `Gavel` was added to the screen.
+jest.mock('lucide-react-native', () => new Proxy({}, {
+  get: (_t, prop) => (prop === '__esModule' ? false : 'Icon'),
 }));
 
 jest.mock('@/features/drivers/services/drivers.service', () => ({
@@ -115,6 +124,22 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+/**
+ * The screen (via useDriverDcoProfile) calls useQuery, so it needs a
+ * QueryClientProvider — without one React Query throws "No QueryClient set"
+ * during render and none of the subscription assertions below are ever reached.
+ * Retries are off so a failing queryFn surfaces immediately instead of backing off.
+ */
+function renderScreen() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+  const wrapper = ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  return render(<DriverProfileScreen />, { wrapper });
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   (useAuth as jest.Mock).mockReturnValue({
@@ -133,7 +158,7 @@ describe('DriverProfileScreen trips realtime subscription', () => {
     const gate = deferred<{ error: null; drivers: unknown[] }>();
     mockGetLinkedDrivers.mockReturnValueOnce(gate.promise);
 
-    render(<DriverProfileScreen />);
+    renderScreen();
     await act(async () => { await Promise.resolve(); });
 
     expect(mockSubscribe).not.toHaveBeenCalled();
@@ -149,7 +174,7 @@ describe('DriverProfileScreen trips realtime subscription', () => {
   it('uses a user-specific registry key and a driver_id=in.(...) filter', async () => {
     mockGetLinkedDrivers.mockResolvedValue({ error: null, drivers: [driverRow('d1', 'org-1')] });
 
-    render(<DriverProfileScreen />);
+    renderScreen();
 
     await waitFor(() => expect(mockSubscribe).toHaveBeenCalledTimes(1));
     const [key, specs] = mockSubscribe.mock.calls[0];
@@ -165,7 +190,7 @@ describe('DriverProfileScreen trips realtime subscription', () => {
       drivers: [driverRow('d1', 'org-1'), driverRow('d2', 'org-2'), driverRow('d3', 'org-3')],
     });
 
-    render(<DriverProfileScreen />);
+    renderScreen();
 
     await waitFor(() => expect(mockSubscribe).toHaveBeenCalledTimes(1));
     const [, specs] = mockSubscribe.mock.calls[0];
@@ -177,7 +202,7 @@ describe('DriverProfileScreen trips realtime subscription', () => {
     const unsubFirst = jest.fn();
     mockSubscribe.mockReturnValueOnce(unsubFirst);
 
-    const { rerender } = render(<DriverProfileScreen />);
+    const { rerender } = renderScreen();
     await waitFor(() => expect(mockSubscribe).toHaveBeenCalledTimes(1));
     expect(mockSubscribe.mock.calls[0][1][0].filter).toBe('driver_id=in.(d1)');
     expect(unsubFirst).not.toHaveBeenCalled();
@@ -214,7 +239,7 @@ describe('DriverProfileScreen trips realtime subscription', () => {
     const unsub = jest.fn();
     mockSubscribe.mockReturnValueOnce(unsub);
 
-    const { unmount } = render(<DriverProfileScreen />);
+    const { unmount } = renderScreen();
     await waitFor(() => expect(mockSubscribe).toHaveBeenCalledTimes(1));
 
     unmount();
@@ -224,7 +249,7 @@ describe('DriverProfileScreen trips realtime subscription', () => {
   it('the subscription callback still triggers the existing loadTrips() refetch behaviour', async () => {
     mockGetLinkedDrivers.mockResolvedValue({ error: null, drivers: [driverRow('d1', 'org-1')] });
 
-    render(<DriverProfileScreen />);
+    renderScreen();
     await waitFor(() => expect(mockSubscribe).toHaveBeenCalledTimes(1));
 
     const initialTripsCalls = mockGetTrips.mock.calls.length;

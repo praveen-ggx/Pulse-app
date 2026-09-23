@@ -17,10 +17,10 @@ export interface InvoicePdfTaxRow {
 }
 
 export interface InvoicePdfData {
-  documentKind: 'draft';
+  documentKind: 'draft' | 'issued';
   brandingCompanyName: string;
   brandingLogoUrl: string | null;
-  invoiceNo: 'DRAFT';
+  invoiceNo: string;
   invoiceNumberCaption: string;
   clientName: string;
   previewDate: string;

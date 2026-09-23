@@ -15,7 +15,11 @@ export function HubScreenShell({ children, footer }: HubScreenShellProps) {
   return (
     <View style={styles.root}>
       <View style={styles.body}>{children}</View>
-      {footer}
+      {footer ? (
+        <View style={styles.footer} pointerEvents="auto">
+          {footer}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -25,10 +29,19 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
     width: "100%",
+    overflow: "hidden",
   },
   body: {
     flex: 1,
     minHeight: 0,
     minWidth: 0,
+    overflow: "hidden",
+    zIndex: 0,
+  },
+  footer: {
+    flexShrink: 0,
+    zIndex: 4,
+    elevation: 4,
+    position: "relative",
   },
 });

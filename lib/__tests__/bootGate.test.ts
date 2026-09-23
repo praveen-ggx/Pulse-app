@@ -4,6 +4,7 @@ import {
   shouldShowBootOverlay,
   shouldMountAuthenticatedDataPlane,
   shouldMountRootOverlayTabBar,
+  shouldApplyUnsignedDataPlaneRedirect,
   shouldRedirectDataPlaneRouteWithoutSession,
   shouldRenderPublicAuthTree,
   type BootGateInput,
@@ -198,5 +199,11 @@ describe('data-plane route without session', () => {
     expect(shouldRedirectDataPlaneRouteWithoutSession(false, '/', ['(tabs)'])).toBe(true);
     expect(shouldRedirectDataPlaneRouteWithoutSession(false, '/', [])).toBe(false);
     expect(shouldRedirectDataPlaneRouteWithoutSession(false, '/', ['index'])).toBe(false);
+  });
+
+  it('holds Redirect until the root Slot/Stack has painted', () => {
+    expect(shouldApplyUnsignedDataPlaneRedirect(true, false)).toBe(false);
+    expect(shouldApplyUnsignedDataPlaneRedirect(true, true)).toBe(true);
+    expect(shouldApplyUnsignedDataPlaneRedirect(false, true)).toBe(false);
   });
 });

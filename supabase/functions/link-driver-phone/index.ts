@@ -16,8 +16,6 @@
 // Security: the caller's phone is read from THEIR OWN verified JWT (phone_confirmed_at
 // must be set), never from the request body — a request cannot claim an arbitrary
 // phone number to link into someone else's account.
-import { ingestLog } from '../_shared/logWatcherIngest.ts';
-import { createClient as createClientDirect } from 'npm:@supabase/supabase-js@2';
 const corsAllowHeaders = 'authorization, x-client-info, apikey, content-type';
 function getCorsOrigin(req: Request): string {
   const allowed = Deno.env.get('CORS_ALLOWED_ORIGIN')?.trim();

@@ -8,7 +8,6 @@
 // Returned similarity scores (0–1) gate whether the job proceeds to the
 // expensive external registry APIs (Pillar 1/2) or is immediately flagged.
 // Threshold: score < 0.85 on GSTIN or PAN → route to manual_review.
-import { ingestLog } from '../_shared/logWatcherIngest.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin':  '*',

@@ -49,7 +49,11 @@ export function useDriversQuery(
       return rows;
     },
     enabled: !!orgId && status !== 'restoring',
-    staleTime: STALE.moderate,
+    // Near-static lookup data: invalidated by mutations and by realtime, so a
+    // longer stale window costs no freshness and removes a background refetch
+    // from every screen that renders alongside the hot list.
+    // @see docs/DB_LOAD_ARCHITECTURE_REVIEW.md
+    staleTime: STALE.slow,
     refetchOnMount: refetchOnMountIfEntityListEmpty<DriverRow[]>(),
     select:
       membership === "ledger"

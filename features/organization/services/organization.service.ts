@@ -5,7 +5,7 @@
  * If that returns nothing and the DB has get_organizations_for_user() RPC, tries RPC to backfill owner memberships.
  */
 import { supabase } from "@/lib/supabase";
-import { normalizeInfrastructureErrorMessage } from "@/lib/supabaseHttp.util";
+import { isSupabaseCircuitOpen, normalizeInfrastructureErrorMessage } from "@/lib/supabaseHttp.util";
 import { uuidv7 } from "@/lib/uuidv7";
 import type { MemberSurfaceMap } from "@/lib/memberSurfaces";
 import {
@@ -342,6 +342,8 @@ export async function getOrganizationLocationsByIds(orgIds: string[]): Promise<{
   const uniqueIds = [...new Set(orgIds.map((id) => id.trim()).filter(Boolean))];
   if (uniqueIds.length === 0) return { error: null, locations: [] };
 
+  if (isSupabaseCircuitOpen()) return { error: null, locations: [] };
+
   const { data, error } = await supabase()
     .from("organizations")
     .select("id, city, state, address_line")
@@ -358,6 +360,8 @@ export async function getOrganizationLocationsByNames(orgNames: string[]): Promi
   const escapeLike = (value: string) => value.replace(/[%_\\]/g, '\\$&');
   const uniqueNames = [...new Set(orgNames.map((name) => name.trim()).filter(Boolean))];
   if (uniqueNames.length === 0) return { error: null, locations: [] };
+
+  if (isSupabaseCircuitOpen()) return { error: null, locations: [] };
 
   // Single round trip instead of one `.ilike` query per name (which fanned out
   // N concurrent queries proportional to caller input). Preserves the prior

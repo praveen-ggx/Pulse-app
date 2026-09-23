@@ -71,16 +71,28 @@ async function fetchTripDocumentsForTrips(
   const SELECT_WITH_STATUS_AND_SOURCE = `${SELECT_WITH_STATUS}, source_entity_document_id`;
 
   let rows: RawTripDocRow[] = [];
-  let withStatus = await supabase()
+  const withSource = await supabase()
     .from("trip_documents")
     .select(SELECT_WITH_STATUS_AND_SOURCE)
     .in("trip_id", tripIds);
 
+  let withStatus: {
+    data: RawTripDocRow[] | null;
+    error: { message: string } | null;
+  } = withSource;
+
   if (withStatus.error && isMissingColumnOrRelation(withStatus.error)) {
-    withStatus = await supabase()
+    const withoutSource = await supabase()
       .from("trip_documents")
       .select(SELECT_WITH_STATUS)
       .in("trip_id", tripIds);
+    withStatus = {
+      data: (withoutSource.data ?? []).map((r) => ({
+        ...r,
+        source_entity_document_id: null,
+      })),
+      error: withoutSource.error,
+    };
   }
 
   if (withStatus.error && isMissingColumnOrRelation(withStatus.error)) {

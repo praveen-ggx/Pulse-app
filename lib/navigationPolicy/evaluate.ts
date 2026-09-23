@@ -26,6 +26,7 @@ import {
   SIGN_IN_PATH,
   TERMINAL_WEBSITE_PATH,
 } from '@/lib/navigationPolicy/types';
+import { isLockedProductPath } from '@/lib/suite/productLock';
 
 function resolveOnDeny(
   onDeny: OnDenyTarget | undefined,
@@ -190,6 +191,13 @@ export function evaluateNavigationPolicy(input: EvaluateInput): Decision {
   }
 
   const { policy } = matched;
+
+  if (
+    snapshot.sessionPosture === 'authenticated' &&
+    isLockedProductPath(canonicalPath)
+  ) {
+    return redirect(ORG_HOME_PATH, 'product_locked', policy.id);
+  }
 
   // Authenticated onboarding predicates — first-class (before public allow / experience).
   if (snapshot.sessionPosture === 'authenticated') {

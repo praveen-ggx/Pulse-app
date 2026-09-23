@@ -13,6 +13,11 @@ import {
   resolveCommercialOpportunity,
   type CommercialOpportunity,
 } from '@/features/marketplace/domain';
+import {
+  MARKETPLACE_LOAD_PAGE_SIZE,
+  nextMarketplacePageOffset,
+  sliceMarketplaceLoadsPage,
+} from '@/features/network/utils/marketplaceLoadsPage.util';
 
 export type OrgOpenMarketplaceLoad = {
   id: string;
@@ -34,7 +39,7 @@ export type OrgOpenMarketplaceLoad = {
 
 export async function listOpenMarketplaceLoadsForOrg(
   orgId: string,
-  limit = 50,
+  limit = MARKETPLACE_LOAD_PAGE_SIZE,
 ): Promise<{ error: Error | null; loads: OrgOpenMarketplaceLoad[] }> {
   const { data, error } = await supabase().rpc(
     'list_open_marketplace_loads_for_org',
@@ -42,6 +47,33 @@ export async function listOpenMarketplaceLoadsForOrg(
   );
   if (error) return { error: new Error(error.message), loads: [] };
   return { error: null, loads: (data ?? []) as OrgOpenMarketplaceLoad[] };
+}
+
+/** Offset page over the existing limit-only RPC (prefix fetch + slice). */
+export async function listOpenMarketplaceLoadsPage(
+  orgId: string,
+  offset = 0,
+  pageSize = MARKETPLACE_LOAD_PAGE_SIZE,
+): Promise<{
+  error: Error | null;
+  loads: OrgOpenMarketplaceLoad[];
+  hasMore: boolean;
+  nextOffset: number | undefined;
+}> {
+  const { error, loads } = await listOpenMarketplaceLoadsForOrg(
+    orgId,
+    offset + pageSize,
+  );
+  if (error) {
+    return { error, loads: [], hasMore: false, nextOffset: undefined };
+  }
+  const { page, hasMore } = sliceMarketplaceLoadsPage(loads, offset, pageSize);
+  return {
+    error: null,
+    loads: page,
+    hasMore,
+    nextOffset: nextMarketplacePageOffset(offset, page.length, pageSize),
+  };
 }
 
 /**
@@ -178,14 +210,18 @@ export async function findPostIdsForIndents(
   indentIds: string[],
 ): Promise<{ error: Error | null; postIdByIndentId: Map<string, string> }> {
   if (indentIds.length === 0) return { error: null, postIdByIndentId: new Map() };
-  const { data, error } = await supabase()
-    .from('posts')
-    .select('id, source_indent_id')
-    .in('source_indent_id', indentIds);
-  if (error) return { error: new Error(error.message), postIdByIndentId: new Map() };
+  const uniqueIds = [...new Set(indentIds.filter(Boolean))];
   const map = new Map<string, string>();
-  for (const row of (data ?? []) as { id: string; source_indent_id: string | null }[]) {
-    if (row.source_indent_id) map.set(row.source_indent_id, row.id);
+  for (let i = 0; i < uniqueIds.length; i += 40) {
+    const chunk = uniqueIds.slice(i, i + 40);
+    const { data, error } = await supabase()
+      .from('posts')
+      .select('id, source_indent_id')
+      .in('source_indent_id', chunk);
+    if (error) return { error: new Error(error.message), postIdByIndentId: new Map() };
+    for (const row of (data ?? []) as { id: string; source_indent_id: string | null }[]) {
+      if (row.source_indent_id) map.set(row.source_indent_id, row.id);
+    }
   }
   return { error: null, postIdByIndentId: map };
 }

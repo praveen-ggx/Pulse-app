@@ -8,11 +8,16 @@
  * Service-layer validation: amount cap, date format, string length.
  */
 import { getAvatarUriForSeed } from "@/constants/DriverLevels";
+import { runSingleflight } from "@/lib/cache/singleflight";
 import { syncDomainRows } from "@/lib/cache/domainSync";
 import { mergeDeltaRows } from "@/lib/cache/mergeDelta";
 import type { DeltaResponse } from "@/lib/cache/deltaTypes";
 import { getDriverProfileDisplay, getDriverProfileDisplayBatch } from "@/features/drivers/services/drivers.service";
 import { interpretLedgerRowStructured } from "@/features/finance/ledger/ledgerEntryModel";
+import {
+  isMissingPaymentReferenceColumnError,
+  omitPaymentReferenceField,
+} from "@/features/finance/utils/ledgerWriteCompat.util";
 import {
   AVATAR_BUCKET,
   extractPathFromStorageUrl,
@@ -32,6 +37,29 @@ import { recordTripWorkflowEvent } from "@/features/trips/services/tripWorkflow.
  * Join trips via trip_id (not booking_ref).
  * `transactions_booking_ref_fkey` also points at trips — unqualified `trips(...)` is ambiguous.
  */
+/**
+ * Explicit column list for ledger reads — replaces `select("*")`.
+ *
+ * Every name here must be a REAL column on `transactions`. PostgREST rejects the
+ * whole request with HTTP 400 if any one of them does not exist — unlike
+ * `select("*")`, which silently tolerated the difference.
+ *
+ * toLedgerRow() also accepts trip_number / vehicle_number / driver_name, but
+ * those are NOT columns on this table: they arrive from joins or from the
+ * description meta blob, and toLedgerRow already types them optional. Listing
+ * them here is what broke the Finance ledger with a 400.
+ *
+ * These are the fields toLedgerRow() consumes. Transactions is a wide
+ * table; `*` pulled columns no ledger screen renders, inflating egress and
+ * PostgREST serialization on the hottest read in the app.
+ * Keep in sync with the toLedgerRow() parameter type below.
+ */
+const LEDGER_TX_COLUMNS =
+  "id, organization_id, trip_id, party_name, description, " +
+  "amount_in, amount_out, transaction_date, created_at, contact_id, " +
+  "contact_type, ledger_entity_type, ledger_flow_type, ledger_category, " +
+  "payment_ref, created_by, booking_ref, is_opening_balance";
+
 const LEDGER_TX_TRIP_EMBED = "trips!trip_id";
 const LEDGER_TX_SELECT_WITH_TRIPS =
   `*, ${LEDGER_TX_TRIP_EMBED}(trip_number, display_trip_id, trip_code, trip_operational_code)` as const;
@@ -50,16 +78,29 @@ export interface TripLedgerEmbed {
  * carries transactions' own columns) be completed locally via toLedgerRow instead of
  * refetching the whole org transactions list.
  */
+/**
+ * Trip label embed for a ledger row.
+ *
+ * Called from the realtime hot path (applyTransactionRealtimeEvent), once per
+ * transaction event. Under a burst of inserts across distinct trips that was one
+ * round-trip per event, so it is wrapped in singleflight: concurrent callers for
+ * the same trip share a single in-flight request.
+ *
+ * Trip labels are effectively immutable, which is what makes sharing safe here.
+ * @see docs/DB_LOAD_ARCHITECTURE_REVIEW.md
+ */
 export async function getTripLedgerEmbed(
   tripId: string,
 ): Promise<{ error: Error | null; embed: TripLedgerEmbed | null }> {
-  const { data, error } = await supabase()
-    .from("trips")
-    .select("trip_number, display_trip_id, trip_code, trip_operational_code")
-    .eq("id", tripId)
-    .maybeSingle();
-  if (error) return { error: new Error(error.message), embed: null };
-  return { error: null, embed: (data as TripLedgerEmbed) ?? null };
+  return runSingleflight(`trip-ledger-embed:${tripId}`, async () => {
+    const { data, error } = await supabase()
+      .from("trips")
+      .select("trip_number, display_trip_id, trip_code, trip_operational_code")
+      .eq("id", tripId)
+      .maybeSingle();
+    if (error) return { error: new Error(error.message), embed: null };
+    return { error: null, embed: (data as TripLedgerEmbed) ?? null };
+  });
 }
 
 function isMissingTripsDisplayTripIdError(
@@ -919,7 +960,7 @@ export async function getTransactionsByOrganization(
   const base = () =>
     supabase()
       .from("transactions")
-      .select("*")
+      .select(LEDGER_TX_COLUMNS)
       .eq("organization_id", orgId)
       .order("transaction_date", { ascending: false })
       .order("created_at", { ascending: false });
@@ -945,13 +986,24 @@ export async function getTransactionsByOrganization(
 }
 
 /**
- * Same base query as getTransactionsByOrganization, but with no row cap —
- * used ONLY to compute the Cash tab's headline totals so they stay correct
- * for organizations with more than 500 transactions. The capped list above
- * remains the source for the displayed/paginated ledger; this is a separate,
- * aggregate-only fetch. Still join-free (the nested `trips!trip_id` embed,
- * not row count, was what caused the original 8-12s timeout removed in
- * c61f7d3d), so this stays cheap even unbounded.
+ * Same base query as getTransactionsByOrganization, but with NO row cap — used
+ * ONLY to compute the Cash tab's headline totals so they stay correct for
+ * organizations with more than 500 transactions. The capped list above remains
+ * the source for the displayed/paginated ledger; this is a separate,
+ * aggregate-only fetch. Still join-free (the nested `trips!trip_id` embed, not
+ * row count, was what caused the original 8-12s timeout removed in c61f7d3d).
+ *
+ * DO NOT add .limit()/.range() here. The grand total must reflect every
+ * matching row; capping it silently truncates the headline figure for large
+ * orgs, which was a confirmed release blocker. Filtered totals are computed by
+ * narrowing this set client-side, so the unfiltered fetch must stay complete.
+ * getAllTransactionsByOrganizationForTotals.test.ts guards this.
+ *
+ * It does select an explicit column list rather than `*`: that cuts egress and
+ * PostgREST serialization on the widest table in the app without changing which
+ * rows come back. The remaining row-count cost is best solved by a server-side
+ * SUM aggregate (a DB change, deliberately out of scope here).
+ * @see docs/DB_LOAD_ARCHITECTURE_REVIEW.md
  */
 export async function getAllTransactionsByOrganizationForTotals(
   orgId: string,
@@ -959,7 +1011,7 @@ export async function getAllTransactionsByOrganizationForTotals(
   type Row = Parameters<typeof toLedgerRow>[0];
   const { data, error } = await supabase()
     .from("transactions")
-    .select("*")
+    .select(LEDGER_TX_COLUMNS)
     .eq("organization_id", orgId)
     .order("transaction_date", { ascending: false })
     .order("created_at", { ascending: false });
@@ -1457,7 +1509,7 @@ export async function createLedgerEntry(
   let createdBy: string | null = null;
   try {
     const { data } = await withTimeout(
-      supabase().auth.getSession(),
+      () => supabase().auth.getSession(),
       AUTH_TIMEOUT_MS,
       { jitter: false },
     );
@@ -1465,7 +1517,7 @@ export async function createLedgerEntry(
   } catch {
     createdBy = null;
   }
-  const insertPayload = {
+  let insertPayload: Record<string, unknown> = {
     ...payload,
     ...(createdBy ? { created_by: createdBy } : {}),
   };
@@ -1475,6 +1527,15 @@ export async function createLedgerEntry(
     .insert(insertPayload)
     .select(LEDGER_TX_SELECT_WITH_TRIPS)
     .single();
+
+  if (error && isMissingPaymentReferenceColumnError(error)) {
+    insertPayload = omitPaymentReferenceField(insertPayload);
+    ({ data, error } = await supabase()
+      .from("transactions")
+      .insert(insertPayload)
+      .select(LEDGER_TX_SELECT_WITH_TRIPS)
+      .single());
+  }
 
   if (error && isMissingTripsDisplayTripIdError(error)) {
     ({ data, error } = await supabase()
@@ -1640,18 +1701,31 @@ export async function updateLedgerEntry(
     payment_reference: enriched.payment_reference ?? null,
   };
 
+  let updatePayload: Record<string, unknown> = { ...payload };
+
   let { data, error } = await supabase()
     .from("transactions")
-    .update(payload)
+    .update(updatePayload)
     .eq("id", entryId)
     .eq("organization_id", orgId)
     .select(LEDGER_TX_SELECT_WITH_TRIPS)
     .single();
 
+  if (error && isMissingPaymentReferenceColumnError(error)) {
+    updatePayload = omitPaymentReferenceField(updatePayload);
+    ({ data, error } = await supabase()
+      .from("transactions")
+      .update(updatePayload)
+      .eq("id", entryId)
+      .eq("organization_id", orgId)
+      .select(LEDGER_TX_SELECT_WITH_TRIPS)
+      .single());
+  }
+
   if (error && isMissingTripsDisplayTripIdError(error)) {
     ({ data, error } = await supabase()
       .from("transactions")
-      .update(payload)
+      .update(updatePayload)
       .eq("id", entryId)
       .eq("organization_id", orgId)
       .select(LEDGER_TX_SELECT_WITH_TRIPS_LEGACY)
@@ -1667,7 +1741,7 @@ export async function updateLedgerEntry(
     payload.trip_id != null
   ) {
     const unanchoredPayload = {
-      ...payload,
+      ...updatePayload,
       trip_id: null,
       description: buildUnanchoredLedgerRetryDescription(
         payload.description,

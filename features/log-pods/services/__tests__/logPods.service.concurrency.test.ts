@@ -107,6 +107,34 @@ describe("markSelectedTripsHardCopyPodReceived — bounded concurrency", () => {
     expect(res.updatedCount).toBe(0);
     expect(mockRpc).not.toHaveBeenCalled();
   });
+
+  it("Phase 4: routes courier/AWB metadata through the same authoritative markTripHardCopyPodReceived operation", async () => {
+    await markSelectedTripsHardCopyPodReceived({
+      tripInternalIds: ["trip-0"],
+      receivedAt: "2026-01-01T00:00:00Z",
+      method: "courier",
+      courierName: "DTDC",
+      trackingId: "AWB999",
+    });
+    expect(mockMarkTripHardCopyPodReceived).toHaveBeenCalledWith("trip-0", {
+      courier: "DTDC",
+      awbNumber: "AWB999",
+      comment: null,
+    });
+  });
+
+  it('Phase 4: an "in_hand" receipt still calls the same operation, with a courier label and no AWB', async () => {
+    await markSelectedTripsHardCopyPodReceived({
+      tripInternalIds: ["trip-0"],
+      receivedAt: "2026-01-01T00:00:00Z",
+      method: "in_hand",
+    });
+    expect(mockMarkTripHardCopyPodReceived).toHaveBeenCalledWith("trip-0", {
+      courier: "In hand",
+      awbNumber: null,
+      comment: null,
+    });
+  });
 });
 
 describe("executeLogIncomingPods — bounded concurrency", () => {
@@ -162,5 +190,19 @@ describe("executeLogIncomingPods — bounded concurrency", () => {
 
     expect(res.error?.message).toBe("update failed");
     expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  it("Phase 4: routes courier/AWB metadata through the same authoritative markTripHardCopyPodReceived operation", async () => {
+    const p = payload(1);
+    // Non-"custom" courierValue with no matching dbCourierPartners entry ->
+    // resolveCourierName() falls back to courierValue itself, avoiding the
+    // ensureCustomCourierPartner() DB round-trip this test doesn't mock.
+    p.courierValue = "BlueDart";
+    p.trackingId = "AWB123";
+    await executeLogIncomingPods(p);
+    expect(mockMarkTripHardCopyPodReceived).toHaveBeenCalledWith("trip-0", {
+      courier: "BlueDart",
+      awbNumber: "AWB123",
+    });
   });
 });

@@ -118,6 +118,13 @@ export function numberedMapPinHtml(kind: 'pickup' | 'drop', index: number): stri
 </svg>`;
 }
 
+/**
+ * Small orange dot for a GPS ping marker. Restored from 6ba500e6: a later
+ * refactor dropped the constant but kept its use below, so the 'ping' branch
+ * referenced an undefined identifier and would throw at runtime on web maps.
+ */
+export const MAP_PING_DOT_HTML = `<div style="width:12px;height:12px;border-radius:50%;background:#fb923c;border:2px solid #c2410c;box-shadow:0 1px 4px rgba(0,0,0,0.25);"></div>`;
+
 export type TripMapMarkerRole =
   | 'origin'
   | 'destination'

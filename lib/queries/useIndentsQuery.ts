@@ -82,7 +82,7 @@ export function useMarketIndentsQuery(
     enabled,
     // Cross-org feed: partner shippers mutate indents outside this org's invalidation path.
     staleTime: STALE.frequent,
-    refetchOnMount: true,
+    refetchOnMount: refetchOnMountIfEntityListEmpty<IndentRow[]>(),
     retry: shouldRetryQuery,
     placeholderData: (previousData) => previousData,
   });
@@ -161,9 +161,12 @@ export function invalidateMarketIndentsForIntegratedSuppliers(
 /** My direct quotes for GET LOAD views (carrier side). */
 export function useMyDirectQuotesQuery(
   orgId: string | null,
-  options?: { urgent?: boolean },
+  options?: { urgent?: boolean; immediate?: boolean },
 ) {
-  const gateOpen = useAppQueryGate(orgId, { urgent: options?.urgent });
+  const gateOpen = useAppQueryGate(orgId, {
+    urgent: options?.urgent,
+    immediate: options?.immediate,
+  });
   return useQuery<DirectQuoteRow[]>({
     queryKey: [...queryKeys.indents.finite(orgId ?? ''), 'my-direct-quotes'],
     queryFn: async () => {
@@ -237,6 +240,8 @@ export function useIndentDirectQuotesQuery(indentId: string | null) {
     },
     enabled: !!indentId && status === 'authenticated',
     staleTime: STALE.frequent,
+    retry: shouldRetryQuery,
+    placeholderData: (previousData) => previousData,
   });
 }
 

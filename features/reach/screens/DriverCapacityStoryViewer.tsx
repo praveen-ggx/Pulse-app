@@ -11,7 +11,6 @@ import { StoryBroadcastPreview } from '@/features/network/components/StoryBroadc
 import type { PostRow } from '@/features/network/services/posts.service';
 import {
   formatCapacityMaterial,
-  splitLocationParts,
 } from '@/features/network/utils/storyDisplay';
 import { positiveMoneyOrNull } from '@/lib/format';
 import { Megaphone, X } from 'lucide-react-native';
@@ -121,10 +120,10 @@ export function DriverCapacityStoryViewer({
     extrapolate: 'clamp',
   });
 
-  const originParts = splitLocationParts(post.origin);
-  const destinationParts = post.destination?.trim()
-    ? splitLocationParts(post.destination)
-    : { city: 'Anywhere', state: '' };
+  // StoryBroadcastPreview takes the raw location strings and formats them
+  // itself; an open-capacity post with no destination still reads "Anywhere".
+  const originLabel = post.origin;
+  const destinationLabel = post.destination?.trim() ? post.destination : 'Anywhere';
   const material =
     formatCapacityMaterial(post.material) ||
     post.vehicle_type?.trim() ||
@@ -178,8 +177,8 @@ export function DriverCapacityStoryViewer({
           <StoryBroadcastPreview
             post={post}
             loadMaterial={material}
-            originParts={originParts}
-            destinationParts={destinationParts}
+            origin={originLabel}
+            destination={destinationLabel}
             loadTargetRate={post.rate_offer}
             storyKey={post.id}
             kicker="Open capacity"

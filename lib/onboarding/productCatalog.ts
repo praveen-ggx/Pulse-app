@@ -1,10 +1,8 @@
 import { ROUTES } from '@/lib/routes';
 import {
-  PULSE_COMMERCE_BRAND_WORD,
   PULSE_CORE_BRAND_WORD,
   PULSE_PILOT_BRAND_WORD,
 } from '@/lib/brand/pulseBrandMark.tokens';
-import { buildSuiteSignInHref } from '@/lib/suite/suiteAuth';
 
 /** Active Pulse products — first-class software offerings. */
 export type PulseProductId = 'core' | 'pilot' | 'commerce';
@@ -48,17 +46,12 @@ export const PULSE_PRODUCTS: readonly PulseProduct[] = [
     features: 'Trips • Navigation • Earnings',
     route: ROUTES.ONBOARDING.DRIVER,
   },
-  {
-    id: 'commerce',
-    brandWord: PULSE_COMMERCE_BRAND_WORD,
-    name: 'Pulse Commerce',
-    tagline: 'Catalog & order management',
-    features: 'Products • Orders • Warehouses',
-    route: buildSuiteSignInHref({ productId: 'commerce' }),
-  },
 ] as const;
 
-export const PULSE_PRODUCTS_COMING_SOON: readonly PulseProductPreview[] = [] as const;
+export const PULSE_PRODUCTS_COMING_SOON: readonly PulseProductPreview[] = [
+  { id: 'commerce', name: 'Pulse Commerce' },
+  { id: 'finance-pro', name: 'Pulse Finance Pro' },
+] as const;
 
 export const WORKSPACE_ACCESS_ACTIONS: readonly WorkspaceAccessAction[] = [
   {

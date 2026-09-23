@@ -13,7 +13,8 @@ import {
   type PlatformModule,
 } from "@/lib/pulsePlatformCatalog";
 import { type ProductId } from "@/lib/productRegistry";
-import { ChevronRight } from "lucide-react-native";
+import { ChevronRight, Lock } from "lucide-react-native";
+import Theme from "@/constants/Theme";
 
 type WorkspaceHubProductGridProps = {
   activeProductIds: Set<ProductId>;
@@ -43,11 +44,18 @@ function ModuleChip({
         accessibilityRole="button"
         accessibilityLabel={`${module.label}${isActive ? ", connected" : ", locked"}`}
       >
-        <ProductLogo
-          productId={module.productId}
-          size={36}
-          active={isActive}
-        />
+        <View style={styles.logoSlot}>
+          <ProductLogo
+            productId={module.productId}
+            size={36}
+            active={isActive}
+          />
+          {!isActive ? (
+            <View style={styles.lockBadge} accessibilityElementsHidden>
+              <Lock size={10} color={Theme.textMuted} strokeWidth={2.4} />
+            </View>
+          ) : null}
+        </View>
         <Text
           style={[
             styles.chipName,

@@ -1,5 +1,25 @@
 /** PostgREST builder cancellation — supabase-js 2.108.2 (`abortSignal`). */
 
+const fetchAbortScopeStack: AbortSignal[] = [];
+
+/** Signals from `withTimeout` so the custom fetch can abort in-flight HTTPS. */
+export function currentFetchAbortSignals(): AbortSignal[] {
+  return fetchAbortScopeStack.slice();
+}
+
+export async function runWithFetchAbortScope<T>(
+  signal: AbortSignal,
+  fn: () => Promise<T> | T,
+): Promise<T> {
+  fetchAbortScopeStack.push(signal);
+  try {
+    return await fn();
+  } finally {
+    const idx = fetchAbortScopeStack.lastIndexOf(signal);
+    if (idx >= 0) fetchAbortScopeStack.splice(idx, 1);
+  }
+}
+
 export function withAbortSignal<T extends { abortSignal: (signal: AbortSignal) => T }>(
   builder: T,
   signal?: AbortSignal,

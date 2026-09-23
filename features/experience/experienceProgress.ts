@@ -259,6 +259,10 @@ export function getMilestoneGuide(
 ): MilestoneGuide {
   const audience = options?.audience ?? "driver";
   const isDriver = audience === "driver";
+  // Captured before the exhaustive `switch (level.type)` below: in its
+  // defensive `default` branch TS has narrowed `level` to `never`, so
+  // `level.goalText` no longer resolves there even though it is always present.
+  const goalText = level.goalText;
   const status = guideStatus(level.level, progress);
   const count = getMilestoneCount(level, progress.metrics);
   const lockedHint = priorMilestoneHint(level, progress);
@@ -371,8 +375,8 @@ export function getMilestoneGuide(
       }
       break;
     default:
-      intro = level.goalText;
-      steps = [level.goalText];
+      intro = goalText;
+      steps = [goalText];
   }
 
   return {

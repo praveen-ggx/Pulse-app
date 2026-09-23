@@ -4,6 +4,7 @@ import type { ClientLike } from "@/features/finance/aggregation/types";
 import type { CustomerLedgerInputs } from "@/features/finance/services/ledgerAggregationRpc.service";
 import { financeProTripCompleted, financeProTripPodReceived } from "./tripLens.util";
 import type { IssuedInvoiceListRow } from "@/features/invoicing/services/invoiceList.service";
+import { financeInvoiceHistoryFields } from "@/features/invoicing/utils/invoiceSource.util";
 import { ratioPct } from "./collectionMath.util";
 import { aggregatePipelineFromFacts } from "./pipelineAggregation.util";
 import { buildVintageTrend } from "./vintageTrend.util";
@@ -286,15 +287,24 @@ export function buildFinanceProModel(args: {
     .sort((a, b) => b.outstanding - a.outstanding)
     .slice(0, 5);
 
-  const issuedInvoiceDocuments = (args.issuedInvoices ?? []).map((inv) => ({
-    id: inv.id,
-    invoiceNumber: inv.invoice_number,
-    invoiceDate: inv.invoice_date,
-    clientName: inv.client_name,
-    documentAmount: inv.total_amount,
-    status: inv.status,
-    tripIds: inv.trip_ids ?? [],
-  }));
+  const issuedInvoiceDocuments = (args.issuedInvoices ?? []).map((inv) => {
+    const history = financeInvoiceHistoryFields({
+      invoice_source: inv.invoice_source,
+      sales_order_number: inv.sales_order_number,
+      trip_ids: inv.trip_ids ?? [],
+    });
+    return {
+      id: inv.id,
+      invoiceNumber: inv.invoice_number,
+      invoiceDate: inv.invoice_date,
+      clientName: inv.client_name,
+      documentAmount: inv.total_amount,
+      status: inv.status,
+      tripIds: inv.trip_ids ?? [],
+      sourceLabel: history.source,
+      sourceReference: history.reference,
+    };
+  });
   const issuedThisMonth = issuedInvoiceDocuments.filter((d) =>
     sameCalendarMonth(d.invoiceDate, now),
   );

@@ -10,6 +10,7 @@ import { syncDomainRows } from "@/lib/cache/domainSync";
 import { mergeDeltaRows } from "@/lib/cache/mergeDelta";
 import type { DeltaResponse } from "@/lib/cache/deltaTypes";
 import { supabase } from "@/lib/supabase";
+import { TimeoutError, withTimeout } from "@/lib/authEngine";
 import { getPlatformEventBus } from "@/lib/platform/events/InProcessEventBus";
 import { uuidv7 } from "@/lib/uuidv7";
 import { TRIP_REASSIGN_STALE_ERROR } from "@/features/trips/utils/tripReassignConflict.util";
@@ -29,6 +30,8 @@ import {
   tripRowToDriverTripRow,
 } from "@/types/trip-views";
 import { isDcoOperatingTrip } from "@/features/trips/domain/tripDcoOperating";
+import { runSingleflight } from "@/lib/cache/singleflight";
+import { shouldFallbackTripsTableScan } from "@/features/trips/utils/tripOrgFetch.util";
 
 export type { DriverTripRow, SupplierTripRow } from "@/types/trip-views";
 export { driverRowToTripRow, supplierRowToTripRow } from "@/types/trip-views";
@@ -155,6 +158,13 @@ export interface TripRow {
   indent_number?: string | null;
   /** Originated from a Commerce (multi-order e-commerce) execution plan. Derived from the joined indent's execution_plan_id — no new column. */
   is_commerce?: boolean;
+  /**
+   * Resolved Commerce execution plan id. Like `is_commerce`, this is DERIVED at
+   * read time from the joined indent (`source_indent` / `active_indent` /
+   * `indents`) and normalized onto the row — `trips` itself has no such column.
+   * Optional because only normalizeTripRowWithIndent() populates it.
+   */
+  execution_plan_id?: string | null;
   /** Globally unique booking reference assigned when a trip is created from an indent award (BKG-XXXXXX). */
   booking_ref?: string | null;
   /** Per-supplier-org sequence for indent-awarded trips (Job #N in supplier UI). */
@@ -234,18 +244,28 @@ function normalizeTripRowWithIndent(
 export async function getTripsForOrg(
   orgId: string,
 ): Promise<{ error: Error | null; trips: TripRow[] }> {
-  try {
-    const { data, error } = await supabase().rpc('get_trips_for_org', { p_org_id: orgId });
-    if (!error) {
-      const trips = ((data ?? []) as TripRow[]).map((row) =>
-        normalizeTripRowWithIndent(row as TripRow & { indents?: TripIndentJoin | null }),
-      );
-      return { error: null, trips };
+  return runSingleflight(`get_trips_for_org:${orgId}`, async () => {
+    try {
+      const { data, error } = await supabase().rpc("get_trips_for_org", {
+        p_org_id: orgId,
+      });
+      if (!error) {
+        const trips = ((data ?? []) as TripRow[]).map((row) =>
+          normalizeTripRowWithIndent(row as TripRow & { indents?: TripIndentJoin | null }),
+        );
+        return { error: null, trips };
+      }
+      if (!shouldFallbackTripsTableScan(error)) {
+        return { error: new Error(error.message), trips: [] };
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (!shouldFallbackTripsTableScan({ message })) {
+        return { error: e instanceof Error ? e : new Error(message), trips: [] };
+      }
     }
-  } catch {
-    // Client fetch timeout / 503 — still hydrate owner-org trips.
-  }
-  return getTripsByOrganization(orgId);
+    return getTripsByOrganization(orgId);
+  });
 }
 
 export type TripPartyCounts = {
@@ -2741,7 +2761,14 @@ const TRIP_STATUS_VALUES = [
  * Uses status (completed/delivered/done) or completed_at for consistency with driver app.
  */
 export function isTripCompleted(
-  trip: Pick<TripRow, "status" | "completed_at"> | null | undefined,
+  // Widened from Pick<TripRow, ...>: callers pass rows from views and partial
+  // projections where `status` is `string | null`, which TripRow types as
+  // `string | undefined`. The body already normalizes null via `?? ""`, so this
+  // matches what the function actually accepts at runtime.
+  trip:
+    | { status?: string | null; completed_at?: string | null }
+    | null
+    | undefined,
 ): boolean {
   if (!trip) return false;
   const s = (trip.status ?? "").toLowerCase();
@@ -3195,17 +3222,20 @@ export interface ForceSetTripStatusSimulatedData {
   startedAt?: string | null;
   completedAt?: string | null;
   statusChangeOrigin: string;
+  notes?: string | null;
 }
+
+const SIMULATE_TRIP_WRITE_TIMEOUT_MS = 12_000;
 
 /**
  * Business-simulation-only escape hatch for the admin "Simulate"/"Revoke simulation"
  * UI (TripDetailScreen): unconditionally sets trip status, bypassing updateTripStatus()'s
- * validation (e.g. the supplier-link check on completion). Only called when updateTripStatus()
- * itself has already rejected the transition — never a normal driver/ops codepath.
+ * extra preflight SELECTs (those hang when PostgREST is saturated). One UPDATE.
  */
 export async function forceSetTripStatusSimulated(
   tripId: string,
   data: ForceSetTripStatusSimulatedData,
+  signal?: AbortSignal,
 ): Promise<{ error: Error | null; trip: TripRow | null }> {
   const updates: Record<string, unknown> = {
     status: data.status,
@@ -3214,14 +3244,82 @@ export async function forceSetTripStatusSimulated(
   };
   if (data.startedAt !== undefined) updates.started_at = data.startedAt ?? null;
   if (data.completedAt !== undefined) updates.completed_at = data.completedAt ?? null;
-  const { data: row, error } = await supabase()
+  if (data.notes !== undefined) updates.notes = data.notes;
+  let query = supabase()
     .from("trips")
     .update(updates)
     .eq("id", tripId)
-    .select()
-    .maybeSingle();
+    .select();
+  if (signal) query = query.abortSignal(signal);
+  const { data: row, error } = await query.maybeSingle();
   if (error) return { error: new Error(error.message), trip: null };
   return { error: null, trip: row as TripRow | null };
+}
+
+/**
+ * Ops simulate: one timed write (status + BISIM note). Skips updateTripStatus
+ * preflights so "Driver arrived at drop-off" cannot spin forever on a 503.
+ */
+export async function simulateBusinessTripStage(params: {
+  tripId: string;
+  targetStatus: string;
+  fromStatus: string;
+  notes: string;
+  startedAt?: string;
+  completedAt?: string;
+  signal?: AbortSignal;
+}): Promise<{ error: Error | null; trip: TripRow | null; cancelled?: boolean }> {
+  const mergeSignals = (timeoutSignal: AbortSignal) => {
+    if (!params.signal) return timeoutSignal;
+    const merged = new AbortController();
+    const abort = () => merged.abort();
+    if (timeoutSignal.aborted || params.signal.aborted) {
+      abort();
+      return merged.signal;
+    }
+    timeoutSignal.addEventListener("abort", abort, { once: true });
+    params.signal.addEventListener("abort", abort, { once: true });
+    return merged.signal;
+  };
+  try {
+    const result = await withTimeout(
+      (timeoutSignal) =>
+        forceSetTripStatusSimulated(
+          params.tripId,
+          {
+            status: params.targetStatus,
+            startedAt: params.startedAt,
+            completedAt: params.completedAt,
+            statusChangeOrigin: "business_simulated",
+            notes: params.notes,
+          },
+          mergeSignals(timeoutSignal),
+        ),
+      SIMULATE_TRIP_WRITE_TIMEOUT_MS,
+      { jitter: false },
+    );
+    if (params.signal?.aborted) {
+      return { error: null, trip: null, cancelled: true };
+    }
+    return result;
+  } catch (e) {
+    const name = e instanceof Error ? e.name : "";
+    if (params.signal?.aborted || name === "AbortError") {
+      return { error: null, trip: null, cancelled: true };
+    }
+    if (e instanceof TimeoutError) {
+      return {
+        error: new Error(
+          "Simulation timed out. The database is busy — try Confirm Simulate again.",
+        ),
+        trip: null,
+      };
+    }
+    return {
+      error: e instanceof Error ? e : new Error("Simulation failed"),
+      trip: null,
+    };
+  }
 }
 
 export interface TripDriverOnlineState {

@@ -16,12 +16,19 @@ function readGoogleMapsKey(): string {
   return process.env?.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY?.trim() || "";
 }
 
+export function isUsableMapCoordinate(lat: number, lng: number): boolean {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
+  return !(Math.abs(lat) < 1e-6 && Math.abs(lng) < 1e-6);
+}
+
 export function buildStaticMapImageUrl(
   lat: number,
   lng: number,
   width = 320,
   height = 160,
 ): string | null {
+  if (!isUsableMapCoordinate(lat, lng)) return null;
   const mapbox = readMapboxToken();
   if (mapbox) {
     const lon = lng;

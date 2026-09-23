@@ -17,6 +17,7 @@ import {
 import { useDriverTheme, useDriverThemeColors } from '@/contexts/DriverThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { CenteredLoadingView } from '@/components/CenteredLoadingView';
+import { subscribeSharedPostgresChanges } from '@/lib/realtimeRegistry';
 import * as driversService from '@/features/drivers/services/drivers.service';
 import * as tripsService from '@/features/trips/services/trips.service';
 import { getRatingsForDrivers } from '@/features/ratings/services/ratings.service';

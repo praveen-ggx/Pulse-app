@@ -76,7 +76,11 @@ export const SUITE_PRODUCTS: Record<SuiteProductId, SuiteProductDefinition> = {
     activationPath: ROUTES.PULSE_INVOICE,
     signUpRoute: `${ROUTES.SIGN_UP}?product=invoice`,
     expoProductShell: true,
-    expoProductShellPaths: [ROUTES.INVOICING_EXECUTE],
+    expoProductShellPaths: [
+      ROUTES.INVOICING_EXECUTE,
+      ROUTES.INVOICING_MANUAL,
+      "/pulse-invoice/order",
+    ],
   },
   pod: {
     id: 'pod',

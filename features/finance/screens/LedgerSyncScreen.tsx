@@ -3,7 +3,7 @@
  * Reuses AddTransactionModal in fullPage mode; data flow per docs/CORE_ACCOUNTING_MODEL.md.
  */
 import { AppLoadingSplash } from "@/components/AppLoadingSplash";
-import type { PartyOption, TripOption, VehicleOption } from "@/components/AddTransactionModal";
+import type { PartyOption, VehicleOption } from "@/components/AddTransactionModal";
 import {
   AddTransactionModal,
   DRIVER_PAYMENT_TYPES,
@@ -14,35 +14,31 @@ import {
 import Theme from "@/constants/Theme";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
-import { getClientsByOrganization, type ClientRow } from "@/features/clients/services/clients.service";
+import type { ClientRow } from "@/features/clients/services/clients.service";
 import {
   createDriverLedgerEntry,
-  getDriverOffersByOrganization,
-  getDriversByOrganization,
 } from "@/features/drivers/services/drivers.service";
 import type { DriverOffer } from "@/features/drivers/services/drivers.service";
 import {
   createLedgerEntry,
-  getTransactionsByOrganization,
   updateLedgerEntry,
   type LedgerRow,
 } from "@/features/finance/services/finance.service";
 import { buildLedgerSyncDescriptionLine } from "@/features/finance/ledger/ledgerEntryModel";
 import { getTripLedgerEntries } from "@/features/finance/utils/getTripLedgerEntries";
-import { getSuppliersByOrganization, type SupplierRow } from "@/features/suppliers/services/suppliers.service";
 import {
-  adjustedCost,
-  adjustedRevenue,
-  fetchTripFinanceAdjustmentsByTripIds,
-  normTripFinanceAdjustmentKey,
-  type TripAdjustment,
-} from "@/features/trips/services/tripAdjustments";
-import { getTripDisplayNumber, getTripsForOrg, getTripsWhereOrgIsClient, getTripsWhereOrgIsSupplier, supplierRowToTripRow, type TripRow } from "@/features/trips/services/trips.service";
+  hydrateLedgerDriverOffers,
+  loadLedgerEntryBootstrap,
+  type TripDueMeta,
+  type TripOptionWithOrg,
+} from "@/features/finance/utils/ledgerEntryBootstrap.util";
+import type { SupplierRow } from "@/features/suppliers/services/suppliers.service";
+import type { TripAdjustment } from "@/features/trips/services/tripAdjustments";
+import { getTripDisplayNumber, type TripRow } from "@/features/trips/services/trips.service";
 import { buildUniqueLinkedOrgIdMap, isLoadBasedTrip } from "@/features/trips/visibility/tripVisibility";
-import { getVehiclesByOrganization } from "@/features/vehicles/services/vehicles.service";
 import { updateSalaryRequestStatus } from "@/features/drivers/services/salaryRequests.service";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { formatLedgerDate, normalizeVehicleNumberForMatch } from "@/lib/format";
+import { normalizeVehicleNumberForMatch } from "@/lib/format";
 import { queryKeys } from "@/lib/queryKeys";
 import { useSafeBack } from "@/lib/useSafeBack";
 import { ROUTES } from "@/lib/routes";
@@ -62,22 +58,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { showAppAlert } from "@/lib/appAlert";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import { WEB_APP_VIEWPORT_STYLE } from "@/lib/webViewportHeight";
-
-/** TripOption with organization_id and driver_display_name for entity filtering. */
-type TripOptionWithOrg = TripOption & {
-  organization_id?: string;
-  driver_display_name?: string | null;
-};
-
-/** Per-trip rates for computing trip-level due (placeholder) when trip is locked in ledger sync. */
-type TripDueMeta = {
-  client_price: number;
-  supplier_rate: number;
-  organization_id: string | null;
-  indent_id: string | null;
-  /** True if we are the supplier of a trip owned by another organization. */
-  isCrossOrgSupplier: boolean;
-};
 
 function getSupplierDisplayName(
   supplier: Pick<
@@ -234,6 +214,14 @@ export default function LedgerSyncScreen() {
   const queryClient = useQueryClient();
   const invalidateTransactions = useInvalidateTransactions();
 
+  const partyKnown = Boolean(
+    (params.partyId ?? "").trim() ||
+      (["CLIENT", "SUPPLIER", "DRIVER"].includes(String(params.entityType ?? "").toUpperCase()) &&
+        (params.entityId ?? "").trim()),
+  );
+  const duesFromQuery =
+    dueAmountInFromQuery != null || dueAmountOutFromQuery != null;
+
   useEffect(() => {
     if (!orgId) {
       setLoading(false);
@@ -241,126 +229,40 @@ export default function LedgerSyncScreen() {
     }
     let cancelled = false;
     setLoading(true);
-    Promise.all([
-      getClientsByOrganization(orgId).then((r) => (r.error ? [] : (r.clients ?? []))),
-      getSuppliersByOrganization(orgId).then((r) => (r.error ? [] : (r.suppliers ?? []))),
-      getDriversByOrganization(orgId).then((r) => {
-        const list = r?.error ? [] : (r?.drivers ?? []);
-        return Array.isArray(list)
-          ? list.map((d) => ({
-              id: d.id,
-              name: d.name ?? d.phone ?? t("driver"),
-              avatar_url: d.avatar_url ?? null,
-              avatar_seed: d.avatar_seed ?? null,
-            }))
-          : [];
-      }),
-      getVehiclesByOrganization(orgId).then((r) => {
-        const list = r?.error ? [] : (r?.vehicles ?? []);
-        return Array.isArray(list) ? list.map((v) => ({ id: v.id, vehicle_number: v.vehicle_number ?? "" })) : [];
-      }),
-      Promise.all([
-        // Masked RPC, not a direct select("*") on trips. The RLS policy
-        // "Orgs can read trips where they are the supplier" grants row access
-        // with no column-level grants, so a direct select exposes the trip
-        // owner's client_price and margin to a linked supplier org.
-        getTripsForOrg(orgId),
-        getTripsWhereOrgIsClient(orgId),
-        getTripsWhereOrgIsSupplier(orgId),
-      ]).then(async ([ownedRes, asClientRes, asSupplierRes]) => {
-        const owned = ownedRes?.error ? [] : (ownedRes?.trips ?? []);
-        const asClient = asClientRes?.error ? [] : (asClientRes?.trips ?? []);
-        const asSupplier = asSupplierRes?.error ? [] : (asSupplierRes?.trips ?? []).map(supplierRowToTripRow);
-        const seen = new Set<string>();
-        const merged: TripRow[] = [];
-        for (const t of owned) {
-          if (!seen.has(t.id)) {
-            merged.push(t);
-            seen.add(t.id);
-          }
-        }
-        for (const t of asClient) {
-          if (!seen.has(t.id)) {
-            merged.push(t);
-            seen.add(t.id);
-          }
-        }
-        for (const t of asSupplier) {
-          if (!seen.has(t.id)) {
-            merged.push(t);
-            seen.add(t.id);
-          }
-        }
-        const asSupplierIds = new Set(asSupplier.map((t) => t.id));
-        const adjustmentsByTripId = await fetchTripFinanceAdjustmentsByTripIds(
-          merged.map((t) => t.id),
-        );
-        const adjustmentsRecord: Record<string, TripAdjustment[]> = {};
-        adjustmentsByTripId.forEach((list, key) => {
-          if (list.length > 0) adjustmentsRecord[key] = list;
-        });
-        const tripDueMeta: Record<string, TripDueMeta> = {};
-        merged.forEach((t: TripRow) => {
-          const adjustments =
-            adjustmentsByTripId.get(normTripFinanceAdjustmentKey(t.id)) ?? [];
-          const baseClient = Number(t.client_price ?? 0);
-          const baseSupplier = Number(t.supplier_rate ?? 0);
-          tripDueMeta[t.id] = {
-            client_price: adjustedRevenue(baseClient, adjustments),
-            supplier_rate: adjustedCost(baseSupplier, adjustments),
-            organization_id: t.organization_id ?? null,
-            indent_id: t.indent_id ?? null,
-            isCrossOrgSupplier: asSupplierIds.has(t.id) && t.organization_id !== orgId,
-          };
-        });
-        const options = merged.map((t: TripRow) => {
-          const meta = tripDueMeta[t.id];
-          return {
-            id: t.id,
-            trip_number: getTripDisplayNumber(t, orgId),
-            client_id: t.client_id ?? null,
-            client_name: t.client_name ?? null,
-            supplier_id: t.supplier_id ?? null,
-            supplier_name: t.supplier_name ?? null,
-            driver_id: t.driver_id ?? null,
-            driver_display_name: t.driver_display_name ?? null,
-            vehicle_id: t.vehicle_id ?? null,
-            indent_id: t.indent_id ?? null,
-            route_label: [t.pickup_area, t.drop_location].filter(Boolean).join(' → ') || null,
-            trip_date: formatLedgerDate(t.pickup_date || t.created_at),
-            organization_id: t.organization_id,
-            client_price: meta?.client_price ?? t.client_price ?? null,
-            supplier_rate: meta?.supplier_rate ?? t.supplier_rate ?? null,
-            driver_commission: t.driver_commission ?? null,
-            distance: t.distance ?? null,
-            is_cross_org_supplier: meta?.isCrossOrgSupplier ?? false,
-            trip_payout_mode: t.trip_payout_mode ?? null,
-            status: t.status ?? null,
-            completed_at: t.completed_at ?? null,
-          } as TripOptionWithOrg;
-        });
-        return { options, tripDueMeta, adjustmentsRecord };
-      }),
-      getTransactionsByOrganization(orgId).then(({ error, transactions: txs }) => (error ? [] : (txs ?? []))),
-      getDriverOffersByOrganization(orgId).then((r) =>
-        r.error || !r.offersByDriverId ? {} : r.offersByDriverId,
-      ),
-    ])
-      .then(([clientsList, suppliersList, d, v, tripLoad, txs, offers]) => {
+    loadLedgerEntryBootstrap(queryClient, {
+      orgId,
+      tripId: params.tripId,
+      entryId: params.entryId,
+      partyKnown,
+      duesFromQuery,
+    })
+      .then((boot) => {
         if (cancelled) return;
-        setClients(clientsList);
-        setSuppliers(suppliersList);
-        setDrivers(d);
-        setVehicles(v);
-        setTrips(tripLoad.options);
-        setTripDueMetaById(tripLoad.tripDueMeta);
-        setTripAdjustmentsByTripId(tripLoad.adjustmentsRecord);
-        setTransactions(txs);
-        setDriverOffers(offers ?? {});
-        if (params.entryId && txs.length > 0) {
-          const entry = txs.find((r) => r.id === params.entryId);
+        setClients(boot.clients);
+        setSuppliers(boot.suppliers);
+        setDrivers(boot.drivers);
+        setVehicles(boot.vehicles);
+        setTrips(boot.trips);
+        setTripDueMetaById(boot.tripDueMeta);
+        setTripAdjustmentsByTripId(boot.adjustmentsRecord);
+        setTransactions(boot.transactions);
+        setDriverOffers(boot.driverOffers);
+        if (params.entryId && boot.transactions.length > 0) {
+          const entry = boot.transactions.find((r) => r.id === params.entryId);
           if (entry) setEditingEntry(entry);
         }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setClients([]);
+        setSuppliers([]);
+        setDrivers([]);
+        setVehicles([]);
+        setTrips([]);
+        setTripDueMetaById({});
+        setTripAdjustmentsByTripId({});
+        setTransactions([]);
+        setDriverOffers({});
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -368,7 +270,25 @@ export default function LedgerSyncScreen() {
     return () => {
       cancelled = true;
     };
-  }, [orgId, params.entryId]);
+  }, [
+    orgId,
+    params.entryId,
+    params.tripId,
+    partyKnown,
+    duesFromQuery,
+    queryClient,
+  ]);
+
+  useEffect(() => {
+    if (!orgId || loading) return;
+    let cancelled = false;
+    void hydrateLedgerDriverOffers(queryClient, orgId).then((offers) => {
+      if (!cancelled) setDriverOffers(offers);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, loading, queryClient]);
 
   const uniqueLinkedClientIdByOrgId = useMemo(
     () => buildUniqueLinkedOrgIdMap(clients),

@@ -138,6 +138,25 @@ describe('evaluateNavigationPolicy', () => {
       expect(d.reason).toBe('experience_mismatch_driver');
     }
   });
+  it('authenticated org + Finance Pro path → redirect product_locked', () => {
+    const d = evaluateNavigationPolicy({
+      rawPathname: '/finance-pro',
+      snapshot: snap({
+        sessionPosture: 'authenticated',
+        principal: buildPrincipal({
+          role: 'user',
+          aggregated: true,
+          asset: true,
+        }),
+      }),
+    });
+    expect(d.type).toBe('redirect');
+    if (d.type === 'redirect') {
+      expect(d.to).toBe('/trips');
+      expect(d.reason).toBe('product_locked');
+    }
+  });
+
   it('authenticated org with dispatch → allow /trips', () => {
     const d = evaluateNavigationPolicy({
       rawPathname: '/(tabs)/trips',

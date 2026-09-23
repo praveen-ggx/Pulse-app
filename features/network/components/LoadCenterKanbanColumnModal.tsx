@@ -162,8 +162,8 @@ function StageBookmarkArrow({
       onPress={handlePress}
       
       // @ts-expect-error Web-only mouse events not in React Native types
-      onMouseEnter={(e: any) => setHovered(true)}
-      onMouseLeave={(e: any) => {
+      onMouseEnter={(_e: any) => setHovered(true)}
+      onMouseLeave={(_e: any) => {
         setHovered(false);
         setPeeked(false);
       }}

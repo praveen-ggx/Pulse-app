@@ -333,7 +333,7 @@ export async function getLinkedOrgProfilesBatch(
   return run;
 }
 
-const PARTNER_DISPLAY_BATCH_CHUNK = 8;
+const PARTNER_DISPLAY_BATCH_CHUNK = 24;
 
 async function fetchLinkedOrgProfilesBatchUncached(
   linkedOrganizationIds: string[]

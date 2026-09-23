@@ -14,6 +14,12 @@ import {
 } from '@/lib/commerce-execution-status';
 import type { OrderStatus } from '@/types/commerce';
 import { cn, formatCurrency } from '@/lib/utils';
+import { buildPulseInvoiceUrl, openSuiteProductApp } from '@pulse-suite/suitePaths';
+import { resolveOrderInvoiceStatus } from '@/lib/order-invoice-status';
+import {
+  fetchActiveInvoiceForSalesOrder,
+  type OrderInvoiceRow,
+} from '@/lib/services/order-invoice.service';
 
 const ORDER_STATUS: Record<OrderStatus, { label: string; tone: StatusDotTone }> = {
   'Draft':                 { label: 'Draft', tone: 'muted' },
@@ -49,6 +55,7 @@ export function OrderDetailSheet({ orderId, open, onClose }: OrderDetailSheetPro
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [status, setStatus] = useState<OrderStatus>('Pending Consolidation');
   const [notes, setNotes] = useState('');
+  const [invoiceRow, setInvoiceRow] = useState<OrderInvoiceRow | null>(null);
 
   useEffect(() => {
     if (!order || editing) return;
@@ -57,8 +64,23 @@ export function OrderDetailSheet({ orderId, open, onClose }: OrderDetailSheetPro
   }, [order, editing]);
 
   useEffect(() => {
-    if (!open) { setEditing(false); setDeleteConfirm(false); }
+    if (!open) { setEditing(false); setDeleteConfirm(false); setInvoiceRow(null); }
   }, [open]);
+
+  useEffect(() => {
+    const orgId = org.platformOrganization?.id;
+    if (!open || !orderId || !orgId) return;
+    let cancelled = false;
+    void fetchActiveInvoiceForSalesOrder({
+      organizationId: orgId,
+      salesOrderId: orderId,
+    }).then((row) => {
+      if (!cancelled) setInvoiceRow(row);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, orderId, org.platformOrganization?.id]);
 
   if (!order) return null;
 
@@ -151,6 +173,64 @@ export function OrderDetailSheet({ orderId, open, onClose }: OrderDetailSheetPro
           <p className="text-xl font-bold text-right mt-4 tabular-nums text-[var(--pulse-hero-blue)]">
             {formatCurrency(order.total_amount)}
           </p>
+
+          <div className="mt-4 space-y-2 rounded-lg border border-border bg-muted/20 p-3">
+            <p className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Invoice
+            </p>
+            {(() => {
+              const inv = resolveOrderInvoiceStatus({
+                orderStatus: order.status,
+                activeInvoice: invoiceRow,
+              });
+              const href = buildPulseInvoiceUrl(`/pulse-invoice/order/${order.id}`);
+              if (inv.action === 'view_invoice') {
+                return (
+                  <>
+                    <p className="font-mono text-sm font-semibold">{inv.invoiceNumber}</p>
+                    <p className="text-2xs text-muted-foreground">Issued</p>
+                    <Button className="w-full" size="sm" type="button" onClick={() => openSuiteProductApp(href)}>
+                      View Invoice
+                    </Button>
+                    <Button
+                      className="w-full"
+                      size="sm"
+                      variant="outline"
+                      type="button"
+                      onClick={() => openSuiteProductApp(href)}
+                    >
+                      Download PDF
+                    </Button>
+                  </>
+                );
+              }
+              if (inv.action === 'view_draft') {
+                return (
+                  <>
+                    <p className="text-2sm">Draft</p>
+                    <Button className="w-full" size="sm" type="button" onClick={() => openSuiteProductApp(href)}>
+                      Open Draft
+                    </Button>
+                  </>
+                );
+              }
+              if (inv.action === 'create') {
+                return (
+                  <>
+                    <p className="text-2sm">Not invoiced</p>
+                    <Button className="w-full" size="sm" type="button" onClick={() => openSuiteProductApp(href)}>
+                      Create Invoice
+                    </Button>
+                  </>
+                );
+              }
+              return (
+                <p className="text-2xs text-muted-foreground">
+                  Invoice unavailable{inv.reason ? ` — ${inv.reason}` : ''}
+                </p>
+              );
+            })()}
+          </div>
 
           {alreadyPlanned ? (
             <div className="mt-4 space-y-3 rounded-lg border border-border bg-muted/20 p-3">

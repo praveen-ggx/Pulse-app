@@ -23,7 +23,12 @@ import {
   formatInvoicePreviewDate,
   invoiceDraftTaxDisplay,
   uniqueTripClientIds,
+  type InvoiceDraftModel,
 } from "@/features/invoicing/services/invoicePreviewModel.service";
+import {
+  invoicePreviewCanSaveDraft,
+  resolveInvoicePreviewItemSource,
+} from "@/features/invoicing/utils/financeInvoicePreview.util";
 import { ProvisionAdjustmentModal } from "@/features/trips/components/trip-detail/adjustment/ProvisionAdjustmentModal";
 import {
   addTripAdjustment,
@@ -71,6 +76,13 @@ export interface InvoicePreviewPanelProps {
   invoiceBuildBlockedReason?: string | null;
   /** UI gate only — Issue still revalidates policy in executeInvoiceCreation. */
   invoiceIssueBlockedReason?: string | null;
+  density?: "default" | "compact";
+  onSaveDraft?: () => void;
+  saveDraftLabel?: string;
+  readOnly?: boolean;
+  /** Canonical draft from Manual Invoice — same InvoiceDraftModel as trip preview. */
+  externalDraft?: InvoiceDraftModel | null;
+  onIssueExternal?: () => void;
 }
 
 const PAYMENT_TERMS_OPTIONS = [
@@ -97,6 +109,12 @@ export function InvoicePreviewPanel({
   onEditClient,
   invoiceBuildBlockedReason = null,
   invoiceIssueBlockedReason = null,
+  density = "default",
+  onSaveDraft,
+  saveDraftLabel = "Save as Draft",
+  readOnly = false,
+  externalDraft = null,
+  onIssueExternal,
 }: InvoicePreviewPanelProps) {
   const insets = useSafeAreaInsets();
   const layout = useLayoutInsets();
@@ -161,6 +179,7 @@ export function InvoicePreviewPanel({
   );
 
   const draft = useMemo(() => {
+    if (externalDraft) return externalDraft;
     if (!issuer || selectedTrips.length === 0) return null;
     return buildInvoiceDraftModel({
       issuer,
@@ -181,9 +200,20 @@ export function InvoicePreviewPanel({
     paymentTerms,
     previewDate,
     selectedTrips,
+    externalDraft,
   ]);
 
   const taxDisplay = draft ? invoiceDraftTaxDisplay(draft.tax) : null;
+  const canSaveDraft = invoicePreviewCanSaveDraft({
+    hasExternalDraft: Boolean(externalDraft),
+    selectedTripCount: selectedTrips.length,
+  });
+  const previewLines = draft?.lines ?? [];
+  const invoiceNumberLabel = draft?.invoice_number_label ?? "DRAFT";
+  const previewItemSource = resolveInvoicePreviewItemSource({
+    selectedTripCount: selectedTrips.length,
+    draftLineCount: previewLines.length,
+  });
 
   const handleAddCharge = useCallback((tripId?: string) => {
     setAdditionalCharges((prev) => {
@@ -308,14 +338,19 @@ export function InvoicePreviewPanel({
     !onIssue ||
     isIssuing ||
     isFinalizing ||
-    selectedTrips.length === 0 ||
+    (!externalDraft && selectedTrips.length === 0) ||
     Boolean(invoiceBuildBlockedReason) ||
     Boolean(invoiceIssueBlockedReason) ||
     !draft ||
     draft.tax.status === "blocked";
 
   const handleIssueInvoice = () => {
-    if (issueBlocked || !onIssue || !draft) return;
+    if (issueBlocked || !draft) return;
+    if (externalDraft && onIssueExternal) {
+      onIssueExternal();
+      return;
+    }
+    if (!onIssue) return;
     const internalIds = selectedTrips
       .map((t) => t.internal_id || t.id)
       .filter((id) => Boolean(id));
@@ -335,6 +370,7 @@ export function InvoicePreviewPanel({
           subtotal: draft.tax.taxable_base,
           sgst: draft.tax.sgst_amount,
           cgst: draft.tax.cgst_amount,
+          igst: draft.tax.igst_amount,
           totalAmount: draft.tax.total_amount,
         },
       },
@@ -362,10 +398,14 @@ export function InvoicePreviewPanel({
     <View
       style={[
         styles.sheet,
-        !isStandalone && { paddingTop: insets.top > 0 ? insets.top : 16 },
+        density === "compact" && styles.sheetCompact,
+        !isStandalone &&
+          density !== "compact" && {
+            paddingTop: insets.top > 0 ? insets.top : 16,
+          },
       ]}
     >
-      <View style={styles.header}>
+      <View style={[styles.header, density === "compact" && styles.headerCompact]}>
         <View style={styles.headerCopy}>
           <View style={styles.headerTitleRow}>
             {onClose ? (
@@ -384,13 +424,26 @@ export function InvoicePreviewPanel({
                 />
               </Pressable>
             ) : null}
-            <Text style={styles.headerTitle}>New Invoice</Text>
+            <Text
+              style={[
+                styles.headerTitle,
+                density === "compact" && styles.headerTitleCompact,
+              ]}
+            >
+              {externalDraft && !readOnly
+                ? "Manual Invoice Preview"
+                : "Invoice Preview"}
+            </Text>
             <View style={styles.draftBadge}>
-              <Text style={styles.draftBadgeText}>Draft</Text>
+              <Text style={styles.draftBadgeText}>
+                {readOnly ? invoiceNumberLabel : "Draft"}
+              </Text>
             </View>
           </View>
           <Text style={styles.headerSub}>
-            Preview date {invoiceDateLabel} · Invoice number assigned on issue
+            {readOnly
+              ? `${customerLabel} · Preview date ${invoiceDateLabel}`
+              : `${customerLabel} · Preview date ${invoiceDateLabel} · Number assigned on issue`}
           </Text>
         </View>
         <View style={styles.headerActions}>
@@ -484,7 +537,7 @@ export function InvoicePreviewPanel({
               <Text style={styles.fieldLabel}>Invoice Number</Text>
               <View style={[styles.fieldValueBox, styles.fieldValueMuted]}>
                 <Text style={styles.fieldValueMutedText} numberOfLines={1}>
-                  Assigned on issue
+                  {invoiceNumberLabel}
                 </Text>
               </View>
             </View>
@@ -862,7 +915,46 @@ export function InvoicePreviewPanel({
               </View>
             ))}
 
-            {selectedTrips.length === 0 ? (
+            {previewItemSource === "draft-lines" ? (
+              previewLines.map((line, index) => (
+                <View
+                  key={`${line.trip_ref ?? line.description}-${index}`}
+                  style={styles.tripItemWrapper}
+                  accessibilityLabel={`Preview line ${index + 1}`}
+                >
+                  <View style={styles.tripItem}>
+                    <Text style={[styles.itemsBodyCell, styles.colIndex]}>
+                      {index + 1}
+                    </Text>
+                    <View style={[styles.tripItemMeta, styles.colDesc]}>
+                      <Text style={styles.tripItemId} numberOfLines={2}>
+                        {line.description}
+                      </Text>
+                      <Text style={styles.tripItemDate} numberOfLines={1}>
+                        {[line.trip_ref, line.hsn_sac ? `HSN ${line.hsn_sac}` : null]
+                          .filter(Boolean)
+                          .join(" · ") || "—"}
+                      </Text>
+                    </View>
+                    <Text style={[styles.itemsBodyCell, styles.colRoute]} numberOfLines={1}>
+                      {line.qty} × {line.rate}
+                    </Text>
+                    <Text style={[styles.itemsBodyCell, styles.colStatus]}>
+                      {line.line_type}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.itemsBodyCell,
+                        styles.colAmount,
+                        styles.itemsHeadRight,
+                      ]}
+                    >
+                      {formatCurrency(line.taxable_value)}
+                    </Text>
+                  </View>
+                </View>
+              ))
+            ) : previewItemSource === "empty" ? (
               <View style={styles.emptyTrips}>
                 <FontAwesome
                   name="file-text-o"
@@ -871,7 +963,7 @@ export function InvoicePreviewPanel({
                   style={{ marginBottom: 8 }}
                 />
                 <Text style={styles.emptyTripsText}>
-                  Select trips to build this invoice
+                  Select one or more eligible trips or enter manual lines.
                 </Text>
               </View>
             ) : (
@@ -1064,7 +1156,9 @@ export function InvoicePreviewPanel({
           <View style={styles.calcTotalRow}>
             <View>
               <Text style={styles.calcTotalLabel}>Total Amount</Text>
-              <Text style={styles.calcTotalSub}>Draft — not issued</Text>
+              <Text style={styles.calcTotalSub}>
+                {readOnly ? invoiceNumberLabel : "Draft — not issued"}
+              </Text>
             </View>
             <Text style={styles.calcTotalVal}>
               {formatCurrency(draft?.tax.total_amount ?? 0)}
@@ -1090,23 +1184,25 @@ export function InvoicePreviewPanel({
         ) : invoiceIssueBlockedReason ? (
           <Text style={styles.buildGateReason}>{invoiceIssueBlockedReason}</Text>
         ) : null}
+        {readOnly ? null : (
         <Pressable
           style={[
             styles.footerBtnSecondary,
             (isFinalizing ||
               isIssuing ||
-              selectedTrips.length === 0 ||
-              Boolean(invoiceBuildBlockedReason)) &&
+              !canSaveDraft) &&
               styles.btnDisabled,
           ]}
-          onPress={handleInitiatePreview}
+          onPress={onSaveDraft ?? handleInitiatePreview}
           disabled={
             isFinalizing ||
             isIssuing ||
-            selectedTrips.length === 0 ||
-            Boolean(invoiceBuildBlockedReason)
+            !canSaveDraft
           }
-          accessibilityLabel={invoiceBuildBlockedReason ?? "Preview draft"}
+          accessibilityLabel={
+            invoiceBuildBlockedReason ??
+            (onSaveDraft ? saveDraftLabel : "Preview draft")
+          }
         >
           {isFinalizing ? (
             <LoadingIndicator color={Theme.analyticsHeroBg} size="small" />
@@ -1118,10 +1214,23 @@ export function InvoicePreviewPanel({
                 color={Theme.analyticsHeroBg}
                 style={{ marginRight: 8 }}
               />
-              <Text style={styles.footerBtnSecondaryText}>Preview draft</Text>
+              <Text style={styles.footerBtnSecondaryText}>
+                {onSaveDraft ? saveDraftLabel : "Preview draft"}
+              </Text>
             </>
           )}
         </Pressable>
+        )}
+        {readOnly ? (
+          <Pressable
+            style={styles.footerBtnPrimary}
+            onPress={handleInitiatePreview}
+            disabled={selectedTrips.length === 0}
+            accessibilityLabel="Download PDF"
+          >
+            <Text style={styles.footerBtnPrimaryText}>Download PDF</Text>
+          </Pressable>
+        ) : (
         <Pressable
           style={[
             styles.footerBtnPrimary,
@@ -1137,6 +1246,7 @@ export function InvoicePreviewPanel({
             <Text style={styles.footerBtnPrimaryText}>Issue Invoice</Text>
           )}
         </Pressable>
+        )}
       </View>
       <ProvisionAdjustmentModal
         visible={cnDnTrip != null}
@@ -1186,6 +1296,9 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.analyticsCanvas,
     flex: 1,
   },
+  sheetCompact: {
+    backgroundColor: Theme.screenBackground,
+  },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1219,6 +1332,17 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Theme.textPrimaryDark,
     letterSpacing: -0.3,
+  },
+  headerCompact: {
+    paddingHorizontal: 12,
+    paddingBottom: 8,
+    paddingTop: 8,
+    minHeight: 44,
+  },
+  headerTitleCompact: {
+    fontSize: 13,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
   },
   draftBadge: {
     paddingHorizontal: 8,

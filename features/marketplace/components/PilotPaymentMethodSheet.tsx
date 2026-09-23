@@ -24,7 +24,7 @@ export function PilotPaymentMethodSheet({
   visible,
   busy,
   onClose,
-  onRazorpay,
+  onRazorpay: _onRazorpay,
   onTestProvider,
 }: {
   visible: boolean;

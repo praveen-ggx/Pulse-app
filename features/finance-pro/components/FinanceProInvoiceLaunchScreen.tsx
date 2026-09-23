@@ -25,7 +25,7 @@ export function FinanceProInvoiceLaunchScreen() {
             </Text>
             <Pressable
               style={styles.cta}
-              onPress={() => router.push(ROUTES.PULSE_INVOICE)}
+              onPress={() => router.push(ROUTES.INVOICING_EXECUTE)}
               accessibilityRole="button"
               accessibilityLabel="Create invoices"
             >
@@ -40,8 +40,10 @@ export function FinanceProInvoiceLaunchScreen() {
                 <View key={inv.id} style={styles.doc}>
                   <Text style={styles.docNo}>{inv.invoiceNumber}</Text>
                   <Text style={styles.docMeta}>
-                    {inv.invoiceDate}
+                    {inv.sourceLabel ?? "Trip"}
+                    {inv.sourceReference ? ` · ${inv.sourceReference}` : ""}
                     {inv.clientName ? ` · ${inv.clientName}` : ""}
+                    {` · ${inv.invoiceDate}`}
                   </Text>
                   <Text style={styles.docAmt}>
                     Document {formatFinanceInr(inv.documentAmount)}

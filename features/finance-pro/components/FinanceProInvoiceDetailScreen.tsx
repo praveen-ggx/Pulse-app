@@ -100,8 +100,12 @@ export function FinanceProInvoiceDetailScreen() {
                   value={client ? formatFinanceInr(client.outstanding) : "—"}
                 />
                 <FinanceProMetric
-                  label="Trips included"
-                  value={formatCount(inv.tripIds.length)}
+                  label="Source"
+                  value={inv.sourceLabel ?? "Trip"}
+                />
+                <FinanceProMetric
+                  label="Reference"
+                  value={inv.sourceReference ?? "—"}
                 />
               </FinanceProMetricRow>
             </FinanceProPanel>

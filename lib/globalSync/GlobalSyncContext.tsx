@@ -60,12 +60,16 @@ export function GlobalSyncProvider({ children }: { children: ReactNode }) {
   const isDriver = profile?.role === 'driver';
 
   // ── Bootstrap on org change ───────────────────────────────────────────────
+  // Do not reset() in the effect cleanup. React StrictMode remounts run
+  // cleanup+setup for the same orgId and that used to clear the in-flight
+  // guard, then start a second bootstrap fan-out (connection-request RPCs
+  // + get_global_app_bootstrap) while the first was still holding pool slots.
   useEffect(() => {
-    if (!orgId || isDriver) return;
-    void useGlobalSyncStore.getState().bootstrap(orgId);
-    return () => {
+    if (!orgId || isDriver) {
       useGlobalSyncStore.getState().reset();
-    };
+      return;
+    }
+    void useGlobalSyncStore.getState().bootstrap(orgId);
   }, [orgId, isDriver]);
 
   const refresh = useCallback(() => {

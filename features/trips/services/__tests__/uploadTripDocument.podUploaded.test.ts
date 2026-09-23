@@ -21,11 +21,22 @@ const file = {
   mimeType: 'image/jpeg',
 };
 
-function insertBuilder(result: { data: unknown; error: unknown }) {
+/**
+ * `lookup` backs the post-insert recovery read: on a storage_path conflict
+ * (23505) uploadTripDocument re-selects the existing row via
+ * .select().eq('storage_path', ...).maybeSingle(). Without eq/maybeSingle here
+ * that path throws "eq is not a function" instead of exercising the branch.
+ */
+function insertBuilder(
+  result: { data: unknown; error: unknown },
+  lookup: { data: unknown; error: unknown } = { data: null, error: null },
+) {
   const builder: Record<string, unknown> = {
     insert: jest.fn(() => builder),
     select: jest.fn(() => builder),
+    eq: jest.fn(() => builder),
     single: jest.fn(() => Promise.resolve(result)),
+    maybeSingle: jest.fn(() => Promise.resolve(lookup)),
   };
   return builder;
 }
@@ -187,7 +198,10 @@ describe('uploadTripDocument — PODUploaded event', () => {
   it('does not publish when the metadata insert fails for a reason other than a missing table', async () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'trip_documents') {
-        return insertBuilder({ data: null, error: { message: 'insert failed', code: '23505' } });
+        // 23503 (FK violation), not 23505: 23505 is the storage_path conflict that
+        // triggers the recovery lookup branch, which is a different case from the
+        // plain "insert failed" this test is about.
+        return insertBuilder({ data: null, error: { message: 'insert failed', code: '23503' } });
       }
       throw new Error(`unexpected table: ${table}`);
     });

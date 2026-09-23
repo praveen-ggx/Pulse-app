@@ -101,7 +101,9 @@ export default function InvoicePdfWeb({
       const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
 
       pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-      pdf.save('invoice_DRAFT.pdf');
+      const rawNo = (invoiceData.invoiceNo || 'DRAFT').trim() || 'DRAFT';
+      const safeNo = rawNo.replace(/[^\w.\-]+/g, '_');
+      pdf.save(`invoice_${safeNo}.pdf`);
     } catch (error) {
       console.error('Failed to generate PDF', error);
     } finally {

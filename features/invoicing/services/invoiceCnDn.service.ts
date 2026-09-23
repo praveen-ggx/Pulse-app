@@ -6,7 +6,7 @@
  */
 
 import type { InvoicePdfItem } from '@/components/InvoicePdf.types';
-import type { AdditionalCharge, InvoicingTripView } from '../invoicing.service';
+import type { AdditionalCharge, InvoicingTripView } from './invoicing.service';
 
 export const INVOICE_CNDN_CHARGE_ID_PREFIX = 'cndn:';
 
@@ -42,10 +42,18 @@ export function activeRevenueAdjustments(
   return list.filter((a) => a.type === 'revenue' && !isVoided(a));
 }
 
-export function groupInvoiceRevenueCnDn(adjustments: InvoiceRevenueNote[] | null | undefined): {
-  creditNotes: InvoiceRevenueNote[];
-  debitNotes: InvoiceRevenueNote[];
-  voided: InvoiceRevenueNote[];
+/**
+ * Generic over the note type so richer inputs keep their shape: callers pass
+ * `TripAdjustment` (a superset of InvoiceRevenueNote) and need the grouped
+ * arrays to stay `TripAdjustment[]` — e.g. to hand a row to an edit callback
+ * that requires `trip_id`. Narrowing to InvoiceRevenueNote here erased that.
+ */
+export function groupInvoiceRevenueCnDn<T extends InvoiceRevenueNote>(
+  adjustments: T[] | null | undefined,
+): {
+  creditNotes: T[];
+  debitNotes: T[];
+  voided: T[];
   delta: number;
 } {
   const list = Array.isArray(adjustments) ? adjustments : [];

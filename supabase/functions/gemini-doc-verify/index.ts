@@ -3,7 +3,6 @@
 //
 // Per-document-type prompts + evaluation for GST, PAN, address proof, and
 // structure KYC docs (CIN/COI, partnership deed, LLP agreement, MSME, IEC).
-import { ingestLog } from '../_shared/logWatcherIngest.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',

@@ -1,4 +1,8 @@
 import {
+  noteSupabaseOriginDown,
+  resetSupabaseCircuit,
+} from "@/lib/supabaseHttp.util";
+import {
   createStorageSignedUrlCache,
   SIGNED_URL_CACHE_TTL_MS,
 } from "../storageSignedUrlCache";
@@ -133,5 +137,19 @@ describe("createStorageSignedUrlCache", () => {
     await cache.getUrl("org/v1/rc.jpg");
     expect(signOne).toHaveBeenCalledTimes(2);
     nowSpy.mockRestore();
+  });
+
+  it("does not issue new sign requests while the origin circuit is open", async () => {
+    const { cache, signOne, signMany } = createHarness();
+    await cache.getUrl("org/v1/rc.jpg");
+    signOne.mockClear();
+    noteSupabaseOriginDown();
+    await expect(cache.getUrl("org/v1/fitness.jpg")).resolves.toBeNull();
+    const batch = await cache.getUrls(["org/v1/rc.jpg", "org/v1/fitness.jpg"]);
+    expect(batch["org/v1/rc.jpg"]).toBe("https://signed.example/org/v1/rc.jpg");
+    expect(batch["org/v1/fitness.jpg"]).toBeNull();
+    expect(signOne).not.toHaveBeenCalled();
+    expect(signMany).not.toHaveBeenCalled();
+    resetSupabaseCircuit();
   });
 });

@@ -21,7 +21,6 @@
 // pattern as razorpay-create-order; the final confirm call uses
 // service_role only because confirm_marketplace_fee_payment() itself
 // requires it (same as razorpay-webhook).
-import { ingestLog } from '../_shared/logWatcherIngest.ts';
 import { createClient as createClientDirect } from 'npm:@supabase/supabase-js@2';
 const ALLOWED_PROVIDERS = ['cash', 'test_online'] as const;
 type AllowedProvider = (typeof ALLOWED_PROVIDERS)[number];

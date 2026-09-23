@@ -1,6 +1,9 @@
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { LeafletMap } from "@/components/driver/LeafletMap.web";
-import { buildStaticMapImageUrl } from "@/features/chat/utils/staticMapUrl.util";
+import {
+  buildStaticMapImageUrl,
+  isUsableMapCoordinate,
+} from "@/features/chat/utils/staticMapUrl.util";
 import type { OfficeMapCoordinate } from "@/features/network/hooks/useOrganizationOfficeMap";
 import { networkDesktopHubStyles as styles } from "@/features/network/components/desktop/networkDesktopHub.styles";
 import Theme from "@/constants/Theme";
@@ -21,29 +24,35 @@ export function NetworkDesktopHeadquarterMap({
   coordinate,
   loading = false,
 }: Props) {
+  const usableCoordinate =
+    coordinate &&
+    isUsableMapCoordinate(coordinate.latitude, coordinate.longitude)
+      ? coordinate
+      : null;
+
   const staticMapUrl = useMemo(() => {
-    if (!coordinate) return null;
+    if (!usableCoordinate) return null;
     return buildStaticMapImageUrl(
-      coordinate.latitude,
-      coordinate.longitude,
+      usableCoordinate.latitude,
+      usableCoordinate.longitude,
       640,
       280,
     );
-  }, [coordinate]);
+  }, [usableCoordinate]);
 
   const markers = useMemo(
     () =>
-      coordinate
+      usableCoordinate
         ? [
             {
               id: "headquarter",
-              coordinate,
+              coordinate: usableCoordinate,
               label: orgName,
               color: "#50CD89",
             },
           ]
         : [],
-    [coordinate, orgName],
+    [usableCoordinate, orgName],
   );
 
   if (loading) {
@@ -54,7 +63,7 @@ export function NetworkDesktopHeadquarterMap({
     );
   }
 
-  if (!coordinate) {
+  if (!usableCoordinate) {
     return (
       <View style={styles.mapPlaceholder}>
         <View style={styles.mapPinBubble}>
@@ -82,7 +91,7 @@ export function NetworkDesktopHeadquarterMap({
       ) : (
         <LeafletMap
           style={StyleSheet.absoluteFill}
-          center={coordinate}
+          center={usableCoordinate}
           zoom={14}
           markers={markers}
           showZoomControls={false}

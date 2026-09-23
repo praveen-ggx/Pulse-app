@@ -11,6 +11,8 @@
  *   • Dependency graph enforces Pulse Core as a prerequisite for all products
  */
 
+import { isWorkspaceProductLocked } from '@/lib/suite/productLock';
+
 // ── Product identifiers ──────────────────────────────────────────────────────
 
 export type ProductId =
@@ -104,6 +106,9 @@ export function withBundledActiveProducts(ids: Iterable<ProductId>): Set<Product
   const next = new Set(ids);
   for (const id of BUNDLED_ACTIVE_PRODUCT_IDS) {
     next.add(id);
+  }
+  for (const id of [...next]) {
+    if (isWorkspaceProductLocked(id)) next.delete(id);
   }
   return next;
 }
@@ -321,8 +326,8 @@ export const PRODUCT_REGISTRY: Record<ProductId, ProductDefinition> = {
     description: 'Full double-entry ledger, GST filing reports, TDS tracking on supplier payments, multi-bank reconciliation, profit & loss by trip and branch.',
     icon: 'BarChart2',
     color: '#7c3aed',
-    status: 'private_beta',
-    badge: { label: 'Private Beta', variant: 'indigo' },
+    status: 'coming_soon',
+    badge: { label: 'Locked', variant: 'gray' },
     pricing: {
       model: 'flat_monthly',
       startsAt: 4999,
@@ -572,6 +577,7 @@ export function getDependents(id: ProductId): ProductDefinition[] {
 
 /** Returns true if all dependencies for a product are in the active set */
 export function canActivate(id: ProductId, activeProductIds: Set<ProductId>): boolean {
+  if (isWorkspaceProductLocked(id)) return false;
   const product = PRODUCT_REGISTRY[id];
   return product.dependencies.every(dep => activeProductIds.has(dep));
 }

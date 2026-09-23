@@ -11,7 +11,7 @@ import {
   type DirectQuoteRow,
   type IndentRow,
 } from "@/features/indents";
-import type { DriverDirectBidRow } from "@/features/network/services/bids.service";
+import { driverDirectBidToHubQuote } from "@/features/indents/utils/bidding/indentReviewHubOffers.util";
 import {
   getIntegratedSupplierOrgIdsForShipper,
   useIndentDirectQuotesQuery,
@@ -31,35 +31,6 @@ const loadConnectionRequestsService = () =>
   import("@/features/connections/services/connectionRequests.service");
 
 const loadBidsService = () => import("@/features/network/services/bids.service");
-
-function driverDirectBidToHubQuote(
-  bid: DriverDirectBidRow,
-  indentId: string,
-  available: boolean | undefined,
-): DirectQuoteRow {
-  const name = bid.driver_display_name.trim() || "Driver";
-  const onOtherTrip = bid.status === "pending" && available === false;
-  const unavailable = bid.status === "superseded" || onOtherTrip;
-  return {
-    id: bid.id,
-    indent_id: indentId,
-    bidder_organization_id: "",
-    bidder_organization_name: bid.is_fleet_owner
-      ? `Fleet owner (${name})`
-      : `Driver (${name})`,
-    amount: bid.amount,
-    notes: bid.note,
-    status: unavailable ? "superseded" : bid.status,
-    created_at: bid.created_at,
-    updated_at: bid.updated_at,
-    counter_amount: bid.counter_amount,
-    offer_source: "driver_direct_bid",
-    bidder_avatar_url: bid.driver_avatar_url,
-    bidder_avatar_seed: bid.driver_avatar_seed,
-    bidder_user_id: bid.driver_user_id,
-    bidderUnavailable: unavailable,
-  };
-}
 
 function sortHubOffers(list: DirectQuoteRow[]): DirectQuoteRow[] {
   return [...list].sort((a, b) => {

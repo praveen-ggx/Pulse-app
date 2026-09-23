@@ -20,6 +20,7 @@ import type { TripRow } from "@/features/trips/services/trips.service";
 import { TinyEmptyLottie } from "@/components/TinyEmptyLottie";
 import { EMPTY_STATE_LOTTIE } from "@/lib/emptyStateLottieAssets";
 import type { ReactNode } from "react";
+import { LoadingIndicator } from "@/components/LoadingIndicator";
 import {
   Platform,
   RefreshControl,
@@ -40,6 +41,7 @@ export type IndentReviewHubBidsPaneProps = {
   showHammer: boolean;
   // Owner — give load
   quotes: DirectQuoteRow[];
+  quotesLoading?: boolean;
   clientPriceInr: number;
   targetRateInr: number;
   pickupDateIso: string | null;
@@ -128,6 +130,7 @@ export function IndentReviewHubBidsBody(props: IndentReviewHubBidsPaneProps) {
     compact,
     stacked,
     quotes,
+    quotesLoading = false,
     clientPriceInr,
     targetRateInr,
     pickupDateIso,
@@ -162,6 +165,13 @@ export function IndentReviewHubBidsBody(props: IndentReviewHubBidsPaneProps) {
   } = props;
 
   if (isOwner) {
+    if (quotesLoading && quotes.length === 0) {
+      return (
+        <View style={[styles.awaitingPaneShell, stacked && styles.awaitingPaneShellStacked]}>
+          <LoadingIndicator color={Theme.loaderAccent} />
+        </View>
+      );
+    }
     if (quotes.length === 0) {
       return (
         <View

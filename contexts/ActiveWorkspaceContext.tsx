@@ -29,7 +29,6 @@ import {
 import {
   domainsFromMember,
   platformRoleFromMember,
-  surfacesFromMember,
   type MemberDomainFlags,
   type PlatformTeamRole,
 } from '@/features/organization/utils/teamInviteRoles.util';

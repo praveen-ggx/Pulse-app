@@ -16,8 +16,6 @@
 //      the caller's own forwarded JWT so auth.uid()/granted_by resolve to the real inviter, not
 //      this function's service-role identity. Belt and suspenders: the DB stays the ultimate
 //      authority even if this function's own check were ever wrong.
-import { ingestLog } from '../_shared/logWatcherIngest.ts';
-import { createClient as createClientDirect } from 'npm:@supabase/supabase-js@2';
 const corsAllowHeaders = 'authorization, x-client-info, apikey, content-type';
 function getCorsOrigin(req: Request): string {
   const allowed = Deno.env.get('CORS_ALLOWED_ORIGIN')?.trim();

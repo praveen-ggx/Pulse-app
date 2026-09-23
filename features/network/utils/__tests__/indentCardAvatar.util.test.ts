@@ -4,7 +4,6 @@ import {
   indentClientFacesFromParties,
   resolveGiveLoadClient,
   resolveMergedOrderCardTitle,
-  uniqueClientNameFromCustomers,
 } from "@/features/network/utils/indentCardAvatar.util";
 import type { ClientRow } from "@/features/clients/services/clients.service";
 import type { IndentRow } from "@/features/indents";

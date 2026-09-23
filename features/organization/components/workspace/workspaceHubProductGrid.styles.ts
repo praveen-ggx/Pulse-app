@@ -128,4 +128,23 @@ export const productGridStyles = StyleSheet.create({
     color: Theme.textMuted,
     opacity: 0.65,
   },
+  logoSlot: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  lockBadge: {
+    position: "absolute",
+    right: -4,
+    bottom: -2,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.analyticsCanvas,
+    borderWidth: 1,
+    borderColor: "rgba(77, 54, 54, 0.12)",
+  },
 });

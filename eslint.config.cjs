@@ -303,5 +303,19 @@ module.exports = [
       '@typescript-eslint/triple-slash-reference': 'off',
     },
   },
+  // Jest hoists `jest.mock()` factories above the import block, so a factory
+  // cannot close over an ESM import — `require()` inside it is the documented
+  // pattern, not a lapse. Same for pulling a module in mid-test to observe a
+  // fresh module registry.
+  {
+    files: [
+      '**/__tests__/**/*.{ts,tsx}',
+      '**/*.test.{ts,tsx}',
+      '**/*.spec.{ts,tsx}',
+    ],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
 ];
 

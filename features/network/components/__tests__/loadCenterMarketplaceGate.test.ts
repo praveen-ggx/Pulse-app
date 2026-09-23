@@ -15,8 +15,8 @@ describe("Load Center marketplace + market remount gates", () => {
       source.indexOf("export function useMarketIndentsQuery"),
       source.indexOf("export async function getIntegratedSupplierOrgIdsForShipper"),
     );
-    expect(marketHook).toContain("refetchOnMount: true");
-    expect(marketHook).not.toContain("refetchOnMountIfEntityListEmpty");
+    expect(marketHook).toContain("refetchOnMountIfEntityListEmpty");
+    expect(marketHook).not.toContain("refetchOnMount: true");
   });
 
   it("Load Center marketplace list is gated with urgent useAppQueryGate", () => {
@@ -24,13 +24,10 @@ describe("Load Center marketplace + market remount gates", () => {
       join(__dirname, "../LoadCenterView.tsx"),
       "utf8",
     );
-    const marketplaceBlock = source.slice(
-      source.indexOf("const marketplaceLoadsQ = useQuery("),
-      source.indexOf("const marketplaceLoads = marketplaceLoadsQ.data"),
-    );
-    expect(marketplaceBlock).toContain(
-      "enabled: useAppQueryGate(orgId, { urgent: !isTripsPresentation }) && !isTripsPresentation",
-    );
-    expect(marketplaceBlock).not.toContain("Boolean(orgId) && !isTripsPresentation");
+    expect(source).toContain("useInfiniteQuery(");
+    expect(source).toContain("listOpenMarketplaceLoadsPage");
+    expect(source).toContain("MARKETPLACE_LOAD_PAGE_SIZE");
+    expect(source).toContain("getLoadPending = waitingForLoadGate || marketPending");
+    expect(source).not.toContain("Boolean(orgId) && !isTripsPresentation");
   });
 });

@@ -37,20 +37,21 @@ export function invoicePodPolicyLabel(policy: InvoicePodPolicy): string {
 }
 
 /**
- * Caller supplies workspacePodRequired from the existing workspace POD layer.
- * NULL client policy falls back to that setting: ON → hard_copy, OFF → none.
+ * Client policy is the only eligibility input.
+ * NULL is unconfigured — it does not inherit workspace/device AsyncStorage.
+ * `workspacePodRequired` is ignored (kept so existing call sites compile).
  */
 export function resolveInvoicePodPolicy(args: {
   clientPolicy: InvoicePodPolicy | null;
-  workspacePodRequired: boolean;
-}): InvoicePodPolicy {
+  workspacePodRequired?: boolean;
+}): InvoicePodPolicy | null {
   if (args.clientPolicy === "none") return "none";
   if (args.clientPolicy === "soft_copy") return "soft_copy";
   if (args.clientPolicy === "hard_copy") return "hard_copy";
-  return args.workspacePodRequired ? "hard_copy" : "none";
+  return null;
 }
 
-/** Reset stores NULL (workspace default). Does not copy the current workspace value. */
+/** Reset stores NULL (unconfigured). Invoicing stays blocked until a policy is set. */
 export function resetClientInvoicePodPolicy(): null {
   return null;
 }

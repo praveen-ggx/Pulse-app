@@ -32,8 +32,8 @@ export type InvoiceDraftClientView = {
 };
 
 export type InvoiceDraftModel = {
-  document_kind: 'draft';
-  invoice_number_label: typeof INVOICE_DRAFT_NUMBER_LABEL;
+  document_kind: 'draft' | 'issued';
+  invoice_number_label: string;
   preview_date: string;
   indicative_due_date: string | null;
   payment_terms: string | null;
@@ -413,6 +413,58 @@ export function buildInvoiceDraftModel(input: {
   };
 }
 
+export function buildInvoiceDraftModelFromManualLines(input: {
+  issuer: InvoiceIssuerIdentity;
+  client: InvoiceDraftClientView;
+  lines: InvoiceLineSnapshot[];
+  previewDate: string;
+  paymentTerms: string | null;
+  notes: string | null;
+  includeGst: boolean;
+  gstRate: number;
+}): InvoiceDraftModel {
+  const preview_date = formatInvoicePreviewDate(input.previewDate);
+  const payment_terms = trimOrNull(input.paymentTerms);
+  const notes = trimOrNull(input.notes);
+  const tax = computeInvoiceTax({
+    issuer: {
+      org_id: input.issuer.orgId,
+      gstin: input.issuer.gstin,
+      gst_not_applicable: input.issuer.gstNotApplicable,
+      state: input.issuer.state,
+    },
+    clients: [
+      {
+        client_id: input.client.client_id,
+        gstin: input.client.gstin,
+        state: input.client.state,
+        organization_id: input.issuer.orgId,
+      },
+    ],
+    includeGst: input.includeGst,
+    gstRate: input.gstRate,
+    tripAmounts: input.lines.map((line) => line.taxable_value),
+    includeFuel: false,
+    fuelRate: 0,
+    additionalCharges: [],
+    invoiceOrgId: input.issuer.orgId,
+    tripOrgIds: [input.issuer.orgId],
+    hsn_sac: input.lines[0]?.hsn_sac ?? null,
+  });
+  return {
+    document_kind: 'draft',
+    invoice_number_label: INVOICE_DRAFT_NUMBER_LABEL,
+    preview_date,
+    indicative_due_date: indicativeDueDateFromPreview(preview_date, payment_terms),
+    payment_terms,
+    notes,
+    issuer: input.issuer,
+    client: input.client,
+    lines: input.lines,
+    tax,
+  };
+}
+
 function billingLinesFromClient(client: InvoiceDraftClientView): string[] {
   const lines: string[] = [];
   const name = trimOrNull(client.legal_name) || trimOrNull(client.display_name);
@@ -458,7 +510,10 @@ export function mapInvoiceDraftModelToPdfData(model: InvoiceDraftModel): Invoice
     brandingCompanyName: model.issuer.businessName,
     brandingLogoUrl: model.issuer.logoUrl,
     invoiceNo: model.invoice_number_label,
-    invoiceNumberCaption: INVOICE_DRAFT_NUMBER_CAPTION,
+    invoiceNumberCaption:
+      model.document_kind === 'issued'
+        ? 'Tax Invoice'
+        : INVOICE_DRAFT_NUMBER_CAPTION,
     clientName: model.client.display_name,
     previewDate: displayInvoicePreviewDate(model.preview_date),
     indicativeDueDate: model.indicative_due_date
@@ -477,7 +532,7 @@ export function mapInvoiceDraftModelToPdfData(model: InvoiceDraftModel): Invoice
     taxRows,
     taxWarning: warning,
     grandTotal: model.tax.total_amount,
-    documentKind: 'draft',
+    documentKind: model.document_kind,
   };
 }
 

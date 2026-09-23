@@ -1,4 +1,5 @@
 import { getDriverPresenceForTrips } from "@/features/tracking/services/driverPresence.service";
+import { HUB_ASSIGNMENT_AUDIT_TRIP_LIMIT } from "@/features/trips/utils/hubAssignmentAuditTripIds.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import {
   formatHubPingOfflineLabel,
@@ -82,6 +83,7 @@ export function useTripHubInTransitPings(
   const isActive = useAppStateIsActive();
   const inTransitIds = trips
     .filter(shouldFetchHubPing)
+    .slice(0, HUB_ASSIGNMENT_AUDIT_TRIP_LIMIT)
     .map((t) => t.id)
     .sort()
     .join(",");
@@ -96,6 +98,9 @@ export function useTripHubInTransitPings(
     // Only poll while the app is foregrounded — a backgrounded web tab was
     // otherwise hitting the DB every 2 min indefinitely.
     refetchInterval: isActive ? 120_000 : false,
-    queryFn: () => fetchInTransitPings(trips.filter(shouldFetchHubPing)),
+    queryFn: () =>
+      fetchInTransitPings(
+        trips.filter(shouldFetchHubPing).slice(0, HUB_ASSIGNMENT_AUDIT_TRIP_LIMIT),
+      ),
   });
 }

@@ -6,8 +6,9 @@ import { supabase } from "@/lib/supabase";
 import { expandLR } from "@/lib/utils/lr";
 import { parseLrFieldValues } from "@/features/trips/services/lrDocumentOcr.util";
 
-/** Keep IN-lists short — large POD scans 57014 under load (hub list). */
-const TRIP_ID_CHUNK = 8;
+/** After trip_documents SELECT uses can_read_trip_document, larger IN-lists
+ *  are cheap. Keep a cap so PostgREST URLs stay bounded. */
+const TRIP_ID_CHUNK = 40;
 
 export type TripDocumentLrPodRow = {
   trip_id: string;

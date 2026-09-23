@@ -47,6 +47,17 @@ export function infrastructureShouldRetry(failureCount: number, error: unknown):
   return failureCount < 1 && isInfrastructureError(error);
 }
 
-export function infrastructureRetryDelay(attemptIndex: number): number {
-  return Math.min(60_000, 15_000 * 2 ** attemptIndex);
+export function infrastructureRetryDelay(
+  attemptIndex: number,
+  randomOrError?: (() => number) | unknown,
+): number {
+  // TanStack Query calls retryDelay(failureCount, error). Tests may pass a
+  // deterministic RNG as the second arg. Never invoke an Error as random().
+  const random =
+    typeof randomOrError === 'function'
+      ? (randomOrError as () => number)
+      : Math.random;
+  const base = Math.min(60_000, 15_000 * 2 ** attemptIndex);
+  const jitter = base * 0.2 * (random() * 2 - 1);
+  return Math.round(base + jitter);
 }

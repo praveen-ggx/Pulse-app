@@ -35,8 +35,12 @@ import { canAccessPartyKind } from "@/lib/capabilities";
 import { useCapabilities } from "@/lib/useCapabilities";
 import type { MemberSurfaceId } from "@/lib/memberSurfaces";
 import { useMemberAccess } from "@/lib/useMemberAccess";
-import { buildPulseCommerceUrl, openSuiteProductApp, openSuiteProductAppInNewTab } from "@/lib/suite/suiteAuth";
 import { useActiveExpoProductShell } from "@/features/product-shell/PulseProductShell";
+import {
+  useSetWorkspaceProductStatusMutation,
+  useWorkspaceProductsQuery,
+} from "@/lib/queries/useWorkspaceProductsQuery";
+import { confirmAction } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import { useRouter } from "expo-router";
 import {
   Building2,
@@ -44,6 +48,7 @@ import {
   ChevronRight,
   HelpCircle,
   Landmark,
+  Lock,
   LogOut,
   Settings,
   Shield,
@@ -62,10 +67,10 @@ import {
   Alert,
   Image,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from "react-native";
@@ -98,6 +103,13 @@ type HubRow = {
   valuePill?: string;
   accessibilityLabel?: string;
   onPress?: () => void;
+  locked?: boolean;
+  toggle?: {
+    value: boolean;
+    disabled?: boolean;
+    onValueChange: (next: boolean) => void;
+    accessibilityLabel: string;
+  };
 };
 
 type Props = {
@@ -123,11 +135,37 @@ export function WorkspaceHubMenu({
   const capabilities = useCapabilities();
   const { can: canSurface } = useMemberAccess();
   const { currentOrganization } = useOrganization();
+  const { data: workspaceProducts = [] } = useWorkspaceProductsQuery();
+  const { mutateAsync: setProductStatus, isPending: complianceSaving } =
+    useSetWorkspaceProductStatusMutation();
+  const complianceEnabled = workspaceProducts.some(
+    (p) =>
+      p.product_id === "pulse_compliance" &&
+      (p.status === "active" || p.status === "trial"),
+  );
+
+  const handleComplianceToggle = useCallback(
+    (next: boolean) => {
+      void confirmAction(
+        "Pulse Compliance",
+        next
+          ? "Enable the Compliance workflow for this workspace? This adds a Compliance tab for document verification and advance/balance settlement."
+          : "Turn off the Compliance workflow for this workspace? The Compliance tab hides from nav — existing data stays intact.",
+        next ? "Enable" : "Turn off",
+      ).then((confirmed) => {
+        if (!confirmed) return;
+        void setProductStatus({
+          productId: "pulse_compliance",
+          status: next ? "active" : "inactive",
+        });
+      });
+    },
+    [setProductStatus],
+  );
 
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [orgLogoUri, setOrgLogoUri] = useState<string | null>(null);
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
-  const [showCommerceConfirm, setShowCommerceConfirm] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
 
   const displayName = (profile?.full_name ?? profile?.displayName ?? "User").trim();
@@ -188,33 +226,10 @@ export function WorkspaceHubMenu({
     onSelectPanel("profile");
   };
 
-  const commerceUrl = useMemo(() => buildPulseCommerceUrl(), []);
-
-  const openCommerce = useCallback(() => {
-    setShowCommerceConfirm(true);
-  }, []);
-
-  /** In-app stack push — do not use window.location / new-tab (remounts the data plane). */
-  const openFinancePro = useCallback(() => {
-    onExit?.();
-    router.push(ROUTES.FINANCE_PRO as Parameters<typeof router.push>[0]);
-  }, [onExit, router]);
-
   const openPulseCore = useCallback(() => {
     onExit?.();
     router.replace(DEFAULT_DISPATCHER_ROUTE as Parameters<typeof router.replace>[0]);
   }, [onExit, router]);
-
-  const confirmCommerceSwitch = useCallback(() => {
-    setShowCommerceConfirm(false);
-    onExit?.();
-    openSuiteProductApp(commerceUrl);
-  }, [commerceUrl, onExit]);
-
-  const confirmCommerceNewWindow = useCallback(() => {
-    setShowCommerceConfirm(false);
-    openSuiteProductAppInNewTab(commerceUrl);
-  }, [commerceUrl]);
 
   /**
    * This drawer renders above every MemberDomainGate, so each row
@@ -267,46 +282,63 @@ export function WorkspaceHubMenu({
 
   const productRows: HubRow[] = useMemo(() => {
     if (!canSurface("workspace.products")) return [];
-    return [
+    const rows: HubRow[] = [
       {
         id: "ws-scan",
         label: "Pulse Scan",
         icon: hubLucideIcon(ScanLine),
-        panelId: "ocr-usage",
-        accessibilityLabel:
-          "Pulse Scan. Scan documents and track your organization's scan usage.",
+        locked: true,
+        accessibilityLabel: "Pulse Scan, locked",
       },
-      activeShell
-        ? {
-            id: "ws-core",
-            label: "Pulse Core",
-            icon: hubLucideIcon(Zap),
-            onPress: openPulseCore,
-            accessibilityLabel:
-              "Pulse Core. Return to trips, customers, and day-to-day operations.",
-          }
-        : {
-            id: "ws-finance-pro",
-            label: "Pulse Finance Pro",
-            icon: hubLucideIcon(Landmark),
-            onPress: openFinancePro,
-            accessibilityLabel:
-              "Pulse Finance Pro. Billing, collections, and trip-linked receivables for this workspace.",
-          },
+    ];
+    if (activeShell) {
+      rows.push({
+        id: "ws-core",
+        label: "Pulse Core",
+        icon: hubLucideIcon(Zap),
+        onPress: openPulseCore,
+        accessibilityLabel:
+          "Pulse Core. Return to trips, customers, and day-to-day operations.",
+      });
+    }
+    rows.push(
       {
-        id: "ws-products",
-        label: "Open Pulse products",
-        icon: hubLucideIcon(Sparkles),
-        panelId: "products",
+        id: "ws-finance-pro",
+        label: "Pulse Finance Pro",
+        icon: hubLucideIcon(Landmark),
+        locked: true,
+        accessibilityLabel: "Pulse Finance Pro, locked",
       },
       {
         id: "ws-commerce",
-        label: "Commerce",
+        label: "Pulse Commerce",
         icon: hubLucideIcon(Store),
-        onPress: openCommerce,
+        locked: true,
+        accessibilityLabel: "Pulse Commerce, locked",
       },
-    ];
-  }, [activeShell, openCommerce, openFinancePro, openPulseCore, canSurface]);
+      {
+        id: "ws-compliance",
+        label: "Pulse Compliance",
+        icon: hubLucideIcon(ShieldCheck),
+        toggle: {
+          value: complianceEnabled,
+          disabled: complianceSaving,
+          onValueChange: handleComplianceToggle,
+          accessibilityLabel: complianceEnabled
+            ? "Pulse Compliance, enabled. Double tap to turn off."
+            : "Pulse Compliance, disabled. Double tap to enable.",
+        },
+      },
+    );
+    return rows;
+  }, [
+    activeShell,
+    openPulseCore,
+    canSurface,
+    complianceEnabled,
+    complianceSaving,
+    handleComplianceToggle,
+  ]);
 
   const partyRows: HubRow[] = useMemo(() => {
     const all: {
@@ -384,6 +416,73 @@ export function WorkspaceHubMenu({
       {sectionRows.map((row, idx) => {
         const selected = !!row.panelId && activePanel === row.panelId;
         const isFirst = idx === 0;
+        const rowBody = (
+          <>
+            <View style={hubStyles.menuRowIconWell}>{row.icon}</View>
+            <Text style={hubStyles.menuRowLabel} numberOfLines={1}>
+              {row.label}
+            </Text>
+            {row.toggle ? (
+              <Switch
+                value={row.toggle.value}
+                disabled={row.toggle.disabled}
+                onValueChange={row.toggle.onValueChange}
+                trackColor={{
+                  false: Theme.borderMedium,
+                  true: Theme.primary,
+                }}
+                thumbColor={Theme.surface}
+                accessibilityLabel={row.toggle.accessibilityLabel}
+              />
+            ) : row.locked ? (
+              <View style={hubStyles.menuRowChevronSlot}>
+                <Lock
+                  size={HUB_ROW_CHEVRON_SIZE}
+                  color={Theme.textMuted}
+                  strokeWidth={HUB_MENU_ICON_STROKE}
+                />
+              </View>
+            ) : row.valuePill ? (
+              <View style={hubStyles.valuePill}>
+                <Text style={hubStyles.valuePillText} numberOfLines={1}>
+                  {row.valuePill}
+                </Text>
+              </View>
+            ) : (
+              <View style={hubStyles.menuRowChevronSlot}>
+                <ChevronRight
+                  size={HUB_ROW_CHEVRON_SIZE}
+                  color={selected ? HUB_PURPLE : HUB_MENU_ICON}
+                  strokeWidth={HUB_MENU_ICON_STROKE}
+                />
+              </View>
+            )}
+          </>
+        );
+        if (row.locked) {
+          return (
+            <View
+              key={row.id}
+              style={[hubStyles.menuRow, isFirst && hubStyles.menuRowFirst, { opacity: 0.62 }]}
+              accessibilityLabel={row.accessibilityLabel ?? row.label}
+              accessibilityState={{ disabled: true }}
+            >
+              {rowBody}
+            </View>
+          );
+        }
+        if (row.toggle) {
+          return (
+            <View
+              key={row.id}
+              style={[hubStyles.menuRow, isFirst && hubStyles.menuRowFirst]}
+              accessibilityLabel={row.toggle.accessibilityLabel}
+              accessibilityRole="adjustable"
+            >
+              {rowBody}
+            </View>
+          );
+        }
         return (
           <Pressable
             key={row.id}
@@ -415,25 +514,7 @@ export function WorkspaceHubMenu({
             accessibilityLabel={row.accessibilityLabel ?? row.label}
             accessibilityState={{ selected }}
           >
-            <View style={hubStyles.menuRowIconWell}>{row.icon}</View>
-            <Text style={hubStyles.menuRowLabel} numberOfLines={1}>
-              {row.label}
-            </Text>
-            {row.valuePill ? (
-              <View style={hubStyles.valuePill}>
-                <Text style={hubStyles.valuePillText} numberOfLines={1}>
-                  {row.valuePill}
-                </Text>
-              </View>
-            ) : (
-              <View style={hubStyles.menuRowChevronSlot}>
-                <ChevronRight
-                  size={HUB_ROW_CHEVRON_SIZE}
-                  color={selected ? HUB_PURPLE : HUB_MENU_ICON}
-                  strokeWidth={HUB_MENU_ICON_STROKE}
-                />
-              </View>
-            )}
+            {rowBody}
           </Pressable>
         );
       })}
@@ -687,49 +768,6 @@ export function WorkspaceHubMenu({
           />
         ) : null}
       </View>
-
-      <Modal
-        visible={showCommerceConfirm}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowCommerceConfirm(false)}
-      >
-        <View style={hubStyles.confirmBackdrop}>
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={() => setShowCommerceConfirm(false)}
-          />
-          <View style={hubStyles.confirmCard}>
-            <Text style={hubStyles.confirmTitle}>Switch to Pulse Commerce</Text>
-            <Text style={hubStyles.confirmBody}>
-              You will be redirected to the Pulse Commerce platform. Your workspace
-              session stays signed in.
-            </Text>
-            <View style={hubStyles.confirmActionsStack}>
-              <Pressable
-                onPress={confirmCommerceSwitch}
-                style={hubStyles.confirmCtaBtn}
-              >
-                <Text style={hubStyles.confirmCtaText}>Switch to Commerce</Text>
-              </Pressable>
-              {Platform.OS === "web" ? (
-                <Pressable
-                  onPress={confirmCommerceNewWindow}
-                  style={hubStyles.confirmSecondaryBtn}
-                >
-                  <Text style={hubStyles.confirmSecondaryText}>Open in new window</Text>
-                </Pressable>
-              ) : null}
-              <Pressable
-                onPress={() => setShowCommerceConfirm(false)}
-                style={hubStyles.confirmCancelBtn}
-              >
-                <Text style={hubStyles.confirmCancelText}>Cancel</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
 
       <Modal
         visible={showSignOutConfirm}

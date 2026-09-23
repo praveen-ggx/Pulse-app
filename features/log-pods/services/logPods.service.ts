@@ -268,6 +268,7 @@ export type MarkHardCopyPodsReceivedInput = {
   method: "courier" | "in_hand";
   courierName?: string | null;
   trackingId?: string | null;
+  comment?: string | null;
 };
 
 export async function markSelectedTripsHardCopyPodReceived(
@@ -280,18 +281,23 @@ export async function markSelectedTripsHardCopyPodReceived(
     return { error: new Error("Select at least one pending trip."), updatedCount: 0 };
   }
   const receivedAt = str(input.receivedAt) || new Date().toISOString();
-  const results = await runWithConcurrencyLimit(
-    ids,
-    LOG_PODS_CONCURRENCY,
-    (id) => markTripHardCopyPodReceived(id, receivedAt),
-  );
-  const firstError = results.find((r) => r.error != null)?.error;
-  if (firstError) return { error: firstError, updatedCount: 0 };
-
   const courierName =
     input.method === "courier" ? str(input.courierName).trim() : "In hand";
   const trackingId =
     input.method === "courier" ? str(input.trackingId).trim() || null : null;
+
+  const results = await runWithConcurrencyLimit(
+    ids,
+    LOG_PODS_CONCURRENCY,
+    (id) =>
+      markTripHardCopyPodReceived(id, {
+        courier: courierName || null,
+        awbNumber: trackingId,
+        comment: str(input.comment).trim() || null,
+      }),
+  );
+  const firstError = results.find((r) => r.error != null)?.error;
+  if (firstError) return { error: firstError, updatedCount: 0 };
   await runWithConcurrencyLimit(ids, LOG_PODS_CONCURRENCY, async (tripInternalId) => {
     const { error } = await supabase().rpc("log_activity", {
       p_action: "POD_LOGGED",
@@ -435,7 +441,8 @@ export async function syncLogPodsTripsWithCache(
   }
 }
 
-let courierPartnersTableUnavailable = false;
+/** Table is not in this project's schema. Do not probe REST (404). */
+let courierPartnersTableUnavailable = true;
 
 function isCourierPartnersTableMissing(
   err: { message?: string; code?: string; status?: number } | null | undefined,
@@ -507,6 +514,9 @@ export async function ensureCustomCourierPartner(
 ): Promise<{ error: Error | null; partner: CourierPartnerRow | null }> {
   if (courierValue !== "custom" || !customCourierName.trim())
     return { error: null, partner: null };
+  if (courierPartnersTableUnavailable) {
+    return { error: null, partner: null };
+  }
   const value = customCourierName.toLowerCase().replace(/\s+/g, "_");
   const { data: existing, error: existingErr } = await supabase()
     .from("courier_partners")
@@ -587,7 +597,8 @@ export async function executeLogIncomingPods(payload: LogPodsPayload): Promise<{
   const tripResults = await runWithConcurrencyLimit(
     tripIds,
     LOG_PODS_CONCURRENCY,
-    (internalId) => markTripHardCopyPodReceived(internalId, receivedAt),
+    (internalId) =>
+      markTripHardCopyPodReceived(internalId, { courier: finalCourierName || null, awbNumber: trackingId || null }),
   );
   const tripUpdateError = tripResults.find((r) => r.error != null)?.error;
   if (tripUpdateError) {
@@ -611,6 +622,7 @@ export async function executeLogIncomingPods(payload: LogPodsPayload): Promise<{
           courier_name: finalCourierName,
           tracking_id: trackingId || null,
           attachment_count: attCount,
+          received_at: receivedAt,
         },
       });
       if (error) console.warn("[logPods] log_activity:", error.message);

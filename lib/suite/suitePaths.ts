@@ -1,5 +1,7 @@
 /** Path helpers for suite product routing (Core, Commerce, Pilot, …). */
 
+import { isLockedProductPath } from './productLock';
+
 const DEFAULT_SUITE_RETURN_TO = '/';
 
 /**
@@ -27,6 +29,9 @@ export function isSuiteExternalAppPath(path: string): boolean {
 export function openSuiteProductApp(path: string): void {
   if (typeof window === 'undefined') return;
   const normalized = path.startsWith('/') ? path : `/${path}`;
+  if (isLockedProductPath(normalized)) {
+    return;
+  }
   window.location.assign(normalized);
 }
 
@@ -34,6 +39,9 @@ export function openSuiteProductApp(path: string): void {
 export function openSuiteProductAppInNewTab(path: string): void {
   if (typeof window === 'undefined') return;
   const normalized = path.startsWith('/') ? path : `/${path}`;
+  if (isLockedProductPath(normalized)) {
+    return;
+  }
   window.open(normalized, '_blank', 'noopener,noreferrer');
 }
 

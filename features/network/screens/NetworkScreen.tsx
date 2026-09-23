@@ -27,7 +27,14 @@ import { DiscoverView } from "@/features/network/components/DiscoverView";
 import { NetworkPhoneAndContactsPanel } from "@/features/network/components/NetworkPhoneAndContactsPanel";
 import { NetworkSupportHelpCards } from "@/features/network/components/NetworkSupportHelpCards";
 import { discoverSearchTermForOrgs } from "@/lib/networkPhoneSearch";
-import { connectedOrgLedgerDetailRoute } from "@/features/network/utils/connectionDetailNavigation.util";
+import {
+  connectedOrgLedgerDetailRoute,
+  seedFinanceDetailFromNetworkConnection,
+} from "@/features/network/utils/connectionDetailNavigation.util";
+import {
+  isNetworkOrgHubMode,
+  shouldLoadNetworkFeed,
+} from "@/features/network/utils/networkModeLoading.util";
 import { maskGstin } from "@/features/network/utils/partyContactDisplay.util";
 import { useVerifiedActionGuard } from "@/features/network/utils/verifiedActionGuard";
 import { showAppAlert } from "@/lib/appAlert";
@@ -79,6 +86,8 @@ import {
 import { useProtocolInvitesWithDriverSent } from "@/lib/hooks/useProtocolInvitesWithDriverSent";
 import { useInboundProtocolInviteActions } from "@/lib/hooks/useInboundProtocolInviteActions";
 import { useQueryBootDefer } from "@/lib/hooks/useQueryBootDefer";
+import type { ClientRow } from "@/features/clients/services/clients.service";
+import type { SupplierRow } from "@/features/suppliers/services/suppliers.service";
 import { useClientsQuery } from "@/lib/queries/useClientsQuery";
 import {
   useConnectionRequestsReceivedQuery,
@@ -305,16 +314,35 @@ function NetworkScreenInner() {
 
   useRealtimeNetworkInvalidation(orgId);
   const queryClient = useQueryClient();
-  const entityQueriesReady = useQueryBootDefer(orgId, 900);
+  // Connection books are first-paint. Keep boot defer for stories / Discover only.
+  const secondaryNetworkReady = useQueryBootDefer(orgId, 900);
   const receivedQ = useConnectionRequestsReceivedQuery(orgId);
   const sentQ = useConnectionRequestsSentQuery(orgId);
   const driverInvitesSentQ = useDriverInvitesSentQuery(orgId, {
     enabled: viewMode === "requests" || invitationsOpen,
   });
-  const clientsQ = useClientsQuery(entityQueriesReady ? orgId : null);
-  const suppliersQ = useSuppliersQuery(entityQueriesReady ? orgId : null);
-  const driversQ = useDriversQuery(entityQueriesReady ? orgId : null);
-  const feedQ = useNetworkFeedQuery(orgId, { enabled: entityQueriesReady });
+  const clientsQ = useClientsQuery(orgId);
+  const suppliersQ = useSuppliersQuery(orgId);
+  const driversQ = useDriversQuery(orgId);
+  const hubTabParam = searchParams.hubTab ?? searchParams.tab;
+  const hubParam = searchParams.hub;
+  /** Hub mode: /network/hub route, or legacy ?hub=1, or legacy ?hubTab=X query param. */
+  const showDesktopHub = useMemo(
+    () =>
+      isNetworkOrgHubMode({
+        segments: segments as string[],
+        hub: hubParam,
+        hubTab: searchParams.hubTab,
+        tab: searchParams.tab,
+      }),
+    [segments, hubParam, searchParams.hubTab, searchParams.tab],
+  );
+  const feedQ = useNetworkFeedQuery(orgId, {
+    enabled: shouldLoadNetworkFeed({
+      secondaryNetworkReady,
+      showDesktopHub,
+    }),
+  });
   const invalidateNetwork = useInvalidateNetwork(orgId);
   const {
     receivedItems: receivedInviteItems,
@@ -361,26 +389,6 @@ function NetworkScreenInner() {
   const animatedSupplierCount = useAnimatedCount(supplierCount);
   const animatedDriverCount = useAnimatedCount(driverCount);
   const totalConnectionsDisplay = String(animatedTotalConnections).padStart(2, "0");
-  const hubTabParam = searchParams.hubTab ?? searchParams.tab;
-  const hubParam = searchParams.hub;
-  /** Hub mode: /network/hub route, or legacy ?hub=1, or legacy ?hubTab=X query param. */
-  const showDesktopHub = useMemo(() => {
-    if ((segments as string[]).includes('hub')) return true;
-    if (hubParam === "1" || hubParam === "true") return true;
-    const tab = hubTabParam;
-    return (
-      tab === "details" ||
-      tab === "team" ||
-      tab === "profile" ||
-      tab === "sales" ||
-      tab === "goals" ||
-      tab === "asset" ||
-      tab === "network" ||
-      tab === "connections" ||
-      tab === "grow" ||
-      tab === "chat"
-    );
-  }, [segments, hubParam, hubTabParam]);
   const onCreatePost = () => {
     // Asset-only orgs cannot give/broadcast load — no post entry.
     if (!canPostLoads) return;
@@ -477,7 +485,12 @@ function NetworkScreenInner() {
     setRefreshing(true);
     try {
       await Promise.all([
-        feedQ.refetch(),
+        ...(shouldLoadNetworkFeed({
+          secondaryNetworkReady,
+          showDesktopHub,
+        })
+          ? [feedQ.refetch()]
+          : []),
         receivedQ.refetch(),
         sentQ.refetch(),
         driverInvitesSentQ.refetch(),
@@ -499,6 +512,8 @@ function NetworkScreenInner() {
     suppliersQ,
     driversQ,
     invalidateNetwork,
+    secondaryNetworkReady,
+    showDesktopHub,
   ]);
 
   const profileTargetId =
@@ -700,13 +715,22 @@ function NetworkScreenInner() {
 
   const handleOpenProfileFromConnection = useCallback(
     (item: ConnectedOrg) => {
+      if (orgId) {
+        seedFinanceDetailFromNetworkConnection({
+          item,
+          orgId,
+          clients: (clientsQ.data ?? []) as ClientRow[],
+          suppliers: (suppliersQ.data ?? []) as SupplierRow[],
+          drivers: driversQ.data ?? [],
+        });
+      }
       router.push(
         connectedOrgLedgerDetailRoute(item) as Parameters<
           typeof router.push
         >[0],
       );
     },
-    [router],
+    [orgId, clientsQ.data, suppliersQ.data, driversQ.data, router],
   );
 
   if (!orgId) {
@@ -1351,7 +1375,7 @@ function NetworkScreenInner() {
                 </View>
               )}
               {isMobileLayout ? discoverToolsPanel : null}
-              {entityQueriesReady ? (
+              {secondaryNetworkReady ? (
                 <DiscoverView
                   orgId={orgId}
                   embedded

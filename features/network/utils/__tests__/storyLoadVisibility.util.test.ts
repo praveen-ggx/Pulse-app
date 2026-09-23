@@ -146,7 +146,10 @@ describe("selectNetworkAndSponsoredStoryPosts", () => {
       ],
       me,
     );
-    expect(selected.map((p) => p.organization_id)).toEqual([partner, PR_LOGISTICS]);
+    // Sponsored ads lead the reel (selectNetworkAndSponsoredStoryPosts sorts
+    // is_sponsored first, then newest-first), so PR_LOGISTICS comes before the
+    // organic partner post despite being older. The viewer's own post is dropped.
+    expect(selected.map((p) => p.organization_id)).toEqual([PR_LOGISTICS, partner]);
   });
 
   it("collapses multiple LOAD posts from the same org into one bubble", () => {

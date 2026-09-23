@@ -26,6 +26,8 @@ export function resolveMapTruckLocation(params: {
   currentPosition: { latitude: number; longitude: number } | null | undefined;
   driverLocation: { latitude: number; longitude: number } | null | undefined;
   trail: MapTrailPoint[];
+  /** Last business-sim pin when the driver has never pinged. */
+  simulatedLocation?: { latitude: number; longitude: number } | null;
 }): { latitude: number; longitude: number } | undefined {
   if (params.tripCompleted) return undefined;
   if (params.currentPosition) return params.currentPosition;
@@ -41,6 +43,13 @@ export function resolveMapTruckLocation(params: {
   const last = params.trail[params.trail.length - 1];
   if (last && Number.isFinite(last.latitude) && Number.isFinite(last.longitude)) {
     return { latitude: last.latitude, longitude: last.longitude };
+  }
+  if (
+    params.simulatedLocation &&
+    Number.isFinite(params.simulatedLocation.latitude) &&
+    Number.isFinite(params.simulatedLocation.longitude)
+  ) {
+    return params.simulatedLocation;
   }
   return undefined;
 }

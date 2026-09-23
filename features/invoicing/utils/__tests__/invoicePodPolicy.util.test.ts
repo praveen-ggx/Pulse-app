@@ -89,37 +89,37 @@ describe("resolveInvoicePodPolicy", () => {
     ).toBe("hard_copy");
   });
 
-  it("NULL client follows workspace setting", () => {
+  it("NULL client stays unconfigured regardless of workspace toggle", () => {
     expect(
       resolveInvoicePodPolicy({
         clientPolicy: null,
         workspacePodRequired: true,
       }),
-    ).toBe("hard_copy");
+    ).toBeNull();
     expect(
       resolveInvoicePodPolicy({
         clientPolicy: null,
         workspacePodRequired: false,
       }),
-    ).toBe("none");
+    ).toBeNull();
   });
 });
 
 describe("resetClientInvoicePodPolicy", () => {
-  it("returns NULL so effective policy follows workspace", () => {
+  it("returns NULL so the client is unconfigured", () => {
     expect(resetClientInvoicePodPolicy()).toBeNull();
     expect(
       resolveInvoicePodPolicy({
         clientPolicy: resetClientInvoicePodPolicy(),
         workspacePodRequired: true,
       }),
-    ).toBe("hard_copy");
+    ).toBeNull();
     expect(
       resolveInvoicePodPolicy({
         clientPolicy: resetClientInvoicePodPolicy(),
         workspacePodRequired: false,
       }),
-    ).toBe("none");
+    ).toBeNull();
   });
 });
 

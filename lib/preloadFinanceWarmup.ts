@@ -10,7 +10,6 @@
 import { preloadTabScreen } from '@/lib/preloadTabChunks';
 import { queryKeys } from '@/lib/queryKeys';
 export { scheduleIdleWork } from '@/lib/scheduleIdleWork';
-import { supabase } from '@/lib/supabase';
 import type { QueryClient } from '@tanstack/react-query';
 
 export function preloadFinanceRouteChunk(): void {
@@ -27,25 +26,12 @@ export function prefetchFinanceQueries(
   void queryClient.prefetchQuery({
     queryKey: queryKeys.trips.finite(orgId),
     queryFn: async () => {
-      // Same path as useTripsQuery / getTripsForOrg (RPC, then owner-org table).
-      try {
-        const { data, error } = await supabase().rpc('get_trips_for_org', {
-          p_org_id: orgId,
-        });
-        if (!error) {
-          return (data ?? []) as unknown;
-        }
-      } catch {
-        // Timeout / origin-down — fall through to table read.
-      }
-      const fallback = await supabase()
-        .from('trips')
-        .select('*')
-        .eq('organization_id', orgId)
-        .order('created_at', { ascending: false })
-        .limit(200);
-      if (fallback.error) throw new Error(fallback.error.message);
-      return (fallback.data ?? []) as unknown;
+      const { getTripsForOrg } = await import(
+        "@/features/trips/services/trips.service"
+      );
+      const res = await getTripsForOrg(orgId);
+      if (res.error) throw res.error;
+      return res.trips;
     },
   });
 

@@ -84,9 +84,14 @@ describe('updateTripStatus — TripDelivered event', () => {
   });
 
   it('does not publish for a non-completion status update', async () => {
-    mockFrom.mockReturnValueOnce(
-      updateBuilder({ data: { ...trip, status: 'in_transit', completed_at: null }, error: null }),
-    );
+    // `in_transit` is a MOVING_STATUS, so updateTripStatus first reads started_at
+    // to backfill it when the caller omits it — that read consumes a `.from()`
+    // before the update does. Queue both, in order.
+    mockFrom
+      .mockReturnValueOnce(awaitable({ data: { started_at: '2026-07-10T10:00:00.000Z' }, error: null }))
+      .mockReturnValueOnce(
+        updateBuilder({ data: { ...trip, status: 'in_transit', completed_at: null }, error: null }),
+      );
 
     await updateTripStatus('trip-1', { status: 'in_transit' });
 
@@ -128,9 +133,24 @@ describe('updateTripStatus — TripDelivered event', () => {
   });
 
   it('does not publish when supplier-link validation blocks completion', async () => {
+    // validateSupplierLinkForCompletion blocks on an AGGREGATE trip with no
+    // supplier: trip_payout_mode 'market' sets requiresSupplierLink, and
+    // supplier_id is empty. (`source: 'direct_quote'` alone no longer blocks —
+    // that guard was deliberately relaxed so asset trips won via direct quote,
+    // which legitimately have no supplier, can still be completed.)
     mockFrom.mockReturnValueOnce(
-      awaitable({ data: { id: 'trip-1', source: 'direct_quote', supplier_id: null }, error: null }),
-    ); // validateSupplierLinkForCompletion gate: requires supplier, none set
+      awaitable({
+        data: {
+          id: 'trip-1',
+          source: 'indent',
+          supplier_id: null,
+          trip_payout_mode: 'market',
+          driver_id: null,
+          vehicle_id: null,
+        },
+        error: null,
+      }),
+    );
 
     const { error, trip: result } = await updateTripStatus('trip-1', {
       status: 'completed',

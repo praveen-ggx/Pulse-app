@@ -19,14 +19,16 @@ export function PulseInvoiceLandingScreen() {
   return (
     <View style={styles.wrap}>
       <View style={styles.card}>
-        <Text style={styles.tagline}>GST-compliant billing for this workspace.</Text>
+        <Text style={styles.tagline}>Pulse billing.</Text>
         <Text style={styles.body}>
-          Pulse Invoice is the workspace product for trip billing. Create an
-          invoice from eligible trips in this workspace.
+          Commerce Orders own Create Invoice (one Fulfilled order → one
+          invoice). Finance Pro invoices trips and typed Manual Invoices
+          against a client. All three share the same draft, tax, preview,
+          and PDF engine.
         </Text>
         <PulsePillButton
-          label="Create Invoice"
-          accessibilityLabel="Create Invoice"
+          label="Finance Pro invoices"
+          accessibilityLabel="Open Finance Pro invoice workspace"
           fullWidth
           onPress={() =>
             router.push(
@@ -36,6 +38,18 @@ export function PulseInvoiceLandingScreen() {
             )
           }
           style={styles.cta}
+        />
+        <PulsePillButton
+          label="Create Manual Invoice"
+          accessibilityLabel="Create Manual Invoice"
+          fullWidth
+          onPress={() =>
+            router.push(
+              returnTo
+                ? withReturnTo(ROUTES.INVOICING_EXECUTE, returnTo)
+                : ROUTES.INVOICING_EXECUTE,
+            )
+          }
         />
       </View>
     </View>

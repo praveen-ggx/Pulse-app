@@ -241,8 +241,12 @@ export function DriverWorkOpportunityCard({
   );
 }
 
-const styles = StyleSheet.create({
-  card: withWebSafeShadows({
+// withWebSafeShadows maps over a STYLE SHEET (Record<string, AnyStyle>), so it
+// wraps StyleSheet.create — not an individual entry. Wrapping one entry passed
+// that entry's own properties as if they were styles, typing each as AnyStyle.
+const styles = withWebSafeShadows(
+  StyleSheet.create({
+  card: {
     borderRadius: 14,
     borderWidth: 1,
     borderColor: '#d7dee8',
@@ -259,7 +263,7 @@ const styles = StyleSheet.create({
       android: { elevation: 3 },
       default: {},
     }),
-  }),
+  },
   cardAwarded: {
     borderColor: Theme.darkGreen,
     borderWidth: 1,
@@ -469,4 +473,5 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Theme.textPrimaryDark,
   },
-});
+}),
+);

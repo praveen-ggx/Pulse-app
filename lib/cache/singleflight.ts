@@ -9,3 +9,12 @@ export async function runSingleflight<T>(key: string, fn: () => Promise<T>): Pro
   inflight.set(key, next);
   return next;
 }
+
+/** Test-only: drop in-flight keys so concurrent suites do not leak. */
+export function resetSingleflightForTests(): void {
+  inflight.clear();
+}
+
+export function singleflightInflightCountForTests(): number {
+  return inflight.size;
+}

@@ -233,7 +233,7 @@ function AuthenticatedTabLayout() {
       scheduleDispatcherTabPreloads(warmRoute, {
         queryClient,
         orgId,
-        warmFinanceData: access.finance || access.tripops,
+        warmFinanceData: false,
       });
     });
   }, [
@@ -247,14 +247,13 @@ function AuthenticatedTabLayout() {
     access.sales,
   ]);
 
-  // Pre-warm chat providers + bootstrap as soon as auth + org are ready.
-  // This runs immediately (not idle), so provider modules and the bootstrap RPC
-  // are in flight well before the user taps the chat button.
-  // Skipped in dev to avoid Metro parallel-import OOM.
+  // Pre-warm chat *modules* after auth + org. Do not start get_multi_lane_bootstrap
+  // here — that RPC raced GlobalSync + password grant (2026-09-22). Bootstrap
+  // starts when the user opens chat (tab press / preloadChatRoute with org).
   useEffect(() => {
     if (loading || !orgId || profile?.role === 'driver') return;
     if (__DEV__) return;
-    preloadChatRoute(orgId);
+    preloadChatRoute(undefined, { bootstrap: false });
   }, [loading, orgId, profile?.role]);
 
   /** Warm only the tab chunks the member's role can open — staggered to avoid Metro OOM. */

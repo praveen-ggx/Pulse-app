@@ -1,4 +1,3 @@
-import type { IndentRow } from "@/features/indents";
 import {
   locationLabelFromStop,
   summarizeStopsByType,
@@ -223,7 +222,12 @@ export function indentRoutePlan(
 }
 
 export function indentDisplayOriginDest(
-  load: Pick<IndentRow, "pickup_area" | "drop_location"> & {
+  // Widened from Pick<IndentRow, ...>: IndentRow types these as plain strings,
+  // but story/marketplace sources carry them as nullable. The body already
+  // tolerates missing values (it falls back to "—").
+  load: {
+    pickup_area?: string | null;
+    drop_location?: string | null;
     execution_plan_id?: unknown;
   },
   byPlanId: Record<string, ExecutionPlanRouteSummary> | undefined,

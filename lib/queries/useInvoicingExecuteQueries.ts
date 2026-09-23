@@ -9,7 +9,10 @@ import {
   type InvoicingTripView,
   type PodReconciliationSummary,
 } from '@/features/invoicing/services/invoicing.service';
-import { fetchIssuedInvoicesForOrg } from '@/features/invoicing/services/invoiceList.service';
+import {
+  fetchDraftInvoicesForOrg,
+  fetchIssuedInvoicesForOrg,
+} from '@/features/invoicing/services/invoiceList.service';
 import { queryKeys } from '@/lib/queryKeys';
 import { useMemo } from 'react';
 
@@ -23,6 +26,19 @@ export function useIssuedInvoicesQuery(orgId: string | null) {
     },
     enabled: !!orgId,
     staleTime: 300_000,
+  });
+}
+
+export function useDraftInvoicesQuery(orgId: string | null) {
+  return useQuery({
+    queryKey: orgId ? queryKeys.invoicing.drafts(orgId) : ['q', 'invoicing', 'drafts', 'none'],
+    queryFn: async () => {
+      const { error, invoices } = await fetchDraftInvoicesForOrg(orgId!);
+      if (error) throw error;
+      return invoices;
+    },
+    enabled: !!orgId,
+    staleTime: 60_000,
   });
 }
 
@@ -137,6 +153,7 @@ export function useExecuteInvoiceMutation(orgId: string | null) {
         queryClient.invalidateQueries({ queryKey: queryKeys.invoicing.trips(orgId) });
         queryClient.invalidateQueries({ queryKey: queryKeys.invoicing.summary(orgId) });
         queryClient.invalidateQueries({ queryKey: queryKeys.invoicing.issued(orgId) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.invoicing.drafts(orgId) });
         queryClient.invalidateQueries({ queryKey: queryKeys.trips.all(orgId) });
       }
       for (const tripId of internalIds) {

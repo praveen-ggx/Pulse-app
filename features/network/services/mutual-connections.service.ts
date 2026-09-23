@@ -9,7 +9,9 @@
  * so org `logo_url` / owner photo still show when the mutuals RPC omits them.
  */
 import { getLinkedOrgProfilesBatch } from "@/features/clients/services/clients.service";
+import { runSingleflight } from "@/lib/cache/singleflight";
 import { supabase } from "@/lib/supabase";
+import { isSupabaseCircuitOpen } from "@/lib/supabaseHttp.util";
 
 export type MutualConnectionRow = {
   id: string;
@@ -110,10 +112,18 @@ export async function getMutualConnections(
     return { error: null, mutuals: [] };
   }
 
-  const { data, error } = await supabase().rpc("get_mutual_connections", {
-    p_viewer_org_id: viewerOrgId,
-    p_target_org_id: targetOrgId,
-  });
+  if (isSupabaseCircuitOpen()) {
+    return { error: null, mutuals: [] };
+  }
+
+  const { data, error } = await runSingleflight(
+    `get_mutual_connections:${viewerOrgId}:${targetOrgId}`,
+    () =>
+      supabase().rpc("get_mutual_connections", {
+        p_viewer_org_id: viewerOrgId,
+        p_target_org_id: targetOrgId,
+      }),
+  );
 
   if (error) {
     return { error: new Error(error.message), mutuals: [] };

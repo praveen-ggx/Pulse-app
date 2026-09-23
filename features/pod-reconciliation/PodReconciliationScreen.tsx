@@ -28,7 +28,6 @@ import {
     TextInput,
     View,
     useWindowDimensions,
-    type TextStyle,
     type ViewStyle,
 } from "react-native";
 import { useLayoutInsets } from "@/lib/layoutInsets";
@@ -1034,11 +1033,14 @@ export function PodReconciliationScreen() {
                     paddingHorizontal: financeProGutter(width),
                     gap: 12,
                   },
+                  // CSS Grid is web-only and absent from RN's ViewStyle, so it
+                  // goes through `object` (the repo's pattern for web-only CSS)
+                  // rather than a direct ViewStyle assertion.
                   Platform.OS === "web"
                     ? ({
                         display: "grid",
                         gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-                      } as ViewStyle)
+                      } as object as ViewStyle)
                     : null,
                 ]}
               >
@@ -2301,10 +2303,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     minWidth: 0,
   },
+  // `outlineStyle` is a web-only CSS property; RN's ViewStyle types only allow
+  // solid|dotted|dashed, so the cast follows the same pattern used across the
+  // repo (e.g. ClientLaneSearchPicker, workspacePanelUi). Without it the bad
+  // entry poisons StyleSheet.create's inference and every `styles.*` consumer
+  // in this file reports "No overload matches this call".
   podTripsLikeSearchWrapWeb: {
     outlineStyle: "none",
     outlineWidth: 0,
-  },
+  } as object,
   podTripsLikeSearchIcon: { marginRight: 8 },
   podTripsLikeSearchInput: {
     flex: 1,
@@ -2318,7 +2325,7 @@ const styles = StyleSheet.create({
   podTripsLikeSearchInputWeb: {
     outlineStyle: "none",
     outlineWidth: 0,
-  },
+  } as object,
   podTripsLikeToolbarActions: {
     flexDirection: "row",
     alignItems: "center",

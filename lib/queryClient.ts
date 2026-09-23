@@ -18,7 +18,7 @@ import {
   recordRefetchQueries,
   recordSetQueryData,
 } from '@/lib/platform/scalability/queryCacheMetrics';
-import { isOriginDownError } from '@/lib/supabaseHttp.util';
+import { isOriginDownError, isSupabaseCircuitOpen } from '@/lib/supabaseHttp.util';
 
 /** Shared stale-time constants — import in query hooks to apply per-query tiers. */
 export const STALE = {
@@ -53,6 +53,9 @@ function attachPlatformCacheMetrics(client: QueryClient): void {
 
   const origInvalidate = client.invalidateQueries.bind(client);
   (client as unknown as { invalidateQueries: typeof origInvalidate }).invalidateQueries = function (...args) {
+    if (isSupabaseCircuitOpen()) {
+      return Promise.resolve();
+    }
     recordInvalidateQueries();
     const now = Date.now();
     if (now - stormWindowStart > INVALIDATION_STORM_WINDOW_MS) {
@@ -104,7 +107,7 @@ function attachDevObserver(client: QueryClient): void {
       if (start !== undefined) {
         const elapsed = Date.now() - start;
         startTimes.delete(key);
-        if (elapsed > SLOW_QUERY_WARN_MS) {
+        if (elapsed > SLOW_QUERY_WARN_MS && !isAbortError(error)) {
           const isKnownSlow =
             KNOWN_SLOW_QUERY_KEY_FRAGMENTS.some((frag) => key.includes(frag)) &&
             (isWithinAppQueryBootQuietPeriod() || elapsed < 8_000);
@@ -113,7 +116,7 @@ function attachDevObserver(client: QueryClient): void {
           }
         }
       }
-      if (status === 'error') {
+      if (status === 'error' && !isAbortError(error)) {
         console.warn('[query] fetch error', key.slice(0, 120), error);
       }
     }
@@ -149,7 +152,7 @@ function isAbortError(error: unknown): boolean {
   const message = extractErrorMessage(error);
   const hint = (error as { hint?: unknown } | null)?.hint;
   const haystack = typeof hint === 'string' ? `${message} ${hint}` : message;
-  return /\bAbortError\b|Fetch is aborted|The operation was aborted|signal is aborted|was aborted/i.test(
+  return /\bAbortError\b|Request cancelled|Fetch is aborted|The operation was aborted|signal is aborted|was aborted/i.test(
     haystack,
   );
 }
@@ -172,7 +175,9 @@ function isMissingQueryFnError(error: unknown): boolean {
  * reporting a new Sentry issue per affected user (GX-PULSE-17/21/22/23/24/25).
  */
 function isNetworkFailure(error: unknown): boolean {
-  return /Failed to fetch|Could not query the database for the schema cache/i.test(
+  const name = (error as { name?: unknown } | null)?.name;
+  if (name === 'TimeoutError') return true;
+  return /Failed to fetch|Request timed out|Could not query the database for the schema cache/i.test(
     extractErrorMessage(error),
   );
 }
@@ -238,6 +243,7 @@ function toReportableError(error: unknown): Error {
  */
 export function shouldRetryQuery(failureCount: number, error: unknown): boolean {
   if (failureCount >= 1) return false;
+  if (isSupabaseCircuitOpen()) return false;
   if (isAbortError(error)) return false;
   if (isTimeoutError(error)) return false;
   if (isQueryOriginDownError(error)) return false;
@@ -271,9 +277,13 @@ export function makeQueryClient() {
         staleTime: STALE.moderate,
         gcTime: GC_TIME_MS,
         retry: shouldRetryQuery,
-        retryDelay: 1000,
+        retryDelay: (attemptIndex) => {
+          const base = Math.min(1_000 * 2 ** attemptIndex, 8_000);
+          const jitter = base * 0.2 * (Math.random() * 2 - 1);
+          return Math.round(base + jitter);
+        },
         refetchOnWindowFocus: false,
-        refetchOnReconnect: true,
+        refetchOnReconnect: false,
       },
       mutations: {
         retry: 0,

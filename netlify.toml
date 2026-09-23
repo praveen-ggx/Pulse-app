@@ -22,7 +22,11 @@
   # Public site origin is intentionally baked into HTML/share links — not a secret.
   # Supabase anon key is public-by-design (RLS enforces access, not secrecy) and
   # the project URL is hardcoded in migrations for pg_cron/pg_net edge function calls.
-  SECRETS_SCAN_OMIT_KEYS = "EXPO_PUBLIC_WEB_BASE_URL,EXPO_PUBLIC_SUPABASE_URL,EXPO_PUBLIC_SUPABASE_ANON_KEY"
+  # VITE_* carry the SAME public project URL + anon key as their EXPO_PUBLIC_*
+  # counterparts (analytics/ and oms/ are Vite apps, the root app is Expo), so
+  # they need the same exemption — otherwise the scanner flags the values this
+  # very file defines, plus the URL hardcoded in pg_cron migrations.
+  SECRETS_SCAN_OMIT_KEYS = "EXPO_PUBLIC_WEB_BASE_URL,EXPO_PUBLIC_SUPABASE_URL,EXPO_PUBLIC_SUPABASE_ANON_KEY,VITE_SUPABASE_URL,VITE_SUPABASE_ANON_KEY"
   VITE_SUPABASE_URL      = "https://nafxpivddesgsrthmosv.supabase.co"
   VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5hZnhwaXZkZGVzZ3NydGhtb3N2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2OTg3NTYsImV4cCI6MjA4NjI3NDc1Nn0.nXCf5LrTXtg9NNi850MKTCcG_FEE7Tb4qbpP7ftoVBY"
   # VITE_ADMIN_TOKEN and VITE_SUPABASE_SERVICE_ROLE_KEY must be set in

@@ -16,6 +16,10 @@
 import { QueryClient } from '@tanstack/react-query';
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { queryKeys } from '@/lib/queryKeys';
+import {
+  flushInvalidations,
+  __resetInvalidationSchedulerForTests,
+} from '@/lib/platform/moderator';
 import { applyTransactionRealtimeEvent } from '../useRealtimeInvalidation';
 
 const mockToLedgerRow = jest.fn((row: Record<string, unknown>) => ({ ...row, __transformed: true }));
@@ -64,6 +68,8 @@ function isInvalidated(qc: QueryClient, key: unknown[]): boolean {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // Drop any invalidation window left pending by a previous test.
+  __resetInvalidationSchedulerForTests();
 });
 
 describe('applyTransactionRealtimeEvent', () => {
@@ -195,6 +201,10 @@ describe('applyTransactionRealtimeEvent', () => {
     qc.setQueryData(contactKey, []);
 
     await applyTransactionRealtimeEvent(qc, orgId, payload('DELETE', null, { id: 'tx-1' }));
+    // These two keys now go through the Moderator's invalidation debouncer, so
+    // they land on the next flush rather than synchronously. Same keys, same
+    // effect — just batched. @see docs/DB_LOAD_ARCHITECTURE_REVIEW.md
+    flushInvalidations();
 
     expect(isInvalidated(qc, infiniteKey)).toBe(true);
     expect(isInvalidated(qc, contactKey)).toBe(true);

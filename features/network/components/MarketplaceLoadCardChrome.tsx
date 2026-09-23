@@ -102,7 +102,9 @@ const styles = StyleSheet.create({
       width: "100%",
       maxWidth: "100%",
       paddingVertical: 2,
-    } as ViewStyle,
+      // CSS Grid is web-only and absent from RN's ViewStyle — route the cast
+      // through `object`, matching how the rest of the repo handles web-only CSS.
+    } as object as ViewStyle,
     default: {
       flexDirection: "row",
       alignItems: "flex-start",

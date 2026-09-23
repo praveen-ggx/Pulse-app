@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { Lock } from 'lucide-react-native';
 
 import Theme from '@/constants/Theme';
 import type { PulseProductPreview } from '@/lib/onboarding/productCatalog';
@@ -18,7 +19,11 @@ export const PulseComingSoonProduct = memo(function PulseComingSoonProduct({
 }: PulseComingSoonProductProps) {
   if (variant === 'chip') {
     return (
-      <View style={styles.chip} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <View
+        style={styles.chip}
+        accessibilityLabel={`${product.name}, locked`}
+      >
+        <Lock size={10} color={Theme.textMuted} strokeWidth={2.2} />
         <Text style={styles.chipName}>{product.name}</Text>
       </View>
     );
@@ -34,6 +39,9 @@ export const PulseComingSoonProduct = memo(function PulseComingSoonProduct({
 const styles = StyleSheet.create({
   chip: {
     flexShrink: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,

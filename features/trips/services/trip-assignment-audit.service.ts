@@ -191,13 +191,15 @@ async function fetchLatestAssignmentAuditByTripIdsLegacy(
   return { error: null, byTripId };
 }
 
-export async function getLatestAssignmentAuditByTripIds(
-  tripIds: string[]
-): Promise<{ error: Error | null; byTripId: Map<string, { changed_by: string | null; changed_at: string }> }> {
-  const byTripId = new Map<string, { changed_by: string | null; changed_at: string }>();
-  if (tripIds.length === 0) return { error: null, byTripId };
-  if (tripAssignmentAuditTableUnavailable) return { error: null, byTripId };
+const ASSIGNMENT_AUDIT_TRIP_ID_CHUNK = 12;
 
+async function fetchLatestAssignmentAuditChunk(
+  tripIds: string[],
+): Promise<{
+  error: Error | null;
+  byTripId: Map<string, { changed_by: string | null; changed_at: string }>;
+}> {
+  const byTripId = new Map<string, { changed_by: string | null; changed_at: string }>();
   try {
     const { data, error } = await supabase().rpc('get_latest_assignment_audit_by_trip_ids', {
       p_trip_ids: tripIds,
@@ -223,6 +225,27 @@ export async function getLatestAssignmentAuditByTripIds(
     if (isTripAssignmentAuditTableMissing(err)) return { error: null, byTripId };
     return { error: e instanceof Error ? e : new Error(String(e)), byTripId };
   }
+}
+
+export async function getLatestAssignmentAuditByTripIds(
+  tripIds: string[],
+): Promise<{
+  error: Error | null;
+  byTripId: Map<string, { changed_by: string | null; changed_at: string }>;
+}> {
+  const byTripId = new Map<string, { changed_by: string | null; changed_at: string }>();
+  if (tripIds.length === 0) return { error: null, byTripId };
+  if (tripAssignmentAuditTableUnavailable) return { error: null, byTripId };
+
+  for (let i = 0; i < tripIds.length; i += ASSIGNMENT_AUDIT_TRIP_ID_CHUNK) {
+    const chunk = tripIds.slice(i, i + ASSIGNMENT_AUDIT_TRIP_ID_CHUNK);
+    const res = await fetchLatestAssignmentAuditChunk(chunk);
+    if (res.error) return res;
+    for (const [tripId, value] of res.byTripId) {
+      byTripId.set(tripId, value);
+    }
+  }
+  return { error: null, byTripId };
 }
 
 /**

@@ -39,6 +39,7 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { supabase } from '@/lib/supabase';
+import { isSupabaseCircuitOpen } from '@/lib/supabaseHttp.util';
 import { recordMarkMessagesSeen } from '@/lib/chatPerf';
 import {
   fetchChatBootstrapPayload,
@@ -1433,6 +1434,7 @@ export const useChatStore = create<ChatState>()(
     bootstrap: async (orgId) => {
       if (get().bootstrappedOrg === orgId) return;
       if (chatBootstrapInFlightFor === orgId) return;
+      if (isSupabaseCircuitOpen()) return;
 
       // Set the in-flight guard synchronously, before the first `await`, so a
       // second caller (e.g. the tab-touch preloader in preloadChatWarmup.ts racing

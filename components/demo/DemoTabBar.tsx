@@ -206,14 +206,14 @@ export function DemoTabBar({
           preloadFinanceWarmup(queryClient, orgId);
         }
         if ((tab === "trips" || tab === "network") && orgId) {
-          preloadChatRoute(orgId);
+          preloadChatRoute(orgId, { bootstrap: false });
         }
       }
     },
     [orgId, queryClient],
   );
   const warmChatRoute = useCallback(() => {
-    preloadChatRoute(orgId);
+    preloadChatRoute(orgId, { bootstrap: false });
   }, [orgId]);
   const [profileAvatarUri, setProfileAvatarUri] = useState<string | null>(null);
   /** Operation shelf row ids the user has opened in the Alert Registry (session-only; badge excludes them). */

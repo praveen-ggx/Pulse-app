@@ -6,7 +6,6 @@ import {
   exchangeMagicLinkForSession,
   generateDriverMagicLinkToken,
 } from '../_shared/driverSessionExchange.ts';
-import { ingestLog } from '../_shared/logWatcherIngest.ts';
 import { createClient as createClientDirect } from 'npm:@supabase/supabase-js@2';
 const corsAllowHeaders = 'authorization, x-client-info, apikey, content-type';
 function getCorsOrigin(req: Request): string {

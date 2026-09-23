@@ -22,7 +22,7 @@ interface PermissionGateProps {
 
 export function PermissionGate({
   permission,
-  mode = 'any',
+  mode: _mode = 'any',
   children,
   fallback = null,
   showFallback = false,

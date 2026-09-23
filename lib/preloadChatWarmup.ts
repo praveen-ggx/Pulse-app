@@ -81,10 +81,13 @@ function preloadChatBootstrap(orgId: string): void {
 }
 
 /** Screen chunk + providers; optional org starts bootstrap on finger-down. */
-export function preloadChatRoute(orgId?: string | null): void {
+export function preloadChatRoute(
+  orgId?: string | null,
+  opts?: { bootstrap?: boolean },
+): void {
   void preloadChatProviderModules();
   void preloadChatScreenModule();
-  if (orgId) preloadChatBootstrap(orgId);
+  if (orgId && opts?.bootstrap !== false) preloadChatBootstrap(orgId);
 }
 
 /** Clear cached dynamic-import promises (e.g. after a failed Metro bundle). */

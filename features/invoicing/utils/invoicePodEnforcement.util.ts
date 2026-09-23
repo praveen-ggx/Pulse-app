@@ -24,6 +24,8 @@ export const INVOICE_POD_WORKSPACE_HARD_COPY =
   "POD Required is ON. Physical POD receipt is required before invoicing.";
 export const INVOICE_POD_OPTIONS_CONFLICT =
   "podPolicy and requirePod were both supplied and do not agree.";
+export const INVOICE_POD_POLICY_UNCONFIGURED =
+  "This client has no invoicing POD policy. Set none, soft copy, or hard copy before invoicing.";
 
 export type InvoicePodEvidence = {
   digitalPodPresent: boolean;
@@ -126,20 +128,23 @@ export function parseClientInvoicePodPolicyOrError(
 
 export function effectiveInvoicePodPolicyFromClientRaw(args: {
   clientPolicyRaw: unknown;
-  workspacePodRequired: boolean;
+  /** Ignored. NULL client policy is unconfigured, not a workspace fallback. */
+  workspacePodRequired?: boolean;
 }):
-  | { ok: true; policy: InvoicePodPolicy; source: "client" | "workspace" }
+  | { ok: true; policy: InvoicePodPolicy; source: "client" }
   | { ok: false; error: string } {
   const parsed = parseClientInvoicePodPolicyOrError(args.clientPolicyRaw);
   if (!parsed.ok) return parsed;
   const policy = resolveInvoicePodPolicy({
     clientPolicy: parsed.policy,
-    workspacePodRequired: args.workspacePodRequired,
   });
+  if (policy == null) {
+    return { ok: false, error: INVOICE_POD_POLICY_UNCONFIGURED };
+  }
   return {
     ok: true,
     policy,
-    source: parsed.policy == null ? "workspace" : "client",
+    source: "client",
   };
 }
 

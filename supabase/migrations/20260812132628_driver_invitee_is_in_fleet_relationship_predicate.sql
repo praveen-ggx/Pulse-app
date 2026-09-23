@@ -91,19 +91,31 @@
 --     match, and the left_at / owner_id guards — all byte-for-byte identical
 --     to 20261130000003_get_driver_invitee_by_phone_avatars.sql.
 --
--- CREATE OR REPLACE, deliberately NOT DROP + CREATE. This function is
--- SECURITY DEFINER and is one of only two RPCs intentionally left
--- anon-executable (20260728210000_v2_audit_anon_rpc_revoke.sql) because the
--- driver sign-in path needs it: supabase/functions/link-driver-phone/index.ts
--- calls it to resolve a verified phone to the driver's real account before
--- minting a magic link. DROP would silently revoke those grants and break
--- unauthenticated driver sign-in. The signature is unchanged, so CREATE OR
--- REPLACE preserves all existing grants; they are re-asserted at the bottom
--- anyway as a belt-and-braces guard. is_in_fleet stays the 10th column of the
--- same single returned row, so link-driver-phone (which reads user_id and
--- email and ignores column 10) is unaffected.
+-- DROP + CREATE (not a bare CREATE OR REPLACE): this migration's
+-- RETURNS TABLE actually adds avatar_url/avatar_seed relative to the
+-- immediately preceding 20260408120000 version — a return-shape change,
+-- which Postgres's CREATE OR REPLACE FUNCTION cannot perform (SQLSTATE
+-- 42P13, "cannot change return type of existing function"). An earlier
+-- version of this migration used CREATE OR REPLACE on the incorrect premise
+-- that the return shape hadn't changed; corrected here per Phase 7A's
+-- from-scratch-replay verification (fails deterministically on a clean
+-- Postgres otherwise). This function is SECURITY DEFINER and is one of only
+-- two RPCs intentionally left anon-executable
+-- (20260728210000_v2_audit_anon_rpc_revoke.sql) because the driver sign-in
+-- path needs it: supabase/functions/link-driver-phone/index.ts calls it to
+-- resolve a verified phone to the driver's real account before minting a
+-- magic link. DROP would silently revoke those grants if nothing re-granted
+-- them afterward — the explicit GRANT statements below (already present in
+-- this migration, not newly added by this correction) re-assert
+-- authenticated/anon/service_role immediately after CREATE, so the end
+-- state — including anon access for driver sign-in — is unchanged.
+-- is_in_fleet stays the 10th column of the same single returned row, so
+-- link-driver-phone (which reads user_id and email and ignores column 10)
+-- is unaffected.
 
-CREATE OR REPLACE FUNCTION public.get_driver_invitee_by_phone(p_phone text)
+DROP FUNCTION IF EXISTS public.get_driver_invitee_by_phone(text);
+
+CREATE FUNCTION public.get_driver_invitee_by_phone(p_phone text)
 RETURNS TABLE(
   user_id uuid,
   full_name text,

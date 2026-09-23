@@ -5,7 +5,9 @@
  * - Concurrent callers for the same path share one in-flight promise.
  * - getUrls() batches uncached paths into one createSignedUrls call.
  * - Failed / empty paths are never stored as valid URLs.
+ * - Fails fast while the shared Supabase origin circuit is open.
  */
+import { isSupabaseCircuitOpen } from "@/lib/supabaseHttp.util";
 
 export const SIGNED_URL_EXPIRY_SEC = 3600;
 export const SIGNED_URL_CACHE_TTL_MS = (SIGNED_URL_EXPIRY_SEC - 120) * 1000;
@@ -119,6 +121,7 @@ export function createStorageSignedUrlCache(
 
     const cached = peek(path);
     if (cached) return Promise.resolve(cached);
+    if (isSupabaseCircuitOpen()) return Promise.resolve(null);
 
     const existing = inflight.get(path);
     if (existing) return existing;
@@ -155,6 +158,10 @@ export function createStorageSignedUrlCache(
             result[path] = url;
           }),
         );
+        continue;
+      }
+      if (isSupabaseCircuitOpen()) {
+        result[path] = null;
         continue;
       }
       toSign.push(path);

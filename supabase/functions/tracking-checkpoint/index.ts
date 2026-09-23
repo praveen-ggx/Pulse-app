@@ -4,7 +4,6 @@
  * Use this Edge Function when you need service-role validation or external ingest.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { ingestLog } from '../_shared/logWatcherIngest.ts';
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',

@@ -228,7 +228,8 @@ export async function getVehicleDocumentViewUrls(
 
 /**
  * Fill empty vault slots from viewer-org entity_documents (trip fallback uploads).
- * Vault JSON wins when both exist for the same type.
+ * Vault JSON wins when both exist for the same type — unless the vault URL is
+ * empty/whitespace.
  */
 export async function mergeEntityDocumentsIntoVehicleVault(
   vehicleId: string,
@@ -252,8 +253,13 @@ export async function mergeEntityDocumentsIntoVehicleVault(
     if (type !== "rc" && type !== "insurance" && type !== "fitness" && type !== "pollution") {
       continue;
     }
-    if (filled.has(type) || merged[type]?.url) continue;
+    if (filled.has(type)) continue;
     if (!row.storage_path) continue;
+    // Prefer entity_documents when vault slot is empty (cross-org Save to vault fallback).
+    if (merged[type]?.url?.trim()) {
+      filled.add(type);
+      continue;
+    }
     filled.add(type);
     merged[type] = {
       url: row.storage_path,
@@ -261,7 +267,9 @@ export async function mergeEntityDocumentsIntoVehicleVault(
       uploadedAt: row.created_at ?? undefined,
     };
   }
-  return filled.size > 0 ? merged : base;
+  return Object.keys(merged).length > 0 || (base && Object.keys(base).length > 0)
+    ? merged
+    : base;
 }
 
 function extraDocumentId(): string {
@@ -382,6 +390,51 @@ export async function uploadAndSaveVehicleDocument(
 
   const persistedDocs = (savedRow.documents ?? {}) as VehicleDocuments;
   return { documents: persistedDocs, error: null };
+}
+
+/** Update expiry on an existing vault slot (Insurance / FC) without re-uploading. */
+export async function updateVehicleDocumentExpiry(
+  orgId: string,
+  vehicleId: string,
+  docType: VehicleComplianceDocType,
+  expiryDate: string,
+  existingDocuments: VehicleDocuments | null,
+): Promise<{ documents: VehicleDocuments | null; error: Error | null }> {
+  const trimmed = expiryDate.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return { documents: null, error: new Error("Use YYYY-MM-DD for the expiry date (for example 2027-03-15).") };
+  }
+  const resolved = await resolveVehicleDocumentsWriteTarget(vehicleId, [orgId]);
+  const owningOrgId = resolved?.orgId ?? orgId;
+  const base = resolved?.documents ?? existingDocuments;
+  const current = base?.[docType];
+  if (!current?.url?.trim()) {
+    return { documents: null, error: new Error("Upload this document before setting an expiry date.") };
+  }
+  const updated: VehicleDocuments = {
+    ...(base ?? {}),
+    [docType]: {
+      ...current,
+      expiryDate: trimmed,
+    },
+  };
+  const { data: savedRow, error: dbError } = await supabase()
+    .from("vehicles")
+    .update({ documents: updated })
+    .eq("organization_id", owningOrgId)
+    .eq("id", vehicleId)
+    .select("id, documents")
+    .maybeSingle();
+  if (dbError || !savedRow) {
+    return {
+      documents: null,
+      error: new Error(
+        dbError?.message ??
+          "Could not save the expiry date for this vehicle document.",
+      ),
+    };
+  }
+  return { documents: (savedRow.documents ?? updated) as VehicleDocuments, error: null };
 }
 
 /**

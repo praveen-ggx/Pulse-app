@@ -341,6 +341,25 @@ export async function verifyDocument(
   return { error: (error as Error | null) ?? null };
 }
 
+/** Set expiry on an entity document (Insurance / FC / DL require this before Approve). */
+export async function updateEntityDocumentExpiry(
+  docId: string,
+  expiryDate: string,
+): Promise<{ error: Error | null }> {
+  const trimmed = expiryDate.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return { error: new Error("Use YYYY-MM-DD for the expiry date (for example 2027-03-15).") };
+  }
+  const { error } = await supabase()
+    .from("entity_documents")
+    .update({
+      expiry_date: trimmed,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", docId);
+  return { error: (error as Error | null) ?? null };
+}
+
 export async function rejectDocument(
   docId: string,
   reason: string,

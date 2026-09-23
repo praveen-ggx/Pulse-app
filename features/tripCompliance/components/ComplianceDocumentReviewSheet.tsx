@@ -9,11 +9,16 @@ import Theme from "@/constants/Theme";
 import {
   rejectDocument,
   replaceComplianceDocument,
+  updateEntityDocumentExpiry,
   uploadComplianceDocument,
   verifyDocument,
 } from "@/features/compliance/services/documents.service";
 import { getVehicleById } from "@/features/vehicles/services/vehicles.service";
-import { uploadAndSaveVehicleDocument, resolveVehicleDocumentsWriteTarget } from "@/features/vehicles/services/vehicleDocuments.service";
+import {
+  resolveVehicleDocumentsWriteTarget,
+  updateVehicleDocumentExpiry,
+  uploadAndSaveVehicleDocument,
+} from "@/features/vehicles/services/vehicleDocuments.service";
 import type { VehicleComplianceDocType } from "@/features/vehicles/utils/vehicleDocuments.util";
 import { describeStopProofDocument, type StopProofDocumentSummary } from "@/features/driver/job-card/deliveryProof";
 import { ComplianceDocumentPreviewModal } from "@/features/tripCompliance/components/ComplianceDocumentPreviewModal";
@@ -223,7 +228,7 @@ export function ComplianceDocumentReviewSheet({
   const canModerateSelected =
     scope === "trip"
       ? Boolean(selected?.doc)
-      : selected?.entityDoc?.source !== "vehicle-vault" && selected?.entityDoc?.source !== "driver-kyc";
+      : Boolean(selected?.entityDoc) && selected?.entityDoc?.source !== "driver-kyc";
   const copy = SCOPE_COPY[scope];
   const entityId = scope === "vehicle" ? vehicleId : scope === "driver" ? driverId : tripId;
   const entityAssigned = scope === "trip" || Boolean(entityId);
@@ -244,6 +249,12 @@ export function ComplianceDocumentReviewSheet({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, tripId, scope]);
+
+  const promptExpiryDate = useCallback((docType: string) => {
+    return new Promise<string | null>((resolve) => {
+      setExpiryPrompt({ docType, resolve });
+    });
+  }, []);
 
   const stopProofForRow = useCallback((row: ComplianceDocRow | null) => {
     if (!row) return null;
@@ -345,41 +356,101 @@ export function ComplianceDocumentReviewSheet({
       if (!actorId || !row) return;
       setBusy(true);
       setBusyRowKey(row.key);
-      if (scope === "trip") {
-        if (!row.doc) {
-          setBusy(false);
-          setBusyRowKey(null);
-          return;
+      try {
+        let expiryDate = row.entityDoc?.expiry_date?.trim() ?? "";
+        if (documentRequiresExpiry(row.type) && !expiryDate) {
+          const entered = await promptExpiryDate(row.type);
+          if (!entered) return;
+          const trimmed = entered.trim();
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+            alertMessage("Invalid expiry date", "Use YYYY-MM-DD (for example 2027-03-15).");
+            return;
+          }
+          expiryDate = trimmed;
         }
-        const { error } = await setTripDocumentVerification({
-          document: row.doc,
-          organizationId,
-          actorId,
-          status: "verified",
-        });
+
+        if (scope === "trip") {
+          if (!row.doc) return;
+          const { error } = await setTripDocumentVerification({
+            document: row.doc,
+            organizationId,
+            actorId,
+            status: "verified",
+          });
+          if (error) {
+            alertMessage("Couldn't approve document", error.message);
+            return;
+          }
+        } else if (
+          row.entityDoc?.source === "vehicle-vault" &&
+          scope === "vehicle" &&
+          vehicleId
+        ) {
+          // Vault docs are "verified" when on file (+ expiry for Insurance/FC).
+          if (documentRequiresExpiry(row.type)) {
+            const { error } = await updateVehicleDocumentExpiry(
+              organizationId,
+              vehicleId,
+              row.type as VehicleComplianceDocType,
+              expiryDate,
+              null,
+            );
+            if (error) {
+              // Cross-org vault write may fail — fall back to entity_documents expiry+verify when possible.
+              const resolved = await resolveVehicleDocumentsWriteTarget(vehicleId, [organizationId]);
+              if (!resolved) {
+                alertMessage(
+                  "Couldn't approve document",
+                  error.message ||
+                    "Could not save the expiry date on this vehicle. Re-upload with an expiry date, then Approve.",
+                );
+                return;
+              }
+              const retry = await updateVehicleDocumentExpiry(
+                resolved.orgId,
+                vehicleId,
+                row.type as VehicleComplianceDocType,
+                expiryDate,
+                resolved.documents,
+              );
+              if (retry.error) {
+                alertMessage("Couldn't approve document", retry.error.message);
+                return;
+              }
+            }
+          }
+          // No separate verify step for vault — checklist treats on-file + expiry as verified.
+        } else if (row.entityDoc?.source === "driver-kyc") {
+          alertMessage(
+            "Couldn't approve document",
+            "Update this driver document from Trip Operations / Driver KYC, then refresh Compliance.",
+          );
+          return;
+        } else {
+          if (!row.entityDoc?.id) {
+            alertMessage("Couldn't approve document", "Document record is missing. Re-upload, then try again.");
+            return;
+          }
+          if (documentRequiresExpiry(row.type) && expiryDate) {
+            const { error: expiryError } = await updateEntityDocumentExpiry(row.entityDoc.id, expiryDate);
+            if (expiryError) {
+              alertMessage("Couldn't approve document", expiryError.message);
+              return;
+            }
+          }
+          const { error } = await verifyDocument(row.entityDoc.id, actorId);
+          if (error) {
+            alertMessage("Couldn't approve document", error.message);
+            return;
+          }
+        }
+        onChanged();
+      } finally {
         setBusy(false);
         setBusyRowKey(null);
-        if (error) {
-          alertMessage("Couldn't approve document", error.message);
-          return;
-        }
-      } else {
-        if (!row.entityDoc || row.entityDoc.source === "vehicle-vault" || row.entityDoc.source === "driver-kyc") {
-          setBusy(false);
-          setBusyRowKey(null);
-          return;
-        }
-        const { error } = await verifyDocument(row.entityDoc.id, actorId);
-        setBusy(false);
-        setBusyRowKey(null);
-        if (error) {
-          alertMessage("Couldn't approve document", error.message);
-          return;
-        }
       }
-      onChanged();
     },
-    [actorId, organizationId, onChanged, scope],
+    [actorId, organizationId, onChanged, scope, vehicleId, promptExpiryDate],
   );
 
   const handleRejectSubmit = useCallback(
@@ -410,9 +481,20 @@ export function ComplianceDocumentReviewSheet({
           return;
         }
       } else {
-        if (!row.entityDoc || row.entityDoc.source === "vehicle-vault" || row.entityDoc.source === "driver-kyc") {
+        if (!row.entityDoc || row.entityDoc.source === "driver-kyc") {
           setBusy(false);
           setBusyRowKey(null);
+          return;
+        }
+        if (row.entityDoc.source === "vehicle-vault") {
+          setBusy(false);
+          setBusyRowKey(null);
+          setRejectVisible(false);
+          setRejectTarget(null);
+          alertMessage(
+            "Couldn't decline document",
+            "Replace this file from the vehicle vault, or upload a new copy in Compliance.",
+          );
           return;
         }
         const { error } = await rejectDocument(row.entityDoc.id, values.reason);
@@ -466,12 +548,6 @@ export function ComplianceDocumentReviewSheet({
     setExceptionComment("");
     onChanged();
   }, [exceptionComment, tripId, onChanged]);
-
-  const promptExpiryDate = useCallback((docType: string) => {
-    return new Promise<string | null>((resolve) => {
-      setExpiryPrompt({ docType, resolve });
-    });
-  }, []);
 
   const resolveExpiryForUpload = useCallback(
     async (type: string): Promise<string | null> => {
@@ -1160,7 +1236,7 @@ export function ComplianceDocumentReviewSheet({
                           <Text style={styles.approveBtnText}>{busy ? "Approving…" : "Approve"}</Text>
                         </TouchableOpacity>
                       ) : null}
-                      {selected.status !== "rejected" ? (
+                      {selected.status !== "rejected" && selected.entityDoc?.source !== "vehicle-vault" ? (
                         <TouchableOpacity
                           style={styles.rejectBtn}
                           onPress={() => {

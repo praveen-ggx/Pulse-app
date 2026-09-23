@@ -93,7 +93,7 @@ export default function ComplianceScreen() {
 
   const contentTopInset = layout.isDesktopWeb ? Layout.desktopTopNavOffset : layout.top;
   const pagePad = Layout.screenPaddingHorizontal;
-  const gridGap = Layout.spacingMedium;
+  const gridGap = Math.min(Layout.spacingMedium, 12);
   const compactToolbar = width < 760;
   const columns = width >= 1100 ? 3 : width >= 760 ? 2 : 1;
   const usableWidth = Math.max(280, width - pagePad * 2);
@@ -386,7 +386,7 @@ export default function ComplianceScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: Theme.compliancePageBg },
-  content: { paddingTop: Layout.spacingMedium, gap: Layout.spacingLarge },
+  content: { paddingTop: Layout.spacingMedium, gap: Layout.spacingMedium },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: Theme.compliancePageBg },
   header: { gap: Layout.spacingSmall },
   headerTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },

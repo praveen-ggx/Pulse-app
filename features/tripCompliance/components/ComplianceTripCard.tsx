@@ -3,11 +3,6 @@
  * (client head, horizontal route, party chips), plus docs checklist + Verify Docs.
  */
 import { PartyAvatar } from "@/components/PartyAvatar";
-import {
-  HUB_CARD_HEAD_AVATAR,
-  HUB_CARD_HEAD_LEFT_GAP,
-  HUB_CARD_PARTY_CHIP_AVATAR,
-} from "@/components/hub/hubGridCardLayout";
 import { HUB_MOBILE_TICKET_REF } from "@/components/hub/hubMobileTicketTokens";
 import { FinanceTxnTypography } from "@/constants/FinanceTxnTypography";
 import Theme from "@/constants/Theme";
@@ -44,8 +39,11 @@ import {
 } from "react-native";
 
 const REF = HUB_MOBILE_TICKET_REF;
-const ROUTE_PIN_SIZE = 8;
-const CHIP_AVATAR = HUB_CARD_PARTY_CHIP_AVATAR;
+const ROUTE_PIN_SIZE = 6;
+/** Compact vs hub defaults — denser queue cards without dropping fields. */
+const HEAD_AVATAR = 32;
+const CHIP_AVATAR = 22;
+const HEAD_LEFT_GAP = 8;
 
 export type ComplianceTripCardProps = {
   summary: ComplianceTripSummary;
@@ -166,7 +164,7 @@ function ChecklistGroupTile({
         <Text style={[styles.groupLabel, { color: tone.fg }]} numberOfLines={1}>
           {group.label}
         </Text>
-        <Eye size={11} color={tone.fg} strokeWidth={2.2} />
+        <Eye size={10} color={tone.fg} strokeWidth={2.2} />
       </View>
       <View style={styles.groupDots}>
         {group.slots.map((slot) => (
@@ -274,7 +272,7 @@ export function ComplianceTripCard({
                 name={clientName}
                 initialsColorSeed={clientFb}
                 entityType="client"
-                size={HUB_CARD_HEAD_AVATAR}
+                size={HEAD_AVATAR}
               />
               <View style={styles.headText}>
                 <Text style={styles.brand} numberOfLines={1}>
@@ -286,9 +284,24 @@ export function ComplianceTripCard({
               </View>
             </View>
             <View style={styles.headMetaCol}>
-              <Text style={styles.headMeta} numberOfLines={1}>
-                {headStatusUpper}
-              </Text>
+              <View
+                style={[
+                  styles.headStatusPill,
+                  {
+                    backgroundColor: showPaymentPill ? payment.tone.bg : verification.tone.bg,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.headStatusPillText,
+                    { color: showPaymentPill ? payment.tone.fg : verification.tone.fg },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {headStatusUpper}
+                </Text>
+              </View>
               {showPaymentPill ? (
                 <Text style={styles.headMetaMuted} numberOfLines={1}>
                   {verification.label}
@@ -343,7 +356,12 @@ export function ComplianceTripCard({
             ))}
           </View>
 
-          <View style={styles.blockerBox}>
+          <View
+            style={[
+              styles.blockerBox,
+              readiness.paymentReady ? styles.blockerBoxReady : styles.blockerBoxBlocked,
+            ]}
+          >
             <Text
               style={[
                 styles.payLabel,
@@ -471,27 +489,27 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: Theme.cardWhite,
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: Theme.borderLight,
     overflow: "hidden",
     ...Platform.select({
       web: {
-        boxShadow: "0 2px 8px rgba(15, 23, 42, 0.05)",
+        boxShadow: "0 1px 4px rgba(15, 23, 42, 0.04)",
       } as ViewStyle,
       default: {
         shadowColor: "#0f172a",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 6,
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 4,
         elevation: 1,
       },
     }),
   },
   body: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 12,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 8,
   },
   bodyPressed: {
     opacity: 0.98,
@@ -500,56 +518,61 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    gap: 10,
-    marginBottom: 14,
+    gap: 8,
+    marginBottom: 8,
   },
   headLeft: {
     flex: 1,
     minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
-    gap: HUB_CARD_HEAD_LEFT_GAP,
+    gap: HEAD_LEFT_GAP,
   },
   headText: {
     flex: 1,
     minWidth: 0,
-    minHeight: HUB_CARD_HEAD_AVATAR,
+    minHeight: HEAD_AVATAR,
     justifyContent: "center",
-    gap: 2,
+    gap: 1,
   },
   brand: {
     ...FinanceTxnTypography.partyTitle,
     fontSize: 12,
     lineHeight: 15,
     letterSpacing: -0.1,
-    fontWeight: "500",
+    fontWeight: "600",
   },
   partnerSubline: {
     fontSize: 10,
-    lineHeight: 13,
+    lineHeight: 12,
     fontWeight: "600",
     color: REF.accent,
     letterSpacing: 0.2,
   },
   headMetaCol: {
     flexShrink: 0,
-    maxWidth: "42%",
+    maxWidth: "46%",
     alignItems: "flex-end",
-    gap: 3,
-    paddingTop: 1,
+    gap: 2,
+    paddingTop: 0,
   },
-  headMeta: {
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: "500",
-    color: REF.muted,
+  headStatusPill: {
+    maxWidth: "100%",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  headStatusPillText: {
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: "700",
     textAlign: "right",
     textTransform: "uppercase",
-    letterSpacing: 0.25,
+    letterSpacing: 0.2,
   },
   headMetaMuted: {
     fontSize: 9,
-    lineHeight: 12,
+    lineHeight: 11,
     fontWeight: "400",
     color: REF.muted,
     textAlign: "right",
@@ -557,7 +580,7 @@ const styles = StyleSheet.create({
   route: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 4,
+    gap: 2,
     width: "100%",
     maxWidth: "100%",
     overflow: "hidden",
@@ -575,7 +598,7 @@ const styles = StyleSheet.create({
   legRow: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 6,
+    gap: 5,
     minWidth: 0,
   },
   legRowEnd: {
@@ -597,7 +620,7 @@ const styles = StyleSheet.create({
     width: ROUTE_PIN_SIZE,
     height: ROUTE_PIN_SIZE,
     borderRadius: ROUTE_PIN_SIZE / 2,
-    marginTop: 2,
+    marginTop: 3,
     flexShrink: 0,
   },
   routePinOrigin: {
@@ -607,20 +630,20 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.positive,
   },
   legCity: {
-    fontSize: 12,
-    fontWeight: "600",
+    fontSize: 11,
+    fontWeight: "700",
     color: REF.ink,
     letterSpacing: -0.1,
-    lineHeight: 15,
+    lineHeight: 14,
     textTransform: "uppercase",
     width: "100%",
   },
   legState: {
-    marginTop: 1,
+    marginTop: 0,
     fontSize: 9,
     fontWeight: "400",
     color: REF.muted,
-    lineHeight: 12,
+    lineHeight: 11,
     width: "100%",
   },
   legStatePlaceholder: {
@@ -630,29 +653,29 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
   routeMid: {
-    width: 24,
-    paddingTop: 2,
+    width: 18,
+    paddingTop: 1,
     alignItems: "center",
     justifyContent: "flex-start",
     flexShrink: 0,
   },
   routeArrow: {
-    fontSize: 16,
-    fontWeight: "300",
+    fontSize: 13,
+    fontWeight: "400",
     color: REF.muted,
-    lineHeight: 18,
+    lineHeight: 15,
   },
   divider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: REF.hairline,
-    marginTop: 12,
-    marginBottom: 10,
+    marginTop: 8,
+    marginBottom: 8,
   },
   partyRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
+    gap: 8,
     minHeight: CHIP_AVATAR,
   },
   chip: {
@@ -660,7 +683,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
   },
   chipEnd: {
     justifyContent: "flex-end",
@@ -674,8 +697,8 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   chipName: {
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 10,
+    lineHeight: 13,
     fontWeight: "600",
     color: REF.ink,
     letterSpacing: -0.1,
@@ -684,9 +707,9 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
   complianceBody: {
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    gap: 8,
+    paddingHorizontal: 12,
+    paddingBottom: 8,
+    gap: 6,
   },
   checklistHeader: {
     flexDirection: "row",
@@ -698,7 +721,7 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "700",
     color: REF.muted,
-    letterSpacing: 0.4,
+    letterSpacing: 0.35,
   },
   checklistProgress: {
     fontSize: 9,
@@ -706,27 +729,25 @@ const styles = StyleSheet.create({
   },
   groupRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
+    flexWrap: "nowrap",
+    gap: 6,
   },
   groupTile: {
-    width: "48%",
-    flexGrow: 1,
-    flexBasis: "47%",
-    maxWidth: "100%",
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    gap: 5,
+    flex: 1,
+    minWidth: 0,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+    gap: 3,
   },
   groupHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 3,
+    gap: 2,
   },
   groupLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
     flex: 1,
     minWidth: 0,
@@ -735,30 +756,40 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
-    gap: 3,
+    gap: 2,
   },
   groupDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
   },
   groupCount: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "700",
   },
   blockerBox: {
-    gap: 2,
-    paddingTop: 4,
-    paddingHorizontal: 10,
-    paddingBottom: 8,
-    borderRadius: 10,
-    backgroundColor: Theme.compliancePageBg,
+    gap: 1,
+    paddingTop: 6,
+    paddingHorizontal: 8,
+    paddingBottom: 6,
+    borderRadius: 8,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: REF.hairline,
+    borderLeftWidth: 3,
+  },
+  blockerBoxBlocked: {
+    backgroundColor: Theme.complianceStageDocsBg,
+    borderColor: Theme.complianceStageDocsBg,
+    borderLeftColor: Theme.complianceStageDocsFg,
+  },
+  blockerBoxReady: {
+    backgroundColor: Theme.complianceStageSuccessBg,
+    borderColor: Theme.complianceStageSuccessBg,
+    borderLeftColor: Theme.complianceStageSuccessFg,
   },
   payLabel: {
     fontSize: 11,
     fontWeight: "800",
+    lineHeight: 14,
   },
   payReady: {
     color: Theme.complianceStageSuccessFg,
@@ -769,17 +800,17 @@ const styles = StyleSheet.create({
   blockerLine: {
     fontSize: 10,
     color: Theme.textMuted,
-    lineHeight: 14,
+    lineHeight: 13,
   },
   cardFooter: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
+    gap: 8,
     flexWrap: "wrap",
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 12,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: REF.hairline,
   },
@@ -788,15 +819,15 @@ const styles = StyleSheet.create({
     minWidth: 0,
     flexDirection: "row",
     alignItems: "stretch",
-    gap: 8,
+    gap: 6,
   },
   stagePill: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
     borderRadius: 999,
     flexShrink: 1,
     minWidth: 0,
@@ -805,24 +836,24 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   stageDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
   },
   stagePillText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
     flexShrink: 1,
   },
   footerActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
     flexShrink: 0,
   },
   verifyBtn: {
-    minHeight: 36,
-    paddingHorizontal: 14,
+    minHeight: 32,
+    paddingHorizontal: 12,
     borderRadius: Theme.buttonPrimaryRadius,
     backgroundColor: Theme.buttonPrimary,
     borderWidth: Theme.buttonPrimaryBorderWidth,
@@ -833,13 +864,13 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   verifyBtnText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
     color: Theme.buttonPrimaryText,
   },
   verifiedBtn: {
-    minHeight: 36,
-    paddingHorizontal: 12,
+    minHeight: 32,
+    paddingHorizontal: 10,
     borderRadius: 999,
     backgroundColor: Theme.complianceVerifiedPillBg,
     borderWidth: 1,
@@ -850,7 +881,7 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   verifiedBtnText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
     color: Theme.complianceVerifiedPillFg,
   },

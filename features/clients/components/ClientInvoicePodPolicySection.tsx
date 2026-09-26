@@ -98,33 +98,25 @@ export function ClientInvoicePodPolicySection({
     );
   };
 
+  const statusLabel = !parsed.ok
+    ? "Invalid policy"
+    : configuredPolicy
+      ? invoicePodPolicyLabel(configuredPolicy)
+      : "Unconfigured";
+
   return (
     <View style={styles.wrap} accessibilityLabel="POD for Invoicing">
-      <Text style={styles.kicker}>POD for Invoicing</Text>
-      <Text style={styles.effective}>
-        ON maps to hard-copy receipt. OFF maps to no POD gating. Soft copy stays
-        a separate digital capability.
-      </Text>
-      {parsed.ok ? (
-        configuredPolicy ? (
-          <Text style={styles.status}>
-            Configured: {invoicePodPolicyLabel(configuredPolicy)}
-          </Text>
-        ) : (
-          <View>
-            <Text style={styles.status}>Unconfigured</Text>
-            <Text style={styles.effective}>
-              Invoicing is blocked until none, soft copy, or hard copy is set.
-              Device “POD Required” is not used.
-            </Text>
-          </View>
-        )
-      ) : (
-        <Text style={styles.invalid}>
-          This client's POD policy is invalid and cannot be used until it is
-          reconfigured.
+      <View style={styles.head}>
+        <Text style={styles.kicker}>POD for Invoicing</Text>
+        <Text style={[styles.status, !parsed.ok && styles.invalid]} numberOfLines={1}>
+          {statusLabel}
         </Text>
-      )}
+      </View>
+      {!parsed.ok ? (
+        <Text style={styles.invalid} numberOfLines={1}>
+          Reconfigure this policy before invoicing can use it.
+        </Text>
+      ) : null}
 
       <View
         style={styles.optionsRow}
@@ -147,6 +139,7 @@ export function ClientInvoicePodPolicySection({
                 disabled: !canEdit || saving,
               }}
               accessibilityLabel={option.label}
+              hitSlop={{ top: 6, bottom: 6 }}
             >
               <View style={[styles.radio, selected && styles.radioOn]}>
                 {selected ? <View style={styles.radioDot} /> : null}
@@ -194,55 +187,55 @@ export function ClientInvoicePodPolicySection({
 const styles = StyleSheet.create({
   wrap: {
     marginHorizontal: Layout.screenPaddingHorizontal,
-    marginBottom: Layout.spacingLarge,
-    padding: Layout.spacingLarge,
+    marginTop: 8,
+    marginBottom: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: Theme.surfaceBorder,
     backgroundColor: Theme.cardWhite,
+    gap: 6,
+  },
+  head: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
   },
   kicker: {
     fontSize: 11,
     fontWeight: "800",
     color: Theme.textMuted,
     textTransform: "uppercase",
-    letterSpacing: 0.8,
-    marginBottom: 6,
+    letterSpacing: 0.6,
   },
   status: {
-    fontSize: 14,
+    flexShrink: 1,
+    fontSize: 12,
     fontWeight: "700",
     color: Theme.textPrimary,
-    marginBottom: 4,
-  },
-  effective: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: Theme.textMuted,
-    marginBottom: 10,
   },
   invalid: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "600",
     color: Theme.destructive,
-    marginBottom: 10,
   },
   optionsRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    marginTop: 8,
+    gap: 6,
     minWidth: 0,
   },
   option: {
     flex: 1,
     minWidth: 0,
-    minHeight: Layout.minTouchTargetSize,
+    minHeight: 36,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+    gap: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: Theme.surfaceBorder,
@@ -262,9 +255,9 @@ const styles = StyleSheet.create({
     color: Theme.textMuted,
   },
   radio: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
     borderWidth: 2,
     borderColor: Theme.textMuted,
     alignItems: "center",
@@ -274,16 +267,16 @@ const styles = StyleSheet.create({
     borderColor: Theme.primary,
   },
   radioDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: Theme.primary,
   },
   reset: {
     flexShrink: 0,
-    minHeight: Layout.minTouchTargetSize,
+    minHeight: 36,
     justifyContent: "center",
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
   },
   resetText: {
     fontSize: 13,

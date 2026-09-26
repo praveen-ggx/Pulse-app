@@ -1240,7 +1240,7 @@ export function CounterpartyProfileSystemCard({
             styles.viewStickyHeaderInner,
             isPage && {
               paddingHorizontal: pagePad,
-              paddingVertical: isWide ? 12 : 10,
+              paddingVertical: isWide ? 6 : 8,
               maxWidth: pageMaxWidth,
             },
           ]}
@@ -1482,7 +1482,7 @@ export function CounterpartyProfileSystemCard({
 
         {type === "client" && isPage ? (
           <View style={styles.overviewBlock}>
-            <View style={styles.blockHeadingRow}>
+            <View style={[styles.blockHeadingRow, styles.overviewHeadingRow]}>
               <Text style={styles.overviewSectionTitle}>Customer details</Text>
               <TouchableOpacity
                 onPress={() => {
@@ -1511,17 +1511,19 @@ export function CounterpartyProfileSystemCard({
                         [hub.name.trim(), hub.address.trim()].filter(Boolean).join(" · "),
                       )
                       .filter(Boolean)
-                      .join("\n") || "—",
+                      .join(", ") || "—",
                 },
               ].map((item) => (
                 <View key={item.label} style={styles.overviewTile}>
                   <Text style={styles.overviewTileLabel}>{item.label}</Text>
-                  <Text style={styles.overviewTileValue}>{item.value}</Text>
+                  <Text style={styles.overviewTileValue} numberOfLines={1}>
+                    {item.value}
+                  </Text>
                 </View>
               ))}
             </View>
 
-            <View style={styles.blockHeadingRow}>
+            <View style={[styles.blockHeadingRow, styles.overviewHeadingRow]}>
               <Text style={styles.overviewSectionTitle}>Lanes</Text>
               <TouchableOpacity
                 onPress={() => {
@@ -1583,18 +1585,22 @@ export function CounterpartyProfileSystemCard({
               <Text style={styles.emptyMuted}>No lane contracts on file.</Text>
             ) : (
               <View style={styles.laneList}>
-                {filteredContracts.map((cnt) => (
-                  <View key={cnt.id} style={styles.laneCard}>
-                    <View style={styles.laneCardMain}>
-                      <Text style={styles.laneCardRoute} numberOfLines={2}>
-                        {cnt.pickup}
-                        <Text style={styles.laneCardArrow}>{"  →  "}</Text>
-                        {cnt.destination}
-                      </Text>
-                      <Text style={styles.laneCardTruck} numberOfLines={1}>
-                        {(cnt.vehicleType ?? "").trim() || "Truck type not set"}
-                      </Text>
-                    </View>
+                {filteredContracts.map((cnt, idx) => (
+                  <View
+                    key={cnt.id}
+                    style={[
+                      styles.laneCard,
+                      idx === filteredContracts.length - 1 && styles.laneCardLast,
+                    ]}
+                  >
+                    <Text style={styles.laneCardRoute} numberOfLines={1}>
+                      {cnt.pickup}
+                      <Text style={styles.laneCardArrow}>{" → "}</Text>
+                      {cnt.destination}
+                    </Text>
+                    <Text style={styles.laneCardTruck} numberOfLines={1}>
+                      {(cnt.vehicleType ?? "").trim() || "—"}
+                    </Text>
                     <Text style={styles.laneCardRate}>
                       ₹{Math.round(cnt.price).toLocaleString("en-IN")}
                     </Text>
@@ -2177,8 +2183,8 @@ const styles = StyleSheet.create({
     alignSelf: "center",
   },
   viewScrollContentPage: {
-    paddingTop: 12,
-    paddingBottom: 40,
+    paddingTop: 6,
+    paddingBottom: 24,
     width: "100%",
     alignSelf: "center",
     gap: 10,
@@ -2566,85 +2572,97 @@ const styles = StyleSheet.create({
   registryLabelPage: { fontSize: 8, letterSpacing: 0.3, marginBottom: 0 },
   registryValue: { fontSize: 16, fontWeight: "700", color: Theme.textPrimary },
   registryValuePage: { fontSize: 12, fontWeight: "600", color: Theme.textPrimaryDark, lineHeight: 15 },
-  overviewBlock: { gap: 16, marginBottom: 8 },
+  overviewBlock: { gap: 10, marginBottom: 4 },
+  overviewHeadingRow: { marginBottom: 0, minHeight: 0 },
   overviewSectionTitle: {
-    fontSize: 15,
-    fontWeight: "800",
+    fontSize: 12,
+    fontWeight: "700",
     color: Theme.textPrimaryDark,
   },
   overviewLaneToolbar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
+    gap: 8,
   },
   overviewLaneCount: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "600",
     color: Theme.textSecondary,
   },
-  laneCardMain: { flex: 1, minWidth: 0 },
   overviewGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
-  },
-  overviewTile: {
-    flexGrow: 1,
-    flexBasis: "30%",
-    minWidth: 180,
-    backgroundColor: Theme.cardWhite,
     borderWidth: 1,
     borderColor: Theme.borderInput,
-    borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: Theme.cardWhite,
+    overflow: "hidden",
+  },
+  overviewTile: {
+    width: "25%",
+    minWidth: 148,
+    flexGrow: 1,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderInput,
   },
   overviewTileLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
     color: Theme.textRouteCard,
     textTransform: "uppercase",
-    letterSpacing: 0.4,
-    marginBottom: 6,
+    letterSpacing: 0.3,
+    marginBottom: 2,
   },
   overviewTileValue: {
-    fontSize: 15,
-    fontWeight: "700",
+    fontSize: 13,
+    fontWeight: "600",
     color: Theme.textPrimaryDark,
-    lineHeight: 20,
+    lineHeight: 16,
   },
-  laneList: { gap: 8 },
+  laneList: {
+    borderWidth: 1,
+    borderColor: Theme.borderInput,
+    borderRadius: 8,
+    backgroundColor: Theme.cardWhite,
+    overflow: "hidden",
+  },
   laneCard: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 16,
-    backgroundColor: Theme.cardWhite,
-    borderWidth: 1,
-    borderColor: Theme.borderInput,
-    borderRadius: 10,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    gap: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.borderInput,
   },
+  laneCardLast: { borderBottomWidth: 0 },
   laneCardRoute: {
-    fontSize: 15,
-    fontWeight: "700",
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
+    fontWeight: "600",
     color: Theme.textPrimaryDark,
   },
   laneCardArrow: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "600",
     color: Theme.textMuted,
   },
   laneCardTruck: {
-    marginTop: 4,
-    fontSize: 13,
+    width: 96,
+    fontSize: 12,
     fontWeight: "600",
     color: Theme.textSecondary,
   },
   laneCardRate: {
-    fontSize: 16,
-    fontWeight: "800",
+    width: 84,
+    textAlign: "right",
+    fontSize: 13,
+    fontWeight: "700",
     color: Theme.textPrimaryDark,
   },
   taxLabel: {

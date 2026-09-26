@@ -721,6 +721,58 @@ export async function updateClientInvoicePodPolicy(
   return { error: null, raw: data.invoice_pod_policy };
 }
 
+const EMPTY_CLIENT_DETAIL_BUNDLE = {
+  error: null as Error | null,
+  client: null as ClientRow | null,
+  ratings: [] as RatingRow[],
+  warehouses: [] as ClientWarehouse[],
+  contracts: [] as ClientContract[],
+};
+
+function isMissingRpcError(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  const code = String(error.code ?? '');
+  const message = String(error.message ?? '');
+  return code === 'PGRST202' || /schema cache|could not find the function/i.test(message);
+}
+
+function parseClientDetailBundle(data: unknown): {
+  client: ClientRow | null;
+  ratings: RatingRow[];
+  warehouses: ClientWarehouse[];
+  contracts: ClientContract[];
+} {
+  let value = data;
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value) as unknown;
+    } catch {
+      value = null;
+    }
+  }
+  if (Array.isArray(value)) value = value[0];
+  if (!value || typeof value !== 'object') return { ...EMPTY_CLIENT_DETAIL_BUNDLE };
+  const row = value as Record<string, unknown>;
+  if (
+    row.client == null &&
+    typeof row.id === 'string' &&
+    typeof row.organization_id === 'string'
+  ) {
+    return {
+      client: row as unknown as ClientRow,
+      ratings: [],
+      warehouses: [],
+      contracts: [],
+    };
+  }
+  return {
+    client: (row.client as ClientRow | null) ?? null,
+    ratings: (row.ratings as RatingRow[] | undefined) ?? [],
+    warehouses: (row.warehouses as ClientWarehouse[] | undefined) ?? [],
+    contracts: (row.contracts as ClientContract[] | undefined) ?? [],
+  };
+}
+
 /** Single round-trip bundle for ClientDetailScreen — replaces 4 parallel calls. */
 export async function getClientDetailBundle(orgId: string, clientId: string): Promise<{
   error: Error | null;
@@ -729,17 +781,21 @@ export async function getClientDetailBundle(orgId: string, clientId: string): Pr
   warehouses: ClientWarehouse[];
   contracts: ClientContract[];
 }> {
-  const { data, error } = await supabase().rpc('get_client_detail_bundle', {
-    p_org_id: orgId,
-    p_client_id: clientId,
-  });
-  if (error) return { error: new Error(error.message), client: null, ratings: [], warehouses: [], contracts: [] };
-  const bundle = data as { client: ClientRow | null; ratings: RatingRow[]; warehouses: ClientWarehouse[]; contracts: ClientContract[] };
-  return {
-    error: null,
-    client: bundle.client ?? null,
-    ratings: bundle.ratings ?? [],
-    warehouses: bundle.warehouses ?? [],
-    contracts: bundle.contracts ?? [],
-  };
+  const args = { p_org_id: orgId, p_client_id: clientId };
+  let { data, error } = await supabase().rpc('get_client_page_bootstrap', args);
+  if (isMissingRpcError(error)) {
+    ({ data, error } = await supabase().rpc('get_client_detail_bundle', args));
+  }
+  if (error) {
+    return { ...EMPTY_CLIENT_DETAIL_BUNDLE, error: new Error(error.message) };
+  }
+  const bundle = parseClientDetailBundle(data);
+  if (!bundle.client) {
+    const details = await getClientDetails(clientId);
+    if (details.error) {
+      return { ...EMPTY_CLIENT_DETAIL_BUNDLE, error: details.error };
+    }
+    if (details.client) bundle.client = details.client;
+  }
+  return { error: null, ...bundle };
 }

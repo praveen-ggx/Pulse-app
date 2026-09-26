@@ -186,5 +186,22 @@
     "ts-node": "^10.9.2",
     "typescript": "~5.9.2"
   },
-  "private": true
+  "private": true,
+  "description": "Mobile app for Pulse — same Supabase backend as **pulse-unified-base**. Built with **React Native (Expo)** and TypeScript for a runnable, long-running, and scalable mobile experience.",
+  "directories": {
+    "doc": "docs",
+    "lib": "lib"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/praveen-ggx/Pulse-app.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/praveen-ggx/Pulse-app/issues"
+  },
+  "homepage": "https://github.com/praveen-ggx/Pulse-app#readme"
 }

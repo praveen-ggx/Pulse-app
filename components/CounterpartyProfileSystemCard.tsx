@@ -29,10 +29,6 @@ import { ClientProfileFinanceStatementSection } from "@/features/clients/compone
 import { ClientProfileMarginAnalysisSection } from "@/features/clients/components/ClientProfileMarginAnalysisSection";
 import { ClientProfilePerformanceSection } from "@/features/clients/components/ClientProfilePerformanceSection";
 import { updateClient } from "@/features/clients/services/clients.service";
-import {
-  createClientLaneRate,
-  updateClientLaneRate,
-} from "@/features/clients/services/clientLaneRates.service";
 import type {
   ClientLaneRate,
   ClientWarehouseExtended,
@@ -76,88 +72,10 @@ export type ProfileContract = {
   notes?: string | null;
 };
 
-type LaneCommercialDraft = {
-  key: string;
-  id: string | null;
-  lane: string;
-  truckType: string;
-  rate: string;
-};
-
 function spocContactValue(phone: string | null | undefined): string {
   const value = (phone ?? "").trim();
   if (/^linked-/i.test(value)) return "";
   return value;
-}
-
-function laneDisplay(origin: string, destination: string): string {
-  const from = origin.trim();
-  const to = destination.trim();
-  if (from && to && from !== to) return `${from} → ${to}`;
-  return from || to;
-}
-
-function splitLaneDisplay(lane: string): { origin: string; destination: string } {
-  const parts = lane.split(/\s*(?:→|->)\s*/);
-  if (parts.length >= 2) {
-    return {
-      origin: parts[0]!.trim(),
-      destination: parts.slice(1).join(" → ").trim(),
-    };
-  }
-  const text = lane.trim();
-  return { origin: text, destination: text };
-}
-
-function draftsFromLaneRates(lanes: ClientLaneRate[]): LaneCommercialDraft[] {
-  if (lanes.length === 0) {
-    return [{ key: "new-lane", id: null, lane: "", truckType: "", rate: "" }];
-  }
-  return lanes.map((lane) => ({
-    key: lane.id,
-    id: lane.id,
-    lane: laneDisplay(lane.origin_label, lane.destination_label),
-    truckType: (lane.vehicle_type ?? "").trim(),
-    rate:
-      lane.rate != null
-        ? String(lane.rate)
-        : lane.base_rate != null
-          ? String(lane.base_rate)
-          : "",
-  }));
-}
-
-async function persistLaneDrafts(
-  orgId: string,
-  clientId: string,
-  drafts: LaneCommercialDraft[],
-): Promise<Error | null> {
-  for (const row of drafts) {
-    const lane = row.lane.trim();
-    const truckType = row.truckType.trim();
-    const rateText = row.rate.replace(/,/g, "").trim();
-    if (!row.id && !lane && !truckType && !rateText) continue;
-    const { origin, destination } = splitLaneDisplay(lane);
-    const parsedRate = rateText === "" ? null : Number(rateText);
-    const rate = parsedRate != null && Number.isFinite(parsedRate) ? parsedRate : null;
-    const payload = {
-      origin_label: origin || destination || "Lane",
-      destination_label: destination || origin || "Lane",
-      vehicle_type: truckType || null,
-      rate,
-    };
-    if (row.id) {
-      const { error } = await updateClientLaneRate(row.id, payload);
-      if (error) return error;
-    } else {
-      const { error } = await createClientLaneRate(orgId, clientId, {
-        ...payload,
-        rate_type: "per_trip",
-      });
-      if (error) return error;
-    }
-  }
-  return null;
 }
 
 export type ProfileKycDoc = {
@@ -482,9 +400,6 @@ export function CounterpartyProfileSystemCard({
   const [draftAdmin, setDraftAdmin] = useState((adminName ?? "").trim());
   const [draftEmail, setDraftEmail] = useState((email ?? "").trim());
   const [draftPhone, setDraftPhone] = useState(spocContactValue(phone));
-  const [laneDrafts, setLaneDrafts] = useState<LaneCommercialDraft[]>(() =>
-    draftsFromLaneRates(editableLaneRates ?? []),
-  );
   const [savingIdentity, setSavingIdentity] = useState(false);
   const [contractWarehouseFilter, setContractWarehouseFilter] = useState<string>("all");
   const [contractPage, setContractPage] = useState(0);
@@ -519,11 +434,6 @@ export function CounterpartyProfileSystemCard({
     email,
     phone,
   ]);
-
-  useEffect(() => {
-    if (mode === "edit") return;
-    setLaneDrafts(draftsFromLaneRates(editableLaneRates ?? []));
-  }, [editableLaneRates, mode]);
 
   const completion = useMemo(
     () =>
@@ -635,11 +545,6 @@ export function CounterpartyProfileSystemCard({
         const { error } = await updateClient(organizationId, clientId, identityPatch);
         if (error) {
           Alert.alert("Could not save profile", error.message);
-          return;
-        }
-        const laneError = await persistLaneDrafts(organizationId, clientId, laneDrafts);
-        if (laneError) {
-          Alert.alert("Could not save lanes", laneError.message);
           return;
         }
         onProfileEntitiesChange?.();
@@ -961,80 +866,6 @@ export function CounterpartyProfileSystemCard({
                     </>
                   ) : null}
                 </View>
-
-                {type === "client" ? (
-                  <View style={[styles.editFormCard, isPage && styles.editFormCardPage, { marginTop: 16 }]}>
-                    {laneDrafts.map((row, index) => (
-                      <View key={row.key}>
-                        <Text style={[styles.fieldLabel, isPage && styles.fieldLabelPage]}>Lanes</Text>
-                        <TextInput
-                          value={row.lane}
-                          onChangeText={(lane) =>
-                            setLaneDrafts((current) =>
-                              current.map((item, itemIndex) =>
-                                itemIndex === index ? { ...item, lane } : item,
-                              ),
-                            )
-                          }
-                          style={[styles.fieldInputLarge, isPage && styles.fieldInputPage]}
-                          placeholder="Origin → Destination"
-                          placeholderTextColor={Theme.textSection}
-                        />
-                        <Text style={[styles.fieldLabel, isPage && styles.fieldLabelPage]}>
-                          Truck Type
-                        </Text>
-                        <TextInput
-                          value={row.truckType}
-                          onChangeText={(truckType) =>
-                            setLaneDrafts((current) =>
-                              current.map((item, itemIndex) =>
-                                itemIndex === index ? { ...item, truckType } : item,
-                              ),
-                            )
-                          }
-                          style={[styles.fieldInputLarge, isPage && styles.fieldInputPage]}
-                          placeholder="Truck type"
-                          placeholderTextColor={Theme.textSection}
-                        />
-                        <Text style={[styles.fieldLabel, isPage && styles.fieldLabelPage]}>
-                          Contract Rates
-                        </Text>
-                        <TextInput
-                          value={row.rate}
-                          onChangeText={(rate) =>
-                            setLaneDrafts((current) =>
-                              current.map((item, itemIndex) =>
-                                itemIndex === index ? { ...item, rate } : item,
-                              ),
-                            )
-                          }
-                          style={[styles.fieldInputLarge, isPage && styles.fieldInputPage]}
-                          placeholder="Rate"
-                          placeholderTextColor={Theme.textSection}
-                          keyboardType="decimal-pad"
-                        />
-                      </View>
-                    ))}
-                    <TouchableOpacity
-                      onPress={() =>
-                        setLaneDrafts((current) => [
-                          ...current,
-                          {
-                            key: `new-lane-${current.length}-${Date.now()}`,
-                            id: null,
-                            lane: "",
-                            truckType: "",
-                            rate: "",
-                          },
-                        ])
-                      }
-                      hitSlop={8}
-                      style={{ marginBottom: 12 }}
-                    >
-                      <Text style={styles.linkCta}>Add lane</Text>
-                    </TouchableOpacity>
-                  </View>
-                ) : null}
 
                 <View style={[styles.editSectionHeadingRow, { marginTop: 20 }]}>
                   <View style={styles.accentNavy} />

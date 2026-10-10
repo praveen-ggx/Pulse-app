@@ -44,6 +44,7 @@ describe("deriveComplianceQueueReadiness", () => {
     const readiness = deriveComplianceQueueReadiness(
       summaryFixture({
         complianceVerifiedAt: "2026-09-01",
+        financeVerifiedAt: "2026-09-01",
         documents: ["lr", "eway_bill", "invoice"].map((type) => ({
           id: type,
           trip_id: "trip-1",
@@ -83,6 +84,7 @@ describe("deriveComplianceQueueReadiness", () => {
         complianceDeclinedAt: "2026-09-01T09:00:00Z",
         complianceDeclineReason: "Document pending",
         complianceVerifiedAt: "2026-09-02T09:00:00Z",
+        financeVerifiedAt: "2026-09-02T10:00:00Z",
       }),
     );
     expect(reVerified.advance.status).toBe("ready");

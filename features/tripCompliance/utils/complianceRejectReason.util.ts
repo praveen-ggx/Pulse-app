@@ -104,5 +104,5 @@ export function complianceRejectQueueDestination(
 export function complianceRejectQueuePathLabel(reason: string | null | undefined): string {
   return complianceRejectQueueDestination(reason) === "pending_for_docs"
     ? "Pending Docs → Declined by finance"
-    : "Ready to Verify → Declined by finance";
+    : "Compliance Verification → Declined by finance";
 }

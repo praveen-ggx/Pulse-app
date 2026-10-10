@@ -97,6 +97,62 @@ export async function approveComplianceWithException(params: {
   return { error: error ? new Error(error.message) : null };
 }
 
+function formatFinanceVerifyError(error: { message?: string; code?: string }, undo: boolean): string {
+  const raw = (error.message ?? "").trim();
+  const lower = raw.toLowerCase();
+  if (
+    error.code === "PGRST202" ||
+    error.code === "42883" ||
+    lower.includes("could not find the function") ||
+    (lower.includes("finance_verified") && lower.includes("does not exist"))
+  ) {
+    return "Approve Advance isn't available yet — database update pending.";
+  }
+  if (lower.includes("not authorized")) {
+    return undo
+      ? "You don't have permission to undo the advance approval for this trip."
+      : "You don't have permission to approve the advance for this trip.";
+  }
+  if (lower.includes("compliance must be verified")) {
+    return "Compliance must be verified before the advance can be approved.";
+  }
+  if (lower.includes("advance is already posted")) {
+    return undo
+      ? "An advance is already posted, so the approval can't be undone."
+      : "An advance is already posted for this trip.";
+  }
+  return raw || (undo ? "Couldn't undo the advance approval." : "Couldn't approve the advance.");
+}
+
+/**
+ * Finance approval between Compliance Verified and the advance. Goes through
+ * `mark_trip_finance_verified` (migration 20261010122824), which enforces
+ * `trip_compliance.finance.manage`, requires compliance_verified_at, and
+ * refuses once an advance is posted. Safe under retry.
+ */
+export async function markTripFinanceVerified(params: {
+  tripId: string;
+  idempotencyKey?: string;
+}): Promise<{ error: Error | null }> {
+  const { error } = await supabase().rpc("mark_trip_finance_verified", {
+    p_trip_id: params.tripId,
+    p_idempotency_key: params.idempotencyKey ?? null,
+  });
+  return { error: error ? new Error(formatFinanceVerifyError(error, false)) : null };
+}
+
+/** Undo Finance Verify while no advance is posted (`unmark_trip_finance_verified`). */
+export async function unmarkTripFinanceVerified(params: {
+  tripId: string;
+  idempotencyKey?: string;
+}): Promise<{ error: Error | null }> {
+  const { error } = await supabase().rpc("unmark_trip_finance_verified", {
+    p_trip_id: params.tripId,
+    p_idempotency_key: params.idempotencyKey ?? null,
+  });
+  return { error: error ? new Error(formatFinanceVerifyError(error, true)) : null };
+}
+
 function formatDeclineComplianceError(error: { message?: string; code?: string }): string {
   const raw = (error.message ?? "").trim();
   const lower = raw.toLowerCase();
@@ -170,10 +226,64 @@ function formatRejectComplianceError(error: { message?: string; code?: string } 
   if (lower.includes("reject reason between") || lower.includes("decline reason between")) {
     return `Please enter a reason between ${COMPLIANCE_DECLINE_REASON_MIN} and ${COMPLIANCE_DECLINE_REASON_MAX} characters.`;
   }
+  if (lower.includes("advance or balance is already posted")) {
+    return "An advance or balance is already posted, so this trip cannot be rejected.";
+  }
   if (lower.includes("compliance decline fields can only be changed")) {
     return raw;
   }
   return raw || "Couldn't reject compliance.";
+}
+
+function formatResubmitComplianceError(error: { message?: string; code?: string } | null): string {
+  const raw = (error?.message ?? "").trim();
+  const lower = raw.toLowerCase();
+  if (
+    error?.code === "PGRST202" ||
+    error?.code === "42883" ||
+    lower.includes("could not find the function") ||
+    lower.includes("function does not exist")
+  ) {
+    return "Resubmit isn't available yet — database update pending.";
+  }
+  if (lower.includes("required documents missing or rejected")) {
+    return `${raw.replace(/^.*required documents missing or rejected:\s*/i, "Upload or replace these documents first: ")}.`;
+  }
+  if (lower.includes("resubmit note")) {
+    return "Add a note of at least 3 characters saying what was fixed.";
+  }
+  if (lower.includes("not on compliance hold")) {
+    return "This trip is no longer on Compliance Hold.";
+  }
+  if (lower.includes("not authorized to resubmit")) {
+    return "You don't have permission to resubmit this trip.";
+  }
+  if (lower.includes("not an active finance reject")) {
+    return "This trip is not waiting on a finance reject.";
+  }
+  if (lower.includes("no return queue")) {
+    return "This reject has no return queue, so it cannot be resubmitted.";
+  }
+  if (lower.includes("advance or balance is already posted")) {
+    return "An advance or balance is already posted, so this trip cannot be resubmitted.";
+  }
+  return raw || "Couldn't resubmit this trip.";
+}
+
+export async function resubmitTripCompliance(params: {
+  tripId: string;
+  /** What Ground Ops fixed, e.g. "Invoice re-uploaded". Required, 3–500 chars. */
+  note: string;
+  idempotencyKey?: string;
+}): Promise<void> {
+  const { error } = await supabase().rpc("resubmit_trip_compliance", {
+    p_trip_id: params.tripId,
+    p_note: params.note.trim(),
+    p_idempotency_key: params.idempotencyKey ?? undefined,
+  });
+  if (error) {
+    throw new Error(formatResubmitComplianceError(error));
+  }
 }
 
 /**
@@ -273,10 +383,14 @@ function isComplianceLedgerPrerequisiteRejection(error: Error): boolean {
  */
 function checkComplianceLedgerPrerequisite(
   category: ComplianceLedgerCategory,
-  trip: Pick<TripRow, "compliance_verified_at" | "pod_received_at">,
+  trip: Pick<TripRow, "compliance_verified_at" | "finance_verified_at" | "pod_received_at">,
 ): { ok: boolean; reason?: string } {
   if (category === "compliance_advance" && !trip.compliance_verified_at) {
     return { ok: false, reason: "Compliance must be approved before an advance payment can be posted." };
+  }
+  // Mirrors RLS compliance_advance_requires_finance_verified (20261010122824).
+  if (category === "compliance_advance" && !trip.finance_verified_at) {
+    return { ok: false, reason: "The advance must be approved before it can be posted." };
   }
   if (category === "compliance_balance" && !trip.pod_received_at) {
     return { ok: false, reason: "Hard-copy POD must be received before a balance payment can be posted." };
@@ -284,7 +398,7 @@ function checkComplianceLedgerPrerequisite(
   return { ok: true };
 }
 
-type ComplianceLedgerFlags = Pick<TripRow, "compliance_verified_at" | "pod_received_at">;
+type ComplianceLedgerFlags = Pick<TripRow, "compliance_verified_at" | "finance_verified_at" | "pod_received_at">;
 
 /**
  * Callers pass a cached trip (list summary, bulk validation map) that can be
@@ -294,7 +408,7 @@ type ComplianceLedgerFlags = Pick<TripRow, "compliance_verified_at" | "pod_recei
 async function readComplianceLedgerFlags(trip: TripRow): Promise<ComplianceLedgerFlags> {
   const { data, error } = await supabase()
     .from("trips")
-    .select("compliance_verified_at, pod_received_at")
+    .select("compliance_verified_at, finance_verified_at, pod_received_at")
     .eq("id", trip.id)
     .maybeSingle();
   if (error || !data) return trip;
@@ -328,13 +442,17 @@ export async function postCompliancePayment(params: {
   const amountCheck = validateCompliancePaymentAmount({ amount: params.amount, trip: params.trip });
   if (!amountCheck.ok) return { error: new Error(amountCheck.reason) };
 
-  const description = buildLedgerSyncDescriptionLine({
+  const baseDescription = buildLedgerSyncDescriptionLine({
     categoryOrKind: params.category === "compliance_advance" ? "Compliance Advance" : "Compliance Balance",
     paymentModeLabel: params.paymentModeLabel,
     paymentModeId: params.paymentModeId,
     paymentReference: params.utr,
     notes: params.notes,
   });
+  // A date entered at posting counts as confirmed, so Txn Date / Paid at show it.
+  const description = params.transactionDate
+    ? withLedgerDescriptionTxnDateConfirmed(baseDescription)
+    : baseDescription;
 
   const entry: CreateLedgerEntryData = {
     trip_id: params.trip.id,

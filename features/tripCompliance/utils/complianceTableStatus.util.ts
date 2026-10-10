@@ -10,16 +10,17 @@ import {
 } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { parseEwayFieldEntries } from "@/features/trips/services/ewayBillFields.util";
 import { lrNumbersFromDocumentNumber } from "@/features/trips/utils/hardCopyPodLrSelection.util";
-import type {
-  ComplianceDocumentRow,
-  ComplianceTripSummary,
+import {
+  REQUIRED_COMPLIANCE_DOCUMENT_TYPES,
+  type ComplianceDocumentRow,
+  type ComplianceTripSummary,
 } from "@/features/tripCompliance/tripCompliance.types";
+import { classifyTripDocument } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
 import {
   deriveComplianceDocumentRows,
   labelForDocType,
   type ComplianceDocRow,
 } from "@/features/tripCompliance/utils/complianceDocumentRows.util";
-import { complianceRejectQueueDestination } from "@/features/tripCompliance/utils/complianceRejectReason.util";
 
 export type ComplianceEwayBillSummary = {
   number: string | null;
@@ -216,6 +217,34 @@ export function isComplianceDeclineActive(summary: ComplianceTripSummary): boole
   return Boolean(summary.complianceDeclinedAt) && !summary.complianceVerifiedAt;
 }
 
+/** Compliance Hold resubmitted by Ground Ops at or after the latest decline. */
+function holdResubmittedAfterDecline(summary: ComplianceTripSummary): boolean {
+  if (!summary.complianceResubmittedAt || !summary.complianceDeclinedAt) return false;
+  const resubmitted = Date.parse(summary.complianceResubmittedAt);
+  const declined = Date.parse(summary.complianceDeclinedAt);
+  if (Number.isNaN(resubmitted) || Number.isNaN(declined)) return false;
+  return resubmitted >= declined;
+}
+
+/**
+ * Compliance Hold that Ground Ops resubmitted with every required file on
+ * file; back with Compliance to re-check. A resubmit while files are still
+ * missing (stage pending_for_docs) leaves nothing for Compliance to verify,
+ * so the trip stays with Ground Ops.
+ */
+export function isComplianceHoldResubmitted(summary: ComplianceTripSummary): boolean {
+  return (
+    isComplianceDeclineActive(summary) &&
+    holdResubmittedAfterDecline(summary) &&
+    summary.stage !== "pending_for_docs"
+  );
+}
+
+/** Compliance Hold still with Ground Ops: re-upload, then Resubmit. */
+export function isComplianceHoldAwaitingResubmit(summary: ComplianceTripSummary): boolean {
+  return isComplianceDeclineActive(summary) && !isComplianceHoldResubmitted(summary);
+}
+
 /**
  * Finance reject of an already-verified trip. A compliance decline that was
  * later cleared by Verify keeps the old declined_at as history (it is earlier
@@ -229,28 +258,76 @@ export function isFinanceDeclinedTrip(summary: ComplianceTripSummary): boolean {
   return declined >= verified;
 }
 
-/** Verified reject whose reason routes to the Pending Docs → Rejected subtab. */
-export function isFinanceDeclinedForPendingDocs(summary: ComplianceTripSummary): boolean {
-  return (
-    isFinanceDeclinedTrip(summary) &&
-    complianceRejectQueueDestination(summary.complianceDeclineReason) === "pending_for_docs"
-  );
-}
-
-/** Verified reject whose reason routes to Compliance Pending → Declined by finance. */
-export function isFinanceDeclinedForCompliancePending(summary: ComplianceTripSummary): boolean {
-  return (
-    isFinanceDeclinedTrip(summary) &&
-    complianceRejectQueueDestination(summary.complianceDeclineReason) === "compliance_pending"
-  );
+/**
+ * Finance reject still waiting on Ground Ops. A resubmit timestamp at or after
+ * the decline time has left this inbox. A newer decline time opens it again.
+ */
+export function isActiveFinanceReject(summary: ComplianceTripSummary): boolean {
+  if (!isFinanceDeclinedTrip(summary) || !summary.complianceDeclinedAt) return false;
+  if (!summary.complianceResubmittedAt) return true;
+  const resubmitted = Date.parse(summary.complianceResubmittedAt);
+  const declined = Date.parse(summary.complianceDeclinedAt);
+  if (Number.isNaN(resubmitted) || Number.isNaN(declined)) return true;
+  return resubmitted < declined;
 }
 
 /**
- * Pre-verify hold. Shown on Docs Follow Up → Compliance Hold whether the trip
- * is still missing files or already in Ready to Verify. The same trip also
- * stays on Ready to Verify → Compliance Hold.
+ * Finance reject that Ground Ops resubmitted. Every resubmit goes back to
+ * Compliance Verification; complianceRejectReturnTo is only the reason
+ * category (document vs commercial fix), never the route.
+ */
+export function isResubmittedAwaitingReview(summary: ComplianceTripSummary): boolean {
+  if (!isFinanceDeclinedTrip(summary) || !summary.complianceResubmittedAt || !summary.complianceDeclinedAt) {
+    return false;
+  }
+  const resubmitted = Date.parse(summary.complianceResubmittedAt);
+  const declined = Date.parse(summary.complianceDeclinedAt);
+  if (Number.isNaN(resubmitted) || Number.isNaN(declined)) return false;
+  return resubmitted >= declined;
+}
+
+/** Resubmitted finance reject, back on Compliance Verification for re-check. */
+export function isResubmittedToCompliancePending(summary: ComplianceTripSummary): boolean {
+  return isResubmittedAwaitingReview(summary);
+}
+
+/**
+ * Hold or finance reject still waiting for the Ground Ops resubmit. Mirrors
+ * compliance_awaiting_resubmit() in the database: Verify is refused until then.
+ */
+export function isComplianceAwaitingResubmit(summary: ComplianceTripSummary): boolean {
+  return isActiveFinanceReject(summary) || (isComplianceDeclineActive(summary) && !holdResubmittedAfterDecline(summary));
+}
+
+/**
+ * Required trip documents (LR / E-way bill / Invoice) missing or rejected —
+ * the same rule resubmit_trip_compliance() enforces. Empty when all are fine.
+ */
+export function missingOrRejectedRequiredTripDocs(summary: ComplianceTripSummary): string[] {
+  return REQUIRED_COMPLIANCE_DOCUMENT_TYPES.filter(
+    (type) =>
+      !summary.documents.some(
+        (doc) => doc.document_type === type && doc.status !== "rejected" && classifyTripDocument(doc).present,
+      ),
+  );
+}
+
+/** Active finance reject. Shown on Document Upload → Declined by finance. */
+export function isFinanceDeclinedForPendingDocs(summary: ComplianceTripSummary): boolean {
+  return isActiveFinanceReject(summary);
+}
+
+/** Active finance reject. Shown on Compliance Verification → Declined by finance. */
+export function isFinanceDeclinedForCompliancePending(summary: ComplianceTripSummary): boolean {
+  return isActiveFinanceReject(summary);
+}
+
+/**
+ * Pre-verify hold. Shown on Document Upload → Compliance Hold whether the trip
+ * is still missing files or already in Compliance Verification. The same trip also
+ * stays on Compliance Verification → Compliance Hold.
  */
 export function isPendingDocsComplianceHold(summary: ComplianceTripSummary): boolean {
-  if (!isComplianceDeclineActive(summary)) return false;
+  if (!isComplianceHoldAwaitingResubmit(summary)) return false;
   return summary.stage === "pending_for_docs" || summary.stage === "compliance_pending";
 }

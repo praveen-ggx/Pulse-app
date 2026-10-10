@@ -4,7 +4,20 @@ import {
   signCompliancePreviewUrl,
 } from "@/features/tripCompliance/services/complianceDocumentView.service";
 import type { ComplianceLedgerCategory } from "@/features/tripCompliance/services/tripComplianceWrite.service";
+import {
+  fetchOrganizationPayoutAccounts,
+  type OrganizationPayoutAccount,
+} from "@/features/tripCompliance/services/tripComplianceRead.service";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
+import {
+  isCashPaymentMode,
+  normalizeComplianceUtr,
+  validateComplianceUtr,
+} from "@/features/tripCompliance/utils/compliancePaymentReference.util";
+import {
+  toComplianceTransactionDateInput,
+  validateComplianceTransactionDate,
+} from "@/features/tripCompliance/utils/compliancePaymentDate.util";
 import { alertMessage } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import { getDocumentChargeConfig } from "@/features/organization/services/documentCharges.service";
 import { formatSlabRange } from "@/features/organization/utils/documentChargeSlabs.util";
@@ -35,8 +48,9 @@ import {
   getVehicleForTripViewer,
 } from "@/features/vehicles/services/vehicles.service";
 import { PAYMENT_MODES } from "@/lib/paymentModes";
-import { Eye } from "lucide-react-native";
-import React, { useEffect, useMemo, useState } from "react";
+import DateTimePicker from "@react-native-community/datetimepicker";
+import { Calendar, Eye } from "lucide-react-native";
+import React, { createElement, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
@@ -152,8 +166,178 @@ export type CompliancePaymentConfirmValues = {
   paymentModeId: string;
   paymentModeLabel: string;
   utr?: string;
+  /** YYYY-MM-DD, required. */
+  transactionDate?: string;
+  /** Optional org bank account the money left from, e.g. "HDFC Bank ••1234". */
+  paidFromLabel?: string;
   remark?: string;
 };
+
+/** Typing aid: keeps digits only and inserts the slashes, e.g. "1010" → "10/10/". */
+function formatTxnDateTyping(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+/** "DD/MM/YYYY" → "YYYY-MM-DD", or "" while incomplete. */
+function txnDisplayToIso(display: string): string {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(display.trim());
+  return match ? `${match[3]}-${match[2]}-${match[1]}` : "";
+}
+
+/** "YYYY-MM-DD" → "DD/MM/YYYY". */
+function txnIsoToDisplay(iso: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : "";
+}
+
+function txnIsoToDate(iso: string): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : new Date();
+}
+
+/**
+ * Transaction date input: type DD/MM/YYYY (slashes added automatically) or
+ * pick from the calendar (browser picker on web, native picker on iOS/Android).
+ */
+function TxnDateInput({
+  value,
+  onChange,
+  disabled,
+  hasError,
+}: {
+  value: string;
+  onChange: (display: string) => void;
+  disabled: boolean;
+  hasError: boolean;
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [iosDraft, setIosDraft] = useState<Date>(new Date());
+  const webInputRef = useRef<{ showPicker?: () => void; click?: () => void } | null>(null);
+  const iso = txnDisplayToIso(value);
+  const today = toComplianceTransactionDateInput(new Date().toISOString());
+
+  const openPicker = () => {
+    if (disabled) return;
+    if (Platform.OS === "web") {
+      const input = webInputRef.current;
+      try {
+        if (input?.showPicker) input.showPicker();
+        else input?.click?.();
+      } catch {
+        input?.click?.();
+      }
+      return;
+    }
+    setIosDraft(txnIsoToDate(iso));
+    setPickerOpen(true);
+  };
+
+  return (
+    <View>
+      <View style={[styles.dateShell, hasError && styles.textFieldError]}>
+        <TextInput
+          style={styles.dateText}
+          value={value}
+          onChangeText={(text) => onChange(formatTxnDateTyping(text))}
+          editable={!disabled}
+          keyboardType="number-pad"
+          maxLength={10}
+          autoCorrect={false}
+          placeholder="DD/MM/YYYY"
+          placeholderTextColor={Theme.textMuted}
+          accessibilityLabel="Transaction date"
+        />
+        <Pressable
+          onPress={openPicker}
+          disabled={disabled}
+          style={styles.dateIconBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Pick transaction date"
+        >
+          <Calendar size={16} color={Theme.textMuted} strokeWidth={2.2} />
+          {Platform.OS === "web"
+            ? createElement("input", {
+                ref: webInputRef,
+                type: "date",
+                tabIndex: -1,
+                "aria-hidden": true,
+                value: iso,
+                max: today,
+                onChange: (e: { target?: { value?: string } }) => {
+                  const next = String(e?.target?.value ?? "");
+                  if (next) onChange(txnIsoToDisplay(next));
+                },
+                style: {
+                  position: "absolute",
+                  inset: 0,
+                  opacity: 0,
+                  pointerEvents: "none",
+                  border: "none",
+                  padding: 0,
+                },
+              })
+            : null}
+        </Pressable>
+      </View>
+      {pickerOpen && Platform.OS === "android" ? (
+        <DateTimePicker
+          value={txnIsoToDate(iso)}
+          mode="date"
+          display="default"
+          maximumDate={new Date()}
+          onChange={(event, date) => {
+            setPickerOpen(false);
+            if (event.type === "set" && date) {
+              onChange(txnIsoToDisplay(toComplianceTransactionDateInput(date.toISOString())));
+            }
+          }}
+        />
+      ) : null}
+      {Platform.OS === "ios" ? (
+        <Modal visible={pickerOpen} transparent animationType="slide">
+          <Pressable style={styles.dateBackdrop} onPress={() => setPickerOpen(false)}>
+            <View style={styles.dateSheet} onStartShouldSetResponder={() => true}>
+              <View style={styles.dateSheetHeader}>
+                <Pressable onPress={() => setPickerOpen(false)} hitSlop={10}>
+                  <Text style={styles.dateSheetMuted}>Cancel</Text>
+                </Pressable>
+                <Text style={styles.dateSheetTitle}>Transaction date</Text>
+                <Pressable
+                  onPress={() => {
+                    onChange(txnIsoToDisplay(toComplianceTransactionDateInput(iosDraft.toISOString())));
+                    setPickerOpen(false);
+                  }}
+                  hitSlop={10}
+                >
+                  <Text style={styles.dateSheetDone}>Done</Text>
+                </Pressable>
+              </View>
+              <DateTimePicker
+                value={iosDraft}
+                mode="date"
+                display="spinner"
+                maximumDate={new Date()}
+                onChange={(_, date) => date && setIosDraft(date)}
+              />
+            </View>
+          </Pressable>
+        </Modal>
+      ) : null}
+    </View>
+  );
+}
+
+/** Ledger notes for a confirmed payment: remark plus the optional "Paid from" account. */
+export function compliancePaymentNotes(values: CompliancePaymentConfirmValues): string | undefined {
+  const parts = [
+    values.remark?.trim(),
+    values.paidFromLabel ? `Paid from: ${values.paidFromLabel}` : undefined,
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : undefined;
+}
 
 export function CompliancePaymentConfirmModal({
   visible,
@@ -164,6 +348,9 @@ export function CompliancePaymentConfirmModal({
   onConfirm,
   onReject,
   presentation = "modal",
+  readOnly = false,
+  onFinanceVerify,
+  financeVerifySubmitting = false,
 }: {
   visible: boolean;
   summary: ComplianceTripSummary | null;
@@ -175,6 +362,13 @@ export function CompliancePaymentConfirmModal({
   onReject?: () => void;
   /** `inline` embeds the form in the Advance Payment panel (no popup). */
   presentation?: "modal" | "inline";
+  /**
+   * Inline only: Advance Verification review. Same values, nothing editable,
+   * no payment mode; Finance Verify replaces Confirm payment.
+   */
+  readOnly?: boolean;
+  onFinanceVerify?: () => void;
+  financeVerifySubmitting?: boolean;
 }) {
   const { height, width: windowWidth } = useWindowDimensions();
   const isInline = presentation === "inline";
@@ -182,6 +376,10 @@ export function CompliancePaymentConfirmModal({
     String(COMPLIANCE_DEFAULT_ADVANCE_PERCENT),
   );
   const [modeId, setModeId] = useState<string>("UPI");
+  const [utrText, setUtrText] = useState("");
+  const [txnDateText, setTxnDateText] = useState("");
+  const [paidFromId, setPaidFromId] = useState<string | null>(null);
+  const [payoutAccounts, setPayoutAccounts] = useState<OrganizationPayoutAccount[]>([]);
   const [truckType, setTruckType] = useState<string | null>(null);
   const [supplierLabel, setSupplierLabel] = useState<string | null>(null);
   const [memoOpening, setMemoOpening] = useState(false);
@@ -259,6 +457,9 @@ export function CompliancePaymentConfirmModal({
         String(isAdvance ? COMPLIANCE_DEFAULT_ADVANCE_PERCENT : 100),
       );
       setModeId("UPI");
+      setUtrText("");
+      setTxnDateText(txnIsoToDisplay(toComplianceTransactionDateInput(new Date().toISOString())));
+      setPaidFromId(null);
     } else {
       setMemoOpening(false);
       setTdsRatePercent(null);
@@ -377,11 +578,34 @@ export function CompliancePaymentConfirmModal({
     };
   }, [visible, trip?.organization_id, isAdvance]);
 
+  useEffect(() => {
+    const orgId = trip?.organization_id?.trim();
+    if (!visible || readOnly || !orgId) return;
+    let cancelled = false;
+    void fetchOrganizationPayoutAccounts(orgId).then((rows) => {
+      if (!cancelled) setPayoutAccounts(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, readOnly, trip?.organization_id]);
+
   const amountOk = computedAmount > 0;
   const mode = PAYMENT_MODES.find((item) => item.id === modeId);
+  const isCash = isCashPaymentMode(mode?.id);
+  const utrError = isCash ? null : validateComplianceUtr(utrText);
+  const txnDateIso = txnDisplayToIso(txnDateText);
+  const txnDateError = !txnDateText.trim()
+    ? "Enter a transaction date."
+    : !txnDateIso
+      ? "Use DD/MM/YYYY."
+      : validateComplianceTransactionDate(txnDateIso);
+  const paidFrom = payoutAccounts.find((item) => item.id === paidFromId) ?? null;
   const canSubmit =
     amountOk &&
     !!mode &&
+    !utrError &&
+    !txnDateError &&
     !submitting &&
     !docChargeLoading &&
     !!summary &&
@@ -437,8 +661,9 @@ export function CompliancePaymentConfirmModal({
 
   const introText = (
     <Text style={[styles.body, isInline && styles.bodyInline]} numberOfLines={isInline ? 2 : undefined}>
-      You are about to post {article} {categoryLabel} payment through the Finance ledger. From
-      Advance Processed you can send the trip back to Verified if you need to post it again.
+      {readOnly
+        ? "Check these values. Approve Advance moves the trip to Advance Payment, where the advance is posted."
+        : `You are about to post ${article} ${categoryLabel} payment through the Finance ledger.`}
     </Text>
   );
 
@@ -501,7 +726,7 @@ export function CompliancePaymentConfirmModal({
             keyboardType="numeric"
             value={advancePercentText}
             onChangeText={(text) => setAdvancePercentText(sanitizePercentInput(text))}
-            editable={!submitting}
+            editable={!submitting && !readOnly}
             selectTextOnFocus
             accessibilityLabel={percentLabel}
             placeholder="90"
@@ -629,6 +854,60 @@ export function CompliancePaymentConfirmModal({
           );
         })}
       </View>
+      <View style={styles.paymentInputsRow}>
+        <View style={styles.paymentInputCell}>
+          <Text style={styles.label}>{isCash ? "UTR / reference (optional)" : "UTR / reference *"}</Text>
+          <TextInput
+            style={[styles.textField, !!utrText && !!utrError && styles.textFieldError]}
+            value={utrText}
+            onChangeText={(text) => setUtrText(normalizeComplianceUtr(text))}
+            editable={!submitting}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            placeholder="Bank UTR"
+            placeholderTextColor={Theme.textMuted}
+            accessibilityLabel="UTR / reference number"
+          />
+          {utrText && utrError ? <Text style={styles.fieldError}>{utrError}</Text> : null}
+        </View>
+        <View style={styles.paymentInputCell}>
+          <Text style={styles.label}>Transaction date *</Text>
+          <TxnDateInput
+            value={txnDateText}
+            onChange={setTxnDateText}
+            disabled={submitting}
+            hasError={!!txnDateText && !!txnDateError}
+          />
+          {txnDateText.length >= 10 && txnDateError ? <Text style={styles.fieldError}>{txnDateError}</Text> : null}
+        </View>
+      </View>
+      {payoutAccounts.length > 0 ? (
+        <>
+          <Text style={styles.label}>Paid from (optional)</Text>
+          <View style={[styles.modeRow, styles.wrapRow]}>
+            {payoutAccounts.map((item) => {
+              const selected = paidFromId === item.id;
+              return (
+                <Pressable
+                  key={item.id}
+                  onPress={() => setPaidFromId(selected ? null : item.id)}
+                  style={[styles.modeChip, isInline && styles.modeChipInline, selected && styles.modeChipOn]}
+                  disabled={submitting}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                >
+                  <Text
+                    style={[styles.modeChipText, selected && styles.modeChipTextOn]}
+                    numberOfLines={1}
+                  >
+                    {item.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </>
+      ) : null}
     </View>
   );
 
@@ -663,6 +942,28 @@ export function CompliancePaymentConfirmModal({
           <Text style={styles.rejectText}>Reject</Text>
         </Pressable>
       ) : null}
+      {readOnly ? (
+        onFinanceVerify ? (
+          <Pressable
+            style={[
+              styles.confirmBtn,
+              isInline && styles.confirmBtnInline,
+              financeVerifySubmitting && styles.confirmBtnDisabled,
+            ]}
+            disabled={financeVerifySubmitting}
+            hitSlop={isInline ? INLINE_ACTION_HIT_SLOP : undefined}
+            accessibilityRole="button"
+            accessibilityLabel="Approve advance"
+            onPress={onFinanceVerify}
+          >
+            {financeVerifySubmitting ? (
+              <ActivityIndicator color={Theme.buttonDarkText} />
+            ) : (
+              <Text style={styles.confirmText}>Approve Advance</Text>
+            )}
+          </Pressable>
+        ) : null
+      ) : (
       <Pressable
         style={[
           styles.confirmBtn,
@@ -679,6 +980,9 @@ export function CompliancePaymentConfirmModal({
             amount: computedAmount,
             paymentModeId: mode.id,
             paymentModeLabel: mode.name,
+            utr: isCash ? undefined : normalizeComplianceUtr(utrText),
+            transactionDate: txnDateIso,
+            paidFromLabel: paidFrom?.label,
           });
         }}
       >
@@ -688,6 +992,7 @@ export function CompliancePaymentConfirmModal({
           <Text style={styles.confirmText}>Confirm payment</Text>
         )}
       </Pressable>
+      )}
     </View>
   );
 
@@ -700,7 +1005,7 @@ export function CompliancePaymentConfirmModal({
       >
         {introText}
         {detailsRow}
-        {modeField}
+        {readOnly ? null : modeField}
         <View style={[styles.actionsBar, styles.actionsBarInline]}>{actionsRow}</View>
       </View>
     );
@@ -1084,6 +1389,58 @@ const styles = StyleSheet.create({
   fieldInline: { flexShrink: 0, gap: 4 },
   label: { fontSize: 12, fontWeight: "600", color: Theme.textMuted },
   modeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  wrapRow: { flexWrap: "wrap" },
+  paymentInputsRow: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  paymentInputCell: { flexGrow: 1, flexBasis: 180, gap: 4 },
+  textField: {
+    minHeight: 44,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: Theme.borderInput,
+    borderRadius: 8,
+    fontSize: 14,
+    color: Theme.textPrimaryDark,
+    backgroundColor: Theme.backgroundInput,
+  },
+  dateShell: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 12,
+    borderWidth: 1,
+    borderColor: Theme.borderInput,
+    borderRadius: 8,
+    backgroundColor: Theme.backgroundInput,
+  },
+  dateText: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 42,
+    fontSize: 14,
+    color: Theme.textPrimaryDark,
+    ...(Platform.OS === "web" ? { outlineStyle: "none" } : null),
+  } as never,
+  dateIconBtn: {
+    width: 44,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  dateBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: Theme.overlayBackdrop },
+  dateSheet: { backgroundColor: Theme.cardWhite, paddingBottom: 24 },
+  dateSheetHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  dateSheetTitle: { fontSize: 15, fontWeight: "700", color: Theme.textPrimaryDark },
+  dateSheetMuted: { fontSize: 15, color: Theme.textMuted },
+  dateSheetDone: { fontSize: 15, fontWeight: "700", color: Theme.textPrimaryDark },
+  textFieldError: { borderColor: Theme.destructive },
+  fieldError: { fontSize: 11, color: Theme.destructive },
   modeChip: {
     flex: 1,
     minWidth: 0,

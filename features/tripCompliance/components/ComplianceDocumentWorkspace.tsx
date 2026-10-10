@@ -12,8 +12,12 @@ import {
 import { ComplianceAdvancePaymentArt } from "@/features/tripCompliance/components/ComplianceAdvancePaymentArt";
 import { ComplianceChecklistGapArt } from "@/features/tripCompliance/components/ComplianceChecklistGapArt";
 import { ComplianceDeclineModal } from "@/features/tripCompliance/components/ComplianceDeclineModal";
+import {
+  ComplianceDocTypeFilesModal,
+  type ComplianceDocTypeFile,
+} from "@/features/tripCompliance/components/ComplianceDocTypeFilesModal";
 import { NoDocumentPreviewEmpty, NoTripsFoundEmpty } from "@/features/tripCompliance/components/ComplianceEmptyState";
-import { ComplianceInputModal, type ComplianceInputField } from "@/features/tripCompliance/components/ComplianceInputModal";
+import { ComplianceInputModal } from "@/features/tripCompliance/components/ComplianceInputModal";
 import { ComplianceNumberStack } from "@/features/tripCompliance/components/ComplianceNumberStack";
 import {
   CompliancePaymentConfirmModal,
@@ -71,10 +75,15 @@ import {
 } from "@/features/tripCompliance/utils/complianceReviewActions.util";
 import {
   complianceVaultDocNumbers,
+  isActiveFinanceReject,
+  isComplianceAwaitingResubmit,
   isComplianceDeclineActive,
+  isComplianceHoldAwaitingResubmit,
+  missingOrRejectedRequiredTripDocs,
   isFinanceDeclinedTrip,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
-import { alertMessage } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
+import { alertMessage, confirmAction } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
+import { COMPLIANCE_DECLINE_REASON_SECTIONS } from "@/features/tripCompliance/utils/complianceDeclineReason.util";
 import { fetchSupplierBankProofBundle } from "@/features/tripCompliance/utils/supplierBankProof.util";
 import { classifyTripDocument, readTypedDetails } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
 
@@ -83,9 +92,14 @@ const PRE_VERIFIED_STAGES: ReadonlySet<ComplianceStage> = new Set(["pending_for_
 
 import { PodClientValidationPanel } from "@/features/debit-control/components/PodClientValidationPanel";
 import {
+  pickComplianceVaultFile,
   pickComplianceVaultFiles,
   uploadComplianceVaultFile,
 } from "@/features/tripCompliance/services/complianceVaultUpload.service";
+import {
+  deleteTripDocument,
+  type TripDocumentRow,
+} from "@/features/trips/services/tripDocuments.service";
 import { LogHardCopyPodModal, type HardCopyPodLrOption } from "@/features/trips/components/trip-detail/LogHardCopyPodModal";
 import {
   formatInvoiceVaultNumberLabel,
@@ -125,15 +139,6 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-const DECLINE_FIELDS: ComplianceInputField[] = [
-  {
-    key: "reason",
-    label: "Note — why is this document being declined?",
-    placeholder: "Enter reason",
-    required: true,
-  },
-];
-
 /**
  * Local preview-URL reuse window. Service-level signers already cache URLs until
  * ~2 min before expiry, so a URL we receive may have only that margin left —
@@ -163,7 +168,7 @@ type DocTab = "trip" | "vehicle" | "driver";
 function optimisticKey(scope: DocTab, rowKey: string): string {
   return `${scope}:${rowKey}`;
 }
-type ChecklistPreviewMode = "document" | "trip" | "advance" | "finance";
+type ChecklistPreviewMode = "document" | "trip" | "advance";
 type ComplianceReviewGroup = "required" | "optional";
 
 const TABS: { key: DocTab; label: string }[] = [
@@ -210,6 +215,16 @@ function entityDocumentChange(doc: { entity_type: "vehicle" | "driver"; entity_i
 }
 
 /** Row has reviewable content: a present trip doc (per classifier) or an entity file. */
+/** One checklist row per document type: the first row with a file, else the first row. */
+function firstRowPerType(rows: ComplianceDocRow[]): ComplianceDocRow[] {
+  const byType = new Map<string, ComplianceDocRow>();
+  for (const row of rows) {
+    const current = byType.get(row.type);
+    if (!current || (!hasFile(current) && hasFile(row))) byType.set(row.type, row);
+  }
+  return rows.filter((row) => byType.get(row.type) === row);
+}
+
 function hasFile(row: ComplianceDocRow): boolean {
   if (row.doc) return classifyTripDocument(row.doc).present;
   if (row.entityDoc?.storage_path) return true;
@@ -2152,8 +2167,15 @@ export function ComplianceDocumentWorkspace({
   onConfirmPayment,
   paymentSubmitting = false,
   onRejectCompliance,
+  onResubmitCompliance,
   onDeclineCompliance,
   onMarkComplianceVerified,
+  onFinanceVerify,
+  onUndoFinanceVerify,
+  financeVerifySubmitting = false,
+  defaultPreview = "document",
+  defaultFinanceList = false,
+  hideDocumentDecisions = false,
   selectedTripId = null,
   chargeFocusTripId = null,
   chargeFocusToken = 0,
@@ -2215,11 +2237,28 @@ export function ComplianceDocumentWorkspace({
   paymentSubmitting?: boolean;
   /** Reject a verified trip with a remark (keeps Verified stage, red card). */
   onRejectCompliance?: (tripId: string, reason: string) => Promise<void>;
+  /** Ground Ops, Document Upload → Declined by finance only. */
+  onResubmitCompliance?: (tripId: string, note: string) => Promise<void>;
   /** Decline the whole trip while it is still in Compliance Pending. */
   onDeclineCompliance?: (tripId: string, reason: string) => Promise<void>;
   /** Marks the trip Compliance Verified once all required docs are approved. */
   /** Resolves `false` when verification failed (the handler already alerted). */
   onMarkComplianceVerified?: (tripId: string) => Promise<boolean | void>;
+  /** Finance approval of a Compliance Verified trip (moves it to Finance Verified). */
+  onFinanceVerify?: (tripId: string) => Promise<void>;
+  /** Undo Finance Verify while no advance is posted. */
+  onUndoFinanceVerify?: (tripId: string) => Promise<void>;
+  financeVerifySubmitting?: boolean;
+  /**
+   * What opens first when a trip is selected: its documents, the Finance
+   * documents tab (Advance Verification), or the advance payment form
+   * (Advance Payment).
+   */
+  defaultPreview?: "document" | "advance";
+  /** Open with the Finance documents tab selected on the left (Advance Verification). */
+  defaultFinanceList?: boolean;
+  /** Advance Verification: documents are view-only, so hide group Approve / Decline. */
+  hideDocumentDecisions?: boolean;
   /** Trip to show when opening the card view from the table. */
   selectedTripId?: string | null;
   /** Trip to select after a charge save moves it to Balance Pending. */
@@ -2261,6 +2300,8 @@ export function ComplianceDocumentWorkspace({
   const [docIndex, setDocIndex] = useState(0);
   const [checklistKey, setChecklistKey] = useState<string | null>(null);
   const [checklistPreviewMode, setChecklistPreviewMode] = useState<ChecklistPreviewMode>("document");
+  /** Left list shows the Finance documents (independent of what the right panel shows). */
+  const [financeList, setFinanceList] = useState(defaultFinanceList);
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [toolLabel, setToolLabel] = useState<"rotate" | "refresh" | null>(null);
@@ -2278,9 +2319,16 @@ export function ComplianceDocumentWorkspace({
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [busy, setBusy] = useState(false);
   const [uploadingFinanceType, setUploadingFinanceType] = useState<string | null>(null);
+  /** Document type whose files dialog is open (eye on a grouped row). */
+  const [filesModalType, setFilesModalType] = useState<string | null>(null);
+  const [fileActionKey, setFileActionKey] = useState<string | null>(null);
+  /** Files dialog to reopen when the full-screen viewer opened from it closes. */
+  const filesModalReturnRef = useRef<string | null>(null);
   const [declineOpen, setDeclineOpen] = useState(false);
   const [tripDeclineOpen, setTripDeclineOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
+  const [resubmitting, setResubmitting] = useState(false);
+  const [resubmitOpen, setResubmitOpen] = useState(false);
   const [podOpen, setPodOpen] = useState(false);
   const [podLogRound, setPodLogRound] = useState(0);
   const [expiryPrompt, setExpiryPrompt] = useState<{
@@ -2416,7 +2464,7 @@ export function ComplianceDocumentWorkspace({
   }, [summary, supplierBankProof]);
   const isFinanceMode =
     showFinanceTab &&
-    checklistPreviewMode === "finance" &&
+    financeList &&
     summary?.stage !== "compliance_pending" &&
     !compliancePendingQueue;
   const listRows = isFinanceMode ? financeRows : checklistRows;
@@ -2424,10 +2472,10 @@ export function ComplianceDocumentWorkspace({
   const denseChecklist = listRows.length >= 4;
 
   useEffect(() => {
-    if (!showFinanceTab && checklistPreviewMode === "finance") {
-      setChecklistPreviewMode("document");
+    if (!showFinanceTab && financeList) {
+      setFinanceList(false);
     }
-  }, [showFinanceTab, checklistPreviewMode]);
+  }, [showFinanceTab, financeList]);
   const reviewScope: DocTab = isFinanceMode ? "trip" : tab;
   const displayListRows = useMemo(
     () =>
@@ -2539,16 +2587,19 @@ export function ComplianceDocumentWorkspace({
       appliedSelectedTripId.current = tripId;
       setSelectedId(tripId);
       setTab("trip");
+      setFinanceList(defaultFinanceList);
+      setChecklistPreviewMode(defaultPreview);
       setDocIndex(0);
       resetPreviewView();
     },
-    [resetPreviewView],
+    [defaultFinanceList, defaultPreview, resetPreviewView],
   );
 
   useEffect(() => {
     if (!focusToken || !focusTab || appliedFocusToken.current === focusToken) return;
     appliedFocusToken.current = focusToken;
     setTab(focusTab);
+    setFinanceList(false);
     setChecklistPreviewMode("document");
     resetPreviewView();
     setScreenOpen(false);
@@ -2560,7 +2611,8 @@ export function ComplianceDocumentWorkspace({
 
   useEffect(() => {
     if (compliancePendingQueue) {
-      setChecklistPreviewMode((mode) => (mode === "finance" || mode === "advance" ? "document" : mode));
+      setFinanceList(false);
+      setChecklistPreviewMode((mode) => (mode === "advance" ? "document" : mode));
     }
   }, [compliancePendingQueue]);
 
@@ -2576,8 +2628,9 @@ export function ComplianceDocumentWorkspace({
   }, [summary?.trip.id, tab, resetPreviewView]);
 
   useEffect(() => {
-    setChecklistPreviewMode("document");
-  }, [summary?.trip.id]);
+    setFinanceList(defaultFinanceList);
+    setChecklistPreviewMode(defaultPreview);
+  }, [summary?.trip.id, defaultPreview, defaultFinanceList]);
 
   useEffect(() => {
     if (verifyNotice?.tone !== "success") return;
@@ -2590,7 +2643,7 @@ export function ComplianceDocumentWorkspace({
       setChecklistKey(null);
       return;
     }
-    const pool = checklistPreviewMode === "finance" ? financeRows : checklistRows;
+    const pool = financeList ? financeRows : checklistRows;
     setChecklistKey((prev) => {
       const focusType = focusUploadTypeRef.current;
       if (focusType) {
@@ -2616,6 +2669,7 @@ export function ComplianceDocumentWorkspace({
     });
   }, [
     showDocumentShell,
+    financeList,
     showEntityUnassigned,
     checklistPreviewMode,
     checklistRows,
@@ -2742,7 +2796,7 @@ export function ComplianceDocumentWorkspace({
       const next = previewable[(current + 1) % previewable.length];
       if (next) {
         setChecklistKey(next.key);
-        setChecklistPreviewMode((prev) => (prev === "finance" ? "finance" : "document"));
+        setChecklistPreviewMode("document");
       }
       resetPreviewView();
       return;
@@ -2760,7 +2814,7 @@ export function ComplianceDocumentWorkspace({
       const prev = previewable[(current - 1 + previewable.length) % previewable.length];
       if (prev) {
         setChecklistKey(prev.key);
-        setChecklistPreviewMode((mode) => (mode === "finance" ? "finance" : "document"));
+        setChecklistPreviewMode("document");
       }
       resetPreviewView();
       return;
@@ -3123,8 +3177,34 @@ export function ComplianceDocumentWorkspace({
     isCompliancePendingStage && summary && !summary.complianceVerifiedAt,
   );
   /** Verified Reject: trip still has verified_at, but must be re-verified to leave Declined by finance. */
+  // Re-verify only after Ground Ops resubmitted (the database refuses it before).
   const showFinanceDeclineReVerify = Boolean(
-    summary && isFinanceDeclinedTrip(summary) && onMarkComplianceVerified,
+    summary &&
+      isFinanceDeclinedTrip(summary) &&
+      !isComplianceAwaitingResubmit(summary) &&
+      onMarkComplianceVerified,
+  );
+  const showResubmit = Boolean(
+    onResubmitCompliance &&
+      summary &&
+      isComplianceHoldAwaitingResubmit(summary),
+  ) || Boolean(
+    onResubmitCompliance &&
+      summary &&
+      isActiveFinanceReject(summary) &&
+      !summary.advance &&
+      !summary.balance &&
+      !summary.advanceBeforeVerification,
+  );
+  /**
+   * Resubmit needs every required file on file: LR / E-way / Invoice present
+   * and not rejected (also enforced by resubmit_trip_compliance), and for a
+   * hold the vehicle / driver files too (stage leaves pending_for_docs).
+   */
+  const resubmitBlockedByMissingDocs = Boolean(
+    summary &&
+      (missingOrRejectedRequiredTripDocs(summary).length > 0 ||
+        (isComplianceHoldAwaitingResubmit(summary) && summary.stage === "pending_for_docs")),
   );
   const showMarkVerified = Boolean(
     !isCompliancePendingStage &&
@@ -3246,8 +3326,81 @@ export function ComplianceDocumentWorkspace({
       vaultCopy.unassignedHint,
     ],
   );
+  // The files dialog belongs to one trip and tab.
+  useEffect(() => {
+    setFilesModalType(null);
+    filesModalReturnRef.current = null;
+  }, [summary?.trip.id, tab, financeList]);
+
+  /** Trip-scope file as the delete helper's row shape. */
+  const tripDocumentForDelete = (row: ComplianceDocRow): TripDocumentRow | null =>
+    row.doc
+      ? ({
+          id: row.doc.id,
+          trip_id: row.doc.trip_id,
+          file_name: row.doc.file_name,
+          storage_path: row.doc.storage_path,
+          mime_type: row.doc.mime_type ?? null,
+          size_bytes: null,
+          uploaded_at: row.doc.uploaded_at,
+          uploaded_by: row.doc.uploaded_by ?? null,
+          document_type: row.doc.document_type,
+        } as TripDocumentRow)
+      : null;
+
+  /** Replace one trip file: upload the new copy, then delete the old one. */
+  const replaceTripFile = async (row: ComplianceDocRow) => {
+    const old = tripDocumentForDelete(row);
+    if (!summary || !old || !actorId) return;
+    setFileActionKey(row.key);
+    try {
+      const file = await pickComplianceVaultFile(row.type);
+      if (!file) return;
+      await uploadComplianceVaultFile({
+        scope: "trip",
+        type: row.type,
+        tripId: summary.trip.id,
+        organizationId,
+        actorId,
+        vehicleId: summary.trip.vehicle_id ?? null,
+        entityId: null,
+        existing: null,
+        append: true,
+        file,
+        expiryDate: null,
+      });
+      const { error } = await deleteTripDocument(old);
+      onChanged({ type: "tripDocuments", tripId: summary.trip.id });
+      if (error) {
+        alertMessage("Old file not removed", `The new file was added, but the old one could not be removed: ${error.message}`);
+      }
+    } catch (err) {
+      alertMessage("Couldn't replace file", err instanceof Error ? err.message : "Replace failed. Try again.");
+    } finally {
+      setFileActionKey(null);
+    }
+  };
+
+  const removeTripFile = async (row: ComplianceDocRow, label: string) => {
+    const old = tripDocumentForDelete(row);
+    if (!summary || !old) return;
+    const ok = await confirmAction("Remove file?", `${label} (${old.file_name}) will be deleted from this trip.`, "Remove");
+    if (!ok) return;
+    setFileActionKey(row.key);
+    try {
+      const { error } = await deleteTripDocument(old);
+      if (error) {
+        alertMessage("Couldn't remove file", error.message);
+        return;
+      }
+      onChanged({ type: "tripDocuments", tripId: summary.trip.id });
+    } finally {
+      setFileActionKey(null);
+    }
+  };
+
   const previewChecklistRow = useCallback((row: ComplianceDocRow) => {
-    setChecklistPreviewMode((prev) => (prev === "finance" ? "finance" : "document"));
+    setChecklistPreviewMode("document");
     setChecklistKey(row.key);
     if (!hasFile(row)) return;
     resetPreviewView();
@@ -3257,15 +3410,19 @@ export function ComplianceDocumentWorkspace({
       const vault = target.vault.trim().toLowerCase();
       if (vault === "finance") {
         setTab("trip");
-        setChecklistPreviewMode("finance");
+        setFinanceList(true);
+        setChecklistPreviewMode("document");
       } else if (vault === "vehicle") {
         setTab("vehicle");
+        setFinanceList(false);
         setChecklistPreviewMode("document");
       } else if (vault === "driver") {
         setTab("driver");
+        setFinanceList(false);
         setChecklistPreviewMode("document");
       } else {
         setTab("trip");
+        setFinanceList(false);
         setChecklistPreviewMode("document");
       }
       if (target.type) focusUploadTypeRef.current = target.type;
@@ -3298,16 +3455,38 @@ export function ComplianceDocumentWorkspace({
     const rowHasFile = hasFile(displayRow);
     const statusMeta = COMPLIANCE_STATUS_META[displayRow.status];
     const selected =
-      (checklistPreviewMode === "document" || checklistPreviewMode === "finance") &&
+      checklistPreviewMode === "document" &&
       checklistKey === displayRow.key;
     const uploadLabel = displayRow.status === "missing" ? "Upload" : "Add";
     const rowLabel = isFinanceMode
       ? labelForFinanceDocType(displayRow.type)
       : labelForDocType(displayRow.type);
-    const sameTypeRows = listRows.filter((item) => item.type === displayRow.type);
-    const typeOrdinal = sameTypeRows.findIndex((item) => item.key === displayRow.key) + 1;
+    // One row per type; every file of the type opens in the files dialog.
+    const typeFiles = listRows
+      .filter((item) => item.type === displayRow.type && hasFile(item))
+      .map((item) => applyOptimisticDecision(item, localDecisionByKey[optimisticKey(reviewScope, item.key)]));
     const rowTitle =
-      sameTypeRows.length > 1 && rowHasFile ? `${rowLabel.toUpperCase()} · ${typeOrdinal}` : rowLabel.toUpperCase();
+      typeFiles.length > 1 ? `${rowLabel.toUpperCase()} · ${typeFiles.length} files` : rowLabel.toUpperCase();
+    const typeStatusSummary =
+      typeFiles.length > 1
+        ? (["verified", "pending", "rejected", "expired"] as const)
+            .map((status) => {
+              const count = typeFiles.filter((item) => item.status === status).length;
+              return count > 0 ? `${count} ${COMPLIANCE_STATUS_META[status].label.toLowerCase()}` : null;
+            })
+            .filter(Boolean)
+            .join(" · ")
+        : null;
+    const typeStatusColor =
+      typeFiles.length > 1
+        ? COMPLIANCE_STATUS_META[
+            typeFiles.some((item) => item.status === "rejected")
+              ? "rejected"
+              : typeFiles.some((item) => item.status === "pending")
+                ? "pending"
+                : displayRow.status
+          ].color
+        : null;
     const fileName = displayRow.doc?.file_name?.trim() || displayRow.entityDoc?.notes?.trim() || "";
     const vaultDetail = isFinanceMode ? financeVaultDetailLine(displayRow) : null;
     const isBankDocs = isFinanceMode && displayRow.type === "bank_docs";
@@ -3324,8 +3503,9 @@ export function ComplianceDocumentWorkspace({
       isCompliancePendingStage && reviewScope === "trip"
         ? complianceVaultDocNumbers(summary?.documents ?? [], displayRow.type)
         : [];
-    const statusLabel =
-      displayRow.status === "missing"
+    const statusLabel = typeStatusSummary
+      ? typeStatusSummary
+      : displayRow.status === "missing"
         ? isBankDocs && supplierBankLoading
           ? "Fetching supplier Banking…"
           : "Not uploaded"
@@ -3388,7 +3568,7 @@ export function ComplianceDocumentWorkspace({
             <Text
               style={[
                 styles.missingStatus,
-                displayRow.status === "missing" ? null : { color: statusMeta.color },
+                displayRow.status === "missing" ? null : { color: typeStatusColor ?? statusMeta.color },
               ]}
               numberOfLines={1}
             >
@@ -3406,9 +3586,9 @@ export function ComplianceDocumentWorkspace({
             style={[styles.missingEyeBtn, !rowHasFile && styles.missingEyeBtnDisabled]}
             activeOpacity={0.75}
             disabled={!canViewDocuments || !rowHasFile}
-            onPress={() => previewChecklistRow(displayRow)}
+            onPress={() => setFilesModalType(displayRow.type)}
             accessibilityRole="button"
-            accessibilityLabel={`Preview ${rowLabel}`}
+            accessibilityLabel={`${rowLabel} files`}
             accessibilityState={{ disabled: !rowHasFile }}
           >
             <Eye
@@ -3417,7 +3597,7 @@ export function ComplianceDocumentWorkspace({
               strokeWidth={2.2}
             />
           </TouchableOpacity>
-          {onReviewTripDocs || isFinanceMode ? (
+          {(onReviewTripDocs || isFinanceMode) && displayRow.status === "missing" ? (
             <TouchableOpacity
               style={[
                 styles.missingUploadBtn,
@@ -3460,6 +3640,7 @@ export function ComplianceDocumentWorkspace({
             : `${state.total} uploaded · ready for review`;
     const showActions = Boolean(
       canVerify &&
+      !hideDocumentDecisions &&
       summary?.stage !== "pending_for_docs" &&
       state &&
       (state.phase === "review" || state.phase === "declined"),
@@ -3485,7 +3666,7 @@ export function ComplianceDocumentWorkspace({
             {meta}
           </Text>
         </View>
-        {state?.phase === "approved" ? (
+        {state?.phase === "approved" && !hideDocumentDecisions ? (
           <View style={styles.reviewGroupApprovedPill} accessibilityLabel={`All ${groupLabel} documents approved`}>
             <Check size={12} color={Theme.cardWhite} strokeWidth={2.8} />
             <Text style={styles.reviewGroupApprovedText}>Approved</Text>
@@ -3718,24 +3899,25 @@ export function ComplianceDocumentWorkspace({
                     <Pressable
                       onPress={() => {
                         setTab("trip");
-                        setChecklistPreviewMode("finance");
+                        setFinanceList(true);
+                        setChecklistPreviewMode("document");
                         resetPreviewView();
                         setScreenOpen(false);
                       }}
                       style={[
                         styles.tab,
                         styles.checklistPanelTab,
-                        checklistPreviewMode === "finance" && styles.tabActive,
+                        financeList && styles.tabActive,
                       ]}
                       accessibilityRole="button"
-                      accessibilityState={{ selected: checklistPreviewMode === "finance" }}
+                      accessibilityState={{ selected: financeList }}
                       accessibilityLabel="Show finance documents"
                     >
                       <Text
                         style={[
                           styles.tabText,
                           styles.checklistPanelTabText,
-                          checklistPreviewMode === "finance" && styles.tabTextActive,
+                          financeList && styles.tabTextActive,
                         ]}
                         numberOfLines={1}
                       >
@@ -3746,14 +3928,14 @@ export function ComplianceDocumentWorkspace({
                           style={[
                             styles.tabBadge,
                             styles.checklistPanelTabBadge,
-                            checklistPreviewMode === "finance" && styles.tabBadgeActive,
+                            financeList && styles.tabBadgeActive,
                           ]}
                         >
                           <Text
                             style={[
                               styles.tabBadgeText,
                               styles.checklistPanelTabBadgeText,
-                              checklistPreviewMode === "finance" && styles.tabBadgeTextActive,
+                              financeList && styles.tabBadgeTextActive,
                             ]}
                           >
                             {tabMissingCounts.finance}
@@ -3763,13 +3945,14 @@ export function ComplianceDocumentWorkspace({
                     </Pressable>
                     ) : null}
                     {TABS.map((item) => {
-                      const active = tab === item.key && checklistPreviewMode !== "finance";
+                      const active = tab === item.key && !financeList;
                       const missingCount = tabMissingCounts[item.key];
                       return (
                         <Pressable
                           key={item.key}
                           onPress={() => {
                             setTab(item.key);
+                            setFinanceList(false);
                             setChecklistPreviewMode("document");
                             resetPreviewView();
                             setScreenOpen(false);
@@ -3894,11 +4077,11 @@ export function ComplianceDocumentWorkspace({
                                 style={[styles.reviewGroup, group === "optional" && styles.reviewGroupSpaced]}
                               >
                                 {renderReviewGroupHeader(group, groupRows.length)}
-                                {groupRows.map(renderChecklistRow)}
+                                {firstRowPerType(groupRows).map(renderChecklistRow)}
                               </View>
                             );
                           })
-                        : listRows.map(renderChecklistRow)}
+                        : firstRowPerType(listRows).map(renderChecklistRow)}
                     </ScrollView>
                     <View
                       style={styles.checklistListGapArt}
@@ -4054,6 +4237,36 @@ export function ComplianceDocumentWorkspace({
                           ) : null}
                         </View>
                       ) : null}
+                      {showResubmit && summary && onResubmitCompliance ? (
+                        <View style={styles.checklistPreviewTripActions}>
+                          <TouchableOpacity
+                            style={[
+                              styles.verifyTripBtn,
+                              (resubmitting || resubmitBlockedByMissingDocs) && styles.btnDisabled,
+                            ]}
+                            activeOpacity={0.85}
+                            disabled={resubmitting}
+                            onPress={() => {
+                              if (resubmitBlockedByMissingDocs) {
+                                alertMessage(
+                                  "Upload missing documents first",
+                                  "Some required Trip, Vehicle or Driver documents are missing or rejected. Upload or replace them, then Resubmit.",
+                                );
+                                return;
+                              }
+                              setResubmitOpen(true);
+                            }}
+                            accessibilityRole="button"
+                            accessibilityLabel="Resubmit trip for review"
+                          >
+                            {resubmitting ? (
+                              <ActivityIndicator size="small" color={Theme.cardWhite} />
+                            ) : (
+                              <Text style={styles.verifyTripBtnText}>Resubmit</Text>
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                      ) : null}
                     </View>
                   </>
                 )}
@@ -4062,7 +4275,7 @@ export function ComplianceDocumentWorkspace({
               <View style={[styles.checklistPreviewPane, stacked && styles.checklistPreviewPaneStacked]}>
                 {(() => {
                   const previewingDocument =
-                    checklistPreviewMode === "document" || checklistPreviewMode === "finance";
+                    checklistPreviewMode === "document";
                   const toolsEnabled = Boolean(previewUrl);
                   const canExpand = Boolean(previewUrl || typedLines);
                   const expandColor = canExpand ? Theme.textPrimaryDark : Theme.textMuted;
@@ -4186,8 +4399,20 @@ export function ComplianceDocumentWorkspace({
                       canPayRejected={Boolean(
                         canManageFinance &&
                           onConfirmPayment &&
+                          summary.financeVerifiedAt &&
                           isComplianceVerifiedRejected(summary),
                       )}
+                      onFinanceVerify={
+                        canManageFinance && onFinanceVerify
+                          ? () => void onFinanceVerify(summary.trip.id)
+                          : undefined
+                      }
+                      onUndoFinanceVerify={
+                        canManageFinance && onUndoFinanceVerify
+                          ? () => void onUndoFinanceVerify(summary.trip.id)
+                          : undefined
+                      }
+                      financeVerifySubmitting={financeVerifySubmitting}
                       onUpdateUtr={
                         canManageFinance
                           ? async (target, transactionId, utr, category) => {
@@ -4389,7 +4614,12 @@ export function ComplianceDocumentWorkspace({
         isPdf={isPdf}
         title={docTitle}
         presentation="page"
-        onClose={() => setScreenOpen(false)}
+        onClose={() => {
+          setScreenOpen(false);
+          const returnType = filesModalReturnRef.current;
+          filesModalReturnRef.current = null;
+          if (returnType) setFilesModalType(returnType);
+        }}
         onPrev={goPrev}
         onNext={goNext}
         canNavigate={previewable.length > 1}
@@ -4404,18 +4634,118 @@ export function ComplianceDocumentWorkspace({
             : null
         }
       />
-      <ComplianceInputModal
+      <ComplianceDeclineModal
         visible={declineOpen}
         title={declineTarget === "required" ? "Decline required documents" : "Decline optional documents"}
-        fields={DECLINE_FIELDS}
-        confirmLabel="Decline with note"
+        presets={COMPLIANCE_DECLINE_REASON_SECTIONS}
+        submitLabel="Decline"
+        tripLabel={
+          summary
+            ? getTripDisplayNumber(summary.trip, summary.trip.organization_id ?? null)
+            : "Trip"
+        }
         onCancel={() => setDeclineOpen(false)}
-        onSubmit={(values) => {
-          void declineWithReason(values.reason ?? "");
+        onSubmit={async (reason) => {
+          await declineWithReason(reason);
+        }}
+      />
+      {(() => {
+        if (!filesModalType) return null;
+        const typeRows = listRows.filter((row) => row.type === filesModalType);
+        const fileRows = typeRows
+          .filter(hasFile)
+          .map((row) => applyOptimisticDecision(row, localDecisionByKey[optimisticKey(reviewScope, row.key)]));
+        const label = isFinanceMode ? labelForFinanceDocType(filesModalType) : labelForDocType(filesModalType);
+        const canUploadHere = Boolean(onReviewTripDocs || isFinanceMode);
+        const files: ComplianceDocTypeFile[] = fileRows.map((row, index) => {
+          const isTripFile = Boolean(row.doc);
+          const approved = row.status === "verified";
+          return {
+            key: row.key,
+            label: fileRows.length > 1 ? `${label} · ${index + 1}` : label,
+            fileName: row.doc?.file_name?.trim() || row.entityDoc?.notes?.trim() || "",
+            statusLabel: COMPLIANCE_STATUS_META[row.status].label,
+            statusColor: COMPLIANCE_STATUS_META[row.status].color,
+            canPreview: canViewDocuments,
+            canReplace: canUploadHere && isTripFile && !approved,
+            canRemove: canUploadHere && isTripFile && !approved,
+            lockedReason: approved && isTripFile && canUploadHere ? "Approved files are locked" : null,
+          };
+        });
+        const addRow = typeRows[0];
+        return (
+          <ComplianceDocTypeFilesModal
+            visible
+            title={`${label} · ${fileRows.length} file${fileRows.length === 1 ? "" : "s"}`}
+            files={files}
+            busyKey={fileActionKey}
+            adding={Boolean(addRow && uploadingFinanceType === addRow.key)}
+            canAdd={canUploadHere && Boolean(addRow)}
+            footnote={
+              fileRows.some((row) => !row.doc)
+                ? "Vehicle and driver files are shared with other trips. Replace or remove them from the vehicle or driver profile."
+                : null
+            }
+            onPreview={(key) => {
+              const row = fileRows.find((item) => item.key === key);
+              setFilesModalType(null);
+              if (!row) return;
+              // Select the file, open the full-screen viewer, and come back here on close.
+              filesModalReturnRef.current = row.type;
+              previewChecklistRow(row);
+              setScreenOpen(true);
+            }}
+            onReplace={(key) => {
+              const row = fileRows.find((item) => item.key === key);
+              if (row) void replaceTripFile(row);
+            }}
+            onRemove={(key) => {
+              const index = fileRows.findIndex((item) => item.key === key);
+              if (index >= 0) {
+                void removeTripFile(fileRows[index], fileRows.length > 1 ? `${label} · ${index + 1}` : label);
+              }
+            }}
+            onAdd={() => {
+              if (addRow) void uploadVaultDocument(addRow);
+            }}
+            onClose={() => setFilesModalType(null)}
+          />
+        );
+      })()}
+      <ComplianceDeclineModal
+        visible={resubmitOpen}
+        title="Resubmit for review"
+        fieldLabel="What did you fix?"
+        placeholder="e.g. Invoice copy re-uploaded and checked"
+        submitLabel="Resubmit"
+        context={
+          summary?.complianceDeclineReason?.trim()
+            ? {
+                label: isComplianceHoldAwaitingResubmit(summary) ? "Hold reason" : "Reject reason",
+                text: summary.complianceDeclineReason.trim(),
+              }
+            : null
+        }
+        tripLabel={
+          summary
+            ? getTripDisplayNumber(summary.trip, summary.trip.organization_id ?? null)
+            : "Trip"
+        }
+        onCancel={() => setResubmitOpen(false)}
+        onSubmit={async (note) => {
+          if (!summary || !onResubmitCompliance) return;
+          setResubmitting(true);
+          try {
+            await onResubmitCompliance(summary.trip.id, note);
+            setResubmitOpen(false);
+          } finally {
+            setResubmitting(false);
+          }
         }}
       />
       <ComplianceDeclineModal
         visible={tripDeclineOpen}
+        presets={COMPLIANCE_DECLINE_REASON_SECTIONS}
         tripLabel={
           summary
             ? getTripDisplayNumber(summary.trip, summary.trip.organization_id ?? null)
@@ -5215,6 +5545,9 @@ function ChecklistAdvancePaymentPanel({
   onOpenPayModal,
   onReject,
   canPayRejected = false,
+  onFinanceVerify,
+  onUndoFinanceVerify,
+  financeVerifySubmitting = false,
   onUpdateUtr,
   onUpdatePaidAt,
   supplierName,
@@ -5250,22 +5583,34 @@ function ChecklistAdvancePaymentPanel({
   onOpenPayModal?: (summary: ComplianceTripSummary) => void;
   /** Trip-level compliance Reject (opens the remark modal). */
   onReject?: () => void;
+  /** Finance staff: approve a Compliance Verified trip. */
+  onFinanceVerify?: () => void;
+  /** Finance staff: undo Finance Verify while no advance is posted. */
+  onUndoFinanceVerify?: () => void;
+  financeVerifySubmitting?: boolean;
 }) {
   const advance = summary.advance;
   const advanceBeforeVerification = summary.advanceBeforeVerification ?? null;
   const partyLabel =
     (supplierName ?? summary.trip.supplier_name)?.trim() || "party";
   const lane = readiness?.advance ?? null;
+  // Advance Verification: read-only review of the payment values before Finance Verify.
+  const showReviewForm =
+    !advance && !advanceBeforeVerification && Boolean(summary.complianceVerifiedAt) && !summary.financeVerifiedAt;
   const statusLabel = advance
     ? "Advance processed"
-    : lane?.status === "ready"
+    : showReviewForm
+      ? "Finance review"
+      : lane?.status === "ready"
       ? "Ready to pay"
       : lane?.status === "blocked"
         ? "Blocked"
         : "Not posted";
   const statusTone: "ready" | "posted" | "blocked" | "pending" = advance
     ? "posted"
-    : lane?.status === "ready"
+    : showReviewForm
+      ? "pending"
+      : lane?.status === "ready"
       ? "ready"
       : lane?.status === "blocked"
         ? "blocked"
@@ -5278,6 +5623,8 @@ function ChecklistAdvancePaymentPanel({
           if (lower.includes("before the balance")) return false;
           // Amount / log are shown in ComplianceAdvanceCreditCard instead.
           if (advanceBeforeVerification && lower.includes("finance has posted")) return false;
+          // The Finance Verify button below says this already.
+          if (onFinanceVerify && lower.includes("waiting for approve advance")) return false;
           return true;
         })
       : [];
@@ -5288,6 +5635,14 @@ function ChecklistAdvancePaymentPanel({
     Boolean(onConfirmPayment);
   const showPayFallback = !advance && canPay && !showInlineForm && Boolean(onOpenPayModal);
   const rejectedPayAvailable = !advance && !showInlineForm && canPayRejected;
+  // Fallback button only when the review form is not shown (e.g. advance posted before verify).
+  const showFinanceVerify =
+    !advance &&
+    !showReviewForm &&
+    Boolean(summary.complianceVerifiedAt) &&
+    !summary.financeVerifiedAt &&
+    Boolean(onFinanceVerify);
+  const showUndoFinanceVerify = !advance && Boolean(summary.financeVerifiedAt) && Boolean(onUndoFinanceVerify);
   const [rejectedPayOpen, setRejectedPayOpen] = useState(false);
   useEffect(() => {
     setRejectedPayOpen(false);
@@ -5296,6 +5651,7 @@ function ChecklistAdvancePaymentPanel({
   const showArt =
     !advance &&
     !showInlineForm &&
+    !showReviewForm &&
     !(rejectedPayAvailable && rejectedPayOpen);
 
   return (
@@ -5305,7 +5661,9 @@ function ChecklistAdvancePaymentPanel({
         <Text style={styles.checklistInfoHint} numberOfLines={2}>
           {showInlineForm
             ? "Review the calculation and confirm to post through Finance"
-            : "Payment status for this trip's compliance advance"}
+            : showReviewForm
+              ? "Check the values, then Approve Advance"
+              : "Payment status for this trip's compliance advance"}
         </Text>
 
         {!advance ? (
@@ -5395,7 +5753,24 @@ function ChecklistAdvancePaymentPanel({
         </View>
       ) : null}
 
-      {!showInlineForm && (showPayFallback || onReject) ? (
+      {showReviewForm ? (
+        <View style={styles.checklistAdvanceFormCard}>
+          <CompliancePaymentConfirmModal
+            presentation="inline"
+            visible
+            readOnly
+            summary={summary}
+            category="compliance_advance"
+            submitting={false}
+            onConfirm={() => undefined}
+            onReject={onReject}
+            onFinanceVerify={onFinanceVerify}
+            financeVerifySubmitting={financeVerifySubmitting}
+          />
+        </View>
+      ) : null}
+
+      {!showInlineForm && !showReviewForm && (showPayFallback || onReject || showFinanceVerify) ? (
         <View style={styles.checklistAdvanceActionsRow}>
           {onReject ? (
             <TouchableOpacity
@@ -5406,6 +5781,21 @@ function ChecklistAdvancePaymentPanel({
               accessibilityLabel="Reject trip compliance"
             >
               <Text style={styles.checklistAdvanceRejectText}>Reject</Text>
+            </TouchableOpacity>
+          ) : null}
+          {showFinanceVerify ? (
+            <TouchableOpacity
+              style={[styles.checklistPayBtn, styles.checklistAdvancePayFallback]}
+              activeOpacity={0.85}
+              onPress={onFinanceVerify}
+              disabled={financeVerifySubmitting}
+              accessibilityRole="button"
+              accessibilityLabel="Approve advance"
+              accessibilityState={{ disabled: financeVerifySubmitting, busy: financeVerifySubmitting }}
+            >
+              <Text style={styles.checklistPayBtnText}>
+                {financeVerifySubmitting ? "Approving…" : "Approve Advance"}
+              </Text>
             </TouchableOpacity>
           ) : null}
           {showPayFallback ? (
@@ -5422,13 +5812,35 @@ function ChecklistAdvancePaymentPanel({
         </View>
       ) : null}
 
-      {advanceBlockers.length > 0 ? (
+      {advanceBlockers.length > 0 && !showReviewForm ? (
         <View style={styles.checklistBlockerBox}>
           {advanceBlockers.slice(0, 3).map((line) => (
             <Text key={line} style={styles.checklistBlockerText} numberOfLines={2}>
               {line}
             </Text>
           ))}
+        </View>
+      ) : null}
+
+      {showUndoFinanceVerify ? (
+        <View style={styles.checklistRejectedPayRow}>
+          <Text style={styles.checklistRejectedPayHint} numberOfLines={2}>
+            Advance approved. Undo is possible until the advance is posted.
+          </Text>
+          <TouchableOpacity
+            style={styles.checklistRejectedPayBtn}
+            activeOpacity={0.85}
+            onPress={onUndoFinanceVerify}
+            disabled={financeVerifySubmitting}
+            hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+            accessibilityRole="button"
+            accessibilityLabel="Undo advance approval"
+            accessibilityState={{ disabled: financeVerifySubmitting, busy: financeVerifySubmitting }}
+          >
+            <Text style={styles.checklistRejectedPayBtnText}>
+              {financeVerifySubmitting ? "Undoing…" : "Undo approval"}
+            </Text>
+          </TouchableOpacity>
         </View>
       ) : null}
 
@@ -5500,6 +5912,15 @@ const TripListRow = React.memo(function TripListRow({
   const declineRemark = isRejected
     ? summary.complianceDeclineReason?.trim() || ""
     : "";
+  // Ground Ops' answer, only when it belongs to the latest decline / reject.
+  const resubmitNote =
+    isRejected &&
+    summary.complianceResubmitNote?.trim() &&
+    summary.complianceResubmittedAt &&
+    summary.complianceDeclinedAt &&
+    Date.parse(summary.complianceResubmittedAt) >= Date.parse(summary.complianceDeclinedAt)
+      ? summary.complianceResubmitNote.trim()
+      : "";
   const customerName = trip.client_name?.trim() || "—";
   const supplierLabel = (supplierName ?? trip.supplier_name)?.trim() || "—";
   const origin = splitHubRouteLocationDisplay(trip.pickup_area ?? "");
@@ -5645,6 +6066,11 @@ const TripListRow = React.memo(function TripListRow({
       {declineRemark ? (
         <Text style={styles.rejectReasonLine} numberOfLines={2}>
           {declineRemark}
+        </Text>
+      ) : null}
+      {resubmitNote ? (
+        <Text style={styles.resubmitNoteLine} numberOfLines={2}>
+          {`Resubmitted: ${resubmitNote}`}
         </Text>
       ) : null}
 
@@ -5818,6 +6244,12 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "500",
     color: Theme.complianceStageDocsFg,
+    lineHeight: 13,
+  },
+  resubmitNoteLine: {
+    fontSize: 10,
+    fontWeight: "500",
+    color: Theme.textPrimaryDark,
     lineHeight: 13,
   },
   clientRejected: {

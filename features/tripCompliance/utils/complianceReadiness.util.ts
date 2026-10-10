@@ -141,6 +141,8 @@ export function deriveComplianceQueueReadiness(summary: ComplianceTripSummary): 
     );
   } else if (complianceVerificationIncomplete) {
     advance = lane("compliance_advance", "blocked", "Compliance verification not completed.");
+  } else if (!summary.financeVerifiedAt) {
+    advance = lane("compliance_advance", "blocked", "Waiting for Approve Advance.");
   } else {
     advance = lane("compliance_advance", "ready", null);
   }
@@ -271,9 +273,25 @@ export function isCompliancePaymentPending(summary: ComplianceTripSummary): bool
  */
 export function isComplianceVerifiedQueue(summary: ComplianceTripSummary): boolean {
   if (isPostVerifyFinanceReject(summary)) return false;
+  // Finance has verified it: the trip moves on to the Finance Verified queue.
+  if (summary.financeVerifiedAt) return false;
   if (summary.stage === "compliance_verified") return true;
   if (summary.stage === "advance_payment_processed") return false;
   if (!summary.complianceVerifiedAt) return false;
+  if (summary.advance || summary.balance) return false;
+  if (summary.hardCopyPod?.received) return false;
+  return true;
+}
+
+/**
+ * Finance Verified chip: Finance has verified the trip and the advance is not
+ * posted yet. Includes completed trips that sit in Awaiting POD, like the
+ * Compliance Verified queue. Once the advance is posted, the trip moves to
+ * Advance Processed.
+ */
+export function isFinanceVerifiedQueue(summary: ComplianceTripSummary): boolean {
+  if (!summary.complianceVerifiedAt || !summary.financeVerifiedAt) return false;
+  if (isPostVerifyFinanceReject(summary)) return false;
   if (summary.advance || summary.balance) return false;
   if (summary.hardCopyPod?.received) return false;
   return true;

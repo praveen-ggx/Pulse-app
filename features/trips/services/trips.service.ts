@@ -183,6 +183,12 @@ export interface TripRow {
   /** Trip Compliance parallel workflow — see migration 20260915162440. */
   compliance_verified_at?: string | null;
   compliance_verified_by?: string | null;
+  /** Finance verify — see migration 20261010122824. Required before the compliance advance. */
+  finance_verified_at?: string | null;
+  finance_verified_by?: string | null;
+  compliance_reject_return_to?: string | null;
+  compliance_resubmitted_at?: string | null;
+  compliance_resubmit_note?: string | null;
   pod_hard_copy_courier?: string | null;
   pod_hard_copy_awb_number?: string | null;
   pod_hard_copy_received_by?: string | null;

@@ -95,7 +95,7 @@ describe("complianceCardVisual", () => {
 
   it("prefers derived stage over missing-docs for header pill (payment progress wins)", () => {
     expect(verificationStatusVisual(summary({ documentCounts: { total: 0, verified: 0, rejected: 0, pending: 0 } })).label).toBe(
-      "Docs Follow Up",
+      "Document Upload",
     );
     expect(
       verificationStatusVisual(

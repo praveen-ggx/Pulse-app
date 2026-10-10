@@ -6,6 +6,9 @@
  */
 export function formatMarkComplianceVerifiedError(raw: string): string {
   const lower = raw.toLowerCase();
+  if (lower.includes("must resubmit it before it can be verified")) {
+    return "This trip is on hold or rejected. Ground Ops must fix it and Resubmit before it can be verified.";
+  }
   if (lower.includes("required documents not yet verified")) {
     return (
       `${raw.trim()} ` +

@@ -134,7 +134,7 @@ describe("complianceVerifiedExport.util", () => {
       tdsRatePercent: 2,
     });
 
-    expect(row["Verification status"]).toBe("Verified");
+    expect(row["Verification status"]).toBe("Advance Verification");
     expect(row["Loading date"]).toBe("23 Sep 2026");
     expect(row["Client sales invoice No"]).toBe("INV-901");
     expect(row["LR No"]).toBe("3277");

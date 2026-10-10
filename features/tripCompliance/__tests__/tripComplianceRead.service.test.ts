@@ -571,7 +571,8 @@ describe("summarizeComplianceTrip — the advance is paid from Verified", () => 
     });
     expect(s.stage).toBe("compliance_verified");
     expect(s.advance).toBeNull();
-    expect(deriveComplianceQueueReadiness(s).readyCategory).toBe("compliance_advance");
+    // Advance waits for Finance's Approve Advance (finance_verified_at).
+    expect(deriveComplianceQueueReadiness(s).readyCategory).toBeNull();
   });
 
   it("counts an advance posted after verification (exception approval sets the same column)", () => {

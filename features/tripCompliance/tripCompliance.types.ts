@@ -8,6 +8,7 @@ export type ComplianceStage =
   | "pending_for_docs"
   | "compliance_pending"
   | "compliance_verified"
+  | "finance_verified"
   | "advance_payment_processed"
   | "hard_copy_pod_received"
   | "balance_pending"
@@ -17,6 +18,7 @@ export const COMPLIANCE_STAGES: readonly ComplianceStage[] = [
   "pending_for_docs",
   "compliance_pending",
   "compliance_verified",
+  "finance_verified",
   "advance_payment_processed",
   "hard_copy_pod_received",
   "balance_pending",
@@ -24,9 +26,10 @@ export const COMPLIANCE_STAGES: readonly ComplianceStage[] = [
 ];
 
 export const COMPLIANCE_STAGE_LABEL: Record<ComplianceStage, string> = {
-  pending_for_docs: "Docs Follow Up",
-  compliance_pending: "Ready to Verify",
+  pending_for_docs: "Document Upload",
+  compliance_pending: "Compliance Verification",
   compliance_verified: "Compliance Verified",
+  finance_verified: "Finance Verified",
   advance_payment_processed: "Advance Payment Processed",
   // Bucket is "delivered + advance, hard-copy not yet marked" (awaiting Ops).
   hard_copy_pod_received: "Awaiting Hard-Copy POD",
@@ -36,13 +39,15 @@ export const COMPLIANCE_STAGE_LABEL: Record<ComplianceStage, string> = {
 
 /** Shorter filter-chip labels from the Compliance Verification workbench. */
 export const COMPLIANCE_STAGE_FILTER_LABEL: Record<ComplianceStage, string> = {
-  pending_for_docs: "Docs Follow Up",
-  compliance_pending: "Ready to Verify",
-  compliance_verified: "Verified",
+  pending_for_docs: "Document Upload",
+  compliance_pending: "Compliance Verification",
+  compliance_verified: "Advance Verification",
+  finance_verified: "Advance Payment",
+  // Not a tab: paid-but-running trips are listed under Awaiting POD.
   advance_payment_processed: "Advance Processed",
-  hard_copy_pod_received: "POD",
-  balance_pending: "Settlement",
-  payment_settled: "Settled",
+  hard_copy_pod_received: "Awaiting POD",
+  balance_pending: "Settlement Verification",
+  payment_settled: "Final Settlement",
 };
 
 export type ComplianceChecklistTone = "success" | "warning" | "danger";
@@ -153,6 +158,15 @@ export type ComplianceTripSummary = {
   complianceDeclinedAt: string | null;
   complianceDeclinedBy: string | null;
   complianceDeclineReason: string | null;
+  /** Server-derived finance-reject return queue. Null for pre-verify declines and ambiguous legacy rejects. */
+  complianceRejectReturnTo?: "pending_for_docs" | "compliance_pending" | null;
+  /** Set by resubmit_trip_compliance. A newer decline time reopens the inbox. */
+  complianceResubmittedAt?: string | null;
+  /** Ground Ops note on the latest resubmit (what was fixed). */
+  complianceResubmitNote?: string | null;
+  /** Finance approval (mark_trip_finance_verified). Required before the advance can be posted. */
+  financeVerifiedAt?: string | null;
+  financeVerifiedBy?: string | null;
   advance: CompliancePaymentSummary | null;
   /**
    * A `compliance_advance` row while the trip is not yet verified. Shown on file
@@ -188,6 +202,11 @@ export type ComplianceTripFlags = {
   compliance_declined_at: string | null;
   compliance_declined_by: string | null;
   compliance_decline_reason: string | null;
+  compliance_reject_return_to?: "pending_for_docs" | "compliance_pending" | null;
+  compliance_resubmitted_at?: string | null;
+  compliance_resubmit_note?: string | null;
+  finance_verified_at?: string | null;
+  finance_verified_by?: string | null;
   pod_hard_copy_courier: string | null;
   pod_hard_copy_awb_number: string | null;
   pod_hard_copy_received_by: string | null;

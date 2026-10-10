@@ -344,6 +344,14 @@ describe("Ground Ops — hydration does not auto-add sibling surfaces", () => {
     expect(ids).toContain("tripops.trips.view");
     expect(ids).toContain("tripops.trips.detail");
     expect(ids).toContain("tripops.trips.docs");
+    expect(ids).toContain("trip_compliance.tab");
+    expect(ids).toContain("trip_compliance.documents.view");
+    expect(ids).toContain("trip_compliance.trip.resubmit");
+    expect(ids).not.toContain("trip_compliance.documents.verify");
+    expect(ids).not.toContain("trip_compliance.trip.mark_verified");
+    expect(ids).not.toContain("trip_compliance.finance.view");
+    expect(ids).not.toContain("trip_compliance.finance.manage");
+    expect(ids).not.toContain("trip_compliance.pod.manage");
   });
 
   it("Ground Ops does NOT have finance/expenses/assign/reassign/tracking/verification/simulate/ratings by default", () => {

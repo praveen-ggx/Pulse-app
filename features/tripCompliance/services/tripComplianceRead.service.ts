@@ -162,11 +162,29 @@ export async function fetchComplianceTripFlags(
     "id, compliance_verified_at, compliance_verified_by, compliance_decision, compliance_exception_reason, compliance_outstanding_summary, pod_hard_copy_courier, pod_hard_copy_awb_number, pod_hard_copy_received_by, pod_received_at";
   // Decline columns come from 20270929162901_trip_compliance_decline.sql.
   const SELECT_WITH_DECLINE = `${SELECT_BASE}, compliance_declined_at, compliance_declined_by, compliance_decline_reason`;
+  // Finance verify columns come from 20261010122824_finance_verified_step.sql.
+  const SELECT_WITH_FINANCE = `${SELECT_WITH_DECLINE}, finance_verified_at, finance_verified_by`;
+  const SELECT_WITH_RESUBMIT = `${SELECT_WITH_FINANCE}, compliance_reject_return_to, compliance_resubmitted_at`;
+  // Resubmit note comes from 20271008115000_compliance_resubmit_note.sql.
+  const SELECT_WITH_RESUBMIT_NOTE = `${SELECT_WITH_RESUBMIT}, compliance_resubmit_note`;
 
   let result: { data: unknown[] | null; error: { code?: string; message: string } | null } = await supabase()
     .from("trips")
-    .select(SELECT_WITH_DECLINE)
+    .select(SELECT_WITH_RESUBMIT_NOTE)
     .in("id", tripIds);
+
+  if (result.error && isMissingColumnOrRelation(result.error)) {
+    result = await supabase().from("trips").select(SELECT_WITH_RESUBMIT).in("id", tripIds);
+  }
+
+  if (result.error && isMissingColumnOrRelation(result.error)) {
+    result = await supabase().from("trips").select(SELECT_WITH_FINANCE).in("id", tripIds);
+  }
+
+  if (result.error && isMissingColumnOrRelation(result.error)) {
+    // Finance verify migration not applied yet: keep the decline columns.
+    result = await supabase().from("trips").select(SELECT_WITH_DECLINE).in("id", tripIds);
+  }
 
   if (result.error && isMissingColumnOrRelation(result.error)) {
     // Decline migration not applied yet: retry the original select so
@@ -190,6 +208,14 @@ export async function fetchComplianceTripFlags(
       compliance_declined_at: (r.compliance_declined_at as string | null | undefined) ?? null,
       compliance_declined_by: (r.compliance_declined_by as string | null | undefined) ?? null,
       compliance_decline_reason: (r.compliance_decline_reason as string | null | undefined) ?? null,
+      compliance_reject_return_to:
+        r.compliance_reject_return_to === "pending_for_docs" || r.compliance_reject_return_to === "compliance_pending"
+          ? r.compliance_reject_return_to
+          : null,
+      compliance_resubmitted_at: (r.compliance_resubmitted_at as string | null | undefined) ?? null,
+      compliance_resubmit_note: (r.compliance_resubmit_note as string | null | undefined) ?? null,
+      finance_verified_at: (r.finance_verified_at as string | null | undefined) ?? null,
+      finance_verified_by: (r.finance_verified_by as string | null | undefined) ?? null,
       pod_hard_copy_courier: r.pod_hard_copy_courier as string | null,
       pod_hard_copy_awb_number: r.pod_hard_copy_awb_number as string | null,
       pod_hard_copy_received_by: r.pod_hard_copy_received_by as string | null,
@@ -444,6 +470,8 @@ export function deriveComplianceStage(input: {
    */
   hasExpiredRequiredVehicleDocs?: boolean;
   complianceVerifiedAt: string | null;
+  /** Finance verify (mark_trip_finance_verified). Splits Verified into Compliance / Finance Verified. */
+  financeVerifiedAt?: string | null;
   advance: CompliancePaymentSummary | null;
   tripStatus: string;
   /**
@@ -481,7 +509,7 @@ export function deriveComplianceStage(input: {
   // POD alone must not pull a verified trip off Verified (no advance).
   if (input.advance && input.hardCopyReceived) return "balance_pending";
   if (input.advance) return "advance_payment_processed";
-  return "compliance_verified";
+  return input.financeVerifiedAt ? "finance_verified" : "compliance_verified";
 }
 
 /**
@@ -825,6 +853,7 @@ export function summarizeComplianceTrip(inputs: ComplianceTripInputs): Complianc
     missingRequiredEntityCount: missingRequiredEntityDocumentCount(vehicleDocuments, driverDocuments),
     hasExpiredRequiredVehicleDocs,
     complianceVerifiedAt: flags?.compliance_verified_at ?? null,
+    financeVerifiedAt: flags?.finance_verified_at ?? null,
     advance,
     tripStatus: trip.status,
     opsDelivered,
@@ -846,6 +875,7 @@ export function summarizeComplianceTrip(inputs: ComplianceTripInputs): Complianc
     ? {
         ...trip,
         compliance_verified_at: flags.compliance_verified_at,
+        finance_verified_at: flags.finance_verified_at ?? null,
         pod_received_at: flags.pod_received_at,
       }
     : trip;
@@ -866,6 +896,11 @@ export function summarizeComplianceTrip(inputs: ComplianceTripInputs): Complianc
     complianceDeclinedAt: flags?.compliance_declined_at ?? null,
     complianceDeclinedBy: flags?.compliance_declined_by ?? null,
     complianceDeclineReason: flags?.compliance_decline_reason ?? null,
+    complianceRejectReturnTo: flags?.compliance_reject_return_to ?? null,
+    complianceResubmittedAt: flags?.compliance_resubmitted_at ?? null,
+    complianceResubmitNote: flags?.compliance_resubmit_note ?? null,
+    financeVerifiedAt: flags?.finance_verified_at ?? null,
+    financeVerifiedBy: flags?.finance_verified_by ?? null,
     advance,
     advanceBeforeVerification,
     balance,
@@ -1061,4 +1096,38 @@ export function canApproveComplianceWithException(input: {
   const hasOutstanding =
     outstanding.missing.length > 0 || outstanding.pending_verification.length > 0 || outstanding.rejected.length > 0;
   return { ok: hasOutstanding && !input.complianceVerifiedAt, outstanding };
+}
+
+export type OrganizationPayoutAccount = {
+  id: string;
+  /** e.g. "HDFC Bank ••1234" */
+  label: string;
+};
+
+/**
+ * The organisation's own bank accounts (entity_bank_accounts, entity_type
+ * "organization"), primary first. Used for the optional "Paid from" choice
+ * when posting a compliance payment.
+ */
+export async function fetchOrganizationPayoutAccounts(
+  organizationId: string,
+): Promise<OrganizationPayoutAccount[]> {
+  if (!organizationId) return [];
+  const { data, error } = await supabase()
+    .from("entity_bank_accounts")
+    .select("id, bank_name, account_number, is_primary")
+    .eq("organization_id", organizationId)
+    .eq("entity_type", "organization")
+    .eq("entity_id", organizationId)
+    .is("deleted_at", null)
+    .order("is_primary", { ascending: false })
+    .limit(10);
+  if (error || !data) return [];
+  return data.map((row) => {
+    const r = row as { id: string; bank_name: string | null; account_number: string | null };
+    const digits = (r.account_number ?? "").replace(/\s+/g, "");
+    const last4 = digits.length >= 4 ? digits.slice(-4) : digits;
+    const bank = r.bank_name?.trim() || "Bank account";
+    return { id: r.id, label: last4 ? `${bank} ••${last4}` : bank };
+  });
 }

@@ -12,6 +12,7 @@ import {
     HIGHLIGHT_EXPIRED_EWAY_BILL,
 } from "@/features/tripCompliance/complianceDecisionConfig";
 import { ComplianceDeclineModal } from "@/features/tripCompliance/components/ComplianceDeclineModal";
+import { COMPLIANCE_DECLINE_REASON_SECTIONS } from "@/features/tripCompliance/utils/complianceDeclineReason.util";
 import { ComplianceNumberStack } from "@/features/tripCompliance/components/ComplianceNumberStack";
 import { COMPLIANCE_STATUS_META, ComplianceStatusChip } from "@/features/tripCompliance/components/ComplianceStatusIcon";
 import { tripAppearsInAwaitingPod } from "@/features/tripCompliance/services/tripComplianceRead.service";
@@ -494,6 +495,7 @@ function TripRowContent({
       {onDeclineCompliance ? (
         <ComplianceDeclineModal
           visible={declineOpen}
+          presets={COMPLIANCE_DECLINE_REASON_SECTIONS}
           tripLabel={`${tripIdLabel}${summary.trip.client_name ? ` · ${summary.trip.client_name}` : ""}`}
           onCancel={() => setDeclineOpen(false)}
           onSubmit={handleDeclineSubmit}

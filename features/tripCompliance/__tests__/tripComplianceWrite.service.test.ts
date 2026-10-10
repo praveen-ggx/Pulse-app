@@ -27,6 +27,7 @@ function makeTrip(overrides: Partial<TripRow> = {}): TripRow {
     client_id: "client-1",
     client_price: 50000,
     compliance_verified_at: "2026-09-01T00:00:00Z",
+    finance_verified_at: "2026-09-02T00:00:00Z",
     pod_received_at: "2026-09-15T00:00:00Z",
     ...overrides,
   } as TripRow;
@@ -53,7 +54,7 @@ function mockMakeThenable<T>(result: { data: T; error: null }) {
 let mockTxnsResult: { data: unknown[]; error: null };
 let mockDeleteResult: { data: { id: string } | null; error: { message?: string } | null };
 /** Live `trips` flags read by postCompliancePayment; null = row not readable (falls back to the passed trip). */
-let mockLiveTripFlags: Pick<TripRow, "compliance_verified_at" | "pod_received_at"> | null = null;
+let mockLiveTripFlags: Partial<Pick<TripRow, "compliance_verified_at" | "finance_verified_at" | "pod_received_at">> | null = null;
 
 jest.mock("@/lib/supabase", () => ({
   supabase: () => ({
@@ -308,7 +309,11 @@ describe("postCompliancePayment — advance gate reads the live trip, not the ca
   });
 
   it("allows an advance when the cached trip is stale but the DB has compliance_verified_at set", async () => {
-    mockLiveTripFlags = { compliance_verified_at: "2026-10-02T00:00:00Z", pod_received_at: null };
+    mockLiveTripFlags = {
+      compliance_verified_at: "2026-10-02T00:00:00Z",
+      finance_verified_at: "2026-10-02T01:00:00Z",
+      pod_received_at: null,
+    };
     const result = await postCompliancePayment({
       organizationId: "org-1",
       trip: makeTrip({ compliance_verified_at: null }),
@@ -319,6 +324,24 @@ describe("postCompliancePayment — advance gate reads the live trip, not the ca
     });
     expect(result.error).toBeNull();
     expect(mockCreateLedgerEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects an advance when compliance is verified but finance has not approved it", async () => {
+    mockLiveTripFlags = {
+      compliance_verified_at: "2026-10-02T00:00:00Z",
+      finance_verified_at: null,
+      pod_received_at: null,
+    };
+    const result = await postCompliancePayment({
+      organizationId: "org-1",
+      trip: makeTrip(),
+      category: "compliance_advance",
+      amount: 25000,
+      paymentModeId: "UPI",
+      paymentModeLabel: "UPI",
+    });
+    expect(result.error?.message).toMatch(/must be approved before it can be posted/i);
+    expect(mockCreateLedgerEntry).not.toHaveBeenCalled();
   });
 
   it("does not add a gate to balance beyond the POD rule", async () => {

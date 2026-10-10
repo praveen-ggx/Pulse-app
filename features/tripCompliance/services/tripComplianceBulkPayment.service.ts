@@ -75,6 +75,9 @@ function bulkRequirementBlockReason(
     if (required.pendingLabels[0]) return `${required.pendingLabels[0]} pending verification`;
     return "Compliance verification not completed";
   }
+  if (category === "compliance_advance" && !trip?.finance_verified_at) {
+    return "Advance not approved yet";
+  }
   if (category === "compliance_balance" && !trip?.pod_received_at) {
     return "Hard-copy POD has not been marked received.";
   }

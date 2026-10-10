@@ -27,6 +27,7 @@ const TRIP_1_VERIFIED = {
   id: "trip-1",
   organization_id: "org-1",
   compliance_verified_at: "2026-09-01",
+  finance_verified_at: "2026-09-02",
 } as unknown as TripRow;
 const TRIP_2 = { id: "trip-2", organization_id: "org-1" } as unknown as TripRow;
 

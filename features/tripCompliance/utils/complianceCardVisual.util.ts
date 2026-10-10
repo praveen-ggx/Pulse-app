@@ -15,6 +15,7 @@ export const COMPLIANCE_STAGE_TONE: Record<ComplianceStage, ComplianceTone> = {
   pending_for_docs: { fg: Theme.complianceStageDocsFg, bg: Theme.complianceStageDocsBg },
   compliance_pending: { fg: Theme.complianceStagePendingFg, bg: Theme.complianceStagePendingBg },
   compliance_verified: { fg: Theme.complianceStageSuccessFg, bg: Theme.complianceStageSuccessBg },
+  finance_verified: { fg: Theme.complianceStageBalanceFg, bg: Theme.complianceStageBalanceBg },
   advance_payment_processed: { fg: Theme.complianceStageSuccessFg, bg: Theme.complianceStageSuccessBg },
   hard_copy_pod_received: { fg: Theme.complianceStagePendingFg, bg: Theme.complianceStagePendingBg },
   balance_pending: { fg: Theme.complianceStageBalanceFg, bg: Theme.complianceStageBalanceBg },
@@ -26,6 +27,7 @@ export const COMPLIANCE_FILTER_COUNT_TONE: Record<ComplianceStage | "all", strin
   pending_for_docs: Theme.complianceStageDocsFg,
   compliance_pending: Theme.complianceStagePendingFg,
   compliance_verified: Theme.complianceStageSuccessFg,
+  finance_verified: Theme.complianceStageBalanceFg,
   advance_payment_processed: Theme.textMuted,
   hard_copy_pod_received: Theme.complianceStageInfoFg,
   balance_pending: Theme.complianceStageBalanceFg,
@@ -173,13 +175,13 @@ export function verificationStatusVisual(
   }
   if (summary.stage === "pending_for_docs" || summary.documentCounts.total === 0) {
     return {
-      label: "Docs Follow Up",
+      label: "Document Upload",
       tone: COMPLIANCE_STAGE_TONE.pending_for_docs,
       kind: "pending_docs",
     };
   }
   return {
-    label: "Ready to Verify",
+    label: "Compliance Verification",
     tone: COMPLIANCE_STAGE_TONE.compliance_pending,
     kind: "compliance_pending",
   };

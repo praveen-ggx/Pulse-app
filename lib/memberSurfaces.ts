@@ -94,6 +94,7 @@ export type MemberSurfaceId =
   | "trip_compliance.documents.view"
   | "trip_compliance.documents.verify"
   | "trip_compliance.trip.mark_verified"
+  | "trip_compliance.trip.resubmit"
   | "trip_compliance.finance.view"
   | "trip_compliance.finance.manage"
   | "trip_compliance.pod.manage"
@@ -836,6 +837,15 @@ export const MEMBER_SURFACE_CATALOG: readonly MemberSurfaceDef[] = [
     requires: "trip_compliance.documents.verify",
   },
   {
+    id: "trip_compliance.trip.resubmit",
+    label: "Resubmit a finance reject",
+    hint: "Send a finance-rejected trip back to the queue that rejected it",
+    domain: "trip_compliance",
+    anyOfCaps: DISP,
+    grantsCaps: [],
+    requires: "trip_compliance.tab",
+  },
+  {
     id: "trip_compliance.finance.view",
     label: "View compliance settlement",
     hint: "See advance/balance payment and POD settlement state on Compliance",
@@ -1434,8 +1444,12 @@ export function defaultSurfacesForRole(
         "tripops.trips.view",
         "tripops.trips.detail",
         "tripops.trips.docs",
+        "trip_compliance.tab",
+        "trip_compliance.documents.view",
+        "trip_compliance.trip.resubmit",
         // Note: Ground Ops intentionally excludes assign/reassign/tracking/expenses/finance
         // to prevent field staff from altering trip logistics or viewing financials.
+        // No document verify, trip verify, finance view/manage, or POD manage.
       ]);
     case "restricted":
       return {};

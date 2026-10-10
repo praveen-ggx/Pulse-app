@@ -35,11 +35,17 @@ import type {
 } from "@/features/tripCompliance/tripCompliance.types";
 import { ensureComplianceChecklist } from "@/features/tripCompliance/utils/complianceChecklist.util";
 import { selectCompliancePipelineTrips } from "@/features/tripCompliance/utils/compliancePipelineTrips.util";
-import { isCompliancePaymentPending, isComplianceVerifiedQueue } from "@/features/tripCompliance/utils/complianceReadiness.util";
 import {
-  isFinanceDeclinedForCompliancePending,
+  isCompliancePaymentPending,
+  isComplianceVerifiedQueue,
+  isFinanceVerifiedQueue,
+} from "@/features/tripCompliance/utils/complianceReadiness.util";
+import {
+  isActiveFinanceReject,
   isFinanceDeclinedForPendingDocs,
   isFinanceDeclinedTrip,
+  isComplianceHoldAwaitingResubmit,
+  isResubmittedToCompliancePending,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
 import { getTripById, type TripRow } from "@/features/trips/services/trips.service";
 import { useTripsQuery } from "@/lib/queries/useTripsQuery";
@@ -275,30 +281,48 @@ export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | un
     if (stage === "all") return summaries;
     if (stage === "pod_received") return summaries.filter(tripStillInPodReceived);
     if (stage === "balance_pending") {
-      return summaries.filter(
-        (s) => tripAppearsInBalancePending(s) || s.stage === "payment_settled",
-      );
+      // Settlement Verification. Settled trips have their own Final Settlement tab.
+      return summaries.filter(tripAppearsInBalancePending);
     }
     if (stage === "compliance_verified") {
       // Advance still owed stays on Verified. Payment Pending is not its own chip.
+      // Once Finance verifies, the trip moves to Finance Verified.
       return summaries.filter(
-        (s) => isComplianceVerifiedQueue(s) || isFinanceDeclinedTrip(s) || isCompliancePaymentPending(s),
+        (s) =>
+          !s.financeVerifiedAt &&
+          (isComplianceVerifiedQueue(s) || isCompliancePaymentPending(s)),
       );
     }
+    if (stage === "finance_verified") {
+      return summaries.filter(isFinanceVerifiedQueue);
+    }
     if (stage === "hard_copy_pod_received") {
+      // Awaiting POD tab: also lists paid trips that are still running (Advance Processed).
       return summaries.filter(
-        (s) => tripAppearsInAwaitingPod(s) || tripStillInPodReceived(s),
+        (s) =>
+          tripAppearsInAwaitingPod(s) ||
+          tripStillInPodReceived(s) ||
+          s.stage === "advance_payment_processed",
       );
     }
     // Verified Reject keeps stage=compliance_verified but also lists under Verified All.
     if (stage === "pending_for_docs") {
+      // Ground Ops work: missing files, holds and finance rejects until Resubmit.
       return summaries.filter(
-        (s) => s.stage === "pending_for_docs" || isFinanceDeclinedForPendingDocs(s),
+        (s) =>
+          s.stage === "pending_for_docs" ||
+          isFinanceDeclinedForPendingDocs(s) ||
+          isComplianceHoldAwaitingResubmit(s),
       );
     }
     if (stage === "compliance_pending") {
+      // Compliance work: complete trips not waiting on Ground Ops, plus every
+      // resubmitted finance reject. Active rejects stay listed under Declined
+      // by finance (read-only) until Ground Ops resubmits.
       return summaries.filter(
-        (s) => s.stage === "compliance_pending" || isFinanceDeclinedForCompliancePending(s),
+        (s) =>
+          (s.stage === "compliance_pending" && !isComplianceHoldAwaitingResubmit(s)) ||
+          isResubmittedToCompliancePending(s),
       );
     }
     return summaries.filter((s) => s.stage === stage);
@@ -310,23 +334,28 @@ export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | un
       pending_for_docs: 0,
       compliance_pending: 0,
       compliance_verified: 0,
+      finance_verified: 0,
       advance_payment_processed: 0,
       hard_copy_pod_received: 0,
       balance_pending: 0,
       payment_settled: 0,
     };
     for (const summary of summaries ?? []) {
-      // Post-verify Reject leaves Verified and counts on Pending Docs / Compliance Pending.
-      if (summary.stage === "compliance_verified" && !isComplianceVerifiedQueue(summary)) {
-        if (isFinanceDeclinedForPendingDocs(summary)) next.pending_for_docs += 1;
-        else if (isFinanceDeclinedForCompliancePending(summary)) next.compliance_pending += 1;
-        if (isFinanceDeclinedTrip(summary)) next.compliance_verified += 1;
+      // Active rejects and holds are Ground Ops work; a resubmitted reject is
+      // Compliance work. Each trip counts on one queue.
+      if (isActiveFinanceReject(summary)) {
+        next.pending_for_docs += 1;
+      } else if (summary.stage === "compliance_pending" && isComplianceHoldAwaitingResubmit(summary)) {
+        next.pending_for_docs += 1;
+      } else if (isResubmittedToCompliancePending(summary)) {
+        next.compliance_pending += 1;
       } else if (summary.stage in next) {
         next[summary.stage] += 1;
       }
       if (summary.stage !== "compliance_verified" && isComplianceVerifiedQueue(summary)) {
         next.compliance_verified += 1;
       } else if (
+        !summary.financeVerifiedAt &&
         isCompliancePaymentPending(summary) &&
         summary.stage !== "compliance_verified" &&
         !isComplianceVerifiedQueue(summary)
@@ -343,6 +372,10 @@ export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | un
         next.balance_pending += 1;
       }
     }
+    // Same rule as the Finance Verified list, so the chip count always matches it.
+    next.finance_verified = (summaries ?? []).filter(isFinanceVerifiedQueue).length;
+    // Awaiting POD also lists paid trips still running (their exclusive stage is Advance Processed).
+    next.hard_copy_pod_received += next.advance_payment_processed;
     return next;
   }, [summaries]);
 

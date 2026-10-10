@@ -4,6 +4,7 @@
  */
 import type { ComplianceDocumentRow, ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
 import type { ComplianceDocRow } from "@/features/tripCompliance/utils/complianceDocumentRows.util";
+import { complianceRejectQueueDestination } from "@/features/tripCompliance/utils/complianceRejectReason.util";
 import {
   canVerifyTrip,
   complianceVaultDocNumber,
@@ -11,8 +12,13 @@ import {
   deriveComplianceEwayBill,
   deriveComplianceGroupStatus,
   isComplianceDeclineActive,
+  isComplianceHoldAwaitingResubmit,
+  isComplianceHoldResubmitted,
   isFinanceDeclinedForCompliancePending,
   isFinanceDeclinedForPendingDocs,
+  isComplianceAwaitingResubmit,
+  isResubmittedToCompliancePending,
+  missingOrRejectedRequiredTripDocs,
   isFinanceDeclinedTrip,
   isPendingDocsComplianceHold,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
@@ -371,19 +377,105 @@ describe("finance reject queue routing", () => {
     complianceDeclinedAt: "2026-09-02T00:00:00Z",
   };
 
-  it("sends Truck No / document rejects to Pending Docs → Rejected", () => {
-    const trip = summary({ ...base, complianceDeclineReason: "Truck No mismatch" });
-    expect(isFinanceDeclinedForPendingDocs(trip)).toBe(true);
-    expect(isFinanceDeclinedForCompliancePending(trip)).toBe(false);
+  it("lists every active finance reject on both Declined by finance inboxes", () => {
+    for (const complianceDeclineReason of ["Truck No mismatch", "Memo missing", "Vendor mismatch"]) {
+      const trip = summary({ ...base, complianceDeclineReason, complianceRejectReturnTo: "compliance_pending" });
+      expect(isFinanceDeclinedForPendingDocs(trip)).toBe(true);
+      expect(isFinanceDeclinedForCompliancePending(trip)).toBe(true);
+    }
   });
 
-  it("sends Memo / vendor rejects to Compliance Pending → Declined by finance", () => {
-    const trip = summary({ ...base, complianceDeclineReason: "Memo missing" });
-    expect(isFinanceDeclinedForPendingDocs(trip)).toBe(false);
-    expect(isFinanceDeclinedForCompliancePending(trip)).toBe(true);
+  it("routes every resubmitted reject to Compliance Verification, whatever the reason", () => {
+    const reasons: Array<[string, "pending_for_docs" | "compliance_pending"]> = [
+      ["Truck No mismatch", "pending_for_docs"],
+      ["Client date mismatch", "pending_for_docs"],
+      ["Memo missing", "compliance_pending"],
+      ["Vendor mismatch", "compliance_pending"],
+      ["Vendor rate mismatch", "compliance_pending"],
+      ["LR photo is blurry", "pending_for_docs"],
+      ["Supplier GST number is wrong", "compliance_pending"],
+    ];
+    for (const [reason, returnTo] of reasons) {
+      expect(complianceRejectQueueDestination(reason)).toBe(returnTo);
+      const active = summary({ ...base, complianceDeclineReason: reason, complianceRejectReturnTo: returnTo });
+      expect(isFinanceDeclinedForPendingDocs(active)).toBe(true);
+      expect(isResubmittedToCompliancePending(active)).toBe(false);
+      expect(isComplianceAwaitingResubmit(active)).toBe(true);
+
+      const resubmitted = {
+        ...active,
+        complianceResubmittedAt: "2026-09-03T00:00:00Z",
+        complianceResubmitNote: "Fixed and re-uploaded",
+      };
+      expect(isFinanceDeclinedForPendingDocs(resubmitted)).toBe(false);
+      expect(isResubmittedToCompliancePending(resubmitted)).toBe(true);
+      expect(isComplianceAwaitingResubmit(resubmitted)).toBe(false);
+      // Reason, category and note are kept for audit / display.
+      expect(resubmitted.complianceDeclineReason).toBe(reason);
+      expect(resubmitted.complianceRejectReturnTo).toBe(returnTo);
+      expect(resubmitted.complianceResubmitNote).toBe("Fixed and re-uploaded");
+    }
   });
 
-  it("marks a pre-verify hold on Docs Follow Up and on Ready to Verify", () => {
+  it("a newer rejection reopens the inbox", () => {
+    const again = summary({
+      ...base,
+      complianceDeclinedAt: "2026-09-04T00:00:00Z",
+      complianceResubmittedAt: "2026-09-03T00:00:00Z",
+      complianceRejectReturnTo: "pending_for_docs",
+      complianceDeclineReason: "Truck No mismatch",
+    });
+    expect(isFinanceDeclinedForPendingDocs(again)).toBe(true);
+    expect(isResubmittedToCompliancePending(again)).toBe(false);
+    expect(isComplianceAwaitingResubmit(again)).toBe(true);
+  });
+
+  it("routes a legacy reject without a stored queue to Compliance Verification after resubmit", () => {
+    const legacy = summary({
+      ...base,
+      complianceDeclineReason: "something unclear",
+      complianceResubmittedAt: "2026-09-03T00:00:00Z",
+    });
+    expect(isResubmittedToCompliancePending(legacy)).toBe(true);
+  });
+
+  it("blocks Verify while a hold or reject waits for Ground Ops, and allows it after Resubmit", () => {
+    const hold = summary({
+      stage: "compliance_pending",
+      complianceDeclinedAt: "2026-09-02T00:00:00Z",
+      complianceDeclineReason: "Invoice copy missing",
+    });
+    expect(isComplianceAwaitingResubmit(hold)).toBe(true);
+    expect(isComplianceAwaitingResubmit({ ...hold, complianceResubmittedAt: "2026-09-03T00:00:00Z" })).toBe(false);
+
+    const verified = summary({ complianceVerifiedAt: "2026-09-01T00:00:00Z" });
+    expect(isComplianceAwaitingResubmit(verified)).toBe(false);
+    // A decline cleared by a later verify is history, not a block.
+    expect(
+      isComplianceAwaitingResubmit({ ...verified, complianceDeclinedAt: "2026-08-30T00:00:00Z" }),
+    ).toBe(false);
+  });
+
+  it("lists required trip docs that are missing or rejected (Resubmit gate)", () => {
+    const complete = summary({
+      documents: [
+        doc({ document_type: "lr", status: "verified" }),
+        doc({ document_type: "eway_bill", status: "pending" }),
+        doc({ document_type: "invoice", status: "pending" }),
+      ],
+    });
+    expect(missingOrRejectedRequiredTripDocs(complete)).toEqual([]);
+
+    const gaps = summary({
+      documents: [
+        doc({ document_type: "lr", status: "verified" }),
+        doc({ document_type: "invoice", status: "rejected" }),
+      ],
+    });
+    expect(missingOrRejectedRequiredTripDocs(gaps).sort()).toEqual(["eway_bill", "invoice"]);
+  });
+
+  it("marks a pre-verify hold on Document Upload and on Compliance Verification", () => {
     expect(
       isPendingDocsComplianceHold(
         summary({
@@ -412,6 +504,32 @@ describe("finance reject queue routing", () => {
         }),
       ),
     ).toBe(false);
+  });
+
+  it("keeps a hold with Ground Ops until Resubmit, then hands it to Compliance", () => {
+    const held = summary({
+      stage: "compliance_pending",
+      complianceDeclinedAt: "2026-09-02T00:00:00Z",
+      complianceDeclineReason: "Invoice copy missing",
+    });
+    expect(isComplianceHoldAwaitingResubmit(held)).toBe(true);
+    expect(isComplianceHoldResubmitted(held)).toBe(false);
+
+    const resubmitted = { ...held, complianceResubmittedAt: "2026-09-03T00:00:00Z" };
+    expect(isComplianceHoldAwaitingResubmit(resubmitted)).toBe(false);
+    expect(isComplianceHoldResubmitted(resubmitted)).toBe(true);
+    expect(isPendingDocsComplianceHold(resubmitted)).toBe(false);
+
+    // Resubmitted while required files are still missing: stays with Ground Ops.
+    const incomplete = { ...resubmitted, stage: "pending_for_docs" as const };
+    expect(isComplianceHoldResubmitted(incomplete)).toBe(false);
+    expect(isComplianceHoldAwaitingResubmit(incomplete)).toBe(true);
+    expect(isPendingDocsComplianceHold(incomplete)).toBe(true);
+
+    // A newer Decline puts it back with Ground Ops.
+    const declinedAgain = { ...resubmitted, complianceDeclinedAt: "2026-09-04T00:00:00Z" };
+    expect(isComplianceHoldAwaitingResubmit(declinedAgain)).toBe(true);
+    expect(isComplianceHoldResubmitted(declinedAgain)).toBe(false);
   });
 });
 

@@ -109,6 +109,46 @@ export function applyComplianceVerified(
  * Mirrors `decline_trip_compliance`'s update: declined_at/by + trimmed reason.
  * Verified/decision columns untouched, so the trip stays in Compliance Pending.
  */
+export function applyComplianceRejected(
+  inputs: ComplianceTripInputs[],
+  change: { tripId: string; actorId: string; at: string; reason: string; returnTo: "pending_for_docs" | "compliance_pending" },
+): ComplianceTripInputs[] {
+  return mapWhere(
+    inputs,
+    (row) => row.trip.id === change.tripId,
+    (row) => ({
+      ...row,
+      flags: {
+        ...(row.flags ?? EMPTY_FLAGS),
+        compliance_declined_at: change.at,
+        compliance_declined_by: change.actorId,
+        compliance_decline_reason: change.reason.trim(),
+        compliance_reject_return_to: change.returnTo,
+        finance_verified_at: null,
+        finance_verified_by: null,
+      },
+    }),
+  );
+}
+
+export function applyComplianceResubmitted(
+  inputs: ComplianceTripInputs[],
+  change: { tripId: string; at: string; note?: string | null },
+): ComplianceTripInputs[] {
+  return mapWhere(
+    inputs,
+    (row) => row.trip.id === change.tripId,
+    (row) => ({
+      ...row,
+      flags: {
+        ...(row.flags ?? EMPTY_FLAGS),
+        compliance_resubmitted_at: change.at,
+        compliance_resubmit_note: change.note ?? null,
+      },
+    }),
+  );
+}
+
 export function applyComplianceDeclined(
   inputs: ComplianceTripInputs[],
   change: { tripId: string; actorId: string; at: string; reason: string },

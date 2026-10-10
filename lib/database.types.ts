@@ -12295,6 +12295,11 @@ export type Database = {
           compliance_outstanding_summary: Json | null
           compliance_verified_at: string | null
           compliance_verified_by: string | null
+          finance_verified_at: string | null
+          finance_verified_by: string | null
+          compliance_reject_return_to: string | null
+          compliance_resubmit_note: string | null
+          compliance_resubmitted_at: string | null
           converted_by: string | null
           converted_from_indent_at: string | null
           created_at: string | null
@@ -12390,6 +12395,11 @@ export type Database = {
           compliance_outstanding_summary?: Json | null
           compliance_verified_at?: string | null
           compliance_verified_by?: string | null
+          finance_verified_at?: string | null
+          finance_verified_by?: string | null
+          compliance_reject_return_to?: string | null
+          compliance_resubmit_note?: string | null
+          compliance_resubmitted_at?: string | null
           converted_by?: string | null
           converted_from_indent_at?: string | null
           created_at?: string | null
@@ -12485,6 +12495,11 @@ export type Database = {
           compliance_outstanding_summary?: Json | null
           compliance_verified_at?: string | null
           compliance_verified_by?: string | null
+          finance_verified_at?: string | null
+          finance_verified_by?: string | null
+          compliance_reject_return_to?: string | null
+          compliance_resubmit_note?: string | null
+          compliance_resubmitted_at?: string | null
           converted_by?: string | null
           converted_from_indent_at?: string | null
           created_at?: string | null

@@ -32,6 +32,8 @@ import {
 import type { ComplianceTripInputs } from "@/features/tripCompliance/tripCompliance.types";
 import {
   applyComplianceDeclined,
+  applyComplianceRejected,
+  applyComplianceResubmitted,
   applyComplianceVerified,
   applyDriverDocuments,
   applyTripDocumentDecision,
@@ -45,6 +47,7 @@ import {
   tripsUsingVehicle,
   upsertTripInputs,
 } from "@/features/tripCompliance/utils/compliancePipelinePatch.util";
+import { complianceRejectQueueDestination } from "@/features/tripCompliance/utils/complianceRejectReason.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 
 export type PipelinePatch = (current: ComplianceTripInputs[]) => ComplianceTripInputs[];
@@ -63,6 +66,8 @@ export type ComplianceChange =
   | { type: "podChargesSaved"; tripId: string }
   | { type: "complianceVerified"; tripId: string; actorId: string }
   | { type: "complianceDeclined"; tripId: string; actorId: string; reason: string }
+  | { type: "complianceRejected"; tripId: string; actorId: string; reason: string }
+  | { type: "complianceResubmitted"; tripId: string; at?: string; note?: string | null }
   | { type: "payment"; tripId: string }
   | { type: "vehicleDocuments"; vehicleId: string }
   | { type: "driverDocuments"; driverId: string };
@@ -125,6 +130,21 @@ export async function patchForComplianceChange(
       const at = now();
       return (cur) =>
         applyComplianceDeclined(cur, { tripId: change.tripId, actorId: change.actorId, at, reason: change.reason });
+    }
+    case "complianceRejected": {
+      const at = now();
+      return (cur) =>
+        applyComplianceRejected(cur, {
+          tripId: change.tripId,
+          actorId: change.actorId,
+          at,
+          reason: change.reason,
+          returnTo: complianceRejectQueueDestination(change.reason),
+        });
+    }
+    case "complianceResubmitted": {
+      const at = change.at ?? now();
+      return (cur) => applyComplianceResubmitted(cur, { tripId: change.tripId, at, note: change.note });
     }
     case "payment": {
       const payments = await fetchTripPaymentInputs([change.tripId]);

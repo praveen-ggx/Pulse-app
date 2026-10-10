@@ -76,7 +76,7 @@ describe("complianceRejectQueuePathLabel", () => {
       "Pending Docs → Declined by finance",
     );
     expect(complianceRejectQueuePathLabel("Memo missing")).toBe(
-      "Compliance Pending → Declined by finance",
+      "Ready to Verify → Declined by finance",
     );
   });
 });

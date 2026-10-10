@@ -1,12 +1,13 @@
 import Theme from "@/constants/Theme";
 import { ComplianceAdvanceCreditCard } from "@/features/tripCompliance/components/ComplianceAdvanceCreditCard";
+import { ComplianceAdvancePayeeDetails } from "@/features/tripCompliance/components/ComplianceAdvancePayeeDetails";
 import { CompliancePaidAtEditRow } from "@/features/tripCompliance/components/CompliancePaidAtEditRow";
 import { ComplianceUtrEditRow } from "@/features/tripCompliance/components/ComplianceUtrEditRow";
 import { fetchTripAdvanceLedger } from "@/features/tripCompliance/services/tripComplianceRead.service";
-import type { CompliancePaymentSummary } from "@/features/tripCompliance/tripCompliance.types";
+import type { CompliancePaymentSummary, ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
 import { isCashPaymentMode } from "@/features/tripCompliance/utils/compliancePaymentReference.util";
-import React, { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Animated, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 const FINANCE_RECEIPT_PREFIX = "amount-paid:";
 
@@ -18,6 +19,29 @@ function formatInr(amount: number): string {
   return `₹${amount.toLocaleString("en-IN")}`;
 }
 
+function PostedStatusPill() {
+  const glow = useRef(new Animated.Value(0.55)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(glow, { toValue: 1, duration: 1100, useNativeDriver: true }),
+        Animated.timing(glow, { toValue: 0.55, duration: 1100, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [glow]);
+
+  return (
+    <View style={styles.statusPill} accessibilityRole="text" accessibilityLabel="Status Advance processed">
+      <Animated.View style={[styles.statusDot, { opacity: glow }]} />
+      <Text style={styles.statusText} numberOfLines={1}>
+        Advance processed
+      </Text>
+    </View>
+  );
+}
+
 /**
  * Posted advance: credit hero (amount, party, paid-at / mode log) plus editable
  * UTR and Paid at. Reads live ledger rows so edits land on the right transaction.
@@ -26,6 +50,8 @@ export function ComplianceAdvancePaidDetails({
   advance,
   tripId,
   partyName,
+  trip,
+  supplierName,
   onUpdateUtr,
   onUpdatePaidAt,
 }: {
@@ -33,6 +59,9 @@ export function ComplianceAdvancePaidDetails({
   tripId: string;
   /** Supplier / payee shown on the credit hero. */
   partyName?: string | null;
+  /** Trip row for the Paid to block. */
+  trip?: ComplianceTripSummary["trip"];
+  supplierName?: string | null;
   /** Saves the UTR on `transactionId`; rejects with a user-facing error. */
   onUpdateUtr?: (transactionId: string, utr: string, target: AdvanceUtrTarget) => Promise<void>;
   /** Saves the transaction date (Paid at) on `transactionId`. */
@@ -46,6 +75,16 @@ export function ComplianceAdvancePaidDetails({
   const [payments, setPayments] = useState<LedgerPayment[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const appear = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    appear.setValue(0);
+    Animated.timing(appear, {
+      toValue: 1,
+      duration: 280,
+      useNativeDriver: true,
+    }).start();
+  }, [appear, tripId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -120,14 +159,49 @@ export function ComplianceAdvancePaidDetails({
       payment={advance}
       partyName={partyName}
       tone="posted"
+      showHeroArt={false}
+      embedded
     />
   );
 
+  const payee =
+    trip ? (
+      <View style={styles.payeeSlot}>
+        <ComplianceAdvancePayeeDetails trip={trip} supplierName={supplierName ?? null} embedded />
+      </View>
+    ) : null;
+
+  const wrap = (body: React.ReactNode) => (
+    <Animated.View
+      style={[
+        styles.receipt,
+        {
+          opacity: appear,
+          transform: [
+            {
+              translateY: appear.interpolate({
+                inputRange: [0, 1],
+                outputRange: [8, 0],
+              }),
+            },
+          ],
+        },
+      ]}
+    >
+      <View style={styles.statusStrip}>
+        <Text style={styles.statusLabel}>Status</Text>
+        <PostedStatusPill />
+      </View>
+      {body}
+      {payee}
+    </Animated.View>
+  );
+
   if (loadError) {
-    return (
-      <View style={styles.stack}>
+    return wrap(
+      <>
         {creditHero}
-        <View style={styles.card}>
+        <View style={styles.meta}>
           <View style={styles.stateRow}>
             <Text style={styles.stateError} numberOfLines={2}>
               {loadError}
@@ -143,29 +217,29 @@ export function ComplianceAdvancePaidDetails({
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </>,
     );
   }
 
   if (payments == null) {
-    return (
-      <View style={styles.stack}>
+    return wrap(
+      <>
         {creditHero}
-        <View style={styles.card}>
+        <View style={styles.meta}>
           <View style={styles.stateRow}>
             <ActivityIndicator size="small" color={Theme.textMuted} />
             <Text style={styles.stateText}>Loading payment details…</Text>
           </View>
         </View>
-      </View>
+      </>,
     );
   }
 
   if (payments.length === 0) {
-    return (
-      <View style={styles.stack}>
+    return wrap(
+      <>
         {creditHero}
-        <View style={styles.card}>
+        <View style={styles.meta}>
           <ComplianceUtrEditRow
             utr={null}
             canEdit={false}
@@ -173,23 +247,29 @@ export function ComplianceAdvancePaidDetails({
             onSave={async () => undefined}
           />
         </View>
-      </View>
+      </>,
     );
   }
 
   if (payments.length === 1) {
-    return (
-      <View style={styles.stack}>
-        <ComplianceAdvanceCreditCard payment={payments[0]} partyName={partyName} tone="posted" />
-        <View style={styles.card}>{renderEditableRows(payments[0], true)}</View>
-      </View>
+    return wrap(
+      <>
+        <ComplianceAdvanceCreditCard
+          payment={payments[0]}
+          partyName={partyName}
+          tone="posted"
+          showHeroArt={false}
+          embedded
+        />
+        <View style={styles.meta}>{renderEditableRows(payments[0], true)}</View>
+      </>,
     );
   }
 
-  return (
-    <View style={styles.stack}>
+  return wrap(
+    <>
       {creditHero}
-      <View style={styles.card}>
+      <View style={styles.meta}>
         {payments.map((payment, index) => (
           <View key={payment.transactionId} style={index > 0 ? styles.receiptGroup : undefined}>
             <View style={styles.receiptHeader}>
@@ -202,18 +282,82 @@ export function ComplianceAdvancePaidDetails({
           </View>
         ))}
       </View>
-    </View>
+    </>,
   );
 }
 
 const styles = StyleSheet.create({
-  stack: { gap: 10 },
-  card: {
-    borderRadius: 10,
+  receipt: {
+    flex: 1,
+    minHeight: 0,
+    minWidth: 0,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: Theme.complianceTripCardBorder,
+    borderColor: Theme.positiveMutedDarkBorder,
     backgroundColor: Theme.cardWhite,
     overflow: "hidden",
+    shadowColor: Theme.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  statusStrip: {
+    flexShrink: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    minHeight: 40,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: Theme.complianceStageSuccessBg,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.positiveMutedDarkBorder,
+  },
+  statusLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.45,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+  },
+  statusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    maxWidth: "70%",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Theme.positiveMutedDarkBorder,
+    backgroundColor: Theme.cardWhite,
+  },
+  statusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: Theme.complianceStageSuccessFg,
+  },
+  statusText: {
+    flexShrink: 1,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.1,
+    color: Theme.complianceStageSuccessFg,
+  },
+  meta: {
+    flexShrink: 0,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Theme.complianceTripCardBorder,
+  },
+  payeeSlot: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minHeight: 0,
+    borderTopWidth: 1,
+    borderTopColor: Theme.complianceTripCardBorder,
   },
   rowBorder: {
     borderTopWidth: StyleSheet.hairlineWidth,

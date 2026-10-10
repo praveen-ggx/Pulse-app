@@ -20,6 +20,8 @@ type Props = {
   page?: number;
   /** Pass-through to PdfViewer — false when a parent owns drag-pan. */
   interactive?: boolean;
+  /** Pass-through to PdfViewer. Omitted keeps the file scrollbar off. */
+  scrollbar?: boolean;
 };
 
 /** Renders an uploaded vault file: PDF via PdfViewer, images via Image. */
@@ -33,6 +35,7 @@ export function TripVaultFilePreview({
   sizing = "fit",
   page,
   interactive = true,
+  scrollbar = false,
 }: Props) {
   if (isPdf) {
     return (
@@ -44,6 +47,7 @@ export function TripVaultFilePreview({
           sizing={sizing}
           page={page}
           interactive={interactive}
+          scrollbar={scrollbar}
         />
       </View>
     );

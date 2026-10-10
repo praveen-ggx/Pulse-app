@@ -186,13 +186,14 @@ export function ComplianceUtrEditRow({
 const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 8,
+    minHeight: 40,
   },
-  rowEditing: { backgroundColor: Theme.compliancePageBg },
+  rowEditing: { alignItems: "flex-start", backgroundColor: Theme.compliancePageBg },
   label: {
     width: 128,
     flexShrink: 0,

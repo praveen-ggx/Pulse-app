@@ -383,7 +383,7 @@ describe("finance reject queue routing", () => {
     expect(isFinanceDeclinedForCompliancePending(trip)).toBe(true);
   });
 
-  it("marks pre-verify holds on Pending Docs only when exclusive stage is pending_for_docs", () => {
+  it("marks a pre-verify hold on Docs Follow Up and on Ready to Verify", () => {
     expect(
       isPendingDocsComplianceHold(
         summary({
@@ -399,6 +399,16 @@ describe("finance reject queue routing", () => {
           stage: "compliance_pending",
           complianceDeclinedAt: "2026-09-02T00:00:00Z",
           complianceDeclineReason: "bad LR",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isPendingDocsComplianceHold(
+        summary({
+          stage: "compliance_verified",
+          complianceVerifiedAt: "2026-09-01T00:00:00Z",
+          complianceDeclinedAt: "2026-09-02T00:00:00Z",
+          complianceDeclineReason: "Memo missing",
         }),
       ),
     ).toBe(false);

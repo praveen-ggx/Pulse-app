@@ -379,7 +379,7 @@ export function ComplianceSection({
         <Text style={styles.verifiedBanner}>✓ Compliance Verified</Text>
       ) : (
         <Text style={styles.pendingBanner}>
-          Compliance Pending — trip documents are awaiting compliance verification. This does not
+          Ready to Verify — trip documents are awaiting compliance verification. This does not
           block the trip.
         </Text>
       )}

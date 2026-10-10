@@ -24,8 +24,8 @@ export const COMPLIANCE_STAGES: readonly ComplianceStage[] = [
 ];
 
 export const COMPLIANCE_STAGE_LABEL: Record<ComplianceStage, string> = {
-  pending_for_docs: "Pending for Docs",
-  compliance_pending: "Compliance Pending",
+  pending_for_docs: "Docs Follow Up",
+  compliance_pending: "Ready to Verify",
   compliance_verified: "Compliance Verified",
   advance_payment_processed: "Advance Payment Processed",
   // Bucket is "delivered + advance, hard-copy not yet marked" (awaiting Ops).
@@ -36,12 +36,12 @@ export const COMPLIANCE_STAGE_LABEL: Record<ComplianceStage, string> = {
 
 /** Shorter filter-chip labels from the Compliance Verification workbench. */
 export const COMPLIANCE_STAGE_FILTER_LABEL: Record<ComplianceStage, string> = {
-  pending_for_docs: "Pending Docs",
-  compliance_pending: "Compliance Pending",
+  pending_for_docs: "Docs Follow Up",
+  compliance_pending: "Ready to Verify",
   compliance_verified: "Verified",
   advance_payment_processed: "Advance Processed",
-  hard_copy_pod_received: "Awaiting POD",
-  balance_pending: "Balance Pending",
+  hard_copy_pod_received: "POD",
+  balance_pending: "Settlement",
   payment_settled: "Settled",
 };
 

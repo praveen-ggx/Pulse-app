@@ -28,6 +28,8 @@ interface PdfViewerProps {
    * (needed after CSS rotate — browser PDF coords no longer match the cursor).
    */
   interactive?: boolean;
+  /** Side scrollbar on the file. Off when a parent already draws its own rail. */
+  scrollbar?: boolean;
 }
 
 function withPdfViewerHash(
@@ -36,6 +38,7 @@ function withPdfViewerHash(
   zoom: number,
   sizing: "original" | "fit",
   page?: number,
+  scrollbar?: boolean,
 ): string {
   if (uri.startsWith("data:")) return uri;
   const base = uri.split("#")[0];
@@ -44,7 +47,8 @@ function withPdfViewerHash(
   // Numeric zoom with a page origin. Fit-to-width is what was opening notes at ~119%.
   const view = sizing === "original" ? `zoom=${percent},0,0` : "view=FitH";
   const pagePart = page && page > 0 ? `&page=${Math.round(page)}` : "";
-  return `${base}#toolbar=${toolbar}&navpanes=0&scrollbar=1&${view}${pagePart}`;
+  const scrollbarFlag = (scrollbar ?? showToolbar) ? "1" : "0";
+  return `${base}#toolbar=${toolbar}&navpanes=0&scrollbar=${scrollbarFlag}&${view}${pagePart}`;
 }
 
 export function PdfViewer({
@@ -55,6 +59,7 @@ export function PdfViewer({
   sizing = "fit",
   page,
   interactive = true,
+  scrollbar,
 }: PdfViewerProps) {
   const [src, setSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -93,7 +98,7 @@ export function PdfViewer({
   return (
     <View style={[styles.container, style]}>
       <iframe
-        src={withPdfViewerHash(src, showToolbar, zoom, sizing, page)}
+        src={withPdfViewerHash(src, showToolbar, zoom, sizing, page, scrollbar)}
         key={`${page ?? 0}-${Math.round(zoom * 100)}`}
         style={{
           position: "absolute",
@@ -103,6 +108,7 @@ export function PdfViewer({
           height: "100%",
           border: "none",
           background: Theme.surface,
+          overflow: "hidden",
           pointerEvents: interactive ? "auto" : "none",
         }}
         title="PDF Preview"

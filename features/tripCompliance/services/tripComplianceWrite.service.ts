@@ -475,6 +475,51 @@ export async function updateCompliancePaymentReference(
   return writeCompliancePaymentRow(params.transactionId, { description, payment_reference: utr }, { description });
 }
 
+/**
+ * Remove this trip's Compliance advance so it returns to Verified and can be
+ * posted again. Only `compliance_advance` ledger rows are deleted — Finance
+ * receipts and a posted balance are left untouched.
+ */
+export async function withdrawComplianceAdvancePayment(params: {
+  tripId: string;
+  transactionId?: string | null;
+}): Promise<{ error: Error | null }> {
+  const tripId = params.tripId.trim();
+  const requestedId = (params.transactionId ?? "").trim();
+  if (requestedId.startsWith("amount-paid:")) {
+    return { error: new Error("This advance was posted in Finance. It can't be sent back from Compliance.") };
+  }
+
+  const byTrip = await fetchComplianceTransactions([tripId]);
+  const bucket = byTrip.get(tripId) ?? { advance: [], balance: [] };
+  if (bucket.balance.length > 0) {
+    return { error: new Error("This trip already has a balance payment, so it can't go back to Verified.") };
+  }
+  if (bucket.advance.length === 0) {
+    return { error: new Error("No advance payment to send back. Refresh and try again.") };
+  }
+  const row =
+    (requestedId ? bucket.advance.find((item) => item.id === requestedId) : null) ??
+    (requestedId ? null : bucket.advance[0]);
+  if (!row) {
+    return { error: new Error("Payment not found. Refresh and try again.") };
+  }
+
+  const { data, error } = await supabase()
+    .from("transactions")
+    .delete()
+    .eq("id", row.id)
+    .eq("trip_id", tripId)
+    .eq("ledger_category", "compliance_advance")
+    .select("id")
+    .maybeSingle();
+  if (error) return { error: new Error(error.message) };
+  if (!data) {
+    return { error: new Error("You don't have permission to send this trip back to Verified.") };
+  }
+  return { error: null };
+}
+
 /** Edit only the Request ID of a posted compliance payment (stored on its description). */
 export async function updateCompliancePaymentRequestId(
   params: CompliancePaymentRowTarget & { requestId: string },

@@ -499,7 +499,8 @@ export function ComplianceAdvanceProcessedTable({
 }) {
   const queryClient = useQueryClient();
   const rows = useMemo(() => summaries.filter((s) => s.advance), [summaries]);
-  const { data: enrichment, isPending, isFetching } = useAdvanceProcessedTable(organizationId, rows);
+  const { data: enrichment, isPending } = useAdvanceProcessedTable(organizationId, rows);
+  const visibleRows = rows;
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [edits, setEdits] = useState<Record<string, EditState>>({});
   /** Saved values shown until refetched data catches up. */
@@ -575,7 +576,7 @@ export function ComplianceAdvanceProcessedTable({
     [edits, enrichment, onUtrSaved, organizationId, queryClient],
   );
 
-  const pendingSelected = rows.flatMap((summary) => {
+  const pendingSelected = visibleRows.flatMap((summary) => {
     if (!selected.has(summary.trip.id)) return [];
     return (["txnDate", "requestId", "utr"] as const)
       .filter((field) => {
@@ -596,8 +597,8 @@ export function ComplianceAdvanceProcessedTable({
     setBulkSaving(false);
   };
 
-  const allSelected = rows.length > 0 && rows.every((s) => selected.has(s.trip.id));
-  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(rows.map((s) => s.trip.id)));
+  const allSelected = visibleRows.length > 0 && visibleRows.every((s) => selected.has(s.trip.id));
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(visibleRows.map((s) => s.trip.id)));
   const toggle = (tripId: string) =>
     setSelected((cur) => {
       const next = new Set(cur);
@@ -605,26 +606,10 @@ export function ComplianceAdvanceProcessedTable({
       else next.add(tripId);
       return next;
     });
-  const missingUtr = rows.filter((s) => !savedValue(s, enrichment?.[s.trip.id], "utr")).length;
-
   return (
     <View style={styles.wrap}>
+      {selected.size > 0 ? (
       <View style={styles.titleBar}>
-        <View style={styles.titleLeft}>
-          <Text style={styles.title} numberOfLines={1}>
-            Advance processed payments
-          </Text>
-          <View style={styles.titleCount}>
-            <Text style={styles.titleCountText}>{rows.length}</Text>
-          </View>
-          {rows.length > 0 ? (
-            <Text style={styles.titleMuted} numberOfLines={1}>
-              {missingUtr > 0 ? `${missingUtr} awaiting UTR` : "All UTRs recorded"}
-            </Text>
-          ) : null}
-          {isFetching ? <ActivityIndicator size="small" color={Theme.compliancePayTableTitleMuted} /> : null}
-        </View>
-        {selected.size > 0 ? (
           <View style={styles.titleRight}>
             <Text style={styles.titleMuted}>{selected.size} selected</Text>
             <TouchableOpacity
@@ -653,11 +638,13 @@ export function ComplianceAdvanceProcessedTable({
               )}
             </TouchableOpacity>
           </View>
-        ) : null}
       </View>
+      ) : null}
 
       <View style={[styles.row, styles.headerRow]}>
-        <Checkbox checked={allSelected} onPress={toggleAll} label="Select all trips" />
+        <View style={styles.rowLead}>
+          <Checkbox checked={allSelected} onPress={toggleAll} label="Select all trips" />
+        </View>
         <HeaderCell label="Trip ID" style={COL.trip} />
         <HeaderCell label="LR No." style={COL.lr} />
         <HeaderCell label="Truck No." style={COL.truck} />
@@ -678,7 +665,7 @@ export function ComplianceAdvanceProcessedTable({
         </View>
       </View>
 
-      {rows.map((summary, index) => {
+      {visibleRows.map((summary, index) => {
         const trip = summary.trip;
         const tripNumber = getTripDisplayNumber(trip, trip.organization_id ?? null);
         const info = enrichment?.[trip.id];
@@ -712,7 +699,9 @@ export function ComplianceAdvanceProcessedTable({
             key={trip.id}
             style={[styles.row, index % 2 === 1 && styles.rowAlt, isSelected && styles.rowSelected]}
           >
-            <Checkbox checked={isSelected} onPress={() => toggle(trip.id)} label={`Select trip ${tripNumber}`} />
+            <View style={styles.rowLead}>
+              <Checkbox checked={isSelected} onPress={() => toggle(trip.id)} label={`Select trip ${tripNumber}`} />
+            </View>
             <View style={[styles.cell, COL.trip]}>
               <TouchableOpacity onPress={() => onOpenTrip(trip.id)} hitSlop={{ top: 8, bottom: 8 }} accessibilityRole="link">
                 <Text style={[styles.cellText, styles.tripLink]} numberOfLines={2}>
@@ -864,6 +853,7 @@ const styles = StyleSheet.create({
   cellSub: { fontSize: 9, lineHeight: 12, fontWeight: "500", color: Theme.textMuted },
   alignRight: { textAlign: "right" },
   tripLink: { fontWeight: "700", color: Theme.complianceBulk },
+  rowLead: { flexDirection: "row", alignItems: "stretch", flexShrink: 0 },
   selectCell: { width: 30, alignItems: "center", justifyContent: "center", alignSelf: "stretch" },
   checkbox: {
     width: 15,

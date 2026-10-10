@@ -14,13 +14,10 @@ import {
   logTripHardCopyPodCourier,
   markTripHardCopyPodReceived,
   normalizeTripPodId,
-  saveTripIbondReceipt,
   type HardCopyPodReceiptMethod,
   type HardCopyPodStatus,
   type TripHardCopyPodState,
 } from "@/features/trips/services/tripDocumentLrPod.service";
-import { showAppAlert } from "@/lib/appAlert";
-import { queryKeys } from "@/lib/queryKeys";
 import {
   publishHardCopyPodState,
   syncHardCopyPodRecord,
@@ -162,9 +159,6 @@ export function LogHardCopyPodModal({
   const [mode, setMode] = useState<Mode>(initialMode);
   const [loadingState, setLoadingState] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [ibondOn, setIbondOn] = useState(false);
-  const ibondOnRef = useRef(false);
-  const methodBeforeIbond = useRef<HardCopyPodReceiptMethod | null>(null);
   const [podState, setPodState] = useState<TripHardCopyPodState | null>(null);
 
   const [method, setMethod] = useState<HardCopyPodReceiptMethod | null>(null);
@@ -210,11 +204,6 @@ export function LogHardCopyPodModal({
       }
       const decodedRemarks = decodeCourierLrRemarks(state.remarks);
       const applyMethod = (next: HardCopyPodReceiptMethod | null) => {
-        if (ibondOnRef.current) {
-          methodBeforeIbond.current = next;
-          setMethod(null);
-          return;
-        }
         setMethod(next);
       };
       if (state.status === "RECEIVED" || (state.status === "IN_TRANSIT" && initialMode !== "create")) {
@@ -374,26 +363,6 @@ export function LogHardCopyPodModal({
     await onUpdated?.(ids);
   }, [onUpdated, organizationId, queryClient, tripId]);
 
-  const toggleIbond = useCallback(() => {
-    if (!canManage || saving || podState?.status === "RECEIVED") return;
-    if (ibondOn) {
-      ibondOnRef.current = false;
-      setIbondOn(false);
-      setMethod(methodBeforeIbond.current);
-      methodBeforeIbond.current = null;
-      return;
-    }
-    methodBeforeIbond.current = method;
-    setMethod(null);
-    ibondOnRef.current = true;
-    setErrors((current) => {
-      if (!current.method) return current;
-      const { method: _method, ...rest } = current;
-      return rest;
-    });
-    setIbondOn(true);
-  }, [canManage, ibondOn, method, podState?.status, saving]);
-
   const validateCreate = useCallback((): boolean => {
     const next: Record<string, string> = {};
     if (!method) {
@@ -434,34 +403,6 @@ export function LogHardCopyPodModal({
 
   const handleSaveCreate = useCallback(async () => {
     if (!canManage || saving) return;
-    if (ibondOn) {
-      setSaving(true);
-      try {
-        const savedIbond = await saveTripIbondReceipt(tripId);
-        if (savedIbond.error) {
-          showAppAlert("Hard Copy POD", savedIbond.error.message);
-          return;
-        }
-        await invalidate();
-        const saved = queryClient.getQueryData<TripHardCopyPodState>(
-          queryKeys.trips.hardCopyPod(tripId),
-        );
-        if (!(saved?.status === "RECEIVED" && saved.ibond)) {
-          publishHardCopyPodState(
-            queryClient,
-            tripId,
-            ibondReceivedState(saved ?? podState, savedIbond),
-          );
-        }
-        onClose();
-      } catch (caught) {
-        const message = caught instanceof Error ? caught.message : "Couldn't save IBond.";
-        showAppAlert("Hard Copy POD", message);
-      } finally {
-        setSaving(false);
-      }
-      return;
-    }
     if (!validateCreate() || !method) {
       Alert.alert(
         "Hard Copy POD",
@@ -579,13 +520,10 @@ export function LogHardCopyPodModal({
     courierName,
     dispatchDate,
     expectedDeliveryDate,
-    ibondOn,
     invalidate,
     lrChoices,
     method,
     onClose,
-    podState,
-    queryClient,
     receivedBy,
     receivedDate,
     receivedTime,
@@ -694,21 +632,6 @@ export function LogHardCopyPodModal({
                 {subtitle}
               </Text>
             </View>
-            {showCreateForm && canManage && podState?.status !== "RECEIVED" ? (
-              <Pressable
-                style={[styles.ibondRow, styles.ibondRowHeader, compact && styles.ibondRowCompact]}
-                onPress={toggleIbond}
-                disabled={saving}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: ibondOn, disabled: saving }}
-                accessibilityLabel="IBond"
-              >
-                <View style={[styles.ibondBox, ibondOn && styles.ibondBoxOn]}>
-                  {ibondOn ? <Feather name="check" size={12} color={Theme.cardWhite} /> : null}
-                </View>
-                <Text style={styles.ibondLabel}>IBond</Text>
-              </Pressable>
-            ) : null}
             {inline ? null : (
               <Pressable
                 onPress={onClose}
@@ -887,11 +810,8 @@ export function LogHardCopyPodModal({
                       styles.segmentCard,
                       compact && styles.segmentCardCompact,
                       method === "person" && styles.segmentCardActive,
-                      ibondOn && styles.segmentCardDisabled,
                     ]}
-                    disabled={ibondOn}
                     onPress={() => {
-                      if (ibondOn) return;
                       setMethod("person");
                       setErrors((e) => {
                         const { method: _m, ...rest } = e;
@@ -899,7 +819,7 @@ export function LogHardCopyPodModal({
                       });
                     }}
                     accessibilityRole="radio"
-                    accessibilityState={{ selected: method === "person", disabled: ibondOn }}
+                    accessibilityState={{ selected: method === "person" }}
                   >
                     <View
                       style={[
@@ -929,11 +849,8 @@ export function LogHardCopyPodModal({
                       styles.segmentCard,
                       compact && styles.segmentCardCompact,
                       method === "courier" && styles.segmentCardActive,
-                      ibondOn && styles.segmentCardDisabled,
                     ]}
-                    disabled={ibondOn}
                     onPress={() => {
-                      if (ibondOn) return;
                       setMethod("courier");
                       setErrors((e) => {
                         const { method: _m, ...rest } = e;
@@ -941,7 +858,7 @@ export function LogHardCopyPodModal({
                       });
                     }}
                     accessibilityRole="radio"
-                    accessibilityState={{ selected: method === "courier", disabled: ibondOn }}
+                    accessibilityState={{ selected: method === "courier" }}
                   >
                     <View
                       style={[
@@ -1177,10 +1094,10 @@ export function LogHardCopyPodModal({
                     styles.primaryBtn,
                     styles.footerPrimary,
                     compact && styles.btnCompact,
-                    (!(ibondOn || method) || saving) && styles.btnDisabled,
+                    (!method || saving) && styles.btnDisabled,
                   ]}
                   onPress={() => void handleSaveCreate()}
-                  disabled={!(ibondOn || method) || saving}
+                  disabled={!method || saving}
                   accessibilityRole="button"
                   accessibilityLabel="Save hard copy POD"
                 >
@@ -1251,36 +1168,6 @@ export function LogHardCopyPodModal({
       </View>
     </Modal>
   );
-}
-
-function ibondReceivedState(
-  previous: TripHardCopyPodState | null | undefined,
-  saved?: {
-    receivedAt: string | null;
-    deductibleCost: number | null;
-    vendorCostBefore: number | null;
-    vendorCostAfter: number | null;
-  },
-): TripHardCopyPodState {
-  return {
-    status: "RECEIVED",
-    receiptMethod: null,
-    receivedAt: saved?.receivedAt ?? (previous?.status === "RECEIVED" ? previous.receivedAt : new Date().toISOString()),
-    receivedBy: previous?.receivedBy ?? null,
-    courier: previous?.courier ?? null,
-    awbNumber: previous?.awbNumber ?? null,
-    dispatchDate: previous?.dispatchDate ?? null,
-    expectedDeliveryDate: previous?.expectedDeliveryDate ?? null,
-    courierContact: previous?.courierContact ?? null,
-    remarks: previous?.remarks ?? null,
-    receivedDate: previous?.receivedDate ?? null,
-    receivedTime: previous?.receivedTime ?? null,
-    actorId: previous?.actorId ?? null,
-    ibond: true,
-    ibondDeductibleCost: saved?.deductibleCost ?? previous?.ibondDeductibleCost ?? null,
-    ibondVendorCostBefore: saved?.vendorCostBefore ?? previous?.ibondVendorCostBefore ?? null,
-    ibondVendorCostAfter: saved?.vendorCostAfter ?? previous?.ibondVendorCostAfter ?? null,
-  };
 }
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
@@ -1726,45 +1613,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   subtitleCompact: { marginTop: 2, fontSize: 10, lineHeight: 13 },
-  ibondBox: {
-    width: 18,
-    height: 18,
-    borderRadius: 3,
-    borderWidth: 1.5,
-    borderColor: Theme.analyticsHeroBg,
-    backgroundColor: Theme.cardWhite,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  ibondBoxOn: { backgroundColor: Theme.analyticsHeroBg },
-  ibondLabel: { fontSize: 13, fontWeight: "700", color: Theme.analyticsHeroBg },
-  ibondRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "flex-end",
-    gap: 8,
-    minHeight: 44,
-    marginRight: 20,
-    marginBottom: 8,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: Theme.analyticsHeroBg,
-    borderRadius: 8,
-    backgroundColor: Theme.cardWhite,
-    ...Platform.select({ web: { cursor: "pointer" } as object, default: {} }),
-  },
-  ibondRowHeader: {
-    alignSelf: "center",
-    marginRight: 0,
-    marginBottom: 0,
-    flexShrink: 0,
-  },
-  ibondRowCompact: {
-    minHeight: 32,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    borderColor: Theme.complianceTripCardBorder,
-  },
   closeBtn: {
     width: 36,
     height: 36,

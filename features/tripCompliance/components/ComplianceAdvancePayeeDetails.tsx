@@ -4,6 +4,7 @@ import { resolveBankBranch } from "@/features/suppliers/utils/ifscDirectory.util
 import { subscribeSupplierBankChanged } from "@/features/suppliers/utils/supplierBankEvents.util";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
 import { getTripExecutionModel } from "@/features/trips/domain/tripExecutionModel";
+import { Landmark } from "lucide-react-native";
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 
@@ -47,10 +48,13 @@ function PayeeRow({ label, value, mono, first }: { label: string; value: string;
 export function ComplianceAdvancePayeeDetails({
   trip,
   supplierName,
+  embedded = false,
 }: {
   trip: ComplianceTripSummary["trip"];
   /** Resolved supplier display name (falls back to `trip.supplier_name`). */
   supplierName: string | null;
+  /** Rows only — parent receipt supplies the card chrome. */
+  embedded?: boolean;
 }) {
   const supplierId = (trip.supplier_id ?? "").trim();
   const orgId = (trip.organization_id ?? "").trim();
@@ -118,13 +122,10 @@ export function ComplianceAdvancePayeeDetails({
   } else if (state.status === "error") {
     body = <Text style={[styles.note, styles.noteError]}>{state.message}</Text>;
   } else if (!state.payee) {
-    body = (
-      <Text style={styles.note}>
-        {supplierId
-          ? "No payout account on file. Add bank details on the supplier's Banking card."
-          : "No supplier linked to this trip."}
-      </Text>
-    );
+    const emptyCopy = supplierId
+      ? "No payout account on file. Add bank details on the supplier's Banking card."
+      : "No supplier linked to this trip.";
+    body = <Text style={styles.note}>{emptyCopy}</Text>;
   } else {
     const p = state.payee;
     body = (
@@ -138,26 +139,69 @@ export function ComplianceAdvancePayeeDetails({
     );
   }
 
+  const header = (
+    <View style={[styles.sectionHead, embedded && styles.sectionHeadEmbedded]}>
+      {embedded ? <Landmark size={12} color={Theme.textMuted} strokeWidth={2.2} /> : null}
+      <Text style={styles.sectionTitle}>Paid to</Text>
+    </View>
+  );
+  const rows = (
+    <>
+      <PayeeRow label="Supplier" value={supplierLabel} first />
+      <View style={styles.rowBorder}>{body}</View>
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <View style={styles.embed}>
+        {header}
+        <View style={styles.embedCard}>{rows}</View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.wrap}>
-      <Text style={styles.sectionTitle}>Paid to</Text>
-      <View style={styles.card}>
-        <PayeeRow label="Supplier" value={supplierLabel} first />
-        <View style={styles.rowBorder}>{body}</View>
-      </View>
+      {header}
+      <View style={styles.card}>{rows}</View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrap: { marginTop: 12, gap: 6 },
+  embed: {
+    flexGrow: 1,
+    minHeight: 0,
+    backgroundColor: Theme.compliancePageBg,
+  },
+  sectionHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 2,
+  },
+  sectionHeadEmbedded: {
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 4,
+  },
   sectionTitle: {
     fontSize: 9,
     fontWeight: "700",
     letterSpacing: 0.4,
     textTransform: "uppercase",
     color: Theme.textMuted,
-    paddingHorizontal: 2,
+  },
+  embedCard: {
+    marginHorizontal: 10,
+    marginBottom: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.cardWhite,
+    overflow: "hidden",
   },
   card: {
     borderRadius: 10,

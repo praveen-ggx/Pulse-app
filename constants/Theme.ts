@@ -561,6 +561,8 @@ export const Theme = {
   // ---- Compliance workspace (global TMS work queue) ----
   compliancePageBg: "#F4F7FB",
   compliancePreviewCanvas: "#E8EEF5",
+  complianceScrollRail: "#D5DEE8",
+  complianceScrollThumb: "#7B8A9C",
   complianceCardBorder: "#E6EDF5",
   complianceCardShadow: "rgba(15, 23, 42, 0.07)",
   complianceIconWash: "#EEF3FF",

@@ -245,7 +245,12 @@ export function isFinanceDeclinedForCompliancePending(summary: ComplianceTripSum
   );
 }
 
-/** Pre-verify hold that still sits on the Pending Docs exclusive stage. */
+/**
+ * Pre-verify hold. Shown on Docs Follow Up → Compliance Hold whether the trip
+ * is still missing files or already in Ready to Verify. The same trip also
+ * stays on Ready to Verify → Compliance Hold.
+ */
 export function isPendingDocsComplianceHold(summary: ComplianceTripSummary): boolean {
-  return isComplianceDeclineActive(summary) && summary.stage === "pending_for_docs";
+  if (!isComplianceDeclineActive(summary)) return false;
+  return summary.stage === "pending_for_docs" || summary.stage === "compliance_pending";
 }

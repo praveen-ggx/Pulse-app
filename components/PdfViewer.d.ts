@@ -12,6 +12,8 @@ declare module "@/components/PdfViewer" {
     page?: number;
     /** False lets a parent own drag-pan (e.g. after CSS rotate). Default true. */
     interactive?: boolean;
+    /** Side scrollbar on the file. Off when a parent already draws its own rail. */
+    scrollbar?: boolean;
   }
 
   export const PdfViewer: FunctionComponent<PdfViewerProps>;

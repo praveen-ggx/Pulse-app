@@ -1,38 +1,45 @@
 import { PartyAvatar } from "@/components/PartyAvatar";
 import Theme from "@/constants/Theme";
 import { rejectDocument, verifyDocument } from "@/features/compliance/services/documents.service";
-import { NoDocumentPreviewEmpty, NoTripsFoundEmpty } from "@/features/tripCompliance/components/ComplianceEmptyState";
-import { ComplianceInputModal, type ComplianceInputField } from "@/features/tripCompliance/components/ComplianceInputModal";
-import {
-    CompliancePaymentConfirmModal,
-    type CompliancePaymentConfirmValues,
-} from "@/features/tripCompliance/components/CompliancePaymentConfirmModal";
-import { ComplianceDeclineModal } from "@/features/tripCompliance/components/ComplianceDeclineModal";
-import { ComplianceNumberStack } from "@/features/tripCompliance/components/ComplianceNumberStack";
-import { ComplianceRejectRemarkModal } from "@/features/tripCompliance/components/ComplianceRejectRemarkModal";
+import { getSupplierBankAccount } from "@/features/suppliers/services/supplierVendorOnboarding.service";
+import { resolveBankBranch } from "@/features/suppliers/utils/ifscDirectory.util";
+import { subscribeSupplierBankChanged } from "@/features/suppliers/utils/supplierBankEvents.util";
+import { ComplianceAdvanceCreditCard } from "@/features/tripCompliance/components/ComplianceAdvanceCreditCard";
 import {
   ComplianceAdvancePaidDetails,
   type AdvanceUtrTarget,
 } from "@/features/tripCompliance/components/ComplianceAdvancePaidDetails";
-import { ComplianceAdvanceCreditCard } from "@/features/tripCompliance/components/ComplianceAdvanceCreditCard";
-import { ComplianceAdvancePayeeDetails } from "@/features/tripCompliance/components/ComplianceAdvancePayeeDetails";
+import { ComplianceAdvancePaymentArt } from "@/features/tripCompliance/components/ComplianceAdvancePaymentArt";
+import { ComplianceChecklistGapArt } from "@/features/tripCompliance/components/ComplianceChecklistGapArt";
+import { ComplianceDeclineModal } from "@/features/tripCompliance/components/ComplianceDeclineModal";
+import { NoDocumentPreviewEmpty, NoTripsFoundEmpty } from "@/features/tripCompliance/components/ComplianceEmptyState";
+import { ComplianceInputModal, type ComplianceInputField } from "@/features/tripCompliance/components/ComplianceInputModal";
+import { ComplianceNumberStack } from "@/features/tripCompliance/components/ComplianceNumberStack";
+import {
+  CompliancePaymentConfirmModal,
+  type CompliancePaymentConfirmValues,
+} from "@/features/tripCompliance/components/CompliancePaymentConfirmModal";
+import { ComplianceRejectRemarkModal } from "@/features/tripCompliance/components/ComplianceRejectRemarkModal";
 import { COMPLIANCE_STATUS_META } from "@/features/tripCompliance/components/ComplianceStatusIcon";
 import type { ComplianceListTripFacts } from "@/features/tripCompliance/hooks/useComplianceListTripFacts";
-import { updateCompliancePaymentReference, updateCompliancePaymentTransactionDate } from "@/features/tripCompliance/services/tripComplianceWrite.service";
 import {
-    guessCompliancePreviewMime,
-    signCompliancePreviewUrl,
+  COMPLIANCE_QUEUE_WINDOW_SIZE,
+  useComplianceListWindow,
+} from "@/features/tripCompliance/hooks/useComplianceListWindow";
+import {
+  guessCompliancePreviewMime,
+  signCompliancePreviewUrl,
 } from "@/features/tripCompliance/services/complianceDocumentView.service";
 import type { ComplianceChange } from "@/features/tripCompliance/services/compliancePipelineSync.service";
 import { tripAppearsInAwaitingPod } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import type { ComplianceLedgerCategory } from "@/features/tripCompliance/services/tripComplianceWrite.service";
-import { setTripDocumentVerification } from "@/features/tripCompliance/services/tripComplianceWrite.service";
+import { setTripDocumentVerification, updateCompliancePaymentReference, updateCompliancePaymentTransactionDate } from "@/features/tripCompliance/services/tripComplianceWrite.service";
 import {
-    COMPLIANCE_DRIVER_DOCUMENT_TYPES,
-    COMPLIANCE_VEHICLE_DOCUMENT_TYPES,
-    documentRequiresExpiry,
-    type ComplianceStage,
-    type ComplianceTripSummary,
+  COMPLIANCE_DRIVER_DOCUMENT_TYPES,
+  COMPLIANCE_VEHICLE_DOCUMENT_TYPES,
+  documentRequiresExpiry,
+  type ComplianceStage,
+  type ComplianceTripSummary,
 } from "@/features/tripCompliance/tripCompliance.types";
 import {
   formatComplianceTimestamp,
@@ -41,15 +48,10 @@ import {
   verificationStatusVisual,
 } from "@/features/tripCompliance/utils/complianceCardVisual.util";
 import {
-  complianceVaultDocNumbers,
-  isComplianceDeclineActive,
-  isFinanceDeclinedTrip,
-} from "@/features/tripCompliance/utils/complianceTableStatus.util";
-import {
   deriveComplianceDocumentRows,
-  deriveTripVaultReviewRows,
   deriveEntityComplianceRows,
   deriveFinanceDocumentRows,
+  deriveTripVaultReviewRows,
   financeVaultDetailLine,
   labelForDocType,
   labelForFinanceDocType,
@@ -57,7 +59,7 @@ import {
   requirementScopeLabel,
   type ComplianceDocRow,
 } from "@/features/tripCompliance/utils/complianceDocumentRows.util";
-import { fetchSupplierBankProofBundle } from "@/features/tripCompliance/utils/supplierBankProof.util";
+import { deriveComplianceQueueReadiness } from "@/features/tripCompliance/utils/complianceReadiness.util";
 import {
   applyOptimisticDecision,
   complianceGroupReviewState,
@@ -67,26 +69,28 @@ import {
   type ComplianceGroupReviewState,
   type OptimisticComplianceDecision,
 } from "@/features/tripCompliance/utils/complianceReviewActions.util";
-import { classifyTripDocument, readTypedDetails } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
-import { deriveComplianceQueueReadiness } from "@/features/tripCompliance/utils/complianceReadiness.util";
-import { getSupplierBankAccount } from "@/features/suppliers/services/supplierVendorOnboarding.service";
-import { resolveBankBranch } from "@/features/suppliers/utils/ifscDirectory.util";
-import { subscribeSupplierBankChanged } from "@/features/suppliers/utils/supplierBankEvents.util";
+import {
+  complianceVaultDocNumbers,
+  isComplianceDeclineActive,
+  isFinanceDeclinedTrip,
+} from "@/features/tripCompliance/utils/complianceTableStatus.util";
 import { alertMessage } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
+import { fetchSupplierBankProofBundle } from "@/features/tripCompliance/utils/supplierBankProof.util";
+import { classifyTripDocument, readTypedDetails } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
 
 /** Stages whose bank card stays as it was (no beneficiary / branch, no live refresh). */
 const PRE_VERIFIED_STAGES: ReadonlySet<ComplianceStage> = new Set(["pending_for_docs", "compliance_pending"]);
 
-import {
-    formatInvoiceVaultNumberLabel,
-    formatLrVaultNumberLabel,
-} from "@/features/trips/components/trip-detail/tripDocTypes";
+import { PodClientValidationPanel } from "@/features/debit-control/components/PodClientValidationPanel";
 import {
   pickComplianceVaultFiles,
   uploadComplianceVaultFile,
 } from "@/features/tripCompliance/services/complianceVaultUpload.service";
-import { PodClientValidationPanel } from "@/features/debit-control/components/PodClientValidationPanel";
 import { LogHardCopyPodModal, type HardCopyPodLrOption } from "@/features/trips/components/trip-detail/LogHardCopyPodModal";
+import {
+  formatInvoiceVaultNumberLabel,
+  formatLrVaultNumberLabel,
+} from "@/features/trips/components/trip-detail/tripDocTypes";
 import { TripVaultFilePreview } from "@/features/trips/components/trip-detail/TripVaultFilePreview";
 import { getTripExecutionModel } from "@/features/trips/domain/tripExecutionModel";
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
@@ -98,23 +102,26 @@ import { ROUTES } from "@/lib/routes";
 import { SIGNED_URL_CACHE_TTL_MS, SIGNED_URL_EXPIRY_SEC } from "@/lib/storageSignedUrlCache";
 import { Image as ExpoImage } from "expo-image";
 import { useRouter, type Href } from "expo-router";
-import { Check, ChevronLeft, ChevronRight, Eye, Maximize2, Minus, Plus, RotateCcw, RotateCw, Upload, X } from "lucide-react-native";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Banknote, Calendar, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleCheck, ClipboardList, Clock, Eye, FileText, Hash, Landmark, Maximize2, Minus, NotebookText, Plus, RefreshCw, RotateCwSquare, Truck, Upload, Users, X } from "lucide-react-native";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    Image,
-    Modal,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    useWindowDimensions,
-    View,
-    type GestureResponderEvent,
-    type StyleProp,
-    type ViewStyle,
+  ActivityIndicator,
+  Animated,
+  Easing,
+  Image,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
+  type GestureResponderEvent,
+  type StyleProp,
+  type TextStyle,
+  type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -219,6 +226,15 @@ function typedDetailsLines(row: ComplianceDocRow | null): { label: string; value
 
 type TypedDetailLineView = { label: string; value: string };
 
+function typedFieldIcon(label: string) {
+  const key = label.trim().toLowerCase();
+  if (key.includes("eway") || key.includes("e-way") || key.includes("e way")) return Hash;
+  if (key.includes("valid") || key.includes("expiry") || key.includes("expire")) return Clock;
+  if (key.includes("date") || key.includes("created") || key.includes("till")) return Calendar;
+  if (key.includes("doc") || key.includes("lr") || key.includes("invoice")) return FileText;
+  return FileText;
+}
+
 /** Group numbered lines (e.g. "Eway no 1") into entry cards — values unchanged. */
 function groupTypedDetailLines(lines: TypedDetailLineView[]): {
   key: string;
@@ -260,64 +276,263 @@ function TypedDetailsPreview({
   lines,
   insetForSideNav = false,
   darkCanvas = false,
+  bindScrollRails = true,
 }: {
   title: string;
   lines: TypedDetailLineView[];
   /** Leave room for overlay prev/next chevrons. */
   insetForSideNav?: boolean;
   darkCanvas?: boolean;
+  /** Drive the shared footer rail. Only one mounted preview should publish. */
+  bindScrollRails?: boolean;
 }) {
   const groups = useMemo(() => groupTypedDetailLines(lines), [lines]);
   const entryCount = groups.filter((group) => group.key.startsWith("entry-")).length;
+  const multiColumn = groups.length >= 2;
+  const rows = useMemo(() => {
+    if (!multiColumn) return [groups];
+    const next: (typeof groups)[] = [];
+    for (let i = 0; i < groups.length; i += 2) {
+      next.push(groups.slice(i, i + 2));
+    }
+    return next;
+  }, [groups, multiColumn]);
+
+  const scrollRef = useRef<ScrollView>(null);
+  const stageRef = useRef<View>(null);
+  const scrollDomId = useRef(`typed-details-scroll-${Math.random().toString(36).slice(2, 10)}`).current;
+  const metrics = useRef({ vw: 1, vh: 1, cw: 1, ch: 1, x: 0, y: 0 });
+  const [pan, setPan] = useState({ x: 0, y: 0, maxX: 0, maxY: 0 });
+
+  const syncPan = useCallback(() => {
+    const m = metrics.current;
+    const maxScrollX = Math.max(0, m.cw - m.vw);
+    const maxScrollY = Math.max(0, m.ch - m.vh);
+    const maxX = maxScrollX / 2;
+    const maxY = maxScrollY / 2;
+    const x = maxX - m.x;
+    const y = maxY - m.y;
+    setPan((prev) =>
+      prev.x === x && prev.y === y && prev.maxX === maxX && prev.maxY === maxY
+        ? prev
+        : { x, y, maxX, maxY },
+    );
+  }, []);
+
+  const webScroller = useCallback((): HTMLElement | null => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return null;
+    const host = document.getElementById(scrollDomId);
+    if (!host) return null;
+    host.style.overflowY = "auto";
+    host.style.overflowX = "hidden";
+    host.style.overscrollBehavior = "contain";
+    if (host.scrollHeight > host.clientHeight + 1 || host.scrollWidth > host.clientWidth + 1) {
+      return host;
+    }
+    const nested = host.querySelectorAll("div");
+    for (let i = 0; i < nested.length; i += 1) {
+      const child = nested[i] as HTMLElement;
+      if (child.scrollHeight > child.clientHeight + 1 || child.scrollWidth > child.clientWidth + 1) {
+        child.style.overflowY = "auto";
+        child.style.overscrollBehavior = "contain";
+        return child;
+      }
+    }
+    return host;
+  }, [scrollDomId]);
+
+  const applyScroll = useCallback(
+    (x: number, y: number) => {
+      metrics.current.x = x;
+      metrics.current.y = y;
+      scrollRef.current?.scrollTo({ x, y, animated: false });
+      const node = webScroller();
+      if (node) {
+        node.scrollLeft = x;
+        node.scrollTop = y;
+        metrics.current.vw = node.clientWidth;
+        metrics.current.vh = node.clientHeight;
+        metrics.current.cw = node.scrollWidth;
+        metrics.current.ch = node.scrollHeight;
+      }
+      syncPan();
+    },
+    [syncPan, webScroller],
+  );
+
+  const moveX = useCallback(
+    (next: number) => {
+      const m = metrics.current;
+      const maxScrollX = Math.max(0, m.cw - m.vw);
+      const maxX = maxScrollX / 2;
+      applyScroll(Math.min(maxScrollX, Math.max(0, maxX - next)), m.y);
+    },
+    [applyScroll],
+  );
+
+  const moveY = useCallback(
+    (next: number) => {
+      const m = metrics.current;
+      const maxScrollY = Math.max(0, m.ch - m.vh);
+      const maxY = maxScrollY / 2;
+      applyScroll(m.x, Math.min(maxScrollY, Math.max(0, maxY - next)));
+    },
+    [applyScroll],
+  );
+
+  useEffect(() => {
+    if (!bindScrollRails) return;
+    previewScrollBus.publish({
+      x: pan.x,
+      y: pan.y,
+      maxX: pan.maxX,
+      maxY: pan.maxY,
+      moveX,
+      moveY,
+    });
+  }, [bindScrollRails, moveX, moveY, pan]);
+
+  useEffect(() => {
+    if (!bindScrollRails) return;
+    return () => {
+      if (previewScrollBus.frame?.moveY === moveY) previewScrollBus.publish(null);
+    };
+  }, [bindScrollRails, moveY]);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const stage = stageRef.current as unknown as HTMLElement | null;
+    if (!stage?.addEventListener) return;
+    const onWheel = (event: WheelEvent) => {
+      event.stopPropagation();
+      const scroller = webScroller();
+      if (!scroller) return;
+      const maxScrollX = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+      const maxScrollY = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+      if (maxScrollY < 0.5 && maxScrollX < 0.5) return;
+      event.preventDefault();
+      applyScroll(
+        Math.min(maxScrollX, Math.max(0, scroller.scrollLeft + event.deltaX)),
+        Math.min(maxScrollY, Math.max(0, scroller.scrollTop + event.deltaY)),
+      );
+    };
+    stage.addEventListener("wheel", onWheel, { passive: false });
+    return () => stage.removeEventListener("wheel", onWheel);
+  }, [applyScroll, webScroller]);
+
   return (
-    <ScrollView
-      style={[styles.typedPreviewScroll, darkCanvas && styles.typedPreviewScrollDark]}
-      contentContainerStyle={[
-        styles.typedPreviewContent,
+    <View
+      style={[
+        styles.typedPreviewShell,
+        darkCanvas && styles.typedPreviewScrollDark,
         insetForSideNav && styles.typedPreviewContentWithNav,
       ]}
-      showsVerticalScrollIndicator={false}
     >
-      <View style={styles.typedPreviewPanel}>
-        <View style={styles.typedPreviewHeader}>
+      <View style={styles.typedPreviewHeader}>
+        <View style={styles.typedPreviewHeaderIcon}>
+          <ClipboardList size={16} color={Theme.textPrimaryDark} strokeWidth={2.1} />
+        </View>
+        <View style={styles.typedPreviewHeaderCopy}>
           <Text style={styles.typedPreviewKicker}>Entered details</Text>
-          <Text style={styles.typedPreviewTitle} numberOfLines={2}>
+          <Text style={styles.typedPreviewTitle} numberOfLines={1}>
             {title}
           </Text>
-          <Text style={styles.typedPreviewMeta}>
+          <Text style={styles.typedPreviewMeta} numberOfLines={1}>
             No file on this row
             {entryCount > 1 ? ` · ${entryCount} entries` : lines.length > 0 ? ` · ${lines.length} fields` : ""}
           </Text>
         </View>
-        <View style={styles.typedPreviewGroups}>
-          {groups.map((group) => (
-            <View key={group.key} style={styles.typedEntryCard}>
-              {group.heading ? (
-                <Text style={styles.typedEntryHeading}>{group.heading}</Text>
-              ) : null}
-              <View style={styles.typedEntryFields}>
-                {group.lines.map((line, index) => (
-                  <View
-                    key={`${group.key}-${line.label}-${index}`}
-                    style={[
-                      styles.typedFieldRow,
-                      index < group.lines.length - 1 && styles.typedFieldRowDivider,
-                    ]}
-                  >
-                    <Text style={styles.typedFieldLabel} numberOfLines={2}>
-                      {line.label}
-                    </Text>
-                    <Text style={styles.typedFieldValue} selectable>
-                      {line.value}
-                    </Text>
-                  </View>
-                ))}
-              </View>
+      </View>
+      <View ref={stageRef} style={styles.typedPreviewScrollStage}>
+        <ScrollView
+          ref={scrollRef}
+          nativeID={scrollDomId}
+          style={[
+            styles.typedPreviewScroll,
+            Platform.OS === "web"
+              ? ({ overflowY: "auto", overflowX: "hidden" } as ViewStyle)
+              : null,
+          ]}
+          contentContainerStyle={styles.typedPreviewScrollContent}
+          nestedScrollEnabled
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          showsHorizontalScrollIndicator={false}
+          scrollEventThrottle={16}
+          onLayout={(event) => {
+            const { width, height } = event.nativeEvent.layout;
+            metrics.current.vw = width;
+            metrics.current.vh = height;
+            syncPan();
+          }}
+          onContentSizeChange={(width, height) => {
+            metrics.current.cw = width;
+            metrics.current.ch = height;
+            syncPan();
+          }}
+          onScroll={(event) => {
+            const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+            metrics.current.x = contentOffset.x;
+            metrics.current.y = contentOffset.y;
+            metrics.current.vw = layoutMeasurement.width;
+            metrics.current.vh = layoutMeasurement.height;
+            metrics.current.cw = contentSize.width;
+            metrics.current.ch = contentSize.height;
+            syncPan();
+          }}
+        >
+          {rows.map((row, rowIndex) => (
+            <View
+              key={`row-${rowIndex}`}
+              style={[styles.typedPreviewRow, multiColumn && styles.typedPreviewRowGrid]}
+            >
+              {row.map((group) => (
+                <View key={group.key} style={styles.typedEntryCard}>
+                  {group.heading ? (
+                    <View style={styles.typedEntryHeadingRow}>
+                      <View style={styles.typedEntryIndex}>
+                        <Text style={styles.typedEntryIndexText}>
+                          {group.heading.replace(/^Entry\s+/i, "")}
+                        </Text>
+                      </View>
+                      <Text style={styles.typedEntryHeading} numberOfLines={1}>
+                        {group.heading}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {group.lines.map((line, index) => {
+                    const Icon = typedFieldIcon(line.label);
+                    return (
+                      <View
+                        key={`${group.key}-${line.label}-${index}`}
+                        style={[
+                          styles.typedFieldRow,
+                          index < group.lines.length - 1 && styles.typedFieldRowDivider,
+                        ]}
+                      >
+                        <View style={styles.typedFieldLead}>
+                          <View style={styles.typedFieldIcon}>
+                            <Icon size={13} color={Theme.textMuted} strokeWidth={2.1} />
+                          </View>
+                          <Text style={styles.typedFieldLabel} numberOfLines={1}>
+                            {line.label}
+                          </Text>
+                        </View>
+                        <Text style={styles.typedFieldValue} numberOfLines={1} selectable>
+                          {line.value}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              ))}
+              {multiColumn && row.length === 1 ? <View style={styles.typedEntryCardSpacer} /> : null}
             </View>
           ))}
-        </View>
+        </ScrollView>
+        <PreviewScrollRail axis="y" value={pan.y} max={pan.maxY} onChange={moveY} />
       </View>
-    </ScrollView>
+    </View>
   );
 }
 
@@ -325,11 +540,9 @@ function fitDocumentSize(
   natural: { width: number; height: number },
   box: { width: number; height: number },
   zoom: number,
-  rotation: number,
 ): { width: number; height: number } {
-  const swapped = rotation % 180 !== 0;
-  const nw = swapped ? natural.height : natural.width;
-  const nh = swapped ? natural.width : natural.height;
+  const nw = natural.width;
+  const nh = natural.height;
   if (box.width < 1 || box.height < 1 || nw < 1 || nh < 1) {
     return { width: 1, height: 1 };
   }
@@ -340,22 +553,23 @@ function fitDocumentSize(
   };
 }
 
+/** A4 page shape — keep the iframe a sheet, not a wide black stage. */
+const PDF_PAGE_RATIO = 210 / 297;
+
 function fitPdfSize(
   box: { width: number; height: number },
   zoom: number,
-  rotation: number,
 ): { width: number; height: number } {
   if (box.width < 1 || box.height < 1) return { width: 1, height: 1 };
-  if (rotation % 180 === 0) {
-    return {
-      width: Math.max(1, Math.round(box.width * zoom)),
-      height: Math.max(1, Math.round(box.height * zoom)),
-    };
+  let width = box.height * PDF_PAGE_RATIO;
+  let height = box.height;
+  if (width > box.width) {
+    width = box.width;
+    height = box.width / PDF_PAGE_RATIO;
   }
-  const scale = Math.min(box.width / box.height, box.height / box.width) * zoom;
   return {
-    width: Math.max(1, Math.round(box.width * scale)),
-    height: Math.max(1, Math.round(box.height * scale)),
+    width: Math.max(1, Math.round(width * zoom)),
+    height: Math.max(1, Math.round(height * zoom)),
   };
 }
 
@@ -365,6 +579,41 @@ const PREVIEW_CANVAS_PAD = 12;
 
 function clampPreviewZoom(value: number): number {
   return Math.min(MAX_PREVIEW_ZOOM, Math.max(MIN_PREVIEW_ZOOM, value));
+}
+
+/** Pixel delta for a wheel event. Line and page modes are converted to pixels. */
+function wheelDelta(event: WheelEvent): number {
+  const raw = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+  let dy = Number.isFinite(raw) ? raw : 0;
+  if (event.deltaMode === 1) dy *= 16;
+  else if (event.deltaMode === 2) dy *= 400;
+  return dy;
+}
+
+/** Smooth exponential zoom. A mouse notch eases in; trackpad pixels stay continuous. */
+function wheelZoomFactor(dy: number): number {
+  const clamped = Math.max(-180, Math.min(180, dy));
+  return Math.exp(-clamped * 0.0022);
+}
+
+function previewDomNode(node: unknown): HTMLElement | null {
+  if (!node || typeof node !== "object") return null;
+  const el = node as HTMLElement;
+  if (typeof el.getBoundingClientRect === "function" && typeof el.contains === "function") return el;
+  return null;
+}
+
+function cssPreviewTransform(
+  pan: { x: number; y: number },
+  scale: number,
+  rotation: number,
+  viewport?: { width: number; height: number },
+): string {
+  const fit = viewport
+    ? containScaleForRotation(viewport.width, viewport.height, rotation)
+    : 1;
+  const rot = normalizePreviewRotation(rotation);
+  return `translate(${pan.x}px, ${pan.y}px) rotate(${rot}deg) scale(${scale * fit})`;
 }
 
 /** Normalize degrees to [0, 360). */
@@ -379,32 +628,48 @@ function previewRotationSwapsAxes(rotation: number): boolean {
 }
 
 /**
- * Pan limits in screen space (pan is applied after rotate/scale).
- * - Zoomed: classic (scale − 1) · dim / 2
- * - Full-bleed + 90°/270°: AABB overflows the viewport even at 100%
- * - In-panel AABB-fitted previews pass rotation=0 (overflow already sized out)
+ * After a 90°/270° CSS rotate the layout box's AABB is height×width.
+ * Shrink so the whole page stays on screen at 100%.
  */
-function clampPreviewPan(
-  x: number,
-  y: number,
-  scale: number,
+function containScaleForRotation(
   width: number,
   height: number,
-  rotation = 0,
-): { x: number; y: number } {
-  if (width <= 0 || height <= 0) return { x: 0, y: 0 };
-  const zoom = Math.max(scale, 0);
-  let maxX = 0;
-  let maxY = 0;
-  if (previewRotationSwapsAxes(rotation)) {
-    const visualW = height * zoom;
-    const visualH = width * zoom;
-    maxX = Math.max(0, (visualW - width) / 2);
-    maxY = Math.max(0, (visualH - height) / 2);
-  } else if (zoom > 1) {
-    maxX = ((zoom - 1) * width) / 2;
-    maxY = ((zoom - 1) * height) / 2;
+  rotation: number,
+): number {
+  if (!previewRotationSwapsAxes(rotation) || width < 1 || height < 1) return 1;
+  return Math.min(width / height, height / width) * 0.98;
+}
+
+/** Largest box that stays fully on screen before and after a 90° rotate. */
+function mediaLayoutForRotation(
+  viewportW: number,
+  viewportH: number,
+  rotation: number,
+): { width: number; height: number } {
+  if (viewportW < 1 || viewportH < 1) return { width: 0, height: 0 };
+  if (!previewRotationSwapsAxes(rotation)) {
+    return { width: viewportW, height: viewportH };
   }
+  const side = Math.min(viewportW, viewportH);
+  return { width: side, height: side };
+}
+
+function clampScreenPan(
+  x: number,
+  y: number,
+  zoom: number,
+  viewportW: number,
+  viewportH: number,
+  mediaW: number,
+  mediaH: number,
+  rotation: number,
+): { x: number; y: number } {
+  if (viewportW <= 0 || viewportH <= 0) return { x: 0, y: 0 };
+  const swap = previewRotationSwapsAxes(rotation);
+  const visualW = (swap ? mediaH : mediaW) * Math.max(zoom, 0);
+  const visualH = (swap ? mediaW : mediaH) * Math.max(zoom, 0);
+  const maxX = Math.max(0, (visualW - viewportW) / 2);
+  const maxY = Math.max(0, (visualH - viewportH) / 2);
   if (maxX <= 0 && maxY <= 0) return { x: 0, y: 0 };
   return {
     x: Math.min(maxX, Math.max(-maxX, x)),
@@ -417,11 +682,248 @@ function canPanPreview(scale: number, rotation = 0): boolean {
   return previewRotationSwapsAxes(rotation);
 }
 
+type PreviewScrollFrame = {
+  x: number;
+  y: number;
+  maxX: number;
+  maxY: number;
+  moveX: (next: number) => void;
+  moveY: (next: number) => void;
+};
+
+/** Lets the preview footer rail follow pan without re-rendering the whole workspace. */
+const previewScrollBus = {
+  frame: null as PreviewScrollFrame | null,
+  listeners: new Set<() => void>(),
+  publish(frame: PreviewScrollFrame | null) {
+    this.frame = frame;
+    this.listeners.forEach((listener) => listener());
+  },
+  subscribe(listener: () => void) {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  },
+};
+
+function usePreviewScrollFrame(): PreviewScrollFrame | null {
+  const [, bump] = useState(0);
+  useEffect(() => previewScrollBus.subscribe(() => bump((n) => n + 1)), []);
+  return previewScrollBus.frame;
+}
+
+function PreviewScrollRail({
+  axis,
+  value,
+  max,
+  onChange,
+}: {
+  axis: "x" | "y";
+  value: number;
+  max: number;
+  onChange: (next: number) => void;
+}) {
+  const horizontal = axis === "x";
+  const [track, setTrack] = useState(0);
+  const [cues, setCues] = useState(false);
+  const drag = useRef<{ origin: number; value: number } | null>(null);
+  const raf = useRef<number | null>(null);
+  const hideCues = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const span = Math.max(track, 1);
+  const scrollable = max > 0.5;
+  const safeMax = Math.max(max, 1);
+  const thumb = Math.max(
+    18,
+    Math.min(span * (scrollable ? 0.16 : 0.14), span - 16),
+  );
+  const travel = Math.max(1, span - thumb);
+  const fraction = Math.min(1, Math.max(0, (safeMax - value) / (2 * safeMax)));
+  const offset = fraction * travel;
+  const atStart = value >= safeMax - 0.5;
+  const atEnd = value <= -safeMax + 0.5;
+  const StartIcon = horizontal ? ChevronLeft : ChevronUp;
+  const EndIcon = horizontal ? ChevronRight : ChevronDown;
+
+  const showCues = () => {
+    if (hideCues.current) clearTimeout(hideCues.current);
+    hideCues.current = null;
+    setCues(true);
+  };
+
+  const deferHideCues = () => {
+    if (hideCues.current) clearTimeout(hideCues.current);
+    hideCues.current = setTimeout(() => {
+      hideCues.current = null;
+      setCues(false);
+    }, 1400);
+  };
+
+  const applyFraction = (next: number) => {
+    const clamped = Math.min(1, Math.max(0, next));
+    onChange(safeMax - clamped * 2 * safeMax);
+  };
+
+  const schedule = (next: number) => {
+    if (raf.current != null) cancelAnimationFrame(raf.current);
+    raf.current = requestAnimationFrame(() => {
+      raf.current = null;
+      applyFraction(next);
+    });
+  };
+
+  const nudge = (direction: 1 | -1) => {
+    if (!scrollable) return;
+    showCues();
+    const step = Math.max(56, safeMax * 0.32);
+    onChange(Math.min(safeMax, Math.max(-safeMax, value + direction * step)));
+    deferHideCues();
+  };
+
+  useEffect(
+    () => () => {
+      if (raf.current != null) cancelAnimationFrame(raf.current);
+      if (hideCues.current) clearTimeout(hideCues.current);
+    },
+    [],
+  );
+
+  const arrowBtn = (edge: "start" | "end") => {
+    const towardStart = edge === "start";
+    const disabled = !scrollable || (towardStart ? atStart : atEnd);
+    const Icon = towardStart ? StartIcon : EndIcon;
+    return (
+      <Pressable
+        style={[
+          styles.previewScrollArrow,
+          horizontal ? styles.previewScrollArrowX : styles.previewScrollArrowY,
+          !cues && styles.previewScrollArrowHidden,
+          cues && disabled && styles.previewScrollArrowDisabled,
+        ]}
+        onPress={() => nudge(towardStart ? 1 : -1)}
+        disabled={!cues || disabled}
+        pointerEvents={cues ? "auto" : "none"}
+        accessibilityRole="button"
+        accessibilityLabel={
+          horizontal
+            ? towardStart
+              ? "Scroll document left"
+              : "Scroll document right"
+            : towardStart
+              ? "Scroll document up"
+              : "Scroll document down"
+        }
+        {...(Platform.OS === "web"
+          ? { title: towardStart ? (horizontal ? "Scroll left" : "Scroll up") : horizontal ? "Scroll right" : "Scroll down" }
+          : {})}
+      >
+        <Icon size={12} color={disabled ? Theme.textMuted : Theme.textPrimaryDark} strokeWidth={2.4} />
+      </Pressable>
+    );
+  };
+
+  return (
+    <View
+      testID="compliance-preview-scroll-rail"
+      style={[
+        horizontal ? styles.previewScrollRowX : styles.previewScrollRowY,
+        cues && (horizontal ? styles.previewScrollRowXActive : styles.previewScrollRowYActive),
+      ]}
+      accessibilityRole="adjustable"
+      accessibilityLabel={horizontal ? "Scroll document sideways" : "Scroll document up and down"}
+      {...(Platform.OS === "web"
+        ? {
+            onMouseEnter: showCues,
+            onMouseLeave: deferHideCues,
+          }
+        : null)}
+    >
+      {arrowBtn("start")}
+      <View
+        style={horizontal ? styles.previewScrollHitX : styles.previewScrollHitY}
+        onLayout={(event) => {
+          const size = horizontal ? event.nativeEvent.layout.width : event.nativeEvent.layout.height;
+          setTrack((prev) => (Math.abs(prev - size) < 0.5 ? prev : size));
+        }}
+        onStartShouldSetResponder={() => true}
+        onMoveShouldSetResponder={() => scrollable}
+        onStartShouldSetResponderCapture={() => scrollable}
+        onResponderGrant={(event) => {
+          showCues();
+          if (!scrollable) return;
+          const point = horizontal ? event.nativeEvent.pageX : event.nativeEvent.pageY;
+          drag.current = { origin: point, value };
+          const local = horizontal ? event.nativeEvent.locationX : event.nativeEvent.locationY;
+          applyFraction((local - thumb / 2) / travel);
+        }}
+        onResponderMove={(event) => {
+          if (!drag.current || !scrollable) return;
+          const point = horizontal ? event.nativeEvent.pageX : event.nativeEvent.pageY;
+          const start = (safeMax - drag.current.value) / (2 * safeMax);
+          schedule(start + (point - drag.current.origin) / travel);
+        }}
+        onResponderRelease={() => {
+          drag.current = null;
+          if (raf.current != null) {
+            cancelAnimationFrame(raf.current);
+            raf.current = null;
+          }
+          deferHideCues();
+        }}
+        onResponderTerminate={() => {
+          drag.current = null;
+          deferHideCues();
+        }}
+      >
+        <View
+          pointerEvents="none"
+          style={horizontal ? styles.previewScrollTrackX : styles.previewScrollTrackY}
+        >
+          <View
+            style={[
+              styles.previewScrollThumb,
+              horizontal
+                ? { top: 1, height: 3, width: thumb, transform: [{ translateX: offset }] }
+                : { left: 1, width: 3, height: thumb, transform: [{ translateY: offset }] },
+            ]}
+          />
+        </View>
+      </View>
+      {arrowBtn("end")}
+    </View>
+  );
+}
+
+function PreviewPanFooter({ label }: { label: string }) {
+  const frame = usePreviewScrollFrame();
+  return (
+    <View style={styles.previewFooter}>
+      <PreviewScrollRail
+        axis="x"
+        value={frame?.x ?? 0}
+        max={frame?.maxX ?? 0}
+        onChange={frame?.moveX ?? (() => undefined)}
+      />
+      <Text style={styles.previewFooterMeta} numberOfLines={1}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
 /** Screen-space pan last so cursor drag matches document motion at any angle. */
-function previewViewTransform(pan: { x: number; y: number }, scale: number, rotation: number) {
+function previewViewTransform(
+  pan: { x: number; y: number },
+  scale: number,
+  rotation: number,
+  viewport?: { width: number; height: number },
+) {
+  const fit = viewport
+    ? containScaleForRotation(viewport.width, viewport.height, rotation)
+    : 1;
   return [
+    { scale: scale * fit },
     { rotate: `${normalizePreviewRotation(rotation)}deg` as const },
-    { scale },
     { translateX: pan.x },
     { translateY: pan.y },
   ];
@@ -450,8 +952,22 @@ function OriginalDocumentPreview({
   const [dragging, setDragging] = useState(false);
   const [hovered, setHovered] = useState(false);
   const drag = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+  const dragMoved = useRef(false);
+  const mediaRef = useRef<View>(null);
   const viewRef = useRef({ zoom: 1, panX: 0, panY: 0 });
-  viewRef.current = { zoom, panX: pan.x, panY: pan.y };
+  const wheelLive = useRef(false);
+  const frameRef = useRef({
+    box: { width: 0, height: 0 },
+    display: null as { width: number; height: number } | null,
+    rotation: 0,
+  });
+  useEffect(() => {
+    if (wheelLive.current) {
+      if (Math.abs(zoom - viewRef.current.zoom) < 0.001) wheelLive.current = false;
+      return;
+    }
+    viewRef.current = { zoom, panX: pan.x, panY: pan.y };
+  }, [zoom, pan.x, pan.y]);
 
   useEffect(() => {
     setNatural(null);
@@ -478,11 +994,6 @@ function OriginalDocumentPreview({
     };
   }, [uri, isPdf]);
 
-  // In-panel fit already sizes the AABB for rotation — pan limits follow zoom only.
-  useEffect(() => {
-    setPan((prev) => clampPreviewPan(prev.x, prev.y, zoom, box.width, box.height, 0));
-  }, [zoom, box.width, box.height, rotation]);
-
   const fitBox = useMemo(() => {
     const width = Math.max(0, box.width - PREVIEW_CANVAS_PAD * 2);
     const height = Math.max(0, box.height - PREVIEW_CANVAS_PAD * 2);
@@ -492,81 +1003,232 @@ function OriginalDocumentPreview({
   /** Base fit at 100% — zoom is applied via transform so pan stays smooth. */
   const display = useMemo(() => {
     if (fitBox.width < 2 || fitBox.height < 2) return null;
-    if (isPdf) return fitPdfSize(fitBox, 1, rotation);
-    if (!natural) return fitPdfSize(fitBox, 1, rotation);
-    return fitDocumentSize(natural, fitBox, 1, rotation);
-  }, [fitBox, isPdf, natural, rotation]);
+    if (isPdf) return fitPdfSize(fitBox, 1);
+    if (!natural) return fitPdfSize(fitBox, 1);
+    return fitDocumentSize(natural, fitBox, 1);
+  }, [fitBox, isPdf, natural]);
 
-  const pannable = canPanPreview(zoom);
+  const limits = useMemo(() => {
+    if (box.width < 2 || box.height < 2) return { maxX: 0, maxY: 0 };
+    const scaledW = (display?.width ?? box.width) * zoom;
+    const scaledH = (display?.height ?? box.height) * zoom;
+    return {
+      maxX: Math.max(28, Math.abs(scaledW - box.width) / 2, box.width * 0.22),
+      maxY: Math.max(28, Math.abs(scaledH - box.height) / 2, box.height * 0.22),
+    };
+  }, [box.height, box.width, display, zoom]);
 
-  const applyZoomAt = useCallback(
-    (nextZoom: number, cursorX: number, cursorY: number) => {
-      if (!onZoomChange) return;
-      const current = viewRef.current;
-      const clamped = clampPreviewZoom(nextZoom);
-      const ratio = clamped / current.zoom;
-      onZoomChange(clamped);
-      setPan(
-        clampPreviewPan(
-          cursorX - ratio * (cursorX - current.panX),
-          cursorY - ratio * (cursorY - current.panY),
-          clamped,
-          box.width,
-          box.height,
-          0,
-        ),
-      );
-    },
-    [box.height, box.width, onZoomChange],
+  const clampLocalPan = useCallback(
+    (x: number, y: number) => ({
+      x: Math.min(limits.maxX, Math.max(-limits.maxX, x)),
+      y: Math.min(limits.maxY, Math.max(-limits.maxY, y)),
+    }),
+    [limits.maxX, limits.maxY],
   );
 
   useEffect(() => {
-    if (Platform.OS !== "web" || !onZoomChange || box.width < 2) return;
-    const node = canvasRef.current as unknown as HTMLElement | null;
-    if (!node?.addEventListener) return;
+    setPan({ x: 0, y: 0 });
+  }, [rotation]);
+
+  const moveX = useCallback(
+    (next: number) => {
+      setPan((prev) => clampLocalPan(next, prev.y));
+    },
+    [clampLocalPan],
+  );
+  const moveY = useCallback(
+    (next: number) => {
+      setPan((prev) => clampLocalPan(prev.x, next));
+    },
+    [clampLocalPan],
+  );
+
+  useEffect(() => {
+    previewScrollBus.publish({
+      x: pan.x,
+      y: pan.y,
+      maxX: limits.maxX,
+      maxY: limits.maxY,
+      moveX,
+      moveY,
+    });
+  }, [limits.maxX, limits.maxY, moveX, moveY, pan.x, pan.y]);
+
+  useEffect(
+    () => () => {
+      previewScrollBus.publish(null);
+    },
+    [],
+  );
+
+  const pannable = limits.maxX > 0 || limits.maxY > 0;
+  frameRef.current = { box, display, rotation };
+
+  const paintZoom = useCallback((nextZoom: number, cursorX: number, cursorY: number) => {
+    const current = viewRef.current;
+    const frame = frameRef.current;
+    const clamped = clampPreviewZoom(nextZoom);
+    const from = Math.max(current.zoom, 0.001);
+    const ratio = clamped / from;
+    const scaledW = (frame.display?.width ?? frame.box.width) * clamped;
+    const scaledH = (frame.display?.height ?? frame.box.height) * clamped;
+    const maxX = Math.max(0, Math.abs(scaledW - frame.box.width) / 2);
+    const maxY = Math.max(0, Math.abs(scaledH - frame.box.height) / 2);
+    const next = {
+      x: Math.min(maxX, Math.max(-maxX, cursorX - ratio * (cursorX - current.panX))),
+      y: Math.min(maxY, Math.max(-maxY, cursorY - ratio * (cursorY - current.panY))),
+    };
+    viewRef.current = { zoom: clamped, panX: next.x, panY: next.y };
+    if (Platform.OS !== "web") return;
+    const el = mediaRef.current as unknown as HTMLElement | null;
+    if (el?.style) el.style.transform = cssPreviewTransform(next, clamped, frame.rotation, frame.box);
+  }, []);
+
+  const zoomAnim = useRef(0);
+  const glideGen = useRef(0);
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushZoom = useCallback(() => {
+    const live = viewRef.current;
+    onZoomChange?.(live.zoom);
+    setPan((prev) => (prev.x === live.panX && prev.y === live.panY ? prev : { x: live.panX, y: live.panY }));
+  }, [onZoomChange]);
+
+  const scheduleFlush = useCallback(() => {
+    if (settleTimer.current) clearTimeout(settleTimer.current);
+    settleTimer.current = setTimeout(() => {
+      settleTimer.current = null;
+      flushZoom();
+    }, 90);
+  }, [flushZoom]);
+
+  const glideZoom = useCallback(
+    (targetZoom: number, cursorX: number, cursorY: number, duration: number) => {
+      wheelLive.current = true;
+      if (settleTimer.current) {
+        clearTimeout(settleTimer.current);
+        settleTimer.current = null;
+      }
+      const dest = clampPreviewZoom(targetZoom);
+      const origin = viewRef.current.zoom;
+      const gen = ++glideGen.current;
+      if (zoomAnim.current) cancelAnimationFrame(zoomAnim.current);
+      const started = performance.now();
+      const step = (now: number) => {
+        if (glideGen.current !== gen) return;
+        const t = Math.min(1, (now - started) / duration);
+        const eased = 1 - (1 - t) * (1 - t) * (1 - t);
+        paintZoom(origin + (dest - origin) * eased, cursorX, cursorY);
+        if (t < 1) zoomAnim.current = requestAnimationFrame(step);
+        else {
+          zoomAnim.current = 0;
+          scheduleFlush();
+        }
+      };
+      zoomAnim.current = requestAnimationFrame(step);
+    },
+    [paintZoom, scheduleFlush],
+  );
+
+  useLayoutEffect(() => {
+    if (Platform.OS !== "web" || !wheelLive.current) return;
+    const el = mediaRef.current as unknown as HTMLElement | null;
+    const live = viewRef.current;
+    const frame = frameRef.current;
+    if (!el?.style) return;
+    el.style.transform = cssPreviewTransform(
+      { x: live.panX, y: live.panY },
+      live.zoom,
+      frame.rotation,
+      frame.box,
+    );
+  });
+
+  useEffect(
+    () => () => {
+      if (zoomAnim.current) cancelAnimationFrame(zoomAnim.current);
+      if (settleTimer.current) clearTimeout(settleTimer.current);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || !onZoomChange) return;
+
+    const canvas = () =>
+      previewDomNode(canvasRef.current) ??
+      (typeof document !== "undefined"
+        ? document.getElementById("compliance-preview-canvas")
+        : null);
+
+    const pointInCanvas = (event: MouseEvent) => {
+      const node = canvas();
+      if (!node) return null;
+      const top = document.elementFromPoint(event.clientX, event.clientY);
+      if (!top || !node.contains(top)) return null;
+      if ((top as HTMLElement).closest?.("[data-testid='compliance-preview-scroll-rail']")) return null;
+      const rect = node.getBoundingClientRect();
+      return {
+        x: event.clientX - rect.left - rect.width / 2,
+        y: event.clientY - rect.top - rect.height / 2,
+      };
+    };
 
     const onWheel = (event: WheelEvent) => {
+      const point = pointInCanvas(event);
+      if (!point) return;
+      const dy = wheelDelta(event);
+      if (dy === 0) return;
       event.preventDefault();
       event.stopPropagation();
-      const rect = node.getBoundingClientRect();
-      const cursorX = event.clientX - rect.left - rect.width / 2;
-      const cursorY = event.clientY - rect.top - rect.height / 2;
-      const factor = event.deltaY < 0 ? 1.08 : 1 / 1.08;
-      applyZoomAt(viewRef.current.zoom * factor, cursorX, cursorY);
+      wheelLive.current = true;
+      const target = viewRef.current.zoom * wheelZoomFactor(dy);
+      if (Math.abs(dy) >= 40) glideZoom(target, point.x, point.y, 170);
+      else {
+        glideGen.current += 1;
+        if (zoomAnim.current) cancelAnimationFrame(zoomAnim.current);
+        zoomAnim.current = 0;
+        paintZoom(target, point.x, point.y);
+        scheduleFlush();
+      }
     };
 
-    const onDoubleClick = (event: MouseEvent) => {
-      event.preventDefault();
-      const rect = node.getBoundingClientRect();
-      const cursorX = event.clientX - rect.left - rect.width / 2;
-      const cursorY = event.clientY - rect.top - rect.height / 2;
-      const current = viewRef.current;
-      if (current.zoom >= 1.99) {
-        onZoomChange(1);
-        setPan({ x: 0, y: 0 });
+    const onClick = (event: MouseEvent) => {
+      if (dragMoved.current) {
+        dragMoved.current = false;
         return;
       }
-      applyZoomAt(2, cursorX, cursorY);
+      const point = pointInCanvas(event);
+      if (!point) return;
+      const zoomOut = event.altKey || event.shiftKey || viewRef.current.zoom >= MAX_PREVIEW_ZOOM - 0.01;
+      const next = zoomOut
+        ? viewRef.current.zoom <= 1.05
+          ? 1
+          : viewRef.current.zoom / 1.2
+        : viewRef.current.zoom * 1.2;
+      glideZoom(next, point.x, point.y, 200);
     };
 
-    node.addEventListener("wheel", onWheel, { passive: false });
-    node.addEventListener("dblclick", onDoubleClick);
+    window.addEventListener("wheel", onWheel, { passive: false, capture: true });
+    window.addEventListener("click", onClick, true);
     return () => {
-      node.removeEventListener("wheel", onWheel);
-      node.removeEventListener("dblclick", onDoubleClick);
+      window.removeEventListener("wheel", onWheel, { capture: true });
+      window.removeEventListener("click", onClick, true);
     };
-  }, [applyZoomAt, box.width, onZoomChange, uri]);
+  }, [glideZoom, onZoomChange, paintZoom, scheduleFlush]);
 
   const cursorStyle =
     Platform.OS === "web"
       ? ({
-          cursor: dragging ? "grabbing" : pannable ? "grab" : hovered ? "zoom-in" : "default",
+          cursor: dragging ? "grabbing" : pannable ? "grab" : zoom >= MAX_PREVIEW_ZOOM - 0.01 ? "zoom-out" : "zoom-in",
+          userSelect: "none",
         } as unknown as ViewStyle)
       : null;
 
   return (
     <View
       ref={canvasRef}
+      nativeID="compliance-preview-canvas"
       style={[styles.previewCanvas, hovered && styles.previewCanvasHovered, cursorStyle]}
       onLayout={(event) => {
         const { width, height } = event.nativeEvent.layout;
@@ -584,34 +1246,42 @@ function OriginalDocumentPreview({
         : null)}
       accessibilityLabel={
         isPdf
-          ? `${label}. Scroll to zoom. Drag to pan when zoomed.`
-          : `${label}. Scroll to zoom. Double-click to zoom. Drag to pan when zoomed.`
+          ? `${label}. Scroll or click to zoom. Drag to pan when zoomed.`
+          : `${label}. Scroll or click to zoom. Drag to pan when zoomed.`
       }
-      onStartShouldSetResponder={() => pannable}
-      onMoveShouldSetResponder={() => pannable}
+      onStartShouldSetResponder={() => true}
+      onMoveShouldSetResponder={() => true}
       onResponderGrant={(event) => {
-        if (!canPanPreview(viewRef.current.zoom)) return;
+        dragMoved.current = false;
         setDragging(true);
         drag.current = {
           x: event.nativeEvent.pageX,
           y: event.nativeEvent.pageY,
-          panX: pan.x,
-          panY: pan.y,
+          panX: viewRef.current.panX,
+          panY: viewRef.current.panY,
         };
       }}
       onResponderMove={(event) => {
-        if (!drag.current || !canPanPreview(viewRef.current.zoom)) return;
-        // Screen-space delta (pan is applied after rotate) — cursor and doc move together.
-        setPan(
-          clampPreviewPan(
-            drag.current.panX + event.nativeEvent.pageX - drag.current.x,
-            drag.current.panY + event.nativeEvent.pageY - drag.current.y,
-            viewRef.current.zoom,
-            box.width,
-            box.height,
-            0,
-          ),
+        if (!drag.current) return;
+        if (
+          Math.hypot(event.nativeEvent.pageX - drag.current.x, event.nativeEvent.pageY - drag.current.y) > 4
+        ) {
+          dragMoved.current = true;
+        }
+        const next = clampLocalPan(
+          drag.current.panX + event.nativeEvent.pageX - drag.current.x,
+          drag.current.panY + event.nativeEvent.pageY - drag.current.y,
         );
+        viewRef.current.panX = next.x;
+        viewRef.current.panY = next.y;
+        if (Platform.OS === "web") {
+          const el = mediaRef.current as unknown as HTMLElement | null;
+          const frame = frameRef.current;
+          if (el?.style) {
+            el.style.transform = cssPreviewTransform(next, viewRef.current.zoom, frame.rotation, frame.box);
+          }
+        }
+        setPan(next);
       }}
       onResponderRelease={() => {
         drag.current = null;
@@ -630,10 +1300,13 @@ function OriginalDocumentPreview({
       {display ? (
         <View style={[styles.previewAlign, imageLoading && !isPdf ? { opacity: 0 } : null]} pointerEvents="none">
           <View
+            ref={mediaRef}
             style={[
               display,
+              isPdf && styles.previewPageSheet,
+              styles.previewLiveLayer,
               {
-                transform: previewViewTransform(pan, zoom, rotation),
+                transform: previewViewTransform(pan, zoom, rotation, box),
               },
             ]}
           >
@@ -644,6 +1317,7 @@ function OriginalDocumentPreview({
                 showToolbar={false}
                 zoom={1}
                 sizing="fit"
+                interactive={false}
                 style={StyleSheet.absoluteFillObject}
                 accessibilityLabel={label}
               />
@@ -658,6 +1332,7 @@ function OriginalDocumentPreview({
           </View>
         </View>
       ) : null}
+      <PreviewScrollRail axis="y" value={pan.y} max={limits.maxY} onChange={moveY} />
     </View>
   );
 }
@@ -765,13 +1440,27 @@ export function DocumentScreen({
   const [pageCount, setPageCount] = useState<number | null>(null);
   const [imageLoading, setImageLoading] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const drag = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
   const viewRef = useRef({ scale: 1, panX: 0, panY: 0, rotation: 0 });
-  viewRef.current = { scale, panX: pan.x, panY: pan.y, rotation };
+  const screenMediaRef = useRef<View>(null);
+  const viewFlushRaf = useRef(0);
+  useEffect(() => {
+    viewRef.current = { scale, panX: pan.x, panY: pan.y, rotation };
+  }, [scale, pan.x, pan.y, rotation]);
   /** Coalesce pan updates so wheel/drag stays smooth (one paint per frame). */
   const panRafRef = useRef(0);
   const pendingPanRef = useRef<{ x: number; y: number } | null>(null);
   const schedulePan = useCallback((next: { x: number; y: number }) => {
+    const current = viewRef.current;
+    current.panX = next.x;
+    current.panY = next.y;
+    if (Platform.OS === "web") {
+      const el = screenMediaRef.current as unknown as HTMLElement | null;
+      if (el?.style) {
+        el.style.transform = cssPreviewTransform(next, current.scale, current.rotation);
+      }
+    }
     pendingPanRef.current = next;
     if (panRafRef.current) return;
     panRafRef.current = requestAnimationFrame(() => {
@@ -779,10 +1468,11 @@ export function DocumentScreen({
       const pending = pendingPanRef.current;
       if (pending) setPan(pending);
     });
-  }, []);
+  }, [frame.height, frame.width]);
   useEffect(
     () => () => {
       if (panRafRef.current) cancelAnimationFrame(panRafRef.current);
+      if (viewFlushRaf.current) cancelAnimationFrame(viewFlushRaf.current);
     },
     [],
   );
@@ -798,12 +1488,36 @@ export function DocumentScreen({
   const showTyped = Boolean(typedLines && typedLines.length > 0 && !uri);
   const showPdf = Boolean(uri && isPdf && !showTyped);
   const showImage = Boolean(uri && !isPdf && !showTyped);
+  const mediaBox = mediaLayoutForRotation(frame.width, frame.height, rotation);
 
   const applyView = useCallback(
     (nextScale: number, nextPan: { x: number; y: number }, size = frame, rot = rotation) => {
       const zoom = clampPreviewZoom(nextScale);
-      setScale(zoom);
-      setPan(clampPreviewPan(nextPan.x, nextPan.y, zoom, size.width, size.height, rot));
+      const box = mediaLayoutForRotation(size.width, size.height, rot);
+      const panNext = clampScreenPan(
+        nextPan.x,
+        nextPan.y,
+        zoom,
+        size.width,
+        size.height,
+        box.width,
+        box.height,
+        rot,
+      );
+      viewRef.current = { scale: zoom, panX: panNext.x, panY: panNext.y, rotation: rot };
+      if (Platform.OS === "web") {
+        const el = screenMediaRef.current as unknown as HTMLElement | null;
+        if (el?.style) {
+          el.style.transform = cssPreviewTransform(panNext, zoom, rot);
+        }
+      }
+      if (viewFlushRaf.current) return;
+      viewFlushRaf.current = requestAnimationFrame(() => {
+        viewFlushRaf.current = 0;
+        const live = viewRef.current;
+        setScale(live.scale);
+        setPan({ x: live.panX, y: live.panY });
+      });
     },
     [frame, rotation],
   );
@@ -822,8 +1536,18 @@ export function DocumentScreen({
   /** Keep pan inside the viewport when zoom or rotation changes. */
   useEffect(() => {
     if (!visible || frame.width <= 0) return;
-    setPan((prev) => clampPreviewPan(prev.x, prev.y, scale, frame.width, frame.height, rotation));
-  }, [visible, frame.width, frame.height, scale, rotation]);
+    setPan((prev) =>
+      clampScreenPan(prev.x, prev.y, scale, frame.width, frame.height, mediaBox.width, mediaBox.height, rotation),
+    );
+  }, [visible, frame.width, frame.height, mediaBox.height, mediaBox.width, scale, rotation]);
+
+  useLayoutEffect(() => {
+    if (Platform.OS !== "web" || !visible || frame.width < 1) return;
+    const el = screenMediaRef.current as unknown as HTMLElement | null;
+    if (!el?.style) return;
+    el.style.transform = cssPreviewTransform(pan, scale, rotation);
+    el.style.transformOrigin = "center center";
+  }, [visible, frame, pan, scale, rotation]);
 
   /** Never leave the spinner up forever if onLoad/onError never fire (common on slow signed URLs). */
   useEffect(() => {
@@ -880,11 +1604,16 @@ export function DocumentScreen({
     const node = stageRef.current as unknown as HTMLElement | null;
     if (!node?.addEventListener) return;
 
+    const clampLive = (x: number, y: number, zoom: number, vw: number, vh: number, rot: number) => {
+      const box = mediaLayoutForRotation(vw, vh, rot);
+      return clampScreenPan(x, y, zoom, vw, vh, box.width, box.height, rot);
+    };
+
     const panFromWheel = (event: WheelEvent) => {
       const rect = node.getBoundingClientRect();
       const current = viewRef.current;
       schedulePan(
-        clampPreviewPan(
+        clampLive(
           current.panX - event.deltaX,
           current.panY - event.deltaY,
           current.scale,
@@ -903,54 +1632,60 @@ export function DocumentScreen({
       event.preventDefault();
       event.stopPropagation();
 
-      // Rotated image/PDF, or zoomed image: wheel pans in screen space.
-      if (rotatedViewOwned || (showImage && viewRef.current.scale > 1 && !event.ctrlKey && !event.metaKey)) {
+      // Two-finger / shift scroll pans. Plain wheel zooms toward the cursor.
+      if (event.shiftKey || (Math.abs(event.deltaX) > Math.abs(event.deltaY) && event.deltaX !== 0)) {
         panFromWheel(event);
         return;
       }
 
-      if (showPdf) return;
+      if (showPdf && !pdfViewOwned) return;
       const rect = node.getBoundingClientRect();
       const current = viewRef.current;
       const cursorX = event.clientX - rect.left - rect.width / 2;
       const cursorY = event.clientY - rect.top - rect.height / 2;
-      const next = clampPreviewZoom(current.scale * (event.deltaY < 0 ? 1.08 : 1 / 1.08));
-      const ratio = next / current.scale;
-      applyView(
+      const next = clampPreviewZoom(current.scale * wheelZoomFactor(event.deltaY));
+      const ratio = next / Math.max(current.scale, 0.001);
+      const nextPan = clampLive(
+        cursorX - ratio * (cursorX - current.panX),
+        cursorY - ratio * (cursorY - current.panY),
         next,
-        {
-          x: cursorX - ratio * (cursorX - current.panX),
-          y: cursorY - ratio * (cursorY - current.panY),
-        },
-        { width: rect.width, height: rect.height },
+        rect.width,
+        rect.height,
+        current.rotation,
       );
+      current.scale = next;
+      current.panX = nextPan.x;
+      current.panY = nextPan.y;
+      applyView(next, nextPan, { width: rect.width, height: rect.height });
     };
 
     /** Native pointer pan — RN responders are unreliable over transformed media on web. */
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0) return;
       const current = viewRef.current;
-      if (!canPanPreview(current.scale, current.rotation)) return;
       if (!showImage && !pdfViewOwned) return;
+      event.preventDefault();
       drag.current = {
         x: event.clientX,
         y: event.clientY,
         panX: current.panX,
         panY: current.panY,
       };
+      setDragging(true);
       try {
         node.setPointerCapture(event.pointerId);
       } catch {
         /* ignore */
       }
       node.style.cursor = "grabbing";
+      node.style.userSelect = "none";
     };
     const onPointerMove = (event: PointerEvent) => {
       if (!drag.current) return;
       const current = viewRef.current;
       const rect = node.getBoundingClientRect();
       schedulePan(
-        clampPreviewPan(
+        clampLive(
           drag.current.panX + event.clientX - drag.current.x,
           drag.current.panY + event.clientY - drag.current.y,
           current.scale,
@@ -963,13 +1698,14 @@ export function DocumentScreen({
     const endPointer = (event: PointerEvent) => {
       if (!drag.current) return;
       drag.current = null;
+      setDragging(false);
       try {
         node.releasePointerCapture(event.pointerId);
       } catch {
         /* ignore */
       }
-      const current = viewRef.current;
-      node.style.cursor = canPanPreview(current.scale, current.rotation) ? "grab" : "default";
+      node.style.cursor = "grab";
+      node.style.userSelect = "";
     };
     const onDoubleClick = (event: MouseEvent) => {
       if (showPdf || showTyped) return;
@@ -1065,7 +1801,7 @@ export function DocumentScreen({
   const atLastPage = page >= pageLimit;
   const showPdfPageTools = showPdf && !sideNavEnabled;
   const busyResolving = resolving && !uri && !showTyped;
-  const pannable = (showImage || showPdf) && canPanPreview(scale, rotation);
+  const pannable = showImage || showPdf;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -1097,98 +1833,94 @@ export function DocumentScreen({
         >
           <View style={[styles.screenBar, compact && styles.screenBarCompact]}>
             <Text style={styles.screenTitle} numberOfLines={1}>{title}</Text>
-            {showPdfPageTools ? (
-              <View style={styles.screenPages}>
-                <Pressable
-                  style={styles.screenTool}
-                  onPress={() => {
-                    setPage((value) => Math.max(1, value - 1));
-                    setPan({ x: 0, y: 0 });
-                  }}
-                  disabled={atFirstPage}
-                  accessibilityRole="button"
-                  accessibilityLabel="Previous page"
-                  accessibilityState={{ disabled: atFirstPage }}
-                  {...(Platform.OS === "web" ? { title: "Previous page" } : {})}
-                >
-                  <ChevronLeft size={16} color={atFirstPage ? Theme.textMuted : Theme.textPrimaryDark} />
-                </Pressable>
-                <Text style={styles.screenPageLabel} accessibilityLabel={pageCount ? `Page ${page} of ${pageCount}` : `Page ${page}`}>
-                  {pageCount ? `${page} / ${pageCount}` : `${page}`}
-                </Text>
-                <Pressable
-                  style={styles.screenTool}
-                  onPress={() => {
-                    setPage((value) => Math.min(pageLimit, value + 1));
-                    setPan({ x: 0, y: 0 });
-                  }}
-                  disabled={atLastPage}
-                  accessibilityRole="button"
-                  accessibilityLabel="Next page"
-                  accessibilityState={{ disabled: atLastPage }}
-                  {...(Platform.OS === "web" ? { title: "Next page" } : {})}
-                >
-                  <ChevronRight size={16} color={atLastPage ? Theme.textMuted : Theme.textPrimaryDark} />
-                </Pressable>
-              </View>
-            ) : null}
-            {navLabel ? (
-              <Text style={styles.screenNavLabel} numberOfLines={1} accessibilityLabel={navLabel}>
-                {navLabel}
-              </Text>
-            ) : null}
             <View style={styles.screenTools}>
+              {showPdfPageTools ? (
+                <View style={styles.previewZoomCluster}>
+                  <Pressable
+                    style={[styles.previewZoomBtn, atFirstPage && styles.previewToolBtnDisabled]}
+                    onPress={() => {
+                      setPage((value) => Math.max(1, value - 1));
+                      setPan({ x: 0, y: 0 });
+                    }}
+                    disabled={atFirstPage}
+                    accessibilityRole="button"
+                    accessibilityLabel="Previous page"
+                    accessibilityState={{ disabled: atFirstPage }}
+                    {...(Platform.OS === "web" ? { title: "Previous page" } : {})}
+                  >
+                    <ChevronLeft size={14} color={atFirstPage ? Theme.textMuted : Theme.textPrimaryDark} />
+                  </Pressable>
+                  <Text style={styles.previewZoomLabel} accessibilityLabel={pageCount ? `Page ${page} of ${pageCount}` : `Page ${page}`}>
+                    {pageCount ? `${page}/${pageCount}` : `${page}`}
+                  </Text>
+                  <Pressable
+                    style={[styles.previewZoomBtn, atLastPage && styles.previewToolBtnDisabled]}
+                    onPress={() => {
+                      setPage((value) => Math.min(pageLimit, value + 1));
+                      setPan({ x: 0, y: 0 });
+                    }}
+                    disabled={atLastPage}
+                    accessibilityRole="button"
+                    accessibilityLabel="Next page"
+                    accessibilityState={{ disabled: atLastPage }}
+                    {...(Platform.OS === "web" ? { title: "Next page" } : {})}
+                  >
+                    <ChevronRight size={14} color={atLastPage ? Theme.textMuted : Theme.textPrimaryDark} />
+                  </Pressable>
+                </View>
+              ) : null}
               {showImage || showPdf ? (
                 <>
                   <Pressable
-                    style={styles.screenTool}
+                    style={[styles.previewRotateBtn, styles.previewToolBtnNamed]}
                     onPress={() => {
-                      setRotation((value) => {
-                        const next = (value + 90) % 360;
-                        setPan((prev) =>
-                          clampPreviewPan(prev.x, prev.y, scale, frame.width, frame.height, next),
-                        );
-                        return next;
-                      });
+                      const next = (rotation + 90) % 360;
+                      setRotation(next);
+                      setScale(1);
+                      setPan({ x: 0, y: 0 });
+                      viewRef.current = { scale: 1, panX: 0, panY: 0, rotation: next };
                     }}
                     accessibilityRole="button"
-                    accessibilityLabel="Rotate document"
+                    accessibilityLabel="Rotate"
                     {...(Platform.OS === "web" ? { title: "Rotate" } : {})}
                   >
-                    <RotateCcw size={15} color={Theme.textPrimaryDark} />
+                    <RotateCwSquare size={14} color={Theme.textPrimaryDark} strokeWidth={2.1} />
+                    <Text style={styles.previewToolName}>Rotate</Text>
                   </Pressable>
-                  <Pressable
-                    style={styles.screenTool}
-                    onPress={() => applyView(scale - 0.25, pan)}
-                    accessibilityRole="button"
-                    accessibilityLabel="Zoom out"
-                    {...(Platform.OS === "web" ? { title: "Zoom out" } : {})}
-                  >
-                    <Minus size={16} color={Theme.textPrimaryDark} />
-                  </Pressable>
-                  <Text style={styles.screenPercent} accessibilityLabel={`Zoom ${Math.round(scale * 100)} percent`}>
-                    {Math.round(scale * 100)}%
-                  </Text>
-                  <Pressable
-                    style={styles.screenTool}
-                    onPress={() => applyView(scale + 0.25, pan)}
-                    accessibilityRole="button"
-                    accessibilityLabel="Zoom in"
-                    {...(Platform.OS === "web" ? { title: "Zoom in" } : {})}
-                  >
-                    <Plus size={16} color={Theme.textPrimaryDark} />
-                  </Pressable>
+                  <View style={styles.previewZoomCluster}>
+                    <Pressable
+                      style={styles.previewZoomBtn}
+                      onPress={() => applyView(scale - 0.25, pan)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Zoom out"
+                      {...(Platform.OS === "web" ? { title: "Zoom out" } : {})}
+                    >
+                      <Minus size={14} color={Theme.textPrimaryDark} />
+                    </Pressable>
+                    <Text style={styles.previewZoomLabel} accessibilityLabel={`Zoom ${Math.round(scale * 100)} percent`}>
+                      {Math.round(scale * 100)}%
+                    </Text>
+                    <Pressable
+                      style={styles.previewZoomBtn}
+                      onPress={() => applyView(scale + 0.25, pan)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Zoom in"
+                      {...(Platform.OS === "web" ? { title: "Zoom in" } : {})}
+                    >
+                      <Plus size={14} color={Theme.textPrimaryDark} />
+                    </Pressable>
+                  </View>
                 </>
               ) : null}
               <Pressable
                 ref={closeRef}
-                style={styles.screenClose}
+                style={styles.previewToolBtn}
                 onPress={onClose}
                 accessibilityRole="button"
                 accessibilityLabel="Close"
                 {...(Platform.OS === "web" ? { title: "Close" } : {})}
               >
-                <X size={16} color={Theme.textPrimaryDark} />
+                <X size={14} color={Theme.textPrimaryDark} />
               </Pressable>
             </View>
           </View>
@@ -1198,8 +1930,12 @@ export function DocumentScreen({
               style={[
                 styles.screenStage,
                 fullPage && styles.screenStagePage,
+                showTyped && styles.screenStageTyped,
                 Platform.OS === "web" && (showImage || showPdf)
-                  ? ({ cursor: pannable ? "grab" : "default" } as ViewStyle)
+                  ? ({
+                      cursor: dragging ? "grabbing" : "grab",
+                      userSelect: "none",
+                    } as unknown as ViewStyle)
                   : null,
               ]}
               accessibilityLabel={
@@ -1238,12 +1974,14 @@ export function DocumentScreen({
                       }
                       if (!showImage && !pdfViewOwned) return;
                       schedulePan(
-                        clampPreviewPan(
+                        clampScreenPan(
                           drag.current.panX + event.nativeEvent.pageX - drag.current.x,
                           drag.current.panY + event.nativeEvent.pageY - drag.current.y,
                           viewRef.current.scale,
                           frame.width,
                           frame.height,
+                          mediaBox.width,
+                          mediaBox.height,
                           viewRef.current.rotation,
                         ),
                       );
@@ -1263,10 +2001,18 @@ export function DocumentScreen({
                 />
               ) : showPdf && uri ? (
                 <View
+                  ref={screenMediaRef}
                   style={[
-                    styles.screenPage,
+                    mediaBox.width > 0
+                      ? { width: mediaBox.width, height: mediaBox.height }
+                      : styles.screenPage,
+                    styles.previewLiveLayer,
                     {
-                      transform: previewViewTransform(pan, 1, rotation),
+                      transform: previewViewTransform(
+                        pan,
+                        pdfViewOwned ? scale : 1,
+                        pdfViewOwned ? rotation : 0,
+                      ),
                     },
                   ]}
                   // Rotated: stage owns wheel/drag. Upright: iframe keeps native scroll.
@@ -1278,9 +2024,10 @@ export function DocumentScreen({
                     // Hide Chrome PDF chrome — its built-in rotate breaks smooth scroll.
                     // Use the header Rotate control instead.
                     showToolbar={false}
-                    sizing="original"
-                    zoom={scale}
-                    page={page}
+                    sizing="fit"
+                    zoom={pdfViewOwned ? 1 : scale}
+                    page={showPdfPageTools ? page : undefined}
+                    scrollbar={!pdfViewOwned}
                     interactive={!pdfViewOwned}
                     style={styles.screenFile}
                     accessibilityLabel={title}
@@ -1300,9 +2047,13 @@ export function DocumentScreen({
                     </View>
                   ) : (
                     <View
+                      ref={screenMediaRef}
                       pointerEvents="none"
                       style={[
-                        styles.screenPage,
+                        mediaBox.width > 0
+                          ? { width: mediaBox.width, height: mediaBox.height }
+                          : styles.screenPage,
+                        styles.previewLiveLayer,
                         {
                           opacity: imageLoading ? 0.15 : 1,
                           transform: previewViewTransform(pan, scale, rotation),
@@ -1360,6 +2111,15 @@ export function DocumentScreen({
               </>
             ) : null}
           </View>
+          {showTyped ? (
+            <PreviewPanFooter label={navLabel ?? "Entered details"} />
+          ) : navLabel ? (
+            <View style={[styles.previewFooter, styles.screenNavFooter]}>
+              <Text style={styles.previewFooterMeta} numberOfLines={1} accessibilityLabel={navLabel}>
+                {navLabel}
+              </Text>
+            </View>
+          ) : null}
         </View>
       </View>
     </Modal>
@@ -1423,7 +2183,7 @@ export function ComplianceDocumentWorkspace({
   showFinanceTab?: boolean;
   /** Log hard-copy POD — Compliance role (and owner/admin) only. */
   canManagePod?: boolean;
-  /** True only while the Compliance queue filter is Awaiting POD. */
+  /** True while the POD queue can log hard copy (POD Pending, or All on an awaiting trip). */
   showHardCopyPodLog?: boolean;
   /** True while the Compliance queue filter is Compliance Pending (hides the Finance tab for every listed trip). */
   compliancePendingQueue?: boolean;
@@ -1476,10 +2236,25 @@ export function ComplianceDocumentWorkspace({
   ) => void;
 }) {
   const listRef = useRef<ScrollView>(null);
+  const listViewportH = useRef(0);
+  const listContentH = useRef(0);
   const scrolledTripId = useRef<string | null>(null);
+  const listResetKey = useMemo(
+    () => summaries.map((item) => item.trip.id).join(","),
+    [summaries],
+  );
+  const {
+    visibleItems: listWindowItems,
+    hasMore: listHasMore,
+    loadingMore: listLoadingMore,
+    allLoaded: listAllLoaded,
+    loadMore: loadMoreList,
+    revealThrough: revealListThrough,
+  } = useComplianceListWindow(summaries, { resetKey: listResetKey });
   const appliedFocusToken = useRef(0);
   const focusUploadTypeRef = useRef<string | null>(null);
   const appliedChargeFocus = useRef(0);
+  const appliedSelectedTripId = useRef<string | null>(selectedTripId ?? null);
   const { truckTypeByVehicleId, supplierNameByTripId } = tripFacts;
   const [selectedId, setSelectedId] = useState<string | null>(selectedTripId ?? summaries[0]?.trip.id ?? null);
   const [tab, setTab] = useState<DocTab>("trip");
@@ -1488,10 +2263,15 @@ export function ComplianceDocumentWorkspace({
   const [checklistPreviewMode, setChecklistPreviewMode] = useState<ChecklistPreviewMode>("document");
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
+  const [toolLabel, setToolLabel] = useState<"rotate" | "refresh" | null>(null);
   const resetPreviewView = useCallback(() => {
     setZoom(1);
     setRotation(0);
+    setToolLabel("refresh");
   }, []);
+  useEffect(() => {
+    setToolLabel(null);
+  }, [checklistKey]);
   const [screenOpen, setScreenOpen] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewMime, setPreviewMime] = useState<string | null>(null);
@@ -1527,6 +2307,14 @@ export function ComplianceDocumentWorkspace({
   const summary = summaries.find((item) => item.trip.id === selectedId) ?? summaries[0] ?? null;
   const showLogHardCopyPod =
     showHardCopyPodLog && summary != null && tripAppearsInAwaitingPod(summary);
+  const selectedPodReceived =
+    summary != null &&
+    Boolean(summary.hardCopyPod.received) &&
+    summary.hardCopyPod.chargesSaved !== true;
+  const showValidationPane =
+    showPodClientValidation &&
+    (!showLogHardCopyPod || selectedPodReceived) &&
+    summary?.stage !== "payment_settled";
 
   useEffect(() => {
     if (!logHardCopyPodRequest || logHardCopyPodRequest === podRequestSeen.current) return;
@@ -1632,6 +2420,8 @@ export function ComplianceDocumentWorkspace({
     summary?.stage !== "compliance_pending" &&
     !compliancePendingQueue;
   const listRows = isFinanceMode ? financeRows : checklistRows;
+  /** More than a few rows: tighten padding so the list still fits above the fixed illustration. */
+  const denseChecklist = listRows.length >= 4;
 
   useEffect(() => {
     if (!showFinanceTab && checklistPreviewMode === "finance") {
@@ -1700,7 +2490,12 @@ export function ComplianceDocumentWorkspace({
   }, [chargeFocusToken, chargeFocusTripId, summaries]);
 
   useEffect(() => {
-    if (selectedTripId && summaries.some((item) => item.trip.id === selectedTripId)) {
+    if (
+      selectedTripId &&
+      selectedTripId !== appliedSelectedTripId.current &&
+      summaries.some((item) => item.trip.id === selectedTripId)
+    ) {
+      appliedSelectedTripId.current = selectedTripId;
       setSelectedId(selectedTripId);
       return;
     }
@@ -1708,6 +2503,47 @@ export function ComplianceDocumentWorkspace({
       setSelectedId(summaries[0]?.trip.id ?? null);
     }
   }, [summaries, selectedId, selectedTripId]);
+
+  useEffect(() => {
+    const id = selectedTripId ?? selectedId;
+    if (!id) return;
+    const index = summaries.findIndex((item) => item.trip.id === id);
+    if (index >= 0) revealListThrough(index);
+  }, [revealListThrough, selectedId, selectedTripId, summaries]);
+
+  const fillListIfShort = useCallback(() => {
+    if (!listHasMore || listLoadingMore) return;
+    if (listViewportH.current < 1 || listContentH.current < 1) return;
+    if (listContentH.current <= listViewportH.current + 24) loadMoreList();
+  }, [listHasMore, listLoadingMore, loadMoreList]);
+
+  useEffect(() => {
+    fillListIfShort();
+  }, [fillListIfShort, listWindowItems.length]);
+
+  const onListScroll = useCallback(
+    (event: { nativeEvent: { contentOffset: { y: number }; contentSize: { height: number }; layoutMeasurement: { height: number } } }) => {
+      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+      listContentH.current = contentSize.height;
+      listViewportH.current = layoutMeasurement.height;
+      if (!listHasMore || listLoadingMore) return;
+      if (contentOffset.y + layoutMeasurement.height >= contentSize.height - 160) {
+        loadMoreList();
+      }
+    },
+    [listHasMore, listLoadingMore, loadMoreList],
+  );
+
+  const selectListTrip = useCallback(
+    (tripId: string) => {
+      appliedSelectedTripId.current = tripId;
+      setSelectedId(tripId);
+      setTab("trip");
+      setDocIndex(0);
+      resetPreviewView();
+    },
+    [resetPreviewView],
+  );
 
   useEffect(() => {
     if (!focusToken || !focusTab || appliedFocusToken.current === focusToken) return;
@@ -1731,7 +2567,6 @@ export function ComplianceDocumentWorkspace({
   useEffect(() => {
     setDocIndex(0);
     resetPreviewView();
-    setChecklistPreviewMode("document");
     setDeclineOpen(false);
     setRejectOpen(false);
     setExpiryPrompt((prev) => {
@@ -1739,6 +2574,10 @@ export function ComplianceDocumentWorkspace({
       return null;
     });
   }, [summary?.trip.id, tab, resetPreviewView]);
+
+  useEffect(() => {
+    setChecklistPreviewMode("document");
+  }, [summary?.trip.id]);
 
   useEffect(() => {
     if (verifyNotice?.tone !== "success") return;
@@ -1762,9 +2601,10 @@ export function ComplianceDocumentWorkspace({
             const bAt = b.doc?.uploaded_at ?? b.entityDoc?.created_at ?? "";
             return bAt.localeCompare(aAt);
           })[0];
-        if (newest) {
+        const typed = newest ?? pool.find((row) => row.type === focusType);
+        if (typed) {
           focusUploadTypeRef.current = null;
-          return newest.key;
+          return typed.key;
         }
       }
       if (prev && pool.some((row) => row.key === prev)) return prev;
@@ -1970,7 +2810,11 @@ export function ComplianceDocumentWorkspace({
       if (sync) onChanged({ type: "vehicleDocuments", vehicleId });
       return true;
     }
-    if (row.entityDoc?.id && row.entityDoc.source !== "driver-kyc") {
+    if (
+      row.entityDoc?.id &&
+      row.entityDoc.source !== "driver-kyc" &&
+      (row.entityDoc.entity_type === "vehicle" || row.entityDoc.entity_type === "driver")
+    ) {
       const { error } = await verifyDocument(row.entityDoc.id, actorId);
       if (error) {
         alertMessage("Couldn't approve document", error.message);
@@ -2020,7 +2864,11 @@ export function ComplianceDocumentWorkspace({
       );
       return false;
     }
-    if (row.entityDoc?.id && row.entityDoc.source !== "driver-kyc") {
+    if (
+      row.entityDoc?.id &&
+      row.entityDoc.source !== "driver-kyc" &&
+      (row.entityDoc.entity_type === "vehicle" || row.entityDoc.entity_type === "driver")
+    ) {
       const { error } = await rejectDocument(row.entityDoc.id, note);
       if (error) {
         alertMessage("Couldn't decline document", error.message);
@@ -2404,6 +3252,28 @@ export function ComplianceDocumentWorkspace({
     if (!hasFile(row)) return;
     resetPreviewView();
   }, [resetPreviewView]);
+  const openDocumentUploadFromDetails = useCallback(
+    (target: { vault: string; type?: string }) => {
+      const vault = target.vault.trim().toLowerCase();
+      if (vault === "finance") {
+        setTab("trip");
+        setChecklistPreviewMode("finance");
+      } else if (vault === "vehicle") {
+        setTab("vehicle");
+        setChecklistPreviewMode("document");
+      } else if (vault === "driver") {
+        setTab("driver");
+        setChecklistPreviewMode("document");
+      } else {
+        setTab("trip");
+        setChecklistPreviewMode("document");
+      }
+      if (target.type) focusUploadTypeRef.current = target.type;
+      resetPreviewView();
+      setScreenOpen(false);
+    },
+    [resetPreviewView],
+  );
   const tabMissingCounts = useMemo(() => {
     if (!summary) return { trip: 0, vehicle: 0, driver: 0, finance: 0 };
     const finance = deriveFinanceDocumentRows(summary.documents);
@@ -2471,6 +3341,7 @@ export function ComplianceDocumentWorkspace({
         key={displayRow.key}
         style={[
           styles.missingRow,
+          denseChecklist && styles.missingRowDense,
           index > 0 && styles.missingRowBorder,
           selected && styles.missingRowSelected,
         ]}
@@ -2519,7 +3390,7 @@ export function ComplianceDocumentWorkspace({
                 styles.missingStatus,
                 displayRow.status === "missing" ? null : { color: statusMeta.color },
               ]}
-              numberOfLines={2}
+              numberOfLines={1}
             >
               {statusLabel}
             </Text>
@@ -2587,13 +3458,18 @@ export function ComplianceDocumentWorkspace({
           : state.phase === "declined"
             ? "Declined · replace the files or approve"
             : `${state.total} uploaded · ready for review`;
-    const showActions = Boolean(canVerify && state && (state.phase === "review" || state.phase === "declined"));
+    const showActions = Boolean(
+      canVerify &&
+      summary?.stage !== "pending_for_docs" &&
+      state &&
+      (state.phase === "review" || state.phase === "declined"),
+    );
     const approving = groupBusy?.group === group && groupBusy.decision === "verified";
     const declining = groupBusy?.group === group && groupBusy.decision === "rejected";
     const declined = state?.phase === "declined";
     const groupLabel = group === "required" ? "required" : "optional";
     return (
-      <View style={styles.reviewGroupHeader}>
+      <View style={[styles.reviewGroupHeader, denseChecklist && styles.reviewGroupHeaderDense]}>
         <View style={styles.reviewGroupCopy}>
           <Text style={styles.reviewGroupTitle} numberOfLines={1}>
             {title}
@@ -2686,8 +3562,18 @@ export function ComplianceDocumentWorkspace({
           nestedScrollEnabled
           showsVerticalScrollIndicator
           contentContainerStyle={styles.listContent}
+          scrollEventThrottle={16}
+          onScroll={onListScroll}
+          onLayout={(event) => {
+            listViewportH.current = event.nativeEvent.layout.height;
+            fillListIfShort();
+          }}
+          onContentSizeChange={(_width, height) => {
+            listContentH.current = height;
+            fillListIfShort();
+          }}
         >
-          {summaries.map((item) => (
+          {listWindowItems.map((item) => (
             <View
               key={item.trip.id}
               onLayout={
@@ -2713,20 +3599,31 @@ export function ComplianceDocumentWorkspace({
                     : null
                 }
                 supplierName={supplierNameByTripId[item.trip.id] ?? null}
-                onPress={() => {
-                  setSelectedId(item.trip.id);
-                  setTab("trip");
-                  setDocIndex(0);
-                  resetPreviewView();
-                }}
+                onSelect={selectListTrip}
               />
             </View>
           ))}
+          {listLoadingMore ? (
+            <View style={styles.listLoadMore} accessibilityLabel="Loading more trips">
+              <ActivityIndicator size="small" color={Theme.textMuted} />
+            </View>
+          ) : null}
+          {listHasMore && !listLoadingMore ? (
+            <View
+              style={styles.listLoadSentinel}
+              onLayout={() => fillListIfShort()}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            />
+          ) : null}
+          {listAllLoaded && summaries.length > COMPLIANCE_QUEUE_WINDOW_SIZE ? (
+            <Text style={styles.listLoadEnd}>All trips loaded</Text>
+          ) : null}
         </ScrollView>
         )}
       </View>
 
-      {showPodClientValidation ? (
+      {showValidationPane ? (
         <View style={[styles.previewPane, styles.podLogPane]}>
           {summary ? (
             <PodClientValidationPanel
@@ -2975,9 +3872,11 @@ export function ComplianceDocumentWorkspace({
                       </View>
                     ) : null}
                     <ScrollView
-                      style={styles.checklistListScroll}
-                      contentContainerStyle={styles.checklistListContent}
-                      showsVerticalScrollIndicator={false}
+                      style={styles.checklistDocs}
+                      contentContainerStyle={styles.checklistDocsContent}
+                      nestedScrollEnabled
+                      showsVerticalScrollIndicator
+                      keyboardShouldPersistTaps="handled"
                     >
                       {showGroupedReview
                         ? (["required", "optional"] as const).map((group) => {
@@ -3000,35 +3899,24 @@ export function ComplianceDocumentWorkspace({
                             );
                           })
                         : listRows.map(renderChecklistRow)}
-                      <View
-                        style={styles.checklistListGapArt}
-                        pointerEvents="none"
-                        accessibilityElementsHidden
-                        importantForAccessibility="no-hide-descendants"
-                      >
-                        <Image
-                          source={require("@/assets/illustrations/compliance-checklist-gap.png")}
-                          style={styles.checklistListGapArtImage}
-                          resizeMode="contain"
-                          accessibilityIgnoresInvertColors
-                        />
-                      </View>
                     </ScrollView>
+                    <View
+                      style={styles.checklistListGapArt}
+                      pointerEvents="none"
+                      accessibilityElementsHidden
+                      importantForAccessibility="no-hide-descendants"
+                    >
+                      <ComplianceChecklistGapArt />
+                    </View>
                     <View style={styles.checklistPreviewActionsSection}>
                       <View style={styles.checklistPreviewActionsHeader}>
                         <Text style={styles.checklistPreviewActionsLabel}>PREVIEW</Text>
-                        <Text style={styles.checklistFooterVaultText} numberOfLines={1}>
-                          {isFinanceMode ? "Asset Vault · Trip Details" : vaultCopy.vaultLabel} ·{" "}
-                          {listMissingRows.length > 0
-                            ? `${listMissingRows.length} remaining`
-                            : `${uploadedCount} on file`}
-                        </Text>
                       </View>
                       <View style={styles.checklistPreviewActionsGrid}>
                         <TouchableOpacity
                           style={[
                             styles.checklistModeBtn,
-                            checklistPreviewMode === "trip" && styles.checklistModeBtnActive,
+                            checklistPreviewMode === "trip" && styles.checklistModeBtnSelected,
                           ]}
                           activeOpacity={0.8}
                           onPress={() => setChecklistPreviewMode("trip")}
@@ -3039,7 +3927,7 @@ export function ComplianceDocumentWorkspace({
                           <Text
                             style={[
                               styles.checklistModeBtnText,
-                              checklistPreviewMode === "trip" && styles.checklistModeBtnTextActive,
+                              checklistPreviewMode === "trip" && styles.checklistModeBtnTextSelected,
                             ]}
                             numberOfLines={1}
                           >
@@ -3050,7 +3938,7 @@ export function ComplianceDocumentWorkspace({
                           <TouchableOpacity
                             style={[
                               styles.checklistModeBtn,
-                              checklistPreviewMode === "advance" && styles.checklistModeBtnActive,
+                              checklistPreviewMode === "advance" && styles.checklistModeBtnSelected,
                             ]}
                             activeOpacity={0.8}
                             onPress={() => setChecklistPreviewMode("advance")}
@@ -3061,7 +3949,7 @@ export function ComplianceDocumentWorkspace({
                             <Text
                               style={[
                                 styles.checklistModeBtnText,
-                                checklistPreviewMode === "advance" && styles.checklistModeBtnTextActive,
+                                checklistPreviewMode === "advance" && styles.checklistModeBtnTextSelected,
                               ]}
                               numberOfLines={1}
                             >
@@ -3194,49 +4082,69 @@ export function ComplianceDocumentWorkspace({
                     </Text>
                     <View style={styles.previewToolbarActions}>
                       <Pressable
-                        style={[styles.previewToolBtn, !toolsEnabled && styles.previewToolBtnDisabled]}
-                        onPress={() => setRotation((value) => (value + 90) % 360)}
+                        style={[
+                          styles.previewRotateBtn,
+                          toolLabel === "rotate" && styles.previewToolBtnNamed,
+                          !toolsEnabled && styles.previewToolBtnDisabled,
+                        ]}
+                        onPress={() => {
+                          setRotation((value) => (value + 90) % 360);
+                          setZoom(1);
+                          setToolLabel("rotate");
+                        }}
                         disabled={!toolsEnabled}
                         accessibilityRole="button"
-                        accessibilityLabel="Rotate document"
+                        accessibilityLabel="Rotate"
                         accessibilityState={{ disabled: !toolsEnabled }}
                         {...(Platform.OS === "web" ? { title: "Rotate" } : {})}
                       >
-                        <RotateCcw size={14} color={toolColor} />
+                        <RotateCwSquare size={12} color={toolColor} strokeWidth={2.1} />
+                        {toolLabel === "rotate" ? (
+                          <Text style={styles.previewToolName}>Rotate</Text>
+                        ) : null}
                       </Pressable>
+                      <View style={[styles.previewZoomCluster, !toolsEnabled && styles.previewToolBtnDisabled]}>
+                        <Pressable
+                          style={styles.previewZoomBtn}
+                          onPress={() => setZoom((value) => clampPreviewZoom(value - 0.25))}
+                          disabled={!toolsEnabled}
+                          accessibilityRole="button"
+                          accessibilityLabel="Zoom out"
+                          accessibilityState={{ disabled: !toolsEnabled }}
+                        >
+                          <Minus size={12} color={toolColor} />
+                        </Pressable>
+                        <Text style={[styles.previewZoomLabel, !toolsEnabled && styles.previewZoomLabelDisabled]}>
+                          {Math.round(zoom * 100)}%
+                        </Text>
+                        <Pressable
+                          style={styles.previewZoomBtn}
+                          onPress={() => setZoom((value) => clampPreviewZoom(value + 0.25))}
+                          disabled={!toolsEnabled}
+                          accessibilityRole="button"
+                          accessibilityLabel="Zoom in"
+                          accessibilityState={{ disabled: !toolsEnabled }}
+                        >
+                          <Plus size={12} color={toolColor} />
+                        </Pressable>
+                      </View>
                       <Pressable
-                        style={[styles.previewToolBtn, !toolsEnabled && styles.previewToolBtnDisabled]}
-                        onPress={() => setZoom((value) => clampPreviewZoom(value - 0.25))}
-                        disabled={!toolsEnabled}
-                        accessibilityRole="button"
-                        accessibilityLabel="Zoom out"
-                        accessibilityState={{ disabled: !toolsEnabled }}
-                      >
-                        <Minus size={14} color={toolColor} />
-                      </Pressable>
-                      <Text style={[styles.previewZoomLabel, !toolsEnabled && styles.previewZoomLabelDisabled]}>
-                        {Math.round(zoom * 100)}%
-                      </Text>
-                      <Pressable
-                        style={[styles.previewToolBtn, !toolsEnabled && styles.previewToolBtnDisabled]}
-                        onPress={() => setZoom((value) => clampPreviewZoom(value + 0.25))}
-                        disabled={!toolsEnabled}
-                        accessibilityRole="button"
-                        accessibilityLabel="Zoom in"
-                        accessibilityState={{ disabled: !toolsEnabled }}
-                      >
-                        <Plus size={14} color={toolColor} />
-                      </Pressable>
-                      <Pressable
-                        style={[styles.previewToolBtn, !toolsEnabled && styles.previewToolBtnDisabled]}
+                        style={[
+                          styles.previewToolBtn,
+                          toolLabel === "refresh" && styles.previewToolBtnNamed,
+                          !toolsEnabled && styles.previewToolBtnDisabled,
+                        ]}
                         onPress={resetPreviewView}
                         disabled={!toolsEnabled}
                         accessibilityRole="button"
-                        accessibilityLabel="Reset view"
+                        accessibilityLabel="Refresh"
                         accessibilityState={{ disabled: !toolsEnabled }}
-                        {...(Platform.OS === "web" ? { title: "Reset view" } : {})}
+                        {...(Platform.OS === "web" ? { title: "Refresh" } : {})}
                       >
-                        <RotateCw size={14} color={toolColor} />
+                        <RefreshCw size={12} color={toolColor} strokeWidth={2.2} />
+                        {toolLabel === "refresh" ? (
+                          <Text style={styles.previewToolName}>Refresh</Text>
+                        ) : null}
                       </Pressable>
                       <Pressable
                         style={[styles.previewToolBtn, !canExpand && styles.previewToolBtnDisabled]}
@@ -3247,7 +4155,7 @@ export function ComplianceDocumentWorkspace({
                         accessibilityState={{ disabled: !canExpand }}
                         {...(Platform.OS === "web" ? { title: "Full screen" } : {})}
                       >
-                        <Maximize2 size={14} color={expandColor} />
+                        <Maximize2 size={12} color={expandColor} />
                       </Pressable>
                     </View>
                   </View>
@@ -3262,6 +4170,7 @@ export function ComplianceDocumentWorkspace({
                           : null
                       }
                       supplierName={supplierNameByTripId[summary.trip.id] ?? null}
+                      onOpenDocumentUpload={openDocumentUploadFromDetails}
                     />
                   ) : checklistPreviewMode === "advance" && summary && !compliancePendingView ? (
                     <ChecklistAdvancePaymentPanel
@@ -3325,6 +4234,7 @@ export function ComplianceDocumentWorkspace({
                           title={docTitle}
                           lines={typedLines}
                           insetForSideNav={showSideNav}
+                          bindScrollRails={!screenOpen}
                         />
                       ) : previewUrl || showSupplierBankPanel ? (
                         <View style={styles.checklistBankPreviewWrap}>
@@ -3438,13 +4348,13 @@ export function ComplianceDocumentWorkspace({
                   )}
                 </View>
                 {previewingDocument ? (
-                  <View style={styles.previewFooter}>
-                    <Text style={styles.previewFooterMeta} numberOfLines={1}>
-                      {previewable.length > 0
+                  <PreviewPanFooter
+                    label={
+                      previewable.length > 0
                         ? `${previewOrdinal} of ${previewable.length}`
-                        : "No file on this row"}
-                    </Text>
-                  </View>
+                        : "No file on this row"
+                    }
+                  />
                 ) : null}
                     </>
                   );
@@ -3592,13 +4502,33 @@ function TripDetailFact({
   emphasize,
   wide,
   columns = 2,
+  layout = "grid",
+  last = false,
 }: {
   label: string;
   value: string;
   emphasize?: boolean;
   wide?: boolean;
   columns?: 2 | 3;
+  layout?: "grid" | "list";
+  last?: boolean;
 }) {
+  if (layout === "list") {
+    return (
+      <View style={[styles.tripFactRow, last && styles.tripFactRowLast]}>
+        <Text style={styles.tripFactRowLabel} numberOfLines={1}>
+          {label}
+        </Text>
+        <Text
+          style={[styles.tripFactRowValue, emphasize && styles.tripFactValueEmphasize]}
+          numberOfLines={2}
+        >
+          {value}
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <View
       style={[
@@ -3612,7 +4542,7 @@ function TripDetailFact({
       </Text>
       <Text
         style={[styles.tripFactValue, emphasize && styles.tripFactValueEmphasize]}
-        numberOfLines={1}
+        numberOfLines={wide ? 2 : 1}
       >
         {value}
       </Text>
@@ -3620,26 +4550,84 @@ function TripDetailFact({
   );
 }
 
+function TripDetailAnimatedIcon({ children }: { children: React.ReactNode }) {
+  const drift = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(drift, {
+          toValue: 1,
+          duration: 2200,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(drift, {
+          toValue: 0,
+          duration: 2200,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [drift]);
+  const translateY = drift.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1.5, -1.5],
+  });
+  return <Animated.View style={{ transform: [{ translateY }] }}>{children}</Animated.View>;
+}
+
 function TripDetailSection({
   title,
+  icon: Icon,
+  iconColor = Theme.complianceRoutePickup,
+  iconWash = Theme.complianceIconWash,
   children,
   columns,
+  factLayout = "grid",
   style,
 }: {
   title: string;
+  icon?: React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
+  iconColor?: string;
+  iconWash?: string;
   children: React.ReactNode;
   columns: 2 | 3;
+  factLayout?: "grid" | "list";
   style?: StyleProp<ViewStyle>;
 }) {
+  const items = React.Children.toArray(children);
   return (
     <View style={[styles.tripDetailSection, style]}>
       <View style={styles.tripDetailSectionHeader}>
-        <Text style={styles.tripDetailSectionTitle}>{title}</Text>
+        {Icon ? (
+          <View style={[styles.tripDetailSectionIconWell, { backgroundColor: iconWash }]}>
+            <TripDetailAnimatedIcon>
+              <Icon size={13} color={iconColor} strokeWidth={2.1} />
+            </TripDetailAnimatedIcon>
+          </View>
+        ) : null}
+        <Text style={styles.tripDetailSectionTitle} numberOfLines={1}>
+          {title}
+        </Text>
       </View>
-      <View style={styles.tripFactGrid}>
-        {React.Children.map(children, (child) => {
+      <View style={factLayout === "list" ? styles.tripFactList : styles.tripFactGrid}>
+        {items.map((child, index) => {
           if (!React.isValidElement(child)) return child;
-          return React.cloneElement(child as React.ReactElement<{ columns?: 2 | 3 }>, { columns });
+          return React.cloneElement(
+            child as React.ReactElement<{
+              columns?: 2 | 3;
+              layout?: "grid" | "list";
+              last?: boolean;
+            }>,
+            {
+              columns,
+              layout: factLayout,
+              last: index === items.length - 1,
+            },
+          );
         })}
       </View>
     </View>
@@ -3719,6 +4707,110 @@ function profitLabels(trip: TripCommercialFacts): { profit: string; percent: str
   return { profit: formatTripInr(profit), percent };
 }
 
+type TripDocChipKind = "missing" | "pending" | "accepted";
+type TripMissingDocItem = {
+  name: string;
+  type: string;
+  vault: string;
+  required: boolean;
+  kind: TripDocChipKind;
+};
+type TripDocGroup = { label: string; items: TripMissingDocItem[] };
+type TripDocOverview = {
+  missing: number;
+  pending: number;
+  accepted: number;
+  total: number;
+  missingItems: TripMissingDocItem[];
+  missingGroups: TripDocGroup[];
+  pendingGroups: TripDocGroup[];
+  acceptedGroups: TripDocGroup[];
+};
+
+function tripDocumentGroups(summary: ComplianceTripSummary): Array<{
+  label: string;
+  rows: ComplianceDocRow[];
+  finance?: boolean;
+}> {
+  const groups: Array<{ label: string; rows: ComplianceDocRow[]; finance?: boolean }> = [
+    {
+      label: "Finance",
+      rows: deriveFinanceDocumentRows(summary.documents),
+      finance: true,
+    },
+    { label: "Trip", rows: deriveTripVaultReviewRows(summary.documents) },
+  ];
+  if (summary.trip.vehicle_id) {
+    groups.push({
+      label: "Vehicle",
+      rows: deriveEntityComplianceRows(
+        COMPLIANCE_VEHICLE_DOCUMENT_TYPES,
+        summary.vehicleDocuments,
+      ),
+    });
+  }
+  if (summary.trip.driver_id) {
+    groups.push({
+      label: "Driver",
+      rows: deriveEntityComplianceRows(
+        COMPLIANCE_DRIVER_DOCUMENT_TYPES,
+        summary.driverDocuments,
+      ),
+    });
+  }
+  return groups;
+}
+
+function tripDocumentOverview(summary: ComplianceTripSummary): TripDocOverview {
+  const missingItems: TripMissingDocItem[] = [];
+  const missingGroups: TripDocGroup[] = [];
+  const pendingGroups: TripDocGroup[] = [];
+  const acceptedGroups: TripDocGroup[] = [];
+  let missing = 0;
+  let pending = 0;
+  let accepted = 0;
+  let total = 0;
+  for (const group of tripDocumentGroups(summary)) {
+    total += group.rows.length;
+    const missingInGroup: TripMissingDocItem[] = [];
+    const pendingInGroup: TripMissingDocItem[] = [];
+    const acceptedInGroup: TripMissingDocItem[] = [];
+    for (const row of group.rows) {
+      const item = {
+        name: group.finance ? labelForFinanceDocType(row.type) : labelForDocType(row.type),
+        type: row.type,
+        vault: group.label,
+        required: row.required,
+        kind: "missing" as TripDocChipKind,
+      };
+      if (row.status === "missing") {
+        missing += 1;
+        missingInGroup.push(item);
+        missingItems.push(item);
+      } else if (row.status === "verified") {
+        accepted += 1;
+        acceptedInGroup.push({ ...item, kind: "accepted" });
+      } else {
+        pending += 1;
+        pendingInGroup.push({ ...item, kind: "pending" });
+      }
+    }
+    if (missingInGroup.length > 0) missingGroups.push({ label: group.label, items: missingInGroup });
+    if (pendingInGroup.length > 0) pendingGroups.push({ label: group.label, items: pendingInGroup });
+    if (acceptedInGroup.length > 0) acceptedGroups.push({ label: group.label, items: acceptedInGroup });
+  }
+  return {
+    missing,
+    pending,
+    accepted,
+    total,
+    missingItems,
+    missingGroups,
+    pendingGroups,
+    acceptedGroups,
+  };
+}
+
 function docNumberForType(
   documents: ComplianceTripSummary["documents"],
   type: string,
@@ -3736,10 +4828,12 @@ function ChecklistTripDetailsPanel({
   summary,
   truckType,
   supplierName,
+  onOpenDocumentUpload,
 }: {
   summary: ComplianceTripSummary;
   truckType: string | null;
   supplierName: string | null;
+  onOpenDocumentUpload?: (target: { vault: string; type?: string }) => void;
 }) {
   const trip = summary.trip;
   const commercial = trip as typeof trip & TripCommercialFacts;
@@ -3825,10 +4919,40 @@ function ChecklistTripDetailsPanel({
     bankDetails?.beneficiaryName ?? (supplierLabel !== "—" ? supplierLabel : "—");
   const supplierRate = formatTripInr(supplierCostTotal(commercial) ?? commercial.supplier_rate);
   const clientRate = formatTripInr(commercial.client_price);
+  const loadedWeight = formatLoadedWeight(commercial.load_tons);
+  const accountNumber = bankDetails?.accountNumber ?? "—";
+  const ifsc = bankDetails?.ifsc ?? "—";
+  const branch = bankDetails?.branchName ?? "—";
+  const docOverview = tripDocumentOverview(summary);
+  const requiredStillMissing = docOverview.missingGroups.some((group) =>
+    group.items.some((item) => item.required),
+  );
+  const nextStep = requiredStillMissing
+    ? "Upload the required documents. This trip can move to the next stage once they are accepted."
+    : docOverview.pending > 0
+      ? "Review the pending documents. This trip is ready for the next stage once they are accepted."
+      : "Required documents are accepted. This trip is ready for the next stage.";
   const [paneWidth, setPaneWidth] = useState(0);
+  const [docChipKind, setDocChipKind] = useState<TripDocChipKind>("missing");
+  useEffect(() => {
+    setDocChipKind("missing");
+  }, [trip.id]);
   /** Side-by-side card pairs when the preview pane is wide enough. */
   const pairCards = paneWidth >= 400;
   const tripColumns: 2 | 3 = paneWidth >= 520 ? 3 : 2;
+  const missingChipColumns: 2 | 3 = paneWidth >= 480 ? 3 : 2;
+  const selectedDocGroups =
+    docChipKind === "pending"
+      ? docOverview.pendingGroups
+      : docChipKind === "accepted"
+        ? docOverview.acceptedGroups
+        : docOverview.missingGroups;
+  const selectedDocEmpty =
+    docChipKind === "pending"
+      ? "No documents pending"
+      : docChipKind === "accepted"
+        ? "No documents accepted"
+        : "All documents on file";
 
   return (
     <View
@@ -3838,14 +4962,14 @@ function ChecklistTripDetailsPanel({
         setPaneWidth((prev) => (prev === next ? prev : next));
       }}
     >
-      <View style={styles.tripDetailsHeader}>
-        <Text style={styles.checklistInfoTitle}>Trip details</Text>
-        <Text style={styles.checklistInfoHint} numberOfLines={1}>
-          Selected trip facts from the compliance queue
-        </Text>
-      </View>
-
-      <TripDetailSection title="Trip" columns={tripColumns} style={styles.tripDetailSectionPrimary}>
+      <TripDetailSection
+        title="Trip"
+        icon={Truck}
+        iconColor={Theme.complianceRoutePickup}
+        iconWash={Theme.complianceIconWash}
+        columns={tripColumns}
+        style={styles.tripDetailSectionLead}
+      >
         <TripDetailFact label="Trip ID" value={tripId} />
         <TripDetailFact label="Vehicle" value={vehicle} />
         {tripColumns === 3 ? <TripDetailFact label="Truck type" value={truckLabel} /> : null}
@@ -3853,13 +4977,17 @@ function ChecklistTripDetailsPanel({
         {tripColumns === 2 ? <TripDetailFact label="Truck type" value={truckLabel} /> : null}
         <TripDetailFact label="Model" value={isAsset ? "Asset" : "Aggregate"} />
         <TripDetailFact label="In-transit" value={inTransitAt} />
-        <TripDetailFact label="Loaded weight" value={formatLoadedWeight(commercial.load_tons)} />
+        <TripDetailFact label="Loaded weight" value={loadedWeight} />
       </TripDetailSection>
 
       <View style={[styles.tripDetailPairRow, !pairCards && styles.tripDetailPairRowStack]}>
         <TripDetailSection
           title="Parties"
+          icon={Users}
+          iconColor={Theme.complianceStageInfoFg}
+          iconWash={Theme.complianceStageInfoBg}
           columns={2}
+          factLayout="list"
           style={[styles.tripDetailSectionPair, !pairCards && styles.tripDetailSectionPairFull]}
         >
           <TripDetailFact label="Customer" value={customerName} />
@@ -3867,7 +4995,11 @@ function ChecklistTripDetailsPanel({
         </TripDetailSection>
         <TripDetailSection
           title="Documents"
+          icon={FileText}
+          iconColor={Theme.complianceStageBalanceFg}
+          iconWash={Theme.complianceStageBalanceBg}
           columns={2}
+          factLayout="list"
           style={[styles.tripDetailSectionPair, !pairCards && styles.tripDetailSectionPairFull]}
         >
           <TripDetailFact label="LR no" value={lrNo} />
@@ -3878,6 +5010,9 @@ function ChecklistTripDetailsPanel({
       <View style={[styles.tripDetailPairRow, !pairCards && styles.tripDetailPairRowStack]}>
         <TripDetailSection
           title="Rates"
+          icon={Banknote}
+          iconColor={Theme.complianceDocOkFg}
+          iconWash={Theme.complianceDocOkBg}
           columns={2}
           style={[styles.tripDetailSectionPair, !pairCards && styles.tripDetailSectionPairFull]}
         >
@@ -3890,17 +5025,181 @@ function ChecklistTripDetailsPanel({
         </TripDetailSection>
         <TripDetailSection
           title="Banking"
+          icon={Landmark}
+          iconColor={Theme.accentBrown}
+          iconWash={Theme.accentBrownWash}
           columns={2}
+          factLayout="list"
           style={[styles.tripDetailSectionPair, !pairCards && styles.tripDetailSectionPairFull]}
         >
-          <TripDetailFact label="Beneficiary" value={beneficiary} wide />
-          <TripDetailFact label="Account number" value={bankDetails?.accountNumber ?? "—"} />
-          <TripDetailFact label="IFSC" value={bankDetails?.ifsc ?? "—"} />
+          <TripDetailFact label="Beneficiary" value={beneficiary} />
+          <TripDetailFact label="Account number" value={accountNumber} />
+          <TripDetailFact label="IFSC" value={ifsc} />
           {payeeDetails ? (
             <TripDetailFact label="Bank name" value={bankDetails?.bankName ?? "—"} />
           ) : null}
-          <TripDetailFact label="Branch" value={bankDetails?.branchName ?? "—"} />
+          <TripDetailFact label="Branch" value={branch} />
         </TripDetailSection>
+      </View>
+
+      <View style={styles.tripDetailInsightCard}>
+        <View style={styles.tripDetailSectionHeader}>
+          <View style={[styles.tripDetailSectionIconWell, { backgroundColor: Theme.complianceStagePendingBg }]}>
+            <TripDetailAnimatedIcon>
+              <NotebookText size={13} color={Theme.complianceStagePendingFg} strokeWidth={2.1} />
+            </TripDetailAnimatedIcon>
+          </View>
+          <Text style={styles.tripDetailSectionTitle} numberOfLines={1}>
+            Summary & interpretation
+          </Text>
+        </View>
+        <View style={styles.tripDetailInsightBody}>
+          <Text style={styles.tripDetailNextStep}>{nextStep}</Text>
+          <View style={styles.tripDetailStatRow}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Show missing documents"
+              accessibilityState={{ selected: docChipKind === "missing" }}
+              onPress={() => setDocChipKind("missing")}
+              style={[styles.tripDetailStatTile, styles.tripDetailStatTileMissing]}
+            >
+              <View style={styles.tripDetailStatHead}>
+                <TripDetailAnimatedIcon>
+                  <FileText size={11} color={Theme.complianceDocNeedFg} strokeWidth={2.1} />
+                </TripDetailAnimatedIcon>
+                <Text style={[styles.tripDetailStatLabel, styles.tripDetailStatLabelMissing]} numberOfLines={1}>
+                  Docs missing
+                </Text>
+              </View>
+              <Text style={[styles.tripDetailStatValue, styles.tripDetailStatValueMissing]}>
+                {docOverview.missing}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Show pending documents"
+              accessibilityState={{ selected: docChipKind === "pending" }}
+              onPress={() => setDocChipKind("pending")}
+              style={[styles.tripDetailStatTile, styles.tripDetailStatTilePending]}
+            >
+              <View style={styles.tripDetailStatHead}>
+                <TripDetailAnimatedIcon>
+                  <Clock size={11} color={Theme.complianceStagePendingFg} strokeWidth={2.1} />
+                </TripDetailAnimatedIcon>
+                <Text style={[styles.tripDetailStatLabel, styles.tripDetailStatLabelPending]} numberOfLines={1}>
+                  Docs pending
+                </Text>
+              </View>
+              <Text style={[styles.tripDetailStatValue, styles.tripDetailStatValuePending]}>
+                {docOverview.pending}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Show accepted documents"
+              accessibilityState={{ selected: docChipKind === "accepted" }}
+              onPress={() => setDocChipKind("accepted")}
+              style={[styles.tripDetailStatTile, styles.tripDetailStatTileAccepted]}
+            >
+              <View style={styles.tripDetailStatHead}>
+                <TripDetailAnimatedIcon>
+                  <CircleCheck size={11} color={Theme.complianceDocOkFg} strokeWidth={2.1} />
+                </TripDetailAnimatedIcon>
+                <Text style={[styles.tripDetailStatLabel, styles.tripDetailStatLabelAccepted]} numberOfLines={1}>
+                  Docs accepted
+                </Text>
+              </View>
+              <Text style={[styles.tripDetailStatValue, styles.tripDetailStatValueAccepted]}>
+                {docOverview.accepted}
+                <Text style={styles.tripDetailStatTotal}>/{docOverview.total}</Text>
+              </Text>
+            </Pressable>
+          </View>
+
+          {selectedDocGroups.length > 0 ? (
+            <View style={styles.tripDetailDocGroups}>
+              {selectedDocGroups.map((group) => (
+                <View key={group.label} style={styles.tripDetailDocGroup}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open ${group.label} documents`}
+                    onPress={() => onOpenDocumentUpload?.({ vault: group.label })}
+                    style={styles.tripDetailDocGroupLabelHit}
+                  >
+                    <Text style={styles.tripDetailDocGroupLabel}>{group.label}</Text>
+                  </Pressable>
+                  <View style={styles.tripDetailMissingWrap}>
+                    {group.items.map((item, index) => {
+                      const chipTone =
+                        item.kind === "accepted"
+                          ? "accepted"
+                          : item.kind === "pending" || !item.required
+                            ? "optional"
+                            : "required";
+                      return (
+                      <Pressable
+                        key={`${group.label}-${item.name}-${index}`}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open ${group.label} to upload ${item.name}`}
+                        onPress={() =>
+                          onOpenDocumentUpload?.({ vault: group.label, type: item.type })
+                        }
+                        style={[
+                          styles.tripDetailMissingChip,
+                          missingChipColumns === 3
+                            ? styles.tripDetailMissingChipThird
+                            : styles.tripDetailMissingChipHalf,
+                          chipTone === "accepted"
+                            ? styles.tripDetailMissingChipAccepted
+                            : chipTone === "required"
+                              ? styles.tripDetailMissingChipRequired
+                              : styles.tripDetailMissingChipOptional,
+                        ]}
+                      >
+                        <FileText
+                          size={8}
+                          color={
+                            chipTone === "accepted"
+                              ? Theme.complianceDocOkFg
+                              : chipTone === "required"
+                                ? Theme.complianceDocNeedFg
+                                : Theme.complianceGroupWarningFg
+                          }
+                          strokeWidth={2.1}
+                        />
+                        <Text
+                          style={[
+                            styles.tripDetailMissingChipTitle,
+                            chipTone === "accepted"
+                              ? styles.tripDetailMissingChipTitleAccepted
+                              : chipTone === "required"
+                                ? styles.tripDetailMissingChipTitleRequired
+                                : styles.tripDetailMissingChipTitleOptional,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {item.name}
+                        </Text>
+                        <Text style={styles.tripDetailMissingChipMeta} numberOfLines={1}>
+                          {item.kind === "accepted"
+                            ? "Accepted"
+                            : item.kind === "pending"
+                              ? "Pending"
+                              : item.required
+                                ? "Required"
+                                : "Optional"}
+                        </Text>
+                      </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.tripDetailMissingEmpty}>{selectedDocEmpty}</Text>
+          )}
+        </View>
       </View>
     </View>
   );
@@ -3994,52 +5293,57 @@ function ChecklistAdvancePaymentPanel({
     setRejectedPayOpen(false);
   }, [summary.trip.id]);
 
-  return (
-    <ScrollView
-      style={styles.checklistInfoScroll}
-      contentContainerStyle={styles.checklistInfoContent}
-      showsVerticalScrollIndicator={false}
-    >
-      <Text style={styles.checklistInfoTitle}>Advance payment</Text>
-      <Text style={styles.checklistInfoHint}>
-        {showInlineForm
-          ? "Review the calculation and confirm to post through Finance"
-          : "Payment status for this trip's compliance advance"}
-      </Text>
+  const showArt =
+    !advance &&
+    !showInlineForm &&
+    !(rejectedPayAvailable && rejectedPayOpen);
 
-      <View style={styles.checklistAdvanceStatusCard}>
-        <Text style={styles.checklistAdvanceStatusLabel}>Status</Text>
-        <View
-          style={[
-            styles.checklistAdvanceStatusPill,
-            statusTone === "ready" && styles.checklistAdvanceStatusPillReady,
-            statusTone === "posted" && styles.checklistAdvanceStatusPillPosted,
-            statusTone === "blocked" && styles.checklistAdvanceStatusPillBlocked,
-            statusTone === "pending" && styles.checklistAdvanceStatusPillPending,
-          ]}
-        >
-          <View
-            style={[
-              styles.checklistAdvanceStatusDot,
-              statusTone === "ready" && styles.checklistAdvanceStatusDotReady,
-              statusTone === "posted" && styles.checklistAdvanceStatusDotPosted,
-              statusTone === "blocked" && styles.checklistAdvanceStatusDotBlocked,
-              statusTone === "pending" && styles.checklistAdvanceStatusDotPending,
-            ]}
-          />
-          <Text
-            style={[
-              styles.checklistAdvanceStatusText,
-              statusTone === "ready" && styles.checklistAdvanceStatusTextReady,
-              statusTone === "posted" && styles.checklistAdvanceStatusTextPosted,
-              statusTone === "blocked" && styles.checklistAdvanceStatusTextBlocked,
-              statusTone === "pending" && styles.checklistAdvanceStatusTextPending,
-            ]}
-            numberOfLines={1}
-          >
-            {statusLabel}
-          </Text>
-        </View>
+  return (
+    <View style={[styles.checklistAdvancePanel, advance && styles.checklistAdvancePanelPosted]}>
+      <View style={styles.checklistAdvanceLead}>
+        <Text style={styles.checklistInfoTitle}>Advance payment</Text>
+        <Text style={styles.checklistInfoHint} numberOfLines={2}>
+          {showInlineForm
+            ? "Review the calculation and confirm to post through Finance"
+            : "Payment status for this trip's compliance advance"}
+        </Text>
+
+        {!advance ? (
+          <View style={styles.checklistAdvanceStatusCard}>
+            <Text style={styles.checklistAdvanceStatusLabel}>Status</Text>
+            <View
+              style={[
+                styles.checklistAdvanceStatusPill,
+                statusTone === "ready" && styles.checklistAdvanceStatusPillReady,
+                statusTone === "posted" && styles.checklistAdvanceStatusPillPosted,
+                statusTone === "blocked" && styles.checklistAdvanceStatusPillBlocked,
+                statusTone === "pending" && styles.checklistAdvanceStatusPillPending,
+              ]}
+            >
+              <View
+                style={[
+                  styles.checklistAdvanceStatusDot,
+                  statusTone === "ready" && styles.checklistAdvanceStatusDotReady,
+                  statusTone === "posted" && styles.checklistAdvanceStatusDotPosted,
+                  statusTone === "blocked" && styles.checklistAdvanceStatusDotBlocked,
+                  statusTone === "pending" && styles.checklistAdvanceStatusDotPending,
+                ]}
+              />
+              <Text
+                style={[
+                  styles.checklistAdvanceStatusText,
+                  statusTone === "ready" && styles.checklistAdvanceStatusTextReady,
+                  statusTone === "posted" && styles.checklistAdvanceStatusTextPosted,
+                  statusTone === "blocked" && styles.checklistAdvanceStatusTextBlocked,
+                  statusTone === "pending" && styles.checklistAdvanceStatusTextPending,
+                ]}
+                numberOfLines={1}
+              >
+                {statusLabel}
+              </Text>
+            </View>
+          </View>
+        ) : null}
       </View>
 
       {advance ? (
@@ -4047,6 +5351,8 @@ function ChecklistAdvancePaymentPanel({
           advance={advance}
           tripId={summary.trip.id}
           partyName={partyLabel}
+          trip={!PRE_VERIFIED_STAGES.has(summary.stage) ? summary.trip : undefined}
+          supplierName={supplierName}
           onUpdateUtr={
             onUpdateUtr
               ? (transactionId, utr, category) => onUpdateUtr(summary, transactionId, utr, category)
@@ -4071,9 +5377,6 @@ function ChecklistAdvancePaymentPanel({
             </Text>
           }
         />
-      ) : null}
-      {advance && !PRE_VERIFIED_STAGES.has(summary.stage) ? (
-        <ComplianceAdvancePayeeDetails trip={summary.trip} supplierName={supplierName} />
       ) : null}
 
       {showInlineForm ? (
@@ -4122,7 +5425,7 @@ function ChecklistAdvancePaymentPanel({
       {advanceBlockers.length > 0 ? (
         <View style={styles.checklistBlockerBox}>
           {advanceBlockers.slice(0, 3).map((line) => (
-            <Text key={line} style={styles.checklistBlockerText}>
+            <Text key={line} style={styles.checklistBlockerText} numberOfLines={2}>
               {line}
             </Text>
           ))}
@@ -4162,35 +5465,41 @@ function ChecklistAdvancePaymentPanel({
           />
         </View>
       ) : null}
-    </ScrollView>
+
+      {showArt ? (
+        <View style={styles.checklistAdvanceArtSlot} pointerEvents="none">
+          <ComplianceAdvancePaymentArt />
+        </View>
+      ) : null}
+    </View>
   );
 }
 
-function TripListRow({
+const TripListRow = React.memo(function TripListRow({
   summary,
   selected,
   organizationId,
   truckType,
   supplierName,
-  onPress,
+  onSelect,
 }: {
   summary: ComplianceTripSummary;
   selected: boolean;
   organizationId: string;
   truckType: string | null;
   supplierName: string | null;
-  onPress: () => void;
+  onSelect: (tripId: string) => void;
 }) {
   const router = useRouter();
   const trip = summary.trip;
   const verification = verificationStatusVisual(summary);
   const tripStatus =
     summary.stage === "compliance_pending" ? tripOpsStatusBadge(trip.status) : null;
-  const isRejected = isFinanceDeclinedTrip(summary);
-  const declineRemark =
-    isRejected || isComplianceDeclineActive(summary)
-      ? summary.complianceDeclineReason?.trim() || ""
-      : "";
+  const isRejected =
+    isFinanceDeclinedTrip(summary) || isComplianceDeclineActive(summary);
+  const declineRemark = isRejected
+    ? summary.complianceDeclineReason?.trim() || ""
+    : "";
   const customerName = trip.client_name?.trim() || "—";
   const supplierLabel = (supplierName ?? trip.supplier_name)?.trim() || "—";
   const origin = splitHubRouteLocationDisplay(trip.pickup_area ?? "");
@@ -4238,7 +5547,7 @@ function TripListRow({
 
   return (
     <Pressable
-      onPress={onPress}
+      onPress={() => onSelect(trip.id)}
       style={[
         styles.row,
         selected && styles.rowSelected,
@@ -4365,7 +5674,7 @@ function TripListRow({
         <View style={styles.lrReceipt}>
           <Text
             style={[styles.lrReceiptLine, selected && styles.lrReceiptLineSelected]}
-            numberOfLines={2}
+            numberOfLines={1}
           >
             <Text style={[styles.lrReceiptLabel, selected && styles.lrReceiptLabelSelected]}>
               Received LRs{" "}
@@ -4374,7 +5683,7 @@ function TripListRow({
           </Text>
           <Text
             style={[styles.lrReceiptLine, selected && styles.lrReceiptLineSelected]}
-            numberOfLines={2}
+            numberOfLines={1}
           >
             <Text style={[styles.lrReceiptLabel, selected && styles.lrReceiptLabelSelected]}>
               Pending LRs{" "}
@@ -4409,14 +5718,14 @@ function TripListRow({
       </View>
     </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   workspace: { flex: 1, minHeight: 0, flexDirection: "row", alignItems: "stretch", gap: 16, overflow: "hidden" },
   workspaceStacked: { flexDirection: "column" },
   listPane: {
-    width: 320,
-    maxWidth: "34%",
+    width: 420,
+    maxWidth: "42%",
     flexShrink: 0,
     minHeight: 0,
     height: "100%",
@@ -4436,15 +5745,32 @@ const styles = StyleSheet.create({
     paddingVertical: 24,
   },
   listScroll: { flex: 1 },
-  listContent: { padding: 8, gap: 6 },
+  listContent: { padding: 8, gap: 5 },
+  listLoadMore: {
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  listLoadSentinel: {
+    height: 1,
+  },
+  listLoadEnd: {
+    paddingTop: 8,
+    paddingBottom: 10,
+    textAlign: "center",
+    fontSize: 11,
+    fontWeight: "500",
+    color: Theme.textMuted,
+  },
   row: {
     borderRadius: 10,
     borderWidth: 1,
     borderColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.complianceTripCardBg,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    gap: 6,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 5,
+    gap: 3,
   },
   rowSelected: {
     borderWidth: 1.5,
@@ -4460,16 +5786,22 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     backgroundColor: Theme.complianceStageDocsBg,
   },
-  rowHead: { flexDirection: "row", alignItems: "center", gap: 8 },
-  rowMeta: {
-    flexDirection: "column",
-    alignItems: "flex-end",
-    justifyContent: "center",
-    gap: 4,
-    flexShrink: 0,
-    maxWidth: 132,
+  rowHead: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
   },
-  lrReceipt: { gap: 2, paddingTop: 6 },
+  rowMeta: {
+    flexShrink: 0,
+    maxWidth: "42%",
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "flex-end",
+    flexWrap: "wrap",
+    gap: 4,
+    paddingTop: 2,
+  },
+  lrReceipt: { gap: 1 },
   lrReceiptLine: {
     fontSize: 11,
     lineHeight: 15,
@@ -4511,7 +5843,8 @@ const styles = StyleSheet.create({
   client: {
     flex: 1,
     minWidth: 0,
-    fontSize: 11,
+    fontSize: 12,
+    lineHeight: 15,
     fontWeight: "600",
     letterSpacing: 0.2,
     color: Theme.textPrimaryDark,
@@ -4525,7 +5858,7 @@ const styles = StyleSheet.create({
   idLine: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 6,
     marginLeft: 34,
     minWidth: 0,
   },
@@ -4536,9 +5869,10 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
   },
   tripIdLink: {
-    fontSize: 10,
+    fontSize: 11,
+    lineHeight: 14,
     fontWeight: "600",
-    letterSpacing: 0.15,
+    letterSpacing: 0.1,
     color: Theme.complianceBulk,
     textDecorationLine: "underline",
     textDecorationColor: Theme.complianceBulk,
@@ -4555,13 +5889,24 @@ const styles = StyleSheet.create({
   modelTagText: { fontSize: 8, fontWeight: "600", letterSpacing: 0.2, lineHeight: 11 },
   modelTagTextAsset: { color: Theme.darkGreen },
   modelTagTextAggregate: { color: Theme.complianceStageInfoFg },
-  statusPill: { maxWidth: 108, borderRadius: 999, paddingHorizontal: 6, paddingVertical: 2 },
-  statusText: { fontSize: 8, fontWeight: "600", letterSpacing: 0.3 },
+  statusPill: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    flexShrink: 0,
+  },
+  statusText: {
+    fontSize: 8,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+    lineHeight: 11,
+  },
   route: { flexDirection: "row", alignItems: "center" },
   leg: { flex: 1, minWidth: 0 },
   legEnd: { alignItems: "flex-end" },
   city: {
-    fontSize: 10,
+    fontSize: 11,
+    lineHeight: 13,
     fontWeight: "600",
     letterSpacing: 0.2,
     color: Theme.textPrimaryDark,
@@ -4578,10 +5923,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "flex-end",
-    rowGap: 3,
+    rowGap: 2,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Theme.complianceTripCardBorder,
-    paddingTop: 6,
+    paddingTop: 4,
   },
   factsSelected: { borderTopColor: Theme.complianceTripCardDividerOnSelected },
   factCell: { width: "50%", paddingRight: 6, minWidth: 0, justifyContent: "flex-end" },
@@ -4630,7 +5975,7 @@ const styles = StyleSheet.create({
     gap: 5,
     overflow: "hidden",
   },
-  tabActive: { backgroundColor: Theme.buttonDark, borderColor: Theme.buttonDark },
+  tabActive: { backgroundColor: Theme.liquidGoodBack, borderColor: Theme.liquidGoodBack },
   tabText: { fontSize: 11, fontWeight: "500", lineHeight: 14, textAlign: "center", color: Theme.textPrimaryDark },
   tabTextActive: { color: Theme.buttonDarkText, fontWeight: "600" },
   tabBadge: {
@@ -4649,7 +5994,7 @@ const styles = StyleSheet.create({
     lineHeight: 11,
     color: Theme.complianceStageDocsFg,
   },
-  tabBadgeTextActive: { color: Theme.complianceStageDocsFg },
+  tabBadgeTextActive: { color: Theme.liquidGoodBack },
   stage: {
     flex: 1,
     minHeight: 0,
@@ -4660,7 +6005,7 @@ const styles = StyleSheet.create({
   openLayer: {
     ...StyleSheet.absoluteFillObject,
     cursor: "zoom-in",
-  } as ViewStyle,
+  } as unknown as ViewStyle,
   screenRoot: {
     flex: 1,
     alignItems: "center",
@@ -4706,45 +6051,10 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   screenTitle: { flex: 1, minWidth: 80, fontSize: 13, fontWeight: "600", color: Theme.textPrimaryDark },
-  screenPages: { flexDirection: "row", alignItems: "center", gap: 4 },
-  screenPageLabel: {
-    minWidth: 52,
-    textAlign: "center",
-    fontSize: 13,
-    fontWeight: "600",
-    color: Theme.textPrimaryDark,
-  },
-  screenNavLabel: {
-    flexShrink: 0,
-    minWidth: 56,
-    paddingHorizontal: 8,
-    fontSize: 12,
-    fontWeight: "600",
-    color: Theme.textMuted,
-    textAlign: "center",
-  },
-  screenTools: { flexDirection: "row", alignItems: "center", gap: 4, marginLeft: "auto" },
-  screenPercent: { minWidth: 48, textAlign: "center", fontSize: 13, fontWeight: "600", color: Theme.textPrimaryDark },
-  screenTool: {
-    width: 32,
-    height: 32,
-    borderRadius: 6,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Theme.compliancePageBg,
-    borderWidth: 1,
-    borderColor: Theme.complianceTripCardBorder,
-  },
-  screenClose: {
-    width: 32,
-    height: 32,
-    marginLeft: 2,
-    borderRadius: 6,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Theme.compliancePageBg,
-    borderWidth: 1,
-    borderColor: Theme.complianceTripCardBorder,
+  screenTools: { flexDirection: "row", alignItems: "center", gap: 6, marginLeft: "auto" },
+  screenNavFooter: {
+    justifyContent: "flex-end",
+    paddingRight: 16,
   },
   screenStageRow: {
     flex: 1,
@@ -4766,6 +6076,10 @@ const styles = StyleSheet.create({
   screenStagePage: {
     backgroundColor: Theme.darkBackground,
   },
+  screenStageTyped: {
+    alignItems: "stretch",
+    justifyContent: "flex-start",
+  },
   screenPage: { width: "100%", height: "100%" },
   screenFile: { width: "100%", height: "100%" },
   screenLoading: {
@@ -4782,108 +6096,189 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingHorizontal: 24,
   },
-  typedPreviewScroll: {
+  typedPreviewShell: {
     flex: 1,
     minHeight: 0,
     width: "100%",
     backgroundColor: Theme.compliancePreviewCanvas,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    gap: 8,
   },
   typedPreviewScrollDark: {
     backgroundColor: Theme.darkSurface,
   },
-  typedPreviewContent: {
-    flexGrow: 1,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    alignItems: "center",
-  },
   typedPreviewContentWithNav: {
-    paddingHorizontal: 64,
-  },
-  typedPreviewPanel: {
-    width: "100%",
-    maxWidth: 560,
-    gap: 12,
+    paddingHorizontal: 58,
   },
   typedPreviewHeader: {
+    flexShrink: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
     backgroundColor: Theme.cardWhite,
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  typedPreviewHeaderIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.compliancePageBg,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+  },
+  typedPreviewHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
   },
   typedPreviewKicker: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "700",
-    letterSpacing: 0.6,
+    letterSpacing: 0.55,
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
   typedPreviewTitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "700",
     color: Theme.textPrimaryDark,
   },
   typedPreviewMeta: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "500",
     color: Theme.textMuted,
-    marginTop: 2,
   },
-  typedPreviewGroups: {
-    gap: 10,
+  typedPreviewScrollStage: {
+    flex: 1,
+    minHeight: 0,
+    width: "100%",
+    position: "relative",
+    overflow: "hidden",
+  },
+  typedPreviewScroll: {
+    flex: 1,
+    minHeight: 0,
+    width: "100%",
+    height: "100%",
+  },
+  typedPreviewScrollContent: {
+    gap: 8,
+    paddingBottom: 12,
+    paddingRight: 18,
+    flexGrow: 0,
+  },
+  typedPreviewRow: {
+    flexGrow: 0,
+    flexShrink: 0,
+  },
+  typedPreviewRowGrid: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 8,
   },
   typedEntryCard: {
+    flex: 1,
+    minWidth: 0,
     backgroundColor: Theme.cardWhite,
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
     overflow: "hidden",
   },
+  typedEntryCardSpacer: {
+    flex: 1,
+    minWidth: 0,
+  },
+  typedEntryHeadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.complianceCardBorder,
+    backgroundColor: Theme.compliancePageBg,
+  },
+  typedEntryIndex: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+  },
+  typedEntryIndexText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+  },
   typedEntryHeading: {
+    flex: 1,
+    minWidth: 0,
     fontSize: 12,
     fontWeight: "700",
     color: Theme.textPrimaryDark,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 4,
-  },
-  typedEntryFields: {
-    paddingVertical: 2,
   },
   typedFieldRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    flexWrap: "nowrap",
+    alignItems: "center",
     justifyContent: "space-between",
-    gap: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-    minHeight: 44,
+    gap: 8,
+    minHeight: 36,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
   },
   typedFieldRowDivider: {
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.complianceCardBorder,
   },
-  typedFieldLabel: {
+  typedFieldLead: {
     flexGrow: 0,
     flexShrink: 1,
-    flexBasis: "38%",
-    fontSize: 12,
+    minWidth: 0,
+    maxWidth: "46%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  typedFieldIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.compliancePageBg,
+  },
+  typedFieldLabel: {
+    flexShrink: 1,
+    minWidth: 0,
+    fontSize: 11,
     fontWeight: "500",
-    lineHeight: 18,
+    lineHeight: 14,
     color: Theme.textMuted,
   },
   typedFieldValue: {
     flexGrow: 1,
-    flexShrink: 1,
-    flexBasis: "58%",
-    fontSize: 13,
-    fontWeight: "600",
-    lineHeight: 18,
+    flexShrink: 0,
+    minWidth: 0,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 15,
     color: Theme.textPrimaryDark,
     textAlign: "right",
+    fontVariant: ["tabular-nums"],
+    ...(Platform.OS === "web" ? ({ whiteSpace: "nowrap" } as unknown as TextStyle) : null),
   },
   docSideNavOverlayLeft: {
     position: "absolute",
@@ -5009,7 +6404,9 @@ const styles = StyleSheet.create({
     width: 360,
     maxWidth: "46%",
     flexShrink: 0,
+    alignSelf: "stretch",
     minHeight: 0,
+    flexDirection: "column",
     borderRadius: 10,
     borderWidth: 1,
     borderColor: Theme.complianceTripCardBorder,
@@ -5040,29 +6437,44 @@ const styles = StyleSheet.create({
     minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
     flexWrap: "nowrap",
+    padding: 1,
+    gap: 0,
+    borderRadius: 999,
+    backgroundColor: Theme.cardWhite,
+    shadowColor: Theme.textPrimaryDark,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
   },
   checklistPanelTab: {
+    flexGrow: 1,
     flexShrink: 1,
+    flexBasis: 0,
     minWidth: 0,
     height: 22,
-    paddingHorizontal: 5,
+    paddingHorizontal: 6,
     paddingVertical: 0,
     gap: 3,
+    borderWidth: 0,
+    backgroundColor: "transparent",
   },
   checklistPanelTabText: {
-    fontSize: 9,
-    lineHeight: 11,
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "500",
   },
   checklistPanelTabBadge: {
-    minWidth: 12,
+    minWidth: 14,
     height: 12,
-    paddingHorizontal: 3,
+    paddingHorizontal: 4,
+    borderRadius: 999,
   },
   checklistPanelTabBadgeText: {
     fontSize: 8,
     lineHeight: 10,
+    fontWeight: "700",
   },
   checklistToolbarActions: {
     flexDirection: "row",
@@ -5078,44 +6490,35 @@ const styles = StyleSheet.create({
   checklistUploadPillText: {
     fontSize: 8,
   },
-  checklistListScroll: {
+  /** Document rows only. Scrolls so the last row and preview actions stay reachable. */
+  checklistDocs: {
     flex: 1,
+    flexShrink: 1,
     minHeight: 0,
   },
-  checklistListContent: {
+  checklistDocsContent: {
     flexGrow: 1,
-    paddingVertical: 2,
+    paddingBottom: 4,
   },
-  /** Fills leftover height between document rows and the sticky PREVIEW card. */
+  /** Compact illustration slot — sized to the preview card, not clipped. */
   checklistListGapArt: {
-    flexGrow: 1,
-    flexShrink: 1,
-    minHeight: 128,
-    maxHeight: 220,
+    flexGrow: 0,
+    flexShrink: 0,
+    height: 80,
     width: "100%",
-    maxWidth: "100%",
     alignItems: "center",
     justifyContent: "center",
-    alignSelf: "stretch",
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 16,
+    paddingHorizontal: 16,
     overflow: "hidden",
-  },
-  checklistListGapArtImage: {
-    width: "100%",
-    maxWidth: 240,
-    aspectRatio: 1024 / 671,
-    maxHeight: 168,
   },
   checklistPreviewActionsSection: {
     flexShrink: 0,
-    gap: 8,
+    gap: 6,
     marginHorizontal: 8,
     marginBottom: 8,
-    paddingHorizontal: 10,
-    paddingTop: 8,
-    paddingBottom: 10,
+    paddingHorizontal: 8,
+    paddingTop: 6,
+    paddingBottom: 6,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: Theme.complianceTripCardBorder,
@@ -5162,49 +6565,55 @@ const styles = StyleSheet.create({
   verifyTripBtn: {
     flex: 1,
     minWidth: 0,
-    minHeight: 34,
-    borderRadius: 8,
+    minHeight: 28,
+    borderRadius: 7,
     backgroundColor: Theme.positive,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 8,
+    paddingVertical: 5,
   },
   verifyTripBtnText: {
     color: Theme.cardWhite,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
   },
   declineTripBtn: {
     flex: 1,
     minWidth: 0,
-    minHeight: 34,
-    borderRadius: 8,
+    minHeight: 28,
+    borderRadius: 7,
     borderWidth: 1,
     borderColor: Theme.negative,
     backgroundColor: Theme.cardWhite,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 8,
+    paddingVertical: 5,
   },
   declineTripBtnText: {
     color: Theme.negative,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
   },
   checklistModeBtn: {
     flexGrow: 1,
     flexShrink: 1,
     flexBasis: "47%",
-    minWidth: 120,
-    minHeight: 32,
-    borderRadius: 8,
+    minWidth: 100,
+    minHeight: 28,
+    borderRadius: 7,
     borderWidth: 1,
     borderColor: Theme.complianceTripCardBorder,
-    backgroundColor: Theme.compliancePageBg,
+    backgroundColor: Theme.cardWhite,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  checklistModeBtnSelected: {
+    backgroundColor: Theme.compliancePageBg,
+    borderColor: Theme.textPrimaryDark,
   },
   checklistModeBtnActive: {
     backgroundColor: Theme.buttonDark,
@@ -5216,16 +6625,11 @@ const styles = StyleSheet.create({
     color: Theme.textPrimaryDark,
     textAlign: "center",
   },
+  checklistModeBtnTextSelected: {
+    fontWeight: "700",
+  },
   checklistModeBtnTextActive: {
     color: Theme.buttonDarkText,
-  },
-  checklistFooterVaultText: {
-    flexShrink: 1,
-    minWidth: 0,
-    fontSize: 9,
-    fontWeight: "500",
-    color: Theme.textMuted,
-    textAlign: "right",
   },
   checklistInfoScroll: {
     flex: 1,
@@ -5234,22 +6638,322 @@ const styles = StyleSheet.create({
   checklistInfoContent: {
     flexGrow: 1,
     padding: 12,
-    paddingBottom: 20,
+    paddingBottom: 12,
     gap: 10,
   },
-  /** Trip Details preview — fills the pane; no vertical scroll. */
+  checklistAdvancePanel: {
+    flex: 1,
+    minHeight: 0,
+    overflow: "hidden",
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    gap: 6,
+  },
+  checklistAdvancePanelPosted: {
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  checklistAdvanceLead: {
+    flexShrink: 0,
+    gap: 4,
+  },
+  checklistAdvanceArtSlot: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minHeight: 0,
+    width: "100%",
+    alignItems: "flex-end",
+    justifyContent: "flex-end",
+    paddingTop: 4,
+    paddingRight: 12,
+    paddingBottom: 4,
+    backgroundColor: "transparent",
+  },
   tripDetailsPanel: {
     flex: 1,
     minHeight: 0,
-    paddingHorizontal: 10,
-    paddingTop: 8,
-    paddingBottom: 8,
+    overflow: "hidden",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    gap: 4,
+  },
+  tripDetailSectionLead: {
+    flexGrow: 0,
+    flexShrink: 0,
+  },
+  tripDetailInsightCard: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minHeight: 0,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    backgroundColor: Theme.cardWhite,
+    overflow: "hidden",
+    shadowColor: Theme.textPrimaryDark,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  tripDetailNextStep: {
+    flexShrink: 0,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "500",
+    letterSpacing: -0.1,
+    color: Theme.textPrimaryDark,
+  },
+  tripDetailInsightBody: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minHeight: 0,
+    flexDirection: "column",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingTop: 4,
+    paddingBottom: 6,
+    overflow: "hidden",
+  },
+  tripDetailStatRow: {
+    flexShrink: 0,
+    flexDirection: "row",
+    alignItems: "stretch",
+    flexWrap: "wrap",
     gap: 6,
   },
-  tripDetailsHeader: {
+  tripDetailStatTile: {
+    flexGrow: 0,
     flexShrink: 0,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    gap: 0,
+    ...Platform.select({
+      web: { cursor: "pointer" } as ViewStyle,
+      default: {},
+    }),
+  },
+  tripDetailStatTileMissing: {
+    backgroundColor: Theme.complianceDocNeedBg,
+    borderColor: Theme.complianceGroupDangerDot,
+  },
+  tripDetailStatTilePending: {
+    backgroundColor: Theme.complianceStagePendingBg,
+    borderColor: Theme.complianceGroupWarningDot,
+  },
+  tripDetailStatTileAccepted: {
+    backgroundColor: Theme.complianceDocOkBg,
+    borderColor: Theme.complianceVerifiedPillBorder,
+  },
+  tripDetailStatHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minWidth: 0,
+  },
+  tripDetailStatLabel: {
+    flexGrow: 0,
+    flexShrink: 0,
+    fontSize: 9,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+  },
+  tripDetailStatLabelMissing: {
+    color: Theme.complianceDocNeedFg,
+  },
+  tripDetailStatLabelPending: {
+    color: Theme.complianceStagePendingFg,
+  },
+  tripDetailStatLabelAccepted: {
+    color: Theme.complianceDocOkFg,
+  },
+  tripDetailStatValue: {
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: -0.3,
+    lineHeight: 15,
+  },
+  tripDetailStatValueMissing: {
+    color: Theme.complianceDocNeedFg,
+  },
+  tripDetailStatValuePending: {
+    color: Theme.complianceStagePendingFg,
+  },
+  tripDetailStatValueAccepted: {
+    color: Theme.complianceDocOkFg,
+  },
+  tripDetailStatTotal: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: Theme.complianceGroupSuccessFg,
+  },
+  tripDetailDocGroups: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minHeight: 0,
     gap: 2,
-    paddingBottom: 2,
+    overflow: "hidden",
+  },
+  tripDetailDocGroup: {
+    gap: 1,
+    flexShrink: 1,
+  },
+  tripDetailDocGroupLabelHit: {
+    alignSelf: "flex-start",
+    ...Platform.select({
+      web: { cursor: "pointer" } as ViewStyle,
+      default: {},
+    }),
+  },
+  tripDetailDocGroupLabel: {
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+    color: Theme.textSecondary,
+  },
+  tripDetailMissingWrap: {
+    flexGrow: 0,
+    flexShrink: 1,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    rowGap: 3,
+    columnGap: 3,
+    backgroundColor: Theme.cardWhite,
+  },
+  tripDetailMissingChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    minWidth: 0,
+    maxWidth: "32%",
+    minHeight: 15,
+    borderRadius: 6,
+    borderWidth: 1,
+    paddingHorizontal: 4,
+    paddingVertical: 0,
+    ...Platform.select({
+      web: { cursor: "pointer" } as ViewStyle,
+      default: {},
+    }),
+  },
+  tripDetailMissingChipThird: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  tripDetailMissingChipHalf: {
+    flexGrow: 0,
+    flexShrink: 1,
+    maxWidth: "48%",
+  },
+  tripDetailMissingChipRequired: {
+    backgroundColor: Theme.complianceDocNeedBg,
+    borderColor: Theme.complianceGroupDangerDot,
+  },
+  tripDetailMissingChipOptional: {
+    backgroundColor: Theme.complianceGroupWarningBg,
+    borderColor: Theme.complianceGroupWarningDot,
+  },
+  tripDetailMissingChipAccepted: {
+    backgroundColor: Theme.complianceDocOkBg,
+    borderColor: Theme.complianceVerifiedPillBorder,
+  },
+  tripDetailMissingChipTitle: {
+    flexShrink: 1,
+    minWidth: 0,
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: "600",
+  },
+  tripDetailMissingChipTitleRequired: {
+    color: Theme.complianceDocNeedFg,
+  },
+  tripDetailMissingChipTitleOptional: {
+    color: Theme.complianceGroupWarningFg,
+  },
+  tripDetailMissingChipTitleAccepted: {
+    color: Theme.complianceDocOkFg,
+  },
+  tripDetailMissingChipMeta: {
+    flexShrink: 0,
+    fontSize: 7,
+    lineHeight: 9,
+    fontWeight: "500",
+    color: Theme.textMuted,
+  },
+  tripDetailMissingEmpty: {
+    flexShrink: 0,
+    fontSize: 11,
+    fontWeight: "600",
+    color: Theme.complianceDocOkFg,
+  },
+  tripDetailInsightColumns: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minHeight: 0,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    overflow: "hidden",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Theme.complianceTripCardBorder,
+    paddingTop: 6,
+  },
+  tripDetailInsightColumnsStack: {
+    flexDirection: "column",
+  },
+  tripDetailInsightBlock: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 0,
+    gap: 4,
+    overflow: "hidden",
+  },
+  tripDetailInsightBlockSplit: {
+    paddingLeft: 10,
+    marginLeft: 10,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: Theme.complianceTripCardBorder,
+  },
+  tripDetailInsightKicker: {
+    flexShrink: 0,
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 0.35,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+  },
+  tripDetailInsightPoints: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignContent: "flex-start",
+  },
+  tripDetailInsightPointCell: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: "50%",
+    maxWidth: "50%",
+    minWidth: 0,
+    paddingRight: 8,
+    paddingVertical: 2,
+  },
+  tripDetailInsightPointLabel: {
+    fontSize: 9,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+    marginBottom: 1,
+  },
+  tripDetailInsightPointValue: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Theme.textPrimaryDark,
+    lineHeight: 16,
   },
   checklistInfoTitle: {
     fontSize: 11,
@@ -5265,17 +6969,19 @@ const styles = StyleSheet.create({
   },
   tripDetailSection: {
     flexDirection: "column",
-    borderRadius: 8,
+    flexShrink: 1,
+    minHeight: 0,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: Theme.complianceTripCardBorder,
+    borderColor: Theme.borderLight,
     backgroundColor: Theme.cardWhite,
     overflow: "hidden",
     minWidth: 0,
-    minHeight: 0,
-  },
-  tripDetailSectionPrimary: {
-    flex: 1.15,
-    minHeight: 0,
+    shadowColor: Theme.textPrimaryDark,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 1,
   },
   tripDetailSectionPair: {
     flex: 1,
@@ -5283,47 +6989,102 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   tripDetailSectionPairFull: {
-    flex: 1,
     width: "100%",
-    minHeight: 0,
   },
   tripDetailPairRow: {
-    flex: 1,
+    flexGrow: 0,
+    flexShrink: 1,
     flexDirection: "row",
     alignItems: "stretch",
-    gap: 6,
-    minHeight: 0,
+    gap: 8,
   },
   tripDetailPairRowStack: {
     flexDirection: "column",
   },
   tripDetailSectionHeader: {
     flexShrink: 0,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Theme.complianceTripCardBorder,
-    backgroundColor: Theme.compliancePageBg,
+    borderBottomColor: Theme.borderLight,
+    backgroundColor: Theme.cardWhite,
+  },
+  tripDetailSectionIconWell: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: Theme.surface,
+    alignItems: "center",
+    justifyContent: "center",
   },
   tripDetailSectionTitle: {
-    fontSize: 8,
-    fontWeight: "700",
-    letterSpacing: 0.55,
-    textTransform: "uppercase",
-    color: Theme.textSecondary,
+    flex: 1,
+    minWidth: 0,
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "500",
+    letterSpacing: -0.1,
+    color: Theme.textPrimaryDark,
   },
   tripFactGrid: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
     flexDirection: "row",
     flexWrap: "wrap",
-    alignContent: "space-evenly",
+    alignContent: "flex-start",
+    alignItems: "flex-start",
     paddingHorizontal: 4,
-    paddingVertical: 4,
-    minHeight: 0,
+    paddingTop: 2,
+    paddingBottom: 4,
+  },
+  tripFactList: {
+    flexGrow: 1,
+    flexShrink: 1,
+    paddingBottom: 2,
+  },
+  tripFactRow: {
+    flexGrow: 0,
+    flexShrink: 0,
+    minHeight: 22,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 2,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.borderLight,
+  },
+  tripFactRowLast: {
+    borderBottomWidth: 0,
+  },
+  tripFactRowLabel: {
+    flexGrow: 0,
+    flexShrink: 0,
+    width: "36%",
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "500",
+    letterSpacing: 0.25,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+  },
+  tripFactRowValue: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 12,
+    fontWeight: "500",
+    color: Theme.textPrimaryDark,
+    lineHeight: 15,
+    letterSpacing: -0.1,
+    textAlign: "right",
   },
   tripFactCell: {
-    paddingHorizontal: 6,
-    paddingVertical: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
     minWidth: 0,
     justifyContent: "center",
   },
@@ -5335,20 +7096,23 @@ const styles = StyleSheet.create({
   },
   tripFactCellWide: {
     width: "100%",
+    paddingVertical: 2,
   },
   tripFactLabel: {
-    fontSize: 7.5,
-    fontWeight: "600",
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "500",
     letterSpacing: 0.25,
     textTransform: "uppercase",
     color: Theme.textMuted,
     marginBottom: 1,
   },
   tripFactValue: {
-    fontSize: 11,
-    fontWeight: "600",
+    fontSize: 12,
+    fontWeight: "500",
     color: Theme.textPrimaryDark,
-    lineHeight: 14,
+    lineHeight: 15,
+    letterSpacing: -0.1,
   },
   tripFactValueEmphasize: {
     fontWeight: "700",
@@ -5359,24 +7123,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    minHeight: 44,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    minHeight: 36,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.cardWhite,
   },
   checklistAdvanceFormCard: {
+    flex: 1,
+    minHeight: 0,
     width: "100%",
     minWidth: 0,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.cardWhite,
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 12,
+    paddingHorizontal: 8,
+    paddingTop: 4,
+    paddingBottom: 8,
+    overflow: "hidden",
   },
   checklistAdvanceStatusLabel: {
     fontSize: 10,
@@ -5542,6 +7309,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     zIndex: 2,
   },
+  previewLiveLayer: {
+    ...(Platform.OS === "web"
+      ? ({ willChange: "transform", backfaceVisibility: "hidden" } as ViewStyle)
+      : null),
+  },
   previewAlign: {
     flex: 1,
     width: "100%",
@@ -5551,26 +7323,38 @@ const styles = StyleSheet.create({
     padding: PREVIEW_CANVAS_PAD,
     overflow: "hidden",
   },
+  previewPageSheet: {
+    backgroundColor: Theme.cardWhite,
+    overflow: "hidden",
+    borderRadius: 2,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.complianceTripCardBorder,
+  },
   previewToolbar: {
     flexShrink: 0,
-    height: 48,
-    paddingHorizontal: 12,
+    height: 32,
+    paddingHorizontal: 8,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
+    gap: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.cardWhite,
   },
   previewZoomLabel: {
-    width: 40,
-    height: 32,
+    minWidth: 38,
+    height: 24,
+    paddingHorizontal: 4,
     fontSize: 11,
     fontWeight: "600",
-    lineHeight: 32,
+    lineHeight: 24,
     color: Theme.textPrimaryDark,
     textAlign: "center",
+    fontVariant: ["tabular-nums"],
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.complianceTripCardBorder,
   },
   previewZoomLabelDisabled: {
     color: Theme.textMuted,
@@ -5578,19 +7362,19 @@ const styles = StyleSheet.create({
   previewToolbarTitle: {
     flex: 1,
     minWidth: 0,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "600",
     color: Theme.textPrimaryDark,
   },
   previewToolbarActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 4,
     flexShrink: 0,
   },
   previewToolBtn: {
-    width: 32,
-    height: 32,
+    minWidth: 24,
+    height: 24,
     borderRadius: 6,
     alignItems: "center",
     justifyContent: "center",
@@ -5598,26 +7382,149 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Theme.complianceTripCardBorder,
   },
+  previewRotateBtn: {
+    minWidth: 24,
+    height: 24,
+    paddingHorizontal: 6,
+    borderRadius: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    backgroundColor: Theme.compliancePageBg,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+  },
+  previewToolBtnNamed: {
+    paddingHorizontal: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  previewToolName: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+    color: Theme.textPrimaryDark,
+  },
+  previewZoomCluster: {
+    flexDirection: "row",
+    alignItems: "center",
+    height: 24,
+    borderRadius: 6,
+    backgroundColor: Theme.compliancePageBg,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+    overflow: "hidden",
+  },
+  previewZoomBtn: {
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   previewToolBtnDisabled: {
     opacity: 0.45,
   },
   previewFooter: {
     flexShrink: 0,
-    height: 44,
-    paddingHorizontal: 12,
+    height: 24,
+    paddingLeft: 8,
+    paddingRight: 8,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.cardWhite,
   },
+  previewScrollRowX: {
+    flex: 1,
+    minWidth: 0,
+    height: 22,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  previewScrollRowXActive: {
+    gap: 6,
+  },
+  previewScrollRowY: {
+    position: "absolute",
+    top: 10,
+    bottom: 10,
+    right: 4,
+    width: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    zIndex: 6,
+  },
+  previewScrollRowYActive: {
+    gap: 6,
+  },
+  previewScrollHitX: {
+    flex: 1,
+    minWidth: 0,
+    height: 16,
+    justifyContent: "center",
+  },
+  previewScrollHitY: {
+    flex: 1,
+    minHeight: 0,
+    width: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  previewScrollTrackX: {
+    height: 6,
+    width: "100%",
+    borderRadius: 3,
+    backgroundColor: Theme.complianceScrollRail,
+    overflow: "hidden",
+  },
+  previewScrollTrackY: {
+    width: 6,
+    height: "100%",
+    borderRadius: 3,
+    backgroundColor: Theme.complianceScrollRail,
+    overflow: "hidden",
+  },
+  previewScrollThumb: {
+    position: "absolute",
+    borderRadius: 2,
+    backgroundColor: Theme.complianceScrollThumb,
+  },
+  previewScrollArrow: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+  },
+  previewScrollArrowX: {
+    flexShrink: 0,
+  },
+  previewScrollArrowY: {
+    flexShrink: 0,
+  },
+  previewScrollArrowHidden: {
+    opacity: 0,
+  },
+  previewScrollArrowDisabled: {
+    opacity: 0.4,
+  },
   previewFooterMeta: {
     flexShrink: 0,
-    fontSize: 12,
+    minWidth: 44,
+    fontSize: 11,
     fontWeight: "600",
     color: Theme.textMuted,
-    textAlign: "center",
+    textAlign: "right",
   },
   checklistBankDetailsScroll: {
     flexGrow: 0,
@@ -5811,12 +7718,17 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   missingRow: {
-    minHeight: 48,
+    minHeight: 44,
+    flexShrink: 1,
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: 6,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+  },
+  missingRowDense: {
+    minHeight: 36,
+    paddingVertical: 3,
   },
   missingRowSelected: {
     backgroundColor: Theme.complianceTripCardSelectedBg,
@@ -6105,22 +8017,27 @@ const styles = StyleSheet.create({
   },
   navBtnText: { fontSize: 11, fontWeight: "500", lineHeight: 14, color: Theme.textPrimaryDark },
   btnDisabled: { opacity: 0.45 },
-  reviewGroup: { width: "100%" },
+  reviewGroup: { width: "100%", flexShrink: 1, minHeight: 0 },
   reviewGroupSpaced: {
     marginTop: 6,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Theme.complianceTripCardBorder,
   },
   reviewGroupHeader: {
-    minHeight: 44,
+    minHeight: 40,
+    flexShrink: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 4,
     backgroundColor: Theme.compliancePageBg,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.complianceTripCardBorder,
+  },
+  reviewGroupHeaderDense: {
+    minHeight: 32,
+    paddingVertical: 2,
   },
   reviewGroupCopy: { flex: 1, minWidth: 0, gap: 1 },
   reviewGroupTitle: {

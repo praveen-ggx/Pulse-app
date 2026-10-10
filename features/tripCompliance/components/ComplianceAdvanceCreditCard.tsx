@@ -2,11 +2,48 @@ import Theme from "@/constants/Theme";
 import { TinyEmptyLottie } from "@/components/TinyEmptyLottie";
 import { CHAT_PAYMENT_LOTTIE, resolveChatPaymentLottieSource } from "@/lib/chatPaymentLottieAssets";
 import type { CompliancePaymentSummary } from "@/features/tripCompliance/tripCompliance.types";
-import React, { useMemo } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import type { LottieSource } from "@/lib/lottieSource";
+import React, { useEffect, useMemo, useRef } from "react";
+import { Animated, StyleSheet, Text, View } from "react-native";
+
+const MONEY_BAG_LOTTIE = require("@/assets/Animated folder/money-bag.json") as LottieSource;
 
 function formatInr(amount: number): string {
   return `₹${amount.toLocaleString("en-IN")}`;
+}
+
+function PostedMoneyBadge() {
+  const pulse = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1.05,
+          duration: 1200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 1200,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+
+  return (
+    <Animated.View
+      style={[styles.badgeWrap, { transform: [{ scale: pulse }] }]}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      <View style={styles.badgeRing}>
+        <TinyEmptyLottie source={MONEY_BAG_LOTTIE} size={40} renderScale={1.12} speed={0.9} />
+      </View>
+    </Animated.View>
+  );
 }
 
 /**
@@ -18,12 +55,18 @@ export function ComplianceAdvanceCreditCard({
   partyName,
   tone = "posted",
   footer,
+  showHeroArt = true,
+  embedded = false,
 }: {
   payment: CompliancePaymentSummary;
   /** Supplier / payee display name; falls back to "party". */
   partyName: string | null | undefined;
   tone?: "posted" | "blocked";
   footer?: React.ReactNode;
+  /** Decorative hero animation. Off on Advance Processed. */
+  showHeroArt?: boolean;
+  /** No outer chrome — parent receipt supplies the card. */
+  embedded?: boolean;
 }) {
   const party = (partyName ?? "").trim() || "party";
   const mode = payment.paymentMode?.trim() || "—";
@@ -36,10 +79,12 @@ export function ComplianceAdvanceCreditCard({
   const showLog = Boolean(mode !== "—" || utr);
 
   return (
-    <View style={[styles.card, blocked && styles.cardBlocked]}>
-      <View style={styles.hero}>
+    <View style={[styles.card, blocked && styles.cardBlocked, embedded && styles.cardEmbedded]}>
+      <View style={[styles.hero, !blocked && styles.heroPosted]}>
         <View style={styles.heroCopy}>
-          <Text style={styles.eyebrow}>{blocked ? "Advance on file" : "Advance credited"}</Text>
+          <Text style={[styles.eyebrow, !blocked && styles.eyebrowPosted]}>
+            {blocked ? "Advance on file" : "Advance credited"}
+          </Text>
           <Text
             style={[styles.amount, blocked && styles.amountBlocked]}
             numberOfLines={1}
@@ -52,20 +97,24 @@ export function ComplianceAdvanceCreditCard({
             Credited to <Text style={styles.partyName}>{party}</Text>
           </Text>
         </View>
-        <TinyEmptyLottie
-          source={blocked ? CHAT_PAYMENT_LOTTIE.dispute : CHAT_PAYMENT_LOTTIE.outgoing}
-          size={72}
-          renderScale={1.35}
-          speed={0.9}
-        />
+        {blocked && showHeroArt ? (
+          <TinyEmptyLottie
+            source={CHAT_PAYMENT_LOTTIE.dispute}
+            size={72}
+            renderScale={1.35}
+            speed={0.9}
+          />
+        ) : !blocked ? (
+          <PostedMoneyBadge />
+        ) : null}
       </View>
 
       {showLog ? (
-        <View style={styles.log}>
+        <View style={[styles.log, !blocked && styles.logPosted]}>
           <Text style={styles.logTitle}>Payment log</Text>
           {mode !== "—" ? (
             <View style={styles.logRow}>
-              <TinyEmptyLottie source={modeLottie} size={28} renderScale={1.4} speed={0.85} />
+              <TinyEmptyLottie source={modeLottie} size={26} renderScale={1.4} speed={0.85} />
               <View style={styles.logCopy}>
                 <Text style={styles.logLabel}>Mode of payment</Text>
                 <Text style={styles.logValue} numberOfLines={2}>
@@ -76,7 +125,7 @@ export function ComplianceAdvanceCreditCard({
           ) : null}
           {utr ? (
             <View style={[styles.logRow, mode !== "—" && styles.logRowBorder]}>
-              <TinyEmptyLottie source={CHAT_PAYMENT_LOTTIE.bank} size={28} renderScale={1.4} speed={0.85} />
+              <TinyEmptyLottie source={CHAT_PAYMENT_LOTTIE.bank} size={26} renderScale={1.4} speed={0.85} />
               <View style={styles.logCopy}>
                 <Text style={styles.logLabel}>UTR / reference</Text>
                 <Text style={styles.logValue} numberOfLines={2} selectable>
@@ -101,6 +150,11 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
     overflow: "hidden",
   },
+  cardEmbedded: {
+    borderWidth: 0,
+    borderRadius: 0,
+    backgroundColor: "transparent",
+  },
   cardBlocked: {
     borderColor: Theme.complianceStageDocsFg,
     backgroundColor: Theme.complianceStageDocsBg,
@@ -113,20 +167,28 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 12,
   },
-  heroCopy: { flex: 1, minWidth: 0, gap: 4 },
+  heroPosted: {
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 8,
+    backgroundColor: Theme.cardWhite,
+  },
+  heroCopy: { flex: 1, minWidth: 0, gap: 3 },
   eyebrow: {
     fontSize: 10,
     fontWeight: "700",
-    letterSpacing: 0.4,
+    letterSpacing: 0.5,
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
+  eyebrowPosted: { color: Theme.complianceStageSuccessFg },
   amount: {
     fontSize: 28,
     fontWeight: "800",
     letterSpacing: -0.6,
     color: Theme.textPrimaryDark,
     lineHeight: 34,
+    fontVariant: ["tabular-nums"],
   },
   amountBlocked: { color: Theme.complianceStageDocsFg },
   partyLine: {
@@ -136,6 +198,24 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   partyName: { fontWeight: "800", color: Theme.textPrimaryDark },
+  badgeWrap: {
+    width: 56,
+    height: 56,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  badgeRing: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: Theme.positiveMutedDarkBorder,
+    backgroundColor: Theme.complianceStageSuccessBg,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
   log: {
     marginHorizontal: 10,
     marginBottom: 10,
@@ -145,6 +225,11 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
     overflow: "hidden",
   },
+  logPosted: {
+    marginTop: 8,
+    marginBottom: 10,
+    backgroundColor: Theme.cardWhite,
+  },
   logTitle: {
     fontSize: 10,
     fontWeight: "700",
@@ -152,21 +237,21 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     color: Theme.textMuted,
     paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 4,
+    paddingTop: 8,
+    paddingBottom: 2,
   },
   logRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: 7,
   },
   logRowBorder: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Theme.complianceTripCardBorder,
   },
-  logCopy: { flex: 1, minWidth: 0, gap: 2 },
+  logCopy: { flex: 1, minWidth: 0, gap: 1 },
   logLabel: {
     fontSize: 10,
     fontWeight: "600",
@@ -180,7 +265,6 @@ const styles = StyleSheet.create({
     color: Theme.textPrimaryDark,
     lineHeight: 17,
   },
-  logValueMuted: { color: Theme.textMuted, fontWeight: "500" },
   footer: {
     paddingHorizontal: 12,
     paddingBottom: 12,

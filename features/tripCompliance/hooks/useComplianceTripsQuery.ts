@@ -254,21 +254,15 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
   };
 }
 
-export type ComplianceQueueFilter =
-  | ComplianceStage
-  | "all"
-  | "pod_received"
-  | "payment_pending"
-  /** Cross-cutting: Verified Rejects (Declined by finance), shown between CP and Verified. */
-  | "declined";
+export type ComplianceQueueFilter = ComplianceStage | "all" | "pod_received";
 
 /** Hard copy is in, and the charge form has not been saved yet. */
-function tripStillInPodReceived(summary: ComplianceTripSummary): boolean {
+export function tripStillInPodReceived(summary: ComplianceTripSummary): boolean {
   return Boolean(summary.hardCopyPod?.received) && summary.hardCopyPod?.chargesSaved !== true;
 }
 
 /** Saved charges belong on Balance Pending, including trips already derived there. */
-function tripAppearsInBalancePending(summary: ComplianceTripSummary): boolean {
+export function tripAppearsInBalancePending(summary: ComplianceTripSummary): boolean {
   if (summary.stage === "payment_settled") return false;
   if (summary.hardCopyPod?.chargesSaved === true) return true;
   return summary.stage === "balance_pending";
@@ -280,12 +274,23 @@ export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | un
     if (!summaries) return [];
     if (stage === "all") return summaries;
     if (stage === "pod_received") return summaries.filter(tripStillInPodReceived);
-    if (stage === "balance_pending") return summaries.filter(tripAppearsInBalancePending);
-    if (stage === "payment_pending") return summaries.filter(isCompliancePaymentPending);
-    if (stage === "compliance_verified") return summaries.filter(isComplianceVerifiedQueue);
-    if (stage === "hard_copy_pod_received") return summaries.filter(tripAppearsInAwaitingPod);
-    if (stage === "declined") return summaries.filter(isFinanceDeclinedTrip);
-    // Verified Reject keeps stage=compliance_verified but lives under Declined by finance.
+    if (stage === "balance_pending") {
+      return summaries.filter(
+        (s) => tripAppearsInBalancePending(s) || s.stage === "payment_settled",
+      );
+    }
+    if (stage === "compliance_verified") {
+      // Advance still owed stays on Verified. Payment Pending is not its own chip.
+      return summaries.filter(
+        (s) => isComplianceVerifiedQueue(s) || isFinanceDeclinedTrip(s) || isCompliancePaymentPending(s),
+      );
+    }
+    if (stage === "hard_copy_pod_received") {
+      return summaries.filter(
+        (s) => tripAppearsInAwaitingPod(s) || tripStillInPodReceived(s),
+      );
+    }
+    // Verified Reject keeps stage=compliance_verified but also lists under Verified All.
     if (stage === "pending_for_docs") {
       return summaries.filter(
         (s) => s.stage === "pending_for_docs" || isFinanceDeclinedForPendingDocs(s),
@@ -315,13 +320,23 @@ export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | un
       if (summary.stage === "compliance_verified" && !isComplianceVerifiedQueue(summary)) {
         if (isFinanceDeclinedForPendingDocs(summary)) next.pending_for_docs += 1;
         else if (isFinanceDeclinedForCompliancePending(summary)) next.compliance_pending += 1;
+        if (isFinanceDeclinedTrip(summary)) next.compliance_verified += 1;
       } else if (summary.stage in next) {
         next[summary.stage] += 1;
       }
       if (summary.stage !== "compliance_verified" && isComplianceVerifiedQueue(summary)) {
         next.compliance_verified += 1;
+      } else if (
+        isCompliancePaymentPending(summary) &&
+        summary.stage !== "compliance_verified" &&
+        !isComplianceVerifiedQueue(summary)
+      ) {
+        next.compliance_verified += 1;
       }
-      if (summary.stage !== "hard_copy_pod_received" && tripAppearsInAwaitingPod(summary)) {
+      if (
+        summary.stage !== "hard_copy_pod_received" &&
+        (tripAppearsInAwaitingPod(summary) || tripStillInPodReceived(summary))
+      ) {
         next.hard_copy_pod_received += 1;
       }
       if (summary.stage !== "balance_pending" && tripAppearsInBalancePending(summary)) {
@@ -336,11 +351,6 @@ export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | un
     [summaries],
   );
 
-  const paymentPendingCount = useMemo(
-    () => (summaries ?? []).filter(isCompliancePaymentPending).length,
-    [summaries],
-  );
-
   const declinedCount = useMemo(
     () => (summaries ?? []).filter(isFinanceDeclinedTrip).length,
     [summaries],
@@ -352,7 +362,6 @@ export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | un
     filtered,
     counts,
     podReceivedCount,
-    paymentPendingCount,
     declinedCount,
   };
 }

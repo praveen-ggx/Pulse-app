@@ -9,6 +9,7 @@ import {
   checkCompliancePaymentAllowed,
   postCompliancePayment,
   validateCompliancePaymentAmount,
+  withdrawComplianceAdvancePayment,
 } from "@/features/tripCompliance/services/tripComplianceWrite.service";
 import { processComplianceBulkPayments } from "@/features/tripCompliance/services/tripComplianceBulkPayment.service";
 import type { TripRow } from "@/features/trips/services/trips.service";
@@ -38,10 +39,19 @@ function mockMakeThenable<T>(result: { data: T; error: null }) {
   builder.eq = chain;
   builder.in = chain;
   builder.then = (resolve: (v: typeof result) => void) => resolve(result);
+  builder.delete = () => {
+    const del: Record<string, unknown> = {};
+    const next = () => del;
+    del.eq = next;
+    del.select = next;
+    del.maybeSingle = async () => mockDeleteResult;
+    return del;
+  };
   return builder;
 }
 
 let mockTxnsResult: { data: unknown[]; error: null };
+let mockDeleteResult: { data: { id: string } | null; error: { message?: string } | null };
 /** Live `trips` flags read by postCompliancePayment; null = row not readable (falls back to the passed trip). */
 let mockLiveTripFlags: Pick<TripRow, "compliance_verified_at" | "pod_received_at"> | null = null;
 
@@ -65,6 +75,7 @@ jest.mock("@/lib/supabase", () => ({
 
 beforeEach(() => {
   mockLiveTripFlags = null;
+  mockDeleteResult = { data: { id: "tx-adv-1" }, error: null };
 });
 
 describe("checkCompliancePaymentAllowed — duplicate payment / already-settled protection", () => {
@@ -363,5 +374,58 @@ describe("processComplianceBulkPayments — same advance gate per row", () => {
     });
     expect(results[0].error).toBeNull();
     expect(mockCreateLedgerEntry).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("withdrawComplianceAdvancePayment", () => {
+  const advanceRow = {
+    id: "tx-adv-1",
+    trip_id: "trip-1",
+    amount_in: 25000,
+    amount_out: 0,
+    description: "Compliance Advance",
+    transaction_date: "2026-10-01",
+    created_by: "u1",
+    ledger_category: "compliance_advance",
+  };
+
+  it("deletes the trip's compliance_advance row", async () => {
+    mockTxnsResult = { data: [advanceRow], error: null };
+    const result = await withdrawComplianceAdvancePayment({ tripId: "trip-1", transactionId: "tx-adv-1" });
+    expect(result.error).toBeNull();
+  });
+
+  it("blocks a Finance receipt id so client receipts are not deleted", async () => {
+    mockTxnsResult = { data: [advanceRow], error: null };
+    const result = await withdrawComplianceAdvancePayment({
+      tripId: "trip-1",
+      transactionId: "amount-paid:trip-1",
+    });
+    expect(result.error?.message).toMatch(/posted in Finance/i);
+  });
+
+  it("blocks when a balance payment already exists", async () => {
+    mockTxnsResult = {
+      data: [
+        advanceRow,
+        { ...advanceRow, id: "tx-bal-1", ledger_category: "compliance_balance" },
+      ],
+      error: null,
+    };
+    const result = await withdrawComplianceAdvancePayment({ tripId: "trip-1" });
+    expect(result.error?.message).toMatch(/balance payment/i);
+  });
+
+  it("fails when there is no advance to send back", async () => {
+    mockTxnsResult = { data: [], error: null };
+    const result = await withdrawComplianceAdvancePayment({ tripId: "trip-1" });
+    expect(result.error?.message).toMatch(/no advance payment/i);
+  });
+
+  it("fails when delete is not permitted", async () => {
+    mockTxnsResult = { data: [advanceRow], error: null };
+    mockDeleteResult = { data: null, error: null };
+    const result = await withdrawComplianceAdvancePayment({ tripId: "trip-1" });
+    expect(result.error?.message).toMatch(/permission/i);
   });
 });

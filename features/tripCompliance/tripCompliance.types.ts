@@ -164,6 +164,9 @@ export type ComplianceTripSummary = {
   complianceResubmittedAt?: string | null;
   /** Ground Ops note on the latest resubmit (what was fixed). */
   complianceResubmitNote?: string | null;
+  /** Finance flagged the trip for Compliance review (blocks the advance). */
+  financeFlaggedAt?: string | null;
+  financeFlagNote?: string | null;
   /** Finance approval (mark_trip_finance_verified). Required before the advance can be posted. */
   financeVerifiedAt?: string | null;
   financeVerifiedBy?: string | null;
@@ -205,6 +208,9 @@ export type ComplianceTripFlags = {
   compliance_reject_return_to?: "pending_for_docs" | "compliance_pending" | null;
   compliance_resubmitted_at?: string | null;
   compliance_resubmit_note?: string | null;
+  finance_flagged_at?: string | null;
+  finance_flagged_by?: string | null;
+  finance_flag_note?: string | null;
   finance_verified_at?: string | null;
   finance_verified_by?: string | null;
   pod_hard_copy_courier: string | null;

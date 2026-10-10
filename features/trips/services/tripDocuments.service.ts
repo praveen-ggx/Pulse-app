@@ -584,6 +584,8 @@ export async function uploadTripDocument(
   options?: {
     stopId?: string | null;
     replaceExistingOfType?: boolean;
+    /** Replace this exact row in place (same rules as replaceExistingOfType). */
+    replaceDocumentId?: string | null;
     organizationId?: string | null;
   },
 ): Promise<UploadTripDocumentResult> {
@@ -645,20 +647,24 @@ export async function uploadTripDocument(
     ...(stopId ? { stop_id: stopId } : {}),
   };
 
-  if (options?.replaceExistingOfType) {
-    const { data: existingRows, error: existingError } = await supabase()
+  if (options?.replaceExistingOfType || options?.replaceDocumentId) {
+    const existingQuery = supabase()
       .from("trip_documents")
       .select(
         "id, file_name, storage_path, document_number, uploaded_at, uploaded_by, status, verified_by, verified_at, rejection_reason",
       )
       .eq("trip_id", tripId)
-      .eq("document_type", documentType)
-      .order("uploaded_at", { ascending: false })
-      .limit(1);
+      .eq("document_type", documentType);
+    const { data: existingRows, error: existingError } = await (options?.replaceDocumentId
+      ? existingQuery.eq("id", options.replaceDocumentId).limit(1)
+      : existingQuery.order("uploaded_at", { ascending: false }).limit(1));
     if (existingError && !isTripDocumentsMetaTableUnavailable(existingError)) {
       return { doc: null, error: new Error(existingError.message) };
     }
     const existing = existingRows?.[0];
+    if (options?.replaceDocumentId && !existing?.id) {
+      return { doc: null, error: new Error("This file no longer exists. Refresh and try again.") };
+    }
     if (existing?.id && !String(existing.id).startsWith("storage-")) {
       const { data: updated, error: updateError } = await supabase()
         .from("trip_documents")

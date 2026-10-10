@@ -170,6 +170,8 @@ export type CompliancePaymentConfirmValues = {
   transactionDate?: string;
   /** Optional org bank account the money left from, e.g. "HDFC Bank ••1234". */
   paidFromLabel?: string;
+  /** entity_bank_accounts id of that account (stored on the ledger row). */
+  paidFromAccountId?: string;
   remark?: string;
 };
 
@@ -217,7 +219,10 @@ function TxnDateInput({
   const [iosDraft, setIosDraft] = useState<Date>(new Date());
   const webInputRef = useRef<{ showPicker?: () => void; click?: () => void } | null>(null);
   const iso = txnDisplayToIso(value);
-  const today = toComplianceTransactionDateInput(new Date().toISOString());
+  // Same window as validateComplianceTransactionDate: up to one day ahead.
+  const latestDate = new Date();
+  latestDate.setDate(latestDate.getDate() + 1);
+  const latestIso = toComplianceTransactionDateInput(latestDate.toISOString());
 
   const openPicker = () => {
     if (disabled) return;
@@ -265,7 +270,7 @@ function TxnDateInput({
                 tabIndex: -1,
                 "aria-hidden": true,
                 value: iso,
-                max: today,
+                max: latestIso,
                 onChange: (e: { target?: { value?: string } }) => {
                   const next = String(e?.target?.value ?? "");
                   if (next) onChange(txnIsoToDisplay(next));
@@ -287,7 +292,7 @@ function TxnDateInput({
           value={txnIsoToDate(iso)}
           mode="date"
           display="default"
-          maximumDate={new Date()}
+          maximumDate={latestDate}
           onChange={(event, date) => {
             setPickerOpen(false);
             if (event.type === "set" && date) {
@@ -319,7 +324,7 @@ function TxnDateInput({
                 value={iosDraft}
                 mode="date"
                 display="spinner"
-                maximumDate={new Date()}
+                maximumDate={latestDate}
                 onChange={(_, date) => date && setIosDraft(date)}
               />
             </View>
@@ -347,6 +352,7 @@ export function CompliancePaymentConfirmModal({
   onCancel,
   onConfirm,
   onReject,
+  onFlag,
   presentation = "modal",
   readOnly = false,
   onFinanceVerify,
@@ -360,6 +366,8 @@ export function CompliancePaymentConfirmModal({
   onConfirm: (values: CompliancePaymentConfirmValues) => void;
   /** Inline only: trip-level Reject shown beside Confirm payment. */
   onReject?: () => void;
+  /** Inline only: Finance "Flag to Compliance" (Finance cannot Reject). */
+  onFlag?: () => void;
   /** `inline` embeds the form in the Advance Payment panel (no popup). */
   presentation?: "modal" | "inline";
   /**
@@ -912,7 +920,7 @@ export function CompliancePaymentConfirmModal({
   );
 
   const actionsRow = (
-    <View style={[styles.actions, (onReject || onCancel) && styles.actionsWithSecondary]}>
+    <View style={[styles.actions, (onReject || onCancel || onFlag) && styles.actionsWithSecondary]}>
       {onCancel && !(isInline && onReject) ? (
         <Pressable
           style={[styles.cancelBtn, submitting && styles.confirmBtnDisabled]}
@@ -940,6 +948,23 @@ export function CompliancePaymentConfirmModal({
           accessibilityLabel="Reject trip compliance"
         >
           <Text style={styles.rejectText}>Reject</Text>
+        </Pressable>
+      ) : null}
+      {isInline && onFlag ? (
+        <Pressable
+          style={({ pressed }) => [
+            styles.rejectBtn,
+            styles.rejectBtnInline,
+            pressed && styles.rejectBtnPressed,
+            submitting && styles.confirmBtnDisabled,
+          ]}
+          onPress={onFlag}
+          disabled={submitting}
+          hitSlop={INLINE_ACTION_HIT_SLOP}
+          accessibilityRole="button"
+          accessibilityLabel="Flag to Compliance"
+        >
+          <Text style={styles.rejectText}>Flag to Compliance</Text>
         </Pressable>
       ) : null}
       {readOnly ? (
@@ -983,6 +1008,7 @@ export function CompliancePaymentConfirmModal({
             utr: isCash ? undefined : normalizeComplianceUtr(utrText),
             transactionDate: txnDateIso,
             paidFromLabel: paidFrom?.label,
+            paidFromAccountId: paidFrom?.id,
           });
         }}
       >

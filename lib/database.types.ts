@@ -10215,6 +10215,7 @@ export type Database = {
           organization_id: string
           party_name: string
           payment_ref: string | null
+          paid_from_account_id: string | null
           payment_reference: string | null
           transaction_date: string
           trip_id: string | null
@@ -10237,6 +10238,7 @@ export type Database = {
           organization_id: string
           party_name: string
           payment_ref?: string | null
+          paid_from_account_id?: string | null
           payment_reference?: string | null
           transaction_date?: string
           trip_id?: string | null
@@ -10259,6 +10261,7 @@ export type Database = {
           organization_id?: string
           party_name?: string
           payment_ref?: string | null
+          paid_from_account_id?: string | null
           payment_reference?: string | null
           transaction_date?: string
           trip_id?: string | null
@@ -12295,6 +12298,9 @@ export type Database = {
           compliance_outstanding_summary: Json | null
           compliance_verified_at: string | null
           compliance_verified_by: string | null
+          finance_flag_note: string | null
+          finance_flagged_at: string | null
+          finance_flagged_by: string | null
           finance_verified_at: string | null
           finance_verified_by: string | null
           compliance_reject_return_to: string | null
@@ -12395,6 +12401,9 @@ export type Database = {
           compliance_outstanding_summary?: Json | null
           compliance_verified_at?: string | null
           compliance_verified_by?: string | null
+          finance_flag_note?: string | null
+          finance_flagged_at?: string | null
+          finance_flagged_by?: string | null
           finance_verified_at?: string | null
           finance_verified_by?: string | null
           compliance_reject_return_to?: string | null
@@ -12495,6 +12504,9 @@ export type Database = {
           compliance_outstanding_summary?: Json | null
           compliance_verified_at?: string | null
           compliance_verified_by?: string | null
+          finance_flag_note?: string | null
+          finance_flagged_at?: string | null
+          finance_flagged_by?: string | null
           finance_verified_at?: string | null
           finance_verified_by?: string | null
           compliance_reject_return_to?: string | null

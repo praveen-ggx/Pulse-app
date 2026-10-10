@@ -141,6 +141,8 @@ export function deriveComplianceQueueReadiness(summary: ComplianceTripSummary): 
     );
   } else if (complianceVerificationIncomplete) {
     advance = lane("compliance_advance", "blocked", "Compliance verification not completed.");
+  } else if (summary.financeFlaggedAt) {
+    advance = lane("compliance_advance", "blocked", "Flagged for Compliance review.");
   } else if (!summary.financeVerifiedAt) {
     advance = lane("compliance_advance", "blocked", "Waiting for Approve Advance.");
   } else {

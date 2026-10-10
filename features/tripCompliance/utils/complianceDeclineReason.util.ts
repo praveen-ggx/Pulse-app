@@ -60,15 +60,33 @@ export const COMPLIANCE_DECLINE_REASON_SECTIONS: readonly ComplianceDeclineReaso
   },
 ];
 
+/** Reasons Finance can give when flagging a trip for Compliance review. */
+export const FINANCE_FLAG_REASON_SECTIONS: readonly ComplianceDeclineReasonSection[] = [
+  {
+    title: "Finance check",
+    options: [
+      "Memo missing",
+      "Truck No mismatch",
+      "Vendor mismatch",
+      "Client date mismatch",
+      "Vendor rate mismatch",
+      "Freight / amount mismatch",
+      "Bank details mismatch",
+      "Duplicate trip / payment",
+    ],
+  },
+];
+
 /** Selected presets (in list order) plus an optional note. Null when nothing is chosen. */
 export function composeComplianceDeclineReason(
   selected: readonly string[],
   note: string,
 ): string | null {
   const chosen = new Set(selected);
-  const parts = COMPLIANCE_DECLINE_REASON_SECTIONS.flatMap((section) =>
-    section.options.filter((option) => chosen.has(option)),
+  const ordered = [...COMPLIANCE_DECLINE_REASON_SECTIONS, ...FINANCE_FLAG_REASON_SECTIONS].flatMap(
+    (section) => section.options,
   );
+  const parts = Array.from(new Set(ordered)).filter((option) => chosen.has(option));
   const trimmedNote = note.trim();
   if (trimmedNote) parts.push(parts.length > 0 ? `Note: ${trimmedNote}` : trimmedNote);
   return parts.length > 0 ? parts.join("; ") : null;

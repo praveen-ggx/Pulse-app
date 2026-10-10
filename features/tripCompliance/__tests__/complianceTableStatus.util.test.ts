@@ -17,6 +17,7 @@ import {
   isFinanceDeclinedForCompliancePending,
   isFinanceDeclinedForPendingDocs,
   isComplianceAwaitingResubmit,
+  isFinanceFlagged,
   isResubmittedToCompliancePending,
   missingOrRejectedRequiredTripDocs,
   isFinanceDeclinedTrip,
@@ -577,5 +578,17 @@ describe("complianceVaultDocNumber", () => {
         "eway_bill",
       ),
     ).toBe("1234");
+  });
+});
+
+describe("finance flag", () => {
+  it("marks a flagged trip and blocks its advance", () => {
+    const flagged = summary({
+      complianceVerifiedAt: "2026-09-01T00:00:00Z",
+      financeFlaggedAt: "2026-09-02T00:00:00Z",
+      financeFlagNote: "Vendor mismatch",
+    });
+    expect(isFinanceFlagged(flagged)).toBe(true);
+    expect(isFinanceFlagged(summary({ complianceVerifiedAt: "2026-09-01T00:00:00Z" }))).toBe(false);
   });
 });

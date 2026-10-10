@@ -10,12 +10,8 @@ export function formatMarkComplianceVerifiedError(raw: string): string {
     return "This trip is on hold or rejected. Ground Ops must fix it and Resubmit before it can be verified.";
   }
   if (lower.includes("required documents not yet verified")) {
-    return (
-      `${raw.trim()} ` +
-      "The Review list only requires LR, E-way Bill, and Invoice. " +
-      "The server still also requires Insurance and RC as trip files (not vehicle vault). " +
-      "Mark Compliance Verified cannot succeed until that server gate is aligned."
-    );
+    const missing = raw.replace(/^.*required documents not yet verified:\s*/i, "").trim();
+    return `Approve these trip documents first: ${missing || "LR, E-way bill and Invoice"}.`;
   }
   return raw.trim() || "Couldn't mark compliance verified.";
 }

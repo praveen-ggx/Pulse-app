@@ -270,6 +270,44 @@ function formatResubmitComplianceError(error: { message?: string; code?: string 
   return raw || "Couldn't resubmit this trip.";
 }
 
+function formatFinanceFlagError(error: { message?: string; code?: string } | null, clearing: boolean): string {
+  const raw = (error?.message ?? "").trim();
+  const lower = raw.toLowerCase();
+  if (error?.code === "PGRST202" || error?.code === "42883" || lower.includes("could not find the function")) {
+    return "Finance flag isn't available yet — database update pending.";
+  }
+  if (lower.includes("not authorized")) {
+    return clearing ? "Only Compliance can clear a finance flag." : "You don't have permission to flag this trip.";
+  }
+  if (lower.includes("flag note")) return "Add a note of at least 3 characters saying what looks wrong.";
+  if (lower.includes("only a compliance-verified trip")) return "Only a compliance-verified trip can be flagged.";
+  if (lower.includes("already posted")) return "An advance or balance is already posted, so this trip cannot be flagged.";
+  return raw || (clearing ? "Couldn't clear the flag." : "Couldn't flag this trip.");
+}
+
+/** Finance: send a verified trip back to Compliance for review (Finance cannot Reject). */
+export async function flagTripForCompliance(params: {
+  tripId: string;
+  note: string;
+  idempotencyKey?: string;
+}): Promise<void> {
+  const { error } = await supabase().rpc("flag_trip_for_compliance", {
+    p_trip_id: params.tripId,
+    p_note: params.note.trim(),
+    p_idempotency_key: params.idempotencyKey ?? undefined,
+  });
+  if (error) throw new Error(formatFinanceFlagError(error, false));
+}
+
+/** Compliance: clear a Finance flag after checking the trip (Reject also clears it). */
+export async function clearTripFinanceFlag(params: { tripId: string; idempotencyKey?: string }): Promise<void> {
+  const { error } = await supabase().rpc("clear_trip_finance_flag", {
+    p_trip_id: params.tripId,
+    p_idempotency_key: params.idempotencyKey ?? undefined,
+  });
+  if (error) throw new Error(formatFinanceFlagError(error, true));
+}
+
 export async function resubmitTripCompliance(params: {
   tripId: string;
   /** What Ground Ops fixed, e.g. "Invoice re-uploaded". Required, 3–500 chars. */
@@ -383,12 +421,16 @@ function isComplianceLedgerPrerequisiteRejection(error: Error): boolean {
  */
 function checkComplianceLedgerPrerequisite(
   category: ComplianceLedgerCategory,
-  trip: Pick<TripRow, "compliance_verified_at" | "finance_verified_at" | "pod_received_at">,
+  trip: Pick<TripRow, "compliance_verified_at" | "finance_verified_at" | "pod_received_at" | "finance_flagged_at">,
 ): { ok: boolean; reason?: string } {
   if (category === "compliance_advance" && !trip.compliance_verified_at) {
     return { ok: false, reason: "Compliance must be approved before an advance payment can be posted." };
   }
-  // Mirrors RLS compliance_advance_requires_finance_verified (20261010122824).
+  // Mirrors RLS compliance_advance_requires_no_finance_flag (20271008117000).
+  if (category === "compliance_advance" && trip.finance_flagged_at) {
+    return { ok: false, reason: "This trip is flagged for Compliance review. The advance can be posted after Compliance clears the flag." };
+  }
+  // Mirrors RLS compliance_advance_requires_finance_verified (20271008112000).
   if (category === "compliance_advance" && !trip.finance_verified_at) {
     return { ok: false, reason: "The advance must be approved before it can be posted." };
   }
@@ -398,7 +440,10 @@ function checkComplianceLedgerPrerequisite(
   return { ok: true };
 }
 
-type ComplianceLedgerFlags = Pick<TripRow, "compliance_verified_at" | "finance_verified_at" | "pod_received_at">;
+type ComplianceLedgerFlags = Pick<
+  TripRow,
+  "compliance_verified_at" | "finance_verified_at" | "pod_received_at" | "finance_flagged_at"
+>;
 
 /**
  * Callers pass a cached trip (list summary, bulk validation map) that can be
@@ -408,7 +453,7 @@ type ComplianceLedgerFlags = Pick<TripRow, "compliance_verified_at" | "finance_v
 async function readComplianceLedgerFlags(trip: TripRow): Promise<ComplianceLedgerFlags> {
   const { data, error } = await supabase()
     .from("trips")
-    .select("compliance_verified_at, finance_verified_at, pod_received_at")
+    .select("compliance_verified_at, finance_verified_at, pod_received_at, finance_flagged_at")
     .eq("id", trip.id)
     .maybeSingle();
   if (error || !data) return trip;
@@ -432,6 +477,8 @@ export async function postCompliancePayment(params: {
   utr?: string | null;
   transactionDate?: string;
   notes?: string | null;
+  /** Org bank account (entity_bank_accounts) the money was paid from. */
+  paidFromAccountId?: string | null;
 }): Promise<{ error: Error | null }> {
   const guard = await checkCompliancePaymentAllowed({ tripId: params.trip.id, category: params.category });
   if (!guard.ok) return { error: new Error(guard.reason) };
@@ -468,6 +515,7 @@ export async function postCompliancePayment(params: {
     ledger_entity_type: "client",
     ledger_flow_type: "receivable",
     payment_reference: params.utr?.trim() || null,
+    paid_from_account_id: params.paidFromAccountId ?? null,
   };
 
   const { error } = await createLedgerEntry(params.organizationId, entry);

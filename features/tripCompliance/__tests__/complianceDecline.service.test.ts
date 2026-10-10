@@ -142,6 +142,7 @@ describe("fetchComplianceTripFlags — pre-migration fallback (AC-34)", () => {
       missing,
       missing,
       missing,
+      missing,
       {
         data: [
           {
@@ -156,11 +157,12 @@ describe("fetchComplianceTripFlags — pre-migration fallback (AC-34)", () => {
       },
     ];
     const flags = await fetchComplianceTripFlags(["t1"]);
-    expect(mockSelects).toHaveLength(5);
-    expect(mockSelects[0]).toContain("compliance_resubmit_note");
-    expect(mockSelects[1]).toContain("compliance_reject_return_to");
-    expect(mockSelects[4]).not.toContain("compliance_declined_at");
-    expect(mockSelects[4]).toContain("compliance_verified_at");
+    expect(mockSelects).toHaveLength(6);
+    expect(mockSelects[0]).toContain("finance_flagged_at");
+    expect(mockSelects[1]).toContain("compliance_resubmit_note");
+    expect(mockSelects[2]).toContain("compliance_reject_return_to");
+    expect(mockSelects[5]).not.toContain("compliance_declined_at");
+    expect(mockSelects[5]).toContain("compliance_verified_at");
     expect(flags.get("t1")).toMatchObject({
       compliance_verified_at: "2026-09-20T00:00:00Z",
       compliance_verified_by: "u9",

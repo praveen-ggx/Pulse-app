@@ -286,6 +286,11 @@ export function isResubmittedAwaitingReview(summary: ComplianceTripSummary): boo
   return resubmitted >= declined;
 }
 
+/** Finance flagged the trip for Compliance review (Finance cannot Reject). */
+export function isFinanceFlagged(summary: ComplianceTripSummary): boolean {
+  return Boolean(summary.financeFlaggedAt);
+}
+
 /** Resubmitted finance reject, back on Compliance Verification for re-check. */
 export function isResubmittedToCompliancePending(summary: ComplianceTripSummary): boolean {
   return isResubmittedAwaitingReview(summary);

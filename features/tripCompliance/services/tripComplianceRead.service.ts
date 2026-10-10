@@ -167,11 +167,17 @@ export async function fetchComplianceTripFlags(
   const SELECT_WITH_RESUBMIT = `${SELECT_WITH_FINANCE}, compliance_reject_return_to, compliance_resubmitted_at`;
   // Resubmit note comes from 20271008115000_compliance_resubmit_note.sql.
   const SELECT_WITH_RESUBMIT_NOTE = `${SELECT_WITH_RESUBMIT}, compliance_resubmit_note`;
+  // Finance flag comes from 20271008117000_compliance_flow_hardening.sql.
+  const SELECT_WITH_FLAG = `${SELECT_WITH_RESUBMIT_NOTE}, finance_flagged_at, finance_flagged_by, finance_flag_note`;
 
   let result: { data: unknown[] | null; error: { code?: string; message: string } | null } = await supabase()
     .from("trips")
-    .select(SELECT_WITH_RESUBMIT_NOTE)
+    .select(SELECT_WITH_FLAG)
     .in("id", tripIds);
+
+  if (result.error && isMissingColumnOrRelation(result.error)) {
+    result = await supabase().from("trips").select(SELECT_WITH_RESUBMIT_NOTE).in("id", tripIds);
+  }
 
   if (result.error && isMissingColumnOrRelation(result.error)) {
     result = await supabase().from("trips").select(SELECT_WITH_RESUBMIT).in("id", tripIds);
@@ -214,6 +220,9 @@ export async function fetchComplianceTripFlags(
           : null,
       compliance_resubmitted_at: (r.compliance_resubmitted_at as string | null | undefined) ?? null,
       compliance_resubmit_note: (r.compliance_resubmit_note as string | null | undefined) ?? null,
+      finance_flagged_at: (r.finance_flagged_at as string | null | undefined) ?? null,
+      finance_flagged_by: (r.finance_flagged_by as string | null | undefined) ?? null,
+      finance_flag_note: (r.finance_flag_note as string | null | undefined) ?? null,
       finance_verified_at: (r.finance_verified_at as string | null | undefined) ?? null,
       finance_verified_by: (r.finance_verified_by as string | null | undefined) ?? null,
       pod_hard_copy_courier: r.pod_hard_copy_courier as string | null,
@@ -876,6 +885,7 @@ export function summarizeComplianceTrip(inputs: ComplianceTripInputs): Complianc
         ...trip,
         compliance_verified_at: flags.compliance_verified_at,
         finance_verified_at: flags.finance_verified_at ?? null,
+        finance_flagged_at: flags.finance_flagged_at ?? null,
         pod_received_at: flags.pod_received_at,
       }
     : trip;
@@ -899,6 +909,8 @@ export function summarizeComplianceTrip(inputs: ComplianceTripInputs): Complianc
     complianceRejectReturnTo: flags?.compliance_reject_return_to ?? null,
     complianceResubmittedAt: flags?.compliance_resubmitted_at ?? null,
     complianceResubmitNote: flags?.compliance_resubmit_note ?? null,
+    financeFlaggedAt: flags?.finance_flagged_at ?? null,
+    financeFlagNote: flags?.finance_flag_note ?? null,
     financeVerifiedAt: flags?.finance_verified_at ?? null,
     financeVerifiedBy: flags?.finance_verified_by ?? null,
     advance,

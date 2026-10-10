@@ -41,6 +41,8 @@ import {
 } from "@/features/tripCompliance/services/complianceExportReport.service";
 import {
     declineTripCompliance,
+    clearTripFinanceFlag,
+    flagTripForCompliance,
     markTripFinanceVerified,
     unmarkTripFinanceVerified,
     markTripComplianceVerified,
@@ -94,6 +96,7 @@ import {
     isComplianceAwaitingResubmit,
     isComplianceHoldAwaitingResubmit,
     isComplianceHoldResubmitted,
+    isFinanceFlagged,
     isFinanceDeclinedForCompliancePending,
     isFinanceDeclinedForPendingDocs,
     isFinanceDeclinedTrip,
@@ -360,19 +363,22 @@ export default function ComplianceScreen() {
   } = useComplianceTripsQuery();
   const { stage, setStage, filtered, counts, declinedCount, podReceivedCount } =
     useComplianceStageFilter(summaries);
-  const [pendingSlice, setPendingSlice] = useState<"all" | "hold" | "finance_declined" | "rejected">("all");
+  const [pendingSlice, setPendingSlice] = useState<"all" | "hold" | "finance_declined" | "rejected" | "flagged">("all");
   /** Pending Docs only: In-transit vs Delivered (ops trip.status). Above All / Hold / Declined. */
   const [pendingTransitSlice, setPendingTransitSlice] = useState<"in_transit" | "delivered">("in_transit");
   /** Subtabs under Verified: All / Verified / Compliance / Document Upload. */
   const [verifiedSlice, setVerifiedSlice] = useState<
     "all" | "verified" | "compliance" | "pending_docs"
   >("all");
-  /** Subtabs under POD: All / POD Pending / POD Received. IBond stays under Received. */
-  const [podSlice, setPodSlice] = useState<"all" | "pending" | "received">("all");
+  /** Subtabs under Awaiting POD: All / POD Pending / POD Received / Advance Processed. IBond stays under Received. */
+  const [podSlice, setPodSlice] = useState<"all" | "pending" | "received" | "advance_processed">("all");
+  /** Advance Processed is a sub-tab of Awaiting POD (txn date / UTR table + export). */
+  const isAdvanceProcessedStage =
+    stage === "advance_payment_processed" || (stage === "hard_copy_pod_received" && podSlice === "advance_processed");
   /** Subtabs under Settlement: All / Balance Pending / Settled. */
   const [settlementSlice, setSettlementSlice] = useState<"all" | "pending" | "settled">("all");
   /** When stage changes via Reject, keep the Declined by finance subtab (effect would otherwise reset to All). */
-  const pendingSliceAfterStageRef = useRef<"all" | "hold" | "finance_declined" | "rejected" | null>(null);
+  const pendingSliceAfterStageRef = useRef<"all" | "hold" | "finance_declined" | "rejected" | "flagged" | null>(null);
   const verifiedSliceAfterStageRef = useRef<"all" | "verified" | "compliance" | "pending_docs" | null>(null);
   useEffect(() => {
     const intent = pendingSliceAfterStageRef.current;
@@ -626,6 +632,43 @@ export default function ComplianceScreen() {
     [canManageFinance, setStage, syncChange],
   );
 
+  /** Finance: send the trip to Compliance → Flagged by finance. Throws for the dialog. */
+  const flagTrip = useCallback(
+    async (tripId: string, note: string) => {
+      if (!canManageFinance) throw new Error("You don't have permission to flag this trip.");
+      try {
+        await flagTripForCompliance({ tripId, note, idempotencyKey: `${tripId}:flag:${Date.now()}` });
+      } finally {
+        await syncChange({ type: "tripFlags", tripId }).catch(() => undefined);
+      }
+      setTimeout(
+        () => alertMessage("Flagged for Compliance", "Compliance will review it. The advance stays blocked until they clear the flag."),
+        0,
+      );
+    },
+    [canManageFinance, syncChange],
+  );
+
+  /** Compliance: clear a finance flag after checking (Reject also clears it). */
+  const clearFinanceFlag = useCallback(
+    async (tripId: string) => {
+      const ok = await confirmAction(
+        "Clear finance flag?",
+        "The trip goes back to Finance for the advance. Use Reject instead if something must be fixed.",
+        "Clear flag",
+      );
+      if (!ok) return;
+      try {
+        await clearTripFinanceFlag({ tripId, idempotencyKey: `${tripId}:unflag:${Date.now()}` });
+      } catch (error) {
+        alertMessage("Couldn't clear flag", error instanceof Error ? error.message : "Please try again.");
+      } finally {
+        await syncChange({ type: "tripFlags", tripId }).catch(() => undefined);
+      }
+    },
+    [syncChange],
+  );
+
   const rejectKeysRef = useRef(new Map<string, { reason: string; key: string; at: number }>());
   const rejectTrip = useCallback(
     async (tripId: string, reason: string) => {
@@ -721,6 +764,7 @@ export default function ComplianceScreen() {
     () => (summaries ?? []).filter(isFinanceDeclinedForCompliancePending).length,
     [summaries],
   );
+  const financeFlaggedCount = useMemo(() => (summaries ?? []).filter(isFinanceFlagged).length, [summaries]);
   const pendingDocsRejectedCount = useMemo(
     () => (summaries ?? []).filter(isFinanceDeclinedForPendingDocs).length,
     [summaries],
@@ -785,6 +829,7 @@ export default function ComplianceScreen() {
       if (pendingSlice === "finance_declined") {
         return (summaries ?? []).filter(isFinanceDeclinedForCompliancePending);
       }
+      if (pendingSlice === "flagged") return (summaries ?? []).filter(isFinanceFlagged);
       return filtered;
     }
     if (stage === "pending_for_docs") {
@@ -805,6 +850,9 @@ export default function ComplianceScreen() {
         return podPendingPool.filter((summary) =>
           matchesAwaitingPodSubview(summary, awaitingPodSubview),
         );
+      }
+      if (podSlice === "advance_processed") {
+        return filtered.filter((summary) => summary.stage === "advance_payment_processed");
       }
       if (podSlice === "received") {
         if (podReceivedSubview === "ibond") {
@@ -860,7 +908,7 @@ export default function ComplianceScreen() {
           compact
           cardDense={cardDense}
           value={
-            pendingSlice === "finance_declined"
+            pendingSlice === "finance_declined" || pendingSlice === "flagged"
               ? "all"
               : pendingSlice === "rejected"
                 ? "rejected"
@@ -934,11 +982,13 @@ export default function ComplianceScreen() {
           embedded={embedded}
           compact
           cardDense={cardDense}
+          wrap
           value={pendingSlice === "rejected" ? "all" : pendingSlice}
           counts={{
             all: counts.compliance_pending,
             hold: complianceHoldCount,
             finance_declined: financeDeclinedCount,
+            flagged: financeFlaggedCount,
           }}
           options={[
             { id: "all", label: "Inbox", a11yLabel: "Inbox", dot: null },
@@ -953,6 +1003,12 @@ export default function ComplianceScreen() {
               label: "Declined by finance",
               a11yLabel: "Declined by finance",
               dot: COMPLIANCE_STAGE_TONE.pending_for_docs.fg,
+            },
+            {
+              id: "flagged",
+              label: "Flagged by finance",
+              a11yLabel: "Flagged by finance",
+              dot: COMPLIANCE_STAGE_TONE.finance_verified.fg,
             },
           ]}
           onChange={(next) => setPendingSlice(next)}
@@ -1010,6 +1066,7 @@ export default function ComplianceScreen() {
             all: filtered.length,
             pending: podPendingPool.length,
             received: podReceivedPool.length,
+            advance_processed: filtered.filter((summary) => summary.stage === "advance_payment_processed").length,
           }}
           options={[
             { id: "all", label: "Inbox", a11yLabel: "Inbox", dot: null },
@@ -1024,6 +1081,12 @@ export default function ComplianceScreen() {
               label: "POD Received",
               a11yLabel: "POD Received",
               dot: Theme.complianceStageSuccessFg,
+            },
+            {
+              id: "advance_processed",
+              label: "Advance Processed",
+              a11yLabel: "Advance Processed",
+              dot: ADVANCE_PROCESSED_TONE.fg,
             },
           ]}
           onChange={(next) => {
@@ -1093,11 +1156,11 @@ export default function ComplianceScreen() {
   const ordered = useMemo(() => {
     // Advance Processed: newest posted advance first (Cards + Table). Other stages
     // keep trip-event date sort on Table only.
-    if (stage === "advance_payment_processed") {
+    if (isAdvanceProcessedStage) {
       return sortAdvanceProcessedSummaries(searched);
     }
     return viewMode === "table" ? sortComplianceTableRows(searched, tableDateSort) : searched;
-  }, [searched, stage, tableDateSort, viewMode]);
+  }, [isAdvanceProcessedStage, searched, tableDateSort, viewMode]);
   const visible = ordered;
   const filteredTotal = ordered.length;
   const tableResetKey = useMemo(
@@ -1217,7 +1280,6 @@ export default function ComplianceScreen() {
   );
 
   /** Advance Processed Export Report: rows are prepared on open so the card shows real counts. */
-  const isAdvanceProcessedStage = stage === "advance_payment_processed";
   const [apExport, setApExport] = useState<{
     open: boolean;
     preparing: boolean;
@@ -1239,7 +1301,11 @@ export default function ComplianceScreen() {
     const request = ++apExportRequest.current;
     setApExport({ open: true, preparing: true, exporting: false, rows: [] });
     // Stage-scoped (`filtered`), not cross-stage `searched` — then newest posted first.
-    prepareAdvanceProcessedReport(orgId, sortAdvanceProcessedSummaries(filtered))
+    // Awaiting POD also lists unpaid trips, so keep only Advance Processed ones.
+    prepareAdvanceProcessedReport(
+      orgId,
+      sortAdvanceProcessedSummaries(filtered.filter((summary) => summary.stage === "advance_payment_processed")),
+    )
       .then((rows) => {
         if (request !== apExportRequest.current) return;
         setApExport((cur) => ({ ...cur, preparing: false, rows }));
@@ -1303,11 +1369,13 @@ export default function ComplianceScreen() {
     if (stage === "pending_for_docs" && pendingSlice === "rejected") extra.push("Declined by finance");
     if (stage === "compliance_pending" && pendingSlice === "hold") extra.push("Compliance Hold");
     if (stage === "compliance_pending" && pendingSlice === "finance_declined") extra.push("Declined by finance");
+    if (stage === "compliance_pending" && pendingSlice === "flagged") extra.push("Flagged by finance");
     if (stage === "compliance_verified" && verifiedSlice === "verified") extra.push("Verified");
     if (stage === "compliance_verified" && verifiedSlice === "compliance") extra.push("Compliance");
     if (stage === "compliance_verified" && verifiedSlice === "pending_docs") extra.push("Document Upload");
     if (stage === "hard_copy_pod_received" && podSlice === "pending") extra.push("POD Pending");
     if (stage === "hard_copy_pod_received" && podSlice === "received") extra.push("POD Received");
+    if (stage === "hard_copy_pod_received" && podSlice === "advance_processed") extra.push("Advance Processed");
     if (stage === "hard_copy_pod_received" && podSlice === "pending" && awaitingPodSubview !== "all") {
       extra.push(AWAITING_POD_SUBVIEW_LABEL[awaitingPodSubview]);
     }
@@ -1549,6 +1617,8 @@ export default function ComplianceScreen() {
                         : verifiedSlice === "pending_docs"
                           ? "No finance-declined trips in Document Upload."
                           : "No verified or finance-declined trips."
+                    : pendingSlice === "flagged"
+                    ? "No trips flagged by finance."
                     : pendingSlice === "finance_declined"
                     ? "No trips declined by finance."
                     : pendingSlice === "rejected"
@@ -1571,7 +1641,7 @@ export default function ComplianceScreen() {
                 : "No Loading→Completed trips in the Compliance queue yet."}
           </Text>
         </View>
-      ) : viewMode === "table" && stage === "advance_payment_processed" && !search.trim() ? (
+      ) : viewMode === "table" && isAdvanceProcessedStage && !search.trim() ? (
         <TableQueueScroll {...tableQueueScrollProps}>
           <ComplianceAdvanceProcessedTable
             summaries={tableWindowItems}
@@ -1634,6 +1704,7 @@ export default function ComplianceScreen() {
                     utr: values.utr,
                     transactionDate: values.transactionDate,
                     notes: compliancePaymentNotes(values),
+                    paidFromAccountId: values.paidFromAccountId,
                   });
                   setPaying(false);
                   if (payError) {
@@ -1645,6 +1716,8 @@ export default function ComplianceScreen() {
               : undefined
           }
           onRejectCompliance={canMarkVerified ? rejectTrip : undefined}
+          onFlagForCompliance={canManageFinance ? flagTrip : undefined}
+          onClearFinanceFlag={canMarkVerified ? clearFinanceFlag : undefined}
           onResubmitCompliance={
             canResubmit && stage === "pending_for_docs"
               ? resubmitComplianceTrip
@@ -1867,6 +1940,7 @@ export default function ComplianceScreen() {
             utr: values.utr,
             transactionDate: values.transactionDate,
             notes: compliancePaymentNotes(values),
+            paidFromAccountId: values.paidFromAccountId,
           });
           setPaying(false);
           if (payError) {

@@ -25,6 +25,7 @@ export function ComplianceSegmentedFilter<T extends string>({
   compact = false,
   cardDense = false,
   narrow = false,
+  wrap = false,
 }: {
   value: T;
   counts: Record<T, number>;
@@ -36,6 +37,8 @@ export function ComplianceSegmentedFilter<T extends string>({
   compact?: boolean;
   /** Pending Docs only: chips hug their label instead of sharing the full row. */
   narrow?: boolean;
+  /** Many options: chips wrap onto a second row instead of being cut off. */
+  wrap?: boolean;
   /**
    * Card-list header only: denser chips; full label + count stay readable
    * (label may wrap to 2 lines). Leave false for table view.
@@ -59,6 +62,7 @@ export function ComplianceSegmentedFilter<T extends string>({
           cardDense && styles.trackCardDense,
           !narrow && styles.trackFull,
           narrow && styles.trackNarrow,
+          wrap && styles.trackWrap,
         ]}
         accessibilityRole="tablist"
       >
@@ -204,6 +208,11 @@ const styles = StyleSheet.create({
   trackNarrow: {
     alignSelf: "center",
     width: "auto",
+  },
+  trackWrap: {
+    flexWrap: "wrap",
+    rowGap: 4,
+    borderRadius: 14,
   },
   trackCompact: {
     borderRadius: 999,

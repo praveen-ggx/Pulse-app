@@ -307,6 +307,8 @@ export interface CreateLedgerEntryData {
   ledger_category?: string | null;
   /** Structured payment reference/UTR (transactions.payment_reference). When omitted, derived from `description` for backward compatibility. */
   payment_reference?: string | null;
+  /** Org bank account the money left from (transactions.paid_from_account_id). Sent only when set. */
+  paid_from_account_id?: string | null;
 }
 
 type LedgerContactType = "client" | "supplier" | "driver" | "dco";
@@ -1567,6 +1569,7 @@ export async function createLedgerEntry(
     ledger_flow_type: enriched.ledger_flow_type ?? null,
     ledger_category: enriched.ledger_category ?? null,
     payment_reference: enriched.payment_reference ?? null,
+    ...(entry.paid_from_account_id ? { paid_from_account_id: entry.paid_from_account_id } : {}),
   };
 
   // Prefer getSession (local) over getUser (network). Never block Confirm Sync

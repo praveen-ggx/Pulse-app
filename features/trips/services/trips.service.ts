@@ -189,6 +189,8 @@ export interface TripRow {
   compliance_reject_return_to?: string | null;
   compliance_resubmitted_at?: string | null;
   compliance_resubmit_note?: string | null;
+  finance_flagged_at?: string | null;
+  finance_flag_note?: string | null;
   pod_hard_copy_courier?: string | null;
   pod_hard_copy_awb_number?: string | null;
   pod_hard_copy_received_by?: string | null;

@@ -41,6 +41,7 @@ import { setTripDocumentVerification, updateCompliancePaymentReference, updateCo
 import {
   COMPLIANCE_DRIVER_DOCUMENT_TYPES,
   COMPLIANCE_VEHICLE_DOCUMENT_TYPES,
+  REQUIRED_COMPLIANCE_DOCUMENT_TYPES,
   documentRequiresExpiry,
   type ComplianceStage,
   type ComplianceTripSummary,
@@ -83,7 +84,10 @@ import {
   isFinanceDeclinedTrip,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
 import { alertMessage, confirmAction } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
-import { COMPLIANCE_DECLINE_REASON_SECTIONS } from "@/features/tripCompliance/utils/complianceDeclineReason.util";
+import {
+  COMPLIANCE_DECLINE_REASON_SECTIONS,
+  FINANCE_FLAG_REASON_SECTIONS,
+} from "@/features/tripCompliance/utils/complianceDeclineReason.util";
 import { fetchSupplierBankProofBundle } from "@/features/tripCompliance/utils/supplierBankProof.util";
 import { classifyTripDocument, readTypedDetails } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
 
@@ -98,7 +102,9 @@ import {
 } from "@/features/tripCompliance/services/complianceVaultUpload.service";
 import {
   deleteTripDocument,
+  uploadTripDocument,
   type TripDocumentRow,
+  type TripDocumentType,
 } from "@/features/trips/services/tripDocuments.service";
 import { LogHardCopyPodModal, type HardCopyPodLrOption } from "@/features/trips/components/trip-detail/LogHardCopyPodModal";
 import {
@@ -2168,6 +2174,8 @@ export function ComplianceDocumentWorkspace({
   paymentSubmitting = false,
   onRejectCompliance,
   onResubmitCompliance,
+  onFlagForCompliance,
+  onClearFinanceFlag,
   onDeclineCompliance,
   onMarkComplianceVerified,
   onFinanceVerify,
@@ -2239,6 +2247,10 @@ export function ComplianceDocumentWorkspace({
   onRejectCompliance?: (tripId: string, reason: string) => Promise<void>;
   /** Ground Ops, Document Upload → Declined by finance only. */
   onResubmitCompliance?: (tripId: string, note: string) => Promise<void>;
+  /** Finance: flag a verified trip for Compliance review (throws on failure). */
+  onFlagForCompliance?: (tripId: string, note: string) => Promise<void>;
+  /** Compliance: clear a finance flag. */
+  onClearFinanceFlag?: (tripId: string) => Promise<void>;
   /** Decline the whole trip while it is still in Compliance Pending. */
   onDeclineCompliance?: (tripId: string, reason: string) => Promise<void>;
   /** Marks the trip Compliance Verified once all required docs are approved. */
@@ -2329,6 +2341,7 @@ export function ComplianceDocumentWorkspace({
   const [rejectOpen, setRejectOpen] = useState(false);
   const [resubmitting, setResubmitting] = useState(false);
   const [resubmitOpen, setResubmitOpen] = useState(false);
+  const [flagOpen, setFlagOpen] = useState(false);
   const [podOpen, setPodOpen] = useState(false);
   const [podLogRound, setPodLogRound] = useState(0);
   const [expiryPrompt, setExpiryPrompt] = useState<{
@@ -3348,32 +3361,29 @@ export function ComplianceDocumentWorkspace({
         } as TripDocumentRow)
       : null;
 
-  /** Replace one trip file: upload the new copy, then delete the old one. */
+  /**
+   * Replace one trip file in place: same row, new file, status back to
+   * pending, old version kept in the audit log. No second row is created.
+   */
   const replaceTripFile = async (row: ComplianceDocRow) => {
-    const old = tripDocumentForDelete(row);
-    if (!summary || !old || !actorId) return;
+    if (!summary || !row.doc || !actorId) return;
     setFileActionKey(row.key);
     try {
       const file = await pickComplianceVaultFile(row.type);
       if (!file) return;
-      await uploadComplianceVaultFile({
-        scope: "trip",
-        type: row.type,
-        tripId: summary.trip.id,
-        organizationId,
+      const { error } = await uploadTripDocument(
+        summary.trip.id,
         actorId,
-        vehicleId: summary.trip.vehicle_id ?? null,
-        entityId: null,
-        existing: null,
-        append: true,
         file,
-        expiryDate: null,
-      });
-      const { error } = await deleteTripDocument(old);
-      onChanged({ type: "tripDocuments", tripId: summary.trip.id });
+        row.type as TripDocumentType,
+        row.doc.document_number ?? undefined,
+        { replaceDocumentId: row.doc.id, organizationId },
+      );
       if (error) {
-        alertMessage("Old file not removed", `The new file was added, but the old one could not be removed: ${error.message}`);
+        alertMessage("Couldn't replace file", error.message);
+        return;
       }
+      onChanged({ type: "tripDocuments", tripId: summary.trip.id });
     } catch (err) {
       alertMessage("Couldn't replace file", err instanceof Error ? err.message : "Replace failed. Try again.");
     } finally {
@@ -4237,6 +4247,35 @@ export function ComplianceDocumentWorkspace({
                           ) : null}
                         </View>
                       ) : null}
+                      {summary?.financeFlaggedAt && (onClearFinanceFlag || onRejectCompliance) ? (
+                        <View style={styles.checklistPreviewTripActions}>
+                          <Text style={styles.flagTitle} numberOfLines={2}>
+                            {`Finance flag: ${summary.financeFlagNote?.trim() || "no note"}`}
+                          </Text>
+                          {onRejectCompliance ? (
+                            <TouchableOpacity
+                              style={styles.declineTripBtn}
+                              activeOpacity={0.85}
+                              onPress={() => setRejectOpen(true)}
+                              accessibilityRole="button"
+                              accessibilityLabel="Reject trip compliance"
+                            >
+                              <Text style={styles.declineTripBtnText}>Reject</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                          {onClearFinanceFlag ? (
+                            <TouchableOpacity
+                              style={styles.verifyTripBtn}
+                              activeOpacity={0.85}
+                              onPress={() => void onClearFinanceFlag(summary.trip.id)}
+                              accessibilityRole="button"
+                              accessibilityLabel="Clear finance flag"
+                            >
+                              <Text style={styles.verifyTripBtnText}>Clear flag</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                      ) : null}
                       {showResubmit && summary && onResubmitCompliance ? (
                         <View style={styles.checklistPreviewTripActions}>
                           <TouchableOpacity
@@ -4396,6 +4435,8 @@ export function ComplianceDocumentWorkspace({
                       onConfirmPayment={onConfirmPayment}
                       onOpenPayModal={onConfirmPayment ? undefined : onPay}
                       onReject={showReject ? () => setRejectOpen(true) : undefined}
+                      onFlag={onFlagForCompliance ? () => setFlagOpen(true) : undefined}
+                      onClearFlag={onClearFinanceFlag ? () => void onClearFinanceFlag(summary.trip.id) : undefined}
                       canPayRejected={Boolean(
                         canManageFinance &&
                           onConfirmPayment &&
@@ -4657,9 +4698,16 @@ export function ComplianceDocumentWorkspace({
           .map((row) => applyOptimisticDecision(row, localDecisionByKey[optimisticKey(reviewScope, row.key)]));
         const label = isFinanceMode ? labelForFinanceDocType(filesModalType) : labelForDocType(filesModalType);
         const canUploadHere = Boolean(onReviewTripDocs || isFinanceMode);
+        // Required trip files are locked once the trip is verified (unless it is
+        // back with Ground Ops after a hold / reject). The database enforces it too.
+        const verifiedLock = Boolean(
+          summary?.complianceVerifiedAt &&
+            !isComplianceAwaitingResubmit(summary) &&
+            REQUIRED_COMPLIANCE_DOCUMENT_TYPES.includes(filesModalType),
+        );
         const files: ComplianceDocTypeFile[] = fileRows.map((row, index) => {
           const isTripFile = Boolean(row.doc);
-          const approved = row.status === "verified";
+          const approved = row.status === "verified" || verifiedLock;
           return {
             key: row.key,
             label: fileRows.length > 1 ? `${label} · ${index + 1}` : label,
@@ -4669,7 +4717,12 @@ export function ComplianceDocumentWorkspace({
             canPreview: canViewDocuments,
             canReplace: canUploadHere && isTripFile && !approved,
             canRemove: canUploadHere && isTripFile && !approved,
-            lockedReason: approved && isTripFile && canUploadHere ? "Approved files are locked" : null,
+            lockedReason:
+              approved && isTripFile && canUploadHere
+                ? row.status === "verified"
+                  ? "Approved files are locked"
+                  : "Locked after the trip is verified"
+                : null,
           };
         });
         const addRow = typeRows[0];
@@ -4712,6 +4765,25 @@ export function ComplianceDocumentWorkspace({
           />
         );
       })()}
+      <ComplianceDeclineModal
+        visible={flagOpen}
+        title="Flag to Compliance"
+        fieldLabel="Note (optional)"
+        placeholder="What should Compliance check?"
+        submitLabel="Flag"
+        presets={FINANCE_FLAG_REASON_SECTIONS}
+        tripLabel={
+          summary
+            ? getTripDisplayNumber(summary.trip, summary.trip.organization_id ?? null)
+            : "Trip"
+        }
+        onCancel={() => setFlagOpen(false)}
+        onSubmit={async (note) => {
+          if (!summary || !onFlagForCompliance) return;
+          await onFlagForCompliance(summary.trip.id, note);
+          setFlagOpen(false);
+        }}
+      />
       <ComplianceDeclineModal
         visible={resubmitOpen}
         title="Resubmit for review"
@@ -5544,6 +5616,8 @@ function ChecklistAdvancePaymentPanel({
   onConfirmPayment,
   onOpenPayModal,
   onReject,
+  onFlag,
+  onClearFlag,
   canPayRejected = false,
   onFinanceVerify,
   onUndoFinanceVerify,
@@ -5583,6 +5657,10 @@ function ChecklistAdvancePaymentPanel({
   onOpenPayModal?: (summary: ComplianceTripSummary) => void;
   /** Trip-level compliance Reject (opens the remark modal). */
   onReject?: () => void;
+  /** Finance: Flag to Compliance (opens the flag dialog). */
+  onFlag?: () => void;
+  /** Compliance: clear the finance flag. */
+  onClearFlag?: () => void;
   /** Finance staff: approve a Compliance Verified trip. */
   onFinanceVerify?: () => void;
   /** Finance staff: undo Finance Verify while no advance is posted. */
@@ -5595,10 +5673,14 @@ function ChecklistAdvancePaymentPanel({
     (supplierName ?? summary.trip.supplier_name)?.trim() || "party";
   const lane = readiness?.advance ?? null;
   // Advance Verification: read-only review of the payment values before Finance Verify.
+  const flagged = !advance && Boolean(summary.financeFlaggedAt);
   const showReviewForm =
+    !flagged &&
     !advance && !advanceBeforeVerification && Boolean(summary.complianceVerifiedAt) && !summary.financeVerifiedAt;
   const statusLabel = advance
     ? "Advance processed"
+    : flagged
+      ? "Flagged for Compliance"
     : showReviewForm
       ? "Finance review"
       : lane?.status === "ready"
@@ -5608,6 +5690,8 @@ function ChecklistAdvancePaymentPanel({
         : "Not posted";
   const statusTone: "ready" | "posted" | "blocked" | "pending" = advance
     ? "posted"
+    : flagged
+      ? "blocked"
     : showReviewForm
       ? "pending"
       : lane?.status === "ready"
@@ -5629,6 +5713,7 @@ function ChecklistAdvancePaymentPanel({
         })
       : [];
   const showInlineForm =
+    !flagged &&
     !advance &&
     canPay &&
     paymentCategory === "compliance_advance" &&
@@ -5749,7 +5834,29 @@ function ChecklistAdvancePaymentPanel({
               void onConfirmPayment?.(summary, "compliance_advance", values);
             }}
             onReject={onReject}
+            onFlag={onFlag}
           />
+        </View>
+      ) : null}
+
+      {flagged ? (
+        <View style={styles.checklistAdvanceFormCard}>
+          <Text style={styles.flagTitle}>Flagged for Compliance review</Text>
+          <Text style={styles.flagNote}>{summary.financeFlagNote?.trim() || "No note"}</Text>
+          <Text style={styles.flagHint}>
+            The advance is blocked until Compliance clears the flag or rejects the trip.
+          </Text>
+          {onClearFlag ? (
+            <TouchableOpacity
+              style={[styles.checklistPayBtn, styles.checklistAdvancePayFallback]}
+              activeOpacity={0.85}
+              onPress={onClearFlag}
+              accessibilityRole="button"
+              accessibilityLabel="Clear finance flag"
+            >
+              <Text style={styles.checklistPayBtnText}>Clear flag</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       ) : null}
 
@@ -5764,6 +5871,7 @@ function ChecklistAdvancePaymentPanel({
             submitting={false}
             onConfirm={() => undefined}
             onReject={onReject}
+            onFlag={onFlag}
             onFinanceVerify={onFinanceVerify}
             financeVerifySubmitting={financeVerifySubmitting}
           />
@@ -6071,6 +6179,11 @@ const TripListRow = React.memo(function TripListRow({
       {resubmitNote ? (
         <Text style={styles.resubmitNoteLine} numberOfLines={2}>
           {`Resubmitted: ${resubmitNote}`}
+        </Text>
+      ) : null}
+      {summary.financeFlaggedAt ? (
+        <Text style={styles.rejectReasonLine} numberOfLines={2}>
+          {`Finance flag: ${summary.financeFlagNote?.trim() || "no note"}`}
         </Text>
       ) : null}
 
@@ -7563,6 +7676,9 @@ const styles = StyleSheet.create({
     borderColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.cardWhite,
   },
+  flagTitle: { fontSize: 13, fontWeight: "700", color: Theme.complianceGroupDangerFg },
+  flagNote: { fontSize: 13, fontWeight: "600", color: Theme.textPrimaryDark },
+  flagHint: { fontSize: 11, color: Theme.textMuted },
   checklistAdvanceFormCard: {
     flex: 1,
     minHeight: 0,

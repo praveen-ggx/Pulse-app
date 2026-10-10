@@ -32,6 +32,18 @@ function summaryFixture(overrides: Partial<ComplianceTripSummary> = {}): Complia
 }
 
 describe("deriveComplianceQueueReadiness", () => {
+  it("blocks the advance while Finance has flagged the trip, even after Approve Advance", () => {
+    const readiness = deriveComplianceQueueReadiness(
+      summaryFixture({
+        complianceVerifiedAt: "2026-09-01T00:00:00Z",
+        financeVerifiedAt: "2026-09-02T00:00:00Z",
+        financeFlaggedAt: "2026-09-03T00:00:00Z",
+      }),
+    );
+    expect(readiness.advance.status).toBe("blocked");
+    expect(readiness.blockerLines.join(" ")).toMatch(/Flagged for Compliance review/);
+  });
+
   it("blocks advance until compliance is marked verified", () => {
     const readiness = deriveComplianceQueueReadiness(summaryFixture());
     expect(readiness.paymentReady).toBe(false);

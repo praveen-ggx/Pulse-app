@@ -628,6 +628,26 @@ describe("Compliance vs Finance — split of the Compliance page", () => {
     expect(OTHER_TAB_SURFACES.filter((id) => memberHasSurface(HYBRID, ground, id))).toEqual([]);
   });
 
+  it("debit control logs hard-copy POD only — no doc upload, verify, settlement or pay", () => {
+    const dc = defaultSurfacesForRole("debit_control", HYBRID);
+    const on = (id: MemberSurfaceId) => memberHasSurface(HYBRID, dc, id);
+    expect(on("trip_compliance.pod.manage")).toBe(true);
+    expect(on("tripops.trips.docs")).toBe(true);
+    for (const id of [
+      "trip_compliance.documents.view",
+      "trip_compliance.documents.verify",
+      "trip_compliance.finance.view",
+      "trip_compliance.finance.manage",
+      "tripops.trips.assign",
+    ] as MemberSurfaceId[]) {
+      expect(on(id)).toBe(false);
+    }
+    expect(capabilitiesFromMemberSurfaces(HYBRID, dc)).toEqual([]);
+    expect(
+      platformRoleAfterAccessEdit("debit_control", domainsFromSurfaces(dc), dc, HYBRID),
+    ).toBe("debit_control");
+  });
+
   it("switching Compliance off keeps Debit control payments working", () => {
     const finance = defaultSurfacesForRole("finance", HYBRID);
     const cleared = applySectionToggle(finance, "compliance", false, HYBRID);

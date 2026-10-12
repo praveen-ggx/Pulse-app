@@ -29,6 +29,8 @@ export type PlatformTeamRole =
   | "ground_ops"
   /** Supplier desk — suppliers on Network + Finance → Suppliers sub-tab only. */
   | "vendor_support"
+  /** Debit control desk — hard-copy POD (POD Pending / Received) + Debit Control page. Never pays. */
+  | "debit_control"
   /** Trip Compliance — verifies documents, marks trips verified, logs hard-copy POD. Never pays. */
   | "compliance"
   /**
@@ -46,6 +48,7 @@ const ALL_PLATFORM_TEAM_ROLES: readonly PlatformTeamRole[] = [
   "tripops",
   "ground_ops",
   "vendor_support",
+  "debit_control",
   "compliance",
   "restricted",
 ];
@@ -132,6 +135,7 @@ export const PLATFORM_ROLE_GRANTS: Record<PlatformTeamRole, string[]> = {
   tripops: ["org:read", "warehouses:read", "ops:*", "planning:*", "execution:read"],
   ground_ops: ["org:read", "execution:read"],
   vendor_support: ["org:read", "warehouses:read", "commerce:*", "finance:read"],
+  debit_control: ["org:read", "execution:read"],
   compliance: ["org:read", "execution:read"],
   // Baseline only — can see the workspace exists, nothing functional.
   restricted: ["org:read"],
@@ -186,6 +190,12 @@ export const TEAM_INVITE_ROLE_OPTIONS: TeamInviteRoleOption[] = [
     label: "Compliance",
     description: "Document Upload and Compliance Verification — verify documents, mark trips verified. No payments.",
     grants: PLATFORM_ROLE_GRANTS.compliance,
+  },
+  {
+    value: "debit_control",
+    label: "Debit control",
+    description: "Hard-copy POD — POD Pending / POD Received and the Debit Control page. No payments.",
+    grants: PLATFORM_ROLE_GRANTS.debit_control,
   },
 ];
 
@@ -300,6 +310,11 @@ export function platformRoleAfterAccessEdit(
   if (role === "ground_ops") {
     return domains.tripops ? "ground_ops" : platformRoleFromDomains(domains);
   }
+  if (role === "debit_control") {
+    return memberHasSurface(orgCaps, surfaces, "trip_compliance.pod.manage")
+      ? "debit_control"
+      : platformRoleFromDomains(domains);
+  }
   if (role === "vendor_support") {
     return memberHasSurface(orgCaps, surfaces, "sales.suppliers.view")
       ? "vendor_support"
@@ -376,19 +391,21 @@ export function buildPermissionsFromSurfaces(
   const preferAdmin =
     options?.preferAdmin ?? options?.platformRole === "admin";
 
-  // Preserve non-domain-derived roles like ground_ops / compliance that cannot be re-derived from domains.
-  // Admin is the only domain-derived role we preserve by special case.
+  // Keep the role the owner picked while its access is still there. Re-deriving
+  // from domains alone mislabelled Sales as TripOps (Sales has the Trips tab).
+  const requested = options?.platformRole;
   const platformRole =
-    options?.platformRole === "admin" &&
-    domains.finance &&
-    domains.sales &&
-    domains.tripops
+    requested === "admin" && domains.finance && domains.sales && domains.tripops
       ? "admin"
-      : options?.platformRole === "ground_ops" ||
-          options?.platformRole === "compliance" ||
-          options?.platformRole === "vendor_support"
-        ? options.platformRole
-        : platformRoleFromDomains(domains, preferAdmin);
+      : requested === "ground_ops" ||
+          requested === "compliance" ||
+          requested === "vendor_support" ||
+          requested === "debit_control"
+        ? requested
+        : (requested === "finance" || requested === "sales" || requested === "tripops") &&
+            domains[requested]
+          ? requested
+          : platformRoleFromDomains(domains, preferAdmin);
 
   return buildTeamInvitePermissions(
     platformRole,
@@ -500,6 +517,8 @@ export function orgMemberRoleForPlatformRole(
     case "ground_ops":
       return "member";
     case "vendor_support":
+      return "member";
+    case "debit_control":
       return "member";
     case "compliance":
       return "member";

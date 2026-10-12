@@ -1564,6 +1564,18 @@ export function defaultSurfacesForRole(
         "tripops.trips.docs",
         ...COMPLIANCE_ROLE_SURFACE_IDS,
       ]);
+    case "debit_control":
+      // Hard-copy POD desk: Compliance page POD tabs (pod.manage) and the
+      // Debit Control page, with read-only trip + document access to match a
+      // POD to its trip. No Document Upload / verify, no settlement or pay.
+      return allOn([
+        "tripops.tab",
+        "tripops.trips.view",
+        "tripops.trips.detail",
+        "tripops.trips.docs",
+        "trip_compliance.tab",
+        "trip_compliance.pod.manage",
+      ]);
     case "vendor_support":
       // Suppliers on the Network page, and in Finance the Suppliers sub-tab
       // only. No Cash sub-tab, so finance.ledger.suppliers (which needs it)

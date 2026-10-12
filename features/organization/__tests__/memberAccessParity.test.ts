@@ -79,6 +79,16 @@ describe("member access parity — Invite vs Edit", () => {
     );
   });
 
+  it("keeps the picked functional role (Sales has the Trips tab but stays Sales)", () => {
+    for (const role of ["sales", "finance", "tripops"] as const) {
+      const snap = accessSnapshotFromRole(role, HYBRID);
+      expect(
+        buildMemberPermissions({ platformRole: role, surfaces: snap.surfaces, orgCaps: HYBRID })
+          .platformRole,
+      ).toBe(role);
+    }
+  });
+
   it("drops the Department manager flag on roles that can't hold it", () => {
     const admin = accessSnapshotFromRole("admin", HYBRID);
     expect(

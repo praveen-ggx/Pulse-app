@@ -19,7 +19,11 @@ export function useGroundOpsWarehouseGap(): { missingWarehouse: boolean; isLoadi
   const { data, isLoading } = useQuery({
     queryKey: ["member-warehouse-count", orgId, userId],
     enabled,
-    staleTime: 60_000,
+    // An admin assigns warehouses from another device — re-check every time
+    // the screen opens (a cheap head-only count) so the notice clears at once.
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       // org_member_warehouses_self_select lets a member read their own rows.
       const { count, error } = await supabase()

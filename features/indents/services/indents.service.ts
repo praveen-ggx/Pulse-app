@@ -2,6 +2,8 @@
  * Indents service — Supabase only (mobile). Same DB as pulse-unified-base.
  * Service-layer validation: single pass over inputs before insert.
  */
+import { getWarehousesByClient } from "@/features/clients/services/clientWarehouses.service";
+import { warehouseIdForPickup } from "@/features/clients/utils/warehouseAddress.util";
 import { getClientById } from "@/features/clients/services/clients.service";
 import { findIndentInMarketList } from "@/features/indents/utils/findIndentInList.util";
 import { createSharedIndentCopiesWithOps } from "@/features/indents/utils/indentShareCopies.util";
@@ -64,6 +66,8 @@ export interface CreateIndentInput {
   /** Optional: status is managed by DB default / backend logic. */
   status?: string | null;
   client_id?: string | null;
+  /** Pickup warehouse; resolved from pickup_area when omitted (see createIndent). */
+  warehouse_id?: string | null;
   lane_id?: string | null;
   sale_rate_basis?: "per_mt" | "per_trip" | null;
   /** Unit of supplier_target — independent of the client sale basis. */
@@ -879,6 +883,14 @@ async function insertIndentRow(
   }
   if (!client_name) client_name = data.client_name || "";
 
+  // Link the indent to the client warehouse its pickup was picked from, so
+  // Ground Ops assigned to that warehouse see the trip. Typed pickups stay null.
+  let warehouse_id = data.warehouse_id ?? null;
+  if (!warehouse_id && data.client_id && data.pickup_area?.trim()) {
+    const { warehouses } = await getWarehousesByClient(orgId, data.client_id);
+    warehouse_id = warehouseIdForPickup(data.pickup_area, warehouses);
+  }
+
   const indent_number = null;
   // Insert only columns that exist on indents table. client_id is resolved to client_name above;
   // do not send client_id if the table does not have that column (avoids "could not find client_id column").
@@ -892,6 +904,7 @@ async function insertIndentRow(
     drop_location: data.drop_location?.trim() ?? "",
     client_name: client_name?.trim() ?? "",
     client_id: data.client_id ?? null,
+    warehouse_id,
     lane_id: data.lane_id ?? null,
     sale_rate_basis:
       data.sale_rate_basis === "per_mt" || data.sale_rate_basis === "per_trip"

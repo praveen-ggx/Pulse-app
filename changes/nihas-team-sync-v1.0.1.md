@@ -16,6 +16,7 @@
 - Sales team locked as final (34 permissions incl. award indent to supplier); removed the dead From clients toggle that controlled nothing.
 - Ground Ops with no warehouse assigned now see "No warehouse assigned — ask your admin to assign your warehouse" on Trips and Compliance instead of an empty list.
 - Owners can assign warehouses to Ground Ops in Member access and Invite: a compact picker (collapsed summary, search, grouped by client, select-all per client); saves to the member's warehouse list, or onto the pending invite for people without an account yet.
+- New indents are linked to the client warehouse their pickup was picked from (any create path: indent form, Create trip share-as-indent, duplicates), so Ground Ops assigned to that warehouse see the trip; the no-warehouse notice now re-checks every time the screen opens.
 
 ## Why
 - Finance needs to check the advance values before money goes out, and trips sent back for fixes were either stuck or could be verified without Ground Ops fixing anything.
@@ -33,6 +34,7 @@
 - Daisy signed off Sales on gx-pulse; the From clients toggle had no screen behind it, so switching it did nothing.
 - Gowtham (Ground Ops, GoGoVan) saw no trips: Ground Ops only see trips from their assigned warehouses, and he had none (no GoGoVan member or trip is linked to a warehouse yet).
 - Ground Ops only see trips from their assigned warehouses, and there was no screen anywhere to assign one (Gowtham saw no trips).
+- Assigning Gowtham 2 warehouses saved correctly but he still saw the notice (cached check) and 0 trips, because no indent was ever linked to a warehouse.
 
 ## Areas
 - Supabase migrations and RPCs for trips compliance (finance approval, reject, decline, resubmit, verify).
@@ -50,6 +52,7 @@
 - RBAC Sales preset and surface catalog.
 - Trips screen, Compliance page, new Ground Ops warehouse check (organization_member_warehouses, own rows only).
 - Member access editor (shared Invite / Edit), invite service, new member warehouses service.
+- createIndent (indents.warehouse_id), shared warehouse address helper used by the pickup picker, Ground Ops warehouse check.
 
 ## Migrations
 - 20271008112000_finance_verified_step.sql, 20271008113000_compliance_reject_resubmit.sql, 20271008114000_compliance_hold_resubmit.sql, 20271008115000_compliance_resubmit_note.sql, 20271008116000_compliance_resubmit_gates.sql (all applied to preprod only; prod untouched). Release set: supabase/release-sets/preprod-finance-resubmit.versions.
@@ -67,6 +70,7 @@
 - None. Award works for the member org role (is_org_staff includes member), checked on preprod.
 - None.
 - None (organization_member_warehouses and the invite replay already exist).
+- None. Existing GoGoVan trips are still not linked to warehouses.
 
 ## Tested
 - Migration contract tests (local). 33 SQL scenarios for the resubmit gates ran on preprod inside a rolled-back transaction, all passed; then 116000 was applied to preprod with approval.
@@ -84,3 +88,4 @@
 - New Sales lock tests: exact permission list, award allowed, every Sales toggle enforced in the app, switching any one off removes only it and its dependants and turns back on cleanly; 112 RBAC tests pass; no new type errors.
 - No new type errors; trips + compliance tests pass (only the known sign-in failure). Not clicked through as Gowtham.
 - Invite tests: pending Ground Ops invite carries warehouses, existing-user invite writes the rows, other roles never get warehouses; 115 org + RBAC tests pass; no new type errors. Not clicked through on gx-pulse.
+- Pickup-to-warehouse match tests; indent, trip and client suites pass (169); full Jest only the 4 known failing suites; cycles 111/111; no new type errors. Checked as Gowtham under RLS on preprod (read-only): 2 warehouses visible, 0 trips until indents are linked.

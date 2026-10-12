@@ -62,7 +62,6 @@ export type MemberSurfaceId =
   | "sales.suppliers.detail"
   | "sales.suppliers.analytics"
   | "sales.load_board"
-  | "sales.from_clients"
   | "sales.chat"
   // TripOps / dispatch
   | "tripops.tab"
@@ -551,15 +550,6 @@ export const MEMBER_SURFACE_CATALOG: readonly MemberSurfaceDef[] = [
     group: "Marketplace & network",
     label: "Load board",
     hint: "Open load board marketplace",
-    domain: "sales",
-    anyOfCaps: DISP,
-    requires: "sales.tab",
-  },
-  {
-    id: "sales.from_clients",
-    group: "Marketplace & network",
-    label: "From clients",
-    hint: "Loads / requests from clients hub",
     domain: "sales",
     anyOfCaps: DISP,
     requires: "sales.tab",
@@ -1249,7 +1239,6 @@ export const MEMBER_SECTION_SURFACES: Record<
     "sales.network.connect",
     "sales.network.discover",
     "sales.network.stories",
-    "sales.from_clients",
   ],
   compliance: [
     ...COMPLIANCE_ROLE_SURFACE_IDS,

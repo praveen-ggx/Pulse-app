@@ -95,6 +95,7 @@ export type MemberSurfaceId =
   | "trip_compliance.documents.verify"
   | "trip_compliance.trip.mark_verified"
   | "trip_compliance.trip.resubmit"
+  | "trip_compliance.finance.reject"
   | "trip_compliance.finance.view"
   | "trip_compliance.finance.manage"
   | "trip_compliance.pod.manage"
@@ -865,6 +866,17 @@ export const MEMBER_SURFACE_CATALOG: readonly MemberSurfaceDef[] = [
     requires: "trip_compliance.finance.view",
   },
   {
+    // Finance can send a verified trip back (Reject) without gaining
+    // Compliance's verify / mark-verified authority.
+    id: "trip_compliance.finance.reject",
+    label: "Reject compliance (Finance)",
+    hint: "Reject a verified trip from Advance Verification / Advance Payment; never verifies",
+    domain: "trip_compliance",
+    anyOfCaps: ["finance_manage"],
+    grantsCaps: [],
+    requires: "trip_compliance.finance.manage",
+  },
+  {
     id: "trip_compliance.pod.manage",
     label: "Record hard-copy POD",
     hint: "Mark hard-copy POD received with courier / AWB details",
@@ -1331,6 +1343,7 @@ const FINANCE_CROSS_DOMAIN_SURFACES: readonly MemberSurfaceId[] = [
   "trip_compliance.documents.view",
   "trip_compliance.finance.view",
   "trip_compliance.finance.manage",
+  "trip_compliance.finance.reject",
 ];
 
 /**
@@ -1392,7 +1405,11 @@ export function defaultSurfacesForRole(
             s.domain === "tripops" ||
             s.domain === "fleet" ||
             s.id.startsWith("tripops.indents.") ||
-            s.id === "tripops.pulse_loads",
+            s.id === "tripops.pulse_loads" ||
+            // Trip Ops fix and resubmit held / rejected trips (no verify, no finance).
+            s.id === "trip_compliance.tab" ||
+            s.id === "trip_compliance.documents.view" ||
+            s.id === "trip_compliance.trip.resubmit",
         ).map((s) => s.id),
       );
     case "planner":

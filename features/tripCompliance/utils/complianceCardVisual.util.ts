@@ -121,6 +121,14 @@ export function verificationStatusVisual(
       kind: "verified",
     };
   }
+  if (summary.complianceVerifiedAt && summary.financeFlaggedAt) {
+    // Finance flagged it for Compliance: not "Verified" until the flag is cleared.
+    return {
+      label: "Flagged",
+      tone: COMPLIANCE_STAGE_TONE.pending_for_docs,
+      kind: "verified",
+    };
+  }
   if (summary.complianceVerifiedAt) {
     if (summary.complianceDecision === "approved_with_exception") {
       return {

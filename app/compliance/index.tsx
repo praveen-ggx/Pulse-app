@@ -95,7 +95,7 @@ import {
     isActiveFinanceReject,
     isComplianceAwaitingResubmit,
     isComplianceHoldAwaitingResubmit,
-    isComplianceHoldResubmitted,
+    isComplianceDeclineActive,
     isFinanceFlagged,
     isFinanceDeclinedForCompliancePending,
     isFinanceDeclinedForPendingDocs,
@@ -315,6 +315,8 @@ export default function ComplianceScreen() {
   const canViewDocuments = canSurface("trip_compliance.documents.view");
   const canVerifyDocuments = canSurface("trip_compliance.documents.verify");
   const canMarkVerified = canSurface("trip_compliance.trip.mark_verified");
+  /** Finance may Reject (not Verify) with its own surface. */
+  const canReject = canMarkVerified || canSurface("trip_compliance.finance.reject");
   const canManagePod = canSurface("trip_compliance.pod.manage");
   const canManageFinance = canSurface("trip_compliance.finance.manage");
   const canViewFinance = canSurface("trip_compliance.finance.view");
@@ -672,7 +674,7 @@ export default function ComplianceScreen() {
   const rejectKeysRef = useRef(new Map<string, { reason: string; key: string; at: number }>());
   const rejectTrip = useCallback(
     async (tripId: string, reason: string) => {
-      if (!canMarkVerified) {
+      if (!canReject) {
         throw new Error("You don't have permission to reject compliance for this trip.");
       }
       if (!user?.uid) {
@@ -706,7 +708,7 @@ export default function ComplianceScreen() {
         0,
       );
     },
-    [canMarkVerified, setStage, syncChange, user?.uid],
+    [canReject, setStage, syncChange, user?.uid],
   );
 
   const resubmitKeysRef = useRef(new Map<string, { key: string; at: number }>());
@@ -753,7 +755,8 @@ export default function ComplianceScreen() {
   const routeFocus = useLocalSearchParams<{ trip?: string; tab?: string }>();
 
   const complianceHoldCount = useMemo(
-    () => (summaries ?? []).filter(isComplianceHoldResubmitted).length,
+    // Every trip Compliance put on hold: waiting for Ground Ops or resubmitted.
+    () => (summaries ?? []).filter(isComplianceDeclineActive).length,
     [summaries],
   );
   const pendingDocsHoldCount = useMemo(
@@ -825,7 +828,7 @@ export default function ComplianceScreen() {
     }
     if (stage === "compliance_pending") {
       if (pendingSlice === "all") return filtered.filter((summary) => !isActiveFinanceReject(summary));
-      if (pendingSlice === "hold") return (summaries ?? []).filter(isComplianceHoldResubmitted);
+      if (pendingSlice === "hold") return (summaries ?? []).filter(isComplianceDeclineActive);
       if (pendingSlice === "finance_declined") {
         return (summaries ?? []).filter(isFinanceDeclinedForCompliancePending);
       }
@@ -1041,13 +1044,8 @@ export default function ComplianceScreen() {
               value={verifiedSlice}
               counts={verifiedCounts}
               options={[
+                // Verified was the same list as Inbox (Finance feedback): one list only.
                 { id: "all", label: "Inbox", a11yLabel: "Inbox", dot: null },
-                {
-                  id: "verified",
-                  label: "Verified",
-                  a11yLabel: "Verified",
-                  dot: COMPLIANCE_STAGE_TONE.compliance_verified.fg,
-                },
               ]}
               onChange={setVerifiedSlice}
             />
@@ -1715,7 +1713,7 @@ export default function ComplianceScreen() {
                 }
               : undefined
           }
-          onRejectCompliance={canMarkVerified ? rejectTrip : undefined}
+          onRejectCompliance={canReject ? rejectTrip : undefined}
           onFlagForCompliance={canManageFinance ? flagTrip : undefined}
           onClearFinanceFlag={canMarkVerified ? clearFinanceFlag : undefined}
           onResubmitCompliance={

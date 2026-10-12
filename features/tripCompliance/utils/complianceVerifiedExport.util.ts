@@ -221,7 +221,9 @@ export function buildVerifiedExportCsvRow(
     "TRIP ID": getTripDisplayNumber(trip, trip.organization_id ?? null),
     "Verification status": isComplianceVerifiedRejected(summary)
       ? "Rejected"
-      : COMPLIANCE_STAGE_FILTER_LABEL.compliance_verified,
+      : summary.financeFlaggedAt
+        ? "Flagged for Compliance"
+        : COMPLIANCE_STAGE_FILTER_LABEL.compliance_verified,
     "Loading date": formatLoadingDate(trip.pickup_date),
     "Intransit date":
       formatComplianceTimestamp(trip.started_at) === "—"

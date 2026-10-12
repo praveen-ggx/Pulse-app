@@ -252,8 +252,28 @@ describe("TC-05..08 — role presets do not leak across domains", () => {
     // `tripops.tab` — the deliberate split described in TC-21A. Trip Ops
     // therefore touches the sales *domain label* without gaining the Sales tab
     // itself; TC-08b pins the capability side, which is what actually matters.
+    // `trip_compliance` is limited to tab + document view + resubmit (TC-08c).
     const touched = [...domainsTouched("tripops")].sort();
-    expect(touched).toEqual(["fleet", "sales", "tripops"]);
+    expect(touched).toEqual(["fleet", "sales", "trip_compliance", "tripops"]);
+  });
+
+  it("TC-08c: tripops gets only Compliance tab, document view and resubmit (no verify / finance)", () => {
+    const tripops = defaultSurfacesForRole("tripops", HYBRID);
+    const compliance = Object.keys(tripops)
+      .filter((id) => id.startsWith("trip_compliance.") && tripops[id as MemberSurfaceId])
+      .sort();
+    expect(compliance).toEqual([
+      "trip_compliance.documents.view",
+      "trip_compliance.tab",
+      "trip_compliance.trip.resubmit",
+    ]);
+  });
+
+  it("TC-08d: finance gets Reject but never Verify or document verify", () => {
+    const finance = defaultSurfacesForRole("finance", HYBRID);
+    expect(finance["trip_compliance.finance.reject"]).toBe(true);
+    expect(finance["trip_compliance.trip.mark_verified"]).toBeFalsy();
+    expect(finance["trip_compliance.documents.verify"]).toBeFalsy();
   });
 
   it("TC-05: admin preset covers every org-allowed surface", () => {

@@ -30,6 +30,7 @@ import {
   type ComplianceDocumentChargeConfig,
 } from "@/features/tripCompliance/utils/compliancePaymentAmount.util";
 import { classifyTripDocument } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
+import { formatTruckTypeWithSize } from "@/features/tripCompliance/utils/complianceTruckType.util";
 import {
   getVendorOnboardingProfile,
   listSupplierTdsRates,
@@ -485,14 +486,14 @@ export function CompliancePaymentConfirmModal({
     let cancelled = false;
     void (async () => {
       const owned = await getVehicleById(orgId, vehicleId);
-      const ownedType = owned.vehicle?.vehicle_type?.trim() || "";
+      const ownedType = formatTruckTypeWithSize(owned.vehicle?.vehicle_type, owned.vehicle?.vehicle_size);
       if (ownedType) {
         if (!cancelled) setTruckType(ownedType);
         return;
       }
       const shared = await getVehicleForTripViewer(vehicleId, trip.id, orgId);
       if (!cancelled)
-        setTruckType(shared.vehicle?.vehicle_type?.trim() || null);
+        setTruckType(formatTruckTypeWithSize(shared.vehicle?.vehicle_type, shared.vehicle?.vehicle_size) || null);
     })();
     return () => {
       cancelled = true;
@@ -1030,8 +1031,15 @@ export function CompliancePaymentConfirmModal({
         onLayout={(event) => setInlineWidth(event.nativeEvent.layout.width)}
       >
         {introText}
-        {detailsRow}
-        {readOnly ? null : modeField}
+        {/* Values scroll instead of being clipped on smaller screens; actions stay pinned. */}
+        <ScrollView
+          style={styles.inlineScroll}
+          contentContainerStyle={styles.inlineScrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          {detailsRow}
+          {readOnly ? null : modeField}
+        </ScrollView>
         <View style={[styles.actionsBar, styles.actionsBarInline]}>{actionsRow}</View>
       </View>
     );
@@ -1133,10 +1141,12 @@ const styles = StyleSheet.create({
   },
   columns: { gap: 12 },
   columnsWide: { flexDirection: "row", alignItems: "stretch" },
-  columnsInline: { flex: 1, minHeight: 0, gap: 8 },
+  columnsInline: { gap: 8 },
   column: { minWidth: 0 },
   columnWide: { flex: 1, flexBasis: 0 },
-  columnInline: { flex: 1, minHeight: 0 },
+  columnInline: { minWidth: 0 },
+  inlineScroll: { flex: 1, minHeight: 0 },
+  inlineScrollContent: { gap: 6, paddingBottom: 4 },
   factCard: {
     flexGrow: 1,
     borderRadius: 12,
@@ -1146,12 +1156,9 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   factCardInline: {
-    flex: 1,
-    minHeight: 0,
     paddingVertical: 6,
     paddingHorizontal: 10,
     gap: 0,
-    overflow: "hidden",
   },
   factRow: {
     minHeight: 32,
@@ -1240,13 +1247,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   calcCardInline: {
-    flex: 1,
-    minHeight: 0,
     paddingHorizontal: 10,
     paddingTop: 8,
     paddingBottom: 8,
     gap: 4,
-    overflow: "hidden",
   },
   calcTitle: {
     fontSize: 12,

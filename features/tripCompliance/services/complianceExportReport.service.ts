@@ -42,6 +42,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import * as XLSX from "xlsx";
 import { Platform, Share } from "react-native";
+import { formatTruckTypeWithSize } from "@/features/tripCompliance/utils/complianceTruckType.util";
 
 function triggerWebDownload(blob: Blob, fileName: string): void {
   const objectUrl = URL.createObjectURL(blob);
@@ -130,10 +131,10 @@ async function resolveTruckType(
   tripId: string,
 ): Promise<string> {
   const owned = await getVehicleById(orgId, vehicleId);
-  const ownedType = owned.vehicle?.vehicle_type?.trim() || "";
+  const ownedType = formatTruckTypeWithSize(owned.vehicle?.vehicle_type, owned.vehicle?.vehicle_size);
   if (ownedType) return ownedType;
   const shared = await getVehicleForTripViewer(vehicleId, tripId, orgId);
-  return shared.vehicle?.vehicle_type?.trim() || "";
+  return formatTruckTypeWithSize(shared.vehicle?.vehicle_type, shared.vehicle?.vehicle_size);
 }
 
 type SupplierVaultBundle = {

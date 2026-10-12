@@ -3186,8 +3186,10 @@ export function ComplianceDocumentWorkspace({
     tabMarkedApproved.trip &&
     tabMarkedApproved.vehicle &&
     tabMarkedApproved.driver;
+  /** Hold or reject still with Ground Ops: Compliance can look, not act (DB refuses Verify too). */
+  const waitingForGroundOps = Boolean(summary && isComplianceAwaitingResubmit(summary));
   const showPendingTripActions = Boolean(
-    isCompliancePendingStage && summary && !summary.complianceVerifiedAt,
+    isCompliancePendingStage && summary && !summary.complianceVerifiedAt && !waitingForGroundOps,
   );
   /** Verified Reject: trip still has verified_at, but must be re-verified to leave Declined by finance. */
   // Re-verify only after Ground Ops resubmitted (the database refuses it before).
@@ -3222,6 +3224,7 @@ export function ComplianceDocumentWorkspace({
   const showMarkVerified = Boolean(
     !isCompliancePendingStage &&
       !showFinanceDeclineReVerify &&
+      !waitingForGroundOps &&
       onMarkComplianceVerified &&
       summary &&
       !summary.complianceVerifiedAt &&
@@ -3651,6 +3654,7 @@ export function ComplianceDocumentWorkspace({
     const showActions = Boolean(
       canVerify &&
       !hideDocumentDecisions &&
+      !waitingForGroundOps &&
       summary?.stage !== "pending_for_docs" &&
       state &&
       (state.phase === "review" || state.phase === "declined"),
@@ -4414,16 +4418,22 @@ export function ComplianceDocumentWorkspace({
                 ) : null}
                 <View style={styles.checklistPreviewBody}>
                   {checklistPreviewMode === "trip" && summary ? (
-                    <ChecklistTripDetailsPanel
-                      summary={summary}
-                      truckType={
-                        summary.trip.vehicle_id
-                          ? truckTypeByVehicleId[summary.trip.vehicle_id] ?? null
-                          : null
-                      }
-                      supplierName={supplierNameByTripId[summary.trip.id] ?? null}
-                      onOpenDocumentUpload={openDocumentUploadFromDetails}
-                    />
+                    <ScrollView
+                      style={styles.tripDetailsScroll}
+                      contentContainerStyle={styles.tripDetailsScrollContent}
+                      keyboardShouldPersistTaps="handled"
+                    >
+                      <ChecklistTripDetailsPanel
+                        summary={summary}
+                        truckType={
+                          summary.trip.vehicle_id
+                            ? truckTypeByVehicleId[summary.trip.vehicle_id] ?? null
+                            : null
+                        }
+                        supplierName={supplierNameByTripId[summary.trip.id] ?? null}
+                        onOpenDocumentUpload={openDocumentUploadFromDetails}
+                      />
+                    </ScrollView>
                   ) : checklistPreviewMode === "advance" && summary && !compliancePendingView ? (
                     <ChecklistAdvancePaymentPanel
                       summary={summary}
@@ -4939,12 +4949,13 @@ function TripDetailFact({
         wide && styles.tripFactCellWide,
       ]}
     >
-      <Text style={styles.tripFactLabel} numberOfLines={1}>
+      <Text style={styles.tripFactLabel} numberOfLines={2}>
         {label}
       </Text>
+      {/* Wrap instead of cutting names / numbers off on narrower screens. */}
       <Text
         style={[styles.tripFactValue, emphasize && styles.tripFactValueEmphasize]}
-        numberOfLines={wide ? 2 : 1}
+        numberOfLines={wide ? 3 : 2}
       >
         {value}
       </Text>
@@ -5058,11 +5069,14 @@ function formatLoadedWeight(tons: number | null | undefined): string {
   return `${value.toLocaleString("en-IN", { maximumFractionDigits: 3 })} MT`;
 }
 
+/**
+ * Rate per MT only when the client actually priced per MT. A per-trip rate is
+ * never divided by the load (Finance: Apollo is per trip, not per MT).
+ */
 function clientRatePerMtLabel(trip: TripCommercialFacts): string {
+  if (trip.sale_rate_basis !== "per_mt") return "—";
   const unit = Number(trip.sale_unit_rate);
-  if (trip.sale_rate_basis === "per_mt" && Number.isFinite(unit) && unit > 0) {
-    return formatTripInr(unit);
-  }
+  if (Number.isFinite(unit) && unit > 0) return formatTripInr(unit);
   const tons = Number(trip.load_tons);
   const price = Number(trip.client_price);
   if (Number.isFinite(tons) && tons > 0 && Number.isFinite(price) && price > 0) {
@@ -5071,13 +5085,12 @@ function clientRatePerMtLabel(trip: TripCommercialFacts): string {
   return "—";
 }
 
+/** Supplier rate per MT only when the supplier priced per MT. */
 function supplierRatePerMtLabel(trip: TripCommercialFacts): string {
+  if (trip.supplier_rate_basis !== "per_mt") return "—";
   const rate = Number(trip.supplier_rate);
   if (!Number.isFinite(rate) || rate <= 0) return "—";
-  if (trip.supplier_rate_basis === "per_mt") return formatTripInr(rate);
-  const tons = Number(trip.load_tons);
-  if (Number.isFinite(tons) && tons > 0) return formatTripInr(rate / tons);
-  return "—";
+  return formatTripInr(rate);
 }
 
 function supplierCostTotal(trip: TripCommercialFacts): number | null {
@@ -6020,6 +6033,7 @@ const TripListRow = React.memo(function TripListRow({
   const declineRemark = isRejected
     ? summary.complianceDeclineReason?.trim() || ""
     : "";
+  const waitingNote = isRejected && isComplianceAwaitingResubmit(summary);
   // Ground Ops' answer, only when it belongs to the latest decline / reject.
   const resubmitNote =
     isRejected &&
@@ -6179,6 +6193,10 @@ const TripListRow = React.memo(function TripListRow({
       {resubmitNote ? (
         <Text style={styles.resubmitNoteLine} numberOfLines={2}>
           {`Resubmitted: ${resubmitNote}`}
+        </Text>
+      ) : waitingNote ? (
+        <Text style={styles.resubmitNoteLine} numberOfLines={1}>
+          Waiting for Ground Ops to resubmit
         </Text>
       ) : null}
       {summary.financeFlaggedAt ? (
@@ -7215,10 +7233,11 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     backgroundColor: "transparent",
   },
+  // Scrolls inside tripDetailsScroll instead of clipping on smaller screens.
+  tripDetailsScroll: { flex: 1, minHeight: 0 },
+  tripDetailsScrollContent: { flexGrow: 1 },
   tripDetailsPanel: {
-    flex: 1,
-    minHeight: 0,
-    overflow: "hidden",
+    flexGrow: 1,
     paddingHorizontal: 8,
     paddingVertical: 4,
     gap: 4,

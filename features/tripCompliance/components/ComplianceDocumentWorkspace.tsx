@@ -961,11 +961,12 @@ function previewViewTransform(
   const fit = viewport
     ? containScaleForRotation(viewport.width, viewport.height, rotation)
     : 1;
+  // Same order as cssPreviewTransform: pan is in screen pixels, not multiplied by the zoom.
   return [
-    { scale: scale * fit },
-    { rotate: `${normalizePreviewRotation(rotation)}deg` as const },
     { translateX: pan.x },
     { translateY: pan.y },
+    { rotate: `${normalizePreviewRotation(rotation)}deg` as const },
+    { scale: scale * fit },
   ];
 }
 

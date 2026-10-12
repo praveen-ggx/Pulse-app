@@ -9,6 +9,7 @@
 - Verifier fixes: Upload / Replace / Remove on trip files only for people with Resubmit (Ground Ops) or Finance on finance files; once zoomed in, scroll moves the document and Ctrl+scroll or pinch zooms; a verified delivered trip stays in Advance Verification / Advance Payment until the advance is posted (still listed under Awaiting POD).
 - Trip numbers past 999 no longer get cut to 3 digits (TRP1007 became TRP100 and clashed), which made trip conversion fail.
 - Decline reasons per tab: each tab's Decline shows only Trip, Vehicle or Driver reasons; the whole-trip Decline is pre-filled from the declined documents (grouped by reason); Ground Ops sees each declined document's reason on its row and in the files dialog.
+- Zoomed document preview no longer goes blank after dragging or scrolling (inline and full screen).
 
 ## Why
 - Finance needs to check the advance values before money goes out, and trips sent back for fixes were either stuck or could be verified without Ground Ops fixing anything.
@@ -19,6 +20,7 @@
 - Dinesh's 12 Oct feedback: a compliance verifier could replace or delete trip files, zoomed documents could not be moved around on Windows, and a delivered but unpaid trip skipped Finance after Verify.
 - GoGoVan prod hit trip 1007 and conversions started failing on a duplicate trip number.
 - Dinesh's trip Decline opened empty after declining documents, a driver reason could be picked on trip files, and Ground Ops never saw per-document reasons.
+- At 400% a small drag sent the page off-screen because the move was multiplied by the zoom on every redraw.
 
 ## Areas
 - Supabase migrations and RPCs for trips compliance (finance approval, reject, decline, resubmit, verify).
@@ -29,6 +31,7 @@
 - Compliance document panel and files dialog (edit permission), document preview (zoom / pan), compliance stage rule.
 - Trip numbering trigger on trips (set_trip_operational_identity).
 - Compliance document panel, decline dialog, files dialog, decline reason presets.
+- Compliance document preview (zoom / pan).
 
 ## Migrations
 - 20271008112000_finance_verified_step.sql, 20271008113000_compliance_reject_resubmit.sql, 20271008114000_compliance_hold_resubmit.sql, 20271008115000_compliance_resubmit_note.sql, 20271008116000_compliance_resubmit_gates.sql (all applied to preprod only; prod untouched). Release set: supabase/release-sets/preprod-finance-resubmit.versions.
@@ -38,6 +41,7 @@
 - 20271008118000_finance_reject_truck_size.sql (applied to preprod only; prod untouched). Preprod GoGoVan member permissions updated (Dhira, Amilthan, 12 Trip Ops).
 - None.
 - 20271008119000_fix_trip_number_truncation.sql (applied to preprod only; prod needs Vasanth to run it). Added to the release set.
+- None.
 - None.
 
 ## Tested
@@ -49,3 +53,4 @@
 - 589 compliance tests pass locally (4 stage expectations updated to the new rule); lint clean on changed files; no new type errors. Not clicked through on localhost.
 - Checked against prod read-only: the old code turns 1007 into TRP100, which already exists; applied to preprod.
 - 594 compliance tests pass locally (new prefill / per-tab tests); lint clean on changed files; no new type errors. Not clicked through on localhost.
+- 594 compliance tests pass locally. Not clicked through on localhost.

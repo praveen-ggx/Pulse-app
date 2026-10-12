@@ -15,6 +15,7 @@
 - Google signup no longer writes a business signup form onto a different person's account: if the Google name doesn't match the form (or the account is over a day old), nothing is saved and the user is told to sign up with the business's own account.
 - Sales team locked as final (34 permissions incl. award indent to supplier); removed the dead From clients toggle that controlled nothing.
 - Ground Ops with no warehouse assigned now see "No warehouse assigned — ask your admin to assign your warehouse" on Trips and Compliance instead of an empty list.
+- Owners can assign warehouses to Ground Ops in Member access and Invite: a compact picker (collapsed summary, search, grouped by client, select-all per client); saves to the member's warehouse list, or onto the pending invite for people without an account yet.
 
 ## Why
 - Finance needs to check the advance values before money goes out, and trips sent back for fixes were either stuck or could be verified without Ground Ops fixing anything.
@@ -31,6 +32,7 @@
 - RCA for the GoGoVan row named SHIVSHAKTI TRANSPORT CO: on 2 Sep Dihya filled a transporter's business signup and pressed Continue with Google on her own work account, so the transporter's name, phone and address were saved onto her login, and her pending TripOps invite then joined it to GoGoVan under that name. NEW MAHAVEERA TRAILOR SERVICE (30 Sep) shows the same pattern.
 - Daisy signed off Sales on gx-pulse; the From clients toggle had no screen behind it, so switching it did nothing.
 - Gowtham (Ground Ops, GoGoVan) saw no trips: Ground Ops only see trips from their assigned warehouses, and he had none (no GoGoVan member or trip is linked to a warehouse yet).
+- Ground Ops only see trips from their assigned warehouses, and there was no screen anywhere to assign one (Gowtham saw no trips).
 
 ## Areas
 - Supabase migrations and RPCs for trips compliance (finance approval, reject, decline, resubmit, verify).
@@ -47,6 +49,7 @@
 - Google signup / OAuth callback (applyPendingOAuthMetadata), business signup flow alerts.
 - RBAC Sales preset and surface catalog.
 - Trips screen, Compliance page, new Ground Ops warehouse check (organization_member_warehouses, own rows only).
+- Member access editor (shared Invite / Edit), invite service, new member warehouses service.
 
 ## Migrations
 - 20271008112000_finance_verified_step.sql, 20271008113000_compliance_reject_resubmit.sql, 20271008114000_compliance_hold_resubmit.sql, 20271008115000_compliance_resubmit_note.sql, 20271008116000_compliance_resubmit_gates.sql (all applied to preprod only; prod untouched). Release set: supabase/release-sets/preprod-finance-resubmit.versions.
@@ -63,6 +66,7 @@
 - None. Preprod cleanup SQL for Dihya's old login handed to Nihas (the agent's preprod write was blocked).
 - None. Award works for the member org role (is_org_staff includes member), checked on preprod.
 - None.
+- None (organization_member_warehouses and the invite replay already exist).
 
 ## Tested
 - Migration contract tests (local). 33 SQL scenarios for the resubmit gates ran on preprod inside a rolled-back transaction, all passed; then 116000 was applied to preprod with approval.
@@ -79,3 +83,4 @@
 - New identity-guard tests pass (incident case, same-person short name, stale account, nothing written on mismatch); full Jest only the 4 known failing suites; no new type errors. Not clicked through a real Google signup.
 - New Sales lock tests: exact permission list, award allowed, every Sales toggle enforced in the app, switching any one off removes only it and its dependants and turns back on cleanly; 112 RBAC tests pass; no new type errors.
 - No new type errors; trips + compliance tests pass (only the known sign-in failure). Not clicked through as Gowtham.
+- Invite tests: pending Ground Ops invite carries warehouses, existing-user invite writes the rows, other roles never get warehouses; 115 org + RBAC tests pass; no new type errors. Not clicked through on gx-pulse.

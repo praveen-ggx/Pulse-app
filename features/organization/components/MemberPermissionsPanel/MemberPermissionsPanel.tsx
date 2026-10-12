@@ -28,6 +28,10 @@ import {
   updateMemberSurfacesAsManager,
 } from "@/features/organization/services/members.service";
 import {
+  getMemberWarehouseIds,
+  setMemberWarehouseIds,
+} from "@/features/organization/services/memberWarehouses.service";
+import {
   buildMemberPermissions,
   memberDisplayRoleLabel,
   platformRoleFromMember,
@@ -38,6 +42,7 @@ import { useOrgRole } from "@/lib/hooks/useOrgRole";
 import { useAuth } from "@/contexts/AuthContext";
 import { useInvalidateOrgMembers, useOrgMembersQuery } from "@/lib/queries/useOrgMembersQuery";
 import { useOrgCapabilities } from "@/lib/useCapabilities";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { ArrowRightLeft, ChevronLeft, Lock, Trash2 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -128,13 +133,24 @@ export function MemberPermissionsPanel({ memberId, onBack, embedded = false }: P
   const [actionBusy, setActionBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const queryClient = useQueryClient();
+  const memberWarehouses = useQuery({
+    queryKey: ["member-warehouses", member?.id ?? null],
+    enabled: !!member,
+    queryFn: async () => {
+      const { error: whError, warehouseIds } = await getMemberWarehouseIds(member!.id);
+      if (whError) throw whError;
+      return warehouseIds;
+    },
+  });
+
   useEffect(() => {
-    if (!member) return;
-    const next = accessSnapshotFromMember(member, orgCaps);
+    if (!member || memberWarehouses.isLoading) return;
+    const next = accessSnapshotFromMember(member, orgCaps, memberWarehouses.data ?? []);
     resetDraft(next);
     setBaseline(next);
     setError(null);
-  }, [member, orgCaps, resetDraft]);
+  }, [member, orgCaps, resetDraft, memberWarehouses.data, memberWarehouses.isLoading]);
 
   const canEdit = (isOwner && member?.role !== "owner") || canEditAsManager;
   // A manager may only ever change surface toggles, never the role/domain preset.
@@ -181,6 +197,17 @@ export function MemberPermissionsPanel({ memberId, onBack, embedded = false }: P
           );
           return;
         }
+        // Warehouses only scope Ground Ops; any other role keeps none.
+        const { error: whError } = await setMemberWarehouseIds(
+          member.id,
+          draft.platformRole === "ground_ops" ? draft.warehouseIds : [],
+        );
+        if (whError) {
+          setError(`Access saved, but warehouses didn't: ${whError.message}`);
+          return;
+        }
+        void queryClient.invalidateQueries({ queryKey: ["member-warehouses", member.id] });
+        void queryClient.invalidateQueries({ queryKey: ["member-warehouse-count"] });
       }
       invalidate();
       await Promise.all([refetch(), refreshWorkspace()]);
@@ -196,7 +223,9 @@ export function MemberPermissionsPanel({ memberId, onBack, embedded = false }: P
     draft.surfaces,
     draft.platformRole,
     draft.isDepartmentManager,
+    draft.warehouseIds,
     orgCaps,
+    queryClient,
     invalidate,
     refetch,
     refreshWorkspace,

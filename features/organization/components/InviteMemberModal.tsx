@@ -324,6 +324,7 @@ export function InviteMemberFlow({
       access: {
         surfaces: access.surfaces,
         isDepartmentManager: isOwner && access.isDepartmentManager,
+        warehouseIds: access.warehouseIds,
       },
       existingUserId: foundProfile?.user_id ?? null,
     });

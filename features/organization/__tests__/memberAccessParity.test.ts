@@ -12,16 +12,25 @@ import { getCapabilitiesFromProfile } from "@/lib/capabilities";
 import { applySurfaceToggle } from "@/lib/memberSurfaces";
 
 const mockRpc = jest.fn();
+const mockWarehouseUpsert = jest.fn();
 
 jest.mock("@/lib/supabase", () => ({
   supabase: () => ({
     rpc: mockRpc,
-    from: () => {
+    from: (table: string) => {
       const builder: Record<string, unknown> = {
         select: () => builder,
         eq: () => builder,
+        in: () => builder,
+        delete: () => builder,
+        upsert: (rows: unknown) => {
+          mockWarehouseUpsert(table, rows);
+          return Promise.resolve({ error: null });
+        },
         maybeSingle: () =>
           Promise.resolve({ data: { operating_model: "HYBRID" }, error: null }),
+        // getMemberWarehouseIds awaits the builder directly: no rows yet.
+        then: (resolve: (v: unknown) => unknown) => resolve({ data: [], error: null }),
       };
       return builder;
     },
@@ -31,6 +40,7 @@ jest.mock("@/lib/supabase", () => ({
 const HYBRID = getCapabilitiesFromProfile({ role: "user" }, "HYBRID");
 
 beforeEach(() => {
+  mockWarehouseUpsert.mockReset();
   mockRpc.mockReset();
   mockRpc.mockResolvedValue({ data: {}, error: null });
 });
@@ -111,5 +121,40 @@ describe("member access parity — Invite vs Edit", () => {
     expect(built.platformRole).toBe("vendor_support");
     expect(built.surfaces?.["finance.subtab.suppliers"]).toBe(true);
     expect(built.surfaces?.["finance.subtab.cash"]).toBeFalsy();
+  });
+
+  it("pending Ground Ops invite carries its warehouses for accept to replay", async () => {
+    await createPendingTeamInvite("org-1", {
+      phone: "9876543210",
+      name: "Field",
+      platformRole: "ground_ops",
+      access: {
+        surfaces: accessSnapshotFromRole("ground_ops", HYBRID).surfaces,
+        warehouseIds: ["wh-1", "wh-2"],
+      },
+    });
+    expect(mockRpc.mock.calls[0][1].p_permissions.warehouseIds).toEqual(["wh-1", "wh-2"]);
+  });
+
+  it("existing-user Ground Ops invite writes the member's warehouse rows", async () => {
+    mockRpc.mockResolvedValue({ data: { id: "member-9" }, error: null });
+    await inviteTeamMember("org-1", "user-9", "ground_ops", {
+      surfaces: accessSnapshotFromRole("ground_ops", HYBRID).surfaces,
+      warehouseIds: ["wh-1"],
+    });
+    expect(mockWarehouseUpsert).toHaveBeenCalledWith("organization_member_warehouses", [
+      { organization_member_id: "member-9", warehouse_id: "wh-1" },
+    ]);
+    expect(mockRpc.mock.calls[0][1].p_permissions.warehouseIds).toBeUndefined();
+  });
+
+  it("non Ground Ops invites never carry warehouses", async () => {
+    await createPendingTeamInvite("org-1", {
+      phone: "9876543210",
+      name: "Seller",
+      platformRole: "sales",
+      access: { surfaces: accessSnapshotFromRole("sales", HYBRID).surfaces, warehouseIds: ["wh-1"] },
+    });
+    expect(mockRpc.mock.calls[0][1].p_permissions.warehouseIds).toBeUndefined();
   });
 });

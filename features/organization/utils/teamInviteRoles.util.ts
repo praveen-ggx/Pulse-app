@@ -90,6 +90,11 @@ export type TeamInvitePermissions = {
    * supabase/migrations/20270220120000_department_manager_surface_write.sql.
    */
   isDepartmentManager?: boolean;
+  /**
+   * Pending phone invites only: Ground Ops warehouses, replayed into
+   * organization_member_warehouses by accept_pending_team_invitation.
+   */
+  warehouseIds?: string[];
 };
 
 const PERMISSION_LABELS: Record<string, string> = {

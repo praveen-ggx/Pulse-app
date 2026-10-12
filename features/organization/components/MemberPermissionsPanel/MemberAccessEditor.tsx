@@ -10,6 +10,8 @@ import {
   DomainPermissionToggleRow,
 } from "@/features/organization/components/MemberPermissionsPanel/DomainPermissionToggleRow";
 import type { MemberAccessDraft } from "@/features/organization/hooks/useMemberAccessDraft";
+import { listOrgWarehouses } from "@/features/organization/services/memberWarehouses.service";
+import { WarehousePicker } from "@/features/organization/components/MemberPermissionsPanel/WarehousePicker";
 import {
   deleteCustomRolePreset,
   getCustomRolePresets,
@@ -32,6 +34,7 @@ import {
   canAccessTrips,
 } from "@/lib/capabilities";
 import { MEMBER_SECTION_SURFACES, type MemberSectionKey } from "@/lib/memberSurfaces";
+import { useQuery } from "@tanstack/react-query";
 import { BookmarkPlus, Check, ChevronDown, Trash2 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -121,6 +124,19 @@ export function MemberAccessEditor({
   }, [groundOpsEnabled, draft.platformRole, orgCaps]);
 
   const canManagePresets = canEditSurfaces;
+  const isGroundOps = draft.platformRole === "ground_ops";
+
+  const warehousesQuery = useQuery({
+    queryKey: ["org-warehouse-options", orgId],
+    enabled: isGroundOps && !!orgId,
+    // Shared by Invite and Edit; warehouses change rarely.
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const { error, warehouses } = await listOrgWarehouses(orgId as string);
+      if (error) throw error;
+      return warehouses;
+    },
+  });
 
   const handleSavePreset = useCallback(async () => {
     if (!orgId || !canManagePresets) return;
@@ -259,6 +275,17 @@ export function MemberAccessEditor({
             />
           </View>
         </View>
+      ) : null}
+
+      {isGroundOps ? (
+        <WarehousePicker
+          options={warehousesQuery.data ?? []}
+          selectedIds={draft.warehouseIds}
+          isLoading={warehousesQuery.isLoading}
+          isError={warehousesQuery.isError}
+          editable={canEditRole && !disabled}
+          onToggle={draft.toggleWarehouse}
+        />
       ) : null}
 
       {canManagePresets ? (

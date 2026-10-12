@@ -34,6 +34,8 @@ export type MemberAccessSnapshot = {
   domains: MemberDomainFlags;
   surfaces: MemberSurfaceMap;
   isDepartmentManager: boolean;
+  /** Ground Ops only: warehouses whose trips this member sees. */
+  warehouseIds: string[];
 };
 
 /** Default draft for a role preset (Invite starts here). */
@@ -47,13 +49,15 @@ export function accessSnapshotFromRole(
     domains: domainsFromSurfaces(surfaces),
     surfaces,
     isDepartmentManager: false,
+    warehouseIds: [],
   };
 }
 
-/** Draft for an existing member row (Edit starts here). */
+/** Draft for an existing member row (Edit starts here). Warehouses load separately. */
 export function accessSnapshotFromMember(
   member: Pick<OrgMember, "role" | "permissions">,
   orgCaps: Capability[],
+  warehouseIds: string[] = [],
 ): MemberAccessSnapshot {
   return {
     platformRole: platformRoleFromMember(member) ?? "tripops",
@@ -62,6 +66,7 @@ export function accessSnapshotFromMember(
     isDepartmentManager:
       (member.permissions as TeamInvitePermissions | null | undefined)
         ?.isDepartmentManager === true,
+    warehouseIds,
   };
 }
 
@@ -84,6 +89,8 @@ export function accessSnapshotsEqual(
     a.domains.sales === b.domains.sales &&
     a.domains.tripops === b.domains.tripops &&
     a.isDepartmentManager === b.isDepartmentManager &&
+    a.warehouseIds.length === b.warehouseIds.length &&
+    a.warehouseIds.every((id) => b.warehouseIds.includes(id)) &&
     surfacesEqual(a.surfaces, b.surfaces)
   );
 }
@@ -129,6 +136,7 @@ export function useMemberAccessDraft(
       setState((prev) => ({
         ...accessSnapshotFromRole(role, orgCaps),
         isDepartmentManager: prev.isDepartmentManager,
+        warehouseIds: prev.warehouseIds,
         appliedPresetId: null,
       }));
     },
@@ -191,6 +199,15 @@ export function useMemberAccessDraft(
     setState((prev) => ({ ...prev, isDepartmentManager: next }));
   }, []);
 
+  const toggleWarehouse = useCallback((id: string, next: boolean) => {
+    setState((prev) => ({
+      ...prev,
+      warehouseIds: next
+        ? Array.from(new Set([...prev.warehouseIds, id]))
+        : prev.warehouseIds.filter((w) => w !== id),
+    }));
+  }, []);
+
   const enabledSurfaceCount = useMemo(
     () => MEMBER_SURFACE_CATALOG.filter((s) => state.surfaces[s.id] === true).length,
     [state.surfaces],
@@ -202,8 +219,15 @@ export function useMemberAccessDraft(
       domains: state.domains,
       surfaces: state.surfaces,
       isDepartmentManager: state.isDepartmentManager,
+      warehouseIds: state.warehouseIds,
     }),
-    [state.platformRole, state.domains, state.surfaces, state.isDepartmentManager],
+    [
+      state.platformRole,
+      state.domains,
+      state.surfaces,
+      state.isDepartmentManager,
+      state.warehouseIds,
+    ],
   );
 
   return {
@@ -218,5 +242,6 @@ export function useMemberAccessDraft(
     toggleSurface,
     toggleSection,
     setIsDepartmentManager,
+    toggleWarehouse,
   };
 }

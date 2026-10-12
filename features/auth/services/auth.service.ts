@@ -143,7 +143,9 @@ export interface SignInResult {
    * Callers should branch on this status — not on the presence of a message —
    * and use OAUTH_METADATA_PARTIAL_FAILURE_MESSAGE (or their own copy) to inform the user.
    */
-  metadataStatus?: 'partial_failure';
+  metadataStatus?: 'partial_failure' | 'identity_mismatch';
+  /** Set with `identity_mismatch`: user-facing copy explaining nothing was written. */
+  metadataMessage?: string;
   /**
    * Set when the signup email's company domain already has an org. Org creation
    * was skipped (onboarding_type forced to 'member') — caller must call
@@ -704,6 +706,16 @@ export async function signInWithGoogle(): Promise<SignInResult> {
     if (metadataResult.status === 'partial_failure') {
       return { error: null, metadataStatus: 'partial_failure' };
     }
+    if (metadataResult.status === 'identity_mismatch') {
+      return {
+        error: null,
+        metadataStatus: 'identity_mismatch',
+        metadataMessage: oauthIdentityMismatchMessage(
+          metadataResult.formName,
+          metadataResult.accountEmail,
+        ),
+      };
+    }
     return { error: null };
   } catch (e) {
     if (isNetworkError(e)) {
@@ -1056,7 +1068,61 @@ export type PendingOAuthMetadataStep = 'auth_metadata' | 'profile' | 'organizati
 export type PendingOAuthMetadataResult =
   | { status: 'success' }
   | { status: 'skipped' }
-  | { status: 'partial_failure'; failedSteps: PendingOAuthMetadataStep[] };
+  | { status: 'partial_failure'; failedSteps: PendingOAuthMetadataStep[] }
+  /** Form details are someone else's — nothing was written to this account. */
+  | { status: 'identity_mismatch'; formName: string; accountEmail: string | null };
+
+export function oauthIdentityMismatchMessage(formName: string, accountEmail: string | null): string {
+  const who = accountEmail ?? 'this Google account';
+  return (
+    `You signed in as ${who}, but the signup form was for "${formName}". ` +
+    `We didn't change your account. To register ${formName}, sign out and sign up ` +
+    `with their own email or Google account.`
+  );
+}
+
+/** Pending signup data older than this account is never applied (another person's leftover). */
+const PENDING_METADATA_MAX_ACCOUNT_AGE_MS = 24 * 60 * 60 * 1000;
+
+const nameTokens = (value: string): Set<string> =>
+  new Set(
+    value
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((t) => t.length >= 3),
+  );
+
+/**
+ * Does the pending signup form belong to the person who just signed in?
+ *
+ * Incident 2026-09-02: a staff member filled a transporter's business signup
+ * (SHIVSHAKTI TRANSPORT CO) and pressed Continue with Google, which signed in
+ * with her own work account — the transporter's name, phone and address were
+ * written onto her login, and her pending team invite then attached it to the
+ * workspace under the transporter's name. Mismatch when:
+ *  - the account is older than a day (stale data left on a shared device), or
+ *  - the Google-provided name shares no word with the form's name.
+ */
+export function pendingOAuthMetadataMatchesUser(
+  pending: Pick<PendingOAuthOnboardingMetadata, 'fullName'>,
+  user: { created_at?: string | null; user_metadata?: Record<string, unknown> | null },
+  now: number = Date.now(),
+): boolean {
+  const createdAt = user.created_at ? Date.parse(user.created_at) : NaN;
+  if (Number.isFinite(createdAt) && now - createdAt > PENDING_METADATA_MAX_ACCOUNT_AGE_MS) {
+    return false;
+  }
+  const formName = pending.fullName?.trim();
+  // `name` is set by Google and never overwritten by our metadata writes.
+  const providerName =
+    typeof user.user_metadata?.name === 'string' ? user.user_metadata.name.trim() : '';
+  if (!formName || !providerName) return true;
+  const form = nameTokens(formName);
+  const provider = nameTokens(providerName);
+  if (form.size === 0 || provider.size === 0) return true;
+  for (const t of form) if (provider.has(t)) return true;
+  return false;
+}
 
 export const OAUTH_METADATA_PARTIAL_FAILURE_MESSAGE =
   "You're signed in, but we couldn't finish saving some of your business information. " +
@@ -1105,6 +1171,18 @@ export async function applyPendingOAuthMetadata(): Promise<PendingOAuthMetadataR
     // Corrupt payload — drop it so we do not retry forever.
     await AsyncStorage.removeItem(PENDING_OAUTH_METADATA_KEY).catch(() => {});
     return { status: 'skipped' };
+  }
+
+  const { data: signedIn } = await supabase().auth.getUser();
+  if (signedIn.user && !pendingOAuthMetadataMatchesUser(pending, signedIn.user)) {
+    // Never write another person's / business's details onto this login.
+    console.warn('[auth] applyPendingOAuthMetadata: pending form does not match the signed-in account; discarded');
+    await AsyncStorage.removeItem(PENDING_OAUTH_METADATA_KEY).catch(() => {});
+    return {
+      status: 'identity_mismatch',
+      formName: pending.fullName?.trim() || pending.companyName?.trim() || 'this business',
+      accountEmail: signedIn.user.email ?? null,
+    };
   }
 
   const failedSteps: PendingOAuthMetadataStep[] = [];

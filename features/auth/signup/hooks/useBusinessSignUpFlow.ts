@@ -6,6 +6,7 @@ import {
   checkOrganizationNameTaken,
   checkOrgForEmailDomain,
   applyPendingOAuthMetadata,
+  oauthIdentityMismatchMessage,
   getMyPendingDomainJoinRequest,
   OAUTH_METADATA_PARTIAL_FAILURE_MESSAGE,
   resendVerificationEmail,
@@ -1083,6 +1084,12 @@ export function useBusinessSignUpFlow() {
       }
       const applied = await applyPendingOAuthMetadata();
       setLoading(false);
+      if (applied.status === 'identity_mismatch') {
+        return Alert.alert(
+          'Signed in to a different account',
+          oauthIdentityMismatchMessage(applied.formName, applied.accountEmail),
+        );
+      }
       if (applied.status === 'partial_failure') {
         return Alert.alert("You're signed in", OAUTH_METADATA_PARTIAL_FAILURE_MESSAGE);
       }
@@ -1315,9 +1322,12 @@ export function useBusinessSignUpFlow() {
     });
     if (pending.error) { setGoogleLoading(false); return Alert.alert('Error', pending.error.message); }
 
-    const { error, metadataStatus } = await signInWithGoogle(true);
+    const { error, metadataStatus, metadataMessage } = await signInWithGoogle(true);
     setGoogleLoading(false);
     if (error) return Alert.alert('Error', error.message);
+    if (metadataStatus === 'identity_mismatch') {
+      return Alert.alert('Signed in to a different account', metadataMessage ?? '');
+    }
     if (metadataStatus === 'partial_failure') {
       Alert.alert("You're signed in", OAUTH_METADATA_PARTIAL_FAILURE_MESSAGE);
     }
@@ -1349,9 +1359,12 @@ export function useBusinessSignUpFlow() {
       ...(storedPhone && tenDigits ? { phone: storedPhone } : {}),
     });
     if (pending.error) { setGoogleLoading(false); return Alert.alert('Error', pending.error.message); }
-    const { error, metadataStatus } = await signInWithGoogle(true);
+    const { error, metadataStatus, metadataMessage } = await signInWithGoogle(true);
     setGoogleLoading(false);
     if (error) return Alert.alert('Error', error.message);
+    if (metadataStatus === 'identity_mismatch') {
+      return Alert.alert('Signed in to a different account', metadataMessage ?? '');
+    }
     if (metadataStatus === 'partial_failure') {
       Alert.alert("You're signed in", OAUTH_METADATA_PARTIAL_FAILURE_MESSAGE);
     }

@@ -320,33 +320,39 @@ export default function ComplianceScreen() {
   const canManagePod = canSurface("trip_compliance.pod.manage");
   const canManageFinance = canSurface("trip_compliance.finance.manage");
   const canViewFinance = canSurface("trip_compliance.finance.view");
+  const canTabAdvanceVerification = canSurface("trip_compliance.tab.advance_verification");
+  const canTabAdvancePayment = canSurface("trip_compliance.tab.advance_payment");
+  const canTabSettlementVerification = canSurface("trip_compliance.tab.settlement_verification");
+  const canTabFinalSettlement = canSurface("trip_compliance.tab.final_settlement");
   const visibleStages = useMemo(() => {
     const stages = new Set<ComplianceQueueFilter>();
     if (canViewDocuments || canResubmit || canVerifyDocuments || canMarkVerified) {
       stages.add("pending_for_docs");
     }
     if (canVerifyDocuments || canMarkVerified) stages.add("compliance_pending");
-    if (canViewFinance || canManageFinance) {
-      stages.add("compliance_verified");
-      stages.add("finance_verified");
-      stages.add("advance_payment_processed");
-      stages.add("balance_pending");
-      stages.add("payment_settled");
-    }
-    if (canManagePod || canViewFinance) {
+    // Finance tabs: one surface each (granted from the Finance department).
+    if (canTabAdvanceVerification) stages.add("compliance_verified");
+    if (canTabAdvancePayment) stages.add("finance_verified");
+    if (canTabAdvancePayment || canManagePod) stages.add("advance_payment_processed");
+    if (canTabSettlementVerification) stages.add("balance_pending");
+    if (canTabFinalSettlement) stages.add("payment_settled");
+    // Hard-copy POD tabs belong to Debit control.
+    if (canManagePod) {
       stages.add("hard_copy_pod_received");
       stages.add("pod_received");
     }
     if (stages.size > 1) stages.add("all");
     return stages;
   }, [
-    canManageFinance,
     canManagePod,
     canMarkVerified,
     canResubmit,
+    canTabAdvancePayment,
+    canTabAdvanceVerification,
+    canTabFinalSettlement,
+    canTabSettlementVerification,
     canVerifyDocuments,
     canViewDocuments,
-    canViewFinance,
   ]);
   const { user } = useAuth();
   const orgCtx = useOptionalOrganization();

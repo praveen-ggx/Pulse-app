@@ -32,9 +32,10 @@ export function NetworkDesktopTeamPanel({
   canManage,
 }: Props) {
   const layout = useProfileHubCompactLayout();
-  const { isOwner } = useOrgRole();
+  const { isOwner, isAdmin } = useOrgRole();
   const { can: canSurface } = useMemberAccess();
-  const canInvite = canManage && canSurface("team.invite");
+  // Invite RPCs accept owner/admin only — never show a button that fails.
+  const canInvite = canManage && (isOwner || isAdmin) && canSurface("team.invite");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [accessOpen, setAccessOpen] = useState(false);
   const [editMemberId, setEditMemberId] = useState<string | null>(null);

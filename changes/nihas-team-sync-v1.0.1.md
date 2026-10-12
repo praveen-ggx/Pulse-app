@@ -10,6 +10,7 @@
 - Trip numbers past 999 no longer get cut to 3 digits (TRP1007 became TRP100 and clashed), which made trip conversion fail.
 - Decline reasons per tab: each tab's Decline shows only Trip, Vehicle or Driver reasons; the whole-trip Decline is pre-filled from the declined documents (grouped by reason); Ground Ops sees each declined document's reason on its row and in the files dialog.
 - Zoomed document preview no longer goes blank after dragging or scrolling (inline and full screen).
+- Member access rework: one department per permission (Finance, Sales / Network, Operations, Supply, Vendor support, Compliance, Debit control, IT dept), new Vendor support role, Finance-only Compliance tabs, Sales books trips and owns indents, Invite uses the same access editor as Edit member, and pages that were open by link now check their own toggle.
 
 ## Why
 - Finance needs to check the advance values before money goes out, and trips sent back for fixes were either stuck or could be verified without Ground Ops fixing anything.
@@ -21,6 +22,7 @@
 - GoGoVan prod hit trip 1007 and conversions started failing on a duplicate trip number.
 - Dinesh's trip Decline opened empty after declining documents, a driver reason could be picked on trip files, and Ground Ops never saw per-document reasons.
 - At 400% a small drag sent the page off-screen because the move was multiplied by the zoom on every redraw.
+- Permissions were duplicated across departments, Trip Ops had indents, Compliance saw settlement and POD, the invite flow only saved role defaults, and several finance / POD / audit pages could be opened by any member with a direct link (12 Oct audit).
 
 ## Areas
 - Supabase migrations and RPCs for trips compliance (finance approval, reject, decline, resubmit, verify).
@@ -32,6 +34,7 @@
 - Trip numbering trigger on trips (set_trip_operational_identity).
 - Compliance document panel, decline dialog, files dialog, decline reason presets.
 - Compliance document preview (zoom / pan).
+- RBAC surface catalog and presets, member permissions panel and invite flow, invite service, Compliance page tab visibility, route gates for Finance Pro, invoicing, POD, Debit Control, ledger entry and audit, team invite buttons.
 
 ## Migrations
 - 20271008112000_finance_verified_step.sql, 20271008113000_compliance_reject_resubmit.sql, 20271008114000_compliance_hold_resubmit.sql, 20271008115000_compliance_resubmit_note.sql, 20271008116000_compliance_resubmit_gates.sql (all applied to preprod only; prod untouched). Release set: supabase/release-sets/preprod-finance-resubmit.versions.
@@ -43,6 +46,7 @@
 - 20271008119000_fix_trip_number_truncation.sql (applied to preprod only; prod needs Vasanth to run it). Added to the release set.
 - None.
 - None.
+- None (server checks leaf surface flags only). Existing preprod members keep their saved access; reset list prepared for review, nothing written.
 
 ## Tested
 - Migration contract tests (local). 33 SQL scenarios for the resubmit gates ran on preprod inside a rolled-back transaction, all passed; then 116000 was applied to preprod with approval.
@@ -54,3 +58,4 @@
 - Checked against prod read-only: the old code turns 1007 into TRP100, which already exists; applied to preprod.
 - 594 compliance tests pass locally (new prefill / per-tab tests); lint clean on changed files; no new type errors. Not clicked through on localhost.
 - 594 compliance tests pass locally. Not clicked through on localhost.
+- RBAC + organization tests (role matrix on HYBRID / Asset / Aggregate, invite vs edit parity, Ground Ops only Document Upload) pass; full Jest only the 4 known failing suites; no new type errors; cycles 111/111; navigation policy pass. Edit member and Invite step 2 clicked through on localhost without saving; newly gated pages not clicked through.

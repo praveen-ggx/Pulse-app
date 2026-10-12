@@ -16,6 +16,7 @@ import {
   precheckToProfile,
 } from "@/features/organization/services/teamInvitePrecheck.service";
 import {
+  buildMemberPermissions,
   buildTeamInvitePermissions,
   orgMemberRoleForPlatformRole,
   type PlatformTeamRole,
@@ -269,10 +270,28 @@ export async function lookupUserByPhone(phone: string): Promise<{
 
 // ─── Invite member (existing Pulse user) ─────────────────────────────────────
 
+/** Access chosen in the invite editor; absent = the role's default preset. */
+export type TeamInviteAccess = {
+  surfaces: MemberSurfaceMap;
+  isDepartmentManager?: boolean;
+};
+
+/** Same write shape as Edit member (buildMemberPermissions) when access is given. */
+function invitePermissions(
+  platformRole: PlatformTeamRole,
+  orgCaps: Capability[],
+  access?: TeamInviteAccess,
+): TeamInvitePermissions {
+  return access
+    ? buildMemberPermissions({ platformRole, orgCaps, ...access })
+    : buildTeamInvitePermissions(platformRole, undefined, orgCaps);
+}
+
 export async function inviteTeamMember(
   orgId: string,
   userId: string,
   platformRole: PlatformTeamRole,
+  access?: TeamInviteAccess,
 ): Promise<{
   error: Error | null;
   member: OrgMember | null;
@@ -280,9 +299,9 @@ export async function inviteTeamMember(
   alreadyInvited?: boolean;
   belongsToOtherOrg?: boolean;
 }> {
-  const role = orgMemberRoleForPlatformRole(platformRole);
   const orgCaps = await getOrgCapabilities(orgId);
-  const permissions = buildTeamInvitePermissions(platformRole, undefined, orgCaps);
+  const permissions = invitePermissions(platformRole, orgCaps, access);
+  const role = orgMemberRoleForPlatformRole(permissions.platformRole);
   try {
     const { data, error } = await supabase().rpc("invite_existing_user_to_org", {
       p_org_id: orgId,
@@ -324,15 +343,16 @@ export async function createPendingTeamInvite(
     name: string;
     email?: string | null;
     platformRole: PlatformTeamRole;
+    access?: TeamInviteAccess;
   },
 ): Promise<{
   error: Error | null;
   invite: PendingPhoneTeamInvite | null;
   alreadyPending?: boolean;
 }> {
-  const role = orgMemberRoleForPlatformRole(params.platformRole);
   const orgCaps = await getOrgCapabilities(orgId);
-  const permissions = buildTeamInvitePermissions(params.platformRole, undefined, orgCaps);
+  const permissions = invitePermissions(params.platformRole, orgCaps, params.access);
+  const role = orgMemberRoleForPlatformRole(permissions.platformRole);
   try {
     const { data, error } = await supabase().rpc("create_team_invite_pending", {
       p_org_id: orgId,
@@ -382,6 +402,7 @@ export async function inviteTeamMemberByContact(
     name: string;
     email?: string | null;
     platformRole: PlatformTeamRole;
+    access?: TeamInviteAccess;
     existingUserId?: string | null;
   },
 ): Promise<{
@@ -436,7 +457,7 @@ export async function inviteTeamMemberByContact(
       ) {
         const profile = precheckToProfile(check);
         if (profile?.user_id) {
-          const res = await inviteTeamMember(orgId, profile.user_id, params.platformRole);
+          const res = await inviteTeamMember(orgId, profile.user_id, params.platformRole, params.access);
           return {
             error: res.error,
             kind: res.member ? "member" : null,
@@ -464,7 +485,7 @@ export async function inviteTeamMemberByContact(
   }
 
   if (params.existingUserId) {
-    const res = await inviteTeamMember(orgId, params.existingUserId, params.platformRole);
+    const res = await inviteTeamMember(orgId, params.existingUserId, params.platformRole, params.access);
     return {
       error: res.error,
       kind: res.member ? "member" : null,

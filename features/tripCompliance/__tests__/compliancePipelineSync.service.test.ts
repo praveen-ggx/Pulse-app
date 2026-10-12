@@ -242,7 +242,8 @@ describe("mark verified / POD", () => {
     const patch = await patchForComplianceChange(loaded, { type: "complianceVerified", tripId: "t1", actorId: "u1" }, "org-1");
     expect(reads()).toBe(0);
     expect(patch(loaded)[0].flags).toMatchObject({ compliance_decision: "approved", compliance_verified_by: "u1" });
-    expect(summarizeComplianceTrip(patch(loaded)[0]).stage).toBe("hard_copy_pod_received");
+    // Delivered, no advance yet: stays with Finance (Advance Verification).
+    expect(summarizeComplianceTrip(patch(loaded)[0]).stage).toBe("compliance_verified");
   });
 
   it("charge save: 0 reads, trip is marked saved for Balance Pending", async () => {

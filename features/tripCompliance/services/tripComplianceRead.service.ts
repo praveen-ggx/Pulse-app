@@ -506,10 +506,13 @@ export function deriveComplianceStage(input: {
     return docsStillOpen ? "pending_for_docs" : "compliance_pending";
   }
   const delivered = Boolean(input.opsDelivered || isCompletedTripStatus(input.tripStatus));
-  // Delivered + hard-copy → balance. Delivered without hard-copy → Awaiting POD,
-  // even when the post-verify advance is already paid.
+  // Delivered + hard-copy → balance. Delivered without hard-copy → Awaiting POD
+  // once the advance is posted. Before that the trip stays with Finance
+  // (Advance Verification / Advance Payment); the Awaiting POD list still shows it.
   if (delivered) {
-    return input.hardCopyReceived ? "balance_pending" : "hard_copy_pod_received";
+    if (input.hardCopyReceived) return "balance_pending";
+    if (input.advance) return "hard_copy_pod_received";
+    return input.financeVerifiedAt ? "finance_verified" : "compliance_verified";
   }
   // Expired RC / Insurance / FC override payment-progress chips on undelivered
   // trips — Ops must renew before Advance Processed.

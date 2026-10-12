@@ -611,6 +611,21 @@ function wheelDelta(event: WheelEvent): number {
   return dy;
 }
 
+/** Drag / scroll travel for the inline preview at a given zoom. */
+function previewPanLimits(
+  box: { width: number; height: number },
+  display: { width: number; height: number } | null,
+  zoom: number,
+): { maxX: number; maxY: number } {
+  if (box.width < 2 || box.height < 2) return { maxX: 0, maxY: 0 };
+  const scaledW = (display?.width ?? box.width) * zoom;
+  const scaledH = (display?.height ?? box.height) * zoom;
+  return {
+    maxX: Math.max(28, Math.abs(scaledW - box.width) / 2, box.width * 0.22),
+    maxY: Math.max(28, Math.abs(scaledH - box.height) / 2, box.height * 0.22),
+  };
+}
+
 /** Smooth exponential zoom. A mouse notch eases in; trackpad pixels stay continuous. */
 function wheelZoomFactor(dy: number): number {
   const clamped = Math.max(-180, Math.min(180, dy));
@@ -1029,15 +1044,7 @@ function OriginalDocumentPreview({
     return fitDocumentSize(natural, fitBox, 1);
   }, [fitBox, isPdf, natural]);
 
-  const limits = useMemo(() => {
-    if (box.width < 2 || box.height < 2) return { maxX: 0, maxY: 0 };
-    const scaledW = (display?.width ?? box.width) * zoom;
-    const scaledH = (display?.height ?? box.height) * zoom;
-    return {
-      maxX: Math.max(28, Math.abs(scaledW - box.width) / 2, box.width * 0.22),
-      maxY: Math.max(28, Math.abs(scaledH - box.height) / 2, box.height * 0.22),
-    };
-  }, [box.height, box.width, display, zoom]);
+  const limits = useMemo(() => previewPanLimits(box, display, zoom), [box, display, zoom]);
 
   const clampLocalPan = useCallback(
     (x: number, y: number) => ({
@@ -1198,6 +1205,30 @@ function OriginalDocumentPreview({
     const onWheel = (event: WheelEvent) => {
       const point = pointInCanvas(event);
       if (!point) return;
+      const live = viewRef.current;
+      // Zoomed in: scroll / two-finger swipe moves the page; Ctrl+scroll or pinch still zooms.
+      if (!event.ctrlKey && !event.metaKey && live.zoom > 1.01) {
+        event.preventDefault();
+        event.stopPropagation();
+        const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 400 : 1;
+        let dx = (Number.isFinite(event.deltaX) ? event.deltaX : 0) * unit;
+        let dy = (Number.isFinite(event.deltaY) ? event.deltaY : 0) * unit;
+        if (event.shiftKey && dx === 0) {
+          dx = dy;
+          dy = 0;
+        }
+        const frame = frameRef.current;
+        const { maxX, maxY } = previewPanLimits(frame.box, frame.display, live.zoom);
+        const next = {
+          x: Math.min(maxX, Math.max(-maxX, live.panX - dx)),
+          y: Math.min(maxY, Math.max(-maxY, live.panY - dy)),
+        };
+        viewRef.current = { ...live, panX: next.x, panY: next.y };
+        const el = mediaRef.current as unknown as HTMLElement | null;
+        if (el?.style) el.style.transform = cssPreviewTransform(next, live.zoom, frame.rotation, frame.box);
+        setPan(next);
+        return;
+      }
       const dy = wheelDelta(event);
       if (dy === 0) return;
       event.preventDefault();
@@ -1267,8 +1298,8 @@ function OriginalDocumentPreview({
         : null)}
       accessibilityLabel={
         isPdf
-          ? `${label}. Scroll or click to zoom. Drag to pan when zoomed.`
-          : `${label}. Scroll or click to zoom. Drag to pan when zoomed.`
+          ? `${label}. Scroll or click to zoom. When zoomed, drag or scroll to move; Ctrl+scroll to zoom.`
+          : `${label}. Scroll or click to zoom. When zoomed, drag or scroll to move; Ctrl+scroll to zoom.`
       }
       onStartShouldSetResponder={() => true}
       onMoveShouldSetResponder={() => true}
@@ -2161,6 +2192,7 @@ export function ComplianceDocumentWorkspace({
   /** False on Compliance Pending queue chip only — hide Finance tab for every trip in that stage. */
   showFinanceTab = true,
   canManagePod = false,
+  canEditTripFiles = false,
   showHardCopyPodLog = false,
   compliancePendingQueue = false,
   showPodClientValidation = false,
@@ -2213,6 +2245,8 @@ export function ComplianceDocumentWorkspace({
   showFinanceTab?: boolean;
   /** Log hard-copy POD — Compliance role (and owner/admin) only. */
   canManagePod?: boolean;
+  /** Upload / Replace / Remove trip files (Ground Ops resubmit). Verifiers only view. */
+  canEditTripFiles?: boolean;
   /** True while the POD queue can log hard copy (POD Pending, or All on an awaiting trip). */
   showHardCopyPodLog?: boolean;
   /** True while the Compliance queue filter is Compliance Pending (hides the Finance tab for every listed trip). */
@@ -2480,6 +2514,9 @@ export function ComplianceDocumentWorkspace({
     financeList &&
     summary?.stage !== "compliance_pending" &&
     !compliancePendingQueue;
+  const canEditFiles = isFinanceMode
+    ? canManageFinance || canEditTripFiles
+    : Boolean(onReviewTripDocs) && canEditTripFiles;
   const listRows = isFinanceMode ? financeRows : checklistRows;
   /** More than a few rows: tighten padding so the list still fits above the fixed illustration. */
   const denseChecklist = listRows.length >= 4;
@@ -3610,7 +3647,7 @@ export function ComplianceDocumentWorkspace({
               strokeWidth={2.2}
             />
           </TouchableOpacity>
-          {(onReviewTripDocs || isFinanceMode) && displayRow.status === "missing" ? (
+          {canEditFiles && displayRow.status === "missing" ? (
             <TouchableOpacity
               style={[
                 styles.missingUploadBtn,
@@ -4707,7 +4744,7 @@ export function ComplianceDocumentWorkspace({
           .filter(hasFile)
           .map((row) => applyOptimisticDecision(row, localDecisionByKey[optimisticKey(reviewScope, row.key)]));
         const label = isFinanceMode ? labelForFinanceDocType(filesModalType) : labelForDocType(filesModalType);
-        const canUploadHere = Boolean(onReviewTripDocs || isFinanceMode);
+        const canUploadHere = canEditFiles;
         // Required trip files are locked once the trip is verified (unless it is
         // back with Ground Ops after a hold / reject). The database enforces it too.
         const verifiedLock = Boolean(

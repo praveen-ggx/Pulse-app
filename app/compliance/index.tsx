@@ -1732,6 +1732,7 @@ export default function ComplianceScreen() {
           defaultFinanceList={stage === "compliance_verified"}
           hideDocumentDecisions={stage === "compliance_verified" || stage === "pending_for_docs"}
           canManagePod={canManagePod}
+          canEditTripFiles={canResubmit}
           showHardCopyPodLog={stage === "hard_copy_pod_received" && podSlice !== "received"}
           compliancePendingQueue={stage === "compliance_pending"}
           showPodClientValidation={

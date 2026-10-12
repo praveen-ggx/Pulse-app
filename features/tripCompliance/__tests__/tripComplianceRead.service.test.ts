@@ -153,7 +153,7 @@ describe("deriveComplianceStage", () => {
     ).toBe("pending_for_docs");
   });
 
-  it("keeps a verified Delivered trip in Awaiting POD even when vehicle docs are expired", () => {
+  it("keeps a verified Delivered trip with Finance (no advance) even when vehicle docs are expired", () => {
     expect(
       deriveComplianceStage({
         documentCount: 3,
@@ -165,7 +165,7 @@ describe("deriveComplianceStage", () => {
         hardCopyReceived: false,
         balance: null,
       }),
-    ).toBe("hard_copy_pod_received");
+    ).toBe("compliance_verified");
   });
 
   it("keeps an unverified delivered trip with missing docs in Pending Docs", () => {
@@ -264,12 +264,25 @@ describe("deriveComplianceStage", () => {
     ).toBe("hard_copy_pod_received");
   });
 
-  it("is HARD_COPY_POD_RECEIVED once delivered with no advance and hard-copy POD not yet marked", () => {
+  it("stays with Finance (Advance Verification) once delivered with no advance and hard-copy POD not yet marked", () => {
     expect(
       deriveComplianceStage({
         documentCount: 3,
         complianceVerifiedAt: "2026-09-01T00:00:00Z",
         advance: null,
+        tripStatus: "delivered",
+        hardCopyReceived: false,
+        balance: null,
+      }),
+    ).toBe("compliance_verified");
+  });
+
+  it("is HARD_COPY_POD_RECEIVED once delivered with the advance posted and hard-copy POD not yet marked", () => {
+    expect(
+      deriveComplianceStage({
+        documentCount: 3,
+        complianceVerifiedAt: "2026-09-01T00:00:00Z",
+        advance: PAYMENT,
         tripStatus: "delivered",
         hardCopyReceived: false,
         balance: null,

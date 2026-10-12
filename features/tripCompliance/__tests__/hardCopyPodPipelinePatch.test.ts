@@ -67,7 +67,7 @@ it("summary.trip carries the live verified / POD flags so payment prerequisites 
     taggedAdvance: null,
   };
   const summary = summarizeComplianceTrip(inputs);
-  expect(summary.stage).toBe("hard_copy_pod_received");
+  expect(summary.stage).toBe("compliance_verified");
   expect(summary.trip.compliance_verified_at).toBe("2026-09-20");
   expect(summary.trip.pod_received_at).toBeNull();
 

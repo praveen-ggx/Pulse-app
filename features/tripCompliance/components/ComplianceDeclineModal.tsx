@@ -44,6 +44,9 @@ export type ComplianceDeclineModalProps = {
   context?: { label: string; text: string } | null;
   /** Preset reasons (multi-select). The text box becomes an optional note. */
   presets?: readonly ComplianceDeclineReasonSection[];
+  /** Pre-ticked presets and note, applied each time the modal opens. */
+  initialSelected?: readonly string[];
+  initialNote?: string;
 };
 
 function errorMessage(err: unknown): string {
@@ -63,6 +66,8 @@ export function ComplianceDeclineModal({
   submitLabel,
   context,
   presets,
+  initialSelected,
+  initialNote,
 }: ComplianceDeclineModalProps) {
   const insets = useSafeAreaInsets();
   const [reason, setReason] = useState("");
@@ -70,11 +75,14 @@ export function ComplianceDeclineModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submittingRef = useRef(false);
+  // Read on open only, so a background refetch can't wipe what the user edited.
+  const initialRef = useRef({ initialSelected, initialNote });
+  initialRef.current = { initialSelected, initialNote };
 
   useEffect(() => {
     if (visible) {
-      setReason("");
-      setSelected([]);
+      setReason(initialRef.current.initialNote ?? "");
+      setSelected([...(initialRef.current.initialSelected ?? [])]);
       setError(null);
       setSubmitting(false);
       submittingRef.current = false;

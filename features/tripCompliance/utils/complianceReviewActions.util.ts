@@ -162,6 +162,8 @@ export type OptimisticComplianceDecision = {
   version: string;
   /** Server status at decision time — any server-side move away from it wins. */
   fromStatus: ComplianceDocRow["status"];
+  /** Decline reason, until the refetch carries the stored one. */
+  reason?: string;
 };
 
 /** Identity of the file behind a row: `key` is only the doc type, so it survives re-uploads. */
@@ -174,8 +176,20 @@ export function complianceRowVersion(row: ComplianceDocRow): string {
 export function recordOptimisticDecision(
   row: ComplianceDocRow,
   decision: OptimisticComplianceDecision["decision"],
+  reason?: string,
 ): OptimisticComplianceDecision {
-  return { decision, version: complianceRowVersion(row), fromStatus: row.status };
+  return { decision, version: complianceRowVersion(row), fromStatus: row.status, ...(reason ? { reason } : {}) };
+}
+
+/** Stored decline reason of a declined row (trip doc `rejection_reason`, entity doc `notes`), else the local one. */
+export function complianceRowDeclineReason(
+  row: ComplianceDocRow,
+  local?: OptimisticComplianceDecision,
+): string | null {
+  const shown = applyOptimisticDecision(row, local);
+  if (shown.status !== "rejected") return null;
+  if (shown !== row) return local?.reason?.trim() || null;
+  return (row.doc ? row.doc.rejection_reason : row.entityDoc?.notes)?.trim() || null;
 }
 
 /**

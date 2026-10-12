@@ -109,7 +109,7 @@ export function ComplianceDocTypeFilesModal({
                     <Text style={styles.fileName} numberOfLines={1}>
                       {file.fileName || "—"}
                     </Text>
-                    <Text style={[styles.fileStatus, { color: file.statusColor }]} numberOfLines={1}>
+                    <Text style={[styles.fileStatus, { color: file.statusColor }]} numberOfLines={2}>
                       {file.statusLabel}
                       {file.lockedReason ? ` · ${file.lockedReason}` : ""}
                     </Text>

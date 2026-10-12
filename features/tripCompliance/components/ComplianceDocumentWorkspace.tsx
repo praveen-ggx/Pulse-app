@@ -69,6 +69,7 @@ import {
   applyOptimisticDecision,
   complianceGroupReviewState,
   complianceReviewDecisionActions,
+  complianceRowDeclineReason,
   complianceTabMarkedApproved,
   recordOptimisticDecision,
   type ComplianceGroupReviewState,
@@ -87,6 +88,9 @@ import { alertMessage, confirmAction } from "@/features/tripCompliance/utils/cro
 import {
   COMPLIANCE_DECLINE_REASON_SECTIONS,
   FINANCE_FLAG_REASON_SECTIONS,
+  complianceDeclineSectionsForScope,
+  groupDeclinedReasonLines,
+  mergeDeclinedDocumentReasons,
 } from "@/features/tripCompliance/utils/complianceDeclineReason.util";
 import { fetchSupplierBankProofBundle } from "@/features/tripCompliance/utils/supplierBankProof.util";
 import { classifyTripDocument, readTypedDetails } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
@@ -3130,7 +3134,7 @@ export function ComplianceDocumentWorkspace({
         setLocalDecisionByKey((prev) => {
           const next = { ...prev };
           for (const row of declined) {
-            next[optimisticKey(reviewScope, row.key)] = recordOptimisticDecision(row, "rejected");
+            next[optimisticKey(reviewScope, row.key)] = recordOptimisticDecision(row, "rejected", note);
           }
           return next;
         });
@@ -3219,6 +3223,29 @@ export function ComplianceDocumentWorkspace({
         : false,
     };
   }, [isCompliancePendingStage, localDecisionByKey, summary]);
+  /** Declined documents on the Trip / Vehicle / Driver tabs — prefill for the trip Decline. */
+  const tripDeclinePrefill = useMemo(() => {
+    if (!summary) return null;
+    const items: { label: string; reason: string }[] = [];
+    const collect = (rows: ComplianceDocRow[], scope: DocTab, prefix: string) => {
+      for (const row of rows) {
+        const reason = complianceRowDeclineReason(row, localDecisionByKey[optimisticKey(scope, row.key)]);
+        if (reason) items.push({ label: `${prefix}${labelForDocType(row.type)}`, reason });
+      }
+    };
+    collect(deriveTripVaultReviewRows(summary.documents), "trip", "");
+    if (summary.trip.vehicle_id) {
+      collect(deriveEntityComplianceRows(COMPLIANCE_VEHICLE_DOCUMENT_TYPES, summary.vehicleDocuments), "vehicle", "Vehicle ");
+    }
+    if (summary.trip.driver_id) {
+      collect(deriveEntityComplianceRows(COMPLIANCE_DRIVER_DOCUMENT_TYPES, summary.driverDocuments), "driver", "Driver ");
+    }
+    if (items.length === 0) return null;
+    return {
+      ...mergeDeclinedDocumentReasons(items),
+      summaryText: groupDeclinedReasonLines(items).join("\n"),
+    };
+  }, [localDecisionByKey, summary]);
   const allTabsApproved =
     tabMarkedApproved.trip &&
     tabMarkedApproved.vehicle &&
@@ -3537,7 +3564,14 @@ export function ComplianceDocumentWorkspace({
                 : displayRow.status
           ].color
         : null;
-    const fileName = displayRow.doc?.file_name?.trim() || displayRow.entityDoc?.notes?.trim() || "";
+    // Single-file rows only; a multi-file type shows each reason in its files dialog.
+    const declineReason =
+      typeFiles.length > 1
+        ? null
+        : complianceRowDeclineReason(row, localDecisionByKey[optimisticKey(reviewScope, row.key)]);
+    // Entity docs keep the decline reason in `notes`; don't show it twice.
+    const fileName =
+      displayRow.doc?.file_name?.trim() || (declineReason ? "" : displayRow.entityDoc?.notes?.trim()) || "";
     const vaultDetail = isFinanceMode ? financeVaultDetailLine(displayRow) : null;
     const isBankDocs = isFinanceMode && displayRow.type === "bank_docs";
     const bankVerified =
@@ -3623,6 +3657,14 @@ export function ComplianceDocumentWorkspace({
               numberOfLines={1}
             >
               {statusLabel}
+            </Text>
+          ) : null}
+          {declineReason ? (
+            <Text
+              style={[styles.missingStatus, { color: COMPLIANCE_STATUS_META.rejected.color }]}
+              numberOfLines={2}
+            >
+              {`Reason: ${declineReason}`}
             </Text>
           ) : null}
           {bankFromSupplier && displayRow.status !== "missing" ? (
@@ -4724,8 +4766,8 @@ export function ComplianceDocumentWorkspace({
       />
       <ComplianceDeclineModal
         visible={declineOpen}
-        title={declineTarget === "required" ? "Decline required documents" : "Decline optional documents"}
-        presets={COMPLIANCE_DECLINE_REASON_SECTIONS}
+        title={`Decline ${reviewScope === "trip" ? "" : `${reviewScope} `}${declineTarget} documents`}
+        presets={complianceDeclineSectionsForScope(reviewScope)}
         submitLabel="Decline"
         tripLabel={
           summary
@@ -4740,9 +4782,10 @@ export function ComplianceDocumentWorkspace({
       {(() => {
         if (!filesModalType) return null;
         const typeRows = listRows.filter((row) => row.type === filesModalType);
-        const fileRows = typeRows
-          .filter(hasFile)
-          .map((row) => applyOptimisticDecision(row, localDecisionByKey[optimisticKey(reviewScope, row.key)]));
+        const fileRows = typeRows.filter(hasFile).map((row) => {
+          const local = localDecisionByKey[optimisticKey(reviewScope, row.key)];
+          return { ...applyOptimisticDecision(row, local), declineReason: complianceRowDeclineReason(row, local) };
+        });
         const label = isFinanceMode ? labelForFinanceDocType(filesModalType) : labelForDocType(filesModalType);
         const canUploadHere = canEditFiles;
         // Required trip files are locked once the trip is verified (unless it is
@@ -4758,8 +4801,10 @@ export function ComplianceDocumentWorkspace({
           return {
             key: row.key,
             label: fileRows.length > 1 ? `${label} · ${index + 1}` : label,
-            fileName: row.doc?.file_name?.trim() || row.entityDoc?.notes?.trim() || "",
-            statusLabel: COMPLIANCE_STATUS_META[row.status].label,
+            fileName: row.doc?.file_name?.trim() || (row.declineReason ? "" : row.entityDoc?.notes?.trim()) || "",
+            statusLabel: row.declineReason
+              ? `${COMPLIANCE_STATUS_META[row.status].label}: ${row.declineReason}`
+              : COMPLIANCE_STATUS_META[row.status].label,
             statusColor: COMPLIANCE_STATUS_META[row.status].color,
             canPreview: canViewDocuments,
             canReplace: canUploadHere && isTripFile && !approved,
@@ -4865,6 +4910,13 @@ export function ComplianceDocumentWorkspace({
       <ComplianceDeclineModal
         visible={tripDeclineOpen}
         presets={COMPLIANCE_DECLINE_REASON_SECTIONS}
+        initialSelected={tripDeclinePrefill?.selected}
+        initialNote={tripDeclinePrefill?.note}
+        context={
+          tripDeclinePrefill
+            ? { label: "Declined documents", text: tripDeclinePrefill.summaryText }
+            : null
+        }
         tripLabel={
           summary
             ? getTripDisplayNumber(summary.trip, summary.trip.organization_id ?? null)

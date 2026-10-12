@@ -2,6 +2,8 @@
  * Trips Control — demo2 trips tab. Active | History, trip cards, Add Trip.
  * Private Book = driver/vehicle assigned by you; Shared Ledger = assigned by another user.
  */
+import { GroundOpsWarehouseNotice } from "@/features/organization/components/GroundOpsWarehouseNotice";
+import { useGroundOpsWarehouseGap } from "@/features/organization/hooks/useGroundOpsWarehouseGap";
 import { PulsePillButton } from "@/components/PulsePillButton";
 import { ContentErrorState } from "@/components/ContentErrorState";
 import { SceneLoadingSplash } from "@/components/chromeLoadingScreens";
@@ -367,6 +369,7 @@ export default function TripsScreen() {
 
   const { can: canSurface, orgCapabilities, isLoading: memberAccessLoading } =
     useMemberAccess();
+  const groundOpsWarehouseGap = useGroundOpsWarehouseGap();
   // Org model decides whether trips exist at all; the surface decides whether
   // this member may open them. Gating on member-filtered capabilities too would
   // hide the list from finance members, who hold `tripops.trips.view` as a
@@ -2126,6 +2129,10 @@ export default function TripsScreen() {
         />
       </View>
     );
+  }
+
+  if (groundOpsWarehouseGap.missingWarehouse) {
+    return <GroundOpsWarehouseNotice />;
   }
 
   if (loading || tripsBootFailed) {

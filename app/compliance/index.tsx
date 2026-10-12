@@ -2,6 +2,8 @@
  * Global Compliance Verification work queue — header, counted stage filters,
  * Cards/Table toggle, and Trip/Vehicle/Driver checklist cards.
  */
+import { GroundOpsWarehouseNotice } from "@/features/organization/components/GroundOpsWarehouseNotice";
+import { useGroundOpsWarehouseGap } from "@/features/organization/hooks/useGroundOpsWarehouseGap";
 import { ChromeBelowTopNavLoadingScreen } from "@/components/chromeLoadingScreens";
 import { HubPromoHeroLottie } from "@/components/hub/HubPromoLottie";
 import Layout from "@/constants/Layout";
@@ -320,6 +322,7 @@ export default function ComplianceScreen() {
   const canManagePod = canSurface("trip_compliance.pod.manage");
   const canManageFinance = canSurface("trip_compliance.finance.manage");
   const canViewFinance = canSurface("trip_compliance.finance.view");
+  const groundOpsWarehouseGap = useGroundOpsWarehouseGap();
   const canTabAdvanceVerification = canSurface("trip_compliance.tab.advance_verification");
   const canTabAdvancePayment = canSurface("trip_compliance.tab.advance_payment");
   const canTabSettlementVerification = canSurface("trip_compliance.tab.settlement_verification");
@@ -1462,6 +1465,10 @@ export default function ComplianceScreen() {
         </Text>
       </View>
     );
+  }
+
+  if (groundOpsWarehouseGap.missingWarehouse) {
+    return <GroundOpsWarehouseNotice />;
   }
 
   return (

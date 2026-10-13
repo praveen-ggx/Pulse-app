@@ -3,14 +3,15 @@
  * `trips_ground_ops_select_assigned`). With none assigned, every trip list is
  * empty with no explanation — this tells screens to say so instead.
  */
-import { useActiveWorkspace } from "@/contexts/ActiveWorkspaceContext";
+import { useOptionalActiveWorkspace } from "@/contexts/ActiveWorkspaceContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOptionalOrganization } from "@/contexts/OrganizationContext";
 import { supabase } from "@/lib/supabase";
 import { useQuery } from "@tanstack/react-query";
 
 export function useGroundOpsWarehouseGap(): { missingWarehouse: boolean; isLoading: boolean } {
-  const { memberPlatformRole } = useActiveWorkspace();
+  // Optional: some routes (e.g. /compliance) render outside ActiveWorkspaceProvider.
+  const memberPlatformRole = useOptionalActiveWorkspace()?.memberPlatformRole ?? null;
   const { user } = useAuth();
   const orgId = useOptionalOrganization()?.currentOrganization?.id ?? null;
   const userId = user?.uid ?? null;

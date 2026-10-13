@@ -128,16 +128,18 @@ export function NetworkHubConnectionsPagedGrid<T>({
     [isWeb],
   );
 
+  const swipePager = !isWeb && pageCount > 1 && slideWidth > 0;
+
   const goToPage = useCallback(
     (target: number, animated = true) => {
       const next = Math.max(0, Math.min(pageCount - 1, target));
       pageRef.current = next;
       setPage(next);
-      if (slideWidth > 0) {
+      if (swipePager && slideWidth > 0) {
         scrollPagerTo(next * slideWidth, animated);
       }
     },
-    [pageCount, scrollPagerTo, slideWidth],
+    [pageCount, scrollPagerTo, slideWidth, swipePager],
   );
 
   useEffect(() => {
@@ -238,7 +240,7 @@ export function NetworkHubConnectionsPagedGrid<T>({
         setViewportWidth(w);
       }}
     >
-      {pageCount > 1 && slideWidth > 0 ? (
+      {swipePager ? (
         <ScrollView
           ref={listRef}
           horizontal
@@ -272,7 +274,7 @@ export function NetworkHubConnectionsPagedGrid<T>({
           ))}
         </ScrollView>
       ) : (
-        renderPageBody(pages[0] ?? [])
+        renderPageBody(pages[Math.min(page, pageCount - 1)] ?? [])
       )}
 
       {pageCount > 1 ? (
@@ -410,6 +412,7 @@ const styles = StyleSheet.create({
     gap: 3,
     paddingHorizontal: 8,
     paddingVertical: 5,
+    minHeight: 32,
     borderRadius: 8,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Theme.borderLight,

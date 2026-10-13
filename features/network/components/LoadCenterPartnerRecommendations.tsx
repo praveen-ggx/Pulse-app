@@ -98,6 +98,9 @@ type Props = {
   compact?: boolean;
   /** Discover is expensive — keep off until Load primary lists have settled. */
   enabled?: boolean;
+  /** Fill a fixed-height parent and scroll the list so the card does not grow. */
+  fillHeight?: boolean;
+  style?: ViewStyle;
 };
 
 function RecommendationRow({
@@ -280,6 +283,8 @@ export function LoadCenterPartnerRecommendations({
   onViewAll,
   compact = false,
   enabled = true,
+  fillHeight = false,
+  style,
 }: Props) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -516,6 +521,8 @@ export function LoadCenterPartnerRecommendations({
         local.wrap,
         compact && local.wrapCompact,
         compact && !expanded && local.wrapCollapsed,
+        fillHeight && local.wrapFill,
+        style,
       ]}
     >
       <Pressable
@@ -565,7 +572,12 @@ export function LoadCenterPartnerRecommendations({
                 : "No active aggregators to suggest right now — open Network to search."}
             </Text>
           ) : (
-            <View style={styles.salesGrowFeed}>
+            <ScrollView
+              style={fillHeight ? local.feedFill : undefined}
+              contentContainerStyle={fillHeight ? local.feedFillContent : undefined}
+              nestedScrollEnabled
+              showsVerticalScrollIndicator={fillHeight}
+            >
               {recommendations.map((org, idx) => {
                 const location = getDiscoverOrgLocation(org);
                 const { prefix, highlight, tone } = loadCenterRecommendMatchLine(
@@ -597,7 +609,7 @@ export function LoadCenterPartnerRecommendations({
                   />
                 );
               })}
-            </View>
+            </ScrollView>
           )}
 
           <View style={styles.salesGrowInviteMeta}>
@@ -677,6 +689,21 @@ const local = {
     marginBottom: 0,
     alignSelf: "stretch" as const,
     width: "100%" as const,
+  } satisfies ViewStyle,
+  wrapFill: {
+    flex: 1,
+    height: "100%" as const,
+    minHeight: 0,
+    borderWidth: 0,
+    borderRadius: 0,
+    backgroundColor: "transparent",
+  } satisfies ViewStyle,
+  feedFill: {
+    flex: 1,
+    minHeight: 0,
+  } satisfies ViewStyle,
+  feedFillContent: {
+    flexGrow: 1,
   } satisfies ViewStyle,
   wrapCompact: {
     marginHorizontal: 0,

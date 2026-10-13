@@ -24,6 +24,7 @@ import {
 import { NetworkDesktopHub } from "@/features/network/components/desktop/NetworkDesktopHub";
 import type { NetworkDesktopTab } from "@/features/network/components/desktop/NetworkDesktopHub";
 import { DiscoverView } from "@/features/network/components/DiscoverView";
+import { LoadCenterPartnerRecommendations } from "@/features/network/components/LoadCenterPartnerRecommendations";
 import { NetworkPhoneAndContactsPanel } from "@/features/network/components/NetworkPhoneAndContactsPanel";
 import { NetworkSupportHelpCards } from "@/features/network/components/NetworkSupportHelpCards";
 import { discoverSearchTermForOrgs } from "@/lib/networkPhoneSearch";
@@ -291,6 +292,7 @@ function NetworkScreenInner() {
   const [connSearch, setConnSearch] = useState("");
   const [connFilter, setConnFilter] = useState<ConnectionFilterTab>("ALL");
   const [connSearchOpen, setConnSearchOpen] = useState(false);
+  const [connectionsCardHeight, setConnectionsCardHeight] = useState(0);
   const [discoverSearchOpen, setDiscoverSearchOpen] = useState(false);
   const [discoverSearch, setDiscoverSearch] = useState("");
   const [viewMode, setViewMode] = useState<"dashboard" | "requests">("dashboard");
@@ -1093,7 +1095,13 @@ function NetworkScreenInner() {
         {ENABLE_UNLINKED_COUNTERPARTIES && orgId ? (
           <UnlinkedCounterpartiesSection orgId={orgId} />
         ) : null}
-        <View style={[styles.networkMergedRow, !isWideNetwork && styles.networkMergedRowStack]}>
+        <View
+          style={[
+            styles.networkMergedRow,
+            isWideNetwork && styles.networkMergedRowWide,
+            !isWideNetwork && styles.networkMergedRowStack,
+          ]}
+        >
           {canViewConnections ? (
           <View
             style={[
@@ -1102,8 +1110,21 @@ function NetworkScreenInner() {
               isWideNetwork && styles.networkMergedPanePrimary,
             ]}
           >
-            <View style={styles.connectionsHubCardWrap}>
-              <View style={styles.connectionsHubCard}>
+            <View
+              style={[
+                styles.connectionsHubCardWrap,
+                isWideNetwork && styles.connectionsHubCardWrapWide,
+              ]}
+            >
+              <View
+                style={styles.connectionsHubCard}
+                onLayout={(e) => {
+                  const next = Math.round(e.nativeEvent.layout.height);
+                  if (next > 0 && next !== connectionsCardHeight) {
+                    setConnectionsCardHeight(next);
+                  }
+                }}
+              >
                 <View style={styles.connectionsHubCardOrb} />
                 <View
                   style={[
@@ -1222,6 +1243,35 @@ function NetworkScreenInner() {
             </View>
           </View>
           ) : null}
+
+          {canDiscover && orgId && isWideNetwork ? (
+            <View
+              style={[
+                styles.networkSuggestionsAside,
+                connectionsCardHeight > 0 && { height: connectionsCardHeight },
+              ]}
+            >
+              <View style={styles.networkSuggestionsCard}>
+                <LoadCenterPartnerRecommendations
+                  orgId={orgId}
+                  mode="get"
+                  fillHeight
+                  onOpenProfile={handleOpenProfileFromDiscover}
+                />
+              </View>
+            </View>
+          ) : null}
+        </View>
+        {canDiscover && orgId && !isWideNetwork ? (
+          <View style={styles.networkSuggestionsStacked}>
+            <LoadCenterPartnerRecommendations
+              orgId={orgId}
+              mode="get"
+              compact
+              onOpenProfile={handleOpenProfileFromDiscover}
+            />
+          </View>
+        ) : null}
 
           {canDiscover ? (
           <View
@@ -1405,7 +1455,6 @@ function NetworkScreenInner() {
             </View>
           </View>
           ) : null}
-        </View>
         <NetworkSupportHelpCards />
       </>
     </ScrollView>
@@ -1849,6 +1898,9 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
     minWidth: 0,
     marginHorizontal: NETWORK_HUB_GRID_ROW_PADDING_H,
+  },
+  connectionsHubCardWrapWide: {
+    marginHorizontal: 0,
   },
   connectionsHubCard: {
     width: "100%",
@@ -2825,6 +2877,12 @@ const styles = StyleSheet.create({
     alignItems: "stretch",
     gap: 4,
   },
+  networkMergedRowWide: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 16,
+    paddingHorizontal: NETWORK_HUB_GRID_ROW_PADDING_H,
+  },
   networkMergedRowStack: {
     marginHorizontal: 0,
     flexDirection: "column",
@@ -2832,6 +2890,30 @@ const styles = StyleSheet.create({
   },
   networkMergedPanePrimary: {
     marginTop: 0,
+    flex: 1,
+    minWidth: 0,
+  },
+  networkSuggestionsAside: {
+    width: 360,
+    maxWidth: "34%",
+    flexShrink: 0,
+    minWidth: 280,
+    paddingTop: 0,
+    alignSelf: "flex-start",
+  },
+  networkSuggestionsCard: {
+    flex: 1,
+    height: "100%",
+    minHeight: 0,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    backgroundColor: Theme.screenBackground,
+    overflow: "hidden",
+  },
+  networkSuggestionsStacked: {
+    marginTop: 8,
+    paddingHorizontal: NETWORK_HUB_GRID_ROW_PADDING_H,
   },
   networkMergedPaneSecondary: {
     marginTop: 0,

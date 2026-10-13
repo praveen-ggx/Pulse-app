@@ -2239,13 +2239,28 @@ export function useTripDetail({
     if (!loadKey || !orgId || !requestedTripId) return;
     if (vehicleDocsLoadedForRef.current === loadKey) return;
     vehicleDocsLoadedForRef.current = loadKey;
+    // Vehicle row docs, then fill empty slots from entity_documents saved under the
+    // trip org, the viewer org or the owner org. A partner truck's RC / fitness /
+    // insurance are often uploaded by the trip org (e.g. GoGoVan on SIVAN E's truck)
+    // and never reach the owner's vehicles.documents.
+    const applyVaultDocs = async (vaultVehicleIdValue: string, ownerOrgId: string, base: VehicleDocuments | null) => {
+      setVehicleDocs(base);
+      let merged = base;
+      const orgs = [orgId, currentOrganization?.id ?? "", ownerOrgId]
+        .map((id) => id.trim())
+        .filter((id, index, all) => id && all.indexOf(id) === index);
+      for (const org of orgs) {
+        merged = await mergeEntityDocumentsIntoVehicleVault(vaultVehicleIdValue, org, merged);
+      }
+      if (currentTripIdRef.current === requestedTripId && merged !== base) setVehicleDocs(merged);
+    };
     void (async () => {
       if (!vehicleId) {
         const byPlate = await findVehicleByPlate(orgId, plate);
         if (currentTripIdRef.current !== requestedTripId || !byPlate.vehicle) return;
         setVaultVehicleId(byPlate.vehicle.id);
         setVehicleOwnerOrgId(orgId);
-        setVehicleDocs((byPlate.vehicle.documents ?? null) as VehicleDocuments | null);
+        await applyVaultDocs(byPlate.vehicle.id, orgId, (byPlate.vehicle.documents ?? null) as VehicleDocuments | null);
         return;
       }
       const owned = await getVehicleById(orgId, vehicleId);
@@ -2260,9 +2275,9 @@ export function useTripDetail({
       const ownerOrgId = vehicle.organization_id?.trim() || orgId;
       setVaultVehicleId(vehicle.id);
       setVehicleOwnerOrgId(ownerOrgId);
-      setVehicleDocs((vehicle.documents ?? null) as VehicleDocuments | null);
       const label = [vehicle.vehicle_number, vehicle.vehicle_type].filter(Boolean).join(" · ");
       if (label) setVehicleLabel(label);
+      await applyVaultDocs(vehicle.id, ownerOrgId, (vehicle.documents ?? null) as VehicleDocuments | null);
     })();
   }, [trip?.vehicle_id, trip?.owner_vehicle_id, trip?.vehicle_display_number, displayVehicleFromInput, vehicleLabel, trip?.organization_id, trip?.id, currentOrganization?.id]);
 

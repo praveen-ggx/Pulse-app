@@ -33,6 +33,7 @@
 - Declined by finance → Ground Ops resubmits → the trip goes straight back to Finance (Advance Verification) as Verified, with no second Compliance verify; approving or paying stays blocked only while the reject is open. Compliance page search now stays inside the open tab and sub-tab.
 - Trip cards show a RESUBMITTED tag with the Finance reject reason and Ground Ops' resubmit note once a declined trip is back with Finance (until the advance posts).
 - Synced with vasanth/V1.0.1 (6f36254c: Network suggested partners beside Your connections, pager fix) for the PR to Vasanth.
+- Trip Detail Asset Vault shows a partner truck's RC / fitness / insurance uploaded by the trip org (they were saved under the trip org and the vault only read the owner's vehicle row).
 
 ## Why
 - Finance needs to check the advance values before money goes out, and trips sent back for fixes were either stuck or could be verified without Ground Ops fixing anything.
@@ -67,6 +68,7 @@
 - Nihas: finance-declined trips should not loop through Compliance again. Search was jumping to other tabs.
 - Finance could not tell a resubmitted trip from a fresh one in Advance Verification.
 - Keep this branch current with his V1.0.1 before he opens the PR.
+- SAT812GOGTRIP000948 (SIVAN E's truck TN02BR4402) showed every vehicle document as Not uploaded although GoGoVan uploaded three.
 
 ## Areas
 - Supabase migrations and RPCs for trips compliance (finance approval, reject, decline, resubmit, verify).
@@ -101,6 +103,7 @@
 - Compliance reject/resubmit routing and counts, advance approval gate, Compliance page search.
 - Compliance trip card.
 - Network page (his change, no overlap with this branch's files).
+- Trip Detail vault vehicle documents.
 
 ## Migrations
 - 20271008112000_finance_verified_step.sql, 20271008113000_compliance_reject_resubmit.sql, 20271008114000_compliance_hold_resubmit.sql, 20271008115000_compliance_resubmit_note.sql, 20271008116000_compliance_resubmit_gates.sql (all applied to preprod only; prod untouched). Release set: supabase/release-sets/preprod-finance-resubmit.versions.
@@ -135,6 +138,7 @@
 - 20271013120000_compliance_cleared_gate.sql updated before first apply: a resubmit clears a finance reject (still not applied).
 - None.
 - None in the sync.
+- None.
 
 ## Tested
 - Migration contract tests (local). 33 SQL scenarios for the resubmit gates ran on preprod inside a rolled-back transaction, all passed; then 116000 was applied to preprod with approval.
@@ -169,3 +173,4 @@
 - Typecheck 64 (baseline); 651 Compliance and migration tests pass; rolled-back preprod test: resubmitted 000970 can be approved, an open reject is refused. Not clicked through.
 - Typecheck 64 (baseline); 607 Compliance tests pass. Not clicked through.
 - Merge had no conflicts; checks listed in the sync commit report.
+- Typecheck 64 (baseline); trips and vehicles tests pass. Not clicked through after the change (local window signed out).

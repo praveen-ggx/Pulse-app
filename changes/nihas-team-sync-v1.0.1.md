@@ -25,6 +25,7 @@
 - Finance on the Compliance page: Reject shows (it needed the Compliance verify permission), Flag to Compliance retired (button, badge, notes, blocked status and Flagged by finance sub-tab removed), vendor name opens the supplier detail page and now actually navigates, document eye shows grey when the viewer cannot open it; Edit member warns when saved access differs from the role preset with a Reset to preset button.
 - Praveen supplier page changes (praveen/V1.0.6 eac2faed): supplier profile edits, primary region and multiple bank accounts now save and survive refresh; Aadhaar shown formatted.
 - Fixed the 6 type errors Praveen supplier change added (unreachable supplier checks in the client edit block, refetch return type, web cursor style).
+- Release set for Praveen supplier profile migrations.
 
 ## Why
 - Finance needs to check the advance values before money goes out, and trips sent back for fixes were either stuck or could be verified without Ground Ops fixing anything.
@@ -51,6 +52,7 @@
 - Dhira (Finance) could not open documents, saw Flag instead of Reject and could not open suppliers: old saved access, a leftover verify check, and ModelAccessGate checking member capabilities so Finance bounced off /supplier/:id.
 - Nihas asked to bring Praveen supplier detail page work into this branch.
 - Team rule: no new type errors in merged files.
+- Push his two migrations to preprod through the approved release-set path.
 
 ## Areas
 - Supabase migrations and RPCs for trips compliance (finance approval, reject, decline, resubmit, verify).
@@ -77,6 +79,7 @@
 - Compliance page and workspace, payment panel, ModelAccessGate (suppliers / clients / vehicles / drivers), member access editor.
 - Supplier detail / profile, vendor onboarding vault, counterparty profile card, supplier services.
 - Counterparty profile card, supplier profile screen, vendor onboarding vault.
+- supabase/release-sets.
 
 ## Migrations
 - 20271008112000_finance_verified_step.sql, 20271008113000_compliance_reject_resubmit.sql, 20271008114000_compliance_hold_resubmit.sql, 20271008115000_compliance_resubmit_note.sql, 20271008116000_compliance_resubmit_gates.sql (all applied to preprod only; prod untouched). Release set: supabase/release-sets/preprod-finance-resubmit.versions.
@@ -103,6 +106,7 @@
 - None. Preprod SAT812-TRP-957 is still finance-flagged (Reject it, or clear the flag).
 - 20271006161000_suppliers_primary_region.sql, 20271012130500_entity_bank_account_verification_status.sql (from Praveen; not yet on preprod).
 - None.
+- Release set supplier-profile-praveen (20271006161000, 20271012130500); dry run lists exactly these two.
 
 ## Tested
 - Migration contract tests (local). 33 SQL scenarios for the resubmit gates ran on preprod inside a rolled-back transaction, all passed; then 116000 was applied to preprod with approval.
@@ -129,3 +133,4 @@
 - Typecheck unchanged; navigation policy 64/64; 1362 tests pass (only the known loadCenterMarketplaceGate failure); cycles 111/111. Checked Dhira saved access on preprod; vendor link not re-clicked after the gate fix.
 - Applied cleanly on this branch; typecheck checked in the next commit (6 type errors fixed there).
 - Typecheck back to 64; lint 104/104 baseline; cycles 111/111; supplier, client and component tests pass (only the known loadCenterMarketplaceGate failure). Supplier pages not clicked through.
+- db:push-set dry run on preprod.

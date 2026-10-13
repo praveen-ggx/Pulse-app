@@ -28,7 +28,7 @@ type SectionId = "document" | "debit" | "detention" | "placement";
 
 const NAV: Array<{ id: SectionId; label: string }> = [
   { id: "document", label: "Agreement file" },
-  { id: "debit", label: "Debit class" },
+  { id: "debit", label: "Debit clause" },
   { id: "detention", label: "Halting" },
   { id: "placement", label: "Placement failure" },
 ];

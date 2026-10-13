@@ -51,6 +51,8 @@ export interface SupplierRow {
   owner_full_name?: string | null;
   vehicle_types?: string[] | null;
   operating_areas?: string[] | null;
+  /** North, South, East, or West. Null when the partner has not chosen one. */
+  primary_region?: string | null;
   onboarding_agreement_status?: 'pending' | 'draft' | 'signed' | 'expired' | 'terminated' | null;
   onboarding_agreement_signed_at?: string | null;
   onboarding_agreement_storage_path?: string | null;
@@ -76,6 +78,33 @@ const SUPPLIER_COLUMNS = `${SUPPLIER_CORE_COLUMNS},${SUPPLIER_ONBOARDING_COLUMNS
 
 function isMissingOnboardingColumnError(message: string): boolean {
   return /onboarding_agreement_/i.test(message) && /does not exist/i.test(message);
+}
+
+const SUPPLIER_PRIMARY_REGIONS = ["North", "South", "East", "West"] as const;
+export type SupplierPrimaryRegion = (typeof SUPPLIER_PRIMARY_REGIONS)[number];
+
+export function isSupplierPrimaryRegion(value: string | null | undefined): value is SupplierPrimaryRegion {
+  return SUPPLIER_PRIMARY_REGIONS.includes(value as SupplierPrimaryRegion);
+}
+
+/** Column value when present, otherwise the region stored on operating areas. */
+export function readSupplierPrimaryRegion(
+  row: { primary_region?: string | null; operating_areas?: string[] | null } | null | undefined,
+): string | null {
+  if (isSupplierPrimaryRegion(row?.primary_region)) return row.primary_region;
+  return (row?.operating_areas ?? []).find((area) => isSupplierPrimaryRegion(area)) ?? null;
+}
+
+function operatingAreasWithPrimaryRegion(
+  areas: string[] | null | undefined,
+  region: string | null,
+): string[] {
+  const rest = (areas ?? []).filter((area) => !isSupplierPrimaryRegion(area));
+  return region && isSupplierPrimaryRegion(region) ? [region, ...rest] : rest;
+}
+
+function isMissingPrimaryRegionColumnError(message: string): boolean {
+  return /primary_region/i.test(message) && /does not exist|schema cache|could not find/i.test(message);
 }
 
 function withDefaultOnboardingFields(row: SupplierRow): SupplierRow {
@@ -227,10 +256,18 @@ export async function getSupplierById(
 ): Promise<{ error: Error | null; supplier: SupplierRow | null }> {
   let { data, error } = await supabase()
     .from('suppliers')
-    .select(SUPPLIER_COLUMNS)
+    .select(`${SUPPLIER_COLUMNS},primary_region`)
     .eq('organization_id', orgId)
     .eq('id', supplierId)
     .maybeSingle();
+  if (error && isMissingPrimaryRegionColumnError(error.message)) {
+    ({ data, error } = await supabase()
+      .from('suppliers')
+      .select(SUPPLIER_COLUMNS)
+      .eq('organization_id', orgId)
+      .eq('id', supplierId)
+      .maybeSingle());
+  }
   if (error && isMissingOnboardingColumnError(error.message)) {
     ({ data, error } = await supabase()
       .from('suppliers')
@@ -414,12 +451,14 @@ export interface UpdateSupplierData {
   iec_number?: string;
   vehicle_types?: string[];
   operating_areas?: string[];
+  primary_region?: "North" | "South" | "East" | "West" | null;
 }
 
 export async function updateSupplier(
   orgId: string,
   supplierId: string,
-  patch: UpdateSupplierData
+  patch: UpdateSupplierData,
+  options?: { allowIntegratedIdentity?: boolean },
 ): Promise<{ error: Error | null; supplier: SupplierRow | null }> {
   const touchesIdentity =
     patch.name !== undefined ||
@@ -428,7 +467,7 @@ export async function updateSupplier(
     patch.phone !== undefined ||
     patch.email !== undefined;
 
-  if (touchesIdentity) {
+  if (touchesIdentity && !options?.allowIntegratedIdentity) {
     const { data: existing, error: existingError } = await supabase()
       .from("suppliers")
       .select("id, supplier_type, linked_organization_id")
@@ -475,6 +514,7 @@ export async function updateSupplier(
   if (patch.iec_number !== undefined) updates.iec_number = patch.iec_number.trim() || null;
   if (patch.vehicle_types !== undefined) updates.vehicle_types = patch.vehicle_types;
   if (patch.operating_areas !== undefined) updates.operating_areas = patch.operating_areas;
+  if (patch.primary_region !== undefined) updates.primary_region = patch.primary_region;
   if (Object.keys(updates).length === 0) return { error: null, supplier: null };
   const { data, error } = await supabase()
     .from('suppliers')
@@ -483,6 +523,38 @@ export async function updateSupplier(
     .eq('id', supplierId)
     .select()
     .single();
+  if (error && isMissingPrimaryRegionColumnError(error.message)) {
+    delete updates.primary_region;
+    if (patch.primary_region) {
+      const { data: current, error: readError } = await supabase()
+        .from("suppliers")
+        .select("operating_areas")
+        .eq("organization_id", orgId)
+        .eq("id", supplierId)
+        .maybeSingle();
+      if (readError) return { error: new Error(readError.message), supplier: null };
+      updates.operating_areas = operatingAreasWithPrimaryRegion(
+        (current?.operating_areas as string[] | null | undefined) ?? [],
+        patch.primary_region,
+      );
+    }
+    if (Object.keys(updates).length === 0) return { error: null, supplier: null };
+    const retry = await supabase()
+      .from("suppliers")
+      .update(updates)
+      .eq("organization_id", orgId)
+      .eq("id", supplierId)
+      .select()
+      .single();
+    if (retry.error) return { error: new Error(retry.error.message), supplier: null };
+    return {
+      error: null,
+      supplier: {
+        ...(retry.data as unknown as SupplierRow),
+        primary_region: patch.primary_region ?? null,
+      },
+    };
+  }
   if (error) return { error: new Error(error.message), supplier: null };
   return { error: null, supplier: data as unknown as SupplierRow };
 }

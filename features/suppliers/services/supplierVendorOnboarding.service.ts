@@ -30,6 +30,8 @@ export type SupplierTdsRate = {
   updated_at: string;
 };
 
+export type BankVerificationStatus = "pending" | "verified" | "failed";
+
 export type SupplierBankAccount = {
   id: string;
   bank_name: string | null;
@@ -38,7 +40,16 @@ export type SupplierBankAccount = {
   beneficiary_name?: string | null;
   branch_name?: string | null;
   cancelled_cheque_url?: string | null;
+  is_primary?: boolean | null;
+  verified_at?: string | null;
+  verification_status?: BankVerificationStatus | null;
 };
+
+export function bankVerificationStatus(account: SupplierBankAccount | null | undefined): BankVerificationStatus {
+  const stored = account?.verification_status;
+  if (stored === "verified" || stored === "pending" || stored === "failed") return stored;
+  return account?.verified_at ? "verified" : "pending";
+}
 
 const PROFILE_COLUMNS =
   "vendor_status, blacklist_reason, status_changed_at, advance_percentage, aadhaar_number, pan_number, gstin, msme_number, " +
@@ -242,11 +253,10 @@ export async function deleteSupplierTdsRate(id: string): Promise<{ error: Error 
 
 // ── Bank account (entity_bank_accounts, entity_type = 'supplier') ─────────────
 
-export async function getSupplierBankAccount(
+export async function listSupplierBankAccounts(
   orgId: string,
   supplierId: string,
-): Promise<{ error: Error | null; account: SupplierBankAccount | null }> {
-  // Older schemas may lack beneficiary/branch (20261005080754) or cancelled_cheque_url.
+): Promise<{ error: Error | null; accounts: SupplierBankAccount[] }> {
   let lastError: string | null = null;
   for (const columns of SUPPLIER_BANK_SELECTS) {
     const { data, error } = await supabase()
@@ -257,17 +267,27 @@ export async function getSupplierBankAccount(
       .eq("entity_id", supplierId)
       .is("deleted_at", null)
       .order("is_primary", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(1);
+      .order("created_at", { ascending: true });
     if (!error) {
-      return { error: null, account: ((data ?? [])[0] as unknown as SupplierBankAccount | undefined) ?? null };
+      return { error: null, accounts: (data ?? []) as unknown as SupplierBankAccount[] };
     }
     lastError = error.message;
   }
-  return { error: new Error(lastError ?? "Could not load bank account"), account: null };
+  return { error: new Error(lastError ?? "Could not load bank accounts"), accounts: [] };
+}
+
+export async function getSupplierBankAccount(
+  orgId: string,
+  supplierId: string,
+): Promise<{ error: Error | null; account: SupplierBankAccount | null }> {
+  const { error, accounts } = await listSupplierBankAccounts(orgId, supplierId);
+  const account = accounts.find((row) => row.is_primary) ?? accounts[0] ?? null;
+  return { error, account };
 }
 
 const SUPPLIER_BANK_SELECTS = [
+  "id, bank_name, account_number, ifsc_code, beneficiary_name, branch_name, cancelled_cheque_url, is_primary, verified_at, verification_status",
+  "id, bank_name, account_number, ifsc_code, beneficiary_name, branch_name, cancelled_cheque_url, is_primary, verified_at",
   "id, bank_name, account_number, ifsc_code, beneficiary_name, branch_name, cancelled_cheque_url",
   "id, bank_name, account_number, ifsc_code, cancelled_cheque_url",
   "id, bank_name, account_number, ifsc_code",
@@ -285,6 +305,10 @@ function isMissingBankDetailColumn(message: string | undefined) {
   return /beneficiary_name|branch_name/i.test(message ?? "");
 }
 
+function isMissingVerificationStatusColumn(message: string | undefined) {
+  return /verification_status/i.test(message ?? "") && /does not exist|schema cache|could not find/i.test(message ?? "");
+}
+
 /**
  * `extrasPending` is true when the DB does not have the beneficiary/branch
  * columns yet: the core account is saved, the two extra fields are not.
@@ -294,7 +318,8 @@ export async function saveSupplierBankAccount(
   supplierId: string,
   existingId: string | null,
   input: SupplierBankAccountInput,
-): Promise<{ error: Error | null; extrasPending?: boolean }> {
+  options?: { isPrimary?: boolean },
+): Promise<{ error: Error | null; id?: string | null; extrasPending?: boolean }> {
   const core = {
     bank_name: input.bank_name.trim() || null,
     account_number: normalizeIdNumber(input.account_number) || null,
@@ -305,21 +330,72 @@ export async function saveSupplierBankAccount(
     beneficiary_name: input.beneficiary_name.replace(/\s+/g, " ").trim() || null,
     branch_name: input.branch_name.replace(/\s+/g, " ").trim() || null,
   };
+  const isPrimary = options?.isPrimary ?? true;
   const write = (values: typeof core | typeof full) =>
     existingId
-      ? supabase().from("entity_bank_accounts").update(values).eq("id", existingId)
-      : supabase().from("entity_bank_accounts").insert({
-          organization_id: orgId,
-          entity_type: "supplier",
-          entity_id: supplierId,
-          is_primary: true,
-          ...values,
-        });
+      ? supabase()
+          .from("entity_bank_accounts")
+          .update({ ...values, is_primary: isPrimary })
+          .eq("id", existingId)
+          .select("id")
+          .single()
+      : supabase()
+          .from("entity_bank_accounts")
+          .insert({
+            organization_id: orgId,
+            entity_type: "supplier",
+            entity_id: supplierId,
+            is_primary: isPrimary,
+            ...values,
+          })
+          .select("id")
+          .single();
 
-  const { error } = await write(full);
+  const { data, error } = await write(full);
   if (error && isMissingBankDetailColumn(error.message)) {
     const retry = await write(core);
-    return { error: retry.error ? new Error(retry.error.message) : null, extrasPending: !retry.error };
+    return {
+      error: retry.error ? new Error(retry.error.message) : null,
+      id: (retry.data as { id?: string } | null)?.id ?? existingId,
+      extrasPending: !retry.error,
+    };
+  }
+  return {
+    error: error ? new Error(error.message) : null,
+    id: (data as { id?: string } | null)?.id ?? existingId,
+  };
+}
+
+export async function deleteSupplierBankAccount(id: string): Promise<{ error: Error | null }> {
+  const { error } = await supabase()
+    .from("entity_bank_accounts")
+    .update({ deleted_at: new Date().toISOString(), is_primary: false })
+    .eq("id", id);
+  return { error: error ? new Error(error.message) : null };
+}
+
+export async function setSupplierBankVerification(
+  id: string,
+  status: BankVerificationStatus,
+): Promise<{ error: Error | null }> {
+  const userId = status === "verified" ? await currentUserId() : null;
+  const values: Record<string, unknown> = {
+    verification_status: status,
+    verified_at: status === "verified" ? new Date().toISOString() : null,
+    verified_by: userId,
+  };
+  const write = (patch: Record<string, unknown>) =>
+    supabase().from("entity_bank_accounts").update(patch).eq("id", id);
+  const { error } = await write(values);
+  if (error && isMissingVerificationStatusColumn(error.message)) {
+    if (status === "failed") {
+      return {
+        error: new Error("Failed status is stored once the bank verification update is applied on the database."),
+      };
+    }
+    delete values.verification_status;
+    const retry = await write(values);
+    return { error: retry.error ? new Error(retry.error.message) : null };
   }
   return { error: error ? new Error(error.message) : null };
 }

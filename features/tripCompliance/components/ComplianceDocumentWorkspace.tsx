@@ -1,4 +1,5 @@
 import { PartyAvatar } from "@/components/PartyAvatar";
+import { useMemberAccess } from "@/lib/useMemberAccess";
 import Theme from "@/constants/Theme";
 import { rejectDocument, verifyDocument } from "@/features/compliance/services/documents.service";
 import { getSupplierBankAccount } from "@/features/suppliers/services/supplierVendorOnboarding.service";
@@ -3196,14 +3197,16 @@ export function ComplianceDocumentWorkspace({
   );
   const readyPaymentCategory = readiness?.readyCategory ?? null;
   // Hide Reject once any advance is on file (Finance-posted, including before verify).
+  // Who may reject is decided by the page: onRejectCompliance is only passed to
+  // Compliance (mark verified) or Finance (trip_compliance.finance.reject). It
+  // used to also require canVerify, which hid Reject from Finance entirely.
   const showReject = Boolean(
     summary?.complianceVerifiedAt &&
       !isComplianceVerifiedRejected(summary) &&
       !summary.advance &&
       !summary.advanceBeforeVerification &&
       !summary.balance &&
-      onRejectCompliance &&
-      canVerify,
+      onRejectCompliance,
   );
   const isCompliancePendingStage = summary?.stage === "compliance_pending";
   /** Compliance Pending look (no Finance / Advance / POD) — trip stage or the page filter. */
@@ -3537,6 +3540,8 @@ export function ComplianceDocumentWorkspace({
   const renderChecklistRow = (row: ComplianceDocRow, index: number) => {
     const displayRow = applyOptimisticDecision(row, localDecisionByKey[optimisticKey(reviewScope, row.key)]);
     const rowHasFile = hasFile(displayRow);
+    // Grey and inert unless the file exists AND this person may view documents.
+    const canOpenRowFiles = rowHasFile && canViewDocuments;
     const statusMeta = COMPLIANCE_STATUS_META[displayRow.status];
     const selected =
       checklistPreviewMode === "document" &&
@@ -3682,17 +3687,24 @@ export function ComplianceDocumentWorkspace({
         </Pressable>
         <View style={styles.missingRowActions}>
           <TouchableOpacity
-            style={[styles.missingEyeBtn, !rowHasFile && styles.missingEyeBtnDisabled]}
+            style={[styles.missingEyeBtn, !canOpenRowFiles && styles.missingEyeBtnDisabled]}
             activeOpacity={0.75}
-            disabled={!canViewDocuments || !rowHasFile}
+            disabled={!canOpenRowFiles}
             onPress={() => setFilesModalType(displayRow.type)}
             accessibilityRole="button"
-            accessibilityLabel={`${rowLabel} files`}
-            accessibilityState={{ disabled: !rowHasFile }}
+            accessibilityLabel={
+              rowHasFile && !canViewDocuments
+                ? `${rowLabel} files (no permission to view documents)`
+                : `${rowLabel} files`
+            }
+            accessibilityState={{ disabled: !canOpenRowFiles }}
+            {...(Platform.OS === "web" && rowHasFile && !canViewDocuments
+              ? { title: "You don't have permission to view compliance documents" }
+              : {})}
           >
             <Eye
               size={12}
-              color={rowHasFile ? Theme.textPrimaryDark : Theme.textMuted}
+              color={canOpenRowFiles ? Theme.textPrimaryDark : Theme.textMuted}
               strokeWidth={2.2}
             />
           </TouchableOpacity>
@@ -6140,7 +6152,11 @@ const TripListRow = React.memo(function TripListRow({
   const headerName = supplierLabel !== "—" ? supplierLabel : customerName;
   const headerSeed = trip.supplier_id ?? trip.client_id ?? trip.id;
   const supplierId = (trip.supplier_id ?? "").trim();
+  const { can: canSurface } = useMemberAccess();
+  // Supplier detail (/supplier/:id) is gated on sales.suppliers.detail — only
+  // link the name for people who can open it (Finance yes, Debit control no).
   const canOpenSupplier =
+    canSurface("sales.suppliers.detail") &&
     Boolean(supplierId) &&
     supplierLabel !== "—" &&
     supplierLabel.toLowerCase() !== "own fleet";
@@ -6150,7 +6166,7 @@ const TripListRow = React.memo(function TripListRow({
     (event?: GestureResponderEvent) => {
       event?.stopPropagation?.();
       if (!canOpenSupplier) return;
-      router.push(ROUTES.supplierProfile(supplierId) as Href);
+      router.push(ROUTES.supplierDetail(supplierId) as Href);
     },
     [canOpenSupplier, router, supplierId],
   );
@@ -6188,7 +6204,7 @@ const TripListRow = React.memo(function TripListRow({
             hitSlop={{ top: 6, bottom: 2, left: 4, right: 4 }}
             accessibilityRole={canOpenSupplier ? "link" : "none"}
             accessibilityLabel={
-              canOpenSupplier ? `Open ${headerName} supplier profile` : undefined
+              canOpenSupplier ? `Open ${headerName} supplier details` : undefined
             }
             accessibilityState={{ disabled: !canOpenSupplier }}
           >

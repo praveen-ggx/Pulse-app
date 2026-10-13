@@ -290,6 +290,26 @@ describe("TC-05..08 — role presets do not leak across domains", () => {
     ]);
   });
 
+  it("TC-08e: re-picking Finance gives the full Compliance-page Finance set", () => {
+    // Old saved maps (before these surfaces existed) are fixed by tapping the
+    // Finance tile again in Edit member — it re-applies this preset.
+    const finance = defaultSurfacesForRole("finance", HYBRID);
+    const on = (id: MemberSurfaceId) => memberHasSurface(HYBRID, finance, id);
+    for (const id of [
+      "trip_compliance.tab",
+      "trip_compliance.documents.view",
+      "trip_compliance.finance.view",
+      "trip_compliance.tab.advance_verification",
+      "trip_compliance.tab.advance_payment",
+      "trip_compliance.tab.settlement_verification",
+      "trip_compliance.tab.final_settlement",
+      "trip_compliance.finance.manage",
+      "trip_compliance.finance.reject",
+    ] as MemberSurfaceId[]) {
+      expect(on(id)).toBe(true);
+    }
+  });
+
   it("TC-08d: finance gets Reject but never Verify or document verify", () => {
     const finance = defaultSurfacesForRole("finance", HYBRID);
     expect(finance["trip_compliance.finance.reject"]).toBe(true);

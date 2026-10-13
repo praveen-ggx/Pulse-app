@@ -45,8 +45,6 @@ import {
 } from "@/features/tripCompliance/services/complianceExportReport.service";
 import {
     declineTripCompliance,
-    clearTripFinanceFlag,
-    flagTripForCompliance,
     markTripFinanceVerified,
     unmarkTripFinanceVerified,
     markTripComplianceVerified,
@@ -102,7 +100,6 @@ import {
     routeHoldsToDocumentUpload,
     onlyCompletedTrips,
     isComplianceDeclineActive,
-    isFinanceFlagged,
     isFinanceDeclinedForCompliancePending,
     isFinanceDeclinedForPendingDocs,
     isFinanceDeclinedTrip,
@@ -391,7 +388,7 @@ export default function ComplianceScreen() {
   }, [debitControlOnly, fixesHoldsOnly, queueSummaries]);
   const { stage, setStage, filtered, counts, declinedCount, podReceivedCount } =
     useComplianceStageFilter(summaries);
-  const [pendingSlice, setPendingSlice] = useState<"all" | "hold" | "finance_declined" | "rejected" | "flagged">("all");
+  const [pendingSlice, setPendingSlice] = useState<"all" | "hold" | "finance_declined" | "rejected">("all");
   /** Pending Docs only: In-transit vs Delivered (ops trip.status). Above All / Hold / Declined. */
   const [pendingTransitSlice, setPendingTransitSlice] = useState<"in_transit" | "delivered">("in_transit");
   /** Subtabs under Verified: All / Verified / Compliance / Document Upload. */
@@ -406,7 +403,7 @@ export default function ComplianceScreen() {
   /** Subtabs under Settlement: All / Balance Pending / Settled. */
   const [settlementSlice, setSettlementSlice] = useState<"all" | "pending" | "settled">("all");
   /** When stage changes via Reject, keep the Declined by finance subtab (effect would otherwise reset to All). */
-  const pendingSliceAfterStageRef = useRef<"all" | "hold" | "finance_declined" | "rejected" | "flagged" | null>(null);
+  const pendingSliceAfterStageRef = useRef<"all" | "hold" | "finance_declined" | "rejected" | null>(null);
   const verifiedSliceAfterStageRef = useRef<"all" | "verified" | "compliance" | "pending_docs" | null>(null);
   useEffect(() => {
     const intent = pendingSliceAfterStageRef.current;
@@ -660,43 +657,6 @@ export default function ComplianceScreen() {
     [canManageFinance, setStage, syncChange],
   );
 
-  /** Finance: send the trip to Compliance → Flagged by finance. Throws for the dialog. */
-  const flagTrip = useCallback(
-    async (tripId: string, note: string) => {
-      if (!canManageFinance) throw new Error("You don't have permission to flag this trip.");
-      try {
-        await flagTripForCompliance({ tripId, note, idempotencyKey: `${tripId}:flag:${Date.now()}` });
-      } finally {
-        await syncChange({ type: "tripFlags", tripId }).catch(() => undefined);
-      }
-      setTimeout(
-        () => alertMessage("Flagged for Compliance", "Compliance will review it. The advance stays blocked until they clear the flag."),
-        0,
-      );
-    },
-    [canManageFinance, syncChange],
-  );
-
-  /** Compliance: clear a finance flag after checking (Reject also clears it). */
-  const clearFinanceFlag = useCallback(
-    async (tripId: string) => {
-      const ok = await confirmAction(
-        "Clear finance flag?",
-        "The trip goes back to Finance for the advance. Use Reject instead if something must be fixed.",
-        "Clear flag",
-      );
-      if (!ok) return;
-      try {
-        await clearTripFinanceFlag({ tripId, idempotencyKey: `${tripId}:unflag:${Date.now()}` });
-      } catch (error) {
-        alertMessage("Couldn't clear flag", error instanceof Error ? error.message : "Please try again.");
-      } finally {
-        await syncChange({ type: "tripFlags", tripId }).catch(() => undefined);
-      }
-    },
-    [syncChange],
-  );
-
   const rejectKeysRef = useRef(new Map<string, { reason: string; key: string; at: number }>());
   const rejectTrip = useCallback(
     async (tripId: string, reason: string) => {
@@ -795,7 +755,6 @@ export default function ComplianceScreen() {
     () => (summaries ?? []).filter(isFinanceDeclinedForCompliancePending).length,
     [summaries],
   );
-  const financeFlaggedCount = useMemo(() => (summaries ?? []).filter(isFinanceFlagged).length, [summaries]);
   const pendingDocsRejectedCount = useMemo(
     () => (summaries ?? []).filter(isFinanceDeclinedForPendingDocs).length,
     [summaries],
@@ -860,7 +819,6 @@ export default function ComplianceScreen() {
       if (pendingSlice === "finance_declined") {
         return (summaries ?? []).filter(isFinanceDeclinedForCompliancePending);
       }
-      if (pendingSlice === "flagged") return (summaries ?? []).filter(isFinanceFlagged);
       return filtered;
     }
     if (stage === "pending_for_docs") {
@@ -939,7 +897,7 @@ export default function ComplianceScreen() {
           compact
           cardDense={cardDense}
           value={
-            pendingSlice === "finance_declined" || pendingSlice === "flagged"
+            pendingSlice === "finance_declined"
               ? "all"
               : pendingSlice === "rejected"
                 ? "rejected"
@@ -1019,7 +977,6 @@ export default function ComplianceScreen() {
             all: counts.compliance_pending,
             hold: complianceHoldCount,
             finance_declined: financeDeclinedCount,
-            flagged: financeFlaggedCount,
           }}
           options={[
             { id: "all", label: "Inbox", a11yLabel: "Inbox", dot: null },
@@ -1034,12 +991,6 @@ export default function ComplianceScreen() {
               label: "Declined by finance",
               a11yLabel: "Declined by finance",
               dot: COMPLIANCE_STAGE_TONE.pending_for_docs.fg,
-            },
-            {
-              id: "flagged",
-              label: "Flagged by finance",
-              a11yLabel: "Flagged by finance",
-              dot: COMPLIANCE_STAGE_TONE.finance_verified.fg,
             },
           ]}
           onChange={(next) => setPendingSlice(next)}
@@ -1395,7 +1346,6 @@ export default function ComplianceScreen() {
     if (stage === "pending_for_docs" && pendingSlice === "rejected") extra.push("Declined by finance");
     if (stage === "compliance_pending" && pendingSlice === "hold") extra.push("Compliance Hold");
     if (stage === "compliance_pending" && pendingSlice === "finance_declined") extra.push("Declined by finance");
-    if (stage === "compliance_pending" && pendingSlice === "flagged") extra.push("Flagged by finance");
     if (stage === "compliance_verified" && verifiedSlice === "verified") extra.push("Verified");
     if (stage === "compliance_verified" && verifiedSlice === "compliance") extra.push("Compliance");
     if (stage === "compliance_verified" && verifiedSlice === "pending_docs") extra.push("Document Upload");
@@ -1647,8 +1597,6 @@ export default function ComplianceScreen() {
                         : verifiedSlice === "pending_docs"
                           ? "No finance-declined trips in Document Upload."
                           : "No verified or finance-declined trips."
-                    : pendingSlice === "flagged"
-                    ? "No trips flagged by finance."
                     : pendingSlice === "finance_declined"
                     ? "No trips declined by finance."
                     : pendingSlice === "rejected"
@@ -1762,8 +1710,6 @@ export default function ComplianceScreen() {
               : undefined
           }
           onRejectCompliance={canReject ? rejectTrip : undefined}
-          onFlagForCompliance={canManageFinance ? flagTrip : undefined}
-          onClearFinanceFlag={canMarkVerified ? clearFinanceFlag : undefined}
           onResubmitCompliance={
             canResubmit && stage === "pending_for_docs"
               ? resubmitComplianceTrip

@@ -33,7 +33,13 @@ import {
   canAccessSuppliers,
   canAccessTrips,
 } from "@/lib/capabilities";
-import { MEMBER_SECTION_SURFACES, type MemberSectionKey } from "@/lib/memberSurfaces";
+import {
+  MEMBER_SECTION_SURFACES,
+  MEMBER_SURFACE_CATALOG,
+  defaultSurfacesForRole,
+  memberHasSurface,
+  type MemberSectionKey,
+} from "@/lib/memberSurfaces";
 import { useQuery } from "@tanstack/react-query";
 import { BookmarkPlus, Check, ChevronDown, Trash2 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -124,6 +130,25 @@ export function MemberAccessEditor({
   }, [groundOpsEnabled, draft.platformRole, orgCaps]);
 
   const canManagePresets = canEditSurfaces;
+
+  // Saved access drifts from the role preset when the preset gains surfaces
+  // later (e.g. Finance's Compliance-page tabs). Show it and offer a reset.
+  const presetDrift = useMemo(() => {
+    const role = draft.platformRole;
+    if (role === "admin" || role === "restricted" || role === "planner" || role === "operator") {
+      return null;
+    }
+    const preset = defaultSurfacesForRole(role, orgCaps);
+    let missing = 0;
+    let extra = 0;
+    for (const def of MEMBER_SURFACE_CATALOG) {
+      const want = memberHasSurface(orgCaps, preset, def.id);
+      const has = memberHasSurface(orgCaps, draft.surfaces, def.id);
+      if (want && !has) missing += 1;
+      else if (!want && has) extra += 1;
+    }
+    return missing + extra > 0 ? { missing, extra } : null;
+  }, [draft.platformRole, draft.surfaces, orgCaps]);
   const isGroundOps = draft.platformRole === "ground_ops";
 
   const warehousesQuery = useQuery({
@@ -255,6 +280,34 @@ export function MemberAccessEditor({
           );
         })}
       </View>
+
+      {presetDrift && canEditRole ? (
+        <View style={styles.driftBanner}>
+          <View style={styles.sectionHeadCopy}>
+            <Text style={styles.driftTitle}>
+              Access differs from the {platformRoleLabel(draft.platformRole)} preset
+            </Text>
+            <Text style={styles.sectionLead}>
+              {presetDrift.missing} missing · {presetDrift.extra} extra. Reset to give exactly
+              what the role includes today.
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => {
+              draft.selectRole(draft.platformRole);
+              onError(null);
+            }}
+            disabled={disabled}
+            style={({ pressed }) => [styles.driftBtn, pressed && { opacity: 0.85 }]}
+            accessibilityRole="button"
+            accessibilityLabel={`Reset to ${platformRoleLabel(draft.platformRole)} preset`}
+          >
+            <Text style={styles.driftBtnText}>
+              Reset to {platformRoleLabel(draft.platformRole)} preset
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       {canAssignManager && canBeDepartmentManager(draft.platformRole) ? (
         <View style={styles.card}>
@@ -533,6 +586,26 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
+  driftBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: "#FFF7ED",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#F5D0A9",
+  },
+  driftTitle: { fontSize: 12, fontWeight: "700", color: "#B45309" },
+  driftBtn: {
+    minHeight: 36,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: "#171717",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  driftBtnText: { fontSize: 12, fontWeight: "600", color: "#FFFFFF" },
   card: {
     marginTop: 10,
     padding: 12,

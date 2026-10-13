@@ -367,7 +367,7 @@ export function CompliancePaymentConfirmModal({
   onConfirm: (values: CompliancePaymentConfirmValues) => void;
   /** Inline only: trip-level Reject shown beside Confirm payment. */
   onReject?: () => void;
-  /** Inline only: Finance "Flag to Compliance" (Finance cannot Reject). */
+  /** Inline only: Finance "Flag to Compliance". Unused since Finance got Reject (12 Oct); kept for old callers. */
   onFlag?: () => void;
   /** `inline` embeds the form in the Advance Payment panel (no popup). */
   presentation?: "modal" | "inline";

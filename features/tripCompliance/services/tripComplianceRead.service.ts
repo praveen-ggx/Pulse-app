@@ -912,8 +912,10 @@ export function summarizeComplianceTrip(inputs: ComplianceTripInputs): Complianc
     complianceRejectReturnTo: flags?.compliance_reject_return_to ?? null,
     complianceResubmittedAt: flags?.compliance_resubmitted_at ?? null,
     complianceResubmitNote: flags?.compliance_resubmit_note ?? null,
-    financeFlaggedAt: flags?.finance_flagged_at ?? null,
-    financeFlagNote: flags?.finance_flag_note ?? null,
+    // Finance flag retired (Finance rejects directly since 12 Oct). Ignored in
+    // the UI so no badge, note, block or "Flagged by finance" list appears.
+    financeFlaggedAt: null,
+    financeFlagNote: null,
     financeVerifiedAt: flags?.finance_verified_at ?? null,
     financeVerifiedBy: flags?.finance_verified_by ?? null,
     advance,

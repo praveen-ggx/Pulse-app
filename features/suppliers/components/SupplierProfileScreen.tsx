@@ -150,7 +150,9 @@ export function SupplierProfileScreen({ supplierId, onBack }: Props) {
         }
         onClose={onBack}
         onEditPress={() => {}}
-        onProfileEntitiesChange={() => bundleQ.refetch()}
+        onProfileEntitiesChange={() => {
+          void bundleQ.refetch();
+        }}
       />
     </View>
   );

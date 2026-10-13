@@ -1133,7 +1133,7 @@ function VaultAction({
           inactive && styles.actionDisabled,
           !inactive && state.pressed && styles.actionPressed,
           !inactive && hovered && (primary ? styles.actionPrimaryHover : styles.actionGhostHover),
-          Platform.OS === "web" ? ({ cursor: inactive ? "not-allowed" : "pointer" } as const) : null,
+          Platform.OS === "web" ? ({ cursor: inactive ? "not-allowed" : "pointer" } as unknown as ViewStyle) : null,
         ];
       }}
     >
@@ -1231,7 +1231,7 @@ function Choice({
                 on && styles.chipOn,
                 disabled && styles.actionDisabled,
                 !on && !disabled && hovered && styles.chipHover,
-                Platform.OS === "web" ? ({ cursor: disabled ? "default" : "pointer" } as const) : null,
+                Platform.OS === "web" ? ({ cursor: disabled ? "default" : "pointer" } as unknown as ViewStyle) : null,
               ];
             }}
           >

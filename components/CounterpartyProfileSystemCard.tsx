@@ -1247,7 +1247,7 @@ export function CounterpartyProfileSystemCard({
                       style={[styles.fieldInputLarge, isPage && styles.fieldInputPage]}
                       placeholder={type === "client" ? "Client name" : "Entity legal name"}
                       placeholderTextColor={Theme.textSection}
-                      editable={type === "supplier" || !isIntegrated}
+                      editable={!isIntegrated}
                     />
                   </View>
                   <View style={useFieldGrid ? styles.editFormCell : undefined}>
@@ -1301,7 +1301,7 @@ export function CounterpartyProfileSystemCard({
                       style={[styles.fieldInputLarge, isPage && styles.fieldInputPage]}
                       placeholder={type === "client" ? "SPOC name" : "Contact person"}
                       placeholderTextColor={Theme.textSection}
-                      editable={type === "supplier" || !isIntegrated}
+                      editable={!isIntegrated}
                     />
                   </View>
                   <View style={useFieldGrid ? styles.editFormCell : undefined}>
@@ -1315,7 +1315,7 @@ export function CounterpartyProfileSystemCard({
                       placeholder={type === "client" ? "SPOC phone" : "Phone"}
                       placeholderTextColor={Theme.textSection}
                       keyboardType="phone-pad"
-                      editable={type === "supplier" || !isIntegrated}
+                      editable={!isIntegrated}
                     />
                   </View>
                   {type === "client" ? (

@@ -2225,6 +2225,7 @@ export function ComplianceDocumentWorkspace({
   hideDocumentDecisions = false,
   hideDocumentPanes = false,
   selectedTripId = null,
+  onSelectedTripChange,
   chargeFocusTripId = null,
   chargeFocusToken = 0,
   focusTab = null,
@@ -2317,6 +2318,11 @@ export function ComplianceDocumentWorkspace({
   hideDocumentPanes?: boolean;
   /** Trip to show when opening the card view from the table. */
   selectedTripId?: string | null;
+  /**
+   * A card was tapped. The page keeps its selection in step, so its stale
+   * `selectedTripId` can't snap the list back to the previously focused trip.
+   */
+  onSelectedTripChange?: (tripId: string) => void;
   /** Trip to select after a charge save moves it to Balance Pending. */
   chargeFocusTripId?: string | null;
   chargeFocusToken?: number;
@@ -2646,6 +2652,7 @@ export function ComplianceDocumentWorkspace({
     (tripId: string) => {
       appliedSelectedTripId.current = tripId;
       setSelectedId(tripId);
+      onSelectedTripChange?.(tripId);
       setTab("trip");
       setFinanceList(defaultFinanceList);
       setChecklistPreviewMode(defaultPreview);
@@ -2654,7 +2661,14 @@ export function ComplianceDocumentWorkspace({
       // Debit control: no side pane — tapping a trip opens Log hard copy POD.
       if (hideDocumentPanes && showHardCopyPodLog) setPodOpen(true);
     },
-    [defaultFinanceList, defaultPreview, resetPreviewView, hideDocumentPanes, showHardCopyPodLog],
+    [
+      defaultFinanceList,
+      defaultPreview,
+      resetPreviewView,
+      hideDocumentPanes,
+      showHardCopyPodLog,
+      onSelectedTripChange,
+    ],
   );
 
   useEffect(() => {
@@ -4536,14 +4550,10 @@ export function ComplianceDocumentWorkspace({
                       onReject={showReject ? () => setRejectOpen(true) : undefined}
                       onFlag={onFlagForCompliance ? () => setFlagOpen(true) : undefined}
                       onClearFlag={onClearFinanceFlag ? () => void onClearFinanceFlag(summary.trip.id) : undefined}
-                      canPayRejected={Boolean(
-                        canManageFinance &&
-                          onConfirmPayment &&
-                          summary.financeVerifiedAt &&
-                          isComplianceVerifiedRejected(summary),
-                      )}
+                      // A rejected trip is not payable or approvable until Compliance
+                      // verifies it again (compliance_cleared() enforces the same).
                       onFinanceVerify={
-                        canManageFinance && onFinanceVerify
+                        canManageFinance && onFinanceVerify && !isComplianceVerifiedRejected(summary)
                           ? () => void onFinanceVerify(summary.trip.id)
                           : undefined
                       }
@@ -5715,7 +5725,6 @@ function ChecklistAdvancePaymentPanel({
   onReject,
   onFlag,
   onClearFlag,
-  canPayRejected = false,
   onFinanceVerify,
   onUndoFinanceVerify,
   financeVerifySubmitting = false,
@@ -5740,8 +5749,6 @@ function ChecklistAdvancePaymentPanel({
     transactionDate: string,
     category: AdvanceUtrTarget,
   ) => Promise<void>;
-  /** Verified + Rejected trip: offer Confirm payment under the blockers anyway. */
-  canPayRejected?: boolean;
   readiness: ReturnType<typeof deriveComplianceQueueReadiness> | null;
   canPay: boolean;
   paymentCategory: ComplianceLedgerCategory | null;
@@ -5816,7 +5823,6 @@ function ChecklistAdvancePaymentPanel({
     paymentCategory === "compliance_advance" &&
     Boolean(onConfirmPayment);
   const showPayFallback = !advance && canPay && !showInlineForm && Boolean(onOpenPayModal);
-  const rejectedPayAvailable = !advance && !showInlineForm && canPayRejected;
   // Fallback button only when the review form is not shown (e.g. advance posted before verify).
   const showFinanceVerify =
     !advance &&
@@ -5825,16 +5831,11 @@ function ChecklistAdvancePaymentPanel({
     !summary.financeVerifiedAt &&
     Boolean(onFinanceVerify);
   const showUndoFinanceVerify = !advance && Boolean(summary.financeVerifiedAt) && Boolean(onUndoFinanceVerify);
-  const [rejectedPayOpen, setRejectedPayOpen] = useState(false);
-  useEffect(() => {
-    setRejectedPayOpen(false);
-  }, [summary.trip.id]);
 
   const showArt =
     !advance &&
     !showInlineForm &&
-    !showReviewForm &&
-    !(rejectedPayAvailable && rejectedPayOpen);
+    !showReviewForm;
 
   return (
     <View style={[styles.checklistAdvancePanel, advance && styles.checklistAdvancePanelPosted]}>
@@ -6046,40 +6047,6 @@ function ChecklistAdvancePaymentPanel({
               {financeVerifySubmitting ? "Undoing…" : "Undo approval"}
             </Text>
           </TouchableOpacity>
-        </View>
-      ) : null}
-
-      {rejectedPayAvailable && !rejectedPayOpen ? (
-        <View style={styles.checklistRejectedPayRow}>
-          <Text style={styles.checklistRejectedPayHint} numberOfLines={2}>
-            Trip is rejected. You can still post the advance.
-          </Text>
-          <TouchableOpacity
-            style={styles.checklistRejectedPayBtn}
-            activeOpacity={0.85}
-            onPress={() => setRejectedPayOpen(true)}
-            hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-            accessibilityRole="button"
-            accessibilityLabel="Confirm payment for rejected trip"
-          >
-            <Text style={styles.checklistRejectedPayBtnText}>Confirm payment</Text>
-          </TouchableOpacity>
-        </View>
-      ) : null}
-
-      {rejectedPayAvailable && rejectedPayOpen ? (
-        <View style={styles.checklistAdvanceFormCard}>
-          <CompliancePaymentConfirmModal
-            presentation="inline"
-            visible
-            summary={summary}
-            category="compliance_advance"
-            submitting={paymentSubmitting}
-            onConfirm={(values) => {
-              void onConfirmPayment?.(summary, "compliance_advance", values);
-            }}
-            onCancel={() => setRejectedPayOpen(false)}
-          />
         </View>
       ) : null}
 

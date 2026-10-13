@@ -1872,6 +1872,7 @@ export default function ComplianceScreen() {
           logHardCopyPodRequest={logHardCopyPodRequest}
           courierLrOptions={courierLrOptions}
           selectedTripId={cardTripId}
+          onSelectedTripChange={setCardTripId}
           focusTab={cardFocus?.tab ?? null}
           focusToken={cardFocus?.token ?? 0}
           listHeader={cardsListHeader}

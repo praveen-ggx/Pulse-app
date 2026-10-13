@@ -6,6 +6,7 @@ type MockEntryProps = {
   initialAmount: number | null;
   onSubmitAmount: (amount: number) => Promise<boolean>;
   validationError?: string;
+  ownerName?: string;
 };
 const mockEntryProps: MockEntryProps[] = [];
 jest.mock("react-native", () => jest.requireActual("react-native"));
@@ -132,6 +133,54 @@ describe("Load Center Respond to counter", () => {
     expect(await submit(20500)).toBe(false);
     expect(refetchMyQuotes).toHaveBeenCalled();
     expect(queryClient.setQueryData).not.toHaveBeenCalled();
+  });
+
+  it("a pooled revise does not pass the shipper name", () => {
+    render(
+      <BidModal
+        visible
+        anonymous
+        load={{
+          ...LOAD,
+          client_name: "SpaceXLogistics",
+          creator_organization_name: "SpaceXLogistics",
+        }}
+        orgId="me"
+        myQuoteByIndentId={new Map([[LOAD.id, quote({ counter_amount: null })]])}
+        onClose={jest.fn()}
+        onSuccess={jest.fn()}
+        localBidHistoryByIndentId={{}}
+        onUpdateLocalBidHistory={jest.fn()}
+        queryClient={queryClient as never}
+        invalidateIndents={jest.fn() as never}
+        refetchMyQuotes={refetchMyQuotes}
+        refetchMarketIndents={jest.fn()}
+        insets={{ top: 0, bottom: 0 }}
+      />,
+    );
+    expect(entry().ownerName).toBeUndefined();
+    expect(entry().initialAmount).toBe(19500);
+  });
+
+  it("an identified bid still names the shipper", () => {
+    render(
+      <BidModal
+        visible
+        load={{ ...LOAD, client_name: "SpaceXLogistics" }}
+        orgId="me"
+        myQuoteByIndentId={new Map()}
+        onClose={jest.fn()}
+        onSuccess={jest.fn()}
+        localBidHistoryByIndentId={{}}
+        onUpdateLocalBidHistory={jest.fn()}
+        queryClient={queryClient as never}
+        invalidateIndents={jest.fn() as never}
+        refetchMyQuotes={refetchMyQuotes}
+        refetchMarketIndents={jest.fn()}
+        insets={{ top: 0, bottom: 0 }}
+      />,
+    );
+    expect(entry().ownerName).toBe("SpaceXLogistics");
   });
 
   it("uncountered and new bids still use submit_network_quote", async () => {

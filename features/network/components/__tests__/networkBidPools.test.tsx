@@ -100,6 +100,8 @@ const memberCard = (load: IndentRow) => (
 );
 
 const IDENTITY = /SpaceXLogistics|Acme Steel/;
+const NET_POOL_CARD =
+  "Network pool bid, Origin to DestNet, 20ft, 2 loads, 1 countered · 1 pending";
 const bidPoolLabels = () =>
   screen
     .getAllByLabelText(/^Network pool bid, /)
@@ -126,7 +128,7 @@ describe("My Bids: pooled Network quotes render as pools", () => {
     renderList();
     const labels = bidPoolLabels();
     expect(labels.filter((l) => l.startsWith("Network pool bid, Origin to DestNet, 20ft"))).toEqual([
-      "Network pool bid, Origin to DestNet, 20ft, 2 loads, 1 countered · 1 pending",
+      NET_POOL_CARD,
     ]);
     expect(screen.getAllByText("NETWORK POOL").length).toBe(3);
     expect(screen.getByText("2 LOADS")).toBeTruthy();
@@ -158,7 +160,7 @@ describe("My Bids: pooled Network quotes render as pools", () => {
     renderList();
     expect(bidPoolLabels().sort()).toEqual([
       "Network pool bid, Origin to DestBoth, 20ft, 1 load, 1 pending",
-      "Network pool bid, Origin to DestNet, 20ft, 2 loads, 1 countered · 1 pending",
+      NET_POOL_CARD,
       "Network pool bid, Origin to DestNet, 32ft, 1 load, 1 pending",
     ]);
   });
@@ -186,13 +188,13 @@ describe("My Bids: pooled Network quotes render as pools", () => {
   it("a search hitting one member still shows the whole pool", () => {
     renderList({ shownLoads: [NET_2] });
     expect(bidPoolLabels()).toEqual([
-      "Network pool bid, Origin to DestNet, 20ft, 2 loads, 1 countered · 1 pending",
+      NET_POOL_CARD,
     ]);
   });
 
-  it("View pool opens that pool inline with anonymous member cards only", () => {
+  it("the pool card opens that pool inline with anonymous member cards only", () => {
     renderList();
-    fireEvent.press(screen.getAllByLabelText("View pool, 2 loads")[0]!);
+    fireEvent.press(screen.getByLabelText(NET_POOL_CARD));
     expect(screen.getByText("Indents in this pool")).toBeTruthy();
     expect(screen.getByLabelText("Member IND-n1")).toBeTruthy();
     expect(screen.getByLabelText("Member IND-n2")).toBeTruthy();
@@ -202,10 +204,10 @@ describe("My Bids: pooled Network quotes render as pools", () => {
     expect(screen.queryByText("Indents in this pool")).toBeNull();
   });
 
-  it("with onViewPool (desktop board), View pool hands over the canonical pool", () => {
+  it("with onViewPool (desktop board), the pool card hands over the canonical pool", () => {
     const onViewPool = jest.fn();
     renderList({ onViewPool });
-    fireEvent.press(screen.getAllByLabelText("View pool, 2 loads")[0]!);
+    fireEvent.press(screen.getByLabelText(NET_POOL_CARD));
     const pool = onViewPool.mock.calls[0][0];
     expect(pool.id).toBe(NET_POOL_ID);
     expect(pool.members.map((m: IndentRow) => m.id)).toEqual(["n1", "n2"]);
@@ -267,9 +269,9 @@ describe("My Bids column view", () => {
     expect(screen.getAllByText(IDENTITY)).toHaveLength(1);
   });
 
-  it("View pool opens the pool context with review-only member cards", () => {
+  it("the pool card opens the pool context with its member cards", () => {
     renderModal();
-    fireEvent.press(screen.getAllByLabelText("View pool, 2 loads")[0]!);
+    fireEvent.press(screen.getByLabelText(NET_POOL_CARD));
     expect(screen.getByText("2 loads in this pool · your pooled bid")).toBeTruthy();
     expect(screen.getByLabelText("Member IND-n1")).toBeTruthy();
     expect(screen.getByLabelText("Member IND-n2")).toBeTruthy();
@@ -289,10 +291,10 @@ describe("My Bids column view", () => {
   it("a board search that narrowed the column cannot shrink a pool", () => {
     renderModal({ columnLoads: [NET_1] });
     expect(bidPoolLabels()).toEqual([
-      "Network pool bid, Origin to DestNet, 20ft, 2 loads, 1 countered · 1 pending",
+      NET_POOL_CARD,
     ]);
     expect(screen.queryByText("1 LOAD")).toBeNull();
-    fireEvent.press(screen.getByLabelText("View pool, 2 loads"));
+    fireEvent.press(screen.getByLabelText(NET_POOL_CARD));
     expect(screen.getByLabelText("Member IND-n1")).toBeTruthy();
     expect(screen.getByLabelText("Member IND-n2")).toBeTruthy();
   });
@@ -301,7 +303,7 @@ describe("My Bids column view", () => {
     renderModal();
     fireEvent.changeText(screen.getByPlaceholderText("Search loads, route, ID…"), "IND-n2");
     expect(bidPoolLabels()).toEqual([
-      "Network pool bid, Origin to DestNet, 20ft, 2 loads, 1 countered · 1 pending",
+      NET_POOL_CARD,
     ]);
   });
 
@@ -319,7 +321,7 @@ describe("My Bids column view", () => {
 });
 
 describe("desktop board My Bids preview", () => {
-  it("shows pools in the My Bids column and hands View pool to the column view", () => {
+  it("shows pools in the My Bids column and hands the pool card to the column view", () => {
     const onViewPool = jest.fn();
     render(
       <LoadCenterKanbanBoard
@@ -343,7 +345,7 @@ describe("desktop board My Bids preview", () => {
     );
     expect(bidPoolLabels()).toHaveLength(3);
     expect(screen.queryByLabelText("Individual IND-n1")).toBeNull();
-    fireEvent.press(screen.getAllByLabelText("View pool, 2 loads")[0]!);
+    fireEvent.press(screen.getByLabelText(NET_POOL_CARD));
     expect(onViewPool.mock.calls[0][0].id).toBe(NET_POOL_ID);
   });
 });
@@ -411,6 +413,7 @@ describe("an accepted counter is shown as agreed, not countered", () => {
 
 describe("opened My Bids pool with the real member card", () => {
   const onOpenMember = jest.fn();
+  const onRevise = jest.fn();
   const realMemberCard = (load: IndentRow) => (
     <LoadCenterHubMobileIndentCard
       indent={load}
@@ -424,10 +427,11 @@ describe("opened My Bids pool with the real member card", () => {
       sourceTag="network"
       onPress={() => onOpenMember(load.id)}
       anonymous
+      trailingCta={{ label: "Revise bid", onPress: () => onRevise(load.id) }}
     />
   );
 
-  it("shows each member's own status with no shipper identity, and opens the anonymous member", () => {
+  it("shows each member's own status with no shipper identity, and revises that bid", () => {
     render(
       <NetworkBidPoolList
         quotedLoads={QUOTED}
@@ -438,11 +442,15 @@ describe("opened My Bids pool with the real member card", () => {
         renderPoolMemberCard={realMemberCard}
       />,
     );
-    fireEvent.press(screen.getAllByLabelText("View pool, 2 loads")[0]!);
+    fireEvent.press(screen.getByLabelText(NET_POOL_CARD));
     expect(screen.queryByText(IDENTITY)).toBeNull();
     expect(screen.queryByLabelText(IDENTITY)).toBeNull();
+    expect(screen.queryByText("Review")).toBeNull();
     expect(screen.getAllByLabelText("countered")).toHaveLength(1);
     expect(screen.getAllByLabelText("receiving bids")).toHaveLength(1);
+    fireEvent.press(screen.getByLabelText("Revise bid IND-n1"));
+    expect(onRevise).toHaveBeenCalledWith("n1");
+    expect(onOpenMember).not.toHaveBeenCalled();
     fireEvent.press(screen.getByLabelText("IND-n1, Origin to DestNet"));
     expect(onOpenMember).toHaveBeenCalledWith("n1");
   });

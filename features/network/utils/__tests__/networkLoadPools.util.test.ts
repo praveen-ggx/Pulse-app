@@ -56,6 +56,18 @@ const load = (
 });
 
 describe("buildNetworkLoadPools — canonical lane only", () => {
+  it("keeps each vehicle's capacity instead of multiplying by the indent count", () => {
+    const { pools } = buildNetworkLoadPools([
+      load("a", "acme", "Bhandara", "Bengaluru", "20 MT", { weight: 20000 }),
+      load("b", "bolt", "Bhandara", "Bengaluru", "20 MT", { weight: 20000 }),
+      load("c", "acme", "Bhandara", "Bengaluru", "20 MT", { weight: 20000 }),
+    ]);
+    expect(pools).toHaveLength(1);
+    expect(pools[0]!.members).toHaveLength(3);
+    expect(pools[0]!.weightKgMin).toBe(20000);
+    expect(pools[0]!.weightKgMax).toBe(20000);
+  });
+
   it("one load is a pool of one", () => {
     const { pools, unpooled } = buildNetworkLoadPools([
       load("a", "acme", "Delhi", "Hyderabad", "24 MT"),

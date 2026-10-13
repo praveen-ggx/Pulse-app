@@ -38,8 +38,13 @@ export type NetworkLoadPool<L extends NetworkPoolLoad> = {
   latestPickup: string | null;
   targetRateMin: number | null;
   targetRateMax: number | null;
-  /** Sum of member weights in kg; null when no member has a weight. */
-  totalWeightKg: number | null;
+  /**
+   * Per-vehicle weight in kg. An indent's weight is the capacity of that one
+   * vehicle, so a pool of three 20 MT indents is still 20 MT, not 60.
+   * Min and max differ only when members of the same vehicle type disagree.
+   */
+  weightKgMin: number | null;
+  weightKgMax: number | null;
 };
 
 function laneKeyOf(load: NetworkPoolLoad): MarketplaceLoadSearch {
@@ -97,12 +102,16 @@ export function buildNetworkLoadPools<L extends NetworkPoolLoad>(
         latestPickup: pickup,
         targetRateMin: rate,
         targetRateMax: rate,
-        totalWeightKg: kg,
+        weightKgMin: kg,
+        weightKgMax: kg,
       });
       continue;
     }
     prev.members.push(load);
-    if (kg != null) prev.totalWeightKg = (prev.totalWeightKg ?? 0) + kg;
+    if (kg != null) {
+      prev.weightKgMin = prev.weightKgMin == null ? kg : Math.min(prev.weightKgMin, kg);
+      prev.weightKgMax = prev.weightKgMax == null ? kg : Math.max(prev.weightKgMax, kg);
+    }
     if (pickup) {
       if (!prev.earliestPickup || pickup < prev.earliestPickup) prev.earliestPickup = pickup;
       if (!prev.latestPickup || pickup > prev.latestPickup) prev.latestPickup = pickup;

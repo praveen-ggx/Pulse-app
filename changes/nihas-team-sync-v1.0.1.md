@@ -21,6 +21,7 @@
 - Database fix: Ground Ops can now read their warehouse trips directly, so held / finance-declined details load and the Compliance Hold count works.
 - Debit control sees only completed trips on the Compliance page, in every tab including All.
 - Fix: the Compliance page crashed (useActiveWorkspace must be used within an ActiveWorkspaceProvider) after the Ground Ops warehouse notice was added.
+- Debit control rework on the Compliance page: completed trips only; no All tab (same as Awaiting POD; its sub-filter Inbox renamed All); no document checklist / preview; cards show POD facts only (no compliance / finance badges, holds or flags); a 13-column table (Trip ID, Date, LR, From, To, Client, Vendor, Driver mob no, Truck type, Truck no, Completed date, POD delay days, Soft copy POD eye opening the full-screen viewer with prev / next); tapping a trip on Awaiting POD opens Log hard copy POD full screen. Log hard copy POD is now one shared component with a clean full-screen layout, hides already-received LRs, and keeps the user ticked LRs when the list refreshes.
 
 ## Why
 - Finance needs to check the advance values before money goes out, and trips sent back for fixes were either stuck or could be verified without Ground Ops fixing anything.
@@ -43,6 +44,7 @@
 - Still 0 holds for Gowtham after the screen fix: the Ground Ops trips rule checked the warehouse through indents, which Ground Ops are not allowed to read, so every direct trip read returned nothing.
 - First step of the Debit control rework (Nihas): Debit control works finished trips; All showed all 147 queue trips, running ones included.
 - /compliance renders outside the workspace provider; the new warehouse check used the throwing hook.
+- Nihas walkthrough of the Debit control desk (Gayatri, Sathish); multi-LR courier saves recorded only one LR because a background refresh reset the ticked LRs.
 
 ## Areas
 - Supabase migrations and RPCs for trips compliance (finance approval, reject, decline, resubmit, verify).
@@ -65,6 +67,7 @@
 - trips RLS for Ground Ops (new ground_ops_can_see_trip helper).
 - Compliance page queue for POD-only viewers.
 - Ground Ops warehouse check hook.
+- Compliance page (Debit control view), document workspace, new Debit control table, Log hard copy POD modal, new get_trip_driver_phones RPC.
 
 ## Migrations
 - 20271008112000_finance_verified_step.sql, 20271008113000_compliance_reject_resubmit.sql, 20271008114000_compliance_hold_resubmit.sql, 20271008115000_compliance_resubmit_note.sql, 20271008116000_compliance_resubmit_gates.sql (all applied to preprod only; prod untouched). Release set: supabase/release-sets/preprod-finance-resubmit.versions.
@@ -87,6 +90,7 @@
 - 20271008120000_ground_ops_trip_select_helper.sql (not yet on preprod; push with the ground-ops-trip-select release set). Also added to preprod-finance-resubmit for the prod bundle.
 - None. 20271008120000 confirmed applied on preprod.
 - None.
+- 20271008121000_get_trip_driver_phones.sql (not yet on preprod; push with the trip-driver-phones release set).
 
 ## Tested
 - Migration contract tests (local). 33 SQL scenarios for the resubmit gates ran on preprod inside a rolled-back transaction, all passed; then 116000 was applied to preprod with approval.
@@ -109,3 +113,4 @@
 - Rolled-back dry run on preprod as Gowtham: held trips readable 0 → 2, all readable trips 152 (exactly his warehouses), indents still 0; release-set push dry run lists only this migration; migration contract tests pass.
 - New completed-only test; 598 compliance tests pass; no new type errors; cycles 111/111. Not clicked through as Gayatri / Sathish.
 - Typecheck unchanged; 1128 compliance, trips, organization and RBAC tests pass. Reported crash reproduced from the stack trace, not re-clicked.
+- 1128 compliance, trips, organization and RBAC tests pass; typecheck unchanged; cycles 111/111; driver phones RPC dry-run on preprod as Gayatri returned 457 of 459. UI checked by Nihas on localhost during the walkthrough; final full-screen POD layout and LR fix not re-clicked.

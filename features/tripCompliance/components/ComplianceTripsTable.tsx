@@ -83,20 +83,20 @@ export type ComplianceTripsTableProps = {
 
 type RequiredDateSort = "asc" | "desc";
 
-function tripFromLocation(summary: ComplianceTripSummary): string {
+export function tripFromLocation(summary: ComplianceTripSummary): string {
   return summary.trip.pickup_area?.trim() || "—";
 }
 
-function tripToLocation(summary: ComplianceTripSummary): string {
+export function tripToLocation(summary: ComplianceTripSummary): string {
   return summary.trip.drop_location?.trim() || summary.trip.drop_area?.trim() || "—";
 }
 
-function truckNumber(summary: ComplianceTripSummary): string {
+export function truckNumber(summary: ComplianceTripSummary): string {
   const raw = summary.trip.vehicle_display_number?.trim() || "";
   return formatIndianVehicleNumber(raw).trim() || raw || "—";
 }
 
-function formatRequiredDate(summary: ComplianceTripSummary): string {
+export function formatRequiredDate(summary: ComplianceTripSummary): string {
   const raw = complianceEventAt(summary.trip);
   if (!raw) return "—";
   const formatted = formatComplianceTimestamp(raw);

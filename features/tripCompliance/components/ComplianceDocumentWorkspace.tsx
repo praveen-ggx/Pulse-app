@@ -110,7 +110,8 @@ import {
   type TripDocumentRow,
   type TripDocumentType,
 } from "@/features/trips/services/tripDocuments.service";
-import { LogHardCopyPodModal, type HardCopyPodLrOption } from "@/features/trips/components/trip-detail/LogHardCopyPodModal";
+import { type HardCopyPodLrOption } from "@/features/trips/components/trip-detail/LogHardCopyPodModal";
+import { ComplianceHardCopyPodSheet } from "@/features/tripCompliance/components/ComplianceHardCopyPodSheet";
 import {
   formatInvoiceVaultNumberLabel,
   formatLrVaultNumberLabel,
@@ -2221,6 +2222,7 @@ export function ComplianceDocumentWorkspace({
   defaultPreview = "document",
   defaultFinanceList = false,
   hideDocumentDecisions = false,
+  hideDocumentPanes = false,
   selectedTripId = null,
   chargeFocusTripId = null,
   chargeFocusToken = 0,
@@ -2310,6 +2312,8 @@ export function ComplianceDocumentWorkspace({
   defaultFinanceList?: boolean;
   /** Advance Verification: documents are view-only, so hide group Approve / Decline. */
   hideDocumentDecisions?: boolean;
+  /** Hide the document checklist + preview (Debit control works POD only). */
+  hideDocumentPanes?: boolean;
   /** Trip to show when opening the card view from the table. */
   selectedTripId?: string | null;
   /** Trip to select after a charge save moves it to Balance Pending. */
@@ -2646,8 +2650,10 @@ export function ComplianceDocumentWorkspace({
       setChecklistPreviewMode(defaultPreview);
       setDocIndex(0);
       resetPreviewView();
+      // Debit control: no side pane — tapping a trip opens Log hard copy POD.
+      if (hideDocumentPanes && showHardCopyPodLog) setPodOpen(true);
     },
-    [defaultFinanceList, defaultPreview, resetPreviewView],
+    [defaultFinanceList, defaultPreview, resetPreviewView, hideDocumentPanes, showHardCopyPodLog],
   );
 
   useEffect(() => {
@@ -3824,7 +3830,13 @@ export function ComplianceDocumentWorkspace({
 
   return (
     <View style={[styles.workspace, stacked && styles.workspaceStacked, style]}>
-      <View style={[styles.listPane, stacked && styles.listPaneStacked]}>
+      <View
+        style={[
+          styles.listPane,
+          stacked && styles.listPaneStacked,
+          hideDocumentPanes && !showValidationPane && styles.listPaneFull,
+        ]}
+      >
         {listHeader}
         {summaries.length === 0 ? (
           <View style={styles.listEmpty}>
@@ -3875,6 +3887,7 @@ export function ComplianceDocumentWorkspace({
                 }
                 supplierName={supplierNameByTripId[item.trip.id] ?? null}
                 onSelect={selectListTrip}
+                podOnly={hideDocumentPanes}
               />
             </View>
           ))}
@@ -3938,37 +3951,21 @@ export function ComplianceDocumentWorkspace({
             </View>
           )}
         </View>
-      ) : showHardCopyPodLog ? (
+      ) : showHardCopyPodLog && !hideDocumentPanes ? (
         <View style={[styles.previewPane, styles.podLogPane]}>
           {summary && showLogHardCopyPod ? (
-            <LogHardCopyPodModal
+            <ComplianceHardCopyPodSheet
               key={`${summary.trip.id}:${podLogRound}`}
               inline
               visible
               onClose={() => setPodLogRound((round) => round + 1)}
-              tripId={summary.trip.id}
-              organizationId={organizationId || summary.trip.organization_id}
+              summary={summary}
+              organizationId={organizationId || null}
               canManage={canManagePod || showLogHardCopyPod}
-              initialMode="create"
-              onUpdated={async (tripIds) => {
-                const ids = tripIds?.length ? tripIds : [summary.trip.id];
-                await Promise.all(ids.map((tripId) => onChanged({ type: "tripFlags", tripId })));
-              }}
               lrOptions={courierLrOptions}
-              summary={{
-                manifestId: getTripDisplayNumber(summary.trip, organizationId || null),
-                clientName: summary.trip.client_name?.trim() || "—",
-                pickup: summary.trip.pickup_area?.trim() || "—",
-                delivery: summary.trip.drop_location?.trim() || "—",
-                driverName: summary.trip.driver_display_name?.trim() || "Unassigned",
-                vehicleLabel: summary.trip.vehicle_display_number?.trim() || "Pending",
-                vehicleType:
-                  (summary.trip.vehicle_id
-                    ? truckTypeByVehicleId[summary.trip.vehicle_id]
-                    : null)?.trim() || "—",
-                vendorName:
-                  (supplierNameByTripId[summary.trip.id] ?? summary.trip.supplier_name)?.trim() ||
-                  "—",
+              tripFacts={tripFacts}
+              onChanged={async (ids) => {
+                await Promise.all(ids.map((tripId) => onChanged({ type: "tripFlags", tripId })));
               }}
             />
           ) : (
@@ -3981,7 +3978,7 @@ export function ComplianceDocumentWorkspace({
             </View>
           )}
         </View>
-      ) : (
+      ) : hideDocumentPanes ? null : (
       <View style={styles.previewPane}>
         <View style={styles.stage}>
           {showDocumentShell ? (
@@ -4966,31 +4963,16 @@ export function ComplianceDocumentWorkspace({
         }}
       />
       {summary ? (
-        <LogHardCopyPodModal
+        <ComplianceHardCopyPodSheet
           visible={podOpen && showLogHardCopyPod}
           onClose={() => setPodOpen(false)}
-          tripId={summary.trip.id}
-          organizationId={organizationId || summary.trip.organization_id}
+          summary={summary}
+          organizationId={organizationId || null}
           canManage={canManagePod || showLogHardCopyPod}
-          initialMode="create"
-          onUpdated={async (tripIds) => {
-            const ids = tripIds?.length ? tripIds : [summary.trip.id];
-            await Promise.all(ids.map((tripId) => onChanged({ type: "tripFlags", tripId })));
-          }}
           lrOptions={courierLrOptions}
-          summary={{
-            manifestId: getTripDisplayNumber(summary.trip, organizationId || null),
-            clientName: summary.trip.client_name?.trim() || "—",
-            pickup: summary.trip.pickup_area?.trim() || "—",
-            delivery: summary.trip.drop_location?.trim() || "—",
-            driverName: summary.trip.driver_display_name?.trim() || "Unassigned",
-            vehicleLabel: summary.trip.vehicle_display_number?.trim() || "Pending",
-            vehicleType:
-              (summary.trip.vehicle_id
-                ? truckTypeByVehicleId[summary.trip.vehicle_id]
-                : null)?.trim() || "—",
-            vendorName:
-              (supplierNameByTripId[summary.trip.id] ?? summary.trip.supplier_name)?.trim() || "—",
+          tripFacts={tripFacts}
+          onChanged={async (ids) => {
+            await Promise.all(ids.map((tripId) => onChanged({ type: "tripFlags", tripId })));
           }}
         />
       ) : null}
@@ -6105,6 +6087,7 @@ const TripListRow = React.memo(function TripListRow({
   truckType,
   supplierName,
   onSelect,
+  podOnly = false,
 }: {
   summary: ComplianceTripSummary;
   selected: boolean;
@@ -6112,6 +6095,8 @@ const TripListRow = React.memo(function TripListRow({
   truckType: string | null;
   supplierName: string | null;
   onSelect: (tripId: string) => void;
+  /** Debit control: POD facts only — no compliance / finance badges, holds or flags. */
+  podOnly?: boolean;
 }) {
   const router = useRouter();
   const trip = summary.trip;
@@ -6119,7 +6104,7 @@ const TripListRow = React.memo(function TripListRow({
   const tripStatus =
     summary.stage === "compliance_pending" ? tripOpsStatusBadge(trip.status) : null;
   const isRejected =
-    isFinanceDeclinedTrip(summary) || isComplianceDeclineActive(summary);
+    !podOnly && (isFinanceDeclinedTrip(summary) || isComplianceDeclineActive(summary));
   const declineRemark = isRejected
     ? summary.complianceDeclineReason?.trim() || ""
     : "";
@@ -6256,6 +6241,7 @@ const TripListRow = React.memo(function TripListRow({
             </View>
           </View>
         </View>
+        {podOnly ? null : (
         <View style={styles.rowMeta}>
           {tripStatus ? (
             <View
@@ -6273,6 +6259,7 @@ const TripListRow = React.memo(function TripListRow({
             </Text>
           </View>
         </View>
+        )}
       </View>
 
       {declineRemark ? (
@@ -6289,7 +6276,7 @@ const TripListRow = React.memo(function TripListRow({
           Waiting for Ground Ops to resubmit
         </Text>
       ) : null}
-      {summary.financeFlaggedAt ? (
+      {summary.financeFlaggedAt && !podOnly ? (
         <Text style={styles.rejectReasonLine} numberOfLines={2}>
           {`Finance flag: ${summary.financeFlagNote?.trim() || "no note"}`}
         </Text>
@@ -6384,6 +6371,9 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   listPaneStacked: { width: "100%", maxWidth: "100%", height: "42%", maxHeight: "42%" },
+
+  /** Debit control: no checklist / preview, the trip list takes the row. */
+  listPaneFull: { flex: 1, width: "auto", maxWidth: "100%", height: "100%", maxHeight: "100%" },
   listEmpty: {
     flex: 1,
     minHeight: 0,

@@ -2,6 +2,7 @@
  * Global Compliance Verification work queue — header, counted stage filters,
  * Cards/Table toggle, and Trip/Vehicle/Driver checklist cards.
  */
+import { ComplianceHardCopyPodSheet } from "@/features/tripCompliance/components/ComplianceHardCopyPodSheet";
 import { GroundOpsWarehouseNotice } from "@/features/organization/components/GroundOpsWarehouseNotice";
 import { useGroundOpsWarehouseGap } from "@/features/organization/hooks/useGroundOpsWarehouseGap";
 import { ChromeBelowTopNavLoadingScreen } from "@/components/chromeLoadingScreens";
@@ -19,6 +20,7 @@ import {
 } from "@/features/tripCompliance/components/CompliancePaymentConfirmModal";
 import { ComplianceSegmentedFilter } from "@/features/tripCompliance/components/ComplianceSegmentedFilter";
 import { ComplianceTripsTable } from "@/features/tripCompliance/components/ComplianceTripsTable";
+import { DebitControlTripsTable } from "@/features/tripCompliance/components/DebitControlTripsTable";
 import {
     COMPLIANCE_QUEUE_WINDOW_SIZE,
     useComplianceListWindow,
@@ -329,6 +331,10 @@ export default function ComplianceScreen() {
   const canTabAdvancePayment = canSurface("trip_compliance.tab.advance_payment");
   const canTabSettlementVerification = canSurface("trip_compliance.tab.settlement_verification");
   const canTabFinalSettlement = canSurface("trip_compliance.tab.final_settlement");
+  // Debit control (POD only — no Document Upload, Verification or Finance tabs)
+  // works completed trips only, and has no "All" (it would equal Awaiting POD).
+  const debitControlOnly =
+    canManagePod && !canViewDocuments && !canVerifyDocuments && !canMarkVerified && !canViewFinance;
   const visibleStages = useMemo(() => {
     const stages = new Set<ComplianceQueueFilter>();
     if (canViewDocuments || canResubmit || canVerifyDocuments || canMarkVerified) {
@@ -346,9 +352,10 @@ export default function ComplianceScreen() {
       stages.add("hard_copy_pod_received");
       stages.add("pod_received");
     }
-    if (stages.size > 1) stages.add("all");
+    if (stages.size > 1 && !debitControlOnly) stages.add("all");
     return stages;
   }, [
+    debitControlOnly,
     canManagePod,
     canMarkVerified,
     canResubmit,
@@ -377,10 +384,6 @@ export default function ComplianceScreen() {
   // Ground Ops / TripOps fix holds but can't verify: their held trips show in
   // Document Upload → Compliance Hold, wherever the file count would place them.
   const fixesHoldsOnly = canResubmit && !canVerifyDocuments && !canMarkVerified;
-  // Debit control (POD only — no Document Upload, Verification or Finance tabs)
-  // works completed trips only, in every tab including All.
-  const debitControlOnly =
-    canManagePod && !canViewDocuments && !canVerifyDocuments && !canMarkVerified && !canViewFinance;
   const summaries = useMemo(() => {
     if (!queueSummaries) return queueSummaries;
     const routed = fixesHoldsOnly ? routeHoldsToDocumentUpload(queueSummaries) : queueSummaries;
@@ -774,6 +777,8 @@ export default function ComplianceScreen() {
   const [paying, setPaying] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [logHardCopyPodRequest, setLogHardCopyPodRequest] = useState(0);
+  /** Debit control table: trip whose Log hard copy POD modal is open. */
+  const [podLogSummary, setPodLogSummary] = useState<ComplianceTripSummary | null>(null);
   const [exporting, setExporting] = useState(false);
   const routeFocus = useLocalSearchParams<{ trip?: string; tab?: string }>();
 
@@ -1090,7 +1095,7 @@ export default function ComplianceScreen() {
             advance_processed: filtered.filter((summary) => summary.stage === "advance_payment_processed").length,
           }}
           options={[
-            { id: "all", label: "Inbox", a11yLabel: "Inbox", dot: null },
+            { id: "all", label: "All", a11yLabel: "All", dot: null },
             {
               id: "pending",
               label: "POD Pending",
@@ -1666,6 +1671,22 @@ export default function ComplianceScreen() {
                 : "No Loading→Completed trips in the Compliance queue yet."}
           </Text>
         </View>
+      ) : viewMode === "table" && debitControlOnly ? (
+        // Debit control: one 10-column table for every tab.
+        <TableQueueScroll {...tableQueueScrollProps}>
+          <DebitControlTripsTable
+            summaries={tableWindowItems}
+            tripFacts={tripFacts}
+            onOpenTrip={openTrip}
+            onRowPress={
+              stage === "hard_copy_pod_received" && podSlice !== "received"
+                ? (summary) => {
+                    if (tripAppearsInAwaitingPod(summary)) setPodLogSummary(summary);
+                  }
+                : undefined
+            }
+          />
+        </TableQueueScroll>
       ) : viewMode === "table" && isAdvanceProcessedStage && !search.trim() ? (
         <TableQueueScroll {...tableQueueScrollProps}>
           <ComplianceAdvanceProcessedTable
@@ -1758,6 +1779,7 @@ export default function ComplianceScreen() {
           }
           defaultFinanceList={stage === "compliance_verified"}
           hideDocumentDecisions={stage === "compliance_verified" || stage === "pending_for_docs"}
+          hideDocumentPanes={debitControlOnly}
           canManagePod={canManagePod}
           canEditTripFiles={canResubmit}
           showHardCopyPodLog={stage === "hard_copy_pod_received" && podSlice !== "received"}
@@ -1977,6 +1999,20 @@ export default function ComplianceScreen() {
           await moveToAdvanceProcessed(pay.summary.trip.id, pay.category);
         }}
       />
+      {podLogSummary ? (
+        <ComplianceHardCopyPodSheet
+          visible
+          onClose={() => setPodLogSummary(null)}
+          summary={podLogSummary}
+          organizationId={currentOrganization?.id ?? null}
+          canManage={canManagePod}
+          lrOptions={courierLrOptions}
+          tripFacts={tripFacts}
+          onChanged={async (ids) => {
+            await Promise.all(ids.map((tripId) => syncChange({ type: "tripFlags", tripId })));
+          }}
+        />
+      ) : null}
     </View>
   );
 }

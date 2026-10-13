@@ -2222,6 +2222,31 @@ export function useTripDetail({
     [tripId],
   );
 
+  /**
+   * Set the vault's vehicle docs, then fill empty slots from entity_documents saved
+   * under the trip org, the viewer org or the owner org. A partner truck's RC /
+   * fitness / insurance are often uploaded by the trip org (e.g. GoGoVan on SIVAN E's
+   * truck) and never reach the owner's vehicles.documents. Every writer goes through
+   * here so a later write can't wipe the merged slots.
+   */
+  const applyVehicleVaultDocs = useCallback(
+    (vehicleId: string, ownerOrgId: string, base: VehicleDocuments | null) => {
+      setVehicleDocs(base);
+      const requestedTripId = trip?.id ?? "";
+      const orgs = [trip?.organization_id ?? "", currentOrganization?.id ?? "", ownerOrgId]
+        .map((id) => id.trim())
+        .filter((id, index, all) => id && all.indexOf(id) === index);
+      void (async () => {
+        let merged = base;
+        for (const org of orgs) {
+          merged = await mergeEntityDocumentsIntoVehicleVault(vehicleId, org, merged);
+        }
+        if (currentTripIdRef.current === requestedTripId && merged !== base) setVehicleDocs(merged);
+      })();
+    },
+    [trip?.id, trip?.organization_id, currentOrganization?.id],
+  );
+
   /** One vehicle row so the vault can show RC/insurance. Plate-only market vehicles are a point lookup, not a fleet scan. Does not create a row. */
   const ensureVehicleDocs = useCallback(() => {
     const vehicleId = trip?.vehicle_id?.trim() || trip?.owner_vehicle_id?.trim() || "";
@@ -2239,28 +2264,13 @@ export function useTripDetail({
     if (!loadKey || !orgId || !requestedTripId) return;
     if (vehicleDocsLoadedForRef.current === loadKey) return;
     vehicleDocsLoadedForRef.current = loadKey;
-    // Vehicle row docs, then fill empty slots from entity_documents saved under the
-    // trip org, the viewer org or the owner org. A partner truck's RC / fitness /
-    // insurance are often uploaded by the trip org (e.g. GoGoVan on SIVAN E's truck)
-    // and never reach the owner's vehicles.documents.
-    const applyVaultDocs = async (vaultVehicleIdValue: string, ownerOrgId: string, base: VehicleDocuments | null) => {
-      setVehicleDocs(base);
-      let merged = base;
-      const orgs = [orgId, currentOrganization?.id ?? "", ownerOrgId]
-        .map((id) => id.trim())
-        .filter((id, index, all) => id && all.indexOf(id) === index);
-      for (const org of orgs) {
-        merged = await mergeEntityDocumentsIntoVehicleVault(vaultVehicleIdValue, org, merged);
-      }
-      if (currentTripIdRef.current === requestedTripId && merged !== base) setVehicleDocs(merged);
-    };
     void (async () => {
       if (!vehicleId) {
         const byPlate = await findVehicleByPlate(orgId, plate);
         if (currentTripIdRef.current !== requestedTripId || !byPlate.vehicle) return;
         setVaultVehicleId(byPlate.vehicle.id);
         setVehicleOwnerOrgId(orgId);
-        await applyVaultDocs(byPlate.vehicle.id, orgId, (byPlate.vehicle.documents ?? null) as VehicleDocuments | null);
+        applyVehicleVaultDocs(byPlate.vehicle.id, orgId, (byPlate.vehicle.documents ?? null) as VehicleDocuments | null);
         return;
       }
       const owned = await getVehicleById(orgId, vehicleId);
@@ -2277,17 +2287,17 @@ export function useTripDetail({
       setVehicleOwnerOrgId(ownerOrgId);
       const label = [vehicle.vehicle_number, vehicle.vehicle_type].filter(Boolean).join(" · ");
       if (label) setVehicleLabel(label);
-      await applyVaultDocs(vehicle.id, ownerOrgId, (vehicle.documents ?? null) as VehicleDocuments | null);
+      applyVehicleVaultDocs(vehicle.id, ownerOrgId, (vehicle.documents ?? null) as VehicleDocuments | null);
     })();
-  }, [trip?.vehicle_id, trip?.owner_vehicle_id, trip?.vehicle_display_number, displayVehicleFromInput, vehicleLabel, trip?.organization_id, trip?.id, currentOrganization?.id]);
+  }, [trip?.vehicle_id, trip?.owner_vehicle_id, trip?.vehicle_display_number, displayVehicleFromInput, vehicleLabel, trip?.organization_id, trip?.id, currentOrganization?.id, applyVehicleVaultDocs]);
 
   const rememberVaultVehicle = useCallback(
     (vehicleId: string, orgId: string, documents?: VehicleDocuments | null) => {
       setVaultVehicleId(vehicleId);
       setVehicleOwnerOrgId(orgId);
-      if (documents !== undefined) setVehicleDocs(documents);
+      if (documents !== undefined) applyVehicleVaultDocs(vehicleId, orgId, documents);
     },
-    [],
+    [applyVehicleVaultDocs],
   );
 
   /**

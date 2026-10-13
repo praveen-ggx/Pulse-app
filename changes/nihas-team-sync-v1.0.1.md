@@ -34,6 +34,7 @@
 - Trip cards show a RESUBMITTED tag with the Finance reject reason and Ground Ops' resubmit note once a declined trip is back with Finance (until the advance posts).
 - Synced with vasanth/V1.0.1 (6f36254c: Network suggested partners beside Your connections, pager fix) for the PR to Vasanth.
 - Trip Detail Asset Vault shows a partner truck's RC / fitness / insurance uploaded by the trip org (they were saved under the trip org and the vault only read the owner's vehicle row).
+- Vehicle Documents popup keeps a partner truck's RC / fitness / insurance: opening the popup no longer resets them to the owner's empty list.
 
 ## Why
 - Finance needs to check the advance values before money goes out, and trips sent back for fixes were either stuck or could be verified without Ground Ops fixing anything.
@@ -69,6 +70,7 @@
 - Finance could not tell a resubmitted trip from a fresh one in Advance Verification.
 - Keep this branch current with his V1.0.1 before he opens the PR.
 - SAT812GOGTRIP000948 (SIVAN E's truck TN02BR4402) showed every vehicle document as Not uploaded although GoGoVan uploaded three.
+- The first fix was overwritten when the popup resolved the vault vehicle (000948 still showed Not uploaded).
 
 ## Areas
 - Supabase migrations and RPCs for trips compliance (finance approval, reject, decline, resubmit, verify).
@@ -103,6 +105,7 @@
 - Compliance reject/resubmit routing and counts, advance approval gate, Compliance page search.
 - Compliance trip card.
 - Network page (his change, no overlap with this branch's files).
+- Trip Detail vault vehicle documents.
 - Trip Detail vault vehicle documents.
 
 ## Migrations
@@ -139,6 +142,7 @@
 - None.
 - None in the sync.
 - None.
+- None.
 
 ## Tested
 - Migration contract tests (local). 33 SQL scenarios for the resubmit gates ran on preprod inside a rolled-back transaction, all passed; then 116000 was applied to preprod with approval.
@@ -174,3 +178,4 @@
 - Typecheck 64 (baseline); 607 Compliance tests pass. Not clicked through.
 - Merge had no conflicts; checks listed in the sync commit report.
 - Typecheck 64 (baseline); trips and vehicles tests pass. Not clicked through after the change (local window signed out).
+- Typecheck 64 (baseline); 415 trips tests pass. Not clicked through (my browser window is signed out).

@@ -11,6 +11,7 @@ import { ContentErrorState } from "@/components/ContentErrorState";
 import Theme from "@/constants/Theme";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { useSupplierManagementBundleQuery } from "@/features/suppliers/hooks/useSupplierManagementBundleQuery";
+import { readSupplierPrimaryRegion } from "@/features/suppliers/services/suppliers.service";
 import type { SupplierManagementBundle } from "@/features/suppliers/types/supplierManagement.types";
 import { mapSupplierVerificationVaultDocs } from "@/features/suppliers/utils/supplierVerificationVault.util";
 import { SupplierVendorOnboardingVault } from "@/features/suppliers/components/vendor-onboarding/SupplierVendorOnboardingVault";
@@ -128,6 +129,7 @@ export function SupplierProfileScreen({ supplierId, onBack }: Props) {
         gstNumber={supplier.gstin}
         panNumber={supplier.pan_number}
         billingAddress={supplier.address}
+        primaryRegion={readSupplierPrimaryRegion(supplier)}
         gridVolumeLabel={volumeLabel}
         networkTrustLabel={networkTrustLabel}
         isIntegrated={isIntegrated}
@@ -148,9 +150,7 @@ export function SupplierProfileScreen({ supplierId, onBack }: Props) {
         }
         onClose={onBack}
         onEditPress={() => {}}
-        onProfileEntitiesChange={() => {
-          void bundleQ.refetch();
-        }}
+        onProfileEntitiesChange={() => bundleQ.refetch()}
       />
     </View>
   );

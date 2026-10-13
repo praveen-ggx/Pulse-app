@@ -101,6 +101,7 @@ import { useFinanceAlignedSupplierLedger } from "@/features/finance/hooks/useFin
 import {
     getLinkedOrgProfileForSupplier,
     getSupplierDetails,
+    readSupplierPrimaryRegion,
     updateSupplier,
     type SupplierRow,
     type UpdateSupplierData,
@@ -297,6 +298,29 @@ export default function SupplierDetailScreen({
     const { documents } = await getSupplierKycDocuments(orgId, supplierId);
     setVaultKycDocs(mapSupplierVerificationVaultDocs(documents));
   }, [currentOrganization?.id, supplierId]);
+
+  const refreshSupplierProfile = useCallback(async () => {
+    const orgId = currentOrganization?.id;
+    if (!orgId || !supplierId) return;
+    void loadVaultKyc();
+    await queryClient.invalidateQueries({
+      queryKey: queryKeys.suppliers.pageBootstrap(orgId, supplierId),
+    });
+    await queryClient.invalidateQueries({
+      queryKey: queryKeys.suppliers.managementBundle(orgId, supplierId),
+    });
+    const bundle = await queryClient.fetchQuery({
+      queryKey: queryKeys.suppliers.pageBootstrap(orgId, supplierId),
+      queryFn: async () => {
+        const r = await fetchSupplierPageBootstrap(orgId, supplierId);
+        if (r.error) throw r.error;
+        return r.bundle;
+      },
+    });
+    if (bundle?.supplier && activeSupplierIdRef.current === supplierId) {
+      setSupplier(bundle.supplier);
+    }
+  }, [currentOrganization?.id, supplierId, queryClient, loadVaultKyc]);
 
   useEffect(() => {
     if (!showProfileModal) return;
@@ -2180,8 +2204,8 @@ export default function SupplierDetailScreen({
             profileTitle="Partner Profile"
             type="supplier"
             organizationName={
-              (supplier?.company_name ??
-                supplier?.name ??
+              (supplier?.name ??
+                supplier?.company_name ??
                 supplier?.contact_person ??
                 "—") as string
             }
@@ -2191,6 +2215,7 @@ export default function SupplierDetailScreen({
             gstNumber={normalizeContactDisplay(supplier?.gstin)}
             panNumber={normalizeContactDisplay(supplier?.pan_number)}
             billingAddress={normalizeContactDisplay(supplier?.address)}
+            primaryRegion={readSupplierPrimaryRegion(supplier)}
             gridVolumeLabel={formatINR(contractValue)}
             networkTrustLabel="94.2%"
             isIntegrated={Boolean(
@@ -2213,9 +2238,7 @@ export default function SupplierDetailScreen({
             }
             onClose={() => setShowProfileModal(false)}
             canEdit={canSurface("sales.suppliers.edit")}
-            onProfileEntitiesChange={() => {
-              void loadVaultKyc();
-            }}
+            onProfileEntitiesChange={() => refreshSupplierProfile()}
             onEditPress={() => {
               setShowProfileModal(false);
               setShowEditModal(true);

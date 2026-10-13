@@ -3950,6 +3950,7 @@ export type Database = {
           is_primary: boolean
           organization_id: string
           updated_at: string
+          verification_status: string | null
           verified_at: string | null
           verified_by: string | null
         }
@@ -3968,6 +3969,7 @@ export type Database = {
           is_primary?: boolean
           organization_id: string
           updated_at?: string
+          verification_status?: string | null
           verified_at?: string | null
           verified_by?: string | null
         }
@@ -3986,6 +3988,7 @@ export type Database = {
           is_primary?: boolean
           organization_id?: string
           updated_at?: string
+          verification_status?: string | null
           verified_at?: string | null
           verified_by?: string | null
         }
@@ -9782,6 +9785,7 @@ export type Database = {
           owner_full_name: string | null
           pan_number: string | null
           phone: string | null
+          primary_region: string | null
           secondary_phone: string | null
           status_changed_at: string | null
           vendor_status: string
@@ -9823,6 +9827,7 @@ export type Database = {
           organization_id: string
           owner_full_name?: string | null
           pan_number?: string | null
+          primary_region?: string | null
           phone?: string | null
           secondary_phone?: string | null
           status_changed_at?: string | null
@@ -9865,6 +9870,7 @@ export type Database = {
           organization_id?: string
           owner_full_name?: string | null
           pan_number?: string | null
+          primary_region?: string | null
           phone?: string | null
           secondary_phone?: string | null
           status_changed_at?: string | null

@@ -23,6 +23,7 @@
 - Fix: the Compliance page crashed (useActiveWorkspace must be used within an ActiveWorkspaceProvider) after the Ground Ops warehouse notice was added.
 - Debit control rework on the Compliance page: completed trips only; no All tab (same as Awaiting POD; its sub-filter Inbox renamed All); no document checklist / preview; cards show POD facts only (no compliance / finance badges, holds or flags); a 13-column table (Trip ID, Date, LR, From, To, Client, Vendor, Driver mob no, Truck type, Truck no, Completed date, POD delay days, Soft copy POD eye opening the full-screen viewer with prev / next); tapping a trip on Awaiting POD opens Log hard copy POD full screen. Log hard copy POD is now one shared component with a clean full-screen layout, hides already-received LRs, and keeps the user ticked LRs when the list refreshes.
 - Finance on the Compliance page: Reject shows (it needed the Compliance verify permission), Flag to Compliance retired (button, badge, notes, blocked status and Flagged by finance sub-tab removed), vendor name opens the supplier detail page and now actually navigates, document eye shows grey when the viewer cannot open it; Edit member warns when saved access differs from the role preset with a Reset to preset button.
+- Praveen supplier page changes (praveen/V1.0.6 eac2faed): supplier profile edits, primary region and multiple bank accounts now save and survive refresh; Aadhaar shown formatted.
 
 ## Why
 - Finance needs to check the advance values before money goes out, and trips sent back for fixes were either stuck or could be verified without Ground Ops fixing anything.
@@ -47,6 +48,7 @@
 - /compliance renders outside the workspace provider; the new warehouse check used the throwing hook.
 - Nihas walkthrough of the Debit control desk (Gayatri, Sathish); multi-LR courier saves recorded only one LR because a background refresh reset the ticked LRs.
 - Dhira (Finance) could not open documents, saw Flag instead of Reject and could not open suppliers: old saved access, a leftover verify check, and ModelAccessGate checking member capabilities so Finance bounced off /supplier/:id.
+- Nihas asked to bring Praveen supplier detail page work into this branch.
 
 ## Areas
 - Supabase migrations and RPCs for trips compliance (finance approval, reject, decline, resubmit, verify).
@@ -71,6 +73,7 @@
 - Ground Ops warehouse check hook.
 - Compliance page (Debit control view), document workspace, new Debit control table, Log hard copy POD modal, new get_trip_driver_phones RPC.
 - Compliance page and workspace, payment panel, ModelAccessGate (suppliers / clients / vehicles / drivers), member access editor.
+- Supplier detail / profile, vendor onboarding vault, counterparty profile card, supplier services.
 
 ## Migrations
 - 20271008112000_finance_verified_step.sql, 20271008113000_compliance_reject_resubmit.sql, 20271008114000_compliance_hold_resubmit.sql, 20271008115000_compliance_resubmit_note.sql, 20271008116000_compliance_resubmit_gates.sql (all applied to preprod only; prod untouched). Release set: supabase/release-sets/preprod-finance-resubmit.versions.
@@ -95,6 +98,7 @@
 - None.
 - 20271008121000_get_trip_driver_phones.sql (not yet on preprod; push with the trip-driver-phones release set).
 - None. Preprod SAT812-TRP-957 is still finance-flagged (Reject it, or clear the flag).
+- 20271006161000_suppliers_primary_region.sql, 20271012130500_entity_bank_account_verification_status.sql (from Praveen; not yet on preprod).
 
 ## Tested
 - Migration contract tests (local). 33 SQL scenarios for the resubmit gates ran on preprod inside a rolled-back transaction, all passed; then 116000 was applied to preprod with approval.
@@ -119,3 +123,4 @@
 - Typecheck unchanged; 1128 compliance, trips, organization and RBAC tests pass. Reported crash reproduced from the stack trace, not re-clicked.
 - 1128 compliance, trips, organization and RBAC tests pass; typecheck unchanged; cycles 111/111; driver phones RPC dry-run on preprod as Gayatri returned 457 of 459. UI checked by Nihas on localhost during the walkthrough; final full-screen POD layout and LR fix not re-clicked.
 - Typecheck unchanged; navigation policy 64/64; 1362 tests pass (only the known loadCenterMarketplaceGate failure); cycles 111/111. Checked Dhira saved access on preprod; vendor link not re-clicked after the gate fix.
+- Applied cleanly on this branch; typecheck checked in the next commit (6 type errors fixed there).

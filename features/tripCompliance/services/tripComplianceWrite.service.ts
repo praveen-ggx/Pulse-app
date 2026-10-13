@@ -461,6 +461,24 @@ async function readComplianceLedgerFlags(trip: TripRow): Promise<ComplianceLedge
 }
 
 /**
+ * Counterparty for a compliance advance / balance: the trip's supplier.
+ * Marketplace-awarded trips (market_bid / direct_bid) have no supplier row —
+ * the payout stays tagged `supplier` with no contact. Trip Detail shows it
+ * under Supplier paid only when the trip's payout mode is market; asset-mode
+ * trips show driver payouts there instead.
+ */
+export function compliancePayoutParty(trip: Pick<TripRow, "supplier_id" | "supplier_name">) {
+  const supplierId = trip.supplier_id?.trim() || null;
+  return {
+    party_name: trip.supplier_name?.trim() || "Supplier",
+    contact_id: supplierId,
+    contact_type: "supplier",
+    ledger_entity_type: "supplier",
+    ledger_flow_type: "payable",
+  } as const;
+}
+
+/**
  * Post a compliance advance/balance payment through the canonical Finance
  * ledger write path (`createLedgerEntry` → `transactions`). This is the ONLY
  * write path — Compliance never inserts into `transactions` directly, and
@@ -504,16 +522,16 @@ export async function postCompliancePayment(params: {
   const entry: CreateLedgerEntryData = {
     trip_id: params.trip.id,
     trip_number: params.trip.booking_ref ?? null,
-    party_name: params.trip.client_name || "Client",
+    ...compliancePayoutParty(params.trip),
     description,
-    amount_in: params.amount,
-    amount_out: 0,
+    // Compliance advance / balance is a payment TO the supplier: cash out,
+    // supplier payable (CORE_ACCOUNTING_MODEL §4.2). It used to be written as a
+    // client receipt, which inflated trips.amount_paid and hid it from
+    // Trip Detail → Supplier paid.
+    amount_in: 0,
+    amount_out: params.amount,
     transaction_date: params.transactionDate,
-    contact_id: params.trip.client_id,
-    contact_type: params.trip.client_id ? "client" : null,
     ledger_category: params.category,
-    ledger_entity_type: "client",
-    ledger_flow_type: "receivable",
     payment_reference: params.utr?.trim() || null,
     paid_from_account_id: params.paidFromAccountId ?? null,
   };
@@ -724,15 +742,11 @@ export async function updateCompliancePaymentUtr(params: {
   });
   const { error } = await updateLedgerEntry(params.organizationId, params.transactionId, {
     trip_id: params.trip.id,
-    party_name: params.trip.client_name || "Client",
+    ...compliancePayoutParty(params.trip),
     description,
-    amount_in: params.amount,
-    amount_out: 0,
-    contact_id: params.trip.client_id,
-    contact_type: params.trip.client_id ? "client" : null,
+    amount_in: 0,
+    amount_out: params.amount,
     ledger_category: params.category,
-    ledger_entity_type: "client",
-    ledger_flow_type: "receivable",
     payment_reference: params.utr?.trim() || null,
   });
   return { error };

@@ -116,7 +116,8 @@ describe("complianceVerifiedExport.util", () => {
     const without = buildVerifiedExportCsvRow(summary({}), base);
     expect(withBeneficiary["Beneficiary Name"]).toBe("Pravupa Das");
     expect(withBeneficiary.Supplier).toBe("Gogox Logistics");
-    expect(without["Beneficiary Name"]).toBe("Gogox Logistics");
+    // No account holder name → blank (never the supplier's company name).
+    expect(without["Beneficiary Name"]).toBe("");
     const { ["Beneficiary Name"]: _a, ...restWith } = withBeneficiary;
     const { ["Beneficiary Name"]: _b, ...restWithout } = without;
     expect(restWith).toEqual(restWithout);
@@ -139,7 +140,7 @@ describe("complianceVerifiedExport.util", () => {
     expect(row["Client sales invoice No"]).toBe("INV-901");
     expect(row["LR No"]).toBe("3277");
     expect(row["Account No"]).toBe("123456789012");
-    expect(row["Beneficiary Name"]).toBe("Gogox Logistics");
+    expect(row["Beneficiary Name"]).toBe("");
     expect(row["IFSC No"]).toBe("HDFC0001234");
     expect(row["Branch Name"]).toBe("Salt Lake");
     expect(row.Customer).toBe("Sunflag");

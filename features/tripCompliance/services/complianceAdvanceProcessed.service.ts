@@ -99,7 +99,9 @@ async function fetchAdvanceTransactions(tripIds: string[]): Promise<TxnRow[]> {
       "id, trip_id, amount_in, amount_out, description, transaction_date, created_by, ledger_category, payment_reference",
     )
     .in("trip_id", tripIds)
-    .gt("amount_in", 0)
+    // Client receipts are money in; compliance advance / balance are supplier
+    // payouts (money out) — match both, not only amount_in.
+    .or("amount_in.gt.0,ledger_category.in.(compliance_advance,compliance_balance)")
     .order("transaction_date", { ascending: true });
   if (error) throw new Error(error.message);
   return (data ?? []) as TxnRow[];

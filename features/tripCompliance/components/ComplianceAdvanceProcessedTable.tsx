@@ -673,7 +673,7 @@ export function ComplianceAdvanceProcessedTable({
         const payment = info?.payment ?? summary.advance!;
         const isSelected = selected.has(trip.id);
         const supplier = info?.supplierName || trip.supplier_name || "";
-        const beneficiary = info?.beneficiaryName || supplier;
+        const beneficiary = info?.beneficiaryName || "—";
         const noEntry = !loading && info && !info.transactionId;
         const rowLabel = (field: EditField) =>
           loading ? "Loading…" : noEntry ? "Entry not visible to your org" : field === "utr" && isCashPaymentMode(payment.paymentMode) ? "Cash · no UTR" : null;

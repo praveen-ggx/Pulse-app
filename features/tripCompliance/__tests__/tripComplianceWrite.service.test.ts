@@ -7,6 +7,7 @@ jest.mock("@/features/finance/services/finance.service", () => ({
 import { createLedgerEntry } from "@/features/finance/services/finance.service";
 import {
   checkCompliancePaymentAllowed,
+  compliancePayoutParty,
   postCompliancePayment,
   validateCompliancePaymentAmount,
   withdrawComplianceAdvancePayment,
@@ -450,5 +451,24 @@ describe("withdrawComplianceAdvancePayment", () => {
     mockDeleteResult = { data: null, error: null };
     const result = await withdrawComplianceAdvancePayment({ tripId: "trip-1" });
     expect(result.error?.message).toMatch(/permission/i);
+  });
+});
+
+describe("compliancePayoutParty", () => {
+  it("records a compliance payout against the trip's supplier as payable", () => {
+    expect(compliancePayoutParty({ supplier_id: "sup-1", supplier_name: " Hema Sai " } as TripRow)).toEqual({
+      party_name: "Hema Sai",
+      contact_id: "sup-1",
+      contact_type: "supplier",
+      ledger_entity_type: "supplier",
+      ledger_flow_type: "payable",
+    });
+  });
+
+  it("keeps the supplier tag with no contact when the trip has no supplier record", () => {
+    const party = compliancePayoutParty({ supplier_id: null, supplier_name: null } as TripRow);
+    expect(party.contact_id).toBeNull();
+    expect(party.contact_type).toBe("supplier");
+    expect(party.party_name).toBe("Supplier");
   });
 });

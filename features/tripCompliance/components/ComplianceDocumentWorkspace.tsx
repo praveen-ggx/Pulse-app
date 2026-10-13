@@ -5387,7 +5387,8 @@ function ChecklistTripDetailsPanel({
         setBankDetails(null);
         return;
       }
-      const fallbackBeneficiary = supplierLabel !== "—" ? supplierLabel : "—";
+      // Beneficiary = the bank account holder only — never the supplier's company name.
+      const fallbackBeneficiary = "—";
       if (!payeeDetails) {
         setBankDetails({
           accountNumber: account.account_number?.trim() || "—",
@@ -5414,8 +5415,7 @@ function ChecklistTripDetailsPanel({
   }, [trip.organization_id, trip.supplier_id, supplierLabel, payeeDetails, bankRevision]);
 
   const tripId = getTripDisplayNumber(trip, trip.organization_id ?? null);
-  const beneficiary =
-    bankDetails?.beneficiaryName ?? (supplierLabel !== "—" ? supplierLabel : "—");
+  const beneficiary = bankDetails?.beneficiaryName ?? "—";
   const supplierRate = formatTripInr(supplierCostTotal(commercial) ?? commercial.supplier_rate);
   const clientRate = formatTripInr(commercial.client_price);
   const loadedWeight = formatLoadedWeight(commercial.load_tons);

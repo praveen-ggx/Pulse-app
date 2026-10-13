@@ -1030,7 +1030,9 @@ export async function fetchTripAdvanceLedger(tripId: string): Promise<{
     .from("transactions")
     .select(ADVANCE_LEDGER_SELECT)
     .eq("trip_id", tripId)
-    .gt("amount_in", 0)
+    // Client receipts are money in; compliance advance / balance are supplier
+    // payouts (money out) — match both, not only amount_in.
+    .or("amount_in.gt.0,ledger_category.in.(compliance_advance,compliance_balance)")
     .order("transaction_date", { ascending: true });
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as RawTxnRow[];

@@ -91,7 +91,7 @@ describe("Advance Processed export", () => {
   it("falls back to the trip when enrichment is missing", () => {
     const row = buildAdvanceProcessedExportRow(summary(), undefined);
     expect(row["SUPPLIER NAME"]).toBe("Hema Sai Transport");
-    expect(row["BENEFICIARY NAME"]).toBe("Hema Sai Transport");
+    expect(row["BENEFICIARY NAME"]).toBe("");
     expect(row.UTR).toBe("");
     expect(countAdvanceProcessedExport([row, buildAdvanceProcessedExportRow(summary(), enrichment)])).toEqual({
       total: 2,

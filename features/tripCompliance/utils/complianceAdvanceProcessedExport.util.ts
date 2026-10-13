@@ -58,7 +58,7 @@ export function buildAdvanceProcessedExportRow(
     "PAYMENT TYPE": "Advance",
     "REQUEST ID": (info?.requestId ?? "").trim(),
     "SUPPLIER NAME": supplier,
-    "BENEFICIARY NAME": (info?.beneficiaryName || supplier).trim(),
+    "BENEFICIARY NAME": (info?.beneficiaryName ?? "").trim(),
     "BANK NAME": (info?.bankName ?? "").trim(),
     IFSC: (info?.ifsc ?? "").trim(),
     "ACCOUNT NUMBER": (info?.accountNumber ?? "").trim(),

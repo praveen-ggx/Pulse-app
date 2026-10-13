@@ -96,7 +96,8 @@ export function ComplianceAdvancePayeeDetails({
         status: "ready",
         key: loadKey,
         payee: {
-          beneficiary: account.beneficiary_name?.trim() || supplierLabel,
+          // Account holder name only — never the supplier's company name.
+          beneficiary: account.beneficiary_name?.trim() || "—",
           accountNumber: account.account_number.trim(),
           ifsc,
           bankName: account.bank_name?.trim() ?? "",

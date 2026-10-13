@@ -55,7 +55,7 @@ export type VerifiedExportCsvRow = Record<VerifiedExportCsvHeader, string>;
 
 export type VerifiedExportEnrichment = {
   supplierName?: string | null;
-  /** Account holder from supplier Banking; Beneficiary column falls back to the supplier. */
+  /** Account holder from supplier Banking. Blank when the supplier has no holder name. */
   beneficiaryName?: string | null;
   truckType?: string | null;
   driverPhone?: string | null;
@@ -231,7 +231,7 @@ export function buildVerifiedExportCsvRow(
         : formatComplianceTimestamp(trip.started_at),
     "Client sales invoice No": latestDocNumber(summary.documents, "invoice"),
     "Account No": blank(enrichment.accountNumber),
-    "Beneficiary Name": enrichment.beneficiaryName?.trim() || supplierLabel,
+    "Beneficiary Name": enrichment.beneficiaryName?.trim() || "",
     "IFSC No": blank(enrichment.ifsc),
     "Branch Name": blank(enrichment.branchName),
     "LR No": latestDocNumber(summary.documents, "lr"),

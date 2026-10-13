@@ -97,6 +97,7 @@ import {
     isActiveFinanceReject,
     isComplianceAwaitingResubmit,
     isComplianceHoldAwaitingResubmit,
+    routeHoldsToDocumentUpload,
     isComplianceDeclineActive,
     isFinanceFlagged,
     isFinanceDeclinedForCompliancePending,
@@ -365,13 +366,23 @@ export default function ComplianceScreen() {
   useRealtimeTransactionsInvalidation(currentOrganization?.id ?? null);
 
   const {
-    summaries,
+    summaries: queueSummaries,
     isLoading,
     isError,
     error,
     isFetching,
     refetch,
   } = useComplianceTripsQuery();
+  // Ground Ops / TripOps fix holds but can't verify: their held trips show in
+  // Document Upload → Compliance Hold, wherever the file count would place them.
+  const fixesHoldsOnly = canResubmit && !canVerifyDocuments && !canMarkVerified;
+  const summaries = useMemo(
+    () =>
+      fixesHoldsOnly && queueSummaries
+        ? routeHoldsToDocumentUpload(queueSummaries)
+        : queueSummaries,
+    [fixesHoldsOnly, queueSummaries],
+  );
   const { stage, setStage, filtered, counts, declinedCount, podReceivedCount } =
     useComplianceStageFilter(summaries);
   const [pendingSlice, setPendingSlice] = useState<"all" | "hold" | "finance_declined" | "rejected" | "flagged">("all");

@@ -332,6 +332,30 @@ export function isFinanceDeclinedForCompliancePending(summary: ComplianceTripSum
  * is still missing files or already in Compliance Verification. The same trip also
  * stays on Compliance Verification → Compliance Hold.
  */
+/**
+ * For people who fix holds but cannot verify (Ground Ops, TripOps): a held
+ * trip waiting for their resubmit belongs in Document Upload even when every
+ * file is already on it (which otherwise derives Compliance Verification), and
+ * a Finance reject belongs there too (it otherwise stays in the Finance lanes).
+ * Both are tabs they don't have, so the trip vanished from their view.
+ */
+export function routeHoldsToDocumentUpload(
+  summaries: ComplianceTripSummary[],
+): ComplianceTripSummary[] {
+  let changed = false;
+  const out = summaries.map((summary) => {
+    const waitingOnFix =
+      // Compliance hold with every file on it (derived Compliance Verification)…
+      (summary.stage === "compliance_pending" && isComplianceHoldAwaitingResubmit(summary)) ||
+      // …or a Finance reject, which sits in the Finance lanes after verify.
+      (summary.stage !== "pending_for_docs" && isActiveFinanceReject(summary));
+    if (!waitingOnFix) return summary;
+    changed = true;
+    return { ...summary, stage: "pending_for_docs" as const };
+  });
+  return changed ? out : summaries;
+}
+
 export function isPendingDocsComplianceHold(summary: ComplianceTripSummary): boolean {
   if (!isComplianceHoldAwaitingResubmit(summary)) return false;
   return summary.stage === "pending_for_docs" || summary.stage === "compliance_pending";

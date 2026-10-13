@@ -254,15 +254,22 @@ function normalizeTripRowWithIndent(
   };
 }
 
-/** Fetch all trips visible to an org via RPC — includes cross-org supplier trips. Mirrors useTripsQuery. */
+/**
+ * Fetch all trips visible to an org via RPC — includes cross-org supplier trips. Mirrors useTripsQuery.
+ * The list is the newest 400; `includeComplianceBacklog` also returns older trips still open in
+ * the Compliance workflow (verified / approved / requested, not settled) for the Compliance queue.
+ */
 export async function getTripsForOrg(
   orgId: string,
+  opts?: { includeComplianceBacklog?: boolean },
 ): Promise<{ error: Error | null; trips: TripRow[] }> {
-  return runSingleflight(`get_trips_for_org:${orgId}`, async () => {
+  const backlog = opts?.includeComplianceBacklog === true;
+  return runSingleflight(`get_trips_for_org:${orgId}${backlog ? ":compliance" : ""}`, async () => {
     try {
-      const { data, error } = await supabase().rpc("get_trips_for_org", {
-        p_org_id: orgId,
-      });
+      const { data, error } = await supabase().rpc(
+        "get_trips_for_org",
+        backlog ? { p_org_id: orgId, p_include_compliance_backlog: true } : { p_org_id: orgId },
+      );
       if (!error) {
         const trips = ((data ?? []) as TripRow[]).map((row) =>
           normalizeTripRowWithIndent(row as TripRow & { indents?: TripIndentJoin | null }),

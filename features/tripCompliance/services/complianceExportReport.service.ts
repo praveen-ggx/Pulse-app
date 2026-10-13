@@ -17,10 +17,20 @@ import { resolveBankBranch } from "@/features/suppliers/utils/ifscDirectory.util
 import { buildComplianceTripSummaries } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import { isComplianceVerifiedQueue } from "@/features/tripCompliance/utils/complianceReadiness.util";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
-import { fetchAdvanceProcessedEnrichment } from "@/features/tripCompliance/services/complianceAdvanceProcessed.service";
 import {
+  fetchAdvancePayeeBanks,
+  fetchAdvanceProcessedEnrichment,
+  fetchAdvanceRequestsForTrips,
+  type AdvanceProcessedEnrichment,
+} from "@/features/tripCompliance/services/complianceAdvanceProcessed.service";
+import { fetchComplianceAdvanceFinanceBreakdown } from "@/features/tripCompliance/services/complianceAdvanceFinanceBreakdown.service";
+import {
+  buildAdvancePaymentExportWorkbook,
+  buildAdvancePaymentPaidRow,
+  buildAdvancePaymentPendingRow,
   buildAdvanceProcessedExportRow,
   buildAdvanceProcessedExportWorkbook,
+  type AdvancePaymentExportRow,
   type AdvanceProcessedExportRow,
 } from "@/features/tripCompliance/utils/complianceAdvanceProcessedExport.util";
 import { sortAdvanceProcessedSummaries } from "@/features/tripCompliance/utils/complianceAdvanceProcessedSort.util";
@@ -96,7 +106,7 @@ function exportFileStamp(now: Date = new Date()): string {
 }
 
 async function fetchVerifiedStageSummaries(orgId: string): Promise<ComplianceTripSummary[]> {
-  const { error, trips } = await getTripsForOrg(orgId);
+  const { error, trips } = await getTripsForOrg(orgId, { includeComplianceBacklog: true });
   if (error) throw error;
   const summaries = await buildComplianceTripSummaries(selectCompliancePipelineTrips(trips), orgId);
   return summaries.filter(isComplianceVerifiedQueue);
@@ -315,5 +325,61 @@ export async function downloadAdvanceProcessedReport(rows: AdvanceProcessedExpor
   await exportComplianceWorkbook(
     buildAdvanceProcessedExportWorkbook(rows),
     `compliance-advance-processed-report_${exportFileStamp()}.xlsx`,
+  );
+}
+
+/**
+ * Advance Payment stage: one sheet with every trip waiting to be paid (STATUS
+ * Pending, amount = computed advance payable) and every trip already paid
+ * (STATUS Paid, posted payment details), whichever sub-tab is open.
+ */
+export async function prepareAdvancePaymentReport(
+  orgId: string,
+  pending: ComplianceTripSummary[],
+  paid: ComplianceTripSummary[],
+): Promise<AdvancePaymentExportRow[]> {
+  const paidRows = sortAdvanceProcessedSummaries(paid.filter((summary) => summary.advance));
+  const [banks, requests, payables, enrichment] = await Promise.all([
+    fetchAdvancePayeeBanks(orgId, pending),
+    fetchAdvanceRequestsForTrips(pending.map((summary) => summary.trip.id)),
+    Promise.all(
+      pending.map((summary) =>
+        fetchComplianceAdvanceFinanceBreakdown({
+          orgId: (summary.trip.organization_id ?? orgId).trim() || orgId,
+          tripId: summary.trip.id,
+          supplierId: summary.trip.supplier_id,
+          supplierRate: summary.trip.supplier_rate,
+          supplierRateBasis:
+            (summary.trip as { supplier_rate_basis?: string | null }).supplier_rate_basis ?? null,
+          loadTons: summary.trip.load_tons ?? null,
+        })
+          .then((breakdown) => breakdown?.computedAdvancePayable ?? null)
+          .catch(() => null),
+      ),
+    ),
+    paidRows.length > 0
+      ? fetchAdvanceProcessedEnrichment(orgId, paidRows)
+      : Promise.resolve<Record<string, AdvanceProcessedEnrichment>>({}),
+  ]);
+  return [
+    ...pending.map((summary, index) =>
+      buildAdvancePaymentPendingRow(
+        summary,
+        banks[summary.trip.id],
+        payables[index],
+        requests[summary.trip.id]?.requestNo ?? "",
+      ),
+    ),
+    ...paidRows.map((summary) =>
+      buildAdvancePaymentPaidRow(summary, enrichment[summary.trip.id]),
+    ),
+  ];
+}
+
+/** Download prepared Advance Payment rows as .xlsx. */
+export async function downloadAdvancePaymentReport(rows: AdvancePaymentExportRow[]): Promise<void> {
+  await exportComplianceWorkbook(
+    buildAdvancePaymentExportWorkbook(rows),
+    `compliance-advance-payment-report_${exportFileStamp()}.xlsx`,
   );
 }

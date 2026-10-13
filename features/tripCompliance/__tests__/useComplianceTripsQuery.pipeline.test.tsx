@@ -29,7 +29,7 @@ jest.mock("@/lib/supabase", () => ({
 const mockTripsRefetch = jest.fn();
 let mockTripsState: { data: unknown[]; dataUpdatedAt: number };
 jest.mock("@/lib/queries/useTripsQuery", () => ({
-  useTripsQuery: () => ({
+  useComplianceTripCatalogQuery: () => ({
     data: mockTripsState.data,
     dataUpdatedAt: mockTripsState.dataUpdatedAt,
     isSuccess: true,

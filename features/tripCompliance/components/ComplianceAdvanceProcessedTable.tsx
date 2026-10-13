@@ -8,7 +8,6 @@ import { useAdvanceProcessedTable } from "@/features/tripCompliance/hooks/useAdv
 import type { AdvanceProcessedEnrichment } from "@/features/tripCompliance/services/complianceAdvanceProcessed.service";
 import {
   updateCompliancePaymentReference,
-  updateCompliancePaymentRequestId,
   updateCompliancePaymentTransactionDate,
 } from "@/features/tripCompliance/services/tripComplianceWrite.service";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
@@ -19,12 +18,9 @@ import {
   validateComplianceTransactionDate,
 } from "@/features/tripCompliance/utils/compliancePaymentDate.util";
 import {
-  COMPLIANCE_REQUEST_ID_MAX_LENGTH,
   COMPLIANCE_UTR_MAX_LENGTH,
   isCashPaymentMode,
-  normalizeComplianceRequestId,
   normalizeComplianceUtr,
-  validateComplianceRequestId,
   validateComplianceUtr,
 } from "@/features/tripCompliance/utils/compliancePaymentReference.util";
 import { latestDocNumber } from "@/features/tripCompliance/utils/complianceVerifiedExport.util";
@@ -48,7 +44,7 @@ import {
   type ViewStyle,
 } from "react-native";
 
-type EditField = "txnDate" | "requestId" | "utr";
+type EditField = "txnDate" | "utr";
 
 const FIELD_CONFIG: Record<
   EditField,
@@ -67,14 +63,6 @@ const FIELD_CONFIG: Record<
     normalize: normalizeComplianceTransactionDate,
     validate: validateComplianceTransactionDate,
     label: "Txn Date",
-  },
-  requestId: {
-    placeholder: "Request ID",
-    maxLength: COMPLIANCE_REQUEST_ID_MAX_LENGTH,
-    normalize: normalizeComplianceRequestId,
-    validate: validateComplianceRequestId,
-    label: "Request ID",
-    upperCase: true,
   },
   utr: {
     placeholder: "Type UTR",
@@ -520,7 +508,7 @@ export function ComplianceAdvanceProcessedTable({
         if (!payment?.txnDateConfirmed) return "";
         return toComplianceTransactionDateInput(payment.paidAt);
       }
-      return (info?.requestId ?? "").trim();
+      return "";
     },
     [savedLocal],
   );
@@ -549,9 +537,7 @@ export function ComplianceAdvanceProcessedTable({
       const { error } =
         field === "utr"
           ? await updateCompliancePaymentReference({ ...target, utr: value })
-          : field === "txnDate"
-            ? await updateCompliancePaymentTransactionDate({ ...target, transactionDate: value })
-            : await updateCompliancePaymentRequestId({ ...target, requestId: value });
+          : await updateCompliancePaymentTransactionDate({ ...target, transactionDate: value });
       if (error) {
         patchEdit(key, { saving: false, error: error.message });
         return false;
@@ -578,7 +564,7 @@ export function ComplianceAdvanceProcessedTable({
 
   const pendingSelected = visibleRows.flatMap((summary) => {
     if (!selected.has(summary.trip.id)) return [];
-    return (["txnDate", "requestId", "utr"] as const)
+    return (["txnDate", "utr"] as const)
       .filter((field) => {
         const state = edits[editKey(summary.trip.id, field)];
         if (!state?.editing) return false;
@@ -737,7 +723,8 @@ export function ComplianceAdvanceProcessedTable({
               align="right"
               strong
             />
-            {renderEditable("requestId", COL.requestId)}
+            {/* Issued by the system at advance approval (payment_requests); not editable. */}
+            <Cell style={COL.requestId} value={info?.requestId ?? ""} loading={loading} mono />
             {renderEditable("utr", COL.utr)}
           </View>
         );

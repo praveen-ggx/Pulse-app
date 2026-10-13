@@ -38,6 +38,27 @@ export function useTripsQuery(orgId: string | null) {
   });
 }
 
+/**
+ * Compliance queue catalog: same rows as useTripsQuery plus older trips still open in
+ * the Compliance workflow, which the newest-400 list would drop. Lives under the trips
+ * key prefix so trip realtime invalidation refreshes it too.
+ */
+export function useComplianceTripCatalogQuery(orgId: string | null) {
+  const { status } = useAuth();
+  const bootQuietOpen = useAppQueryGate(orgId);
+  return useQuery<TripRow[], Error>({
+    queryKey: queryKeys.trips.compliance(orgId ?? ''),
+    queryFn: async () => {
+      const res = await getTripsForOrg(orgId!, { includeComplianceBacklog: true });
+      if (res.error) throw res.error;
+      return res.trips;
+    },
+    enabled: !!orgId && status !== 'restoring' && bootQuietOpen,
+    staleTime: STALE.realtime,
+    refetchOnMount: refetchOnMountIfEntityListEmpty<TripRow[]>(),
+  });
+}
+
 /** Per-party trip counts for Network cards — not the full trip catalog. */
 export function useTripPartyCountsQuery(orgId: string | null) {
   const { status } = useAuth();

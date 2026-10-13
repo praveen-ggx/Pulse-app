@@ -37,10 +37,13 @@ import {
     type ComplianceStageCounts,
 } from "@/features/tripCompliance/hooks/useComplianceTripsQuery";
 import { tripAppearsInAwaitingPod } from "@/features/tripCompliance/services/tripComplianceRead.service";
+import { fetchComplianceAdvanceFinanceBreakdown } from "@/features/tripCompliance/services/complianceAdvanceFinanceBreakdown.service";
 import {
+    downloadAdvancePaymentReport,
     downloadAdvanceProcessedReport,
     downloadComplianceTableExport,
     exportVerifiedStageComplianceReport,
+    prepareAdvancePaymentReport,
     prepareAdvanceProcessedReport,
 } from "@/features/tripCompliance/services/complianceExportReport.service";
 import {
@@ -63,7 +66,9 @@ import {
     type AwaitingPodSubview,
 } from "@/features/tripCompliance/utils/awaitingPodSubview.util";
 import {
+    countAdvancePaymentExport,
     countAdvanceProcessedExport,
+    type AdvancePaymentExportRow,
     type AdvanceProcessedExportRow,
 } from "@/features/tripCompliance/utils/complianceAdvanceProcessedExport.util";
 import { sortAdvanceProcessedSummaries } from "@/features/tripCompliance/utils/complianceAdvanceProcessedSort.util";
@@ -624,9 +629,27 @@ export default function ComplianceScreen() {
       if (!confirmed) return;
       setFinanceVerifySubmitting(true);
       try {
+        // Snapshot the advance payable (same math as the payment card) on the
+        // payment request issued by this approval. Unknown terms → no snapshot.
+        const trip = (summaries ?? []).find((summary) => summary.trip.id === tripId)?.trip;
+        const orgId = trip?.organization_id ?? currentOrganization?.id ?? null;
+        const approvedAmount =
+          trip && orgId
+            ? await fetchComplianceAdvanceFinanceBreakdown({
+                orgId,
+                tripId,
+                supplierId: trip.supplier_id,
+                supplierRate: trip.supplier_rate,
+                supplierRateBasis: (trip as { supplier_rate_basis?: string | null }).supplier_rate_basis ?? null,
+                loadTons: trip.load_tons ?? null,
+              })
+                .then((breakdown) => breakdown?.computedAdvancePayable ?? null)
+                .catch(() => null)
+            : null;
         const { error } = await markTripFinanceVerified({
           tripId,
           idempotencyKey: `${tripId}:fv:${Date.now()}`,
+          approvedAmount,
         });
         await syncChange({ type: "tripFlags", tripId }).catch(() => undefined);
         if (error) {
@@ -639,7 +662,7 @@ export default function ComplianceScreen() {
         setFinanceVerifySubmitting(false);
       }
     },
-    [canManageFinance, setStage, syncChange],
+    [canManageFinance, currentOrganization?.id, setStage, summaries, syncChange],
   );
   const undoFinanceVerifyTrip = useCallback(
     async (tripId: string) => {
@@ -1289,7 +1312,13 @@ export default function ComplianceScreen() {
     async (tripId: string, category: ComplianceLedgerCategory) => {
       await syncChange({ type: "payment", tripId }).catch(() => undefined);
       if (category !== "compliance_advance") return;
-      if (stage !== "compliance_verified" && stage !== "finance_verified") return;
+      if (stage === "finance_verified") {
+        // Advance Payment → Paid lists it; Finance does not get the Awaiting POD tab.
+        setAdvancePaySlice("paid");
+        setCardTripId(tripId);
+        return;
+      }
+      if (stage !== "compliance_verified") return;
       // Paid trips are listed under Awaiting POD.
       setStage("hard_copy_pod_received");
       setCardTripId(tripId);
@@ -1312,6 +1341,58 @@ export default function ComplianceScreen() {
     }
   }, [isAdvanceProcessedStage]);
   const apExportCounts = useMemo(() => countAdvanceProcessedExport(apExport.rows), [apExport.rows]);
+
+  /** Advance Payment Export Report: Pending + Paid in one sheet, whichever sub-tab is open. */
+  const [payExport, setPayExport] = useState<{
+    open: boolean;
+    preparing: boolean;
+    exporting: boolean;
+    rows: AdvancePaymentExportRow[];
+  }>({ open: false, preparing: false, exporting: false, rows: [] });
+  const payExportRequest = useRef(0);
+  const isAdvancePaymentStage = stage === "finance_verified";
+  useEffect(() => {
+    if (!isAdvancePaymentStage) {
+      payExportRequest.current += 1;
+      setPayExport((cur) => (cur.open && !cur.exporting ? { ...cur, open: false } : cur));
+    }
+  }, [isAdvancePaymentStage]);
+  const payExportCounts = useMemo(() => countAdvancePaymentExport(payExport.rows), [payExport.rows]);
+
+  const openAdvancePaymentExport = useCallback(() => {
+    const orgId = currentOrganization?.id;
+    if (!orgId) return;
+    const request = ++payExportRequest.current;
+    setPayExport({ open: true, preparing: true, exporting: false, rows: [] });
+    // `filtered` is the Pending queue on this stage; Paid comes from its own pool.
+    prepareAdvancePaymentReport(orgId, filtered, advancePaidPool)
+      .then((rows) => {
+        if (request !== payExportRequest.current) return;
+        setPayExport((cur) => ({ ...cur, preparing: false, rows }));
+      })
+      .catch((error: unknown) => {
+        if (request !== payExportRequest.current) return;
+        setPayExport((cur) => ({ ...cur, open: false, preparing: false }));
+        alertMessage("Couldn't prepare report", error instanceof Error ? error.message : "Please try again.");
+      });
+  }, [advancePaidPool, currentOrganization?.id, filtered]);
+
+  const closeAdvancePaymentExport = useCallback(() => {
+    payExportRequest.current += 1;
+    setPayExport((cur) => (cur.exporting ? cur : { ...cur, open: false, preparing: false }));
+  }, []);
+
+  const confirmAdvancePaymentExport = useCallback(async () => {
+    if (payExport.exporting || payExport.preparing || payExport.rows.length === 0) return;
+    setPayExport((cur) => ({ ...cur, exporting: true }));
+    try {
+      await downloadAdvancePaymentReport(payExport.rows);
+      setPayExport((cur) => ({ ...cur, open: false, exporting: false }));
+    } catch (error) {
+      setPayExport((cur) => ({ ...cur, exporting: false }));
+      alertMessage("Couldn't export report", error instanceof Error ? error.message : "Please try again.");
+    }
+  }, [payExport.exporting, payExport.preparing, payExport.rows]);
 
   const openAdvanceProcessedExport = useCallback(() => {
     const orgId = currentOrganization?.id;
@@ -1881,7 +1962,21 @@ export default function ComplianceScreen() {
               ) : null}
             </TouchableOpacity>
           ) : null}
-          {canViewFinance && isAdvanceProcessedStage ? (
+          {canViewFinance && isAdvancePaymentStage ? (
+            <TouchableOpacity
+              style={[styles.reportBtn, compactActions && styles.actionBtnCompact]}
+              onPress={openAdvancePaymentExport}
+              hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+              accessibilityRole="button"
+              accessibilityLabel="Export Report"
+            >
+              <Download size={13} color={Theme.textPrimary} strokeWidth={2} />
+              {!isNarrow ? (
+                <Text style={styles.reportBtnText}>{compactActions ? "Export" : "Export Report"}</Text>
+              ) : null}
+            </TouchableOpacity>
+          ) : null}
+          {canViewFinance && isAdvanceProcessedStage && !isAdvancePaymentStage ? (
             <TouchableOpacity
               style={[styles.reportBtn, compactActions && styles.actionBtnCompact]}
               onPress={openAdvanceProcessedExport}
@@ -1953,6 +2048,31 @@ export default function ComplianceScreen() {
         onCancel={closeAdvanceProcessedExport}
         onConfirm={() => {
           void confirmAdvanceProcessedExport();
+        }}
+      />
+
+      <ComplianceExportConfirmModal
+        visible={payExport.open && isAdvancePaymentStage}
+        eyebrow="Advance Payment · Pending and Paid"
+        verifiedCount={0}
+        rejectedCount={0}
+        includedCount={payExportCounts.total}
+        stats={[
+          {
+            key: "pending",
+            label: "Pending",
+            value: payExportCounts.pending,
+            tone: COMPLIANCE_STAGE_TONE.finance_verified,
+          },
+          { key: "paid", label: "Paid", value: payExportCounts.paid, tone: ADVANCE_PROCESSED_TONE },
+        ]}
+        preparing={payExport.preparing}
+        exporting={payExport.exporting}
+        emptyHint="No advances pending or paid to export yet."
+        confirmLabel="Export"
+        onCancel={closeAdvancePaymentExport}
+        onConfirm={() => {
+          void confirmAdvancePaymentExport();
         }}
       />
 

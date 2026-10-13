@@ -11,7 +11,6 @@ import { resolveBankBranch } from "@/features/suppliers/utils/ifscDirectory.util
 import { resolveComplianceActorNames } from "@/features/tripCompliance/services/complianceDocumentView.service";
 import { toPaymentSummary } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import type { ComplianceTripSummary, CompliancePaymentSummary } from "@/features/tripCompliance/tripCompliance.types";
-import { readLedgerRequestId } from "@/features/tripCompliance/utils/compliancePaymentReference.util";
 import { getTripExecutionModel } from "@/features/trips/domain/tripExecutionModel";
 
 const FINANCE_RECEIPT_PREFIX = "amount-paid:";
@@ -36,7 +35,7 @@ export type AdvanceProcessedEnrichment = {
   branch: string;
 };
 
-type SupplierBank = {
+export type SupplierBank = {
   name: string;
   beneficiary: string;
   bankName: string;
@@ -70,7 +69,8 @@ async function loadSupplierBank(orgId: string, supplierId: string, fallback: str
   const ifsc = String(bank.account?.ifsc_code ?? "").trim().toUpperCase();
   return {
     name: names.supplier || fallback.trim(),
-    beneficiary: firstFilled(bank.account?.beneficiary_name, names.beneficiary, fallback),
+    // Beneficiary is the account holder only — never the supplier name.
+    beneficiary: bank.account?.beneficiary_name?.trim() || "",
     bankName: bank.account?.bank_name?.trim() || "",
     ifsc,
     accountNumber: String(bank.account?.account_number ?? "").trim(),
@@ -89,6 +89,74 @@ type TxnRow = {
   ledger_category: string | null;
   payment_reference: string | null;
 };
+
+export type TripPaymentRequest = { requestNo: string; status: string; approvedAmount: number | null };
+
+/**
+ * Live advance request per trip (`payment_requests`, issued at advance approval).
+ * The request number is the Request ID everywhere — never text on the ledger row.
+ */
+export async function fetchAdvanceRequestsForTrips(tripIds: string[]): Promise<Record<string, TripPaymentRequest>> {
+  if (tripIds.length === 0) return {};
+  const { data, error } = await supabase()
+    .from("payment_requests")
+    .select("trip_id, request_no, status, approved_amount")
+    .in("trip_id", tripIds)
+    .eq("payment_type", "advance")
+    .neq("status", "cancelled");
+  if (error) throw new Error(error.message);
+  const out: Record<string, TripPaymentRequest> = {};
+  for (const row of (data ?? []) as {
+    trip_id: string;
+    request_no: string;
+    status: string;
+    approved_amount: number | null;
+  }[]) {
+    out[row.trip_id] = {
+      requestNo: row.request_no,
+      status: row.status,
+      approvedAmount: row.approved_amount == null ? null : Number(row.approved_amount),
+    };
+  }
+  return out;
+}
+
+/** Payout bank for one trip's supplier (cached per supplier). Own-fleet trips have no supplier. */
+async function resolveTripPayeeBank(
+  orgId: string,
+  trip: ComplianceTripSummary["trip"],
+  cache: Map<string, Promise<SupplierBank>>,
+): Promise<SupplierBank> {
+  const tripOrgId = (trip.organization_id ?? orgId).trim() || orgId;
+  const supplierId = trip.supplier_id?.trim() || "";
+  const tripSupplier = (trip.supplier_name ?? "").trim();
+  const fallback: SupplierBank = { name: tripSupplier, beneficiary: "", bankName: "", ifsc: "", accountNumber: "", branch: "" };
+  if (supplierId) {
+    let pending = cache.get(supplierId);
+    if (!pending) {
+      pending = loadSupplierBank(tripOrgId, supplierId, trip.supplier_name ?? "").catch(() => fallback);
+      cache.set(supplierId, pending);
+    }
+    return pending;
+  }
+  if (getTripExecutionModel(trip) === "asset") return { ...fallback, name: "Own fleet" };
+  return fallback;
+}
+
+/** Payout banks for trips not yet paid (Advance Payment → Pending export). */
+export async function fetchAdvancePayeeBanks(
+  orgId: string,
+  summaries: ComplianceTripSummary[],
+): Promise<Record<string, SupplierBank>> {
+  const cache = new Map<string, Promise<SupplierBank>>();
+  const entries = await Promise.all(
+    summaries.map(async (summary): Promise<[string, SupplierBank]> => [
+      summary.trip.id,
+      await resolveTripPayeeBank(orgId, summary.trip, cache),
+    ]),
+  );
+  return Object.fromEntries(entries);
+}
 
 /** Not org-filtered: receipts on shared trips can sit in the partner org; RLS scopes reads. */
 async function fetchAdvanceTransactions(tripIds: string[]): Promise<TxnRow[]> {
@@ -114,7 +182,10 @@ export async function fetchAdvanceProcessedEnrichment(
   const withAdvance = summaries.filter((s) => s.advance);
   if (withAdvance.length === 0) return {};
 
-  const txns = await fetchAdvanceTransactions(withAdvance.map((s) => s.trip.id));
+  const [txns, requests] = await Promise.all([
+    fetchAdvanceTransactions(withAdvance.map((s) => s.trip.id)),
+    fetchAdvanceRequestsForTrips(withAdvance.map((s) => s.trip.id)),
+  ]);
   const txnsByTrip = new Map<string, TxnRow[]>();
   for (const row of txns) {
     if (!row.trip_id) continue;
@@ -140,27 +211,7 @@ export async function fetchAdvanceProcessedEnrichment(
         ? receipts[receipts.length - 1] ?? null
         : rows.find((row) => row.id === advance.transactionId) ?? null;
 
-      const tripOrgId = (trip.organization_id ?? orgId).trim() || orgId;
-      const supplierId = trip.supplier_id?.trim() || "";
-      const tripSupplier = (trip.supplier_name ?? "").trim();
-      let bank: SupplierBank = {
-        name: tripSupplier,
-        beneficiary: tripSupplier,
-        bankName: "",
-        ifsc: "",
-        accountNumber: "",
-        branch: "",
-      };
-      if (supplierId) {
-        let pending = supplierCache.get(supplierId);
-        if (!pending) {
-          pending = loadSupplierBank(tripOrgId, supplierId, trip.supplier_name ?? "").catch(() => bank);
-          supplierCache.set(supplierId, pending);
-        }
-        bank = await pending;
-      } else if (getTripExecutionModel(trip) === "asset") {
-        bank = { ...bank, name: "Own fleet", beneficiary: bank.beneficiary || "Own fleet" };
-      }
+      const bank = await resolveTripPayeeBank(orgId, trip, supplierCache);
       const approverId = summary.complianceVerifiedBy ?? advance.actorId ?? "";
 
       return [
@@ -170,7 +221,7 @@ export async function fetchAdvanceProcessedEnrichment(
           utrCategory: fromFinance ? "finance_receipt" : "compliance_advance",
           payment: ledgerRow ? toPaymentSummary([ledgerRow]) : null,
           extraReceipts: fromFinance ? Math.max(0, receipts.length - 1) : 0,
-          requestId: readLedgerRequestId(ledgerRow?.description) ?? "",
+          requestId: requests[trip.id]?.requestNo ?? "",
           supplierName: bank.name,
           beneficiaryName: bank.beneficiary,
           approvedBy: (approverId && approverNames[approverId]) || "",

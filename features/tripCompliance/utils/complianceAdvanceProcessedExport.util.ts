@@ -70,9 +70,72 @@ export function buildAdvanceProcessedExportRow(
   };
 }
 
+/** Advance Payment export: same bank-sheet columns plus STATUS (Pending / Paid) at the end. */
+export const ADVANCE_PAYMENT_EXPORT_HEADERS = [...ADVANCE_PROCESSED_EXPORT_HEADERS, "STATUS"] as const;
+export type AdvancePaymentExportStatus = "Pending" | "Paid";
+export type AdvancePaymentExportRow = AdvanceProcessedExportRow & { STATUS: AdvancePaymentExportStatus };
+
+export type AdvancePayeeBank = {
+  name: string;
+  beneficiary: string;
+  bankName: string;
+  ifsc: string;
+  accountNumber: string;
+  branch: string;
+};
+
+/** Paid row: the posted advance, exactly as the Advance Processed export shows it. */
+export function buildAdvancePaymentPaidRow(
+  summary: ComplianceTripSummary,
+  info: AdvanceProcessedEnrichment | undefined,
+): AdvancePaymentExportRow {
+  return { ...buildAdvanceProcessedExportRow(summary, info), STATUS: "Paid" };
+}
+
+/** Pending row: payee bank and the advance payable; mode / date / UTR stay blank until paid. */
+export function buildAdvancePaymentPendingRow(
+  summary: ComplianceTripSummary,
+  bank: AdvancePayeeBank | undefined,
+  payable: number | null,
+  requestNo = "",
+): AdvancePaymentExportRow {
+  const trip = summary.trip;
+  return {
+    "TRIP ID": getTripDisplayNumber(trip, trip.organization_id ?? null),
+    "LR NO": latestDocNumber(summary.documents, "lr"),
+    "TRUCK NO": formatIndianVehicleNumber(trip.vehicle_display_number?.trim() || "").trim(),
+    "PAYMENT TYPE": "Advance",
+    "REQUEST ID": requestNo.trim(),
+    "SUPPLIER NAME": (bank?.name || trip.supplier_name || "").trim(),
+    "BENEFICIARY NAME": (bank?.beneficiary ?? "").trim(),
+    "BANK NAME": (bank?.bankName ?? "").trim(),
+    IFSC: (bank?.ifsc ?? "").trim(),
+    "ACCOUNT NUMBER": (bank?.accountNumber ?? "").trim(),
+    "ACCOUNT BRANCH": (bank?.branch ?? "").trim(),
+    MODE: "",
+    "TRANSACTION DATE": "",
+    AMOUNT: amountCell(payable),
+    UTR: "",
+    STATUS: "Pending",
+  };
+}
+
+export function countAdvancePaymentExport(rows: AdvancePaymentExportRow[]) {
+  const paid = rows.filter((row) => row.STATUS === "Paid").length;
+  return { total: rows.length, paid, pending: rows.length - paid };
+}
+
 export function countAdvanceProcessedExport(rows: AdvanceProcessedExportRow[]) {
   const withUtr = rows.filter((row) => row.UTR.length > 0).length;
   return { total: rows.length, withUtr, awaitingUtr: rows.length - withUtr };
+}
+
+/**
+ * Supplier / beneficiary names and references are user-entered: a leading
+ * = + - @ (or tab / CR) would run as a formula when the sheet is opened.
+ */
+export function neutralizeFormula(value: string): string {
+  return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
 }
 
 function excelColumnName(index: number): string {
@@ -93,15 +156,22 @@ const AMOUNT_FORMAT = "#,##0.00";
  * leading zeros and full length; AMOUNT is numeric so Excel can total it.
  */
 export function buildAdvanceProcessedExportWorksheet(rows: AdvanceProcessedExportRow[]): XLSX.WorkSheet {
-  const sheet: XLSX.WorkSheet = {};
-  const widths: number[] = ADVANCE_PROCESSED_EXPORT_HEADERS.map((header) => header.length);
+  return buildPaymentSheet(ADVANCE_PROCESSED_EXPORT_HEADERS, rows);
+}
 
-  ADVANCE_PROCESSED_EXPORT_HEADERS.forEach((header, c) => {
+function buildPaymentSheet<H extends string>(
+  headers: readonly H[],
+  rows: Record<H, string>[],
+): XLSX.WorkSheet {
+  const sheet: XLSX.WorkSheet = {};
+  const widths: number[] = headers.map((header) => header.length);
+
+  headers.forEach((header, c) => {
     sheet[`${excelColumnName(c)}1`] = { t: "s", v: header };
   });
 
   rows.forEach((row, r) => {
-    ADVANCE_PROCESSED_EXPORT_HEADERS.forEach((header, c) => {
+    headers.forEach((header, c) => {
       const raw = (row[header] ?? "").trim();
       if (!raw) return;
       const ref = `${excelColumnName(c)}${r + 2}`;
@@ -110,13 +180,13 @@ export function buildAdvanceProcessedExportWorksheet(rows: AdvanceProcessedExpor
         sheet[ref] = { t: "n", v: num, z: AMOUNT_FORMAT };
         widths[c] = Math.max(widths[c], num.toLocaleString("en-IN", { minimumFractionDigits: 2 }).length);
       } else {
-        sheet[ref] = { t: "s", v: raw, z: "@" };
+        sheet[ref] = { t: "s", v: neutralizeFormula(raw), z: "@" };
         widths[c] = Math.max(widths[c], raw.length);
       }
     });
   });
 
-  const lastCol = excelColumnName(ADVANCE_PROCESSED_EXPORT_HEADERS.length - 1);
+  const lastCol = excelColumnName(headers.length - 1);
   const lastRow = Math.max(1, rows.length + 1);
   sheet["!ref"] = `A1:${lastCol}${lastRow}`;
   sheet["!autofilter"] = { ref: `A1:${lastCol}${lastRow}` };
@@ -127,5 +197,11 @@ export function buildAdvanceProcessedExportWorksheet(rows: AdvanceProcessedExpor
 export function buildAdvanceProcessedExportWorkbook(rows: AdvanceProcessedExportRow[]): XLSX.WorkBook {
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, buildAdvanceProcessedExportWorksheet(rows), "Advance Processed");
+  return workbook;
+}
+
+export function buildAdvancePaymentExportWorkbook(rows: AdvancePaymentExportRow[]): XLSX.WorkBook {
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, buildPaymentSheet(ADVANCE_PAYMENT_EXPORT_HEADERS, rows), "Advance Payment");
   return workbook;
 }

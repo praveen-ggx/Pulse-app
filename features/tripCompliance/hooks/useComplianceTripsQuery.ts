@@ -1,6 +1,6 @@
 /**
- * Compliance queue — same trip source as `/trips` (`useTripsQuery` → getTripsForOrg),
- * then:
+ * Compliance queue — `/trips`' catalog (getTripsForOrg) plus older trips still open in
+ * the Compliance workflow (`useComplianceTripCatalogQuery`), then:
  *  1. Filter Loading → Completed pipeline
  *  2. Cache per-trip INPUTS for the full pipeline under one stable key
  *     (`tripCompliance.pipeline(orgId)`); summaries derive via `select`
@@ -48,7 +48,7 @@ import {
   isResubmittedToCompliancePending,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
 import { getTripById, type TripRow } from "@/features/trips/services/trips.service";
-import { useTripsQuery } from "@/lib/queries/useTripsQuery";
+import { useComplianceTripCatalogQuery } from "@/lib/queries/useTripsQuery";
 import { queryKeys } from "@/lib/queryKeys";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -163,7 +163,7 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
   const { user } = useAuth();
   const sessionKey = `${orgId}:${user?.uid ?? ""}`;
   const qc = useQueryClient();
-  const tripsQuery = useTripsQuery(orgId || null);
+  const tripsQuery = useComplianceTripCatalogQuery(orgId || null);
 
   const pipelineTrips = useMemo(
     () => selectCompliancePipelineTrips(tripsQuery.data ?? []),
@@ -445,6 +445,7 @@ export function useInvalidateComplianceTrips() {
     if (!orgId) return;
     void qc.invalidateQueries({ queryKey: queryKeys.tripCompliance.pipeline(orgId) });
     void qc.invalidateQueries({ queryKey: queryKeys.trips.finite(orgId) });
+    void qc.invalidateQueries({ queryKey: queryKeys.trips.compliance(orgId) });
     if (tripId) {
       void qc.invalidateQueries({ queryKey: queryKeys.tripCompliance.detail(orgId, tripId) });
     } else {
@@ -488,11 +489,13 @@ export function useComplianceChangeSync() {
         });
         if (patchedTrip) {
           const trip: TripRow = patchedTrip;
-          qc.setQueriesData<TripRow[]>({ queryKey: queryKeys.trips.finite(orgId) }, (rows) =>
-            rows?.map((row) =>
-              row.id === trip.id ? { ...row, amount_paid: trip.amount_paid, updated_at: trip.updated_at } : row,
-            ),
-          );
+          for (const key of [queryKeys.trips.finite(orgId), queryKeys.trips.compliance(orgId)]) {
+            qc.setQueriesData<TripRow[]>({ queryKey: key }, (rows) =>
+              rows?.map((row) =>
+                row.id === trip.id ? { ...row, amount_paid: trip.amount_paid, updated_at: trip.updated_at } : row,
+              ),
+            );
+          }
         }
         // Payment / verify / decline also move Finance Hub + Ledger — bust their caches.
         if (

@@ -1,7 +1,12 @@
 import type { AdvanceProcessedEnrichment } from "@/features/tripCompliance/services/complianceAdvanceProcessed.service";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
 import {
+  ADVANCE_PAYMENT_EXPORT_HEADERS,
   ADVANCE_PROCESSED_EXPORT_HEADERS,
+  buildAdvancePaymentPaidRow,
+  buildAdvancePaymentPendingRow,
+  countAdvancePaymentExport,
+  neutralizeFormula,
   buildAdvanceProcessedExportRow,
   buildAdvanceProcessedExportWorksheet,
   countAdvanceProcessedExport,
@@ -106,5 +111,57 @@ describe("Advance Processed export", () => {
     expect(sheet.N2).toMatchObject({ t: "n", v: 114500 });
     expect(sheet.A1).toMatchObject({ v: "TRIP ID" });
     expect(sheet["!ref"]).toBe("A1:O2");
+  });
+});
+
+describe("Advance Payment export", () => {
+  const bank = {
+    name: "Hema Sai Transport",
+    beneficiary: "Hema Sai",
+    bankName: "HDFC Bank",
+    ifsc: "HDFC0001234",
+    accountNumber: "001234567890",
+    branch: "Guindy",
+  };
+
+  it("adds STATUS after the bank-sheet columns", () => {
+    expect(ADVANCE_PAYMENT_EXPORT_HEADERS).toEqual([...ADVANCE_PROCESSED_EXPORT_HEADERS, "STATUS"]);
+  });
+
+  it("builds a Pending row with the payable and no payment details", () => {
+    const row = buildAdvancePaymentPendingRow(summary({ advance: null }), bank, 113600);
+    expect(row.STATUS).toBe("Pending");
+    expect(row.AMOUNT).toBe("113600");
+    expect(row["BENEFICIARY NAME"]).toBe("Hema Sai");
+    expect(row["ACCOUNT NUMBER"]).toBe("001234567890");
+    expect([row.MODE, row["TRANSACTION DATE"], row.UTR, row["REQUEST ID"]]).toEqual(["", "", "", ""]);
+  });
+
+  it("keeps the amount blank when the payable is unknown", () => {
+    expect(buildAdvancePaymentPendingRow(summary({ advance: null }), undefined, null).AMOUNT).toBe("");
+  });
+
+  it("builds a Paid row from the posted advance and counts both", () => {
+    const paid = buildAdvancePaymentPaidRow(summary(), enrichment);
+    expect(paid.STATUS).toBe("Paid");
+    expect(paid.UTR).toBe("HDFC123456");
+    const pending = buildAdvancePaymentPendingRow(summary({ advance: null }), bank, 1);
+    expect(countAdvancePaymentExport([pending, paid, paid])).toEqual({ total: 3, paid: 2, pending: 1 });
+  });
+});
+
+describe("Advance Payment export — request number and formula safety", () => {
+  it("puts the issued request number on Pending rows", () => {
+    const row = buildAdvancePaymentPendingRow(summary({ advance: null }), undefined, 100, "SAT812-PAY-000020");
+    expect(row["REQUEST ID"]).toBe("SAT812-PAY-000020");
+  });
+
+  it("neutralizes cells that would run as a formula", () => {
+    expect(neutralizeFormula("=HYPERLINK(\"x\")")).toBe("'=HYPERLINK(\"x\")");
+    expect(neutralizeFormula("+91 98400")).toBe("'+91 98400");
+    expect(neutralizeFormula("-CASH")).toBe("'-CASH");
+    expect(neutralizeFormula("@SUM(A1)")).toBe("'@SUM(A1)");
+    expect(neutralizeFormula("SMK LOGISTICS")).toBe("SMK LOGISTICS");
+    expect(neutralizeFormula("SAT812-PAY-000001")).toBe("SAT812-PAY-000001");
   });
 });

@@ -133,10 +133,14 @@ function formatFinanceVerifyError(error: { message?: string; code?: string }, un
 export async function markTripFinanceVerified(params: {
   tripId: string;
   idempotencyKey?: string;
+  /** Advance payable shown at approval; snapshotted on the issued payment request. */
+  approvedAmount?: number | null;
 }): Promise<{ error: Error | null }> {
+  const approved = params.approvedAmount;
   const { error } = await supabase().rpc("mark_trip_finance_verified", {
     p_trip_id: params.tripId,
     p_idempotency_key: params.idempotencyKey ?? null,
+    p_approved_amount: approved != null && Number.isFinite(approved) && approved >= 0 ? approved : null,
   });
   return { error: error ? new Error(formatFinanceVerifyError(error, false)) : null };
 }

@@ -265,6 +265,21 @@ export function isFinanceDeclinedTrip(summary: ComplianceTripSummary): boolean {
   return resubmitted < declined;
 }
 
+/**
+ * Finance reject that Ground Ops has resubmitted: back with Finance as Verified.
+ * The card keeps a Resubmitted tag with the reason and Ground Ops' note.
+ */
+export function isResubmittedFinanceReject(summary: ComplianceTripSummary): boolean {
+  if (!summary.complianceVerifiedAt || !summary.complianceDeclinedAt || !summary.complianceResubmittedAt) {
+    return false;
+  }
+  const verified = Date.parse(summary.complianceVerifiedAt);
+  const declined = Date.parse(summary.complianceDeclinedAt);
+  const resubmitted = Date.parse(summary.complianceResubmittedAt);
+  if ([verified, declined, resubmitted].some(Number.isNaN)) return false;
+  return declined >= verified && resubmitted >= declined;
+}
+
 /** Finance reject still waiting on Ground Ops (Declined by finance). A newer decline opens it again. */
 export function isActiveFinanceReject(summary: ComplianceTripSummary): boolean {
   return isFinanceDeclinedTrip(summary);

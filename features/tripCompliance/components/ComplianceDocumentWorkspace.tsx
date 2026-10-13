@@ -84,6 +84,7 @@ import {
   isComplianceHoldAwaitingResubmit,
   missingOrRejectedRequiredTripDocs,
   isFinanceDeclinedTrip,
+  isResubmittedFinanceReject,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
 import { alertMessage, confirmAction } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import {
@@ -6084,13 +6085,17 @@ const TripListRow = React.memo(function TripListRow({
     summary.stage === "compliance_pending" ? tripOpsStatusBadge(trip.status) : null;
   const isRejected =
     !podOnly && (isFinanceDeclinedTrip(summary) || isComplianceDeclineActive(summary));
+  // Finance reject fixed by Ground Ops and back with Finance: tag it until the advance posts.
+  const resubmittedToFinance = !podOnly && !summary.advance && isResubmittedFinanceReject(summary);
   const declineRemark = isRejected
     ? summary.complianceDeclineReason?.trim() || ""
-    : "";
+    : resubmittedToFinance && summary.complianceDeclineReason?.trim()
+      ? `Rejected: ${summary.complianceDeclineReason.trim()}`
+      : "";
   const waitingNote = isRejected && isComplianceAwaitingResubmit(summary);
   // Ground Ops' answer, only when it belongs to the latest decline / reject.
   const resubmitNote =
-    isRejected &&
+    (isRejected || resubmittedToFinance) &&
     summary.complianceResubmitNote?.trim() &&
     summary.complianceResubmittedAt &&
     summary.complianceDeclinedAt &&
@@ -6233,6 +6238,16 @@ const TripListRow = React.memo(function TripListRow({
             >
               <Text style={[styles.statusText, { color: tripStatus.tone.fg }]} numberOfLines={1}>
                 {tripStatus.label.toUpperCase()}
+              </Text>
+            </View>
+          ) : null}
+          {resubmittedToFinance ? (
+            <View
+              style={[styles.statusPill, { backgroundColor: Theme.complianceStagePendingBg }]}
+              accessibilityLabel="Resubmitted by Ground Ops"
+            >
+              <Text style={[styles.statusText, { color: Theme.complianceStagePendingFg }]} numberOfLines={1}>
+                RESUBMITTED
               </Text>
             </View>
           ) : null}

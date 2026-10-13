@@ -20,6 +20,7 @@ import {
   isFinanceFlagged,
   missingOrRejectedRequiredTripDocs,
   isFinanceDeclinedTrip,
+  isResubmittedFinanceReject,
   isPendingDocsComplianceHold,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
 
@@ -416,6 +417,15 @@ describe("finance reject queue routing", () => {
       expect(resubmitted.complianceRejectReturnTo).toBe(returnTo);
       expect(resubmitted.complianceResubmitNote).toBe("Fixed and re-uploaded");
     }
+  });
+
+  it("tags a resubmitted finance reject for Finance until a newer reject", () => {
+    const active = summary({ ...base, complianceDeclineReason: "Truck No mismatch" });
+    expect(isResubmittedFinanceReject(active)).toBe(false);
+    const resubmitted = { ...active, complianceResubmittedAt: "2026-09-03T00:00:00Z" };
+    expect(isResubmittedFinanceReject(resubmitted)).toBe(true);
+    const rejectedAgain = { ...resubmitted, complianceDeclinedAt: "2026-09-04T00:00:00Z" };
+    expect(isResubmittedFinanceReject(rejectedAgain)).toBe(false);
   });
 
   it("a newer rejection reopens the inbox", () => {

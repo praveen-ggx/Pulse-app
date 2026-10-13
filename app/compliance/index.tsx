@@ -98,6 +98,7 @@ import {
     isComplianceAwaitingResubmit,
     isComplianceHoldAwaitingResubmit,
     routeHoldsToDocumentUpload,
+    onlyCompletedTrips,
     isComplianceDeclineActive,
     isFinanceFlagged,
     isFinanceDeclinedForCompliancePending,
@@ -376,13 +377,15 @@ export default function ComplianceScreen() {
   // Ground Ops / TripOps fix holds but can't verify: their held trips show in
   // Document Upload → Compliance Hold, wherever the file count would place them.
   const fixesHoldsOnly = canResubmit && !canVerifyDocuments && !canMarkVerified;
-  const summaries = useMemo(
-    () =>
-      fixesHoldsOnly && queueSummaries
-        ? routeHoldsToDocumentUpload(queueSummaries)
-        : queueSummaries,
-    [fixesHoldsOnly, queueSummaries],
-  );
+  // Debit control (POD only — no Document Upload, Verification or Finance tabs)
+  // works completed trips only, in every tab including All.
+  const debitControlOnly =
+    canManagePod && !canViewDocuments && !canVerifyDocuments && !canMarkVerified && !canViewFinance;
+  const summaries = useMemo(() => {
+    if (!queueSummaries) return queueSummaries;
+    const routed = fixesHoldsOnly ? routeHoldsToDocumentUpload(queueSummaries) : queueSummaries;
+    return debitControlOnly ? onlyCompletedTrips(routed) : routed;
+  }, [debitControlOnly, fixesHoldsOnly, queueSummaries]);
   const { stage, setStage, filtered, counts, declinedCount, podReceivedCount } =
     useComplianceStageFilter(summaries);
   const [pendingSlice, setPendingSlice] = useState<"all" | "hold" | "finance_declined" | "rejected" | "flagged">("all");

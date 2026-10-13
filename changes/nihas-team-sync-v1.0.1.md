@@ -19,6 +19,7 @@
 - New indents are linked to the client warehouse their pickup was picked from (any create path: indent form, Create trip share-as-indent, duplicates), so Ground Ops assigned to that warehouse see the trip; the no-warehouse notice now re-checks every time the screen opens.
 - Ground Ops (and TripOps) now see their held and Finance-declined trips under Document Upload → Compliance Hold / Declined by finance, for their own warehouses only.
 - Database fix: Ground Ops can now read their warehouse trips directly, so held / finance-declined details load and the Compliance Hold count works.
+- Debit control sees only completed trips on the Compliance page, in every tab including All.
 
 ## Why
 - Finance needs to check the advance values before money goes out, and trips sent back for fixes were either stuck or could be verified without Ground Ops fixing anything.
@@ -39,6 +40,7 @@
 - Assigning Gowtham 2 warehouses saved correctly but he still saw the notice (cached check) and 0 trips, because no indent was ever linked to a warehouse.
 - Gowtham showed 0 holds while 2 of his warehouse trips were held: a hold with every file uploaded derives Compliance Verification, and a Finance reject stays in the Finance lanes, both tabs Ground Ops don't have.
 - Still 0 holds for Gowtham after the screen fix: the Ground Ops trips rule checked the warehouse through indents, which Ground Ops are not allowed to read, so every direct trip read returned nothing.
+- First step of the Debit control rework (Nihas): Debit control works finished trips; All showed all 147 queue trips, running ones included.
 
 ## Areas
 - Supabase migrations and RPCs for trips compliance (finance approval, reject, decline, resubmit, verify).
@@ -59,6 +61,7 @@
 - createIndent (indents.warehouse_id), shared warehouse address helper used by the pickup picker, Ground Ops warehouse check.
 - Compliance page queue for people who resubmit but can't verify.
 - trips RLS for Ground Ops (new ground_ops_can_see_trip helper).
+- Compliance page queue for POD-only viewers.
 
 ## Migrations
 - 20271008112000_finance_verified_step.sql, 20271008113000_compliance_reject_resubmit.sql, 20271008114000_compliance_hold_resubmit.sql, 20271008115000_compliance_resubmit_note.sql, 20271008116000_compliance_resubmit_gates.sql (all applied to preprod only; prod untouched). Release set: supabase/release-sets/preprod-finance-resubmit.versions.
@@ -79,6 +82,7 @@
 - None. Existing GoGoVan trips are still not linked to warehouses.
 - None. Preprod: GoGoVan indent→warehouse backfill applied by Nihas (823 indents).
 - 20271008120000_ground_ops_trip_select_helper.sql (not yet on preprod; push with the ground-ops-trip-select release set). Also added to preprod-finance-resubmit for the prod bundle.
+- None. 20271008120000 confirmed applied on preprod.
 
 ## Tested
 - Migration contract tests (local). 33 SQL scenarios for the resubmit gates ran on preprod inside a rolled-back transaction, all passed; then 116000 was applied to preprod with approval.
@@ -99,3 +103,4 @@
 - Pickup-to-warehouse match tests; indent, trip and client suites pass (169); full Jest only the 4 known failing suites; cycles 111/111; no new type errors. Checked as Gowtham under RLS on preprod (read-only): 2 warehouses visible, 0 trips until indents are linked.
 - Checked as Gowtham under RLS on preprod: 152 trips, all on his warehouses, 2 held trips returned; new hold-routing tests; 597 compliance tests pass; no new type errors. Not clicked through after the fix.
 - Rolled-back dry run on preprod as Gowtham: held trips readable 0 → 2, all readable trips 152 (exactly his warehouses), indents still 0; release-set push dry run lists only this migration; migration contract tests pass.
+- New completed-only test; 598 compliance tests pass; no new type errors; cycles 111/111. Not clicked through as Gayatri / Sathish.

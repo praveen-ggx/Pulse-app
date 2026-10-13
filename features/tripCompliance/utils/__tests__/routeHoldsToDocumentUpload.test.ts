@@ -1,5 +1,8 @@
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
-import { routeHoldsToDocumentUpload } from "@/features/tripCompliance/utils/complianceTableStatus.util";
+import {
+  onlyCompletedTrips,
+  routeHoldsToDocumentUpload,
+} from "@/features/tripCompliance/utils/complianceTableStatus.util";
 
 const trip = (over: Partial<ComplianceTripSummary>): ComplianceTripSummary =>
   ({
@@ -39,5 +42,18 @@ describe("routeHoldsToDocumentUpload (Ground Ops view)", () => {
     const out = routeHoldsToDocumentUpload(input);
     expect(out.map((s) => s.stage)).toEqual(["compliance_pending", "compliance_verified", "compliance_pending"]);
     expect(out).toBe(input);
+  });
+});
+
+describe("onlyCompletedTrips (Debit control view)", () => {
+  it("keeps completed / delivered / done trips and drops running ones", () => {
+    const rows = ["completed", "delivered", "done", "assigned", "in_transit", "at_drop"].map(
+      (status) => ({ trip: { status } }) as unknown as ComplianceTripSummary,
+    );
+    expect(onlyCompletedTrips(rows).map((r) => r.trip.status)).toEqual([
+      "completed",
+      "delivered",
+      "done",
+    ]);
   });
 });

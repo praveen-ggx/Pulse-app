@@ -3,6 +3,7 @@
  * E-way Bill column, per-group Pending/Approved status, Verify gating and
  * decline state. No I/O — everything comes from the already-loaded summary.
  */
+import { isCompletedTripStatus } from "@/features/trips/utils/tripHubMetrics";
 import {
   formatVaultDocDate,
   readStoredInvoiceNumber,
@@ -332,6 +333,13 @@ export function isFinanceDeclinedForCompliancePending(summary: ComplianceTripSum
  * is still missing files or already in Compliance Verification. The same trip also
  * stays on Compliance Verification → Compliance Hold.
  */
+/** Debit control works completed trips only — every tab, including All. */
+export function onlyCompletedTrips(
+  summaries: ComplianceTripSummary[],
+): ComplianceTripSummary[] {
+  return summaries.filter((summary) => isCompletedTripStatus(summary.trip.status));
+}
+
 /**
  * For people who fix holds but cannot verify (Ground Ops, TripOps): a held
  * trip waiting for their resubmit belongs in Document Upload even when every

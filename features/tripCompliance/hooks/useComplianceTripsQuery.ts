@@ -45,7 +45,6 @@ import {
   isFinanceDeclinedForPendingDocs,
   isFinanceDeclinedTrip,
   isComplianceHoldAwaitingResubmit,
-  isResubmittedToCompliancePending,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
 import { getTripById, type TripRow } from "@/features/trips/services/trips.service";
 import { useComplianceTripCatalogQuery } from "@/lib/queries/useTripsQuery";
@@ -316,13 +315,10 @@ export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | un
       );
     }
     if (stage === "compliance_pending") {
-      // Compliance work: complete trips not waiting on Ground Ops, plus every
-      // resubmitted finance reject. Active rejects stay listed under Declined
-      // by finance (read-only) until Ground Ops resubmits.
+      // Compliance work: complete trips not waiting on Ground Ops. A resubmitted
+      // finance reject goes straight back to Finance (Advance Verification).
       return summaries.filter(
-        (s) =>
-          (s.stage === "compliance_pending" && !isComplianceHoldAwaitingResubmit(s)) ||
-          isResubmittedToCompliancePending(s),
+        (s) => s.stage === "compliance_pending" && !isComplianceHoldAwaitingResubmit(s),
       );
     }
     return summaries.filter((s) => s.stage === stage);
@@ -341,14 +337,12 @@ export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | un
       payment_settled: 0,
     };
     for (const summary of summaries ?? []) {
-      // Active rejects and holds are Ground Ops work; a resubmitted reject is
-      // Compliance work. Each trip counts on one queue.
+      // Active rejects and holds are Ground Ops work; a resubmitted finance
+      // reject is back with Finance. Each trip counts on one queue.
       if (isActiveFinanceReject(summary)) {
         next.pending_for_docs += 1;
       } else if (summary.stage === "compliance_pending" && isComplianceHoldAwaitingResubmit(summary)) {
         next.pending_for_docs += 1;
-      } else if (isResubmittedToCompliancePending(summary)) {
-        next.compliance_pending += 1;
       } else if (summary.stage in next) {
         next[summary.stage] += 1;
       }

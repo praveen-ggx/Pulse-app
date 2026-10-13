@@ -30,6 +30,7 @@
 - Advance Payment tab has Pending / Paid sub-tabs: Pending is ready to pay, Paid lists every trip whose advance is posted (UTR / date table and export). Added the Trip Documents reference and the Vasanth baseline roadmap docs.
 - Payment request numbers (SAT812-PAY-000001…): issued when Finance approves an advance, cancelled (not deleted) on undo, linked to the Compliance payment when it posts; shown read-only in the Paid table and in one Advance Payment export (Pending + Paid, STATUS column). Compliance page and exports now keep older trips still open in Compliance instead of only the newest 400.
 - A trip rejected after Compliance verify can't have its advance approved or posted until Compliance verifies it again (database rule plus hidden Approve Advance; the "pay a rejected trip" option is removed). Fixed trip cards not switching when clicked on the Compliance page.
+- Declined by finance → Ground Ops resubmits → the trip goes straight back to Finance (Advance Verification) as Verified, with no second Compliance verify; approving or paying stays blocked only while the reject is open. Compliance page search now stays inside the open tab and sub-tab.
 
 ## Why
 - Finance needs to check the advance values before money goes out, and trips sent back for fixes were either stuck or could be verified without Ground Ops fixing anything.
@@ -61,6 +62,7 @@
 - Finance could not see paid advances once the trip moved past Advance Payment (Awaiting POD is not their tab).
 - Finance needs a system Request ID before paying, and the Compliance queue was silently dropping old paid trips (SAT812-PAY-000002 / 000004 missing from the export).
 - SAT812GOGTRIP000970 was approved one minute after Ground Ops resubmitted it, with no Compliance re-check. Clicking a card snapped back to the page's previously focused trip.
+- Nihas: finance-declined trips should not loop through Compliance again. Search was jumping to other tabs.
 
 ## Areas
 - Supabase migrations and RPCs for trips compliance (finance approval, reject, decline, resubmit, verify).
@@ -92,6 +94,7 @@
 - Compliance page stage sub-filters (app/compliance), docs.
 - Compliance Advance Payment tab and exports, Approve advance, trips list RPC (opt-in backlog flag; /trips unchanged).
 - Advance approval and posting gate, Compliance page card selection.
+- Compliance reject/resubmit routing and counts, advance approval gate, Compliance page search.
 
 ## Migrations
 - 20271008112000_finance_verified_step.sql, 20271008113000_compliance_reject_resubmit.sql, 20271008114000_compliance_hold_resubmit.sql, 20271008115000_compliance_resubmit_note.sql, 20271008116000_compliance_resubmit_gates.sql (all applied to preprod only; prod untouched). Release set: supabase/release-sets/preprod-finance-resubmit.versions.
@@ -123,6 +126,7 @@
 - None. Preprod data only (not migrations): 10 GOGOVAN trips linked to their supplier with market payout mode, and Compliance verification restored on 11 paid trips from the pre-sync backups.
 - 20271013101500_payment_requests.sql (release set payment-requests) and 20271013113000_compliance_trips_backlog.sql (release set compliance-trips-backlog); both applied on preprod.
 - 20271013120000_compliance_cleared_gate.sql (release set compliance-cleared-gate), not yet applied. Preprod data: 000970's approval undone and SAT812-PAY-000002 cancelled (nothing was paid).
+- 20271013120000_compliance_cleared_gate.sql updated before first apply: a resubmit clears a finance reject (still not applied).
 
 ## Tested
 - Migration contract tests (local). 33 SQL scenarios for the resubmit gates ran on preprod inside a rolled-back transaction, all passed; then 116000 was applied to preprod with approval.
@@ -154,3 +158,4 @@
 - Typecheck 64 (baseline). Clicked Advance Payment → Pending / Paid on localhost as Finance; Table view not clicked.
 - Typecheck 64 (baseline); full jest only the 4 known suites; rolled-back preprod tests for approve / retry / undo / re-approve / pay and the backlog flag (400 vs 402). Clicked on localhost: Approve advance (000023, ₹1,13,150), single payment moved the trip from Pending to Paid, Paid table and export show 000001–000023 with no gaps. Bulk payment and undo/re-approve not clicked (covered by the DB test).
 - Typecheck 64 (baseline); 651 Compliance and migration tests pass; rolled-back preprod test refuses approving 000970. Clicked on localhost: cards switch on click.
+- Typecheck 64 (baseline); 651 Compliance and migration tests pass; rolled-back preprod test: resubmitted 000970 can be approved, an open reject is refused. Not clicked through.

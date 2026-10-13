@@ -247,54 +247,32 @@ export function isComplianceHoldAwaitingResubmit(summary: ComplianceTripSummary)
 }
 
 /**
- * Finance reject of an already-verified trip. A compliance decline that was
- * later cleared by Verify keeps the old declined_at as history (it is earlier
- * than verified_at) and must not count.
+ * Open Finance reject of an already-verified trip: declined at/after verify and
+ * not yet resubmitted by Ground Ops. Once Ground Ops resubmits, the trip goes
+ * straight back to Finance (Advance Verification) as Verified — no second
+ * Compliance verify. Mirrors compliance_cleared() in the database. A compliance
+ * decline later cleared by Verify (declined_at earlier than verified_at) is history.
  */
 export function isFinanceDeclinedTrip(summary: ComplianceTripSummary): boolean {
   if (!summary.complianceVerifiedAt || !summary.complianceDeclinedAt) return false;
   const verified = Date.parse(summary.complianceVerifiedAt);
   const declined = Date.parse(summary.complianceDeclinedAt);
   if (Number.isNaN(verified) || Number.isNaN(declined)) return false;
-  return declined >= verified;
-}
-
-/**
- * Finance reject still waiting on Ground Ops. A resubmit timestamp at or after
- * the decline time has left this inbox. A newer decline time opens it again.
- */
-export function isActiveFinanceReject(summary: ComplianceTripSummary): boolean {
-  if (!isFinanceDeclinedTrip(summary) || !summary.complianceDeclinedAt) return false;
+  if (declined < verified) return false;
   if (!summary.complianceResubmittedAt) return true;
   const resubmitted = Date.parse(summary.complianceResubmittedAt);
-  const declined = Date.parse(summary.complianceDeclinedAt);
-  if (Number.isNaN(resubmitted) || Number.isNaN(declined)) return true;
+  if (Number.isNaN(resubmitted)) return true;
   return resubmitted < declined;
 }
 
-/**
- * Finance reject that Ground Ops resubmitted. Every resubmit goes back to
- * Compliance Verification; complianceRejectReturnTo is only the reason
- * category (document vs commercial fix), never the route.
- */
-export function isResubmittedAwaitingReview(summary: ComplianceTripSummary): boolean {
-  if (!isFinanceDeclinedTrip(summary) || !summary.complianceResubmittedAt || !summary.complianceDeclinedAt) {
-    return false;
-  }
-  const resubmitted = Date.parse(summary.complianceResubmittedAt);
-  const declined = Date.parse(summary.complianceDeclinedAt);
-  if (Number.isNaN(resubmitted) || Number.isNaN(declined)) return false;
-  return resubmitted >= declined;
+/** Finance reject still waiting on Ground Ops (Declined by finance). A newer decline opens it again. */
+export function isActiveFinanceReject(summary: ComplianceTripSummary): boolean {
+  return isFinanceDeclinedTrip(summary);
 }
 
 /** Finance flagged the trip for Compliance review (Finance cannot Reject). */
 export function isFinanceFlagged(summary: ComplianceTripSummary): boolean {
   return Boolean(summary.financeFlaggedAt);
-}
-
-/** Resubmitted finance reject, back on Compliance Verification for re-check. */
-export function isResubmittedToCompliancePending(summary: ComplianceTripSummary): boolean {
-  return isResubmittedAwaitingReview(summary);
 }
 
 /**

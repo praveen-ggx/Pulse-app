@@ -18,7 +18,6 @@ import {
   isFinanceDeclinedForPendingDocs,
   isComplianceAwaitingResubmit,
   isFinanceFlagged,
-  isResubmittedToCompliancePending,
   missingOrRejectedRequiredTripDocs,
   isFinanceDeclinedTrip,
   isPendingDocsComplianceHold,
@@ -400,7 +399,7 @@ describe("finance reject queue routing", () => {
       expect(complianceRejectQueueDestination(reason)).toBe(returnTo);
       const active = summary({ ...base, complianceDeclineReason: reason, complianceRejectReturnTo: returnTo });
       expect(isFinanceDeclinedForPendingDocs(active)).toBe(true);
-      expect(isResubmittedToCompliancePending(active)).toBe(false);
+      expect(isFinanceDeclinedTrip(active)).toBe(true);
       expect(isComplianceAwaitingResubmit(active)).toBe(true);
 
       const resubmitted = {
@@ -409,7 +408,8 @@ describe("finance reject queue routing", () => {
         complianceResubmitNote: "Fixed and re-uploaded",
       };
       expect(isFinanceDeclinedForPendingDocs(resubmitted)).toBe(false);
-      expect(isResubmittedToCompliancePending(resubmitted)).toBe(true);
+      // Resubmitted: straight back to Finance, no longer an open reject.
+      expect(isFinanceDeclinedTrip(resubmitted)).toBe(false);
       expect(isComplianceAwaitingResubmit(resubmitted)).toBe(false);
       // Reason, category and note are kept for audit / display.
       expect(resubmitted.complianceDeclineReason).toBe(reason);
@@ -427,17 +427,17 @@ describe("finance reject queue routing", () => {
       complianceDeclineReason: "Truck No mismatch",
     });
     expect(isFinanceDeclinedForPendingDocs(again)).toBe(true);
-    expect(isResubmittedToCompliancePending(again)).toBe(false);
+    expect(isFinanceDeclinedTrip(again)).toBe(true);
     expect(isComplianceAwaitingResubmit(again)).toBe(true);
   });
 
-  it("routes a legacy reject without a stored queue to Compliance Verification after resubmit", () => {
+  it("returns a legacy reject without a stored queue to Finance after resubmit", () => {
     const legacy = summary({
       ...base,
       complianceDeclineReason: "something unclear",
       complianceResubmittedAt: "2026-09-03T00:00:00Z",
     });
-    expect(isResubmittedToCompliancePending(legacy)).toBe(true);
+    expect(isFinanceDeclinedTrip(legacy)).toBe(false);
   });
 
   it("blocks Verify while a hold or reject waits for Ground Ops, and allows it after Resubmit", () => {

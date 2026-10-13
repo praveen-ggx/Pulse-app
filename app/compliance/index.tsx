@@ -742,7 +742,9 @@ export default function ComplianceScreen() {
       const summary = (summaries ?? []).find((row) => row.trip.id === tripId);
       const isHold = Boolean(summary && isComplianceHoldAwaitingResubmit(summary));
       // Holds and finance rejects both go back to Compliance Verification.
-      const destination = "compliance_pending" as const;
+      // Compliance Hold goes back to Compliance; a resubmitted finance reject goes
+      // straight back to Finance (Advance Verification) — no second Compliance verify.
+      const destination = isHold ? ("compliance_pending" as const) : ("compliance_verified" as const);
       const keys = resubmitKeysRef.current;
       const now = Date.now();
       let entry = keys.get(tripId);
@@ -1145,7 +1147,6 @@ export default function ComplianceScreen() {
 
   /** Cards: queue subfilter above the trip list. Table: under stage chips. Verified has no subfilter. */
   const cardsListHeader = useMemo(() => {
-    if (search.trim()) return null;
     return renderQueueSubFilter(false);
   }, [
     complianceHoldCount,
@@ -1180,10 +1181,8 @@ export default function ComplianceScreen() {
   const [tableDateSort, setTableDateSort] = useState<"asc" | "desc">("desc");
   const [exportToast, setExportToast] = useState<string | null>(null);
   const searched = useMemo(() => {
-    // With an active query, search the full Compliance queue (not only the
-    // selected stage chip) so supplier / trip matches aren't hidden by filter.
-    const pool = search.trim() ? summaries : stagePool;
-    return pool.filter((summary) => {
+    // Search stays inside the open tab and sub-tab; "All" is the cross-queue search.
+    return stagePool.filter((summary) => {
       const supplierId = (summary.trip.supplier_id ?? "").trim();
       const resolved = supplierNameByTripId[summary.trip.id];
       return matchesComplianceTripSearch(summary, search, [
@@ -1191,7 +1190,7 @@ export default function ComplianceScreen() {
         resolved && resolved !== "—" ? resolved : null,
       ]);
     });
-  }, [stagePool, summaries, search, supplierSearchById, supplierNameByTripId]);
+  }, [stagePool, search, supplierSearchById, supplierNameByTripId]);
   const ordered = useMemo(() => {
     // Advance Processed: newest posted advance first (Cards + Table). Other stages
     // keep trip-event date sort on Table only.
@@ -1711,7 +1710,7 @@ export default function ComplianceScreen() {
           />
           <Text style={styles.emptyCaption}>
             {search.trim()
-              ? "No trips match your search."
+              ? "No trips in this tab match your search."
               : summaries.length
                 ? stage === "compliance_verified"
                     ? verifiedSlice === "verified"
@@ -1759,7 +1758,7 @@ export default function ComplianceScreen() {
             }
           />
         </TableQueueScroll>
-      ) : viewMode === "table" && isAdvanceProcessedStage && !search.trim() ? (
+      ) : viewMode === "table" && isAdvanceProcessedStage ? (
         <TableQueueScroll {...tableQueueScrollProps}>
           <ComplianceAdvanceProcessedTable
             summaries={tableWindowItems}

@@ -1,22 +1,31 @@
--- Advance only after Compliance has cleared the trip.
+-- Advance only on a cleared trip.
 --
 -- A Finance reject keeps compliance_verified_at (history) and sets a later
--- compliance_declined_at. Ground Ops resubmits, then Compliance must verify
--- again (a newer compliance_verified_at) before the trip is Verified. Until then
--- the advance could still be approved and posted, because both checks only
--- looked at compliance_verified_at being set (SAT812GOGTRIP000970 was approved
--- one minute after its resubmit).
+-- compliance_declined_at. The trip goes to Ground Ops; once Ground Ops resubmits
+-- (compliance_resubmitted_at >= compliance_declined_at) it returns straight to
+-- Finance (Advance Verification) — no second Compliance verify. While the reject
+-- is still open, both checks below used to pass because they only looked at
+-- compliance_verified_at being set.
 
-create or replace function public.compliance_cleared(p_verified_at timestamptz, p_declined_at timestamptz)
+create or replace function public.compliance_cleared(
+  p_verified_at timestamptz,
+  p_declined_at timestamptz,
+  p_resubmitted_at timestamptz
+)
   returns boolean
   language sql
   immutable
   set search_path to 'public'
 as $$
-  select p_verified_at is not null and (p_declined_at is null or p_declined_at < p_verified_at);
+  select p_verified_at is not null
+     and (
+       p_declined_at is null
+       or p_declined_at < p_verified_at
+       or (p_resubmitted_at is not null and p_resubmitted_at >= p_declined_at)
+     );
 $$;
 
-grant execute on function public.compliance_cleared(timestamptz, timestamptz) to authenticated;
+grant execute on function public.compliance_cleared(timestamptz, timestamptz, timestamptz) to authenticated;
 
 create or replace function public.mark_trip_finance_verified(
   p_trip_id uuid,
@@ -35,6 +44,7 @@ declare
   v_finance_at  timestamptz;
   v_flagged_at  timestamptz;
   v_declined_at timestamptz;
+  v_resubmitted_at timestamptz;
   v_key         text := nullif(trim(p_idempotency_key), '');
 begin
   select organization_id into v_org_id from public.trips where id = p_trip_id;
@@ -48,8 +58,9 @@ begin
     raise exception 'approved amount cannot be negative';
   end if;
 
-  select compliance_verified_at, compliance_declined_at, finance_verified_at, finance_flagged_at
-    into v_verified_at, v_declined_at, v_finance_at, v_flagged_at
+  select compliance_verified_at, compliance_declined_at, compliance_resubmitted_at,
+         finance_verified_at, finance_flagged_at
+    into v_verified_at, v_declined_at, v_resubmitted_at, v_finance_at, v_flagged_at
     from public.trips
    where id = p_trip_id
      and organization_id = v_org_id
@@ -63,10 +74,9 @@ begin
     raise exception 'compliance must be verified before finance verify';
   end if;
 
-  -- A reject after verification stands until Compliance verifies the trip again
-  -- (a newer compliance_verified_at). Ground Ops resubmitting is not enough.
-  if not public.compliance_cleared(v_verified_at, v_declined_at) then
-    raise exception 'this trip was rejected; Compliance must verify it again before the advance can be approved';
+  -- An open Finance reject blocks approval until Ground Ops resubmits the trip.
+  if not public.compliance_cleared(v_verified_at, v_declined_at, v_resubmitted_at) then
+    raise exception 'this trip was rejected; Ground Ops must resubmit it before the advance can be approved';
   end if;
 
   if v_flagged_at is not null then
@@ -117,7 +127,7 @@ $function$;
 revoke all on function public.mark_trip_finance_verified(uuid, text, numeric) from public, anon;
 grant execute on function public.mark_trip_finance_verified(uuid, text, numeric) to authenticated;
 
--- Posting an advance needs the same: a cleared trip, not just a past verification.
+-- Posting an advance needs the same: a cleared trip, not an open reject.
 drop policy if exists compliance_advance_requires_compliance_approved on public.transactions;
 create policy compliance_advance_requires_compliance_approved on public.transactions
   as restrictive
@@ -128,6 +138,6 @@ create policy compliance_advance_requires_compliance_approved on public.transact
     or exists (
       select 1 from public.trips t
        where t.id = transactions.trip_id
-         and public.compliance_cleared(t.compliance_verified_at, t.compliance_declined_at)
+         and public.compliance_cleared(t.compliance_verified_at, t.compliance_declined_at, t.compliance_resubmitted_at)
     )
   );

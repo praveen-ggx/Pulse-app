@@ -252,12 +252,9 @@ export function paymentReadinessLabel(readiness: ComplianceQueueReadiness): { la
  * Verified tab (not a separate chip) until the advance is posted, then the
  * exclusive stage becomes Advance Processed.
  */
+/** Open Finance reject (not yet resubmitted). A resubmitted one is back with Finance. */
 function isPostVerifyFinanceReject(summary: ComplianceTripSummary): boolean {
-  if (!summary.complianceVerifiedAt || !summary.complianceDeclinedAt) return false;
-  const verified = Date.parse(summary.complianceVerifiedAt);
-  const declined = Date.parse(summary.complianceDeclinedAt);
-  if (Number.isNaN(verified) || Number.isNaN(declined)) return false;
-  return declined >= verified;
+  return isFinanceDeclinedTrip(summary);
 }
 
 export function isCompliancePaymentPending(summary: ComplianceTripSummary): boolean {

@@ -397,9 +397,18 @@ export default function ComplianceScreen() {
   >("all");
   /** Subtabs under Awaiting POD: All / POD Pending / POD Received / Advance Processed. IBond stays under Received. */
   const [podSlice, setPodSlice] = useState<"all" | "pending" | "received" | "advance_processed">("all");
-  /** Advance Processed is a sub-tab of Awaiting POD (txn date / UTR table + export). */
+  /** Subtabs under Advance Payment: Pending (ready to pay) / Paid (advance posted). */
+  const [advancePaySlice, setAdvancePaySlice] = useState<"pending" | "paid">("pending");
+  /** Advance Processed view (txn date / UTR table + export): Awaiting POD sub-tab and Advance Payment → Paid. */
   const isAdvanceProcessedStage =
-    stage === "advance_payment_processed" || (stage === "hard_copy_pod_received" && podSlice === "advance_processed");
+    stage === "advance_payment_processed" ||
+    (stage === "hard_copy_pod_received" && podSlice === "advance_processed") ||
+    (stage === "finance_verified" && advancePaySlice === "paid");
+  /** Every trip whose advance is posted, whatever stage it has moved on to (Awaiting POD, Settlement…). */
+  const advancePaidPool = useMemo(
+    () => (summaries ?? []).filter((summary) => summary.advance != null),
+    [summaries],
+  );
   /** Subtabs under Settlement: All / Balance Pending / Settled. */
   const [settlementSlice, setSettlementSlice] = useState<"all" | "pending" | "settled">("all");
   /** When stage changes via Reject, keep the Declined by finance subtab (effect would otherwise reset to All). */
@@ -414,6 +423,7 @@ export default function ComplianceScreen() {
     if (stage !== "compliance_verified") setVerifiedSlice("all");
     else if (verifiedIntent) setVerifiedSlice(verifiedIntent);
     if (stage !== "hard_copy_pod_received") setPodSlice("all");
+    if (stage !== "finance_verified") setAdvancePaySlice("pending");
     if (stage !== "balance_pending") setSettlementSlice("all");
     if (stage !== "pending_for_docs") setPendingTransitSlice("in_transit");
   }, [stage]);
@@ -833,6 +843,9 @@ export default function ComplianceScreen() {
       }
       return pendingDocsTransitPool;
     }
+    if (stage === "finance_verified") {
+      return advancePaySlice === "paid" ? advancePaidPool : filtered;
+    }
     if (stage === "hard_copy_pod_received") {
       if (podSlice === "pending") {
         if (awaitingPodSubview === "all") return podPendingPool;
@@ -858,6 +871,8 @@ export default function ComplianceScreen() {
     }
     return filtered;
   }, [
+    advancePaidPool,
+    advancePaySlice,
     awaitingPodSubview,
     filtered,
     matchPendingDocsTransit,
@@ -1032,6 +1047,27 @@ export default function ComplianceScreen() {
         </View>
       );
     }
+    if (stage === "finance_verified") {
+      return (
+        <ComplianceSegmentedFilter
+          embedded={embedded}
+          compact
+          cardDense={cardDense}
+          value={advancePaySlice}
+          counts={{ pending: filtered.length, paid: advancePaidPool.length }}
+          options={[
+            {
+              id: "pending",
+              label: "Pending",
+              a11yLabel: "Advance pending",
+              dot: COMPLIANCE_STAGE_TONE.finance_verified.fg,
+            },
+            { id: "paid", label: "Paid", a11yLabel: "Advance paid", dot: ADVANCE_PROCESSED_TONE.fg },
+          ]}
+          onChange={setAdvancePaySlice}
+        />
+      );
+    }
     if (stage === "hard_copy_pod_received") {
       return (
         <ComplianceSegmentedFilter
@@ -1081,6 +1117,7 @@ export default function ComplianceScreen() {
     stage === "pending_for_docs" ||
     stage === "compliance_pending" ||
     stage === "compliance_verified" ||
+    stage === "finance_verified" ||
     stage === "hard_copy_pod_received";
 
   /** Cards: queue subfilter above the trip list. Table: under stage chips. Verified has no subfilter. */
@@ -1108,6 +1145,8 @@ export default function ComplianceScreen() {
     podSlice,
     podPendingPool.length,
     podReceivedPool.length,
+    advancePaySlice,
+    advancePaidPool.length,
     settlementSlice,
     settlementPendingPool.length,
     settlementSettledPool.length,
@@ -1149,6 +1188,7 @@ export default function ComplianceScreen() {
         pendingTransitSlice,
         verifiedSlice,
         podSlice,
+        advancePaySlice,
         settlementSlice,
         awaitingPodSubview,
         podReceivedSubview,
@@ -1156,6 +1196,7 @@ export default function ComplianceScreen() {
         tableDateSort,
       ].join("|"),
     [
+      advancePaySlice,
       awaitingPodSubview,
       pendingSlice,
       pendingTransitSlice,
@@ -1352,6 +1393,7 @@ export default function ComplianceScreen() {
     if (stage === "hard_copy_pod_received" && podSlice === "pending") extra.push("POD Pending");
     if (stage === "hard_copy_pod_received" && podSlice === "received") extra.push("POD Received");
     if (stage === "hard_copy_pod_received" && podSlice === "advance_processed") extra.push("Advance Processed");
+    if (stage === "finance_verified") extra.push(advancePaySlice === "paid" ? "Paid" : "Pending");
     if (stage === "hard_copy_pod_received" && podSlice === "pending" && awaitingPodSubview !== "all") {
       extra.push(AWAITING_POD_SUBVIEW_LABEL[awaitingPodSubview]);
     }
@@ -1377,6 +1419,7 @@ export default function ComplianceScreen() {
       alertMessage("Couldn't export", error instanceof Error ? error.message : "Please try again.");
     }
   }, [
+    advancePaySlice,
     awaitingPodSubview,
     pendingSlice,
     podReceivedSubview,

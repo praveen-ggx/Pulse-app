@@ -27,6 +27,7 @@
 - Fixed the 6 type errors Praveen supplier change added (unreachable supplier checks in the client edit block, refetch return type, web cursor style).
 - Release set for Praveen supplier profile migrations.
 - Compliance advance and balance are now recorded as money paid to the supplier, not money received from the client, so they show as Supplier paid on Trip Detail. Beneficiary in the Compliance screens and exports comes only from the account holder name.
+- Advance Payment tab has Pending / Paid sub-tabs: Pending is ready to pay, Paid lists every trip whose advance is posted (UTR / date table and export). Added the Trip Documents reference and the Vasanth baseline roadmap docs.
 
 ## Why
 - Finance needs to check the advance values before money goes out, and trips sent back for fixes were either stuck or could be verified without Ground Ops fixing anything.
@@ -55,6 +56,7 @@
 - Team rule: no new type errors in merged files.
 - Push his two migrations to preprod through the approved release-set path.
 - Compliance payouts were landing as Client received and inflating the client's paid amount; Beneficiary was falling back to the supplier name, which is not who the bank pays.
+- Finance could not see paid advances once the trip moved past Advance Payment (Awaiting POD is not their tab).
 
 ## Areas
 - Supabase migrations and RPCs for trips compliance (finance approval, reject, decline, resubmit, verify).
@@ -83,6 +85,7 @@
 - Counterparty profile card, supplier profile screen, vendor onboarding vault.
 - supabase/release-sets.
 - Compliance payment posting and edit, Compliance and Advance Processed reads, Advance Processed and Verified exports, payee details.
+- Compliance page stage sub-filters (app/compliance), docs.
 
 ## Migrations
 - 20271008112000_finance_verified_step.sql, 20271008113000_compliance_reject_resubmit.sql, 20271008114000_compliance_hold_resubmit.sql, 20271008115000_compliance_resubmit_note.sql, 20271008116000_compliance_resubmit_gates.sql (all applied to preprod only; prod untouched). Release set: supabase/release-sets/preprod-finance-resubmit.versions.
@@ -111,6 +114,7 @@
 - None.
 - Release set supplier-profile-praveen (20271006161000, 20271012130500); dry run lists exactly these two.
 - 20271012140000_compliance_payments_supplier_payable.sql (flips the 20 existing compliance rows; already applied on preprod). Release set: compliance-supplier-payable.
+- None. Preprod data only (not migrations): 10 GOGOVAN trips linked to their supplier with market payout mode, and Compliance verification restored on 11 paid trips from the pre-sync backups.
 
 ## Tested
 - Migration contract tests (local). 33 SQL scenarios for the resubmit gates ran on preprod inside a rolled-back transaction, all passed; then 116000 was applied to preprod with approval.
@@ -139,3 +143,4 @@
 - Typecheck back to 64; lint 104/104 baseline; cycles 111/111; supplier, client and component tests pass (only the known loadCenterMarketplaceGate failure). Supplier pages not clicked through.
 - db:push-set dry run on preprod.
 - Typecheck 64 (baseline); lint 104 errors (baseline); full jest 4 known failing suites only; navigation policy 64/64; rolled-back dry run on preprod flipped 20 rows. Not clicked through. 10 marketplace trips in asset payout mode still show the payout under driver, not Supplier paid.
+- Typecheck 64 (baseline). Clicked Advance Payment → Pending / Paid on localhost as Finance; Table view not clicked.

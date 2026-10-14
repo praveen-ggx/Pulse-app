@@ -11,8 +11,8 @@ Verified 2026-10-14 from the repository and GitHub. Production data was not writ
 | Repository | `Vasanthgogox/Pulse-app` |
 | PR | https://github.com/Vasanthgogox/Pulse-app/pull/1 |
 | Base | `V1.0.1` @ `0de8638faf2c7980b06366cf82ea852236621788` |
-| Head verified live | `4c724c2d050ea4c094a616a75f0cb67b2b4bedf9` on `nihas/team-sync-v1.0.1` |
-| This report | Committed with the unapplied SQL guards in the next commit on that branch. CI above is for `4c724c2d` only. |
+| Head verified live | `62679d2a06d8fe8a9a8425c71b0f61a2f96197e6` on `nihas/team-sync-v1.0.1` |
+| CI recorded below | Completed run for `62679d2a`. A later documentation-only commit does not change those results. |
 | State | OPEN, not draft, MERGEABLE, `mergeStateStatus` UNSTABLE |
 | Reviews | 0 reviews, 0 requested reviewers, `reviewDecision` empty |
 | Branch protection | Unknown. `GET /branches/V1.0.1/protection` returned HTTP 403 |
@@ -22,7 +22,7 @@ The diff `0de8638f...4c724c2d` is 358 files, +47019 / −10243. A line-by-line r
 
 ## CI
 
-Latest completed run for head `4c724c2d`: https://github.com/Vasanthgogox/Pulse-app/actions/runs/38550559222
+Latest completed run for the guard commit `62679d2a`: https://github.com/Vasanthgogox/Pulse-app/actions/runs/38551814562
 
 | Check | Result |
 | --- | --- |
@@ -33,9 +33,9 @@ Latest completed run for head `4c724c2d`: https://github.com/Vasanthgogox/Pulse-
 | Navigation policy | Passed |
 | App TypeScript | Passed |
 | App unit tests (Jest) | Failed |
-| Netlify deploy preview | Ready, not production: https://deploy-preview-1--pulse-gx.netlify.app |
+| Netlify deploy preview | Not part of this workflow run |
 
-Jest job `115807200899`: 5 suites failed, 11 tests failed, 3 skipped, 4010 passed, 4024 total. The previous head `3dc476fb` (run `38523532150`) had the same 5 suites and 11 failures, with 4003 passed / 4017 total. The +7 passes match the dispatch-date tests added in `4c724c2d`.
+Jest: 5 suites failed, 11 tests failed, 3 skipped, 4014 passed, 4028 total (512 of 513 suites). Same five suite names as `4c724c2d` (run `38550559222`: 4010 passed / 4024 total) and `3dc476fb` (run `38523532150`: 4003 passed / 4017 total). The +4 passes on this run are `pr1ReleaseGuards.test.ts`. The Jest check is not waived.
 
 Failing suites, identical as files to `0de8638f` (`git diff --stat` empty for the suites, `app/sign-in.tsx`, `LoadCenterView.tsx`, and `features/chat/contexts`):
 

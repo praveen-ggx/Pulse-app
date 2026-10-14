@@ -164,3 +164,56 @@ begin
     raise exception 'cancelled request amount changed';
   end if;
 end $$;
+
+-- 5. Missing compliance verification and a flagged trip issue nothing.
+insert into public.trips (
+  id, organization_id,
+  compliance_verified_at, finance_flagged_at
+) values
+  ('27000000-0000-0000-0000-000000000007', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', null, null),
+  ('28000000-0000-0000-0000-000000000008', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', now() - interval '1 day', now());
+
+do $$
+begin
+  begin
+    perform public.mark_trip_finance_verified(
+      '27000000-0000-0000-0000-000000000007', null, 40
+    );
+    raise exception 'unverified trip was finance-verified';
+  exception
+    when others then
+      if sqlerrm not like 'compliance must be verified before finance verify' then
+        raise;
+      end if;
+  end;
+  begin
+    perform public.mark_trip_finance_verified(
+      '28000000-0000-0000-0000-000000000008', null, 40
+    );
+    raise exception 'flagged trip was finance-verified';
+  exception
+    when others then
+      if sqlerrm not like 'this trip is flagged for compliance review; the advance cannot be approved until the flag is cleared' then
+        raise;
+      end if;
+  end;
+  if exists (
+    select 1 from public.payment_requests
+     where trip_id in (
+       '27000000-0000-0000-0000-000000000007',
+       '28000000-0000-0000-0000-000000000008'
+     )
+  ) then
+    raise exception 'missing or flagged trip created a payment request';
+  end if;
+  if exists (
+    select 1 from public.trips
+     where id in (
+       '27000000-0000-0000-0000-000000000007',
+       '28000000-0000-0000-0000-000000000008'
+     )
+       and finance_verified_at is not null
+  ) then
+    raise exception 'missing or flagged trip set finance_verified_at';
+  end if;
+end $$;

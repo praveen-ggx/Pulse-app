@@ -1,0 +1,6 @@
+# Disposable / later-authorized production set only.
+# Apply order is the three versions below. Keep the Godrej classification file out.
+# Do not apply the payment-requests file after the gated verifier.
+20271013101500
+20271013120000
+20271014183000

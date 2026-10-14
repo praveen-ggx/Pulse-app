@@ -52,6 +52,10 @@ The authorized Godrej India finance approver has not yet given written confirmat
 4. `20271014183000` payment request on the already-verified and duplicate-event paths.
 5. `20271014184500` Godrej DCO classification, only after written confirmation.
 
-None of these files is in an authorized production batch. Backup verification, a disposable rehearsal of the approved set, and a recovery test are still outstanding. Do not run `npm run db:push` or `db:push-set` for this work.
+The named set `supabase/release-sets/finance-approval.versions` is exactly `20271013101500`, `20271013120000`, `20271014183000`. `20271014184500` is not in that file.
+
+A disposable rehearsal on local container `supabase_db_pulse` (databases `finance_rehearsal` / `finance_rehearsal_backup`, dropped after the run) applied that set, executed `supabase/tests/finance_approval_contract.sql`, ran two concurrent `mark_trip_finance_verified` sessions, restored the pre-apply template, and re-applied. Command: `sh supabase/tests/run-finance-approval-disposable.sh`. That is not a production backup and not a production apply.
+
+Do not run `npm run db:push` or `db:push-set` for this work until a verified production backup, a reviewer other than the author, and explicit apply authorization exist.
 
 P3 #1 (Cash-board Exchange lane) stays closed. Fee-ledger View on `c68a4786` is not changed. Exchange, Gate 1A, and P2 are not opened by this work. `20271014051328` only reasserts the existing Gate 1A quote-accept body so a later weaker definition cannot win.

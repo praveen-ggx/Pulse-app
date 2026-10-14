@@ -91,6 +91,19 @@ describe("PR #1 migration guards", () => {
     expect(firstIssue).toBeGreaterThan(alreadyVerified);
   });
 
+  it("keeps the finance-approval release set as 131015 then 131200 then 141830", () => {
+    const body = fs.readFileSync(
+      path.join(migrations, "../release-sets/finance-approval.versions"),
+      "utf8",
+    );
+    const versions = body
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => /^\d{14}$/.test(line));
+    expect(versions).toEqual(["20271013101500", "20271013120000", "20271014183000"]);
+    expect(body).not.toContain("20271014184500");
+  });
+
   it("does not put the Godrej data rewrite in a release set", () => {
     const setsDir = path.join(migrations, "../release-sets");
     const named = fs.readdirSync(setsDir).filter((name) => name.endsWith(".versions"));

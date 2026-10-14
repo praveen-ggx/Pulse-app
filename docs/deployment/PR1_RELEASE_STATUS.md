@@ -11,21 +11,21 @@ Verified 2026-10-14 from the repository, GitHub Actions, and one local disposabl
 | Repository | `Vasanthgogox/Pulse-app` |
 | PR | https://github.com/Vasanthgogox/Pulse-app/pull/1 |
 | Base | `V1.0.1` @ `0de8638faf2c7980b06366cf82ea852236621788` |
-| Head whose CI is recorded below | `5dd3bb62015ca9fba1bb6aabe55fd795eee279e4` on `nihas/team-sync-v1.0.1` |
+| Head whose CI is recorded below | `cc8e89edf5a02532edb36a51c302ea1200dc11f5` on `nihas/team-sync-v1.0.1` |
 | State at that read | OPEN, not draft, MERGEABLE, `mergeStateStatus` UNSTABLE |
 | Reviews | 0 reviews, 0 requested reviewers, `reviewDecision` empty |
 | Branch protection | Unknown. `GET /branches/V1.0.1/protection` returned HTTP 403 |
 | Worktrees left untouched | Main checkout `V1.0.1` @ `7f34e4cf` (dirty). Preflight worktree detached at `0de8638f` |
 
-The disposable tests and this file are later than `5dd3bb62`. Their GitHub Actions run is not the run recorded below.
+`5dd3bb62` is the parent. This file records the CI that ran on `cc8e89ed`, which contains the disposable tests. A later documentation commit that only updates this file is not that run.
 
 The diff `0de8638f...4c724c2d` is 358 files, +47019 / −10243. A line-by-line review of all 358 files was not completed. Hotspot review covered POD, finance functions, `get_trips_for_org` callers from prior catalog work, Ground Ops, the Godrej predicate, and the five failing Jest sources.
 
-## CI for `5dd3bb62`
+## CI for `cc8e89ed`
 
-Completed run: https://github.com/Vasanthgogox/Pulse-app/actions/runs/38552321725
+Completed run: https://github.com/Vasanthgogox/Pulse-app/actions/runs/38553423271
 
-`headSha` `5dd3bb62015ca9fba1bb6aabe55fd795eee279e4`. Workflow conclusion: failure.
+`headSha` `cc8e89edf5a02532edb36a51c302ea1200dc11f5`. Workflow conclusion: failure.
 
 | Check | Result |
 | --- | --- |
@@ -38,9 +38,9 @@ Completed run: https://github.com/Vasanthgogox/Pulse-app/actions/runs/3855232172
 | App unit tests (Jest) | Failed |
 | Netlify deploy preview | Not part of this workflow run |
 
-Jest log totals: `Test Suites: 5 failed, 1 skipped, 507 passed, 512 of 513 total`. `Tests: 11 failed, 3 skipped, 4014 passed, 4028 total`. Same totals as `62679d2a` (run `38551814562`). `4c724c2d` (run `38550559222`) was 4010 passed / 4024 total. `3dc476fb` (run `38523532150`) was 4003 passed / 4017 total. The Jest check is not waived.
+Jest log totals: `Test Suites: 5 failed, 1 skipped, 507 passed, 512 of 513 total`. `Tests: 11 failed, 3 skipped, 4015 passed, 4029 total`. The +1 pass versus `5dd3bb62` (run `38552321725`: 4014 passed / 4028 total) is the extra assertion in `pr1ReleaseGuards.test.ts`. `62679d2a` (run `38551814562`) was 4014 / 4028. `4c724c2d` (run `38550559222`) was 4010 / 4024. `3dc476fb` (run `38523532150`) was 4003 / 4017. The Jest check is not waived.
 
-Failing suites on run `38552321725`, and the same five files are identical to `0de8638f` (`git diff` empty for the suites, `app/sign-in.tsx`, `LoadCenterView.tsx`, `features/chat/contexts`, and `lib/suite/suiteAuth.ts`):
+Failing suites on run `38553423271`, and the same five files are identical to `0de8638f` (`git diff` empty for the suites, `app/sign-in.tsx`, `LoadCenterView.tsx`, `features/chat/contexts`, and `lib/suite/suiteAuth.ts`):
 
 1. `app/__tests__/sign-in.test.tsx` — `renders correctly` and `redirects through navigateAfterSuiteAuth once a user is present`.
 2. `features/network/components/__tests__/sponsoredReachCommercialSurface.test.tsx` — `Network pool lists render incomplete-lane loads review-only, never with a Bid card`.

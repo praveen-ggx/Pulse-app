@@ -56,6 +56,8 @@ let mockTxnsResult: { data: unknown[]; error: null };
 let mockDeleteResult: { data: { id: string } | null; error: { message?: string } | null };
 /** Live `trips` flags read by postCompliancePayment; null = row not readable (falls back to the passed trip). */
 let mockLiveTripFlags: Partial<Pick<TripRow, "compliance_verified_at" | "finance_verified_at" | "pod_received_at">> | null = null;
+/** Error returned by the live `trips` flags read. */
+let mockLiveTripError: { code?: string; message?: string } | null = null;
 
 jest.mock("@/lib/supabase", () => ({
   supabase: () => ({
@@ -67,7 +69,7 @@ jest.mock("@/lib/supabase", () => ({
         const builder: Record<string, unknown> = {};
         builder.select = () => builder;
         builder.eq = () => builder;
-        builder.maybeSingle = async () => ({ data: mockLiveTripFlags, error: null });
+        builder.maybeSingle = async () => ({ data: mockLiveTripError ? null : mockLiveTripFlags, error: mockLiveTripError });
         return builder;
       }
       throw new Error(`unexpected table ${table}`);
@@ -77,6 +79,7 @@ jest.mock("@/lib/supabase", () => ({
 
 beforeEach(() => {
   mockLiveTripFlags = null;
+  mockLiveTripError = null;
   mockDeleteResult = { data: { id: "tx-adv-1" }, error: null };
 });
 
@@ -307,6 +310,39 @@ describe("postCompliancePayment — advance gate reads the live trip, not the ca
     });
     expect(result.error?.message).toMatch(/compliance must be approved/i);
     expect(mockCreateLedgerEntry).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the live read errors, even if the cached trip looks approved", async () => {
+    mockLiveTripError = { code: "57014", message: "canceling statement due to statement timeout" };
+    const result = await postCompliancePayment({
+      organizationId: "org-1",
+      trip: makeTrip({
+        compliance_verified_at: "2026-09-01T00:00:00Z",
+        finance_verified_at: "2026-09-01T01:00:00Z",
+      }),
+      category: "compliance_advance",
+      amount: 25000,
+      paymentModeId: "UPI",
+      paymentModeLabel: "UPI",
+    });
+    expect(result.error?.message).toMatch(/couldn't confirm compliance status/i);
+    expect(mockCreateLedgerEntry).not.toHaveBeenCalled();
+  });
+
+  it("uses the cached trip when the compliance columns are not deployed yet", async () => {
+    mockLiveTripError = { code: "42703", message: 'column trips.finance_verified_at does not exist' };
+    const result = await postCompliancePayment({
+      organizationId: "org-1",
+      trip: makeTrip({
+        compliance_verified_at: "2026-09-01T00:00:00Z",
+        finance_verified_at: "2026-09-01T01:00:00Z",
+      }),
+      category: "compliance_advance",
+      amount: 25000,
+      paymentModeId: "UPI",
+      paymentModeLabel: "UPI",
+    });
+    expect(result.error?.message ?? "").not.toMatch(/couldn't confirm compliance status/i);
   });
 
   it("allows an advance when the cached trip is stale but the DB has compliance_verified_at set", async () => {

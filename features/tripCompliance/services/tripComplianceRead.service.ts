@@ -50,7 +50,7 @@ import { supabase } from "@/lib/supabase";
  * errors) so the rest of the app, and this feature's read-only surfaces,
  * keep working before that migration lands.
  */
-function isMissingColumnOrRelation(error: { code?: string; message?: string }): boolean {
+export function isMissingColumnOrRelation(error: { code?: string; message?: string }): boolean {
   const message = String(error.message ?? "").toLowerCase();
   return (
     error.code === "42703" || // undefined_column

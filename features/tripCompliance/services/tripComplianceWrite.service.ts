@@ -21,7 +21,7 @@ import {
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { evaluateCompliancePaymentGuard, type ComplianceLedgerCategory } from "@/features/tripCompliance/utils/compliancePaymentGuard.util";
 import { recordAdvanceDocumentCostSnapshot } from "@/features/debit-control/services/debitControlPod.service";
-import { fetchComplianceTransactions } from "@/features/tripCompliance/services/tripComplianceRead.service";
+import { fetchComplianceTransactions, isMissingColumnOrRelation } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import {
   COMPLIANCE_DECLINE_REASON_MAX,
   COMPLIANCE_DECLINE_REASON_MIN,
@@ -451,17 +451,23 @@ type ComplianceLedgerFlags = Pick<
 
 /**
  * Callers pass a cached trip (list summary, bulk validation map) that can be
- * minutes old, so the prerequisite reads the live flags. A failed read falls
- * back to the cached trip; RLS still rejects the insert either way.
+ * minutes old, so the prerequisite reads the live flags. No row or a
+ * missing-column error (migration not applied here) falls back to the cached
+ * trip, and RLS still rejects the insert. A genuine read error (network,
+ * timeout, 5xx) returns null so the payment fails closed (Vasanth cbbbc035).
  */
-async function readComplianceLedgerFlags(trip: TripRow): Promise<ComplianceLedgerFlags> {
-  const { data, error } = await supabase()
-    .from("trips")
-    .select("compliance_verified_at, finance_verified_at, pod_received_at, finance_flagged_at")
-    .eq("id", trip.id)
-    .maybeSingle();
-  if (error || !data) return trip;
-  return data as ComplianceLedgerFlags;
+async function readComplianceLedgerFlags(trip: TripRow): Promise<ComplianceLedgerFlags | null> {
+  try {
+    const { data, error } = await supabase()
+      .from("trips")
+      .select("compliance_verified_at, finance_verified_at, pod_received_at, finance_flagged_at")
+      .eq("id", trip.id)
+      .maybeSingle();
+    if (error) return isMissingColumnOrRelation(error) ? trip : null;
+    return (data as ComplianceLedgerFlags | null) ?? trip;
+  } catch (e) {
+    return isMissingColumnOrRelation(e as { code?: string; message?: string }) ? trip : null;
+  }
 }
 
 /**
@@ -505,7 +511,9 @@ export async function postCompliancePayment(params: {
   const guard = await checkCompliancePaymentAllowed({ tripId: params.trip.id, category: params.category });
   if (!guard.ok) return { error: new Error(guard.reason) };
 
-  const prerequisite = checkComplianceLedgerPrerequisite(params.category, await readComplianceLedgerFlags(params.trip));
+  const liveFlags = await readComplianceLedgerFlags(params.trip);
+  if (!liveFlags) return { error: new Error("Couldn't confirm compliance status — please retry.") };
+  const prerequisite = checkComplianceLedgerPrerequisite(params.category, liveFlags);
   if (!prerequisite.ok) return { error: new Error(prerequisite.reason) };
 
   const amountCheck = validateCompliancePaymentAmount({ amount: params.amount, trip: params.trip });

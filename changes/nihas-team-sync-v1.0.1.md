@@ -37,6 +37,7 @@
 - Vehicle Documents popup keeps a partner truck's RC / fitness / insurance: opening the popup no longer resets them to the owner's empty list.
 - Delivered trips now load RC / Fitness / Insurance into the Asset Vault Vehicle Documents popup.
 - Synced Vasanth's V1.0.1 again (My Bids pool revision UX) and added a migration that re-applies his Gate 1A quote-accept guard.
+- Compliance pay refuses to post when the live compliance status read fails, instead of trusting the cached trip (restores Vasanth's cbbbc035 fail-closed rule).
 
 ## Why
 - Finance needs to check the advance values before money goes out, and trips sent back for fixes were either stuck or could be verified without Ground Ops fixing anything.
@@ -75,6 +76,7 @@
 - The first fix was overwritten when the popup resolved the vault vehicle (000948 still showed Not uploaded).
 - Delivered trips open on a quick-load path that skips the vehicle, and nothing loaded its documents later, so every slot said Not uploaded (e.g. 000948).
 - An older team-V1 migration (20270930213000) redefines the same guard with a weaker body; if pushed after gate1a on prod it would undo his owner-only accept and lock checks.
+- Audit of Vasanth's work vs this branch: the team V1 import had replaced his fail-closed check with a silent fallback.
 
 ## Areas
 - Supabase migrations and RPCs for trips compliance (finance approval, reject, decline, resubmit, verify).
@@ -113,6 +115,7 @@
 - Trip Detail vault vehicle documents.
 - Trip Detail Asset Vault (vehicle documents).
 - Marketplace quote accept guard (database).
+- Compliance advance / balance posting.
 
 ## Migrations
 - 20271008112000_finance_verified_step.sql, 20271008113000_compliance_reject_resubmit.sql, 20271008114000_compliance_hold_resubmit.sql, 20271008115000_compliance_resubmit_note.sql, 20271008116000_compliance_resubmit_gates.sql (all applied to preprod only; prod untouched). Release set: supabase/release-sets/preprod-finance-resubmit.versions.
@@ -151,6 +154,7 @@
 - None.
 - None
 - 20271014051328_reassert_gate1a_quote_accept_guard.sql (release set gate1a-guard-reassert).
+- None
 
 ## Tested
 - Migration contract tests (local). 33 SQL scenarios for the resubmit gates ran on preprod inside a rolled-back transaction, all passed; then 116000 was applied to preprod with approval.
@@ -189,3 +193,4 @@
 - Typecheck 64 (baseline); 415 trips tests pass. Not clicked through (my browser window is signed out).
 - Typecheck 64 (baseline); 46 trip-detail tests pass; preprod check as the GoGoVan owner reads the 3 vehicle docs. Not clicked through yet.
 - Merge had no conflicts; release-set dry run lists only the new file; rolled-back apply on preprod keeps the Gate 1A body; 45 migration tests pass.
+- 609 compliance tests pass (2 new: read error fails closed, missing columns still fall back); typecheck 64 (baseline); lint clean on changed files. Not clicked through.

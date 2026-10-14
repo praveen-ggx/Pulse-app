@@ -2,7 +2,8 @@
  * One pooled Network bid in Get Load → My Bids: the lane this org quoted one
  * rate on, with its rate and how each member quote stands. Like the Network
  * Loads pool card it carries no party identity — no shipper name, avatar,
- * indent number or facepile. The member indents open from "View pool".
+ * indent number or facepile. Pressing the card opens the pool. Revising
+ * the bid happens on the loads inside it.
  */
 import Theme from "@/constants/Theme";
 import {
@@ -14,7 +15,7 @@ import {
   pickupWindow,
   plural,
   rateRange,
-  tonnage,
+  vehicleTonnage,
 } from "@/features/network/components/pooled/NetworkLoadPoolCard";
 import {
   describeNetworkBidStates,
@@ -23,7 +24,7 @@ import {
   type NetworkBidPool,
 } from "@/features/network/utils/networkBidPools.util";
 import type { NetworkPoolLoad } from "@/features/network/utils/networkLoadPools.util";
-import { ChevronRight, Layers } from "lucide-react-native";
+import { Layers } from "lucide-react-native";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 const STATE_TONE: Record<NetworkBidMemberState, { bg: string; fg: string }> = {
@@ -49,7 +50,7 @@ export function NetworkBidPoolCard({
   const vehicle = titleCaseWord(pool.key.vehicleType);
   const rate = rateRange(pool.rateMin, pool.rateMax);
   const window = pickupWindow(pool.earliestPickup, pool.latestPickup);
-  const weight = tonnage(pool.totalWeightKg);
+  const weight = vehicleTonnage(pool.weightKgMin, pool.weightKgMax);
   const states = describeNetworkBidStates(pool.stateCounts);
   const tone = pool.uniformState ? STATE_TONE[pool.uniformState] : null;
   const pillText = pool.uniformState
@@ -57,15 +58,18 @@ export function NetworkBidPoolCard({
     : "mixed";
   const facts = [
     { label: "Vehicle", value: vehicle || "—" },
-    { label: count > 1 ? "Total tonnage" : "Tonnage", value: weight ?? "—" },
+    { label: "Tonnage", value: weight ?? "—" },
     { label: "Pickup", value: window ?? "—" },
   ];
 
-  return (
+  const label = `Network pool bid, ${pool.key.pickup} to ${pool.key.drop}, ${vehicle}, ${loadsLabel}, ${states}`;
+  const opensDetail = showViewAction && onViewPool != null;
+
+  const body = (
     <View
       style={styles.card}
       testID={`network-bid-pool-${pool.id}`}
-      accessibilityLabel={`Network pool bid, ${pool.key.pickup} to ${pool.key.drop}, ${vehicle}, ${loadsLabel}, ${states}`}
+      accessibilityLabel={opensDetail ? undefined : label}
     >
       <View style={styles.top}>
         <View style={styles.tag}>
@@ -123,20 +127,21 @@ export function NetworkBidPoolCard({
         <Text style={bidStyles.states} numberOfLines={2}>
           {states}
         </Text>
-        {showViewAction && onViewPool ? (
-          <Pressable
-            onPress={onViewPool}
-            style={bidStyles.view}
-            hitSlop={10}
-            accessibilityRole="button"
-            accessibilityLabel={`View pool, ${loadsLabel}`}
-          >
-            <Text style={styles.viewText}>View pool</Text>
-            <ChevronRight size={12} color={Theme.primary} strokeWidth={2.4} />
-          </Pressable>
-        ) : null}
       </View>
     </View>
+  );
+
+  if (!opensDetail || !onViewPool) return body;
+
+  return (
+    <Pressable
+      onPress={onViewPool}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={({ pressed }) => [bidStyles.hit, pressed && bidStyles.pressed]}
+    >
+      {body}
+    </Pressable>
   );
 }
 
@@ -155,10 +160,6 @@ const bidStyles = StyleSheet.create({
     fontWeight: "700",
     color: Theme.textSecondary,
   },
-  view: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 1,
-    minHeight: 36,
-  },
+  hit: { alignSelf: "stretch" },
+  pressed: { opacity: 0.92 },
 });

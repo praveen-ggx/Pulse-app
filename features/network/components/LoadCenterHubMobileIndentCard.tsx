@@ -285,6 +285,11 @@ export type LoadCenterHubMobileIndentCardProps = {
    * party avatars and client faces are replaced by a neutral load mark.
    */
   anonymous?: boolean;
+  /**
+   * Replaces the anonymous "Review" link. My Bids pool members use this to
+   * revise the quote instead of opening another review step.
+   */
+  trailingCta?: { label: string; onPress: () => void } | null;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -326,6 +331,7 @@ export function LoadCenterHubMobileIndentCard({
   fillGrid = false,
   dimmed = false,
   anonymous = false,
+  trailingCta = null,
   style,
 }: LoadCenterHubMobileIndentCardProps) {
   const router = useRouter();
@@ -430,11 +436,13 @@ export function LoadCenterHubMobileIndentCard({
     commerce?.rightCaption?.trim() ||
     (!heroAmount ? rightFooterLabel : null);
   const fallbackCta =
-    Boolean(onPress) && !actions
+    trailingCta?.label ??
+    (Boolean(onPress) && !actions
       ? anonymous
         ? "Review"
         : resolveInlineCta(statusLabel, sourceTag)
-      : null;
+      : null);
+  const onFallbackPress = trailingCta?.onPress ?? onPress;
 
   const priceTrailing =
     actions != null ? (
@@ -447,7 +455,7 @@ export function LoadCenterHubMobileIndentCard({
     ) : fallbackCta ? (
       <Pressable
         style={styles.ctaHit}
-        onPress={onPress}
+        onPress={onFallbackPress}
         hitSlop={6}
         accessibilityRole="button"
         accessibilityLabel={`${fallbackCta} ${indentNumber}`}

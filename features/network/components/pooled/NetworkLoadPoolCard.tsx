@@ -41,6 +41,15 @@ export function tonnage(kg: number | null): string | null {
   return `${t % 1 === 0 ? t.toFixed(0) : t} t`;
 }
 
+/** Capacity of one vehicle in the pool. Equal capacities render once. */
+export function vehicleTonnage(minKg: number | null, maxKg: number | null): string | null {
+  const min = tonnage(minKg);
+  const max = tonnage(maxKg);
+  if (min == null) return max;
+  if (max == null || min === max) return min;
+  return `${min} – ${max}`;
+}
+
 export function NetworkLoadPoolCard({
   pool,
   canQuote,
@@ -59,10 +68,10 @@ export function NetworkLoadPoolCard({
   const vehicle = titleCaseWord(pool.key.vehicleType);
   const target = rateRange(pool.targetRateMin, pool.targetRateMax);
   const window = pickupWindow(pool.earliestPickup, pool.latestPickup);
-  const weight = tonnage(pool.totalWeightKg);
+  const weight = vehicleTonnage(pool.weightKgMin, pool.weightKgMax);
   const facts = [
     { label: "Vehicle", value: vehicle || "—" },
-    { label: count > 1 ? "Total tonnage" : "Tonnage", value: weight ?? "—" },
+    { label: "Tonnage", value: weight ?? "—" },
     { label: "Pickup", value: window ?? "—" },
   ];
 

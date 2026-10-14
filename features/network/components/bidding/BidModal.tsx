@@ -42,6 +42,8 @@ interface BidModalProps {
   refetchMyQuotes: () => void;
   refetchMarketIndents: () => void;
   insets: { top: number; bottom: number };
+  /** Pool member: the sheet must not name the shipper. */
+  anonymous?: boolean;
 }
 
 export function BidModal({
@@ -56,6 +58,7 @@ export function BidModal({
   invalidateIndents,
   refetchMyQuotes,
   refetchMarketIndents,
+  anonymous = false,
 }: BidModalProps) {
   const [entryError, setEntryError] = useState<string | undefined>();
   const [submittingQuote, setSubmittingQuote] = useState(false);
@@ -167,10 +170,11 @@ export function BidModal({
       ? `${Number(load.weight)} KG`
       : undefined;
   const material = (load.load_type ?? "").trim() || undefined;
-  const ownerName =
-    (load.client_name ?? "").trim() ||
-    (load.creator_organization_name ?? "").trim() ||
-    undefined;
+  const ownerName = anonymous
+    ? undefined
+    : (load.client_name ?? "").trim() ||
+      (load.creator_organization_name ?? "").trim() ||
+      undefined;
 
   return (
     <IndentBidAmountEntry

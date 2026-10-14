@@ -99,8 +99,10 @@ export type LoadCenterKanbanColumnModalProps = {
    */
   onQuotePool?: (pool: NetworkLoadPool<IndentRow>) => void;
   canQuotePools?: boolean;
-  /** Indent card inside an opened pool — details only, no per-indent commercial action. */
+  /** Indent card inside an opened open-market pool — details only, no per-indent quote. */
   renderPoolMemberCard?: (load: IndentRow) => ReactNode;
+  /** Indent card inside an opened My Bids pool. Its action revises that bid. */
+  renderBidPoolMemberCard?: (load: IndentRow) => ReactNode;
   /**
    * Every open Network load before search, so a shown pool is always whole.
    * Column loads may be search-filtered, so without this no pool is shown or quotable.
@@ -279,6 +281,7 @@ export function LoadCenterKanbanColumnModal({
   onQuotePool,
   canQuotePools = false,
   renderPoolMemberCard,
+  renderBidPoolMemberCard,
   poolLoads,
   poolOrgId = null,
   initialOpenPoolId = null,
@@ -1057,7 +1060,13 @@ export function LoadCenterKanbanColumnModal({
                 webGridStyle as object,
               ]}
             >
-              {visibleLoads.map((load) => (
+              {visibleLoads.map((load) => {
+                const memberRenderer = openBidPool
+                  ? (renderBidPoolMemberCard ?? renderPoolMemberCard)
+                  : pooledMode
+                    ? renderPoolMemberCard
+                    : null;
+                return (
                 <View
                   key={load.id}
                   style={[
@@ -1066,14 +1075,11 @@ export function LoadCenterKanbanColumnModal({
                   ]}
                 >
                   <View style={styles.cardFill}>
-                    {pooledMode && renderPoolMemberCard
-                      ? renderPoolMemberCard(load)
-                      : openBidPool && renderPoolMemberCard
-                        ? renderPoolMemberCard(load)
-                        : renderCard(load)}
+                    {memberRenderer ? memberRenderer(load) : renderCard(load)}
                   </View>
                 </View>
-              ))}
+                );
+              })}
             </View>
           )}
           {hasMoreVisibleLoads ? (

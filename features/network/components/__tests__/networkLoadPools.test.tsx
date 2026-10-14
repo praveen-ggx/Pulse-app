@@ -481,8 +481,7 @@ describe("Network Loads as pools", () => {
     renderModal();
     expect(screen.queryByText(/Acme Steel|Bolt Logistics/)).toBeNull();
     expect(screen.queryByLabelText(/Acme Steel|Bolt Logistics/)).toBeNull();
-    expect(screen.getByLabelText("Total tonnage: 36 t")).toBeTruthy();
-    expect(screen.getByLabelText("Tonnage: 12 t")).toBeTruthy();
+    expect(screen.getAllByLabelText("Tonnage: 12 t")).toHaveLength(2);
     expect(screen.getAllByLabelText("Vehicle: 32 Ft")).toHaveLength(1);
   });
 

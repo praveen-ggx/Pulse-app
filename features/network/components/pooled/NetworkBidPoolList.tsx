@@ -2,7 +2,7 @@
  * Get Load → My Bids with Network quotes grouped back into their Indent Pools.
  * A pooled quote is one direct_quotes row per member indent; the list shows
  * one anonymous card per pool and, when opened, the member indents with each
- * one's own quote status (review-only, no shipper identity). Sponsored Reach
+ * one's own quote status. The member action revises that bid. Sponsored Reach
  * and incomplete-lane loads were quoted individually and keep their card.
  *
  * Pools are built from every quoted load so a shown pool is always whole;
@@ -35,7 +35,7 @@ export function NetworkBidPoolList({
   isPoolable: (load: IndentRow) => boolean;
   /** Existing individual card (sponsored Reach, incomplete lane). */
   renderIndividualCard: (load: IndentRow) => ReactNode;
-  /** Anonymous, review-only card for a member of an opened pool. */
+  /** Anonymous card for a member of an opened pool. Its action revises the bid. */
   renderPoolMemberCard: (load: IndentRow) => ReactNode;
   /** Opens the pool elsewhere (desktop column view) instead of inline. */
   onViewPool?: (pool: NetworkBidPool<IndentRow>) => void;

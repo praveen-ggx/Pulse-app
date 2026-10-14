@@ -272,6 +272,7 @@ export function LoadCenterView({
   const [showPostModal, setShowPostModal] = useState(false);
   const { showSuccess, successMsg, trigger: triggerSuccess } = useSuccessToast();
   const [bidLoad, setBidLoad] = useState<IndentRow | null>(null);
+  const [bidAnonymous, setBidAnonymous] = useState(false);
   const [quotePool, setQuotePool] =
     useState<NetworkLoadPool<IndentRow> | null>(null);
   const [localBidHistoryByIndentId, setLocalBidHistoryByIndentId] = useState<
@@ -1760,6 +1761,8 @@ export function LoadCenterView({
         commerce?: boolean;
         /** Opened Network pool member: no shipper/party identity on the card. */
         anonymous?: boolean;
+        /** My Bids pool member: the only commercial action is revising the quote. */
+        trailingCta?: { label: string; onPress: () => void } | null;
       },
     ) => {
       const existingQuote = myQuoteByIndentId.get(load.id);
@@ -1910,6 +1913,7 @@ export function LoadCenterView({
           dense={layout.dense}
           fillGrid={layout.fillGrid}
           anonymous={anonymous}
+          trailingCta={layout.trailingCta}
           dimmed={
             doneOutcome != null &&
             !doneOutcome.interactive &&
@@ -1928,7 +1932,10 @@ export function LoadCenterView({
                 quoteAmount={quoteAmount}
                 onIndentPress={handleCardIndentPress}
                 onShareIndent={handleShareIndent}
-                onOpenBidModal={setBidLoad}
+                onOpenBidModal={(load) => {
+                  setBidAnonymous(false);
+                  setBidLoad(load);
+                }}
                 onAllocate={openIndentAllocation}
                 dense={layout.dense}
               />
@@ -1983,7 +1990,26 @@ export function LoadCenterView({
         commerce: false,
         anonymous: true,
       }),
-    [renderGetLoadHubCard, isMobileView],
+    [renderGetLoadHubCard, isMobileView, setBidLoad],
+  );
+
+  const renderGetLoadBidPoolMemberCard = useCallback(
+    (load: IndentRow) =>
+      renderGetLoadHubCard(load, {
+        dense: !isMobileView,
+        fillGrid: !isMobileView,
+        withActions: false,
+        commerce: false,
+        anonymous: true,
+        trailingCta: {
+          label: "Revise bid",
+          onPress: () => {
+            setBidAnonymous(true);
+            setBidLoad(load);
+          },
+        },
+      }),
+    [renderGetLoadHubCard, isMobileView, setBidLoad],
   );
 
   const renderGetLoadListCard = useCallback(
@@ -2550,7 +2576,7 @@ export function LoadCenterView({
                             quoteByIndentId={myQuoteByIndentId}
                             isPoolable={isPoolableOpenLoad}
                             renderIndividualCard={renderGetLoadGridCard}
-                            renderPoolMemberCard={renderGetLoadPoolMemberCard}
+                            renderPoolMemberCard={renderGetLoadBidPoolMemberCard}
                             onViewPool={(pool) =>
                               openKanbanColumn("get", col, pool.id)
                             }
@@ -2617,7 +2643,7 @@ export function LoadCenterView({
                     renderIndividualCard={
                       isMobileView ? renderGetLoadMobileCard : renderGetLoadListCard
                     }
-                    renderPoolMemberCard={renderGetLoadPoolMemberCard}
+                    renderPoolMemberCard={renderGetLoadBidPoolMemberCard}
                   />
                 ) : null}
                 {statusFilterTab === "OPEN" || statusFilterTab === "QUOTED" ? null : visibleFindWorkList.map((load) => (
@@ -2793,6 +2819,9 @@ export function LoadCenterView({
         onNavigateStage={navigateKanbanStage}
         onQuotePool={expandedKanbanMode === "get" ? setQuotePool : undefined}
         renderPoolMemberCard={renderGetLoadPoolMemberCard}
+        renderBidPoolMemberCard={
+          expandedKanbanMode === "get" ? renderGetLoadBidPoolMemberCard : undefined
+        }
         poolLoads={expandedKanbanMode === "get" ? getLoadOpenPoolUniverse : undefined}
         poolOrgId={orgId}
         initialOpenPoolId={kanbanInitialPoolId}
@@ -2821,8 +2850,12 @@ export function LoadCenterView({
           visible={bidLoad !== null}
           load={bidLoad}
           orgId={orgId}
+          anonymous={bidAnonymous}
           myQuoteByIndentId={myQuoteByIndentId}
-          onClose={() => setBidLoad(null)}
+          onClose={() => {
+            setBidAnonymous(false);
+            setBidLoad(null);
+          }}
           onSuccess={triggerSuccess}
           localBidHistoryByIndentId={localBidHistoryByIndentId}
           onUpdateLocalBidHistory={(indentId, entry) => {
@@ -2883,8 +2916,12 @@ export function LoadCenterView({
           visible={bidLoad !== null}
           load={bidLoad}
           orgId={orgId}
+          anonymous={bidAnonymous}
           myQuoteByIndentId={myQuoteByIndentId}
-          onClose={() => setBidLoad(null)}
+          onClose={() => {
+            setBidAnonymous(false);
+            setBidLoad(null);
+          }}
           onSuccess={triggerSuccess}
           localBidHistoryByIndentId={localBidHistoryByIndentId}
           onUpdateLocalBidHistory={(indentId, entry) => {

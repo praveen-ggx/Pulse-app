@@ -15,9 +15,9 @@ const KEY = 'anon-key';
 // Mirror of the production wiring in lib/supabase.ts.
 function makeModeratedClient(seen: string[]) {
   const moderatedFetch = (input: RequestInfo | URL, init?: RequestInit) => {
-    const { lane, coalesceKey, isAuth } = classifyRequest(input, init);
+    const { lane, coalesceKey, isAuth, bypassModerator } = classifyRequest(input, init);
     const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    if (isAuth) {
+    if (isAuth || bypassModerator) {
       seen.push(`BYPASS(auth) ${raw}`);
       return Promise.resolve(new Response('{}', { status: 200 }));
     }

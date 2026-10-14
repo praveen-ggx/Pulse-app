@@ -3,6 +3,7 @@
  * Used for vehicle list and detail to show truck image instead of initial letter.
  */
 import type { ImageSourcePropType } from 'react-native';
+import { parseVehicleTypeSelection } from './vehicleTypeCatalog.model';
 
 const truck19FT = require('../../../assets/trucks/19FT.png') as ImageSourcePropType;
 const truck20FT = require('../../../assets/trucks/20FT.png') as ImageSourcePropType;
@@ -41,8 +42,17 @@ const TRUCK_IMAGES: Record<string, ImageSourcePropType> = {
   'Market Trailer': truck32FT,
 };
 
+/** Image for a global catalog value ("Open 20 Feet", "LCV Container 14 Feet", …). */
+function catalogTruckImage(vehicleType: string): ImageSourcePropType | null {
+  const sel = parseVehicleTypeSelection(vehicleType);
+  if (!sel) return null;
+  if (sel.group === 'Open') return openBody;
+  if (sel.group === 'Container') return sel.type.startsWith('32 Feet') ? truck32FT : truck20FT;
+  return lcv;
+}
+
 /** Get image source for a vehicle type (for use in Image source prop). */
 export function getVehicleTypeImage(vehicleType: string | null | undefined): ImageSourcePropType {
   const key = (vehicleType || '').trim();
-  return TRUCK_IMAGES[key] ?? truck19FT;
+  return TRUCK_IMAGES[key] ?? catalogTruckImage(key) ?? truck19FT;
 }

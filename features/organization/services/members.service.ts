@@ -16,12 +16,14 @@ import {
   precheckToProfile,
 } from "@/features/organization/services/teamInvitePrecheck.service";
 import {
+  buildMemberPermissions,
   buildTeamInvitePermissions,
   orgMemberRoleForPlatformRole,
   type PlatformTeamRole,
   type TeamInvitePermissions,
 } from "@/features/organization/utils/teamInviteRoles.util";
 import type { MemberSurfaceMap } from "@/lib/memberSurfaces";
+import { setMemberWarehouseIds } from "@/features/organization/services/memberWarehouses.service";
 import { getCapabilitiesFromProfile, type Capability } from "@/lib/capabilities";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -269,10 +271,40 @@ export async function lookupUserByPhone(phone: string): Promise<{
 
 // ─── Invite member (existing Pulse user) ─────────────────────────────────────
 
+/** Access chosen in the invite editor; absent = the role's default preset. */
+export type TeamInviteAccess = {
+  surfaces: MemberSurfaceMap;
+  isDepartmentManager?: boolean;
+  /** Ground Ops only — which warehouses' trips they see. */
+  warehouseIds?: string[];
+};
+
+/** Same write shape as Edit member (buildMemberPermissions) when access is given. */
+function invitePermissions(
+  platformRole: PlatformTeamRole,
+  orgCaps: Capability[],
+  access?: TeamInviteAccess,
+): TeamInvitePermissions {
+  return access
+    ? buildMemberPermissions({
+        platformRole,
+        orgCaps,
+        surfaces: access.surfaces,
+        isDepartmentManager: access.isDepartmentManager,
+      })
+    : buildTeamInvitePermissions(platformRole, undefined, orgCaps);
+}
+
+/** Ground Ops warehouses chosen on the invite (empty for every other role). */
+function inviteWarehouseIds(platformRole: PlatformTeamRole, access?: TeamInviteAccess): string[] {
+  return platformRole === "ground_ops" ? (access?.warehouseIds ?? []) : [];
+}
+
 export async function inviteTeamMember(
   orgId: string,
   userId: string,
   platformRole: PlatformTeamRole,
+  access?: TeamInviteAccess,
 ): Promise<{
   error: Error | null;
   member: OrgMember | null;
@@ -280,9 +312,9 @@ export async function inviteTeamMember(
   alreadyInvited?: boolean;
   belongsToOtherOrg?: boolean;
 }> {
-  const role = orgMemberRoleForPlatformRole(platformRole);
   const orgCaps = await getOrgCapabilities(orgId);
-  const permissions = buildTeamInvitePermissions(platformRole, undefined, orgCaps);
+  const permissions = invitePermissions(platformRole, orgCaps, access);
+  const role = orgMemberRoleForPlatformRole(permissions.platformRole);
   try {
     const { data, error } = await supabase().rpc("invite_existing_user_to_org", {
       p_org_id: orgId,
@@ -309,7 +341,18 @@ export async function inviteTeamMember(
       }
       return { error: friendlyMemberWriteError(error.message), member: null };
     }
-    return { error: null, member: data as OrgMember };
+    const member = data as OrgMember;
+    const warehouseIds = inviteWarehouseIds(permissions.platformRole, access);
+    if (member?.id && warehouseIds.length > 0) {
+      const { error: whError } = await setMemberWarehouseIds(member.id, warehouseIds);
+      if (whError) {
+        return {
+          error: new Error(`Invite sent, but warehouses didn't save: ${whError.message}`),
+          member,
+        };
+      }
+    }
+    return { error: null, member };
   } catch (e) {
     return { error: e instanceof Error ? e : new Error(String(e)), member: null };
   }
@@ -324,15 +367,21 @@ export async function createPendingTeamInvite(
     name: string;
     email?: string | null;
     platformRole: PlatformTeamRole;
+    access?: TeamInviteAccess;
   },
 ): Promise<{
   error: Error | null;
   invite: PendingPhoneTeamInvite | null;
   alreadyPending?: boolean;
 }> {
-  const role = orgMemberRoleForPlatformRole(params.platformRole);
   const orgCaps = await getOrgCapabilities(orgId);
-  const permissions = buildTeamInvitePermissions(params.platformRole, undefined, orgCaps);
+  const basePermissions = invitePermissions(params.platformRole, orgCaps, params.access);
+  const pendingWarehouseIds = inviteWarehouseIds(basePermissions.platformRole, params.access);
+  const permissions =
+    pendingWarehouseIds.length > 0
+      ? { ...basePermissions, warehouseIds: pendingWarehouseIds }
+      : basePermissions;
+  const role = orgMemberRoleForPlatformRole(permissions.platformRole);
   try {
     const { data, error } = await supabase().rpc("create_team_invite_pending", {
       p_org_id: orgId,
@@ -382,6 +431,7 @@ export async function inviteTeamMemberByContact(
     name: string;
     email?: string | null;
     platformRole: PlatformTeamRole;
+    access?: TeamInviteAccess;
     existingUserId?: string | null;
   },
 ): Promise<{
@@ -436,7 +486,7 @@ export async function inviteTeamMemberByContact(
       ) {
         const profile = precheckToProfile(check);
         if (profile?.user_id) {
-          const res = await inviteTeamMember(orgId, profile.user_id, params.platformRole);
+          const res = await inviteTeamMember(orgId, profile.user_id, params.platformRole, params.access);
           return {
             error: res.error,
             kind: res.member ? "member" : null,
@@ -464,7 +514,7 @@ export async function inviteTeamMemberByContact(
   }
 
   if (params.existingUserId) {
-    const res = await inviteTeamMember(orgId, params.existingUserId, params.platformRole);
+    const res = await inviteTeamMember(orgId, params.existingUserId, params.platformRole, params.access);
     return {
       error: res.error,
       kind: res.member ? "member" : null,

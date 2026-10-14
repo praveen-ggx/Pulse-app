@@ -1,6 +1,6 @@
 /**
- * Compliance queue — same trip source as `/trips` (`useTripsQuery` → getTripsForOrg),
- * then:
+ * Compliance queue — `/trips`' catalog (getTripsForOrg) plus older trips still open in
+ * the Compliance workflow (`useComplianceTripCatalogQuery`), then:
  *  1. Filter Loading → Completed pipeline
  *  2. Cache per-trip INPUTS for the full pipeline under one stable key
  *     (`tripCompliance.pipeline(orgId)`); summaries derive via `select`
@@ -26,6 +26,7 @@ import {
 import {
   buildComplianceTripSummaries,
   summarizeComplianceTrip,
+  tripAppearsInAwaitingPod,
 } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import type {
   ComplianceStage,
@@ -37,9 +38,16 @@ import { selectCompliancePipelineTrips } from "@/features/tripCompliance/utils/c
 import {
   isCompliancePaymentPending,
   isComplianceVerifiedQueue,
+  isFinanceVerifiedQueue,
 } from "@/features/tripCompliance/utils/complianceReadiness.util";
+import {
+  isActiveFinanceReject,
+  isFinanceDeclinedForPendingDocs,
+  isFinanceDeclinedTrip,
+  isComplianceHoldAwaitingResubmit,
+} from "@/features/tripCompliance/utils/complianceTableStatus.util";
 import { getTripById, type TripRow } from "@/features/trips/services/trips.service";
-import { useTripsQuery } from "@/lib/queries/useTripsQuery";
+import { useComplianceTripCatalogQuery } from "@/lib/queries/useTripsQuery";
 import { queryKeys } from "@/lib/queryKeys";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -154,7 +162,7 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
   const { user } = useAuth();
   const sessionKey = `${orgId}:${user?.uid ?? ""}`;
   const qc = useQueryClient();
-  const tripsQuery = useTripsQuery(orgId || null);
+  const tripsQuery = useComplianceTripCatalogQuery(orgId || null);
 
   const pipelineTrips = useMemo(
     () => selectCompliancePipelineTrips(tripsQuery.data ?? []),
@@ -173,7 +181,7 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
       const log = writeLogFor(orgId);
       const startedAt = log.generation;
       const previous = qc.getQueryData<ComplianceTripInputs[]>(pipelineKey);
-      const rows = await loadCompliancePipelineInputs(previous, pipelineTripsRef.current, { full });
+      const rows = await loadCompliancePipelineInputs(previous, pipelineTripsRef.current, { full, viewerOrgId: orgId });
       if (full) fullyLoadedSessions.add(sessionKey);
       // A write that landed while this read was in flight wins over its snapshot.
       const current = qc.getQueryData<ComplianceTripInputs[]>(pipelineKey);
@@ -194,7 +202,7 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
     let cancelled = false;
     const log = writeLogFor(orgId);
     const startedAt = log.generation;
-    void patchForPipelineTrips(current, pipelineTrips)
+    void patchForPipelineTrips(current, pipelineTrips, orgId)
       .then((patch) => {
         if (cancelled) return;
         let before: ComplianceTripInputs[] | undefined;
@@ -251,16 +259,68 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
   };
 }
 
-export type ComplianceQueueFilter = ComplianceStage | "all" | "pod_received" | "payment_pending";
+export type ComplianceQueueFilter = ComplianceStage | "all" | "pod_received";
+
+/** Hard copy is in, and the charge form has not been saved yet. */
+export function tripStillInPodReceived(summary: ComplianceTripSummary): boolean {
+  return Boolean(summary.hardCopyPod?.received) && summary.hardCopyPod?.chargesSaved !== true;
+}
+
+/** Saved charges belong on Balance Pending, including trips already derived there. */
+export function tripAppearsInBalancePending(summary: ComplianceTripSummary): boolean {
+  if (summary.stage === "payment_settled") return false;
+  if (summary.hardCopyPod?.chargesSaved === true) return true;
+  return summary.stage === "balance_pending";
+}
 
 export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | undefined) {
   const [stage, setStage] = useState<ComplianceQueueFilter>("all");
   const filtered = useMemo(() => {
     if (!summaries) return [];
     if (stage === "all") return summaries;
-    if (stage === "pod_received") return summaries.filter((summary) => summary.hardCopyPod?.received);
-    if (stage === "payment_pending") return summaries.filter(isCompliancePaymentPending);
-    if (stage === "compliance_verified") return summaries.filter(isComplianceVerifiedQueue);
+    if (stage === "pod_received") return summaries.filter(tripStillInPodReceived);
+    if (stage === "balance_pending") {
+      // Settlement Verification. Settled trips have their own Final Settlement tab.
+      return summaries.filter(tripAppearsInBalancePending);
+    }
+    if (stage === "compliance_verified") {
+      // Advance still owed stays on Verified. Payment Pending is not its own chip.
+      // Once Finance verifies, the trip moves to Finance Verified.
+      return summaries.filter(
+        (s) =>
+          !s.financeVerifiedAt &&
+          (isComplianceVerifiedQueue(s) || isCompliancePaymentPending(s)),
+      );
+    }
+    if (stage === "finance_verified") {
+      return summaries.filter(isFinanceVerifiedQueue);
+    }
+    if (stage === "hard_copy_pod_received") {
+      // Awaiting POD tab: also lists paid trips that are still running (Advance Processed).
+      return summaries.filter(
+        (s) =>
+          tripAppearsInAwaitingPod(s) ||
+          tripStillInPodReceived(s) ||
+          s.stage === "advance_payment_processed",
+      );
+    }
+    // Verified Reject keeps stage=compliance_verified but also lists under Verified All.
+    if (stage === "pending_for_docs") {
+      // Ground Ops work: missing files, holds and finance rejects until Resubmit.
+      return summaries.filter(
+        (s) =>
+          s.stage === "pending_for_docs" ||
+          isFinanceDeclinedForPendingDocs(s) ||
+          isComplianceHoldAwaitingResubmit(s),
+      );
+    }
+    if (stage === "compliance_pending") {
+      // Compliance work: complete trips not waiting on Ground Ops. A resubmitted
+      // finance reject goes straight back to Finance (Advance Verification).
+      return summaries.filter(
+        (s) => s.stage === "compliance_pending" && !isComplianceHoldAwaitingResubmit(s),
+      );
+    }
     return summaries.filter((s) => s.stage === stage);
   }, [summaries, stage]);
 
@@ -270,31 +330,67 @@ export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | un
       pending_for_docs: 0,
       compliance_pending: 0,
       compliance_verified: 0,
+      finance_verified: 0,
       advance_payment_processed: 0,
       hard_copy_pod_received: 0,
       balance_pending: 0,
       payment_settled: 0,
     };
     for (const summary of summaries ?? []) {
-      if (summary.stage in next) next[summary.stage] += 1;
+      // Active rejects and holds are Ground Ops work; a resubmitted finance
+      // reject is back with Finance. Each trip counts on one queue.
+      if (isActiveFinanceReject(summary)) {
+        next.pending_for_docs += 1;
+      } else if (summary.stage === "compliance_pending" && isComplianceHoldAwaitingResubmit(summary)) {
+        next.pending_for_docs += 1;
+      } else if (summary.stage in next) {
+        next[summary.stage] += 1;
+      }
       if (summary.stage !== "compliance_verified" && isComplianceVerifiedQueue(summary)) {
         next.compliance_verified += 1;
+      } else if (
+        !summary.financeVerifiedAt &&
+        isCompliancePaymentPending(summary) &&
+        summary.stage !== "compliance_verified" &&
+        !isComplianceVerifiedQueue(summary)
+      ) {
+        next.compliance_verified += 1;
+      }
+      if (
+        summary.stage !== "hard_copy_pod_received" &&
+        (tripAppearsInAwaitingPod(summary) || tripStillInPodReceived(summary))
+      ) {
+        next.hard_copy_pod_received += 1;
+      }
+      if (summary.stage !== "balance_pending" && tripAppearsInBalancePending(summary)) {
+        next.balance_pending += 1;
       }
     }
+    // Same rule as the Finance Verified list, so the chip count always matches it.
+    next.finance_verified = (summaries ?? []).filter(isFinanceVerifiedQueue).length;
+    // Awaiting POD also lists paid trips still running (their exclusive stage is Advance Processed).
+    next.hard_copy_pod_received += next.advance_payment_processed;
     return next;
   }, [summaries]);
 
   const podReceivedCount = useMemo(
-    () => (summaries ?? []).filter((summary) => summary.hardCopyPod?.received).length,
+    () => (summaries ?? []).filter(tripStillInPodReceived).length,
     [summaries],
   );
 
-  const paymentPendingCount = useMemo(
-    () => (summaries ?? []).filter(isCompliancePaymentPending).length,
+  const declinedCount = useMemo(
+    () => (summaries ?? []).filter(isFinanceDeclinedTrip).length,
     [summaries],
   );
 
-  return { stage, setStage, filtered, counts, podReceivedCount, paymentPendingCount };
+  return {
+    stage,
+    setStage,
+    filtered,
+    counts,
+    podReceivedCount,
+    declinedCount,
+  };
 }
 
 /** Client-side page over an already-filtered summary list. */
@@ -343,6 +439,7 @@ export function useInvalidateComplianceTrips() {
     if (!orgId) return;
     void qc.invalidateQueries({ queryKey: queryKeys.tripCompliance.pipeline(orgId) });
     void qc.invalidateQueries({ queryKey: queryKeys.trips.finite(orgId) });
+    void qc.invalidateQueries({ queryKey: queryKeys.trips.compliance(orgId) });
     if (tripId) {
       void qc.invalidateQueries({ queryKey: queryKeys.tripCompliance.detail(orgId, tripId) });
     } else {
@@ -374,7 +471,7 @@ export function useComplianceChangeSync() {
       try {
         const log = writeLogFor(orgId);
         const startedAt = log.generation;
-        const patch = await patchForComplianceChange(current, change);
+        const patch = await patchForComplianceChange(current, change, orgId);
         let patchedTrip: TripRow | null = null;
         qc.setQueryData<ComplianceTripInputs[]>(key, (cur) => {
           if (!cur) return cur;
@@ -386,11 +483,30 @@ export function useComplianceChangeSync() {
         });
         if (patchedTrip) {
           const trip: TripRow = patchedTrip;
-          qc.setQueriesData<TripRow[]>({ queryKey: queryKeys.trips.finite(orgId) }, (rows) =>
-            rows?.map((row) =>
-              row.id === trip.id ? { ...row, amount_paid: trip.amount_paid, updated_at: trip.updated_at } : row,
-            ),
+          for (const key of [queryKeys.trips.finite(orgId), queryKeys.trips.compliance(orgId)]) {
+            qc.setQueriesData<TripRow[]>({ queryKey: key }, (rows) =>
+              rows?.map((row) =>
+                row.id === trip.id ? { ...row, amount_paid: trip.amount_paid, updated_at: trip.updated_at } : row,
+              ),
+            );
+          }
+        }
+        // Payment / verify / decline also move Finance Hub + Ledger — bust their caches.
+        if (
+          change.type === "payment" ||
+          change.type === "complianceVerified" ||
+          change.type === "complianceDeclined"
+        ) {
+          const { syncFinanceComplianceCaches } = await import(
+            "@/lib/queries/syncFinanceComplianceCaches"
           );
+          syncFinanceComplianceCaches({
+            queryClient: qc,
+            organizationId: orgId,
+            tripId,
+            includeCompliance: false, // pipeline already patched above
+          });
+          void qc.invalidateQueries({ queryKey: ["q", "tripCompliance", "advanceProcessed"] });
         }
       } catch {
         void qc.invalidateQueries({ queryKey: key });
@@ -410,7 +526,7 @@ export function useComplianceTripQuery(tripId: string | undefined) {
       const { error, trip } = await getTripById(tripId);
       if (error) throw error;
       if (!trip || trip.organization_id !== orgId) return null;
-      const summaries = await buildComplianceTripSummaries([trip]);
+      const summaries = await buildComplianceTripSummaries([trip], orgId);
       return summaries[0] ?? null;
     },
     enabled: !!orgId && !!tripId,

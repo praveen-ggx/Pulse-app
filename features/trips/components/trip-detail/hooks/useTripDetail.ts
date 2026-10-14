@@ -39,7 +39,7 @@ import {
 } from "@/features/suppliers/services/suppliers.service";
 import { getVehicleDocumentViewUrl, getVehicleDocumentViewUrls, mergeEntityDocumentsIntoVehicleVault } from "@/features/vehicles/services/vehicleDocuments.service";
 import { resolveTripDocumentPreviewUrl } from "@/features/tripCompliance/services/vehicleDocumentReuse.service";
-import { getVehicleById } from "@/features/vehicles/services/vehicles.service";
+import { getVehicleById, getVehicleForTripViewer, findVehicleByPlate, createVehicle } from "@/features/vehicles/services/vehicles.service";
 import type { VehicleDocuments } from "@/features/vehicles/utils/vehicleDocuments.util";
 import {
     DOCUMENT_LABELS,
@@ -480,6 +480,8 @@ export function useTripDetail({
   });
   const [driverPhone, setDriverPhone] = useState<string | null>(null);
   const [driverAvatarUri, setDriverAvatarUri] = useState<string | null>(null);
+  const [vehicleOwnerOrgId, setVehicleOwnerOrgId] = useState<string | null>(null);
+  const [vaultVehicleId, setVaultVehicleId] = useState<string | null>(null);
   const [vehicleLabel, setVehicleLabel] = useState<string | null>(() => {
     const row = peekTripDetailFirstPaint(tripId, queryClient);
     return row ? tripRowListPaintFields(row).vehicleLabel : null;
@@ -544,6 +546,8 @@ export function useTripDetail({
 
   // ── Documents ─────────────────────────────────────────────────────────────
   const [tripDocuments, setTripDocuments] = useState<tripDocumentsService.TripDocumentRow[]>([]);
+  const tripDocumentsRef = useRef(tripDocuments);
+  tripDocumentsRef.current = tripDocuments;
   const [docPreviewUrl, setDocPreviewUrl] = useState<string | null>(null);
   const [docPreviewLoading, setDocPreviewLoading] = useState(false);
   const [docPreviewError, setDocPreviewError] = useState(false);
@@ -607,6 +611,8 @@ export function useTripDetail({
   } | null>(null);
   /** Documents/POD viewer opened — allows OCR + Storage fallback. */
   const documentsViewerActiveRef = useRef(false);
+  const lastLocalTripDocWriteAtRef = useRef(0);
+  const vehicleDocsLoadedForRef = useRef<string | null>(null);
   /**
    * Bundle seed already applies latest_driver_location. Skip the first
    * status/updated_at location read for this tripId; later status changes still fetch.
@@ -1319,6 +1325,10 @@ export function useTripDetail({
           tripDocuments.filter((d) => d.document_type === "other"),
           { id: "other", label: "Other Documents", pendingType: "PDF", category: "trip" },
         );
+        const bankSlot = buildSlotCard(
+          tripDocuments.filter((d) => d.document_type === "bank_docs"),
+          { id: "bank_docs", label: "Bank Docs", pendingType: "PDF", category: "trip" },
+        );
         const tag = (card: TripDocItem, slotType: TripDetailsSlot): TripDocFile[] =>
           (card.files ?? []).map((file) => ({ ...file, slotType }));
         const files = [
@@ -1326,12 +1336,14 @@ export function useTripDetail({
           ...tag(invoiceSlot, "invoice"),
           ...tag(memoSlot, "memo"),
           ...tag(otherSlot, "other"),
+          ...tag(bankSlot, "bank_docs"),
         ];
         const onFile = [
           lrSlot.status !== "Pending" ? "LR" : null,
           invoiceSlot.status !== "Pending" ? "INVOICE" : null,
           memoSlot.status !== "Pending" ? "MEMO" : null,
           otherSlot.status !== "Pending" ? "OTHER" : null,
+          bankSlot.status !== "Pending" ? "BANK" : null,
         ].filter((label): label is string => !!label);
         return {
           id: "trip-details",
@@ -1353,6 +1365,7 @@ export function useTripDetail({
             invoiceSlot.uploadedAt ??
             memoSlot.uploadedAt ??
             otherSlot.uploadedAt ??
+            bankSlot.uploadedAt ??
             null,
         };
       })(),
@@ -2186,12 +2199,14 @@ export function useTripDetail({
   const loadTripDocuments = useCallback(
     (opts?: { forViewer?: boolean }) => {
       if (!tripId) return Promise.resolve();
-      if (opts?.forViewer) documentsViewerActiveRef.current = true;
       const requestedTripId = tripId;
-      const forViewer = documentsViewerActiveRef.current;
+      // Storage listing is only for a preview of a file that has no table row.
+      // The vault grid must not wait on storage.list (that scan is multi-second).
+      const forViewer = opts?.forViewer === true;
+      if (forViewer) documentsViewerActiveRef.current = true;
       return tripDocumentsService
         .getDocumentsByTripId(tripId, {
-          includeOcr: forViewer,
+          includeOcr: false,
           includeStorageFallback: forViewer,
         })
         .then(({ documents, error }) => {
@@ -2207,6 +2222,217 @@ export function useTripDetail({
     [tripId],
   );
 
+  /**
+   * Set the vault's vehicle docs, then fill empty slots from entity_documents saved
+   * under the trip org, the viewer org or the owner org. A partner truck's RC /
+   * fitness / insurance are often uploaded by the trip org (e.g. GoGoVan on SIVAN E's
+   * truck) and never reach the owner's vehicles.documents. Every writer goes through
+   * here so a later write can't wipe the merged slots.
+   */
+  const applyVehicleVaultDocs = useCallback(
+    (vehicleId: string, ownerOrgId: string, base: VehicleDocuments | null) => {
+      setVehicleDocs(base);
+      const requestedTripId = trip?.id ?? "";
+      const orgs = [trip?.organization_id ?? "", currentOrganization?.id ?? "", ownerOrgId]
+        .map((id) => id.trim())
+        .filter((id, index, all) => id && all.indexOf(id) === index);
+      void (async () => {
+        let merged = base;
+        for (const org of orgs) {
+          merged = await mergeEntityDocumentsIntoVehicleVault(vehicleId, org, merged);
+        }
+        if (currentTripIdRef.current === requestedTripId && merged !== base) setVehicleDocs(merged);
+      })();
+    },
+    [trip?.id, trip?.organization_id, currentOrganization?.id],
+  );
+
+  /** One vehicle row so the vault can show RC/insurance. Plate-only market vehicles are a point lookup, not a fleet scan. Does not create a row. */
+  const ensureVehicleDocs = useCallback(() => {
+    const vehicleId = trip?.vehicle_id?.trim() || trip?.owner_vehicle_id?.trim() || "";
+    const fromLabel = (vehicleLabel ?? "").split(/[·•]/)[0]?.trim() ?? "";
+    const typedPlate = displayVehicleFromInput.trim();
+    const plateSource =
+      (typedPlate && !/^pending$/i.test(typedPlate) ? typedPlate : "") ||
+      (trip?.vehicle_display_number ?? "").trim() ||
+      (fromLabel && fromLabel !== "—" && !/^pending$/i.test(fromLabel) ? fromLabel : "");
+    const plate =
+      formatIndianVehicleNumber(plateSource).trim() || plateSource.trim();
+    const orgId = (trip?.organization_id ?? currentOrganization?.id)?.trim() ?? "";
+    const requestedTripId = trip?.id ?? "";
+    const loadKey = vehicleId || plate;
+    if (!loadKey || !orgId || !requestedTripId) return;
+    if (vehicleDocsLoadedForRef.current === loadKey) return;
+    vehicleDocsLoadedForRef.current = loadKey;
+    void (async () => {
+      if (!vehicleId) {
+        const byPlate = await findVehicleByPlate(orgId, plate);
+        if (currentTripIdRef.current !== requestedTripId || !byPlate.vehicle) return;
+        setVaultVehicleId(byPlate.vehicle.id);
+        setVehicleOwnerOrgId(orgId);
+        applyVehicleVaultDocs(byPlate.vehicle.id, orgId, (byPlate.vehicle.documents ?? null) as VehicleDocuments | null);
+        return;
+      }
+      const owned = await getVehicleById(orgId, vehicleId);
+      if (currentTripIdRef.current !== requestedTripId) return;
+      let vehicle = owned.vehicle;
+      if (!vehicle) {
+        const viewed = await getVehicleForTripViewer(vehicleId, requestedTripId, orgId);
+        if (currentTripIdRef.current !== requestedTripId) return;
+        vehicle = viewed.vehicle;
+      }
+      if (!vehicle) return;
+      const ownerOrgId = vehicle.organization_id?.trim() || orgId;
+      setVaultVehicleId(vehicle.id);
+      setVehicleOwnerOrgId(ownerOrgId);
+      const label = [vehicle.vehicle_number, vehicle.vehicle_type].filter(Boolean).join(" · ");
+      if (label) setVehicleLabel(label);
+      applyVehicleVaultDocs(vehicle.id, ownerOrgId, (vehicle.documents ?? null) as VehicleDocuments | null);
+    })();
+  }, [trip?.vehicle_id, trip?.owner_vehicle_id, trip?.vehicle_display_number, displayVehicleFromInput, vehicleLabel, trip?.organization_id, trip?.id, currentOrganization?.id, applyVehicleVaultDocs]);
+
+  const rememberVaultVehicle = useCallback(
+    (vehicleId: string, orgId: string, documents?: VehicleDocuments | null) => {
+      setVaultVehicleId(vehicleId);
+      setVehicleOwnerOrgId(orgId);
+      if (documents !== undefined) applyVehicleVaultDocs(vehicleId, orgId, documents);
+    },
+    [applyVehicleVaultDocs],
+  );
+
+  /**
+   * Asset trips use trips.vehicle_id. Market and aggregate trips often keep only
+   * the typed plate on vehicle_display_number. Either one can hold RC, fitness,
+   * insurance, and PUC. A plate with no vehicle row yet is saved as an adhoc
+   * vehicle in the trip org. trips.vehicle_id is not changed.
+   */
+  const resolveVaultVehicle = useCallback(async (): Promise<{
+    vehicleId: string;
+    orgId: string;
+  } | null> => {
+    const requestedTripId = trip?.id ?? "";
+    const orgId = (trip?.organization_id ?? currentOrganization?.id)?.trim() ?? "";
+    if (!requestedTripId || !orgId) return null;
+
+    const linkedId = trip?.vehicle_id?.trim() || trip?.owner_vehicle_id?.trim() || "";
+    if (vaultVehicleId && vehicleOwnerOrgId && (!linkedId || vaultVehicleId === linkedId)) {
+      return { vehicleId: vaultVehicleId, orgId: vehicleOwnerOrgId };
+    }
+    if (linkedId) {
+      if (vaultVehicleId === linkedId && vehicleOwnerOrgId) {
+        return { vehicleId: linkedId, orgId: vehicleOwnerOrgId };
+      }
+      const owned = await getVehicleById(orgId, linkedId);
+      if (currentTripIdRef.current !== requestedTripId) return null;
+      if (owned.vehicle) {
+        rememberVaultVehicle(linkedId, orgId, (owned.vehicle.documents ?? null) as VehicleDocuments | null);
+        return { vehicleId: linkedId, orgId };
+      }
+      const viewed = await getVehicleForTripViewer(linkedId, requestedTripId, orgId);
+      if (currentTripIdRef.current !== requestedTripId) return null;
+      const ownerOrgId = viewed.vehicle?.organization_id?.trim() || "";
+      if (viewed.vehicle && ownerOrgId) {
+        rememberVaultVehicle(
+          linkedId,
+          ownerOrgId,
+          (viewed.vehicle.documents ?? null) as VehicleDocuments | null,
+        );
+        return { vehicleId: linkedId, orgId: ownerOrgId };
+      }
+    }
+
+    if (vaultVehicleId && vehicleOwnerOrgId) {
+      return { vehicleId: vaultVehicleId, orgId: vehicleOwnerOrgId };
+    }
+
+    const fromLabel = (vehicleLabel ?? "").split(/[·•]/)[0]?.trim() ?? "";
+    const typedPlate = displayVehicleFromInput.trim();
+    const plateSource =
+      (typedPlate && !/^pending$/i.test(typedPlate) ? typedPlate : "") ||
+      (trip?.vehicle_display_number ?? "").trim() ||
+      (fromLabel && fromLabel !== "—" && !/^pending$/i.test(fromLabel) ? fromLabel : "");
+    const plate =
+      formatIndianVehicleNumber(plateSource).trim() || plateSource.trim();
+    if (!plate) return null;
+    if (vaultVehicleId && vehicleOwnerOrgId) {
+      return { vehicleId: vaultVehicleId, orgId: vehicleOwnerOrgId };
+    }
+
+    const inTripOrg = await findVehicleByPlate(orgId, plate);
+    if (currentTripIdRef.current !== requestedTripId) return null;
+    if (inTripOrg.vehicle) {
+      rememberVaultVehicle(
+        inTripOrg.vehicle.id,
+        orgId,
+        (inTripOrg.vehicle.documents ?? null) as VehicleDocuments | null,
+      );
+      return { vehicleId: inTripOrg.vehicle.id, orgId };
+    }
+
+    const supplierId = trip?.supplier_id?.trim() ?? "";
+    if (supplierId) {
+      const { supplier } = await getSupplierById(orgId, supplierId);
+      if (currentTripIdRef.current !== requestedTripId) return null;
+      const linkedOrgId = supplier?.linked_organization_id?.trim() ?? "";
+      if (linkedOrgId && linkedOrgId !== orgId) {
+        const inSupplierOrg = await findVehicleByPlate(linkedOrgId, plate);
+        if (currentTripIdRef.current !== requestedTripId) return null;
+        if (inSupplierOrg.vehicle) {
+          rememberVaultVehicle(
+            inSupplierOrg.vehicle.id,
+            linkedOrgId,
+            (inSupplierOrg.vehicle.documents ?? null) as VehicleDocuments | null,
+          );
+          return { vehicleId: inSupplierOrg.vehicle.id, orgId: linkedOrgId };
+        }
+      }
+    }
+
+    const created = await createVehicle(orgId, {
+      vehicle_number: plate,
+      vehicleSource: "partner",
+    });
+    if (currentTripIdRef.current !== requestedTripId) return null;
+    if (created.vehicle) {
+      rememberVaultVehicle(
+        created.vehicle.id,
+        orgId,
+        (created.vehicle.documents ?? {}) as VehicleDocuments,
+      );
+      return { vehicleId: created.vehicle.id, orgId };
+    }
+    if (created.error?.message.toLowerCase().includes("already added")) {
+      const again = await findVehicleByPlate(orgId, plate);
+      if (again.vehicle) {
+        rememberVaultVehicle(
+          again.vehicle.id,
+          orgId,
+          (again.vehicle.documents ?? null) as VehicleDocuments | null,
+        );
+        return { vehicleId: again.vehicle.id, orgId };
+      }
+    }
+    return null;
+  }, [
+    trip?.id,
+    trip?.organization_id,
+    trip?.vehicle_id,
+    trip?.owner_vehicle_id,
+    trip?.vehicle_display_number,
+    displayVehicleFromInput,
+    vehicleLabel,
+    trip?.supplier_id,
+    currentOrganization?.id,
+    vaultVehicleId,
+    vehicleOwnerOrgId,
+    rememberVaultVehicle,
+  ]);
+
+  const resolveVehicleOwnerOrgId = useCallback(async (): Promise<string | null> => {
+    const target = await resolveVaultVehicle();
+    return target?.orgId ?? null;
+  }, [resolveVaultVehicle]);
+
   const ensureTripDocumentsForViewer = useCallback(() => {
     documentsViewerActiveRef.current = true;
     return loadTripDocuments({ forViewer: true });
@@ -2214,6 +2440,7 @@ export function useTripDetail({
 
   const upsertTripDocument = useCallback(
     (row: tripDocumentsService.TripDocumentRow) => {
+      lastLocalTripDocWriteAtRef.current = Date.now();
       setTripDocuments((prev) => {
         const without = prev.filter((doc) => doc.id !== row.id);
         return [row, ...without];
@@ -2226,6 +2453,7 @@ export function useTripDetail({
   // has no org-scoped realtime coverage elsewhere, so this per-trip subscription is the
   // only way this screen learns about a new upload without a manual refresh.
   useRealtimeTripDocuments(tripId ?? null, () => {
+    if (Date.now() - lastLocalTripDocWriteAtRef.current < 2_500) return;
     void loadTripDocuments();
   });
 
@@ -2637,9 +2865,12 @@ export function useTripDetail({
         : []) as unknown as TripAdjustment[],
     );
     if (!documentsViewerActiveRef.current) {
+      const fromBundle = tripDocumentsFromBundle(bundle.documents);
+      // The light bundle always ships documents: []. Do not wipe rows the
+      // vault already loaded from trip_documents.
       setTripDocuments((prev) => {
-        const incoming = tripDocumentsFromBundle(bundle.documents);
-        return incoming.map((row) => {
+        if (fromBundle.length === 0 && prev.length > 0) return prev;
+        return fromBundle.map((row) => {
           if (row.document_number?.trim()) return row;
           const previous = prev.find((item) => item.id === row.id);
           return previous?.document_number
@@ -2672,6 +2903,14 @@ export function useTripDetail({
         void mergeEntityDocumentsIntoVehicleVault(vehicleId, viewerOrgId, base).then((merged) => {
           if (merged) setVehicleDocs(merged);
         });
+      }
+      const bundleVehicleId = String((v as { id?: string | null }).id ?? "").trim();
+      const bundleOrgId =
+        String((v as { organization_id?: string | null }).organization_id ?? "").trim() ||
+        String((bundle.trip as { organization_id?: string | null }).organization_id ?? "").trim();
+      if (bundleVehicleId && bundleOrgId) {
+        setVaultVehicleId(bundleVehicleId);
+        setVehicleOwnerOrgId(bundleOrgId);
       }
     }
 
@@ -2835,6 +3074,9 @@ export function useTripDetail({
   // OCR + Storage fallback wait until Documents/POD viewer (ensureTripDocumentsForViewer).
   useEffect(() => {
     documentsViewerActiveRef.current = false;
+    vehicleDocsLoadedForRef.current = null;
+    setVehicleOwnerOrgId(null);
+    setVaultVehicleId(null);
     setLocationHistoryEnabled(false);
     skippedBundleMountLocationReadForTripRef.current = null;
   }, [tripId]);
@@ -2843,12 +3085,6 @@ export function useTripDetail({
     if (trip?.id) loadTripDocuments();
     else setTripDocuments([]);
   }, [trip?.id, loadTripDocuments]);
-
-  useEffect(() => {
-    if (!selectedDoc) return;
-    if (documentsViewerActiveRef.current) return;
-    void ensureTripDocumentsForViewer();
-  }, [selectedDoc, ensureTripDocumentsForViewer]);
 
   useEffect(() => {
     if (!selectedDoc) {
@@ -2880,7 +3116,9 @@ export function useTripDetail({
     setDocPreviewLoading(true);
     setDocPreviewUrl(null);
     setDocPreviewError(false);
-    const matchingTripDoc = tripDocuments.find((d) => d.storage_path === docPreviewStoragePath);
+    const matchingTripDoc = tripDocumentsRef.current.find(
+      (d) => d.storage_path === docPreviewStoragePath,
+    );
     const urlPromise =
       selectedDoc.docSource === "vehicle"
         ? getVehicleDocumentViewUrl(docPreviewStoragePath)
@@ -2909,7 +3147,7 @@ export function useTripDetail({
     return () => {
       isActive = false;
     };
-  }, [selectedDoc, docPreviewStoragePath, isGalleryPreviewDoc, tripDocuments, trip?.organization_id]);
+  }, [selectedDoc, docPreviewStoragePath, isGalleryPreviewDoc, trip?.organization_id]);
 
   const galleryPreviewDocs = useMemo(() => {
     if (!selectedDoc || !isGalleryPreviewDoc) return [];
@@ -3414,6 +3652,9 @@ export function useTripDetail({
     tripDocuments,
     loadTripDocuments,
     ensureTripDocumentsForViewer,
+    ensureVehicleDocs,
+    resolveVaultVehicle,
+    resolveVehicleOwnerOrgId,
     upsertTripDocument,
     computedTripDocs,
     vehiclePreviewDocs,

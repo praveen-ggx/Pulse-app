@@ -60,6 +60,15 @@ export function formatMarketplaceTransactionError(message: string | null | undef
   if (m.includes('not_found')) {
     return 'This bid or load could not be found. It may have been removed.';
   }
+  if (m.includes('fee_paid')) {
+    return 'This award cannot be revoked because the marketplace fee has already been paid.';
+  }
+  if (m.includes('unsupported_provider')) {
+    return 'This paid fee was not a test payment, so it cannot be reversed here. The award is unchanged.';
+  }
+  if (m.includes('trip_exists')) {
+    return 'Cancel the trip before revoking this award.';
+  }
 
   // Unknown error: safe generic fallback, never the raw database text.
   return 'Something went wrong. Please try again.';

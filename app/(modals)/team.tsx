@@ -6,6 +6,7 @@ import { TeamMembersView } from "@/features/organization/components/TeamMembersV
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { ROUTES } from "@/lib/routes";
+import { useOrgRole } from "@/lib/hooks/useOrgRole";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import { useRouter } from "expo-router";
 import {
@@ -22,13 +23,15 @@ export default function TeamScreen() {
   const { user, profile } = useAuth();
   const { currentOrganization } = useOrganization();
   const { can: canSurface } = useMemberAccess();
+  const { isOwner, isAdmin } = useOrgRole();
 
   const orgId = currentOrganization?.id ?? null;
 
   // team_manage is not emitted by getCapabilitiesFromProfile (it comes from org membership role).
   // Show invite/manage controls to all non-driver org users; backend RLS handles authorization.
   const canManage = profile?.role !== "driver";
-  const canInvite = canManage && canSurface("team.invite");
+  // Invite RPCs accept owner/admin only — never show a button that fails.
+  const canInvite = canManage && (isOwner || isAdmin) && canSurface("team.invite");
 
   const handleInvite = () => {
     router.push(ROUTES.MODALS.INVITE_MEMBER as Parameters<typeof router.push>[0]);

@@ -16,7 +16,7 @@ import {
 import { createSupplier } from "@/features/suppliers/services/suppliers.service";
 import type { SupplierFormData } from "@/features/suppliers/components/AddSupplierModal";
 import { createVehicle } from "@/features/vehicles/services/vehicles.service";
-import type { AddVehicleCompletePayload } from "@/features/vehicles/components/AddVehicleModal";
+import type { AddVehicleCompletePayload } from "@/features/vehicles/utils/addVehiclePayload.model";
 import { showAppAlert } from "@/lib/appAlert";
 import { invalidateFleetDriverConnectionCaches } from "@/lib/invalidateFleetDriverConnectionCaches";
 import { queryKeys } from "@/lib/queryKeys";
@@ -32,7 +32,6 @@ export interface UseFinanceAddEntityHandlersArgs {
   setEntitiesRefreshKey: (fn: (k: number) => number) => void;
   setShowAddClientModal: (v: boolean) => void;
   setShowAddSupplierModal: (v: boolean) => void;
-  setShowAddVehicleModal: (v: boolean) => void;
   setShowAddDriverModal: (v: boolean) => void;
 }
 
@@ -58,7 +57,6 @@ export function useFinanceAddEntityHandlers(
     setEntitiesRefreshKey,
     setShowAddClientModal,
     setShowAddSupplierModal,
-    setShowAddVehicleModal,
     setShowAddDriverModal,
   } = args;
 
@@ -191,9 +189,8 @@ export function useFinanceAddEntityHandlers(
       if (error) throw error;
       await queryClient.refetchQueries({ queryKey: queryKeys.vehicles.all(organizationId) });
       setEntitiesRefreshKey((k) => k + 1);
-      setShowAddVehicleModal(false);
     },
-    [organizationId, queryClient, setEntitiesRefreshKey, setShowAddVehicleModal],
+    [organizationId, queryClient, setEntitiesRefreshKey],
   );
 
   const handleAddDriverInviteComplete = useCallback(

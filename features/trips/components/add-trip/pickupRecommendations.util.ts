@@ -4,6 +4,10 @@
  */
 import type { ClientRow } from "@/features/clients/services/clients.service";
 import type { ClientWarehouse } from "@/features/clients/services/clientWarehouses.service";
+import {
+  joinAddressParts,
+  warehouseAddressLine,
+} from "@/features/clients/utils/warehouseAddress.util";
 import type {
   OrganizationLocationType,
   OrganizationWorkspaceLocation,
@@ -47,21 +51,7 @@ const TYPE_LABELS: Record<OrganizationLocationType, string> = {
   other: "Office",
 };
 
-function joinParts(parts: Array<string | null | undefined>): string {
-  return parts
-    .map((p) => (typeof p === "string" ? p.trim() : ""))
-    .filter(Boolean)
-    .join(" · ");
-}
-
-function warehouseAddressLine(wh: ClientWarehouse): string {
-  return joinParts([
-    wh.name,
-    wh.address,
-    joinParts([wh.city, wh.state]).replace(/ · /g, ", ") || null,
-    wh.pincode,
-  ]);
-}
+const joinParts = joinAddressParts;
 
 function orgLocationAddressLine(loc: OrganizationWorkspaceLocation): string {
   return joinParts([

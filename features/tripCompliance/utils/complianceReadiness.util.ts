@@ -8,6 +8,8 @@ import {
   evaluateCompliancePaymentGuard,
   type ComplianceLedgerCategory,
 } from "@/features/tripCompliance/utils/compliancePaymentGuard.util";
+import { isCompletedDeliveredStatus } from "@/features/tripCompliance/utils/compliancePipelineTrips.util";
+import { isFinanceDeclinedTrip } from "@/features/tripCompliance/utils/complianceTableStatus.util";
 
 export type PaymentReadinessStatus = "ready" | "blocked" | "posted";
 
@@ -114,6 +116,13 @@ export function deriveComplianceQueueReadiness(summary: ComplianceTripSummary): 
   let advance: CompliancePaymentLane;
   if (summary.advance) {
     advance = lane("compliance_advance", "posted", `Advance posted ₹${summary.advance.amount.toLocaleString("en-IN")}`);
+  } else if (summary.advanceBeforeVerification) {
+    // Finance already posted; Compliance cannot pay. Wait for verify to count it.
+    advance = lane(
+      "compliance_advance",
+      "blocked",
+      `Finance has posted ₹${summary.advanceBeforeVerification.amount.toLocaleString("en-IN")}. Mark compliance verified to continue.`,
+    );
   } else if (!advanceGuard.ok) {
     advance = lane("compliance_advance", "blocked", advanceGuard.reason ?? "Advance is blocked.");
   } else if (expiredVehicleDocs.length > 0) {
@@ -122,8 +131,20 @@ export function deriveComplianceQueueReadiness(summary: ComplianceTripSummary): 
       "blocked",
       `Expired vehicle document${expiredVehicleDocs.length === 1 ? "" : "s"}: ${expiredVehicleDocs.join(", ")}.`,
     );
+  } else if (isFinanceDeclinedTrip(summary)) {
+    advance = lane(
+      "compliance_advance",
+      "blocked",
+      summary.complianceDeclineReason?.trim()
+        ? `Rejected: ${summary.complianceDeclineReason.trim()}`
+        : "Compliance was rejected. Resolve the remark before paying.",
+    );
   } else if (complianceVerificationIncomplete) {
     advance = lane("compliance_advance", "blocked", "Compliance verification not completed.");
+  } else if (summary.financeFlaggedAt) {
+    advance = lane("compliance_advance", "blocked", "Flagged for Compliance review.");
+  } else if (!summary.financeVerifiedAt) {
+    advance = lane("compliance_advance", "blocked", "Waiting for Approve Advance.");
   } else {
     advance = lane("compliance_advance", "ready", null);
   }
@@ -227,25 +248,59 @@ export function paymentReadinessLabel(readiness: ComplianceQueueReadiness): { la
 }
 
 /**
- * Cross-cutting Payment Pending queue: advance still owed after compliance is
- * verified — independent of the exclusive `summary.stage` chip. Once advance is
- * posted, derivation moves the trip to Awaiting POD.
+ * Advance still owed after compliance is verified. These trips stay on the
+ * Verified tab (not a separate chip) until the advance is posted, then the
+ * exclusive stage becomes Advance Processed.
  */
+/** Open Finance reject (not yet resubmitted). A resubmitted one is back with Finance. */
+function isPostVerifyFinanceReject(summary: ComplianceTripSummary): boolean {
+  return isFinanceDeclinedTrip(summary);
+}
+
 export function isCompliancePaymentPending(summary: ComplianceTripSummary): boolean {
   if (summary.advance || summary.balance) return false;
+  if (isPostVerifyFinanceReject(summary)) return false;
   if (summary.complianceVerifiedAt) return true;
   return deriveComplianceQueueReadiness(summary).readyCategory === "compliance_advance";
 }
 
 /**
- * Verified chip. A completed trip skips the exclusive Verified stage and
- * lands in Payment Pending. It still belongs on Verified until advance is
- * posted or hard-copy POD is received.
+ * Verified chip. Includes completed verified trips that skipped the exclusive
+ * Verified stage (e.g. into Awaiting POD) until advance is posted or hard-copy
+ * POD is received. Once advance is posted, exclusive stage is Advance Processed.
+ * Post-verify Reject is excluded here; Verified All still unions it in the queue filter.
  */
 export function isComplianceVerifiedQueue(summary: ComplianceTripSummary): boolean {
+  if (isPostVerifyFinanceReject(summary)) return false;
+  // Finance has verified it: the trip moves on to the Finance Verified queue.
+  if (summary.financeVerifiedAt) return false;
   if (summary.stage === "compliance_verified") return true;
+  if (summary.stage === "advance_payment_processed") return false;
   if (!summary.complianceVerifiedAt) return false;
   if (summary.advance || summary.balance) return false;
   if (summary.hardCopyPod?.received) return false;
   return true;
+}
+
+/**
+ * Finance Verified chip: Finance has verified the trip and the advance is not
+ * posted yet. Includes completed trips that sit in Awaiting POD, like the
+ * Compliance Verified queue. Once the advance is posted, the trip moves to
+ * Advance Processed.
+ */
+export function isFinanceVerifiedQueue(summary: ComplianceTripSummary): boolean {
+  if (!summary.complianceVerifiedAt || !summary.financeVerifiedAt) return false;
+  if (isPostVerifyFinanceReject(summary)) return false;
+  if (summary.advance || summary.balance) return false;
+  if (summary.hardCopyPod?.received) return false;
+  return true;
+}
+
+/**
+ * Awaiting POD work queue: exclusive Awaiting POD stage, or an Advance
+ * Processed trip that is already delivered with hard-copy still unmarked.
+ */
+export function isComplianceAwaitingPod(summary: ComplianceTripSummary): boolean {
+  if (summary.stage === "hard_copy_pod_received") return true;
+  return summary.stage === "advance_payment_processed" && isCompletedDeliveredStatus(summary.trip.status);
 }

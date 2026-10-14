@@ -1,4 +1,4 @@
-export { AddVehicleModal, type AddVehicleCompletePayload, type VehicleSource } from './components/AddVehicleModal';
+export type { AddVehicleCompletePayload, VehicleSource } from './utils/addVehiclePayload.model';
 export {
   AddVehicleEntryModal,
   VEHICLE_ENTRY_CATEGORIES,

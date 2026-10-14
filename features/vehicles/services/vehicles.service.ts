@@ -2,6 +2,7 @@
  * Vehicles service — Supabase only (mobile). Same DB as pulse-unified-base.
  */
 import { supabase } from '@/lib/supabase';
+import { formatIndianVehicleNumber } from '@/lib/format';
 import { DEFAULT_PAGE_SIZE, type PageOpts } from '@/lib/pagination';
 import { syncDomainRows } from '@/lib/cache/domainSync';
 import { mergeDeltaRows } from '@/lib/cache/mergeDelta';
@@ -142,6 +143,28 @@ export async function getVehicleById(
   const { data, error } = await (signal ? query.abortSignal(signal) : query).maybeSingle();
   if (error) return { error: new Error(error.message), vehicle: null };
   return { error: null, vehicle: data as VehicleRow | null };
+}
+
+/** Point lookup on (organization_id, vehicle_number). Tries the compact plate and the raw text. */
+export async function findVehicleByPlate(
+  orgId: string,
+  plate: string,
+): Promise<{ error: Error | null; vehicle: VehicleRow | null }> {
+  const compact = formatIndianVehicleNumber(plate).trim();
+  const raw = plate.trim();
+  const numbers = Array.from(new Set([compact, raw].filter(Boolean)));
+  for (const vehicleNumber of numbers) {
+    const { data, error } = await supabase()
+      .from("vehicles")
+      .select("id, organization_id, vehicle_number, vehicle_type, documents, status, type, created_at, updated_at")
+      .eq("organization_id", orgId)
+      .eq("vehicle_number", vehicleNumber)
+      .limit(1)
+      .maybeSingle();
+    if (error) return { error: new Error(error.message), vehicle: null };
+    if (data) return { error: null, vehicle: data as VehicleRow };
+  }
+  return { error: null, vehicle: null };
 }
 
 /**

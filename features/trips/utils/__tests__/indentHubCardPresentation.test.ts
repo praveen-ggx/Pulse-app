@@ -44,6 +44,11 @@ describe("indentHubLifecycleStatus", () => {
   it("maps awarded (even with bids) → AWARDED, not a trip stage", () => {
     expect(indentHubLifecycleStatus("awarded", 4)).toBe("AWARDED");
   });
+
+  it("maps cancelled and expired → FAILED", () => {
+    expect(indentHubLifecycleStatus("cancelled", 2)).toBe("FAILED");
+    expect(indentHubLifecycleStatus("expired", 0)).toBe("FAILED");
+  });
 });
 
 describe("indentHasAwardRevokedTag", () => {
@@ -59,6 +64,8 @@ describe("indentHubStatusTag", () => {
     expect(indentHubStatusTag("open", 0)).toBe("pending");
     expect(indentHubStatusTag("open", 2)).toBe("bids");
     expect(indentHubStatusTag("awarded", 2)).toBe("awarded");
+    expect(indentHubStatusTag("cancelled", 2)).toBe("failed");
+    expect(indentHubStatusTag("expired", 0)).toBe("failed");
   });
 });
 

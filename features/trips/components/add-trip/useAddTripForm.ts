@@ -16,6 +16,7 @@ import { getOptimalRoute } from '@/lib/routingService';
 import { useCallback, useEffect, useMemo, useState, type SetStateAction } from 'react';
 import { computeClientPrice } from "@/features/clients/utils/saleRateSnapshot.util";
 import type { AddTripFormData, AddTripFormState } from './types';
+import { tonsOutsideVehicleRange } from '@/features/vehicles/utils/vehicleTypeCatalog.model';
 import {
   routeExtraStopInputs,
   type RouteExtraStopDraft,
@@ -222,6 +223,14 @@ export function computeCommodityStepIssues(
     const tonsNum = Number(state.tons);
     if (!Number.isFinite(tonsNum) || tonsNum <= 0) {
       issues.push({ field: 'tons', message: 'Tons: enter a valid weight greater than 0' });
+    } else {
+      const range = tonsOutsideVehicleRange(state.vehicleType, state.tons);
+      if (range) {
+        issues.push({
+          field: 'tons',
+          message: `Tons: must be within this vehicle's ${range.min === range.max ? range.min : `${range.min}–${range.max}`} tons`,
+        });
+      }
     }
   }
   return issues;

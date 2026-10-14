@@ -10,6 +10,8 @@ import {
   TouchableOpacity,
   useWindowDimensions,
   View,
+  type TextStyle,
+  type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
@@ -17,10 +19,10 @@ import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { CompactValidTillCalendar } from "@/features/trips/components/trip-detail/EwayBillVaultTab";
 import Theme from "@/constants/Theme";
 import Layout from "@/constants/Layout";
+import { VehicleTypeCatalogField } from "@/features/vehicles/components/VehicleTypeCatalogField";
 import {
   ELR_QUANTITY_UNITS,
   ELR_SOURCE_DOCUMENT_TYPES,
-  ELR_VEHICLE_TYPES,
   splitElrRoutePlace,
   validateElrCompletion,
   type ElrCompletionDraft,
@@ -239,25 +241,24 @@ export function ElrCompletionForm({
             </View>
             <Text style={styles.note}>From trip</Text>
           </View>
-          <Field
-            label="Vehicle type"
-            value={draft.vehicleType}
-            onChangeText={(vehicleType) => set({ vehicleType })}
-            placeholder="Enter vehicle type"
-            note={noteFor("vehicleType", "vehicle")}
-            error={problem("vehicleType")}
-          />
-          <Choices
-            options={[
-              ...ELR_VEHICLE_TYPES,
-              ...(draft.vehicleType &&
-              !ELR_VEHICLE_TYPES.includes(draft.vehicleType as (typeof ELR_VEHICLE_TYPES)[number])
-                ? [draft.vehicleType]
-                : []),
-            ]}
-            value={draft.vehicleType}
-            onChange={(vehicleType) => set({ vehicleType })}
-          />
+          <View style={styles.field as ViewStyle}>
+            <Text style={styles.fieldLabel as TextStyle} numberOfLines={1}>
+              Vehicle type *
+            </Text>
+            <VehicleTypeCatalogField
+              value={draft.vehicleType}
+              onChange={(vehicleType) => set({ vehicleType })}
+              hasError={Boolean(problem("vehicleType"))}
+              style={styles.input as ViewStyle}
+              textStyle={{ fontSize: 12 }}
+            />
+            <Text
+              style={(problem("vehicleType") ? styles.error : styles.note) as TextStyle}
+              numberOfLines={1}
+            >
+              {problem("vehicleType") || noteFor("vehicleType", "vehicle") || " "}
+            </Text>
+          </View>
         </Section>
         <Section title="Movement" fill={wide}>
           <View style={paired ? styles.columns : undefined}>
@@ -836,7 +837,7 @@ const styles = StyleSheet.create({
           display: "grid",
           gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
           gap: 12,
-        } as const)
+        } as unknown as ViewStyle)
       : {
           flexDirection: "row",
           flexWrap: "wrap",
@@ -849,7 +850,7 @@ const styles = StyleSheet.create({
           display: "grid",
           gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
           gap: 12,
-        } as const)
+        } as unknown as ViewStyle)
       : {
           flexDirection: "row",
           flexWrap: "wrap",

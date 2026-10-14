@@ -3,6 +3,7 @@ import {
   type FormState,
   type IndentDistributionChoice,
 } from "./createIndentForm.types";
+import { tonsOutsideVehicleRange } from "@/features/vehicles/utils/vehicleTypeCatalog.model";
 
 export type IndentWizardStep =
   | "route"
@@ -113,6 +114,7 @@ export function indentStepCanAdvance(
         t(form.vehicle_type) &&
           t(form.load_type) &&
           weightOk &&
+          !tonsOutsideVehicleRange(form.vehicle_type, form.weight) &&
           isValidIndentVehicleCount(form.vehicle_count),
       );
     }

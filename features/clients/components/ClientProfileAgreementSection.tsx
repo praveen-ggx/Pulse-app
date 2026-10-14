@@ -11,11 +11,10 @@ import { LoadingIndicator } from "@/components/LoadingIndicator";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import * as DocumentPicker from "expo-document-picker";
 import { useCallback, useEffect, useState } from "react";
-import { VEHICLE_TYPES } from "@/features/indents/constants";
+import { VehicleTypeCatalogField } from "@/features/vehicles/components/VehicleTypeCatalogField";
 import {
   Linking,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -28,7 +27,7 @@ type SectionId = "document" | "debit" | "detention" | "placement";
 
 const NAV: Array<{ id: SectionId; label: string }> = [
   { id: "document", label: "Agreement file" },
-  { id: "debit", label: "Debit class" },
+  { id: "debit", label: "Debit clause" },
   { id: "detention", label: "Halting" },
   { id: "placement", label: "Placement failure" },
 ];
@@ -797,37 +796,16 @@ function VehicleSelect({
   onChange: (value: string) => void;
   bare?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
   return (
-    <View style={[styles.field, bare && styles.fieldCompact, open && styles.fieldOpen]}>
+    <View style={[styles.field, bare && styles.fieldCompact]}>
       {bare ? null : <Text style={styles.fieldLabel}>Vehicle</Text>}
-      <TouchableOpacity style={styles.select} onPress={() => setOpen((current) => !current)}>
-        <Text style={[styles.selectText, !value && styles.selectPlaceholder]} numberOfLines={1}>
-          {value || "Select vehicle"}
-        </Text>
-        <FontAwesome name={open ? "chevron-up" : "chevron-down"} size={11} color={Theme.textMuted} />
-      </TouchableOpacity>
-      {open ? (
-        <ScrollView style={styles.vehicleMenu} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-          {VEHICLE_TYPES.map((vehicle) => {
-            const on = value === vehicle;
-            return (
-              <TouchableOpacity
-                key={vehicle}
-                style={[styles.selectOption, on && styles.selectOptionOn]}
-                onPress={() => {
-                  onChange(vehicle);
-                  setOpen(false);
-                }}
-              >
-                <Text style={[styles.selectOptionText, on && styles.selectOptionTextOn]} numberOfLines={1}>
-                  {vehicle}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      ) : null}
+      <VehicleTypeCatalogField
+        value={value}
+        onChange={(vehicle) => onChange(vehicle)}
+        placeholder="Select vehicle"
+        style={styles.select}
+        textStyle={styles.selectText}
+      />
     </View>
   );
 }

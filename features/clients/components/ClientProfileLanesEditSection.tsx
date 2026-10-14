@@ -676,6 +676,7 @@ export function ClientProfileLanesEditSection({
            * instead of plain text boxes.
            */}
           <TripCommodityFields
+            useVehicleCatalog
             vehicleType={draft.vehicle_type}
             loadType={draft.default_load_type}
             tons={draft.default_load_tons}

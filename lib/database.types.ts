@@ -3950,6 +3950,7 @@ export type Database = {
           is_primary: boolean
           organization_id: string
           updated_at: string
+          verification_status: string | null
           verified_at: string | null
           verified_by: string | null
         }
@@ -3968,6 +3969,7 @@ export type Database = {
           is_primary?: boolean
           organization_id: string
           updated_at?: string
+          verification_status?: string | null
           verified_at?: string | null
           verified_by?: string | null
         }
@@ -3986,6 +3988,7 @@ export type Database = {
           is_primary?: boolean
           organization_id?: string
           updated_at?: string
+          verification_status?: string | null
           verified_at?: string | null
           verified_by?: string | null
         }
@@ -9782,6 +9785,7 @@ export type Database = {
           owner_full_name: string | null
           pan_number: string | null
           phone: string | null
+          primary_region: string | null
           secondary_phone: string | null
           status_changed_at: string | null
           vendor_status: string
@@ -9823,6 +9827,7 @@ export type Database = {
           organization_id: string
           owner_full_name?: string | null
           pan_number?: string | null
+          primary_region?: string | null
           phone?: string | null
           secondary_phone?: string | null
           status_changed_at?: string | null
@@ -9865,6 +9870,7 @@ export type Database = {
           organization_id?: string
           owner_full_name?: string | null
           pan_number?: string | null
+          primary_region?: string | null
           phone?: string | null
           secondary_phone?: string | null
           status_changed_at?: string | null
@@ -10215,6 +10221,7 @@ export type Database = {
           organization_id: string
           party_name: string
           payment_ref: string | null
+          paid_from_account_id: string | null
           payment_reference: string | null
           transaction_date: string
           trip_id: string | null
@@ -10237,6 +10244,7 @@ export type Database = {
           organization_id: string
           party_name: string
           payment_ref?: string | null
+          paid_from_account_id?: string | null
           payment_reference?: string | null
           transaction_date?: string
           trip_id?: string | null
@@ -10259,6 +10267,7 @@ export type Database = {
           organization_id?: string
           party_name?: string
           payment_ref?: string | null
+          paid_from_account_id?: string | null
           payment_reference?: string | null
           transaction_date?: string
           trip_id?: string | null
@@ -12295,6 +12304,14 @@ export type Database = {
           compliance_outstanding_summary: Json | null
           compliance_verified_at: string | null
           compliance_verified_by: string | null
+          finance_flag_note: string | null
+          finance_flagged_at: string | null
+          finance_flagged_by: string | null
+          finance_verified_at: string | null
+          finance_verified_by: string | null
+          compliance_reject_return_to: string | null
+          compliance_resubmit_note: string | null
+          compliance_resubmitted_at: string | null
           converted_by: string | null
           converted_from_indent_at: string | null
           created_at: string | null
@@ -12390,6 +12407,14 @@ export type Database = {
           compliance_outstanding_summary?: Json | null
           compliance_verified_at?: string | null
           compliance_verified_by?: string | null
+          finance_flag_note?: string | null
+          finance_flagged_at?: string | null
+          finance_flagged_by?: string | null
+          finance_verified_at?: string | null
+          finance_verified_by?: string | null
+          compliance_reject_return_to?: string | null
+          compliance_resubmit_note?: string | null
+          compliance_resubmitted_at?: string | null
           converted_by?: string | null
           converted_from_indent_at?: string | null
           created_at?: string | null
@@ -12485,6 +12510,14 @@ export type Database = {
           compliance_outstanding_summary?: Json | null
           compliance_verified_at?: string | null
           compliance_verified_by?: string | null
+          finance_flag_note?: string | null
+          finance_flagged_at?: string | null
+          finance_flagged_by?: string | null
+          finance_verified_at?: string | null
+          finance_verified_by?: string | null
+          compliance_reject_return_to?: string | null
+          compliance_resubmit_note?: string | null
+          compliance_resubmitted_at?: string | null
           converted_by?: string | null
           converted_from_indent_at?: string | null
           created_at?: string | null
@@ -17298,6 +17331,14 @@ export type Database = {
         Args: { p_trip_ids: string[] }
         Returns: {
           total_distance_m: number
+          trip_id: string
+        }[]
+      }
+      get_trip_documents_lr_pod_batch: {
+        Args: { p_trip_ids: string[] }
+        Returns: {
+          document_number: string
+          document_type: string
           trip_id: string
         }[]
       }

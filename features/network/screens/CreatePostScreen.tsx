@@ -12,7 +12,8 @@ import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
-import { VEHICLE_TYPES } from "@/features/indents/constants";
+import { VehicleTypeCatalogField } from "@/features/vehicles/components/VehicleTypeCatalogField";
+import { passingTonRange } from "@/features/vehicles/utils/vehicleTypeCatalog.model";
 import {
     createIndent,
     getIndentDisplayNumber,
@@ -350,7 +351,7 @@ export default function CreatePostScreen() {
           </Text>
         </View>
 
-        {(preview.vehicleType || preview.weight || preview.rate || preview.material) && (
+        {Boolean(preview.vehicleType || preview.weight || preview.rate || preview.material) && (
           <View style={styles.previewChips}>
             {preview.vehicleType ? (
               <View style={styles.previewChip}>
@@ -893,20 +894,16 @@ export default function CreatePostScreen() {
               </View>
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>VEHICLE TYPE</Text>
-                <View style={styles.chipWrap}>
-                  {VEHICLE_TYPES.map((v) => (
-                    <Pressable
-                      key={v}
-                      style={[styles.chip, vehicleType === v && styles.chipActive]}
-                      onPress={() => setVehicleType(vehicleType === v ? "" : v)}
-                    >
-                      {vehicleType === v && <Check size={11} color={Theme.buttonPrimaryText} strokeWidth={3} />}
-                      <Text style={[styles.chipText, vehicleType === v && styles.chipTextActive]}>
-                        {v}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
+                <VehicleTypeCatalogField
+                  value={vehicleType}
+                  tons={weight}
+                  onChange={(value, passingTon) => {
+                    setVehicleType(value);
+                    // Passing ton → load weight when weight is still empty.
+                    const max = passingTonRange(passingTon)?.max;
+                    if (max != null && !weight.trim()) setWeight(String(max));
+                  }}
+                />
               </View>
               <View
                 style={[
@@ -1197,27 +1194,10 @@ export default function CreatePostScreen() {
               {showManualVehicleFields ? (
                 <View style={styles.formSectionCard}>
                   <Text style={styles.sectionTitle}>VEHICLE TYPE *</Text>
-                  <View style={styles.chipWrap}>
-                    {VEHICLE_TYPES.map((v) => (
-                      <Pressable
-                        key={v}
-                        style={[styles.chip, vehicleType === v && styles.chipActiveVehicleType]}
-                        onPress={() => setVehicleType(vehicleType === v ? "" : v)}
-                      >
-                        {vehicleType === v && (
-                          <Check size={11} color={Theme.buttonPrimaryText} strokeWidth={3} />
-                        )}
-                        <Text
-                          style={[
-                            styles.chipText,
-                            vehicleType === v && styles.chipTextActiveVehicle,
-                          ]}
-                        >
-                          {v}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
+                  <VehicleTypeCatalogField
+                    value={vehicleType}
+                    onChange={(value) => setVehicleType(value)}
+                  />
                 </View>
               ) : selectedVehicleId ? (
                 <View style={styles.selectedVehicleSummary}>

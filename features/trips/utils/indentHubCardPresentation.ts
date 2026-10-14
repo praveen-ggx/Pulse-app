@@ -13,10 +13,11 @@ export type IndentHubSourceTag = "NETWORK" | "MARKETPLACE";
 export type IndentHubLifecycleStatus =
   | "WAITING FOR BID"
   | "RECEIVING BIDS"
-  | "AWARDED";
+  | "AWARDED"
+  | "FAILED";
 
 /** Toolbar tags on the Trips indent stage. */
-export type IndentHubStatusTag = "pending" | "bids" | "awarded";
+export type IndentHubStatusTag = "pending" | "bids" | "awarded" | "failed";
 
 /**
  * Shipper circulation_target → compact source tags on the Trips ticket.
@@ -48,6 +49,8 @@ export function indentHubLifecycleStatus(
   indentStatus: string | null | undefined,
   bidCount: number,
 ): IndentHubLifecycleStatus {
+  const status = String(indentStatus ?? "").trim().toLowerCase();
+  if (status === "cancelled" || status === "expired") return "FAILED";
   const derived = giveLoadBidReceivedDisplayStatus(
     String(indentStatus ?? ""),
     bidCount,
@@ -62,6 +65,8 @@ export function indentHubStatusTag(
   indentStatus: string | null | undefined,
   bidCount: number,
 ): IndentHubStatusTag {
+  const status = String(indentStatus ?? "").trim().toLowerCase();
+  if (status === "cancelled" || status === "expired") return "failed";
   const life = indentHubLifecycleStatus(indentStatus, bidCount);
   if (life === "AWARDED") return "awarded";
   if (life === "RECEIVING BIDS") return "bids";

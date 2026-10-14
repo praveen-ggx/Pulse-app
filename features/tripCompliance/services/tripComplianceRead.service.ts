@@ -3,6 +3,8 @@ import { getDocumentsForEntities } from "@/features/compliance/services/document
 import { interpretLedgerRowStructured } from "@/features/finance/ledger/ledgerEntryModel";
 import {
     REQUIRED_COMPLIANCE_DOCUMENT_TYPES,
+    REQUIRED_DRIVER_DOCUMENT_TYPES,
+    REQUIRED_VEHICLE_DOCUMENT_TYPES,
     type ComplianceDecision,
     type ComplianceDocumentRow,
     type ComplianceEntityDocument,
@@ -14,16 +16,29 @@ import {
     type ComplianceTripSummary,
 } from "@/features/tripCompliance/tripCompliance.types";
 import { buildComplianceChecklist, listExpiredRequiredVehicleDocTypes } from "@/features/tripCompliance/utils/complianceChecklist.util";
+import { isComplianceTxnDateConfirmed } from "@/features/tripCompliance/utils/compliancePaymentDate.util";
 import { classifyTripDocument } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
+import { deriveEntityComplianceRows } from "@/features/tripCompliance/utils/complianceDocumentRows.util";
 import {
     mergeComplianceEntityDocs,
     normalizeTripDocumentType,
     normalizeVaultVehicleNumber,
     vehicleVaultDocumentsToEntityDocs,
 } from "@/features/tripCompliance/utils/complianceVaultDocuments.util";
-import { runWithConcurrencyLimit, tripPodIsReceived } from "@/features/trips/services/tripDocumentLrPod.service";
+import { fetchComplianceVehicleVaultForTrips } from "@/features/tripCompliance/services/complianceListFacts.service";
+import {
+  isSoftPodDocumentType,
+  fetchHardCopyIbondTripIds,
+  tripPodIsReceived,
+} from "@/features/trips/services/tripDocumentLrPod.service";
+import { lrNumbersFromDocumentNumber } from "@/features/trips/utils/hardCopyPodLrSelection.util";
+import { POD_VALIDATED_EVENT } from "@/features/debit-control/utils/debitControlPod.model";
+import { decodeCourierLrRemarks, lrReceiptForTrip } from "@/features/trips/utils/lrReceiptStatus.util";
+import {
+  isCompletedTripStatus,
+  isOperationsDeliveredTrip,
+} from "@/features/trips/utils/tripHubMetrics";
 import type { TripRow } from "@/features/trips/services/trips.service";
-import { getVehicleForTripViewer } from "@/features/vehicles/services/vehicles.service";
 import type { VehicleDocuments } from "@/features/vehicles/utils/vehicleDocuments.util";
 import { supabase } from "@/lib/supabase";
 
@@ -147,11 +162,35 @@ export async function fetchComplianceTripFlags(
     "id, compliance_verified_at, compliance_verified_by, compliance_decision, compliance_exception_reason, compliance_outstanding_summary, pod_hard_copy_courier, pod_hard_copy_awb_number, pod_hard_copy_received_by, pod_received_at";
   // Decline columns come from 20270929162901_trip_compliance_decline.sql.
   const SELECT_WITH_DECLINE = `${SELECT_BASE}, compliance_declined_at, compliance_declined_by, compliance_decline_reason`;
+  // Finance verify columns come from 20261010122824_finance_verified_step.sql.
+  const SELECT_WITH_FINANCE = `${SELECT_WITH_DECLINE}, finance_verified_at, finance_verified_by`;
+  const SELECT_WITH_RESUBMIT = `${SELECT_WITH_FINANCE}, compliance_reject_return_to, compliance_resubmitted_at`;
+  // Resubmit note comes from 20271008115000_compliance_resubmit_note.sql.
+  const SELECT_WITH_RESUBMIT_NOTE = `${SELECT_WITH_RESUBMIT}, compliance_resubmit_note`;
+  // Finance flag comes from 20271008117000_compliance_flow_hardening.sql.
+  const SELECT_WITH_FLAG = `${SELECT_WITH_RESUBMIT_NOTE}, finance_flagged_at, finance_flagged_by, finance_flag_note`;
 
   let result: { data: unknown[] | null; error: { code?: string; message: string } | null } = await supabase()
     .from("trips")
-    .select(SELECT_WITH_DECLINE)
+    .select(SELECT_WITH_FLAG)
     .in("id", tripIds);
+
+  if (result.error && isMissingColumnOrRelation(result.error)) {
+    result = await supabase().from("trips").select(SELECT_WITH_RESUBMIT_NOTE).in("id", tripIds);
+  }
+
+  if (result.error && isMissingColumnOrRelation(result.error)) {
+    result = await supabase().from("trips").select(SELECT_WITH_RESUBMIT).in("id", tripIds);
+  }
+
+  if (result.error && isMissingColumnOrRelation(result.error)) {
+    result = await supabase().from("trips").select(SELECT_WITH_FINANCE).in("id", tripIds);
+  }
+
+  if (result.error && isMissingColumnOrRelation(result.error)) {
+    // Finance verify migration not applied yet: keep the decline columns.
+    result = await supabase().from("trips").select(SELECT_WITH_DECLINE).in("id", tripIds);
+  }
 
   if (result.error && isMissingColumnOrRelation(result.error)) {
     // Decline migration not applied yet: retry the original select so
@@ -175,6 +214,17 @@ export async function fetchComplianceTripFlags(
       compliance_declined_at: (r.compliance_declined_at as string | null | undefined) ?? null,
       compliance_declined_by: (r.compliance_declined_by as string | null | undefined) ?? null,
       compliance_decline_reason: (r.compliance_decline_reason as string | null | undefined) ?? null,
+      compliance_reject_return_to:
+        r.compliance_reject_return_to === "pending_for_docs" || r.compliance_reject_return_to === "compliance_pending"
+          ? r.compliance_reject_return_to
+          : null,
+      compliance_resubmitted_at: (r.compliance_resubmitted_at as string | null | undefined) ?? null,
+      compliance_resubmit_note: (r.compliance_resubmit_note as string | null | undefined) ?? null,
+      finance_flagged_at: (r.finance_flagged_at as string | null | undefined) ?? null,
+      finance_flagged_by: (r.finance_flagged_by as string | null | undefined) ?? null,
+      finance_flag_note: (r.finance_flag_note as string | null | undefined) ?? null,
+      finance_verified_at: (r.finance_verified_at as string | null | undefined) ?? null,
+      finance_verified_by: (r.finance_verified_by as string | null | undefined) ?? null,
       pod_hard_copy_courier: r.pod_hard_copy_courier as string | null,
       pod_hard_copy_awb_number: r.pod_hard_copy_awb_number as string | null,
       pod_hard_copy_received_by: r.pod_hard_copy_received_by as string | null,
@@ -184,6 +234,93 @@ export async function fetchComplianceTripFlags(
   return byTrip;
 }
 
+/** LR numbers logged as received on the courier workflow event (one row per trip). */
+export async function fetchHardCopyReceivedLrNumbers(
+  tripIds: string[],
+): Promise<Map<string, string[]>> {
+  const byTrip = new Map<string, string[]>();
+  if (tripIds.length === 0) return byTrip;
+  const { data, error } = await supabase()
+    .from("trip_workflow_events")
+    .select("trip_id, payload")
+    .eq("event_type", "pod.hard_copy_courier_dispatched")
+    .in("trip_id", tripIds);
+  if (error) {
+    if (isMissingColumnOrRelation(error)) return byTrip;
+    throw new Error(error.message);
+  }
+  for (const row of data ?? []) {
+    const record = row as { trip_id?: string; payload?: { remarks?: string | null } | null };
+    const tripId = String(record.trip_id ?? "").trim();
+    if (!tripId) continue;
+    const received = decodeCourierLrRemarks(record.payload?.remarks).receivedLrs;
+    if (received.length > 0) byTrip.set(tripId, received);
+  }
+  return byTrip;
+}
+
+function attachIbondFlags(
+  flagsByTrip: Map<string, ComplianceTripFlags>,
+  ibondTripIds: Set<string>,
+): Map<string, ComplianceTripFlags> {
+  if (ibondTripIds.size === 0) return flagsByTrip;
+  const next = new Map(flagsByTrip);
+  for (const tripId of ibondTripIds) {
+    const flags = next.get(tripId);
+    if (!flags) continue;
+    next.set(tripId, { ...flags, pod_ibond: true });
+  }
+  return next;
+}
+
+/** Trips whose POD client/vendor charges have been saved. */
+export async function fetchPodChargeValidatedTripIds(tripIds: string[]): Promise<Set<string>> {
+  const ids = new Set<string>();
+  if (tripIds.length === 0) return ids;
+  const { data, error } = await supabase()
+    .from("trip_workflow_events")
+    .select("trip_id")
+    .eq("event_type", POD_VALIDATED_EVENT)
+    .in("trip_id", tripIds);
+  if (error) {
+    if (isMissingColumnOrRelation(error)) return ids;
+    throw new Error(error.message);
+  }
+  for (const row of data ?? []) {
+    const tripId = String((row as { trip_id?: string }).trip_id ?? "").trim();
+    if (tripId) ids.add(tripId);
+  }
+  return ids;
+}
+
+function attachChargesSavedFlags(
+  flagsByTrip: Map<string, ComplianceTripFlags>,
+  validatedTripIds: Set<string>,
+): Map<string, ComplianceTripFlags> {
+  if (validatedTripIds.size === 0) return flagsByTrip;
+  const next = new Map(flagsByTrip);
+  for (const tripId of validatedTripIds) {
+    const flags = next.get(tripId);
+    if (!flags) continue;
+    next.set(tripId, { ...flags, pod_charges_saved: true });
+  }
+  return next;
+}
+
+function attachReceivedLrNumbers(
+  flagsByTrip: Map<string, ComplianceTripFlags>,
+  receivedByTrip: Map<string, string[]>,
+): Map<string, ComplianceTripFlags> {
+  if (receivedByTrip.size === 0) return flagsByTrip;
+  const next = new Map(flagsByTrip);
+  for (const [tripId, numbers] of receivedByTrip) {
+    const flags = next.get(tripId);
+    if (!flags || numbers.length === 0) continue;
+    next.set(tripId, { ...flags, received_lr_numbers: numbers });
+  }
+  return next;
+}
+
 type RawTxnRow = {
   id: string;
   trip_id: string | null;
@@ -191,9 +328,11 @@ type RawTxnRow = {
   amount_out: number;
   description: string | null;
   transaction_date: string;
+  created_at?: string | null;
   created_by: string | null;
   ledger_category: string | null;
-  created_at: string | null;
+  /** Stored UTR column; preferred over the UTR parsed from the description. */
+  payment_reference?: string | null;
 };
 
 export async function fetchComplianceTransactions(
@@ -204,7 +343,7 @@ export async function fetchComplianceTransactions(
 
   const { data, error } = await supabase()
     .from("transactions")
-    .select("id, trip_id, amount_in, amount_out, description, transaction_date, created_by, ledger_category, created_at")
+    .select("id, trip_id, amount_in, amount_out, description, transaction_date, created_at, created_by, ledger_category")
     .in("trip_id", tripIds)
     .in("ledger_category", ["compliance_advance", "compliance_balance"]);
 
@@ -222,7 +361,7 @@ export async function fetchComplianceTransactions(
   return byTrip;
 }
 
-/** `trips` columns the payment state depends on (`amount_paid` fallback advance). */
+/** `trips` payment columns kept in step on the cached row (`amount_paid` is display-only, never the advance). */
 export async function fetchTripPaymentFields(
   tripIds: string[],
 ): Promise<Map<string, Pick<TripRow, "amount_paid" | "updated_at">>> {
@@ -257,6 +396,14 @@ function toEntityDocument(doc: DocumentRow): ComplianceEntityDocument {
   };
 }
 
+/** Ledger descriptions end with a machine `[[QMETA:{…}]]` tag; never show it to Ops. */
+export function stripLedgerMetaTag(value: string | null | undefined): string | null {
+  const raw = String(value ?? "");
+  const idx = raw.indexOf("[[QMETA:");
+  const clean = (idx < 0 ? raw : raw.slice(0, idx)).trim();
+  return clean || null;
+}
+
 export function toPaymentSummary(rows: RawTxnRow[]): CompliancePaymentSummary | null {
   if (rows.length === 0) return null;
   // Most recent posting represents the payment's current display state —
@@ -266,103 +413,143 @@ export function toPaymentSummary(rows: RawTxnRow[]): CompliancePaymentSummary | 
   const structured = interpretLedgerRowStructured(latest);
   return {
     amount: Number(latest.amount_in || latest.amount_out || 0),
-    paymentMode: structured.payment_mode,
-    utr: structured.reference_number,
+    paymentMode: stripLedgerMetaTag(structured.payment_mode),
+    utr: stripLedgerMetaTag(latest.payment_reference) ?? stripLedgerMetaTag(structured.reference_number),
     paidAt: latest.transaction_date,
     actorId: latest.created_by,
     transactionId: latest.id,
     postedAt: latest.created_at ?? null,
+    txnDateConfirmed: isComplianceTxnDateConfirmed(latest.description),
   };
 }
 
 /**
- * An advance only counts as posted once compliance has actually been
- * verified, and the advance transaction's own `postedAt` (`transactions.
- * created_at`, not the editable `transaction_date`) is at/after that
- * verification instant. A transaction created before verification must not
- * retroactively count once verification eventually happens — its postedAt
- * never moves, so a stray pre-verification advance (or client receipt
- * collected before Compliance signed off) can't silently push a trip past
- * Verified.
+ * @deprecated Finance posts `compliance_advance`; posting time vs verify no longer
+ * gates whether the advance counts. Kept for older call sites/tests only.
  */
 export function isAdvancePostedAfterVerification(
-  advance: Pick<CompliancePaymentSummary, "postedAt"> | null,
-  complianceVerifiedAt: string | null,
+  advance: Pick<CompliancePaymentSummary, "postedAt">,
+  complianceVerifiedAt: string,
 ): boolean {
-  if (!advance || !complianceVerifiedAt) return false;
-  if (!advance.postedAt) return false;
-  return advance.postedAt >= complianceVerifiedAt;
-}
-
-/**
- * Finance-posted client receipts (trips.amount_paid) count as advance for the
- * queue even when they were not tagged `ledger_category = compliance_advance`.
- * Ops often collects advance from the ledger before marking Compliance Verified.
- */
-export function advanceFromTripReceipts(
-  trip: Pick<TripRow, "id" | "amount_paid" | "updated_at" | "created_at">,
-): CompliancePaymentSummary | null {
-  const amount = Number(trip.amount_paid ?? 0);
-  if (!Number.isFinite(amount) || amount <= 0) return null;
-  return {
-    amount,
-    paymentMode: null,
-    utr: null,
-    paidAt: trip.updated_at ?? trip.created_at ?? new Date().toISOString(),
-    actorId: null,
-    transactionId: `amount-paid:${trip.id}`,
-  };
+  if (!advance.postedAt) return true;
+  const posted = Date.parse(advance.postedAt);
+  const verified = Date.parse(complianceVerifiedAt);
+  if (!Number.isFinite(posted) || !Number.isFinite(verified)) return true;
+  return posted >= verified;
 }
 
 /**
  * Derives the single displayed compliance stage for a trip from independent
  * signals — never a persisted status column (Phase 4's explicit instruction).
  *
- * Payment progress wins over missing documents: a trip with client receipts
- * must not disappear from the post-payment queue just because trip_documents is
- * empty or Compliance Verified was never stamped.
+ * The exclusive stage is the doc / verify lane. An unverified trip stays in
+ * Pending Docs while a required file is missing, and in Compliance Pending
+ * once every required file is on file, including holds. Delivery does not
+ * take it out of that lane.
  *
- * Flow after verification: Payment Pending (filter) → advance posted →
- * AWAITING POD (`hard_copy_pod_received`) → hard-copy marked → BALANCE_PENDING
- * → balance posted → SETTLED. Advance without POD always lands in Awaiting POD
- * (not a separate Advance Processed bucket) so Ops can collect hard-copy next.
+ * `advance` must already be gated by the caller (summarizeComplianceTrip): a
+ * compliance_advance posted after compliance_verified_at, never a Finance receipt.
+ *
+ * Awaiting POD is parallel: a completed (Trip Operations Delivered) trip
+ * also appears there until hard-copy is marked, even while it is still in
+ * Pending Docs or Compliance Pending. See tripAppearsInAwaitingPod.
+ * After Verify, the exclusive stage itself becomes Awaiting POD, then
+ * Balance Pending once hard-copy is marked, then Settled once balance is posted.
  *
  * Documented interpretation of a genuine spec ambiguity: "HARD_COPY_POD_RECEIVED"
  * and "BALANCE_PENDING" describe what is, functionally, the same instant (Phase 11:
  * "once hard copy POD received, show BALANCE PENDING"). Since a trip can only sit
- * in one filter bucket at a time, HARD_COPY_POD_RECEIVED is "advance posted,
- * physical POD not yet marked" and BALANCE_PENDING begins when Ops marks it
- * received.
+ * in one filter bucket at a time, HARD_COPY_POD_RECEIVED means a delivered trip
+ * whose physical POD is not yet marked, and BALANCE_PENDING begins when Ops
+ * marks it received.
  */
 export function deriveComplianceStage(input: {
   documentCount: number;
   /** Required trip types still missing (LR / E-way / Invoice). Prefer over raw count. */
   missingRequiredCount?: number;
   /**
+   * Required vehicle (RC / Insurance / FC) and driver (licence) files still
+   * missing. Optional docs do not count. Keeps the trip in Pending Docs.
+   */
+  missingRequiredEntityCount?: number;
+  /**
    * Required vehicle docs (RC / Insurance / FC) that are on file but past
-   * expiry. Forces Pending Docs so Ops renews the vault before settlement.
+   * expiry. Forces Pending Docs until the trip is compliance-verified.
+   * A verified Delivered trip still stays in the POD lane.
    */
   hasExpiredRequiredVehicleDocs?: boolean;
   complianceVerifiedAt: string | null;
+  /** Finance verify (mark_trip_finance_verified). Splits Verified into Compliance / Finance Verified. */
+  financeVerifiedAt?: string | null;
   advance: CompliancePaymentSummary | null;
   tripStatus: string;
+  /**
+   * Trip Operations Delivered, including at-destination trips that have a soft
+   * POD but are not yet status=delivered. Completed statuses are detected from
+   * `tripStatus` when this flag is omitted.
+   */
+  opsDelivered?: boolean;
   hardCopyReceived: boolean;
   balance: CompliancePaymentSummary | null;
 }): ComplianceStage {
-  void input.tripStatus;
-
-  if (input.balance) return "payment_settled";
-  // Expired RC / Insurance / FC override payment-progress chips — Ops must renew.
-  if (input.hasExpiredRequiredVehicleDocs) return "pending_for_docs";
-  if (input.advance) {
-    return input.hardCopyReceived ? "balance_pending" : "hard_copy_pod_received";
-  }
-  if (input.complianceVerifiedAt) return "compliance_verified";
+  if (input.balance && input.complianceVerifiedAt) return "payment_settled";
   const missingRequired =
     input.missingRequiredCount ??
     (input.documentCount === 0 ? REQUIRED_COMPLIANCE_DOCUMENT_TYPES.length : 0);
-  if (missingRequired > 0) return "pending_for_docs";
-  return "compliance_pending";
+  const docsStillOpen =
+    Boolean(input.hasExpiredRequiredVehicleDocs) ||
+    missingRequired > 0 ||
+    (input.missingRequiredEntityCount ?? 0) > 0;
+  // Unverified trips stay on the doc lane. Delivery does not pull them into
+  // Awaiting POD. Holds (decline) do not change this stage.
+  if (!input.complianceVerifiedAt) {
+    return docsStillOpen ? "pending_for_docs" : "compliance_pending";
+  }
+  const delivered = Boolean(input.opsDelivered || isCompletedTripStatus(input.tripStatus));
+  // Delivered + hard-copy → balance. Delivered without hard-copy → Awaiting POD
+  // once the advance is posted. Before that the trip stays with Finance
+  // (Advance Verification / Advance Payment); the Awaiting POD list still shows it.
+  if (delivered) {
+    if (input.hardCopyReceived) return "balance_pending";
+    if (input.advance) return "hard_copy_pod_received";
+    return input.financeVerifiedAt ? "finance_verified" : "compliance_verified";
+  }
+  // Expired RC / Insurance / FC override payment-progress chips on undelivered
+  // trips — Ops must renew before Advance Processed.
+  if (input.hasExpiredRequiredVehicleDocs) return "pending_for_docs";
+  // Hard-copy on an undelivered trip only opens balance once a real advance is on file.
+  // POD alone must not pull a verified trip off Verified (no advance).
+  if (input.advance && input.hardCopyReceived) return "balance_pending";
+  if (input.advance) return "advance_payment_processed";
+  return input.financeVerifiedAt ? "finance_verified" : "compliance_verified";
+}
+
+/**
+ * Awaiting POD membership, independent of the exclusive doc/verify stage.
+ * Completed trips stay listed here until hard-copy POD is marked, including
+ * ones that also sit in Pending Docs or Compliance Pending.
+ */
+export function tripAppearsInAwaitingPod(
+  summary: Pick<ComplianceTripSummary, "trip" | "stage" | "documents" | "balance" | "hardCopyPod">,
+): boolean {
+  if (summary.balance || summary.hardCopyPod.received) return false;
+  if (summary.stage === "balance_pending" || summary.stage === "payment_settled") return false;
+  if (summary.stage === "hard_copy_pod_received") return true;
+  return isOperationsDeliveredTrip(
+    summary.trip,
+    summary.documents.some((doc) => isSoftPodDocumentType(doc.document_type)),
+  );
+}
+
+function missingRequiredEntityDocumentCount(
+  vehicleDocuments: ComplianceEntityDocument[],
+  driverDocuments: ComplianceEntityDocument[],
+): number {
+  const rows = [
+    ...deriveEntityComplianceRows(REQUIRED_VEHICLE_DOCUMENT_TYPES, vehicleDocuments),
+    ...deriveEntityComplianceRows(REQUIRED_DRIVER_DOCUMENT_TYPES, driverDocuments),
+  ];
+  return rows.filter((row) => row.required && row.status === "missing").length;
 }
 
 /**
@@ -415,81 +602,55 @@ function indexVehicleVaultDocs(
 }
 
 /**
- * Partner-vehicle vault fallback uses `get_vehicle_for_trip_viewer` (trip-scoped
- * RLS). Many compliance trips can share one truck — one RPC per vehicle id is
- * enough; any referencing trip id satisfies the viewer contract.
+ * Trips whose vault docs can only be found by plate: no linked vehicle, a
+ * manual `vehicle_display_number`, and no vehicle already indexed under that
+ * plate. Trips with a vehicle_id are resolved by the vault RPC — even when the
+ * vehicle has no documents — so they never fall back.
+ * (`owner_vehicle_id` references owner_vehicles, not vehicles, and is not used.)
  */
-export function uniqueTripsNeedingVehicleViewer(
+export function tripsNeedingVaultPlateFallback(
   trips: TripRow[],
   knownVehicleKeys: ReadonlySet<string>,
-  orgId: string | null,
 ): TripRow[] {
-  if (!orgId) return [];
-  const seen = new Set<string>();
-  const unique: TripRow[] = [];
-  for (const trip of trips) {
-    const id = trip.vehicle_id ?? trip.owner_vehicle_id;
-    if (!id || knownVehicleKeys.has(id) || seen.has(id)) continue;
-    seen.add(id);
-    unique.push(trip);
-  }
-  return unique;
+  return trips.filter((trip) => {
+    if (trip.vehicle_id) return false;
+    const number = normalizeVaultVehicleNumber(trip.vehicle_display_number);
+    return Boolean(number) && !knownVehicleKeys.has(number);
+  });
 }
 
+/**
+ * Asset Vault (vehicles.documents) for the trips' linked vehicles in one
+ * `get_compliance_vehicle_vault_for_trips` call — partner trucks included,
+ * authorized per trip server-side for `viewerOrgId`.
+ */
 async function fetchVehicleVaultDocumentsForTrips(
   trips: TripRow[],
+  viewerOrgId: string,
 ): Promise<Map<string, VaultEntry>> {
   const byKey = new Map<string, VaultEntry>();
-  const orgId = trips.find((trip) => trip.organization_id)?.organization_id ?? null;
-  const vehicleIds = Array.from(
-    new Set(
-      trips.flatMap((trip) => [trip.vehicle_id, trip.owner_vehicle_id].filter((id): id is string => Boolean(id))),
-    ),
-  );
+  if (!viewerOrgId) return byKey;
 
-  if (vehicleIds.length > 0) {
-    const { data, error } = await supabase().from("vehicles").select("id, vehicle_number, documents").in("id", vehicleIds);
-    if (error && !isMissingColumnOrRelation(error)) throw new Error(error.message);
-    for (const row of data ?? []) {
-      const docs = vehicleVaultDocumentsToEntityDocs(row.id, (row.documents ?? null) as VehicleDocuments | null);
-      indexVehicleVaultDocs(byKey, { vehicleId: row.id, docs }, row.id, normalizeVaultVehicleNumber(row.vehicle_number));
+  // Every vehicle the RPC returned is resolved — with or without documents.
+  const resolvedKeys = new Set<string>();
+  const tripIdsWithVehicle = trips.filter((trip) => trip.vehicle_id).map((trip) => trip.id);
+  if (tripIdsWithVehicle.length > 0) {
+    const rows = await fetchComplianceVehicleVaultForTrips(viewerOrgId, tripIdsWithVehicle);
+    for (const row of rows) {
+      const number = normalizeVaultVehicleNumber(row.vehicle_number);
+      resolvedKeys.add(row.vehicle_id);
+      if (number) resolvedKeys.add(number);
+      const docs = vehicleVaultDocumentsToEntityDocs(row.vehicle_id, row.documents ?? null);
+      indexVehicleVaultDocs(byKey, { vehicleId: row.vehicle_id, docs }, row.vehicle_id, number);
     }
   }
 
-  const missingById = uniqueTripsNeedingVehicleViewer(
-    trips,
-    new Set(byKey.keys()),
-    orgId,
-  );
-  if (missingById.length > 0 && orgId) {
-    await runWithConcurrencyLimit(missingById, 4, async (trip) => {
-      const vehicleId = trip.vehicle_id ?? trip.owner_vehicle_id;
-      if (!vehicleId) return;
-      const { vehicle } = await getVehicleForTripViewer(vehicleId, trip.id, orgId);
-      if (!vehicle) return;
-      const docs = vehicleVaultDocumentsToEntityDocs(vehicleId, (vehicle.documents ?? null) as VehicleDocuments | null);
-      indexVehicleVaultDocs(
-        byKey,
-        { vehicleId, docs },
-        vehicleId,
-        trip.vehicle_id,
-        trip.owner_vehicle_id,
-        normalizeVaultVehicleNumber(vehicle.vehicle_number),
-      );
-    });
-  }
-
-  const missingByNumber = trips.filter((trip) => {
-    const number = normalizeVaultVehicleNumber(trip.vehicle_display_number);
-    if (!number || !orgId) return false;
-    const id = trip.vehicle_id ?? trip.owner_vehicle_id;
-    return !((id && byKey.has(id)) || byKey.has(number));
-  });
-  if (missingByNumber.length > 0 && orgId) {
+  const missingByNumber = tripsNeedingVaultPlateFallback(trips, resolvedKeys);
+  if (missingByNumber.length > 0) {
     const { data, error } = await supabase()
       .from("vehicles")
       .select("id, vehicle_number, documents")
-      .eq("organization_id", orgId);
+      .eq("organization_id", viewerOrgId);
     if (error && !isMissingColumnOrRelation(error)) throw new Error(error.message);
     const byNumber = new Map<string, { id: string; documents: VehicleDocuments | null }>();
     for (const row of data ?? []) {
@@ -501,7 +662,7 @@ async function fetchVehicleVaultDocumentsForTrips(
       const match = number ? byNumber.get(number) : undefined;
       if (!match) continue;
       const docs = vehicleVaultDocumentsToEntityDocs(match.id, match.documents);
-      indexVehicleVaultDocs(byKey, { vehicleId: match.id, docs }, match.id, trip.vehicle_id, trip.owner_vehicle_id, number);
+      indexVehicleVaultDocs(byKey, { vehicleId: match.id, docs }, match.id, number);
     }
   }
 
@@ -583,7 +744,6 @@ function assembleVehicleDocuments(
     : [];
   const vaultEntry =
     (trip.vehicle_id ? vault.get(trip.vehicle_id) : undefined) ??
-    (trip.owner_vehicle_id ? vault.get(trip.owner_vehicle_id) : undefined) ??
     vault.get(normalizeVaultVehicleNumber(trip.vehicle_display_number));
   return {
     vehicleDocuments: mergeComplianceEntityDocs(entityVehicleDocs, vaultEntry?.docs ?? []),
@@ -618,24 +778,36 @@ function orgIdOf(trips: TripRow[]): string | null {
  * Batched read of every input for a set of trips — trip_documents + flags +
  * transactions + entity documents + Asset Vault vehicle JSON + driver KYC.
  * Used for first load and for trips that newly enter the pipeline; targeted
- * writes use the per-input fetchers below instead.
+ * writes use the per-input fetchers below instead. `viewerOrgId` is the
+ * signed-in org (not a trip's org) — the vault RPC authorizes every trip for it.
  */
-export async function fetchComplianceTripInputs(trips: TripRow[]): Promise<ComplianceTripInputs[]> {
+export async function fetchComplianceTripInputs(
+  trips: TripRow[],
+  viewerOrgId: string,
+): Promise<ComplianceTripInputs[]> {
   if (trips.length === 0) return [];
   const tripIds = trips.map((t) => t.id);
   const entityIds = trips.flatMap((trip) => [trip.vehicle_id, trip.driver_id].filter((id): id is string => Boolean(id)));
-  const [docsByTrip, flagsByTrip, txnsByTrip, entityDocsById, vault, driverKycDocs] = await Promise.all([
-    fetchTripDocumentsForTrips(tripIds),
-    fetchComplianceTripFlags(tripIds),
-    fetchComplianceTransactions(tripIds),
-    fetchEntityDocumentsByIds(orgIdOf(trips), entityIds, ["vehicle", "driver"]),
-    fetchVehicleVaultDocumentsForTrips(trips),
-    fetchDriverKycDocumentsForTrips(trips),
-  ]);
+  const [docsByTrip, flagsByTrip, receivedLrsByTrip, ibondTripIds, chargesSavedIds, txnsByTrip, entityDocsById, vault, driverKycDocs] =
+    await Promise.all([
+      fetchTripDocumentsForTrips(tripIds),
+      fetchComplianceTripFlags(tripIds),
+      fetchHardCopyReceivedLrNumbers(tripIds),
+      fetchHardCopyIbondTripIds(tripIds),
+      fetchPodChargeValidatedTripIds(tripIds),
+      fetchComplianceTransactions(tripIds),
+      fetchEntityDocumentsByIds(orgIdOf(trips), entityIds, ["vehicle", "driver"]),
+      fetchVehicleVaultDocumentsForTrips(trips, viewerOrgId),
+      fetchDriverKycDocumentsForTrips(trips),
+    ]);
+  const flagsWithLrs = attachChargesSavedFlags(
+    attachIbondFlags(attachReceivedLrNumbers(flagsByTrip, receivedLrsByTrip), ibondTripIds),
+    chargesSavedIds,
+  );
   return trips.map((trip) => ({
     trip,
     documents: docsByTrip.get(trip.id) ?? [],
-    flags: flagsByTrip.get(trip.id) ?? null,
+    flags: flagsWithLrs.get(trip.id) ?? null,
     ...paymentInputs(txnsByTrip.get(trip.id)),
     ...assembleVehicleDocuments(trip, entityDocsById, vault),
     driverDocuments: assembleDriverDocuments(trip, entityDocsById, driverKycDocs),
@@ -645,16 +817,14 @@ export async function fetchComplianceTripInputs(trips: TripRow[]): Promise<Compl
 /** Pure: one trip's summary from its inputs. No I/O. */
 export function summarizeComplianceTrip(inputs: ComplianceTripInputs): ComplianceTripSummary {
   const { trip, documents, flags, taggedAdvance, balance, vehicleDocuments, driverDocuments } = inputs;
-  const complianceVerifiedAt = flags?.compliance_verified_at ?? null;
-  // A Finance client receipt (trips.amount_paid) is not tied to a specific
-  // posting time, so it can never be proven to be at/after verification —
-  // advanceFromTripReceipts is intentionally not used as a fallback here.
-  // Only a tagged compliance_advance transaction, posted at/after
-  // compliance_verified_at, counts as the advance.
-  const advance =
-    taggedAdvance && isAdvancePostedAfterVerification(taggedAdvance, complianceVerifiedAt)
-      ? taggedAdvance
-      : null;
+  // Finance posts compliance_advance (not Compliance). Once the trip is verified,
+  // any tagged advance counts — posting before/after verified_at does not matter.
+  // Finance client receipts (trips.amount_paid) never count as the advance.
+  // Before verify, a tagged row is kept as advanceBeforeVerification only (stage
+  // stays Pending Docs / Compliance Pending; no Advance Processed chip yet).
+  const verifiedAt = flags?.compliance_verified_at ?? null;
+  const advance = verifiedAt && taggedAdvance ? taggedAdvance : null;
+  const advanceBeforeVerification = taggedAdvance && !advance ? taggedAdvance : null;
   // Phase 4: the gate is pod_received_at (the pre-existing, pervasively-used
   // signal), not the courier/AWB/received-by columns — those are display
   // metadata only. See ComplianceTripFlags.pod_received_at.
@@ -684,27 +854,54 @@ export function summarizeComplianceTrip(inputs: ComplianceTripInputs): Complianc
   ).length;
   const hasExpiredRequiredVehicleDocs =
     listExpiredRequiredVehicleDocTypes(vehicleDocuments).length > 0;
+  const opsDelivered = isOperationsDeliveredTrip(
+    trip,
+    documents.some((doc) => isSoftPodDocumentType(doc.document_type)),
+  );
 
   const stage = deriveComplianceStage({
     documentCount: documentCounts.total,
     missingRequiredCount,
+    missingRequiredEntityCount: missingRequiredEntityDocumentCount(vehicleDocuments, driverDocuments),
     hasExpiredRequiredVehicleDocs,
-    complianceVerifiedAt,
+    complianceVerifiedAt: flags?.compliance_verified_at ?? null,
+    financeVerifiedAt: flags?.finance_verified_at ?? null,
     advance,
     tripStatus: trip.status,
+    opsDelivered,
     hardCopyReceived,
     balance,
   });
 
+  const lrReceipt = lrReceiptForTrip(
+    documents.flatMap((doc) =>
+      (doc.document_type ?? "").toLowerCase() === "lr"
+        ? lrNumbersFromDocumentNumber(doc.document_number)
+        : [],
+    ),
+    flags?.received_lr_numbers ?? [],
+  );
+  // Flags are the live trip columns (and get patched on verify); the list row can be
+  // stale or omit them. Payment prerequisites read summary.trip, so keep it in step.
+  const tripWithFlags = flags
+    ? {
+        ...trip,
+        compliance_verified_at: flags.compliance_verified_at,
+        finance_verified_at: flags.finance_verified_at ?? null,
+        finance_flagged_at: flags.finance_flagged_at ?? null,
+        pod_received_at: flags.pod_received_at,
+      }
+    : trip;
+
   return {
-    trip,
+    trip: tripWithFlags,
     stage,
     documents,
     vehicleDocuments,
     driverDocuments,
     documentCounts,
     checklist,
-    complianceVerifiedAt,
+    complianceVerifiedAt: flags?.compliance_verified_at ?? null,
     complianceVerifiedBy: flags?.compliance_verified_by ?? null,
     complianceDecision: flags?.compliance_decision ?? null,
     complianceExceptionReason: flags?.compliance_exception_reason ?? null,
@@ -712,7 +909,17 @@ export function summarizeComplianceTrip(inputs: ComplianceTripInputs): Complianc
     complianceDeclinedAt: flags?.compliance_declined_at ?? null,
     complianceDeclinedBy: flags?.compliance_declined_by ?? null,
     complianceDeclineReason: flags?.compliance_decline_reason ?? null,
+    complianceRejectReturnTo: flags?.compliance_reject_return_to ?? null,
+    complianceResubmittedAt: flags?.compliance_resubmitted_at ?? null,
+    complianceResubmitNote: flags?.compliance_resubmit_note ?? null,
+    // Finance flag retired (Finance rejects directly since 12 Oct). Ignored in
+    // the UI so no badge, note, block or "Flagged by finance" list appears.
+    financeFlaggedAt: null,
+    financeFlagNote: null,
+    financeVerifiedAt: flags?.finance_verified_at ?? null,
+    financeVerifiedBy: flags?.finance_verified_by ?? null,
     advance,
+    advanceBeforeVerification,
     balance,
     hardCopyPod: {
       received: hardCopyReceived,
@@ -720,6 +927,10 @@ export function summarizeComplianceTrip(inputs: ComplianceTripInputs): Complianc
       courier: flags?.pod_hard_copy_courier ?? null,
       awbNumber: flags?.pod_hard_copy_awb_number ?? null,
       receivedBy: flags?.pod_hard_copy_received_by ?? null,
+      ibond: flags?.pod_ibond === true,
+      ...(flags?.pod_charges_saved ? { chargesSaved: true } : {}),
+      lrNumbers: [...lrReceipt.received, ...lrReceipt.pending],
+      receivedLrNumbers: lrReceipt.received,
     },
   };
 }
@@ -727,8 +938,9 @@ export function summarizeComplianceTrip(inputs: ComplianceTripInputs): Complianc
 /** Batched inputs → summaries (detail screen, report, tests). */
 export async function buildComplianceTripSummaries(
   trips: TripRow[],
+  viewerOrgId: string,
 ): Promise<ComplianceTripSummary[]> {
-  return (await fetchComplianceTripInputs(trips)).map(summarizeComplianceTrip);
+  return (await fetchComplianceTripInputs(trips, viewerOrgId)).map(summarizeComplianceTrip);
 }
 
 /**
@@ -737,13 +949,14 @@ export async function buildComplianceTripSummaries(
  */
 export async function fetchVehicleDocumentsForTrips(
   trips: TripRow[],
+  viewerOrgId: string,
 ): Promise<Map<string, { vehicleDocuments: ComplianceEntityDocument[]; vaultVehicleId: string | null }>> {
   const byTrip = new Map<string, { vehicleDocuments: ComplianceEntityDocument[]; vaultVehicleId: string | null }>();
   if (trips.length === 0) return byTrip;
   const vehicleIds = trips.map((trip) => trip.vehicle_id).filter((id): id is string => Boolean(id));
   const [entityDocsById, vault] = await Promise.all([
     fetchEntityDocumentsByIds(orgIdOf(trips), vehicleIds, ["vehicle"]),
-    fetchVehicleVaultDocumentsForTrips(trips),
+    fetchVehicleVaultDocumentsForTrips(trips, viewerOrgId),
   ]);
   for (const trip of trips) byTrip.set(trip.id, assembleVehicleDocuments(trip, entityDocsById, vault));
   return byTrip;
@@ -775,19 +988,62 @@ export async function fetchTripScopedInputs(
 ): Promise<Map<string, Pick<ComplianceTripInputs, "documents" | "flags" | "taggedAdvance" | "balance">>> {
   const byTrip = new Map<string, Pick<ComplianceTripInputs, "documents" | "flags" | "taggedAdvance" | "balance">>();
   if (tripIds.length === 0) return byTrip;
-  const [docsByTrip, flagsByTrip, txnsByTrip] = await Promise.all([
+  const [docsByTrip, flagsByTrip, receivedLrsByTrip, ibondTripIds, chargesSavedIds, txnsByTrip] = await Promise.all([
     fetchTripDocumentsForTrips(tripIds),
     fetchComplianceTripFlags(tripIds),
+    fetchHardCopyReceivedLrNumbers(tripIds),
+    fetchHardCopyIbondTripIds(tripIds),
+    fetchPodChargeValidatedTripIds(tripIds),
     fetchComplianceTransactions(tripIds),
   ]);
+  const flagsWithLrs = attachChargesSavedFlags(
+    attachIbondFlags(attachReceivedLrNumbers(flagsByTrip, receivedLrsByTrip), ibondTripIds),
+    chargesSavedIds,
+  );
   for (const id of tripIds) {
     byTrip.set(id, {
       documents: docsByTrip.get(id) ?? [],
-      flags: flagsByTrip.get(id) ?? null,
+      flags: flagsWithLrs.get(id) ?? null,
       ...paymentInputs(txnsByTrip.get(id)),
     });
   }
   return byTrip;
+}
+
+/** A client receipt posted in Finance for a trip (feeds `trips.amount_paid`). */
+export type ComplianceFinanceReceipt = CompliancePaymentSummary;
+
+const ADVANCE_LEDGER_SELECT =
+  "id, trip_id, amount_in, amount_out, description, transaction_date, created_at, created_by, ledger_category, payment_reference";
+
+/**
+ * Live ledger rows behind a trip's advance: the `compliance_advance` posting and
+ * the Finance client receipts that feed `trips.amount_paid`. Not org-filtered —
+ * the amount_paid trigger sums receipts from every org on the trip, and RLS
+ * already scopes what this user may read.
+ */
+export async function fetchTripAdvanceLedger(tripId: string): Promise<{
+  complianceAdvance: CompliancePaymentSummary | null;
+  receipts: ComplianceFinanceReceipt[];
+}> {
+  const { data, error } = await supabase()
+    .from("transactions")
+    .select(ADVANCE_LEDGER_SELECT)
+    .eq("trip_id", tripId)
+    // Client receipts are money in; compliance advance / balance are supplier
+    // payouts (money out) — match both, not only amount_in.
+    .or("amount_in.gt.0,ledger_category.in.(compliance_advance,compliance_balance)")
+    .order("transaction_date", { ascending: true });
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as RawTxnRow[];
+  const receipts = rows
+    .filter((row) => row.ledger_category !== "compliance_advance" && row.ledger_category !== "compliance_balance")
+    .map((row) => toPaymentSummary([row]))
+    .filter((row): row is ComplianceFinanceReceipt => row != null);
+  return {
+    complianceAdvance: toPaymentSummary(rows.filter((row) => row.ledger_category === "compliance_advance")),
+    receipts,
+  };
 }
 
 /** Payment inputs (compliance transactions + `trips.amount_paid`) for one or more trips. */
@@ -859,4 +1115,38 @@ export function canApproveComplianceWithException(input: {
   const hasOutstanding =
     outstanding.missing.length > 0 || outstanding.pending_verification.length > 0 || outstanding.rejected.length > 0;
   return { ok: hasOutstanding && !input.complianceVerifiedAt, outstanding };
+}
+
+export type OrganizationPayoutAccount = {
+  id: string;
+  /** e.g. "HDFC Bank ••1234" */
+  label: string;
+};
+
+/**
+ * The organisation's own bank accounts (entity_bank_accounts, entity_type
+ * "organization"), primary first. Used for the optional "Paid from" choice
+ * when posting a compliance payment.
+ */
+export async function fetchOrganizationPayoutAccounts(
+  organizationId: string,
+): Promise<OrganizationPayoutAccount[]> {
+  if (!organizationId) return [];
+  const { data, error } = await supabase()
+    .from("entity_bank_accounts")
+    .select("id, bank_name, account_number, is_primary")
+    .eq("organization_id", organizationId)
+    .eq("entity_type", "organization")
+    .eq("entity_id", organizationId)
+    .is("deleted_at", null)
+    .order("is_primary", { ascending: false })
+    .limit(10);
+  if (error || !data) return [];
+  return data.map((row) => {
+    const r = row as { id: string; bank_name: string | null; account_number: string | null };
+    const digits = (r.account_number ?? "").replace(/\s+/g, "");
+    const last4 = digits.length >= 4 ? digits.slice(-4) : digits;
+    const bank = r.bank_name?.trim() || "Bank account";
+    return { id: r.id, label: last4 ? `${bank} ••${last4}` : bank };
+  });
 }

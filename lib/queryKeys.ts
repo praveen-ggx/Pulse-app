@@ -9,6 +9,8 @@ export const queryKeys = {
   trips: {
     all: (orgId: string) => ["q", "trips", orgId] as const,
     finite: (orgId: string) => ["q", "trips", orgId, "finite"] as const,
+    /** Compliance queue catalog: newest 400 plus older unsettled Compliance trips. */
+    compliance: (orgId: string) => ["q", "trips", orgId, "compliance"] as const,
     partyCounts: (orgId: string) =>
       ["q", "trips", orgId, "party-counts"] as const,
     infinite: (orgId: string, pageSize: number) =>
@@ -290,6 +292,12 @@ export const queryKeys = {
     suppliers: (orgId: string) => ["q", "log-pods", "suppliers", orgId] as const,
     drivers: (orgId: string) => ["q", "log-pods", "drivers", orgId] as const,
     courierPartners: () => ["q", "log-pods", "courier-partners"] as const,
+  },
+
+  debitControl: {
+    board: (orgId: string) => ["q", "debit-control", "board", orgId] as const,
+    clientValidation: (orgId: string, tripId: string) =>
+      ["q", "debit-control", "client-validation", orgId, tripId] as const,
   },
 
   invoicing: {
@@ -647,5 +655,14 @@ export const queryKeys = {
       ["q", "tripCompliance", "list", "vault-v2", orgId, page] as const,
     detail: (orgId: string, tripId: string) =>
       ["q", "tripCompliance", "detail", "v1", orgId, tripId] as const,
+    /** Finance Hub Summary: TDS / doc charges / advance % for one trip. */
+    advanceFinance: (orgId: string, tripId: string) =>
+      ["q", "tripCompliance", "advanceFinance", "v1", orgId, tripId] as const,
+    /** Advance Processed table enrichment (bank, approver, payment ref) per trip set. */
+    advanceProcessed: (orgId: string, signature: string) =>
+      ["q", "tripCompliance", "advanceProcessed", "v1", orgId, signature] as const,
+    /** List-card truck type + supplier label (one batch RPC) per trip set. */
+    listFacts: (orgId: string, signature: string) =>
+      ["q", "tripCompliance", "listFacts", "v1", orgId, signature] as const,
   },
 } as const;

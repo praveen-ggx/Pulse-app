@@ -17,7 +17,7 @@ export type MarketBidStatus = 'pending' | 'accepted' | 'rejected' | 'withdrawn' 
  * unpaid; pending = payment initiated with a provider (A8.7); paid =
  * confirmed server-side; failed = retryable, no auto-expiry in this phase.
  */
-export type FeePaymentStatus = 'not_required' | 'required' | 'pending' | 'paid' | 'failed' | 'expired';
+export type FeePaymentStatus = 'not_required' | 'required' | 'pending' | 'paid' | 'failed' | 'expired' | 'refunded';
 
 export type MarketBidForIndentRow = {
   id: string;
@@ -153,6 +153,22 @@ export async function revokeIndentAward(indentId: string): Promise<{
     return { error: new Error(error.message), awardRevokedAt: null };
   }
   const result = data as { award_revoked_at?: string } | null;
+  return { error: null, awardRevokedAt: result?.award_revoked_at ?? null };
+}
+
+/** Reverse a paid test_online fee, then revoke. Razorpay and cash are refused by the RPC. */
+export async function refundTestMarketplaceFeeAndRevokeIndent(
+  indentId: string,
+  reason: string,
+): Promise<{ error: Error | null; awardRevokedAt: string | null }> {
+  const { data, error } = await supabase().rpc(
+    'refund_test_marketplace_fee_and_revoke_indent',
+    { p_indent_id: indentId, p_reason: reason },
+  );
+  if (error) {
+    return { error: new Error(error.message), awardRevokedAt: null };
+  }
+  const result = data as { award_revoked_at?: string; note?: string } | null;
   return { error: null, awardRevokedAt: result?.award_revoked_at ?? null };
 }
 

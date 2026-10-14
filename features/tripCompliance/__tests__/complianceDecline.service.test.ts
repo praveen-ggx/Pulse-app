@@ -136,8 +136,13 @@ describe("fetchComplianceTripFlags — pre-migration fallback (AC-34)", () => {
   });
 
   it("missing-column error on first select → retries base select and keeps verified flags", async () => {
+    const missing = { data: null, error: { code: "42703", message: "column trips.compliance_declined_at does not exist" } };
     mockSelectResults = [
-      { data: null, error: { code: "42703", message: "column trips.compliance_declined_at does not exist" } },
+      missing,
+      missing,
+      missing,
+      missing,
+      missing,
       {
         data: [
           {
@@ -152,10 +157,12 @@ describe("fetchComplianceTripFlags — pre-migration fallback (AC-34)", () => {
       },
     ];
     const flags = await fetchComplianceTripFlags(["t1"]);
-    expect(mockSelects).toHaveLength(2);
-    expect(mockSelects[0]).toContain("compliance_declined_at");
-    expect(mockSelects[1]).not.toContain("compliance_declined_at");
-    expect(mockSelects[1]).toContain("compliance_verified_at");
+    expect(mockSelects).toHaveLength(6);
+    expect(mockSelects[0]).toContain("finance_flagged_at");
+    expect(mockSelects[1]).toContain("compliance_resubmit_note");
+    expect(mockSelects[2]).toContain("compliance_reject_return_to");
+    expect(mockSelects[5]).not.toContain("compliance_declined_at");
+    expect(mockSelects[5]).toContain("compliance_verified_at");
     expect(flags.get("t1")).toMatchObject({
       compliance_verified_at: "2026-09-20T00:00:00Z",
       compliance_verified_by: "u9",
@@ -190,7 +197,7 @@ const FLAGS: ComplianceTripFlags = {
 
 function inputs(tripId: string, flags: ComplianceTripFlags | null = FLAGS): ComplianceTripInputs {
   return {
-    trip: { id: tripId, organization_id: "org-1", status: "delivered", pod_received_at: null } as unknown as TripRow,
+    trip: { id: tripId, organization_id: "org-1", status: "in_transit", pod_received_at: null } as unknown as TripRow,
     documents: ["lr", "eway_bill", "invoice"].map((type) => ({
       id: `${tripId}-${type}`,
       trip_id: tripId,
@@ -206,8 +213,32 @@ function inputs(tripId: string, flags: ComplianceTripFlags | null = FLAGS): Comp
     flags,
     taggedAdvance: null,
     balance: null,
-    vehicleDocuments: [],
-    driverDocuments: [],
+    vehicleDocuments: ["rc", "insurance", "fitness"].map((doc_type) => ({
+      id: `v-${doc_type}`,
+      entity_type: "vehicle" as const,
+      entity_id: "v1",
+      doc_type,
+      status: "pending",
+      storage_path: `${doc_type}.pdf`,
+      expiry_date: "2027-01-01",
+      verified_at: null,
+      notes: null,
+      created_at: "2026-09-01",
+    })),
+    driverDocuments: [
+      {
+        id: "d-license",
+        entity_type: "driver" as const,
+        entity_id: "d1",
+        doc_type: "license",
+        status: "pending",
+        storage_path: "license.pdf",
+        expiry_date: "2027-01-01",
+        verified_at: null,
+        notes: null,
+        created_at: "2026-09-01",
+      },
+    ],
     vaultVehicleId: null,
   };
 }
@@ -251,6 +282,7 @@ describe("patchForComplianceChange('complianceDeclined')", () => {
     const patch = await patchForComplianceChange(
       current,
       { type: "complianceDeclined", tripId: "t1", actorId: "u1", reason: "bad LR" },
+      "org-1",
       () => "2026-09-29T11:00:00Z",
     );
     expect(mockSelects).toHaveLength(0);

@@ -11,11 +11,11 @@ describe('bypass rules', () => {
     const c = classifyRequest(url);
     expect(c.coalesceKey).toBeUndefined();
     expect(c.lane).toBe('interactive');
+    expect(c.bypassModerator).toBe(true);
   });
 
-  it('flags auth so the caller can bypass moderation entirely', () => {
-    expect(classifyRequest(`${REST}/trips?select=id`).isAuth).toBe(false);
-    expect(classifyRequest('https://proj.supabase.co/auth/v1/token').isAuth).toBe(true);
+  it('does not bypass the moderator for PostgREST', () => {
+    expect(classifyRequest(`${REST}/trips?select=id`).bypassModerator).toBe(false);
   });
 });
 

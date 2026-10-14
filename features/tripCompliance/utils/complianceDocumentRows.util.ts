@@ -5,11 +5,10 @@
  * Missing/Pending/Verified/Rejected/Expired classification from one place.
  */
 import {
-  COMPLIANCE_DRIVER_DOCUMENT_TYPES,
+  COMPLIANCE_FINANCE_DOCUMENT_TYPES,
+  REQUIRED_COMPLIANCE_FINANCE_DOCUMENT_TYPES,
   COMPLIANCE_TRIP_OTHER_DOCUMENT_TYPES,
-  COMPLIANCE_VEHICLE_DOCUMENT_TYPES,
   REQUIRED_COMPLIANCE_DOCUMENT_TYPES,
-  documentRequiresExpiry,
   isRequiredDriverDocumentType,
   isRequiredVehicleDocumentType,
   type ComplianceDocumentRow,
@@ -26,6 +25,8 @@ export const DOC_TYPE_LABEL: Record<string, string> = {
   pod: "POD",
   manifest: "Trip Manifest",
   memo: "Memo",
+  other: "Other Documents",
+  bank_docs: "Bank Docs",
   loading_slip: "Loading Slip",
   insurance: "Insurance",
   rc: "RC",
@@ -37,8 +38,19 @@ export const DOC_TYPE_LABEL: Record<string, string> = {
   aadhaar: "Aadhaar",
 };
 
+/** Labels matching Asset Vault → Trip Details finance rows. */
+export const FINANCE_DOC_TYPE_LABEL: Record<string, string> = {
+  memo: "Memo",
+  other: "Other Documents",
+  bank_docs: "Bank Docs",
+};
+
 export function labelForDocType(type: string): string {
   return DOC_TYPE_LABEL[type] ?? type.replace(/_/g, " ");
+}
+
+export function labelForFinanceDocType(type: string): string {
+  return FINANCE_DOC_TYPE_LABEL[type] ?? labelForDocType(type);
 }
 
 export type ComplianceDocRowStatus = ComplianceDocumentStatus | "missing" | "expired";
@@ -53,32 +65,162 @@ export type ComplianceDocRow = {
 };
 
 /**
- * Latest present doc per type (per `classifyTripDocument`). Anything openable
- * (file / url / reference) wins over a details-only row; `empty` rows never
- * stand in for a document.
+ * Vault-style detail line for Finance rows (memo / other / bank file or account).
+ * Returns null when there is nothing richer than status to show.
  */
-function latestDocByType(documents: ComplianceDocumentRow[]): Map<string | null, ComplianceDocumentRow> {
-  const byType = new Map<string | null, ComplianceDocumentRow>();
-  for (const doc of documents) {
-    const kind = classifyTripDocument(doc);
-    if (!kind.present) continue;
-    const current = byType.get(doc.document_type);
-    const currentBinary = current ? classifyTripDocument(current).hasBinary : false;
-    const newer = !current || (doc.uploaded_at ?? "") > (current.uploaded_at ?? "");
-    if (!current || (!currentBinary && kind.hasBinary) || (currentBinary === kind.hasBinary && newer)) {
-      byType.set(doc.document_type, doc);
-    }
-  }
-  return byType;
+export function financeVaultDetailLine(row: ComplianceDocRow): string | null {
+  const fromNotes = row.entityDoc?.notes?.trim() || null;
+  if (fromNotes) return fromNotes;
+  const doc = row.doc;
+  if (!doc) return null;
+  const fileName = doc.file_name?.trim() ?? "";
+  if (fileName && !/fields\.json$/i.test(fileName)) return fileName;
+  return null;
 }
 
-function rowForType(
-  type: string,
-  required: boolean,
-  byType: Map<string | null, ComplianceDocumentRow>,
-): ComplianceDocRow {
-  const doc = byType.get(type) ?? null;
-  return { key: type, type, required, status: doc ? doc.status : "missing", doc, entityDoc: null };
+export type FinanceBankProofMerge = {
+  previewPath: string | null;
+  detailLine: string | null;
+  kycDocId?: string | null;
+  supplierId?: string | null;
+  status?: string | null;
+  fileName?: string | null;
+  createdAt?: string | null;
+};
+
+/**
+ * Merge supplier bank KYC / cancelled-cheque into the Finance Bank Docs slot when
+ * the trip has no dedicated `bank_docs` upload yet.
+ */
+export function mergeFinanceBankDocsFromSupplier(
+  rows: ComplianceDocRow[],
+  proof: FinanceBankProofMerge | null | undefined,
+): ComplianceDocRow[] {
+  if (!proof?.previewPath?.trim()) {
+    if (!proof?.detailLine?.trim()) return rows;
+    return rows.map((row) => {
+      if (row.type !== "bank_docs" || row.doc || row.entityDoc) return row;
+      return {
+        ...row,
+        status: "pending" as const,
+        entityDoc: {
+          id: `bank-details:${proof.supplierId ?? "unknown"}`,
+          entity_type: "supplier" as const,
+          entity_id: proof.supplierId ?? "",
+          doc_type: "bank_docs",
+          status: "pending",
+          storage_path: null,
+          expiry_date: null,
+          verified_at: null,
+          notes: proof.detailLine,
+          created_at: new Date().toISOString(),
+          source: "supplier-kyc" as const,
+        },
+      };
+    });
+  }
+  const path = proof.previewPath.trim();
+  return rows.map((row) => {
+    if (row.type !== "bank_docs") return row;
+    // Trip upload wins over supplier vault merge.
+    if (row.doc && classifyTripDocument(row.doc).present) {
+      const fileName = row.doc.file_name?.trim() || null;
+      const combined = [fileName, proof.detailLine].filter(Boolean).join(" · ") || null;
+      if (!combined) return row;
+      return {
+        ...row,
+        entityDoc: {
+          id: `bank-meta:${proof.supplierId ?? row.doc.id}`,
+          entity_type: "supplier" as const,
+          entity_id: proof.supplierId ?? "",
+          doc_type: "bank_docs",
+          status: "pending",
+          storage_path: null,
+          expiry_date: null,
+          verified_at: null,
+          notes: combined,
+          created_at: row.doc.uploaded_at || new Date().toISOString(),
+          source: "supplier-kyc" as const,
+        },
+      };
+    }
+    const verified = (proof.status ?? "").toLowerCase() === "verified";
+    return {
+      ...row,
+      status: verified ? ("verified" as const) : ("pending" as const),
+      doc: null,
+      entityDoc: {
+        id: proof.kycDocId?.trim() || `bank-proof:${proof.supplierId ?? path}`,
+        entity_type: "supplier",
+        entity_id: proof.supplierId ?? "",
+        doc_type: "bank_docs",
+        status: verified ? "verified" : "pending",
+        storage_path: path,
+        expiry_date: null,
+        verified_at: verified ? proof.createdAt ?? null : null,
+        notes: proof.detailLine ?? proof.fileName ?? null,
+        created_at: proof.createdAt ?? new Date().toISOString(),
+        source: "supplier-kyc",
+      },
+    };
+  });
+}
+
+function presentDocsOfType(documents: ComplianceDocumentRow[], type: string): ComplianceDocumentRow[] {
+  return documents
+    .filter((doc) => doc.document_type === type && classifyTripDocument(doc).present)
+    .sort((a, b) => (a.uploaded_at ?? "").localeCompare(b.uploaded_at ?? ""));
+}
+
+function preferTripDoc(a: ComplianceDocumentRow, b: ComplianceDocumentRow): number {
+  const aBinary = classifyTripDocument(a).hasBinary ? 1 : 0;
+  const bBinary = classifyTripDocument(b).hasBinary ? 1 : 0;
+  if (bBinary !== aBinary) return bBinary - aBinary;
+  return (b.uploaded_at ?? "").localeCompare(a.uploaded_at ?? "");
+}
+
+function rowsForTripTypes(
+  types: readonly string[],
+  requiredTypes: readonly string[],
+  documents: ComplianceDocumentRow[],
+): ComplianceDocRow[] {
+  const required = new Set(requiredTypes);
+  const rows: ComplianceDocRow[] = [];
+  for (const type of types) {
+    const docs = presentDocsOfType(documents, type);
+    if (docs.length === 0) {
+      rows.push({
+        key: type,
+        type,
+        required: required.has(type),
+        status: "missing",
+        doc: null,
+        entityDoc: null,
+      });
+      continue;
+    }
+    const canonical = [...docs].sort(preferTripDoc)[0];
+    const extras = docs.filter((doc) => doc.id !== canonical.id);
+    rows.push({
+      key: `${type}:${canonical.id}`,
+      type,
+      required: required.has(type),
+      status: canonical.status,
+      doc: canonical,
+      entityDoc: null,
+    });
+    for (const doc of extras) {
+      rows.push({
+        key: `${type}:${doc.id}`,
+        type,
+        required: false,
+        status: doc.status,
+        doc,
+        entityDoc: null,
+      });
+    }
+  }
+  return rows;
 }
 
 function latestEntityDoc(documents: ComplianceEntityDocument[]): ComplianceEntityDocument | null {
@@ -105,14 +247,12 @@ function isEntityDocRequired(type: string): boolean {
 function entityRowStatus(
   doc: ComplianceEntityDocument | null,
   now = new Date(),
-  docType?: string,
 ): ComplianceDocRowStatus {
   if (!doc) return "missing";
   if (doc.status === "rejected" || doc.status === "replaced") return "rejected";
   if (doc.status === "expired" || isEntityDocumentExpired(doc, now)) return "expired";
   // On file is not approval. Only an explicit verify action sets status to verified.
   if (doc.status !== "verified") return "pending";
-  if (docType && documentRequiresExpiry(docType) && !doc.expiry_date?.trim()) return "pending";
   return "verified";
 }
 
@@ -128,54 +268,84 @@ export function deriveEntityComplianceRows(
     list.push(doc);
     byType.set(doc.doc_type, list);
   }
-  return types.map((type) => {
-    const entityDoc = latestEntityDoc(byType.get(type) ?? []);
-    return {
-      key: type,
+  const rows: ComplianceDocRow[] = [];
+  for (const type of types) {
+    const all = byType.get(type) ?? [];
+    const usable = all.filter((doc) => doc.status !== "replaced");
+    const pool = usable.length > 0 ? usable : all;
+    const canonical = latestEntityDoc(pool);
+    if (!canonical) {
+      rows.push({
+        key: type,
+        type,
+        required: isEntityDocRequired(type),
+        status: "missing",
+        doc: null,
+        entityDoc: null,
+      });
+      continue;
+    }
+    rows.push({
+      key: `${type}:${canonical.id}`,
       type,
       required: isEntityDocRequired(type),
-      status: entityRowStatus(entityDoc, now, type),
+      status: entityRowStatus(canonical, now),
       doc: null,
-      entityDoc,
-    };
-  });
+      entityDoc: canonical,
+    });
+    const extras = pool
+      .filter((doc) => doc.id !== canonical.id)
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+    for (const entityDoc of extras) {
+      rows.push({
+        key: `${type}:${entityDoc.id}`,
+        type,
+        required: false,
+        status: entityRowStatus(entityDoc, now),
+        doc: null,
+        entityDoc,
+      });
+    }
+  }
+  return rows;
 }
 
 /** Required trip types first, then other trip upload options only. */
 export function deriveComplianceDocumentRows(documents: ComplianceDocumentRow[]): ComplianceDocRow[] {
-  const byType = latestDocByType(documents);
-  const requiredRows = REQUIRED_COMPLIANCE_DOCUMENT_TYPES.map((type) => rowForType(type, true, byType));
-  const otherRows = COMPLIANCE_TRIP_OTHER_DOCUMENT_TYPES.map((type) => rowForType(type, false, byType));
-  return [...requiredRows, ...otherRows];
+  return [
+    ...rowsForTripTypes(REQUIRED_COMPLIANCE_DOCUMENT_TYPES, REQUIRED_COMPLIANCE_DOCUMENT_TYPES, documents),
+    ...rowsForTripTypes(COMPLIANCE_TRIP_OTHER_DOCUMENT_TYPES, [], documents),
+  ];
 }
 
 /**
- * Finance preview: fixed optional slots (POD / Memo) plus any other present
- * trip-vault documents that are not required trip types or vehicle/driver KYC.
+ * Trip vault tab in Compliance review: LR / E-way Bill / Invoice only.
+ * Memo is reviewed under Finance and POD through the hardcopy POD flow.
+ */
+export function deriveTripVaultReviewRows(documents: ComplianceDocumentRow[]): ComplianceDocRow[] {
+  const requiredTypes = new Set(REQUIRED_COMPLIANCE_DOCUMENT_TYPES);
+  return deriveComplianceDocumentRows(documents).filter((row) => requiredTypes.has(row.type));
+}
+
+/**
+ * Finance list: Memo, Other Documents, and Bank Docs from the trip Asset Vault.
+ * LR / Invoice / Trip Manifest stay on the Trip tab — not duplicated here.
  */
 export function deriveFinanceDocumentRows(documents: ComplianceDocumentRow[]): ComplianceDocRow[] {
-  const byType = latestDocByType(documents);
-  const baseRows = COMPLIANCE_TRIP_OTHER_DOCUMENT_TYPES.map((type) => rowForType(type, false, byType));
-  const reserved = new Set<string>([
-    ...REQUIRED_COMPLIANCE_DOCUMENT_TYPES,
-    ...COMPLIANCE_TRIP_OTHER_DOCUMENT_TYPES,
-    ...COMPLIANCE_VEHICLE_DOCUMENT_TYPES,
-    ...COMPLIANCE_DRIVER_DOCUMENT_TYPES,
-  ]);
-  const vaultExtras: ComplianceDocRow[] = [];
-  for (const [type, doc] of byType) {
-    if (!type || reserved.has(type)) continue;
-    vaultExtras.push({
-      key: type,
-      type,
-      required: false,
-      status: doc.status,
-      doc,
-      entityDoc: null,
-    });
-  }
-  vaultExtras.sort((a, b) => labelForDocType(a.type).localeCompare(labelForDocType(b.type)));
-  return [...baseRows, ...vaultExtras];
+  return rowsForTripTypes(
+    COMPLIANCE_FINANCE_DOCUMENT_TYPES,
+    REQUIRED_COMPLIANCE_FINANCE_DOCUMENT_TYPES,
+    documents,
+  );
+}
+
+/** Progress is always measured against required types, not extra uploads of the same type. */
+export function complianceProgress(rows: ComplianceDocRow[]): { verified: number; total: number } {
+  const requiredTypes = [...new Set(rows.filter((row) => row.required).map((row) => row.type))];
+  const verified = requiredTypes.filter((type) =>
+    rows.some((row) => row.type === type && row.status === "verified"),
+  ).length;
+  return { verified, total: requiredTypes.length };
 }
 
 /** Progress is always measured against required documents only. */
@@ -205,17 +375,7 @@ export function requirementScopeLabel(required: boolean): string {
 export function requiredRowNextAction(row: ComplianceDocRow): string {
   if (row.status === "missing") return "Upload a file before Approve / Decline.";
   if (row.status === "expired") return "Replace the expired file, then Approve.";
-  if (row.status === "pending") {
-    if (documentRequiresExpiry(row.type) && !row.entityDoc?.expiry_date?.trim()) {
-      return "Add expiry date, then Approve.";
-    }
-    return "Preview then Approve or Decline.";
-  }
+  if (row.status === "pending") return "Preview then Approve or Decline.";
   if (row.status === "rejected") return "Replace the file, then Approve.";
   return "Verified — preview or replace if needed.";
-}
-
-export function complianceProgress(rows: ComplianceDocRow[]): { verified: number; total: number } {
-  const required = rows.filter((r) => r.required);
-  return { verified: required.filter((r) => r.status === "verified").length, total: required.length };
 }

@@ -1,4 +1,5 @@
 import Theme from '@/constants/Theme';
+import { VehicleTypeCatalogField } from '@/features/vehicles/components/VehicleTypeCatalogField';
 import { createVehicle } from '@/features/vehicles/services/vehicles.service';
 import { formatIndianVehicleNumber } from '@/lib/format';
 import { applyIndianVehicleKeystroke } from '@/lib/indianVehicleInput.util';
@@ -13,8 +14,6 @@ import {
 } from 'react-native';
 import { reassignStyles as s } from './reassign.styles';
 
-const VEHICLE_TYPES = ['Truck', 'Container', 'Trailer', 'Tanker', 'Other'] as const;
-
 type Props = {
   organizationId: string;
   onCreated: (vehicleId: string) => void;
@@ -23,7 +22,7 @@ type Props = {
 export function AddVehicleForm({ organizationId, onCreated }: Props) {
   const invalidateVehicles = useInvalidateVehicles();
   const [vehicleNumber, setVehicleNumber] = useState('');
-  const [vehicleType, setVehicleType] = useState<string>('Truck');
+  const [vehicleType, setVehicleType] = useState<string>('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,6 +30,10 @@ export function AddVehicleForm({ organizationId, onCreated }: Props) {
     const plate = formatIndianVehicleNumber(vehicleNumber).trim();
     if (!plate) {
       setError('Enter vehicle registration number.');
+      return;
+    }
+    if (!vehicleType.trim()) {
+      setError('Select a vehicle type.');
       return;
     }
     setSaving(true);
@@ -65,21 +68,11 @@ export function AddVehicleForm({ organizationId, onCreated }: Props) {
       </View>
       <View>
         <Text style={s.label}>Type</Text>
-        <View style={s.typeChipRow}>
-          {VEHICLE_TYPES.map((t) => {
-            const active = vehicleType === t;
-            return (
-              <TouchableOpacity
-                key={t}
-                style={[s.typeChip, active && s.typeChipActive]}
-                onPress={() => setVehicleType(t)}
-                activeOpacity={0.85}
-              >
-                <Text style={[s.typeChipText, active && s.typeChipTextActive]}>{t}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        <VehicleTypeCatalogField
+          value={vehicleType}
+          onChange={(value) => setVehicleType(value)}
+          style={s.input}
+        />
       </View>
       {error ? <Text style={s.inlineError}>{error}</Text> : null}
       <TouchableOpacity

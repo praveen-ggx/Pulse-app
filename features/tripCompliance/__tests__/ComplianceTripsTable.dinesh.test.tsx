@@ -108,6 +108,19 @@ function allText(): string[] {
 }
 
 describe("ComplianceTripsTable — columns (AC-1, AC-2)", () => {
+  it("Compliance Pending hides Advance and Balance and shows a Trip Status column", () => {
+    renderTable(makeSummary(), { compliancePendingLayout: true });
+    const texts = allText();
+    expect(texts).toContain("Trip Status");
+    expect(texts).toContain("Invoice");
+    expect(texts).toContain("LR");
+    expect(texts).toContain("Truck No");
+    expect(texts).toContain("Completed");
+    expect(texts).not.toContain("Advance");
+    expect(texts).not.toContain("Balance");
+    expect(texts).not.toContain("Payment");
+  });
+
   it("header order: From → To → E-way Bill → Trip → Vehicle → Driver", () => {
     renderTable(makeSummary());
     const texts = allText();
@@ -115,7 +128,9 @@ describe("ComplianceTripsTable — columns (AC-1, AC-2)", () => {
     expect(idx("From")).toBeGreaterThan(-1);
     expect(idx("From")).toBeLessThan(idx("To"));
     expect(idx("To")).toBeLessThan(idx("E-way Bill"));
-    expect(idx("E-way Bill")).toBeLessThan(idx("Trip"));
+    expect(idx("E-way Bill")).toBeLessThan(idx("LR"));
+    expect(idx("LR")).toBeLessThan(idx("Truck No"));
+    expect(idx("Truck No")).toBeLessThan(idx("Trip"));
     expect(idx("Trip")).toBeLessThan(idx("Vehicle"));
     expect(idx("Vehicle")).toBeLessThan(idx("Driver"));
   });
@@ -142,8 +157,9 @@ describe("ComplianceTripsTable — group status pills (AC-9, AC-13, AC-37, AC-38
       fireEvent.press(pill);
       expect(onReview).toHaveBeenLastCalledWith("t1", null, scope);
     }
-    expect(allText()).not.toContain("LR");
-    expect(allText()).not.toContain("Invoice");
+    const texts = allText();
+    expect(texts.filter((label) => label === "LR")).toEqual(["LR"]);
+    expect(texts).not.toContain("Invoice");
   });
 
   it("trip pill is Approved when LR/E-way/Invoice are verified; a11y label + ≥44pt target", () => {

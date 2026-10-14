@@ -46,7 +46,7 @@ jest.mock('@/features/drivers/services/drivers.service', () => ({
   __resetSyncLinkedDriversDedupeForTests: jest.fn(),
 }));
 
-import { applyPendingOAuthMetadata } from '../auth.service';
+import { applyPendingOAuthMetadata, pendingOAuthMetadataMatchesUser } from '../auth.service';
 
 function updateChain(result: { data: unknown; error: unknown }) {
   const chain: {
@@ -188,5 +188,71 @@ describe('applyPendingOAuthMetadata retention', () => {
     await expect(applyPendingOAuthMetadata()).resolves.toEqual({ status: 'success' });
     expect(AsyncStorage.removeItem).toHaveBeenCalledWith(PENDING_KEY);
     expect(mockSyncLinked).toHaveBeenCalled();
+  });
+});
+
+describe('applyPendingOAuthMetadata identity guard (incident 2026-09-02)', () => {
+  const NOW = Date.parse('2026-09-02T06:32:00Z');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (AsyncStorage.removeItem as jest.Mock).mockResolvedValue(undefined);
+  });
+
+  it('flags a transporter form completed with a staff Google account', () => {
+    expect(
+      pendingOAuthMetadataMatchesUser(
+        { fullName: 'SHIVSHAKTI TRANSPORT CO' },
+        { created_at: '2026-09-02T06:31:37Z', user_metadata: { name: 'Dihya Zayeem' } },
+        NOW,
+      ),
+    ).toBe(false);
+  });
+
+  it('accepts the same person with a shorter / longer form name', () => {
+    expect(
+      pendingOAuthMetadataMatchesUser(
+        { fullName: 'Dihya' },
+        { created_at: '2026-09-02T06:31:37Z', user_metadata: { name: 'Dihya Zayeem' } },
+        NOW,
+      ),
+    ).toBe(true);
+  });
+
+  it('flags pending data applied to an account older than a day', () => {
+    expect(
+      pendingOAuthMetadataMatchesUser(
+        { fullName: 'Ravi Kumar' },
+        { created_at: '2026-08-01T00:00:00Z', user_metadata: { name: 'Ravi Kumar' } },
+        NOW,
+      ),
+    ).toBe(false);
+  });
+
+  it('writes nothing and clears pending on a mismatch', async () => {
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(
+      JSON.stringify({ fullName: 'SHIVSHAKTI TRANSPORT CO', phone: '9569817004', onboardingType: 'owner' }),
+    );
+    mockGetUser.mockResolvedValue({
+      data: {
+        user: {
+          id: 'u1',
+          email: 'dihya.zayeem@gogox.com',
+          created_at: new Date().toISOString(),
+          user_metadata: { name: 'Dihya Zayeem' },
+        },
+      },
+    });
+
+    const result = await applyPendingOAuthMetadata();
+
+    expect(result).toEqual({
+      status: 'identity_mismatch',
+      formName: 'SHIVSHAKTI TRANSPORT CO',
+      accountEmail: 'dihya.zayeem@gogox.com',
+    });
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+    expect(mockFrom).not.toHaveBeenCalled();
+    expect(AsyncStorage.removeItem).toHaveBeenCalledWith(PENDING_KEY);
   });
 });

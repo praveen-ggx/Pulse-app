@@ -23,10 +23,13 @@ interface PdfViewerProps {
   sizing?: "original" | "fit";
   /** 1-based page. Omitted leaves the viewer on its default first page. */
   page?: number;
-}
-
-function isLocalPreviewUri(uri: string): boolean {
-  return /^(blob:|data:|file:)/i.test(uri);
+  /**
+   * When false, the iframe ignores pointer events so a parent can own drag-pan
+   * (needed after CSS rotate — browser PDF coords no longer match the cursor).
+   */
+  interactive?: boolean;
+  /** Side scrollbar on the file. Off when a parent already draws its own rail. */
+  scrollbar?: boolean;
 }
 
 function withPdfViewerHash(
@@ -35,6 +38,7 @@ function withPdfViewerHash(
   zoom: number,
   sizing: "original" | "fit",
   page?: number,
+  scrollbar?: boolean,
 ): string {
   if (uri.startsWith("data:")) return uri;
   const base = uri.split("#")[0];
@@ -43,7 +47,8 @@ function withPdfViewerHash(
   // Numeric zoom with a page origin. Fit-to-width is what was opening notes at ~119%.
   const view = sizing === "original" ? `zoom=${percent},0,0` : "view=FitH";
   const pagePart = page && page > 0 ? `&page=${Math.round(page)}` : "";
-  return `${base}#toolbar=${toolbar}&navpanes=0&scrollbar=1&${view}${pagePart}`;
+  const scrollbarFlag = (scrollbar ?? showToolbar) ? "1" : "0";
+  return `${base}#toolbar=${toolbar}&navpanes=0&scrollbar=${scrollbarFlag}&${view}${pagePart}`;
 }
 
 export function PdfViewer({
@@ -53,6 +58,8 @@ export function PdfViewer({
   zoom = 1,
   sizing = "fit",
   page,
+  interactive = true,
+  scrollbar,
 }: PdfViewerProps) {
   const [src, setSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -64,45 +71,12 @@ export function PdfViewer({
       return;
     }
 
-    let objectUrl: string | null = null;
-    let cancelled = false;
-
-    if (isLocalPreviewUri(pdfUri) || sizing === "original" || page != null) {
-      // Keep the real https URL. Chrome drops #zoom and #page on blob: copies.
-      setSrc(pdfUri);
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    setSrc(null);
-
-    void (async () => {
-      try {
-        const res = await fetch(pdfUri);
-        if (!res.ok) throw new Error(`PDF fetch failed (${res.status})`);
-        const buf = await res.arrayBuffer();
-        const blob = new Blob([buf], { type: "application/pdf" });
-        objectUrl = URL.createObjectURL(blob);
-        if (cancelled) {
-          URL.revokeObjectURL(objectUrl);
-          return;
-        }
-        setSrc(objectUrl);
-        setLoading(false);
-      } catch {
-        if (cancelled) return;
-        // CORS / network: still try the original URL in the iframe.
-        setSrc(pdfUri);
-        setLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [pdfUri, sizing, page]);
+    // Signed storage URLs render directly; the hash (zoom/page/toolbar) is added
+    // at render. Downloading the file into a blob first held the preview on a
+    // spinner for the whole transfer, and Chrome drops #zoom/#page on blob: copies.
+    setSrc(pdfUri);
+    setLoading(false);
+  }, [pdfUri]);
 
   if (!pdfUri) {
     return (
@@ -124,7 +98,7 @@ export function PdfViewer({
   return (
     <View style={[styles.container, style]}>
       <iframe
-        src={withPdfViewerHash(src, showToolbar, zoom, sizing, page)}
+        src={withPdfViewerHash(src, showToolbar, zoom, sizing, page, scrollbar)}
         key={`${page ?? 0}-${Math.round(zoom * 100)}`}
         style={{
           position: "absolute",
@@ -134,7 +108,8 @@ export function PdfViewer({
           height: "100%",
           border: "none",
           background: Theme.surface,
-          pointerEvents: "auto",
+          overflow: "hidden",
+          pointerEvents: interactive ? "auto" : "none",
         }}
         title="PDF Preview"
       />

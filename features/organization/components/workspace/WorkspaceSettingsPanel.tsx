@@ -21,6 +21,16 @@ import {
   updateOrganizationName,
 } from "@/features/organization/services/organization.service";
 import { ChangeOperatingModelModal } from "@/features/organization/components/workspace/ChangeOperatingModelModal";
+import {
+  getDocumentChargeConfig,
+  saveDocumentChargeConfig,
+} from "@/features/organization/services/documentCharges.service";
+import { DocumentChargeSlabsModal } from "@/features/organization/components/workspace/DocumentChargeSlabsModal";
+import {
+  defaultDocumentChargeSlabs,
+  formatSlabRange,
+  type DocumentChargeSlab,
+} from "@/features/organization/utils/documentChargeSlabs.util";
 import { useQueryClient } from "@tanstack/react-query";
 import { syncBrandingFromOrg } from "@/features/invoicing/services/invoiceBranding.service";
 import { WorkspaceDetailLayout } from "@/features/organization/components/workspace/WorkspaceDetailLayout";
@@ -67,6 +77,7 @@ export function WorkspaceSettingsPanel({ onBack }: Props) {
   const { canEdit, isOwner } = useOrgRole();
   const { can } = useMemberAccess();
   const canBranding = can("finance.branding");
+  const canDocCharges = canEdit || can("finance.manage");
   const { notice, confirm } = useWorkspaceFeedback();
   const queryClient = useQueryClient();
 
@@ -81,6 +92,11 @@ export function WorkspaceSettingsPanel({ onBack }: Props) {
   const [modelSaving, setModelSaving] = useState(false);
   const [groundOpsEnabled, setGroundOpsEnabled] = useState(false);
   const [groundOpsLoading, setGroundOpsLoading] = useState(false);
+  const [docChargesEnabled, setDocChargesEnabled] = useState(false);
+  const [docChargeSlabs, setDocChargeSlabs] = useState<DocumentChargeSlab[]>([]);
+  const [docChargesLoaded, setDocChargesLoaded] = useState(false);
+  const [docChargesSaving, setDocChargesSaving] = useState(false);
+  const [slabModalOpen, setSlabModalOpen] = useState(false);
   const nameInputRef = useRef<TextInput>(null);
 
   const currentModel = (currentOrganization?.operatingModel ??
@@ -150,6 +166,65 @@ export function WorkspaceSettingsPanel({ onBack }: Props) {
     } finally {
       setGroundOpsLoading(false);
     }
+  };
+
+  useEffect(() => {
+    if (!orgId) return;
+    let mounted = true;
+    setDocChargesLoaded(false);
+    getDocumentChargeConfig(orgId).then(({ data }) => {
+      if (!mounted) return;
+      setDocChargesEnabled(data?.enabled ?? false);
+      setDocChargeSlabs(data?.slabs ?? []);
+      setDocChargesLoaded(true);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [orgId]);
+
+  const persistDocCharges = async (
+    enabled: boolean,
+    slabs: DocumentChargeSlab[],
+  ): Promise<boolean> => {
+    if (!orgId) return false;
+    setDocChargesSaving(true);
+    try {
+      const { error } = await saveDocumentChargeConfig(orgId, { enabled, slabs });
+      if (error) {
+        notice({
+          kind: "error",
+          title: "Couldn't save document charges",
+          message: error.message,
+        });
+        return false;
+      }
+      setDocChargesEnabled(enabled);
+      setDocChargeSlabs(slabs);
+      return true;
+    } finally {
+      setDocChargesSaving(false);
+    }
+  };
+
+  const handleToggleDocCharges = async (next: boolean) => {
+    if (!canDocCharges || docChargesSaving || !docChargesLoaded) return;
+    const slabs =
+      next && docChargeSlabs.length === 0 ? defaultDocumentChargeSlabs() : docChargeSlabs;
+    const ok = await persistDocCharges(next, slabs);
+    if (ok) {
+      notice({
+        kind: "success",
+        title: next ? "Document charges turned on" : "Document charges turned off",
+      });
+    }
+  };
+
+  const handleSaveSlabs = async (slabs: DocumentChargeSlab[]) => {
+    const ok = await persistDocCharges(docChargesEnabled, slabs);
+    if (!ok) return;
+    setSlabModalOpen(false);
+    notice({ kind: "success", title: "Document charge slabs saved" });
   };
 
   useEffect(() => {
@@ -445,6 +520,60 @@ export function WorkspaceSettingsPanel({ onBack }: Props) {
           </View>
         </View>
 
+        <View style={styles.detailCard}>
+          <SectionHeader label="Document Charges" />
+          <View style={[styles.panelFieldGroup, styles.panelFieldGroupFirst]}>
+            <View style={[local.toggleRow, local.toggleRowFirst]}>
+              <View style={local.toggleLabel}>
+                <Text style={styles.panelFieldLabel}>Charge Document Fee on Trips</Text>
+                <Text style={local.toggleHint}>
+                  Apply a flat document charge based on the trip freight cost slab.
+                </Text>
+              </View>
+              <Switch
+                value={docChargesEnabled}
+                onValueChange={(v) => void handleToggleDocCharges(v)}
+                disabled={!canDocCharges || docChargesSaving || !docChargesLoaded}
+                style={local.switchControl}
+              />
+            </View>
+            {!canDocCharges ? (
+              <View style={[styles.kycReadonlyNote, local.readonlyNote]}>
+                <Lock size={10} color={Theme.textMuted} strokeWidth={2} />
+                <Text style={styles.kycReadonlyText}>
+                  Only owners and finance managers can change document charges.
+                </Text>
+              </View>
+            ) : null}
+            {docChargesEnabled ? (
+              <View style={local.slabTable}>
+                <View style={local.slabHeadRow}>
+                  <Text style={[local.slabHead, local.slabRangeCol]}>Freight Cost (₹)</Text>
+                  <Text style={[local.slabHead, local.slabChargeCol]}>Charge (₹)</Text>
+                </View>
+                {docChargeSlabs.map((s) => (
+                  <View key={s.id} style={local.slabRow}>
+                    <Text style={[local.slabCell, local.slabRangeCol]}>{formatSlabRange(s)}</Text>
+                    <Text style={[local.slabCell, local.slabChargeCol]}>
+                      {s.charge.toLocaleString("en-IN")}
+                    </Text>
+                  </View>
+                ))}
+                {canDocCharges ? (
+                  <Pressable
+                    onPress={() => setSlabModalOpen(true)}
+                    style={({ pressed }) => [local.uploadBtn, local.slabEditBtn, pressed && { opacity: 0.9 }]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Configure document charge slabs"
+                  >
+                    <Text style={local.uploadBtnText}>Configure Slabs</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+        </View>
+
         {canBranding ? (
           <View style={styles.detailCard}>
             <SectionHeader label="Invoice Branding" />
@@ -471,6 +600,17 @@ export function WorkspaceSettingsPanel({ onBack }: Props) {
           </View>
         ) : null}
       </View>
+      {canDocCharges ? (
+        <DocumentChargeSlabsModal
+          visible={slabModalOpen}
+          slabs={docChargeSlabs}
+          saving={docChargesSaving}
+          onSave={(slabs) => void handleSaveSlabs(slabs)}
+          onClose={() => {
+            if (!docChargesSaving) setSlabModalOpen(false);
+          }}
+        />
+      ) : null}
       {isOwner && orgId ? (
         <ChangeOperatingModelModal
           visible={modelModalOpen}
@@ -652,5 +792,48 @@ const local = StyleSheet.create({
   },
   switchControl: {
     flexShrink: 0,
+  },
+  toggleRowFirst: {
+    borderTopWidth: 0,
+    paddingTop: 0,
+  },
+  slabTable: {
+    marginTop: 4,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderMedium,
+    overflow: "hidden",
+  },
+  slabHeadRow: {
+    flexDirection: "row",
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    backgroundColor: Theme.surface,
+  },
+  slabHead: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: Theme.textMuted,
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+  },
+  slabRow: {
+    flexDirection: "row",
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Theme.borderLight,
+  },
+  slabCell: {
+    fontSize: 11,
+    fontWeight: "500",
+    color: Theme.textPrimaryDark,
+  },
+  slabRangeCol: { flex: 1 },
+  slabChargeCol: { width: 80, textAlign: "right" },
+  slabEditBtn: {
+    justifyContent: "center",
+    margin: 10,
+    minHeight: 36,
   },
 });

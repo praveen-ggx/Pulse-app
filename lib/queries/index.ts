@@ -62,6 +62,11 @@ export {
     useRealtimeNetworkInvalidation, useRealtimeTransactionsInvalidation, useRealtimeTripsInvalidation
 } from './useRealtimeInvalidation';
 export {
+    invalidateComplianceSettlementCaches,
+    invalidateFinanceLedgerCaches,
+    syncFinanceComplianceCaches,
+} from './syncFinanceComplianceCaches';
+export {
     useRecordStoryViewMutation, useStoryViewsQuery
 } from './useStoryViewsQuery';
 export { useInvalidateSuppliers, useSuppliersQuery } from './useSuppliersQuery';

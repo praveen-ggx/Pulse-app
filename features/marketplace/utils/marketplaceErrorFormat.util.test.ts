@@ -59,6 +59,32 @@ describe("formatMarketplaceTransactionError", () => {
     ).toBe("You don't have permission to do this.");
   });
 
+  it("translates fee_paid from revoke_indent_award", () => {
+    expect(
+      formatMarketplaceTransactionError(
+        "fee_paid: marketplace fee is already paid for this award",
+      ),
+    ).toBe("This award cannot be revoked because the marketplace fee has already been paid.");
+  });
+
+  it("translates unsupported_provider without changing the award", () => {
+    expect(
+      formatMarketplaceTransactionError(
+        "unsupported_provider: only a test_online marketplace fee can be reversed this way (provider=razorpay)",
+      ),
+    ).toBe(
+      "This paid fee was not a test payment, so it cannot be reversed here. The award is unchanged.",
+    );
+  });
+
+  it("translates trip_exists from a revoke that rolls the refund back", () => {
+    expect(
+      formatMarketplaceTransactionError(
+        "trip_exists: cancel the trip before revoking this award",
+      ),
+    ).toBe("Cancel the trip before revoking this award.");
+  });
+
   it("translates not_found", () => {
     expect(formatMarketplaceTransactionError("not_found: bid abc123")).toBe(
       "This bid or load could not be found. It may have been removed.",

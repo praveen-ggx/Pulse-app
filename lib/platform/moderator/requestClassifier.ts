@@ -19,6 +19,8 @@ export type RequestClassification = {
   violations: ShapeViolation[];
   /** True for auth/token traffic, which must never be queued or shed. */
   isAuth: boolean;
+  /** Auth, storage, and realtime skip `moderate()` — same as `isAuth` for the fetch wrapper. */
+  bypassModerator: boolean;
 };
 
 function urlOf(input: RequestInfo | URL): string {
@@ -74,11 +76,13 @@ export function classifyRequest(
   const raw = urlOf(input);
   const method = methodOf(input, init);
   const isAuth = raw.includes('/auth/v1/');
+  const bypassModerator =
+    isAuth || raw.includes('/storage/v1/') || raw.includes('/realtime/v1/');
 
   // Auth, storage and realtime traffic is never moderated: queuing a token
   // refresh behind data reads is exactly how a recovering client gets stuck.
-  if (isAuth || raw.includes('/storage/v1/') || raw.includes('/realtime/v1/')) {
-    return { lane: 'interactive', violations: [], isAuth };
+  if (bypassModerator) {
+    return { lane: 'interactive', violations: [], isAuth, bypassModerator: true };
   }
 
   const isWrite = method !== 'GET' && method !== 'HEAD';
@@ -116,5 +120,5 @@ export function classifyRequest(
     coalesceKey = `${parsed.pathname}?${qs}|${auth}`;
   }
 
-  return { lane, coalesceKey, violations, isAuth };
+  return { lane, coalesceKey, violations, isAuth, bypassModerator: false };
 }

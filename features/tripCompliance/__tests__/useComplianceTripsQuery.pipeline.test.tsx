@@ -29,7 +29,7 @@ jest.mock("@/lib/supabase", () => ({
 const mockTripsRefetch = jest.fn();
 let mockTripsState: { data: unknown[]; dataUpdatedAt: number };
 jest.mock("@/lib/queries/useTripsQuery", () => ({
-  useTripsQuery: () => ({
+  useComplianceTripCatalogQuery: () => ({
     data: mockTripsState.data,
     dataUpdatedAt: mockTripsState.dataUpdatedAt,
     isSuccess: true,
@@ -126,12 +126,13 @@ it("trips-list change (new dataUpdatedAt) keeps ONE pipeline query and never sho
   mockTripsState = { data: [trip("t1", "completed"), trip("t2")], dataUpdatedAt: 2 };
   hook.rerender({});
   await waitFor(() => expect(mockPatchForTrips).toHaveBeenCalled());
+  expect(mockPatchForTrips.mock.calls[0][2]).toBe("org-trips-change");
 
   expect(pipelineQueries()).toHaveLength(1);
   expect(pipelineQueries()[0].queryKey).toEqual(queryKeys.tripCompliance.pipeline("org-trips-change"));
   expect(loadingHistory.slice(settledAt).every((loading) => loading === false)).toBe(true);
   expect(mockLoad).toHaveBeenCalledTimes(1); // no rebuild
-  expect(mockLoad.mock.calls[0][2]).toEqual({ full: true });
+  expect(mockLoad.mock.calls[0][2]).toEqual({ full: true, viewerOrgId: "org-trips-change" });
 });
 
 it("window focus refetch is incremental and shows no loading state", async () => {
@@ -149,7 +150,7 @@ it("window focus refetch is incremental and shows no loading state", async () =>
   (Date.now as jest.Mock).mockRestore();
   focusManager.setFocused(undefined);
 
-  expect(mockLoad.mock.calls[1][2]).toEqual({ full: false });
+  expect(mockLoad.mock.calls[1][2]).toEqual({ full: false, viewerOrgId: "org-focus" });
   expect(mockLoad.mock.calls[1][0]).toHaveLength(2); // previous inputs handed in → incremental
   expect(pipelineQueries()).toHaveLength(1);
   expect(loadingHistory.slice(settledAt).every((loading) => loading === false)).toBe(true);
@@ -255,7 +256,7 @@ describe("persisted / hydrated cache", () => {
     expect(loadingHistory[0]).toBe(false);
     expect(hook.result.current.query.summaries[0].documents[0].status).toBe("rejected");
     await waitFor(() => expect(mockLoad).toHaveBeenCalledTimes(1));
-    expect(mockLoad.mock.calls[0][2]).toEqual({ full: true });
+    expect(mockLoad.mock.calls[0][2]).toEqual({ full: true, viewerOrgId: "org-hydrated" });
     await waitFor(() => expect(hook.result.current.query.summaries[0].documents[0].status).toBe("pending"));
   });
 
@@ -268,7 +269,7 @@ describe("persisted / hydrated cache", () => {
     mockUserId = "user-B";
     const second = setup("org-shared");
     await waitFor(() => expect(mockLoad).toHaveBeenCalledTimes(1));
-    expect(mockLoad.mock.calls[0][2]).toEqual({ full: true });
+    expect(mockLoad.mock.calls[0][2]).toEqual({ full: true, viewerOrgId: "org-shared" });
     second.hook.unmount();
     mockUserId = "user-1";
   });

@@ -4,7 +4,7 @@ import {
   INDENT_CANCEL_REASONS,
   type IndentCancelReasonId,
 } from "@/features/indents/utils/indentCancelReason.util";
-import { Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Modal, Pressable, StyleSheet, Text, TouchableOpacity } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Props = {

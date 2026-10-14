@@ -1,8 +1,26 @@
 import { supabase } from "@/lib/supabase";
 import { createLedgerEntry, updateLedgerEntry, type CreateLedgerEntryData } from "@/features/finance/services/finance.service";
-import { buildLedgerSyncDescriptionLine } from "@/features/finance/ledger/ledgerEntryModel";
+import {
+  buildLedgerSyncDescriptionLine,
+  interpretLedgerRowStructured,
+} from "@/features/finance/ledger/ledgerEntryModel";
+import {
+  isCashPaymentMode,
+  normalizeComplianceRequestId,
+  normalizeComplianceUtr,
+  validateComplianceRequestId,
+  validateComplianceUtr,
+  withLedgerDescriptionRequestId,
+  withLedgerDescriptionUtr,
+} from "@/features/tripCompliance/utils/compliancePaymentReference.util";
+import {
+  normalizeComplianceTransactionDate,
+  validateComplianceTransactionDate,
+  withLedgerDescriptionTxnDateConfirmed,
+} from "@/features/tripCompliance/utils/compliancePaymentDate.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { evaluateCompliancePaymentGuard, type ComplianceLedgerCategory } from "@/features/tripCompliance/utils/compliancePaymentGuard.util";
+import { recordAdvanceDocumentCostSnapshot } from "@/features/debit-control/services/debitControlPod.service";
 import { fetchComplianceTransactions, isMissingColumnOrRelation } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import {
   COMPLIANCE_DECLINE_REASON_MAX,
@@ -79,6 +97,66 @@ export async function approveComplianceWithException(params: {
   return { error: error ? new Error(error.message) : null };
 }
 
+function formatFinanceVerifyError(error: { message?: string; code?: string }, undo: boolean): string {
+  const raw = (error.message ?? "").trim();
+  const lower = raw.toLowerCase();
+  if (
+    error.code === "PGRST202" ||
+    error.code === "42883" ||
+    lower.includes("could not find the function") ||
+    (lower.includes("finance_verified") && lower.includes("does not exist"))
+  ) {
+    return "Approve Advance isn't available yet — database update pending.";
+  }
+  if (lower.includes("not authorized")) {
+    return undo
+      ? "You don't have permission to undo the advance approval for this trip."
+      : "You don't have permission to approve the advance for this trip.";
+  }
+  if (lower.includes("compliance must be verified")) {
+    return "Compliance must be verified before the advance can be approved.";
+  }
+  if (lower.includes("advance is already posted")) {
+    return undo
+      ? "An advance is already posted, so the approval can't be undone."
+      : "An advance is already posted for this trip.";
+  }
+  return raw || (undo ? "Couldn't undo the advance approval." : "Couldn't approve the advance.");
+}
+
+/**
+ * Finance approval between Compliance Verified and the advance. Goes through
+ * `mark_trip_finance_verified` (migration 20261010122824), which enforces
+ * `trip_compliance.finance.manage`, requires compliance_verified_at, and
+ * refuses once an advance is posted. Safe under retry.
+ */
+export async function markTripFinanceVerified(params: {
+  tripId: string;
+  idempotencyKey?: string;
+  /** Advance payable shown at approval; snapshotted on the issued payment request. */
+  approvedAmount?: number | null;
+}): Promise<{ error: Error | null }> {
+  const approved = params.approvedAmount;
+  const { error } = await supabase().rpc("mark_trip_finance_verified", {
+    p_trip_id: params.tripId,
+    p_idempotency_key: params.idempotencyKey ?? null,
+    p_approved_amount: approved != null && Number.isFinite(approved) && approved >= 0 ? approved : null,
+  });
+  return { error: error ? new Error(formatFinanceVerifyError(error, false)) : null };
+}
+
+/** Undo Finance Verify while no advance is posted (`unmark_trip_finance_verified`). */
+export async function unmarkTripFinanceVerified(params: {
+  tripId: string;
+  idempotencyKey?: string;
+}): Promise<{ error: Error | null }> {
+  const { error } = await supabase().rpc("unmark_trip_finance_verified", {
+    p_trip_id: params.tripId,
+    p_idempotency_key: params.idempotencyKey ?? null,
+  });
+  return { error: error ? new Error(formatFinanceVerifyError(error, true)) : null };
+}
+
 function formatDeclineComplianceError(error: { message?: string; code?: string }): string {
   const raw = (error.message ?? "").trim();
   const lower = raw.toLowerCase();
@@ -129,6 +207,152 @@ export async function declineTripCompliance(params: {
   });
   if (error) {
     throw new Error(formatDeclineComplianceError(error));
+  }
+}
+
+function formatRejectComplianceError(error: { message?: string; code?: string } | null): string {
+  const raw = (error?.message ?? "").trim();
+  const lower = raw.toLowerCase();
+  if (
+    error?.code === "PGRST202" ||
+    error?.code === "42883" ||
+    lower.includes("could not find the function") ||
+    lower.includes("function does not exist")
+  ) {
+    return "Reject isn't available yet — database update pending.";
+  }
+  if (lower.includes("not authorized to reject")) {
+    return "You don't have permission to reject compliance for this trip.";
+  }
+  if (lower.includes("not verified") || lower.includes("use decline instead")) {
+    return "This trip isn't verified yet. Use Decline instead.";
+  }
+  if (lower.includes("reject reason between") || lower.includes("decline reason between")) {
+    return `Please enter a reason between ${COMPLIANCE_DECLINE_REASON_MIN} and ${COMPLIANCE_DECLINE_REASON_MAX} characters.`;
+  }
+  if (lower.includes("advance or balance is already posted")) {
+    return "An advance or balance is already posted, so this trip cannot be rejected.";
+  }
+  if (lower.includes("compliance decline fields can only be changed")) {
+    return raw;
+  }
+  return raw || "Couldn't reject compliance.";
+}
+
+function formatResubmitComplianceError(error: { message?: string; code?: string } | null): string {
+  const raw = (error?.message ?? "").trim();
+  const lower = raw.toLowerCase();
+  if (
+    error?.code === "PGRST202" ||
+    error?.code === "42883" ||
+    lower.includes("could not find the function") ||
+    lower.includes("function does not exist")
+  ) {
+    return "Resubmit isn't available yet — database update pending.";
+  }
+  if (lower.includes("required documents missing or rejected")) {
+    return `${raw.replace(/^.*required documents missing or rejected:\s*/i, "Upload or replace these documents first: ")}.`;
+  }
+  if (lower.includes("resubmit note")) {
+    return "Add a note of at least 3 characters saying what was fixed.";
+  }
+  if (lower.includes("not on compliance hold")) {
+    return "This trip is no longer on Compliance Hold.";
+  }
+  if (lower.includes("not authorized to resubmit")) {
+    return "You don't have permission to resubmit this trip.";
+  }
+  if (lower.includes("not an active finance reject")) {
+    return "This trip is not waiting on a finance reject.";
+  }
+  if (lower.includes("no return queue")) {
+    return "This reject has no return queue, so it cannot be resubmitted.";
+  }
+  if (lower.includes("advance or balance is already posted")) {
+    return "An advance or balance is already posted, so this trip cannot be resubmitted.";
+  }
+  return raw || "Couldn't resubmit this trip.";
+}
+
+function formatFinanceFlagError(error: { message?: string; code?: string } | null, clearing: boolean): string {
+  const raw = (error?.message ?? "").trim();
+  const lower = raw.toLowerCase();
+  if (error?.code === "PGRST202" || error?.code === "42883" || lower.includes("could not find the function")) {
+    return "Finance flag isn't available yet — database update pending.";
+  }
+  if (lower.includes("not authorized")) {
+    return clearing ? "Only Compliance can clear a finance flag." : "You don't have permission to flag this trip.";
+  }
+  if (lower.includes("flag note")) return "Add a note of at least 3 characters saying what looks wrong.";
+  if (lower.includes("only a compliance-verified trip")) return "Only a compliance-verified trip can be flagged.";
+  if (lower.includes("already posted")) return "An advance or balance is already posted, so this trip cannot be flagged.";
+  return raw || (clearing ? "Couldn't clear the flag." : "Couldn't flag this trip.");
+}
+
+/** Finance: send a verified trip back to Compliance for review (Finance cannot Reject). */
+export async function flagTripForCompliance(params: {
+  tripId: string;
+  note: string;
+  idempotencyKey?: string;
+}): Promise<void> {
+  const { error } = await supabase().rpc("flag_trip_for_compliance", {
+    p_trip_id: params.tripId,
+    p_note: params.note.trim(),
+    p_idempotency_key: params.idempotencyKey ?? undefined,
+  });
+  if (error) throw new Error(formatFinanceFlagError(error, false));
+}
+
+/** Compliance: clear a Finance flag after checking the trip (Reject also clears it). */
+export async function clearTripFinanceFlag(params: { tripId: string; idempotencyKey?: string }): Promise<void> {
+  const { error } = await supabase().rpc("clear_trip_finance_flag", {
+    p_trip_id: params.tripId,
+    p_idempotency_key: params.idempotencyKey ?? undefined,
+  });
+  if (error) throw new Error(formatFinanceFlagError(error, true));
+}
+
+export async function resubmitTripCompliance(params: {
+  tripId: string;
+  /** What Ground Ops fixed, e.g. "Invoice re-uploaded". Required, 3–500 chars. */
+  note: string;
+  idempotencyKey?: string;
+}): Promise<void> {
+  const { error } = await supabase().rpc("resubmit_trip_compliance", {
+    p_trip_id: params.tripId,
+    p_note: params.note.trim(),
+    p_idempotency_key: params.idempotencyKey ?? undefined,
+  });
+  if (error) {
+    throw new Error(formatResubmitComplianceError(error));
+  }
+}
+
+/**
+ * Reject a *verified* Compliance trip with a remark. Keeps
+ * `compliance_verified_at` so the trip stays under Verified with a red
+ * Rejected visual. Writes via `reject_trip_compliance` (migration
+ * 20270930124500).
+ */
+export async function rejectTripCompliance(params: {
+  tripId: string;
+  reason: string;
+  idempotencyKey?: string;
+}): Promise<void> {
+  const reason = params.reason.trim();
+  const length = complianceDeclineReasonLength(reason);
+  if (length < COMPLIANCE_DECLINE_REASON_MIN || length > COMPLIANCE_DECLINE_REASON_MAX) {
+    throw new Error(
+      `Please enter a reason between ${COMPLIANCE_DECLINE_REASON_MIN} and ${COMPLIANCE_DECLINE_REASON_MAX} characters.`,
+    );
+  }
+  const { error } = await supabase().rpc("reject_trip_compliance", {
+    p_trip_id: params.tripId,
+    p_reason: reason,
+    p_idempotency_key: params.idempotencyKey ?? undefined,
+  });
+  if (error) {
+    throw new Error(formatRejectComplianceError(error));
   }
 }
 
@@ -201,10 +425,18 @@ function isComplianceLedgerPrerequisiteRejection(error: Error): boolean {
  */
 function checkComplianceLedgerPrerequisite(
   category: ComplianceLedgerCategory,
-  trip: Pick<TripRow, "compliance_verified_at" | "pod_received_at">,
+  trip: Pick<TripRow, "compliance_verified_at" | "finance_verified_at" | "pod_received_at" | "finance_flagged_at">,
 ): { ok: boolean; reason?: string } {
   if (category === "compliance_advance" && !trip.compliance_verified_at) {
     return { ok: false, reason: "Compliance must be approved before an advance payment can be posted." };
+  }
+  // Mirrors RLS compliance_advance_requires_no_finance_flag (20271008117000).
+  if (category === "compliance_advance" && trip.finance_flagged_at) {
+    return { ok: false, reason: "This trip is flagged for Compliance review. The advance can be posted after Compliance clears the flag." };
+  }
+  // Mirrors RLS compliance_advance_requires_finance_verified (20271008112000).
+  if (category === "compliance_advance" && !trip.finance_verified_at) {
+    return { ok: false, reason: "The advance must be approved before it can be posted." };
   }
   if (category === "compliance_balance" && !trip.pod_received_at) {
     return { ok: false, reason: "Hard-copy POD must be received before a balance payment can be posted." };
@@ -212,96 +444,48 @@ function checkComplianceLedgerPrerequisite(
   return { ok: true };
 }
 
-type ComplianceLedgerFlags = Pick<TripRow, "compliance_verified_at" | "pod_received_at">;
+type ComplianceLedgerFlags = Pick<
+  TripRow,
+  "compliance_verified_at" | "finance_verified_at" | "pod_received_at" | "finance_flagged_at"
+>;
 
 /**
- * Three distinct outcomes a live-flags read can have, so `postCompliancePayment`
- * can tell "feature not deployed here yet" apart from "could not confirm
- * current state" — the two used to collapse into the same cached fallback
- * (2026-10-06 review), which let a stale cached `params.trip` authorize a
- * payment whenever the live read failed for ANY reason, not just the
- * intentionally-tolerated pre-migration one.
- *
- * - "live": the authoritative row was read successfully — use its flags.
- * - "compat_fallback": the compliance columns don't exist on this environment
- *   yet (migration 20260915162440 not applied) — the one legitimate,
- *   accepted degradation; cached `params.trip` fields are used exactly as
- *   before.
- * - "unavailable": anything else — a genuine error (network, timeout, RLS,
- *   5xx) or a healthy query finding no row for a trip the caller already has
- *   loaded. Never falls back to cached state.
+ * Callers pass a cached trip (list summary, bulk validation map) that can be
+ * minutes old, so the prerequisite reads the live flags. No row or a
+ * missing-column error (migration not applied here) falls back to the cached
+ * trip, and RLS still rejects the insert. A genuine read error (network,
+ * timeout, 5xx) returns null so the payment fails closed (Vasanth cbbbc035).
  */
-type ComplianceLedgerFlagsResult =
-  | { status: "live"; flags: ComplianceLedgerFlags }
-  | { status: "compat_fallback"; flags: ComplianceLedgerFlags }
-  | { status: "unavailable" };
-
-/**
- * Live `compliance_verified_at` / `pod_received_at` for one trip, read
- * immediately before evaluating payment prerequisites. `params.trip` passed
- * into `postCompliancePayment` can be stale — a cached list row, or an
- * instant-verify UI patch that hasn't round-tripped — so trusting it
- * directly can give a stale "blocked" or "allowed" verdict.
- *
- * Queries `trips` directly (rather than going through
- * `fetchComplianceTripFlags`) because that function collapses "columns
- * don't exist yet" and "no row for this id" into the same empty result,
- * which is exactly the ambiguity this function exists to resolve — and only
- * `compliance_verified_at`/`pod_received_at` are needed here, not the
- * decline columns `fetchComplianceTripFlags` also fetches.
- */
-async function readComplianceLedgerFlags(
-  trip: Pick<TripRow, "id" | "compliance_verified_at" | "pod_received_at">,
-): Promise<ComplianceLedgerFlagsResult> {
+async function readComplianceLedgerFlags(trip: TripRow): Promise<ComplianceLedgerFlags | null> {
   try {
     const { data, error } = await supabase()
       .from("trips")
-      .select("compliance_verified_at, pod_received_at")
+      .select("compliance_verified_at, finance_verified_at, pod_received_at, finance_flagged_at")
       .eq("id", trip.id)
       .maybeSingle();
-
-    if (error) {
-      if (isMissingColumnOrRelation(error)) {
-        return {
-          status: "compat_fallback",
-          flags: {
-            compliance_verified_at: trip.compliance_verified_at ?? null,
-            pod_received_at: trip.pod_received_at ?? null,
-          },
-        };
-      }
-      return { status: "unavailable" };
-    }
-
-    if (!data) {
-      // The caller already holds a loaded TripRow for this id — a healthy
-      // query finding no row means authoritative state could not be
-      // established, not that the feature isn't deployed here.
-      return { status: "unavailable" };
-    }
-
-    const row = data as { compliance_verified_at?: string | null; pod_received_at?: string | null };
-    return {
-      status: "live",
-      flags: {
-        compliance_verified_at: row.compliance_verified_at ?? null,
-        pod_received_at: row.pod_received_at ?? null,
-      },
-    };
+    if (error) return isMissingColumnOrRelation(error) ? trip : null;
+    return (data as ComplianceLedgerFlags | null) ?? trip;
   } catch (e) {
-    // A genuine thrown exception (network failure, timeout, connection
-    // error) is never the pre-migration compatibility case — fail closed.
-    if (isMissingColumnOrRelation(e as { code?: string; message?: string })) {
-      return {
-        status: "compat_fallback",
-        flags: {
-          compliance_verified_at: trip.compliance_verified_at ?? null,
-          pod_received_at: trip.pod_received_at ?? null,
-        },
-      };
-    }
-    return { status: "unavailable" };
+    return isMissingColumnOrRelation(e as { code?: string; message?: string }) ? trip : null;
   }
+}
+
+/**
+ * Counterparty for a compliance advance / balance: the trip's supplier.
+ * Marketplace-awarded trips (market_bid / direct_bid) have no supplier row —
+ * the payout stays tagged `supplier` with no contact. Trip Detail shows it
+ * under Supplier paid only when the trip's payout mode is market; asset-mode
+ * trips show driver payouts there instead.
+ */
+export function compliancePayoutParty(trip: Pick<TripRow, "supplier_id" | "supplier_name">) {
+  const supplierId = trip.supplier_id?.trim() || null;
+  return {
+    party_name: trip.supplier_name?.trim() || "Supplier",
+    contact_id: supplierId,
+    contact_type: "supplier",
+    ledger_entity_type: "supplier",
+    ledger_flow_type: "payable",
+  } as const;
 }
 
 /**
@@ -321,42 +505,47 @@ export async function postCompliancePayment(params: {
   utr?: string | null;
   transactionDate?: string;
   notes?: string | null;
+  /** Org bank account (entity_bank_accounts) the money was paid from. */
+  paidFromAccountId?: string | null;
 }): Promise<{ error: Error | null }> {
   const guard = await checkCompliancePaymentAllowed({ tripId: params.trip.id, category: params.category });
   if (!guard.ok) return { error: new Error(guard.reason) };
 
-  const flagsResult = await readComplianceLedgerFlags(params.trip);
-  if (flagsResult.status === "unavailable") {
-    return { error: new Error("Couldn't confirm compliance status — please retry.") };
-  }
-  const prerequisite = checkComplianceLedgerPrerequisite(params.category, flagsResult.flags);
+  const liveFlags = await readComplianceLedgerFlags(params.trip);
+  if (!liveFlags) return { error: new Error("Couldn't confirm compliance status — please retry.") };
+  const prerequisite = checkComplianceLedgerPrerequisite(params.category, liveFlags);
   if (!prerequisite.ok) return { error: new Error(prerequisite.reason) };
 
   const amountCheck = validateCompliancePaymentAmount({ amount: params.amount, trip: params.trip });
   if (!amountCheck.ok) return { error: new Error(amountCheck.reason) };
 
-  const description = buildLedgerSyncDescriptionLine({
+  const baseDescription = buildLedgerSyncDescriptionLine({
     categoryOrKind: params.category === "compliance_advance" ? "Compliance Advance" : "Compliance Balance",
     paymentModeLabel: params.paymentModeLabel,
     paymentModeId: params.paymentModeId,
     paymentReference: params.utr,
     notes: params.notes,
   });
+  // A date entered at posting counts as confirmed, so Txn Date / Paid at show it.
+  const description = params.transactionDate
+    ? withLedgerDescriptionTxnDateConfirmed(baseDescription)
+    : baseDescription;
 
   const entry: CreateLedgerEntryData = {
     trip_id: params.trip.id,
     trip_number: params.trip.booking_ref ?? null,
-    party_name: params.trip.client_name || "Client",
+    ...compliancePayoutParty(params.trip),
     description,
-    amount_in: params.amount,
-    amount_out: 0,
+    // Compliance advance / balance is a payment TO the supplier: cash out,
+    // supplier payable (CORE_ACCOUNTING_MODEL §4.2). It used to be written as a
+    // client receipt, which inflated trips.amount_paid and hid it from
+    // Trip Detail → Supplier paid.
+    amount_in: 0,
+    amount_out: params.amount,
     transaction_date: params.transactionDate,
-    contact_id: params.trip.client_id,
-    contact_type: params.trip.client_id ? "client" : null,
     ledger_category: params.category,
-    ledger_entity_type: "client",
-    ledger_flow_type: "receivable",
     payment_reference: params.utr?.trim() || null,
+    paid_from_account_id: params.paidFromAccountId ?? null,
   };
 
   const { error } = await createLedgerEntry(params.organizationId, entry);
@@ -379,7 +568,166 @@ export async function postCompliancePayment(params: {
       ),
     };
   }
+  if (!error && params.category === "compliance_advance") {
+    try {
+      await recordAdvanceDocumentCostSnapshot(params.trip.id, {
+        organizationId: params.trip.organization_id || params.organizationId,
+        supplierRate: params.trip.supplier_rate,
+        supplierRateBasis:
+          (params.trip as { supplier_rate_basis?: string | null }).supplier_rate_basis ?? null,
+        loadTons: params.trip.load_tons ?? null,
+      });
+    } catch {
+      // The ledger row is already posted. POD validation still resolves the slab.
+    }
+  }
   return { error };
+}
+
+type CompliancePaymentRowTarget = {
+  tripId: string;
+  transactionId: string;
+  /** `finance_receipt` = a client receipt posted in Finance (feeds `trips.amount_paid`). */
+  category: ComplianceLedgerCategory | "finance_receipt";
+};
+
+/**
+ * Reads the payment row and confirms it is this trip's advance / receipt. Not
+ * org-filtered: receipts on a shared trip may belong to the partner org; the
+ * trip match plus RLS decide what this user may edit.
+ */
+async function readCompliancePaymentRow(
+  target: CompliancePaymentRowTarget,
+): Promise<{ row: { description: string | null } | null; error: Error | null }> {
+  const notFound = { row: null, error: new Error("Payment not found. Refresh and try again.") };
+  if (target.transactionId.startsWith("amount-paid:")) return notFound;
+  const { data: row, error } = await supabase()
+    .from("transactions")
+    .select("id, trip_id, description, ledger_category, amount_in")
+    .eq("id", target.transactionId)
+    .maybeSingle();
+  if (error) return { row: null, error: new Error(error.message) };
+  const isComplianceRow =
+    row?.ledger_category === "compliance_advance" || row?.ledger_category === "compliance_balance";
+  const matches =
+    row != null &&
+    row.trip_id === target.tripId &&
+    (target.category === "finance_receipt"
+      ? !isComplianceRow && Number(row.amount_in ?? 0) > 0
+      : row.ledger_category === target.category);
+  return matches ? { row, error: null } : notFound;
+}
+
+async function writeCompliancePaymentRow(
+  transactionId: string,
+  payload: Record<string, unknown>,
+  fallbackPayload?: Record<string, unknown>,
+): Promise<{ error: Error | null }> {
+  const update = (body: Record<string, unknown>) =>
+    supabase().from("transactions").update(body).eq("id", transactionId).select("id").maybeSingle();
+  let { data, error } = await update(payload);
+  if (error && fallbackPayload && /payment_reference/i.test(error.message)) {
+    ({ data, error } = await update(fallbackPayload));
+  }
+  if (error) return { error: new Error(error.message) };
+  if (!data) return { error: new Error("You don't have permission to edit this payment.") };
+  return { error: null };
+}
+
+/** Edit only the transaction date (Paid at / Txn Date) of a posted payment. */
+export async function updateCompliancePaymentTransactionDate(
+  params: CompliancePaymentRowTarget & { transactionDate: string },
+): Promise<{ error: Error | null }> {
+  const normalized = normalizeComplianceTransactionDate(params.transactionDate);
+  const invalid = validateComplianceTransactionDate(normalized);
+  if (invalid) return { error: new Error(invalid) };
+  const { row, error } = await readCompliancePaymentRow(params);
+  if (!row) return { error };
+  return writeCompliancePaymentRow(params.transactionId, {
+    transaction_date: normalized,
+    description: withLedgerDescriptionTxnDateConfirmed(row.description),
+  });
+}
+
+/**
+ * Edit only the UTR of a posted compliance payment. Amount, mode, date, party and
+ * notes are left untouched, so the ledger's double entry does not change.
+ * `updateLedgerEntry` is not used because it truncates `transaction_date` to a
+ * day (moving "Paid at") and rebuilds the description without notes.
+ */
+export async function updateCompliancePaymentReference(
+  params: CompliancePaymentRowTarget & { utr: string },
+): Promise<{ error: Error | null }> {
+  const invalid = validateComplianceUtr(params.utr);
+  if (invalid) return { error: new Error(invalid) };
+  const utr = normalizeComplianceUtr(params.utr);
+  const { row, error } = await readCompliancePaymentRow(params);
+  if (!row) return { error };
+  const mode = interpretLedgerRowStructured({ description: row.description }).payment_mode;
+  if (isCashPaymentMode(mode)) {
+    return { error: new Error("Cash payments don't carry a UTR.") };
+  }
+  const description = withLedgerDescriptionUtr(row.description, utr);
+  return writeCompliancePaymentRow(params.transactionId, { description, payment_reference: utr }, { description });
+}
+
+/**
+ * Remove this trip's Compliance advance so it returns to Verified and can be
+ * posted again. Only `compliance_advance` ledger rows are deleted — Finance
+ * receipts and a posted balance are left untouched.
+ */
+export async function withdrawComplianceAdvancePayment(params: {
+  tripId: string;
+  transactionId?: string | null;
+}): Promise<{ error: Error | null }> {
+  const tripId = params.tripId.trim();
+  const requestedId = (params.transactionId ?? "").trim();
+  if (requestedId.startsWith("amount-paid:")) {
+    return { error: new Error("This advance was posted in Finance. It can't be sent back from Compliance.") };
+  }
+
+  const byTrip = await fetchComplianceTransactions([tripId]);
+  const bucket = byTrip.get(tripId) ?? { advance: [], balance: [] };
+  if (bucket.balance.length > 0) {
+    return { error: new Error("This trip already has a balance payment, so it can't go back to Verified.") };
+  }
+  if (bucket.advance.length === 0) {
+    return { error: new Error("No advance payment to send back. Refresh and try again.") };
+  }
+  const row =
+    (requestedId ? bucket.advance.find((item) => item.id === requestedId) : null) ??
+    (requestedId ? null : bucket.advance[0]);
+  if (!row) {
+    return { error: new Error("Payment not found. Refresh and try again.") };
+  }
+
+  const { data, error } = await supabase()
+    .from("transactions")
+    .delete()
+    .eq("id", row.id)
+    .eq("trip_id", tripId)
+    .eq("ledger_category", "compliance_advance")
+    .select("id")
+    .maybeSingle();
+  if (error) return { error: new Error(error.message) };
+  if (!data) {
+    return { error: new Error("You don't have permission to send this trip back to Verified.") };
+  }
+  return { error: null };
+}
+
+/** Edit only the Request ID of a posted compliance payment (stored on its description). */
+export async function updateCompliancePaymentRequestId(
+  params: CompliancePaymentRowTarget & { requestId: string },
+): Promise<{ error: Error | null }> {
+  const invalid = validateComplianceRequestId(params.requestId);
+  if (invalid) return { error: new Error(invalid) };
+  const requestId = normalizeComplianceRequestId(params.requestId);
+  const { row, error } = await readCompliancePaymentRow(params);
+  if (!row) return { error };
+  return writeCompliancePaymentRow(params.transactionId, {
+    description: withLedgerDescriptionRequestId(row.description, requestId),
+  });
 }
 
 /**
@@ -406,15 +754,11 @@ export async function updateCompliancePaymentUtr(params: {
   });
   const { error } = await updateLedgerEntry(params.organizationId, params.transactionId, {
     trip_id: params.trip.id,
-    party_name: params.trip.client_name || "Client",
+    ...compliancePayoutParty(params.trip),
     description,
-    amount_in: params.amount,
-    amount_out: 0,
-    contact_id: params.trip.client_id,
-    contact_type: params.trip.client_id ? "client" : null,
+    amount_in: 0,
+    amount_out: params.amount,
     ledger_category: params.category,
-    ledger_entity_type: "client",
-    ledger_flow_type: "receivable",
     payment_reference: params.utr?.trim() || null,
   });
   return { error };

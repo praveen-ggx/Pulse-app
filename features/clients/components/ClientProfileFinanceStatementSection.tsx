@@ -24,7 +24,12 @@ import {
 } from "@/features/finance/services/finance.service";
 import { getTripOperationalDisplay } from "@/features/operations/display";
 import { getTripsForOrg, type TripRow } from "@/features/trips/services/trips.service";
+import { STALE } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
+import {
+  useRealtimeTransactionsInvalidation,
+  useRealtimeTripsInvalidation,
+} from "@/lib/queries/useRealtimeInvalidation";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -102,6 +107,11 @@ export function ClientProfileFinanceStatementSection({
   const [fullOpen, setFullOpen] = useState(false);
   const [agingBucket, setAgingBucket] = useState<AgingBucketKey | null>(null);
 
+  // Same realtime as Finance Hub / Compliance Settlement — ledger + trip flags
+  // (amount_paid, verify, POD) refresh this statement without a manual reload.
+  useRealtimeTripsInvalidation(organizationId || null);
+  useRealtimeTransactionsInvalidation(organizationId || null);
+
   const txQ = useQuery({
     queryKey: queryKeys.transactions.byContact(organizationId, clientId),
     queryFn: async () => {
@@ -112,7 +122,9 @@ export function ClientProfileFinanceStatementSection({
       if (error) throw error;
       return transactions;
     },
-    staleTime: 30_000,
+    staleTime: STALE.realtime,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 
   const tripsQ = useQuery({
@@ -122,7 +134,9 @@ export function ClientProfileFinanceStatementSection({
       if (error) throw error;
       return trips as TripRow[];
     },
-    staleTime: 60_000,
+    staleTime: STALE.realtime,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 
   const partyTrips = useMemo(

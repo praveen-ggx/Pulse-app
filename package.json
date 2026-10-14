@@ -37,6 +37,7 @@
     "check:driver-view": "tsx scripts/check-driver-view-contract.ts",
     "typecheck": "cross-env NODE_OPTIONS=--max-old-space-size=8192 tsc --noEmit -p tsconfig.json",
     "typecheck:oms": "tsc --noEmit -p oms/tsconfig.app.json",
+    "test": "jest",
     "test:v2": "jest --selectProjects pulse-v2 --no-coverage",
     "check:v2-boundaries": "jest --selectProjects pulse-v2 --testPathPattern=domain-table-guard --no-coverage",
     "test:navigation-policy": "jest lib/navigationPolicy --no-coverage",

@@ -71,15 +71,18 @@ function isPodPreviewDocument(doc: TripDocumentRow): boolean {
 export function HardCopyPodPhotoUpload({
   tripId,
   canEdit,
+  variant = "embed",
 }: {
   tripId: string;
   canEdit: boolean;
+  variant?: "embed" | "pane";
 }) {
   const { user } = useAuth();
   const [photos, setPhotos] = useState<PodPhotoItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const [preview, setPreview] = useState<PodPhotoItem | null>(null);
+  const [activeKey, setActiveKey] = useState<string | null>(null);
   const droppedRef = useRef(new Set<string>());
 
   useEffect(() => {
@@ -153,6 +156,7 @@ export function HardCopyPodPhotoUpload({
           return;
         }
         const signed = await getDocumentViewUrls([doc.storage_path]);
+        setActiveKey((current) => (current === key ? doc.id : current));
         setPhotos((current) =>
           current.map((item) =>
             item.key === key
@@ -203,6 +207,7 @@ export function HardCopyPodPhotoUpload({
       uri: asset.uri,
     }));
 
+    setActiveKey(batch[0]?.key ?? null);
     setPhotos((current) => [
       ...current,
       ...batch.map((item) => ({
@@ -233,6 +238,102 @@ export function HardCopyPodPhotoUpload({
       );
     }
   }, []);
+
+  const active = photos.find((item) => item.key === activeKey) ?? photos[0] ?? null;
+
+  if (variant === "pane") {
+    return (
+      <View style={styles.pane}>
+        <Text style={styles.label}>Uploaded POD</Text>
+        {canEdit ? (
+          <Pressable
+            style={styles.paneUpload}
+            onPress={() => void pickPhotos()}
+            accessibilityRole="button"
+            accessibilityLabel="Upload POD"
+          >
+            <Upload size={14} color={Theme.textPrimaryDark} />
+            <Text style={styles.paneUploadText}>Upload POD</Text>
+          </Pressable>
+        ) : null}
+        <View style={styles.paneStage}>
+          {!loaded && photos.length === 0 ? (
+            <ActivityIndicator color={Theme.analyticsHeroBg} />
+          ) : active?.previewUri && fileIsPdf(active.fileName, active.document?.mime_type) ? (
+            <Pressable
+              style={styles.paneFile}
+              onPress={() => setPreview(active)}
+              accessibilityRole="imagebutton"
+              accessibilityLabel={`Preview ${active.fileName}`}
+            >
+              <PdfViewer pdfUri={active.previewUri} style={styles.paneFile} />
+            </Pressable>
+          ) : active?.previewUri ? (
+            <Pressable
+              style={styles.paneFile}
+              onPress={() => setPreview(active)}
+              accessibilityRole="imagebutton"
+              accessibilityLabel={`Preview ${active.fileName}`}
+            >
+              <Image
+                source={{ uri: active.previewUri }}
+                style={styles.paneImage}
+                resizeMode="contain"
+                accessibilityLabel={active.fileName}
+              />
+            </Pressable>
+          ) : (
+            <Text style={styles.paneEmpty}>Uploaded POD image will show here</Text>
+          )}
+          {active?.uploading ? (
+            <View style={styles.paneBusy}>
+              <ActivityIndicator size="small" color={Theme.textPrimaryDark} />
+            </View>
+          ) : null}
+          {canEdit && active && !active.uploading ? (
+            <Pressable
+              style={styles.paneRemove}
+              onPress={() => void removePhoto(active)}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${active.fileName}`}
+            >
+              <X size={12} color={Theme.textPrimaryDark} />
+            </Pressable>
+          ) : null}
+        </View>
+        {active ? (
+          <Text style={styles.fileName} numberOfLines={1}>
+            {shortHardCopyPodPhotoName(active.fileName)}
+          </Text>
+        ) : null}
+        {photos.length > 1 ? (
+          <View style={styles.paneThumbs}>
+            {photos.map((item) => (
+              <Pressable
+                key={item.key}
+                onPress={() => setActiveKey(item.key)}
+                style={[styles.paneThumb, item.key === active?.key && styles.paneThumbOn]}
+                accessibilityRole="imagebutton"
+                accessibilityLabel={`Show ${item.fileName}`}
+                accessibilityState={{ selected: item.key === active?.key }}
+              >
+                {item.previewUri && !fileIsPdf(item.fileName, item.document?.mime_type) ? (
+                  <Image source={{ uri: item.previewUri }} style={styles.thumb} resizeMode="cover" />
+                ) : (
+                  <View style={styles.pdfThumb}>
+                    <Text style={styles.pdfThumbText}>PDF</Text>
+                  </View>
+                )}
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+        {validationMessage ? <Text style={styles.validation}>{validationMessage}</Text> : null}
+        <PodFilePreview item={preview} onClose={() => setPreview(null)} />
+      </View>
+    );
+  }
 
   if (!canEdit && !loaded) return null;
   if (!canEdit && photos.length === 0) return null;
@@ -329,6 +430,79 @@ export function HardCopyPodPhotoUpload({
 
 const styles = StyleSheet.create({
   wrap: { flex: 1, minWidth: 0, gap: 6 },
+  pane: { flex: 1, minWidth: 0, minHeight: 0, gap: 6 },
+  paneUpload: {
+    minHeight: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    backgroundColor: Theme.cardWhite,
+    paddingHorizontal: 10,
+  },
+  paneUploadText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+  },
+  paneStage: {
+    flex: 1,
+    minHeight: 160,
+    borderRadius: 10,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.compliancePageBg,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+  },
+  paneFile: { flex: 1, width: "100%", height: "100%" },
+  paneImage: { width: "100%", height: "100%" },
+  paneEmpty: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Theme.textMuted,
+    textAlign: "center",
+    paddingHorizontal: 16,
+  },
+  paneBusy: {
+    position: "absolute",
+    left: 8,
+    bottom: 8,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.cardWhite,
+  },
+  paneRemove: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+  },
+  paneThumbs: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  paneThumb: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    backgroundColor: Theme.screenBackground,
+  },
+  paneThumbOn: { borderColor: Theme.analyticsHeroBg, borderWidth: 2 },
   label: {
     fontSize: 11,
     fontWeight: "700",

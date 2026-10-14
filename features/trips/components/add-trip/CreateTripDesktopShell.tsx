@@ -31,6 +31,7 @@ export type CreateTripDesktopShellProps = {
   primaryLabel: string;
   onPrimaryPress: () => void;
   primaryDisabled?: boolean;
+  hidePrimary?: boolean;
   primaryLoading?: boolean;
   hint?: string | null;
   fillBody?: boolean;
@@ -50,6 +51,7 @@ export function CreateTripDesktopShell({
   primaryLabel,
   onPrimaryPress,
   primaryDisabled = false,
+  hidePrimary = false,
   primaryLoading = false,
   hint = null,
   fillBody = false,
@@ -198,6 +200,7 @@ export function CreateTripDesktopShell({
                 {hint}
               </Text>
             ) : null}
+            {hidePrimary ? null : (
             <View style={s.footerPrimaryWrap}>
               <Pressable
                 onPress={onPrimaryPress}
@@ -248,6 +251,7 @@ export function CreateTripDesktopShell({
                 )}
               </Pressable>
             </View>
+            )}
           </View>
         </View>
       </View>

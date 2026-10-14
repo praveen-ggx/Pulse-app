@@ -1,13 +1,18 @@
 import { formatMarkComplianceVerifiedError } from "@/features/tripCompliance/utils/complianceMarkVerifiedError.util";
 
 describe("formatMarkComplianceVerifiedError", () => {
-  it("explains the insurance/rc trip-document RPC gate", () => {
-    const message = formatMarkComplianceVerifiedError(
-      "required documents not yet verified: insurance, rc",
+  it("names the trip documents the server still needs approved", () => {
+    expect(formatMarkComplianceVerifiedError("required documents not yet verified: invoice, eway_bill")).toBe(
+      "Approve these trip documents first: invoice, eway_bill.",
     );
-    expect(message).toContain("insurance, rc");
-    expect(message).toContain("LR, E-way Bill, and Invoice");
-    expect(message).toContain("server still also requires Insurance and RC");
+  });
+
+  it("explains the resubmit gate", () => {
+    expect(
+      formatMarkComplianceVerifiedError(
+        "this trip is on hold or rejected; Ground Ops must resubmit it before it can be verified",
+      ),
+    ).toMatch(/Ground Ops must fix it and Resubmit/);
   });
 
   it("passes through unrelated errors", () => {

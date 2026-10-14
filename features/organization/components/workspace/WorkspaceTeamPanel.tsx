@@ -24,11 +24,12 @@ type Props = {
 export function WorkspaceTeamPanel({ onBack }: Props) {
   const { user, profile } = useAuth();
   const { currentOrganization } = useOrganization();
-  const { isOwner } = useOrgRole();
+  const { isOwner, isAdmin } = useOrgRole();
   const { can: canSurface } = useMemberAccess();
   const orgId = currentOrganization?.id ?? null;
   const canManage = profile?.role !== "driver";
-  const canInvite = canManage && canSurface("team.invite");
+  // Invite RPCs accept owner/admin only — never show a button that fails.
+  const canInvite = canManage && (isOwner || isAdmin) && canSurface("team.invite");
   const invalidate = useInvalidateOrgMembers(orgId);
 
   const [view, setView] = useState<TeamView>("roster");

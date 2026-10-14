@@ -22,8 +22,6 @@ import { AddSupplierModal } from "@/features/suppliers/components/AddSupplierMod
 import { EditSupplierModal } from "@/features/suppliers/components/EditSupplierModal";
 import type { SupplierRow, UpdateSupplierData } from "@/features/suppliers/services/suppliers.service";
 import type { TripRow } from "@/features/trips/services/trips.service";
-import { AddVehicleModal } from "@/features/vehicles/components/AddVehicleModal";
-import type { AddVehicleCompletePayload } from "@/features/vehicles/components/AddVehicleModal";
 import type { VehicleRow } from "@/features/vehicles/services/vehicles.service";
 import type { LedgerRow } from "../services/finance.service";
 import { EntityDetailOverlay } from "./EntityDetailOverlay";
@@ -98,11 +96,6 @@ export interface FinanceModalsProps {
   onCloseEditSupplierModal: () => void;
   onEditSupplierComplete: (patch: UpdateSupplierData) => Promise<void>;
   onEditSupplier?: (supplier: SupplierRow) => void;
-
-  // Add Vehicle
-  showAddVehicleModal: boolean;
-  onCloseAddVehicleModal: () => void;
-  onAddVehicleComplete: (payload: AddVehicleCompletePayload) => Promise<void>;
 
   // Add Driver
   showAddDriverModal: boolean;
@@ -200,9 +193,6 @@ export function FinanceModals(props: FinanceModalsProps) {
     onCloseEditSupplierModal,
     onEditSupplierComplete,
     onEditSupplier,
-    showAddVehicleModal,
-    onCloseAddVehicleModal,
-    onAddVehicleComplete,
     showAddDriverModal,
     onCloseAddDriverModal,
     onAddDriverInviteComplete,
@@ -320,13 +310,6 @@ export function FinanceModals(props: FinanceModalsProps) {
               }
             : undefined
         }
-      />
-
-      <AddVehicleModal
-        visible={showAddVehicleModal}
-        onClose={onCloseAddVehicleModal}
-        onComplete={onAddVehicleComplete}
-        ownAssetOnly={true}
       />
 
       <AddDriverModal

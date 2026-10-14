@@ -3,12 +3,14 @@ import {
   REGISTRATION_NUMBER_FIELD,
   VENDOR_VAULT_SECTIONS,
   docsForSection,
+  financialYearChoices,
   financialYearOf,
   financialYearOptions,
   isValidFinancialYear,
   latestDocOfType,
   latestDocOfTypes,
   maskAadhaar,
+  formatAadhaarNumber,
   maskAccountNumber,
   normalizeVendorStatus,
   parsePercentage,
@@ -24,6 +26,7 @@ describe("vendor number validation", () => {
   it("accepts valid numbers and treats empty as not provided", () => {
     expect(validateVendorNumber("pan", "abcde1234f")).toBeNull();
     expect(validateVendorNumber("aadhaar", "2345 6789 0123")).toBeNull();
+    expect(validateVendorNumber("aadhaar", "012345678901")).toBeNull();
     expect(validateVendorNumber("ifsc", "hdfc0001234")).toBeNull();
     expect(validateVendorNumber("gstin", "29ABCDE1234F1Z5")).toBeNull();
     expect(validateVendorNumber("udyam", "UDYAM-KA-01-0012345")).toBeNull();
@@ -31,9 +34,15 @@ describe("vendor number validation", () => {
     expect(validateVendorNumber("pan", "  ")).toBeNull();
   });
 
+  it("formats Aadhaar as four-digit groups and keeps leading zeros", () => {
+    expect(formatAadhaarNumber("577645670912")).toBe("5776 4567 0912");
+    expect(formatAadhaarNumber("012345678901")).toBe("0123 4567 8901");
+    expect(formatAadhaarNumber("5776 4567 0912")).toBe("5776 4567 0912");
+  });
+
   it("rejects malformed numbers", () => {
     expect(validateVendorNumber("pan", "ABCD1234F")).toMatch(/PAN/);
-    expect(validateVendorNumber("aadhaar", "123456789012")).toMatch(/Aadhaar/);
+    expect(validateVendorNumber("aadhaar", "12345678901")).toMatch(/Aadhaar/);
     expect(validateVendorNumber("ifsc", "HDFC1001234")).toMatch(/IFSC/);
     expect(validateVendorNumber("gstin", "29ABCDE1234F1X5")).toMatch(/GSTIN/);
     expect(validateVendorNumber("udyam", "UDYAM-KA-1-12345")).toMatch(/Udyam/);
@@ -78,6 +87,18 @@ describe("financial year", () => {
     expect(financialYearOptions(new Date(2026, 8, 28), 2)).toEqual(["2027-28", "2026-27", "2025-26", "2024-25"]);
   });
 
+  it("rolls the next year forward when the financial year ends", () => {
+    expect(financialYearOf(new Date(2027, 2, 31))).toBe("2026-27");
+    expect(financialYearOf(new Date(2027, 3, 1))).toBe("2027-28");
+    expect(financialYearOptions(new Date(2027, 3, 1), 3)[0]).toBe("2028-29");
+    expect(financialYearOptions(new Date(2028, 3, 1), 3).slice(0, 2)).toEqual(["2029-30", "2028-29"]);
+  });
+
+  it("keeps saved years that are older than the recent window", () => {
+    expect(financialYearChoices(new Date(2028, 3, 1), ["2020-21"], 3)).toContain("2020-21");
+    expect(financialYearChoices(new Date(2028, 3, 1), ["2020-21"], 3)[0]).toBe("2029-30");
+  });
+
   it("validates the FY format", () => {
     expect(isValidFinancialYear("2026-27")).toBe(true);
     expect(isValidFinancialYear("2099-00")).toBe(true);
@@ -96,6 +117,15 @@ describe("percentages", () => {
     expect(parsePercentage("-1")).toBeNull();
     expect(parsePercentage("abc")).toBeNull();
     expect(parsePercentage("1.234")).toBeNull();
+  });
+
+  it("accepts an optional trailing %", () => {
+    expect(parsePercentage("2%")).toBe(2);
+    expect(parsePercentage("1%")).toBe(1);
+    expect(parsePercentage(" 1.5 % ")).toBe(1.5);
+    expect(parsePercentage("100%")).toBe(100);
+    expect(parsePercentage("%")).toBeNull();
+    expect(parsePercentage("abc%")).toBeNull();
   });
 });
 

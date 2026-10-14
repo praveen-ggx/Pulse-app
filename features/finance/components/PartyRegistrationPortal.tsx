@@ -20,16 +20,13 @@ import {
   type ExistingDriverMatch,
 } from "@/features/drivers/services/drivers.service";
 import type { SupplierFormData } from "@/features/suppliers/components/AddSupplierModal";
-import type { AddVehicleCompletePayload } from "@/features/vehicles/components/AddVehicleModal";
+import type { AddVehicleCompletePayload } from "@/features/vehicles/utils/addVehiclePayload.model";
 import {
   getCapacityRecommendations,
 } from "@/features/vehicles/utils/indianTruckData.util";
 import {
-  AXLE_CHIP_OPTIONS,
   BODY_LENGTH_SELECT_OPTIONS,
-  getBodyTypeOptions,
   OTHER_LABEL,
-  VEHICLE_CATEGORY_LABELS,
   normalizeBodyLengthKey,
 } from "@/features/vehicles/utils/vehicleFormOptions.util";
 import { partyAddModalChromeStyles } from "@/components/PartyAddModalChrome";
@@ -50,6 +47,11 @@ import {
   PartyVehicleMobileWizard,
   type PartyVehicleWizardStep,
 } from "@/components/party/PartyVehicleMobileWizard";
+import { VehicleTypeCatalogField } from "@/features/vehicles/components/VehicleTypeCatalogField";
+import {
+  capacityForPassingTon,
+  parseVehicleTypeSelection,
+} from "@/features/vehicles/utils/vehicleTypeCatalog.model";
 import { showAppAlert } from "@/lib/appAlert";
 import { validateEmail } from "@/lib/emailValidation";
 import { formatIndianVehicleNumberInput, formatMobileNumber } from "@/lib/format";
@@ -285,7 +287,7 @@ function vehiclePayloadFromInputs(
     vehicleNumber,
     vehicleType: vehicleCategory.trim() || "Other",
     capacity: capacity.trim(),
-    vehicleBrand: vehicleCategory.trim() || null,
+    vehicleBrand: null,
     vehicleModel: null,
     vehicleBodyType: bodyType.trim() || null,
     vehicleSize: bodyLength.trim() || null,
@@ -421,7 +423,7 @@ function PartyRegistrationPortalInner(
   /** When true, Save creates a fleet driver row via `onAddDriver` instead of sending an in-app invite. */
   const [driverPreferOfflineOnly, setDriverPreferOfflineOnly] = useState(false);
 
-  // Vehicle — aligned with AddVehicleModal (category chips + preset pickers + specs)
+  // Vehicle — global vehicle type picker + specs
   const [vehicleReg, setVehicleReg] = useState("");
   const [vehicleCategory, setVehicleCategory] = useState("");
   const [vehicleCapacity, setVehicleCapacity] = useState("");
@@ -430,6 +432,16 @@ function PartyRegistrationPortalInner(
   const [bodyLengthPickerOpen, setBodyLengthPickerOpen] = useState(false);
   const [vehicleAxle, setVehicleAxle] = useState("");
   const [vehicleBodyType, setVehicleBodyType] = useState("");
+  /** Catalog pick fills vehicle type, body type, body length and capacity (if outside range). */
+  const applyCatalogVehicleType = (value: string, passingTon: string | null) => {
+    const sel = parseVehicleTypeSelection(value);
+    setVehicleCategory(value);
+    setVehicleBodyType(sel?.group ?? "");
+    setBodyLengthIsOther(false);
+    setVehicleBodyFt(sel?.type ?? "");
+    const nextCapacity = capacityForPassingTon(passingTon, vehicleCapacity);
+    if (nextCapacity) setVehicleCapacity(nextCapacity);
+  };
 
   useEffect(() => {
     if (!visible) return;
@@ -2152,6 +2164,15 @@ function PartyRegistrationPortalInner(
               onVehicleRegChange={setVehicleReg}
               vehicleCategory={vehicleCategory}
               onVehicleCategoryChange={(cat) => { setVehicleCategory(cat); setVehicleBodyType(""); }}
+              categoryField={
+                <VehicleTypeCatalogField
+                  value={vehicleCategory}
+                  tons={vehicleCapacity}
+                  onChange={applyCatalogVehicleType}
+                  style={styles.input}
+                />
+              }
+              hideBodyLength={parseVehicleTypeSelection(vehicleCategory) != null}
               vehicleCapacity={vehicleCapacity}
               onVehicleCapacityChange={setVehicleCapacity}
               vehicleBodyFt={vehicleBodyFt}
@@ -2726,58 +2747,14 @@ function PartyRegistrationPortalInner(
                         />
                       </View>
                     </Field>
-                    <Field label="Vehicle category">
-                      <View style={styles.vehicleChipRow}>
-                        {VEHICLE_CATEGORY_LABELS.map((cat) => (
-                          <Pressable
-                            key={cat}
-                            style={[
-                              styles.vehicleChip,
-                              vehicleCategory === cat && styles.vehicleChipActive,
-                            ]}
-                            onPress={() => { setVehicleCategory(cat); setVehicleBodyType(""); }}
-                            testID={`party-vehicle-category-${cat}`}
-                          >
-                            <Text
-                              style={[
-                                styles.vehicleChipText,
-                                vehicleCategory === cat &&
-                                  styles.vehicleChipTextActive,
-                              ]}
-                              numberOfLines={2}
-                            >
-                              {cat}
-                            </Text>
-                          </Pressable>
-                        ))}
-                      </View>
+                    <Field label="Vehicle type">
+                      <VehicleTypeCatalogField
+                        value={vehicleCategory}
+                        tons={vehicleCapacity}
+                        onChange={applyCatalogVehicleType}
+                        style={styles.input}
+                      />
                     </Field>
-                    {getBodyTypeOptions(vehicleCategory).length > 0 ? (
-                      <Field label="Body type" optionalHint="optional">
-                        <View style={styles.vehicleChipRow}>
-                          {getBodyTypeOptions(vehicleCategory).map((opt) => (
-                            <Pressable
-                              key={opt}
-                              style={[
-                                styles.vehicleChip,
-                                vehicleBodyType === opt && styles.vehicleChipActive,
-                              ]}
-                              onPress={() => setVehicleBodyType(vehicleBodyType === opt ? "" : opt)}
-                              testID={`party-vehicle-body-type-${opt}`}
-                            >
-                              <Text
-                                style={[
-                                  styles.vehicleChipText,
-                                  vehicleBodyType === opt && styles.vehicleChipTextActive,
-                                ]}
-                              >
-                                {opt}
-                              </Text>
-                            </Pressable>
-                          ))}
-                        </View>
-                      </Field>
-                    ) : null}
                     <View style={[styles.row2, layoutWide && styles.row2Web]}>
                       <View style={layoutWide ? styles.row2Grow : undefined}>
                         <Field label="Load capacity">
@@ -2787,6 +2764,8 @@ function PartyRegistrationPortalInner(
                           />
                         </Field>
                       </View>
+                      {/* Catalog vehicle types already carry the body length. */}
+                      {parseVehicleTypeSelection(vehicleCategory) ? null : (
                       <View style={layoutWide ? styles.row2Grow : undefined}>
                         <Field label="Body length (ft)">
                           {bodyLengthIsOther ? (
@@ -2833,31 +2812,8 @@ function PartyRegistrationPortalInner(
                           ) : null}
                         </Field>
                       </View>
+                      )}
                     </View>
-                    <Field label="Axle configuration" optionalHint="optional">
-                      <View style={styles.vehicleChipRow}>
-                        {AXLE_CHIP_OPTIONS.map((opt) => (
-                          <Pressable
-                            key={opt}
-                            style={[
-                              styles.vehicleChip,
-                              vehicleAxle === opt && styles.vehicleChipActive,
-                            ]}
-                            onPress={() => setVehicleAxle(vehicleAxle === opt ? "" : opt)}
-                            testID={`party-vehicle-axle-${opt}`}
-                          >
-                            <Text
-                              style={[
-                                styles.vehicleChipText,
-                                vehicleAxle === opt && styles.vehicleChipTextActive,
-                              ]}
-                            >
-                              {opt}
-                            </Text>
-                          </Pressable>
-                        ))}
-                      </View>
-                    </Field>
                   </>
                 )}
               </View>

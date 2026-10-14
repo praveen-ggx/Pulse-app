@@ -4,6 +4,7 @@
  *                        INSERT/DELETE → the list key too.
  */
 import { getTripLedgerEmbed, toLedgerRow, type LedgerRow } from '@/features/finance/services/finance.service';
+import { invalidateComplianceSettlementCaches } from '@/lib/queries/syncFinanceComplianceCaches';
 import { queryKeys } from '@/lib/queryKeys';
 import { subscribeSharedPostgresChanges } from '@/lib/realtimeRegistry';
 import { scheduleInvalidation } from '@/lib/platform/moderator';
@@ -70,6 +71,15 @@ export function useRealtimeTripsInvalidation(organizationId: string | null) {
             qc.invalidateQueries({ queryKey: ["q", "tripCompliance"] });
             qc.invalidateQueries({ queryKey: ["q", "invoicing"] });
             qc.invalidateQueries({ queryKey: ["q", "log-pods"] });
+          }
+          // Settlement / advance stage also reads these trip flags — keep Compliance tabs in sync.
+          const settlementChanged =
+            newRow?.compliance_verified_at !== oldRow?.compliance_verified_at ||
+            newRow?.compliance_decision !== oldRow?.compliance_decision ||
+            newRow?.compliance_declined_at !== oldRow?.compliance_declined_at ||
+            newRow?.amount_paid !== oldRow?.amount_paid;
+          if (settlementChanged) {
+            invalidateComplianceSettlementCaches(qc, organizationId, tripId);
           }
         }
 
@@ -198,6 +208,23 @@ export async function applyTransactionRealtimeEvent(
   // patched, so preserve their existing invalidation behaviour, unchanged in scope.
   scheduleInvalidation(qc, ['q', 'transactions', organizationId, 'infinite']);
   scheduleInvalidation(qc, ['q', 'transactions', organizationId, 'contact']);
+
+  // Trip-linked ledger rows drive Compliance Advance Processed / stage counts.
+  const tripId =
+    (newRow?.trip_id as string | null | undefined) ??
+    (oldRow?.trip_id as string | null | undefined) ??
+    null;
+  const ledgerCategory =
+    (newRow?.ledger_category as string | null | undefined) ??
+    (oldRow?.ledger_category as string | null | undefined) ??
+    null;
+  const affectsCompliance =
+    Boolean(tripId) ||
+    ledgerCategory === 'compliance_advance' ||
+    ledgerCategory === 'compliance_balance';
+  if (affectsCompliance) {
+    invalidateComplianceSettlementCaches(qc, organizationId, tripId);
+  }
 }
 
 /**

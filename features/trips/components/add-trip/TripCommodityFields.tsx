@@ -22,6 +22,14 @@ import { useRecentTonsRecommendations } from "@/features/trips/hooks/useRecentTo
 import { useUserCommodityTypes } from "@/features/trips/hooks/useUserCommodityTypes";
 import type { CommodityTypeKind } from "@/features/trips/services/userCommodityTypes.storage";
 import { ROUTES } from "@/lib/routes";
+import { VehicleTypeCatalogSheet } from "@/features/vehicles/components/VehicleTypeCatalogSheet";
+import {
+  parseVehicleTypeSelection,
+  passingTonRange,
+  passingTonsFor,
+  tonSuggestionsForRange,
+  vehicleTonRange,
+} from "@/features/vehicles/utils/vehicleTypeCatalog.model";
 
 export type TripCommodityFieldsProps = {
   vehicleType: string;
@@ -49,6 +57,8 @@ export type TripCommodityFieldsProps = {
   desktopChrome?: boolean;
   fieldLabelStyle?: StyleProp<TextStyle>;
   fieldInputStyle?: StyleProp<TextStyle>;
+  /** Use the global vehicle type catalog sheet (category → type → passing ton). */
+  useVehicleCatalog?: boolean;
 };
 
 type PickerKind = "vehicle" | "load" | null;
@@ -120,9 +130,13 @@ export const TripCommodityFields = memo(function TripCommodityFields({
   desktopChrome = false,
   fieldLabelStyle,
   fieldInputStyle,
+  useVehicleCatalog = false,
 }: TripCommodityFieldsProps) {
   const router = useRouter();
   const [picker, setPicker] = useState<PickerKind>(null);
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  /** Passing ton picked in the catalog sheet (not stored in vehicle_type). */
+  const [pickedPassingTon, setPickedPassingTon] = useState<string | null>(null);
   const tonsInputRef = useRef<TextInput>(null);
 
   const scrollTonsIntoView = useCallback(() => {
@@ -141,6 +155,41 @@ export const TripCommodityFields = memo(function TripCommodityFields({
   );
   const { chips: tonsChips, recent: recentTons, remember: rememberTons } =
     useRecentTonsRecommendations();
+
+  // Catalog vehicle with a passing ton: suggest and check load weight within that range.
+  // Hard limit = the vehicle's full range; chips narrow to the picked passing ton.
+  const catalogTonRange = useVehicleCatalog ? vehicleTonRange(vehicleType) : null;
+  const catalogSelection = useVehicleCatalog ? parseVehicleTypeSelection(vehicleType) : null;
+  const pickedTonRange =
+    catalogSelection &&
+    pickedPassingTon &&
+    passingTonsFor(catalogSelection.group, catalogSelection.type).includes(pickedPassingTon)
+      ? passingTonRange(pickedPassingTon)
+      : null;
+  const chipsTonRange = pickedTonRange ?? catalogTonRange;
+  const visibleTonsChips = chipsTonRange ? tonSuggestionsForRange(chipsTonRange) : tonsChips;
+  const tonsNumber = Number(tons);
+  const tonsOutOfRange =
+    catalogTonRange != null &&
+    tons.trim() !== "" &&
+    Number.isFinite(tonsNumber) &&
+    (tonsNumber < catalogTonRange.min || tonsNumber > catalogTonRange.max);
+  const tonsInvalid = tonsError || tonsOutOfRange;
+
+  const onCatalogChange = useCallback(
+    (value: string, passingTon: string | null) => {
+      onVehicleTypeChange(value);
+      setPickedPassingTon(passingTon);
+      // Pass the picked passing ton on to the tons (MT) field.
+      const range = passingTonRange(passingTon);
+      if (!range) return;
+      const n = Number(tons);
+      if (!tons.trim() || !Number.isFinite(n) || n < range.min || n > range.max) {
+        onTonsChange(String(range.max));
+      }
+    },
+    [onVehicleTypeChange, onTonsChange, tons],
+  );
 
   const applyTons = useCallback(
     (value: string) => {
@@ -210,8 +259,12 @@ export const TripCommodityFields = memo(function TripCommodityFields({
 
   const renderVehicle = () => (
     <View style={blockStyle}>
-      {renderLabelRow("Vehicle type", () => openAddType("vehicle"))}
-      {useWebSelect ? (
+      {useVehicleCatalog ? (
+        <Text style={labelStyle}>Vehicle type</Text>
+      ) : (
+        renderLabelRow("Vehicle type", () => openAddType("vehicle"))
+      )}
+      {useWebSelect && !useVehicleCatalog ? (
         <CommodityWebSelect
           value={vehicleType}
           options={vehicleOptions}
@@ -231,7 +284,7 @@ export const TripCommodityFields = memo(function TripCommodityFields({
             useFormChrome && styles.pickerBtnForm,
             vehicleTypeError && styles.pickerBtnError,
           ]}
-          onPress={() => setPicker("vehicle")}
+          onPress={() => (useVehicleCatalog ? setCatalogOpen(true) : setPicker("vehicle"))}
           accessibilityRole="button"
         >
           <Text
@@ -302,7 +355,7 @@ export const TripCommodityFields = memo(function TripCommodityFields({
       <View style={blockStyle}>
         <Text style={labelStyle}>Tons (optional)</Text>
         {desktopChrome ? (
-          <View style={[resolvedInputStyle as object, tonsError && styles.inputError]}>
+          <View style={[resolvedInputStyle as object, tonsInvalid && styles.inputError]}>
             <View style={styles.tonsInputRow}>
               <TextInput
                 ref={tonsInputRef}
@@ -326,7 +379,7 @@ export const TripCommodityFields = memo(function TripCommodityFields({
             ref={tonsInputRef}
             style={[
               resolvedInputStyle,
-              tonsError && styles.inputError,
+              tonsInvalid && styles.inputError,
             ]}
             value={tons}
             onChangeText={(t) => onTonsChange(t.replace(/[^\d.]/g, "").slice(0, 12))}
@@ -341,9 +394,9 @@ export const TripCommodityFields = memo(function TripCommodityFields({
           />
         )}
         <View style={styles.tonsSuggestRow}>
-          {tonsChips.map((value) => {
+          {visibleTonsChips.map((value) => {
             const selected = tons.trim() === value;
-            const isRecent = recentTons.includes(value);
+            const isRecent = !catalogTonRange && recentTons.includes(value);
             return (
               <Pressable
                 key={value}
@@ -367,6 +420,14 @@ export const TripCommodityFields = memo(function TripCommodityFields({
             );
           })}
         </View>
+        {catalogTonRange ? (
+          <Text style={[styles.tonsRangeHint, tonsOutOfRange && styles.tonsRangeHintError]}>
+            {tonsOutOfRange ? "Outside this vehicle's range: " : "Vehicle range: "}
+            {catalogTonRange.min === catalogTonRange.max
+              ? `${catalogTonRange.min} tons`
+              : `${catalogTonRange.min}–${catalogTonRange.max} tons`}
+          </Text>
+        ) : null}
       </View>
     ) : null;
 
@@ -387,6 +448,16 @@ export const TripCommodityFields = memo(function TripCommodityFields({
           {renderTons()}
         </>
       )}
+
+      {useVehicleCatalog ? (
+        <VehicleTypeCatalogSheet
+          visible={catalogOpen}
+          value={vehicleType}
+          tons={tons}
+          onClose={() => setCatalogOpen(false)}
+          onChange={onCatalogChange}
+        />
+      ) : null}
 
       {!useWebSelect ? (
         <Modal visible={picker != null} transparent animationType="slide">
@@ -572,6 +643,15 @@ const styles = StyleSheet.create({
     /** Cap visual height to ~2 chip rows. */
     maxHeight: 58,
     overflow: "hidden",
+  },
+  tonsRangeHint: {
+    marginTop: 6,
+    fontSize: 11,
+    fontWeight: "600",
+    color: Theme.textMuted,
+  },
+  tonsRangeHintError: {
+    color: Theme.negative,
   },
   tonsSuggestChip: {
     paddingHorizontal: 8,

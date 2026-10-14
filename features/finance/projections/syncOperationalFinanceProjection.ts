@@ -5,6 +5,7 @@ import {
   invalidateReconciliationState,
   invalidateTripOperationalState,
 } from "@/lib/queries/operationalInvalidation";
+import { invalidateComplianceSettlementCaches } from "@/lib/queries/syncFinanceComplianceCaches";
 
 export function syncOperationalFinanceProjection(input: {
   queryClient: QueryClient;
@@ -33,4 +34,10 @@ export function syncOperationalFinanceProjection(input: {
     organizationId: input.organizationId,
     tripId: input.tripId,
   });
+  // Trip-linked finance writes can move Compliance Settlement stages / tab counts.
+  invalidateComplianceSettlementCaches(
+    input.queryClient,
+    input.organizationId,
+    input.tripId,
+  );
 }

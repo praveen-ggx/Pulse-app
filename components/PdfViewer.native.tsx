@@ -17,6 +17,8 @@ interface PdfViewerProps {
   zoom?: number;
   sizing?: "original" | "fit";
   page?: number;
+  interactive?: boolean;
+  scrollbar?: boolean;
 }
 
 /**

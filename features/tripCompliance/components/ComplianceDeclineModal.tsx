@@ -11,12 +11,18 @@ import {
   COMPLIANCE_DECLINE_REASON_MIN,
   complianceDeclineReasonLength,
 } from "@/features/tripCompliance/tripCompliance.types";
+import {
+  composeComplianceDeclineReason,
+  type ComplianceDeclineReasonSection,
+} from "@/features/tripCompliance/utils/complianceDeclineReason.util";
+import { Check } from "lucide-react-native";
 import React, { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -29,6 +35,18 @@ export type ComplianceDeclineModalProps = {
   tripLabel: string;
   onCancel: () => void;
   onSubmit: (reason: string) => Promise<void>;
+  /** Overrides for reuse (e.g. Resubmit note). Defaults keep the Decline copy. */
+  title?: string;
+  fieldLabel?: string;
+  placeholder?: string;
+  submitLabel?: string;
+  /** Shown above the field, e.g. the hold / reject reason being answered. */
+  context?: { label: string; text: string } | null;
+  /** Preset reasons (multi-select). The text box becomes an optional note. */
+  presets?: readonly ComplianceDeclineReasonSection[];
+  /** Pre-ticked presets and note, applied each time the modal opens. */
+  initialSelected?: readonly string[];
+  initialNote?: string;
 };
 
 function errorMessage(err: unknown): string {
@@ -37,23 +55,42 @@ function errorMessage(err: unknown): string {
   return "Could not decline. Please try again.";
 }
 
-export function ComplianceDeclineModal({ visible, tripLabel, onCancel, onSubmit }: ComplianceDeclineModalProps) {
+export function ComplianceDeclineModal({
+  visible,
+  tripLabel,
+  onCancel,
+  onSubmit,
+  title,
+  fieldLabel,
+  placeholder,
+  submitLabel,
+  context,
+  presets,
+  initialSelected,
+  initialNote,
+}: ComplianceDeclineModalProps) {
   const insets = useSafeAreaInsets();
   const [reason, setReason] = useState("");
+  const [selected, setSelected] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submittingRef = useRef(false);
+  // Read on open only, so a background refetch can't wipe what the user edited.
+  const initialRef = useRef({ initialSelected, initialNote });
+  initialRef.current = { initialSelected, initialNote };
 
   useEffect(() => {
     if (visible) {
-      setReason("");
+      setReason(initialRef.current.initialNote ?? "");
+      setSelected([...(initialRef.current.initialSelected ?? [])]);
       setError(null);
       setSubmitting(false);
       submittingRef.current = false;
     }
   }, [visible]);
 
-  const trimmedLength = complianceDeclineReasonLength(reason);
+  const composed = presets ? composeComplianceDeclineReason(selected, reason) ?? "" : reason;
+  const trimmedLength = complianceDeclineReasonLength(composed);
   const tooShort = trimmedLength < COMPLIANCE_DECLINE_REASON_MIN;
   const tooLong = trimmedLength > COMPLIANCE_DECLINE_REASON_MAX;
   const invalid = tooShort || tooLong;
@@ -62,8 +99,15 @@ export function ComplianceDeclineModal({ visible, tripLabel, onCancel, onSubmit 
   const hint = tooLong
     ? `Keep it under ${COMPLIANCE_DECLINE_REASON_MAX} characters`
     : tooShort
-      ? `At least ${COMPLIANCE_DECLINE_REASON_MIN} characters`
+      ? presets
+        ? "Pick at least one reason or write a note"
+        : `At least ${COMPLIANCE_DECLINE_REASON_MIN} characters`
       : null;
+
+  const togglePreset = (option: string) => {
+    setSelected((prev) => (prev.includes(option) ? prev.filter((item) => item !== option) : [...prev, option]));
+    if (error) setError(null);
+  };
 
   const handleCancel = () => {
     if (submittingRef.current) return;
@@ -76,7 +120,7 @@ export function ComplianceDeclineModal({ visible, tripLabel, onCancel, onSubmit 
     setSubmitting(true);
     setError(null);
     try {
-      await onSubmit(reason.trim());
+      await onSubmit(composed.trim());
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -107,25 +151,64 @@ export function ComplianceDeclineModal({ visible, tripLabel, onCancel, onSubmit 
         />
         <View style={styles.sheet} testID="compliance-decline-modal" accessibilityViewIsModal>
           <Text style={styles.title} accessibilityRole="header">
-            {`${COMPLIANCE_DECLINE_ACTION_LABEL} trip compliance`}
+            {title ?? `${COMPLIANCE_DECLINE_ACTION_LABEL} trip compliance`}
           </Text>
           <Text style={styles.tripLabel} numberOfLines={1}>
             {tripLabel}
           </Text>
-          <Text style={styles.label}>Reason</Text>
+          {context ? (
+            <View style={styles.context}>
+              <Text style={styles.contextLabel}>{context.label}</Text>
+              <Text style={styles.contextText}>{context.text}</Text>
+            </View>
+          ) : null}
+          {presets ? (
+            <ScrollView
+              style={styles.presetScroll}
+              contentContainerStyle={styles.presetContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              {presets.map((section) => (
+                <View key={section.title} style={styles.presetSection}>
+                  <Text style={styles.presetTitle}>{section.title}</Text>
+                  <View style={styles.presetWrap}>
+                    {section.options.map((option) => {
+                      const on = selected.includes(option);
+                      return (
+                        <Pressable
+                          key={option}
+                          style={[styles.presetChip, on && styles.presetChipOn]}
+                          onPress={() => togglePreset(option)}
+                          disabled={submitting}
+                          hitSlop={{ top: 6, bottom: 6 }}
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: on, disabled: submitting }}
+                          accessibilityLabel={option}
+                        >
+                          {on ? <Check size={12} color={Theme.cardWhite} strokeWidth={3} /> : null}
+                          <Text style={[styles.presetText, on && styles.presetTextOn]}>{option}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+          ) : null}
+          <Text style={styles.label}>{fieldLabel ?? (presets ? "Note (optional)" : "Reason")}</Text>
           <TextInput
             testID="compliance-decline-reason-input"
-            accessibilityLabel="Decline reason"
+            accessibilityLabel={fieldLabel ?? "Decline reason"}
             style={styles.input}
             value={reason}
             onChangeText={(text) => {
               setReason(text);
               if (error) setError(null);
             }}
-            placeholder="Why is this trip being declined?"
+            placeholder={placeholder ?? (presets ? "Anything else Ground Ops should know" : "Why is this trip being declined?")}
             placeholderTextColor={Theme.textMuted}
             multiline
-            autoFocus
+            autoFocus={!presets}
             editable={!submitting}
             textAlignVertical="top"
           />
@@ -160,11 +243,11 @@ export function ComplianceDeclineModal({ visible, tripLabel, onCancel, onSubmit 
               onPress={() => void handleSubmit()}
               disabled={submitDisabled}
               accessibilityRole="button"
-              accessibilityLabel={submitting ? "Submitting" : COMPLIANCE_DECLINE_ACTION_LABEL}
+              accessibilityLabel={submitting ? "Submitting" : (submitLabel ?? COMPLIANCE_DECLINE_ACTION_LABEL)}
               accessibilityState={{ disabled: submitDisabled, busy: submitting }}
             >
               <Text style={[styles.submitText, submitDisabled && styles.submitTextDisabled]}>
-                {submitting ? "Submitting…" : COMPLIANCE_DECLINE_ACTION_LABEL}
+                {submitting ? "Submitting…" : (submitLabel ?? COMPLIANCE_DECLINE_ACTION_LABEL)}
               </Text>
             </Pressable>
           </View>
@@ -183,7 +266,8 @@ const styles = StyleSheet.create({
   },
   sheet: {
     width: "100%",
-    maxWidth: 440,
+    maxWidth: 560,
+    maxHeight: "92%",
     backgroundColor: Theme.cardWhite,
     borderRadius: 14,
     padding: 18,
@@ -191,7 +275,34 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 16, fontWeight: "700", color: Theme.textPrimary },
   tripLabel: { fontSize: 13, color: Theme.textMuted, marginBottom: 6 },
+  context: {
+    gap: 2,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: Theme.complianceGroupDangerBg,
+  },
+  contextLabel: { fontSize: 11, fontWeight: "600", color: Theme.textMuted },
+  contextText: { fontSize: 13, fontWeight: "600", color: Theme.complianceGroupDangerFg },
   label: { fontSize: 12, fontWeight: "600", color: Theme.textPrimary },
+  presetScroll: { maxHeight: 320 },
+  presetContent: { gap: 10, paddingBottom: 4 },
+  presetSection: { gap: 6 },
+  presetTitle: { fontSize: 11, fontWeight: "700", color: Theme.textMuted, textTransform: "uppercase" },
+  presetWrap: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  presetChip: {
+    minHeight: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    backgroundColor: Theme.cardWhite,
+  },
+  presetChipOn: { backgroundColor: Theme.buttonDark, borderColor: Theme.buttonDark },
+  presetText: { fontSize: 12, color: Theme.textPrimaryDark },
+  presetTextOn: { color: Theme.cardWhite, fontWeight: "600" },
   input: {
     minHeight: 96,
     maxHeight: 200,

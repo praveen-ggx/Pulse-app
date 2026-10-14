@@ -8,6 +8,7 @@ export type ComplianceStage =
   | "pending_for_docs"
   | "compliance_pending"
   | "compliance_verified"
+  | "finance_verified"
   | "advance_payment_processed"
   | "hard_copy_pod_received"
   | "balance_pending"
@@ -17,6 +18,7 @@ export const COMPLIANCE_STAGES: readonly ComplianceStage[] = [
   "pending_for_docs",
   "compliance_pending",
   "compliance_verified",
+  "finance_verified",
   "advance_payment_processed",
   "hard_copy_pod_received",
   "balance_pending",
@@ -24,9 +26,10 @@ export const COMPLIANCE_STAGES: readonly ComplianceStage[] = [
 ];
 
 export const COMPLIANCE_STAGE_LABEL: Record<ComplianceStage, string> = {
-  pending_for_docs: "Pending for Docs",
-  compliance_pending: "Compliance Pending",
+  pending_for_docs: "Document Upload",
+  compliance_pending: "Compliance Verification",
   compliance_verified: "Compliance Verified",
+  finance_verified: "Finance Verified",
   advance_payment_processed: "Advance Payment Processed",
   // Bucket is "delivered + advance, hard-copy not yet marked" (awaiting Ops).
   hard_copy_pod_received: "Awaiting Hard-Copy POD",
@@ -36,13 +39,15 @@ export const COMPLIANCE_STAGE_LABEL: Record<ComplianceStage, string> = {
 
 /** Shorter filter-chip labels from the Compliance Verification workbench. */
 export const COMPLIANCE_STAGE_FILTER_LABEL: Record<ComplianceStage, string> = {
-  pending_for_docs: "Pending Docs",
-  compliance_pending: "Compliance Pending",
-  compliance_verified: "Verified",
+  pending_for_docs: "Document Upload",
+  compliance_pending: "Compliance Verification",
+  compliance_verified: "Advance Verification",
+  finance_verified: "Advance Payment",
+  // Not a tab: paid-but-running trips are listed under Awaiting POD.
   advance_payment_processed: "Advance Processed",
   hard_copy_pod_received: "Awaiting POD",
-  balance_pending: "Balance Pending",
-  payment_settled: "Settled",
+  balance_pending: "Settlement Verification",
+  payment_settled: "Final Settlement",
 };
 
 export type ComplianceChecklistTone = "success" | "warning" | "danger";
@@ -100,12 +105,12 @@ export type ComplianceDocumentRow = {
   source_entity_document_id?: string | null;
 };
 
-/** Vehicle/driver docs shown on Compliance — vault JSONB, KYC, or entity_documents. */
-export type ComplianceEntityDocumentSource = "vehicle-vault" | "driver-kyc" | "entity";
+/** Vehicle/driver/supplier docs shown on Compliance — vault JSONB, KYC, or entity_documents. */
+export type ComplianceEntityDocumentSource = "vehicle-vault" | "driver-kyc" | "entity" | "supplier-kyc";
 
 export type ComplianceEntityDocument = {
   id: string;
-  entity_type: "vehicle" | "driver";
+  entity_type: "vehicle" | "driver" | "supplier";
   entity_id: string;
   doc_type: string;
   status: string;
@@ -127,13 +132,13 @@ export type CompliancePaymentSummary = {
   paidAt: string;
   actorId: string | null;
   transactionId: string;
-  /**
-   * `transactions.created_at` — when this payment row was actually written,
-   * as opposed to `paidAt` (`transaction_date`), which is editable. Used to
-   * gate whether an advance counts as posted at/after compliance verification.
-   * Optional so existing object literals (tests, other call sites) stay valid.
-   */
+  /** `transactions.created_at` — when the row was posted (paidAt is the user-entered day). */
   postedAt?: string | null;
+  /**
+   * Ops confirmed Paid at / Txn Date in Compliance (QMETA `compliance_txn_date_set`).
+   * Until true, Paid at / Txn Date UI stays blank even if Finance stamped a day.
+   */
+  txnDateConfirmed?: boolean;
 };
 
 export type ComplianceTripSummary = {
@@ -153,7 +158,25 @@ export type ComplianceTripSummary = {
   complianceDeclinedAt: string | null;
   complianceDeclinedBy: string | null;
   complianceDeclineReason: string | null;
+  /** Server-derived finance-reject return queue. Null for pre-verify declines and ambiguous legacy rejects. */
+  complianceRejectReturnTo?: "pending_for_docs" | "compliance_pending" | null;
+  /** Set by resubmit_trip_compliance. A newer decline time reopens the inbox. */
+  complianceResubmittedAt?: string | null;
+  /** Ground Ops note on the latest resubmit (what was fixed). */
+  complianceResubmitNote?: string | null;
+  /** Finance flagged the trip for Compliance review (blocks the advance). */
+  financeFlaggedAt?: string | null;
+  financeFlagNote?: string | null;
+  /** Finance approval (mark_trip_finance_verified). Required before the advance can be posted. */
+  financeVerifiedAt?: string | null;
+  financeVerifiedBy?: string | null;
   advance: CompliancePaymentSummary | null;
+  /**
+   * A `compliance_advance` row while the trip is not yet verified. Shown on file
+   * but not counted as `advance` until verify (Finance posts advances; Compliance
+   * does not). Once verified, the same row becomes `advance`.
+   */
+  advanceBeforeVerification?: CompliancePaymentSummary | null;
   balance: CompliancePaymentSummary | null;
   hardCopyPod: {
     received: boolean;
@@ -161,6 +184,14 @@ export type ComplianceTripSummary = {
     courier: string | null;
     awbNumber: string | null;
     receivedBy: string | null;
+    /** Hard copy was marked IBond. Absent on older cached summaries. */
+    ibond?: boolean;
+    /** POD charges were saved. The trip then leaves the POD Received list. */
+    chargesSaved?: boolean;
+    /** Every LR number on this trip. */
+    lrNumbers?: string[];
+    /** Subset of `lrNumbers` whose hard copy has been received. */
+    receivedLrNumbers?: string[];
   };
 };
 
@@ -174,11 +205,28 @@ export type ComplianceTripFlags = {
   compliance_declined_at: string | null;
   compliance_declined_by: string | null;
   compliance_decline_reason: string | null;
+  compliance_reject_return_to?: "pending_for_docs" | "compliance_pending" | null;
+  compliance_resubmitted_at?: string | null;
+  compliance_resubmit_note?: string | null;
+  finance_flagged_at?: string | null;
+  finance_flagged_by?: string | null;
+  finance_flag_note?: string | null;
+  finance_verified_at?: string | null;
+  finance_verified_by?: string | null;
   pod_hard_copy_courier: string | null;
   pod_hard_copy_awb_number: string | null;
   pod_hard_copy_received_by: string | null;
   /** The hard-copy-POD-received gate (courier/AWB/received-by are display metadata). */
   pod_received_at: string | null;
+  /** Set when the hard-copy receipt event was saved as IBond. */
+  pod_ibond?: boolean;
+  /** Set when POD client/vendor charges have been saved. */
+  pod_charges_saved?: boolean;
+  /**
+   * LR numbers already logged as hard-copy received.
+   * Read from the courier workflow event, not a trips column.
+   */
+  received_lr_numbers?: string[];
 };
 
 /**
@@ -224,6 +272,19 @@ export const COMPLIANCE_TRIP_OTHER_DOCUMENT_TYPES: readonly string[] = [
   "pod",
   "memo",
 ];
+
+/**
+ * Asset Vault finance slots: Memo, Other Documents, Bank Docs.
+ * LR / Invoice stay on the Trip tab.
+ */
+export const COMPLIANCE_FINANCE_DOCUMENT_TYPES: readonly string[] = [
+  "memo",
+  "other",
+  "bank_docs",
+];
+
+/** Finance slots marked Required in the Finance list (labelling only — not a Verified gate). */
+export const REQUIRED_COMPLIANCE_FINANCE_DOCUMENT_TYPES: readonly string[] = ["memo"];
 
 /** Vehicle checklist — RC, insurance, FC, permit, pollution, tax. */
 export const REQUIRED_VEHICLE_DOCUMENT_TYPES: readonly string[] = [

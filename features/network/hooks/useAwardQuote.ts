@@ -12,6 +12,7 @@ import {
   type IndentRow,
 } from "@/features/indents";
 import { driverDirectBidToHubQuote } from "@/features/indents/utils/bidding/indentReviewHubOffers.util";
+import { indentAwardBlockedBecauseInactive } from "@/features/indents/utils/indentCancelReason.util";
 import {
   getIntegratedSupplierOrgIdsForShipper,
   useIndentDirectQuotesQuery,
@@ -374,11 +375,9 @@ export function useAwardQuote({
         invalidateIndents(orgId);
         return;
       }
-      if (currentStatus === "cancelled" || currentStatus === "closed") {
-        showAppAlert(
-          "Load unavailable",
-          "This load has been cancelled or closed.",
-        );
+      const inactiveAwardBlock = indentAwardBlockedBecauseInactive(currentStatus);
+      if (inactiveAwardBlock) {
+        showAppAlert("Cannot award", inactiveAwardBlock);
         setCurrentLoad(null);
         setSelectedQuoteId(null);
         invalidateIndents(orgId);

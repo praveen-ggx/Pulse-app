@@ -1,3 +1,4 @@
+import { SurfaceAccessGate } from "@/components/SurfaceAccessGate";
 import { MemberDomainGate } from "@/components/MemberDomainGate";
 import { ProductLockedScreen } from "@/components/ProductLockedScreen";
 import { PulseProductShell } from "@/features/product-shell/PulseProductShell";
@@ -14,12 +15,16 @@ export default function FinanceProLayout() {
   return (
     <MemberDomainGate kind="finance">
       <PulseProductShell productId="finance-pro">
-        <Stack screenOptions={routeStackScreenOptions}>
-          <Stack.Screen name="client/[id]" options={FINANCE_PRO_DETAIL_SCREEN_OPTIONS} />
-          <Stack.Screen name="trip/[id]" options={FINANCE_PRO_DETAIL_SCREEN_OPTIONS} />
-          <Stack.Screen name="invoice/[id]" options={FINANCE_PRO_DETAIL_SCREEN_OPTIONS} />
-          <Stack.Screen name="cash/[id]" options={FINANCE_PRO_DETAIL_SCREEN_OPTIONS} />
-        </Stack>
+        {/* Finance domain alone is not enough: Vendor support has the Finance
+            tab for its Suppliers sub-tab only. */}
+        <SurfaceAccessGate surface="finance.business_pulse">
+          <Stack screenOptions={routeStackScreenOptions}>
+            <Stack.Screen name="client/[id]" options={FINANCE_PRO_DETAIL_SCREEN_OPTIONS} />
+            <Stack.Screen name="trip/[id]" options={FINANCE_PRO_DETAIL_SCREEN_OPTIONS} />
+            <Stack.Screen name="invoice/[id]" options={FINANCE_PRO_DETAIL_SCREEN_OPTIONS} />
+            <Stack.Screen name="cash/[id]" options={FINANCE_PRO_DETAIL_SCREEN_OPTIONS} />
+          </Stack>
+        </SurfaceAccessGate>
       </PulseProductShell>
     </MemberDomainGate>
   );

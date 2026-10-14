@@ -62,7 +62,6 @@ export type MemberSurfaceId =
   | "sales.suppliers.detail"
   | "sales.suppliers.analytics"
   | "sales.load_board"
-  | "sales.from_clients"
   | "sales.chat"
   // TripOps / dispatch
   | "tripops.tab"
@@ -94,7 +93,14 @@ export type MemberSurfaceId =
   | "trip_compliance.documents.view"
   | "trip_compliance.documents.verify"
   | "trip_compliance.trip.mark_verified"
+  | "trip_compliance.trip.resubmit"
+  | "trip_compliance.finance.reject"
   | "trip_compliance.finance.view"
+  // Finance-side Compliance page tabs (one surface per tab)
+  | "trip_compliance.tab.advance_verification"
+  | "trip_compliance.tab.advance_payment"
+  | "trip_compliance.tab.settlement_verification"
+  | "trip_compliance.tab.final_settlement"
   | "trip_compliance.finance.manage"
   | "trip_compliance.pod.manage"
   // Fleet (asset path)
@@ -160,6 +166,9 @@ export const MEMBER_SURFACE_CATALOG: readonly MemberSurfaceDef[] = [
     hint: "Open the Fiscal tab",
     domain: "finance",
     anyOfCaps: FIN,
+    // Read-only: opening Finance must not confer finance_manage (writes come
+    // from finance.manage). Matters for Vendor support (Suppliers sub-tab only).
+    grantsCaps: ["finance_view"],
   },
   {
     id: "finance.view",
@@ -167,6 +176,7 @@ export const MEMBER_SURFACE_CATALOG: readonly MemberSurfaceDef[] = [
     hint: "Ledgers, balances, reports (read)",
     domain: "finance",
     anyOfCaps: FIN,
+    grantsCaps: ["finance_view"],
     requires: "finance.tab",
   },
   {
@@ -315,8 +325,8 @@ export const MEMBER_SURFACE_CATALOG: readonly MemberSurfaceDef[] = [
   {
     id: "finance.business_pulse",
     group: "Reports & insights",
-    label: "Business Pulse",
-    hint: "Business pulse dashboard",
+    label: "Business Pulse / Finance Pro",
+    hint: "Finance Pro dashboard: money movement, billing pipeline",
     domain: "finance",
     anyOfCaps: FIN,
     requires: "finance.view",
@@ -545,15 +555,6 @@ export const MEMBER_SURFACE_CATALOG: readonly MemberSurfaceDef[] = [
     requires: "sales.tab",
   },
   {
-    id: "sales.from_clients",
-    group: "Marketplace & network",
-    label: "From clients",
-    hint: "Loads / requests from clients hub",
-    domain: "sales",
-    anyOfCaps: DISP,
-    requires: "sales.tab",
-  },
-  {
     id: "sales.chat",
     group: "Marketplace & network",
     label: "Business chat",
@@ -602,6 +603,9 @@ export const MEMBER_SURFACE_CATALOG: readonly MemberSurfaceDef[] = [
     hint: "Asset / hybrid supply mode",
     domain: "tripops",
     anyOfCaps: FLEET,
+    // Creating an own-fleet trip needs dispatch_for_own_fleet only; vehicle /
+    // driver management (fleet_management) comes from the fleet.* surfaces.
+    grantsCaps: ["dispatch_for_own_fleet"],
     requires: "tripops.trips.view",
   },
   {
@@ -712,13 +716,11 @@ export const MEMBER_SURFACE_CATALOG: readonly MemberSurfaceDef[] = [
     hint: "Indent list & detail",
     domain: "sales",
     anyOfCaps: DISP,
-    // tripops.tab, not sales.tab: /indent/:id is its own top-level route,
-    // independent of the Network tab. Requiring sales.tab here meant granting
-    // indent-view access also flipped MemberDomainGate's sales-domain check
-    // (domainsFromSurfaces reads surfaces["sales.tab"]) and silently unlocked
-    // the entire Network tab for a Trip Ops member who only needed to open
-    // one awarded indent.
-    requires: "tripops.tab",
+    // Indents belong to Sales (owner decision 2026-10-12): Trip Ops handles
+    // trips only and no longer gets indent access, so the old tripops.tab
+    // parent (which existed to let Trip Ops open one awarded indent without
+    // the Network tab) is gone.
+    requires: "sales.tab",
   },
   {
     id: "tripops.indents.create",
@@ -836,7 +838,17 @@ export const MEMBER_SURFACE_CATALOG: readonly MemberSurfaceDef[] = [
     requires: "trip_compliance.documents.verify",
   },
   {
+    id: "trip_compliance.trip.resubmit",
+    label: "Resubmit a finance reject",
+    hint: "Send a finance-rejected trip back to the queue that rejected it",
+    domain: "trip_compliance",
+    anyOfCaps: DISP,
+    grantsCaps: [],
+    requires: "trip_compliance.tab",
+  },
+  {
     id: "trip_compliance.finance.view",
+    group: "Compliance page",
     label: "View compliance settlement",
     hint: "See advance/balance payment and POD settlement state on Compliance",
     domain: "trip_compliance",
@@ -846,13 +858,68 @@ export const MEMBER_SURFACE_CATALOG: readonly MemberSurfaceDef[] = [
     grantsCaps: ["finance_view"],
     requires: "trip_compliance.tab",
   },
+  // Which Finance tabs of the Compliance page the member sees. View only —
+  // acting inside a tab still needs finance.manage / finance.reject.
+  {
+    id: "trip_compliance.tab.advance_verification",
+    group: "Compliance page",
+    label: "Advance Verification tab",
+    hint: "Compliance page → Advance Verification",
+    domain: "trip_compliance",
+    anyOfCaps: FIN,
+    grantsCaps: [],
+    requires: "trip_compliance.finance.view",
+  },
+  {
+    id: "trip_compliance.tab.advance_payment",
+    group: "Compliance page",
+    label: "Advance Payment tab",
+    hint: "Compliance page → Advance Payment",
+    domain: "trip_compliance",
+    anyOfCaps: FIN,
+    grantsCaps: [],
+    requires: "trip_compliance.finance.view",
+  },
+  {
+    id: "trip_compliance.tab.settlement_verification",
+    group: "Compliance page",
+    label: "Settlement Verification tab",
+    hint: "Compliance page → Settlement Verification",
+    domain: "trip_compliance",
+    anyOfCaps: FIN,
+    grantsCaps: [],
+    requires: "trip_compliance.finance.view",
+  },
+  {
+    id: "trip_compliance.tab.final_settlement",
+    group: "Compliance page",
+    label: "Final Settlement tab",
+    hint: "Compliance page → Final Settlement",
+    domain: "trip_compliance",
+    anyOfCaps: FIN,
+    grantsCaps: [],
+    requires: "trip_compliance.finance.view",
+  },
   {
     id: "trip_compliance.finance.manage",
+    group: "Compliance page",
     label: "Manage compliance payments",
     hint: "Initiate/update advance and balance payments from Compliance",
     domain: "trip_compliance",
     anyOfCaps: ["finance_manage"],
     requires: "trip_compliance.finance.view",
+  },
+  {
+    // Finance can send a verified trip back (Reject) without gaining
+    // Compliance's verify / mark-verified authority.
+    id: "trip_compliance.finance.reject",
+    group: "Compliance page",
+    label: "Reject compliance (Finance)",
+    hint: "Reject a verified trip from Advance Verification / Advance Payment; never verifies",
+    domain: "trip_compliance",
+    anyOfCaps: ["finance_manage"],
+    grantsCaps: [],
+    requires: "trip_compliance.finance.manage",
   },
   {
     id: "trip_compliance.pod.manage",
@@ -981,7 +1048,7 @@ export const MEMBER_SURFACE_CATALOG: readonly MemberSurfaceDef[] = [
     id: "team.invite",
     group: "Access control",
     label: "Invite members",
-    hint: "Send team invites",
+    hint: "Send team invites (owner / admin only — the server rejects others)",
     domain: "team",
     anyOfCaps: [...DISP, ...FIN, "fleet_management"],
     grantsCaps: [],
@@ -1119,25 +1186,48 @@ export function surfaceGroupsForIds(
 }
 
 /**
- * Presentational sections for the member-permissions page.
+ * Surfaces the Compliance preset turns on: the Document Upload and Compliance
+ * Verification queues only. Settlement, payments and hard-copy POD belong to
+ * Debit control. The permissions-page Compliance switch follows this list, so
+ * `trip_compliance.trip.resubmit` can stay off while the switch still reads on.
+ * Keep this in sync with `defaultSurfacesForRole("compliance")`.
+ */
+export const COMPLIANCE_ROLE_SURFACE_IDS: readonly MemberSurfaceId[] = [
+  "trip_compliance.tab",
+  "trip_compliance.documents.view",
+  "trip_compliance.documents.verify",
+  "trip_compliance.trip.mark_verified",
+];
+
+/**
+ * Departments on the member-permissions page. Every catalog surface belongs to
+ * exactly one department (enforced by rbac.memberAccess.test.ts), so a toggle
+ * is listed once and the per-department "N on" counts never overlap.
  *
- * These are VIEWS over the existing catalog — every id below is already a real,
- * enforced surface. A section does not grant anything on its own and is not
- * persisted; only the underlying surface ids are stored. A surface may appear in
- * more than one section (e.g. trip docs under both Operations and Compliance) —
- * toggling it anywhere flips the same single grant.
+ * Finance / Sales / Operations are domain rows: their master switch is the
+ * `.tab` gate. The rest are sections: their switch is a bulk shortcut only.
+ * Departments are presentational — only surface ids are persisted.
  */
 export type MemberSectionKey =
   | "supply"
-  | "compliance"
   | "vendor_support"
+  | "compliance"
+  | "debit_control"
   | "it";
+
+export type MemberDepartmentKey = FunctionalRole | MemberSectionKey;
 
 export const MEMBER_SECTION_SURFACES: Record<
   MemberSectionKey,
   readonly MemberSurfaceId[]
 > = {
   supply: [
+    "tripops.indents.bid",
+    "tripops.indents.award",
+    "tripops.indents.allocate",
+  ],
+  // Supplier management (Network page + Finance → Suppliers) and partner comms.
+  vendor_support: [
     "sales.suppliers.view",
     "sales.suppliers.create",
     "sales.suppliers.edit",
@@ -1145,33 +1235,62 @@ export const MEMBER_SECTION_SURFACES: Record<
     "sales.suppliers.analytics",
     "finance.subtab.suppliers",
     "finance.ledger.suppliers",
-    "tripops.indents.bid",
-    "tripops.indents.award",
-    "tripops.indents.allocate",
-  ],
-  compliance: [
-    "workspace.kyc",
-    "team.audit",
-    "tripops.trips.docs",
-    "tripops.trips.verification",
-    "fleet.vehicles.documents",
-    "finance.pod_reconciliation",
-    "finance.documents_center",
-  ],
-  vendor_support: [
     "sales.chat",
     "sales.network.connect",
     "sales.network.discover",
     "sales.network.stories",
-    "sales.from_clients",
   ],
-  it: [
-    "workspace.settings",
-    "workspace.products",
-    "workspace.notifications",
-    "team.manage",
-    "team.invite",
+  compliance: [
+    ...COMPLIANCE_ROLE_SURFACE_IDS,
+    "trip_compliance.trip.resubmit",
   ],
+  // Hard-copy POD (POD Pending / POD Received). Settlement and payments are
+  // Finance — see FINANCE_COMPLIANCE_PAGE_SURFACES.
+  debit_control: ["trip_compliance.pod.manage"],
+  it: MEMBER_SURFACE_CATALOG.filter((s) => s.domain === "team").map((s) => s.id),
+};
+
+const SECTION_OWNED = new Set<MemberSurfaceId>(
+  Object.values(MEMBER_SECTION_SURFACES).flat(),
+);
+
+/** Domain row = its catalog domain(s), minus surfaces a section owns. */
+const domainRowSurfaces = (
+  domains: readonly MemberSurfaceDef["domain"][],
+): MemberSurfaceId[] =>
+  MEMBER_SURFACE_CATALOG.filter(
+    (s) => domains.includes(s.domain) && !SECTION_OWNED.has(s.id),
+  ).map((s) => s.id);
+
+/**
+ * Finance's slice of the Compliance page: one view surface per Finance tab,
+ * plus settlement view, payments and Reject. Listed under the Finance row.
+ */
+export const FINANCE_COMPLIANCE_TAB_SURFACE_IDS: readonly MemberSurfaceId[] = [
+  "trip_compliance.tab.advance_verification",
+  "trip_compliance.tab.advance_payment",
+  "trip_compliance.tab.settlement_verification",
+  "trip_compliance.tab.final_settlement",
+];
+
+const FINANCE_COMPLIANCE_PAGE_SURFACES: readonly MemberSurfaceId[] = [
+  "trip_compliance.finance.view",
+  ...FINANCE_COMPLIANCE_TAB_SURFACE_IDS,
+  "trip_compliance.finance.manage",
+  "trip_compliance.finance.reject",
+];
+
+export const MEMBER_DEPARTMENT_SURFACES: Record<
+  MemberDepartmentKey,
+  readonly MemberSurfaceId[]
+> = {
+  finance: [
+    ...domainRowSurfaces(["finance"]),
+    ...FINANCE_COMPLIANCE_PAGE_SURFACES,
+  ],
+  sales: domainRowSurfaces(["sales"]),
+  tripops: domainRowSurfaces(["tripops", "fleet"]),
+  ...MEMBER_SECTION_SURFACES,
 };
 
 /** Cash-tab ledger party filter → surface id (`all` uses cash sub-tab). */
@@ -1241,6 +1360,18 @@ export function hydrateMemberSurfaces(
     }
   }
 
+  // Legacy back-fill: members saved before the per-tab Finance surfaces
+  // existed had settlement view = every Finance tab. Keep that until the
+  // owner sets a tab explicitly (an explicit false is never overwritten).
+  if (
+    out["trip_compliance.finance.view"] === true &&
+    FINANCE_COMPLIANCE_TAB_SURFACE_IDS.every((id) => out[id] === undefined)
+  ) {
+    for (const id of FINANCE_COMPLIANCE_TAB_SURFACE_IDS) {
+      if (orgAllowsSurface(orgCaps, id)) out[id] = true;
+    }
+  }
+
   return out;
 }
 
@@ -1307,7 +1438,20 @@ const FINANCE_CROSS_DOMAIN_SURFACES: readonly MemberSurfaceId[] = [
   // Finance must see the LR / invoice before paying — preview only.
   "trip_compliance.documents.view",
   "trip_compliance.finance.view",
+  ...FINANCE_COMPLIANCE_TAB_SURFACE_IDS,
   "trip_compliance.finance.manage",
+  "trip_compliance.finance.reject",
+];
+
+/** Trip surfaces the Sales preset gets (booking trips for its customers). */
+const SALES_TRIP_SURFACES: readonly MemberSurfaceId[] = [
+  "tripops.tab",
+  "tripops.trips.view",
+  "tripops.trips.detail",
+  "tripops.trips.create_asset",
+  "tripops.trips.create_aggregate",
+  "tripops.trips.assign",
+  "tripops.trips.reassign",
 ];
 
 /**
@@ -1346,30 +1490,30 @@ export function defaultSurfacesForRole(
         ).map((s) => s.id),
       );
     case "sales":
-      // tripops.indents.* and tripops.pulse_loads are catalogued under
-      // domain:"sales" (give-load lives in the Network tab) but their
-      // requires-chain root is tripops.tab (domain:"tripops") — a plain
-      // domain==="sales" filter excludes tripops.tab, so a sales-preset
-      // member gets indents.create/view=true with no way to satisfy the
-      // chain, and every gated action silently no-ops. Mirrors the same
-      // fix already applied to the "tripops" and "planner" cases below.
+      // Sales owns indents (view / create / manage) and Pulse loads, and
+      // books trips for its customers: trips list + detail, create (own fleet
+      // / partner) and assign / reassign. No tracking, trip docs, expenses,
+      // trip finance or fleet rosters — those stay Operations.
       return allOn(
         MEMBER_SURFACE_CATALOG.filter(
           (s) =>
             s.domain === "sales" ||
             s.id.startsWith("tripops.indents.") ||
-            s.id === "tripops.tab" ||
-            s.id === "tripops.pulse_loads",
+            s.id === "tripops.pulse_loads" ||
+            SALES_TRIP_SURFACES.includes(s.id),
         ).map((s) => s.id),
       );
     case "tripops":
       return allOn(
         MEMBER_SURFACE_CATALOG.filter(
           (s) =>
+            // Trips and fleet only — indents belong to Sales.
             s.domain === "tripops" ||
             s.domain === "fleet" ||
-            s.id.startsWith("tripops.indents.") ||
-            s.id === "tripops.pulse_loads",
+            // Trip Ops fix and resubmit held / rejected trips (no verify, no finance).
+            s.id === "trip_compliance.tab" ||
+            s.id === "trip_compliance.documents.view" ||
+            s.id === "trip_compliance.trip.resubmit",
         ).map((s) => s.id),
       );
     case "planner":
@@ -1395,30 +1539,46 @@ export function defaultSurfacesForRole(
         "tripops.trips.verification",
         "fleet.drivers.view",
         "fleet.vehicles.view",
-        // tripops.indents.view/allocate now require tripops.tab (already
-        // granted above), not sales.tab — confirmed live: operator is
-        // organization_members.role for legacy members, and this allowlist
-        // predates the tripops.indents.* surfaces that indent detail/
-        // allocation screens gate on. Without these, an operator assigned an
-        // awarded indent cannot open it.
-        "tripops.indents.view",
-        "tripops.indents.allocate",
+        // No indents: they belong to Sales and require sales.tab, which would
+        // otherwise be forced on (whole Network tab) when this map is saved.
       ]);
     case "compliance":
-      // Trip Compliance desk: verify docs, mark verified, and the only preset
-      // that logs hard-copy POD. Sees settlement state but never pays
-      // (no trip_compliance.finance.manage). Trip access is read-only.
+      // Trip Compliance desk: Document Upload + Compliance Verification queues
+      // only (view / verify docs, mark verified). No settlement, payments or
+      // hard-copy POD — those are Debit control. Trip access is read-only.
+      return allOn([
+        "tripops.tab",
+        "tripops.trips.view",
+        "tripops.trips.detail",
+        "tripops.trips.docs",
+        ...COMPLIANCE_ROLE_SURFACE_IDS,
+      ]);
+    case "debit_control":
+      // Hard-copy POD desk: Compliance page POD tabs (pod.manage) and the
+      // Debit Control page, with read-only trip + document access to match a
+      // POD to its trip. No Document Upload / verify, no settlement or pay.
       return allOn([
         "tripops.tab",
         "tripops.trips.view",
         "tripops.trips.detail",
         "tripops.trips.docs",
         "trip_compliance.tab",
-        "trip_compliance.documents.view",
-        "trip_compliance.documents.verify",
-        "trip_compliance.trip.mark_verified",
         "trip_compliance.pod.manage",
-        "trip_compliance.finance.view",
+      ]);
+    case "vendor_support":
+      // Suppliers on the Network page, and in Finance the Suppliers sub-tab
+      // only. No Cash sub-tab, so finance.ledger.suppliers (which needs it)
+      // stays off; no clients, indents, trips or other finance sub-tabs.
+      return allOn([
+        "sales.tab",
+        "sales.suppliers.view",
+        "sales.suppliers.create",
+        "sales.suppliers.edit",
+        "sales.suppliers.detail",
+        "sales.suppliers.analytics",
+        "finance.tab",
+        "finance.view",
+        "finance.subtab.suppliers",
       ]);
     case "ground_ops":
       return allOn([
@@ -1426,8 +1586,12 @@ export function defaultSurfacesForRole(
         "tripops.trips.view",
         "tripops.trips.detail",
         "tripops.trips.docs",
+        "trip_compliance.tab",
+        "trip_compliance.documents.view",
+        "trip_compliance.trip.resubmit",
         // Note: Ground Ops intentionally excludes assign/reassign/tracking/expenses/finance
         // to prevent field staff from altering trip logistics or viewing financials.
+        // No document verify, trip verify, finance view/manage, or POD manage.
       ]);
     case "restricted":
       return {};
@@ -1524,18 +1688,57 @@ export function applySurfaceToggle(
  * Off is applied in reverse so a parent's cascade cannot re-disable a row that
  * was already handled.
  */
+/**
+ * Whether a section's master switch should read on.
+ *
+ * Compliance follows `COMPLIANCE_ROLE_SURFACE_IDS` (the preset), so payments
+ * (`trip_compliance.finance.manage`) can stay off without killing the switch.
+ * Other sections stay "every org-allowed row in the section is on".
+ */
+export function sectionMasterOn(
+  section: MemberSectionKey,
+  surfaces: MemberSurfaceMap | null | undefined,
+  orgCaps: Capability[],
+): boolean {
+  const ids = (
+    section === "compliance"
+      ? COMPLIANCE_ROLE_SURFACE_IDS
+      : MEMBER_SECTION_SURFACES[section]
+  ).filter((id) => orgAllowsSurface(orgCaps, id));
+  return (
+    ids.length > 0 &&
+    ids.every((id) => memberHasSurface(orgCaps, surfaces, id))
+  );
+}
+
 export function applySectionToggle(
   current: MemberSurfaceMap,
   section: MemberSectionKey,
   next: boolean,
   orgCaps: Capability[],
 ): MemberSurfaceMap {
-  const ids = MEMBER_SECTION_SURFACES[section].filter((id) =>
-    orgAllowsSurface(orgCaps, id),
-  );
+  // On: grant the Compliance preset only — resubmit stays a manual tick.
+  const ids = (
+    section === "compliance" && next
+      ? COMPLIANCE_ROLE_SURFACE_IDS
+      : MEMBER_SECTION_SURFACES[section]
+  ).filter((id) => orgAllowsSurface(orgCaps, id));
   let out: MemberSurfaceMap = { ...current };
-  for (const id of next ? ids : [...ids].reverse()) {
-    out = applySurfaceToggle(out, id, next, orgCaps);
+  if (next) {
+    for (const id of ids) out = applySurfaceToggle(out, id, true, orgCaps);
+    return out;
+  }
+  // Off: keep a row that another department still needs as its parent
+  // (e.g. Compliance tab under Debit control payments), so one section's
+  // switch never silently revokes another department's grants.
+  const owned = new Set<MemberSurfaceId>(ids);
+  const neededElsewhere = (id: MemberSurfaceId) =>
+    MEMBER_SURFACE_CATALOG.some(
+      (def) => !owned.has(def.id) && out[def.id] === true && dependsOn(def.id, id),
+    );
+  for (const id of [...ids].reverse()) {
+    if (neededElsewhere(id)) continue;
+    out = applySurfaceToggle(out, id, false, orgCaps);
   }
   return out;
 }
@@ -1549,32 +1752,25 @@ function dependsOn(child: MemberSurfaceId, parent: MemberSurfaceId): boolean {
   return false;
 }
 
-export type SurfaceDomainKey = FunctionalRole | "team";
+export type SurfaceDomainKey = FunctionalRole;
 
-/** Sync domain master switches → surface bulk on/off for that domain. */
+/**
+ * Domain master switch (Finance / Sales / Operations) → bulk on/off of the
+ * surfaces that department owns. Off cascades to children in other
+ * departments too (Sales off closes Supply's supplier rows): the `.tab` is a
+ * real gate, so those children are unreachable anyway.
+ */
 export function applyDomainToggle(
   current: MemberSurfaceMap,
   domain: SurfaceDomainKey,
   next: boolean,
   orgCaps: Capability[],
 ): MemberSurfaceMap {
-  const out: MemberSurfaceMap = { ...current };
-  const domains: MemberSurfaceDef["domain"][] =
-    domain === "tripops"
-      ? ["tripops", "fleet"]
-      : domain === "team"
-        ? ["team"]
-        : [domain];
-  const ids = MEMBER_SURFACE_CATALOG.filter((s) =>
-    domains.includes(s.domain),
-  ).map((s) => s.id);
+  let out: MemberSurfaceMap = { ...current };
+  const ids = MEMBER_DEPARTMENT_SURFACES[domain];
   if (!next) {
-    for (const id of ids) out[id] = false;
-    return out;
-  }
-  if (domain === "team") {
-    for (const id of ids) {
-      if (orgAllowsSurface(orgCaps, id)) out[id] = true;
+    for (const id of [...ids].reverse()) {
+      out = applySurfaceToggle(out, id, false, orgCaps);
     }
     return out;
   }

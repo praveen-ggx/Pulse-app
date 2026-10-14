@@ -78,6 +78,7 @@ type LoadCenterOpportunityExchangeProps = {
    */
   supplierOrgIds?: ReadonlySet<string>;
   /** Orgs in my clients book (linked). Overrides supplier hide when dual-role. */
+  clientOrgIds?: ReadonlySet<string>;
 };
 
 const MAX_CARDS = 12;

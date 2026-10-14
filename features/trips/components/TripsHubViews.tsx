@@ -1124,6 +1124,18 @@ function indentStatusTagTone(id: string): {
       selectedDot: Theme.brandBlueInk,
     };
   }
+  if (id === "failed") {
+    return {
+      bg: Theme.screenBackground,
+      border: Theme.negative,
+      text: Theme.negative,
+      dot: Theme.negative,
+      selectedBg: Theme.negative,
+      selectedBorder: Theme.negative,
+      selectedText: Theme.buttonDarkText,
+      selectedDot: Theme.buttonDarkText,
+    };
+  }
   if (id === "awarded") {
     return {
       bg: Theme.screenBackground,
@@ -3175,6 +3187,7 @@ export function TripsHubTableView({
           delivery: hardCopyPodTrip?.drop_location?.trim() || "—",
           driverName: hardCopyPodTrip?.driver_display_name?.trim() || "Unassigned",
           vehicleLabel: hardCopyPodTrip?.vehicle_display_number?.trim() || "Pending",
+          vendorName: hardCopyPodTrip?.supplier_name?.trim() || "—",
         }}
       />
     </View>

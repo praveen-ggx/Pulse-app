@@ -3316,6 +3316,7 @@ export const neoStyles = StyleSheet.create({
     borderRadius: 14,
     padding: 12,
     alignItems: "center",
+    justifyContent: "flex-start",
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
     shadowColor: Theme.textPrimaryDark,
@@ -3429,10 +3430,12 @@ export const neoStyles = StyleSheet.create({
     gap: 4,
   },
   vaultBtnRow: {
-    marginTop: 10,
+    marginTop: "auto",
+    paddingTop: 10,
     width: "100%",
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 8,
   },
   vaultBtnRowCompact: {

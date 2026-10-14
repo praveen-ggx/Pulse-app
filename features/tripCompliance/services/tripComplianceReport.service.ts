@@ -53,9 +53,9 @@ export type ComplianceReportRow = {
  * Loading→Completed pipeline, then one batched summary build.
  */
 async function fetchAllComplianceSummaries(orgId: string): Promise<ComplianceTripSummary[]> {
-  const { error, trips } = await getTripsForOrg(orgId);
+  const { error, trips } = await getTripsForOrg(orgId, { includeComplianceBacklog: true });
   if (error) throw error;
-  return buildComplianceTripSummaries(selectCompliancePipelineTrips(trips));
+  return buildComplianceTripSummaries(selectCompliancePipelineTrips(trips), orgId);
 }
 
 function paymentStatusOf(summary: ComplianceTripSummary): ComplianceReportFilters["paymentStatus"] {

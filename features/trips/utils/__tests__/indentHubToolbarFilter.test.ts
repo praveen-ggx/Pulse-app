@@ -3,6 +3,7 @@ import {
   filterIndentsForTripsToolbar,
   indentMatchesHubDateFilter,
   indentMatchesHubSearch,
+  mergeIndentSearchHits,
   tripsHubAllToolbarCountLabel,
 } from "@/features/trips/utils/indentHubToolbarFilter";
 
@@ -74,6 +75,35 @@ describe("filterIndentsForTripsToolbar", () => {
       searchQuery: "apple",
     });
     expect(out.map((r) => r.id)).toEqual(["keep"]);
+  });
+});
+
+describe("mergeIndentSearchHits", () => {
+  it("leaves the loaded list untouched when the search adds nothing new", () => {
+    const loaded = [indent({ id: "loaded" })];
+    expect(mergeIndentSearchHits(loaded, [])).toBe(loaded);
+    expect(mergeIndentSearchHits(loaded, [indent({ id: "loaded" })])).toBe(loaded);
+  });
+
+  it("appends a code hit the finite list did not load, once", () => {
+    const loaded = [indent({ id: "loaded", indent_operational_code: "NEWCODE" })];
+    const older = indent({
+      id: "older",
+      indent_operational_code: "SAT812GOGIND000788",
+      indent_code: "SAT812-IND-787",
+      indent_number: "IND787",
+    });
+    const merged = mergeIndentSearchHits(loaded, [older, older]);
+    expect(merged.map((row) => row.id)).toEqual(["loaded", "older"]);
+    expect(
+      merged.filter((row) => indentMatchesHubSearch(row, "SAT812GOGIND000788")).map((row) => row.id),
+    ).toEqual(["older"]);
+    expect(
+      filterIndentsForTripsToolbar(merged, {
+        dateRangeFilter: "all",
+        searchQuery: "nope",
+      }).map((row) => row.id),
+    ).toEqual([]);
   });
 });
 

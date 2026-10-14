@@ -159,6 +159,7 @@ import {
     type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { tonsOutsideVehicleRange } from "@/features/vehicles/utils/vehicleTypeCatalog.model";
 
 function validateForm(state: FormState): Record<string, string> {
   const errors: Record<string, string> = {};
@@ -203,6 +204,12 @@ function validateForm(state: FormState): Record<string, string> {
     if (Number.isNaN(w) || w <= 0)
       errors.weight = "Enter a valid weight (tons).";
     else if (w > 999999) errors.weight = "Weight must be at most 999,999 tons.";
+    else {
+      const range = tonsOutsideVehicleRange(state.vehicle_type, weightStr);
+      if (range) {
+        errors.weight = `Weight must be within this vehicle's ${range.min === range.max ? range.min : `${range.min}–${range.max}`} tons.`;
+      }
+    }
   }
   if (!isValidIndentVehicleCount(state.vehicle_count)) {
     errors.vehicle_count = INDENT_VEHICLE_COUNT_ERROR;
@@ -1302,6 +1309,10 @@ export default function CreateIndentScreen() {
    * Hooks below must stay above the `!canCreate` early return — `canCreate` flips
    * once capabilities resolve, and a conditional hook call throws React #310.
    */
+  /** Weight outside the catalog vehicle's ton range: hide Continue on the vehicle step. */
+  const tonsOutOfVehicleRange =
+    tonsOutsideVehicleRange(form.vehicle_type, form.weight) != null;
+
   const stepCanAdvance = useMemo(() => {
     if (!isMobileWizard) return canSubmit;
     return indentStepCanAdvance(wizardStep, form);
@@ -1559,6 +1570,7 @@ export default function CreateIndentScreen() {
           stepTotal={INDENT_WIZARD_PROGRESS_STEPS.length}
           submitLabel={wizardSubmitLabel}
           canSubmit={stepCanAdvance && !ticketConfirmState.visible}
+          hidePrimary={wizardStep === "vehicle" && tonsOutOfVehicleRange}
           submitting={submitting}
           lockPrimaryUntilValid
           validationMessage="Fill the required details to continue"

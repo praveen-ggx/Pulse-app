@@ -124,6 +124,7 @@ export type HardCopyPodSummaryPatch = {
   courier: string | null;
   awbNumber: string | null;
   receivedBy: string | null;
+  ibond?: boolean;
 };
 
 /**
@@ -170,10 +171,11 @@ function patchComplianceNode(
   };
   if (rec.hardCopyPod && tripIdOnRow === tripId) {
     const nextTrip = applyHardCopyPodColumnsToTrip(trip as Record<string, unknown>, podSource);
+    const previousPod = rec.hardCopyPod as Record<string, unknown>;
     return {
       ...rec,
       trip: nextTrip,
-      hardCopyPod: { ...summary },
+      hardCopyPod: { ...previousPod, ...summary },
     };
   }
   // Compliance pipeline input row (`{ trip, flags, … }`): POD "received" and the
@@ -190,13 +192,15 @@ function patchComplianceNode(
       pod_hard_copy_courier: summary.courier,
       pod_hard_copy_awb_number: summary.awbNumber,
       pod_hard_copy_received_by: summary.receivedBy,
+      ...(summary.ibond ? { pod_ibond: true } : {}),
     };
     const flagsUnchanged =
       flags !== null &&
       current.pod_received_at === nextFlags.pod_received_at &&
       current.pod_hard_copy_courier === nextFlags.pod_hard_copy_courier &&
       current.pod_hard_copy_awb_number === nextFlags.pod_hard_copy_awb_number &&
-      current.pod_hard_copy_received_by === nextFlags.pod_hard_copy_received_by;
+      current.pod_hard_copy_received_by === nextFlags.pod_hard_copy_received_by &&
+      current.pod_ibond === nextFlags.pod_ibond;
     if (flagsUnchanged && nextTrip === trip) return data;
     return { ...rec, trip: nextTrip, flags: flagsUnchanged ? flags : nextFlags };
   }

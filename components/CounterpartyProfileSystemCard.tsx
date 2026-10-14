@@ -34,6 +34,7 @@ import { ClientProfileFinanceStatementSection } from "@/features/clients/compone
 import { ClientProfileMarginAnalysisSection } from "@/features/clients/components/ClientProfileMarginAnalysisSection";
 import { ClientProfilePerformanceSection } from "@/features/clients/components/ClientProfilePerformanceSection";
 import { updateClient } from "@/features/clients/services/clients.service";
+import { updateSupplier } from "@/features/suppliers/services/suppliers.service";
 import type {
   ClientLaneRate,
   ClientWarehouseExtended,
@@ -84,6 +85,13 @@ export type ProfileContract = {
   unloadingIncluded?: boolean;
   notes?: string | null;
 };
+
+const PRIMARY_REGIONS = ["North", "South", "East", "West"] as const;
+type PrimaryRegion = (typeof PRIMARY_REGIONS)[number];
+
+function isPrimaryRegion(value: string | null | undefined): value is PrimaryRegion {
+  return PRIMARY_REGIONS.includes(value as PrimaryRegion);
+}
 
 function spocContactValue(phone: string | null | undefined): string {
   const value = (phone ?? "").trim();
@@ -278,6 +286,8 @@ export type CounterpartyProfileSystemCardProps = {
   gstNumber?: string | null;
   panNumber?: string | null;
   billingAddress?: string | null;
+  /** Supplier only. North, South, East, or West. */
+  primaryRegion?: string | null;
   validFrom?: string | null;
   validTo?: string | null;
   gridVolumeLabel?: string;
@@ -306,7 +316,7 @@ export type CounterpartyProfileSystemCardProps = {
   supplierId?: string;
   editableWarehouses?: ClientWarehouseExtended[];
   editableLaneRates?: ClientLaneRate[];
-  onProfileEntitiesChange?: () => void;
+  onProfileEntitiesChange?: () => void | Promise<void>;
   /** Supplier onboarding vault rendered by the feature screen; replaces the 3-slot vault. */
   supplierVaultSlot?: ReactNode;
 };
@@ -486,6 +496,7 @@ export function CounterpartyProfileSystemCard({
   gstNumber,
   panNumber,
   billingAddress,
+  primaryRegion,
   validFrom,
   validTo,
   gridVolumeLabel,
@@ -520,6 +531,18 @@ export function CounterpartyProfileSystemCard({
       : Layout.screenPaddingHorizontal
     : Layout.screenPaddingHorizontal;
   const pageMaxWidth = isPage && isWide ? 1520 : isPage ? 720 : 960;
+  const pageScrollContentStyle = useMemo(
+    () => [
+      styles.viewScrollContent,
+      isPage && styles.viewScrollContentPage,
+      isPage ? { paddingHorizontal: pagePad, maxWidth: pageMaxWidth } : null,
+    ],
+    [isPage, pagePad, pageMaxWidth],
+  );
+  const editDialogScrollStyle = useMemo(
+    () => ({ maxHeight: Math.max(280, windowHeight - 180) }),
+    [windowHeight],
+  );
   const analyticsPartyId =
     type === "client" ? clientId : type === "supplier" ? supplierId : undefined;
   const showAnalyticsTabs = Boolean(organizationId && analyticsPartyId);
@@ -588,12 +611,20 @@ export function CounterpartyProfileSystemCard({
   const [draftGst, setDraftGst] = useState((gstNumber ?? "").trim());
   const [draftPan, setDraftPan] = useState((panNumber ?? "").trim());
   const [draftBilling, setDraftBilling] = useState((billingAddress ?? "").trim());
+  const [draftPrimaryRegion, setDraftPrimaryRegion] = useState<PrimaryRegion | "">(
+    isPrimaryRegion(primaryRegion) ? primaryRegion : "",
+  );
+  const [regionMenuOpen, setRegionMenuOpen] = useState(false);
+  const [regionMenuBox, setRegionMenuBox] = useState<{ top: number; left: number; width: number } | null>(null);
+  const regionFieldRef = useRef<View>(null);
+  const editDialogCardRef = useRef<View>(null);
   const [draftAdmin, setDraftAdmin] = useState((adminName ?? "").trim());
   const [draftEmail, setDraftEmail] = useState((email ?? "").trim());
   const [draftPhone, setDraftPhone] = useState(spocContactValue(phone));
   const [draftValidFrom, setDraftValidFrom] = useState(dateDraft(validFrom));
   const [draftValidTo, setDraftValidTo] = useState(dateDraft(validTo));
   const [dateError, setDateError] = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
   const [savingIdentity, setSavingIdentity] = useState(false);
   const [contractWarehouseFilter, setContractWarehouseFilter] = useState<string>("all");
   const [contractPage, setContractPage] = useState(0);
@@ -606,6 +637,7 @@ export function CounterpartyProfileSystemCard({
       setEditPanel("BASIC");
       setKycUploadingId(null);
       setKycUploadError(null);
+      setRegionMenuOpen(false);
     }
   }, [visible]);
 
@@ -615,6 +647,8 @@ export function CounterpartyProfileSystemCard({
     setDraftGst((gstNumber ?? "").trim());
     setDraftPan((panNumber ?? "").trim());
     setDraftBilling((billingAddress ?? "").trim());
+    setDraftPrimaryRegion(isPrimaryRegion(primaryRegion) ? primaryRegion : "");
+    setRegionMenuOpen(false);
     setDraftAdmin((adminName ?? "").trim());
     setDraftEmail((email ?? "").trim());
     setDraftPhone(spocContactValue(phone));
@@ -626,6 +660,7 @@ export function CounterpartyProfileSystemCard({
     gstNumber,
     panNumber,
     billingAddress,
+    primaryRegion,
     adminName,
     email,
     phone,
@@ -770,7 +805,52 @@ export function CounterpartyProfileSystemCard({
       } finally {
         setSavingIdentity(false);
       }
+      onEditPress?.();
+      setMode("view");
+      return;
     }
+
+    if (type === "supplier" && organizationId && supplierId) {
+      setSavingIdentity(true);
+      setEditError(null);
+      try {
+        const { error } = await updateSupplier(
+          organizationId,
+          supplierId,
+          {
+            name: draftName.trim(),
+            contact_person: draftAdmin.trim(),
+            email: draftEmail.trim(),
+            phone: draftPhone.trim(),
+            gstin: draftGst.trim(),
+            pan_number: draftPan.trim(),
+            address: draftBilling.trim(),
+            primary_region: draftPrimaryRegion || null,
+          },
+          { allowIntegratedIdentity: true },
+        );
+        if (error) {
+          setEditError(error.message);
+          return;
+        }
+        try {
+          await onProfileEntitiesChange?.();
+        } catch (refreshError) {
+          setEditError(
+            refreshError instanceof Error
+              ? refreshError.message
+              : "Saved, but the profile could not be refreshed.",
+          );
+          return;
+        }
+        setEditError(null);
+        setMode("view");
+      } finally {
+        setSavingIdentity(false);
+      }
+      return;
+    }
+
     onEditPress?.();
     setMode("view");
   };
@@ -844,7 +924,59 @@ export function CounterpartyProfileSystemCard({
     return base;
   }, [type, isPage]);
 
-  if (mode === "edit" && !(isPage && type === "client")) {
+  const supplierEditDirty =
+    type === "supplier" &&
+    (draftName.trim() !== organizationName.trim() ||
+      draftEmail.trim() !== (email ?? "").trim() ||
+      draftGst.trim() !== (gstNumber ?? "").trim() ||
+      draftPan.trim() !== (panNumber ?? "").trim() ||
+      draftAdmin.trim() !== (adminName ?? "").trim() ||
+      draftPhone.trim() !== spocContactValue(phone).trim() ||
+      draftBilling.trim() !== (billingAddress ?? "").trim() ||
+      draftPrimaryRegion !== (isPrimaryRegion(primaryRegion) ? primaryRegion : ""));
+
+  const toggleRegionMenu = () => {
+    if (regionMenuOpen) {
+      setRegionMenuOpen(false);
+      return;
+    }
+    const field = regionFieldRef.current;
+    const card = editDialogCardRef.current;
+    if (field == null || card == null) return;
+    field.measureInWindow((fieldX, fieldY, fieldWidth, fieldHeight) => {
+      card.measureInWindow((cardX, cardY) => {
+        if (fieldWidth <= 0) return;
+        setRegionMenuBox({
+          top: fieldY - cardY + fieldHeight + 4,
+          left: fieldX - cardX,
+          width: fieldWidth,
+        });
+        setRegionMenuOpen(true);
+      });
+    });
+  };
+
+  const closeEditDialog = () => {
+    if (!supplierEditDirty) {
+      setEditError(null);
+      setMode("view");
+      return;
+    }
+    const discard = () => {
+      setEditError(null);
+      setMode("view");
+    };
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      if (window.confirm("Discard unsaved changes?")) discard();
+      return;
+    }
+    Alert.alert("Unsaved changes", "Discard unsaved changes?", [
+      { text: "Keep editing", style: "cancel" },
+      { text: "Discard", style: "destructive", onPress: discard },
+    ]);
+  };
+
+  if (mode === "edit" && !isPage) {
     const useFieldGrid = isPage && isWide;
     return (
       <View style={[styles.editorRoot, { paddingTop: isPage ? 0 : insets.top }]}>
@@ -982,7 +1114,110 @@ export function CounterpartyProfileSystemCard({
             ]}
             showsVerticalScrollIndicator={false}
           >
-            {editPanel === "BASIC" && (
+            {editPanel === "BASIC" && type !== "client" ? (
+              <View style={styles.supplierBasicStack}>
+                <View style={styles.supplierBasicCard}>
+                  <View style={styles.editSectionHeadingRow}>
+                    <View style={styles.accentNavy} />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={[styles.editSectionTitle, isPage && styles.editSectionTitlePage]}>
+                        Admin Registry
+                      </Text>
+                      <Text style={[styles.editSectionHint, isPage && styles.editSectionHintPage]}>
+                        Contact used on invoices and the customer profile
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.editDialogGrid}>
+                    <View style={isWide ? styles.editDialogCell : styles.editDialogFull}>
+                      <Text style={[styles.fieldLabel, styles.fieldLabelPage]}>Legal organization name</Text>
+                      <TextInput
+                        value={draftName}
+                        onChangeText={setDraftName}
+                        style={styles.editDialogInput}
+                        placeholder="Entity legal name"
+                        placeholderTextColor={Theme.textSection}
+                        editable={type === "supplier" || !isIntegrated}
+                      />
+                    </View>
+                    <View style={isWide ? styles.editDialogCell : styles.editDialogFull}>
+                      <Text style={[styles.fieldLabel, styles.fieldLabelPage]}>Email link</Text>
+                      <TextInput
+                        value={draftEmail}
+                        onChangeText={setDraftEmail}
+                        style={styles.editDialogInput}
+                        placeholder="billing@company.com"
+                        placeholderTextColor={Theme.textSection}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                      />
+                    </View>
+                    <View style={isWide ? styles.editDialogCell : styles.editDialogFull}>
+                      <Text style={[styles.fieldLabel, styles.fieldLabelPage]}>Admin name</Text>
+                      <TextInput
+                        value={draftAdmin}
+                        onChangeText={setDraftAdmin}
+                        style={styles.editDialogInput}
+                        placeholder="Contact person"
+                        placeholderTextColor={Theme.textSection}
+                        editable={type === "supplier" || !isIntegrated}
+                      />
+                    </View>
+                    <View style={isWide ? styles.editDialogCell : styles.editDialogFull}>
+                      <Text style={[styles.fieldLabel, styles.fieldLabelPage]}>Phone registry</Text>
+                      <TextInput
+                        value={draftPhone}
+                        onChangeText={setDraftPhone}
+                        style={styles.editDialogInput}
+                        placeholder="Phone"
+                        placeholderTextColor={Theme.textSection}
+                        keyboardType="phone-pad"
+                        editable={type === "supplier" || !isIntegrated}
+                      />
+                    </View>
+                  </View>
+                </View>
+                <View style={styles.supplierBasicCard}>
+                  <View style={styles.editSectionHeadingRow}>
+                    <View style={styles.accentNavy} />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={[styles.editSectionTitle, isPage && styles.editSectionTitlePage]}>
+                        Tax Identity
+                      </Text>
+                      <Text style={[styles.editSectionHint, isPage && styles.editSectionHintPage]}>
+                        GSTIN, PAN, and billing address printed on the invoice
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.editDialogGrid}>
+                    <View style={styles.editDialogFull}>
+                      <Text style={[styles.fieldLabel, styles.fieldLabelPage]}>Registered GSTIN</Text>
+                      <TextInput
+                        value={draftGst}
+                        onChangeText={setDraftGst}
+                        style={styles.editDialogInput}
+                        placeholder="15-character GSTIN"
+                        placeholderTextColor={Theme.textSection}
+                        autoCapitalize="characters"
+                      />
+                    </View>
+                    <View style={styles.editDialogFull}>
+                      <Text style={[styles.fieldLabel, styles.fieldLabelPage]}>Billing address</Text>
+                      <TextInput
+                        value={draftBilling}
+                        onChangeText={setDraftBilling}
+                        style={[styles.editDialogInput, styles.supplierBillingInput]}
+                        placeholder="Street, city, state, PIN"
+                        placeholderTextColor={Theme.textSection}
+                        multiline
+                      />
+                    </View>
+                    {dateError ? <Text style={styles.editDialogError}>{dateError}</Text> : null}
+                  </View>
+                </View>
+              </View>
+            ) : null}
+            {editPanel === "BASIC" && type === "client" ? (
               <View style={[styles.editSection, isPage && styles.editSectionPage]}>
                 <View style={styles.editSectionHeadingRow}>
                   <View style={styles.accentNavy} />
@@ -1151,7 +1386,7 @@ export function CounterpartyProfileSystemCard({
                   />
                 </View>
               </View>
-            )}
+            ) : null}
 
             {editPanel === "WAREHOUSES" && type === "client" && !isPage && canEditEntities ? (
               <ClientProfileHubsEditSection
@@ -1513,14 +1748,7 @@ export function CounterpartyProfileSystemCard({
 
       <ScrollView
         style={styles.viewScroll}
-        contentContainerStyle={[
-          styles.viewScrollContent,
-          isPage && styles.viewScrollContentPage,
-          isPage && {
-            paddingHorizontal: pagePad,
-            maxWidth: pageMaxWidth,
-          },
-        ]}
+        contentContainerStyle={pageScrollContentStyle}
         showsVerticalScrollIndicator={false}
       >
         {showAnalyticsTabs && organizationId && analyticsPartyId && viewTab === "FINANCE" ? (
@@ -1581,15 +1809,7 @@ export function CounterpartyProfileSystemCard({
             )}
           </View>
         ) : viewTab === "VAULT" && type === "supplier" && supplierVaultSlot ? (
-          <View style={styles.overviewBlock}>
-            <View style={[styles.blockHeadingRow, styles.overviewHeadingRow]}>
-              <View style={styles.overviewTitleWrap}>
-                <View style={styles.accentNavy} />
-                <Text style={styles.overviewSectionTitle}>Documents & Data</Text>
-              </View>
-            </View>
-            {supplierVaultSlot}
-          </View>
+          <View style={styles.overviewBlock}>{supplierVaultSlot}</View>
         ) : viewTab === "AGREEMENT" && type === "client" && organizationId && clientId ? (
           <View style={styles.overviewBlock}>
             <ClientProfileAgreementSection
@@ -1679,6 +1899,7 @@ export function CounterpartyProfileSystemCard({
                   { label: "Admin Name", value: (adminName ?? "").trim() || "—" },
                   { label: "Phone", value: spocContactValue(phone) || "—" },
                   { label: "Partner Type", value: isIntegrated ? "Integrated" : "Offline" },
+                  { label: "Primary Region", value: isPrimaryRegion(primaryRegion) ? primaryRegion : "—" },
                   { label: "Billing Address", value: (billingAddress ?? "").trim() || "—" },
                 ] : [
                   { label: "Client Name", value: organizationName.trim() || "—" },
@@ -2253,15 +2474,20 @@ export function CounterpartyProfileSystemCard({
           </>
         )}
       </ScrollView>
-      {isPage && type === "client" && mode === "edit" ? (
-        <Modal visible transparent animationType="fade" onRequestClose={() => setMode("view")}>
+      {isPage && mode === "edit" ? (
+        <Modal visible transparent animationType="fade" onRequestClose={closeEditDialog}>
           <View style={styles.editDialogBackdrop}>
             <Pressable
-              style={StyleSheet.absoluteFill}
-              onPress={() => setMode("view")}
+              style={[StyleSheet.absoluteFill, styles.editDialogScrim]}
+              onPress={closeEditDialog}
               accessibilityLabel="Close edit profile"
             />
-            <View style={[styles.editDialogCard, { width: Math.min(720, Math.max(320, windowWidth - 40)) }]}>
+            <View
+              ref={editDialogCardRef}
+              collapsable={false}
+              pointerEvents="auto"
+              style={[styles.editDialogCard, { width: Math.min(720, Math.max(320, windowWidth - 40)) }]}
+            >
               <View style={styles.editDialogHead}>
                 <View style={styles.editDialogHeadCopy}>
                   <Text style={styles.editDialogTitle}>Edit profile</Text>
@@ -2270,7 +2496,7 @@ export function CounterpartyProfileSystemCard({
                   </Text>
                 </View>
                 <TouchableOpacity
-                  onPress={() => setMode("view")}
+                  onPress={closeEditDialog}
                   style={styles.editDialogClose}
                   hitSlop={8}
                   accessibilityRole="button"
@@ -2280,14 +2506,14 @@ export function CounterpartyProfileSystemCard({
                 </TouchableOpacity>
               </View>
               <ScrollView
-                style={{ maxHeight: Math.max(280, windowHeight - 180) }}
+                style={editDialogScrollStyle}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
               >
               <View style={styles.editDialogGrid}>
                 <View style={styles.editDialogCell}>
                   <Text style={[styles.fieldLabel, styles.fieldLabelPage]}>
-                    {type === "client" ? "Client Name" : "Legal organization name"}
+                    {type === "client" ? "Client Name" : "Partner Name"}
                   </Text>
                   <TextInput
                     value={draftName}
@@ -2295,7 +2521,7 @@ export function CounterpartyProfileSystemCard({
                     style={styles.editDialogInput}
                     placeholder={type === "client" ? "Client name" : "Entity legal name"}
                     placeholderTextColor={Theme.textSection}
-                    editable={!isIntegrated}
+                    editable={type === "supplier" || !isIntegrated}
                   />
                 </View>
                 <View style={styles.editDialogCell}>
@@ -2308,7 +2534,7 @@ export function CounterpartyProfileSystemCard({
                     placeholderTextColor={Theme.textSection}
                     keyboardType="email-address"
                     autoCapitalize="none"
-                    editable={type === "client" ? !isIntegrated : true}
+                    editable={type === "supplier" || !isIntegrated}
                   />
                 </View>
                 <View style={styles.editDialogCell}>
@@ -2334,14 +2560,16 @@ export function CounterpartyProfileSystemCard({
                   />
                 </View>
                 <View style={styles.editDialogCell}>
-                  <Text style={[styles.fieldLabel, styles.fieldLabelPage]}>{type === "client" ? "SPOC Name" : "Admin name"}</Text>
+                  <Text style={[styles.fieldLabel, styles.fieldLabelPage]}>
+                    {type === "client" ? "SPOC Name" : "Admin Name"}
+                  </Text>
                   <TextInput
                     value={draftAdmin}
                     onChangeText={setDraftAdmin}
                     style={styles.editDialogInput}
                     placeholder={type === "client" ? "SPOC name" : "Contact person"}
                     placeholderTextColor={Theme.textSection}
-                    editable={!isIntegrated}
+                    editable={type === "supplier" || !isIntegrated}
                   />
                 </View>
                 <View style={styles.editDialogCell}>
@@ -2355,7 +2583,7 @@ export function CounterpartyProfileSystemCard({
                     placeholder="Phone"
                     placeholderTextColor={Theme.textSection}
                     keyboardType="phone-pad"
-                    editable={!isIntegrated}
+                    editable={type === "supplier" || !isIntegrated}
                   />
                 </View>
                 {type === "client" ? (
@@ -2371,7 +2599,34 @@ export function CounterpartyProfileSystemCard({
                       onChange={setDraftValidTo}
                     />
                   </View>
-                ) : null}
+                ) : (
+                  <>
+                  <View style={styles.editDialogCell}>
+                    <Text style={[styles.fieldLabel, styles.fieldLabelPage]}>Partner Type</Text>
+                    <Text style={styles.editDialogLockedValue}>{isIntegrated ? "Integrated" : "Offline"}</Text>
+                  </View>
+                  <View style={styles.editDialogCell}>
+                    <Text style={[styles.fieldLabel, styles.fieldLabelPage]}>Primary Region</Text>
+                    <Pressable
+                      ref={regionFieldRef}
+                      collapsable={false}
+                      onPress={toggleRegionMenu}
+                      accessibilityRole="button"
+                      accessibilityLabel="Primary Region"
+                      accessibilityState={{ expanded: regionMenuOpen }}
+                      style={styles.regionField}
+                    >
+                      <Text
+                        style={draftPrimaryRegion ? styles.regionValue : styles.regionPlaceholder}
+                        numberOfLines={1}
+                      >
+                        {draftPrimaryRegion || "Select region"}
+                      </Text>
+                      <FontAwesome name="chevron-down" size={11} color={Theme.textMuted} />
+                    </Pressable>
+                  </View>
+                  </>
+                )}
                 <View style={styles.editDialogFull}>
                   <Text style={[styles.fieldLabel, styles.fieldLabelPage]}>Billing address</Text>
                   <TextInput
@@ -2384,11 +2639,12 @@ export function CounterpartyProfileSystemCard({
                 </View>
                 {editSlot ? <View style={styles.editDialogFull}>{editSlot}</View> : null}
                 {dateError ? <Text style={styles.editDialogError}>{dateError}</Text> : null}
+                {editError ? <Text style={styles.editDialogError}>{editError}</Text> : null}
               </View>
               </ScrollView>
               <View style={styles.editDialogActions}>
-                <TouchableOpacity style={styles.editDialogDiscard} onPress={() => setMode("view")}>
-                  <Text style={styles.editDialogDiscardText}>Discard</Text>
+                <TouchableOpacity style={styles.editDialogDiscard} onPress={closeEditDialog}>
+                  <Text style={styles.editDialogDiscardText}>{type === "client" ? "Discard" : "Cancel"}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.editDialogSave}
@@ -2398,10 +2654,40 @@ export function CounterpartyProfileSystemCard({
                   disabled={savingIdentity}
                 >
                   <Text style={styles.editDialogSaveText}>
-                    {savingIdentity ? "Saving…" : "Save"}
+                    {savingIdentity ? "Saving…" : type === "client" ? "Save" : "Save Changes"}
                   </Text>
                 </TouchableOpacity>
               </View>
+              {regionMenuOpen && regionMenuBox ? (
+                <View
+                  style={[
+                    styles.regionMenu,
+                    {
+                      top: regionMenuBox.top,
+                      left: regionMenuBox.left,
+                      width: regionMenuBox.width,
+                    },
+                  ]}
+                >
+                  {PRIMARY_REGIONS.map((region) => {
+                    const selected = draftPrimaryRegion === region;
+                    return (
+                      <Pressable
+                        key={region}
+                        onPress={() => {
+                          setDraftPrimaryRegion(region);
+                          setRegionMenuOpen(false);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                        style={[styles.regionOption, selected && styles.regionOptionOn]}
+                      >
+                        <Text style={[styles.regionOptionText, selected && styles.regionOptionTextOn]}>{region}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : null}
             </View>
           </View>
         </Modal>
@@ -2425,8 +2711,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 20,
   },
+  editDialogScrim: {
+    zIndex: 0,
+  },
   editDialogCard: {
     zIndex: 2,
+    position: "relative",
+    overflow: "visible",
     alignSelf: "center",
     backgroundColor: Theme.cardWhite,
     borderRadius: 12,
@@ -2494,6 +2785,80 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     width: "100%",
   },
+  editDialogInputLocked: {
+    opacity: 0.7,
+  },
+  editDialogLockedValue: {
+    height: 32,
+    fontSize: 12,
+    fontWeight: "600",
+    color: Theme.textPrimaryDark,
+    textAlignVertical: "center",
+  },
+  regionField: {
+    height: 32,
+    minHeight: 32,
+    paddingHorizontal: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: Theme.surface,
+    borderWidth: 1,
+    borderColor: Theme.borderInput,
+    borderRadius: 8,
+  },
+  regionValue: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "600",
+    color: Theme.textPrimaryDark,
+    marginRight: 8,
+  },
+  regionPlaceholder: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "600",
+    color: Theme.textMuted,
+    marginRight: 8,
+  },
+  regionMenu: {
+    position: "absolute",
+    zIndex: 20,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.borderInput,
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  regionOption: {
+    minHeight: 34,
+    justifyContent: "center",
+    paddingHorizontal: 8,
+  },
+  regionOptionOn: { backgroundColor: Theme.surface },
+  regionOptionText: { fontSize: 12, fontWeight: "600", color: Theme.textPrimaryDark },
+  regionOptionTextOn: { color: Theme.analyticsHeroBg },
+  supplierBasicStack: {
+    width: "100%",
+    maxWidth: 720,
+    alignSelf: "flex-start",
+    gap: 10,
+  },
+  supplierBasicCard: {
+    width: "100%",
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.borderInput,
+    padding: 12,
+    gap: 8,
+  },
+  supplierBillingInput: {
+    height: 64,
+    minHeight: 64,
+    paddingTop: 8,
+    textAlignVertical: "top",
+  },
   editDialogError: {
     flexBasis: "100%",
     fontSize: 11,
@@ -2502,6 +2867,7 @@ const styles = StyleSheet.create({
   },
   editDialogActions: {
     flexDirection: "row",
+    justifyContent: "flex-end",
     gap: 8,
   },
   editDialogDiscard: {
@@ -2518,7 +2884,7 @@ const styles = StyleSheet.create({
     color: Theme.textMuted,
   },
   editDialogSave: {
-    flex: 1,
+    paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 8,
     alignItems: "center",

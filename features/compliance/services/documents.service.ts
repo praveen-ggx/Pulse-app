@@ -96,7 +96,7 @@ export const COMPLIANCE_BUCKET = "compliance-documents";
 
 const SIGNED_URL_EXPIRY_SEC = 3600;
 const SIGNED_URL_CACHE_TTL_MS = (SIGNED_URL_EXPIRY_SEC - 120) * 1000;
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB — large scans / multi-page PDFs
 
 const STORAGE_RETRY_DELAYS_MS = [250, 800, 1800] as const;
 

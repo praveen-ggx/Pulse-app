@@ -773,6 +773,17 @@ export default function LedgerSyncScreen() {
       if (refreshTripId) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.trips.detail(refreshTripId) });
       }
+      {
+        const { syncFinanceComplianceCaches } = await import(
+          "@/lib/queries/syncFinanceComplianceCaches"
+        );
+        syncFinanceComplianceCaches({
+          queryClient,
+          organizationId: orgId,
+          tripId: refreshTripId,
+          includeFinance: false, // invalidateTransactions already ran
+        });
+      }
       if (resolvedContactId && orgId) {
         if (resolvedContactType === "client") {
           void queryClient.invalidateQueries({

@@ -12,6 +12,7 @@ import * as DocumentPicker from "expo-document-picker";
 // the existing convention in features/chat/utils/chatDocumentPick.util.ts).
 import * as FileSystem from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { ChromeBelowTopNavLoadingScreen } from "@/components/chromeLoadingScreens";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
@@ -19,6 +20,7 @@ import { useLayoutInsets } from "@/lib/layoutInsets";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import { useComplianceProductEnabled } from "@/features/tripCompliance/hooks/useComplianceProductEnabled";
 import { useOptionalOrganization } from "@/contexts/OrganizationContext";
+import { syncFinanceComplianceCaches } from "@/lib/queries/syncFinanceComplianceCaches";
 import {
   parseComplianceBulkPaymentCsv,
   processComplianceBulkPayments,
@@ -42,6 +44,7 @@ type Step = "upload" | "validating" | "preview" | "confirm" | "processing" | "do
 export default function ComplianceBulkPaymentScreen() {
   const layout = useLayoutInsets();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { can: canSurface, isLoading: accessLoading } = useMemberAccess();
   const canManageFinance = canSurface("trip_compliance.finance.manage");
   const { enabled: complianceEnabled, isLoading: productsLoading } = useComplianceProductEnabled();
@@ -115,8 +118,28 @@ export default function ComplianceBulkPaymentScreen() {
       tripsById,
     });
     setResults(outcomes);
+    const succeededTripIds = outcomes
+      .filter((o) => !o.error)
+      .map((o) => rows.find((r) => r.row.rowIndex === o.rowIndex)?.row.tripId)
+      .filter((id): id is string => Boolean(id));
+    if (orgId && succeededTripIds.length > 0) {
+      syncFinanceComplianceCaches({
+        queryClient,
+        organizationId: orgId,
+        tripId: succeededTripIds[0],
+      });
+      // Pipeline + ledger for remaining trips — org-scoped invalidation already covers lists.
+      for (const tripId of succeededTripIds.slice(1)) {
+        syncFinanceComplianceCaches({
+          queryClient,
+          organizationId: orgId,
+          tripId,
+          includeFinance: false,
+        });
+      }
+    }
     setStep("done");
-  }, [orgId, category, tripsById]);
+  }, [orgId, category, tripsById, queryClient]);
 
   const succeeded = useMemo(() => results.filter((r) => !r.error).length, [results]);
   const failed = useMemo(() => results.filter((r) => r.error).length, [results]);

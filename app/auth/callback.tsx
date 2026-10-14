@@ -113,9 +113,14 @@ export default function AuthCallback() {
         // Redirect to the product that initiated sign-in (Commerce, Core, etc.).
         if (mounted) {
           setMessage(
-            metadataResult.status === 'partial_failure'
-              ? authService.OAUTH_METADATA_PARTIAL_FAILURE_MESSAGE
-              : "Sign in successful. Redirecting to workspace…",
+            metadataResult.status === 'identity_mismatch'
+              ? authService.oauthIdentityMismatchMessage(
+                  metadataResult.formName,
+                  metadataResult.accountEmail,
+                )
+              : metadataResult.status === 'partial_failure'
+                ? authService.OAUTH_METADATA_PARTIAL_FAILURE_MESSAGE
+                : "Sign in successful. Redirecting to workspace…",
           );
           const pending =
             peekSuiteNavigationIntentSync() ?? (await peekSuiteNavigationIntent());

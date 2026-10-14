@@ -51,14 +51,14 @@ describe("validateComplianceTripDocumentFile", () => {
       byteLength: MAX_TRIP_DOC_BYTES + 1,
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toMatch(/larger than the 10 MB limit/i);
+    if (!result.ok) expect(result.reason).toMatch(/larger than the 100 MB limit/i);
   });
 });
 
 describe("complianceTripDocFormatHint", () => {
-  it("uses the authoritative 10 MB limit and supported formats", () => {
+  it("uses the authoritative size ceiling and supported formats", () => {
     expect(complianceTripDocFormatHint()).toContain("PDF, JPG, JPEG, PNG or WebP");
-    expect(complianceTripDocFormatHint()).toContain("Maximum 10 MB");
+    expect(complianceTripDocFormatHint()).toContain("Up to 100 MB");
   });
 });
 

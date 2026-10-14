@@ -12,6 +12,7 @@ import {
 import { ROUTES } from "@/lib/routes";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import type { useCapabilities } from "@/lib/useCapabilities";
+import type { MemberSurfaceId } from "@/lib/memberSurfaces";
 import { useRouter } from "expo-router";
 import { useEffect, type ReactNode } from "react";
 
@@ -42,10 +43,27 @@ function canAccessKind(
   }
 }
 
+/**
+ * Member permission that grants the read view of each kind. These surfaces
+ * confer no capability on purpose (Finance reads supplier / client / fleet
+ * rosters without gaining dispatch), so the member-filtered capability check
+ * alone wrongly bounced e.g. Finance off /supplier/:id.
+ */
+const KIND_VIEW_SURFACE: Record<ModelAccessKind, MemberSurfaceId> = {
+  suppliers: "sales.suppliers.view",
+  clients: "sales.clients.view",
+  vehicles: "fleet.vehicles.view",
+  drivers: "fleet.drivers.view",
+};
+
 export function ModelAccessGate({ kind, children }: Props) {
   const router = useRouter();
-  const { capabilities, isLoading } = useMemberAccess();
-  const allowed = canAccessKind(kind, capabilities);
+  const { capabilities, orgCapabilities, isLoading, can } = useMemberAccess();
+  // Org operating model must support the kind, and the member must either
+  // carry the capability or hold the view permission for it.
+  const allowed =
+    canAccessKind(kind, capabilities) ||
+    (canAccessKind(kind, orgCapabilities) && can(KIND_VIEW_SURFACE[kind]));
 
   useEffect(() => {
     // Member surfaces hydrate async — redirecting before they land bounces

@@ -88,7 +88,11 @@ interface AuthContextType {
   signIn: (email: string, password: string, keepSignedIn?: boolean) => Promise<{ error: Error | null }>;
   signInWithGoogle: (
     keepSignedIn?: boolean,
-  ) => Promise<{ error: Error | null; metadataStatus?: 'partial_failure' }>;
+  ) => Promise<{
+    error: Error | null;
+    metadataStatus?: 'partial_failure' | 'identity_mismatch';
+    metadataMessage?: string;
+  }>;
   signUp: (options: authService.SignUpOptions) => Promise<{
     error: Error | null;
     emailVerificationRequired?: boolean;
@@ -728,7 +732,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await setKeepSignedIn(keepSignedIn);
       if (!isCurrentAuthAttempt(signInAttemptId)) return { error: null };
     }
-    return { ...wrapActionResult(result), metadataStatus: result.metadataStatus };
+    return {
+      ...wrapActionResult(result),
+      metadataStatus: result.metadataStatus,
+      metadataMessage: result.metadataMessage,
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const signUp = useCallback(async (

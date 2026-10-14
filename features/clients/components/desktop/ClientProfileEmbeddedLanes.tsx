@@ -308,6 +308,7 @@ export function ClientProfileEmbeddedLanes({
             </View>
             <View style={s.gridFull}>
               <TripCommodityFields
+                useVehicleCatalog
                 vehicleType={form.vehicle_type}
                 loadType={form.default_load_type}
                 tons={form.default_load_tons}

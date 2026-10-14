@@ -2,6 +2,8 @@
  * Trips Control — demo2 trips tab. Active | History, trip cards, Add Trip.
  * Private Book = driver/vehicle assigned by you; Shared Ledger = assigned by another user.
  */
+import { GroundOpsWarehouseNotice } from "@/features/organization/components/GroundOpsWarehouseNotice";
+import { useGroundOpsWarehouseGap } from "@/features/organization/hooks/useGroundOpsWarehouseGap";
 import { PulsePillButton } from "@/components/PulsePillButton";
 import { ContentErrorState } from "@/components/ContentErrorState";
 import { SceneLoadingSplash } from "@/components/chromeLoadingScreens";
@@ -109,8 +111,10 @@ import {
 import {
   indentMatchesHubDateFilter,
   indentMatchesHubSearch,
+  mergeIndentSearchHits,
   tripsHubAllToolbarCountLabel,
 } from "@/features/trips/utils/indentHubToolbarFilter";
+import { useTripsIndentCodeSearch } from "@/features/trips/hooks/useTripsIndentCodeSearch";
 import type { TripHubPartyMeta } from "@/features/trips/utils/tripHubPartyMeta";
 import {
   getTripHubInTransitPing,
@@ -365,6 +369,7 @@ export default function TripsScreen() {
 
   const { can: canSurface, orgCapabilities, isLoading: memberAccessLoading } =
     useMemberAccess();
+  const groundOpsWarehouseGap = useGroundOpsWarehouseGap();
   // Org model decides whether trips exist at all; the surface decides whether
   // this member may open them. Gating on member-filtered capabilities too would
   // hide the list from finance members, who hold `tripops.trips.view` as a
@@ -412,18 +417,30 @@ export default function TripsScreen() {
   // owns that have not yet been allocated to a trip. Allocation is read from
   // the trips this screen already fetches (`trips.indent_id`), not a new query.
   const { data: allIndents = [] } = useIndentsQuery(orgId);
+  const indentCodeSearchQuery = searchQuery.trim();
+  const { data: indentCodeSearchHits = [] } = useTripsIndentCodeSearch(
+    orgId,
+    indentCodeSearchQuery,
+  );
+  const hubIndents = useMemo(
+    () =>
+      indentCodeSearchQuery
+        ? mergeIndentSearchHits(allIndents, indentCodeSearchHits)
+        : allIndents,
+    [allIndents, indentCodeSearchHits, indentCodeSearchQuery],
+  );
   const indentIdsWithTrip = useMemo(
     () => new Set(trips.map((t) => t.indent_id).filter((id): id is string => Boolean(id))),
     [trips],
   );
   const unallocatedIndents = useMemo(
     () =>
-      allIndents.filter(
+      hubIndents.filter(
         (i) =>
           (i.organization_id ?? "") === (orgId ?? "") &&
           isIndentUnallocated(i, indentIdsWithTrip),
       ),
-    [allIndents, orgId, indentIdsWithTrip],
+    [hubIndents, orgId, indentIdsWithTrip],
   );
   const dateFilteredUnallocatedIndents = useMemo(
     () =>
@@ -534,14 +551,19 @@ export default function TripsScreen() {
       pending: 0,
       bids: 0,
       awarded: 0,
+      failed: failedStageIndents.length,
     };
     if (activeMetricTab !== "indent") return counts;
     for (const indent of visibleUnallocatedIndents) {
-      counts[indentHubStatusTag(indent.status, indentOfferCounts[indent.id] ?? 0)] +=
-        1;
+      const tag = indentHubStatusTag(
+        indent.status,
+        indentOfferCounts[indent.id] ?? 0,
+      );
+      if (tag === "failed") continue;
+      counts[tag] += 1;
     }
     return counts;
-  }, [activeMetricTab, visibleUnallocatedIndents, indentOfferCounts]);
+  }, [activeMetricTab, visibleUnallocatedIndents, indentOfferCounts, failedStageIndents]);
   const canViewIndentPools = canSurface("tripops.indents.view");
   const canSelectPoolIndents = canSurface("tripops.indents.allocate");
   const allocatedOrgIndents = useMemo(
@@ -2107,6 +2129,10 @@ export default function TripsScreen() {
         />
       </View>
     );
+  }
+
+  if (groundOpsWarehouseGap.missingWarehouse) {
+    return <GroundOpsWarehouseNotice />;
   }
 
   if (loading || tripsBootFailed) {

@@ -1845,6 +1845,7 @@ export function AddTripFormFields({
               </View>
               ) : null}
               <TripCommodityFields
+                useVehicleCatalog
                 vehicleType={state.vehicleType}
                 loadType={state.loadType}
                 tons={state.tons}
@@ -1942,6 +1943,7 @@ export function AddTripFormFields({
                 </View>
               ) : null}
               <TripCommodityFields
+                useVehicleCatalog
                 vehicleType={state.vehicleType}
                 loadType={state.loadType}
                 tons={state.tons}

@@ -5,6 +5,7 @@ import {
   isSoftPodDocumentType,
   receivedLrNumbersForTrip,
   resolveHardCopyPodStatus,
+  vendorFreightBeforeIbond,
   tripHasHubPodFlag,
   tripPodIsReceived,
   tripPodStatusFlags,
@@ -258,6 +259,10 @@ describe("encodeHardCopyPodComment / decodeHardCopyPodComment", () => {
       receiptMethod: "person",
       dispatchDate: null,
       expectedDeliveryDate: null,
+      ibond: false,
+      ibondDeductibleCost: null,
+      vendorCostBefore: null,
+      vendorCostAfter: null,
     });
     expect(decodeHardCopyPodComment("Checked at gate")).toEqual({
       remarks: "Checked at gate",
@@ -266,6 +271,27 @@ describe("encodeHardCopyPodComment / decodeHardCopyPodComment", () => {
       receiptMethod: null,
       dispatchDate: null,
       expectedDeliveryDate: null,
+      ibond: false,
+      ibondDeductibleCost: null,
+      vendorCostBefore: null,
+      vendorCostAfter: null,
     });
+    const ibond = decodeHardCopyPodComment(
+      encodeHardCopyPodComment({
+        ibond: true,
+        ibondDeductibleCost: 1500,
+        vendorCostBefore: 57000,
+        vendorCostAfter: 55500,
+      }),
+    );
+    expect(ibond.ibond).toBe(true);
+    expect(ibond.ibondDeductibleCost).toBe(1500);
+    expect(ibond.vendorCostBefore).toBe(57000);
+    expect(ibond.vendorCostAfter).toBe(55500);
+    expect(ibond.vendorCostAfter).toBe(55500);
+    expect(vendorFreightBeforeIbond({ supplier_rate: 57000, supplier_rate_basis: "per_trip" })).toBe(57000);
+    expect(
+      vendorFreightBeforeIbond({ supplier_rate: 57000, supplier_rate_basis: "per_trip" }),
+    ).toBe(57000);
   });
 });

@@ -117,7 +117,7 @@ export function docsForSection(
 // ── Number validation ────────────────────────────────────────────────────────
 
 const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
-const AADHAAR_RE = /^[2-9][0-9]{11}$/;
+const AADHAAR_RE = /^[0-9]{12}$/;
 const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 const UDYAM_RE = /^UDYAM-[A-Z]{2}-[0-9]{2}-[0-9]{7}$/;
@@ -145,7 +145,7 @@ export function validateVendorNumber(kind: VendorNumberKind, raw: string): strin
     case "pan":
       return PAN_RE.test(v) ? null : "PAN must look like ABCDE1234F.";
     case "aadhaar":
-      return AADHAAR_RE.test(v) ? null : "Aadhaar must be 12 digits.";
+      return AADHAAR_RE.test(v) ? null : "Aadhaar must be exactly 12 digits.";
     case "ifsc":
       return IFSC_RE.test(v) ? null : "IFSC must look like HDFC0001234.";
     case "gstin":
@@ -160,6 +160,12 @@ export function validateVendorNumber(kind: VendorNumberKind, raw: string): strin
     case "account":
       return ACCOUNT_RE.test(v) ? null : "Account number must be 9–18 digits.";
   }
+}
+
+/** Groups a 12-digit Aadhaar as `XXXX XXXX XXXX`, keeping leading zeros. */
+export function formatAadhaarNumber(raw: string | null | undefined): string {
+  const digits = (raw ?? "").replace(/\D/g, "").slice(0, 12);
+  return [digits.slice(0, 4), digits.slice(4, 8), digits.slice(8, 12)].filter((part) => part.length > 0).join(" ");
 }
 
 /** Shows only the last 4 digits, e.g. "XXXX XXXX 1234". */
@@ -195,15 +201,29 @@ export function financialYearOptions(now: Date, back = 3): string[] {
   return out;
 }
 
+/**
+ * Rolling window for `now`, plus any years that already have a saved rate.
+ * Older saved years stay selectable after they fall out of the recent window.
+ */
+export function financialYearChoices(now: Date, savedYears: readonly string[] = [], back = 3): string[] {
+  const years = new Set(financialYearOptions(now, back));
+  for (const year of savedYears) {
+    if (isValidFinancialYear(year)) years.add(year);
+  }
+  return [...years].sort((a, b) => b.localeCompare(a));
+}
+
 export function isValidFinancialYear(value: string): boolean {
   const m = /^([0-9]{4})-([0-9]{2})$/.exec(value);
   if (!m) return false;
   return (Number(m[1]) + 1) % 100 === Number(m[2]);
 }
 
-/** Parses a 0–100 percentage with up to 2 decimals; returns null when invalid. */
+/** Parses a 0–100 percentage with up to 2 decimals; returns null when invalid.
+ *  Accepts an optional trailing `%` (e.g. `"2%"`, `" 1.5 % "`) so label-driven
+ *  inputs like "TDS rate %" don't reject a natural entry. */
 export function parsePercentage(raw: string): number | null {
-  const v = raw.trim();
+  const v = raw.trim().replace(/%/g, "").trim();
   if (!/^[0-9]{1,3}(\.[0-9]{1,2})?$/.test(v)) return null;
   const n = Number(v);
   return n >= 0 && n <= 100 ? n : null;

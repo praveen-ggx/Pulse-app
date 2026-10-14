@@ -64,6 +64,7 @@ import {
   shouldSkipLockedSubmit,
 } from "@/features/indents/utils/indentShareSubmitGuard.util";
 import { AddTripOtpSuccessBody } from "./AddTripOtpSuccessBody";
+import { tonsOutsideVehicleRange } from "@/features/vehicles/utils/vehicleTypeCatalog.model";
 
 const DRIVER_BUSY_ALERT_LOTTIE = require("@/assets/Animated folder/person-driving-car.json");
 function buildOtpScreenContext(state: AddTripFormState): AddTripOtpScreenContext {
@@ -303,6 +304,14 @@ export function AddTripModal({
     : null;
 
   const steppedFormActive = wizardEnabled || webAllocSubSteps;
+  /**
+   * Tons outside the catalog vehicle's passing-ton range: no Continue / Create.
+   * Only where the tons field is on screen (commodity step, or the single-page form),
+   * so a lane prefill can't hide Continue on a step that doesn't show why.
+   */
+  const tonsOutOfVehicleRange =
+    tonsOutsideVehicleRange(form.state.vehicleType, form.state.tons) != null &&
+    (!steppedFormActive || (wizardEnabled && wizardStep === "commodity"));
   const stepCanAdvance = steppedFormActive
     ? stepIssues.length === 0
     : form.canSubmit;
@@ -699,6 +708,7 @@ export function AddTripModal({
       stepTotal={undefined}
       submitLabel={wizardSubmitLabel}
       canSubmit={stepCanAdvance}
+      hidePrimary={tonsOutOfVehicleRange}
       submitting={submitting}
       lockPrimaryUntilValid={steppedFormActive}
       validationMessage={visibleValidationMessage ?? submitError}

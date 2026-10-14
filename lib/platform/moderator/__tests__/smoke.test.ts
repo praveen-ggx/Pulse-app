@@ -20,8 +20,8 @@ let observedPeak = 0;
 
 function makeClient(latencyMs = 5): SupabaseClient {
   const f = (input: RequestInfo | URL, init?: RequestInit) => {
-    const { lane, coalesceKey, isAuth } = classifyRequest(input, init);
-    if (isAuth) return Promise.resolve(new Response('{}', { status: 200 }));
+    const { lane, coalesceKey, isAuth, bypassModerator } = classifyRequest(input, init);
+    if (isAuth || bypassModerator) return Promise.resolve(new Response('{}', { status: 200 }));
     return moderate(lane, async () => {
       concurrentNow += 1;
       observedPeak = Math.max(observedPeak, concurrentNow);

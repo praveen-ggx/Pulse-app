@@ -5,10 +5,11 @@
  */
 import {
   applySurfaceToggle,
+  MEMBER_DEPARTMENT_SURFACES,
   MEMBER_SECTION_SURFACES,
   memberHasSurface,
   orgAllowsSurface,
-  surfaceGroupsForDomains,
+  sectionMasterOn,
   surfaceGroupsForIds,
   type MemberSectionKey,
   type MemberSurfaceDef,
@@ -67,22 +68,18 @@ function SurfaceCheckbox({
   );
 }
 
-const DOMAIN_ACCENT: Record<
-  FunctionalRole | "fleet" | "team" | MemberSectionKey,
-  string
-> = {
+const DOMAIN_ACCENT: Record<FunctionalRole | MemberSectionKey, string> = {
   finance: "#0894FF",
   sales: "#C959DD",
   tripops: "#FF9004",
-  fleet: "#0894FF",
-  team: "#171717",
   supply: "#00A6A6",
   compliance: "#E5484D",
+  debit_control: "#B45309",
   vendor_support: "#7C5CFF",
   it: "#525252",
 };
 
-export type DomainToggleRowKey = FunctionalRole | "team" | MemberSectionKey;
+export type DomainToggleRowKey = FunctionalRole | MemberSectionKey;
 
 export type DomainToggleRowDef = {
   key: DomainToggleRowKey;
@@ -134,13 +131,9 @@ export function DomainPermissionToggleRow({
    */
   const surfacesEditable = canEdit && (isSection || switchOn);
 
+  // Each department lists only the surfaces it owns — no toggle repeats.
   const groups = useMemo(
-    () =>
-      isSectionKey(def.key)
-        ? surfaceGroupsForIds(MEMBER_SECTION_SURFACES[def.key])
-        : surfaceGroupsForDomains(
-            def.key === "tripops" ? ["tripops", "fleet"] : [def.key],
-          ),
+    () => surfaceGroupsForIds(MEMBER_DEPARTMENT_SURFACES[def.key]),
     [def.key],
   );
   const rows = useMemo(() => groups.flatMap((g) => g.surfaces), [groups]);
@@ -149,8 +142,14 @@ export function DomainPermissionToggleRow({
     memberHasSurface(orgCaps, surfaces, r.id, false),
   ).length;
   const availableCount = rows.filter((r) => orgAllowsSurface(orgCaps, r.id)).length;
-  /** Section switch reads "everything in here is on". */
-  const sectionAllOn = availableCount > 0 && enabledCount === availableCount;
+  /**
+   * Compliance follows the Compliance preset (docs + verify), not "every row",
+   * so resubmit can stay off while the switch stays on.
+   * Other sections still require every org-allowed row.
+   */
+  const sectionOn = isSectionKey(def.key)
+    ? sectionMasterOn(def.key, surfaces, orgCaps)
+    : false;
 
   /**
    * Bulk-apply a group header checkbox across its org-allowed surfaces.
@@ -203,7 +202,7 @@ export function DomainPermissionToggleRow({
           )}
         </Pressable>
         <Switch
-          value={isSection ? sectionAllOn : switchOn}
+          value={isSection ? sectionOn : switchOn}
           disabled={!canEdit || (isSection ? availableCount === 0 : lockedByOrg)}
           onValueChange={onToggleDomain}
           trackColor={{ false: "#E8E8E8", true: accent }}
@@ -314,43 +313,43 @@ export const DOMAIN_TOGGLE_ROWS: DomainToggleRowDef[] = [
   {
     key: "finance",
     label: "Finance",
-    hint: "Fiscal tab, ledgers, invoicing, POD, reports",
+    hint: "Fiscal tab, ledgers, invoicing, reconciliation, reports",
   },
   {
     key: "sales",
     label: "Sales / Network",
-    hint: "Network, clients, suppliers, chat, load board",
+    hint: "Network, clients, marketplace, indents, Pulse loads",
   },
   {
     key: "tripops",
     label: "Operations",
-    hint: "Trips, tracking, docs, vehicles, drivers",
+    hint: "Trips, tracking, trip docs, vehicles, drivers",
   },
-  {
-    key: "team",
-    label: "Team / Workspace",
-    hint: "Access control, invites, audit, settings, KYC",
-  },
-  // Sections below regroup surfaces owned by the domains above — no new grants.
+  // Sections: each owns its rows outright (listed nowhere else).
   {
     key: "supply",
     label: "Supply",
-    hint: "Suppliers, supplier ledger, bidding, award, allocation",
-  },
-  {
-    key: "compliance",
-    label: "Compliance",
-    hint: "KYC, audit trail, trip & vehicle documents, POD",
+    hint: "Indent bidding, award and allocation",
   },
   {
     key: "vendor_support",
     label: "Vendor support",
-    hint: "Partner chat, network connect, discovery, client requests",
+    hint: "Suppliers (Network + Finance), partner chat, network connect",
+  },
+  {
+    key: "compliance",
+    label: "Compliance",
+    hint: "Document upload and compliance verification queues",
+  },
+  {
+    key: "debit_control",
+    label: "Debit control",
+    hint: "Hard-copy POD (POD Pending / POD Received)",
   },
   {
     key: "it",
-    label: "IT dept",
-    hint: "Workspace settings, products, notifications, team access",
+    label: "IT dept / Workspace",
+    hint: "Team access, invites, audit, settings, verification, notifications",
   },
 ];
 

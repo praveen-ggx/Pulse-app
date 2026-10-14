@@ -3,15 +3,20 @@
  * E-way Bill column, per-group Pending/Approved status, Verify gating and
  * decline state. No I/O — everything comes from the already-loaded summary.
  */
+import { isCompletedTripStatus } from "@/features/trips/utils/tripHubMetrics";
 import {
   formatVaultDocDate,
+  readStoredInvoiceNumber,
   vaultDocDateToIso,
 } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { parseEwayFieldEntries } from "@/features/trips/services/ewayBillFields.util";
-import type {
-  ComplianceDocumentRow,
-  ComplianceTripSummary,
+import { lrNumbersFromDocumentNumber } from "@/features/trips/utils/hardCopyPodLrSelection.util";
+import {
+  REQUIRED_COMPLIANCE_DOCUMENT_TYPES,
+  type ComplianceDocumentRow,
+  type ComplianceTripSummary,
 } from "@/features/tripCompliance/tripCompliance.types";
+import { classifyTripDocument } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
 import {
   deriveComplianceDocumentRows,
   labelForDocType,
@@ -25,6 +30,8 @@ export type ComplianceEwayBillSummary = {
   validTillLabel: string | null;
   expired: boolean;
   extraCount: number;
+  /** Every e-way number on the newest bill row, in stored order. */
+  numbers: string[];
 };
 
 export type ComplianceGroupStatus = {
@@ -68,6 +75,7 @@ export function deriveComplianceEwayBill(
     validTillLabel: null,
     expired: false,
     extraCount: 0,
+    numbers: [],
   };
   let entries: ReturnType<typeof parseEwayFieldEntries> = [];
   // Trip Detail loads trip_documents with `order by uploaded_at desc` (Postgres:
@@ -111,14 +119,61 @@ export function deriveComplianceEwayBill(
       : validTillRaw
     : null;
 
+  const numbers = entries
+    .map((entry) => entry.ewayNo.trim())
+    .filter((value, index, all) => value.length > 0 && all.indexOf(value) === index);
+
   return {
     number,
     validTillRaw,
     validTillIso,
     validTillLabel,
     expired,
-    extraCount: Math.max(0, entries.length - 1),
+    extraCount: Math.max(0, numbers.length - 1),
+    numbers,
   };
+}
+
+function uniqueInOrder(values: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
+}
+
+/**
+ * Every number ground ops typed for this document type.
+ * E-way: each bill on the newest row. LR: each number, including a typed range.
+ * Invoice: each uploaded invoice number, oldest first.
+ */
+export function complianceVaultDocNumbers(
+  documents: ComplianceDocumentRow[],
+  type: string,
+): string[] {
+  const kind = type.trim().toLowerCase();
+  if (kind === "eway_bill") return deriveComplianceEwayBill(documents).numbers;
+  const matches = documents.filter((doc) => (doc.document_type ?? "").toLowerCase() === kind);
+  if (kind === "invoice") {
+    const ordered = [...matches].sort((a, b) => (a.uploaded_at ?? "").localeCompare(b.uploaded_at ?? ""));
+    return uniqueInOrder(ordered.map((doc) => readStoredInvoiceNumber(doc.document_number)));
+  }
+  if (kind === "lr") {
+    return uniqueInOrder(matches.flatMap((doc) => lrNumbersFromDocumentNumber(doc.document_number)));
+  }
+  return [];
+}
+
+/** Single-line form of {@link complianceVaultDocNumbers}. Export uses this with a separator. */
+export function complianceVaultDocNumber(
+  documents: ComplianceDocumentRow[],
+  type: string,
+): string {
+  return complianceVaultDocNumbers(documents, type).join(", ");
 }
 
 /** Approved iff the group has required rows and every one is `verified`. */
@@ -141,9 +196,11 @@ function joinLabels(labels: string[]): string {
 /**
  * Mirrors the `mark_trip_compliance_verified` server gate: required trip docs
  * (LR, E-way Bill, Invoice) verified. Vehicle/driver docs do not block (D2).
+ * Finance-declined (Verified Reject) trips may be re-verified even though
+ * compliance_verified_at is still set.
  */
 export function canVerifyTrip(summary: ComplianceTripSummary): ComplianceVerifyEligibility {
-  if (summary.complianceVerifiedAt) {
+  if (summary.complianceVerifiedAt && !isFinanceDeclinedTrip(summary)) {
     return { allowed: false, reason: "Trip compliance already verified" };
   }
   const pending = deriveComplianceDocumentRows(summary.documents).filter(
@@ -159,4 +216,148 @@ export function canVerifyTrip(summary: ComplianceTripSummary): ComplianceVerifyE
 /** A decline is shown only while the trip is not yet compliance-verified. */
 export function isComplianceDeclineActive(summary: ComplianceTripSummary): boolean {
   return Boolean(summary.complianceDeclinedAt) && !summary.complianceVerifiedAt;
+}
+
+/** Compliance Hold resubmitted by Ground Ops at or after the latest decline. */
+function holdResubmittedAfterDecline(summary: ComplianceTripSummary): boolean {
+  if (!summary.complianceResubmittedAt || !summary.complianceDeclinedAt) return false;
+  const resubmitted = Date.parse(summary.complianceResubmittedAt);
+  const declined = Date.parse(summary.complianceDeclinedAt);
+  if (Number.isNaN(resubmitted) || Number.isNaN(declined)) return false;
+  return resubmitted >= declined;
+}
+
+/**
+ * Compliance Hold that Ground Ops resubmitted with every required file on
+ * file; back with Compliance to re-check. A resubmit while files are still
+ * missing (stage pending_for_docs) leaves nothing for Compliance to verify,
+ * so the trip stays with Ground Ops.
+ */
+export function isComplianceHoldResubmitted(summary: ComplianceTripSummary): boolean {
+  return (
+    isComplianceDeclineActive(summary) &&
+    holdResubmittedAfterDecline(summary) &&
+    summary.stage !== "pending_for_docs"
+  );
+}
+
+/** Compliance Hold still with Ground Ops: re-upload, then Resubmit. */
+export function isComplianceHoldAwaitingResubmit(summary: ComplianceTripSummary): boolean {
+  return isComplianceDeclineActive(summary) && !isComplianceHoldResubmitted(summary);
+}
+
+/**
+ * Open Finance reject of an already-verified trip: declined at/after verify and
+ * not yet resubmitted by Ground Ops. Once Ground Ops resubmits, the trip goes
+ * straight back to Finance (Advance Verification) as Verified — no second
+ * Compliance verify. Mirrors compliance_cleared() in the database. A compliance
+ * decline later cleared by Verify (declined_at earlier than verified_at) is history.
+ */
+export function isFinanceDeclinedTrip(summary: ComplianceTripSummary): boolean {
+  if (!summary.complianceVerifiedAt || !summary.complianceDeclinedAt) return false;
+  const verified = Date.parse(summary.complianceVerifiedAt);
+  const declined = Date.parse(summary.complianceDeclinedAt);
+  if (Number.isNaN(verified) || Number.isNaN(declined)) return false;
+  if (declined < verified) return false;
+  if (!summary.complianceResubmittedAt) return true;
+  const resubmitted = Date.parse(summary.complianceResubmittedAt);
+  if (Number.isNaN(resubmitted)) return true;
+  return resubmitted < declined;
+}
+
+/**
+ * Finance reject that Ground Ops has resubmitted: back with Finance as Verified.
+ * The card keeps a Resubmitted tag with the reason and Ground Ops' note.
+ */
+export function isResubmittedFinanceReject(summary: ComplianceTripSummary): boolean {
+  if (!summary.complianceVerifiedAt || !summary.complianceDeclinedAt || !summary.complianceResubmittedAt) {
+    return false;
+  }
+  const verified = Date.parse(summary.complianceVerifiedAt);
+  const declined = Date.parse(summary.complianceDeclinedAt);
+  const resubmitted = Date.parse(summary.complianceResubmittedAt);
+  if ([verified, declined, resubmitted].some(Number.isNaN)) return false;
+  return declined >= verified && resubmitted >= declined;
+}
+
+/** Finance reject still waiting on Ground Ops (Declined by finance). A newer decline opens it again. */
+export function isActiveFinanceReject(summary: ComplianceTripSummary): boolean {
+  return isFinanceDeclinedTrip(summary);
+}
+
+/** Finance flagged the trip for Compliance review (Finance cannot Reject). */
+export function isFinanceFlagged(summary: ComplianceTripSummary): boolean {
+  return Boolean(summary.financeFlaggedAt);
+}
+
+/**
+ * Hold or finance reject still waiting for the Ground Ops resubmit. Mirrors
+ * compliance_awaiting_resubmit() in the database: Verify is refused until then.
+ */
+export function isComplianceAwaitingResubmit(summary: ComplianceTripSummary): boolean {
+  return isActiveFinanceReject(summary) || (isComplianceDeclineActive(summary) && !holdResubmittedAfterDecline(summary));
+}
+
+/**
+ * Required trip documents (LR / E-way bill / Invoice) missing or rejected —
+ * the same rule resubmit_trip_compliance() enforces. Empty when all are fine.
+ */
+export function missingOrRejectedRequiredTripDocs(summary: ComplianceTripSummary): string[] {
+  return REQUIRED_COMPLIANCE_DOCUMENT_TYPES.filter(
+    (type) =>
+      !summary.documents.some(
+        (doc) => doc.document_type === type && doc.status !== "rejected" && classifyTripDocument(doc).present,
+      ),
+  );
+}
+
+/** Active finance reject. Shown on Document Upload → Declined by finance. */
+export function isFinanceDeclinedForPendingDocs(summary: ComplianceTripSummary): boolean {
+  return isActiveFinanceReject(summary);
+}
+
+/** Active finance reject. Shown on Compliance Verification → Declined by finance. */
+export function isFinanceDeclinedForCompliancePending(summary: ComplianceTripSummary): boolean {
+  return isActiveFinanceReject(summary);
+}
+
+/**
+ * Pre-verify hold. Shown on Document Upload → Compliance Hold whether the trip
+ * is still missing files or already in Compliance Verification. The same trip also
+ * stays on Compliance Verification → Compliance Hold.
+ */
+/** Debit control works completed trips only — every tab, including All. */
+export function onlyCompletedTrips(
+  summaries: ComplianceTripSummary[],
+): ComplianceTripSummary[] {
+  return summaries.filter((summary) => isCompletedTripStatus(summary.trip.status));
+}
+
+/**
+ * For people who fix holds but cannot verify (Ground Ops, TripOps): a held
+ * trip waiting for their resubmit belongs in Document Upload even when every
+ * file is already on it (which otherwise derives Compliance Verification), and
+ * a Finance reject belongs there too (it otherwise stays in the Finance lanes).
+ * Both are tabs they don't have, so the trip vanished from their view.
+ */
+export function routeHoldsToDocumentUpload(
+  summaries: ComplianceTripSummary[],
+): ComplianceTripSummary[] {
+  let changed = false;
+  const out = summaries.map((summary) => {
+    const waitingOnFix =
+      // Compliance hold with every file on it (derived Compliance Verification)…
+      (summary.stage === "compliance_pending" && isComplianceHoldAwaitingResubmit(summary)) ||
+      // …or a Finance reject, which sits in the Finance lanes after verify.
+      (summary.stage !== "pending_for_docs" && isActiveFinanceReject(summary));
+    if (!waitingOnFix) return summary;
+    changed = true;
+    return { ...summary, stage: "pending_for_docs" as const };
+  });
+  return changed ? out : summaries;
+}
+
+export function isPendingDocsComplianceHold(summary: ComplianceTripSummary): boolean {
+  if (!isComplianceHoldAwaitingResubmit(summary)) return false;
+  return summary.stage === "pending_for_docs" || summary.stage === "compliance_pending";
 }

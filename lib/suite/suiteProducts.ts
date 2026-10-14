@@ -91,7 +91,7 @@ export const SUITE_PRODUCTS: Record<SuiteProductId, SuiteProductDefinition> = {
     activationPath: ROUTES.POD_RECONCILIATION,
     signUpRoute: `${ROUTES.SIGN_UP}?product=pod`,
     expoProductShell: true,
-    expoProductShellPaths: [ROUTES.LOG_INCOMING_PODS],
+    expoProductShellPaths: [ROUTES.LOG_INCOMING_PODS, ROUTES.DEBIT_CONTROL],
   },
   'finance-pro': {
     id: 'finance-pro',

@@ -2,6 +2,9 @@ import {
   deriveComplianceDocumentRows,
   deriveEntityComplianceRows,
   deriveFinanceDocumentRows,
+  deriveTripVaultReviewRows,
+  financeVaultDetailLine,
+  mergeFinanceBankDocsFromSupplier,
   complianceProgress,
   labelForDocType,
   requirementScopeLabel,
@@ -29,6 +32,32 @@ function doc(overrides: Partial<ComplianceDocumentRow>): ComplianceDocumentRow {
   };
 }
 
+describe("deriveTripVaultReviewRows", () => {
+  it("lists only LR / E-way Bill / Invoice, even when POD or Memo are on file", () => {
+    const rows = deriveTripVaultReviewRows([
+      doc({ id: "pod-1", document_type: "pod" }),
+      doc({ id: "memo-1", document_type: "memo" }),
+    ]);
+    expect(rows.map((r) => r.type)).toEqual(["lr", "eway_bill", "invoice"]);
+    expect(rows.every((r) => r.required)).toBe(true);
+  });
+
+  it("keeps every extra LR / Invoice / E-way file on the Trip tab", () => {
+    const rows = deriveTripVaultReviewRows([
+      doc({ id: "lr-1", document_type: "lr", uploaded_at: "2026-09-01" }),
+      doc({ id: "lr-2", document_type: "lr", uploaded_at: "2026-09-02" }),
+      doc({ id: "pod-1", document_type: "pod" }),
+    ]);
+    expect(rows.filter((r) => r.type === "lr")).toHaveLength(2);
+    expect(rows.some((r) => r.type === "pod")).toBe(false);
+    expect(rows.filter((r) => r.required).map((r) => r.type).sort()).toEqual([
+      "eway_bill",
+      "invoice",
+      "lr",
+    ]);
+  });
+});
+
 describe("deriveComplianceDocumentRows", () => {
   it("synthesizes required trip types plus other options", () => {
     const rows = deriveComplianceDocumentRows([]);
@@ -42,6 +71,21 @@ describe("deriveComplianceDocumentRows", () => {
     const lrRow = rows.find((r) => r.type === "lr");
     expect(lrRow?.status).toBe("verified");
     expect(lrRow?.doc?.status).toBe("verified");
+  });
+
+  it("lists every uploaded file of the same type, with extras optional", () => {
+    const rows = deriveComplianceDocumentRows([
+      doc({ id: "lr-1", document_type: "lr", status: "verified", uploaded_at: "2026-09-01" }),
+      doc({ id: "lr-2", document_type: "lr", status: "pending", uploaded_at: "2026-09-02", file_name: "lr-2.pdf" }),
+      doc({ id: "inv-1", document_type: "invoice", status: "verified" }),
+      doc({ id: "ew-1", document_type: "eway_bill", status: "verified" }),
+    ]);
+    const lrs = rows.filter((r) => r.type === "lr");
+    expect(lrs).toHaveLength(2);
+    expect(lrs.filter((r) => r.required)).toHaveLength(1);
+    expect(lrs.some((r) => r.doc?.id === "lr-1")).toBe(true);
+    expect(lrs.some((r) => r.doc?.id === "lr-2")).toBe(true);
+    expect(complianceProgress(rows)).toEqual({ verified: 3, total: 3 });
   });
 
   it("ignores an e-way number row that has no uploaded file", () => {
@@ -89,48 +133,116 @@ describe("deriveComplianceDocumentRows", () => {
     const rows = deriveComplianceDocumentRows([doc({ id: "rc-1", document_type: "rc", status: "pending" })]);
     expect(rows.find((r) => r.type === "rc")).toBeUndefined();
   });
-
-  it("additive multi-file upload: 3 LR files produce exactly ONE lr row, not 3 duplicates", () => {
-    const rows = deriveComplianceDocumentRows([
-      doc({ id: "lr-1", document_type: "lr", status: "verified", uploaded_at: "2026-09-20T18:00:00.000Z" }),
-      doc({ id: "lr-2", document_type: "lr", status: "pending", uploaded_at: "2026-09-20T19:00:00.000Z" }),
-      doc({ id: "lr-3", document_type: "lr", status: "pending", uploaded_at: "2026-09-20T20:00:00.000Z" }),
-    ]);
-    const lrRows = rows.filter((r) => r.type === "lr");
-    expect(lrRows).toHaveLength(1);
-    // The review sheet still shows the latest file for the type — existing
-    // single-file display behavior is unchanged even though 3 are on file.
-    expect(lrRows[0]?.doc?.id).toBe("lr-3");
-  });
 });
 
 describe("deriveFinanceDocumentRows", () => {
-  it("always includes POD and Memo slots", () => {
+  it("always includes Memo, Other Documents, and Bank Docs slots", () => {
     const rows = deriveFinanceDocumentRows([]);
-    expect(rows.map((r) => r.type)).toEqual(["pod", "memo"]);
-    expect(rows.every((r) => !r.required)).toBe(true);
+    expect(rows.map((r) => r.type)).toEqual(["memo", "other", "bank_docs"]);
+    expect(rows.filter((r) => r.required).map((r) => r.type)).toEqual(["memo"]);
     expect(rows.every((r) => r.status === "missing")).toBe(true);
   });
 
-  it("merges other present trip-vault types after the fixed slots", () => {
+  it("merges uploaded memo, other, and bank_docs vault files into the fixed slots", () => {
     const rows = deriveFinanceDocumentRows([
-      doc({ id: "memo-1", document_type: "memo", status: "pending" }),
+      doc({ id: "memo-1", document_type: "memo", status: "pending", file_name: "memo.pdf" }),
+      doc({ id: "other-1", document_type: "other", status: "verified", file_name: "extra.pdf" }),
+      doc({ id: "bank-1", document_type: "bank_docs", status: "pending", file_name: "bank.pdf" }),
       doc({ id: "slip-1", document_type: "loading_slip", status: "verified", file_name: "slip.pdf" }),
       doc({ id: "man-1", document_type: "manifest", status: "pending", file_name: "manifest.pdf" }),
-      doc({ id: "lr-1", document_type: "lr", status: "pending" }),
+      doc({ id: "lr-1", document_type: "lr", status: "pending", file_name: "lr.pdf" }),
+      doc({ id: "inv-1", document_type: "invoice", status: "pending", file_name: "inv.pdf" }),
     ]);
-    expect(rows.map((r) => r.type)).toEqual(["pod", "memo", "loading_slip", "manifest"]);
+    expect(rows.map((r) => r.type)).toEqual(["memo", "other", "bank_docs"]);
     expect(rows.find((r) => r.type === "memo")?.status).toBe("pending");
-    expect(rows.find((r) => r.type === "loading_slip")?.status).toBe("verified");
+    expect(rows.find((r) => r.type === "other")?.status).toBe("verified");
+    expect(rows.find((r) => r.type === "bank_docs")?.status).toBe("pending");
     expect(rows.find((r) => r.type === "lr")).toBeUndefined();
+    expect(rows.find((r) => r.type === "invoice")).toBeUndefined();
+    expect(rows.find((r) => r.type === "manifest")).toBeUndefined();
   });
 
-  it("does not surface vehicle or driver KYC types as finance extras", () => {
+  it("does not surface vehicle or driver KYC types as finance rows", () => {
     const rows = deriveFinanceDocumentRows([
       doc({ id: "rc-1", document_type: "rc", status: "pending" }),
       doc({ id: "lic-1", document_type: "license", status: "pending" }),
     ]);
-    expect(rows.map((r) => r.type)).toEqual(["pod", "memo"]);
+    expect(rows.map((r) => r.type)).toEqual(["memo", "other", "bank_docs"]);
+  });
+});
+
+describe("mergeFinanceBankDocsFromSupplier", () => {
+  it("fills bank_docs from supplier KYC when trip slot is empty", () => {
+    const rows = deriveFinanceDocumentRows([]);
+    const merged = mergeFinanceBankDocsFromSupplier(rows, {
+      previewPath: "org/supplier/s1/cancelled_cheque_x.pdf",
+      detailLine: "HDFC · XXXX1234 · HDFC0001234",
+      kycDocId: "kyc-1",
+      supplierId: "s1",
+      status: "verified",
+      fileName: "cheque.pdf",
+      createdAt: "2026-09-01T00:00:00Z",
+    });
+    const bank = merged.find((r) => r.type === "bank_docs")!;
+    expect(bank.status).toBe("verified");
+    expect(bank.entityDoc?.storage_path).toBe("org/supplier/s1/cancelled_cheque_x.pdf");
+    expect(bank.entityDoc?.source).toBe("supplier-kyc");
+    expect(financeVaultDetailLine(bank)).toBe("HDFC · XXXX1234 · HDFC0001234");
+  });
+
+  it("keeps trip bank_docs upload ahead of supplier KYC file", () => {
+    const rows = deriveFinanceDocumentRows([
+      doc({
+        id: "bank-trip",
+        document_type: "bank_docs",
+        status: "pending",
+        file_name: "trip-bank.pdf",
+        storage_path: "trip/bank_docs/a.pdf",
+      }),
+    ]);
+    const merged = mergeFinanceBankDocsFromSupplier(rows, {
+      previewPath: "org/supplier/s1/cheque.pdf",
+      detailLine: "HDFC · XXXX9999",
+      supplierId: "s1",
+    });
+    const bank = merged.find((r) => r.type === "bank_docs")!;
+    expect(bank.doc?.id).toBe("bank-trip");
+    expect(financeVaultDetailLine(bank)).toContain("trip-bank.pdf");
+    expect(financeVaultDetailLine(bank)).toContain("HDFC");
+  });
+});
+
+describe("financeVaultDetailLine", () => {
+  it("prefers file names for memo, other, and bank_docs", () => {
+    const rows = deriveFinanceDocumentRows([
+      doc({
+        id: "memo-1",
+        document_type: "memo",
+        status: "pending",
+        file_name: "memo-scan.pdf",
+      }),
+      doc({
+        id: "other-1",
+        document_type: "other",
+        status: "verified",
+        file_name: "extra.pdf",
+      }),
+      doc({
+        id: "bank-1",
+        document_type: "bank_docs",
+        status: "pending",
+        file_name: "neft-slip.pdf",
+      }),
+    ]);
+    expect(financeVaultDetailLine(rows.find((r) => r.type === "memo")!)).toBe("memo-scan.pdf");
+    expect(financeVaultDetailLine(rows.find((r) => r.type === "other")!)).toBe("extra.pdf");
+    expect(financeVaultDetailLine(rows.find((r) => r.type === "bank_docs")!)).toBe("neft-slip.pdf");
+  });
+
+  it("returns null when the slot has no file", () => {
+    const rows = deriveFinanceDocumentRows([]);
+    expect(financeVaultDetailLine(rows.find((r) => r.type === "memo")!)).toBeNull();
+    expect(financeVaultDetailLine(rows.find((r) => r.type === "bank_docs")!)).toBeNull();
   });
 });
 
@@ -259,10 +371,14 @@ describe("deriveEntityComplianceRows", () => {
         created_at: "2026-09-24T07:00:00Z",
       }),
     ]);
-    const insurance = rows.find((r) => r.type === "insurance");
-    expect(insurance?.entityDoc?.id).toBe("ins-old");
-    expect(insurance?.entityDoc?.expiry_date).toBe("2027-08-15");
-    expect(insurance?.status).toBe("verified");
+    const insurance = rows.filter((r) => r.type === "insurance");
+    expect(insurance).toHaveLength(2);
+    expect(insurance[0]?.entityDoc?.id).toBe("ins-old");
+    expect(insurance[0]?.required).toBe(true);
+    expect(insurance[0]?.status).toBe("verified");
+    expect(insurance[1]?.entityDoc?.id).toBe("ins-new");
+    expect(insurance[1]?.required).toBe(false);
+    expect(insurance[1]?.status).toBe("pending");
   });
 });
 

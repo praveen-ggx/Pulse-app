@@ -26,6 +26,7 @@ jest.mock("@/lib/supabase", () => ({
       if (table === "trip_documents") return mockMakeThenable(mockTripDocsResult);
       if (table === "trips") return mockMakeThenable({ data: [], error: null });
       if (table === "transactions") return mockMakeThenable({ data: [], error: null });
+      if (table === "trip_workflow_events") return mockMakeThenable({ data: [], error: null });
       throw new Error(`unexpected table ${table}`);
     },
   }),
@@ -214,7 +215,7 @@ describe("rows / checklist / stage agree on the classification", () => {
     return {
       id: "trip-1",
       organization_id: "org-1",
-      status: "delivered",
+      status: "in_transit",
       vehicle_id: null,
       owner_vehicle_id: null,
       driver_id: null,
@@ -227,11 +228,11 @@ describe("rows / checklist / stage agree on the classification", () => {
 
   async function stageFor(docs: ComplianceDocumentRow[]) {
     mockTripDocsResult = { data: docs, error: null };
-    const [summary] = await buildComplianceTripSummaries([makeTrip()]);
+    const [summary] = await buildComplianceTripSummaries([makeTrip()], "org-1");
     return summary;
   }
 
-  it("typed E-way details: row present (not missing), on checklist, stage not Pending Docs", async () => {
+  it("typed E-way details: row present (not missing), on checklist; stage stays Pending Docs without vehicle and driver files", async () => {
     const docs = [lrFile, invoiceFile, fixtures.ewayDetails];
     const ewayRow = deriveComplianceDocumentRows(docs).find((r) => r.type === "eway_bill");
     expect(ewayRow?.status).toBe("pending");
@@ -239,7 +240,7 @@ describe("rows / checklist / stage agree on the classification", () => {
     expect(classifyTripDocument(ewayRow?.doc).hasBinary).toBe(false);
     expect(isTripVaultDocumentOnFile(fixtures.ewayDetails)).toBe(true);
     const summary = await stageFor(docs);
-    expect(summary.stage).toBe("compliance_pending");
+    expect(summary.stage).toBe("pending_for_docs");
     expect(summary.documentCounts.total).toBe(3);
   });
 

@@ -577,6 +577,8 @@ export async function executeLogIncomingPods(payload: LogPodsPayload): Promise<{
     dbCourierPartners,
     mappedAttachments,
   } = payload;
+  // Recorded on the POD_LOGGED activity entry, same fallback as markSelectedTripsHardCopyPodReceived.
+  const receivedAt = str(payload.receivedAt) || new Date().toISOString();
 
   const finalCourierName = resolveCourierName(
     courierValue,

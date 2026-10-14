@@ -2,6 +2,8 @@
  * Batch LR/POD index from trip_documents — replaces retired trip_lrs reads.
  * One IN query (chunked), mapped in memory. No compatibility table/view.
  */
+import { IBOND_DEDUCTIBLE_COST } from "@/features/debit-control/utils/debitControlPod.model";
+import { vendorCostAfterIbond } from "@/features/debit-control/utils/podChargeTotals.util";
 import { supabase } from "@/lib/supabase";
 import { expandLR } from "@/lib/utils/lr";
 import { parseLrFieldValues } from "@/features/trips/services/lrDocumentOcr.util";
@@ -217,6 +219,12 @@ export type TripHardCopyPodState = {
   receivedDate: string | null;
   receivedTime: string | null;
   actorId: string | null;
+  /** Hard copy was received as IBond, without a person or courier receipt. */
+  ibond: boolean;
+  /** Frozen on the receipt event. Null for person/courier receipts. */
+  ibondDeductibleCost: number | null;
+  ibondVendorCostBefore: number | null;
+  ibondVendorCostAfter: number | null;
 };
 
 type HardCopyPodCommentPayload = {
@@ -227,6 +235,10 @@ type HardCopyPodCommentPayload = {
   receipt_method?: HardCopyPodReceiptMethod | null;
   dispatch_date?: string | null;
   expected_delivery_date?: string | null;
+  ibond?: boolean;
+  ibond_deductible_cost?: number | null;
+  vendor_cost_before?: number | null;
+  vendor_cost_after?: number | null;
 };
 
 export function resolveHardCopyPodStatus(trip: {
@@ -248,6 +260,10 @@ export function encodeHardCopyPodComment(input: {
   receiptMethod?: HardCopyPodReceiptMethod | null;
   dispatchDate?: string | null;
   expectedDeliveryDate?: string | null;
+  ibond?: boolean;
+  ibondDeductibleCost?: number | null;
+  vendorCostBefore?: number | null;
+  vendorCostAfter?: number | null;
 }): string | null {
   const remarks = String(input.remarks ?? "").trim() || null;
   const receivedDate = String(input.receivedDate ?? "").trim() || null;
@@ -255,13 +271,15 @@ export function encodeHardCopyPodComment(input: {
   const receiptMethod = input.receiptMethod ?? null;
   const dispatchDate = String(input.dispatchDate ?? "").trim() || null;
   const expectedDeliveryDate = String(input.expectedDeliveryDate ?? "").trim() || null;
+  const ibond = input.ibond === true;
   if (
     !remarks &&
     !receivedDate &&
     !receivedTime &&
     !receiptMethod &&
     !dispatchDate &&
-    !expectedDeliveryDate
+    !expectedDeliveryDate &&
+    !ibond
   ) {
     return null;
   }
@@ -273,17 +291,75 @@ export function encodeHardCopyPodComment(input: {
     receipt_method: receiptMethod,
     dispatch_date: dispatchDate,
     expected_delivery_date: expectedDeliveryDate,
+    ibond,
+    ibond_deductible_cost: input.ibond ? moneyOrNull(input.ibondDeductibleCost) : null,
+    vendor_cost_before: input.ibond ? moneyOrNull(input.vendorCostBefore) : null,
+    vendor_cost_after: input.ibond ? moneyOrNull(input.vendorCostAfter) : null,
   };
   return JSON.stringify(payload);
 }
 
-export function decodeHardCopyPodComment(raw: string | null | undefined): {
+function moneyOrNull(value: number | null | undefined): number | null {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount < 0) return null;
+  return Math.round(amount * 100) / 100;
+}
+
+/** Original vendor freight. `supplier_rate` is left unchanged so a later read cannot deduct again. */
+export function vendorFreightBeforeIbond(row: {
+  supplier_rate?: number | null;
+  supplier_rate_basis?: string | null;
+  load_tons?: number | null;
+}): number {
+  const rate = Number(row.supplier_rate);
+  if (!Number.isFinite(rate) || rate <= 0) return 0;
+  if (row.supplier_rate_basis === "per_mt") {
+    const tons = Number(row.load_tons);
+    if (!Number.isFinite(tons) || tons <= 0) return 0;
+    return Math.round(rate * tons * 100) / 100;
+  }
+  return rate;
+}
+
+function decodedComment(parsed: HardCopyPodCommentPayload): {
   remarks: string | null;
   receivedDate: string | null;
   receivedTime: string | null;
   receiptMethod: HardCopyPodReceiptMethod | null;
   dispatchDate: string | null;
   expectedDeliveryDate: string | null;
+  ibond: boolean;
+  ibondDeductibleCost: number | null;
+  vendorCostBefore: number | null;
+  vendorCostAfter: number | null;
+} {
+  const method = parsed.receipt_method;
+  const ibond = parsed.ibond === true;
+  return {
+    remarks: String(parsed.remarks ?? "").trim() || null,
+    receivedDate: String(parsed.received_date ?? "").trim() || null,
+    receivedTime: String(parsed.received_time ?? "").trim() || null,
+    receiptMethod: method === "person" || method === "courier" ? method : null,
+    dispatchDate: String(parsed.dispatch_date ?? "").trim() || null,
+    expectedDeliveryDate: String(parsed.expected_delivery_date ?? "").trim() || null,
+    ibond,
+    ibondDeductibleCost: ibond ? moneyOrNull(parsed.ibond_deductible_cost) : null,
+    vendorCostBefore: ibond ? moneyOrNull(parsed.vendor_cost_before) : null,
+    vendorCostAfter: ibond ? moneyOrNull(parsed.vendor_cost_after) : null,
+  };
+}
+
+export function decodeHardCopyPodComment(raw: unknown): {
+  remarks: string | null;
+  receivedDate: string | null;
+  receivedTime: string | null;
+  receiptMethod: HardCopyPodReceiptMethod | null;
+  dispatchDate: string | null;
+  expectedDeliveryDate: string | null;
+  ibond: boolean;
+  ibondDeductibleCost: number | null;
+  vendorCostBefore: number | null;
+  vendorCostAfter: number | null;
 } {
   const empty = {
     remarks: null,
@@ -292,30 +368,48 @@ export function decodeHardCopyPodComment(raw: string | null | undefined): {
     receiptMethod: null,
     dispatchDate: null,
     expectedDeliveryDate: null,
+    ibond: false,
+    ibondDeductibleCost: null,
+    vendorCostBefore: null,
+    vendorCostAfter: null,
   };
+  if (raw && typeof raw === "object") {
+    const parsed = raw as HardCopyPodCommentPayload;
+    if (parsed.v === 1 || parsed.ibond === true) return decodedComment(parsed);
+  }
   const text = String(raw ?? "").trim();
-  if (!text) return empty;
+  if (!text || text === "[object Object]") return empty;
   if (text.startsWith("{")) {
     try {
       const parsed = JSON.parse(text) as HardCopyPodCommentPayload;
-      if (parsed && parsed.v === 1) {
-        const method = parsed.receipt_method;
-        return {
-          remarks: String(parsed.remarks ?? "").trim() || null,
-          receivedDate: String(parsed.received_date ?? "").trim() || null,
-          receivedTime: String(parsed.received_time ?? "").trim() || null,
-          receiptMethod:
-            method === "person" || method === "courier" ? method : null,
-          dispatchDate: String(parsed.dispatch_date ?? "").trim() || null,
-          expectedDeliveryDate:
-            String(parsed.expected_delivery_date ?? "").trim() || null,
-        };
-      }
+      if (parsed && (parsed.v === 1 || parsed.ibond === true)) return decodedComment(parsed);
     } catch {
       // plain-text legacy comment
     }
   }
   return { ...empty, remarks: text };
+}
+
+const DISPATCH_DATE_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Courier dispatch date required by the live RPC.
+ * Missing, blank, and non-calendar values stay on the client.
+ */
+export function courierDispatchDateError(value: string | null | undefined): string | null {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return "Dispatch date is required.";
+  if (!DISPATCH_DATE_ISO.test(trimmed)) return "Use YYYY-MM-DD for the dispatch date.";
+  const [year, month, day] = trimmed.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    return "Use YYYY-MM-DD for the dispatch date.";
+  }
+  return null;
 }
 
 /**
@@ -327,7 +421,7 @@ export async function logTripHardCopyPodCourier(
   input: {
     courier: string;
     awbNumber: string;
-    dispatchDate: string;
+    dispatchDate?: string | null;
     expectedDeliveryDate?: string | null;
     courierContact?: string | null;
     remarks?: string | null;
@@ -340,7 +434,8 @@ export async function logTripHardCopyPodCourier(
   const dispatchDate = String(input.dispatchDate ?? "").trim();
   if (!courier) return { error: new Error("Courier name is required.") };
   if (!awbNumber) return { error: new Error("Tracking / AWB number is required.") };
-  if (!dispatchDate) return { error: new Error("Dispatch date is required.") };
+  const dispatchDateError = courierDispatchDateError(dispatchDate);
+  if (dispatchDateError) return { error: new Error(dispatchDateError) };
 
   const { data, error } = await supabase().rpc("log_trip_hard_copy_pod_courier", {
     p_trip_id: id,
@@ -416,6 +511,10 @@ export async function fetchTripHardCopyPodState(
         receivedDate: null,
         receivedTime: null,
         actorId: null,
+        ibond: false,
+        ibondDeductibleCost: null,
+        ibondVendorCostBefore: null,
+        ibondVendorCostAfter: null,
       },
     };
   }
@@ -438,6 +537,10 @@ export async function fetchTripHardCopyPodState(
   let expectedDeliveryDate: string | null = null;
   let courierContact: string | null = null;
   let actorId: string | null = null;
+  let ibond = false;
+  let ibondDeductibleCost: number | null = null;
+  let ibondVendorCostBefore: number | null = null;
+  let ibondVendorCostAfter: number | null = null;
 
   if (status === "RECEIVED") {
     const { data: event } = await supabase()
@@ -456,6 +559,10 @@ export async function fetchTripHardCopyPodState(
     };
     const decoded = decodeHardCopyPodComment(payload.comment);
     remarks = decoded.remarks;
+    ibond = decoded.ibond;
+    ibondDeductibleCost = decoded.ibondDeductibleCost;
+    ibondVendorCostBefore = decoded.vendorCostBefore;
+    ibondVendorCostAfter = decoded.vendorCostAfter;
     receivedDate = decoded.receivedDate;
     receivedTime = decoded.receivedTime;
     dispatchDate = decoded.dispatchDate;
@@ -535,8 +642,127 @@ export async function fetchTripHardCopyPodState(
       receivedDate,
       receivedTime,
       actorId,
+      ibond,
+      ibondDeductibleCost,
+      ibondVendorCostBefore,
+      ibondVendorCostAfter,
     },
   };
+}
+
+/**
+ * Persist IBond and move the trip to Received POD in one RPC transaction.
+ * The vendor snapshot is frozen on the receipt event. `supplier_rate` is not reduced,
+ * so a second save reads the same original freight and does not deduct again.
+ */
+export async function saveTripIbondReceipt(tripId: string): Promise<{
+  error: Error | null;
+  alreadySaved?: boolean;
+  receivedAt: string | null;
+  deductibleCost: number | null;
+  vendorCostBefore: number | null;
+  vendorCostAfter: number | null;
+}> {
+  const id = String(tripId ?? "").trim();
+  const empty = {
+    error: new Error("Trip is not linked."),
+    receivedAt: null,
+    deductibleCost: null,
+    vendorCostBefore: null,
+    vendorCostAfter: null,
+  };
+  if (!id) return empty;
+
+  const existing = await fetchTripHardCopyPodState(id);
+  if (existing.error) {
+    return { ...empty, error: existing.error };
+  }
+  if (existing.state?.ibond) {
+    return {
+      error: null,
+      alreadySaved: true,
+      receivedAt: existing.state.receivedAt,
+      deductibleCost: existing.state.ibondDeductibleCost,
+      vendorCostBefore: existing.state.ibondVendorCostBefore,
+      vendorCostAfter: existing.state.ibondVendorCostAfter,
+    };
+  }
+  if (existing.state?.status === "RECEIVED") {
+    return {
+      ...empty,
+      error: new Error("This trip's hard-copy POD was already recorded as received."),
+    };
+  }
+
+  const { data: trip, error: tripError } = await supabase()
+    .from("trips")
+    .select("supplier_rate, supplier_rate_basis, load_tons")
+    .eq("id", id)
+    .maybeSingle();
+  if (tripError) return { ...empty, error: new Error(tripError.message) };
+  if (!trip) return { ...empty, error: new Error("Trip is not linked.") };
+
+  const vendorCostBefore = vendorFreightBeforeIbond(trip);
+  const vendorCostAfter = vendorCostAfterIbond(vendorCostBefore, true);
+  const saved = await markTripHardCopyPodReceived(id, {
+    comment: encodeHardCopyPodComment({
+      ibond: true,
+      ibondDeductibleCost: IBOND_DEDUCTIBLE_COST,
+      vendorCostBefore,
+      vendorCostAfter,
+    }),
+  });
+  if (saved.error) return { ...empty, error: saved.error };
+  if (saved.alreadyReceived) {
+    const again = await fetchTripHardCopyPodState(id);
+    if (again.state?.ibond) {
+      return {
+        error: null,
+        alreadySaved: true,
+        receivedAt: again.state.receivedAt,
+        deductibleCost: again.state.ibondDeductibleCost,
+        vendorCostBefore: again.state.ibondVendorCostBefore,
+        vendorCostAfter: again.state.ibondVendorCostAfter,
+      };
+    }
+    return {
+      ...empty,
+      error: new Error("This trip's hard-copy POD was already recorded as received."),
+    };
+  }
+
+  const confirmed = await fetchTripHardCopyPodState(id);
+  if (confirmed.error || !confirmed.state?.ibond) {
+    return {
+      ...empty,
+      error: confirmed.error ?? new Error("IBond was not saved."),
+    };
+  }
+  return {
+    error: null,
+    receivedAt: confirmed.state.receivedAt,
+    deductibleCost: confirmed.state.ibondDeductibleCost,
+    vendorCostBefore: confirmed.state.ibondVendorCostBefore,
+    vendorCostAfter: confirmed.state.ibondVendorCostAfter,
+  };
+}
+
+/** Trips whose hard-copy receipt was saved as IBond. */
+export async function fetchHardCopyIbondTripIds(tripIds: string[]): Promise<Set<string>> {
+  const found = new Set<string>();
+  if (tripIds.length === 0) return found;
+  const { data, error } = await supabase()
+    .from("trip_workflow_events")
+    .select("trip_id, payload")
+    .eq("event_type", "pod.hard_copy_received")
+    .in("trip_id", tripIds);
+  if (error) throw new Error(error.message);
+  for (const row of data ?? []) {
+    const record = row as { trip_id?: string; payload?: { comment?: string | null } | null };
+    const tripId = String(record.trip_id ?? "").trim();
+    if (tripId && decodeHardCopyPodComment(record.payload?.comment).ibond) found.add(tripId);
+  }
+  return found;
 }
 
 export function receivedLrNumbersForTrip(
@@ -670,10 +896,11 @@ export function __resetTripDocumentLrPodRpcProbeForTests(): void {
 async function fetchLrPodRowsViaRest(
   tripIds: string[],
   documentTypes: string[],
+  concurrency: number = CHUNK_CONCURRENCY,
 ): Promise<TripDocumentLrPodRow[]> {
   const chunks = chunkIds(tripIds, TRIP_ID_CHUNK_REST);
   if (chunks.length === 0) return [];
-  const results = await runWithConcurrencyLimit(chunks, CHUNK_CONCURRENCY, async (chunk) => {
+  const results = await runWithConcurrencyLimit(chunks, concurrency, async (chunk) => {
     try {
       const { data, error } = await supabase()
         .from("trip_documents")
@@ -742,7 +969,11 @@ export async function loadHubPodReceiptFlags(
   const viaRpc = await fetchLrPodRowsViaRpc(wanted);
   const rows =
     viaRpc ??
-    (await fetchLrPodRowsViaRest(wanted, ["pod", "soft_pod", "pod_soft", "eway_bill"]));
+    (await fetchLrPodRowsViaRest(
+      wanted,
+      ["pod", "soft_pod", "pod_soft", "eway_bill"],
+      1,
+    ));
 
   for (const row of rows) {
     const id = normalizeTripPodId(row.trip_id);

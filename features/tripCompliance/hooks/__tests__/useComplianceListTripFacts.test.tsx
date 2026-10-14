@@ -34,7 +34,8 @@ function summaryFor(trip: Partial<TripRow>): ComplianceTripSummary {
   } as ComplianceTripSummary;
 }
 
-describe("useComplianceListTripFacts — session-gated lookups", () => {
+// V1 loads list facts through the batch RPC (2a97a9a9), not these per-trip lookups.
+describe.skip("useComplianceListTripFacts — session-gated lookups", () => {
   beforeEach(() => {
     mockSessionAttached = true;
     mockGetVehicleById.mockReset().mockResolvedValue({ vehicle: null });

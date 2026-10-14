@@ -31,7 +31,7 @@ export function complianceTripDocMaxMb(maxBytes = MAX_TRIP_DOC_BYTES): number {
 }
 
 export function complianceTripDocFormatHint(maxBytes = MAX_TRIP_DOC_BYTES): string {
-  return `${COMPLIANCE_TRIP_DOC_FORMAT_LABEL} • Maximum ${complianceTripDocMaxMb(maxBytes)} MB. Replacement updates this document type on this trip.`;
+  return `${COMPLIANCE_TRIP_DOC_FORMAT_LABEL} • Up to ${complianceTripDocMaxMb(maxBytes)} MB per file. Large scans load in the preview panel.`;
 }
 
 export function fileExtension(fileName: string | null | undefined): string {

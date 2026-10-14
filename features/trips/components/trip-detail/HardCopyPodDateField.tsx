@@ -44,12 +44,17 @@ export function HardCopyPodDateField({
   onChange,
   required,
   error,
+  disabled = false,
+  compact = false,
 }: {
   label: string;
   value: string;
   onChange: (iso: string) => void;
   required?: boolean;
   error?: string | null;
+  disabled?: boolean;
+  /** Shorter shell for dense forms. Behavior is unchanged. */
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const fieldId = useId();
@@ -57,8 +62,8 @@ export function HardCopyPodDateField({
   const hasError = Boolean(error?.trim());
 
   return (
-    <View style={styles.field}>
-      <Text style={styles.label} nativeID={`${fieldId}-label`}>
+    <View style={[styles.field, compact && styles.fieldCompact]}>
+      <Text style={[styles.label, compact && styles.labelCompact]} nativeID={`${fieldId}-label`}>
         {label}
         {required ? <Text style={styles.req}> *</Text> : null}
       </Text>
@@ -66,6 +71,7 @@ export function HardCopyPodDateField({
         <View
           style={[
             styles.shell,
+            compact && styles.shellCompact,
             hasError ? styles.shellError : null,
             isoValue ? styles.shellFilled : null,
           ]}
@@ -74,6 +80,7 @@ export function HardCopyPodDateField({
             id: fieldId,
             type: "date",
             value: isoValue,
+            disabled,
             required: Boolean(required),
             "aria-label": label,
             "aria-required": required ? true : undefined,
@@ -88,9 +95,9 @@ export function HardCopyPodDateField({
               border: "none",
               outline: "none",
               background: "transparent",
-              fontSize: 14,
+              fontSize: compact ? 13 : 14,
               fontWeight: 600,
-              lineHeight: "20px",
+              lineHeight: compact ? "18px" : "20px",
               color: Theme.textPrimaryDark,
               fontFamily:
                 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
@@ -104,9 +111,13 @@ export function HardCopyPodDateField({
       ) : (
         <>
           <Pressable
-            onPress={() => setOpen(true)}
+            onPress={() => {
+              if (!disabled) setOpen(true);
+            }}
+            disabled={disabled}
             style={({ pressed }) => [
               styles.shell,
+              compact && styles.shellCompact,
               hasError ? styles.shellError : null,
               isoValue ? styles.shellFilled : null,
               pressed && { opacity: 0.9 },
@@ -115,10 +126,10 @@ export function HardCopyPodDateField({
             accessibilityLabel={label}
             accessibilityHint={required ? "Required" : undefined}
           >
-            <Text style={[styles.valueText, !isoValue && styles.placeholder]}>
+            <Text style={[styles.valueText, compact && styles.valueTextCompact, !isoValue && styles.placeholder]}>
               {isoValue ? formatDisplay(isoValue) : "dd/mm/yyyy"}
             </Text>
-            <Calendar size={16} color={Theme.textMuted} strokeWidth={2} />
+            <Calendar size={compact ? 14 : 16} color={Theme.textMuted} strokeWidth={2} />
           </Pressable>
           {open && Platform.OS === "android" ? (
             <DateTimePicker
@@ -173,6 +184,8 @@ export function HardCopyPodDateField({
 
 const styles = StyleSheet.create({
   field: { gap: 6, width: "100%", alignSelf: "stretch" },
+  fieldCompact: { gap: 4 },
+  labelCompact: { fontSize: 10, letterSpacing: 0.4 },
   label: {
     fontSize: 11,
     fontWeight: "700",
@@ -192,6 +205,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
+  shellCompact: {
+    minHeight: 32,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+  },
   shellFilled: {
     borderColor: Theme.borderInput,
   },
@@ -205,6 +223,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Theme.textPrimaryDark,
   },
+  valueTextCompact: { fontSize: 13 },
   placeholder: {
     color: Theme.textMuted,
     fontWeight: "500",

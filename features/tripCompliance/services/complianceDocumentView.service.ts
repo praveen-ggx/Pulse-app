@@ -22,7 +22,14 @@ import {
   type ComplianceActorDetail,
 } from "@/features/tripCompliance/utils/complianceDocumentActivity.util";
 
-export type ComplianceViewSource = "vehicle-vault" | "driver-kyc" | "entity" | "trip" | null | undefined;
+export type ComplianceViewSource =
+  | "vehicle-vault"
+  | "driver-kyc"
+  | "entity"
+  | "supplier-kyc"
+  | "trip"
+  | null
+  | undefined;
 
 function rewriteStoragePathOrg(path: string, organizationId: string): string | null {
   const parts = path.split("/").filter(Boolean);
@@ -101,7 +108,7 @@ export async function signCompliancePreviewUrl(input: {
       }
       return null;
     }
-    if (source === "entity") {
+    if (source === "entity" || source === "supplier-kyc") {
       const { url } = await getComplianceDocumentSignedUrl(path);
       if (url) return url;
       return await getVehicleDocumentViewUrl(path);

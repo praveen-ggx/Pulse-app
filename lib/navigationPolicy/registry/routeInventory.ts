@@ -95,6 +95,7 @@ export const ROUTE_INVENTORY: readonly RouteInventoryEntry[] = [
   { file: 'app/invoicing-execute/manual.tsx', samplePath: '/invoicing-execute/manual' },
   { file: 'app/load-board/index.tsx', samplePath: '/load-board' },
   { file: 'app/log-incoming-pods/index.tsx', samplePath: '/log-incoming-pods' },
+  { file: 'app/debit-control/index.tsx', samplePath: '/debit-control' },
   { file: 'app/milestone/index.tsx', samplePath: '/milestone' },
   { file: 'app/modal.tsx', samplePath: '/modal' },
   { file: 'app/network-user/index.tsx', samplePath: '/network-user' },

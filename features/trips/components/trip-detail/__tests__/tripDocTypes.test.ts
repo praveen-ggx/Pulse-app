@@ -153,12 +153,12 @@ describe("vaultDocHasPreviewableFile", () => {
 });
 
 describe("vaultPickerRejectionMessage", () => {
-  it("rejects files over 10 MB", () => {
+  it("rejects files over 100 MB", () => {
     expect(
       vaultPickerRejectionMessage([
-        { name: "scan.pdf", mimeType: "application/pdf", size: 11 * 1024 * 1024 },
+        { name: "scan.pdf", mimeType: "application/pdf", size: 101 * 1024 * 1024 },
       ]),
-    ).toMatch(/10 MB/);
+    ).toMatch(/100 MB/);
   });
 
   it("rejects unsupported types", () => {

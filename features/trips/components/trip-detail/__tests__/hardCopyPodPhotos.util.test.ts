@@ -19,9 +19,9 @@ describe("hard copy POD photos", () => {
     ).toMatch(/not supported/);
   });
 
-  it("rejects files over the existing 10 MB limit and does not cap photo count", () => {
-    const huge = { name: "scan.jpg", mimeType: "image/jpeg", size: 11 * 1024 * 1024 };
-    expect(hardCopyPodPhotoRejectionMessage([huge])).toMatch(/10 MB/);
+  it("rejects files over the existing 100 MB limit and does not cap photo count", () => {
+    const huge = { name: "scan.jpg", mimeType: "image/jpeg", size: 101 * 1024 * 1024 };
+    expect(hardCopyPodPhotoRejectionMessage([huge])).toMatch(/100 MB/);
     const many = Array.from({ length: 12 }, (_, index) => ({
       name: `pod-${index}.jpg`,
       mimeType: "image/jpeg",

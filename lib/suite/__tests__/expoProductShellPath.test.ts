@@ -16,6 +16,7 @@ describe("expo product shell path", () => {
     expect(expoProductShellIdFromPathname("/invoicing-execute")).toBe("invoice");
     expect(expoProductShellIdFromPathname("/pod-reconciliation")).toBe("pod");
     expect(expoProductShellIdFromPathname("/log-incoming-pods")).toBe("pod");
+    expect(expoProductShellIdFromPathname("/debit-control")).toBe("pod");
   });
 
   it("does not treat Core workspace as a product shell", () => {

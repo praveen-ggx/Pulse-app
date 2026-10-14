@@ -1,0 +1,201 @@
+# nihas team-sync-v1.0.1 — Compliance finance approval and resubmit flow
+
+## What
+- Database for the new Compliance flow: a Finance "Approve Advance" step before the advance can be posted, Reject / Compliance Hold that waits for a Ground Ops resubmit with a note, and gates so Verify cannot skip the resubmit and Resubmit cannot skip required files.
+- Compliance screen for the new flow: Advance Verification (read-only review + Approve Advance with undo), Advance Payment form with UTR, transaction date (typed or calendar) and optional paid-from bank, tab renames, Resubmit with a note, Verify blocked until resubmit, preset Decline reasons, and one row per document type with a files dialog (preview full screen, replace, remove, add).
+- Hardening database: Resubmit now checks vehicle and driver files and that trip files exist in storage; Finance can flag a trip for Compliance (blocks the advance); approved and post-verify required files cannot be deleted; payments record the paid-from bank account.
+- Hardening screens: Flag to Compliance for Finance and a Flagged by finance list for Compliance, Replace swaps the file in place (no duplicates), required files locked after verify, paid-from bank saved on the payment, calendar allows tomorrow like typing, Advance Processed sub-tab under Awaiting POD, clearer Verify error, and the Compliance sub-filter wraps instead of being cut off.
+- Finance feedback fixes: Finance Reject permission (no verify), truck type shows size, flagged trips show "Flagged" and export as "Flagged for Compliance", Rate per MT only for per-MT rates, Advance Verification has one list, trip panel and payment form scroll instead of cutting values off, Trip Ops get Resubmit by default.
+- Verifier fixes: Upload / Replace / Remove on trip files only for people with Resubmit (Ground Ops) or Finance on finance files; once zoomed in, scroll moves the document and Ctrl+scroll or pinch zooms; a verified delivered trip stays in Advance Verification / Advance Payment until the advance is posted (still listed under Awaiting POD).
+- Trip numbers past 999 no longer get cut to 3 digits (TRP1007 became TRP100 and clashed), which made trip conversion fail.
+- Decline reasons per tab: each tab's Decline shows only Trip, Vehicle or Driver reasons; the whole-trip Decline is pre-filled from the declined documents (grouped by reason); Ground Ops sees each declined document's reason on its row and in the files dialog.
+- Zoomed document preview no longer goes blank after dragging or scrolling (inline and full screen).
+- Member access rework: one department per permission (Finance, Sales / Network, Operations, Supply, Vendor support, Compliance, Debit control, IT dept), new Vendor support role, Finance-only Compliance tabs, Sales books trips and owns indents, Invite uses the same access editor as Edit member, and pages that were open by link now check their own toggle.
+- New Debit control role (hard-copy POD and the Debit Control page, read-only trips and documents, no payments), and picking Sales / Finance / TripOps now saves that exact role instead of re-deriving it.
+- Google signup no longer writes a business signup form onto a different person's account: if the Google name doesn't match the form (or the account is over a day old), nothing is saved and the user is told to sign up with the business's own account.
+- Sales team locked as final (34 permissions incl. award indent to supplier); removed the dead From clients toggle that controlled nothing.
+- Ground Ops with no warehouse assigned now see "No warehouse assigned — ask your admin to assign your warehouse" on Trips and Compliance instead of an empty list.
+- Owners can assign warehouses to Ground Ops in Member access and Invite: a compact picker (collapsed summary, search, grouped by client, select-all per client); saves to the member's warehouse list, or onto the pending invite for people without an account yet.
+- New indents are linked to the client warehouse their pickup was picked from (any create path: indent form, Create trip share-as-indent, duplicates), so Ground Ops assigned to that warehouse see the trip; the no-warehouse notice now re-checks every time the screen opens.
+- Ground Ops (and TripOps) now see their held and Finance-declined trips under Document Upload → Compliance Hold / Declined by finance, for their own warehouses only.
+- Database fix: Ground Ops can now read their warehouse trips directly, so held / finance-declined details load and the Compliance Hold count works.
+- Debit control sees only completed trips on the Compliance page, in every tab including All.
+- Fix: the Compliance page crashed (useActiveWorkspace must be used within an ActiveWorkspaceProvider) after the Ground Ops warehouse notice was added.
+- Debit control rework on the Compliance page: completed trips only; no All tab (same as Awaiting POD; its sub-filter Inbox renamed All); no document checklist / preview; cards show POD facts only (no compliance / finance badges, holds or flags); a 13-column table (Trip ID, Date, LR, From, To, Client, Vendor, Driver mob no, Truck type, Truck no, Completed date, POD delay days, Soft copy POD eye opening the full-screen viewer with prev / next); tapping a trip on Awaiting POD opens Log hard copy POD full screen. Log hard copy POD is now one shared component with a clean full-screen layout, hides already-received LRs, and keeps the user ticked LRs when the list refreshes.
+- Finance on the Compliance page: Reject shows (it needed the Compliance verify permission), Flag to Compliance retired (button, badge, notes, blocked status and Flagged by finance sub-tab removed), vendor name opens the supplier detail page and now actually navigates, document eye shows grey when the viewer cannot open it; Edit member warns when saved access differs from the role preset with a Reset to preset button.
+- Praveen supplier page changes (praveen/V1.0.6 eac2faed): supplier profile edits, primary region and multiple bank accounts now save and survive refresh; Aadhaar shown formatted.
+- Fixed the 6 type errors Praveen supplier change added (unreachable supplier checks in the client edit block, refetch return type, web cursor style).
+- Release set for Praveen supplier profile migrations.
+- Compliance advance and balance are now recorded as money paid to the supplier, not money received from the client, so they show as Supplier paid on Trip Detail. Beneficiary in the Compliance screens and exports comes only from the account holder name.
+- Advance Payment tab has Pending / Paid sub-tabs: Pending is ready to pay, Paid lists every trip whose advance is posted (UTR / date table and export). Added the Trip Documents reference and the Vasanth baseline roadmap docs.
+- Payment request numbers (SAT812-PAY-000001…): issued when Finance approves an advance, cancelled (not deleted) on undo, linked to the Compliance payment when it posts; shown read-only in the Paid table and in one Advance Payment export (Pending + Paid, STATUS column). Compliance page and exports now keep older trips still open in Compliance instead of only the newest 400.
+- A trip rejected after Compliance verify can't have its advance approved or posted until Compliance verifies it again (database rule plus hidden Approve Advance; the "pay a rejected trip" option is removed). Fixed trip cards not switching when clicked on the Compliance page.
+- Declined by finance → Ground Ops resubmits → the trip goes straight back to Finance (Advance Verification) as Verified, with no second Compliance verify; approving or paying stays blocked only while the reject is open. Compliance page search now stays inside the open tab and sub-tab.
+- Trip cards show a RESUBMITTED tag with the Finance reject reason and Ground Ops' resubmit note once a declined trip is back with Finance (until the advance posts).
+- Synced with vasanth/V1.0.1 (6f36254c: Network suggested partners beside Your connections, pager fix) for the PR to Vasanth.
+- Trip Detail Asset Vault shows a partner truck's RC / fitness / insurance uploaded by the trip org (they were saved under the trip org and the vault only read the owner's vehicle row).
+- Vehicle Documents popup keeps a partner truck's RC / fitness / insurance: opening the popup no longer resets them to the owner's empty list.
+- Delivered trips now load RC / Fitness / Insurance into the Asset Vault Vehicle Documents popup.
+- Synced Vasanth's V1.0.1 again (My Bids pool revision UX) and added a migration that re-applies his Gate 1A quote-accept guard.
+- Compliance pay refuses to post when the live compliance status read fails, instead of trusting the cached trip (restores Vasanth's cbbbc035 fail-closed rule).
+- Jest green: fixed the five test suites that also fail on Vasanth's V1.0.1 (stale mocks and source checks, a slow first sign-in render, and a dynamic import Jest cannot run).
+
+## Why
+- Finance needs to check the advance values before money goes out, and trips sent back for fixes were either stuck or could be verified without Ground Ops fixing anything.
+- Ground Ops can fix and resubmit from any Document Upload view, Compliance gets clear reasons, and duplicate per-file rows (Invoice 1, 2, 3) were hard to manage.
+- Close gaps found in the end-to-end audit before release.
+- Finance had no in-app way to raise a problem, and small issues from the audit (duplicates on replace, unreachable Advance Processed export, misleading error text, cut-off filter).
+- Dhira's 11 Oct feedback (truck size blocker, export confusion, missing Reject, wrong per-MT, cut-off screens) and stuck holds because no Ground Ops user could resubmit.
+- Dinesh's 12 Oct feedback: a compliance verifier could replace or delete trip files, zoomed documents could not be moved around on Windows, and a delivered but unpaid trip skipped Finance after Verify.
+- GoGoVan prod hit trip 1007 and conversions started failing on a duplicate trip number.
+- Dinesh's trip Decline opened empty after declining documents, a driver reason could be picked on trip files, and Ground Ops never saw per-document reasons.
+- At 400% a small drag sent the page off-screen because the move was multiplied by the zoom on every redraw.
+- Permissions were duplicated across departments, Trip Ops had indents, Compliance saw settlement and POD, the invite flow only saved role defaults, and several finance / POD / audit pages could be opened by any member with a direct link (12 Oct audit).
+- GoGoVan needed a Debit control desk (Gayatri, Sathish), and saving a Sales member stored TripOps because Sales also has the Trips tab.
+- RCA for the GoGoVan row named SHIVSHAKTI TRANSPORT CO: on 2 Sep Dihya filled a transporter's business signup and pressed Continue with Google on her own work account, so the transporter's name, phone and address were saved onto her login, and her pending TripOps invite then joined it to GoGoVan under that name. NEW MAHAVEERA TRAILOR SERVICE (30 Sep) shows the same pattern.
+- Daisy signed off Sales on gx-pulse; the From clients toggle had no screen behind it, so switching it did nothing.
+- Gowtham (Ground Ops, GoGoVan) saw no trips: Ground Ops only see trips from their assigned warehouses, and he had none (no GoGoVan member or trip is linked to a warehouse yet).
+- Ground Ops only see trips from their assigned warehouses, and there was no screen anywhere to assign one (Gowtham saw no trips).
+- Assigning Gowtham 2 warehouses saved correctly but he still saw the notice (cached check) and 0 trips, because no indent was ever linked to a warehouse.
+- Gowtham showed 0 holds while 2 of his warehouse trips were held: a hold with every file uploaded derives Compliance Verification, and a Finance reject stays in the Finance lanes, both tabs Ground Ops don't have.
+- Still 0 holds for Gowtham after the screen fix: the Ground Ops trips rule checked the warehouse through indents, which Ground Ops are not allowed to read, so every direct trip read returned nothing.
+- First step of the Debit control rework (Nihas): Debit control works finished trips; All showed all 147 queue trips, running ones included.
+- /compliance renders outside the workspace provider; the new warehouse check used the throwing hook.
+- Nihas walkthrough of the Debit control desk (Gayatri, Sathish); multi-LR courier saves recorded only one LR because a background refresh reset the ticked LRs.
+- Dhira (Finance) could not open documents, saw Flag instead of Reject and could not open suppliers: old saved access, a leftover verify check, and ModelAccessGate checking member capabilities so Finance bounced off /supplier/:id.
+- Nihas asked to bring Praveen supplier detail page work into this branch.
+- Team rule: no new type errors in merged files.
+- Push his two migrations to preprod through the approved release-set path.
+- Compliance payouts were landing as Client received and inflating the client's paid amount; Beneficiary was falling back to the supplier name, which is not who the bank pays.
+- Finance could not see paid advances once the trip moved past Advance Payment (Awaiting POD is not their tab).
+- Finance needs a system Request ID before paying, and the Compliance queue was silently dropping old paid trips (SAT812-PAY-000002 / 000004 missing from the export).
+- SAT812GOGTRIP000970 was approved one minute after Ground Ops resubmitted it, with no Compliance re-check. Clicking a card snapped back to the page's previously focused trip.
+- Nihas: finance-declined trips should not loop through Compliance again. Search was jumping to other tabs.
+- Finance could not tell a resubmitted trip from a fresh one in Advance Verification.
+- Keep this branch current with his V1.0.1 before he opens the PR.
+- SAT812GOGTRIP000948 (SIVAN E's truck TN02BR4402) showed every vehicle document as Not uploaded although GoGoVan uploaded three.
+- The first fix was overwritten when the popup resolved the vault vehicle (000948 still showed Not uploaded).
+- Delivered trips open on a quick-load path that skips the vehicle, and nothing loaded its documents later, so every slot said Not uploaded (e.g. 000948).
+- An older team-V1 migration (20270930213000) redefines the same guard with a weaker body; if pushed after gate1a on prod it would undo his owner-only accept and lock checks.
+- Audit of Vasanth's work vs this branch: the team V1 import had replaced his fail-closed check with a silent fallback.
+- PR #1's only failing CI check was Jest, and a separate fix PR into V1.0.1 could not pass (no test script there yet, plus a logPods failure this branch fixes).
+
+## Areas
+- Supabase migrations and RPCs for trips compliance (finance approval, reject, decline, resubmit, verify).
+- Compliance screen, document panel, payment form, decline / resubmit dialogs, queue counts and routing, RBAC (new trip_compliance.trip.resubmit surface for Ground Ops).
+- Supabase RPCs, RLS and triggers on trips, trip_documents and transactions.
+- Compliance screen, document panel and files dialog, payment form, finance ledger insert (paid-from), trip document upload (replace by id), segmented filter.
+- Compliance screen and panels, payment form, export, RBAC presets, truck type lookups.
+- Compliance document panel and files dialog (edit permission), document preview (zoom / pan), compliance stage rule.
+- Trip numbering trigger on trips (set_trip_operational_identity).
+- Compliance document panel, decline dialog, files dialog, decline reason presets.
+- Compliance document preview (zoom / pan).
+- RBAC surface catalog and presets, member permissions panel and invite flow, invite service, Compliance page tab visibility, route gates for Finance Pro, invoicing, POD, Debit Control, ledger entry and audit, team invite buttons.
+- RBAC role presets and the shared permissions builder used by Invite and Edit member.
+- Google signup / OAuth callback (applyPendingOAuthMetadata), business signup flow alerts.
+- RBAC Sales preset and surface catalog.
+- Trips screen, Compliance page, new Ground Ops warehouse check (organization_member_warehouses, own rows only).
+- Member access editor (shared Invite / Edit), invite service, new member warehouses service.
+- createIndent (indents.warehouse_id), shared warehouse address helper used by the pickup picker, Ground Ops warehouse check.
+- Compliance page queue for people who resubmit but can't verify.
+- trips RLS for Ground Ops (new ground_ops_can_see_trip helper).
+- Compliance page queue for POD-only viewers.
+- Ground Ops warehouse check hook.
+- Compliance page (Debit control view), document workspace, new Debit control table, Log hard copy POD modal, new get_trip_driver_phones RPC.
+- Compliance page and workspace, payment panel, ModelAccessGate (suppliers / clients / vehicles / drivers), member access editor.
+- Supplier detail / profile, vendor onboarding vault, counterparty profile card, supplier services.
+- Counterparty profile card, supplier profile screen, vendor onboarding vault.
+- supabase/release-sets.
+- Compliance payment posting and edit, Compliance and Advance Processed reads, Advance Processed and Verified exports, payee details.
+- Compliance page stage sub-filters (app/compliance), docs.
+- Compliance Advance Payment tab and exports, Approve advance, trips list RPC (opt-in backlog flag; /trips unchanged).
+- Advance approval and posting gate, Compliance page card selection.
+- Compliance reject/resubmit routing and counts, advance approval gate, Compliance page search.
+- Compliance trip card.
+- Network page (his change, no overlap with this branch's files).
+- Trip Detail vault vehicle documents.
+- Trip Detail vault vehicle documents.
+- Trip Detail Asset Vault (vehicle documents).
+- Marketplace quote accept guard (database).
+- Compliance advance / balance posting.
+- Tests for sign-in, chat bootstrap, Load Center, Network pool; mutual-connections import.
+
+## Migrations
+- 20271008112000_finance_verified_step.sql, 20271008113000_compliance_reject_resubmit.sql, 20271008114000_compliance_hold_resubmit.sql, 20271008115000_compliance_resubmit_note.sql, 20271008116000_compliance_resubmit_gates.sql (all applied to preprod only; prod untouched). Release set: supabase/release-sets/preprod-finance-resubmit.versions.
+- None (uses the migrations from the previous commit).
+- 20271008117000_compliance_flow_hardening.sql (applied to preprod only; prod untouched).
+- None (uses 20271008117000 from the previous commit).
+- 20271008118000_finance_reject_truck_size.sql (applied to preprod only; prod untouched). Preprod GoGoVan member permissions updated (Dhira, Amilthan, 12 Trip Ops).
+- None.
+- 20271008119000_fix_trip_number_truncation.sql (applied to preprod only; prod needs Vasanth to run it). Added to the release set.
+- None.
+- None.
+- None (server checks leaf surface flags only). Existing preprod members keep their saved access; reset list prepared for review, nothing written.
+- None. Preprod GoGoVan members updated directly (8 rows, rollback SQL kept): Daisy, Praveen, Sandra → Sales; Dihya → Vendor support; Dineshkumar, Vaishnave → Compliance; Gayatri, Sathish → Debit control.
+- None. Preprod cleanup SQL for Dihya's old login handed to Nihas (the agent's preprod write was blocked).
+- None. Award works for the member org role (is_org_staff includes member), checked on preprod.
+- None.
+- None (organization_member_warehouses and the invite replay already exist).
+- None. Existing GoGoVan trips are still not linked to warehouses.
+- None. Preprod: GoGoVan indent→warehouse backfill applied by Nihas (823 indents).
+- 20271008120000_ground_ops_trip_select_helper.sql (not yet on preprod; push with the ground-ops-trip-select release set). Also added to preprod-finance-resubmit for the prod bundle.
+- None. 20271008120000 confirmed applied on preprod.
+- None.
+- 20271008121000_get_trip_driver_phones.sql (not yet on preprod; push with the trip-driver-phones release set).
+- None. Preprod SAT812-TRP-957 is still finance-flagged (Reject it, or clear the flag).
+- 20271006161000_suppliers_primary_region.sql, 20271012130500_entity_bank_account_verification_status.sql (from Praveen; not yet on preprod).
+- None.
+- Release set supplier-profile-praveen (20271006161000, 20271012130500); dry run lists exactly these two.
+- 20271012140000_compliance_payments_supplier_payable.sql (flips the 20 existing compliance rows; already applied on preprod). Release set: compliance-supplier-payable.
+- None. Preprod data only (not migrations): 10 GOGOVAN trips linked to their supplier with market payout mode, and Compliance verification restored on 11 paid trips from the pre-sync backups.
+- 20271013101500_payment_requests.sql (release set payment-requests) and 20271013113000_compliance_trips_backlog.sql (release set compliance-trips-backlog); both applied on preprod.
+- 20271013120000_compliance_cleared_gate.sql (release set compliance-cleared-gate), not yet applied. Preprod data: 000970's approval undone and SAT812-PAY-000002 cancelled (nothing was paid).
+- 20271013120000_compliance_cleared_gate.sql updated before first apply: a resubmit clears a finance reject (still not applied).
+- None.
+- None in the sync.
+- None.
+- None.
+- None
+- 20271014051328_reassert_gate1a_quote_accept_guard.sql (release set gate1a-guard-reassert).
+- None
+- None
+
+## Tested
+- Migration contract tests (local). 33 SQL scenarios for the resubmit gates ran on preprod inside a rolled-back transaction, all passed; then 116000 was applied to preprod with approval.
+- Local CI checks: lint 104/104, cycles 111/111, lib files 178/178, V2 isolation and navigation policy pass, typecheck under baseline (local 64 vs CI 89), Jest only the 4 known failing suites. Not clicked through end to end on localhost.
+- Hardening: 23 rolled-back SQL scenarios on preprod (file check, flag lifecycle, delete lock, paid-from account) all passed before applying; local CI checks at or under baseline, Jest only the 4 known failing suites.
+- Hardening screens: 584 compliance tests and 909 compliance + finance tests pass locally; not clicked through on localhost yet.
+- Finance feedback: 7 rolled-back SQL checks on preprod (Finance Reject allowed, Verify still refused, posted money refused, truck size returned) passed before applying; 628 compliance + RBAC tests pass. Not clicked through yet.
+- 589 compliance tests pass locally (4 stage expectations updated to the new rule); lint clean on changed files; no new type errors. Not clicked through on localhost.
+- Checked against prod read-only: the old code turns 1007 into TRP100, which already exists; applied to preprod.
+- 594 compliance tests pass locally (new prefill / per-tab tests); lint clean on changed files; no new type errors. Not clicked through on localhost.
+- 594 compliance tests pass locally. Not clicked through on localhost.
+- RBAC + organization tests (role matrix on HYBRID / Asset / Aggregate, invite vs edit parity, Ground Ops only Document Upload) pass; full Jest only the 4 known failing suites; no new type errors; cycles 111/111; navigation policy pass. Edit member and Invite step 2 clicked through on localhost without saving; newly gated pages not clicked through.
+- 108 RBAC + organization tests pass (new Debit control and keep-picked-role tests); no new type errors. Preprod rows checked after the update; not clicked through as those users.
+- New identity-guard tests pass (incident case, same-person short name, stale account, nothing written on mismatch); full Jest only the 4 known failing suites; no new type errors. Not clicked through a real Google signup.
+- New Sales lock tests: exact permission list, award allowed, every Sales toggle enforced in the app, switching any one off removes only it and its dependants and turns back on cleanly; 112 RBAC tests pass; no new type errors.
+- No new type errors; trips + compliance tests pass (only the known sign-in failure). Not clicked through as Gowtham.
+- Invite tests: pending Ground Ops invite carries warehouses, existing-user invite writes the rows, other roles never get warehouses; 115 org + RBAC tests pass; no new type errors. Not clicked through on gx-pulse.
+- Pickup-to-warehouse match tests; indent, trip and client suites pass (169); full Jest only the 4 known failing suites; cycles 111/111; no new type errors. Checked as Gowtham under RLS on preprod (read-only): 2 warehouses visible, 0 trips until indents are linked.
+- Checked as Gowtham under RLS on preprod: 152 trips, all on his warehouses, 2 held trips returned; new hold-routing tests; 597 compliance tests pass; no new type errors. Not clicked through after the fix.
+- Rolled-back dry run on preprod as Gowtham: held trips readable 0 → 2, all readable trips 152 (exactly his warehouses), indents still 0; release-set push dry run lists only this migration; migration contract tests pass.
+- New completed-only test; 598 compliance tests pass; no new type errors; cycles 111/111. Not clicked through as Gayatri / Sathish.
+- Typecheck unchanged; 1128 compliance, trips, organization and RBAC tests pass. Reported crash reproduced from the stack trace, not re-clicked.
+- 1128 compliance, trips, organization and RBAC tests pass; typecheck unchanged; cycles 111/111; driver phones RPC dry-run on preprod as Gayatri returned 457 of 459. UI checked by Nihas on localhost during the walkthrough; final full-screen POD layout and LR fix not re-clicked.
+- Typecheck unchanged; navigation policy 64/64; 1362 tests pass (only the known loadCenterMarketplaceGate failure); cycles 111/111. Checked Dhira saved access on preprod; vendor link not re-clicked after the gate fix.
+- Applied cleanly on this branch; typecheck checked in the next commit (6 type errors fixed there).
+- Typecheck back to 64; lint 104/104 baseline; cycles 111/111; supplier, client and component tests pass (only the known loadCenterMarketplaceGate failure). Supplier pages not clicked through.
+- db:push-set dry run on preprod.
+- Typecheck 64 (baseline); lint 104 errors (baseline); full jest 4 known failing suites only; navigation policy 64/64; rolled-back dry run on preprod flipped 20 rows. Not clicked through. 10 marketplace trips in asset payout mode still show the payout under driver, not Supplier paid.
+- Typecheck 64 (baseline). Clicked Advance Payment → Pending / Paid on localhost as Finance; Table view not clicked.
+- Typecheck 64 (baseline); full jest only the 4 known suites; rolled-back preprod tests for approve / retry / undo / re-approve / pay and the backlog flag (400 vs 402). Clicked on localhost: Approve advance (000023, ₹1,13,150), single payment moved the trip from Pending to Paid, Paid table and export show 000001–000023 with no gaps. Bulk payment and undo/re-approve not clicked (covered by the DB test).
+- Typecheck 64 (baseline); 651 Compliance and migration tests pass; rolled-back preprod test refuses approving 000970. Clicked on localhost: cards switch on click.
+- Typecheck 64 (baseline); 651 Compliance and migration tests pass; rolled-back preprod test: resubmitted 000970 can be approved, an open reject is refused. Not clicked through.
+- Typecheck 64 (baseline); 607 Compliance tests pass. Not clicked through.
+- Merge had no conflicts; checks listed in the sync commit report.
+- Typecheck 64 (baseline); trips and vehicles tests pass. Not clicked through after the change (local window signed out).
+- Typecheck 64 (baseline); 415 trips tests pass. Not clicked through (my browser window is signed out).
+- Typecheck 64 (baseline); 46 trip-detail tests pass; preprod check as the GoGoVan owner reads the 3 vehicle docs. Not clicked through yet.
+- Merge had no conflicts; release-set dry run lists only the new file; rolled-back apply on preprod keeps the Gate 1A body; 45 migration tests pass.
+- 609 compliance tests pass (2 new: read error fails closed, missing columns still fall back); typecheck 64 (baseline); lint clean on changed files. Not clicked through.
+- Full Jest with the CI command on ad31dc4b plus this fix: 512 suites pass, 0 failed; lint 104, cycles 111, typecheck 89 at baseline. No UI change.

@@ -23,9 +23,14 @@ import {
   calculateMarketplacePlatformFee,
   createMarketTripAfterFeePayment,
   rejectMarketBid,
+  refundTestMarketplaceFeeAndRevokeIndent,
   revokeIndentAward,
 } from "@/features/network/services/marketBids.service";
 import { formatMarketplaceTransactionError } from "@/features/marketplace/utils/marketplaceErrorFormat.util";
+import {
+  awardRevokePresentation,
+  TEST_FEE_REVOKE_REASON,
+} from "@/features/marketplace/utils/testFeeRevoke.util";
 import { indentHasAwardRevokedTag } from "@/features/trips/utils/indentHubCardPresentation";
 import { useMarketBidsForIndentQuery } from "@/lib/queries/useBidsQuery";
 import { useInvalidateIndents } from "@/lib/queries";
@@ -191,19 +196,25 @@ export function AwardModal({ visible, award, onViewIndent, insets }: AwardModalP
     [currentLoad?.id, currentLoad?.organization_id, queryClient, invalidateIndents],
   );
 
+  const revokePresentation = awardRevokePresentation(marketBids);
   const handleRevokeAward = useCallback(async () => {
-    if (!currentLoad?.id) return;
+    if (!currentLoad?.id || marketBidsLoading) return;
     const confirmed = await confirmDialog({
-      title: "Revoke award",
-      message:
-        "Move this load back to open bidding? The previous winner is tagged Award revoked. You can award the same offer or another one.",
-      confirmLabel: "Revoke award",
+      title: revokePresentation.confirmTitle,
+      message: revokePresentation.confirmMessage,
+      confirmLabel: revokePresentation.confirmLabel,
       destructive: true,
     });
     if (!confirmed) return;
     try {
       setRevokingAward(true);
-      const { error, awardRevokedAt } = await revokeIndentAward(currentLoad.id);
+      const { error, awardRevokedAt } =
+        revokePresentation.mode === "refund_test"
+          ? await refundTestMarketplaceFeeAndRevokeIndent(
+              currentLoad.id,
+              TEST_FEE_REVOKE_REASON,
+            )
+          : await revokeIndentAward(currentLoad.id);
       if (error) {
         showAppAlert("Could not revoke award", formatMarketplaceTransactionError(error.message));
         return;
@@ -238,7 +249,7 @@ export function AwardModal({ visible, award, onViewIndent, insets }: AwardModalP
     } finally {
       setRevokingAward(false);
     }
-  }, [award, currentLoad, invalidateIndents, queryClient]);
+  }, [award, currentLoad, invalidateIndents, marketBidsLoading, queryClient, revokePresentation]);
 
   const handleRejectMarketBid = useCallback(
     async (bidId: string, bidderLabel: string) => {
@@ -376,8 +387,8 @@ export function AwardModal({ visible, award, onViewIndent, insets }: AwardModalP
 
   const awardCtaLabel = isAwardedView
     ? revokingAward
-      ? "Revoking…"
-      : "Revoke award"
+      ? revokePresentation.busyLabel
+      : revokePresentation.buttonLabel
     : awarding
       ? "Awarding…"
       : opportunity?.actions.primary?.kind === "award"
@@ -416,13 +427,13 @@ export function AwardModal({ visible, award, onViewIndent, insets }: AwardModalP
         {isAwardedView ? (
           <TouchableOpacity
             onPress={() => void handleRevokeAward()}
-            disabled={revokingAward}
+            disabled={revokingAward || marketBidsLoading}
             hitSlop={8}
             style={styles.reviewHubRevokeHeaderBtn}
-            accessibilityLabel="Revoke award"
+            accessibilityLabel={revokePresentation.buttonLabel}
           >
             <Text style={styles.reviewHubRevokeHeaderBtnText} numberOfLines={1}>
-              {revokingAward ? "…" : "Revoke"}
+              {revokingAward ? "…" : revokePresentation.mode === "refund_test" ? "Refund" : "Revoke"}
             </Text>
           </TouchableOpacity>
         ) : (
@@ -629,8 +640,8 @@ export function AwardModal({ visible, award, onViewIndent, insets }: AwardModalP
               ]}
               onPress={() => void handleRevokeAward()}
               activeOpacity={0.9}
-              disabled={revokingAward}
-              accessibilityLabel="Revoke award"
+              disabled={revokingAward || marketBidsLoading}
+              accessibilityLabel={revokePresentation.buttonLabel}
             >
               <Text style={styles.modalSubmitText}>{awardCtaLabel}</Text>
             </TouchableOpacity>

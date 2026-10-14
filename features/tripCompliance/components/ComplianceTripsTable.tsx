@@ -2,45 +2,53 @@
  * Table workbench for the Compliance workbench — trip is the primary row,
  * expandable to reveal its documents inline. Same already-fetched
  * `ComplianceTripSummary[]`, no extra query. Trip/Vehicle/Driver cells show a
- * single Pending/Approved status that opens the same
- * ComplianceDocumentReviewSheet used by the card view (no duplicate
+ * single Pending/Approved status that opens the card view on that tab (no review
  * approve/reject wiring). E-way Bill column + Verify/Decline actions per
  * docs/compliance/dinesh/CONTRACT.md.
  */
 import Theme from "@/constants/Theme";
-import { ComplianceDeclineModal } from "@/features/tripCompliance/components/ComplianceDeclineModal";
-import { COMPLIANCE_STATUS_META, ComplianceStatusChip } from "@/features/tripCompliance/components/ComplianceStatusIcon";
 import {
-  COMPLIANCE_DECLINE_ACTION_LABEL,
-  HIGHLIGHT_EXPIRED_EWAY_BILL,
+    COMPLIANCE_DECLINE_ACTION_LABEL,
+    HIGHLIGHT_EXPIRED_EWAY_BILL,
 } from "@/features/tripCompliance/complianceDecisionConfig";
+import { ComplianceDeclineModal } from "@/features/tripCompliance/components/ComplianceDeclineModal";
+import { COMPLIANCE_DECLINE_REASON_SECTIONS } from "@/features/tripCompliance/utils/complianceDeclineReason.util";
+import { ComplianceNumberStack } from "@/features/tripCompliance/components/ComplianceNumberStack";
+import { COMPLIANCE_STATUS_META, ComplianceStatusChip } from "@/features/tripCompliance/components/ComplianceStatusIcon";
+import { tripAppearsInAwaitingPod } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import {
-  REQUIRED_DRIVER_DOCUMENT_TYPES,
-  REQUIRED_VEHICLE_DOCUMENT_TYPES,
-  type ComplianceTripSummary,
+    REQUIRED_DRIVER_DOCUMENT_TYPES,
+    REQUIRED_VEHICLE_DOCUMENT_TYPES,
+    type ComplianceTripSummary,
 } from "@/features/tripCompliance/tripCompliance.types";
 import {
-  complianceEventAt,
-  formatComplianceTimestamp,
-  paymentStatusVisual,
-  shouldShowPaymentStatusPill,
-  verificationStatusVisual,
+    compareComplianceSummariesByEvent,
+    complianceEventAt,
+    formatComplianceTimestamp,
+    paymentStatusVisual,
+    shouldShowPaymentStatusPill,
+    tripOpsStatusBadge,
+    verificationStatusVisual,
 } from "@/features/tripCompliance/utils/complianceCardVisual.util";
 import {
-  deriveComplianceDocumentRows,
-  deriveEntityComplianceRows,
-  labelForDocType,
-  requirementScopeLabel,
-  type ComplianceDocRow,
+    deriveComplianceDocumentRows,
+    deriveEntityComplianceRows,
+    labelForDocType,
+    requirementScopeLabel,
+    type ComplianceDocRow,
 } from "@/features/tripCompliance/utils/complianceDocumentRows.util";
 import { deriveComplianceQueueReadiness, paymentReadinessLabel } from "@/features/tripCompliance/utils/complianceReadiness.util";
 import {
-  canVerifyTrip,
-  deriveComplianceEwayBill,
-  deriveComplianceGroupStatus,
-  isComplianceDeclineActive,
+    canVerifyTrip,
+    complianceVaultDocNumbers,
+    deriveComplianceEwayBill,
+    deriveComplianceGroupStatus,
+    isComplianceDeclineActive,
+    isFinanceDeclinedTrip,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
+import { lrReceiptForTrip } from "@/features/trips/utils/lrReceiptStatus.util";
+import { formatIndianVehicleNumber } from "@/lib/format";
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight } from "lucide-react-native";
 import React, { useMemo, useRef, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -52,37 +60,47 @@ export type ComplianceTripsTableProps = {
   /** Opens the review sheet; documentKey null opens straight to the document list. */
   onReview: (tripId: string, documentKey: string | null, scope?: "trip" | "vehicle" | "driver") => void;
   /** Verify action; runs once LR, E-way Bill and Invoice are approved, otherwise opens the trip documents. Resolves; the page shows errors. */
-  onMarkComplianceVerified?: (tripId: string) => Promise<void>;
+  onMarkComplianceVerified?: (tripId: string) => Promise<boolean | void>;
   /** Verify on a not-ready trip: open its documents in the Cards workspace. Falls back to the review sheet when absent. */
   onVerifyDocs?: (tripId: string) => void;
   /** Decline action; rejects with an Error whose message is user-facing (shown in the modal). */
   onDeclineCompliance?: (tripId: string, reason: string) => Promise<void>;
   onPay?: (tripId: string) => void;
   canManageFinance?: boolean;
+  /** Compliance Pending table: trip status column, invoice number, no Payment/Advance/Balance. */
+  compliancePendingLayout?: boolean;
+  /** Date column sort. The page owns this so pagination and export follow it. */
+  dateSort?: RequiredDateSort;
+  onDateSortChange?: (sort: RequiredDateSort) => void;
+  /**
+   * When false, Date is a plain header and row order is left to the parent
+   * (e.g. Advance Processed newest-posted sort while search uses this table).
+   */
+  dateSortEnabled?: boolean;
+  /** POD Received stage only: IBond column. */
+  showIbondColumn?: boolean;
 };
 
 type RequiredDateSort = "asc" | "desc";
 
-function tripFromLocation(summary: ComplianceTripSummary): string {
+export function tripFromLocation(summary: ComplianceTripSummary): string {
   return summary.trip.pickup_area?.trim() || "—";
 }
 
-function tripToLocation(summary: ComplianceTripSummary): string {
+export function tripToLocation(summary: ComplianceTripSummary): string {
   return summary.trip.drop_location?.trim() || summary.trip.drop_area?.trim() || "—";
 }
 
-function formatRequiredDate(summary: ComplianceTripSummary): string {
+export function truckNumber(summary: ComplianceTripSummary): string {
+  const raw = summary.trip.vehicle_display_number?.trim() || "";
+  return formatIndianVehicleNumber(raw).trim() || raw || "—";
+}
+
+export function formatRequiredDate(summary: ComplianceTripSummary): string {
   const raw = complianceEventAt(summary.trip);
   if (!raw) return "—";
   const formatted = formatComplianceTimestamp(raw);
   return formatted || "—";
-}
-
-function requiredDateSortKey(summary: ComplianceTripSummary): number | null {
-  const raw = complianceEventAt(summary.trip);
-  if (!raw) return null;
-  const ms = Date.parse(raw);
-  return Number.isNaN(ms) ? null : ms;
 }
 
 type DocScope = "trip" | "vehicle" | "driver";
@@ -112,6 +130,7 @@ function GroupStatusPill({
       testID={`compliance-status-${scope}-${tripId}`}
       style={styles.statusTouch}
       onPress={onPress}
+      hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
       accessibilityRole="button"
       accessibilityLabel={`${SCOPE_LABEL[scope]} documents ${label}, ${group.approved} of ${group.total} approved. Open verification`}
     >
@@ -143,12 +162,7 @@ function EwayBillCell({ summary }: { summary: ComplianceTripSummary }) {
         showExpired ? ", expired" : ""
       }${eway.extraCount > 0 ? `, ${eway.extraCount} more` : ""}`}
     >
-      <View style={styles.ewayLine}>
-        <Text style={[styles.cell, styles.ewayNumber]} numberOfLines={1} selectable>
-          {eway.number ?? "—"}
-        </Text>
-        {eway.extraCount > 0 ? <Text style={styles.muted}>{`+${eway.extraCount}`}</Text> : null}
-      </View>
+      <ComplianceNumberStack numbers={eway.numbers} variant="table" />
       <View style={styles.ewayLine}>
         <Text style={[styles.muted, styles.ewayDate, showExpired && styles.dangerText]} numberOfLines={1}>
           {`Valid till ${eway.validTillLabel ?? "—"}`}
@@ -182,7 +196,9 @@ function SortHeader({
       accessibilityRole="button"
       accessibilityLabel={`Sort by ${label}, currently ${sort === "asc" ? "ascending" : "descending"}`}
     >
-      <Text style={[styles.cell, styles.headerText]}>{label}</Text>
+      <Text style={[styles.cell, styles.headerText]} numberOfLines={1}>
+        {label}
+      </Text>
       <Icon size={12} color={Theme.textPrimary} strokeWidth={2.4} />
     </TouchableOpacity>
   );
@@ -198,16 +214,20 @@ function TripRowContent({
   onDeclineCompliance,
   onPay,
   canManageFinance = false,
+  compliancePendingLayout = false,
+  showIbondColumn = false,
 }: {
   summary: ComplianceTripSummary;
   onOpenTrip: (tripId: string) => void;
   onOpenDetails?: (tripId: string) => void;
   onReview: (tripId: string, documentKey: string | null, scope?: "trip" | "vehicle" | "driver") => void;
-  onMarkComplianceVerified?: (tripId: string) => Promise<void>;
+  onMarkComplianceVerified?: (tripId: string) => Promise<boolean | void>;
   onVerifyDocs?: (tripId: string) => void;
   onDeclineCompliance?: (tripId: string, reason: string) => Promise<void>;
   onPay?: (tripId: string) => void;
   canManageFinance?: boolean;
+  compliancePendingLayout?: boolean;
+  showIbondColumn?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [markingTrip, setMarkingTrip] = useState(false);
@@ -228,11 +248,20 @@ function TripRowContent({
   const readiness = useMemo(() => deriveComplianceQueueReadiness(summary), [summary]);
   const payLabel = paymentReadinessLabel(readiness);
   const verification = verificationStatusVisual(summary);
+  const tripStatus = compliancePendingLayout ? tripOpsStatusBadge(summary.trip.status) : null;
   const payment = paymentStatusVisual(summary);
   const showPaymentPill = shouldShowPaymentStatusPill(summary);
   const tripIdLabel = getTripDisplayNumber(summary.trip);
+  const lrReceipt = lrReceiptForTrip(
+    summary.hardCopyPod.lrNumbers ?? [],
+    summary.hardCopyPod.receivedLrNumbers ?? [],
+  );
+  const showLrReceipt =
+    (summary.hardCopyPod.lrNumbers?.length ?? 0) > 0 &&
+    (tripAppearsInAwaitingPod(summary) || lrReceipt.kind !== "none");
   const tripId = summary.trip.id;
-  const isVerified = Boolean(summary.complianceVerifiedAt);
+  const isFinanceDeclined = isFinanceDeclinedTrip(summary);
+  const isVerified = Boolean(summary.complianceVerifiedAt) && !isFinanceDeclined;
   const verifyEligibility = useMemo(() => canVerifyTrip(summary), [summary]);
   const declineActive = isComplianceDeclineActive(summary);
   const declineReason = summary.complianceDeclineReason?.trim() || "";
@@ -281,6 +310,16 @@ function TripRowContent({
           <Text style={[styles.cell, styles.muted]} numberOfLines={1}>
             {summary.trip.client_name || "—"}
           </Text>
+          {showLrReceipt ? (
+            <>
+              <Text style={[styles.cell, styles.lrReceipt]} numberOfLines={1}>
+                Received LRs {lrReceipt.received.join(", ") || "—"}
+              </Text>
+              <Text style={[styles.cell, styles.lrReceipt]} numberOfLines={1}>
+                Pending LRs {lrReceipt.pending.join(", ") || "—"}
+              </Text>
+            </>
+          ) : null}
         </TouchableOpacity>
         <Text style={[styles.cell, styles.colDate]} numberOfLines={1}>
           {formatRequiredDate(summary)}
@@ -292,6 +331,23 @@ function TripRowContent({
           {tripToLocation(summary)}
         </Text>
         <EwayBillCell summary={summary} />
+        {compliancePendingLayout ? (
+          <View style={styles.colInvoice}>
+            <ComplianceNumberStack
+              numbers={complianceVaultDocNumbers(summary.documents, "invoice")}
+              variant="table"
+            />
+          </View>
+        ) : null}
+        <View style={styles.colInvoice}>
+          <ComplianceNumberStack
+            numbers={complianceVaultDocNumbers(summary.documents, "lr")}
+            variant="table"
+          />
+        </View>
+        <Text style={[styles.cell, styles.colInvoice]} numberOfLines={1}>
+          {truckNumber(summary)}
+        </Text>
         <View style={styles.colDocs}>
           <GroupStatusPill
             tripId={tripId}
@@ -316,6 +372,22 @@ function TripRowContent({
             onPress={() => onReview(tripId, null, "driver")}
           />
         </View>
+        {compliancePendingLayout ? (
+          <View style={styles.colTripStatus}>
+            {tripStatus ? (
+              <View
+                style={[styles.stagePill, { backgroundColor: tripStatus.tone.bg }]}
+                accessibilityLabel={`Trip status ${tripStatus.label}`}
+              >
+                <Text style={[styles.stagePillText, { color: tripStatus.tone.fg }]} numberOfLines={1}>
+                  {tripStatus.label}
+                </Text>
+              </View>
+            ) : (
+              <Text style={styles.cell}>—</Text>
+            )}
+          </View>
+        ) : null}
         <View style={styles.colStage}>
           <View style={[styles.stagePill, { backgroundColor: verification.tone.bg }]}>
             <Text style={[styles.stagePillText, { color: verification.tone.fg }]} numberOfLines={1}>
@@ -348,20 +420,31 @@ function TripRowContent({
             </View>
           ) : null}
         </View>
-        <View style={styles.colBlockers}>
-          <Text style={[styles.cell, readiness.paymentReady ? styles.readyText : styles.blockedText]} numberOfLines={1}>
-            {payLabel.label}
+        {compliancePendingLayout ? null : (
+          <View style={styles.colBlockers}>
+            <Text style={[styles.cell, readiness.paymentReady ? styles.readyText : styles.blockedText]} numberOfLines={1}>
+              {payLabel.label}
+            </Text>
+            <Text style={styles.muted} numberOfLines={1}>
+              {readiness.nextAction}
+            </Text>
+          </View>
+        )}
+        {compliancePendingLayout ? null : (
+          <>
+            <Text style={[styles.cell, styles.colMoney]} numberOfLines={1}>
+              {summary.advance ? `₹${summary.advance.amount.toLocaleString("en-IN")}` : "—"}
+            </Text>
+            <Text style={[styles.cell, styles.colMoney]} numberOfLines={1}>
+              {summary.balance ? `₹${summary.balance.amount.toLocaleString("en-IN")}` : "—"}
+            </Text>
+          </>
+        )}
+        {showIbondColumn ? (
+          <Text style={[styles.cell, styles.colIbond]} numberOfLines={1}>
+            {summary.hardCopyPod.ibond ? "Yes" : "—"}
           </Text>
-          <Text style={styles.muted} numberOfLines={1}>
-            {readiness.nextAction}
-          </Text>
-        </View>
-        <Text style={[styles.cell, styles.colMoney]}>
-          {summary.advance ? `₹${summary.advance.amount.toLocaleString("en-IN")}` : "—"}
-        </Text>
-        <Text style={[styles.cell, styles.colMoney]}>
-          {summary.balance ? `₹${summary.balance.amount.toLocaleString("en-IN")}` : "—"}
-        </Text>
+        ) : null}
         <View style={styles.colAction}>
           {isVerified ? (
             <Text style={[styles.actionLink, styles.successText]} numberOfLines={1}>
@@ -373,6 +456,7 @@ function TripRowContent({
               testID={`compliance-verify-${tripId}`}
               style={[styles.actionButton, styles.actionItem]}
               disabled={verifyDisabled}
+              hitSlop={{ top: 8, bottom: 8, left: 2, right: 2 }}
               onPress={handleVerify}
               accessibilityRole="button"
               accessibilityLabel="Verify trip compliance"
@@ -386,10 +470,11 @@ function TripRowContent({
               </Text>
             </TouchableOpacity>
           ) : null}
-          {!isVerified && onDeclineCompliance ? (
+          {!isVerified && !isFinanceDeclined && onDeclineCompliance ? (
             <TouchableOpacity
               testID={`compliance-decline-${tripId}`}
               style={[styles.actionButton, styles.actionItem]}
+              hitSlop={{ top: 8, bottom: 8, left: 2, right: 2 }}
               onPress={() => setDeclineOpen(true)}
               accessibilityRole="button"
               accessibilityLabel={`${COMPLIANCE_DECLINE_ACTION_LABEL} trip compliance`}
@@ -410,6 +495,7 @@ function TripRowContent({
       {onDeclineCompliance ? (
         <ComplianceDeclineModal
           visible={declineOpen}
+          presets={COMPLIANCE_DECLINE_REASON_SECTIONS}
           tripLabel={`${tripIdLabel}${summary.trip.client_name ? ` · ${summary.trip.client_name}` : ""}`}
           onCancel={() => setDeclineOpen(false)}
           onSubmit={handleDeclineSubmit}
@@ -465,44 +551,104 @@ export function ComplianceTripsTable({
   onDeclineCompliance,
   onPay,
   canManageFinance,
+  compliancePendingLayout = false,
+  dateSort,
+  onDateSortChange,
+  dateSortEnabled = true,
+  showIbondColumn = false,
 }: ComplianceTripsTableProps) {
-  const [requiredDateSort, setRequiredDateSort] = useState<RequiredDateSort>("desc");
+  const [internalDateSort, setInternalDateSort] = useState<RequiredDateSort>("desc");
+  const requiredDateSort = dateSort ?? internalDateSort;
+  const toggleDateSort = () => {
+    const next: RequiredDateSort = requiredDateSort === "asc" ? "desc" : "asc";
+    if (onDateSortChange) onDateSortChange(next);
+    else setInternalDateSort(next);
+  };
 
   const sortedSummaries = useMemo(() => {
+    if (!dateSortEnabled) return summaries;
     const copy = [...summaries];
-    copy.sort((a, b) => {
-      const da = requiredDateSortKey(a);
-      const db = requiredDateSortKey(b);
-      if (da == null && db == null) return 0;
-      if (da == null) return 1;
-      if (db == null) return -1;
-      return requiredDateSort === "asc" ? da - db : db - da;
-    });
+    copy.sort((a, b) => compareComplianceSummariesByEvent(a, b, requiredDateSort));
     return copy;
-  }, [summaries, requiredDateSort]);
+  }, [summaries, requiredDateSort, dateSortEnabled]);
 
   return (
     <View style={styles.tableScroll}>
       <View style={styles.table}>
         <View style={[styles.row, styles.headerRow]}>
           <View style={styles.expandToggle} />
-          <Text style={[styles.cell, styles.colTripId, styles.headerText]}>Trip ID</Text>
-          <SortHeader
-            label="Date"
-            sort={requiredDateSort}
-            onToggle={() => setRequiredDateSort((s) => (s === "asc" ? "desc" : "asc"))}
-          />
-          <Text style={[styles.cell, styles.colLoc, styles.headerText]}>From</Text>
-          <Text style={[styles.cell, styles.colLoc, styles.headerText]}>To</Text>
-          <Text style={[styles.cell, styles.colEway, styles.headerText]}>E-way Bill</Text>
-          <Text style={[styles.cell, styles.colDocs, styles.headerText]}>Trip</Text>
-          <Text style={[styles.cell, styles.colDocs, styles.headerText]}>Vehicle</Text>
-          <Text style={[styles.cell, styles.colDocs, styles.headerText]}>Driver</Text>
-          <Text style={[styles.cell, styles.colStage, styles.headerText]}>Stage</Text>
-          <Text style={[styles.cell, styles.colBlockers, styles.headerText]}>Payment</Text>
-          <Text style={[styles.cell, styles.colMoney, styles.headerText]}>Advance</Text>
-          <Text style={[styles.cell, styles.colMoney, styles.headerText]}>Balance</Text>
-          <Text style={[styles.cell, styles.colAction, styles.headerText]}>Action</Text>
+          <Text style={[styles.cell, styles.colTripId, styles.headerText]} numberOfLines={1}>
+            Trip ID
+          </Text>
+          {dateSortEnabled ? (
+            <SortHeader label="Date" sort={requiredDateSort} onToggle={toggleDateSort} />
+          ) : (
+            <View style={styles.colRequiredDate}>
+              <Text style={[styles.cell, styles.headerText]} numberOfLines={1}>
+                Date
+              </Text>
+            </View>
+          )}
+          <Text style={[styles.cell, styles.colLoc, styles.headerText]} numberOfLines={1}>
+            From
+          </Text>
+          <Text style={[styles.cell, styles.colLoc, styles.headerText]} numberOfLines={1}>
+            To
+          </Text>
+          <Text style={[styles.cell, styles.colEway, styles.headerText]} numberOfLines={1}>
+            E-way Bill
+          </Text>
+          {compliancePendingLayout ? (
+            <Text style={[styles.cell, styles.colInvoice, styles.headerText]} numberOfLines={1}>
+              Invoice
+            </Text>
+          ) : null}
+          <Text style={[styles.cell, styles.colInvoice, styles.headerText]} numberOfLines={1}>
+            LR
+          </Text>
+          <Text style={[styles.cell, styles.colInvoice, styles.headerText]} numberOfLines={1}>
+            Truck No
+          </Text>
+          <Text style={[styles.cell, styles.colDocs, styles.headerText]} numberOfLines={1}>
+            Trip
+          </Text>
+          <Text style={[styles.cell, styles.colDocs, styles.headerText]} numberOfLines={1}>
+            Vehicle
+          </Text>
+          <Text style={[styles.cell, styles.colDocs, styles.headerText]} numberOfLines={1}>
+            Driver
+          </Text>
+          {compliancePendingLayout ? (
+            <Text style={[styles.cell, styles.colTripStatus, styles.headerText]} numberOfLines={1}>
+              Trip Status
+            </Text>
+          ) : null}
+          <Text style={[styles.cell, styles.colStage, styles.headerText]} numberOfLines={1}>
+            Stage
+          </Text>
+          {compliancePendingLayout ? null : (
+            <Text style={[styles.cell, styles.colBlockers, styles.headerText]} numberOfLines={1}>
+              Payment
+            </Text>
+          )}
+          {compliancePendingLayout ? null : (
+            <>
+              <Text style={[styles.cell, styles.colMoney, styles.headerText]} numberOfLines={1}>
+                Advance
+              </Text>
+              <Text style={[styles.cell, styles.colMoney, styles.headerText]} numberOfLines={1}>
+                Balance
+              </Text>
+            </>
+          )}
+          {showIbondColumn ? (
+            <Text style={[styles.cell, styles.colIbond, styles.headerText]} numberOfLines={1}>
+              IBond
+            </Text>
+          ) : null}
+          <Text style={[styles.cell, styles.headerText, styles.colActionLabel]} numberOfLines={1}>
+            Action
+          </Text>
         </View>
 
         {sortedSummaries.map((s) => (
@@ -517,6 +663,8 @@ export function ComplianceTripsTable({
             onDeclineCompliance={onDeclineCompliance}
             onPay={onPay}
             canManageFinance={canManageFinance}
+            compliancePendingLayout={compliancePendingLayout}
+            showIbondColumn={showIbondColumn}
           />
         ))}
       </View>
@@ -540,94 +688,99 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderTopWidth: 1,
     borderTopColor: Theme.border,
-    paddingVertical: 5,
-    paddingHorizontal: 6,
-    gap: 4,
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+    gap: 3,
   },
   headerRow: {
     borderTopWidth: 0,
     backgroundColor: Theme.compliancePageBg,
-    paddingVertical: 8,
+    paddingVertical: 4,
     alignItems: "center",
   },
   headerText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
-    lineHeight: 14,
+    lineHeight: 13,
     color: Theme.textPrimary,
     textTransform: "uppercase",
-    letterSpacing: 0.2,
+    letterSpacing: 0,
   },
-  expandToggle: { width: 18, alignItems: "center", justifyContent: "center" },
-  cell: { fontSize: 12, color: Theme.textPrimary, fontWeight: "500" },
-  muted: { color: Theme.textMuted, fontSize: 10, lineHeight: 13 },
-  colTripId: { width: 156, maxWidth: 156, flexGrow: 0, flexShrink: 1, minWidth: 0 },
-  colDate: { flex: 0.8, minWidth: 0 },
+  expandToggle: { width: 16, alignItems: "center", justifyContent: "center" },
+  cell: { fontSize: 11, lineHeight: 14, color: Theme.textPrimary, fontWeight: "500" },
+  muted: { color: Theme.textMuted, fontSize: 9, lineHeight: 11 },
+  lrReceipt: { color: Theme.textPrimaryDark, fontSize: 9, lineHeight: 11, fontWeight: "600" },
+  colTripId: { width: 138, maxWidth: 138, flexGrow: 0, flexShrink: 1, minWidth: 0 },
+  colDate: { flex: 0.72, minWidth: 68 },
   colLoc: { flex: 1, minWidth: 0 },
-  colEway: { flex: 1.1, minWidth: 0, justifyContent: "center", gap: 1 },
+  colEway: { flex: 1.05, minWidth: 0, justifyContent: "center", gap: 0 },
+  colInvoice: { flex: 0.82, minWidth: 0, justifyContent: "center" },
   ewayLine: { flexDirection: "row", alignItems: "center", gap: 4, minWidth: 0 },
-  ewayNumber: { flexShrink: 1 },
   ewayDate: { flexShrink: 1 },
-  colDocs: { flex: 0.75, minWidth: 0, justifyContent: "center" },
-  statusTouch: { minHeight: 44, justifyContent: "center", alignSelf: "flex-start" },
+  colDocs: { flex: 0.68, minWidth: 52, justifyContent: "center" },
+  statusTouch: { justifyContent: "center", alignSelf: "flex-start", minHeight: 44 },
   statusPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
     borderRadius: 999,
     alignSelf: "flex-start",
   },
   statusPillPending: { backgroundColor: Theme.complianceStageDocsBg },
   statusPillApproved: { backgroundColor: Theme.complianceStageSuccessBg },
-  statusPillText: { fontSize: 11, fontWeight: "700" },
+  statusPillText: { fontSize: 10, lineHeight: 13, fontWeight: "700" },
   successText: { color: Theme.complianceStageSuccessFg },
   dangerText: { color: Theme.complianceStageDocsFg },
   miniPill: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 999 },
   miniPillText: { fontSize: 9, fontWeight: "700" },
   colRequiredDate: {
-    flex: 0.8,
-    minWidth: 0,
+    flex: 0.72,
+    minWidth: 68,
     flexDirection: "row",
     alignItems: "center",
     gap: 2,
   },
-  colStage: { flex: 0.9, minWidth: 0, justifyContent: "center", gap: 2 },
+  colTripStatus: { flex: 0.7, minWidth: 0, justifyContent: "center" },
+  colStage: { flex: 0.95, minWidth: 76, justifyContent: "center", gap: 1 },
   stagePill: {
     alignSelf: "flex-start",
-    paddingHorizontal: 6,
-    paddingVertical: 1,
+    paddingHorizontal: 5,
+    paddingVertical: 0,
     borderRadius: 999,
     maxWidth: "100%",
   },
   stagePillSpaced: { marginTop: 0 },
-  stagePillText: { fontSize: 10, fontWeight: "700" },
-  colBlockers: { flex: 0.9, minWidth: 0 },
+  stagePillText: { fontSize: 10, lineHeight: 13, fontWeight: "700" },
+  colBlockers: { flex: 1, minWidth: 88 },
   readyText: { color: Theme.complianceStageSuccessFg, fontWeight: "700" },
   blockedText: { color: Theme.complianceStageDocsFg, fontWeight: "700" },
-  colMoney: { flex: 0.6, minWidth: 0 },
+  colMoney: { width: 72, minWidth: 72, flexGrow: 0, flexShrink: 0 },
+  colIbond: { width: 72, flexGrow: 0, flexShrink: 0 },
   colAction: {
-    width: 176,
-    minWidth: 176,
+    width: 108,
+    minWidth: 108,
     flexGrow: 0,
     flexShrink: 0,
     flexDirection: "row",
     flexWrap: "nowrap",
-    gap: 10,
+    gap: 6,
     alignItems: "center",
+    justifyContent: "flex-start",
   },
+  colActionLabel: { width: 108, minWidth: 108, flexGrow: 0, flexShrink: 0 },
   actionItem: { flexGrow: 0, flexShrink: 0 },
-  actionButton: { minHeight: 44, minWidth: 44, justifyContent: "center" },
-  actionLink: { fontSize: 12, fontWeight: "700", color: Theme.complianceBulk },
+  actionButton: { justifyContent: "center" },
+  actionLink: { fontSize: 11, lineHeight: 14, fontWeight: "700", color: Theme.complianceBulk },
   disabledLink: { color: Theme.textMuted },
   rejectLink: { color: Theme.teslaRed },
-  expandedWrap: { backgroundColor: Theme.compliancePageBg, paddingLeft: 38, paddingRight: 10 },
+  expandedWrap: { backgroundColor: Theme.compliancePageBg, paddingLeft: 28, paddingRight: 8 },
   expandedRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingVertical: 10,
+    gap: 8,
+    paddingVertical: 6,
     borderTopWidth: 1,
     borderTopColor: Theme.border,
   },
-  expandedDocLabel: { width: 120, fontSize: 13, fontWeight: "600", color: Theme.textPrimary },
+  expandedDocLabel: { width: 120, fontSize: 12, fontWeight: "600", color: Theme.textPrimary },
   expandedActions: { flexDirection: "row", flexWrap: "wrap", marginLeft: "auto" },
 });

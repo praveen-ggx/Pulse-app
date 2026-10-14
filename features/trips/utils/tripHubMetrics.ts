@@ -46,6 +46,30 @@ export function isTripCancelledForHub(status: string | null | undefined): boolea
   return normStatus(status) === "cancelled";
 }
 
+/** History / completed statuses that the Active Delivered tile always includes. */
+export function isCompletedTripStatus(status: string | null | undefined): boolean {
+  const s = normStatus(status);
+  return s === "completed" || s === "delivered" || s === "done";
+}
+
+/**
+ * Trip Operations → Delivered.
+ * Completed/delivered/done trips, plus at-destination trips that already have a
+ * soft POD on file. Compliance → Awaiting POD lists this set in parallel
+ * with Pending Docs and Compliance Pending until hard-copy is marked.
+ */
+export function isOperationsDeliveredTrip(
+  trip: Pick<TripRow, "id" | "status" | "driver_id">,
+  hasSoftPod: boolean,
+): boolean {
+  if (isTripCancelledForHub(trip.status)) return false;
+  if (isCompletedTripStatus(trip.status)) return true;
+  if (!hasSoftPod) return false;
+  return (
+    classifyTripMetric(trip as TripRow, new Set([trip.id])) === "delivered_docs_pending"
+  );
+}
+
 export function classifyTripMetric(
   trip: TripRow,
   tripIdsWithAnyDocument: Set<string>,

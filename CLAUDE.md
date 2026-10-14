@@ -99,9 +99,16 @@ Every screen must respect safe area via `useSafeAreaInsets()` (root wrapped in `
 
 Jest is a multi-project config: `platform` project (`lib/platform/**/__tests__`), `oms` project (`oms/src/**/__tests__`), and the default `app` project (`jest-expo` preset, everything else). `oms/`, `analytics/`, `packages/`, and `tools/` own their own runners (Vitest-style) and aren't part of root Jest. Web/e2e: Playwright (`test:web*`) for the web build, Detox (`test:e2e`, iOS simulator only) for native.
 
-CI (`.github/workflows/architecture-check.yml`) runs on every PR touching `.ts/.tsx/eslint.config.cjs/tsconfig.json`: lint (boundaries rules), `madge --circular`, the `lib/` 60-file cap, `test:navigation-policy`, `typecheck`, and `npm test -- --ci --passWithNoTests`.
+CI (`.github/workflows/architecture-check.yml`) runs on every PR: lint (boundaries rules), `madge --circular`, the `lib/` 60-file cap, `test:navigation-policy`, `typecheck`, and `npm test -- --ci --passWithNoTests`.
+
+## Team Git workflow and trigger words
+
+Branching, PRs into `V1`, preprod deploys, migrations, releases, and the trigger words ("start", "sync", "handoff", "merge <PR#>", "release <version>", "hotfix", "sync prod") are defined in one shared file, also used by Cursor:
+
+@.cursor/rules/team-git-workflow.mdc
 
 ## Stale docs — don't trust at face value
+
 
 - `.cursor/rules/web-only.mdc` claims this project is strictly web-only; that's a leftover from a different sibling project and doesn't apply here (this is the Expo mobile+web app).
 - `.cursor/rules/pulse-standards.mdc`'s line about migrations living in a separate repo is stale — see the Migrations section above for the real rule.

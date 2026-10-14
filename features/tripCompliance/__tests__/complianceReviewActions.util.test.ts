@@ -2,7 +2,10 @@ import {
   applyOptimisticDecision,
   canModerateComplianceRow,
   complianceGroupDecisionActions,
+  complianceGroupReviewState,
   complianceReviewDecisionActions,
+  complianceTabMarkedApproved,
+  complianceDecisionButtonState,
   recordOptimisticDecision,
 } from "@/features/tripCompliance/utils/complianceReviewActions.util";
 import type { ComplianceDocRow } from "@/features/tripCompliance/utils/complianceDocumentRows.util";
@@ -44,9 +47,69 @@ describe("complianceReviewDecisionActions", () => {
     expect(complianceReviewDecisionActions(row({ status: "pending" }))).toEqual({ canApprove: true, canDecline: true });
   });
 
-  it("hides Approve and Decline once a file is verified, and shows Approve on a rejected file", () => {
-    expect(complianceReviewDecisionActions(row({ status: "verified" }))).toEqual({ canApprove: false, canDecline: false });
+  it("locks Approve as done once verified (Decline still reverses), and Approve on rejected", () => {
+    expect(complianceReviewDecisionActions(row({ status: "verified" }))).toEqual({ canApprove: false, canDecline: true });
     expect(complianceReviewDecisionActions(row({ status: "rejected" }))).toEqual({ canApprove: true, canDecline: false });
+  });
+
+  it("maps footer button labels from the active doc status", () => {
+    expect(complianceDecisionButtonState(row({ status: "pending" }))).toEqual({
+      approveLabel: "Approve",
+      declineLabel: "Decline",
+      approveActive: false,
+      declineActive: false,
+    });
+    expect(complianceDecisionButtonState(row({ status: "verified" }))).toEqual({
+      approveLabel: "Approved",
+      declineLabel: "Decline",
+      approveActive: true,
+      declineActive: false,
+    });
+    expect(complianceDecisionButtonState(row({ status: "rejected" }))).toEqual({
+      approveLabel: "Approve",
+      declineLabel: "Declined",
+      approveActive: false,
+      declineActive: true,
+    });
+  });
+});
+
+describe("complianceTabMarkedApproved", () => {
+  const verified = (key: string, required = true): ComplianceDocRow =>
+    row({ status: "verified", key, type: key, required });
+
+  it("is approved once the required group is approved, even if optional docs are missing", () => {
+    expect(
+      complianceTabMarkedApproved(
+        [verified("lr"), verified("eway_bill"), verified("invoice")],
+        "trip",
+      ),
+    ).toBe(true);
+    expect(
+      complianceTabMarkedApproved(
+        [
+          verified("lr"),
+          verified("eway_bill"),
+          verified("invoice"),
+          row({ status: "missing", key: "pod", type: "pod", required: false, doc: null }),
+        ],
+        "trip",
+      ),
+    ).toBe(true);
+  });
+
+  it("stays unapproved while a document is still waiting for Approve", () => {
+    expect(
+      complianceTabMarkedApproved(
+        [
+          verified("lr"),
+          row({ status: "pending", key: "eway_bill", type: "eway_bill" }),
+          verified("invoice"),
+        ],
+        "trip",
+      ),
+    ).toBe(false);
+    expect(complianceTabMarkedApproved([], "vehicle")).toBe(false);
   });
 });
 
@@ -73,6 +136,51 @@ describe("complianceGroupDecisionActions", () => {
     expect(result.canApprove).toBe(true);
     expect(result.canDecline).toBe(true);
     expect(result.actionable).toHaveLength(3);
+  });
+});
+
+describe("complianceGroupReviewState", () => {
+  it("returns null for an empty group", () => {
+    expect(complianceGroupReviewState([], "trip")).toBeNull();
+  });
+
+  it("waits for uploads while any doc in the group is missing", () => {
+    const state = complianceGroupReviewState(
+      [row({ status: "pending" }), row({ status: "missing", key: "invoice", type: "invoice" })],
+      "trip",
+    );
+    expect(state?.phase).toBe("awaiting_uploads");
+    expect(state?.missing).toBe(1);
+    expect(state?.canApprove).toBe(false);
+  });
+
+  it("offers one Approve/Decline once every doc is uploaded", () => {
+    const state = complianceGroupReviewState(
+      [row({ status: "pending" }), row({ status: "verified", key: "invoice", type: "invoice" })],
+      "trip",
+    );
+    expect(state?.phase).toBe("review");
+    expect(state?.canApprove).toBe(true);
+    expect(state?.canDecline).toBe(true);
+    expect(state?.actionable.map((item) => item.key)).toEqual(["lr"]);
+  });
+
+  it("reports approved when every doc is verified", () => {
+    const state = complianceGroupReviewState(
+      [row({ status: "verified" }), row({ status: "verified", key: "invoice", type: "invoice" })],
+      "trip",
+    );
+    expect(state?.phase).toBe("approved");
+  });
+
+  it("reports declined when every undecided doc was rejected, keeping Approve available", () => {
+    const state = complianceGroupReviewState(
+      [row({ status: "rejected" }), row({ status: "verified", key: "invoice", type: "invoice" })],
+      "trip",
+    );
+    expect(state?.phase).toBe("declined");
+    expect(state?.canApprove).toBe(true);
+    expect(state?.canDecline).toBe(false);
   });
 });
 

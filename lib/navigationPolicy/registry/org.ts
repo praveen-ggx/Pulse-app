@@ -715,6 +715,13 @@ export const ORG_POLICIES: readonly PolicyRecord[] = [
     onDeny: { type: 'sign_in' },
   },
   {
+    id: 'org.debit-control',
+    pattern: '/debit-control',
+    experience: 'org',
+    priority: 100,
+    onDeny: { type: 'sign_in' },
+  },
+  {
     id: 'org.add-commodity-type',
     pattern: '/add-commodity-type',
     experience: 'org',

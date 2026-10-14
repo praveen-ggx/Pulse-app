@@ -15,7 +15,7 @@ export type DocCategory =
   | "invoice"
   | "trip_details";
 
-export type TripDetailsSlot = "lr" | "invoice" | "memo" | "other";
+export type TripDetailsSlot = "lr" | "invoice" | "memo" | "other" | "bank_docs";
 
 export const TRIP_DETAILS_SLOTS: readonly {
   id: TripDetailsSlot;
@@ -25,9 +25,10 @@ export const TRIP_DETAILS_SLOTS: readonly {
   { id: "invoice", label: "Invoice" },
   { id: "memo", label: "Memo" },
   { id: "other", label: "Other Documents" },
+  { id: "bank_docs", label: "Bank Docs" },
 ];
 
-export const TRIP_DETAILS_TYPE_HINT = "LR · INVOICE · MEMO · OTHER";
+export const TRIP_DETAILS_TYPE_HINT = "LR · INVOICE · MEMO · OTHER · BANK";
 
 export interface TripDocFile {
   id: string;
@@ -40,6 +41,8 @@ export interface TripDocFile {
   slotType?: TripDetailsSlot;
   /** Invoice number typed for this file. */
   invoiceNumber?: string;
+  /** Bucket used to resolve signed URLs. Default: trip documents. */
+  docSource?: "trip" | "vehicle" | "compliance";
 }
 
 export interface TripDocItem {
@@ -67,8 +70,8 @@ export interface TripDocItem {
   uploadedAt?: string | null;
 }
 
-/** Matches trip-documents + vehicle-documents bucket limits (10 MB). */
-export const VAULT_DOC_MAX_BYTES = 10 * 1024 * 1024;
+/** Matches trip-documents + vehicle-documents bucket limits (100 MB). */
+export const VAULT_DOC_MAX_BYTES = 100 * 1024 * 1024;
 export const VAULT_DOC_MAX_MB = VAULT_DOC_MAX_BYTES / (1024 * 1024);
 export const VAULT_DOC_TYPES_LABEL = "PDF, JPEG, PNG, WebP";
 export const VAULT_DOC_LIMIT_HINT = `${VAULT_DOC_TYPES_LABEL} · ${VAULT_DOC_MAX_MB} MB max per file`;

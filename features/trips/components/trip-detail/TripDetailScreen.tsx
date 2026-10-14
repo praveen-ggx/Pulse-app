@@ -45,6 +45,13 @@ import { TripPodStatusSection } from "@/features/trips/components/trip-detail/Tr
 import { LogHardCopyPodModal } from "@/features/trips/components/trip-detail/LogHardCopyPodModal";
 import { HardCopyPodStatusCard } from "@/features/trips/components/trip-detail/HardCopyPodStatusCard";
 import { ComplianceSection } from "@/features/tripCompliance/components/ComplianceSection";
+import { ComplianceAdvanceFinanceCard } from "@/features/tripCompliance/components/ComplianceAdvanceFinanceCard";
+import { fetchComplianceAdvanceFinanceBreakdown } from "@/features/tripCompliance/services/complianceAdvanceFinanceBreakdown.service";
+import {
+  fetchSupplierBankProofBundle,
+  type SupplierBankProofBundle,
+} from "@/features/tripCompliance/utils/supplierBankProof.util";
+import { signCompliancePreviewUrl } from "@/features/tripCompliance/services/complianceDocumentView.service";
 import { useWorkspaceProductsQuery } from "@/lib/queries/useWorkspaceProductsQuery";
 import { queryKeys } from "@/lib/queryKeys";
 import type { LedgerRow } from "@/features/finance/services/finance.service";
@@ -340,6 +347,37 @@ import {
 } from "./sections/TripStatusTimeline";
 
 type Tab = "trip" | "finance" | "expenses" | "tracking" | "docs";
+
+function tripExtraVehicleNumber(
+  trip: { vehicle_number?: string | null } | null | undefined,
+): string | null {
+  return trip?.vehicle_number ?? null;
+}
+
+/** Same plate the manifest vehicle card shows. Pending / Unassigned are not a vehicle. */
+function visibleAssignedVehiclePlate(input: {
+  displayVehicleFromInput?: string | null;
+  vehicleLabel?: string | null;
+  vehicleDisplayNumber?: string | null;
+  vehicleNumber?: string | null;
+}): string {
+  const raw =
+    input.displayVehicleFromInput?.trim() ||
+    input.vehicleLabel?.trim() ||
+    input.vehicleDisplayNumber?.trim() ||
+    input.vehicleNumber?.trim() ||
+    "";
+  const head = raw.split(/[·•]/)[0]?.trim() ?? "";
+  if (
+    !head ||
+    head === "—" ||
+    /^pending$/i.test(head) ||
+    /^unassigned$/i.test(head)
+  ) {
+    return "";
+  }
+  return head;
+}
 
 type TripWebExtra = {
   pickup_state?: string | null;
@@ -661,6 +699,8 @@ export default function TripDetailScreen({
   useEffect(() => {
     if (shouldLoadTripDocumentsForViewer(activeTab)) {
       void detail.ensureTripDocumentsForViewer();
+      // Delivered trips open on the light bundle (no vehicle row), so load RC/fitness/insurance here.
+      detail.ensureVehicleDocs();
     }
     if (activeTab === "tracking") {
       detail.ensureLocationHistory();
@@ -668,6 +708,7 @@ export default function TripDetailScreen({
   }, [
     activeTab,
     detail.ensureTripDocumentsForViewer,
+    detail.ensureVehicleDocs,
     detail.ensureLocationHistory,
   ]);
 
@@ -813,6 +854,39 @@ export default function TripDetailScreen({
     tripOperationsSummaryQuery.data?.costEvents,
     assignedDriverCompQuery.data,
   ]);
+
+  const complianceFinanceOrgId = (
+    tripForAssetFinance?.organization_id ??
+    currentOrganization?.id ??
+    ""
+  ).trim();
+  const complianceAdvanceFinanceQuery = useQuery({
+    queryKey: queryKeys.tripCompliance.advanceFinance(
+      complianceFinanceOrgId || "_",
+      tripForAssetFinance?.id ?? tripId ?? "_",
+    ),
+    enabled:
+      activeTab === "finance" &&
+      financeSubTab === "summary" &&
+      Boolean(complianceFinanceOrgId) &&
+      Boolean(tripForAssetFinance?.id) &&
+      Boolean((tripForAssetFinance?.supplier_id ?? "").trim()) &&
+      !!tripForAssetFinance &&
+      !isAssetExecutionTrip(tripForAssetFinance) &&
+      !isDcoOperatingTrip(tripForAssetFinance),
+    staleTime: 30_000,
+    queryFn: () =>
+      fetchComplianceAdvanceFinanceBreakdown({
+        orgId: complianceFinanceOrgId,
+        tripId: tripForAssetFinance!.id,
+        supplierId: tripForAssetFinance!.supplier_id,
+        supplierRate: tripForAssetFinance!.supplier_rate,
+        supplierRateBasis:
+          (tripForAssetFinance as { supplier_rate_basis?: string | null } | null)
+            ?.supplier_rate_basis ?? null,
+        loadTons: tripForAssetFinance!.load_tons ?? null,
+      }),
+  });
 
   useEffect(() => {
     if (!detail.trip || !isAssetExecutionTrip(detail.trip)) return;
@@ -1391,9 +1465,38 @@ export default function TripDetailScreen({
   const lrOcrAttemptedRef = useRef<string | null>(null);
   const [addDocChooserVisible, setAddDocChooserVisible] = useState(false);
   const [tripDetailsVisible, setTripDetailsVisible] = useState(false);
+  const [supplierBankProof, setSupplierBankProof] =
+    useState<SupplierBankProofBundle | null>(null);
   const [driverPodVisible, setDriverPodVisible] = useState(false);
   const [vehicleDocChooserVisible, setVehicleDocChooserVisible] = useState(false);
   const [driverDocChooserVisible, setDriverDocChooserVisible] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const orgId = (
+      detail.trip?.organization_id ??
+      currentOrganization?.id ??
+      ""
+    ).trim();
+    const supplierId = (detail.trip?.supplier_id ?? "").trim();
+    if (!orgId || !supplierId) {
+      setSupplierBankProof(null);
+      return;
+    }
+    void fetchSupplierBankProofBundle(orgId, supplierId).then((bundle) => {
+      if (cancelled) return;
+      setSupplierBankProof(bundle);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    detail.trip?.id,
+    detail.trip?.organization_id,
+    detail.trip?.supplier_id,
+    currentOrganization?.id,
+  ]);
+
   const [vaultDeleteTarget, setVaultDeleteTarget] = useState<{
     cardId: string;
     label: string;
@@ -1557,16 +1660,16 @@ export default function TripDetailScreen({
       } | null = null;
 
       if (pending.docType === "vehicle_extra") {
-        const orgId =
-          detail.trip?.organization_id ?? currentOrganization?.id ?? null;
-        const vehicleId = detail.trip?.vehicle_id ?? null;
-        if (!orgId || !vehicleId) {
+        // Trips linked by owner vehicle or plate only have no vehicle_id.
+        const target = await detail.resolveVaultVehicle();
+        if (!target) {
           notifyVaultFailure(
             "Assign a vehicle",
-            "Assign a vehicle to this trip before adding vehicle documents.",
+            "Assign a vehicle on this trip before uploading RC, Fitness, Insurance, or PUC.",
           );
           return;
         }
+        const { orgId, vehicleId } = target;
         const buffers: {
           arrayBuffer: ArrayBuffer;
           fileName: string;
@@ -1868,6 +1971,7 @@ export default function TripDetailScreen({
     detail.currentUserId,
     detail.vehicleDocs,
     detail.setVehicleDocs,
+    detail.resolveVaultVehicle,
     detail.driverIdentityDocs,
     detail.setDriverIdentityDocs,
     detail.upsertTripDocument,
@@ -2140,7 +2244,9 @@ export default function TripDetailScreen({
               ? "memo"
               : doc.id === "other"
                 ? "other"
-                : CATEGORY_TO_DOC_TYPE[doc.category ?? ""] ?? "manifest";
+                : doc.id === "bank_docs"
+                  ? "bank_docs"
+                  : CATEGORY_TO_DOC_TYPE[doc.category ?? ""] ?? "manifest";
         if (nextDocType === "lr") {
           fillPendingLrFields(doc.documentNumber, doc.documentDate);
           setPendingInvoiceNumbers([]);
@@ -2232,13 +2338,26 @@ export default function TripDetailScreen({
     async (kind: VehicleComplianceDocType | "extra") => {
       const tripIdForUpload = detail.trip?.id;
       const uploaderId = detail.currentUserId;
-      const vehicleId = detail.trip?.vehicle_id ?? null;
+      const plateOnScreen = visibleAssignedVehiclePlate({
+        displayVehicleFromInput: detail.displayVehicleFromInput,
+        vehicleLabel: detail.vehicleLabel,
+        vehicleDisplayNumber: detail.trip?.vehicle_display_number,
+        vehicleNumber: tripExtraVehicleNumber(
+        detail.trip as { vehicle_number?: string | null } | null,
+      ),
+      });
+      const vehicleReady = Boolean(
+        detail.trip?.vehicle_id?.trim() ||
+          detail.trip?.owner_vehicle_id?.trim() ||
+          detail.trip?.vehicle_display_number?.trim() ||
+          plateOnScreen,
+      );
       if (!tripIdForUpload || !uploaderId || uploadingDocId || pendingVaultUpload)
         return;
-      if (!vehicleId) {
+      if (!vehicleReady) {
         showAppAlert(
           "Assign a vehicle",
-          "Assign a vehicle to this trip before adding vehicle documents.",
+          "Assign a vehicle on this trip before uploading RC, Fitness, Insurance, or PUC.",
         );
         return;
       }
@@ -2285,6 +2404,10 @@ export default function TripDetailScreen({
     [
       detail.trip?.id,
       detail.trip?.vehicle_id,
+      detail.trip?.owner_vehicle_id,
+      detail.trip?.vehicle_display_number,
+      detail.displayVehicleFromInput,
+      detail.vehicleLabel,
       detail.currentUserId,
       uploadingDocId,
       pendingVaultUpload,
@@ -2293,15 +2416,38 @@ export default function TripDetailScreen({
 
   const openVehicleDocChooser = useCallback(() => {
     if (uploadingDocId || pendingVaultUpload) return;
-    if (!detail.trip?.vehicle_id) {
+    const plateOnScreen = visibleAssignedVehiclePlate({
+      displayVehicleFromInput: detail.displayVehicleFromInput,
+      vehicleLabel: detail.vehicleLabel,
+      vehicleDisplayNumber: detail.trip?.vehicle_display_number,
+      vehicleNumber: tripExtraVehicleNumber(
+        detail.trip as { vehicle_number?: string | null } | null,
+      ),
+    });
+    if (
+      !detail.trip?.vehicle_id?.trim() &&
+      !detail.trip?.owner_vehicle_id?.trim() &&
+      !detail.trip?.vehicle_display_number?.trim() &&
+      !plateOnScreen
+    ) {
       showAppAlert(
         "Assign a vehicle",
-        "Assign a vehicle to this trip before adding vehicle documents.",
+        "Assign a vehicle on this trip before uploading RC, Fitness, Insurance, or PUC.",
       );
       return;
     }
+    detail.ensureVehicleDocs();
     setVehicleDocChooserVisible(true);
-  }, [detail.trip?.vehicle_id, uploadingDocId, pendingVaultUpload]);
+  }, [
+    detail.trip?.vehicle_id,
+    detail.trip?.owner_vehicle_id,
+    detail.trip?.vehicle_display_number,
+    detail.displayVehicleFromInput,
+    detail.vehicleLabel,
+    detail.ensureVehicleDocs,
+    uploadingDocId,
+    pendingVaultUpload,
+  ]);
 
   const chooseVehicleDocKind = useCallback(
     (kind: VehicleComplianceDocType | "extra") => {
@@ -2404,14 +2550,11 @@ export default function TripDetailScreen({
         void handleLRUpload();
         return;
       }
+      const label =
+        TRIP_DETAILS_SLOTS.find((item) => item.id === slot)?.label ?? slot;
       void handleVaultUpload({
         id: slot,
-        label:
-          slot === "invoice"
-            ? "Invoice"
-            : slot === "other"
-              ? "Other Documents"
-              : "Memo",
+        label,
         type: "PDF",
         status: "Pending",
         category: slot === "invoice" ? "invoice" : "trip_details",
@@ -2698,25 +2841,67 @@ export default function TripDetailScreen({
       const files = (card?.files ?? []).filter(
         (file) => file.slotType === slot && !!file.storagePath?.trim(),
       );
-      if (files.length === 0) return;
       const label =
         TRIP_DETAILS_SLOTS.find((item) => item.id === slot)?.label ?? slot;
-      detail.setVehiclePreviewIndex(0);
-      detail.setSelectedDoc({
-        id: `trip-details-${slot}`,
-        label,
-        type: files.length > 1 ? "FILES" : files[0].type,
-        status: "Uploaded",
-        category: slot === "invoice" ? "invoice" : slot === "lr" ? "lr" : "trip_details",
-        files,
-        storagePath: files[0].storagePath,
-        documentId: files[0].documentId,
-        documentNumber: slot === "lr" ? card?.documentNumber : null,
-        documentDate: slot === "lr" ? card?.documentDate : null,
-        invoiceNumber: slot === "invoice" ? card?.invoiceNumber : null,
-      });
+
+      if (files.length > 0) {
+        detail.setVehiclePreviewIndex(0);
+        detail.setSelectedDoc({
+          id: `trip-details-${slot}`,
+          label,
+          type: files.length > 1 ? "FILES" : files[0].type,
+          status: "Uploaded",
+          category: slot === "invoice" ? "invoice" : slot === "lr" ? "lr" : "trip_details",
+          files,
+          storagePath: files[0].storagePath,
+          documentId: files[0].documentId,
+          documentNumber: slot === "lr" ? card?.documentNumber : null,
+          documentDate: slot === "lr" ? card?.documentDate : null,
+          invoiceNumber: slot === "invoice" ? card?.invoiceNumber : null,
+        });
+        return;
+      }
+
+      // Bank Docs: fall back to supplier Banking proof when the trip slot is empty.
+      if (slot === "bank_docs") {
+        const path = supplierBankProof?.previewPath?.trim() ?? "";
+        if (!path) return;
+        const ext = path.split("?")[0].split(".").pop()?.toLowerCase() ?? "";
+        const type = ext === "pdf" ? "PDF" : ext === "png" ? "PNG" : "JPG";
+        if (/^https?:\/\//i.test(path)) {
+          void openVaultChatPreview(path, type === "PDF" ? "application/pdf" : `image/${ext || "jpeg"}`, label);
+          return;
+        }
+        void (async () => {
+          const url = await signCompliancePreviewUrl({
+            storagePath: path,
+            source: "supplier-kyc",
+            organizationId:
+              detail.trip?.organization_id ?? currentOrganization?.id ?? null,
+            entityId: (detail.trip?.supplier_id ?? "").trim() || null,
+            docType: "bank_docs",
+          });
+          if (!url) {
+            Alert.alert(
+              "Preview unavailable",
+              "We could not open this file. Try again in a moment.",
+            );
+            return;
+          }
+          await openVaultChatPreview(
+            url,
+            type === "PDF" ? "application/pdf" : `image/${ext || "jpeg"}`,
+            label,
+          );
+        })();
+      }
     },
-    [detail],
+    [
+      detail,
+      supplierBankProof?.previewPath,
+      openVaultChatPreview,
+      currentOrganization?.id,
+    ],
   );
 
   const previewDriverPodFile = useCallback(
@@ -3481,6 +3666,12 @@ export default function TripDetailScreen({
   const supplierPartyIntegrated = detail.supplierPartyRes?.integrated ?? false;
   const hasLinkedClient = Boolean((clientIdFromContext ?? trip.client_id)?.trim());
   const hasLinkedSupplier = Boolean((trip.supplier_id ?? "").trim());
+  const showComplianceAdvanceFinance =
+    activeTab === "finance" &&
+    financeSubTab === "summary" &&
+    !isAssetTripFinance &&
+    !isDcoTrip &&
+    hasLinkedSupplier;
   const tripLedgerType = resolveTripLedgerTripType(trip);
   const hasNamedSupplierParty =
     hasLinkedSupplier ||
@@ -3754,81 +3945,90 @@ export default function TripDetailScreen({
       : undefined;
 
   const financeAdjustmentSummaryWrappedEl = (
-    <TripFinanceAdjustmentsPanel
-      layout={financeLayout}
-      canAddAdjustment={canVoidAdjustments}
-      adjustments={detail.adjustments}
-      sales={sales}
-      adjSales={adjSales}
-      revenueSideDelta={revenueSideDelta}
-      cost={cost}
-      adjCost={adjCost}
-      costSideDelta={costSideDelta}
-      clientName={clientNameForParty}
-      clientAvatarUrl={detail.clientPartyAvatarFields?.avatarUrl}
-      clientAvatarSeed={
-        detail.clientPartyAvatarFields?.avatarSeed ??
-        clientIdFromContext ??
-        trip.client_id ??
-        null
-      }
-      clientOrganizationImageUrl={
-        detail.clientPartyAvatarFields?.organizationImageUrl
-      }
-      clientOrganizationAvatarSeed={
-        detail.clientPartyAvatarFields?.organizationAvatarSeed
-      }
-      clientIntegrated={clientPartyIntegrated}
-      supplierName={provisionCostPartyName}
-      supplierAvatarUrl={
-        isAssetTripFinance
-          ? detail.driverAvatarUri
-          : detail.supplierPartyAvatarFields?.avatarUrl
-      }
-      supplierAvatarSeed={
-        isAssetTripFinance
-          ? (trip.driver_id ?? null)
-          : (detail.supplierPartyAvatarFields?.avatarSeed ??
-            trip.supplier_id ??
-            null)
-      }
-      supplierOrganizationImageUrl={
-        isAssetTripFinance
-          ? undefined
-          : detail.supplierPartyAvatarFields?.organizationImageUrl
-      }
-      supplierOrganizationAvatarSeed={
-        isAssetTripFinance
-          ? undefined
-          : detail.supplierPartyAvatarFields?.organizationAvatarSeed
-      }
-      supplierIntegrated={
-        isAssetTripFinance ? undefined : supplierPartyIntegrated
-      }
-      isAssetExecution={isAssetTripFinance}
-      costLaneLabel={isAssetTripFinance ? "Revised trip cost" : undefined}
-      costBreakdownLines={assetCostBreakdownLines}
-      costUnset={supplierCostRateUnset}
-      lineMetaLabel={provisionLineMetaLabel}
-      onOpenProvision={setShowFinanceProvisionPanel}
-      onRequestDeduction={handleRequestCostDeduction}
-      onViewNotePdf={(adj) => {
-        const isSale = adj.type === "revenue";
-        setProvisionNotePdfContext({
-          adjustment: adj,
-          tripCode: getTripDisplayNumber(trip, currentOrganization?.id),
-          companyName: currentOrganization?.name?.trim() || "PULSE",
-          partyName: isSale ? clientNameForParty : provisionCostPartyName,
-          laneLabel: isSale ? "Sale" : "Cost",
-          partyRole: isSale ? "Client" : isDcoTrip ? "DCO" : isAssetTripFinance ? "Driver" : "Supplier",
-          baseLaneAmount: isSale ? sales : cost,
-          revisedLaneAmount: isSale ? adjSales : adjCost,
-        });
-      }}
-      onEditAdjustment={openProvisionEdit}
-      capturePaymentSlot={financeCapturePaymentSlot}
-      exchangeSlot={<ExchangePaymentsPanel tripId={trip.id} />}
-    />
+    <>
+      <TripFinanceAdjustmentsPanel
+        layout={financeLayout}
+        canAddAdjustment={canVoidAdjustments}
+        adjustments={detail.adjustments}
+        sales={sales}
+        adjSales={adjSales}
+        revenueSideDelta={revenueSideDelta}
+        cost={cost}
+        adjCost={adjCost}
+        costSideDelta={costSideDelta}
+        clientName={clientNameForParty}
+        clientAvatarUrl={detail.clientPartyAvatarFields?.avatarUrl}
+        clientAvatarSeed={
+          detail.clientPartyAvatarFields?.avatarSeed ??
+          clientIdFromContext ??
+          trip.client_id ??
+          null
+        }
+        clientOrganizationImageUrl={
+          detail.clientPartyAvatarFields?.organizationImageUrl
+        }
+        clientOrganizationAvatarSeed={
+          detail.clientPartyAvatarFields?.organizationAvatarSeed
+        }
+        clientIntegrated={clientPartyIntegrated}
+        supplierName={provisionCostPartyName}
+        supplierAvatarUrl={
+          isAssetTripFinance
+            ? detail.driverAvatarUri
+            : detail.supplierPartyAvatarFields?.avatarUrl
+        }
+        supplierAvatarSeed={
+          isAssetTripFinance
+            ? (trip.driver_id ?? null)
+            : (detail.supplierPartyAvatarFields?.avatarSeed ??
+              trip.supplier_id ??
+              null)
+        }
+        supplierOrganizationImageUrl={
+          isAssetTripFinance
+            ? undefined
+            : detail.supplierPartyAvatarFields?.organizationImageUrl
+        }
+        supplierOrganizationAvatarSeed={
+          isAssetTripFinance
+            ? undefined
+            : detail.supplierPartyAvatarFields?.organizationAvatarSeed
+        }
+        supplierIntegrated={
+          isAssetTripFinance ? undefined : supplierPartyIntegrated
+        }
+        isAssetExecution={isAssetTripFinance}
+        costLaneLabel={isAssetTripFinance ? "Revised trip cost" : undefined}
+        costBreakdownLines={assetCostBreakdownLines}
+        costUnset={supplierCostRateUnset}
+        lineMetaLabel={provisionLineMetaLabel}
+        onOpenProvision={setShowFinanceProvisionPanel}
+        onRequestDeduction={handleRequestCostDeduction}
+        onViewNotePdf={(adj) => {
+          const isSale = adj.type === "revenue";
+          setProvisionNotePdfContext({
+            adjustment: adj,
+            tripCode: getTripDisplayNumber(trip, currentOrganization?.id),
+            companyName: currentOrganization?.name?.trim() || "PULSE",
+            partyName: isSale ? clientNameForParty : provisionCostPartyName,
+            laneLabel: isSale ? "Sale" : "Cost",
+            partyRole: isSale ? "Client" : isDcoTrip ? "DCO" : isAssetTripFinance ? "Driver" : "Supplier",
+            baseLaneAmount: isSale ? sales : cost,
+            revisedLaneAmount: isSale ? adjSales : adjCost,
+          });
+        }}
+        onEditAdjustment={openProvisionEdit}
+        capturePaymentSlot={financeCapturePaymentSlot}
+        exchangeSlot={<ExchangePaymentsPanel tripId={trip.id} />}
+      />
+      {showComplianceAdvanceFinance ? (
+        <ComplianceAdvanceFinanceCard
+          breakdown={complianceAdvanceFinanceQuery.data}
+          loading={complianceAdvanceFinanceQuery.isLoading}
+          supplierName={provisionCostPartyName}
+        />
+      ) : null}
+    </>
   );
 
   const showOdometerVerification =
@@ -3907,7 +4107,11 @@ export default function TripDetailScreen({
         const files = (tripDetailsCard?.files ?? []).filter(
           (file) => file.slotType === slot.id && !!file.storagePath?.trim(),
         );
-        const onFile = files.length > 0;
+        const supplierBankOnFile =
+          slot.id === "bank_docs" &&
+          files.length === 0 &&
+          Boolean(supplierBankProof?.previewPath?.trim() || supplierBankProof?.detailLine?.trim());
+        const onFile = files.length > 0 || Boolean(supplierBankProof?.previewPath?.trim() && slot.id === "bank_docs");
         const canUpload = canUploadTripDocs && !uploadingDocId;
         const invoiceLabel = formatInvoiceVaultNumberLabel(
           tripDetailsCard?.invoiceNumber,
@@ -3920,22 +4124,37 @@ export default function TripDetailScreen({
               ].filter((line): line is string => !!line)
             : [];
         const invoiceMeta = slot.id === "invoice" ? invoiceLabel : null;
+        const bankMeta =
+          slot.id === "bank_docs"
+            ? [
+                files[0]?.fileName?.trim() || null,
+                supplierBankProof?.detailLine?.trim() || null,
+                files.length > 1 ? `${files.length} files` : null,
+              ].filter((line): line is string => !!line)
+            : [];
         const metaParts = [
           lrMeta.length > 0 ? lrMeta.join(" · ") : null,
           invoiceMeta,
-          files.length > 1 && !invoiceMeta ? `${files.length} files` : null,
+          bankMeta.length > 0 ? bankMeta.join(" · ") : null,
+          files.length > 1 && !invoiceMeta && slot.id !== "bank_docs"
+            ? `${files.length} files`
+            : null,
         ].filter((line): line is string => !!line);
         const meta =
           metaParts.length > 0
             ? metaParts.join(" · ")
             : onFile
               ? "On file"
-              : "Not uploaded";
+              : supplierBankOnFile
+                ? "From supplier banking"
+                : "Not uploaded";
         return (
           <View key={slot.id} style={styles.tripDetailsRow}>
             <View style={styles.tripDetailsCopy}>
               <Text style={styles.addDocTypeBtnText}>{slot.label}</Text>
-              <Text style={styles.addDocTypeBtnMeta}>{meta}</Text>
+              <Text style={styles.addDocTypeBtnMeta} numberOfLines={2}>
+                {meta}
+              </Text>
             </View>
             <TouchableOpacity
               style={styles.tripDetailsIconBtn}
@@ -3944,7 +4163,9 @@ export default function TripDetailScreen({
               activeOpacity={0.85}
               accessibilityRole="button"
               accessibilityLabel={
-                onFile ? `Add another ${slot.label}` : `Upload ${slot.label}`
+                onFile || supplierBankOnFile
+                  ? `Add another ${slot.label}`
+                  : `Upload ${slot.label}`
               }
             >
               <Feather
@@ -7428,6 +7649,11 @@ export default function TripDetailScreen({
           delivery: trip.drop_location?.trim() || "—",
           driverName: allocatedDriverName,
           vehicleLabel: allocatedVehicleLabel,
+          vehicleType: vehicleTypeLabel || "—",
+          vendorName:
+            supplierNameForParty && supplierNameForParty !== awaitingDataLabel
+              ? supplierNameForParty
+              : "—",
         }}
         onUpdated={() => {
           void detail.load();
@@ -7799,7 +8025,7 @@ export default function TripDetailScreen({
               <View style={styles.docModalTitleBlock}>
                 <Text style={styles.docModalTitle}>Trip Details</Text>
                 <Text style={styles.docModalSubtitle}>
-                  LR Document, Invoice, Memo, and Other Documents
+                  LR, Invoice, Memo, Other Documents, and Bank Docs
                 </Text>
               </View>
               <TouchableOpacity

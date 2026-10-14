@@ -111,6 +111,47 @@ describe("logTripHardCopyPodCourier", () => {
       p_remarks: "fragile",
     });
   });
+
+  it.each([
+    ["missing", undefined],
+    ["empty", ""],
+    ["whitespace-only", "  \t  "],
+  ] as const)("rejects a %s dispatch date locally", async (_label, dispatchDate) => {
+    const result = await logTripHardCopyPodCourier("trip-1", {
+      courier: "DHL",
+      awbNumber: "AWB99",
+      dispatchDate,
+    });
+    expect(result.error?.message).toBe("Dispatch date is required.");
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  it.each(["22-09-2026", "2026-02-31", "2026-13-01"])(
+    "rejects an invalid dispatch date %s locally",
+    async (dispatchDate) => {
+      const result = await logTripHardCopyPodCourier("trip-1", {
+        courier: "DHL",
+        awbNumber: "AWB99",
+        dispatchDate,
+      });
+      expect(result.error?.message).toBe("Use YYYY-MM-DD for the dispatch date.");
+      expect(mockRpc).not.toHaveBeenCalled();
+    },
+  );
+
+  it("sends a trimmed YYYY-MM-DD dispatch date", async () => {
+    mockRpc.mockResolvedValue({ data: true, error: null });
+    const result = await logTripHardCopyPodCourier("trip-1", {
+      courier: "DHL",
+      awbNumber: "AWB99",
+      dispatchDate: "  2026-09-22  ",
+    });
+    expect(result.error).toBeNull();
+    expect(mockRpc).toHaveBeenCalledWith(
+      "log_trip_hard_copy_pod_courier",
+      expect.objectContaining({ p_dispatch_date: "2026-09-22" }),
+    );
+  });
 });
 
 describe("fetchTripHardCopyPodReceipt", () => {

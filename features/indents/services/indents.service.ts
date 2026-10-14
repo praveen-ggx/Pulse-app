@@ -2,10 +2,13 @@
  * Indents service — Supabase only (mobile). Same DB as pulse-unified-base.
  * Service-layer validation: single pass over inputs before insert.
  */
+import { getWarehousesByClient } from "@/features/clients/services/clientWarehouses.service";
+import { warehouseIdForPickup } from "@/features/clients/utils/warehouseAddress.util";
 import { getClientById } from "@/features/clients/services/clients.service";
 import { findIndentInMarketList } from "@/features/indents/utils/findIndentInList.util";
 import { createSharedIndentCopiesWithOps } from "@/features/indents/utils/indentShareCopies.util";
 import {
+  indentAwardBlockedBecauseInactive,
   indentCancelReasonId,
   indentStatusForCancelReason,
   type IndentCancelReasonId,
@@ -63,6 +66,8 @@ export interface CreateIndentInput {
   /** Optional: status is managed by DB default / backend logic. */
   status?: string | null;
   client_id?: string | null;
+  /** Pickup warehouse; resolved from pickup_area when omitted (see createIndent). */
+  warehouse_id?: string | null;
   lane_id?: string | null;
   sale_rate_basis?: "per_mt" | "per_trip" | null;
   /** Unit of supplier_target — independent of the client sale basis. */
@@ -333,6 +338,54 @@ export async function getIndentsByOrganization(
   // invisible until the next scheduled full sync. Report truncation so the sync
   // layer can decline to trust this page as a cursor baseline.
   return { error: null, indents, truncated: indents.length >= FINITE_LIST_CAP };
+}
+
+/**
+ * How many older code matches the Trips toolbar may merge in.
+ * Ordered oldest-first so this fills the tail cut off by FINITE_LIST_CAP,
+ * instead of repeating the newest rows the hub already has.
+ */
+const TRIPS_INDENT_CODE_SEARCH_LIMIT = 25;
+
+/**
+ * PostgREST `.or()` filter for a Trips toolbar code search.
+ * Matches indent_operational_code, indent_code, and indent_number.
+ * Returns null when the query is blank or would break the `.or()` parser.
+ */
+export function tripsIndentCodeSearchOrFilter(query: string): string | null {
+  const needle = query.trim();
+  if (!needle || /[,()]/.test(needle)) return null;
+  const escaped = needle.replace(/[%_\\]/g, (ch) => `\\${ch}`);
+  const pattern = `%${escaped}%`;
+  return [
+    `indent_operational_code.ilike.${pattern}`,
+    `indent_code.ilike.${pattern}`,
+    `indent_number.ilike.${pattern}`,
+  ].join(",");
+}
+
+/**
+ * Trips toolbar only. Looks up this org's indents by code outside the
+ * finite list window. Does not change getIndentsByOrganization.
+ */
+export async function searchIndentsByCodeForTrips(
+  orgId: string,
+  query: string,
+): Promise<{ error: Error | null; indents: IndentRow[] }> {
+  const orFilter = tripsIndentCodeSearchOrFilter(query);
+  const id = orgId.trim();
+  if (!id || !orFilter) return { error: null, indents: [] };
+
+  const { data, error } = await supabase()
+    .from("indents")
+    .select("*")
+    .eq("organization_id", id)
+    .or(orFilter)
+    .order("created_at", { ascending: true })
+    .limit(TRIPS_INDENT_CODE_SEARCH_LIMIT);
+  if (error) return { error: new Error(error.message), indents: [] };
+  const indents = await attachActiveTripRefs((data ?? []) as IndentRow[]);
+  return { error: null, indents };
 }
 
 export async function getIndentsDelta(
@@ -830,6 +883,14 @@ async function insertIndentRow(
   }
   if (!client_name) client_name = data.client_name || "";
 
+  // Link the indent to the client warehouse its pickup was picked from, so
+  // Ground Ops assigned to that warehouse see the trip. Typed pickups stay null.
+  let warehouse_id = data.warehouse_id ?? null;
+  if (!warehouse_id && data.client_id && data.pickup_area?.trim()) {
+    const { warehouses } = await getWarehousesByClient(orgId, data.client_id);
+    warehouse_id = warehouseIdForPickup(data.pickup_area, warehouses);
+  }
+
   const indent_number = null;
   // Insert only columns that exist on indents table. client_id is resolved to client_name above;
   // do not send client_id if the table does not have that column (avoids "could not find client_id column").
@@ -843,6 +904,7 @@ async function insertIndentRow(
     drop_location: data.drop_location?.trim() ?? "",
     client_name: client_name?.trim() ?? "",
     client_id: data.client_id ?? null,
+    warehouse_id,
     lane_id: data.lane_id ?? null,
     sale_rate_basis:
       data.sale_rate_basis === "per_mt" || data.sale_rate_basis === "per_trip"
@@ -1001,6 +1063,17 @@ export async function updateIndent(
 
   if (Object.keys(payload).length === 0) {
     return { error: null, indent: null };
+  }
+
+  if (updates.status === "awarded") {
+    const { data: current, error: readError } = await supabase()
+      .from("indents")
+      .select("status")
+      .eq("id", indentId)
+      .maybeSingle();
+    if (readError) return { error: new Error(readError.message), indent: null };
+    const blocked = indentAwardBlockedBecauseInactive(current?.status);
+    if (blocked) return { error: new Error(blocked), indent: null };
   }
 
   const { data, error } = await supabase()
@@ -1221,6 +1294,8 @@ export async function shareDraftIndent(
  * Soft-cancel an indent. A reason records why it left the pool and
  * drives the Failed tag. Indent expired uses status `expired`.
  * Caller must have permission via RLS (indent owner org).
+ * `reason` is required from the review hub; rollback of a failed multi-copy
+ * share may cancel without one.
  */
 export async function cancelIndent(
   indentId: string,

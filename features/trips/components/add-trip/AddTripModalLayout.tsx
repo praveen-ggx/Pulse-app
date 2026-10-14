@@ -44,6 +44,8 @@ export interface AddTripModalLayoutProps {
   tertiaryDisabled?: boolean;
   /** Hide Back/Close secondary in footer (keypad / final confirm). */
   hideFooterSecondary?: boolean;
+  /** Hide the primary (Continue / Create) button. */
+  hidePrimary?: boolean;
 }
 
 export function AddTripModalLayout({
@@ -73,6 +75,7 @@ export function AddTripModalLayout({
   onTertiaryPress,
   tertiaryDisabled = false,
   hideFooterSecondary = false,
+  hidePrimary = false,
 }: AddTripModalLayoutProps) {
   const shouldShowFooter =
     primaryActionMode === "footer"
@@ -99,6 +102,7 @@ export function AddTripModalLayout({
         primaryLabel={submitting ? "Saving…" : submitLabel}
         onPrimaryPress={onSubmit}
         primaryDisabled={submitDisabled}
+        hidePrimary={hidePrimary}
         primaryLoading={submitting}
         hint={
           submitDisabled && !submitting
@@ -146,6 +150,7 @@ export function AddTripModalLayout({
             primaryLabel={submitting ? "Saving…" : submitLabel}
             onPrimaryPress={onSubmit}
             primaryDisabled={submitDisabled}
+            hidePrimary={hidePrimary}
             loading={submitting}
             primaryTone="ink"
             hint={

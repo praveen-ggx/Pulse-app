@@ -724,6 +724,7 @@ export function ClientProfileCommercialsPanel({ bundle, orgId, clientId, onRefre
             />
             <View style={{ width: "100%", marginBottom: compact ? 8 : 12 }}>
               <TripCommodityFields
+                useVehicleCatalog
                 vehicleType={form.vehicle_type}
                 loadType={form.default_load_type}
                 tons={form.default_load_tons}

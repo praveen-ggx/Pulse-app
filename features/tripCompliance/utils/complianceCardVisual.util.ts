@@ -4,6 +4,7 @@ import type {
     ComplianceStage,
     ComplianceTripSummary,
 } from "@/features/tripCompliance/tripCompliance.types";
+import { isFinanceDeclinedTrip } from "@/features/tripCompliance/utils/complianceTableStatus.util";
 
 export type ComplianceTone = {
   fg: string;
@@ -14,6 +15,7 @@ export const COMPLIANCE_STAGE_TONE: Record<ComplianceStage, ComplianceTone> = {
   pending_for_docs: { fg: Theme.complianceStageDocsFg, bg: Theme.complianceStageDocsBg },
   compliance_pending: { fg: Theme.complianceStagePendingFg, bg: Theme.complianceStagePendingBg },
   compliance_verified: { fg: Theme.complianceStageSuccessFg, bg: Theme.complianceStageSuccessBg },
+  finance_verified: { fg: Theme.complianceStageBalanceFg, bg: Theme.complianceStageBalanceBg },
   advance_payment_processed: { fg: Theme.complianceStageSuccessFg, bg: Theme.complianceStageSuccessBg },
   hard_copy_pod_received: { fg: Theme.complianceStagePendingFg, bg: Theme.complianceStagePendingBg },
   balance_pending: { fg: Theme.complianceStageBalanceFg, bg: Theme.complianceStageBalanceBg },
@@ -25,6 +27,7 @@ export const COMPLIANCE_FILTER_COUNT_TONE: Record<ComplianceStage | "all", strin
   pending_for_docs: Theme.complianceStageDocsFg,
   compliance_pending: Theme.complianceStagePendingFg,
   compliance_verified: Theme.complianceStageSuccessFg,
+  finance_verified: Theme.complianceStageBalanceFg,
   advance_payment_processed: Theme.textMuted,
   hard_copy_pod_received: Theme.complianceStageInfoFg,
   balance_pending: Theme.complianceStageBalanceFg,
@@ -95,9 +98,37 @@ export type ComplianceVerificationStatusVisual = {
   kind: "pending_docs" | "compliance_pending" | "verified" | "exception";
 };
 
+/**
+ * Verified trip rejected by finance (decline at/after verify) — stays in Verified,
+ * shown as Rejected (red). Same rule as isFinanceDeclinedTrip; drives the card pill,
+ * Export counts and report status.
+ */
+export function isComplianceVerifiedRejected(
+  summary: Pick<ComplianceTripSummary, "complianceVerifiedAt" | "complianceDeclinedAt">,
+): boolean {
+  return isFinanceDeclinedTrip(summary as ComplianceTripSummary);
+}
+
 export function verificationStatusVisual(
   summary: ComplianceTripSummary,
 ): ComplianceVerificationStatusVisual {
+  // Finance reject after verify: stay in Verified stage, show Rejected (red).
+  // A compliance decline that was later verified is history, not a reject.
+  if (isComplianceVerifiedRejected(summary)) {
+    return {
+      label: "Rejected",
+      tone: COMPLIANCE_STAGE_TONE.pending_for_docs,
+      kind: "verified",
+    };
+  }
+  if (summary.complianceVerifiedAt && summary.financeFlaggedAt) {
+    // Finance flagged it for Compliance: not "Verified" until the flag is cleared.
+    return {
+      label: "Flagged",
+      tone: COMPLIANCE_STAGE_TONE.pending_for_docs,
+      kind: "verified",
+    };
+  }
   if (summary.complianceVerifiedAt) {
     if (summary.complianceDecision === "approved_with_exception") {
       return {
@@ -110,6 +141,16 @@ export function verificationStatusVisual(
       label: "Verified",
       tone: COMPLIANCE_STAGE_TONE.compliance_verified,
       kind: "verified",
+    };
+  }
+  // Decline before verify: same kind of status tag as finance Rejected.
+  if (summary.complianceDeclinedAt) {
+    const stillPendingDocs =
+      summary.stage === "pending_for_docs" || summary.documentCounts.total === 0;
+    return {
+      label: "Compliance Hold",
+      tone: COMPLIANCE_STAGE_TONE.pending_for_docs,
+      kind: stillPendingDocs ? "pending_docs" : "compliance_pending",
     };
   }
   if (summary.stage === "hard_copy_pod_received") {
@@ -142,16 +183,47 @@ export function verificationStatusVisual(
   }
   if (summary.stage === "pending_for_docs" || summary.documentCounts.total === 0) {
     return {
-      label: "Pending Docs",
+      label: "Document Upload",
       tone: COMPLIANCE_STAGE_TONE.pending_for_docs,
       kind: "pending_docs",
     };
   }
   return {
-    label: "Compliance Pending",
+    label: "Compliance Verification",
     tone: COMPLIANCE_STAGE_TONE.compliance_pending,
     kind: "compliance_pending",
   };
+}
+
+/** Trip Operations status on a Compliance Pending card — not the compliance stage. */
+export function tripOpsStatusBadge(
+  status: string | null | undefined,
+): { label: string; tone: ComplianceTone } | null {
+  const raw = (status ?? "").trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === "in_progress" || raw === "loading") {
+    return { label: "Loading", tone: COMPLIANCE_STAGE_TONE.compliance_pending };
+  }
+  if (raw === "in_transit" || raw === "in transit") {
+    return {
+      label: "In Transit",
+      tone: { fg: Theme.complianceStageInfoFg, bg: Theme.complianceStageInfoBg },
+    };
+  }
+  if (raw === "at_destination" || raw === "at_drop") {
+    return { label: "At Destination", tone: COMPLIANCE_STAGE_TONE.balance_pending };
+  }
+  if (raw === "completed" || raw === "delivered" || raw === "done") {
+    return { label: "Completed", tone: COMPLIANCE_STAGE_TONE.compliance_verified };
+  }
+  if (raw === "cancelled" || raw === "canceled") {
+    return { label: "Cancelled", tone: COMPLIANCE_STAGE_TONE.pending_for_docs };
+  }
+  const label = raw
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+  return { label, tone: COMPLIANCE_STAGE_TONE.compliance_pending };
 }
 
 /** True when payment/pipeline progressed past verification — show both pills. */
@@ -185,10 +257,15 @@ export function pendingDocumentsCopy(pendingCount: number, verified: number, tot
   return `${pendingCount} document${pendingCount === 1 ? "" : "s"} pending`;
 }
 
-export function matchesComplianceTripSearch(summary: ComplianceTripSummary, query: string): boolean {
+export function matchesComplianceTripSearch(
+  summary: ComplianceTripSummary,
+  query: string,
+  extraHaystacks: Array<string | null | undefined> = [],
+): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
-  const compact = needle.replace(/[\s-]/g, "");
+  const compactNeedle = needle.replace(/[\s-]/g, "");
+  const looseNeedle = collapseRepeatedLetters(compactNeedle);
   const trip = summary.trip;
   const haystacks = [
     complianceTripDisplayId(trip),
@@ -196,17 +273,60 @@ export function matchesComplianceTripSearch(summary: ComplianceTripSummary, quer
     trip.trip_number,
     trip.booking_ref,
     trip.client_name,
+    trip.supplier_name,
     trip.vehicle_display_number,
     trip.driver_display_name,
     trip.pickup_area,
     trip.drop_location,
     trip.id,
-  ];
-  return haystacks.some((value) => {
-    const raw = (value ?? "").toLowerCase();
-    if (!raw) return false;
-    return raw.includes(needle) || raw.replace(/[\s-]/g, "").includes(compact);
+    ...extraHaystacks,
+  ]
+    .map((value) => (value ?? "").trim().toLowerCase())
+    .filter((value) => value.length > 0);
+  if (haystacks.length === 0) return false;
+
+  const joined = haystacks.join(" ");
+  const joinedCompact = joined.replace(/[\s-]/g, "");
+  const joinedLoose = collapseRepeatedLetters(joinedCompact);
+
+  if (
+    joined.includes(needle) ||
+    joinedCompact.includes(compactNeedle) ||
+    (looseNeedle.length >= 4 && joinedLoose.includes(looseNeedle))
+  ) {
+    return true;
+  }
+
+  // Multi-word queries: every token must appear somewhere (order-independent).
+  const tokens = needle.split(/\s+/).filter((token) => token.length >= 2);
+  if (tokens.length <= 1) return false;
+  return tokens.every((token) => {
+    const compactToken = token.replace(/[\s-]/g, "");
+    const looseToken = collapseRepeatedLetters(compactToken);
+    return (
+      joined.includes(token) ||
+      joinedCompact.includes(compactToken) ||
+      (looseToken.length >= 4 && joinedLoose.includes(looseToken))
+    );
   });
+}
+
+/** Collapse aa→a so slight spelling variants still match (e.g. Venkateswaraa / Venkateswara). */
+function collapseRepeatedLetters(value: string): string {
+  return value.replace(/(.)\1+/g, "$1");
+}
+
+/** Searchable supplier labels for Compliance queue (name + company + contact). */
+export function supplierComplianceSearchLabels(supplier: {
+  name?: string | null;
+  company_name?: string | null;
+  contact_person?: string | null;
+} | null | undefined): string {
+  if (!supplier) return "";
+  return [supplier.name, supplier.company_name, supplier.contact_person]
+    .map((part) => (part ?? "").trim())
+    .filter((part) => part.length > 0)
+    .join(" ");
 }
 
 export function complianceTripDisplayId(trip: {
@@ -225,11 +345,12 @@ export function formatComplianceTimestamp(iso: string | null | undefined): strin
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const day = date.getDate();
   const month = months[date.getMonth()];
+  const year = date.getFullYear();
   let hours = date.getHours();
   const minutes = String(date.getMinutes()).padStart(2, "0");
   const suffix = hours >= 12 ? "PM" : "AM";
   hours = hours % 12 || 12;
-  return `${day} ${month}, ${String(hours).padStart(2, "0")}:${minutes} ${suffix}`;
+  return `${day} ${month} ${year}, ${String(hours).padStart(2, "0")}:${minutes} ${suffix}`;
 }
 
 export function complianceEventAt(trip: {
@@ -238,4 +359,25 @@ export function complianceEventAt(trip: {
   created_at?: string | null;
 }): string | null {
   return trip.pickup_date || trip.started_at || trip.created_at || null;
+}
+
+function complianceEventSortKey(summary: ComplianceTripSummary): number | null {
+  const raw = complianceEventAt(summary.trip);
+  if (!raw) return null;
+  const ms = Date.parse(raw);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/** Date order for the Compliance table and its export. Trips with no date stay last. */
+export function compareComplianceSummariesByEvent(
+  a: ComplianceTripSummary,
+  b: ComplianceTripSummary,
+  direction: "asc" | "desc",
+): number {
+  const da = complianceEventSortKey(a);
+  const db = complianceEventSortKey(b);
+  if (da == null && db == null) return 0;
+  if (da == null) return 1;
+  if (db == null) return -1;
+  return direction === "asc" ? da - db : db - da;
 }

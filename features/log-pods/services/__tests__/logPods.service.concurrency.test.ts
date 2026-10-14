@@ -205,4 +205,26 @@ describe("executeLogIncomingPods — bounded concurrency", () => {
       awbNumber: "AWB123",
     });
   });
+
+  it("passes payload.receivedAt through to the POD_LOGGED log_activity entry", async () => {
+    await executeLogIncomingPods(payload(1));
+    expect(mockRpc).toHaveBeenCalledWith(
+      "log_activity",
+      expect.objectContaining({
+        p_action: "POD_LOGGED",
+        p_details: expect.objectContaining({ received_at: "2026-01-01T00:00:00Z" }),
+      }),
+    );
+  });
+
+  it("falls back to the current time when payload.receivedAt is missing", async () => {
+    const p = payload(1);
+    delete p.receivedAt;
+    const before = Date.now();
+    await executeLogIncomingPods(p);
+    const receivedAt = mockRpc.mock.calls[0][1].p_details.received_at as string;
+    expect(new Date(receivedAt).toISOString()).toBe(receivedAt);
+    expect(Date.parse(receivedAt)).toBeGreaterThanOrEqual(before);
+    expect(Date.parse(receivedAt)).toBeLessThanOrEqual(Date.now());
+  });
 });

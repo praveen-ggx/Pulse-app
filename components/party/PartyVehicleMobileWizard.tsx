@@ -6,7 +6,7 @@ import { Pressable, Text, TextInput, View } from "react-native";
 
 import Theme from "@/constants/Theme";
 import { IndianVehicleRegistrationKeypadFlow } from "@/components/indianVehicle/IndianVehicleRegistrationKeypadFlow";
-import { AXLE_CHIP_OPTIONS, getBodyTypeOptions, VEHICLE_CATEGORY_LABELS } from "@/features/vehicles/utils/vehicleFormOptions.util";
+import { getBodyTypeOptions, VEHICLE_CATEGORY_LABELS } from "@/features/vehicles/utils/vehicleFormOptions.util";
 import { CapacityDialPicker } from "@/components/CapacityDialPicker";
 import { PartyMobileWizardShell } from "./PartyMobileWizardShell";
 import { partyMobileWizardStyles as styles } from "./partyMobileWizardStyles";
@@ -51,6 +51,10 @@ export interface PartyVehicleMobileWizardProps {
   onVehicleBodyTypeChange: (value: string) => void;
   capacityHint?: ReactNode;
   axleHint?: ReactNode;
+  /** Replaces the category chips (e.g. the global vehicle type picker). */
+  categoryField?: ReactNode;
+  /** Hide body length when the chosen vehicle type already carries it. */
+  hideBodyLength?: boolean;
 
   formError: string | null;
   noOrganizationBanner?: ReactNode;
@@ -76,10 +80,10 @@ export const PartyVehicleMobileWizard = memo(function PartyVehicleMobileWizard({
   bodyLengthIsOther,
   onOpenBodyLengthPicker,
   onChooseBodyLengthFromList,
-  vehicleAxle,
-  onVehicleAxleChange,
   vehicleBodyType,
   onVehicleBodyTypeChange,
+  categoryField,
+  hideBodyLength = false,
   formError,
   noOrganizationBanner,
   canAdvance,
@@ -139,6 +143,7 @@ export const PartyVehicleMobileWizard = memo(function PartyVehicleMobileWizard({
           />
         );
       case "category":
+        if (categoryField) return categoryField;
         return (
           <View style={styles.chipGrid}>
             {VEHICLE_CATEGORY_LABELS.map((cat) => (
@@ -197,6 +202,7 @@ export const PartyVehicleMobileWizard = memo(function PartyVehicleMobileWizard({
               <Text style={styles.fieldLabel}>LOAD CAPACITY</Text>
               <CapacityDialPicker value={vehicleCapacity} onChange={onVehicleCapacityChange} />
             </View>
+            {hideBodyLength ? null : (
             <View style={styles.fieldBlock}>
               <Text style={styles.fieldLabel}>BODY LENGTH (FT)</Text>
               {bodyLengthIsOther ? (
@@ -241,34 +247,7 @@ export const PartyVehicleMobileWizard = memo(function PartyVehicleMobileWizard({
                 </Pressable>
               )}
             </View>
-            <View style={styles.fieldBlock}>
-              <View style={styles.labelRow}>
-                <Text style={styles.fieldLabel}>AXLE</Text>
-                <Text style={styles.optionalPill}>OPTIONAL</Text>
-              </View>
-              <View style={styles.chipGrid}>
-                {AXLE_CHIP_OPTIONS.map((opt) => (
-                  <Pressable
-                    key={opt}
-                    style={[
-                      styles.chip,
-                      vehicleAxle === opt && styles.chipActive,
-                    ]}
-                    onPress={() => onVehicleAxleChange(vehicleAxle === opt ? "" : opt)}
-                    testID={`party-vehicle-axle-${opt}`}
-                  >
-                    <Text
-                      style={[
-                        styles.chipText,
-                        vehicleAxle === opt && styles.chipTextActive,
-                      ]}
-                    >
-                      {opt}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
+            )}
           </View>
         );
       default:

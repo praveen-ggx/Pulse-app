@@ -1,6 +1,8 @@
 import {
   isCompletedDeliveredStatus,
   isComplianceOpsPipelineTrip,
+  isPendingDocsDeliveredTrip,
+  isPendingDocsInTransitTrip,
   selectCompliancePipelineTrips,
 } from "@/features/tripCompliance/utils/compliancePipelineTrips.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
@@ -33,5 +35,14 @@ describe("compliancePipelineTrips", () => {
     expect(isCompletedDeliveredStatus("completed")).toBe(true);
     expect(isComplianceOpsPipelineTrip(trip({ id: "1", status: "loading" }))).toBe(true);
     expect(isComplianceOpsPipelineTrip(trip({ id: "2", status: "assigned" }))).toBe(false);
+  });
+
+  it("splits Pending Docs transit subtabs from trip.status", () => {
+    expect(isPendingDocsInTransitTrip({ trip: { status: "in_transit" } })).toBe(true);
+    expect(isPendingDocsInTransitTrip({ trip: { status: "at_destination" } })).toBe(true);
+    expect(isPendingDocsInTransitTrip({ trip: { status: "loading" } })).toBe(true);
+    expect(isPendingDocsDeliveredTrip({ trip: { status: "delivered" } })).toBe(true);
+    expect(isPendingDocsDeliveredTrip({ trip: { status: "completed" } })).toBe(true);
+    expect(isPendingDocsInTransitTrip({ trip: { status: "delivered" } })).toBe(false);
   });
 });

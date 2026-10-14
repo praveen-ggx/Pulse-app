@@ -15,7 +15,8 @@ import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingMod
 import { useOwnerVehiclesQuery } from '@/lib/queries/useOwnerVehiclesQuery';
 import { ROUTES } from '@/lib/routes';
 import { validateIndianVehicleNumber } from '@/lib/validation';
-import { VEHICLE_CATEGORY_LABELS } from '@/features/vehicles/utils/vehicleFormOptions.util';
+import { VehicleTypeCatalogField } from '@/features/vehicles/components/VehicleTypeCatalogField';
+import { passingTonRange } from '@/features/vehicles/utils/vehicleTypeCatalog.model';
 import { useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
@@ -45,7 +46,7 @@ export default function AddOwnerVehicleScreen() {
   const { invalidate } = useOwnerVehiclesQuery(uid);
 
   const [vehicleNumber, setVehicleNumber] = useState('');
-  const [vehicleType, setVehicleType] = useState<string>(VEHICLE_CATEGORY_LABELS[0]);
+  const [vehicleType, setVehicleType] = useState<string>('');
   const [capacity, setCapacity] = useState('');
   const [brand, setBrand] = useState('');
   const [model, setModel] = useState('');
@@ -71,6 +72,10 @@ export default function AddOwnerVehicleScreen() {
     const ve = validateIndianVehicleNumber(vehicleNumber);
     if (ve) {
       setError(ve);
+      return;
+    }
+    if (!vehicleType.trim()) {
+      setError('Select a vehicle type.');
       return;
     }
     setBusy(true);
@@ -147,37 +152,18 @@ export default function AddOwnerVehicleScreen() {
             <Text style={[styles.label, { color: colors.textMuted, marginTop: 12 }]}>
               Vehicle type
             </Text>
-            <View style={styles.chipWrap}>
-              {VEHICLE_CATEGORY_LABELS.map((label) => {
-                const on = vehicleType === label;
-                return (
-                  <Pressable
-                    key={label}
-                    onPress={() => setVehicleType(label)}
-                    style={[
-                      styles.chip,
-                      {
-                        borderColor: on ? colors.emerald : cardBorder,
-                        backgroundColor: on
-                          ? isDark
-                            ? colors.emeraldMuted
-                            : 'rgba(167,243,208,0.45)'
-                          : inputBg,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.chipText,
-                        { color: on ? colors.emerald : colors.text },
-                      ]}
-                    >
-                      {label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+            <VehicleTypeCatalogField
+              value={vehicleType}
+              tons={capacity}
+              onChange={(value, passingTon) => {
+                setVehicleType(value);
+                // Passing ton → capacity when capacity is still empty.
+                const max = passingTonRange(passingTon)?.max;
+                if (max != null && !capacity.trim()) setCapacity(`${max}T`);
+              }}
+              style={[styles.input, { backgroundColor: inputBg, borderColor: cardBorder }]}
+              textStyle={{ color: colors.text }}
+            />
 
             <Text style={[styles.label, { color: colors.textMuted, marginTop: 12 }]}>
               Capacity

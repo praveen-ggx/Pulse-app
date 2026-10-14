@@ -17,7 +17,6 @@ export function usePartyPortalRouteHandlers() {
     setEntitiesRefreshKey,
     setShowAddClientModal: noop,
     setShowAddSupplierModal: noop,
-    setShowAddVehicleModal: noop,
     setShowAddDriverModal: noop,
   });
 

@@ -66,6 +66,8 @@ import {
     TextInput,
     View,
 } from "react-native";
+import { VehicleTypeCatalogField } from "@/features/vehicles/components/VehicleTypeCatalogField";
+import { passingTonRange } from "@/features/vehicles/utils/vehicleTypeCatalog.model";
 
 // Merge client profile atoms with supplier-specific extensions
 const spStyles = { ..._spStyles, ...supplierStyles };
@@ -1075,7 +1077,7 @@ export function SupplierProfileFleetPanel({ bundle, orgId, supplierId, onRefresh
   const [saving, setSaving] = useState(false);
   const [formErr, setFormErr] = useState<string | null>(null);
   const [form, setForm] = useState({
-    vehicle_number: "", vehicle_type: "truck" as string,
+    vehicle_number: "", vehicle_type: "" as string,
     capacity_tons: "", ownership: "owned" as "owned"|"leased"|"hired",
     insurance_expiry: "", fitness_expiry: "", permit_expiry: "",
     has_gps: false,
@@ -1097,7 +1099,7 @@ export function SupplierProfileFleetPanel({ bundle, orgId, supplierId, onRefresh
     });
     setSaving(false);
     if (error) { setFormErr(error.message); return; }
-    setForm({ vehicle_number: "", vehicle_type: "truck", capacity_tons: "", ownership: "owned", insurance_expiry: "", fitness_expiry: "", permit_expiry: "", has_gps: false });
+    setForm({ vehicle_number: "", vehicle_type: "", capacity_tons: "", ownership: "owned", insurance_expiry: "", fitness_expiry: "", permit_expiry: "", has_gps: false });
     setShowForm(false);
     onRefresh?.();
   };
@@ -1124,7 +1126,22 @@ export function SupplierProfileFleetPanel({ bundle, orgId, supplierId, onRefresh
             </View>
             <View style={spStyles.fieldGroup}>
               <Text style={spStyles.fieldLabel}>Vehicle type</Text>
-              <TextInput style={spStyles.fieldInput} value={form.vehicle_type} onChangeText={(v) => setForm((f) => ({ ...f, vehicle_type: v }))} placeholder="e.g. truck, trailer, mini-truck" placeholderTextColor={METRONIC.muted} />
+              <VehicleTypeCatalogField
+                value={form.vehicle_type}
+                tons={form.capacity_tons}
+                onChange={(v, passingTon) =>
+                  setForm((f) => {
+                    // Passing ton → capacity when capacity is still empty.
+                    const max = passingTonRange(passingTon)?.max;
+                    return {
+                      ...f,
+                      vehicle_type: v,
+                      capacity_tons: !f.capacity_tons.trim() && max != null ? String(max) : f.capacity_tons,
+                    };
+                  })
+                }
+                style={spStyles.fieldInput}
+              />
             </View>
             <View style={spStyles.fieldGroup}>
               <Text style={spStyles.fieldLabel}>Capacity (tons)</Text>

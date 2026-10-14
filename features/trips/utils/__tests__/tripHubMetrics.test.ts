@@ -2,6 +2,7 @@ import {
   TRIP_METRIC_ORDER,
   classifyTripMetric,
   countTripsByMetric,
+  isOperationsDeliveredTrip,
 } from "@/features/trips/utils/tripHubMetrics";
 import type { TripRow } from "@/features/trips/services/trips.service";
 
@@ -78,6 +79,31 @@ describe("classifyTripMetric — unchanged for actual trips", () => {
     expect(
       classifyTripMetric(trip({ driver_id: "driver-1", status: "assigned" }), NO_DOCS),
     ).toBe("assigned");
+  });
+});
+
+describe("isOperationsDeliveredTrip — Delivered tile membership", () => {
+  it("includes completed, delivered, and done trips without a soft POD", () => {
+    for (const status of ["completed", "delivered", "done", "DELIVERED"]) {
+      expect(
+        isOperationsDeliveredTrip(trip({ id: "t", status, driver_id: null }), false),
+      ).toBe(true);
+    }
+  });
+
+  it("includes an at-destination trip only when a soft POD is on file", () => {
+    const atDrop = trip({ id: "t", status: "at_drop", driver_id: "d1" });
+    expect(isOperationsDeliveredTrip(atDrop, false)).toBe(false);
+    expect(isOperationsDeliveredTrip(atDrop, true)).toBe(true);
+  });
+
+  it("does not treat in-transit or driverless at-destination trips as delivered", () => {
+    expect(
+      isOperationsDeliveredTrip(trip({ id: "t", status: "in_transit", driver_id: "d1" }), true),
+    ).toBe(false);
+    expect(
+      isOperationsDeliveredTrip(trip({ id: "t", status: "unloading", driver_id: null }), true),
+    ).toBe(false);
   });
 });
 

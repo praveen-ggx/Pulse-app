@@ -71,6 +71,7 @@ export const CreateTripDesktopCommodityStep = memo(
           </Text>
           <View style={s.fieldSection}>
             <TripCommodityFields
+              useVehicleCatalog
               vehicleType={vehicleType}
               loadType={loadType}
               tons={tons}

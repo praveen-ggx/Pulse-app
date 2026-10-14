@@ -5,6 +5,10 @@ type Props = {
   kind: 'pickup' | 'drop' | 'other';
   index: number;
   caption?: string;
+  /** "+N next · Drop 2" hint for stacked stops. Not drawn yet. */
+  nextLabel?: string | null;
+  /** Pickup/drop numbers stacked under this pin. Not drawn yet. */
+  badges?: ReadonlyArray<{ kind: 'pickup' | 'drop' | 'other'; index: number }>;
   emphasized?: boolean;
 };
 

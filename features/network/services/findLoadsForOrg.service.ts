@@ -175,7 +175,7 @@ export async function listMarketplaceSearchLanes(
 export type MyOrgMarketBidStatus = 'pending' | 'accepted' | 'rejected' | 'withdrawn' | 'superseded';
 
 /** A8.6.2 — independent of MyOrgMarketBidStatus; see network/services/marketBids.service.ts for full doc. */
-export type FeePaymentStatus = 'not_required' | 'required' | 'pending' | 'paid' | 'failed' | 'expired';
+export type FeePaymentStatus = 'not_required' | 'required' | 'pending' | 'paid' | 'failed' | 'expired' | 'refunded';
 
 export type MyOrgMarketBidRow = {
   id: string;

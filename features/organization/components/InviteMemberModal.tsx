@@ -18,13 +18,14 @@ import {
   precheckToProfile,
   type TeamInvitePrecheckResult,
 } from "@/features/organization/services/teamInvitePrecheck.service";
+import { platformRoleLabel } from "@/features/organization/utils/teamInviteRoles.util";
+import { MemberAccessEditor } from "@/features/organization/components/MemberPermissionsPanel/MemberAccessEditor";
 import {
-  permissionLabel,
-  platformRoleLabel,
-  TEAM_INVITE_ROLE_OPTIONS,
-  type PlatformTeamRole,
-} from "@/features/organization/utils/teamInviteRoles.util";
-import { getGroundOpsDocUploadEnabled } from "@/features/organization/services/organization.service";
+  accessSnapshotFromRole,
+  useMemberAccessDraft,
+} from "@/features/organization/hooks/useMemberAccessDraft";
+import { useOrgRole } from "@/lib/hooks/useOrgRole";
+import { useOrgCapabilities } from "@/lib/useCapabilities";
 import { shareInvite } from "@/features/organization/utils/inviteShare.util";
 import type { UserProfileForInvite } from "@/types/organization";
 import {
@@ -55,155 +56,6 @@ export type InviteMemberLayout = "modal" | "embedded";
 
 const MIN_PHONE_LENGTH_FOR_LIVE_CHECK = 8;
 const PHONE_LIVE_CHECK_DEBOUNCE_MS = 500;
-
-// ─── Role option ───────────────────────────────────────────────────────────────
-
-function RolePermissionsPanel({ role }: { role: PlatformTeamRole }) {
-  const option = TEAM_INVITE_ROLE_OPTIONS.find((o) => o.value === role);
-  if (!option) return null;
-  return (
-    <View style={permStyles.panel}>
-      <Text style={permStyles.panelTitle}>Permissions included</Text>
-      <View style={permStyles.chipWrap}>
-        {option.grants.map((grant) => (
-          <View key={grant} style={permStyles.chip}>
-            <Check size={10} color={Theme.darkGreen} strokeWidth={2.8} />
-            <Text style={permStyles.chipText}>{permissionLabel(grant)}</Text>
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-}
-
-function RoleOption({
-  option,
-  selected,
-  onSelect,
-  compact,
-}: {
-  option: (typeof TEAM_INVITE_ROLE_OPTIONS)[0];
-  selected: boolean;
-  onSelect: () => void;
-  compact?: boolean;
-}) {
-  return (
-    <Pressable
-      onPress={onSelect}
-      style={({ pressed }) => [
-        roleStyles.row,
-        compact && roleStyles.rowCompact,
-        selected && roleStyles.rowSelected,
-        pressed && { opacity: 0.85 },
-      ]}
-    >
-      <View style={[roleStyles.radio, selected && roleStyles.radioSelected]}>
-        {selected && <View style={roleStyles.radioDot} />}
-      </View>
-      <View style={roleStyles.labelWrap}>
-        <Text style={[roleStyles.label, selected && roleStyles.labelSelected]}>
-          {option.label}
-        </Text>
-        <Text style={roleStyles.desc}>{option.description}</Text>
-        <Text style={roleStyles.grantCount}>
-          {option.grants.length} permissions
-        </Text>
-      </View>
-      {selected && <Check size={16} color={Theme.primary} strokeWidth={2.5} />}
-    </Pressable>
-  );
-}
-
-const permStyles = StyleSheet.create({
-  panel: {
-    marginTop: 4,
-    marginBottom: 16,
-    padding: 12,
-    backgroundColor: METRONIC.bodyBg,
-    gap: 8,
-  },
-  panelTitle: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: METRONIC.subtle,
-    letterSpacing: 0.3,
-    textTransform: "uppercase",
-  },
-  chipWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-  },
-  chip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 8,
-    backgroundColor: Theme.cardWhite,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.positiveMuted,
-    maxWidth: "100%",
-  },
-  chipText: {
-    fontSize: 11,
-    color: METRONIC.text,
-    lineHeight: 14,
-    flexShrink: 1,
-  },
-});
-
-const roleStyles = StyleSheet.create({
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: Theme.borderMedium,
-    backgroundColor: Theme.screenBackground,
-    marginBottom: 10,
-  },
-  rowSelected: {
-    borderColor: Theme.primary,
-    backgroundColor: "rgba(79,70,229,0.03)",
-  },
-  radio: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: Theme.borderMedium,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  radioSelected: { borderColor: Theme.primary },
-  radioDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Theme.buttonPrimary,
-  },
-  labelWrap: { flex: 1, minWidth: 0 },
-  label: { fontSize: 14, fontWeight: "600", color: Theme.textPrimaryDark },
-  labelSelected: { color: Theme.primary },
-  desc: { fontSize: 12, color: Theme.textMuted, marginTop: 2, lineHeight: 16 },
-  grantCount: {
-    fontSize: 10,
-    fontWeight: "600",
-    color: METRONIC.link,
-    marginTop: 4,
-  },
-  rowCompact: {
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 8,
-  },
-});
-
-// ─── User preview card ────────────────────────────────────────────────────────
 
 const previewStyles = StyleSheet.create({
   card: {
@@ -347,7 +199,11 @@ export function InviteMemberFlow({
   const [searchError, setSearchError] = useState<string | null>(null);
   const [foundProfile, setFoundProfile] = useState<UserProfileForInvite | null>(null);
   const [isNewEmployee, setIsNewEmployee] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<PlatformTeamRole>("tripops");
+  const orgCaps = useOrgCapabilities();
+  const { isOwner } = useOrgRole();
+  // Same draft + editor as Edit member, so invite and edit store identical access.
+  const access = useMemberAccessDraft(accessSnapshotFromRole("tripops", orgCaps), orgCaps);
+  const { reset: resetAccess } = access;
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -357,13 +213,6 @@ export function InviteMemberFlow({
   const [liveCheck, setLiveCheck] = useState<TeamInvitePrecheckResult | null>(null);
   const [liveChecking, setLiveChecking] = useState(false);
   const liveCheckIdRef = useRef(0);
-  const [groundOpsEnabled, setGroundOpsEnabled] = useState(false);
-
-  // Load Ground Ops toggle state
-  useEffect(() => {
-    getGroundOpsDocUploadEnabled(orgId).then(setGroundOpsEnabled);
-  }, [orgId]);
-
   // Live cross-org check as the phone is typed on step 1 — same RPC handleContinue
   // uses, just fired earlier so the admin sees the conflict before pressing Continue.
   useEffect(() => {
@@ -456,6 +305,8 @@ export function InviteMemberFlow({
     } else {
       setIsNewEmployee(true);
     }
+    // Start from the TripOps preset under the org's current operating model.
+    resetAccess(accessSnapshotFromRole("tripops", orgCaps));
     setStep("role");
   };
 
@@ -469,7 +320,12 @@ export function InviteMemberFlow({
       phone: canonicalPhone,
       name: trimmedName,
       email: employeeEmail.trim() || null,
-      platformRole: selectedRole,
+      platformRole: access.platformRole,
+      access: {
+        surfaces: access.surfaces,
+        isDepartmentManager: isOwner && access.isDepartmentManager,
+        warehouseIds: access.warehouseIds,
+      },
       existingUserId: foundProfile?.user_id ?? null,
     });
 
@@ -542,7 +398,7 @@ export function InviteMemberFlow({
           <Text style={ui.successSub}>
             {invitedLabel} has been added as{" "}
             <Text style={{ fontWeight: "700" }}>
-              {platformRoleLabel(selectedRole)}
+              {platformRoleLabel(access.platformRole)}
             </Text>
             {successKind === "pending"
               ? ". They will join when they sign up with this phone (new account only)."
@@ -752,23 +608,22 @@ export function InviteMemberFlow({
             <Text style={ui.sectionTitle}>Role & permissions</Text>
           </View>
           <Text style={[ui.sectionDesc, { marginBottom: 14 }]}>
-            Choose a platform role. Permissions are enforced by Pulse Identity
-            when the invite is accepted.
+            Same access controls as Edit member. Applied when the invite is
+            accepted.
           </Text>
 
-          {TEAM_INVITE_ROLE_OPTIONS.filter((opt) =>
-            opt.value !== "ground_ops" || groundOpsEnabled
-          ).map((opt) => (
-            <RoleOption
-              key={opt.value}
-              option={opt}
-              selected={selectedRole === opt.value}
-              onSelect={() => setSelectedRole(opt.value)}
-              compact={embedded}
+          <View style={{ marginBottom: 16 }}>
+            <MemberAccessEditor
+              draft={access}
+              orgId={orgId}
+              orgCaps={orgCaps}
+              canEditRole
+              canEditSurfaces
+              canAssignManager={isOwner}
+              busy={submitting}
+              onError={setSubmitError}
             />
-          ))}
-
-          <RolePermissionsPanel role={selectedRole} />
+          </View>
 
           {!!submitError && (
             <View style={ui.errorRow}>

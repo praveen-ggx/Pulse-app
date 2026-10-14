@@ -149,6 +149,8 @@ export const ROUTES = {
   POD_RECONCILIATION: '/pod-reconciliation' as const,
   /** Incoming POD logging (Pulse POD / Finance Pro shell). */
   LOG_INCOMING_PODS: '/log-incoming-pods' as const,
+  /** Debit Control — POD inward and POD Received validation. */
+  DEBIT_CONTROL: '/debit-control' as const,
   /** Pulse Finance Pro intelligence layer (launches Invoice / POD / Core Finance). */
   FINANCE_PRO: '/finance-pro' as const,
   FINANCE_PRO_RECEIVABLES: '/finance-pro/receivables' as const,

@@ -35,6 +35,7 @@ import { METRONIC } from "@/features/network/components/desktop/networkDesktopHu
 import { usePulseProductShell } from "@/features/product-shell/PulseProductShell";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LogIncomingPodsScreen } from "../log-pods/LogIncomingPodsScreen";
+import { DebitControlScreen } from "../debit-control/DebitControlScreen";
 import { LogIncomingPodsModal } from "../log-pods/components/LogIncomingPodsModal";
 import { PodLrNumberCell, PodLrNumberEditorModal } from "./components/PodLrNumberEditor";
 import { PodTripDetailDrawer } from "./components/PodTripDetailDrawer";
@@ -89,7 +90,7 @@ export function PodReconciliationScreen() {
   const orgId = currentOrganization?.id ?? null;
 
   const [activeTab, setActiveTab] = useState<PodTab>("pod_pending");
-  const [financeTab, setFinanceTab] = useState<"OVERVIEW" | "LOG_INCOMING">(
+  const [financeTab, setFinanceTab] = useState<"OVERVIEW" | "LOG_INCOMING" | "DEBIT_CONTROL">(
     "OVERVIEW",
   );
   const [searchTerm, setSearchTerm] = useState("");
@@ -488,6 +489,35 @@ export function PodReconciliationScreen() {
                   LOG INCOMING
                 </Text>
                 {financeTab === "LOG_INCOMING" ? (
+                  <View
+                    style={[
+                      styles.financeTabUnderline,
+                      inProductShell && styles.financeTabUnderlineShell,
+                    ]}
+                  />
+                ) : null}
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.financeModeTabBtn,
+                  !isMediumScreen && styles.financeModeTabBtnMobile,
+                ]}
+                onPress={() => setFinanceTab("DEBIT_CONTROL")}
+              >
+                <Text
+                  style={[
+                    styles.financeModeTabText,
+                    !isMediumScreen && styles.financeModeTabTextMobile,
+                    inProductShell && styles.financeModeTabTextShell,
+                    financeTab === "DEBIT_CONTROL" && styles.financeModeTabTextActive,
+                    financeTab === "DEBIT_CONTROL" &&
+                      inProductShell &&
+                      styles.financeModeTabTextActiveShell,
+                  ]}
+                >
+                  DEBIT CONTROL
+                </Text>
+                {financeTab === "DEBIT_CONTROL" ? (
                   <View
                     style={[
                       styles.financeTabUnderline,
@@ -1015,6 +1045,10 @@ export function PodReconciliationScreen() {
       {financeTab === "LOG_INCOMING" ? (
         <View style={{ flex: 1 }}>
           <LogIncomingPodsScreen embedded />
+        </View>
+      ) : financeTab === "DEBIT_CONTROL" ? (
+        <View style={{ flex: 1 }}>
+          <DebitControlScreen embedded />
         </View>
       ) : (
         <ScrollView

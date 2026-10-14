@@ -43,6 +43,7 @@ import {
   shouldQueueDataFetch,
   supabaseCircuitOpenError,
   supabaseRequestTimeoutMs,
+  isStorageObjectRequest,
 } from '@/lib/supabaseHttp.util';
 import {
   classifyRequest,
@@ -176,7 +177,17 @@ async function fetchWithTimeoutAndRetryRaw(
   init?: RequestInit
 ): Promise<Response> {
   const isAuthToken = isAuthTokenRequest(input);
-  const maxRetries = isAuthToken ? AUTH_TOKEN_MAX_RETRIES : FETCH_MAX_RETRIES;
+  const method = String(init?.method ?? "GET").toUpperCase();
+  const isStorageWrite =
+    isStorageObjectRequest(input) &&
+    (method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE");
+  // Re-POSTing a file body on 503 can run for minutes (90s timeout × retries)
+  // and still leave the Confirm-upload spinner stuck.
+  const maxRetries = isAuthToken
+    ? AUTH_TOKEN_MAX_RETRIES
+    : isStorageWrite
+      ? 0
+      : FETCH_MAX_RETRIES;
   const delayForAttempt = isAuthToken ? authTokenRetryDelayMs : retryDelayMs;
   const doFetch = (signal?: AbortSignal): Promise<Response> => {
     const controller = new AbortController();
@@ -308,9 +319,12 @@ async function fetchWithTimeoutAndRetry(
   input: RequestInfo | URL,
   init?: RequestInit
 ): Promise<Response> {
-  const { lane, coalesceKey, violations, isAuth } = classifyRequest(input, init);
+  const { lane, coalesceKey, violations, isAuth, bypassModerator } = classifyRequest(
+    input,
+    init,
+  );
 
-  if (isAuth) {
+  if (isAuth || bypassModerator) {
     return fetchWithTimeoutAndRetryRaw(input, init);
   }
 

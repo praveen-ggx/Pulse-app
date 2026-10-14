@@ -11,6 +11,7 @@
 import { getLinkedOrgProfilesBatch } from "@/features/clients/services/clients.service";
 import { runSingleflight } from "@/lib/cache/singleflight";
 import { supabase } from "@/lib/supabase";
+import { isSupabaseCircuitOpen } from "@/lib/supabaseHttp.util";
 
 export type MutualConnectionRow = {
   id: string;
@@ -111,7 +112,6 @@ export async function getMutualConnections(
     return { error: null, mutuals: [] };
   }
 
-  const { isSupabaseCircuitOpen } = await import("@/lib/supabaseHttp.util");
   if (isSupabaseCircuitOpen()) {
     return { error: null, mutuals: [] };
   }

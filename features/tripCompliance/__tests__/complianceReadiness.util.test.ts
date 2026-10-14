@@ -1,5 +1,10 @@
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
-import { deriveComplianceQueueReadiness, isCompliancePaymentPending, summarizeRequiredTripDocuments } from "@/features/tripCompliance/utils/complianceReadiness.util";
+import {
+  deriveComplianceQueueReadiness,
+  isComplianceAwaitingPod,
+  isCompliancePaymentPending,
+  summarizeRequiredTripDocuments,
+} from "@/features/tripCompliance/utils/complianceReadiness.util";
 import { classifyPreviewFailure } from "@/features/tripCompliance/utils/compliancePreviewFailure.util";
 import { groupComplianceReviewRows } from "@/features/tripCompliance/utils/complianceDocumentRows.util";
 
@@ -27,6 +32,18 @@ function summaryFixture(overrides: Partial<ComplianceTripSummary> = {}): Complia
 }
 
 describe("deriveComplianceQueueReadiness", () => {
+  it("blocks the advance while Finance has flagged the trip, even after Approve Advance", () => {
+    const readiness = deriveComplianceQueueReadiness(
+      summaryFixture({
+        complianceVerifiedAt: "2026-09-01T00:00:00Z",
+        financeVerifiedAt: "2026-09-02T00:00:00Z",
+        financeFlaggedAt: "2026-09-03T00:00:00Z",
+      }),
+    );
+    expect(readiness.advance.status).toBe("blocked");
+    expect(readiness.blockerLines.join(" ")).toMatch(/Flagged for Compliance review/);
+  });
+
   it("blocks advance until compliance is marked verified", () => {
     const readiness = deriveComplianceQueueReadiness(summaryFixture());
     expect(readiness.paymentReady).toBe(false);
@@ -39,6 +56,7 @@ describe("deriveComplianceQueueReadiness", () => {
     const readiness = deriveComplianceQueueReadiness(
       summaryFixture({
         complianceVerifiedAt: "2026-09-01",
+        financeVerifiedAt: "2026-09-01",
         documents: ["lr", "eway_bill", "invoice"].map((type) => ({
           id: type,
           trip_id: "trip-1",
@@ -57,6 +75,56 @@ describe("deriveComplianceQueueReadiness", () => {
     expect(readiness.advance.status).toBe("ready");
     expect(readiness.paymentReady).toBe(true);
     expect(readiness.readyCategory).toBe("compliance_advance");
+  });
+
+  it("allows advance when an older decline was cleared by re-verification", () => {
+    const verifiedDocs = ["lr", "eway_bill", "invoice"].map((type) => ({
+      id: type,
+      trip_id: "trip-1",
+      document_type: type,
+      file_name: `${type}.pdf`,
+      storage_path: type,
+      uploaded_at: "2026-09-01",
+      status: "verified" as const,
+      verified_by: "u1",
+      verified_at: "2026-09-01",
+      rejection_reason: null,
+    }));
+    const reVerified = deriveComplianceQueueReadiness(
+      summaryFixture({
+        documents: verifiedDocs,
+        complianceDeclinedAt: "2026-09-01T09:00:00Z",
+        complianceDeclineReason: "Document pending",
+        complianceVerifiedAt: "2026-09-02T09:00:00Z",
+        financeVerifiedAt: "2026-09-02T10:00:00Z",
+      }),
+    );
+    expect(reVerified.advance.status).toBe("ready");
+    expect(reVerified.blockerLines).not.toContain("Rejected: Document pending");
+
+    const rejectedAfterVerify = deriveComplianceQueueReadiness(
+      summaryFixture({
+        documents: verifiedDocs,
+        complianceVerifiedAt: "2026-09-01T09:00:00Z",
+        complianceDeclinedAt: "2026-09-02T09:00:00Z",
+        complianceDeclineReason: "Document pending",
+      }),
+    );
+    expect(rejectedAfterVerify.advance.status).toBe("blocked");
+    expect(rejectedAfterVerify.advance.reason).toBe("Rejected: Document pending");
+  });
+
+  it("lists delivered Advance Processed trips under Awaiting POD", () => {
+    const paid = { amount: 1000, paymentMode: "UPI", utr: null, paidAt: "2026-09-01", actorId: "u1", transactionId: "t1" };
+    const delivered = summaryFixture({ stage: "advance_payment_processed", advance: paid });
+    const inTransit = summaryFixture({
+      stage: "advance_payment_processed",
+      advance: paid,
+      trip: { ...summaryFixture().trip, status: "in_transit" },
+    });
+    expect(isComplianceAwaitingPod(delivered)).toBe(true);
+    expect(isComplianceAwaitingPod(inTransit)).toBe(false);
+    expect(isComplianceAwaitingPod(summaryFixture({ stage: "balance_pending", advance: paid }))).toBe(false);
   });
 
   it("flags payment-pending across stages until advance is posted", () => {

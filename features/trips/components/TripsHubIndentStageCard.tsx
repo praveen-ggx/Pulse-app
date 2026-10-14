@@ -6,6 +6,7 @@ import {
   getIndentDisplayNumber,
   type IndentRow,
 } from "@/features/indents";
+import { indentCancelReasonLabel } from "@/features/indents/utils/indentCancelReason.util";
 import { TripsHubMobileTripCard } from "@/features/trips/components/TripsHubMobileTripCard";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import {
@@ -66,8 +67,10 @@ export function TripsHubIndentStageCard({
   clientOrganizationAvatarSeed?: string | null;
 }) {
   const stageLabel = indentHubLifecycleStatus(indent.status, bidCount);
+  const cancelReason = indentCancelReasonLabel(indent.cancel_reason);
   const originTags = [
     ...indentHubSourceTags(indent.circulation_target),
+    ...(cancelReason ? [cancelReason.toUpperCase()] : []),
     ...(indentHasAwardRevokedTag(indent.status, indent.award_revoked_at)
       ? ["AWARD REVOKED"]
       : []),

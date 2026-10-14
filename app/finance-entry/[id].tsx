@@ -8,6 +8,7 @@
  *
  * If the payload is missing or invalid, we fall back to a minimal error and back-nav.
  */
+import { SurfaceAccessGate } from "@/components/SurfaceAccessGate";
 import { FinanceEntryDetailScreen } from "@/features/finance/components/FinanceEntryDetailScreen";
 import type { FinancialRowData } from "@/features/finance/components/FinancialRow";
 import { useSafeBack } from "@/lib/useSafeBack";
@@ -17,7 +18,16 @@ import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Theme from "@/constants/Theme";
 
+/** Ledger entry detail belongs to Finance → Cash. */
 export default function FinanceEntryDetailRoute() {
+  return (
+    <SurfaceAccessGate surface="finance.subtab.cash">
+      <FinanceEntryDetail />
+    </SurfaceAccessGate>
+  );
+}
+
+function FinanceEntryDetail() {
   const params = useLocalSearchParams<{ id: string; payload?: string }>();
   const safeBack = useSafeBack();
   const insets = useSafeAreaInsets();

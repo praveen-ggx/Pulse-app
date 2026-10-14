@@ -28,6 +28,7 @@ jest.mock("@/lib/supabase", () => ({
       if (table === "trip_documents") return mockMakeThenable(mockTripDocsResult);
       if (table === "trips") return mockMakeThenable(mockFlagsResult);
       if (table === "transactions") return mockMakeThenable(mockTxnsResult);
+      if (table === "trip_workflow_events") return mockMakeThenable({ data: [], error: null });
       throw new Error(`unexpected table ${table}`);
     },
   }),
@@ -75,7 +76,7 @@ describe("buildComplianceTripSummaries — hard-copy POD signal", () => {
       ],
       error: null,
     };
-    const [summary] = await buildComplianceTripSummaries([makeTrip()]);
+    const [summary] = await buildComplianceTripSummaries([makeTrip()], "org-1");
     expect(summary.hardCopyPod.received).toBe(false);
   });
 
@@ -93,7 +94,7 @@ describe("buildComplianceTripSummaries — hard-copy POD signal", () => {
       ],
       error: null,
     };
-    const [summary] = await buildComplianceTripSummaries([makeTrip({ pod_received_at: "2026-09-21T10:00:00Z" })]);
+    const [summary] = await buildComplianceTripSummaries([makeTrip({ pod_received_at: "2026-09-21T10:00:00Z" })], "org-1");
     expect(summary.hardCopyPod.received).toBe(true);
   });
 
@@ -119,8 +120,8 @@ describe("buildComplianceTripSummaries — hard-copy POD signal", () => {
       ],
       error: null,
     };
-    const [summary] = await buildComplianceTripSummaries([makeTrip()]);
-    expect(summary.stage).toBe("hard_copy_pod_received"); // awaiting-Ops bucket, not yet balance_pending
+    const [summary] = await buildComplianceTripSummaries([makeTrip()], "org-1");
+    expect(summary.stage).toBe("hard_copy_pod_received"); // delivered + verified, hard copy not yet marked
   });
 
   it("moves to balance_pending once hard-copy POD is received (via pod_received_at)", async () => {
@@ -145,7 +146,7 @@ describe("buildComplianceTripSummaries — hard-copy POD signal", () => {
       ],
       error: null,
     };
-    const [summary] = await buildComplianceTripSummaries([makeTrip({ pod_received_at: "2026-09-21T10:00:00Z" })]);
+    const [summary] = await buildComplianceTripSummaries([makeTrip({ pod_received_at: "2026-09-21T10:00:00Z" })], "org-1");
     expect(summary.stage).toBe("balance_pending");
   });
 });

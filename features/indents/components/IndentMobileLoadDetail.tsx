@@ -70,6 +70,14 @@ export type IndentMobileLoadDetailProps = {
   onEditAll?: () => void;
   primaryAmount: string;
   supplierRate?: string;
+  /** ₹/MT under the client rate, when the main figure is the trip total. */
+  clientPerMt?: string | null;
+  /** Trip total under the client rate, when the main figure is ₹/MT. */
+  clientOverall?: string | null;
+  /** ₹/MT under the supplier target, when the main figure is the trip total. */
+  supplierPerMt?: string | null;
+  /** Trip total under the supplier target, when the main figure is ₹/MT. */
+  supplierOverall?: string | null;
   marginPct?: number | null;
   clientPriceInr?: number;
   supplierTargetInr?: number;
@@ -381,6 +389,10 @@ export const IndentMobileLoadDetail = memo(function IndentMobileLoadDetail({
   onEditAll,
   primaryAmount,
   supplierRate = "—",
+  clientPerMt = null,
+  clientOverall = null,
+  supplierPerMt = null,
+  supplierOverall = null,
   marginPct = null,
   clientPriceInr = 0,
   supplierTargetInr = 0,
@@ -543,10 +555,10 @@ export const IndentMobileLoadDetail = memo(function IndentMobileLoadDetail({
 
   const resolvedSecondary =
     secondaryActionLabel ??
-    (isOwner && canCancelLoad && resolvedPrimary !== "Cancel load"
+    (isOwner && canCancelLoad && resolvedPrimary !== "Cancel indent"
       ? cancelling
         ? "Cancelling…"
-        : "Cancel load"
+        : "Cancel indent"
       : !isOwner && hasQuote && quoteNorm === "pending" && counter && onQuotePress
         ? "Update bid"
         : null);
@@ -719,8 +731,10 @@ export const IndentMobileLoadDetail = memo(function IndentMobileLoadDetail({
             <View style={styles.breakupPanel}>
               {isOwner ? (
                 <>
-                  <RateBreakupRow label="Client rate" value={primaryAmount} />
-                  <RateBreakupRow label="Supplier target" value={supplierRate} />
+                  <RateBreakupRow label="Client rate" value={clientPerMt ?? primaryAmount} />
+                  {clientOverall ? <RateBreakupRow label="Client total" value={clientOverall} /> : null}
+                  <RateBreakupRow label="Supplier target" value={supplierPerMt ?? supplierRate} />
+                  {supplierOverall ? <RateBreakupRow label="Supplier total" value={supplierOverall} /> : null}
                   {marginInr != null ? (
                     <RateBreakupRow
                       label="Target margin"

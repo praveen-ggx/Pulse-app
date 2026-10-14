@@ -12,7 +12,10 @@ jest.mock("@/lib/supabase", () => ({
 
 import { summarizeComplianceTrip } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import type { ComplianceTripInputs } from "@/features/tripCompliance/tripCompliance.types";
-import { reconcilePipelineTrips } from "@/features/tripCompliance/utils/compliancePipelinePatch.util";
+import {
+  applyComplianceVerified,
+  reconcilePipelineTrips,
+} from "@/features/tripCompliance/utils/compliancePipelinePatch.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { publishHardCopyPodState } from "@/lib/queries/invalidateHardCopyPodCaches";
 import { queryKeys } from "@/lib/queryKeys";
@@ -56,6 +59,26 @@ function inputsFor(tripId: string): ComplianceTripInputs {
   };
 }
 
+it("summary.trip carries the live verified / POD flags so payment prerequisites match the stage", () => {
+  const base = inputsFor("t1");
+  const inputs: ComplianceTripInputs = {
+    ...base,
+    trip: { ...base.trip, compliance_verified_at: null } as TripRow,
+    taggedAdvance: null,
+  };
+  const summary = summarizeComplianceTrip(inputs);
+  expect(summary.stage).toBe("compliance_verified");
+  expect(summary.trip.compliance_verified_at).toBe("2026-09-20");
+  expect(summary.trip.pod_received_at).toBeNull();
+
+  const patched = applyComplianceVerified([{ ...inputs, flags: { ...inputs.flags!, compliance_verified_at: null } }], {
+    tripId: "t1",
+    actorId: "u2",
+    at: "2026-10-01T11:00:00.000Z",
+  });
+  expect(summarizeComplianceTrip(patched[0]).trip.compliance_verified_at).toBe("2026-10-01T11:00:00.000Z");
+});
+
 it("POD logged outside Compliance → pipeline row derives received=true and Balance Pending", () => {
   const qc = new QueryClient();
   const inputs = [inputsFor("t1"), inputsFor("t2")];
@@ -79,6 +102,9 @@ it("POD logged outside Compliance → pipeline row derives received=true and Bal
     courier: "BlueDart",
     awbNumber: "AWB1",
     receivedBy: "Ravi",
+    ibond: false,
+    lrNumbers: [],
+    receivedLrNumbers: [],
   });
   expect(patched.stage).toBe("balance_pending");
   expect(pipeline[1]).toBe(inputs[1]);

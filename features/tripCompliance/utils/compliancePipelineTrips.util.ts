@@ -31,6 +31,22 @@ export function isCompletedDeliveredStatus(status: string | null | undefined): b
   return COMPLETED_STATUSES.has(normStatus(status));
 }
 
+/**
+ * Pending Docs transit subtabs — ops `trips.status` only (no writes).
+ * Delivered = completed/delivered/done; everything else in the queue is In-transit.
+ */
+export function isPendingDocsDeliveredTrip(summary: {
+  trip: { status?: string | null };
+}): boolean {
+  return isCompletedDeliveredStatus(summary.trip.status);
+}
+
+export function isPendingDocsInTransitTrip(summary: {
+  trip: { status?: string | null };
+}): boolean {
+  return !isPendingDocsDeliveredTrip(summary);
+}
+
 export function isComplianceOpsPipelineTrip(trip: TripRow): boolean {
   if (isTripCancelledForHub(trip.status)) return false;
 

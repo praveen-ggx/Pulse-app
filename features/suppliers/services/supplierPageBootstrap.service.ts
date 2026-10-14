@@ -7,7 +7,9 @@ import {
 } from "@/features/finance/services/finance.service";
 import { getTripSubcontracts } from "@/features/finance/services/tripSubcontracts.service";
 import {
+  getSupplierById,
   getSupplierDetails,
+  mergeSupplierDisplayFields,
   type SupplierRow,
 } from "@/features/suppliers/services/suppliers.service";
 import {
@@ -93,8 +95,9 @@ async function fetchSupplierPageBootstrapScoped(
   orgId: string,
   supplierId: string,
 ): Promise<{ error: Error | null; bundle: SupplierPageBootstrap | null }> {
-  const [detail, peersRes, ownTripsRes, txRes, asClientRes, asSupplierRes] = await Promise.all([
+  const [detail, rowRes, peersRes, ownTripsRes, txRes, asClientRes, asSupplierRes] = await Promise.all([
     getSupplierDetails(supplierId),
+    getSupplierById(orgId, supplierId),
     supabase()
       .from("suppliers")
       .select("id, linked_organization_id")
@@ -111,12 +114,17 @@ async function fetchSupplierPageBootstrapScoped(
     getTripsWhereOrgIsClient(orgId),
     getTripsWhereOrgIsSupplier(orgId),
   ]);
-  if (detail.error) return { error: detail.error, bundle: null };
-  if (!detail.supplier) return { error: null, bundle: null };
+  if (detail.error && rowRes.error) return { error: detail.error, bundle: null };
+  const supplier = rowRes.supplier
+    ? detail.supplier
+      ? mergeSupplierDisplayFields(rowRes.supplier, detail.supplier)
+      : rowRes.supplier
+    : detail.supplier;
+  if (!supplier) return { error: detail.error, bundle: null };
   if (ownTripsRes.error) return { error: new Error(ownTripsRes.error.message), bundle: null };
   if (txRes.error) return { error: txRes.error, bundle: null };
 
-  const linkedOrgId = detail.supplier.linked_organization_id ?? null;
+  const linkedOrgId = supplier.linked_organization_id ?? null;
   const linkedCount = (peersRes.data ?? []).filter(
     (row) => row.linked_organization_id === linkedOrgId,
   ).length;
@@ -163,12 +171,12 @@ async function fetchSupplierPageBootstrapScoped(
   return {
     error: null,
     bundle: {
-      supplier: detail.supplier,
+      supplier,
       trips,
       transactions: (txRes.transactions ?? []).filter(
         (tx) => tx.contact_type === "supplier" && tx.contact_id === supplierId,
       ),
-      suppliers: [detail.supplier],
+      suppliers: [supplier],
       drivers: [],
       clients: [],
       aggregateTripSalesById,

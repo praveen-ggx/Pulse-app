@@ -17,6 +17,8 @@ export interface FullPageWizardFooterProps {
   primaryLabel: string;
   onPrimaryPress: () => void;
   primaryDisabled?: boolean;
+  /** Remove the primary button entirely (e.g. blocking input error on screen). */
+  hidePrimary?: boolean;
   loading?: boolean;
   summary?: string;
   hint?: string | null;
@@ -35,6 +37,7 @@ export function FullPageWizardFooter({
   primaryLabel,
   onPrimaryPress,
   primaryDisabled = false,
+  hidePrimary = false,
   loading = false,
   summary,
   hint,
@@ -58,7 +61,7 @@ export function FullPageWizardFooter({
         ? styles.footerBarMobile
         : styles.footerBar;
 
-  const primaryBtn = (
+  const primaryBtn = hidePrimary ? null : (
     <Pressable
       style={[
         isRegistry

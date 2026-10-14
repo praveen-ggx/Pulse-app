@@ -10,15 +10,18 @@
  *   tripDocumentDecision → 0 (patch mirrors verify_trip_document); 1 read of
  *                          that trip's documents only if the doc isn't cached
  *   tripDocuments        → 1 (trip_documents for one trip)
- *   tripFlags            → 1 (trips compliance/POD columns for one trip)
+ *   tripFlags            → trips compliance/POD columns, courier received-LR event, and saved POD charges
  *   complianceVerified   → 0 (patch mirrors mark_trip_compliance_verified)
  *   complianceDeclined   → 0 (patch mirrors decline_trip_compliance)
  *   payment              → 2 (compliance transactions + trips.amount_paid for one trip)
  *   vehicleDocuments     → entity docs + vault for every trip on that vehicle
  *   driverDocuments      → entity docs + KYC for every trip with that driver
  */
+import { fetchHardCopyIbondTripIds } from "@/features/trips/services/tripDocumentLrPod.service";
 import {
   fetchComplianceTripFlags,
+  fetchHardCopyReceivedLrNumbers,
+  fetchPodChargeValidatedTripIds,
   fetchComplianceTripInputs,
   fetchDriverDocumentsForTrips,
   fetchTripDocumentsForTrips,
@@ -29,18 +32,22 @@ import {
 import type { ComplianceTripInputs } from "@/features/tripCompliance/tripCompliance.types";
 import {
   applyComplianceDeclined,
+  applyComplianceRejected,
+  applyComplianceResubmitted,
   applyComplianceVerified,
   applyDriverDocuments,
   applyTripDocumentDecision,
   applyTripPayment,
   applyVehicleDocuments,
   reconcilePipelineTrips,
+  applyPodChargesSaved,
   replaceTripDocuments,
   replaceTripFlags,
   tripsUsingDriver,
   tripsUsingVehicle,
   upsertTripInputs,
 } from "@/features/tripCompliance/utils/compliancePipelinePatch.util";
+import { complianceRejectQueueDestination } from "@/features/tripCompliance/utils/complianceRejectReason.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 
 export type PipelinePatch = (current: ComplianceTripInputs[]) => ComplianceTripInputs[];
@@ -56,8 +63,11 @@ export type ComplianceChange =
     }
   | { type: "tripDocuments"; tripId: string }
   | { type: "tripFlags"; tripId: string }
+  | { type: "podChargesSaved"; tripId: string }
   | { type: "complianceVerified"; tripId: string; actorId: string }
   | { type: "complianceDeclined"; tripId: string; actorId: string; reason: string }
+  | { type: "complianceRejected"; tripId: string; actorId: string; reason: string }
+  | { type: "complianceResubmitted"; tripId: string; at?: string; note?: string | null }
   | { type: "payment"; tripId: string }
   | { type: "vehicleDocuments"; vehicleId: string }
   | { type: "driverDocuments"; driverId: string };
@@ -72,6 +82,7 @@ export function complianceChangeTripId(change: ComplianceChange): string | null 
 export async function patchForComplianceChange(
   current: ComplianceTripInputs[],
   change: ComplianceChange,
+  viewerOrgId: string,
   now: () => string = () => new Date().toISOString(),
 ): Promise<PipelinePatch> {
   switch (change.type) {
@@ -80,7 +91,7 @@ export async function patchForComplianceChange(
       const patch: PipelinePatch = (cur) => applyTripDocumentDecision(cur, { ...change, at });
       if (patch(current) !== current) return patch;
       // Document not in cache (e.g. uploaded elsewhere) — read that trip's docs.
-      return patchForComplianceChange(current, { type: "tripDocuments", tripId: change.tripId }, now);
+      return patchForComplianceChange(current, { type: "tripDocuments", tripId: change.tripId }, viewerOrgId, now);
     }
     case "tripDocuments": {
       const docs = await fetchTripDocumentsForTrips([change.tripId]);
@@ -88,9 +99,28 @@ export async function patchForComplianceChange(
       return (cur) => replaceTripDocuments(cur, change.tripId, documents);
     }
     case "tripFlags": {
-      const flags = await fetchComplianceTripFlags([change.tripId]);
+      const [flags, received, ibondIds] = await Promise.all([
+        fetchComplianceTripFlags([change.tripId]),
+        fetchHardCopyReceivedLrNumbers([change.tripId]),
+        fetchHardCopyIbondTripIds([change.tripId]),
+      ]);
+      const validatedIds = await fetchPodChargeValidatedTripIds([change.tripId]);
       const tripFlags = flags.get(change.tripId) ?? null;
-      return (cur) => replaceTripFlags(cur, change.tripId, tripFlags);
+      const numbers = received.get(change.tripId) ?? [];
+      let merged = tripFlags && numbers.length > 0 ? { ...tripFlags, received_lr_numbers: numbers } : tripFlags;
+      if (merged && ibondIds.has(change.tripId)) merged = { ...merged, pod_ibond: true };
+      if (merged && validatedIds.has(change.tripId)) merged = { ...merged, pod_charges_saved: true };
+      return (cur) => {
+        const row = cur.find((item) => item.trip.id === change.tripId);
+        const keepSaved =
+          validatedIds.has(change.tripId) || row?.flags?.pod_charges_saved === true;
+        const base = merged ?? row?.flags ?? null;
+        const flags = base && keepSaved ? { ...base, pod_charges_saved: true } : base;
+        return replaceTripFlags(cur, change.tripId, flags);
+      };
+    }
+    case "podChargesSaved": {
+      return (cur) => applyPodChargesSaved(cur, change.tripId);
     }
     case "complianceVerified": {
       const at = now();
@@ -101,6 +131,21 @@ export async function patchForComplianceChange(
       return (cur) =>
         applyComplianceDeclined(cur, { tripId: change.tripId, actorId: change.actorId, at, reason: change.reason });
     }
+    case "complianceRejected": {
+      const at = now();
+      return (cur) =>
+        applyComplianceRejected(cur, {
+          tripId: change.tripId,
+          actorId: change.actorId,
+          at,
+          reason: change.reason,
+          returnTo: complianceRejectQueueDestination(change.reason),
+        });
+    }
+    case "complianceResubmitted": {
+      const at = change.at ?? now();
+      return (cur) => applyComplianceResubmitted(cur, { tripId: change.tripId, at, note: change.note });
+    }
     case "payment": {
       const payments = await fetchTripPaymentInputs([change.tripId]);
       const payment = payments.get(change.tripId);
@@ -110,7 +155,7 @@ export async function patchForComplianceChange(
     case "vehicleDocuments": {
       const trips = tripsUsingVehicle(current, change.vehicleId);
       if (trips.length === 0) return identity;
-      const byTrip = await fetchVehicleDocumentsForTrips(trips);
+      const byTrip = await fetchVehicleDocumentsForTrips(trips, viewerOrgId);
       return (cur) => applyVehicleDocuments(cur, byTrip);
     }
     case "driverDocuments": {
@@ -130,9 +175,10 @@ export async function patchForComplianceChange(
 export async function patchForPipelineTrips(
   current: ComplianceTripInputs[],
   pipelineTrips: TripRow[],
+  viewerOrgId: string,
 ): Promise<PipelinePatch> {
   const { needsInputs } = reconcilePipelineTrips(current, pipelineTrips);
-  const fetched = await fetchComplianceTripInputs(needsInputs);
+  const fetched = await fetchComplianceTripInputs(needsInputs, viewerOrgId);
   const order = pipelineTrips.map((trip) => trip.id);
   return (cur) => upsertTripInputs(reconcilePipelineTrips(cur, pipelineTrips).next, fetched, order);
 }
@@ -148,17 +194,17 @@ export async function patchForPipelineTrips(
 export async function loadCompliancePipelineInputs(
   previous: ComplianceTripInputs[] | undefined,
   pipelineTrips: TripRow[],
-  options: { full: boolean },
+  options: { full: boolean; viewerOrgId: string },
 ): Promise<ComplianceTripInputs[]> {
   if (pipelineTrips.length === 0) return [];
-  if (options.full || !previous) return fetchComplianceTripInputs(pipelineTrips);
+  if (options.full || !previous) return fetchComplianceTripInputs(pipelineTrips, options.viewerOrgId);
 
   const { next, needsInputs } = reconcilePipelineTrips(previous, pipelineTrips);
   const needsIds = new Set(needsInputs.map((trip) => trip.id));
   const keptIds = next.filter((row) => !needsIds.has(row.trip.id)).map((row) => row.trip.id);
   const [scoped, fetched] = await Promise.all([
     fetchTripScopedInputs(keptIds),
-    fetchComplianceTripInputs(needsInputs),
+    fetchComplianceTripInputs(needsInputs, options.viewerOrgId),
   ]);
   const refreshed = next.map((row) => {
     const tripScoped = scoped.get(row.trip.id);

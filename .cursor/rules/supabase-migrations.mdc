@@ -36,6 +36,24 @@ That is exactly how the `quoted`-trigger fix and the Get Load outage both happen
 - Do not manually craft timestamps unless you must **insert between** two existing migrations.
 - Do not copy-paste a timestamp from another file — generate fresh.
 
+### Forward-only `lock_timeout` (new files only)
+
+For **new** migrations that perform relevant DDL (`ALTER TABLE`, `CREATE`/`DROP TRIGGER` or
+`INDEX`) or take table-level locks on hot relations such as `trips`, `indents`,
+`transactions`, or `market_bids`, start the transaction with:
+
+```sql
+SET LOCAL lock_timeout = '5s';
+```
+
+- Apply this only to new files. Never backfill or rewrite applied migrations for this rule.
+- Do not `ALTER ROLE` or change production GUCs for this convention.
+- Preserve the `authenticator` role `lock_timeout = 30s` (LISTEN / schema-cache). Never set
+  `lock_timeout = 0`.
+- `lock_timeout` bounds **wait-to-acquire** only. It does not limit how long a lock is held
+  after acquire, and it is not permission to run probe DDL on hot tables.
+- A `db:preflight` warning for this rule is optional and deferred.
+
 ## Applying migrations
 
 ### Mandatory preflight (agents + humans)

@@ -38,4 +38,25 @@ awk '
   capture && /^\$\$;/ { exit }
 ' supabase/migrations/20271013101500_payment_requests.sql | psql_exec -d "$DB"
 docker exec "$CONTAINER" psql -U postgres -d "$DB" -v ON_ERROR_STOP=1 -f /tmp/pr1/tests/pr1_payment_concurrency.sql
+docker exec "$CONTAINER" psql -U postgres -d "$DB" -v ON_ERROR_STOP=1 -f /tmp/pr1/tests/pr1_payment_race.sql
+
+race_trip='14141414-1414-1414-1414-141414141414'
+docker exec "$CONTAINER" sh /tmp/pr1/tests/pr1_run_race.sh "$DB" > /tmp/pr1-race-ids
+id_a="$(awk '{print $1}' /tmp/pr1-race-ids)"
+id_b="$(awk '{print $2}' /tmp/pr1-race-ids)"
+rm -f /tmp/pr1-race-ids
+if [ -z "$id_a" ] || [ "$id_a" != "$id_b" ]; then
+  echo "concurrent issue_payment_request did not return one id" >&2
+  echo "session A: ${id_a:-<empty>}" >&2
+  echo "session B: ${id_b:-<empty>}" >&2
+  exit 1
+fi
+live_count="$(docker exec "$CONTAINER" psql -U postgres -d "$DB" -v ON_ERROR_STOP=1 -q -tA -c "select count(*) from public.payment_requests where trip_id = '${race_trip}' and payment_type = 'advance' and status <> 'cancelled' and id = '${id_a}'::uuid;")"
+live_count="$(printf '%s' "$live_count" | tr -d '[:space:]')"
+if [ "$live_count" != "1" ]; then
+  echo "concurrent issuers left live count ${live_count}" >&2
+  exit 1
+fi
+echo "concurrent issuers returned ${id_a} and left 1 live row"
+
 echo "disposable PR #1 guard tests passed on ${CONTAINER}/${DB}"

@@ -122,9 +122,9 @@ begin
 end $$;
 reset role;
 
--- Payment-request issuer fixtures. The next file checks the early live-row
--- return and a request_no collision that must re-raise. It does not open a
--- second session, so the exception handler's return-existing branch is unproven.
+-- Payment-request issuer fixtures. The next files check the early live-row
+-- return, a request_no collision that must re-raise, and a two-session race
+-- that reaches the unique_violation return.
 create table public.payment_requests (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null,

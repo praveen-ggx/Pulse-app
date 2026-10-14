@@ -97,7 +97,7 @@ Payment cases that ran in one session:
 - Two sequential `issue_payment_request` calls for trip `12121212-1212-1212-1212-121212121212` / `advance` returned the same id (`idempotent_ok = 1`) and left one live row.
 - A `request_no` value `PAY-COLLISION` already used by trip `13131313-1313-1313-1313-131313131313` made the `balance` issue for the first trip raise `unique_violation` and insert no balance row.
 
-Not executed: two concurrent sessions racing the partial unique index, and the exception handler's branch that returns an existing live row. The early `SELECT` return and the re-raise path were the paths that ran.
+Two sessions on trip `14141414-1414-1414-1414-141414141414` both entered a `BEFORE INSERT` barrier, so both had already passed the issuer's early `SELECT`. They returned the same id `fc10d0c4-0e08-484b-93e9-870a2ac70fe3` and left one live `advance` row. The loser therefore took the `unique_violation` handler and returned the existing row. The same run still includes the early-return check and the `PAY-COLLISION` re-raise. Command: `sh /Users/ggx/Desktop/Pulse-app/.worktrees/pr1-pod-dispatch/supabase/tests/run-pr1-disposable.sh`. Exit 0. `pr1_guard` is dropped at the end. This race result was recorded after `316adb6b`. Run `38554475912` does not include it.
 
 Godrej fixture that ran inside `pr1_guard`:
 

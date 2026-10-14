@@ -11,6 +11,7 @@ import {
   encodeHardCopyPodComment,
   fetchTripHardCopyPodState,
   loadLrPodIndexByTripIds,
+  courierDispatchDateError,
   logTripHardCopyPodCourier,
   markTripHardCopyPodReceived,
   normalizeTripPodId,
@@ -394,6 +395,8 @@ export function LogHardCopyPodModal({
       }
       if (!courierName.trim()) next.courierName = "Courier name is required.";
       if (!awbNumber.trim()) next.awbNumber = "Tracking / AWB number is required.";
+      const dispatchError = courierDispatchDateError(dispatchDate);
+      if (dispatchError) next.dispatchDate = dispatchError;
       if (!expectedDeliveryDate.trim()) {
         next.expectedDeliveryDate = "Received delivery date is required.";
       }
@@ -403,6 +406,7 @@ export function LogHardCopyPodModal({
   }, [
     awbNumber,
     courierName,
+    dispatchDate,
     expectedDeliveryDate,
     lrChoices.length,
     method,
@@ -985,6 +989,7 @@ export function LogHardCopyPodModal({
               <View style={styles.dateTimeCol}>
                 <HardCopyPodDateField
                   label="Dispatch Date"
+                  required
                   value={dispatchDate}
                   onChange={setDispatchDate}
                   error={errors.dispatchDate}

@@ -390,6 +390,28 @@ export function decodeHardCopyPodComment(raw: unknown): {
   return { ...empty, remarks: text };
 }
 
+const DISPATCH_DATE_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Courier dispatch date required by the live RPC.
+ * Missing, blank, and non-calendar values stay on the client.
+ */
+export function courierDispatchDateError(value: string | null | undefined): string | null {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return "Dispatch date is required.";
+  if (!DISPATCH_DATE_ISO.test(trimmed)) return "Use YYYY-MM-DD for the dispatch date.";
+  const [year, month, day] = trimmed.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    return "Use YYYY-MM-DD for the dispatch date.";
+  }
+  return null;
+}
+
 /**
  * Log courier hard-copy POD as IN TRANSIT (does not stamp pod_received_at).
  * Mark received later via {@link markTripHardCopyPodReceived}.
@@ -409,9 +431,11 @@ export async function logTripHardCopyPodCourier(
   if (!id) return { error: new Error("Trip is not linked.") };
   const courier = String(input.courier ?? "").trim();
   const awbNumber = String(input.awbNumber ?? "").trim();
-  const dispatchDate = String(input.dispatchDate ?? "").trim() || null;
+  const dispatchDate = String(input.dispatchDate ?? "").trim();
   if (!courier) return { error: new Error("Courier name is required.") };
   if (!awbNumber) return { error: new Error("Tracking / AWB number is required.") };
+  const dispatchDateError = courierDispatchDateError(dispatchDate);
+  if (dispatchDateError) return { error: new Error(dispatchDateError) };
 
   const { data, error } = await supabase().rpc("log_trip_hard_copy_pod_courier", {
     p_trip_id: id,

@@ -191,14 +191,25 @@ begin
     return v_id;
   end if;
 
-  insert into public.payment_requests
-    (organization_id, trip_id, payment_type, request_no, approved_amount, approved_by, approved_at)
-  values
-    (v_org_id, p_trip_id, p_payment_type, public.generate_payment_request_no(v_org_id),
-     case when p_approved_amount is null then null else round(p_approved_amount, 2) end,
-     p_approved_by, coalesce(p_approved_at, now()))
-  returning id into v_id;
-  return v_id;
+  begin
+    insert into public.payment_requests
+      (organization_id, trip_id, payment_type, request_no, approved_amount, approved_by, approved_at)
+    values
+      (v_org_id, p_trip_id, p_payment_type, public.generate_payment_request_no(v_org_id),
+       case when p_approved_amount is null then null else round(p_approved_amount, 2) end,
+       p_approved_by, coalesce(p_approved_at, now()))
+    returning id into v_id;
+    return v_id;
+  exception when unique_violation then
+    -- ux_payment_requests_live_trip_type serializes concurrent issuers.
+    select id into v_id
+      from public.payment_requests
+     where trip_id = p_trip_id and payment_type = p_payment_type and status <> 'cancelled';
+    if v_id is null then
+      raise;
+    end if;
+    return v_id;
+  end;
 end;
 $$;
 

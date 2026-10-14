@@ -23,4 +23,8 @@ LEFT JOIN public.suppliers s ON s.id = t.supplier_id
 WHERE t.id = tx.trip_id
   AND tx.ledger_category IN ('compliance_advance', 'compliance_balance')
   AND COALESCE(tx.amount_in, 0) > 0
-  AND COALESCE(tx.amount_out, 0) = 0;
+  AND COALESCE(tx.amount_out, 0) = 0
+  -- Hold one unresolved DCO/direct-bid receipt. supplier_id is null, so the
+  -- rewrite would set contact_id null and party_name 'Supplier'. This is not
+  -- a classification approval and does not exclude other DCO rows.
+  AND tx.id IS DISTINCT FROM '897a1bef-76c6-43bb-a4fa-b9d28df18a96'::uuid;

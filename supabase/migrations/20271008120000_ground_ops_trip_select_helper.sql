@@ -21,10 +21,13 @@ AS $function$
     SELECT 1
     FROM public.organization_members om
     JOIN public.organization_member_warehouses omw ON omw.organization_member_id = om.id
-    JOIN public.indents i ON i.id = p_indent_id
+    JOIN public.indents i
+      ON i.id = p_indent_id
+     AND i.organization_id = p_org_id
     WHERE om.organization_id = p_org_id
       AND om.user_id = (SELECT auth.uid())
       AND om.status = 'active'
+      AND COALESCE(om.permissions ->> 'platformRole', '') = 'ground_ops'
       AND (
         i.warehouse_id = omw.warehouse_id
         OR EXISTS (

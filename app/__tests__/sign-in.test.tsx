@@ -43,6 +43,7 @@ jest.mock('@/lib/suite/suiteAuthContent', () => ({
 jest.mock('@/lib/suite/suiteAuth', () => ({
   buildSuiteSignUpHref: jest.fn(() => '/sign-up?product=test-product'),
   navigateAfterSuiteAuth: jest.fn(),
+  normalizeSuiteReturnTo: jest.requireActual('@/lib/suite/suitePaths').normalizeSuiteReturnTo,
 }));
 
 jest.mock('@/lib/keepSignedInPreference', () => ({
@@ -151,6 +152,7 @@ describe('SignIn Component', () => {
   // Rendering
   // ---------------------------------------------------------------------------
 
+  // First render pays the cold module load; CI runners can exceed the 5s default.
   it('renders correctly', async () => {
     const { getByText, getByPlaceholderText } = await renderSignIn();
     expect(getByText('Sign In')).toBeTruthy();
@@ -159,7 +161,7 @@ describe('SignIn Component', () => {
     expect(getByPlaceholderText('Your password')).toBeTruthy();
     expect(getByText('Sign In CTA')).toBeTruthy();
     expect(getByText('Sign in with Google')).toBeTruthy();
-  });
+  }, 20000);
 
   it('renders the desktop brand panel when on desktop web', async () => {
     (useIsDesktopWebInput as jest.Mock).mockReturnValue(true);

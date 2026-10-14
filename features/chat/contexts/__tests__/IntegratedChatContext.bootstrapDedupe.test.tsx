@@ -55,7 +55,7 @@ function setOrg(id: string) {
 beforeEach(() => {
   jest.clearAllMocks();
   __resetNetworkChatBootstrapForTests();
-  (useAuth as jest.Mock).mockReturnValue({ profile: { uid: "user-1" } });
+  (useAuth as jest.Mock).mockReturnValue({ profile: { uid: "user-1" }, status: "authenticated" });
   setOrg("org-1");
   mockGetConvs.mockResolvedValue([]);
   mockGetPartners.mockResolvedValue([]);

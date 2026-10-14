@@ -38,6 +38,7 @@
 - Delivered trips now load RC / Fitness / Insurance into the Asset Vault Vehicle Documents popup.
 - Synced Vasanth's V1.0.1 again (My Bids pool revision UX) and added a migration that re-applies his Gate 1A quote-accept guard.
 - Compliance pay refuses to post when the live compliance status read fails, instead of trusting the cached trip (restores Vasanth's cbbbc035 fail-closed rule).
+- Jest green: fixed the five test suites that also fail on Vasanth's V1.0.1 (stale mocks and source checks, a slow first sign-in render, and a dynamic import Jest cannot run).
 
 ## Why
 - Finance needs to check the advance values before money goes out, and trips sent back for fixes were either stuck or could be verified without Ground Ops fixing anything.
@@ -77,6 +78,7 @@
 - Delivered trips open on a quick-load path that skips the vehicle, and nothing loaded its documents later, so every slot said Not uploaded (e.g. 000948).
 - An older team-V1 migration (20270930213000) redefines the same guard with a weaker body; if pushed after gate1a on prod it would undo his owner-only accept and lock checks.
 - Audit of Vasanth's work vs this branch: the team V1 import had replaced his fail-closed check with a silent fallback.
+- PR #1's only failing CI check was Jest, and a separate fix PR into V1.0.1 could not pass (no test script there yet, plus a logPods failure this branch fixes).
 
 ## Areas
 - Supabase migrations and RPCs for trips compliance (finance approval, reject, decline, resubmit, verify).
@@ -116,6 +118,7 @@
 - Trip Detail Asset Vault (vehicle documents).
 - Marketplace quote accept guard (database).
 - Compliance advance / balance posting.
+- Tests for sign-in, chat bootstrap, Load Center, Network pool; mutual-connections import.
 
 ## Migrations
 - 20271008112000_finance_verified_step.sql, 20271008113000_compliance_reject_resubmit.sql, 20271008114000_compliance_hold_resubmit.sql, 20271008115000_compliance_resubmit_note.sql, 20271008116000_compliance_resubmit_gates.sql (all applied to preprod only; prod untouched). Release set: supabase/release-sets/preprod-finance-resubmit.versions.
@@ -154,6 +157,7 @@
 - None.
 - None
 - 20271014051328_reassert_gate1a_quote_accept_guard.sql (release set gate1a-guard-reassert).
+- None
 - None
 
 ## Tested
@@ -194,3 +198,4 @@
 - Typecheck 64 (baseline); 46 trip-detail tests pass; preprod check as the GoGoVan owner reads the 3 vehicle docs. Not clicked through yet.
 - Merge had no conflicts; release-set dry run lists only the new file; rolled-back apply on preprod keeps the Gate 1A body; 45 migration tests pass.
 - 609 compliance tests pass (2 new: read error fails closed, missing columns still fall back); typecheck 64 (baseline); lint clean on changed files. Not clicked through.
+- Full Jest with the CI command on ad31dc4b plus this fix: 512 suites pass, 0 failed; lint 104, cycles 111, typecheck 89 at baseline. No UI change.

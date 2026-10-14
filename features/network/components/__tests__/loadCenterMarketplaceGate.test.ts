@@ -27,7 +27,8 @@ describe("Load Center marketplace + market remount gates", () => {
     expect(source).not.toContain("listOpenMarketplaceLoadsPage");
     expect(source).not.toContain("useInfiniteQuery(");
     expect(source).toContain("getLoadPending = waitingForLoadGate || marketPending");
-    expect(source).toContain("Load more");
+    // Network loads page on scroll (95fbde60); the hint replaced the Load more button.
+    expect(source).toContain("Scroll for more");
     expect(source).not.toContain("Boolean(orgId) && !isTripsPresentation");
   });
 });

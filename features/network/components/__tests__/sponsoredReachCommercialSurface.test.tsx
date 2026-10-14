@@ -146,7 +146,7 @@ describe("no normal Network indent is individually biddable on /pulse-loads", ()
     const list = read("pooled/NetworkLoadPoolList.tsx");
     expect(list).not.toMatch(/renderCard\b/);
     const modal = read("LoadCenterKanbanColumnModal.tsx");
-    expect(modal).toContain("pooledMode && renderPoolMemberCard");
+    expect(modal).toMatch(/:\s*pooledMode\s*\?\s*renderPoolMemberCard\s*:\s*null/);
   });
 
   it("Network pool cards have no mutual-connections facepile", () => {

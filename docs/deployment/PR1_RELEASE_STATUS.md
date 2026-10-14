@@ -48,7 +48,19 @@ Failing suites on run `38553423271`, and the same five files are identical to `0
 4. `features/network/services/__tests__/mutualConnectionsPartnerDisplay.test.ts` — `does not call partner-display when the RPC already returned avatar_url` and `batches only ids that are missing avatar_url`.
 5. `features/network/components/__tests__/loadCenterMarketplaceGate.test.ts` — `Load Center does not auto-fetch open Marketplace`.
 
-Exact assertion text from the previous completed log (`38551814562`), unchanged by the docs-only commit: sign-in timeout plus `TypeError: normalizeSuiteReturnTo is not a function`; sponsored reach `toContain "pooledMode && renderPoolMemberCard"`; chat `toHaveBeenCalled` / `toHaveBeenCalledTimes(0)`; mutual-connections dynamic import without `--experimental-vm-modules`; load center `toContain "Load more"`. `suiteAuth.ts` re-exports `normalizeSuiteReturnTo` on both commits. These suites were not edited.
+Exact assertion text from the previous completed log (`38551814562`), unchanged by the docs-only commit: sign-in timeout plus `TypeError: normalizeSuiteReturnTo is not a function`; sponsored reach `toContain "pooledMode && renderPoolMemberCard"`; chat `toHaveBeenCalled` / `toHaveBeenCalledTimes(0)`; mutual-connections dynamic import without `--experimental-vm-modules`; load center `toContain "Load more"`. `suiteAuth.ts` re-exports `normalizeSuiteReturnTo` on both commits. These suites were not edited up to `ad31dc4b`.
+
+## Jest suite fixes (after `ad31dc4b`)
+
+The same 10 cases also fail locally on `0de8638f` with identical messages, so they predate this PR. They were fixed here because `0de8638f` cannot run `npm test` at all (no `test` script) and also fails `logPods.service.concurrency`, which this branch fixes, so a separate PR into V1.0.1 could not go green.
+
+1. Sign-in: the test's `suiteAuth` mock now includes the real `normalizeSuiteReturnTo` (from `suitePaths`); `renders correctly` gets a 20 s timeout for the cold first render on CI.
+2. Chat bootstrap dedupe: the `useAuth` mock adds `status: "authenticated"`; the provider only bootstraps when the session is authenticated.
+3. Mutual connections: `mutual-connections.service.ts` imports `isSupabaseCircuitOpen` statically, like the other network services; Jest cannot run `await import()` without `--experimental-vm-modules`. The only non-test change.
+4. Load Center gate: expects `Scroll for more`; `95fbde60` replaced the Load more button with scroll paging.
+5. Sponsored reach: matches the `0de8638f` renderer selection (`pooledMode ? renderPoolMemberCard : null`); pool loads still render review-only, never with `renderCard`.
+
+Local run on `ad31dc4b` plus these fixes, using the CI command `npm test -- --ci --passWithNoTests --forceExit` with `NODE_OPTIONS=--max-old-space-size=4096`: `Test Suites: 1 skipped, 512 passed, 512 of 513 total`. `Tests: 3 skipped, 4026 passed, 4029 total`. Lint 104, cycles 111, typecheck 89 (all at baseline). The GitHub run for this commit is the evidence; this local run is not.
 
 ## CI for `90ecf13e`
 
@@ -145,9 +157,9 @@ No backup timestamp was verified. No database backup was restored. The `pr1_guar
 
 ## What remains before merge
 
-1. Repository administrator: confirm required reviewers. This session could not read branch protection (HTTP 403). Do not self-approve.
+1. Repository administrator: confirm required reviewers. `GET /branches/V1.0.1` reports `protected: false` (no required checks or reviews); rulesets return HTTP 403 (not available on this plan). Do not self-approve.
 2. Finance/product owner: Decision A and Decision B above.
 3. Godrej India finance approver: written classification of transaction `897a1bef-76c6-43bb-a4fa-b9d28df18a96`.
-4. Owner of the five baseline Jest suites: fix them outside this release, or formally waive the check. Do not mark the check green.
+4. Jest: the five baseline suites are fixed in this branch (see "Jest suite fixes"). Confirm the GitHub Jest check passes on the new head; do not treat the local run as the result.
 5. Operator: verified backup, disposable rehearsal of an approved set, and post-apply checks. None of that has been run.
 6. A reviewer other than the author. Reviews are still 0.

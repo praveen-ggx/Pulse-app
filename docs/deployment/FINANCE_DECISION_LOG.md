@@ -39,6 +39,9 @@ Recorded 2026-10-15 from Nihas's confirmation in the release-readiness work: **"
 | `20271014184500_godrej_dco_payable_classification.sql` | Never applied. Stays out of every release set |
 | `20271012140000_compliance_payments_supplier_payable.sql` | Unchanged; it already skips this id |
 | `20271013101500_payment_requests.sql` backfill | Would link this receipt to a paid payment request. Must be prevented or reversed in the same transaction before release (Gate G in `REMEDIATION_PLAN.md`); method not yet approved |
+| Method (decided 2026-10-15) | **Option A, documented migration exception:** the backfill's paid-transactions selection and link insert exclude exactly this transaction id, so no request, link or counter is created. Supersedes "method not yet approved" in the row above. No compensation migration. |
+| Migration-history exception | Preprod already applied the original SQL for version `20271013101500`; the repository file contains the exclusion. Preprod schema and data are not changed for this file-text difference. This is a deliberate, approved exception, not normal practice. Never run `supabase migration fetch` from preprod into the repository; CI (`pr1ReleaseGuards.test.ts`) fails if the exclusion is removed. |
+| Before any production release | Capture the receipt's baseline, then run acceptance checks c1–c4 after the apply. No production release is approved by this decision. |
 
 The entry below is kept as the historical record of the earlier stated classification. It no longer applies.
 

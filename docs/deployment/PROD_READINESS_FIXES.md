@@ -68,7 +68,27 @@ Visibility: Trip Detail fills empty vault slots from `entity_documents` under th
 4. Out of scope, tracked separately:
    - Extras uploads for partner trucks fail the same way, and have done since before PR #1; they have no `entity_documents` fallback;
    - Trip Detail delete does not remove `entity_documents`-sourced files.
-5. The Godrej backfill side effect in `20271013101500` is not addressed here (see `REMEDIATION_PLAN.md`, Gate G).
+5. The Godrej backfill side effect in `20271013101500` is not addressed by the first commit; the follow-up branch `nihas/godrej-backfill-exclusion` addresses it (next section).
+
+## Documented migration exception: `20271013101500` (follow-up branch `nihas/godrej-backfill-exclusion`)
+
+**This is a deliberate, approved exception (Nihas, 2026-10-15). It is not normal migration practice.**
+
+| Item | Detail |
+| --- | --- |
+| Why | "Godrej India" is a test organisation. The `20271013101500` backfill would turn its receipt `897a1bef-76c6-43bb-a4fa-b9d28df18a96` (₹3,500) into a paid payment request, link it, and start a `payment` counter for the test org. The receipt must never be classified or marked paid. |
+| Change | The backfill's paid-transactions selection and its link insert both exclude exactly that transaction id (`and t.id is distinct from '897a1bef-…'::uuid`). No other transaction, trip, or org is excluded. The receipt itself is not updated, deleted, or classified. |
+| Effect | No payment request, no link, and no payment counter for the receipt. The second loop (approved, unpaid trips) already skips its trip because a `compliance_advance` transaction exists on it. |
+| Preprod | Already applied the **original** SQL for version `20271013101500`. Its history row keeps the original text. Preprod has no such receipt, so its data is identical either way. **Preprod schema and data are not to be changed** to accommodate the file-text difference. |
+| Repository | The file now contains the exclusion. Production will run and record this text. |
+| History | The Supabase CLI tracks versions, not file contents, so nothing flags the difference. **Never run `supabase migration fetch` from preprod into the repository**: it would overwrite this file with preprod's original text. CI guards against that (below). |
+| Fresh installs | Local resets, CI and disposable databases have no such receipt, so the result is the same as the original file. |
+| Not changed | `20271014184500` (still excluded from every release); no compensation migration. |
+| Regression guard | `supabase/migrations/__tests__/pr1ReleaseGuards.test.ts` → "keeps the Godrej test-org receipt out of the payment-request backfill". It ignores SQL comments and requires the exclusion in the paid-transactions `where` clause (before `group by` and before the first `issue_payment_request(`) and in the link insert. It fails if the line is removed, commented out, or moved elsewhere (4 mutations checked locally). |
+| Before any production release | Capture the receipt baseline on prod (`ledger_category`, `amount_in`, `amount_out`, `created_at`, `contact_type`, `contact_id`, `ledger_entity_type`, `ledger_flow_type`), then run acceptance checks c1–c4 after the apply. |
+| Evidence status | Rehearsed earlier (2026-10-15, isolated local Postgres, real-data copy) with the selection exclusion: c1–c4 passed, 0 requests / links / counters. The link-insert exclusion was added afterwards and has **not** been run against a database. No database was accessed for this change. |
+
+**No production release is approved by this change.**
 
 ## Rollback
 

@@ -461,6 +461,10 @@ begin
       from public.transactions t
       join public.trips tr on tr.id = t.trip_id
      where t.ledger_category in ('compliance_advance', 'compliance_balance')
+       -- Godrej India is a test org (decision 2026-10-15): this test-org receipt
+       -- must never be classified or marked paid. Documented exception: preprod
+       -- applied this version without this line (it has no such row).
+       and t.id is distinct from '897a1bef-76c6-43bb-a4fa-b9d28df18a96'::uuid
      group by t.trip_id, t.ledger_category, tr.finance_verified_at, tr.finance_verified_by
      order by min(t.created_at)
   loop
@@ -475,6 +479,7 @@ begin
     select v_request, t.id
       from public.transactions t
      where t.trip_id = r.trip_id and t.ledger_category = r.ledger_category
+       and t.id is distinct from '897a1bef-76c6-43bb-a4fa-b9d28df18a96'::uuid
     on conflict (transaction_id) do nothing;
     perform public.refresh_payment_request_status(v_request);
   end loop;

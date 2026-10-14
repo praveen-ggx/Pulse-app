@@ -699,6 +699,8 @@ export default function TripDetailScreen({
   useEffect(() => {
     if (shouldLoadTripDocumentsForViewer(activeTab)) {
       void detail.ensureTripDocumentsForViewer();
+      // Delivered trips open on the light bundle (no vehicle row), so load RC/fitness/insurance here.
+      detail.ensureVehicleDocs();
     }
     if (activeTab === "tracking") {
       detail.ensureLocationHistory();
@@ -706,6 +708,7 @@ export default function TripDetailScreen({
   }, [
     activeTab,
     detail.ensureTripDocumentsForViewer,
+    detail.ensureVehicleDocs,
     detail.ensureLocationHistory,
   ]);
 
@@ -2433,6 +2436,7 @@ export default function TripDetailScreen({
       );
       return;
     }
+    detail.ensureVehicleDocs();
     setVehicleDocChooserVisible(true);
   }, [
     detail.trip?.vehicle_id,
@@ -2440,6 +2444,7 @@ export default function TripDetailScreen({
     detail.trip?.vehicle_display_number,
     detail.displayVehicleFromInput,
     detail.vehicleLabel,
+    detail.ensureVehicleDocs,
     uploadingDocId,
     pendingVaultUpload,
   ]);

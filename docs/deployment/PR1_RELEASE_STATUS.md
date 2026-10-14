@@ -11,13 +11,13 @@ Verified 2026-10-14 from the repository, GitHub Actions, and one local disposabl
 | Repository | `Vasanthgogox/Pulse-app` |
 | PR | https://github.com/Vasanthgogox/Pulse-app/pull/1 |
 | Base | `V1.0.1` @ `0de8638faf2c7980b06366cf82ea852236621788` |
-| Head whose CI is recorded below | `cc8e89edf5a02532edb36a51c302ea1200dc11f5` on `nihas/team-sync-v1.0.1` |
+| Heads whose CI is recorded below | `cc8e89edf5a02532edb36a51c302ea1200dc11f5` and `90ecf13efd7edf98e350b84e713cc647d7b23caa` |
 | State at that read | OPEN, not draft, MERGEABLE, `mergeStateStatus` UNSTABLE |
 | Reviews | 0 reviews, 0 requested reviewers, `reviewDecision` empty |
 | Branch protection | Unknown. `GET /branches/V1.0.1/protection` returned HTTP 403 |
 | Worktrees left untouched | Main checkout `V1.0.1` @ `7f34e4cf` (dirty). Preflight worktree detached at `0de8638f` |
 
-`5dd3bb62` is the parent. This file records the CI that ran on `cc8e89ed`, which contains the disposable tests. A later documentation commit that only updates this file is not that run.
+`5dd3bb62` is the parent of `cc8e89ed`. `90ecf13e` changes only this file. Any commit after `90ecf13e` has its own Actions run and is not either run below.
 
 The diff `0de8638f...4c724c2d` is 358 files, +47019 / −10243. A line-by-line review of all 358 files was not completed. Hotspot review covered POD, finance functions, `get_trips_for_org` callers from prior catalog work, Ground Ops, the Godrej predicate, and the five failing Jest sources.
 
@@ -49,6 +49,14 @@ Failing suites on run `38553423271`, and the same five files are identical to `0
 5. `features/network/components/__tests__/loadCenterMarketplaceGate.test.ts` — `Load Center does not auto-fetch open Marketplace`.
 
 Exact assertion text from the previous completed log (`38551814562`), unchanged by the docs-only commit: sign-in timeout plus `TypeError: normalizeSuiteReturnTo is not a function`; sponsored reach `toContain "pooledMode && renderPoolMemberCard"`; chat `toHaveBeenCalled` / `toHaveBeenCalledTimes(0)`; mutual-connections dynamic import without `--experimental-vm-modules`; load center `toContain "Load more"`. `suiteAuth.ts` re-exports `normalizeSuiteReturnTo` on both commits. These suites were not edited.
+
+## CI for `90ecf13e`
+
+Completed run: https://github.com/Vasanthgogox/Pulse-app/actions/runs/38553905083
+
+`headSha` `90ecf13efd7edf98e350b84e713cc647d7b23caa`. Workflow conclusion: failure. The same six non-Jest checks passed. Jest failed. Netlify is not part of this workflow.
+
+Jest log totals: `Test Suites: 5 failed, 1 skipped, 507 passed, 512 of 513 total`. `Tests: 10 failed, 3 skipped, 4016 passed, 4029 total`. The suite names are the same five. `SignIn Component › renders correctly` is absent from this failure list and present on `cc8e89ed`. The redirect case in that suite still failed. This is a count change between two docs-only commits, not a fix and not a waiver.
 
 ## Local source guards
 

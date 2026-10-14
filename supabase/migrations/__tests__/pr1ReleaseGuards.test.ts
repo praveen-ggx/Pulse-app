@@ -17,6 +17,7 @@ describe("PR #1 migration guards", () => {
     );
     expect(sql).not.toMatch(/dco_payee_id\s+is\s+not\s+null/i);
     expect(sql).toContain("contact_id = t.supplier_id");
+    expect(sql).not.toContain("dco_payee_id");
   });
 
   it("requires the ground_ops role inside the helper and hides other orgs' indents", () => {
@@ -59,5 +60,19 @@ describe("PR #1 migration guards", () => {
     );
     expect(cleared.indexOf("compliance_cleared")).toBeGreaterThan(-1);
     expect("20271013120000" > "20271013101500").toBe(true);
+  });
+
+  it("does not put the destructive rollback or the weaker quote guard in a release set", () => {
+    const sets = fs.readdirSync(path.join(migrations, "../release-sets"));
+    const named = sets.filter((name) => name.endsWith(".versions"));
+    for (const name of named) {
+      const body = fs.readFileSync(path.join(migrations, "../release-sets", name), "utf8");
+      expect(body).not.toContain("20270930130000");
+    }
+    const weak = read("20270930213000_reject_award_of_inactive_indent.sql");
+    const strong = read("20271014051328_reassert_gate1a_quote_accept_guard.sql");
+    expect(weak).not.toContain("is_org_staff");
+    expect(strong).toContain("is_org_staff");
+    expect(strong).toContain("SECURITY DEFINER");
   });
 });

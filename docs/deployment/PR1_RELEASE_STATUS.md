@@ -2,7 +2,7 @@
 
 Decision: **BLOCKED**. This report does not approve a merge, a migration apply, or a production deploy.
 
-Verified 2026-10-14 from the repository and GitHub. Production data was not written.
+Verified 2026-10-14 from the repository, GitHub Actions, and one local disposable Postgres. Production data was not written. No migration was applied to the linked project.
 
 ## Identity
 
@@ -11,41 +11,91 @@ Verified 2026-10-14 from the repository and GitHub. Production data was not writ
 | Repository | `Vasanthgogox/Pulse-app` |
 | PR | https://github.com/Vasanthgogox/Pulse-app/pull/1 |
 | Base | `V1.0.1` @ `0de8638faf2c7980b06366cf82ea852236621788` |
-| Head verified live | `62679d2a06d8fe8a9a8425c71b0f61a2f96197e6` on `nihas/team-sync-v1.0.1` |
-| CI recorded below | Completed run for `62679d2a`. A later documentation-only commit does not change those results. |
-| State | OPEN, not draft, MERGEABLE, `mergeStateStatus` UNSTABLE |
+| Head whose CI is recorded below | `5dd3bb62015ca9fba1bb6aabe55fd795eee279e4` on `nihas/team-sync-v1.0.1` |
+| State at that read | OPEN, not draft, MERGEABLE, `mergeStateStatus` UNSTABLE |
 | Reviews | 0 reviews, 0 requested reviewers, `reviewDecision` empty |
 | Branch protection | Unknown. `GET /branches/V1.0.1/protection` returned HTTP 403 |
 | Worktrees left untouched | Main checkout `V1.0.1` @ `7f34e4cf` (dirty). Preflight worktree detached at `0de8638f` |
 
+The disposable tests and this file are later than `5dd3bb62`. Their GitHub Actions run is not the run recorded below.
+
 The diff `0de8638f...4c724c2d` is 358 files, +47019 / −10243. A line-by-line review of all 358 files was not completed. Hotspot review covered POD, finance functions, `get_trips_for_org` callers from prior catalog work, Ground Ops, the Godrej predicate, and the five failing Jest sources.
 
-## CI
+## CI for `5dd3bb62`
 
-Latest completed run for the guard commit `62679d2a`: https://github.com/Vasanthgogox/Pulse-app/actions/runs/38551814562
+Completed run: https://github.com/Vasanthgogox/Pulse-app/actions/runs/38552321725
+
+`headSha` `5dd3bb62015ca9fba1bb6aabe55fd795eee279e4`. Workflow conclusion: failure.
 
 | Check | Result |
 | --- | --- |
+| Navigation policy gates | Passed |
+| App TypeScript (strict) | Passed |
 | Domain boundary lint | Passed |
+| Pulse V2 isolation (first slice) | Passed |
 | Circular dependency check | Passed |
-| lib/ root file count | Passed |
-| Pulse V2 isolation | Passed |
-| Navigation policy | Passed |
-| App TypeScript | Passed |
+| lib/ root file count gate | Passed |
 | App unit tests (Jest) | Failed |
 | Netlify deploy preview | Not part of this workflow run |
 
-Jest: 5 suites failed, 11 tests failed, 3 skipped, 4014 passed, 4028 total (512 of 513 suites). Same five suite names as `4c724c2d` (run `38550559222`: 4010 passed / 4024 total) and `3dc476fb` (run `38523532150`: 4003 passed / 4017 total). The +4 passes on this run are `pr1ReleaseGuards.test.ts`. The Jest check is not waived.
+Jest log totals: `Test Suites: 5 failed, 1 skipped, 507 passed, 512 of 513 total`. `Tests: 11 failed, 3 skipped, 4014 passed, 4028 total`. Same totals as `62679d2a` (run `38551814562`). `4c724c2d` (run `38550559222`) was 4010 passed / 4024 total. `3dc476fb` (run `38523532150`) was 4003 passed / 4017 total. The Jest check is not waived.
 
-Failing suites, identical as files to `0de8638f` (`git diff --stat` empty for the suites, `app/sign-in.tsx`, `LoadCenterView.tsx`, and `features/chat/contexts`):
+Failing suites on run `38552321725`, and the same five files are identical to `0de8638f` (`git diff` empty for the suites, `app/sign-in.tsx`, `LoadCenterView.tsx`, `features/chat/contexts`, and `lib/suite/suiteAuth.ts`):
 
-1. `loadCenterMarketplaceGate.test.ts` — expects the string `Load more`, absent on both commits.
-2. `sponsoredReachCommercialSurface.test.tsx` — expects `pooledMode && renderPoolMemberCard`, present only in the test.
-3. `mutualConnectionsPartnerDisplay.test.ts` — dynamic import without `--experimental-vm-modules` at `lib/supabaseHttp.util`.
-4. `IntegratedChatContext.bootstrapDedupe.test.tsx` — conversation fetch observed 0 times.
-5. `sign-in.test.tsx` — CI timeout / redirect. Local Node is v26.3.1; CI runs the Node 20 action on Node 24.
+1. `app/__tests__/sign-in.test.tsx` — `renders correctly` and `redirects through navigateAfterSuiteAuth once a user is present`.
+2. `features/network/components/__tests__/sponsoredReachCommercialSurface.test.tsx` — `Network pool lists render incomplete-lane loads review-only, never with a Bid card`.
+3. `features/chat/contexts/__tests__/IntegratedChatContext.bootstrapDedupe.test.tsx` — five bootstrap-dedupe cases.
+4. `features/network/services/__tests__/mutualConnectionsPartnerDisplay.test.ts` — `does not call partner-display when the RPC already returned avatar_url` and `batches only ids that are missing avatar_url`.
+5. `features/network/components/__tests__/loadCenterMarketplaceGate.test.ts` — `Load Center does not auto-fetch open Marketplace`.
 
-These are baseline defects. They are not waived. They were not edited in this release because the sources match production and fixing them would broaden the PR.
+Exact assertion text from the previous completed log (`38551814562`), unchanged by the docs-only commit: sign-in timeout plus `TypeError: normalizeSuiteReturnTo is not a function`; sponsored reach `toContain "pooledMode && renderPoolMemberCard"`; chat `toHaveBeenCalled` / `toHaveBeenCalledTimes(0)`; mutual-connections dynamic import without `--experimental-vm-modules`; load center `toContain "Load more"`. `suiteAuth.ts` re-exports `normalizeSuiteReturnTo` on both commits. These suites were not edited.
+
+## Local source guards
+
+Command, from the dedicated worktree, after `--rootDir` was set to that worktree:
+
+```bash
+npx jest --rootDir /Users/ggx/Desktop/Pulse-app/.worktrees/pr1-pod-dispatch \
+  --config /Users/ggx/Desktop/Pulse-app/.worktrees/pr1-pod-dispatch/jest.config.js \
+  --watchman=false --no-coverage --forceExit \
+  supabase/migrations/__tests__/pr1ReleaseGuards.test.ts
+```
+
+Result: 1 suite, 5 tests, all passed. This run is not the GitHub Jest total above.
+
+The fifth test reads every `supabase/release-sets/*.versions` file and asserts none contains `20270930130000`. It also asserts `20270930213000_reject_award_of_inactive_indent.sql` does not contain `is_org_staff`, and `20271014051328_reassert_gate1a_quote_accept_guard.sql` contains `is_org_staff` and `SECURITY DEFINER`.
+
+## Disposable database
+
+Command:
+
+```bash
+sh /Users/ggx/Desktop/Pulse-app/.worktrees/pr1-pod-dispatch/supabase/tests/run-pr1-disposable.sh
+```
+
+Target: Docker container `supabase_db_pulse`, database `pr1_guard`, user `postgres`. The script refuses a container name containing `pooler`, `prod`, or `nafxpivddesgsrthmosv`. Exit code 0. Final line: `disposable PR #1 guard tests passed on supabase_db_pulse/pr1_guard`. Afterward `pr1_guard` and role `pr1_caller` were absent (`count` 0 and 0). The user's `pulse` database was not the test database. This is not a backup, not a rehearsal of the release set, and not a production apply.
+
+`ground_ops_can_see_trip` cases that raised if they failed:
+
+- Caller `pr1_caller` with `SELECT` on `indents` and the deny-all `authenticated` policy saw 0 indent rows.
+- Ground Ops user `bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb` received true for indent `eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee` in org `aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa`.
+- The same user received false for other-org indent `ffffffff-ffff-ffff-ffff-ffffffffffff`.
+- The same user received false when the requested org was `99999999-9999-9999-9999-999999999999`.
+- Dispatcher `cccccccc-cccc-cccc-cccc-cccccccccccc` received false for the assigned indent.
+- `SET ROLE anon` then `PERFORM ground_ops_can_see_trip` hit `insufficient_privilege`.
+
+Payment cases that ran in one session:
+
+- Two sequential `issue_payment_request` calls for trip `12121212-1212-1212-1212-121212121212` / `advance` returned the same id (`idempotent_ok = 1`) and left one live row.
+- A `request_no` value `PAY-COLLISION` already used by trip `13131313-1313-1313-1313-131313131313` made the `balance` issue for the first trip raise `unique_violation` and insert no balance row.
+
+Not executed: two concurrent sessions racing the partial unique index, and the exception handler's branch that returns an existing live row. The early `SELECT` return and the re-raise path were the paths that ran.
+
+Godrej fixture that ran inside `pr1_guard`:
+
+- Transaction `897a1bef-76c6-43bb-a4fa-b9d28df18a96` stayed `amount_in` 3500 with null `contact_id` and null `contact_type`.
+- Transaction `55555555-5555-5555-5555-555555555555` on trip `44444444-4444-4444-4444-444444444444` moved to `amount_out` 900, `contact_id` `abababab-abab-abab-abab-abababababab`, and `party_name` `Real Supplier`.
+- That row's `dco_payee_id` `d0d0d0d0-d0d0-d0d0-d0d0-d0d0d0d0d0d0` was not copied into `contact_id`.
 
 ## POD
 
@@ -55,12 +105,11 @@ Targeted worktree result, separate from CI and from a 10-test main-checkout run 
 
 ## Finance — decision still required
 
-Observed from the migration files, not from a new production query in this pass:
+Observed from the migration files:
 
 - `20271013101500` creates `issue_payment_request` and `mark_trip_finance_verified(uuid, text, numeric)` without a compliance-rejection check. `issue_payment_request` is revoked from `public`, `anon`, and `authenticated`.
 - `20271013120000` replaces that function and raises unless `compliance_cleared(...)`. Its own comment says an open rejection blocks approval. It still calls `issue_payment_request`.
 - Timestamp order puts `20271013120000` after `20271013101500`. Applying the payment file later would drop the rejection check. They are in separate release sets (`payment-requests`, `compliance-cleared-gate`).
-- A unique partial index `ux_payment_requests_live_trip_type` already prevents two live requests. The issuer now catches `unique_violation` and returns the live row so a concurrent insert does not surface as a duplicate success path. This does not choose whether approval must create a request.
 
 **Decision A, still unanswered:** Does a compliance rejection block finance approval?
 
@@ -70,23 +119,21 @@ Until an authorized finance/product owner answers both, the finance behavior is 
 
 ## Ground Ops
 
-`20271008120000` remains unapplied. The helper is `SECURITY DEFINER` with an empty `search_path`, revoked from `PUBLIC` and `anon`, and granted to `authenticated`. The policy still requires `platformRole = ground_ops`.
-
-This pass adds the same role check, and `i.organization_id = p_org_id`, inside the helper so a direct call is not a cross-org or non-Ground-Ops indent probe. That change has a source test only. It has not been executed on a database. The migration stays out of any production set until that design is reviewed and run on a disposable database.
+`20271008120000` remains unapplied to production. The helper is `SECURITY DEFINER` with an empty `search_path`, revoked from `PUBLIC` and `anon`, and granted to `authenticated`. The policy still requires `platformRole = ground_ops`. The helper now also requires that role and `i.organization_id = p_org_id`. The disposable run above executed that file on `pr1_guard` only.
 
 ## Godrej ₹3,500
 
-Transaction `897a1bef-76c6-43bb-a4fa-b9d28df18a96` on trip `3f333e5b-1256-4208-acee-7de3bc305f0b` is excluded from `20271012140000` by `tx.id IS DISTINCT FROM` that uuid. The migration still does not copy `dco_payee_id` into `supplier_id` and does not exclude every DCO row. No production row was updated.
+Transaction `897a1bef-76c6-43bb-a4fa-b9d28df18a96` on trip `3f333e5b-1256-4208-acee-7de3bc305f0b` is excluded from `20271012140000` by `tx.id IS DISTINCT FROM` that uuid. The migration file does not contain `dco_payee_id` and does not exclude every DCO row. No production row was updated.
 
 Written confirmation from an authorized Godrej India finance approver is still absent. The exclusion is a hold, not a classification.
 
 ## Migrations, backup, rehearsal
 
-No safe production order is approved. Do not execute `20270930130000`. Do not reapply `20270930213000` over the live Gate 1A body. Do not `migration repair` `20271014051328`. Missing `schema_migrations` rows are not proof that objects are absent.
+No safe production order is approved. Do not execute `20270930130000`. Do not reapply `20270930213000` over the live Gate 1A body. Do not `migration repair` `20271014051328`. The stronger file `20271014051328_reassert_gate1a_quote_accept_guard.sql` remains the Gate 1A source that contains `is_org_staff`. Missing `schema_migrations` rows are not proof that objects are absent.
 
-`get_trips_for_org(uuid, boolean)` in `20271013113000` is `LANGUAGE sql` and references `finance_verified_at` and `payment_requests`. It cannot be created on current production until those objects exist. Baseline callers pass only `p_org_id`. Three PR callers pass `p_include_compliance_backlog=true`. The `anon` execute grant is not approved for removal or expansion.
+`get_trips_for_org(uuid, boolean)` in `20271013113000` is `LANGUAGE sql` and references `finance_verified_at` and `payment_requests`. It cannot be created on current production until those objects exist. The `anon` execute grant is not approved.
 
-No backup timestamp was verified in this pass. No disposable database was restored. No migration set was rehearsed. No recovery was tested. Those gates are blocked, not complete.
+No backup timestamp was verified. No database backup was restored. The `pr1_guard` run created stub tables and executed two migration files; it did not replay the release set. No recovery was tested. Those gates are blocked, not complete.
 
 ## What remains before merge
 
@@ -95,3 +142,4 @@ No backup timestamp was verified in this pass. No disposable database was restor
 3. Godrej India finance approver: written classification of transaction `897a1bef-76c6-43bb-a4fa-b9d28df18a96`.
 4. Owner of the five baseline Jest suites: fix them outside this release, or formally waive the check. Do not mark the check green.
 5. Operator: verified backup, disposable rehearsal of an approved set, and post-apply checks. None of that has been run.
+6. A reviewer other than the author. Reviews are still 0.

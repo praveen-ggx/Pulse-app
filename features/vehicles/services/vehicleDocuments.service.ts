@@ -10,6 +10,7 @@
  *  - Delete: removes storage object + clears JSONB key in one call
  */
 import { supabase } from '@/lib/supabase';
+import { uploadComplianceDocument } from '@/features/compliance/services/documents.service';
 import { createStorageSignedUrlCache } from '@/lib/storageSignedUrlCache';
 import type {
   DocumentWithExpiry,
@@ -528,13 +529,16 @@ export async function markVehicleDocumentVerified(
 
 /**
  * Trip Manifest vault write for RC / insurance / FC / PUC.
- * 1) Try the normal org-owned vault path.
- * 2) If that fails (cross-org truck / RLS), upload under the viewer org's
- *    storage folder and persist via save_vehicle_document_for_trip RPC.
+ * 1) Truck found under one of the preferred orgs: write that org's vault.
+ * 2) Otherwise (partner truck), or if the vault write fails: save the file as an
+ *    entity_documents row under the viewer org (bucket compliance-documents).
+ *    The owner's vehicles.documents is never written cross-org; Trip Detail
+ *    fills empty vault slots from these rows (mergeEntityDocumentsIntoVehicleVault).
+ * `viewerOrgId` must be the signed-in user's org, not the truck owner's org.
  */
 export async function uploadAndSaveVehicleDocumentForTrip(
   viewerOrgId: string,
-  tripId: string,
+  _tripId: string,
   vehicleId: string,
   docType: VehicleComplianceDocType,
   file: { arrayBuffer: ArrayBuffer; fileName: string; mimeType: string; blob?: Blob },
@@ -542,9 +546,13 @@ export async function uploadAndSaveVehicleDocumentForTrip(
   existingDocuments: VehicleDocuments | null,
   preferredOrgIds: Array<string | null | undefined> = [],
 ): Promise<{ documents: VehicleDocuments | null; error: Error | null }> {
-  const preferred = [viewerOrgId, ...preferredOrgIds];
+  const preferred = [viewerOrgId, ...preferredOrgIds]
+    .map((id) => (id ?? "").trim())
+    .filter(Boolean);
   const resolved = await resolveVehicleDocumentsWriteTarget(vehicleId, preferred);
-  if (resolved) {
+  // A truck owned by an org outside `preferred` is only found by the unfiltered
+  // lookup; its vault (vehicle-documents folder + vehicles row) is closed to us.
+  if (resolved && preferred.includes(resolved.orgId)) {
     const owned = await uploadAndSaveVehicleDocument(
       resolved.orgId,
       vehicleId,
@@ -554,98 +562,53 @@ export async function uploadAndSaveVehicleDocumentForTrip(
       resolved.documents ?? existingDocuments,
     );
     if (!owned.error) return owned;
-  } else {
-    const owned = await uploadAndSaveVehicleDocument(
-      viewerOrgId,
-      vehicleId,
-      docType,
-      file,
-      expiryDate,
-      existingDocuments,
-    );
-    if (!owned.error) return owned;
   }
 
-  // Cross-org fallback: storage under viewer org + SECURITY DEFINER metadata write.
-  const { storagePath, error: uploadErr } = await uploadVehicleDocument(
-    viewerOrgId,
-    vehicleId,
-    docType,
-    file,
-  );
-  if (uploadErr || !storagePath) {
-    return { documents: null, error: uploadErr ?? new Error("Upload failed") };
-  }
-
-  const { data, error: rpcError } = await supabase().rpc("save_vehicle_document_for_trip", {
-    p_trip_id: tripId,
-    p_vehicle_id: vehicleId,
-    p_viewer_org_id: viewerOrgId,
-    p_doc_type: docType,
-    p_storage_path: storagePath,
-    p_expiry_date: expiryDate || null,
-  });
-
-  if (rpcError) {
-    await deleteVehicleDocumentFile(storagePath).catch(() => {});
-    const msg = rpcError.message || "";
-    // Trip RPC may be missing on preprod (404 / PGRST202). Always try
-    // entity_documents under the viewer org so Save to vault still works.
-    try {
-      const { uploadComplianceDocument } = await import(
-        "@/features/compliance/services/documents.service"
-      );
-      const { data: authData } = await supabase().auth.getUser();
-      const actorId = authData.user?.id;
-      if (!actorId) {
-        return {
-          documents: null,
-          error: new Error("Could not save vehicle document. Sign in again and retry."),
-        };
-      }
-      const { document, error: entityError } = await uploadComplianceDocument({
-        orgId: viewerOrgId,
-        entityType: "vehicle",
-        entityId: vehicleId,
-        docType,
-        file: {
-          arrayBuffer: file.arrayBuffer,
-          mimeType: file.mimeType,
-          fileName: file.fileName,
-        },
-        uploadedBy: actorId,
-        expiryDate: expiryDate || null,
-      });
-      if (entityError || !document) {
-        return {
-          documents: null,
-          error:
-            entityError ??
-            new Error(msg || "Could not save vehicle document."),
-        };
-      }
-      const merged: VehicleDocuments = {
-        ...(existingDocuments ?? {}),
-        [docType]: {
-          url: document.storage_path,
-          expiryDate: document.expiry_date ?? "",
-          uploadedAt: document.created_at,
-        },
-      };
-      return { documents: merged, error: null };
-    } catch (fallbackErr) {
+  try {
+    const { data: authData } = await supabase().auth.getUser();
+    const actorId = authData.user?.id;
+    if (!actorId) {
       return {
         documents: null,
-        error: new Error(
-          fallbackErr instanceof Error
-            ? fallbackErr.message
-            : msg || "Could not save vehicle document.",
-        ),
+        error: new Error("Could not save vehicle document. Sign in again and retry."),
       };
     }
+    const { document, error: entityError } = await uploadComplianceDocument({
+      orgId: viewerOrgId,
+      entityType: "vehicle",
+      entityId: vehicleId,
+      docType,
+      file: {
+        arrayBuffer: file.arrayBuffer,
+        mimeType: file.mimeType,
+        fileName: file.fileName,
+      },
+      uploadedBy: actorId,
+      expiryDate: expiryDate || null,
+    });
+    if (entityError || !document) {
+      return {
+        documents: null,
+        error: entityError ?? new Error("Could not save vehicle document."),
+      };
+    }
+    const merged: VehicleDocuments = {
+      ...(existingDocuments ?? {}),
+      [docType]: {
+        url: document.storage_path,
+        expiryDate: document.expiry_date ?? "",
+        uploadedAt: document.created_at,
+      },
+    };
+    return { documents: merged, error: null };
+  } catch (fallbackErr) {
+    return {
+      documents: null,
+      error: new Error(
+        fallbackErr instanceof Error ? fallbackErr.message : "Could not save vehicle document.",
+      ),
+    };
   }
-
-  return { documents: (data ?? null) as VehicleDocuments | null, error: null };
 }
 
 /**

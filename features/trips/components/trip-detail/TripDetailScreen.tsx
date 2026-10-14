@@ -78,6 +78,7 @@ import * as tripDocumentsService from "@/features/trips/services/tripDocuments.s
 import {
   acceptVaultFileConfirmation,
   vaultUploadOutcome,
+  vaultUploaderOrgId,
 } from "@/features/trips/utils/vaultUploadSession.util";
 import { extractLrFieldsFromUploadedDocument } from "@/features/trips/services/lrDocumentOcr.service";
 import {
@@ -1708,18 +1709,28 @@ export default function TripDetailScreen({
             notifyVaultFailure("Upload failed", "No file selected.");
             return;
           }
-          // Trip vault must use the trip-aware path (cross-org truck / RLS
-          // fallback via RPC + entity_documents). Plain org vault write fails
-          // silently on web because Alert.alert is a no-op there.
+          // Trip vault must use the trip-aware path (cross-org truck falls back
+          // to entity_documents under the viewer org). Plain org vault write
+          // fails silently on web because Alert.alert is a no-op there.
+          // `orgId` here is the truck OWNER's org: never pass it as the viewer,
+          // or a partner truck's upload targets a storage folder we can't write.
+          const uploaderOrgId = vaultUploaderOrgId({
+            currentOrgId: currentOrganization?.id,
+            tripOrgId: detail.trip?.organization_id,
+          });
+          if (!uploaderOrgId) {
+            notifyVaultFailure("Upload failed", "Select your organisation, then try again.");
+            return;
+          }
           const { documents, error } = await uploadAndSaveVehicleDocumentForTrip(
-            orgId,
+            uploaderOrgId,
             tripIdForUpload,
             vehicleId,
             complianceKind,
             first,
             detail.vehicleDocs?.[complianceKind]?.expiryDate ?? "",
             detail.vehicleDocs,
-            [detail.trip?.organization_id, currentOrganization?.id],
+            [detail.trip?.organization_id],
           );
           if (error) {
             notifyVaultFailure("Upload failed", error.message);

@@ -61,3 +61,15 @@ export function vaultUploadOutcome(args: {
     documentId: args.documentId,
   };
 }
+
+/**
+ * Org that uploads a vehicle document from the trip vault: the signed-in
+ * user's org, else the trip's org. Never the truck owner's org, because a
+ * partner truck's folder is closed to us. Null means "no org to upload as".
+ */
+export function vaultUploaderOrgId(args: {
+  currentOrgId: string | null | undefined;
+  tripOrgId: string | null | undefined;
+}): string | null {
+  return args.currentOrgId?.trim() || args.tripOrgId?.trim() || null;
+}

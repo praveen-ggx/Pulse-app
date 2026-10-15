@@ -2,16 +2,17 @@
 # Apply only via: npm run db:push-set -- prod-v1-0-1-catchup   (dry-run first; apply needs separate written authorization)
 # Never via plain `supabase db push` / `npm run db:push`: that would also run the excluded files below.
 #
-# Excluded on purpose (never add here):
-#   20271008119000  would overwrite prod's newer set_trip_operational_identity (prod-only 20271012125000)
-#   godrej_dco_payable_classification (Godrej test org; the receipt must stay untouched)
-#   20271005130000  FROZEN
-#   20270922163000 20270922174500 20270925110000 20270928114500 20270929162901
-#   20270929194800 20270929203000 20271005190000
-#                   gap versions: objects already live on prod with newer bodies
+# Excluded on purpose (never add here; prodCatchupReleaseSet.test.ts fails if any is named in this file):
+#   fix_trip_number_truncation          would overwrite prod's newer set_trip_operational_identity
+#   godrej_dco_payable_classification   Godrej test org; the receipt must stay untouched
+#   dco_single_owner_operator_concept   FROZEN
+#   gap files, objects already live on prod with newer bodies:
+#     trip_documents_lr_pod_batch_rpc, log_trip_hard_copy_pod_courier, trip_documents_memo_type,
+#     client_contract_validity, trip_compliance_decline, trip_documents_lr_pod_batch_include_eway_bill,
+#     trip_documents_other_type, get_driver_owned_trip
 #
 # Each version is preceded by the SHA-256 of its file at this commit. read_version_file ignores comments,
-# so verify before applying:  shasum -a 256 supabase/migrations/<file>
+# so verify before applying:  npx jest supabase/migrations/__tests__/prodCatchupReleaseSet.test.ts
 # sha256 2db68940893097b2bbc745bbefd88d5f1a19dab70a5c60af2c5261fcf8d69a23  20260930165033_org_document_charge_slabs.sql
 20260930165033
 # sha256 8e7d64a812513f4dae918be7dc4009b4b0a91494b14117332ccb22fb44c823aa  20260930170616_org_document_charge_revoke_anon.sql

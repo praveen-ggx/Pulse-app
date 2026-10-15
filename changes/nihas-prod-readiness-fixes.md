@@ -7,6 +7,7 @@
 - The PR #1 disposable SQL test now requires the Godrej test-org receipt to stay unchanged instead of applying its classification file.
 - Finance decision log: the Godrej test-org decision (15 Oct) supersedes the earlier stated classification, which is kept as history.
 - Payment-request backfill (`20271013101500`) skips the Godrej test-org receipt in its selection and link insert, as a documented migration exception (preprod already applied the original text).
+- New test pins the release set: exactly the 27 versions in order, each file's SHA-256, and none of the 11 excluded versions.
 - Added release set `prod-v1-0-1-catchup` (the 27 versions production is missing, each with its SHA-256) so `db:push-set` runs exactly these and never the excluded or gap files.
 
 ## Why
@@ -21,6 +22,7 @@
 - `docs/deployment/FINANCE_DECISION_LOG.md`.
 - `supabase/migrations/20271013101500_payment_requests.sql` backfill; `pr1ReleaseGuards.test.ts`; deployment docs.
 - `supabase/release-sets/prod-v1-0-1-catchup.versions`.
+- `supabase/migrations/__tests__/prodCatchupReleaseSet.test.ts`.
 
 ## Migrations
 - None
@@ -33,3 +35,4 @@
 - New guard test passes and fails on 4 mutations (removed / commented / link-insert removed / moved). The link-insert line has not been run against a database; no database accessed.
 - This branch: full Jest 513 suites passed, 0 failed; lint 104, typecheck 89, cycles 111, lib-files 178 (all at baseline).
 - Release set: versions equal the approved 27, ascending, no excluded version; all 27 checksums match the committed files; guard tests 8/8; `migration-release-set.test.sh` passed. Godrej c1–c4 passed on 27/27 applied to a fresh prod restore (file `1cd82e0d`). Prod dry-run reported separately.
+- `prodCatchupReleaseSet.test.ts` 3/3; fails on a changed checksum, an added excluded version, a removed version, an edited migration file, and a reordered pair.

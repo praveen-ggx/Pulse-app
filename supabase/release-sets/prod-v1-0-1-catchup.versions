@@ -1,0 +1,68 @@
+# Production catch-up for PR #1 (Vasanthgogox V1.0.1): the 27 migrations prod is missing.
+# Apply only via: npm run db:push-set -- prod-v1-0-1-catchup   (dry-run first; apply needs separate written authorization)
+# Never via plain `supabase db push` / `npm run db:push`: that would also run the excluded files below.
+#
+# Excluded on purpose (never add here):
+#   20271008119000  would overwrite prod's newer set_trip_operational_identity (prod-only 20271012125000)
+#   godrej_dco_payable_classification (Godrej test org; the receipt must stay untouched)
+#   20271005130000  FROZEN
+#   20270922163000 20270922174500 20270925110000 20270928114500 20270929162901
+#   20270929194800 20270929203000 20271005190000
+#                   gap versions: objects already live on prod with newer bodies
+#
+# Each version is preceded by the SHA-256 of its file at this commit. read_version_file ignores comments,
+# so verify before applying:  shasum -a 256 supabase/migrations/<file>
+# sha256 2db68940893097b2bbc745bbefd88d5f1a19dab70a5c60af2c5261fcf8d69a23  20260930165033_org_document_charge_slabs.sql
+20260930165033
+# sha256 8e7d64a812513f4dae918be7dc4009b4b0a91494b14117332ccb22fb44c823aa  20260930170616_org_document_charge_revoke_anon.sql
+20260930170616
+# sha256 699abab50925a9e6b5bf77f8b0a4854faf13149fee662252bfa26ffa2f1d58f4  20261005080754_add_bank_account_beneficiary_branch.sql
+20261005080754
+# sha256 9753d30ea28a7b4ee47f28d0ea8ce6e6e6c57c08f18f75a8ede7aac015b88d0e  20261005122431_compliance_batch_trip_facts_and_vault.sql
+20261005122431
+# sha256 515438674d9b52fed83adccf6331938f5b6be90287bc731c24e270f4c0c11d1a  20270930123100_trip_documents_bank_docs_type.sql
+20270930123100
+# sha256 67ec34c06a73adf6265a9538af343c5a123bce851f4039adde43b5a6c1445b51  20270930124500_reject_verified_trip_compliance.sql
+20270930124500
+# sha256 5900c0d85e7e1ea316d1b92a5da259c033eba3531b4b03bec2da54908d3b1557  20270930153000_freight_route_stops.sql
+20270930153000
+# sha256 68863520c33c4f5b4cd48167e04d777a010acdb022ad851eba82a91d2ab25812  20270930235100_refund_test_marketplace_fee_and_revoke_indent.sql
+20270930235100
+# sha256 d2586142d901750b7df13eb19fdac6dbef0b0551250213408ffc52d77cb0f483  20271001093000_hard_copy_pod_optional_dispatch_date.sql
+20271001093000
+# sha256 0079f26bc9bbc265f15df9a818d7fccec92d089e6940e95caf0adacea8996e44  20271006154500_trip_workflow_events_org_update.sql
+20271006154500
+# sha256 bf73f3007b51265d102736f2eeeaca3a60e04e16c6660429bbb387dcdb364fe8  20271006161000_suppliers_primary_region.sql
+20271006161000
+# sha256 705a2c87c7bcf16efd001731ef47ebc7f74b047a9f6fad2bb5ffa62e460dc46f  20271008112000_finance_verified_step.sql
+20271008112000
+# sha256 dc853e9f833ca01934a873bb43b59ddb2fb3d63d53f23c8382a211ffd44bca67  20271008113000_compliance_reject_resubmit.sql
+20271008113000
+# sha256 ea07a14e4a8f97c767503e3f94b672033da2eaf7702f24cbe13ce7ada96247d1  20271008114000_compliance_hold_resubmit.sql
+20271008114000
+# sha256 3383b8996910405e4dacbb65ada1b895ca18274710eb3f7865ca598914d629a1  20271008115000_compliance_resubmit_note.sql
+20271008115000
+# sha256 6767549fefe4aa9815ca9578ef59493076d65db22089ce0a434426a81107f5fc  20271008116000_compliance_resubmit_gates.sql
+20271008116000
+# sha256 35eaf6b7f2b9a3f06aae3c1f979b786036039d06dc94d54d485b1dab506c13fb  20271008117000_compliance_flow_hardening.sql
+20271008117000
+# sha256 f4122ec5aa24af0df1aa642a105622e85571d2229e71925bd6ff432f6f376ba1  20271008118000_finance_reject_truck_size.sql
+20271008118000
+# sha256 0c92aa2901fefdcde03eb9b1dbdf47250aabeb8d4bb7660c655aff426c2d6077  20271008120000_ground_ops_trip_select_helper.sql
+20271008120000
+# sha256 35e98fc1e0b2a058dcc7ebdaea3159de0351a83f79304421a2c417a9783aede5  20271008121000_get_trip_driver_phones.sql
+20271008121000
+# sha256 71f11cd204b303bdca33e6e86d0e0688ff2c5966c481e788c313cf11a00291e9  20271012130500_entity_bank_account_verification_status.sql
+20271012130500
+# sha256 ca970f1ae6b319672e223a12df1a0a28d5a8bfd1fc5a269c758d9b6f7905264e  20271012140000_compliance_payments_supplier_payable.sql
+20271012140000
+# sha256 1cd82e0d8ba01747fb8d0263d2fee6fa722d12d65b6e4ddf34c1024eb6ebb75e  20271013101500_payment_requests.sql
+20271013101500
+# sha256 015c351501f3bcb6c15428f4060e88cb9ae87dd4ef77e6c90ac7932032b136b1  20271013113000_compliance_trips_backlog.sql
+20271013113000
+# sha256 2c8c89881bb9024cccf0c597f3b2f880b22250534d32e672b04b72de7ed17c68  20271013120000_compliance_cleared_gate.sql
+20271013120000
+# sha256 adb748afe65225299ca283111156413dcf3bb0d02cd83af08e9856cd3704e337  20271014051328_reassert_gate1a_quote_accept_guard.sql
+20271014051328
+# sha256 6e6cc37ea6a39eb76925a526cc91258ee5e3541b1cc5a55737a50d9c9009e18f  20271014183000_finance_approval_issues_payment_request.sql
+20271014183000

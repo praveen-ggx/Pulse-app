@@ -156,7 +156,6 @@ function StageChip({
   active,
   onPress,
   caption,
-  reserveCaption = false,
 }: {
   label: string;
   count: number;
@@ -164,63 +163,63 @@ function StageChip({
   active: boolean;
   onPress: () => void;
   caption?: string;
-  reserveCaption?: boolean;
 }) {
-  const showCaptionCol = Boolean(caption) || reserveCaption;
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
+      accessibilityLabel={caption ? `${label}, ${caption}, ${count}` : `${label}, ${count}`}
       style={styles.chipStack}
-      hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+      hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
     >
       {({ pressed, hovered }: HoverPressState) => {
         const highlighted = Boolean(hovered) || pressed;
         return (
-          <>
-            <View
-              style={[
-                styles.chip,
-                WEB_POINTER,
-                highlighted && !active && styles.chipHover,
-                active && styles.chipActive,
-                highlighted && active && styles.chipActiveHover,
-              ]}
-            >
+          <View
+            style={[
+              styles.chip,
+              WEB_POINTER,
+              highlighted && !active && styles.chipHover,
+              active && styles.chipActive,
+              highlighted && active && styles.chipActiveHover,
+            ]}
+          >
+            <View style={styles.chipCopy}>
               <Text style={[styles.chipText, active && styles.chipTextActive]} numberOfLines={1}>
                 {label}
               </Text>
-              {count > 0 ? (
-                <View
+              {caption ? (
+                <Text
                   style={[
-                    styles.chipCountBadge,
-                    { backgroundColor: active ? Theme.cardWhite : countColor },
+                    styles.chipSubtitle,
+                    highlighted && !active && styles.chipSubtitleHover,
+                    active && styles.chipSubtitleActive,
                   ]}
+                  numberOfLines={1}
                 >
-                  <Text
-                    style={[
-                      styles.chipCount,
-                      { color: active ? Theme.liquidGoodBack : Theme.buttonDarkText },
-                    ]}
-                  >
-                    {count}
-                  </Text>
-                </View>
+                  {caption}
+                </Text>
               ) : null}
             </View>
-            {showCaptionCol ? (
-              caption ? (
-                <View style={[styles.chipCaptionPanel, highlighted && styles.chipCaptionPanelHover]}>
-                  <Text style={styles.chipCaption} numberOfLines={1}>
-                    {caption}
-                  </Text>
-                </View>
-              ) : (
-                <View style={styles.chipCaptionSlot} />
-              )
+            {count > 0 ? (
+              <View
+                style={[
+                  styles.chipCountBadge,
+                  { backgroundColor: active ? Theme.cardWhite : countColor },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.chipCount,
+                    { color: active ? Theme.liquidGoodBack : Theme.buttonDarkText },
+                  ]}
+                >
+                  {count}
+                </Text>
+              </View>
             ) : null}
-          </>
+          </View>
         );
       }}
     </Pressable>
@@ -251,7 +250,6 @@ function StageFilterRail({
         countColor={COMPLIANCE_FILTER_COUNT_TONE.all}
         active={stage === "all"}
         onPress={() => onSelectStage("all")}
-        reserveCaption
       />
       ) : null}
       {STAGE_DEPT_GROUPS.map((group) =>
@@ -1603,7 +1601,7 @@ export default function ComplianceScreen() {
             isNarrow && styles.searchRowNarrow,
           ]}
         >
-          <Search size={12} color={Theme.textSecondary} strokeWidth={2} />
+          <Search size={14} color={Theme.textSecondary} strokeWidth={2.2} />
           <TextInput
             value={search}
             onChangeText={setSearch}
@@ -2171,25 +2169,27 @@ const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: Theme.compliancePageBg },
   searchRow: {
     flexShrink: 0,
-    height: 34,
+    height: 44,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 12,
-    borderRadius: 16,
+    gap: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
     backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
     shadowColor: Theme.textPrimaryDark,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
   },
   searchRowStacked: {
     width: "100%",
     maxWidth: "100%",
   },
   searchRowNarrow: {
-    height: 34,
+    height: 44,
     paddingHorizontal: 12,
   },
   searchInput: {
@@ -2197,8 +2197,8 @@ const styles = StyleSheet.create({
     minWidth: 0,
     height: "100%",
     paddingVertical: 0,
-    fontSize: 11,
-    fontWeight: "400",
+    fontSize: 12,
+    fontWeight: "500",
     color: Theme.textPrimary,
     ...(Platform.OS === "web" ? { outlineStyle: "none" as const } : null),
   },
@@ -2255,7 +2255,7 @@ const styles = StyleSheet.create({
     width: "100%",
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 10,
   },
   toolbarStack: {
     flexDirection: "column",
@@ -2265,6 +2265,8 @@ const styles = StyleSheet.create({
   filtersRow: {
     flex: 1,
     minWidth: 0,
+    height: 44,
+    justifyContent: "center",
   },
   chipScroll: {
     flexGrow: 0,
@@ -2413,40 +2415,46 @@ const styles = StyleSheet.create({
   stageDeptWrap: {
     flexDirection: "row",
     flexWrap: "nowrap",
-    alignItems: "flex-end",
+    alignItems: "center",
     paddingRight: 8,
+    height: 44,
   },
   stageTrack: {
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "center",
+    height: 44,
     paddingHorizontal: 4,
-    paddingTop: 2,
-    paddingBottom: 2,
-    borderRadius: 16,
+    paddingVertical: 4,
+    borderRadius: 999,
     backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
     shadowColor: Theme.textPrimaryDark,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+    gap: 4,
   },
   chipStack: {
     flexShrink: 0,
-    alignItems: "center",
-    justifyContent: "flex-start",
-    gap: 3,
+    height: 36,
+    justifyContent: "center",
   },
   chip: {
     flexShrink: 0,
-    paddingHorizontal: 6,
-    paddingTop: 3,
-    paddingBottom: 2,
-    borderRadius: 14,
-    backgroundColor: "transparent",
+    height: 36,
+    minWidth: 44,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: Theme.surface,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 3,
+    gap: 8,
     ...(Platform.OS === "web"
       ? {
           transitionDuration: "140ms",
@@ -2456,58 +2464,58 @@ const styles = StyleSheet.create({
       : null),
   },
   chipHover: {
-    backgroundColor: Theme.complianceHoverBg,
+    backgroundColor: Theme.cardWhite,
+    borderColor: Theme.complianceHoverBorder,
   },
   chipActive: {
     backgroundColor: Theme.liquidGoodBack,
+    borderColor: Theme.liquidGoodBack,
   },
   chipActiveHover: {
     ...(Platform.OS === "web"
       ? { boxShadow: `0 6px 14px ${Theme.complianceCardShadow}` }
       : null),
   },
+  chipCopy: {
+    minWidth: 0,
+    justifyContent: "center",
+    gap: 1,
+  },
   chipText: {
-    fontSize: 10,
-    fontWeight: "500",
+    fontSize: 11,
+    fontWeight: "700",
+    fontStyle: "italic",
     color: Theme.textPrimaryDark,
     lineHeight: 13,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
   },
   chipTextActive: {
     color: Theme.buttonDarkText,
-    fontWeight: "500",
+  },
+  chipSubtitle: {
+    fontSize: 8,
+    fontWeight: "600",
+    fontStyle: "italic",
+    color: Theme.textMuted,
+    lineHeight: 10,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  chipSubtitleHover: {
+    color: Theme.textSecondary,
+  },
+  chipSubtitleActive: {
+    color: Theme.accentGold,
   },
   chipCountBadge: {
-    minWidth: 14,
-    height: 12,
-    paddingHorizontal: 4,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 5,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
-  },
-  chipCaptionPanel: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: Theme.cardWhite,
-    shadowColor: Theme.textPrimaryDark,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  chipCaptionPanelHover: {
-    backgroundColor: Theme.complianceSelectedWash,
-  },
-  chipCaption: {
-    fontSize: 8,
-    lineHeight: 10,
-    fontWeight: "600",
-    letterSpacing: 0.2,
-    color: Theme.textSecondary,
-    textAlign: "center",
-  },
-  chipCaptionSlot: {
-    height: 14,
+    flexShrink: 0,
   },
   chipCount: {
     fontSize: 8,

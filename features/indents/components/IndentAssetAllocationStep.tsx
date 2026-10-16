@@ -10,7 +10,12 @@ import { useFleetAssignmentAvailability } from "@/features/trips/hooks/useFleetA
 import {
   CreateTripDesktopEntityList,
   CreateTripDesktopListSection,
+  DesktopPartySearchField,
 } from "@/features/trips/components/add-trip/CreateTripDesktopPickers";
+import {
+  filterDriversByAllocationQuery,
+  filterVehiclesByAllocationQuery,
+} from "@/features/indents/utils/indentAllocationSearch.util";
 import { entityInitials } from "@/features/trips/components/add-trip/CreateTripDesktopUi";
 import { createTripDesktopStyles as s } from "@/features/trips/components/add-trip/createTripDesktop.styles";
 
@@ -50,6 +55,17 @@ export const IndentAssetAllocationStep = memo(function IndentAssetAllocationStep
   const [vehicleListExpanded, setVehicleListExpanded] = useState(
     typeof assignVehicleId !== "string",
   );
+  const [driverSearch, setDriverSearch] = useState("");
+  const [vehicleSearch, setVehicleSearch] = useState("");
+  const driverSearchActive = driverSearch.trim().length > 0;
+  const vehicleSearchActive = vehicleSearch.trim().length > 0;
+  const driverListOpen =
+    !assignDriverId || driverListExpanded || compact || driverSearchActive;
+  const vehicleListOpen =
+    typeof assignVehicleId !== "string" ||
+    vehicleListExpanded ||
+    compact ||
+    vehicleSearchActive;
 
   const fleet = useFleetAssignmentAvailability(rosterPending ? null : orgId, {
     selectedDriverId: assignDriverId,
@@ -98,7 +114,7 @@ export const IndentAssetAllocationStep = memo(function IndentAssetAllocationStep
 
   const driverListItems = useMemo(
     () =>
-      driverOptions.map((driver) => ({
+      filterDriversByAllocationQuery(driverOptions, driverSearch).map((driver) => ({
         id: driver.id,
         title: driver.name ?? "Driver",
         subtitle: driver.phone ?? driver.email ?? undefined,
@@ -110,12 +126,12 @@ export const IndentAssetAllocationStep = memo(function IndentAssetAllocationStep
         statusLabel: driver.isBusy ? "On trip" : "Available",
         statusTone: driver.isBusy ? ("busy" as const) : ("available" as const),
       })),
-    [driverOptions],
+    [driverOptions, driverSearch],
   );
 
   const vehicleListItems = useMemo(
     () =>
-      vehicleOptions.map((vehicle) => {
+      filterVehiclesByAllocationQuery(vehicleOptions, vehicleSearch).map((vehicle) => {
         const tag =
           formatIndianVehicleNumber(vehicle.vehicle_number || "") ||
           vehicle.vehicle_number ||
@@ -132,7 +148,7 @@ export const IndentAssetAllocationStep = memo(function IndentAssetAllocationStep
           statusTone: vehicle.isBusy ? ("busy" as const) : ("available" as const),
         };
       }),
-    [vehicleOptions],
+    [vehicleOptions, vehicleSearch],
   );
 
   return (
@@ -203,15 +219,28 @@ export const IndentAssetAllocationStep = memo(function IndentAssetAllocationStep
                 onAddPress={onAddDriver}
                 addAccessibilityLabel="Add driver"
               >
+                {driverListOpen && drivers.length > 0 ? (
+                  <DesktopPartySearchField
+                    compact
+                    value={driverSearch}
+                    onChangeText={setDriverSearch}
+                    placeholder="Search driver name or phone"
+                    accessibilityLabel="Search drivers"
+                  />
+                ) : null}
+                {driverSearchActive && driverListItems.length === 0 ? (
+                  <Text style={s.desktopPartySearchEmpty}>No drivers match your search</Text>
+                ) : null}
                 <CreateTripDesktopEntityList
                   items={driverListItems}
                   selectedId={assignDriverId}
-                  listExpanded={driverListExpanded || compact}
+                  listExpanded={driverListExpanded || compact || driverSearchActive}
                   onExpandList={() => setDriverListExpanded(true)}
                   onSelect={(id) => {
                     const row = driverOptions.find((d) => d.id === id);
                     if (row?.isBusy) return;
                     onSelectDriver(id);
+                    setDriverSearch("");
                     setDriverListExpanded(false);
                   }}
                   scrollMaxHeight={compact ? undefined : 280}
@@ -225,17 +254,30 @@ export const IndentAssetAllocationStep = memo(function IndentAssetAllocationStep
                 onAddPress={onAddVehicle}
                 addAccessibilityLabel="Add vehicle"
               >
+                {vehicleListOpen && vehicles.length > 0 ? (
+                  <DesktopPartySearchField
+                    compact
+                    value={vehicleSearch}
+                    onChangeText={setVehicleSearch}
+                    placeholder="Search vehicle number or type"
+                    accessibilityLabel="Search vehicles"
+                  />
+                ) : null}
+                {vehicleSearchActive && vehicleListItems.length === 0 ? (
+                  <Text style={s.desktopPartySearchEmpty}>No vehicles match your search</Text>
+                ) : null}
                 <CreateTripDesktopEntityList
                   items={vehicleListItems}
                   selectedId={
                     typeof assignVehicleId === "string" ? assignVehicleId : null
                   }
-                  listExpanded={vehicleListExpanded || compact}
+                  listExpanded={vehicleListExpanded || compact || vehicleSearchActive}
                   onExpandList={() => setVehicleListExpanded(true)}
                   onSelect={(id) => {
                     const row = vehicleOptions.find((v) => v.id === id);
                     if (row?.isBusy) return;
                     onSelectVehicle(id);
+                    setVehicleSearch("");
                     setVehicleListExpanded(false);
                   }}
                   scrollMaxHeight={compact ? undefined : 280}

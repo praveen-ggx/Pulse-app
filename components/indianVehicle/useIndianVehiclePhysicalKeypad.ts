@@ -35,14 +35,11 @@ export function useIndianVehiclePhysicalKeypad({
   enabled,
   kind,
   allowed,
-  extraKeys,
   onKey,
 }: {
   enabled: boolean;
   kind?: IndianVehicleKeyboardKind;
   allowed?: { letters: boolean; digits: boolean };
-  /** Extra literal keys to accept (e.g. "/" for licences). */
-  extraKeys?: string;
   onKey: (key: string) => void;
 }): void {
   useEffect(() => {
@@ -59,12 +56,6 @@ export function useIndianVehiclePhysicalKeypad({
       if (key === "Backspace" || key === "Delete") {
         event.preventDefault();
         onKey("⌫");
-        return;
-      }
-
-      if (extraKeys && key.length === 1 && extraKeys.includes(key)) {
-        event.preventDefault();
-        onKey(key);
         return;
       }
 
@@ -90,5 +81,5 @@ export function useIndianVehiclePhysicalKeypad({
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [enabled, kind, allowed, allowed?.letters, allowed?.digits, extraKeys, onKey]);
+  }, [enabled, kind, allowed, allowed?.letters, allowed?.digits, onKey]);
 }

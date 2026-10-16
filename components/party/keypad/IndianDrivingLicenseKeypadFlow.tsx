@@ -3,7 +3,7 @@
  * Desktop web: type with the physical keyboard (on-screen QWERTY hidden).
  * Mobile / tablet: on-screen keypad only.
  */
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useMemo } from "react";
 import {
   Platform,
   Pressable,
@@ -31,7 +31,6 @@ import {
   getIndianDlKeyboardKind,
   getIndianDlNormalizedLength,
   INDIAN_DL_MAX_LENGTH,
-  type IndianDlKeyboardKind,
 } from "@/lib/indianDrivingLicenseInput.util";
 
 const SEGMENT_LABELS = ["AA", "00", "0000", "0000000"] as const;
@@ -52,23 +51,7 @@ export const IndianDrivingLicenseKeypadFlow = memo(
     testID = "indian-dl-keypad-flow",
   }: IndianDrivingLicenseKeypadFlowProps) {
     const normLen = getIndianDlNormalizedLength(value);
-    const preferredKind = getIndianDlKeyboardKind(normLen);
-    // Licences can mix letters and digits anywhere — the preferred pad follows the
-    // common layout, and ABC/123 lets the user switch at any position.
-    const [kindOverride, setKindOverride] = useState<IndianDlKeyboardKind | null>(null);
-    const prevPreferredRef = useRef(preferredKind);
-    useEffect(() => {
-      if (prevPreferredRef.current !== preferredKind) {
-        prevPreferredRef.current = preferredKind;
-        setKindOverride(null);
-      }
-    }, [preferredKind]);
-    const keyboardKind: IndianDlKeyboardKind = kindOverride ?? preferredKind;
-    const canAddMore = normLen < INDIAN_DL_MAX_LENGTH;
-    const physicalAllowed = useMemo(
-      () => ({ letters: canAddMore, digits: canAddMore }),
-      [canAddMore],
-    );
+    const keyboardKind = getIndianDlKeyboardKind(normLen);
     const formatHint = useMemo(
       () => getIndianDlFormatHint(normLen),
       [normLen],
@@ -92,18 +75,10 @@ export const IndianDrivingLicenseKeypadFlow = memo(
       [onChangeText, value],
     );
 
-    const handleToggleMode = useCallback(() => {
-      setKindOverride((prev) => {
-        const current = prev ?? preferredKind;
-        return current === "letters" ? "numbers" : "letters";
-      });
-    }, [preferredKind]);
-
-    // Physical keyboard: letters and digits are both accepted at every position.
+    // Same physical-key map as vehicle plates (letters → numbers by segment).
     useIndianVehiclePhysicalKeypad({
       enabled: isDesktopWeb,
-      allowed: physicalAllowed,
-      extraKeys: canAddMore ? "/" : undefined,
+      kind: keyboardKind,
       onKey: handleKey,
     });
 
@@ -147,7 +122,7 @@ export const IndianDrivingLicenseKeypadFlow = memo(
             accessibilityRole={isDesktopWeb ? "button" : undefined}
             accessibilityLabel={
               isDesktopWeb
-                ? "Driving licence. Type letters and numbers with your keyboard."
+                ? "Driving licence. Type letters then numbers with your keyboard."
                 : displayValue || "Driving licence number"
             }
           >
@@ -175,10 +150,6 @@ export const IndianDrivingLicenseKeypadFlow = memo(
               kind={keyboardKind}
               onKey={handleKey}
               normalizedLength={Math.min(normLen, 1)}
-              atMaxLength={!canAddMore}
-              canToggleMode={canAddMore}
-              onToggleMode={handleToggleMode}
-              extraNumberKey="/"
             />
           </View>
         )}

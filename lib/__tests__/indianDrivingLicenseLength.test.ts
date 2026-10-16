@@ -1,29 +1,26 @@
 /**
- * Indian DL entry: licences don't share one layout (most are 15 chars like
- * TN01 20200001234, AP issues 16, older / other states mix letters, digits and
- * "/"), so typing and the Continue gate accept any 10–20 letters / digits / "/".
- * Minimum 10 so a half-typed licence cannot unlock Continue.
+ * Indian DL length regression: 15-char (most states) AND 16-char (e.g. AP) must
+ * both be typeable AND pass the Continue gate.
  *
- * Also locks down the earlier bug: the typing layer and the Continue gate must
- * agree, or Continue stays disabled on a number the field let you type.
+ * Bug this locks down: the keypad accepted 16 chars but a separate DL_FORMAT
+ * regex demanded exactly 7 trailing digits, so Continue stayed disabled with no
+ * visible error (the error only renders on press, and a disabled button can't
+ * be pressed).
  */
 import {
-  appendIndianDlChar,
   applyIndianDlKeystroke,
   getIndianDlNormalizedLength,
   isIndianDrivingLicenseComplete,
-  isIndianDrivingLicenseFormatValid,
-  sanitizeIndianDlTextInput,
   INDIAN_DL_MAX_LENGTH,
   INDIAN_DL_MIN_LENGTH,
 } from "@/lib/indianDrivingLicenseInput.util";
 
+/** Mirrors DL_FORMAT / DL_FORMAT_REGEX used by the three driver-entry screens. */
+const DL_FORMAT = /^[A-Z]{2}[0-9]{2}[0-9]{4}[0-9]{7,8}$/;
 const norm = (s: string) => s.trim().toUpperCase().replace(/[\s-]/g, "");
 
 const AP_16 = "AP00219960000365"; // the number reported from the field
 const TN_15 = "TN0120200001234";
-const MIXED = "MH12AB2010001234"; // letters after the state code
-const OLD_SLASH = "DL/123/2009"; // older slash-separated layout
 
 describe("Indian DL — typing layer", () => {
   it("keeps all 16 chars of an AP licence", () => {
@@ -38,68 +35,39 @@ describe("Indian DL — typing layer", () => {
     expect(norm(typed)).toBe(TN_15);
   });
 
-  it.each([MIXED, OLD_SLASH, "1234AB5678"])("keeps letters and digits anywhere: %s", (raw) => {
-    expect(norm(applyIndianDlKeystroke(raw))).toBe(norm(raw));
-  });
-
-  it("types letters after the state code one key at a time", () => {
-    let v = "";
-    for (const ch of MIXED) v = appendIndianDlChar(v, ch);
-    expect(norm(v)).toBe(MIXED);
-  });
-
-  it("caps at 20 so a stray keypress cannot run on forever", () => {
-    expect(INDIAN_DL_MAX_LENGTH).toBe(20);
+  it("caps at 16 so a stray keypress cannot corrupt the number", () => {
     expect(
-      getIndianDlNormalizedLength(applyIndianDlKeystroke("A".repeat(25))),
+      getIndianDlNormalizedLength(applyIndianDlKeystroke(AP_16 + "9")),
     ).toBe(INDIAN_DL_MAX_LENGTH);
   });
 
-  it("treats 10+ chars as complete", () => {
-    expect(INDIAN_DL_MIN_LENGTH).toBe(10);
+  it("treats 15 as already complete", () => {
     expect(isIndianDrivingLicenseComplete(TN_15)).toBe(true);
-    expect(isIndianDrivingLicenseComplete("TN01202000")).toBe(true);
-    expect(isIndianDrivingLicenseComplete("TN0120200")).toBe(false);
-  });
-
-  it("types \"/\" from the keypad", () => {
-    expect(appendIndianDlChar("DL", "/")).toBe("DL/");
-  });
-
-  it("free-text sanitizer uppercases and keeps letters, digits, space, - and /", () => {
-    expect(sanitizeIndianDlTextInput("mh12 ab-2010/1234")).toBe("MH12 AB-2010/1234");
-    expect(sanitizeIndianDlTextInput("TN01#2020@0001234")).toBe("TN0120200001234");
+    expect(INDIAN_DL_MIN_LENGTH).toBe(15);
   });
 });
 
-describe("Indian DL — Continue gate", () => {
+describe("Indian DL — Continue gate (DL_FORMAT)", () => {
   it.each([
     ["AP 16-char, as typed", "AP00 219960000365", true],
     ["AP 16-char, unspaced", AP_16, true],
     ["TN 15-char, as typed", "TN01 20200001234", true],
     ["TN 15-char, unspaced", TN_15, true],
-    ["14 chars", "AP00 2199600003", true],
-    ["17 chars", "AP00 2199600003651", true],
-    ["digit in state block", "A100 219960000365", true],
-    ["letters in serial", "AP00 21996000036X", true],
-    ["letters after state code", MIXED, true],
-    ["older slash layout", OLD_SLASH, true],
-    ["hyphenated", "MH-12-2010-0001234", true],
-    ["5 chars (too short)", "AB123", false],
-    ["9 chars, half-typed (too short)", "TN01 20200", false],
-    ["10 chars (minimum)", "TN01 202000", true],
-    ["21 chars (too long)", "A".repeat(21), false],
-    ["symbols", "TN01#2020", false],
+    ["15-char AP", "AP00 21996000036", true],
+    ["14 chars (too short)", "AP00 2199600003", false],
+    ["17 chars (too long)", "AP00 2199600003651", false],
+    ["digit in state block", "A100 219960000365", false],
+    ["letters in serial", "AP00 21996000036X", false],
   ])("%s -> %s", (_label, input, expected) => {
-    expect(isIndianDrivingLicenseFormatValid(input)).toBe(expected);
+    expect(DL_FORMAT.test(norm(input))).toBe(expected);
   });
 
   it("accepts every licence the keypad lets you finish typing", () => {
-    for (const raw of [AP_16, TN_15, MIXED, OLD_SLASH, "AP0021996000036"]) {
+    for (const raw of [AP_16, TN_15, "AP0021996000036"]) {
       const typed = applyIndianDlKeystroke(raw);
       expect(isIndianDrivingLicenseComplete(typed)).toBe(true);
       // The two layers must agree — this is exactly what broke before.
-      expect(isIndianDrivingLicenseFormatValid(typed)).toBe(true);
+      expect(DL_FORMAT.test(norm(typed))).toBe(true);
     }
   });
 });

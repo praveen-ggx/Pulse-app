@@ -55,11 +55,8 @@ import {
 import { showAppAlert } from "@/lib/appAlert";
 import { validateEmail } from "@/lib/emailValidation";
 import { formatIndianVehicleNumberInput, formatMobileNumber } from "@/lib/format";
+import { applyIndianDlKeystroke } from "@/lib/indianDrivingLicenseInput.util";
 import { applyIndianVehicleKeystroke } from "@/lib/indianVehicleInput.util";
-import {
-  isIndianDrivingLicenseFormatValid,
-  sanitizeIndianDlTextInput,
-} from "@/lib/indianDrivingLicenseInput.util";
 import {
   normalizeIndianPhoneForMetadata,
   validatePhone,
@@ -188,6 +185,11 @@ export interface PartyRegistrationPortalProps {
   forceFullPage?: boolean;
 }
 
+const DL_CLEAN = /[\s-]/g;
+
+// Serial block is 7 or 8 digits: most states issue 15-char DLs, some (e.g. AP) 16.
+const DL_FORMAT = /^[A-Z]{2}[0-9]{2}[0-9]{4}[0-9]{7,8}$/;
+
 const MIN_PHONE_LENGTH_FOR_SEARCH = 8;
 const PHONE_DEBOUNCE_MS = 400;
 const CLIENT_DRAFT_STORAGE_KEY = "party-registration-client-draft-v1";
@@ -258,10 +260,11 @@ function clearDraft(storageKey: string) {
 }
 
 function dlError(raw: string): string | null {
-  if (!raw.trim()) return null;
-  return isIndianDrivingLicenseFormatValid(raw)
+  const n = raw.trim().toUpperCase().replace(DL_CLEAN, "");
+  if (!n) return null;
+  return DL_FORMAT.test(n)
     ? null
-    : "Use a valid DL number — 10 to 20 letters or numbers (e.g. TN01 20200001234).";
+    : "Use a valid DL number (e.g. TN01 20200001234).";
 }
 
 type SummaryIcon = ComponentType<{
@@ -701,7 +704,7 @@ function PartyRegistrationPortalInner(
           const dlFromRpc = one.license_number?.trim();
           if (dlFromRpc) {
             setDriverDl((prev) =>
-              prev.trim() ? prev : sanitizeIndianDlTextInput(dlFromRpc),
+              prev.trim() ? prev : applyIndianDlKeystroke(dlFromRpc),
             );
           }
           const em = one.email?.trim();
@@ -722,7 +725,7 @@ function PartyRegistrationPortalInner(
   };
 
   const handleDriverDlChange = (text: string) => {
-    setDriverDl(sanitizeIndianDlTextInput(text));
+    setDriverDl(applyIndianDlKeystroke(text));
   };
 
   const handleAddDriverOfflineInstead = () => {

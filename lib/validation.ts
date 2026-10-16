@@ -4,6 +4,10 @@
  */
 
 import {
+  INDIAN_DL_MAX_LENGTH,
+  INDIAN_DL_MIN_LENGTH,
+} from "@/lib/indianDrivingLicenseInput.util";
+import {
   INDIAN_VEHICLE_TOTAL_LENGTH,
   isIndianVehiclePlateValid,
 } from "@/lib/indianVehicleInput.util";
@@ -29,10 +33,10 @@ export const VALIDATION = {
   NOTES_MAX_LENGTH: 1000,
   DESCRIPTION_MAX_LENGTH: 500,
   PARTY_NAME_MAX_LENGTH: 255,
-  /** Indian plate after normalize: 9 chars (1-letter series) or 10 (2-letter). */
+  /** Indian plate after normalize: up to 12 letters / digits. */
   VEHICLE_NUMBER_MAX_LENGTH: INDIAN_VEHICLE_TOTAL_LENGTH,
-  LICENSE_NUMBER_MIN_LENGTH: 5,
-  LICENSE_NUMBER_MAX_LENGTH: 20,
+  LICENSE_NUMBER_MIN_LENGTH: INDIAN_DL_MIN_LENGTH,
+  LICENSE_NUMBER_MAX_LENGTH: INDIAN_DL_MAX_LENGTH,
   AMOUNT_MAX: 99_999_999,
   AMOUNT_MIN: 0,
   PERCENT_MAX: 100,
@@ -118,14 +122,14 @@ export function dateISO(msg = 'Enter a valid date (YYYY-MM-DD).'): Validator<str
 }
 
 /**
- * Indian vehicle registration — AA 00 A 0000 or AA 00 AA 0000
- * (`isIndianVehiclePlateValid`), e.g. TN 18 D 2522 or TN 17 AS 2202.
+ * Indian vehicle registration — any 6–12 letters / digits
+ * (`isIndianVehiclePlateValid`), e.g. TN 18 D 2522, TN 17 AS 2202 or 22 BH 1234 AB.
  */
 export function validateIndianVehicleNumber(value: string | null | undefined): string | null {
   const raw = (value ?? '').trim();
   if (raw.length === 0) return 'Required';
   if (!isIndianVehiclePlateValid(raw)) {
-    return 'Enter a valid vehicle number (e.g. TN 18 D 2522 or TN 17 AS 2202).';
+    return 'Enter a valid vehicle number — 6 to 12 letters or numbers (e.g. TN 17 AS 2202).';
   }
   return null;
 }

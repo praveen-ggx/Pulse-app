@@ -16,17 +16,24 @@ import {
  */
 export const INDIAN_VEHICLE_SEGMENT_LENGTHS = [2, 2, 2, 4] as const;
 
-/** Plate length after normalize (no spaces) — 9 with a 1-letter series, 10 with 2. */
-export const INDIAN_VEHICLE_MIN_TOTAL_LENGTH = 9;
-export const INDIAN_VEHICLE_TOTAL_LENGTH = 10;
+/**
+ * Plate length after normalize (no spaces). Standard plates are 9–10 chars, but
+ * BH-series (22 BH 1234 AB), older and special plates differ — so entry accepts
+ * any 4–12 letters / digits in any order instead of enforcing the standard mask. Minimum 6 so a half-typed plate
+ * (e.g. "TN17") can't unlock Continue and create junk / duplicate vehicles.
+ */
+export const INDIAN_VEHICLE_MIN_TOTAL_LENGTH = 6;
+export const INDIAN_VEHICLE_TOTAL_LENGTH = 12;
 
-const VALID_PLATE = /^[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}$/;
+const VALID_PLATE = /^[A-Z0-9]{6,12}$/;
+/** Progressive match for the standard AA 00 A(A) 0000 layout (drives hints only). */
+const STANDARD_PLATE_PREFIX = /^[A-Z]{0,2}$|^[A-Z]{2}[0-9]{1,2}$|^[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{0,4}$/;
 
 export function getIndianVehicleNormalizedLength(display: string): number {
   return normalizeVehicleNumberForMatch(display).length;
 }
 
-/** True when the value is a complete AA 00 A(A) 0000 plate (1 or 2 series letters). */
+/** True when the value is 6–12 letters / digits (spaces and symbols ignored). */
 export function isIndianVehiclePlateValid(display: string): boolean {
   return VALID_PLATE.test(normalizeVehicleNumberForMatch(display));
 }
@@ -60,44 +67,31 @@ export function getIndianVehicleAllowedNext(display: string): {
 }
 
 function allowedNext(normalized: string): { letters: boolean; digits: boolean } {
-  const p = parsePlate(normalized);
-  const n = normalized.length;
-  if (n >= 4 + p.series.length + 4) {
-    return { letters: false, digits: false };
-  }
-  // 0–1: state letters · 2–3: district digits
-  if (n < 2) return { letters: true, digits: false };
-  if (n < 4) return { letters: false, digits: true };
-  // index 4: series must start with a letter.
-  if (n === 4) return { letters: true, digits: false };
-  // index 5: either the 2nd series letter, or the number segment starting
-  // early with a 1-letter series — accept both, resolved by what's typed.
-  if (n === 5) return { letters: true, digits: true };
-  // Series is settled (1 or 2 letters) — remaining 4 chars are the number.
-  return { letters: false, digits: true };
+  // Letters and digits are legal at every position until the plate is full.
+  const open = normalized.length < INDIAN_VEHICLE_TOTAL_LENGTH;
+  return { letters: open, digits: open };
+}
+
+/** Preferred pad by position in the standard AA 00 A(A) 0000 layout. */
+function preferredKindForLength(n: number): IndianVehicleKeyboardKind {
+  if (n < 2) return "letters";
+  if (n < 4) return "numbers";
+  if (n < 6) return "letters";
+  return "numbers";
 }
 
 /**
- * Which keypad to show — exclusive per segment (no ABC/123 toggle needed).
- * A bare length can't tell "2nd series letter vs 1st number digit" apart at
- * index 5 (both are legal there) — callers passing a number get a
- * best-effort guess (letters, since a 2-letter series is the common case);
- * pass the actual string value when precision at that position matters.
+ * Which keypad to show first — follows the standard layout by position. Both
+ * classes are always legal, so the keypad's ABC/123 toggle switches freely.
  */
 export function getIndianVehicleKeyboardKind(
   normalizedLenOrValue: number | string,
 ): IndianVehicleKeyboardKind {
-  if (typeof normalizedLenOrValue === "number") {
-    const n = normalizedLenOrValue;
-    if (n < 2) return "letters";
-    if (n < 4) return "numbers";
-    if (n < 6) return "letters";
-    return "numbers";
-  }
-  const { letters } = allowedNext(
-    normalizeVehicleNumberForMatch(normalizedLenOrValue),
-  );
-  return letters ? "letters" : "numbers";
+  const n =
+    typeof normalizedLenOrValue === "number"
+      ? normalizedLenOrValue
+      : normalizeVehicleNumberForMatch(normalizedLenOrValue).length;
+  return preferredKindForLength(n);
 }
 
 /**
@@ -140,6 +134,11 @@ export function getIndianVehicleFormatHint(
 
   const normalized = normalizeVehicleNumberForMatch(normalizedLenOrValue);
   const n = normalized.length;
+  if (!STANDARD_PLATE_PREFIX.test(normalized)) {
+    return n >= INDIAN_VEHICLE_MIN_TOTAL_LENGTH
+      ? "Letters and numbers allowed (e.g. 22 BH 1234 AB)"
+      : "Enter the vehicle number — letters and numbers allowed";
+  }
   const p = parsePlate(normalized);
   const seriesSettled = p.series.length >= 1 && p.number.length > 0;
 
@@ -164,7 +163,7 @@ export function deleteIndianVehicleLastChar(display: string): string {
   return formatIndianVehicleNumberInput(norm.slice(0, -1));
 }
 
-/** Append one character if it matches the current segment rules. */
+/** Append one letter or digit (until the plate reaches its maximum length). */
 export function appendIndianVehicleChar(display: string, char: string): string {
   const upper = char.toUpperCase();
   return applyIndianVehicleKeystroke(display + upper);

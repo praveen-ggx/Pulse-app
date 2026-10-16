@@ -13,4 +13,4 @@
 - None
 
 ## Tested
-- See PR.
+- Full jest 515 suites pass (new indianInputFormats.test.ts; old TN091234-invalid case moved since it is now the opt-in format). ci-baseline lint 104, typecheck 64 (≤89), cycles 111, lib-files 178; navigation-policy 64 pass; git diff --check clean. Not clicked through in the UI.

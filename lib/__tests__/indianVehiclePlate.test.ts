@@ -92,7 +92,7 @@ describe("Indian vehicle plate entry", () => {
     "ABCD",
     "12345",
     "22BH1234AB",
-    "TN091234",
+    // "TN091234" (AA 00 0000) is the opt-in no-series format — see indianInputFormats.test.ts
   ])("treats incomplete or non-standard %s as invalid", (partial) => {
     expect(isIndianVehiclePlateValid(partial)).toBe(false);
     if (partial.length === 0) {

@@ -15,6 +15,7 @@ import { getSignedAvatarUrl } from '@/lib/avatarUpload';
 import { pickContactForNameAndPhone } from '@/lib/contactPicker';
 import { validatePhone } from '@/lib/phoneValidation';
 import { formatMobileNumber } from '@/lib/format';
+import { isIndianDrivingLicenseFormatValid } from '@/lib/indianDrivingLicenseInput.util';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -91,15 +92,11 @@ interface AddDriverModalProps {
 
 const PHONE_DEBOUNCE_MS = 400;
 const MIN_PHONE_LENGTH_FOR_SEARCH = 8;
-const DL_SANITIZE_REGEX = /[\s-]/g;
-// Serial block is 7 or 8 digits: most states issue 15-char DLs, some (e.g. AP) 16.
-const DL_FORMAT_REGEX = /^[A-Z]{2}[0-9]{2}[0-9]{4}[0-9]{7,8}$/;
 
 const validateDrivingLicenseNumber = (licenseNumber: string): string | null => {
   const trimmed = licenseNumber.trim();
   if (!trimmed) return null;
-  const normalized = trimmed.toUpperCase().replace(DL_SANITIZE_REGEX, '');
-  if (DL_FORMAT_REGEX.test(normalized)) return null;
+  if (isIndianDrivingLicenseFormatValid(trimmed)) return null;
   return 'Enter a valid DL number (e.g. MH12 20180001234).';
 };
 

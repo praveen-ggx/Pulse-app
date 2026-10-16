@@ -29,6 +29,31 @@ describe("PR #1 migration guards", () => {
     expect("20271014184500" > "20271012140000").toBe(true);
   });
 
+  it("keeps the Godrej test-org receipt out of the payment-request backfill", () => {
+    const sql = read("20271013101500_payment_requests.sql");
+    const start = sql.indexOf("-- 6. Backfill");
+    expect(start).toBeGreaterThan(-1);
+    // Comments cannot satisfy the guard: only executable SQL is checked.
+    const code = sql.slice(start).replace(/--[^\n]*/g, "");
+    const exclusion = `and t.id is distinct from '${GODREJ_TX}'::uuid`;
+    const slice = (from: string, to: string) => {
+      const a = code.indexOf(from);
+      const b = code.indexOf(to, a);
+      expect(a).toBeGreaterThan(-1);
+      expect(b).toBeGreaterThan(a);
+      return code.slice(a, b);
+    };
+    // Paid-transactions selection: excluded before grouping, so no request or counter is issued.
+    expect(
+      slice("where t.ledger_category in ('compliance_advance', 'compliance_balance')", "group by t.trip_id"),
+    ).toContain(exclusion);
+    expect(code.indexOf(exclusion)).toBeLessThan(code.indexOf("public.issue_payment_request("));
+    // Link insert: the receipt is never attached to another row's request.
+    expect(
+      slice("insert into public.payment_request_transactions", "on conflict (transaction_id) do nothing"),
+    ).toContain(exclusion);
+  });
+
   it("requires the ground_ops role inside the helper and hides other orgs' indents", () => {
     const sql = read("20271008120000_ground_ops_trip_select_helper.sql");
     const helper = sql.slice(

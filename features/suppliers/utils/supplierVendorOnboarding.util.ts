@@ -13,6 +13,7 @@ export type VendorVaultSectionId =
   | "registration"
   | "physical"
   | "signed"
+  | "tds"
   | "other";
 
 export type VendorVaultSection = {
@@ -50,6 +51,12 @@ export const VENDOR_VAULT_SECTIONS: readonly VendorVaultSection[] = [
     photosOnly: true,
   },
   { id: "signed", title: "Vendor signed documents", kind: "multi", docTypes: ["signed_agreement"] },
+  {
+    id: "tds",
+    title: "TDS documents",
+    kind: "multi",
+    docTypes: ["tds_supporting_document"],
+  },
   { id: "other", title: "Other documents", kind: "multi", docTypes: ["other"], requiresName: true },
 ];
 

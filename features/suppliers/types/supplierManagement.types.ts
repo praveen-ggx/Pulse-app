@@ -60,6 +60,7 @@ export type SupplierKycDocType =
   | "bank_proof_other"
   | "physical_verification"
   | "signed_agreement"
+  | "tds_supporting_document"
   | "other";
 
 export const SUPPLIER_KYC_DOC_LABELS: Record<SupplierKycDocType, string> = {
@@ -79,6 +80,7 @@ export const SUPPLIER_KYC_DOC_LABELS: Record<SupplierKycDocType, string> = {
   bank_proof_other: "Bank Proof (Other)",
   physical_verification: "Physical Verification Photo",
   signed_agreement: "Signed Vendor Document",
+  tds_supporting_document: "TDS supporting document",
   other: "Other",
 };
 

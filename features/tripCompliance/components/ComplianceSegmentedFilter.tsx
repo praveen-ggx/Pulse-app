@@ -77,26 +77,29 @@ export function ComplianceSegmentedFilter<T extends string>({
               accessibilityState={{ selected: active }}
               accessibilityLabel={`${option.a11yLabel ?? option.label}, ${count} trips`}
               hitSlop={{ top: 6, bottom: 6 }}
-              style={({ pressed }) => [
-                styles.segment,
-                !narrow && styles.segmentFlex,
-                narrow && styles.segmentNarrow,
-                compact && styles.segmentCompact,
-                cardDense && styles.segmentCardDense,
-                active && styles.segmentActive,
-                pressed && styles.segmentPressed,
-              ]}
+              style={(state) => {
+                const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
+                return [
+                  styles.segment,
+                  !narrow && styles.segmentFlex,
+                  narrow && styles.segmentNarrow,
+                  compact && styles.segmentCompact,
+                  cardDense && styles.segmentCardDense,
+                  cardDense && !active && (hovered || pressed) && styles.segmentCardDenseHover,
+                  active && styles.segmentActive,
+                  cardDense && active && styles.segmentCardDenseActive,
+                  !cardDense && pressed && styles.segmentPressed,
+                ];
+              }}
             >
               {cardDense ? (
                 <View style={styles.segmentInnerCardDense}>
                   {option.dot ? (
-                    <View style={[styles.dotCardDense, { backgroundColor: option.dot }]} />
-                  ) : (
-                    <View style={styles.dotCardDenseSpacer} />
-                  )}
+                    <View style={[styles.dotCardDense, { backgroundColor: active ? Theme.accentGold : option.dot }]} />
+                  ) : null}
                   <Text
                     style={[styles.cardDenseCopy, active && styles.labelActive]}
-                    numberOfLines={1}
+                    numberOfLines={2}
                   >
                     {option.label}
                   </Text>
@@ -104,15 +107,13 @@ export function ComplianceSegmentedFilter<T extends string>({
                     style={[
                       styles.countBadge,
                       styles.countBadgeDense,
-                      active ? styles.countBadgeActive : null,
-                      option.dot && !active ? { backgroundColor: option.dot } : null,
+                      { backgroundColor: active ? Theme.accentGold : option.dot ?? Theme.buttonDark },
                     ]}
                   >
                     <Text
                       style={[
                         styles.cardDenseCount,
-                        !option.dot && !active && styles.countOnLight,
-                        active && styles.countActive,
+                        { color: active ? Theme.buttonDark : Theme.buttonDarkText },
                       ]}
                     >
                       {count}
@@ -220,9 +221,18 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   trackCardDense: {
-    borderRadius: 999,
-    padding: 1,
-    gap: 0,
+    alignItems: "stretch",
+    borderRadius: 22,
+    padding: 6,
+    gap: 6,
+    backgroundColor: Theme.surface,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+    shadowColor: Theme.textPrimaryDark,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
   },
   segment: {
     height: 22,
@@ -248,13 +258,28 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   segmentCardDense: {
-    height: 22,
-    paddingHorizontal: 6,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    height: 40,
+    paddingLeft: 14,
+    paddingRight: 12,
     paddingVertical: 0,
     borderRadius: 999,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+  },
+  segmentCardDenseHover: {
+    backgroundColor: Theme.cardWhite,
+    borderColor: Theme.complianceHoverBorder,
+  },
+  segmentCardDenseActive: {
+    borderColor: Theme.buttonDark,
   },
   segmentActive: {
-    backgroundColor: Theme.liquidGoodBack,
+    backgroundColor: Theme.buttonDark,
     borderRadius: 999,
   },
   segmentPressed: { opacity: 0.7 },
@@ -270,15 +295,15 @@ const styles = StyleSheet.create({
     flexWrap: "nowrap",
     width: "auto",
   },
-  /** Label + count stay on one line so every word remains visible. */
+  /** Equal chips: the label may wrap, the count stays visible. */
   segmentInnerCardDense: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     flexWrap: "nowrap",
-    gap: 3,
-    width: "auto",
-    paddingHorizontal: 1,
+    gap: 8,
+    width: "100%",
+    minWidth: 0,
   },
   dot: {
     width: 5,
@@ -287,14 +312,9 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   dotCardDense: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    flexShrink: 0,
-  },
-  dotCardDenseSpacer: {
-    width: 0,
-    height: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     flexShrink: 0,
   },
   label: {
@@ -307,10 +327,13 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   cardDenseCopy: {
-    flexShrink: 0,
-    fontSize: 10,
-    lineHeight: 12,
-    fontWeight: "500",
+    flexShrink: 1,
+    flexGrow: 0,
+    minWidth: 0,
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "700",
+    letterSpacing: 0.2,
     color: Theme.textPrimaryDark,
     includeFontPadding: false,
     textAlign: "center",
@@ -329,9 +352,10 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.surface,
   },
   countBadgeDense: {
-    height: 12,
-    minWidth: 14,
-    paddingHorizontal: 4,
+    height: 22,
+    minWidth: 24,
+    paddingHorizontal: 7,
+    flexShrink: 0,
   },
   countBadgeActive: {
     backgroundColor: Theme.cardWhite,
@@ -346,11 +370,12 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
   },
   cardDenseCount: {
-    fontSize: 10,
-    lineHeight: 12,
+    fontSize: 11,
+    lineHeight: 13,
     fontWeight: "700",
     color: Theme.buttonDarkText,
     fontVariant: ["tabular-nums"],
+    includeFontPadding: false,
   },
   countOnLight: {
     color: Theme.textPrimaryDark,

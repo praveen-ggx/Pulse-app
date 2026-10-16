@@ -206,13 +206,13 @@ function StageChip({
               <View
                 style={[
                   styles.chipCountBadge,
-                  { backgroundColor: active ? Theme.cardWhite : countColor },
+                  { backgroundColor: active ? Theme.accentGold : countColor },
                 ]}
               >
                 <Text
                   style={[
                     styles.chipCount,
-                    { color: active ? Theme.liquidGoodBack : Theme.buttonDarkText },
+                    { color: active ? Theme.buttonDark : Theme.buttonDarkText },
                   ]}
                 >
                   {count}
@@ -2265,12 +2265,13 @@ const styles = StyleSheet.create({
   filtersRow: {
     flex: 1,
     minWidth: 0,
-    height: 44,
+    minHeight: 72,
     justifyContent: "center",
   },
   chipScroll: {
     flexGrow: 0,
     width: "100%",
+    height: 72,
   },
   subChipScroll: {
     flexGrow: 0,
@@ -2371,10 +2372,10 @@ const styles = StyleSheet.create({
   /** Card list header — tighter stack so both filter rows fit without scroll. */
   pendingDocsFilterStackCard: {
     width: "100%",
-    paddingHorizontal: 8,
-    paddingTop: 6,
-    paddingBottom: 6,
-    gap: 4,
+    paddingHorizontal: 10,
+    paddingTop: 10,
+    paddingBottom: 10,
+    gap: 8,
     alignItems: "stretch",
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.complianceCardBorder,
@@ -2417,14 +2418,14 @@ const styles = StyleSheet.create({
     flexWrap: "nowrap",
     alignItems: "center",
     paddingRight: 8,
-    height: 44,
+    height: 72,
   },
   stageTrack: {
     flexDirection: "row",
     alignItems: "center",
-    height: 44,
-    paddingHorizontal: 4,
-    paddingVertical: 4,
+    height: 72,
+    paddingHorizontal: 8,
+    paddingVertical: 14,
     borderRadius: 999,
     backgroundColor: Theme.cardWhite,
     borderWidth: 1,
@@ -2434,19 +2435,19 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 8,
     elevation: 2,
-    gap: 4,
+    gap: 6,
   },
   chipStack: {
     flexShrink: 0,
-    height: 36,
+    height: 40,
     justifyContent: "center",
   },
   chip: {
     flexShrink: 0,
-    height: 36,
+    height: 40,
     minWidth: 44,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
+    paddingLeft: 16,
+    paddingRight: 12,
     borderRadius: 999,
     backgroundColor: Theme.surface,
     borderWidth: 1,
@@ -2454,7 +2455,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: 10,
     ...(Platform.OS === "web"
       ? {
           transitionDuration: "140ms",
@@ -2468,8 +2469,8 @@ const styles = StyleSheet.create({
     borderColor: Theme.complianceHoverBorder,
   },
   chipActive: {
-    backgroundColor: Theme.liquidGoodBack,
-    borderColor: Theme.liquidGoodBack,
+    backgroundColor: Theme.buttonDark,
+    borderColor: Theme.buttonDark,
   },
   chipActiveHover: {
     ...(Platform.OS === "web"
@@ -2509,20 +2510,21 @@ const styles = StyleSheet.create({
     color: Theme.accentGold,
   },
   chipCountBadge: {
-    minWidth: 18,
-    height: 18,
-    paddingHorizontal: 5,
+    minWidth: 24,
+    height: 22,
+    paddingHorizontal: 7,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
   },
   chipCount: {
-    fontSize: 8,
+    fontSize: 11,
     fontWeight: "700",
-    lineHeight: 10,
+    lineHeight: 13,
     textAlign: "center",
     fontVariant: ["tabular-nums"],
+    includeFontPadding: false,
   },
   viewToggle: {
     flexShrink: 0,

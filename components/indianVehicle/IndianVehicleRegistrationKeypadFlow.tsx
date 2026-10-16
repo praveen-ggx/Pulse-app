@@ -29,7 +29,7 @@ import {
   getIndianVehicleKeyboardKind,
   getIndianVehicleNormalizedLength,
   getIndianVehicleSegmentGuide,
-  isIndianVehiclePlateComplete,
+  INDIAN_VEHICLE_TOTAL_LENGTH,
   type IndianVehicleKeyboardKind,
 } from "@/lib/indianVehicleInput.util";
 
@@ -79,10 +79,9 @@ export const IndianVehicleRegistrationKeypadFlow = memo(
 
     const keyboardKind: IndianVehicleKeyboardKind = kindOverride ?? preferredKind;
     const displayValue = value.trim();
-    // A 1-letter-series plate completes at 9 chars, a 2-letter one at 10 —
-    // gate on completeness, not a fixed length, so the cursor doesn't linger
-    // after a complete 9-char plate waiting for a 10th char that never comes.
-    const showCursor = !isIndianVehiclePlateComplete(value);
+    // Plates can be valid from 4 chars but still take more — keep the caret
+    // until the maximum length is reached.
+    const showCursor = normLen < INDIAN_VEHICLE_TOTAL_LENGTH;
     const inputPlatform = useInputPlatform();
     const { width } = useWindowDimensions();
     const isDesktopWeb = Platform.OS === "web" && inputPlatform === "desktop";

@@ -1245,6 +1245,7 @@ export function TreasurySummaryCard({
             <TextInput
               style={[
                 styles.searchInput,
+                isLightToolbar && styles.searchInputLight,
                 Platform.OS === "web" &&
                   ({ outlineStyle: "none" } as unknown as TextStyle),
               ]}
@@ -1652,6 +1653,10 @@ const styles = StyleSheet.create({
     color: Theme.textOnDark,
     paddingVertical: 0,
     minWidth: 0,
+  },
+  /** Light toolbar (finance desktop dock): dark text, like the Clear / Report buttons. */
+  searchInputLight: {
+    color: Theme.textPrimary,
   },
   reportIconBtn: {
     width: 32,

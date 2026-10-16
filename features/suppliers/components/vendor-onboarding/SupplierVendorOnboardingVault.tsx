@@ -75,6 +75,13 @@ import {
   type RegistrationKind,
   type VendorVaultSection,
 } from "@/features/suppliers/utils/supplierVendorOnboarding.util";
+import {
+  TDS_DOC_TYPE,
+  getTdsDocumentRule,
+  hasTdsDocForYear,
+  tdsDocLabelForYear,
+  tdsDocsForYear,
+} from "@/features/suppliers/utils/supplierTdsDocuments.util";
 import { formatTripTableDate } from "@/lib/format";
 
 import { VendorDocFileRow } from "./VendorDocFileRow";
@@ -244,10 +251,12 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
   const [tdsYear, setTdsYear] = useState(currentFy);
   const [tdsInput, setTdsInput] = useState("");
 
+  // Reset the box only when the year, the saved rate or edit mode changes — not on
+  // every reload (an upload reloads `tdsRates` and used to wipe an unsaved rate).
+  const savedTdsRateForYear = tdsRates.find((r) => r.financial_year === tdsYear)?.rate_percent ?? null;
   useEffect(() => {
-    const existing = tdsRates.find((r) => r.financial_year === tdsYear);
-    setTdsInput(existing != null ? String(existing.rate_percent) : "");
-  }, [tdsYear, tdsRates]);
+    setTdsInput(savedTdsRateForYear != null ? String(savedTdsRateForYear) : "");
+  }, [tdsYear, savedTdsRateForYear, editing]);
 
   const reload = useCallback(async () => {
     const [kyc, prof, tds, acct] = await Promise.all([
@@ -408,6 +417,10 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
       problems.push("Advance % must be a number from 0 to 100.");
     }
     if (tdsInput.trim() && tdsPct == null) problems.push("TDS rate must be a number from 0 to 100.");
+    const tdsRuleNow = getTdsDocumentRule(tdsPct);
+    if (tdsDirty && tdsRuleNow?.required && !hasTdsDocForYear(docs, tdsYear)) {
+      problems.push(`${tdsPct}% TDS for FY ${tdsYear}: document upload is mandatory. Upload it before saving.`);
+    }
     if (bankDirtyNow) {
       for (const draft of bankRows) {
         const saved = banks.find((account) => account.id === draft.id);
@@ -508,6 +521,7 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
     advanceInput,
     bankDrafts,
     banks,
+    docs,
     organizationId,
     panInput,
     profile,
@@ -593,6 +607,11 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
   const verifiedCount = keyDocuments.filter(Boolean).length;
   const savedAdvance = profile?.advance_percentage ?? null;
   const currentTds = tdsRates.find((r) => r.financial_year === currentFy);
+  const savedTdsForYear = tdsRates.find((r) => r.financial_year === tdsYear);
+  const tdsRateForYear =
+    inputsOpen && tdsInput.trim() ? parsePercentage(tdsInput) : (savedTdsForYear?.rate_percent ?? null);
+  const tdsRule = getTdsDocumentRule(tdsRateForYear);
+  const tdsYearDocs = tdsDocsForYear(docs, tdsYear);
   const halfCard = wide ? styles.cardHalf : styles.cardFull;
 
   return (
@@ -717,6 +736,56 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
             </FieldRow>
           </>
         ) : null}
+        {tdsRule || tdsYearDocs.length > 0 ? (
+          <View style={styles.tdsDocBlock}>
+            <View style={styles.tdsDocHead}>
+              <Text style={styles.fieldLabel}>{`Document · FY ${tdsYear}`}</Text>
+              {tdsRule ? (
+                <View style={[styles.tdsPill, tdsRule.required ? styles.tdsPillRequired : styles.tdsPillOptional]}>
+                  <Text style={[styles.tdsPillText, tdsRule.required ? styles.tdsPillTextRequired : styles.tdsPillTextOptional]}>
+                    {tdsRule.required ? "Mandatory" : "Optional"}
+                  </Text>
+                </View>
+              ) : null}
+              <Text style={styles.cardMeta}>
+                {tdsYearDocs.length} file{tdsYearDocs.length === 1 ? "" : "s"}
+              </Text>
+            </View>
+            {tdsYearDocs.length === 0 ? (
+              <Text style={styles.empty}>No TDS supporting document uploaded yet.</Text>
+            ) : null}
+            {tdsYearDocs.map((d, i) => (
+              <VendorDocFileRow
+                key={d.id}
+                {...rowProps}
+                title={d.doc_label || SUPPLIER_KYC_DOC_LABELS[d.doc_type]}
+                kind="multi"
+                last={i === tdsYearDocs.length - 1 && !inputsOpen}
+                doc={d}
+                busy={busyKey === `remove:${d.id}` || busyKey === `verify:${d.id}`}
+                onRemove={(doc) => void onRemove(doc)}
+              />
+            ))}
+            {inputsOpen ? (
+              <View style={styles.addRow}>
+                <VaultAction
+                  label={tdsYearDocs.length > 0 ? "Add another" : "Upload document"}
+                  size="compact"
+                  variant="filled"
+                  showPlusIcon
+                  loading={busyKey === "upload:tds"}
+                  accessibilityLabel={`Upload TDS supporting document for FY ${tdsYear}`}
+                  onPress={() =>
+                    void upload("upload:tds", TDS_DOC_TYPE, {
+                      mode: "append",
+                      label: tdsDocLabelForYear(SUPPLIER_KYC_DOC_LABELS[TDS_DOC_TYPE], tdsYear),
+                    })
+                  }
+                />
+              </View>
+            ) : null}
+          </View>
+        ) : null}
         {tdsRates.length === 0 ? (
           <Text style={styles.empty}>No TDS rate saved yet.</Text>
         ) : (
@@ -724,6 +793,16 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
             {tdsRates.map((r, i) => (
               <View key={r.id} style={[styles.tableRow, i === tdsRates.length - 1 && styles.tableRowLast]}>
                 <Text style={styles.tableKey}>FY {r.financial_year}</Text>
+                {(() => {
+                  const rowRule = getTdsDocumentRule(r.rate_percent);
+                  if (!rowRule?.required) return null;
+                  const onFile = hasTdsDocForYear(docs, r.financial_year);
+                  return (
+                    <Text style={onFile ? styles.tdsRowOk : styles.tdsRowMissing}>
+                      {onFile ? "Document on file" : "Document missing"}
+                    </Text>
+                  );
+                })()}
                 <Text style={styles.tableValue}>{r.rate_percent}%</Text>
                 {inputsOpen ? (
                   <VaultAction
@@ -999,27 +1078,31 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
       {activeSection === "library" ? (
       <View style={styles.cardGrid}>
       <Text style={styles.panelHint}>Verification photos, signed and other documents</Text>
-      {(["physical", "signed", "other"] as const).map((id) => {
+      {(["physical", "signed", "other", "tds"] as const).map((id) => {
         const section = sectionOf(id);
         const docType = section.docTypes[0];
         const list = docsForSection(docs, section);
         return (
-          <FormCard key={id} style={id === "other" || !wide ? styles.cardFull : styles.cardHalf}>
+          <FormCard key={id} style={id === "other" || id === "tds" || !wide ? styles.cardFull : styles.cardHalf}>
             <CardTitle title={section.title} trailing={<Text style={styles.cardMeta}>{list.length} file{list.length === 1 ? "" : "s"}</Text>} />
-            {list.length === 0 ? <Text style={styles.empty}>Nothing uploaded yet.</Text> : null}
+            {list.length === 0 ? (
+              <Text style={styles.empty}>
+                {id === "tds" ? "Nothing uploaded yet. Add TDS documents under Commercial terms → TDS rate." : "Nothing uploaded yet."}
+              </Text>
+            ) : null}
             {list.map((d, i) => (
               <VendorDocFileRow
                 key={d.id}
                 {...rowProps}
                 title={d.doc_label || d.file_name || SUPPLIER_KYC_DOC_LABELS[d.doc_type]}
                 kind="multi"
-                last={i === list.length - 1 && !inputsOpen}
+                last={i === list.length - 1 && (!inputsOpen || id === "tds")}
                 doc={d}
                 busy={busyKey === `remove:${d.id}` || busyKey === `verify:${d.id}`}
                 onRemove={(doc) => void onRemove(doc)}
               />
             ))}
-            {inputsOpen ? (
+            {inputsOpen && id !== "tds" ? (
               <View style={styles.addRow}>
                 {section.requiresName ? (
                   <View style={styles.addField}>
@@ -1557,4 +1640,18 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   addField: { flexGrow: 1, flexBasis: 220, minWidth: 180 },
+
+  tdsDocBlock: {
+    gap: 8,
+    paddingTop: 4,
+  },
+  tdsDocHead: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 },
+  tdsPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
+  tdsPillRequired: { backgroundColor: Theme.warningMuted },
+  tdsPillOptional: { backgroundColor: Theme.surface },
+  tdsPillText: { fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.3 },
+  tdsPillTextRequired: { color: Theme.warning },
+  tdsPillTextOptional: { color: Theme.textMuted },
+  tdsRowOk: { fontSize: 11, fontWeight: "700", color: Theme.positive },
+  tdsRowMissing: { fontSize: 11, fontWeight: "700", color: Theme.negative },
 });

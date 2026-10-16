@@ -1390,10 +1390,12 @@ export function FinanceScreen() {
 
   const handleTabPress = useCallback((tabId: FinanceSubTab) => {
     if (!canAccessFinanceSubTab(orgCapabilities, tabId)) return;
+    // Search is per tab: a Cash query must not carry over into Customers etc.
+    if (tabId !== financeSubTab) setSearchQuery("");
     setFinanceSubTab(tabId);
     // When switching to Ledger, close entity detail overlay so only one "detail" (expand row) is in view
     if (tabId === "cash") setSelectedEntity(null);
-  }, [orgCapabilities]);
+  }, [orgCapabilities, financeSubTab, setSearchQuery]);
 
   useEffect(() => {
     if (!canAccessFinanceSubTab(orgCapabilities, financeSubTab)) {

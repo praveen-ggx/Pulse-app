@@ -223,8 +223,7 @@ export function parsePlate(normalized: string): PlateShape {
  */
 export function formatIndianVehicleNumberInput(next: string): string {
   const raw = normalizeRawVehicleInput(next);
-  // Matches INDIAN_VEHICLE_TOTAL_LENGTH (lib/indianVehicleInput.util imports this file).
-  return raw.slice(0, 12);
+  return raw.slice(0, 10);
 }
 
 /**

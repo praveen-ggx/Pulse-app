@@ -164,7 +164,7 @@ export const PartyDriverMobileWizard = memo(function PartyDriverMobileWizard({
       case "phone":
         return "10-digit Indian mobile. We can look up existing driver accounts.";
       case "license":
-        return "Letters and numbers as printed, e.g. TN01 20200001234.";
+        return "Format like TN01 20200001234.";
       case "extras":
         return "Email and salary or commission — skip anything you do not use.";
       default:

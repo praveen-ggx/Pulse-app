@@ -10,8 +10,8 @@ import Theme from '@/constants/Theme';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { validateEmail } from '@/lib/emailValidation';
 import { formatMobileNumber } from '@/lib/format';
-import { pickContactForNameAndPhone } from '@/lib/contactPicker';
 import { isIndianDrivingLicenseFormatValid } from '@/lib/indianDrivingLicenseInput.util';
+import { pickContactForNameAndPhone } from '@/lib/contactPicker';
 import {
   normalizeIndianPhoneForMetadata,
   validatePhone,
@@ -62,7 +62,7 @@ function validateDrivingLicenseNumber(licenseNumber: string): string | null {
   const trimmed = licenseNumber.trim();
   if (!trimmed) return null;
   if (isIndianDrivingLicenseFormatValid(trimmed)) return null;
-  return 'Enter a valid DL number — 10 to 20 letters or numbers (e.g. MH12 20180001234).';
+  return 'Enter a valid DL number (e.g. MH12 20180001234).';
 }
 
 type Props = {

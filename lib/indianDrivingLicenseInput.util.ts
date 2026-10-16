@@ -1,21 +1,63 @@
 /**
- * Indian DL. The common layout is 2 letters · 2 digits · 4 digits · 7-8 digits
- * (TN01 20200001234, AP00 219960000365), but older and state-specific licences
- * mix letters, digits and "/" anywhere — so entry accepts any alphanumeric
- * value of 10–20 characters instead of enforcing the common layout. Minimum 10
- * so a half-typed licence can't unlock Continue.
+ * Indian DL: 2 letters · 2 digits · 4 digits · 7-8 digits.
+ * Length is NOT fixed across states — most RTOs issue 15 chars
+ * (TN01 20200001234) but some (e.g. AP) issue 16 (AP00 219960000365).
+ * Accept both: complete at 15, still typeable up to 16.
  */
 export const INDIAN_DL_SEGMENT_LENGTHS = [2, 2, 4, 7] as const;
-export const INDIAN_DL_MIN_LENGTH = 10;
-export const INDIAN_DL_MAX_LENGTH = 20;
+export const INDIAN_DL_MIN_LENGTH = 15;
+export const INDIAN_DL_MAX_LENGTH = 16;
 /** @deprecated use INDIAN_DL_MIN_LENGTH / INDIAN_DL_MAX_LENGTH */
 export const INDIAN_DL_TOTAL_LENGTH = INDIAN_DL_MIN_LENGTH;
 
 const DL_CLEAN = /[\s-]/g;
-/** Normalized (no spaces / hyphens) licence: letters, digits and "/" only. */
-const DL_FORMAT = /^[A-Z0-9/]{10,20}$/;
-/** Free-text input allows spaces and hyphens on top of the normalized charset. */
-const DL_TEXT_INPUT_MAX_LENGTH = 24;
+
+/**
+ * Licence layouts the user can pick. "standard" is the default and the only
+ * one typed unless the user picks another format explicitly.
+ *   standard  — TN01 20200001234 (2 letters · 2 digits · 4-digit year · 7-8 digits)
+ *   rtoLetter — TN29 Z19940001713 (2 letters · 2 digits · 1 letter · 4-digit year · 7 digits)
+ */
+export type IndianDlFormat = "standard" | "rtoLetter";
+
+export const INDIAN_DL_FORMATS: readonly {
+  id: IndianDlFormat;
+  label: string;
+  example: string;
+}[] = [
+  { id: "standard", label: "Standard", example: "TN01 20200001234" },
+  { id: "rtoLetter", label: "Letter after RTO", example: "TN29 Z19940001713" },
+];
+
+const DL_FORMAT_PATTERNS: Record<IndianDlFormat, RegExp> = {
+  standard: /^[A-Z]{2}[0-9]{2}[0-9]{4}[0-9]{7,8}$/,
+  rtoLetter: /^[A-Z]{2}[0-9]{2}[A-Z][0-9]{4}[0-9]{7}$/,
+};
+
+const DL_FORMAT_MAX_LENGTH: Record<IndianDlFormat, number> = {
+  standard: 16,
+  rtoLetter: 16,
+};
+
+/** Positions (0-based) that take a letter; every other position takes a digit. */
+function isDlLetterPosition(pos: number, format: IndianDlFormat): boolean {
+  if (pos <= 1) return true;
+  return format === "rtoLetter" && pos === 4;
+}
+
+/** True when the licence matches one of the supported formats (spaces / hyphens ignored). */
+export function isIndianDrivingLicenseFormatValid(display: string): boolean {
+  return detectIndianDlFormat(display) !== null;
+}
+
+/** Which supported format a complete licence matches, or null. */
+export function detectIndianDlFormat(display: string): IndianDlFormat | null {
+  const norm = normalizeIndianDrivingLicense(display);
+  for (const f of INDIAN_DL_FORMATS) {
+    if (DL_FORMAT_PATTERNS[f.id].test(norm)) return f.id;
+  }
+  return null;
+}
 
 export function normalizeIndianDrivingLicense(display: string): string {
   return display.trim().toUpperCase().replace(DL_CLEAN, "");
@@ -26,36 +68,44 @@ export function getIndianDlNormalizedLength(display: string): number {
 }
 
 export function isIndianDrivingLicenseComplete(display: string): boolean {
-  return getIndianDlNormalizedLength(display) >= INDIAN_DL_MIN_LENGTH;
-}
-
-/** True when the licence is 10–20 letters / digits / "/" (spaces and hyphens ignored). */
-export function isIndianDrivingLicenseFormatValid(display: string): boolean {
-  return DL_FORMAT.test(normalizeIndianDrivingLicense(display));
-}
-
-/** Sanitize a free-text licence field: uppercase, keep letters, digits, space, "-" and "/". */
-export function sanitizeIndianDlTextInput(raw: string): string {
-  return raw
-    .toUpperCase()
-    .replace(/[^A-Z0-9\s/-]/g, "")
-    .slice(0, DL_TEXT_INPUT_MAX_LENGTH);
+  return isIndianDrivingLicenseFormatValid(display);
 }
 
 export type IndianDlKeyboardKind = "letters" | "numbers";
 
-export function getIndianDlKeyboardKind(normalizedLen: number): IndianDlKeyboardKind {
-  return normalizedLen <= 1 ? "letters" : "numbers";
+export function getIndianDlKeyboardKind(
+  normalizedLen: number,
+  format: IndianDlFormat = "standard",
+): IndianDlKeyboardKind {
+  return isDlLetterPosition(normalizedLen, format) ? "letters" : "numbers";
 }
 
-export function getIndianDlFormatHint(normalizedLen: number): string {
+export function getIndianDlFormatHint(
+  normalizedLen: number,
+  format: IndianDlFormat = "standard",
+): string {
+  if (format === "rtoLetter") {
+    if (normalizedLen < 2) return "Enter 2 letters (state code, e.g. TN)";
+    if (normalizedLen < 4) return "Enter 2 digits (RTO code)";
+    if (normalizedLen < 5) return "Enter 1 letter (e.g. Z)";
+    if (normalizedLen < 9) return "Enter 4 digits (issue year)";
+    if (normalizedLen < 16) {
+      const need = 16 - normalizedLen;
+      return `Enter ${need} more digit${need === 1 ? "" : "s"}`;
+    }
+    return "Format: TN29 Z19940001713";
+  }
+  if (normalizedLen < 2) return "Enter 2 letters (state code, e.g. TN)";
+  if (normalizedLen < 4) return "Enter 2 digits (RTO code)";
+  if (normalizedLen < 8) return "Enter 4 digits (issue year)";
   if (normalizedLen < INDIAN_DL_MIN_LENGTH) {
-    return "Enter the licence number as printed — letters and numbers (e.g. TN01 20200001234)";
+    const need = INDIAN_DL_MIN_LENGTH - normalizedLen;
+    return `Enter ${need} more digit${need === 1 ? "" : "s"} (7 or 8 in this block)`;
   }
   if (normalizedLen < INDIAN_DL_MAX_LENGTH) {
-    return "Done — keep typing if your licence has more characters";
+    return "Done — add 1 more digit if your licence has 16";
   }
-  return "Maximum length reached";
+  return "Format: TN01 20200001234";
 }
 
 export function formatIndianDrivingLicenseInput(built: string): string {
@@ -64,12 +114,17 @@ export function formatIndianDrivingLicenseInput(built: string): string {
   return `${norm.slice(0, 4)} ${norm.slice(4)}`;
 }
 
-export function applyIndianDlKeystroke(nextRaw: string): string {
+export function applyIndianDlKeystroke(
+  nextRaw: string,
+  format: IndianDlFormat = "standard",
+): string {
   const norm = normalizeIndianDrivingLicense(nextRaw);
+  const max = DL_FORMAT_MAX_LENGTH[format];
   let built = "";
-  for (let i = 0; i < norm.length && built.length < INDIAN_DL_MAX_LENGTH; i++) {
+  for (let i = 0; i < norm.length && built.length < max; i++) {
     const ch = norm[i]!;
-    if (/[A-Z0-9/]/.test(ch)) built += ch;
+    const wantLetter = isDlLetterPosition(built.length, format);
+    if (wantLetter ? /[A-Z]/.test(ch) : /[0-9]/.test(ch)) built += ch;
   }
   return formatIndianDrivingLicenseInput(built);
 }
@@ -80,6 +135,10 @@ export function deleteIndianDlLastChar(display: string): string {
   return formatIndianDrivingLicenseInput(norm.slice(0, -1));
 }
 
-export function appendIndianDlChar(display: string, char: string): string {
-  return applyIndianDlKeystroke(display + char.toUpperCase());
+export function appendIndianDlChar(
+  display: string,
+  char: string,
+  format: IndianDlFormat = "standard",
+): string {
+  return applyIndianDlKeystroke(display + char.toUpperCase(), format);
 }

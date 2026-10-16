@@ -55,11 +55,19 @@ import {
 import { showAppAlert } from "@/lib/appAlert";
 import { validateEmail } from "@/lib/emailValidation";
 import { formatIndianVehicleNumberInput, formatMobileNumber } from "@/lib/format";
-import { applyIndianVehicleKeystroke } from "@/lib/indianVehicleInput.util";
 import {
+  applyIndianDlKeystroke,
+  detectIndianDlFormat,
+  INDIAN_DL_FORMATS,
   isIndianDrivingLicenseFormatValid,
-  sanitizeIndianDlTextInput,
+  type IndianDlFormat,
 } from "@/lib/indianDrivingLicenseInput.util";
+import {
+  applyIndianVehicleKeystroke,
+  INDIAN_VEHICLE_FORMATS,
+  type IndianVehicleFormat,
+} from "@/lib/indianVehicleInput.util";
+import { InputFormatPicker } from "@/components/indianVehicle/InputFormatPicker";
 import {
   normalizeIndianPhoneForMetadata,
   validatePhone,
@@ -261,7 +269,7 @@ function dlError(raw: string): string | null {
   if (!raw.trim()) return null;
   return isIndianDrivingLicenseFormatValid(raw)
     ? null
-    : "Use a valid DL number — 10 to 20 letters or numbers (e.g. TN01 20200001234).";
+    : "Use a valid DL number (e.g. TN01 20200001234), or pick the matching format.";
 }
 
 type SummaryIcon = ComponentType<{
@@ -398,6 +406,7 @@ function PartyRegistrationPortalInner(
   const [driverName, setDriverName] = useState("");
   const [driverPhone, setDriverPhone] = useState("");
   const [driverDl, setDriverDl] = useState("");
+  const [driverDlFormat, setDriverDlFormat] = useState<IndianDlFormat>("standard");
   const [driverExistingMatches, setDriverExistingMatches] = useState<
     ExistingDriverMatch[]
   >([]);
@@ -422,6 +431,8 @@ function PartyRegistrationPortalInner(
 
   // Vehicle — global vehicle type picker + specs
   const [vehicleReg, setVehicleReg] = useState("");
+  const [vehicleRegFormat, setVehicleRegFormat] =
+    useState<IndianVehicleFormat>("standard");
   const [vehicleCategory, setVehicleCategory] = useState("");
   const [vehicleCapacity, setVehicleCapacity] = useState("");
   const [vehicleBodyFt, setVehicleBodyFt] = useState("");
@@ -459,6 +470,7 @@ function PartyRegistrationPortalInner(
     setDriverName("");
     setDriverPhone("");
     setDriverDl("");
+    setDriverDlFormat("standard");
     setDriverEmail("");
     setDriverPayableAmount(null);
     setDriverCommissionPercent(null);
@@ -468,6 +480,7 @@ function PartyRegistrationPortalInner(
     setDriverPhoneLookupLoading(false);
     setDriverPhoneLookupError(null);
     setVehicleReg("");
+    setVehicleRegFormat("standard");
     setVehicleCategory("");
     setVehicleCapacity("");
     setVehicleBodyFt("");
@@ -700,9 +713,12 @@ function PartyRegistrationPortalInner(
           setDriverName((prev) => (prev.trim() ? prev : one.full_name));
           const dlFromRpc = one.license_number?.trim();
           if (dlFromRpc) {
-            setDriverDl((prev) =>
-              prev.trim() ? prev : sanitizeIndianDlTextInput(dlFromRpc),
-            );
+            const rpcFormat = detectIndianDlFormat(dlFromRpc) ?? "standard";
+            setDriverDl((prev) => {
+              if (prev.trim()) return prev;
+              setDriverDlFormat(rpcFormat);
+              return applyIndianDlKeystroke(dlFromRpc, rpcFormat);
+            });
           }
           const em = one.email?.trim();
           if (em) {
@@ -722,7 +738,17 @@ function PartyRegistrationPortalInner(
   };
 
   const handleDriverDlChange = (text: string) => {
-    setDriverDl(sanitizeIndianDlTextInput(text));
+    setDriverDl(applyIndianDlKeystroke(text, driverDlFormat));
+  };
+
+  const handleDriverDlFormatChange = (next: IndianDlFormat) => {
+    setDriverDlFormat(next);
+    setDriverDl((prev) => applyIndianDlKeystroke(prev, next));
+  };
+
+  const handleVehicleRegFormatChange = (next: IndianVehicleFormat) => {
+    setVehicleRegFormat(next);
+    setVehicleReg((prev) => applyIndianVehicleKeystroke(prev, next));
   };
 
   const handleAddDriverOfflineInstead = () => {
@@ -2533,6 +2559,12 @@ function PartyRegistrationPortalInner(
                       </View>
                       <View style={layoutWide ? styles.row2Grow : undefined}>
                         <Field label="Driving licence No.">
+                          <InputFormatPicker
+                            options={INDIAN_DL_FORMATS}
+                            value={driverDlFormat}
+                            onChange={handleDriverDlFormatChange}
+                            testID="party-driver-dl-format"
+                          />
                           <View style={styles.inputIconRow}>
                             <Key
                               size={18}
@@ -2541,7 +2573,10 @@ function PartyRegistrationPortalInner(
                             />
                             <TextInput
                               style={[styles.input, styles.inputPadded]}
-                              placeholder="TN01 20200001234"
+                              placeholder={
+                                INDIAN_DL_FORMATS.find((f) => f.id === driverDlFormat)
+                                  ?.example ?? "TN01 20200001234"
+                              }
                               placeholderTextColor={Theme.textMuted}
                               autoCapitalize="characters"
                               value={driverDl}
@@ -2725,6 +2760,12 @@ function PartyRegistrationPortalInner(
                 {kind === "vehicle" && (
                   <>
                     <Field label="Vehicle number">
+                      <InputFormatPicker
+                        options={INDIAN_VEHICLE_FORMATS}
+                        value={vehicleRegFormat}
+                        onChange={handleVehicleRegFormatChange}
+                        testID="party-vehicle-reg-format"
+                      />
                       <View style={styles.inputIconRow}>
                         <Verified
                           size={18}
@@ -2733,12 +2774,16 @@ function PartyRegistrationPortalInner(
                         />
                         <TextInput
                           style={[styles.input, styles.inputPadded]}
-                          placeholder="e.g. TN 18 D 2522"
+                          placeholder={
+                            vehicleRegFormat === "noSeries"
+                              ? "e.g. KA 56 6088"
+                              : "e.g. TN 18 D 2522"
+                          }
                           placeholderTextColor={Theme.textMuted}
                           autoCapitalize="characters"
                           value={vehicleReg}
                           onChangeText={(t) =>
-                            setVehicleReg(applyIndianVehicleKeystroke(t))
+                            setVehicleReg(applyIndianVehicleKeystroke(t, vehicleRegFormat))
                           }
                           testID="party-vehicle-reg-input"
                         />

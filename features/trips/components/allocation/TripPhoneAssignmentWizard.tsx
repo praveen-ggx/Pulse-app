@@ -20,7 +20,14 @@ import { Shield } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import Layout from "@/constants/Layout";
-import { isIndianVehiclePlateComplete, applyIndianVehicleKeystroke } from "@/lib/indianVehicleInput.util";
+import {
+  isIndianVehiclePlateComplete,
+  applyIndianVehicleKeystroke,
+  detectIndianVehicleFormat,
+  INDIAN_VEHICLE_FORMATS,
+  type IndianVehicleFormat,
+} from "@/lib/indianVehicleInput.util";
+import { InputFormatPicker } from "@/components/indianVehicle/InputFormatPicker";
 import Theme from "@/constants/Theme";
 import { AddTripWizardProgress } from "@/features/trips/components/add-trip/AddTripWizardProgress";
 import { AggregateTrackingMobileStep } from "@/features/trips/components/add-trip/AggregateTrackingMobileStep";
@@ -191,6 +198,9 @@ export function TripPhoneAssignmentWizard({
   const [wizardStep, setWizardStep] = useState<TripPhoneWizardStep>("driverPhone");
   const [reassignFocus, setReassignFocus] = useState<ReassignFocus>("driver");
   const [driverNameManual, setDriverNameManual] = useState(false);
+  const [plateFormat, setPlateFormat] = useState<IndianVehicleFormat>(
+    () => detectIndianVehicleFormat(vehiclePlate) ?? "standard",
+  );
 
   const skipDriverSteps = isReassign && reassignFocus === "vehicle";
 
@@ -227,9 +237,10 @@ export function TripPhoneAssignmentWizard({
     setReassignFocus("driver");
     setDriverNameManual(false);
     applyCurrentDriverToForm();
-    onVehiclePlateChange(
-      resolvedActiveVehiclePlate || formatIndianVehicleNumber(initialVehicle ?? ""),
-    );
+    const currentPlate =
+      resolvedActiveVehiclePlate || formatIndianVehicleNumber(initialVehicle ?? "");
+    setPlateFormat(detectIndianVehicleFormat(currentPlate) ?? "standard");
+    onVehiclePlateChange(currentPlate);
     const hasPhone = !!resolvedActiveDriverPhone.trim();
     const nameMissing =
       !resolvedActiveDriverName.trim() ||
@@ -253,9 +264,10 @@ export function TripPhoneAssignmentWizard({
     setReassignFocus("vehicle");
     setDriverNameManual(false);
     applyCurrentDriverToForm();
-    onVehiclePlateChange(
-      resolvedActiveVehiclePlate || formatIndianVehicleNumber(initialVehicle ?? ""),
-    );
+    const currentPlate =
+      resolvedActiveVehiclePlate || formatIndianVehicleNumber(initialVehicle ?? "");
+    setPlateFormat(detectIndianVehicleFormat(currentPlate) ?? "standard");
+    onVehiclePlateChange(currentPlate);
     setWizardStep("vehicle");
   }, [
     applyCurrentDriverToForm,
@@ -381,9 +393,17 @@ export function TripPhoneAssignmentWizard({
 
   const handleVehicleChange = useCallback(
     (value: string) => {
-      onVehiclePlateChange(applyIndianVehicleKeystroke(value));
+      onVehiclePlateChange(applyIndianVehicleKeystroke(value, plateFormat));
     },
-    [onVehiclePlateChange],
+    [onVehiclePlateChange, plateFormat],
+  );
+
+  const handlePlateFormatChange = useCallback(
+    (next: IndianVehicleFormat) => {
+      setPlateFormat(next);
+      onVehiclePlateChange(applyIndianVehicleKeystroke(vehiclePlate, next));
+    },
+    [onVehiclePlateChange, vehiclePlate],
   );
 
   const handleDriverNameChange = useCallback(
@@ -829,14 +849,24 @@ export function TripPhoneAssignmentWizard({
                             <Text style={aws.kycHintVehicle}>Telemetry linked</Text>
                           ) : null}
                         </View>
+                        <View style={{ marginTop: 6 }}>
+                          <InputFormatPicker
+                            options={INDIAN_VEHICLE_FORMATS}
+                            value={plateFormat}
+                            onChange={handlePlateFormatChange}
+                            testID="trip-assign-plate-format"
+                          />
+                        </View>
                         <TextInput
                           style={[
                             aws.input,
-                            { fontWeight: "800", letterSpacing: 0.6, marginTop: 6 },
+                            { fontWeight: "800", letterSpacing: 0.6 },
                           ]}
                           value={vehiclePlate}
                           onChangeText={handleVehicleChange}
-                          placeholder="e.g. TN 18 D 2522"
+                          placeholder={
+                            plateFormat === "noSeries" ? "e.g. KA 56 6088" : "e.g. TN 18 D 2522"
+                          }
                           placeholderTextColor={Theme.textMuted}
                           autoCapitalize="characters"
                         />

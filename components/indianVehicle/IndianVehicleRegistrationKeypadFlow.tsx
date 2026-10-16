@@ -18,18 +18,23 @@ import { fullPageWizardStyles } from "@/components/full-page-wizard";
 import { WizardActionBarHost } from "@/components/full-page-wizard/WizardActionBarContext";
 import { KeypadDisplayValueWithCaret } from "@/components/party/keypad/KeypadDisplayValueWithCaret";
 import { partyKeypadFlowStyles as flow } from "@/components/party/keypad/partyKeypadFlowStyles";
+import { InputFormatPicker } from "@/components/indianVehicle/InputFormatPicker";
 import { IndianVehicleRegistrationKeypad } from "@/components/indianVehicle/IndianVehicleRegistrationKeypad";
 import { useIndianVehiclePhysicalKeypad } from "@/components/indianVehicle/useIndianVehiclePhysicalKeypad";
 import { useInputPlatform } from "@/components/mobile-input/useInputPlatform";
 import {
   appendIndianVehicleChar,
+  applyIndianVehicleKeystroke,
   deleteIndianVehicleLastChar,
+  detectIndianVehicleFormat,
   getIndianVehicleAllowedNext,
   getIndianVehicleFormatHint,
   getIndianVehicleKeyboardKind,
   getIndianVehicleNormalizedLength,
   getIndianVehicleSegmentGuide,
-  INDIAN_VEHICLE_TOTAL_LENGTH,
+  INDIAN_VEHICLE_FORMATS,
+  isIndianVehiclePlateComplete,
+  type IndianVehicleFormat,
   type IndianVehicleKeyboardKind,
 } from "@/lib/indianVehicleInput.util";
 
@@ -51,14 +56,23 @@ export const IndianVehicleRegistrationKeypadFlow = memo(
     wizardShell = false,
     label = "Registration",
   }: IndianVehicleRegistrationKeypadFlowProps) {
-    const normLen = getIndianVehicleNormalizedLength(value);
-    const preferredKind = getIndianVehicleKeyboardKind(value);
-    const formatHint = useMemo(
-      () => getIndianVehicleFormatHint(value),
-      [value],
+    const [format, setFormat] = useState<IndianVehicleFormat>(
+      () => detectIndianVehicleFormat(value) ?? "standard",
     );
-    const segmentGuide = useMemo(() => getIndianVehicleSegmentGuide(value), [value]);
-    const allowedNext = useMemo(() => getIndianVehicleAllowedNext(value), [value]);
+    const normLen = getIndianVehicleNormalizedLength(value);
+    const preferredKind = getIndianVehicleKeyboardKind(value, format);
+    const formatHint = useMemo(
+      () => getIndianVehicleFormatHint(value, format),
+      [value, format],
+    );
+    const segmentGuide = useMemo(
+      () => getIndianVehicleSegmentGuide(value, format),
+      [value, format],
+    );
+    const allowedNext = useMemo(
+      () => getIndianVehicleAllowedNext(value, format),
+      [value, format],
+    );
     const canToggleMode = allowedNext.letters && allowedNext.digits;
     const [kindOverride, setKindOverride] = useState<IndianVehicleKeyboardKind | null>(
       null,
@@ -79,9 +93,10 @@ export const IndianVehicleRegistrationKeypadFlow = memo(
 
     const keyboardKind: IndianVehicleKeyboardKind = kindOverride ?? preferredKind;
     const displayValue = value.trim();
-    // Plates can be valid from 6 chars but still take more — keep the caret
-    // until the maximum length is reached.
-    const showCursor = normLen < INDIAN_VEHICLE_TOTAL_LENGTH;
+    // A 1-letter-series plate completes at 9 chars, a 2-letter one at 10 —
+    // gate on completeness, not a fixed length, so the cursor doesn't linger
+    // after a complete 9-char plate waiting for a 10th char that never comes.
+    const showCursor = !isIndianVehiclePlateComplete(value);
     const inputPlatform = useInputPlatform();
     const { width } = useWindowDimensions();
     const isDesktopWeb = Platform.OS === "web" && inputPlatform === "desktop";
@@ -96,7 +111,16 @@ export const IndianVehicleRegistrationKeypadFlow = memo(
           onChangeText(deleteIndianVehicleLastChar(value));
           return;
         }
-        onChangeText(appendIndianVehicleChar(value, key));
+        onChangeText(appendIndianVehicleChar(value, key, format));
+      },
+      [onChangeText, value, format],
+    );
+
+    const handleFormatChange = useCallback(
+      (next: IndianVehicleFormat) => {
+        setFormat(next);
+        // Keep what still fits the new layout; drop the rest.
+        onChangeText(applyIndianVehicleKeystroke(value, next));
       },
       [onChangeText, value],
     );
@@ -122,6 +146,12 @@ export const IndianVehicleRegistrationKeypadFlow = memo(
           <Text style={wizardShell ? fullPageWizardStyles.wizardFieldLabel : styles.regLabel}>
             {label}
           </Text>
+          <InputFormatPicker
+            options={INDIAN_VEHICLE_FORMATS}
+            value={format}
+            onChange={handleFormatChange}
+            testID={`${testID}-format`}
+          />
           <Text style={styles.formatHint}>{formatHint}</Text>
 
           <View style={styles.formatMaskRow}>
@@ -160,7 +190,9 @@ export const IndianVehicleRegistrationKeypadFlow = memo(
             <Truck size={20} color={Theme.iconMuted} style={styles.leadingIcon} />
             <KeypadDisplayValueWithCaret
               value={displayValue}
-              placeholder="e.g. TN 18 D 2522"
+              placeholder={
+                format === "noSeries" ? "e.g. KA 56 6088" : "e.g. TN 18 D 2522"
+              }
               showCaret={showCursor}
               valueStyle={[
                 styles.displayValue,

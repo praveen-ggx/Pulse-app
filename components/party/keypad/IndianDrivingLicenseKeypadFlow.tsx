@@ -3,7 +3,7 @@
  * Desktop web: type with the physical keyboard (on-screen QWERTY hidden).
  * Mobile / tablet: on-screen keypad only.
  */
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import {
   Platform,
   Pressable,
@@ -15,6 +15,7 @@ import {
 import { CreditCard } from "lucide-react-native";
 
 import Theme from "@/constants/Theme";
+import { InputFormatPicker } from "@/components/indianVehicle/InputFormatPicker";
 import { IndianVehicleRegistrationKeypad } from "@/components/indianVehicle/IndianVehicleRegistrationKeypad";
 import { useIndianVehiclePhysicalKeypad } from "@/components/indianVehicle/useIndianVehiclePhysicalKeypad";
 import { useInputPlatform } from "@/components/mobile-input/useInputPlatform";
@@ -26,16 +27,32 @@ import {
 import { KeypadDisplayValueWithCaret } from "@/components/party/keypad/KeypadDisplayValueWithCaret";
 import {
   appendIndianDlChar,
+  applyIndianDlKeystroke,
   deleteIndianDlLastChar,
+  detectIndianDlFormat,
   getIndianDlFormatHint,
   getIndianDlKeyboardKind,
   getIndianDlNormalizedLength,
+  INDIAN_DL_FORMATS,
   INDIAN_DL_MAX_LENGTH,
-  type IndianDlKeyboardKind,
+  type IndianDlFormat,
 } from "@/lib/indianDrivingLicenseInput.util";
 
-const SEGMENT_LABELS = ["AA", "00", "0000", "0000000"] as const;
-const SEGMENT_DONE_AT = [2, 4, 8, 15] as const;
+const SEGMENTS: Record<IndianDlFormat, readonly { label: string; doneAt: number }[]> = {
+  standard: [
+    { label: "AA", doneAt: 2 },
+    { label: "00", doneAt: 4 },
+    { label: "0000", doneAt: 8 },
+    { label: "0000000", doneAt: 15 },
+  ],
+  rtoLetter: [
+    { label: "AA", doneAt: 2 },
+    { label: "00", doneAt: 4 },
+    { label: "A", doneAt: 5 },
+    { label: "0000", doneAt: 9 },
+    { label: "0000000", doneAt: 16 },
+  ],
+};
 
 export interface IndianDrivingLicenseKeypadFlowProps {
   value: string;
@@ -51,27 +68,14 @@ export const IndianDrivingLicenseKeypadFlow = memo(
     error = false,
     testID = "indian-dl-keypad-flow",
   }: IndianDrivingLicenseKeypadFlowProps) {
-    const normLen = getIndianDlNormalizedLength(value);
-    const preferredKind = getIndianDlKeyboardKind(normLen);
-    // Licences can mix letters and digits anywhere — the preferred pad follows the
-    // common layout, and ABC/123 lets the user switch at any position.
-    const [kindOverride, setKindOverride] = useState<IndianDlKeyboardKind | null>(null);
-    const prevPreferredRef = useRef(preferredKind);
-    useEffect(() => {
-      if (prevPreferredRef.current !== preferredKind) {
-        prevPreferredRef.current = preferredKind;
-        setKindOverride(null);
-      }
-    }, [preferredKind]);
-    const keyboardKind: IndianDlKeyboardKind = kindOverride ?? preferredKind;
-    const canAddMore = normLen < INDIAN_DL_MAX_LENGTH;
-    const physicalAllowed = useMemo(
-      () => ({ letters: canAddMore, digits: canAddMore }),
-      [canAddMore],
+    const [format, setFormat] = useState<IndianDlFormat>(
+      () => detectIndianDlFormat(value) ?? "standard",
     );
+    const normLen = getIndianDlNormalizedLength(value);
+    const keyboardKind = getIndianDlKeyboardKind(normLen, format);
     const formatHint = useMemo(
-      () => getIndianDlFormatHint(normLen),
-      [normLen],
+      () => getIndianDlFormatHint(normLen, format),
+      [normLen, format],
     );
     const displayValue = value.trim();
     const showCursor = normLen < INDIAN_DL_MAX_LENGTH;
@@ -87,23 +91,24 @@ export const IndianDrivingLicenseKeypadFlow = memo(
           onChangeText(deleteIndianDlLastChar(value));
           return;
         }
-        onChangeText(appendIndianDlChar(value, key));
+        onChangeText(appendIndianDlChar(value, key, format));
+      },
+      [onChangeText, value, format],
+    );
+
+    const handleFormatChange = useCallback(
+      (next: IndianDlFormat) => {
+        setFormat(next);
+        // Keep what still fits the new layout; drop the rest.
+        onChangeText(applyIndianDlKeystroke(value, next));
       },
       [onChangeText, value],
     );
 
-    const handleToggleMode = useCallback(() => {
-      setKindOverride((prev) => {
-        const current = prev ?? preferredKind;
-        return current === "letters" ? "numbers" : "letters";
-      });
-    }, [preferredKind]);
-
-    // Physical keyboard: letters and digits are both accepted at every position.
+    // Same physical-key map as vehicle plates (letters → numbers by segment).
     useIndianVehiclePhysicalKeypad({
       enabled: isDesktopWeb,
-      allowed: physicalAllowed,
-      extraKeys: canAddMore ? "/" : undefined,
+      kind: keyboardKind,
       onKey: handleKey,
     });
 
@@ -114,21 +119,27 @@ export const IndianDrivingLicenseKeypadFlow = memo(
       >
         <View style={flow.main}>
           <Text style={wizard.fieldLabel}>LICENCE NUMBER</Text>
+          <InputFormatPicker
+            options={INDIAN_DL_FORMATS}
+            value={format}
+            onChange={handleFormatChange}
+            testID={`${testID}-format`}
+          />
           <Text style={flow.formatHint}>{formatHint}</Text>
           {isDesktopWeb ? (
             <Text style={styles.typeHint}>Type with your keyboard</Text>
           ) : null}
 
           <View style={flow.formatMaskRow}>
-            {SEGMENT_LABELS.map((seg, i) => (
+            {SEGMENTS[format].map((seg, i) => (
               <Text
-                key={seg}
+                key={`${seg.label}-${i}`}
                 style={[
                   flow.formatMaskSeg,
-                  normLen >= SEGMENT_DONE_AT[i]! && flow.formatMaskSegDone,
+                  normLen >= seg.doneAt && flow.formatMaskSegDone,
                 ]}
               >
-                {seg}
+                {seg.label}
               </Text>
             ))}
           </View>
@@ -147,7 +158,7 @@ export const IndianDrivingLicenseKeypadFlow = memo(
             accessibilityRole={isDesktopWeb ? "button" : undefined}
             accessibilityLabel={
               isDesktopWeb
-                ? "Driving licence. Type letters and numbers with your keyboard."
+                ? "Driving licence. Type letters then numbers with your keyboard."
                 : displayValue || "Driving licence number"
             }
           >
@@ -158,7 +169,10 @@ export const IndianDrivingLicenseKeypadFlow = memo(
             />
             <KeypadDisplayValueWithCaret
               value={displayValue}
-              placeholder="TN01 20200001234"
+              placeholder={
+                INDIAN_DL_FORMATS.find((f) => f.id === format)?.example ??
+                "TN01 20200001234"
+              }
               showCaret={showCursor}
               valueStyle={[flow.displayValue, partyKeypadDisplayMono]}
               placeholderStyle={flow.displayPlaceholder}
@@ -175,10 +189,6 @@ export const IndianDrivingLicenseKeypadFlow = memo(
               kind={keyboardKind}
               onKey={handleKey}
               normalizedLength={Math.min(normLen, 1)}
-              atMaxLength={!canAddMore}
-              canToggleMode={canAddMore}
-              onToggleMode={handleToggleMode}
-              extraNumberKey="/"
             />
           </View>
         )}

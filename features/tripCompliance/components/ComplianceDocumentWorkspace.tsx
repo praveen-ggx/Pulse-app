@@ -190,6 +190,24 @@ const TABS: { key: DocTab; label: string }[] = [
   { key: "driver", label: "Driver" },
 ];
 
+type HoverPressState = { pressed: boolean; hovered?: boolean };
+
+const WEB_POINTER: ViewStyle | null =
+  Platform.OS === "web" ? ({ cursor: "pointer" } as ViewStyle) : null;
+
+const WEB_TRANSITION: ViewStyle | null =
+  Platform.OS === "web"
+    ? ({
+        transitionDuration: "140ms",
+        transitionProperty: "background-color, border-color, box-shadow, opacity",
+        transitionTimingFunction: "ease",
+      } as ViewStyle)
+    : null;
+
+function isHovered(state: HoverPressState): boolean {
+  return Boolean(state.hovered) || state.pressed;
+}
+
 const TAB_VAULT_COPY: Record<
   DocTab,
   { vaultLabel: string; vaultHint: string; unassignedTitle: string; unassignedHint: string }
@@ -3628,21 +3646,24 @@ export function ComplianceDocumentWorkspace({
               : `${statusMeta.label} · ready to preview`
             : statusMeta.label;
     return (
-      <View
+      <Pressable
         key={displayRow.key}
-        style={[
+        onPress={() => previewChecklistRow(displayRow)}
+        accessibilityRole="button"
+        accessibilityState={{ selected }}
+        accessibilityLabel={`${rowLabel} details`}
+        style={(state: HoverPressState) => [
           styles.missingRow,
+          WEB_POINTER,
+          WEB_TRANSITION,
           denseChecklist && styles.missingRowDense,
           index > 0 && styles.missingRowBorder,
+          isHovered(state) && !selected && styles.missingRowHover,
           selected && styles.missingRowSelected,
+          isHovered(state) && selected && styles.missingRowSelectedHover,
         ]}
       >
-        <Pressable
-          style={styles.missingRowCopy}
-          onPress={() => previewChecklistRow(displayRow)}
-          accessibilityRole="button"
-          accessibilityLabel={`${rowLabel} details`}
-        >
+        <View style={styles.missingRowCopy}>
           <View style={styles.missingTitleRow}>
             <Text style={styles.missingDocName} numberOfLines={1}>
               {rowTitle}
@@ -3699,11 +3720,16 @@ export function ComplianceDocumentWorkspace({
               Synced from supplier Banking
             </Text>
           ) : null}
-        </Pressable>
+        </View>
         <View style={styles.missingRowActions}>
-          <TouchableOpacity
-            style={[styles.missingEyeBtn, !canOpenRowFiles && styles.missingEyeBtnDisabled]}
-            activeOpacity={0.75}
+          <Pressable
+            style={(state: HoverPressState) => [
+              styles.missingEyeBtn,
+              WEB_POINTER,
+              WEB_TRANSITION,
+              !canOpenRowFiles && styles.missingEyeBtnDisabled,
+              isHovered(state) && canOpenRowFiles && styles.missingEyeBtnHover,
+            ]}
             disabled={!canOpenRowFiles}
             onPress={() => setFilesModalType(displayRow.type)}
             accessibilityRole="button"
@@ -3722,14 +3748,16 @@ export function ComplianceDocumentWorkspace({
               color={canOpenRowFiles ? Theme.textPrimaryDark : Theme.textMuted}
               strokeWidth={2.2}
             />
-          </TouchableOpacity>
+          </Pressable>
           {canEditFiles && displayRow.status === "missing" ? (
-            <TouchableOpacity
-              style={[
+            <Pressable
+              style={(state: HoverPressState) => [
                 styles.missingUploadBtn,
+                WEB_POINTER,
+                WEB_TRANSITION,
                 uploadingFinanceType === displayRow.key && styles.btnDisabled,
+                isHovered(state) && !uploadingFinanceType && styles.missingUploadBtnHover,
               ]}
-              activeOpacity={0.8}
               disabled={Boolean(uploadingFinanceType)}
               onPress={() => void uploadVaultDocument(row)}
               accessibilityRole="button"
@@ -3744,10 +3772,10 @@ export function ComplianceDocumentWorkspace({
               <Text style={styles.missingUploadBtnText}>
                 {uploadingFinanceType === displayRow.key ? "Uploading…" : uploadLabel}
               </Text>
-            </TouchableOpacity>
+            </Pressable>
           ) : null}
         </View>
-      </View>
+      </Pressable>
     );
   };
 
@@ -4022,10 +4050,14 @@ export function ComplianceDocumentWorkspace({
                         resetPreviewView();
                         setScreenOpen(false);
                       }}
-                      style={[
+                      style={(state: HoverPressState) => [
                         styles.tab,
                         styles.checklistPanelTab,
+                        WEB_POINTER,
+                        WEB_TRANSITION,
+                        isHovered(state) && !financeList && styles.tabHover,
                         financeList && styles.tabActive,
+                        isHovered(state) && financeList && styles.tabActiveHover,
                       ]}
                       accessibilityRole="button"
                       accessibilityState={{ selected: financeList }}
@@ -4075,10 +4107,14 @@ export function ComplianceDocumentWorkspace({
                             resetPreviewView();
                             setScreenOpen(false);
                           }}
-                          style={[
+                          style={(state: HoverPressState) => [
                             styles.tab,
                             styles.checklistPanelTab,
+                            WEB_POINTER,
+                            WEB_TRANSITION,
+                            isHovered(state) && !active && styles.tabHover,
                             active && styles.tabActive,
+                            isHovered(state) && active && styles.tabActiveHover,
                           ]}
                           accessibilityRole="tab"
                           accessibilityState={{ selected: active }}
@@ -4214,12 +4250,17 @@ export function ComplianceDocumentWorkspace({
                         <Text style={styles.checklistPreviewActionsLabel}>PREVIEW</Text>
                       </View>
                       <View style={styles.checklistPreviewActionsGrid}>
-                        <TouchableOpacity
-                          style={[
-                            styles.checklistModeBtn,
-                            checklistPreviewMode === "trip" && styles.checklistModeBtnSelected,
-                          ]}
-                          activeOpacity={0.8}
+                        <Pressable
+                          style={(state: HoverPressState) => {
+                            const active = checklistPreviewMode === "trip";
+                            return [
+                              styles.checklistModeBtn,
+                              WEB_POINTER,
+                              WEB_TRANSITION,
+                              isHovered(state) && !active && styles.checklistModeBtnHover,
+                              active && styles.checklistModeBtnSelected,
+                            ];
+                          }}
                           onPress={() => setChecklistPreviewMode("trip")}
                           accessibilityRole="button"
                           accessibilityState={{ selected: checklistPreviewMode === "trip" }}
@@ -4234,14 +4275,19 @@ export function ComplianceDocumentWorkspace({
                           >
                             Trip Detail
                           </Text>
-                        </TouchableOpacity>
+                        </Pressable>
                         {showFinanceTab && !compliancePendingView ? (
-                          <TouchableOpacity
-                            style={[
-                              styles.checklistModeBtn,
-                              checklistPreviewMode === "advance" && styles.checklistModeBtnSelected,
-                            ]}
-                            activeOpacity={0.8}
+                          <Pressable
+                            style={(state: HoverPressState) => {
+                              const active = checklistPreviewMode === "advance";
+                              return [
+                                styles.checklistModeBtn,
+                                WEB_POINTER,
+                                WEB_TRANSITION,
+                                isHovered(state) && !active && styles.checklistModeBtnHover,
+                                active && styles.checklistModeBtnSelected,
+                              ];
+                            }}
                             onPress={() => setChecklistPreviewMode("advance")}
                             accessibilityRole="button"
                             accessibilityState={{ selected: checklistPreviewMode === "advance" }}
@@ -4256,15 +4302,19 @@ export function ComplianceDocumentWorkspace({
                             >
                               Advance Payment
                             </Text>
-                          </TouchableOpacity>
+                          </Pressable>
                         ) : null}
                         {canManagePod &&
                         showHardcopyPodButton &&
                         !isPendingDocsTrip &&
                         !compliancePendingView ? (
-                          <TouchableOpacity
-                            style={styles.checklistModeBtn}
-                            activeOpacity={0.8}
+                          <Pressable
+                            style={(state: HoverPressState) => [
+                              styles.checklistModeBtn,
+                              WEB_POINTER,
+                              WEB_TRANSITION,
+                              isHovered(state) && styles.checklistModeBtnHover,
+                            ]}
                             disabled={!summary}
                             onPress={() => setPodOpen(true)}
                             accessibilityRole="button"
@@ -4273,12 +4323,17 @@ export function ComplianceDocumentWorkspace({
                             <Text style={styles.checklistModeBtnText} numberOfLines={1}>
                               Hardcopy POD
                             </Text>
-                          </TouchableOpacity>
+                          </Pressable>
                         ) : null}
                         {showMarkVerified && summary ? (
-                          <TouchableOpacity
-                            style={[styles.checklistModeBtn, styles.checklistModeBtnActive]}
-                            activeOpacity={0.8}
+                          <Pressable
+                            style={(state: HoverPressState) => [
+                              styles.checklistModeBtn,
+                              styles.checklistModeBtnActive,
+                              WEB_POINTER,
+                              WEB_TRANSITION,
+                              isHovered(state) && styles.checklistModeBtnActiveHover,
+                            ]}
                             disabled={markingVerified}
                             onPress={() => {
                               setMarkingVerified(true);
@@ -4295,7 +4350,7 @@ export function ComplianceDocumentWorkspace({
                             >
                               {markingVerified ? "Verifying…" : "Mark verified"}
                             </Text>
-                          </TouchableOpacity>
+                          </Pressable>
                         ) : null}
                       </View>
                       {(showPendingTripActions || showFinanceDeclineReVerify) &&
@@ -6154,11 +6209,15 @@ const TripListRow = React.memo(function TripListRow({
   return (
     <Pressable
       onPress={() => onSelect(trip.id)}
-      style={[
+      style={(state: HoverPressState) => [
         styles.row,
+        WEB_POINTER,
+        WEB_TRANSITION,
+        isHovered(state) && !selected && !isRejected && styles.rowHover,
         selected && styles.rowSelected,
         isRejected && styles.rowRejected,
         selected && isRejected && styles.rowRejectedSelected,
+        isHovered(state) && selected && !isRejected && styles.rowSelectedHover,
       ]}
       accessibilityRole="button"
       accessibilityState={{ selected }}
@@ -6407,10 +6466,22 @@ const styles = StyleSheet.create({
     paddingBottom: 5,
     gap: 3,
   },
+  rowHover: {
+    backgroundColor: Theme.complianceSelectedWash,
+    borderColor: Theme.complianceHoverBorder,
+    ...(Platform.OS === "web"
+      ? { boxShadow: `0 8px 18px ${Theme.complianceCardShadow}` }
+      : null),
+  },
   rowSelected: {
     borderWidth: 1.5,
     borderColor: Theme.complianceTripCardSelectedBorder,
-    backgroundColor: Theme.complianceTripCardSelectedBg,
+    backgroundColor: Theme.complianceSelectedWash,
+  },
+  rowSelectedHover: {
+    ...(Platform.OS === "web"
+      ? { boxShadow: `0 10px 22px ${Theme.complianceCardShadow}` }
+      : null),
   },
   rowRejected: {
     borderColor: Theme.complianceStageDocsFg,
@@ -6616,7 +6687,16 @@ const styles = StyleSheet.create({
     gap: 5,
     overflow: "hidden",
   },
+  tabHover: {
+    backgroundColor: Theme.surface,
+    borderColor: Theme.complianceHoverBorder,
+  },
   tabActive: { backgroundColor: Theme.liquidGoodBack, borderColor: Theme.liquidGoodBack },
+  tabActiveHover: {
+    ...(Platform.OS === "web"
+      ? { boxShadow: `0 4px 10px ${Theme.complianceCardShadow}` }
+      : null),
+  },
   tabText: { fontSize: 11, fontWeight: "500", lineHeight: 14, textAlign: "center", color: Theme.textPrimaryDark },
   tabTextActive: { color: Theme.buttonDarkText, fontWeight: "600" },
   tabBadge: {
@@ -7252,6 +7332,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 5,
   },
+  checklistModeBtnHover: {
+    backgroundColor: Theme.surface,
+    borderColor: Theme.complianceHoverBorder,
+  },
   checklistModeBtnSelected: {
     backgroundColor: Theme.compliancePageBg,
     borderColor: Theme.textPrimaryDark,
@@ -7259,6 +7343,11 @@ const styles = StyleSheet.create({
   checklistModeBtnActive: {
     backgroundColor: Theme.buttonDark,
     borderColor: Theme.buttonDark,
+  },
+  checklistModeBtnActiveHover: {
+    ...(Platform.OS === "web"
+      ? { boxShadow: `0 4px 10px ${Theme.complianceCardShadow}` }
+      : null),
   },
   checklistModeBtnText: {
     fontSize: 11,
@@ -8370,15 +8459,23 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+    borderLeftWidth: 2,
+    borderLeftColor: Theme.cardWhite,
   },
   missingRowDense: {
     minHeight: 36,
     paddingVertical: 3,
   },
+  missingRowHover: {
+    backgroundColor: Theme.complianceHoverBg,
+    borderLeftColor: Theme.complianceHoverBorder,
+  },
   missingRowSelected: {
-    backgroundColor: Theme.complianceTripCardSelectedBg,
-    borderLeftWidth: 1.5,
+    backgroundColor: Theme.complianceSelectedWash,
     borderLeftColor: Theme.complianceTripCardSelectedBorder,
+  },
+  missingRowSelectedHover: {
+    backgroundColor: Theme.compliancePageBg,
   },
   missingRowBorder: {
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -8417,6 +8514,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   missingEyeBtnDisabled: { opacity: 0.4 },
+  missingEyeBtnHover: {
+    backgroundColor: Theme.surface,
+    borderColor: Theme.complianceHoverBorder,
+  },
   missingUploadBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -8426,6 +8527,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderRadius: 6,
     backgroundColor: Theme.positive,
+  },
+  missingUploadBtnHover: {
+    backgroundColor: Theme.complianceUploadHover,
   },
   missingUploadBtnText: {
     fontSize: 10,

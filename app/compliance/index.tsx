@@ -126,7 +126,7 @@ import { useMemberAccess } from "@/lib/useMemberAccess";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Download, FileText, LayoutGrid, Search, Table2, Wallet } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View, type LayoutChangeEvent, type NativeSyntheticEvent, type NativeScrollEvent, type TextStyle } from "react-native";
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View, type LayoutChangeEvent, type NativeSyntheticEvent, type NativeScrollEvent, type TextStyle, type ViewStyle } from "react-native";
 
 function complianceQueueLabel(stage: ComplianceQueueFilter): string {
   if (stage === "all") return "All";
@@ -143,6 +143,11 @@ const STAGE_DEPT_GROUPS = [
   { department: "Debit", stages: ["hard_copy_pod_received", "pod_received"] },
   { department: "Finance", stages: ["balance_pending", "payment_settled"] },
 ] as const;
+
+type HoverPressState = { pressed: boolean; hovered?: boolean };
+
+const WEB_POINTER: ViewStyle | null =
+  Platform.OS === "web" ? ({ cursor: "pointer" } as ViewStyle) : null;
 
 function StageChip({
   label,
@@ -163,48 +168,62 @@ function StageChip({
 }) {
   const showCaptionCol = Boolean(caption) || reserveCaption;
   return (
-    <TouchableOpacity
+    <Pressable
       onPress={onPress}
-      activeOpacity={0.88}
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
       style={styles.chipStack}
       hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
     >
-      <View style={[styles.chip, active && styles.chipActive]}>
-        <Text style={[styles.chipText, active && styles.chipTextActive]} numberOfLines={1}>
-          {label}
-        </Text>
-        {count > 0 ? (
-          <View
-            style={[
-              styles.chipCountBadge,
-              { backgroundColor: active ? Theme.cardWhite : countColor },
-            ]}
-          >
-            <Text
+      {({ pressed, hovered }: HoverPressState) => {
+        const highlighted = Boolean(hovered) || pressed;
+        return (
+          <>
+            <View
               style={[
-                styles.chipCount,
-                { color: active ? Theme.liquidGoodBack : Theme.buttonDarkText },
+                styles.chip,
+                WEB_POINTER,
+                highlighted && !active && styles.chipHover,
+                active && styles.chipActive,
+                highlighted && active && styles.chipActiveHover,
               ]}
             >
-              {count}
-            </Text>
-          </View>
-        ) : null}
-      </View>
-      {showCaptionCol ? (
-        caption ? (
-          <View style={styles.chipCaptionPanel}>
-            <Text style={styles.chipCaption} numberOfLines={1}>
-              {caption}
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.chipCaptionSlot} />
-        )
-      ) : null}
-    </TouchableOpacity>
+              <Text style={[styles.chipText, active && styles.chipTextActive]} numberOfLines={1}>
+                {label}
+              </Text>
+              {count > 0 ? (
+                <View
+                  style={[
+                    styles.chipCountBadge,
+                    { backgroundColor: active ? Theme.cardWhite : countColor },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.chipCount,
+                      { color: active ? Theme.liquidGoodBack : Theme.buttonDarkText },
+                    ]}
+                  >
+                    {count}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+            {showCaptionCol ? (
+              caption ? (
+                <View style={[styles.chipCaptionPanel, highlighted && styles.chipCaptionPanelHover]}>
+                  <Text style={styles.chipCaption} numberOfLines={1}>
+                    {caption}
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.chipCaptionSlot} />
+              )
+            ) : null}
+          </>
+        );
+      }}
+    </Pressable>
   );
 }
 
@@ -2428,9 +2447,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 3,
+    ...(Platform.OS === "web"
+      ? {
+          transitionDuration: "140ms",
+          transitionProperty: "background-color, border-color, box-shadow",
+          transitionTimingFunction: "ease",
+        }
+      : null),
+  },
+  chipHover: {
+    backgroundColor: Theme.complianceHoverBg,
   },
   chipActive: {
     backgroundColor: Theme.liquidGoodBack,
+  },
+  chipActiveHover: {
+    ...(Platform.OS === "web"
+      ? { boxShadow: `0 6px 14px ${Theme.complianceCardShadow}` }
+      : null),
   },
   chipText: {
     fontSize: 10,
@@ -2460,6 +2494,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 12,
     elevation: 3,
+  },
+  chipCaptionPanelHover: {
+    backgroundColor: Theme.complianceSelectedWash,
   },
   chipCaption: {
     fontSize: 8,

@@ -1,0 +1,147 @@
+---
+description: Team Git / PR / preprod / prod release lifecycle and trigger words (Claude Code + Cursor). Baseline reset 2026-10-16.
+alwaysApply: true
+---
+
+# Team Git workflow — dev → V1 (preprod) → V1.0.1 (prod)
+
+Applies to Claude Code and Cursor for every team member. When someone says a trigger word below, run that procedure step by step. On any failure, stop and report; don't improvise.
+
+## 1. The three levels
+
+| Level | Repo / branch | Who merges | Site | Database |
+|---|---|---|---|---|
+| **Prod** | `Vasanthgogox/Pulse-app` → `V1.0.1` | Vasanth | gogopulse.com (Netlify, auto on merge) | Prod `nafxpivddesgsrthmosv` |
+| **Integration / preprod** | `nihas-gogox/Pulse-app` → `V1` | Nihas | gx-pulse.netlify.app (auto from `V1`) | Preprod `xbisiveavvbifbzyfhgy` |
+| **Dev** | `<name>/V1.0.<n>` on your own fork | — | none | none (local only) |
+
+- `V1.0.1` on Vasanth's repo is the **name of the prod branch**, not a version number. It stays `V1.0.1`.
+- Dev branch numbers (`V1.0.2`, `V1.0.3`, …) count **your PRs**, one number per PR. They are not prod versions.
+- Releases to prod are named by date: `release/YYYY-MM-DD`.
+- Baseline (2026-10-16): prod `V1.0.1` = `389a5d3f`; `nihas-gogox` `V1` and `V1.0.1` were reset to the same commit. Older work is in tags `archive/20261016/*`.
+
+## 2. Lifecycle chart
+
+```
+                 ┌───────────────────────────────────────────────────────────────┐
+                 │ PROD   Vasanthgogox/Pulse-app  V1.0.1  → gogopulse.com         │
+                 │        prod DB nafxpivddesgsrthmosv                            │
+                 └───────────────▲──────────────────────────────┬────────────────┘
+                                 │ (E) release PR, Vasanth       │ (F) after merge: "sync prod"
+                                 │     applies migrations FIRST, │     V1 + V1.0.1 on nihas-gogox
+                                 │     then merges               ▼     fast-forwarded to prod
+                 ┌───────────────┴───────────────────────────────────────────────┐
+                 │ INTEGRATION  nihas-gogox/Pulse-app  V1  → gx-pulse (preprod)    │
+                 │              preprod DB xbisiveavvbifbzyfhgy                   │
+                 └──▲──────────────▲──────────────▲──────────────▲───────────────┘
+   (C) merge PR     │              │              │              │   (D) after each merge:
+   (Nihas, CI green)│              │              │              │   preprod migrations + smoke test
+           ┌────────┴──┐   ┌───────┴───┐   ┌──────┴────┐   ┌─────┴─────┐
+           │ nihas/    │   │ sneha/    │   │ praveen/  │   │ gowtham/  │
+           │ V1.0.<n>  │   │ V1.0.<n>  │   │ V1.0.<n>  │   │ V1.0.<n>  │
+           └────▲──────┘   └─────▲─────┘   └─────▲─────┘   └─────▲─────┘
+                │ (A) start: branch from latest V1 · (B) handoff: checks + PR into V1
+                └──────── next PR = next number, always from the newest V1 ──────────┘
+
+   HOTFIX (prod bug): branch from Vasanth's V1.0.1 → PR straight to V1.0.1 → then "sync prod" into V1.
+```
+
+## 3. Hard rules (everyone)
+
+- Nobody pushes straight to `V1` or `V1.0.1`. Every change, Nihas's included, goes through a GitHub PR, merged only with CI green.
+- Never force-push `V1`, `V1.0.1` or any tag. On your own dev branch, `--force-with-lease` after a rebase is allowed.
+- One concern per PR. Don't mix a feature with an unrelated fix.
+- Migrations: create them only with `supabase migration new <name>`, never with a `000000` time. Developers never push to any remote DB. Only Nihas pushes to preprod, and only Vasanth applies to prod.
+- No commit to `CHANGELOG.md` on a dev branch. Write `changes/<name>-V1.0.<n>.md` (What / Why / Areas / Migrations / Tested; one bullet per commit, never rewrite earlier bullets).
+- No Co-Authored-By / AI trailers. No keys, DB passwords or tokens in files, chat, commits or PRs.
+- **Schema before code.** Code that needs a new table, column or function must never reach a site before its migration is applied to that site's database. (On 14 Oct prod code went live without 27 migrations, and bank accounts, trips, suppliers and compliance broke for two days.)
+
+## 4. Developer steps (Sneha, Praveen, Gowtham, Nihas)
+
+### One-time setup
+- Fork `nihas-gogox/Pulse-app` on GitHub (or use your existing fork).
+- `git remote add upstream https://github.com/nihas-gogox/Pulse-app.git` (Nihas: upstream = `origin`).
+- Your fork is your push remote (usually `origin`). Find names with `git remote -v`; never guess.
+
+### (A) "start" — begin a PR's worth of work
+1. `git fetch upstream`
+2. `git switch -c <name>/V1.0.<next> --no-track upstream/V1` (next = one above your highest existing number).
+3. Create `changes/<name>-V1.0.<next>.md` with the five headings.
+4. Migrations needed? `supabase migration new <desc>`. Keep each migration **additive** (new tables, columns, functions) so the old app keeps working once the migration runs. Renames and drops need two PRs: add the new thing first, remove the old one in a later release.
+
+### "sync" — catch up with V1 while working
+1. `git fetch upstream && git rebase upstream/V1`
+2. Resolve conflicts by reading both sides: keep V1's newer code and port your change into it. Then grep for leftover `<<<<<<<` markers and duplicate declarations.
+3. If V1 brought migrations newer than yours, regenerate yours with a fresh timestamp. Migrations must apply in timestamp order.
+
+### (B) "handoff" — ready for review
+1. Changes file filled in (What / Why / Areas / Migrations / Tested). Write "not clicked through" if you didn't test the UI.
+2. New migrations listed: `git diff --name-only upstream/V1... -- supabase/migrations`. None end in `000000`, none are empty, `npm run db:preflight` passes.
+3. "sync" again (rebased on latest V1).
+4. Checks. Each must not exceed `.github/ci-baseline.json` (2026-10-16: lint 104, typecheck 89, cycles 111, lib-files 178):
+   - `node scripts/ci-baseline.js lint`, `node scripts/ci-baseline.js typecheck`, `node scripts/ci-baseline.js cycles`, `node scripts/ci-baseline.js lib-files`
+   - `npm run test:navigation-policy`
+   - `npx jest --ci --silent`: all suites must pass (514 passing at baseline).
+   - `git diff --check`
+5. `git push --force-with-lease <your-fork> <branch>`
+6. `gh pr create --repo nihas-gogox/Pulse-app --base V1 --head <your-gh-user>:<branch> --title "<name> V1.0.<n>: <summary>"`, with the changes file as the body.
+7. Post the PR link, the check results and the migration list to Nihas.
+
+## 5. Nihas — integration (V1 / preprod)
+
+### (C) "merge <PR#>"
+1. `gh pr view <PR#> --repo nihas-gogox/Pulse-app` and `gh pr checks <PR#>`. Note the commits, the changes file and any new migrations.
+2. Review the diff yourself or with Claude. Check access control (`docs/RBAC_OPERATING_MODEL.md`), finance (`docs/CORE_ACCOUNTING_MODEL.md`), and that each migration doesn't overwrite a newer definition of the same function or policy already in V1.
+3. Conflicts, behind V1, or CI red: don't merge. Send it back with "sync, then handoff again".
+4. Green: `gh pr merge <PR#> --repo nihas-gogox/Pulse-app --merge` (merge commit, never squash or rebase).
+5. Tell the developer: "merged; start `<name>/V1.0.<n+1>` from V1".
+
+### (D) After each merge: preprod
+1. The PR added migrations? Order matters (schema before code). Netlify deploys preprod from V1 within minutes of the merge. So for a PR with migrations: `npm run db:preflight`, `supabase db push --linked --include-all --dry-run` (the repo is linked to preprod), check that the list contains only that PR's migrations, then push to preprod **right after merging**. Claude dry-runs; Nihas runs the push command.
+2. Smoke-test the PR's feature on gx-pulse.netlify.app, plus login, trip list and compliance list.
+3. Broken? Revert the merge with a PR (`git revert -m 1 <merge-sha>` on a branch → PR into V1). Never force-push V1.
+4. Keep preprod DB = V1 migrations: `supabase migration list --linked` shows no local-only or remote-only rows, apart from the known exceptions recorded in `CLAUDE.local.md`.
+
+## 6. Nihas → Vasanth: release to prod
+
+### (E) "release" — when V1 has a tested batch
+1. **Freeze**: tell the team not to merge into V1 until the release is merged.
+2. Confirm the V1 commit tested on preprod: `git rev-parse origin/V1`. Preprod was smoke-tested on exactly this commit.
+3. `git switch -c release/YYYY-MM-DD origin/V1`
+4. Release notes: collect every `changes/*-V1.0.*.md` merged since the last release into `changes/release-YYYY-MM-DD.md` (what, who, migrations, what was tested, what was not).
+5. Migrations since the last release: `git diff --name-only vasanth/V1.0.1... -- supabase/migrations`. Then:
+   - Compare with prod history (read-only) and confirm prod has none of them.
+   - Create `supabase/release-sets/prod-YYYY-MM-DD.versions`: exact versions in apply order, each preceded by `# sha256 <hash>  <file>`. Excluded or frozen files are named by file name only.
+   - Add a pinning Jest test like `supabase/migrations/__tests__/prodCatchupReleaseSet.test.ts` (list, order, checksums, exclusions).
+6. Run every check from step (B) on the release branch.
+7. Read-only prod dry-run of the release set (Claude, separate worktree, CLI 2.95.4, never `supabase link` prod). Save the output.
+8. Commit (with changes file), then `git push vasanth release/YYYY-MM-DD` and
+   `gh pr create --repo Vasanthgogox/Pulse-app --base V1.0.1 --head release/YYYY-MM-DD`.
+   The PR body holds: release notes, the migration list and release-set name, the dry-run result, checks, and what was not tested.
+9. Message Vasanth with the PR link and the release-set name. If there are migrations, also send the Claude prompt for the prod apply.
+
+### Vasanth's side (prod)
+1. Reviews the PR. CI green.
+2. **No migrations in the PR:** merge → Netlify deploys gogopulse.com.
+3. **With migrations, schema first:**
+   1. Owner, executor and window agreed (off-peak preferred: prod cancels statements after 8 s lock wait / 60 s run).
+   2. From a clean worktree of the **PR head commit**: release-set tests pass; fresh `pg_dump` within 1 h, restored and compared; read-only before-state; dry-run lists exactly the set.
+   3. Vasanth's explicit "GO apply <set>" → `MIGRATION_APPLY_CONFIRM=<set> npm run db:push-set -- <set>`. On failure: stop, no retry, no repair.
+   4. Verify: history has the whole set and nothing excluded; protected rows unchanged.
+   5. **Then** merge the PR → Netlify deploys.
+4. After deploy: the gogopulse.com bundle contains the merge sha; 30 min of API logs show no new 404/400 schema errors; the feature is clicked through on prod.
+
+### (F) "sync prod" — after Vasanth merges (or whenever prod changes)
+1. `git fetch vasanth`
+2. `git push origin vasanth/V1.0.1:refs/heads/V1.0.1`. This is a fast-forward; if git asks for force, stop and investigate.
+3. Branch `sync/prod-YYYY-MM-DD` from `vasanth/V1.0.1` → PR into V1 → merge. Prod changes must always come back into V1.
+4. Lift the freeze. Everyone runs "sync" before their next PR.
+
+### "hotfix <desc>" — urgent prod bug
+1. `git switch -c nihas/hotfix-<desc> --no-track vasanth/V1.0.1` (from prod, not from V1).
+2. Fix it, run the (B) checks, `git push vasanth nihas/hotfix-<desc>`, PR into `V1.0.1` on Vasanth's repo. Same schema-first rule if it has a migration.
+3. After Vasanth merges, run "sync prod" so the fix lands in V1.
+
+## 7. Open item at baseline (2026-10-16)
+
+- **Preprod DB is not equal to prod.** Of the 27 catch-up migrations, 4 never ran on preprod (`20271006161000`, `20271012130500`, `20271013120000`, `20271014183000`). 5 (`20271008114000`–`20271008118000`) are recorded in preprod's history but their SQL never ran there. Fix this before the team tests on preprod, otherwise preprod results don't predict prod.

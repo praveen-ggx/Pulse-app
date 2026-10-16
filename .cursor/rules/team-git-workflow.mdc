@@ -63,6 +63,29 @@ Applies to Claude Code and Cursor for every team member. When someone says a tri
 - `git remote add upstream https://github.com/nihas-gogox/Pulse-app.git` (Nihas: upstream = `origin`).
 - Your fork is your push remote (usually `origin`). Find names with `git remote -v`; never guess.
 
+### "clean start" — move an existing clone onto the new baseline (once, after 2026-10-16)
+Nothing is deleted before it is saved. Stop and report on any error.
+1. `git fetch --all --prune --tags`
+2. Uncommitted work: `git switch -c wip/<name>-<yyyymmdd>`, `git add -A`, `git commit -m "wip: parked before clean start"`, `git push <your-fork> wip/<name>-<yyyymmdd>`. Skip if `git status --short` is empty.
+3. Archive every local branch as a tag on your fork: for each branch `b` in `git for-each-ref refs/heads --format='%(refname:short)'`: `git tag archive/<yyyymmdd>/<b> <b>`. Then `git push <your-fork> 'refs/tags/archive/<yyyymmdd>/*'`. Check with `git ls-remote --tags <your-fork> 'archive/<yyyymmdd>/*'`.
+4. Switch to the new start: `git switch -c <name>/V1.0.<n> --no-track upstream/V1`. Pick `<n>` one above your highest old number, so names never collide.
+5. Only after step 3 is verified, delete the other local branches: `git branch -D <b>` for each, keeping your new branch and the `wip/` branch.
+6. Optional, on GitHub: delete old branches from your fork. They are archived as tags.
+7. `npm ci` (Node 20 per `.nvmrc`; CI runs Node 22).
+8. `.env` must point at **preprod** `xbisiveavvbifbzyfhgy`, never prod `nafxpivddesgsrthmosv`. Check with `node -e "require('./app.config.js')" 2>&1 | grep 'resolved Supabase host'`; expect `xbisiveavvbifbzyfhgy.supabase.co`. Any prod line in `.env` or `.env.local`: comment it out. Never put the prod DB password or service key on a dev machine.
+9. Supabase CLI: if linked, `supabase/.temp/project-ref` must say `xbisiveavvbifbzyfhgy`. Never `supabase link` prod. Never `db push`.
+10. Local AI notes: back up `CLAUDE.local.md` (if any) to `.git/CLAUDE.local.md.bak-<yyyymmdd>`, then replace it with the short template below. Remove personal Cursor rules that mention `V1.0.x` marker branches, pushing to `vasanth`/`gogopulse`, or prod DB access. This file and `CLAUDE.md` are the team source of truth.
+
+`CLAUDE.local.md` template (local only; make sure it is listed in `.git/info/exclude`):
+```
+# <Name> — local notes (never commit)
+- Team workflow: .cursor/rules/team-git-workflow.mdc. Follow it exactly.
+- My push remote (fork): <remote> = <url>. Upstream: <remote> = https://github.com/nihas-gogox/Pulse-app.git
+- Current branch: <name>/V1.0.<n>. Changes file: changes/<name>-V1.0.<n>.md
+- Supabase: preprod xbisiveavvbifbzyfhgy only. No db push, no prod access, no secrets in chat or commits.
+- Old work: tags archive/<yyyymmdd>/* on my fork; parked WIP: wip/<name>-<yyyymmdd>.
+```
+
 ### (A) "start" — begin a PR's worth of work
 1. `git fetch upstream`
 2. `git switch -c <name>/V1.0.<next> --no-track upstream/V1` (next = one above your highest existing number).
@@ -142,6 +165,8 @@ Applies to Claude Code and Cursor for every team member. When someone says a tri
 2. Fix it, run the (B) checks, `git push vasanth nihas/hotfix-<desc>`, PR into `V1.0.1` on Vasanth's repo. Same schema-first rule if it has a migration.
 3. After Vasanth merges, run "sync prod" so the fix lands in V1.
 
-## 7. Open item at baseline (2026-10-16)
+## 7. Environment state (2026-10-16)
 
-- **Preprod DB is not equal to prod.** Of the 27 catch-up migrations, 4 never ran on preprod (`20271006161000`, `20271012130500`, `20271013120000`, `20271014183000`). 5 (`20271008114000`–`20271008118000`) are recorded in preprod's history but their SQL never ran there. Fix this before the team tests on preprod, otherwise preprod results don't predict prod.
+- Repository migrations = production (PR #12 added the three files that were applied only on production).
+- Preprod DB = production for the whole `public` schema (tables, columns, policies, triggers, views, functions), except 4 environment-specific monitoring/push functions. Preprod history also keeps a few old, superseded versions; that is intended.
+- Excluded from every database, never apply: `20271005130000`, `20271005190000`, `20271014184500`.

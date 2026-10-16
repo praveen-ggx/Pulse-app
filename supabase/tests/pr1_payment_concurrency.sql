@@ -61,28 +61,32 @@ insert into public.transactions (id, trip_id, amount_in, amount_out, ledger_cate
   ('897a1bef-76c6-43bb-a4fa-b9d28df18a96', '3f333e5b-1256-4208-acee-7de3bc305f0b', 3500, 0, 'compliance_advance'),
   ('55555555-5555-5555-5555-555555555555', '44444444-4444-4444-4444-444444444444', 900, 0, 'compliance_advance');
 
+-- The Godrej receipt belongs to a test org: it must never be classified or
+-- marked paid. Snapshot it before the supplier rewrite and require it unchanged.
+create temp table godrej_before as
+  select amount_in, amount_out, ledger_category, contact_type, contact_id,
+         party_name, ledger_entity_type, ledger_flow_type
+    from public.transactions where id = '897a1bef-76c6-43bb-a4fa-b9d28df18a96';
+
 \ir ../migrations/20271012140000_compliance_payments_supplier_payable.sql
-\ir ../migrations/20271014184500_godrej_dco_payable_classification.sql
 
 do $$
 declare
-  v_godrej public.transactions%rowtype;
   v_other public.transactions%rowtype;
   v_trip public.trips%rowtype;
 begin
-  select * into v_godrej from public.transactions where id = '897a1bef-76c6-43bb-a4fa-b9d28df18a96';
   select * into v_other from public.transactions where id = '55555555-5555-5555-5555-555555555555';
   select * into v_trip from public.trips where id = '3f333e5b-1256-4208-acee-7de3bc305f0b';
-  if v_godrej.amount_out is distinct from 3500 or v_godrej.amount_in is distinct from 0 then
-    raise exception 'Godrej payable did not keep 3500';
+  if exists (
+    select amount_in, amount_out, ledger_category, contact_type, contact_id,
+           party_name, ledger_entity_type, ledger_flow_type
+      from public.transactions where id = '897a1bef-76c6-43bb-a4fa-b9d28df18a96'
+    except
+    select * from godrej_before
+  ) or (select count(*) from public.transactions where id = '897a1bef-76c6-43bb-a4fa-b9d28df18a96') <> 1 then
+    raise exception 'Godrej test-org receipt changed; it must stay identical to its pre-migration snapshot';
   end if;
-  if v_godrej.contact_type is distinct from 'dco'
-     or v_godrej.contact_id is distinct from 'd0d0d0d0-d0d0-d0d0-d0d0-d0d0d0d0d0d0'
-     or v_godrej.ledger_entity_type is distinct from 'dco'
-     or v_godrej.ledger_flow_type is distinct from 'payable' then
-    raise exception 'Godrej receipt was not classified as the existing DCO payee';
-  end if;
-  if v_trip.supplier_id is not null or v_trip.dco_payee_id is distinct from v_godrej.contact_id then
+  if v_trip.supplier_id is not null or v_trip.dco_payee_id is distinct from 'd0d0d0d0-d0d0-d0d0-d0d0-d0d0d0d0d0d0' then
     raise exception 'Godrej trip supplier or DCO relationship changed';
   end if;
   if v_other.contact_id is distinct from 'abababab-abab-abab-abab-abababababab' then

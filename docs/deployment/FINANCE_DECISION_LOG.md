@@ -29,7 +29,20 @@ P3 #3 (`lock_timeout`) is a **forward-only authoring rule** on new migrations an
 
 After the compliance gate passes, approval calls `issue_payment_request` for the advance. The live-request unique index and the `unique_violation` handler in `issue_payment_request` keep one live request per trip and payment type. `20271014183000` also issues that request when the trip is already finance-verified, and it no longer returns before the call when the workflow-event insert conflicts.
 
-## Godrej transaction — stated classification, not yet release-approved
+## Godrej transaction — test organisation (decision 2026-10-15, supersedes the entry below)
+
+Recorded 2026-10-15 from Nihas's confirmation in the release-readiness work: **"Godrej India" on production is a test organisation.** Transaction `897a1bef-76c6-43bb-a4fa-b9d28df18a96` (₹3,500, trip `3f333e5b-1256-4208-acee-7de3bc305f0b`) is test data.
+
+| Item | Decision |
+| --- | --- |
+| Classification | None. The receipt must not be classified, edited, deleted, or marked paid |
+| `20271014184500_godrej_dco_payable_classification.sql` | Never applied. Stays out of every release set |
+| `20271012140000_compliance_payments_supplier_payable.sql` | Unchanged; it already skips this id |
+| `20271013101500_payment_requests.sql` backfill | Would link this receipt to a paid payment request. Must be prevented or reversed in the same transaction before release (Gate G in `REMEDIATION_PLAN.md`); method not yet approved |
+
+The entry below is kept as the historical record of the earlier stated classification. It no longer applies.
+
+## Godrej transaction — stated classification, not yet release-approved (superseded 2026-10-15)
 
 | Item | Value |
 | --- | --- |

@@ -103,6 +103,7 @@ export const IndianDrivingLicenseKeypadFlow = memo(
     useIndianVehiclePhysicalKeypad({
       enabled: isDesktopWeb,
       allowed: physicalAllowed,
+      extraKeys: canAddMore ? "/" : undefined,
       onKey: handleKey,
     });
 
@@ -177,6 +178,7 @@ export const IndianDrivingLicenseKeypadFlow = memo(
               atMaxLength={!canAddMore}
               canToggleMode={canAddMore}
               onToggleMode={handleToggleMode}
+              extraNumberKey="/"
             />
           </View>
         )}

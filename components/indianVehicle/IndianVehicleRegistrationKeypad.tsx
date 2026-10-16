@@ -56,6 +56,8 @@ export interface IndianVehicleRegistrationKeypadProps {
    */
   canToggleMode?: boolean;
   onToggleMode?: () => void;
+  /** Optional symbol key in the empty slot left of "0" on the number pad (e.g. "/" for licences). */
+  extraNumberKey?: string;
 }
 
 type KeyVariant = "char" | "special" | "disabled";
@@ -205,6 +207,7 @@ export const IndianVehicleRegistrationKeypad = memo(
     compact = false,
     canToggleMode = false,
     onToggleMode,
+    extraNumberKey,
   }: IndianVehicleRegistrationKeypadProps) {
     const atMax =
       atMaxLength ?? normalizedLength >= INDIAN_VEHICLE_TOTAL_LENGTH;
@@ -242,11 +245,22 @@ export const IndianVehicleRegistrationKeypad = memo(
               </View>
             ))}
             <View style={[styles.row, compact && styles.rowCompact]}>
-              <View
-                style={[styles.numPadSpacer, compact && styles.numPadSpacerCompact]}
-                pointerEvents="none"
-                accessibilityElementsHidden
-              />
+              {extraNumberKey ? (
+                <KeyCell
+                  label={extraNumberKey}
+                  onPress={() => handlePress(extraNumberKey)}
+                  disabled={inputLocked}
+                  variant="char"
+                  compact={compact}
+                  accessibilityLabel={`Symbol ${extraNumberKey}`}
+                />
+              ) : (
+                <View
+                  style={[styles.numPadSpacer, compact && styles.numPadSpacerCompact]}
+                  pointerEvents="none"
+                  accessibilityElementsHidden
+                />
+              )}
               <KeyCell
                 label="0"
                 onPress={() => handlePress("0")}

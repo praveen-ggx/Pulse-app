@@ -1,7 +1,8 @@
 /**
  * Indian DL entry: licences don't share one layout (most are 15 chars like
  * TN01 20200001234, AP issues 16, older / other states mix letters, digits and
- * "/"), so typing and the Continue gate accept any 6–20 letters / digits / "/".
+ * "/"), so typing and the Continue gate accept any 10–20 letters / digits / "/".
+ * Minimum 10 so a half-typed licence cannot unlock Continue.
  *
  * Also locks down the earlier bug: the typing layer and the Continue gate must
  * agree, or Continue stays disabled on a number the field let you type.
@@ -54,10 +55,15 @@ describe("Indian DL — typing layer", () => {
     ).toBe(INDIAN_DL_MAX_LENGTH);
   });
 
-  it("treats 6+ chars as complete", () => {
-    expect(INDIAN_DL_MIN_LENGTH).toBe(6);
+  it("treats 10+ chars as complete", () => {
+    expect(INDIAN_DL_MIN_LENGTH).toBe(10);
     expect(isIndianDrivingLicenseComplete(TN_15)).toBe(true);
-    expect(isIndianDrivingLicenseComplete("AB123")).toBe(false);
+    expect(isIndianDrivingLicenseComplete("TN01202000")).toBe(true);
+    expect(isIndianDrivingLicenseComplete("TN0120200")).toBe(false);
+  });
+
+  it("types \"/\" from the keypad", () => {
+    expect(appendIndianDlChar("DL", "/")).toBe("DL/");
   });
 
   it("free-text sanitizer uppercases and keeps letters, digits, space, - and /", () => {
@@ -80,6 +86,8 @@ describe("Indian DL — Continue gate", () => {
     ["older slash layout", OLD_SLASH, true],
     ["hyphenated", "MH-12-2010-0001234", true],
     ["5 chars (too short)", "AB123", false],
+    ["9 chars, half-typed (too short)", "TN01 20200", false],
+    ["10 chars (minimum)", "TN01 202000", true],
     ["21 chars (too long)", "A".repeat(21), false],
     ["symbols", "TN01#2020", false],
   ])("%s -> %s", (_label, input, expected) => {

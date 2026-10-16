@@ -97,7 +97,7 @@ const validateDrivingLicenseNumber = (licenseNumber: string): string | null => {
   const trimmed = licenseNumber.trim();
   if (!trimmed) return null;
   if (isIndianDrivingLicenseFormatValid(trimmed)) return null;
-  return 'Enter a valid DL number — 6 to 20 letters or numbers (e.g. MH12 20180001234).';
+  return 'Enter a valid DL number — 10 to 20 letters or numbers (e.g. MH12 20180001234).';
 };
 
 export function AddDriverModal(props: AddDriverModalProps) {

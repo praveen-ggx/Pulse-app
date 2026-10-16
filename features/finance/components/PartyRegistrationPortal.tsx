@@ -188,8 +188,6 @@ export interface PartyRegistrationPortalProps {
   forceFullPage?: boolean;
 }
 
-
-
 const MIN_PHONE_LENGTH_FOR_SEARCH = 8;
 const PHONE_DEBOUNCE_MS = 400;
 const CLIENT_DRAFT_STORAGE_KEY = "party-registration-client-draft-v1";
@@ -263,7 +261,7 @@ function dlError(raw: string): string | null {
   if (!raw.trim()) return null;
   return isIndianDrivingLicenseFormatValid(raw)
     ? null
-    : "Use a valid DL number — 6 to 20 letters or numbers (e.g. TN01 20200001234).";
+    : "Use a valid DL number — 10 to 20 letters or numbers (e.g. TN01 20200001234).";
 }
 
 type SummaryIcon = ComponentType<{

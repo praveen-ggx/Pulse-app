@@ -82,7 +82,7 @@ describe("Indian vehicle plate entry", () => {
     expect(appendIndianVehicleChar("TN 18 D", "2")).toBe("TN18D2");
   });
 
-  it.each(["", "T", "TN", "TN1", "TN 1"])("treats too-short %s as invalid", (partial) => {
+  it.each(["", "T", "TN", "TN1", "TN 1", "TN17", "ABCD", "12345", "TN 17 A"])("treats too-short %s as invalid (half-typed plates must not unlock Continue)", (partial) => {
     expect(isIndianVehiclePlateValid(partial)).toBe(false);
     if (partial.length === 0) {
       expect(validateIndianVehicleNumber(partial)).toBe("Required");
@@ -98,8 +98,7 @@ describe("Indian vehicle plate entry", () => {
     "TN1AS2202",
     "DL3CAB1234",
     "TN17AS220",
-    "ABCD",
-    "12345",
+    "AB1234",
     "MH12AB12CD34",
   ] as const;
 

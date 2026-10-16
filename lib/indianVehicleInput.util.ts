@@ -19,12 +19,13 @@ export const INDIAN_VEHICLE_SEGMENT_LENGTHS = [2, 2, 2, 4] as const;
 /**
  * Plate length after normalize (no spaces). Standard plates are 9–10 chars, but
  * BH-series (22 BH 1234 AB), older and special plates differ — so entry accepts
- * any 4–12 letters / digits in any order instead of enforcing the standard mask.
+ * any 4–12 letters / digits in any order instead of enforcing the standard mask. Minimum 6 so a half-typed plate
+ * (e.g. "TN17") can't unlock Continue and create junk / duplicate vehicles.
  */
-export const INDIAN_VEHICLE_MIN_TOTAL_LENGTH = 4;
+export const INDIAN_VEHICLE_MIN_TOTAL_LENGTH = 6;
 export const INDIAN_VEHICLE_TOTAL_LENGTH = 12;
 
-const VALID_PLATE = /^[A-Z0-9]{4,12}$/;
+const VALID_PLATE = /^[A-Z0-9]{6,12}$/;
 /** Progressive match for the standard AA 00 A(A) 0000 layout (drives hints only). */
 const STANDARD_PLATE_PREFIX = /^[A-Z]{0,2}$|^[A-Z]{2}[0-9]{1,2}$|^[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{0,4}$/;
 
@@ -32,7 +33,7 @@ export function getIndianVehicleNormalizedLength(display: string): number {
   return normalizeVehicleNumberForMatch(display).length;
 }
 
-/** True when the value is 4–12 letters / digits (spaces and symbols ignored). */
+/** True when the value is 6–12 letters / digits (spaces and symbols ignored). */
 export function isIndianVehiclePlateValid(display: string): boolean {
   return VALID_PLATE.test(normalizeVehicleNumberForMatch(display));
 }

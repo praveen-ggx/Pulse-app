@@ -79,7 +79,7 @@ export const IndianVehicleRegistrationKeypadFlow = memo(
 
     const keyboardKind: IndianVehicleKeyboardKind = kindOverride ?? preferredKind;
     const displayValue = value.trim();
-    // Plates can be valid from 4 chars but still take more — keep the caret
+    // Plates can be valid from 6 chars but still take more — keep the caret
     // until the maximum length is reached.
     const showCursor = normLen < INDIAN_VEHICLE_TOTAL_LENGTH;
     const inputPlatform = useInputPlatform();

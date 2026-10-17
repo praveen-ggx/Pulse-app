@@ -21,14 +21,40 @@ export const INDIAN_VEHICLE_MIN_TOTAL_LENGTH = 9;
 export const INDIAN_VEHICLE_TOTAL_LENGTH = 10;
 
 const VALID_PLATE = /^[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}$/;
+const NO_SERIES_PLATE = /^[A-Z]{2}[0-9]{2}[0-9]{4}$/;
+
+/**
+ * Plate layouts the user can pick. "standard" is the default and the only one
+ * typed unless the user picks another format explicitly.
+ *   standard — AA 00 A(A) 0000 (TN 17 AS 2202)
+ *   noSeries — AA 00 0000, no series letter (KA 56 6088)
+ */
+export type IndianVehicleFormat = "standard" | "noSeries";
+
+export const INDIAN_VEHICLE_FORMATS: readonly {
+  id: IndianVehicleFormat;
+  label: string;
+  example: string;
+}[] = [
+  { id: "standard", label: "Standard", example: "TN 17 AS 2202" },
+  { id: "noSeries", label: "No series letter", example: "KA 56 6088" },
+];
+
+/** Which supported format a complete plate matches, or null. */
+export function detectIndianVehicleFormat(display: string): IndianVehicleFormat | null {
+  const norm = normalizeVehicleNumberForMatch(display);
+  if (VALID_PLATE.test(norm)) return "standard";
+  if (NO_SERIES_PLATE.test(norm)) return "noSeries";
+  return null;
+}
 
 export function getIndianVehicleNormalizedLength(display: string): number {
   return normalizeVehicleNumberForMatch(display).length;
 }
 
-/** True when the value is a complete AA 00 A(A) 0000 plate (1 or 2 series letters). */
+/** True when the value is a complete plate in one of the supported formats. */
 export function isIndianVehiclePlateValid(display: string): boolean {
-  return VALID_PLATE.test(normalizeVehicleNumberForMatch(display));
+  return detectIndianVehicleFormat(display) !== null;
 }
 
 /** Continue-gate used by the wizards. */
@@ -41,8 +67,17 @@ export type IndianVehicleKeyboardKind = "letters" | "numbers";
 /** Segment chips under the field (AA · 00 · A(A) · 0000). */
 export function getIndianVehicleSegmentGuide(
   display: string,
+  format: IndianVehicleFormat = "standard",
 ): { label: string; done: boolean }[] {
-  const p = parsePlate(normalizeVehicleNumberForMatch(display));
+  const norm = normalizeVehicleNumberForMatch(display);
+  if (format === "noSeries") {
+    return [
+      { label: "AA", done: norm.length >= 2 },
+      { label: "00", done: norm.length >= 4 },
+      { label: "0000", done: norm.length >= 8 },
+    ];
+  }
+  const p = parsePlate(norm);
   return [
     { label: "AA", done: p.state.length === 2 },
     { label: "00", done: p.district.length === 2 },
@@ -52,14 +87,26 @@ export function getIndianVehicleSegmentGuide(
 }
 
 /** Which character classes are legal as the next keystroke. */
-export function getIndianVehicleAllowedNext(display: string): {
+export function getIndianVehicleAllowedNext(
+  display: string,
+  format: IndianVehicleFormat = "standard",
+): {
   letters: boolean;
   digits: boolean;
 } {
-  return allowedNext(normalizeVehicleNumberForMatch(display));
+  return allowedNext(normalizeVehicleNumberForMatch(display), format);
 }
 
-function allowedNext(normalized: string): { letters: boolean; digits: boolean } {
+function allowedNext(
+  normalized: string,
+  format: IndianVehicleFormat = "standard",
+): { letters: boolean; digits: boolean } {
+  if (format === "noSeries") {
+    const len = normalized.length;
+    if (len < 2) return { letters: true, digits: false };
+    if (len < 8) return { letters: false, digits: true };
+    return { letters: false, digits: false };
+  }
   const p = parsePlate(normalized);
   const n = normalized.length;
   if (n >= 4 + p.series.length + 4) {
@@ -86,7 +133,15 @@ function allowedNext(normalized: string): { letters: boolean; digits: boolean } 
  */
 export function getIndianVehicleKeyboardKind(
   normalizedLenOrValue: number | string,
+  format: IndianVehicleFormat = "standard",
 ): IndianVehicleKeyboardKind {
+  if (format === "noSeries") {
+    const n =
+      typeof normalizedLenOrValue === "number"
+        ? normalizedLenOrValue
+        : normalizeVehicleNumberForMatch(normalizedLenOrValue).length;
+    return n < 2 ? "letters" : "numbers";
+  }
   if (typeof normalizedLenOrValue === "number") {
     const n = normalizedLenOrValue;
     if (n < 2) return "letters";
@@ -107,9 +162,11 @@ export function getIndianVehicleKeyboardKind(
  */
 export function getIndianVehicleTextInputKeyboardType(
   display: string,
+  format: IndianVehicleFormat = "standard",
 ): TextInputProps["keyboardType"] {
   const { letters, digits } = allowedNext(
     normalizeVehicleNumberForMatch(display),
+    format,
   );
   if (letters) return "default";
   if (digits) return "number-pad";
@@ -129,7 +186,18 @@ export function getIndianVehicleKeyboardType(
 
 export function getIndianVehicleFormatHint(
   normalizedLenOrValue: number | string,
+  format: IndianVehicleFormat = "standard",
 ): string {
+  if (format === "noSeries") {
+    const n =
+      typeof normalizedLenOrValue === "number"
+        ? normalizedLenOrValue
+        : normalizeVehicleNumberForMatch(normalizedLenOrValue).length;
+    if (n < 2) return "Enter 2 letters (state code, e.g. KA)";
+    if (n < 4) return "Enter 2 digits (district, e.g. 56)";
+    if (n < 8) return "Enter 4 digits (number, e.g. 6088)";
+    return "Format: AA 00 0000 (e.g. KA 56 6088)";
+  }
   if (typeof normalizedLenOrValue === "number") {
     const n = normalizedLenOrValue;
     if (n < 2) return "Enter 2 letters (state code, e.g. TN)";
@@ -165,12 +233,19 @@ export function deleteIndianVehicleLastChar(display: string): string {
 }
 
 /** Append one character if it matches the current segment rules. */
-export function appendIndianVehicleChar(display: string, char: string): string {
+export function appendIndianVehicleChar(
+  display: string,
+  char: string,
+  format: IndianVehicleFormat = "standard",
+): string {
   const upper = char.toUpperCase();
-  return applyIndianVehicleKeystroke(display + upper);
+  return applyIndianVehicleKeystroke(display + upper, format);
 }
 
-export function applyIndianVehicleKeystroke(nextRaw: string): string {
+export function applyIndianVehicleKeystroke(
+  nextRaw: string,
+  format: IndianVehicleFormat = "standard",
+): string {
   const norm = normalizeVehicleNumberForMatch(nextRaw);
   let built = "";
   for (
@@ -179,7 +254,7 @@ export function applyIndianVehicleKeystroke(nextRaw: string): string {
     i++
   ) {
     const ch = norm[i];
-    const { letters, digits } = allowedNext(built);
+    const { letters, digits } = allowedNext(built, format);
     if (/[A-Z]/.test(ch)) {
       if (letters) built += ch;
     } else if (/[0-9]/.test(ch)) {

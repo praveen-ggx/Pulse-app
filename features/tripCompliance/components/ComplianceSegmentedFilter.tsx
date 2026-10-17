@@ -99,7 +99,7 @@ export function ComplianceSegmentedFilter<T extends string>({
                   ) : null}
                   <Text
                     style={[styles.cardDenseCopy, active && styles.labelActive]}
-                    numberOfLines={2}
+                    numberOfLines={1}
                   >
                     {option.label}
                   </Text>
@@ -331,16 +331,15 @@ const styles = StyleSheet.create({
     flexGrow: 0,
     minWidth: 0,
     fontSize: 12,
-    lineHeight: 15,
+    lineHeight: 16,
     fontWeight: "700",
-    letterSpacing: 0.2,
     color: Theme.textPrimaryDark,
     includeFontPadding: false,
-    textAlign: "center",
+    textAlign: "left",
   },
   labelActive: {
     color: Theme.buttonDarkText,
-    fontWeight: "500",
+    fontWeight: "700",
   },
   countBadge: {
     minWidth: 14,

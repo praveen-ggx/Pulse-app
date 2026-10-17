@@ -2251,12 +2251,15 @@ export function ComplianceDocumentWorkspace({
   focusToken = 0,
   onReviewTripDocs,
   listHeader = null,
+  detailHeader = null,
 }: {
   summaries: ComplianceTripSummary[];
   /** Resolved by the page for the full queue — one lookup pass, not one per view. */
   tripFacts: ComplianceListTripFacts;
   /** Pinned above the trip cards (e.g. Verified-stage outcome filter). */
   listHeader?: React.ReactNode;
+  /** Pinned above the right-hand body (Awaiting POD age filters). */
+  detailHeader?: React.ReactNode;
   organizationId: string;
   actorId: string | null;
   canVerify: boolean;
@@ -4007,7 +4010,9 @@ export function ComplianceDocumentWorkspace({
           )}
         </View>
       ) : showHardCopyPodLog && !hideDocumentPanes ? (
-        <View style={[styles.previewPane, styles.podLogPane]}>
+        <View style={[styles.detailColumn, stacked && styles.detailColumnStacked]}>
+          {detailHeader}
+          <View style={[styles.previewPane, styles.podLogPane, styles.detailPaneFill]}>
           {summary && showLogHardCopyPod ? (
             <ComplianceHardCopyPodSheet
               key={`${summary.trip.id}:${podLogRound}`}
@@ -4032,6 +4037,7 @@ export function ComplianceDocumentWorkspace({
               />
             </View>
           )}
+          </View>
         </View>
       ) : hideDocumentPanes ? null : (
       <View style={styles.previewPane}>
@@ -6242,7 +6248,7 @@ const TripListRow = React.memo(function TripListRow({
             <PartyAvatar
               name={headerName}
               entityType={trip.supplier_id ? "supplier" : "client"}
-              size={26}
+              size={22}
               initialsColorSeed={headerSeed}
             />
             <Text
@@ -6461,10 +6467,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.complianceTripCardBg,
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 5,
-    gap: 3,
+    paddingHorizontal: 10,
+    paddingTop: 6,
+    paddingBottom: 4,
+    gap: 2,
   },
   rowHover: {
     backgroundColor: Theme.complianceSelectedWash,
@@ -6494,18 +6500,17 @@ const styles = StyleSheet.create({
   },
   rowHead: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
+    alignItems: "center",
+    gap: 6,
   },
   rowMeta: {
     flexShrink: 0,
-    maxWidth: "42%",
+    maxWidth: "46%",
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     justifyContent: "flex-end",
     flexWrap: "wrap",
     gap: 4,
-    paddingTop: 2,
   },
   lrReceipt: { gap: 1 },
   lrReceiptLine: {
@@ -6541,24 +6546,23 @@ const styles = StyleSheet.create({
   rowPartyBlock: {
     flex: 1,
     minWidth: 0,
-    gap: 2,
+    gap: 1,
   },
   rowSupplierHit: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
     minWidth: 0,
     borderRadius: 8,
-    paddingVertical: 1,
   },
   rowPartyHitPressed: { opacity: 0.85 },
   client: {
     flex: 1,
     minWidth: 0,
-    fontSize: 12,
-    lineHeight: 15,
-    fontWeight: "600",
-    letterSpacing: 0.2,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
+    letterSpacing: 0.15,
     color: Theme.textPrimaryDark,
   },
   clientSelected: { color: Theme.complianceTripCardOnSelected },
@@ -6571,7 +6575,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    marginLeft: 34,
+    marginLeft: 28,
     minWidth: 0,
   },
   tripIdHit: {
@@ -6581,8 +6585,8 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
   },
   tripIdLink: {
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 10,
+    lineHeight: 13,
     fontWeight: "600",
     letterSpacing: 0.1,
     color: Theme.complianceBulk,
@@ -6595,66 +6599,69 @@ const styles = StyleSheet.create({
   },
   tripId: { flexShrink: 1, fontSize: 10, fontWeight: "500", color: Theme.textSecondary },
   tripIdSelected: { color: Theme.complianceTripCardMutedOnSelected },
-  modelTag: { flexShrink: 0, borderRadius: 999, paddingHorizontal: 5, paddingVertical: 1 },
+  modelTag: { flexShrink: 0, borderRadius: 999, paddingHorizontal: 5, paddingVertical: 0 },
   modelTagAsset: { backgroundColor: Theme.positiveMuted },
   modelTagAggregate: { backgroundColor: Theme.complianceStageInfoBg },
-  modelTagText: { fontSize: 8, fontWeight: "600", letterSpacing: 0.2, lineHeight: 11 },
+  modelTagText: { fontSize: 7, fontWeight: "700", letterSpacing: 0.2, lineHeight: 10 },
   modelTagTextAsset: { color: Theme.darkGreen },
   modelTagTextAggregate: { color: Theme.complianceStageInfoFg },
   statusPill: {
     borderRadius: 999,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     paddingVertical: 2,
     flexShrink: 0,
   },
   statusText: {
-    fontSize: 8,
+    fontSize: 7,
     fontWeight: "700",
-    letterSpacing: 0.2,
-    lineHeight: 11,
+    letterSpacing: 0.25,
+    lineHeight: 10,
   },
   route: { flexDirection: "row", alignItems: "center" },
   leg: { flex: 1, minWidth: 0 },
   legEnd: { alignItems: "flex-end" },
   city: {
-    fontSize: 11,
+    fontSize: 10,
     lineHeight: 13,
-    fontWeight: "600",
+    fontWeight: "700",
     letterSpacing: 0.2,
     color: Theme.textPrimaryDark,
     textTransform: "uppercase",
   },
   citySelected: { color: Theme.complianceTripCardOnSelected },
-  region: { fontSize: 9, fontWeight: "400", color: Theme.textMuted, marginTop: 0 },
+  region: { fontSize: 8, lineHeight: 10, fontWeight: "500", color: Theme.textMuted, marginTop: 0 },
   regionSelected: { color: Theme.complianceTripCardMutedOnSelected },
   alignEnd: { textAlign: "right", alignSelf: "stretch" },
-  arrowSlot: { width: 22, alignItems: "center", justifyContent: "center" },
-  arrow: { fontSize: 12, fontWeight: "400", color: Theme.complianceStageInfoFg },
+  arrowSlot: { width: 18, alignItems: "center", justifyContent: "center" },
+  arrow: { fontSize: 11, fontWeight: "500", color: Theme.complianceStageInfoFg },
   arrowSelected: { color: Theme.complianceTripCardOnSelected },
   facts: {
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "flex-end",
-    rowGap: 2,
+    rowGap: 1,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Theme.complianceTripCardBorder,
-    paddingTop: 4,
+    paddingTop: 3,
   },
   factsSelected: { borderTopColor: Theme.complianceTripCardDividerOnSelected },
   factCell: { width: "50%", paddingRight: 6, minWidth: 0, justifyContent: "flex-end" },
   factCellEnd: { paddingRight: 0, paddingLeft: 6, alignItems: "flex-end" },
   factLabel: {
-    fontSize: 8,
-    fontWeight: "600",
-    letterSpacing: 0.3,
+    fontSize: 7,
+    fontWeight: "700",
+    letterSpacing: 0.35,
     textTransform: "uppercase",
     color: Theme.textMuted,
-    lineHeight: 10,
+    lineHeight: 9,
   },
   factLabelSelected: { color: Theme.complianceTripCardMutedOnSelected },
-  factValue: { fontSize: 10, fontWeight: "500", color: Theme.textSecondary, lineHeight: 13, marginTop: 1 },
-  factValueBare: { fontSize: 10, fontWeight: "500", color: Theme.textSecondary, lineHeight: 13 },
+  factValue: { fontSize: 9, fontWeight: "600", color: Theme.textSecondary, lineHeight: 12, marginTop: 0 },
+  factValueBare: { fontSize: 9, fontWeight: "600", color: Theme.textSecondary, lineHeight: 12 },
   factValueSelected: { color: Theme.complianceTripCardMutedOnSelected },
+  detailColumn: { flex: 1, minWidth: 0, minHeight: 0, gap: 8 },
+  detailColumnStacked: { width: "100%", flex: 1 },
+  detailPaneFill: { flex: 1 },
   podLogPane: { paddingHorizontal: 0, paddingVertical: 0, overflow: "hidden" },
   previewPane: {
     flex: 1,

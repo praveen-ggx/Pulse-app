@@ -1,6 +1,6 @@
 import Theme from "@/constants/Theme";
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 export type ComplianceSegmentOption<T extends string> = {
   id: T;
@@ -12,9 +12,8 @@ export type ComplianceSegmentOption<T extends string> = {
 };
 
 /**
- * Segmented control for Compliance queues. Chips share the panel width evenly
- * (no horizontal scroll). Use `cardDense` for the card-list header only —
- * table toolbar keeps the default compact sizing.
+ * Segmented control for Compliance queues. Table chips share the row.
+ * Card-list chips stay small, keep the full label, and scroll sideways.
  */
 export function ComplianceSegmentedFilter<T extends string>({
   value,
@@ -40,27 +39,18 @@ export function ComplianceSegmentedFilter<T extends string>({
   /** Many options: chips wrap onto a second row instead of being cut off. */
   wrap?: boolean;
   /**
-   * Card-list header only: denser chips; full label + count stay readable
-   * (label may wrap to 2 lines). Leave false for table view.
+   * Card-list header only: small chips with the full label, scrolled sideways.
+   * Leave false for table view.
    */
   cardDense?: boolean;
 }) {
-  return (
-    <View
-      style={[
-        styles.bar,
-        embedded && styles.barEmbedded,
-        cardDense && styles.barCardDense,
-        embedded && !narrow && styles.barEmbeddedFull,
-        narrow && styles.barNarrow,
-      ]}
-    >
+  const track = (
       <View
         style={[
           styles.track,
           compact && styles.trackCompact,
           cardDense && styles.trackCardDense,
-          !narrow && styles.trackFull,
+          !cardDense && !narrow && styles.trackFull,
           narrow && styles.trackNarrow,
           wrap && styles.trackWrap,
         ]}
@@ -77,23 +67,26 @@ export function ComplianceSegmentedFilter<T extends string>({
               accessibilityState={{ selected: active }}
               accessibilityLabel={`${option.a11yLabel ?? option.label}, ${count} trips`}
               hitSlop={{ top: 6, bottom: 6 }}
-              style={({ pressed }) => [
-                styles.segment,
-                !narrow && styles.segmentFlex,
-                narrow && styles.segmentNarrow,
-                compact && styles.segmentCompact,
-                cardDense && styles.segmentCardDense,
-                active && styles.segmentActive,
-                pressed && styles.segmentPressed,
-              ]}
+              style={(state) => {
+                const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
+                return [
+                  styles.segment,
+                  !narrow && styles.segmentFlex,
+                  narrow && styles.segmentNarrow,
+                  compact && styles.segmentCompact,
+                  cardDense && styles.segmentCardDense,
+                  cardDense && !active && (hovered || pressed) && styles.segmentCardDenseHover,
+                  active && styles.segmentActive,
+                  cardDense && active && styles.segmentCardDenseActive,
+                  !cardDense && pressed && styles.segmentPressed,
+                ];
+              }}
             >
               {cardDense ? (
                 <View style={styles.segmentInnerCardDense}>
                   {option.dot ? (
-                    <View style={[styles.dotCardDense, { backgroundColor: option.dot }]} />
-                  ) : (
-                    <View style={styles.dotCardDenseSpacer} />
-                  )}
+                    <View style={[styles.dotCardDense, { backgroundColor: active ? Theme.accentGold : option.dot }]} />
+                  ) : null}
                   <Text
                     style={[styles.cardDenseCopy, active && styles.labelActive]}
                     numberOfLines={1}
@@ -104,15 +97,13 @@ export function ComplianceSegmentedFilter<T extends string>({
                     style={[
                       styles.countBadge,
                       styles.countBadgeDense,
-                      active ? styles.countBadgeActive : null,
-                      option.dot && !active ? { backgroundColor: option.dot } : null,
+                      { backgroundColor: active ? Theme.accentGold : option.dot ?? Theme.buttonDark },
                     ]}
                   >
                     <Text
                       style={[
                         styles.cardDenseCount,
-                        !option.dot && !active && styles.countOnLight,
-                        active && styles.countActive,
+                        { color: active ? Theme.buttonDark : Theme.buttonDarkText },
                       ]}
                     >
                       {count}
@@ -149,6 +140,31 @@ export function ComplianceSegmentedFilter<T extends string>({
           );
         })}
       </View>
+  );
+
+  return (
+    <View
+      style={[
+        styles.bar,
+        embedded && styles.barEmbedded,
+        cardDense && styles.barCardDense,
+        embedded && !narrow && !cardDense && styles.barEmbeddedFull,
+        narrow && styles.barNarrow,
+      ]}
+    >
+      {cardDense ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.cardDenseScroll}
+          contentContainerStyle={styles.cardDenseScrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          {track}
+        </ScrollView>
+      ) : (
+        track
+      )}
     </View>
   );
 }
@@ -219,10 +235,31 @@ const styles = StyleSheet.create({
     padding: 1,
     gap: 0,
   },
-  trackCardDense: {
+  cardDenseScroll: {
+    width: "100%",
+    height: 36,
+    flexGrow: 0,
     borderRadius: 999,
-    padding: 1,
-    gap: 0,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+    backgroundColor: Theme.cardWhite,
+  },
+  cardDenseScrollContent: {
+    alignItems: "center",
+  },
+  trackCardDense: {
+    width: "auto",
+    alignSelf: "flex-start",
+    alignItems: "center",
+    height: 36,
+    paddingHorizontal: 4,
+    paddingVertical: 0,
+    gap: 4,
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    borderWidth: 0,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   segment: {
     height: 22,
@@ -248,13 +285,26 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   segmentCardDense: {
-    height: 22,
-    paddingHorizontal: 6,
+    flexGrow: 0,
+    flexShrink: 0,
+    height: 28,
+    paddingLeft: 10,
+    paddingRight: 8,
     paddingVertical: 0,
     borderRadius: 999,
+    backgroundColor: Theme.surface,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+  },
+  segmentCardDenseHover: {
+    backgroundColor: Theme.cardWhite,
+    borderColor: Theme.complianceHoverBorder,
+  },
+  segmentCardDenseActive: {
+    borderColor: Theme.buttonDark,
   },
   segmentActive: {
-    backgroundColor: Theme.liquidGoodBack,
+    backgroundColor: Theme.buttonDark,
     borderRadius: 999,
   },
   segmentPressed: { opacity: 0.7 },
@@ -270,15 +320,13 @@ const styles = StyleSheet.create({
     flexWrap: "nowrap",
     width: "auto",
   },
-  /** Label + count stay on one line so every word remains visible. */
+  /** Equal chips: the label may wrap, the count stays visible. */
   segmentInnerCardDense: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     flexWrap: "nowrap",
-    gap: 3,
-    width: "auto",
-    paddingHorizontal: 1,
+    gap: 6,
   },
   dot: {
     width: 5,
@@ -287,14 +335,9 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   dotCardDense: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    flexShrink: 0,
-  },
-  dotCardDenseSpacer: {
-    width: 0,
-    height: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     flexShrink: 0,
   },
   label: {
@@ -308,16 +351,16 @@ const styles = StyleSheet.create({
   },
   cardDenseCopy: {
     flexShrink: 0,
-    fontSize: 10,
-    lineHeight: 12,
-    fontWeight: "500",
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
     color: Theme.textPrimaryDark,
     includeFontPadding: false,
-    textAlign: "center",
+    textAlign: "left",
   },
   labelActive: {
     color: Theme.buttonDarkText,
-    fontWeight: "500",
+    fontWeight: "700",
   },
   countBadge: {
     minWidth: 14,
@@ -329,9 +372,10 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.surface,
   },
   countBadgeDense: {
-    height: 12,
-    minWidth: 14,
-    paddingHorizontal: 4,
+    height: 16,
+    minWidth: 18,
+    paddingHorizontal: 5,
+    flexShrink: 0,
   },
   countBadgeActive: {
     backgroundColor: Theme.cardWhite,
@@ -351,6 +395,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Theme.buttonDarkText,
     fontVariant: ["tabular-nums"],
+    includeFontPadding: false,
   },
   countOnLight: {
     color: Theme.textPrimaryDark,

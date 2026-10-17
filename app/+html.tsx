@@ -20,7 +20,7 @@ export default function Root({ children }: { children: React.ReactNode }) {
         <meta charSet="utf-8" />
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
         <meta name="viewport" content={VIEWPORT_CONTENT_BASE} />
-        <link rel="icon" href="/favicon.ico?v=mascot" type="image/x-icon" />
+        <link rel="icon" href="/favicon.ico?v=mascot-clear" type="image/x-icon" />
 
         {/* Open Graph — link previews on WhatsApp/LinkedIn/Slack/etc. og:image must be an absolute URL. */}
         <meta property="og:title" content="Pulse — Fleet Management Platform" />

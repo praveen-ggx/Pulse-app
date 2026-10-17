@@ -582,6 +582,11 @@ export const Theme = {
   complianceTripCardOnSelected: "#0F172A",
   complianceTripCardMutedOnSelected: "#94A3B8",
   complianceTripCardDividerOnSelected: "#E6EDF5",
+  /** Hover/selected washes for queue cards, chips, and document rows. */
+  complianceHoverBg: "rgba(15, 23, 42, 0.04)",
+  complianceHoverBorder: "#CBD5E1",
+  complianceSelectedWash: "#F8FAFC",
+  complianceUploadHover: "#166534",
   complianceStageDocsFg: "#DC2626",
   complianceStageDocsBg: "#FEF2F2",
   complianceStageBalanceFg: "#2563EB",

@@ -126,7 +126,7 @@ import { useMemberAccess } from "@/lib/useMemberAccess";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Download, FileText, LayoutGrid, Search, Table2, Wallet } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View, type LayoutChangeEvent, type NativeSyntheticEvent, type NativeScrollEvent, type TextStyle } from "react-native";
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View, type LayoutChangeEvent, type NativeSyntheticEvent, type NativeScrollEvent, type TextStyle, type ViewStyle } from "react-native";
 
 function complianceQueueLabel(stage: ComplianceQueueFilter): string {
   if (stage === "all") return "All";
@@ -144,6 +144,11 @@ const STAGE_DEPT_GROUPS = [
   { department: "Finance", stages: ["balance_pending", "payment_settled"] },
 ] as const;
 
+type HoverPressState = { pressed: boolean; hovered?: boolean };
+
+const WEB_POINTER: ViewStyle | null =
+  Platform.OS === "web" ? ({ cursor: "pointer" } as ViewStyle) : null;
+
 function StageChip({
   label,
   count,
@@ -151,7 +156,6 @@ function StageChip({
   active,
   onPress,
   caption,
-  reserveCaption = false,
 }: {
   label: string;
   count: number;
@@ -159,52 +163,66 @@ function StageChip({
   active: boolean;
   onPress: () => void;
   caption?: string;
-  reserveCaption?: boolean;
 }) {
-  const showCaptionCol = Boolean(caption) || reserveCaption;
   return (
-    <TouchableOpacity
+    <Pressable
       onPress={onPress}
-      activeOpacity={0.88}
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
+      accessibilityLabel={caption ? `${label}, ${caption}, ${count}` : `${label}, ${count}`}
       style={styles.chipStack}
-      hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+      hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
     >
-      <View style={[styles.chip, active && styles.chipActive]}>
-        <Text style={[styles.chipText, active && styles.chipTextActive]} numberOfLines={1}>
-          {label}
-        </Text>
-        {count > 0 ? (
+      {({ pressed, hovered }: HoverPressState) => {
+        const highlighted = Boolean(hovered) || pressed;
+        return (
           <View
             style={[
-              styles.chipCountBadge,
-              { backgroundColor: active ? Theme.cardWhite : countColor },
+              styles.chip,
+              WEB_POINTER,
+              highlighted && !active && styles.chipHover,
+              active && styles.chipActive,
+              highlighted && active && styles.chipActiveHover,
             ]}
           >
-            <Text
-              style={[
-                styles.chipCount,
-                { color: active ? Theme.liquidGoodBack : Theme.buttonDarkText },
-              ]}
-            >
-              {count}
-            </Text>
+            <View style={styles.chipCopy}>
+              <Text style={[styles.chipText, active && styles.chipTextActive]} numberOfLines={1}>
+                {label}
+              </Text>
+              {caption ? (
+                <Text
+                  style={[
+                    styles.chipSubtitle,
+                    highlighted && !active && styles.chipSubtitleHover,
+                    active && styles.chipSubtitleActive,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {caption}
+                </Text>
+              ) : null}
+            </View>
+            {count > 0 ? (
+              <View
+                style={[
+                  styles.chipCountBadge,
+                  { backgroundColor: active ? Theme.accentGold : countColor },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.chipCount,
+                    { color: active ? Theme.buttonDark : Theme.buttonDarkText },
+                  ]}
+                >
+                  {count}
+                </Text>
+              </View>
+            ) : null}
           </View>
-        ) : null}
-      </View>
-      {showCaptionCol ? (
-        caption ? (
-          <View style={styles.chipCaptionPanel}>
-            <Text style={styles.chipCaption} numberOfLines={1}>
-              {caption}
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.chipCaptionSlot} />
-        )
-      ) : null}
-    </TouchableOpacity>
+        );
+      }}
+    </Pressable>
   );
 }
 
@@ -224,7 +242,7 @@ function StageFilterRail({
 }) {
   const showStage = (item: ComplianceQueueFilter) => !visibleStages || visibleStages.has(item);
   return (
-    <View style={styles.stageTrack} accessibilityRole="tablist">
+    <>
       {showStage("all") ? (
       <StageChip
         label="All"
@@ -232,7 +250,6 @@ function StageFilterRail({
         countColor={COMPLIANCE_FILTER_COUNT_TONE.all}
         active={stage === "all"}
         onPress={() => onSelectStage("all")}
-        reserveCaption
       />
       ) : null}
       {STAGE_DEPT_GROUPS.map((group) =>
@@ -250,7 +267,7 @@ function StageFilterRail({
           />
         )),
       )}
-    </View>
+    </>
   );
 }
 
@@ -1147,7 +1164,25 @@ export default function ComplianceScreen() {
 
   /** Cards: queue subfilter above the trip list. Table: under stage chips. Verified has no subfilter. */
   const cardsListHeader = useMemo(() => {
-    return renderQueueSubFilter(false);
+    return (
+      <View style={styles.cardListHeader}>
+        <View style={styles.cardSearchRow}>
+          <Search size={14} color={Theme.textSecondary} strokeWidth={2.2} />
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search trip ID, vehicle, driver, client, or supplier"
+            placeholderTextColor={Theme.textSecondary}
+            style={styles.searchInput as TextStyle}
+            autoCorrect={false}
+            autoCapitalize="none"
+            spellCheck={false}
+            accessibilityLabel="Search compliance trips"
+          />
+        </View>
+        {renderQueueSubFilter(false)}
+      </View>
+    );
   }, [
     complianceHoldCount,
     counts.compliance_pending,
@@ -1543,6 +1578,48 @@ export default function ComplianceScreen() {
     openComplianceCard(routeTripId, routeTab);
   }, [openComplianceCard, routeTab, routeTripId, setStage, summaries]);
 
+  const awaitingFiltersOnDetail = viewMode === "card" && !debitControlOnly;
+  const renderAwaitingPodFilters = (onDetail: boolean) =>
+    awaitingPodCounts ? (
+      <View style={onDetail ? styles.detailFilterRow : styles.subchipRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={onDetail ? styles.detailFilterScroll : styles.subchipScroll}
+          contentContainerStyle={onDetail ? styles.detailFilterChips : styles.chipWrap}
+          keyboardShouldPersistTaps="handled"
+        >
+          {AWAITING_POD_SUBVIEWS.map((subview) => (
+            <StageChip
+              key={subview}
+              label={AWAITING_POD_SUBVIEW_LABEL[subview]}
+              count={awaitingPodCounts[subview]}
+              countColor={AWAITING_POD_SUBVIEW_TONE[subview]}
+              active={awaitingPodSubview === subview}
+              onPress={() => setAwaitingPodSubview(subview)}
+            />
+          ))}
+        </ScrollView>
+        {stagePool.length > 0 ? (
+          <TouchableOpacity
+            style={styles.logHardCopyPodBtn}
+            onPress={() => {
+              if (viewMode !== "card") setViewMode("card");
+              setLogHardCopyPodRequest((n) => n + 1);
+            }}
+            hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+            accessibilityRole="button"
+            accessibilityLabel="Log Hard Copy POD"
+          >
+            <FileText size={12} color={Theme.textSecondary} strokeWidth={2} />
+            <Text style={styles.logHardCopyPodBtnText} numberOfLines={1}>
+              LOG HARD COPY POD
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    ) : null;
+
   if (orgCtx === undefined || accessLoading || productsLoading) {
     return <ChromeBelowTopNavLoadingScreen variant="preparing" />;
   }
@@ -1577,6 +1654,7 @@ export default function ComplianceScreen() {
     >
       <View style={styles.chrome}>
       <View style={[styles.toolbarRow, stackToolbar && styles.toolbarStack]}>
+        {viewMode !== "card" ? (
         <View
           style={[
             styles.searchRow,
@@ -1584,7 +1662,7 @@ export default function ComplianceScreen() {
             isNarrow && styles.searchRowNarrow,
           ]}
         >
-          <Search size={12} color={Theme.textSecondary} strokeWidth={2} />
+          <Search size={14} color={Theme.textSecondary} strokeWidth={2.2} />
           <TextInput
             value={search}
             onChangeText={setSearch}
@@ -1597,66 +1675,31 @@ export default function ComplianceScreen() {
             accessibilityLabel="Search compliance trips"
           />
         </View>
+        ) : null}
         <View style={styles.filtersRow}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.chipScroll}
-            contentContainerStyle={styles.stageDeptWrap}
-            keyboardShouldPersistTaps="handled"
-          >
-            <StageFilterRail
-              stage={stage}
-              counts={counts}
-              podReceivedCount={podReceivedCount}
-              onSelectStage={selectStage}
-              visibleStages={visibleStages}
-            />
-          </ScrollView>
+          <View style={styles.stageTrack}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.chipScroll}
+              contentContainerStyle={styles.stageDeptWrap}
+              keyboardShouldPersistTaps="handled"
+            >
+              <StageFilterRail
+                stage={stage}
+                counts={counts}
+                podReceivedCount={podReceivedCount}
+                onSelectStage={selectStage}
+                visibleStages={visibleStages}
+              />
+            </ScrollView>
+          </View>
         </View>
       </View>
       {showToolbarSubFilter ? (
         <View style={styles.tableSubFilterBar}>{renderQueueSubFilter(true)}</View>
       ) : null}
-      {awaitingPodCounts ? (
-        <View style={styles.subchipRow}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.subchipScroll}
-            contentContainerStyle={styles.chipWrap}
-            keyboardShouldPersistTaps="handled"
-          >
-            {AWAITING_POD_SUBVIEWS.map((subview) => (
-              <StageChip
-                key={subview}
-                label={AWAITING_POD_SUBVIEW_LABEL[subview]}
-                count={awaitingPodCounts[subview]}
-                countColor={AWAITING_POD_SUBVIEW_TONE[subview]}
-                active={awaitingPodSubview === subview}
-                onPress={() => setAwaitingPodSubview(subview)}
-              />
-            ))}
-          </ScrollView>
-          {stagePool.length > 0 ? (
-            <TouchableOpacity
-              style={styles.logHardCopyPodBtn}
-              onPress={() => {
-                if (viewMode !== "card") setViewMode("card");
-                setLogHardCopyPodRequest((n) => n + 1);
-              }}
-              hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-              accessibilityRole="button"
-              accessibilityLabel="Log Hard Copy POD"
-            >
-              <FileText size={12} color={Theme.textSecondary} strokeWidth={2} />
-              <Text style={styles.logHardCopyPodBtnText} numberOfLines={1}>
-                LOG HARD COPY POD
-              </Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-      ) : null}
+      {awaitingPodCounts && !awaitingFiltersOnDetail ? renderAwaitingPodFilters(false) : null}
       {podReceivedCounts ? (
         <View style={styles.subchipRow}>
           <ScrollView
@@ -1875,6 +1918,7 @@ export default function ComplianceScreen() {
           focusTab={cardFocus?.tab ?? null}
           focusToken={cardFocus?.token ?? 0}
           listHeader={cardsListHeader}
+          detailHeader={awaitingFiltersOnDetail ? renderAwaitingPodFilters(true) : null}
           stacked={isNarrow}
           onChanged={(change) => void syncChange(change)}
           onReviewTripDocs={(tripId, _documentKey, scope = "trip") => {
@@ -2152,25 +2196,27 @@ const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: Theme.compliancePageBg },
   searchRow: {
     flexShrink: 0,
-    height: 34,
+    height: 44,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 12,
-    borderRadius: 16,
+    gap: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
     backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
     shadowColor: Theme.textPrimaryDark,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
   },
   searchRowStacked: {
     width: "100%",
     maxWidth: "100%",
   },
   searchRowNarrow: {
-    height: 34,
+    height: 44,
     paddingHorizontal: 12,
   },
   searchInput: {
@@ -2178,8 +2224,8 @@ const styles = StyleSheet.create({
     minWidth: 0,
     height: "100%",
     paddingVertical: 0,
-    fontSize: 11,
-    fontWeight: "400",
+    fontSize: 12,
+    fontWeight: "500",
     color: Theme.textPrimary,
     ...(Platform.OS === "web" ? { outlineStyle: "none" as const } : null),
   },
@@ -2236,7 +2282,7 @@ const styles = StyleSheet.create({
     width: "100%",
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 10,
   },
   toolbarStack: {
     flexDirection: "column",
@@ -2246,10 +2292,13 @@ const styles = StyleSheet.create({
   filtersRow: {
     flex: 1,
     minWidth: 0,
+    minHeight: 72,
+    justifyContent: "center",
   },
   chipScroll: {
-    flexGrow: 0,
+    flexGrow: 1,
     width: "100%",
+    height: 40,
   },
   subChipScroll: {
     flexGrow: 0,
@@ -2350,10 +2399,10 @@ const styles = StyleSheet.create({
   /** Card list header — tighter stack so both filter rows fit without scroll. */
   pendingDocsFilterStackCard: {
     width: "100%",
-    paddingHorizontal: 8,
-    paddingTop: 6,
-    paddingBottom: 6,
-    gap: 4,
+    paddingHorizontal: 10,
+    paddingTop: 10,
+    paddingBottom: 10,
+    gap: 8,
     alignItems: "stretch",
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.complianceCardBorder,
@@ -2370,6 +2419,32 @@ const styles = StyleSheet.create({
     marginTop: 8,
     flexDirection: "row",
     alignItems: "center",
+  },
+  detailFilterRow: {
+    width: "100%",
+    marginTop: 0,
+    height: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 8,
+    paddingRight: 8,
+    borderRadius: 999,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+    overflow: "hidden",
+  },
+  detailFilterScroll: {
+    flex: 1,
+    minWidth: 0,
+    height: 40,
+  },
+  detailFilterChips: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    height: 40,
+    paddingRight: 4,
   },
   subchipScroll: {
     flex: 1,
@@ -2391,93 +2466,140 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 3,
   },
+  cardListHeader: {
+    width: "100%",
+    alignItems: "stretch",
+  },
+  cardSearchRow: {
+    alignSelf: "stretch",
+    height: 40,
+    marginTop: 10,
+    marginHorizontal: 10,
+    marginBottom: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+  },
   stageDeptWrap: {
     flexDirection: "row",
     flexWrap: "nowrap",
-    alignItems: "flex-end",
-    paddingRight: 8,
+    alignItems: "center",
+    gap: 6,
+    height: 40,
+    paddingRight: 4,
   },
   stageTrack: {
     flexDirection: "row",
-    alignItems: "flex-end",
-    paddingHorizontal: 4,
-    paddingTop: 2,
-    paddingBottom: 2,
-    borderRadius: 16,
+    alignItems: "center",
+    width: "100%",
+    height: 72,
+    paddingHorizontal: 8,
+    paddingVertical: 14,
+    overflow: "hidden",
+    borderRadius: 999,
     backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
     shadowColor: Theme.textPrimaryDark,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+    gap: 6,
   },
   chipStack: {
     flexShrink: 0,
-    alignItems: "center",
-    justifyContent: "flex-start",
-    gap: 3,
+    height: 40,
+    justifyContent: "center",
   },
   chip: {
     flexShrink: 0,
-    paddingHorizontal: 6,
-    paddingTop: 3,
-    paddingBottom: 2,
-    borderRadius: 14,
-    backgroundColor: "transparent",
+    height: 40,
+    minWidth: 44,
+    paddingLeft: 16,
+    paddingRight: 12,
+    borderRadius: 999,
+    backgroundColor: Theme.surface,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 3,
+    gap: 10,
+    ...(Platform.OS === "web"
+      ? {
+          transitionDuration: "140ms",
+          transitionProperty: "background-color, border-color, box-shadow",
+          transitionTimingFunction: "ease",
+        }
+      : null),
+  },
+  chipHover: {
+    backgroundColor: Theme.cardWhite,
+    borderColor: Theme.complianceHoverBorder,
   },
   chipActive: {
-    backgroundColor: Theme.liquidGoodBack,
+    backgroundColor: Theme.buttonDark,
+    borderColor: Theme.buttonDark,
+  },
+  chipActiveHover: {
+    ...(Platform.OS === "web"
+      ? { boxShadow: `0 6px 14px ${Theme.complianceCardShadow}` }
+      : null),
+  },
+  chipCopy: {
+    minWidth: 0,
+    justifyContent: "center",
+    gap: 1,
   },
   chipText: {
-    fontSize: 10,
-    fontWeight: "500",
+    fontSize: 11,
+    fontWeight: "700",
+    fontStyle: "italic",
     color: Theme.textPrimaryDark,
     lineHeight: 13,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
   },
   chipTextActive: {
     color: Theme.buttonDarkText,
-    fontWeight: "500",
+  },
+  chipSubtitle: {
+    fontSize: 8,
+    fontWeight: "600",
+    fontStyle: "italic",
+    color: Theme.textMuted,
+    lineHeight: 10,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  chipSubtitleHover: {
+    color: Theme.textSecondary,
+  },
+  chipSubtitleActive: {
+    color: Theme.accentGold,
   },
   chipCountBadge: {
-    minWidth: 14,
-    height: 12,
-    paddingHorizontal: 4,
+    minWidth: 24,
+    height: 22,
+    paddingHorizontal: 7,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
-  },
-  chipCaptionPanel: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: Theme.cardWhite,
-    shadowColor: Theme.textPrimaryDark,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  chipCaption: {
-    fontSize: 8,
-    lineHeight: 10,
-    fontWeight: "600",
-    letterSpacing: 0.2,
-    color: Theme.textSecondary,
-    textAlign: "center",
-  },
-  chipCaptionSlot: {
-    height: 14,
+    flexShrink: 0,
   },
   chipCount: {
-    fontSize: 8,
+    fontSize: 11,
     fontWeight: "700",
-    lineHeight: 10,
+    lineHeight: 13,
     textAlign: "center",
     fontVariant: ["tabular-nums"],
+    includeFontPadding: false,
   },
   viewToggle: {
     flexShrink: 0,

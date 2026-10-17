@@ -4046,7 +4046,13 @@ export function ComplianceDocumentWorkspace({
             <View style={[styles.checklistStage, stacked && styles.checklistStageStacked]}>
               <View style={[styles.checklistListPane, stacked && styles.checklistListPaneStacked]}>
                 <View style={styles.checklistPanelToolbar}>
-                  <View style={styles.checklistPanelTabs}>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.checklistPanelTabsScroll}
+                    contentContainerStyle={styles.checklistPanelTabs}
+                    keyboardShouldPersistTaps="handled"
+                  >
                     {showFinanceTab && !compliancePendingView ? (
                     <Pressable
                       onPress={() => {
@@ -4163,7 +4169,7 @@ export function ComplianceDocumentWorkspace({
                         </Pressable>
                       );
                     })}
-                  </View>
+                  </ScrollView>
                   <View style={styles.checklistToolbarActions}>
                     <View style={[styles.missingNavPill, styles.checklistUploadPill]}>
                       <Text style={[styles.missingNavLabel, styles.checklistUploadPillText]} numberOfLines={1}>
@@ -6698,7 +6704,7 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.surface,
     borderColor: Theme.complianceHoverBorder,
   },
-  tabActive: { backgroundColor: Theme.liquidGoodBack, borderColor: Theme.liquidGoodBack },
+  tabActive: { backgroundColor: Theme.buttonDark, borderColor: Theme.buttonDark },
   tabActiveHover: {
     ...(Platform.OS === "web"
       ? { boxShadow: `0 4px 10px ${Theme.complianceCardShadow}` }
@@ -6715,14 +6721,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: Theme.complianceStageDocsBg,
   },
-  tabBadgeActive: { backgroundColor: Theme.cardWhite },
+  tabBadgeActive: { backgroundColor: Theme.accentGold },
   tabBadgeText: {
     fontSize: 9,
     fontWeight: "700",
     lineHeight: 11,
     color: Theme.complianceStageDocsFg,
   },
-  tabBadgeTextActive: { color: Theme.liquidGoodBack },
+  tabBadgeTextActive: { color: Theme.buttonDark },
   stage: {
     flex: 1,
     minHeight: 0,
@@ -7153,55 +7159,57 @@ const styles = StyleSheet.create({
     flexWrap: "nowrap",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 6,
+    gap: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.complianceTripCardBg,
   },
-  checklistPanelTabs: {
+  checklistPanelTabsScroll: {
     flex: 1,
     minWidth: 0,
+    height: 36,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+    backgroundColor: Theme.cardWhite,
+  },
+  checklistPanelTabs: {
     flexDirection: "row",
     alignItems: "center",
-    flexWrap: "nowrap",
-    padding: 1,
-    gap: 0,
-    borderRadius: 999,
-    backgroundColor: Theme.cardWhite,
-    shadowColor: Theme.textPrimaryDark,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
+    height: 36,
+    paddingHorizontal: 4,
+    gap: 4,
   },
   checklistPanelTab: {
-    flexGrow: 1,
-    flexShrink: 1,
-    flexBasis: 0,
-    minWidth: 0,
-    height: 22,
-    paddingHorizontal: 6,
+    flexGrow: 0,
+    flexShrink: 0,
+    height: 28,
+    minHeight: 28,
+    maxHeight: 28,
+    paddingHorizontal: 10,
     paddingVertical: 0,
-    gap: 3,
-    borderWidth: 0,
-    backgroundColor: "transparent",
+    gap: 4,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+    borderRadius: 999,
+    backgroundColor: Theme.surface,
   },
   checklistPanelTabText: {
-    fontSize: 10,
-    lineHeight: 12,
-    fontWeight: "500",
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
   },
   checklistPanelTabBadge: {
-    minWidth: 14,
-    height: 12,
+    minWidth: 16,
+    height: 16,
     paddingHorizontal: 4,
     borderRadius: 999,
   },
   checklistPanelTabBadgeText: {
-    fontSize: 8,
-    lineHeight: 10,
+    fontSize: 9,
+    lineHeight: 11,
     fontWeight: "700",
   },
   checklistToolbarActions: {
@@ -7212,11 +7220,16 @@ const styles = StyleSheet.create({
   },
   checklistUploadPill: {
     flexShrink: 0,
-    height: 22,
-    paddingHorizontal: 7,
+    height: 36,
+    minHeight: 36,
+    maxHeight: 36,
+    paddingHorizontal: 10,
+    backgroundColor: Theme.cardWhite,
   },
   checklistUploadPillText: {
-    fontSize: 8,
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "700",
   },
   /** Document rows only. Scrolls so the last row and preview actions stay reachable. */
   checklistDocs: {
@@ -7930,7 +7943,8 @@ const styles = StyleSheet.create({
   checklistAdvanceStatusDotPending: { backgroundColor: Theme.textMuted },
   checklistAdvanceStatusText: {
     flexShrink: 1,
-    fontSize: 11,
+    fontSize: 10,
+    lineHeight: 13,
     fontWeight: "700",
     letterSpacing: 0.1,
   },

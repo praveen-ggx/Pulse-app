@@ -146,6 +146,7 @@ function FactRow({
           styles.factValue,
           emphasize && styles.factValueEmphasize,
           compact && styles.factValueCompact,
+          compact && emphasize && styles.factValueEmphasizeCompact,
         ]}
         numberOfLines={compact ? 1 : 2}
       >
@@ -210,11 +211,13 @@ function TxnDateInput({
   onChange,
   disabled,
   hasError,
+  compact = false,
 }: {
   value: string;
   onChange: (display: string) => void;
   disabled: boolean;
   hasError: boolean;
+  compact?: boolean;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [iosDraft, setIosDraft] = useState<Date>(new Date());
@@ -243,9 +246,9 @@ function TxnDateInput({
 
   return (
     <View>
-      <View style={[styles.dateShell, hasError && styles.textFieldError]}>
+      <View style={[styles.dateShell, compact && styles.dateShellInline, hasError && styles.textFieldError]}>
         <TextInput
-          style={styles.dateText}
+          style={[styles.dateText, compact && styles.dateTextInline]}
           value={value}
           onChangeText={(text) => onChange(formatTxnDateTyping(text))}
           editable={!disabled}
@@ -706,7 +709,7 @@ export function CompliancePaymentConfirmModal({
             ) : (
               <>
                 <Eye size={isInline ? 12 : 13} color={Theme.textPrimaryDark} strokeWidth={2.2} />
-                <Text style={styles.eyeText}>Preview</Text>
+                <Text style={[styles.eyeText, isInline && styles.eyeTextInline]}>Preview</Text>
               </>
             )}
           </Pressable>
@@ -717,21 +720,21 @@ export function CompliancePaymentConfirmModal({
 
   const calcCard = (
     <View style={[styles.calcCard, isInline && styles.calcCardInline]}>
-      <Text style={styles.calcTitle}>Amount calculation</Text>
+      <Text style={[styles.calcTitle, isInline && styles.calcTitleInline]}>Amount calculation</Text>
       <Text style={[styles.calcHint, isInline && styles.calcHintInline]} numberOfLines={isInline ? 1 : undefined}>
         (Base freight × {percentLabel}) − Documentation charges − TDS
       </Text>
 
       <View style={[styles.calcRow, isInline && styles.calcRowInline]}>
-        <Text style={[styles.calcLabel, styles.calcLabelGrow]}>Base freight</Text>
-        <Text style={styles.calcValue}>{baseFreightLabel}</Text>
+        <Text style={[styles.calcLabel, styles.calcLabelGrow, isInline && styles.calcLabelInline]}>Base freight</Text>
+        <Text style={[styles.calcValue, isInline && styles.calcValueInline]}>{baseFreightLabel}</Text>
       </View>
 
       <View style={[styles.calcRow, isInline && styles.calcRowInline]}>
-        <Text style={[styles.calcLabel, styles.calcLabelGrow]}>{percentLabel}</Text>
+        <Text style={[styles.calcLabel, styles.calcLabelGrow, isInline && styles.calcLabelInline]}>{percentLabel}</Text>
         <View style={[styles.pctField, isInline && styles.pctFieldInline]}>
           <TextInput
-            style={styles.pctInput}
+            style={[styles.pctInput, isInline && styles.pctInputInline]}
             keyboardType="numeric"
             value={advancePercentText}
             onChangeText={(text) => setAdvancePercentText(sanitizePercentInput(text))}
@@ -741,14 +744,14 @@ export function CompliancePaymentConfirmModal({
             placeholder="90"
             placeholderTextColor={Theme.textMuted}
           />
-          <Text style={styles.pctSuffix}>%</Text>
+          <Text style={[styles.pctSuffix, isInline && styles.pctSuffixInline]}>%</Text>
         </View>
       </View>
 
       <View style={[styles.calcRowTds, isInline && styles.calcRowTdsInline]}>
         <View style={styles.calcLabelBlock}>
-          <Text style={styles.calcLabel}>Documentation charges</Text>
-          <Text style={styles.calcMeta} numberOfLines={1}>
+          <Text style={[styles.calcLabel, isInline && styles.calcLabelInline]}>Documentation charges</Text>
+          <Text style={[styles.calcMeta, isInline && styles.calcMetaInline]} numberOfLines={1}>
             {docChargeLoading ? "Fetching charge slabs…" : docChargeMeta}
           </Text>
         </View>
@@ -759,6 +762,7 @@ export function CompliancePaymentConfirmModal({
             <Text
               style={[
                 styles.calcValue,
+                isInline && styles.calcValueInline,
                 styles.tdsAmountValue,
                 !docChargeApplied && styles.calcValueMuted,
               ]}
@@ -771,15 +775,15 @@ export function CompliancePaymentConfirmModal({
 
       <View style={[styles.calcRowTds, isInline && styles.calcRowTdsInline]}>
         <View style={styles.calcLabelBlock}>
-          <Text style={styles.calcLabel}>TDS amount</Text>
+          <Text style={[styles.calcLabel, isInline && styles.calcLabelInline]}>TDS amount</Text>
           {tdsLoading ? (
-            <Text style={styles.calcMeta}>Fetching vendor rate…</Text>
+            <Text style={[styles.calcMeta, isInline && styles.calcMetaInline]}>Fetching vendor rate…</Text>
           ) : tdsHasRate ? (
-            <Text style={styles.calcMeta} numberOfLines={1}>
+            <Text style={[styles.calcMeta, isInline && styles.calcMetaInline]} numberOfLines={1}>
               FY {tdsRateFy} · {tdsRatePercent}% of base freight
             </Text>
           ) : (
-            <Text style={styles.calcMeta} numberOfLines={1}>
+            <Text style={[styles.calcMeta, isInline && styles.calcMetaInline]} numberOfLines={1}>
               No TDS rate for FY {currentFy}
             </Text>
           )}
@@ -796,6 +800,7 @@ export function CompliancePaymentConfirmModal({
             <Text
               style={[
                 styles.calcValue,
+                isInline && styles.calcValueInline,
                 !tdsHasRate && styles.calcValueMuted,
                 tdsHasRate && styles.tdsAmountValue,
               ]}
@@ -808,7 +813,7 @@ export function CompliancePaymentConfirmModal({
 
       <View style={[styles.amountResult, isInline && styles.amountResultInline]}>
         <View style={styles.amountResultCopy}>
-          <Text style={styles.amountResultLabel}>
+          <Text style={[styles.amountResultLabel, isInline && styles.amountResultLabelInline]}>
             {isAdvance ? "Final advance payable (₹)" : "Final balance payable (₹)"}
           </Text>
           <Text style={styles.amountResultHint} numberOfLines={1}>
@@ -840,7 +845,7 @@ export function CompliancePaymentConfirmModal({
 
   const modeField = (
     <View style={[styles.field, isInline && styles.fieldInline]}>
-      <Text style={styles.label}>Payment mode</Text>
+      <Text style={[styles.label, isInline && styles.labelInline]}>Payment mode</Text>
       <View style={styles.modeRow}>
         {PAYMENT_MODES.slice(0, 4).map((item) => {
           const selected = modeId === item.id;
@@ -854,7 +859,7 @@ export function CompliancePaymentConfirmModal({
               accessibilityState={{ selected }}
             >
               <Text
-                style={[styles.modeChipText, selected && styles.modeChipTextOn]}
+                style={[styles.modeChipText, isInline && styles.modeChipTextInline, selected && styles.modeChipTextOn]}
                 numberOfLines={1}
               >
                 {item.name}
@@ -865,9 +870,9 @@ export function CompliancePaymentConfirmModal({
       </View>
       <View style={styles.paymentInputsRow}>
         <View style={styles.paymentInputCell}>
-          <Text style={styles.label}>{isCash ? "UTR / reference (optional)" : "UTR / reference *"}</Text>
+          <Text style={[styles.label, isInline && styles.labelInline]}>{isCash ? "UTR / reference (optional)" : "UTR / reference *"}</Text>
           <TextInput
-            style={[styles.textField, !!utrText && !!utrError && styles.textFieldError]}
+            style={[styles.textField, isInline && styles.textFieldInline, !!utrText && !!utrError && styles.textFieldError]}
             value={utrText}
             onChangeText={(text) => setUtrText(normalizeComplianceUtr(text))}
             editable={!submitting}
@@ -880,19 +885,20 @@ export function CompliancePaymentConfirmModal({
           {utrText && utrError ? <Text style={styles.fieldError}>{utrError}</Text> : null}
         </View>
         <View style={styles.paymentInputCell}>
-          <Text style={styles.label}>Transaction date *</Text>
+          <Text style={[styles.label, isInline && styles.labelInline]}>Transaction date *</Text>
           <TxnDateInput
             value={txnDateText}
             onChange={setTxnDateText}
             disabled={submitting}
             hasError={!!txnDateText && !!txnDateError}
+            compact={isInline}
           />
           {txnDateText.length >= 10 && txnDateError ? <Text style={styles.fieldError}>{txnDateError}</Text> : null}
         </View>
       </View>
       {payoutAccounts.length > 0 ? (
         <>
-          <Text style={styles.label}>Paid from (optional)</Text>
+          <Text style={[styles.label, isInline && styles.labelInline]}>Paid from (optional)</Text>
           <View style={[styles.modeRow, styles.wrapRow]}>
             {payoutAccounts.map((item) => {
               const selected = paidFromId === item.id;
@@ -906,7 +912,7 @@ export function CompliancePaymentConfirmModal({
                   accessibilityState={{ selected }}
                 >
                   <Text
-                    style={[styles.modeChipText, selected && styles.modeChipTextOn]}
+                    style={[styles.modeChipText, isInline && styles.modeChipTextInline, selected && styles.modeChipTextOn]}
                     numberOfLines={1}
                   >
                     {item.label}
@@ -948,7 +954,7 @@ export function CompliancePaymentConfirmModal({
           accessibilityRole="button"
           accessibilityLabel="Reject trip compliance"
         >
-          <Text style={styles.rejectText}>Reject</Text>
+          <Text style={[styles.rejectText, isInline && styles.rejectTextInline]}>Reject</Text>
         </Pressable>
       ) : null}
       {isInline && onFlag ? (
@@ -1016,7 +1022,7 @@ export function CompliancePaymentConfirmModal({
         {submitting ? (
           <ActivityIndicator color={Theme.buttonDarkText} />
         ) : (
-          <Text style={styles.confirmText}>Confirm payment</Text>
+          <Text style={[styles.confirmText, isInline && styles.confirmTextInline]}>Confirm payment</Text>
         )}
       </Pressable>
       )}
@@ -1127,8 +1133,8 @@ const styles = StyleSheet.create({
   },
   bodyInline: {
     flexShrink: 0,
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 10,
+    lineHeight: 13,
   },
   inlineRoot: {
     flex: 1,
@@ -1193,8 +1199,9 @@ const styles = StyleSheet.create({
     color: Theme.textMuted,
   },
   factLabelCompact: {
-    width: 96,
-    fontSize: 11,
+    width: 84,
+    fontSize: 9,
+    lineHeight: 12,
   },
   factLabelEmphasize: {
     fontWeight: "600",
@@ -1214,7 +1221,13 @@ const styles = StyleSheet.create({
     color: Theme.darkGreen,
   },
   factValueCompact: {
-    fontSize: 12,
+    fontSize: 10,
+    fontWeight: "600",
+    lineHeight: 13,
+  },
+  factValueEmphasizeCompact: {
+    fontSize: 11,
+    fontWeight: "700",
   },
   docAction: { flex: 1, minWidth: 0, alignItems: "flex-end" },
   eyeBtn: {
@@ -1235,6 +1248,7 @@ const styles = StyleSheet.create({
   },
   eyeBtnDisabled: { opacity: 0.45 },
   eyeText: { fontSize: 11, fontWeight: "600", color: Theme.textPrimaryDark },
+  eyeTextInline: { fontSize: 10, lineHeight: 12 },
   calcCard: {
     flexGrow: 1,
     borderRadius: 12,
@@ -1258,6 +1272,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
     color: Theme.textPrimaryDark,
     textTransform: "uppercase",
+  },
+  calcTitleInline: {
+    fontSize: 10,
+    lineHeight: 13,
+    letterSpacing: 0.3,
   },
   calcHint: {
     fontSize: 10,
@@ -1302,6 +1321,10 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: Theme.textMuted,
   },
+  calcLabelInline: {
+    fontSize: 10,
+    lineHeight: 13,
+  },
   calcLabelGrow: {
     flex: 1,
     minWidth: 0,
@@ -1312,11 +1335,20 @@ const styles = StyleSheet.create({
     color: Theme.textSecondary,
     letterSpacing: 0.1,
   },
+  calcMetaInline: {
+    fontSize: 9,
+    lineHeight: 12,
+  },
   calcValue: {
     fontSize: 13,
     fontWeight: "700",
     color: Theme.textPrimaryDark,
     textAlign: "right",
+  },
+  calcValueInline: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
   },
   calcValueMuted: {
     fontSize: 13,
@@ -1375,10 +1407,18 @@ const styles = StyleSheet.create({
     color: Theme.textPrimaryDark,
     textAlign: "right",
   },
+  pctInputInline: {
+    fontSize: 12,
+    lineHeight: 15,
+  },
   pctSuffix: {
     fontSize: 12,
     fontWeight: "700",
     color: Theme.textMuted,
+  },
+  pctSuffixInline: {
+    fontSize: 10,
+    lineHeight: 12,
   },
   amountResult: {
     marginTop: 4,
@@ -1401,6 +1441,10 @@ const styles = StyleSheet.create({
     color: Theme.textPrimaryDark,
     letterSpacing: 0.1,
   },
+  amountResultLabelInline: {
+    fontSize: 10,
+    lineHeight: 13,
+  },
   amountResultHint: {
     fontSize: 10,
     fontWeight: "400",
@@ -1413,11 +1457,13 @@ const styles = StyleSheet.create({
     color: Theme.darkGreen,
   },
   amountResultValueInline: {
-    fontSize: 18,
+    fontSize: 14,
+    lineHeight: 18,
   },
   field: { gap: 8 },
   fieldInline: { flexShrink: 0, gap: 4 },
   label: { fontSize: 12, fontWeight: "600", color: Theme.textMuted },
+  labelInline: { fontSize: 10, lineHeight: 13 },
   modeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   wrapRow: { flexWrap: "wrap" },
   paymentInputsRow: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
@@ -1432,6 +1478,12 @@ const styles = StyleSheet.create({
     color: Theme.textPrimaryDark,
     backgroundColor: Theme.backgroundInput,
   },
+  textFieldInline: {
+    minHeight: 32,
+    paddingHorizontal: 10,
+    fontSize: 12,
+    lineHeight: 16,
+  },
   dateShell: {
     minHeight: 44,
     flexDirection: "row",
@@ -1442,6 +1494,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: Theme.backgroundInput,
   },
+  dateShellInline: {
+    minHeight: 32,
+  },
   dateText: {
     flex: 1,
     minWidth: 0,
@@ -1450,6 +1505,11 @@ const styles = StyleSheet.create({
     color: Theme.textPrimaryDark,
     ...(Platform.OS === "web" ? { outlineStyle: "none" } : null),
   } as never,
+  dateTextInline: {
+    minHeight: 30,
+    fontSize: 12,
+    lineHeight: 16,
+  },
   dateIconBtn: {
     width: 44,
     height: 42,
@@ -1497,6 +1557,10 @@ const styles = StyleSheet.create({
     color: Theme.textMuted,
     textAlign: "center",
   },
+  modeChipTextInline: {
+    fontSize: 11,
+    lineHeight: 14,
+  },
   modeChipTextOn: { color: Theme.buttonDarkText },
   actionsBar: {
     alignItems: "center",
@@ -1538,6 +1602,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
     color: Theme.complianceStageDocsFg,
   },
+  rejectTextInline: {
+    fontSize: 11,
+    lineHeight: 14,
+  },
   cancelBtn: {
     minWidth: 104,
     height: 40,
@@ -1570,5 +1638,9 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Theme.buttonDarkText,
     textAlign: "center",
+  },
+  confirmTextInline: {
+    fontSize: 11,
+    lineHeight: 14,
   },
 });

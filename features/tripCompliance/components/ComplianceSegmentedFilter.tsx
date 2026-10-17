@@ -1,6 +1,6 @@
 import Theme from "@/constants/Theme";
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 export type ComplianceSegmentOption<T extends string> = {
   id: T;
@@ -12,9 +12,8 @@ export type ComplianceSegmentOption<T extends string> = {
 };
 
 /**
- * Segmented control for Compliance queues. Chips share the panel width evenly
- * (no horizontal scroll). Use `cardDense` for the card-list header only —
- * table toolbar keeps the default compact sizing.
+ * Segmented control for Compliance queues. Table chips share the row.
+ * Card-list chips stay small, keep the full label, and scroll sideways.
  */
 export function ComplianceSegmentedFilter<T extends string>({
   value,
@@ -40,27 +39,18 @@ export function ComplianceSegmentedFilter<T extends string>({
   /** Many options: chips wrap onto a second row instead of being cut off. */
   wrap?: boolean;
   /**
-   * Card-list header only: denser chips; full label + count stay readable
-   * (label may wrap to 2 lines). Leave false for table view.
+   * Card-list header only: small chips with the full label, scrolled sideways.
+   * Leave false for table view.
    */
   cardDense?: boolean;
 }) {
-  return (
-    <View
-      style={[
-        styles.bar,
-        embedded && styles.barEmbedded,
-        cardDense && styles.barCardDense,
-        embedded && !narrow && styles.barEmbeddedFull,
-        narrow && styles.barNarrow,
-      ]}
-    >
+  const track = (
       <View
         style={[
           styles.track,
           compact && styles.trackCompact,
           cardDense && styles.trackCardDense,
-          !narrow && styles.trackFull,
+          !cardDense && !narrow && styles.trackFull,
           narrow && styles.trackNarrow,
           wrap && styles.trackWrap,
         ]}
@@ -150,6 +140,31 @@ export function ComplianceSegmentedFilter<T extends string>({
           );
         })}
       </View>
+  );
+
+  return (
+    <View
+      style={[
+        styles.bar,
+        embedded && styles.barEmbedded,
+        cardDense && styles.barCardDense,
+        embedded && !narrow && !cardDense && styles.barEmbeddedFull,
+        narrow && styles.barNarrow,
+      ]}
+    >
+      {cardDense ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.cardDenseScroll}
+          contentContainerStyle={styles.cardDenseScrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          {track}
+        </ScrollView>
+      ) : (
+        track
+      )}
     </View>
   );
 }
@@ -220,19 +235,31 @@ const styles = StyleSheet.create({
     padding: 1,
     gap: 0,
   },
-  trackCardDense: {
-    alignItems: "stretch",
-    borderRadius: 22,
-    padding: 6,
-    gap: 6,
-    backgroundColor: Theme.surface,
+  cardDenseScroll: {
+    width: "100%",
+    height: 36,
+    flexGrow: 0,
+    borderRadius: 999,
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
-    shadowColor: Theme.textPrimaryDark,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
+    backgroundColor: Theme.cardWhite,
+  },
+  cardDenseScrollContent: {
+    alignItems: "center",
+  },
+  trackCardDense: {
+    width: "auto",
+    alignSelf: "flex-start",
+    alignItems: "center",
+    height: 36,
+    paddingHorizontal: 4,
+    paddingVertical: 0,
+    gap: 4,
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    borderWidth: 0,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   segment: {
     height: 22,
@@ -258,16 +285,14 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   segmentCardDense: {
-    flexGrow: 1,
-    flexShrink: 1,
-    flexBasis: 0,
-    minWidth: 0,
-    height: 40,
-    paddingLeft: 14,
-    paddingRight: 12,
+    flexGrow: 0,
+    flexShrink: 0,
+    height: 28,
+    paddingLeft: 10,
+    paddingRight: 8,
     paddingVertical: 0,
     borderRadius: 999,
-    backgroundColor: Theme.cardWhite,
+    backgroundColor: Theme.surface,
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
   },
@@ -301,9 +326,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     flexWrap: "nowrap",
-    gap: 8,
-    width: "100%",
-    minWidth: 0,
+    gap: 6,
   },
   dot: {
     width: 5,
@@ -327,11 +350,9 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   cardDenseCopy: {
-    flexShrink: 1,
-    flexGrow: 0,
-    minWidth: 0,
-    fontSize: 12,
-    lineHeight: 16,
+    flexShrink: 0,
+    fontSize: 11,
+    lineHeight: 14,
     fontWeight: "700",
     color: Theme.textPrimaryDark,
     includeFontPadding: false,
@@ -351,9 +372,9 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.surface,
   },
   countBadgeDense: {
-    height: 22,
-    minWidth: 24,
-    paddingHorizontal: 7,
+    height: 16,
+    minWidth: 18,
+    paddingHorizontal: 5,
     flexShrink: 0,
   },
   countBadgeActive: {
@@ -369,8 +390,8 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
   },
   cardDenseCount: {
-    fontSize: 11,
-    lineHeight: 13,
+    fontSize: 10,
+    lineHeight: 12,
     fontWeight: "700",
     color: Theme.buttonDarkText,
     fontVariant: ["tabular-nums"],

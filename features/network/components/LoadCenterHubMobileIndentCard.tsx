@@ -257,6 +257,8 @@ export type LoadCenterHubMobileIndentCardProps = {
   ticketCommerce?: LoadCenterTicketCommerce | null;
   /** FTL stops in between; their charges are already inside the indent rates. */
   routeExtraStops?: RouteExtraStopSummary | null;
+  /** Saved extra-stop places so the bidder sees the via locations, not only a count. */
+  viaStopLocations?: readonly string[] | null;
   /** Network partner vs market discovery (Reach / ad). */
   sourceTag?: GetLoadSourceTag | null;
   avatarUrl?: string | null;
@@ -316,6 +318,7 @@ export function LoadCenterHubMobileIndentCard({
   rightFooterLabel,
   ticketCommerce,
   routeExtraStops = null,
+  viaStopLocations = null,
   sourceTag = null,
   avatarUrl,
   avatarSeed,
@@ -350,9 +353,14 @@ export function LoadCenterHubMobileIndentCard({
     showPlanInRoute && routeHierarchy.finalDropPlace
       ? routeHierarchy.finalDropPlace
       : dest;
+  const viaPlaces = (viaStopLocations ?? [])
+    .map((place) => place.trim())
+    .filter(Boolean);
   const ftlStopLabel = showPlanInRoute
     ? null
-    : extraStopChipLabel(routeExtraStops?.count ?? 0);
+    : viaPlaces.length > 0
+      ? viaPlaces.join(" · ")
+      : extraStopChipLabel(routeExtraStops?.count ?? 0);
   const viaLabel =
     extraStops > 0
       ? `+${extraStops} ${extraStops === 1 ? "stop" : "stops"}`

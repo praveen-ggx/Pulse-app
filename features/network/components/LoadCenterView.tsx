@@ -187,7 +187,11 @@ import {
     View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouteExtraStopsSummaries } from "@/features/trips/hooks/useRouteExtraStopsQuery";
+import { useRouteExtraStopRows } from "@/features/trips/hooks/useRouteExtraStopsQuery";
+import { summarizeRouteExtraStopRows } from "@/features/trips/services/routeExtraStops.service";
+import {
+  viaStopLocationsByParentId,
+} from "@/features/trips/utils/routeExtraStops.util";
 
 interface LoadCenterViewProps {
   /** Top padding (e.g. from parent sub-tab row + safe area). */
@@ -348,9 +352,14 @@ export function LoadCenterView({
     () => [...indents, ...marketIndents].map((row) => row.id),
     [indents, marketIndents],
   );
-  const extraStopsByIndentId = useRouteExtraStopsSummaries(
-    "indent",
-    extraStopIndentIds,
+  const extraStopRows = useRouteExtraStopRows("indent", extraStopIndentIds);
+  const extraStopsByIndentId = useMemo(
+    () => summarizeRouteExtraStopRows(extraStopRows, "indent_id"),
+    [extraStopRows],
+  );
+  const viaStopsByIndentId = useMemo(
+    () => viaStopLocationsByParentId(extraStopRows, "indent_id"),
+    [extraStopRows],
   );
   const { data: planClientsById } = useExecutionPlanClients(
     orgId,
@@ -1451,6 +1460,7 @@ export function LoadCenterView({
       return (
         <LoadCenterHubMobileIndentCard
           routeExtraStops={extraStopsByIndentId.get(load.id) ?? null}
+          viaStopLocations={viaStopsByIndentId.get(load.id)}
           key={load.id}
           indent={load}
           titleName={clientLabel}
@@ -1637,6 +1647,7 @@ export function LoadCenterView({
       return (
         <LoadCenterHubMobileIndentCard
           routeExtraStops={extraStopsByIndentId.get(load.id) ?? null}
+          viaStopLocations={viaStopsByIndentId.get(load.id)}
           indent={load}
           titleName={clientName}
           statusLabel={displayStatus}
@@ -1900,6 +1911,7 @@ export function LoadCenterView({
       return (
         <LoadCenterHubMobileIndentCard
           routeExtraStops={extraStopsByIndentId.get(load.id) ?? null}
+          viaStopLocations={viaStopsByIndentId.get(load.id)}
           indent={load}
           titleName={clientLabel}
           statusLabel={statusLabel}
@@ -2053,6 +2065,7 @@ export function LoadCenterView({
       return (
         <LoadCenterHubMobileIndentCard
           routeExtraStops={extraStopsByIndentId.get(load.id) ?? null}
+          viaStopLocations={viaStopsByIndentId.get(load.id)}
           indent={load}
           titleName={clientLabel}
           statusLabel={isDone ? "completed" : "action required"}
@@ -2576,6 +2589,7 @@ export function LoadCenterView({
                             onViewIndents={(pool) =>
                               openKanbanColumn("get", col, pool.id)
                             }
+                            viaStopsByIndentId={viaStopsByIndentId}
                           />
                         ) : col.id === "QUOTED" ? (
                           <NetworkBidPoolList
@@ -2588,6 +2602,8 @@ export function LoadCenterView({
                             onViewPool={(pool) =>
                               openKanbanColumn("get", col, pool.id)
                             }
+                            onRevisePool={setQuotePool}
+                            viaStopsByIndentId={viaStopsByIndentId}
                           />
                         ) : null
                       }
@@ -2641,6 +2657,7 @@ export function LoadCenterView({
                     canQuote={Boolean(orgId)}
                     onQuotePool={setQuotePool}
                     renderPoolMemberCard={renderGetLoadPoolMemberCard}
+                    viaStopsByIndentId={viaStopsByIndentId}
                   />
                 ) : statusFilterTab === "QUOTED" ? (
                   <NetworkBidPoolList
@@ -2652,6 +2669,8 @@ export function LoadCenterView({
                       isMobileView ? renderGetLoadMobileCard : renderGetLoadListCard
                     }
                     renderPoolMemberCard={renderGetLoadBidPoolMemberCard}
+                    onRevisePool={setQuotePool}
+                    viaStopsByIndentId={viaStopsByIndentId}
                   />
                 ) : null}
                 {statusFilterTab === "OPEN" || statusFilterTab === "QUOTED" ? null : visibleFindWorkList.map((load) => (
@@ -2837,6 +2856,8 @@ export function LoadCenterView({
         bidPoolQuotes={expandedKanbanMode === "get" ? myQuoteByIndentId : undefined}
         bidPoolLoads={expandedKanbanMode === "get" ? quotedFindWorkLoads : undefined}
         isBidPoolable={isPoolableOpenLoad}
+        onReviseBidPool={expandedKanbanMode === "get" ? setQuotePool : undefined}
+        viaStopsByIndentId={viaStopsByIndentId}
       >
         <NetworkPoolQuoteModal
           pool={quotePool}

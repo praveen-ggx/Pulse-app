@@ -1,6 +1,7 @@
 import {
   buildNetworkBidPools,
   describeNetworkBidStates,
+  existingNetworkPoolQuoteAmount,
   networkBidMemberState,
   type NetworkBidQuote,
 } from "@/features/network/utils/networkBidPools.util";
@@ -154,5 +155,18 @@ describe("networkBidMemberState", () => {
   it("an open quote on an ended indent is closed, not pending", () => {
     expect(networkBidMemberState({ status: "closed" }, { status: "pending" })).toBe("closed");
     expect(networkBidMemberState({ status: "awarded" }, { status: "pending" })).toBe("closed");
+  });
+});
+
+describe("existingNetworkPoolQuoteAmount", () => {
+  it("returns null when there is no existing bid (new quote stays empty)", () => {
+    expect(existingNetworkPoolQuoteAmount([])).toBeNull();
+    expect(existingNetworkPoolQuoteAmount([null, 0, "0"])).toBeNull();
+  });
+
+  it("returns the lowest positive existing bid for revise prefill", () => {
+    expect(existingNetworkPoolQuoteAmount([56000])).toBe(56000);
+    expect(existingNetworkPoolQuoteAmount([56000, 56000])).toBe(56000);
+    expect(existingNetworkPoolQuoteAmount([null, 56000, 54000])).toBe(54000);
   });
 });

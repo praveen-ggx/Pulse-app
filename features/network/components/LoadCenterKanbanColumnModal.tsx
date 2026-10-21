@@ -21,6 +21,7 @@ import {
   type MarketplaceLoadSearch,
 } from "@/features/network/utils/marketplaceSearch.util";
 import { MARKETPLACE_LOAD_PAGE_SIZE } from "@/features/network/utils/marketplaceLoadsPage.util";
+import { viaStopLocationsForMemberIds } from "@/features/trips/utils/routeExtraStops.util";
 import { IncompleteLaneNotice } from "@/features/network/components/pooled/IncompleteLaneNotice";
 import { NetworkBidPoolCard } from "@/features/network/components/pooled/NetworkBidPoolCard";
 import { NetworkLoadPoolCard } from "@/features/network/components/pooled/NetworkLoadPoolCard";
@@ -101,8 +102,12 @@ export type LoadCenterKanbanColumnModalProps = {
   canQuotePools?: boolean;
   /** Indent card inside an opened open-market pool — details only, no per-indent quote. */
   renderPoolMemberCard?: (load: IndentRow) => ReactNode;
-  /** Indent card inside an opened My Bids pool. Its action revises that bid. */
+  /** Indent card inside an opened My Bids pool. Unused while pool bidding is the only action. */
   renderBidPoolMemberCard?: (load: IndentRow) => ReactNode;
+  /** Revise the pooled My Bids quote (one rate for the lane). */
+  onReviseBidPool?: (pool: NetworkLoadPool<IndentRow>) => void;
+  /** Extra-stop places by indent, shown to bidders on pool cards. */
+  viaStopsByIndentId?: ReadonlyMap<string, readonly string[]>;
   /**
    * Every open Network load before search, so a shown pool is always whole.
    * Column loads may be search-filtered, so without this no pool is shown or quotable.
@@ -288,6 +293,8 @@ export function LoadCenterKanbanColumnModal({
   bidPoolQuotes,
   isBidPoolable,
   bidPoolLoads,
+  onReviseBidPool,
+  viaStopsByIndentId,
 }: LoadCenterKanbanColumnModalProps) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -422,9 +429,20 @@ export function LoadCenterKanbanColumnModal({
       ? (bidPools.pools.find((p) => p.id === openPoolId) ?? null)
       : null;
 
+  const viaForPool = useCallback(
+    (members: readonly IndentRow[]) =>
+      viaStopsByIndentId
+        ? viaStopLocationsForMemberIds(
+            members.map((m) => m.id),
+            viaStopsByIndentId,
+          )
+        : [],
+    [viaStopsByIndentId],
+  );
+
   const filteredLoads = useMemo(() => {
     if (bidPools) {
-      if (openBidPool) return openBidPool.members;
+      if (openBidPool) return [];
       return bidPools.individual.filter(shownInStage);
     }
     if (pooledMode) {
@@ -919,6 +937,7 @@ export function LoadCenterKanbanColumnModal({
                 canQuote={canQuotePools}
                 showIndentsAction={false}
                 onQuote={() => onQuotePool?.(openPool)}
+                viaStops={viaForPool(openPool.members)}
               />
               <Text style={styles.poolSectionTitle}>
                 Indents in this pool
@@ -944,10 +963,16 @@ export function LoadCenterKanbanColumnModal({
                 <FontAwesome name="chevron-left" size={11} color={Theme.primary} />
                 <Text style={styles.poolBackText}>My bids</Text>
               </Pressable>
-              <NetworkBidPoolCard pool={openBidPool} showViewAction={false} />
-              <Text style={styles.poolSectionTitle}>
-                Indents in this pool
-              </Text>
+              <NetworkBidPoolCard
+                pool={openBidPool}
+                showViewAction={false}
+                onReviseBid={
+                  onReviseBidPool
+                    ? () => onReviseBidPool(openBidPool)
+                    : undefined
+                }
+                viaStops={viaForPool(openBidPool.members)}
+              />
             </View>
           ) : null}
           {showBidPoolList && shownBidPools.length > 0 ? (
@@ -965,6 +990,10 @@ export function LoadCenterKanbanColumnModal({
                   <NetworkBidPoolCard
                     pool={pool}
                     onViewPool={() => setOpenPoolId(pool.id)}
+                    onReviseBid={
+                      onReviseBidPool ? () => onReviseBidPool(pool) : undefined
+                    }
+                    viaStops={viaForPool(pool.members)}
                   />
                 </View>
               ))}
@@ -1006,6 +1035,7 @@ export function LoadCenterKanbanColumnModal({
                       canQuote={canQuotePools}
                       onQuote={() => onQuotePool?.(pool)}
                       onViewIndents={() => setOpenPoolId(pool.id)}
+                      viaStops={viaForPool(pool.members)}
                     />
                   </View>
                 ))}
@@ -1013,7 +1043,9 @@ export function LoadCenterKanbanColumnModal({
             )
           ) : null}
           {showPoolList && filteredLoads.length > 0 ? <IncompleteLaneNotice /> : null}
-          {(showPoolList || (showBidPoolList && shownBidPools.length > 0)) &&
+          {(showPoolList ||
+            (showBidPoolList && shownBidPools.length > 0) ||
+            openBidPool) &&
           filteredLoads.length === 0 ? null : filteredLoads.length === 0 ? (
             <View style={styles.empty}>
               <View style={styles.emptyIcon}>

@@ -56,12 +56,14 @@ export function NetworkLoadPoolCard({
   showIndentsAction = true,
   onQuote,
   onViewIndents,
+  viaStops = [],
 }: {
   pool: NetworkLoadPool<NetworkPoolLoad>;
   canQuote: boolean;
   showIndentsAction?: boolean;
   onQuote: () => void;
   onViewIndents?: () => void;
+  viaStops?: readonly string[];
 }) {
   const count = pool.members.length;
   const loadsLabel = plural(count, "load");
@@ -103,7 +105,11 @@ export function NetworkLoadPoolCard({
         ) : null}
       </View>
 
-      <MarketplaceRouteGrid pickup={pool.key.pickup} drop={pool.key.drop} />
+      <MarketplaceRouteGrid
+        pickup={pool.key.pickup}
+        drop={pool.key.drop}
+        viaStops={viaStops}
+      />
 
       <View style={styles.facts}>
         {facts.map((f, i) => (

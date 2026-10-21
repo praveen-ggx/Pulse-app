@@ -13,6 +13,10 @@ import {
   type NetworkPoolManifest,
 } from "@/features/network/services/networkPools.service";
 import {
+  existingNetworkPoolQuoteAmount,
+  type NetworkBidPool,
+} from "@/features/network/utils/networkBidPools.util";
+import {
   poolQuoteFailureLines,
   type NetworkLoadPool,
 } from "@/features/network/utils/networkLoadPools.util";
@@ -39,6 +43,27 @@ async function readManifest(
   if (error) throw error;
   if (!manifest) throw new Error("Pool not found.");
   return manifest;
+}
+
+function cardQuoteAmount(
+  pool: NetworkLoadPool<IndentRow> | null,
+): number | null {
+  if (!pool || !("rateMin" in pool)) return null;
+  return existingNetworkPoolQuoteAmount([
+    (pool as NetworkBidPool<IndentRow>).rateMin,
+  ]);
+}
+
+function manifestQuoteAmount(shown: NetworkPoolManifest | null): number | null {
+  if (!shown) return null;
+  return existingNetworkPoolQuoteAmount(
+    shown.org_quotes
+      .filter((quote) => {
+        const status = (quote.status ?? "").trim().toLowerCase();
+        return quote.quotable || status === "pending";
+      })
+      .map((quote) => quote.amount),
+  );
 }
 
 export function NetworkPoolQuoteModal({
@@ -156,6 +181,10 @@ export function NetworkPoolQuoteModal({
 
   if (!pool) return null;
 
+  const initialAmount =
+    manifestQuoteAmount(shown) ?? cardQuoteAmount(pool);
+  const isUpdate = initialAmount != null;
+
   const count = shown?.complete ? shown.quotable_ids.length : null;
   const loadsLabel =
     count != null
@@ -190,8 +219,10 @@ export function NetworkPoolQuoteModal({
       vehicleType={pool.key.vehicleType}
       ownerName="Network pool"
       targetRateInr={target}
+      initialAmount={initialAmount}
+      isUpdate={isUpdate}
       contextLine={contextLine}
-      submitLabel="Quote for pool"
+      submitLabel={isUpdate ? "Revise bid" : "Quote for pool"}
       confirmCopy={{
         scopeNote: `Your rate will be quoted on all ${loadsLabel} in this pool. Each shipper reviews, counters and awards its own load.`,
         successTitle: "Pool quoted",

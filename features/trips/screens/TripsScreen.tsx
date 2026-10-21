@@ -17,6 +17,8 @@ import type { HubGridPageSize } from "@/components/hub/hubGridCardLayout";
 import {
   HUB_GRID_DEFAULT_PAGE_SIZE,
   HUB_GRID_MIN_WIDTH,
+  hubGridColumnCount,
+  hubGridItemStyle,
 } from "@/components/hub/hubGridCardLayout";
 import { DateRangePickerModal } from "@/components/DateRangePickerModal";
 import {
@@ -263,6 +265,8 @@ export default function TripsScreen() {
   const { width, height } = useWindowDimensions();
   /** Desktop card grid — hub ticket cards (4 per row), aligned with Load Center. */
   const isLargeScreen = Platform.OS === "web" && width >= HUB_GRID_MIN_WIDTH;
+  const hubGridColumns = hubGridColumnCount(width);
+  const hubGridItem = hubGridItemStyle(hubGridColumns);
   const isCompactWeb = Platform.OS === "web" && width < 1180;
   const isMobile = width < 560;
   // Use mobile layout behavior for narrow web widths as well.
@@ -1909,7 +1913,7 @@ export default function TripsScreen() {
       );
       if (!hubGrid) return <View key={indent.id}>{card}</View>;
       return (
-        <View key={indent.id} style={styles.gridItem}>
+        <View key={indent.id} style={hubGridItem}>
           {card}
         </View>
       );
@@ -2873,7 +2877,7 @@ export default function TripsScreen() {
                         linkedOrgByOrganizationId,
                       );
                       return (
-                        <View key={t.id} style={styles.gridItem}>
+                        <View key={t.id} style={hubGridItem}>
                           <TripsHubTripCard
                             hubGrid
                             trip={t}
@@ -3598,11 +3602,8 @@ const styles = StyleSheet.create({
     marginTop: 0,
     rowGap: 4,
   },
-  /** Desktop trips grid — 4 cards per row (25% each). */
+  /** Desktop trips grid — column % comes from hubGridItemStyle. */
   gridItem: {
-    width: "25%",
-    maxWidth: "25%",
-    flexBasis: "25%",
     paddingHorizontal: 6,
     marginBottom: 14,
     alignSelf: "stretch",

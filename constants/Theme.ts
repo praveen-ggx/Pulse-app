@@ -470,6 +470,8 @@ export const Theme = {
   financeHeroBorder: "rgba(255,255,255,0.12)",
   financeHeroRangeBg: "rgba(255,255,255,0.08)",
   financeHeroRangeBorder: "rgba(255,255,255,0.22)",
+  financeHeroRangeHoverBg: "rgba(255,255,255,0.14)",
+  financeHeroRangeHoverBorder: "rgba(255,255,255,0.28)",
   financeCardBlueFrom: "#1d4ed8",
   financeCardBlueTo: "#312e81",
   financeCardOrangeFrom: "#ea580c",
@@ -586,6 +588,8 @@ export const Theme = {
   complianceHoverBg: "rgba(15, 23, 42, 0.04)",
   complianceHoverBorder: "#CBD5E1",
   complianceSelectedWash: "#F8FAFC",
+  /** Table / list row hover — visible on white and on surface rows. */
+  tableRowHover: "#F1F5F9",
   complianceUploadHover: "#166534",
   complianceStageDocsFg: "#DC2626",
   complianceStageDocsBg: "#FEF2F2",

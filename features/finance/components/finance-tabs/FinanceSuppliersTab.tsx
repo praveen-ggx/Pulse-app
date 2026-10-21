@@ -5,14 +5,21 @@ import {
 import { ExchangeTripsLaneCard } from "@/features/marketplace/components/ExchangeTripsLaneCard";
 import { SuppliersTab } from "@/features/suppliers/components/SuppliersTab";
 import Theme from "@/constants/Theme";
+import {
+  WEB_POINTER,
+  WEB_TRANSITION,
+  hoverRowWash,
+  isHovered,
+  type HoverPressState,
+} from "@/constants/hoverSelection";
 import { useTabBarAwareScrollProps } from "@/contexts/DemoTabBarScrollContext";
 import { useEffect, useState } from "react";
 import {
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
 import type { FinanceTabBodyProps } from "../FinanceTabBody.types";
@@ -81,9 +88,15 @@ export function FinanceSuppliersTab(props: FinanceTabBodyProps) {
       {SUPPLIER_PARTY_KIND_OPTIONS.map((opt) => {
         const active = supplierPartyKind === opt.id;
         return (
-          <TouchableOpacity
+          <Pressable
             key={opt.id}
-            style={[styles.kindChip, active && styles.kindChipActive]}
+            style={(state: HoverPressState) => [
+              styles.kindChip,
+              active && styles.kindChipActive,
+              WEB_POINTER,
+              WEB_TRANSITION,
+              !active && isHovered(state) && hoverRowWash,
+            ]}
             onPress={() => onSupplierPartyKindChange?.(opt.id)}
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
@@ -91,7 +104,7 @@ export function FinanceSuppliersTab(props: FinanceTabBodyProps) {
             <Text style={[styles.kindChipText, active && styles.kindChipTextActive]}>
               {opt.label}
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         );
       })}
     </View>

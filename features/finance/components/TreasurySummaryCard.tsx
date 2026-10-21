@@ -8,6 +8,13 @@ import {
 } from "@/constants/ChatFilterChrome";
 import { ChatFilterMirrorToggle } from "@/components/ChatFilterMirrorToggle";
 import Theme from '@/constants/Theme';
+import {
+    WEB_POINTER,
+    WEB_TRANSITION,
+    hoverRowWash,
+    isHovered,
+    type HoverPressState,
+} from '@/constants/hoverSelection';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import {
     useCallback,
@@ -93,6 +100,8 @@ export interface TreasurySummaryCardProps {
   /** Suppliers tab: view mode (list | analytics) shown in filter dropdown. */
   supplierViewTab?: 'list' | 'analytics';
   onSupplierViewTabChange?: (value: 'list' | 'analytics') => void;
+  /** Opens the fleet party-analytics page (same chrome as party detail). */
+  onPartyAnalyticsPress?: () => void;
   /** Vehicle detail: show margin % in the card (e.g. +90.5%) */
   marginPercent?: number | null;
   /** Ledger tab: filter by cash direction. When set, one of the summary cells is highlighted. */
@@ -328,6 +337,7 @@ export function TreasurySummaryCard({
   onCustomerViewTabChange,
   supplierViewTab,
   onSupplierViewTabChange,
+  onPartyAnalyticsPress,
   marginPercent,
   cashDirectionFilter = 'all',
   onCashInPress,
@@ -360,6 +370,84 @@ export function TreasurySummaryCard({
   const effectiveEntityFilterLabels = { ...ENTITY_FILTER_LABELS, ...entityFilterLabels };
   const showSummary = labelIn != null && labelOut != null;
   const isLightToolbar = toolbarTheme === 'light';
+  const partyAnalyticsActive =
+    customerViewTab === 'analytics' ||
+    supplierViewTab === 'analytics' ||
+    driverViewTab === 'analytics' ||
+    garageViewTab === 'analytics';
+  const showPartyAnalyticsToggle =
+    onPartyAnalyticsPress != null ||
+    (onCustomerViewTabChange != null && customerViewTab != null) ||
+    (onSupplierViewTabChange != null && supplierViewTab != null) ||
+    (onDriverViewTabChange != null && driverViewTab != null) ||
+    (onGarageViewTabChange != null && garageViewTab != null);
+  const togglePartyAnalytics = () => {
+    if (onPartyAnalyticsPress) {
+      onPartyAnalyticsPress();
+      return;
+    }
+    if (onCustomerViewTabChange != null && customerViewTab != null) {
+      onCustomerViewTabChange(customerViewTab === 'analytics' ? 'list' : 'analytics');
+      return;
+    }
+    if (onSupplierViewTabChange != null && supplierViewTab != null) {
+      onSupplierViewTabChange(supplierViewTab === 'analytics' ? 'list' : 'analytics');
+      return;
+    }
+    if (onDriverViewTabChange != null && driverViewTab != null) {
+      onDriverViewTabChange(driverViewTab === 'analytics' ? 'list' : 'analytics');
+      return;
+    }
+    if (onGarageViewTabChange != null && garageViewTab != null) {
+      onGarageViewTabChange(garageViewTab === 'analytics' ? 'vehicle' : 'analytics');
+    }
+  };
+  const toolbarActionIcons =
+    showPartyAnalyticsToggle || (!hideReportInToolbar && onReportPress) ? (
+      <View style={styles.toolbarActionIcons}>
+        {showPartyAnalyticsToggle ? (
+          <Pressable
+            onPress={togglePartyAnalytics}
+            accessibilityRole="button"
+            accessibilityLabel="Party contribution"
+            accessibilityState={{ selected: partyAnalyticsActive }}
+            style={(state: HoverPressState) => [
+              styles.reportIconBtn,
+              isLightToolbar && styles.reportIconBtnLight,
+              partyAnalyticsActive && styles.analyticsIconBtnActive,
+              WEB_POINTER,
+              WEB_TRANSITION,
+              !partyAnalyticsActive && isHovered(state) && hoverRowWash,
+            ]}
+          >
+            <FontAwesome
+              name="line-chart"
+              size={12}
+              color={
+                partyAnalyticsActive
+                  ? Theme.primary
+                  : isLightToolbar
+                    ? Theme.textPrimary
+                    : Theme.textOnDark
+              }
+            />
+          </Pressable>
+        ) : null}
+        {!hideReportInToolbar && onReportPress ? (
+          <PressableIcon
+            name="file-text-o"
+            size={11}
+            color={isLightToolbar ? Theme.textPrimary : Theme.textOnDark}
+            onPress={onReportPress}
+            pulse
+            style={[
+              styles.reportIconBtn,
+              isLightToolbar && styles.reportIconBtnLight,
+            ]}
+          />
+        ) : null}
+      </View>
+    ) : null;
   const showInlineSourceChips =
     isLightToolbar &&
     cashNetworkLayout &&
@@ -950,16 +1038,21 @@ export function TreasurySummaryCard({
           <View style={styles.filterRowWrap}>
             <View style={[styles.statusPillRow, styles.statusPillRowInWrap]}>
               {(['all', 'has_due', 'no_due'] as const).map((f) => (
-                <TouchableOpacity
+                <Pressable
                   key={f}
-                  style={[styles.statusPill, entityFilter === f && styles.statusPillActive]}
+                  style={(state: HoverPressState) => [
+                    styles.statusPill,
+                    entityFilter === f && styles.statusPillActive,
+                    WEB_POINTER,
+                    WEB_TRANSITION,
+                    entityFilter !== f && isHovered(state) && hoverRowWash,
+                  ]}
                   onPress={() => onEntityFilterChange(f)}
-                  activeOpacity={0.8}
                 >
                   <Text style={[styles.statusPillText, entityFilter === f && styles.statusPillTextActive]}>
                     {effectiveEntityFilterLabels[f]}
                   </Text>
-                </TouchableOpacity>
+                </Pressable>
               ))}
             </View>
             <View style={styles.filterRowRight}>{filterRowRight}</View>
@@ -967,16 +1060,21 @@ export function TreasurySummaryCard({
         ) : (
           <View style={styles.statusPillRow}>
             {(['all', 'has_due', 'no_due'] as const).map((f) => (
-              <TouchableOpacity
+              <Pressable
                 key={f}
-                style={[styles.statusPill, entityFilter === f && styles.statusPillActive]}
+                style={(state: HoverPressState) => [
+                  styles.statusPill,
+                  entityFilter === f && styles.statusPillActive,
+                  WEB_POINTER,
+                  WEB_TRANSITION,
+                  entityFilter !== f && isHovered(state) && hoverRowWash,
+                ]}
                 onPress={() => onEntityFilterChange(f)}
-                activeOpacity={0.8}
               >
                 <Text style={[styles.statusPillText, entityFilter === f && styles.statusPillTextActive]}>
                   {effectiveEntityFilterLabels[f]}
                 </Text>
-              </TouchableOpacity>
+              </Pressable>
             ))}
           </View>
         ))}
@@ -1174,14 +1272,16 @@ export function TreasurySummaryCard({
                     {(["all", "has_due", "no_due"] as const).map((f) => {
                       const active = entityFilter === f;
                       return (
-                        <TouchableOpacity
+                        <Pressable
                           key={f}
-                          style={[
+                          style={(state: HoverPressState) => [
                             chatChrome.scopePill,
                             active && chatChrome.scopePillActive,
+                            WEB_POINTER,
+                            WEB_TRANSITION,
+                            !active && isHovered(state) && hoverRowWash,
                           ]}
                           onPress={() => onEntityFilterChange(f)}
-                          activeOpacity={0.82}
                           accessibilityRole="tab"
                           accessibilityState={{ selected: active }}
                         >
@@ -1194,7 +1294,7 @@ export function TreasurySummaryCard({
                           >
                             {effectiveEntityFilterLabels[f]}
                           </Text>
-                        </TouchableOpacity>
+                        </Pressable>
                       );
                     })}
                   </View>
@@ -1224,19 +1324,7 @@ export function TreasurySummaryCard({
             {onEntityFilterChange != null ? periodAndSourceFilters : null}
           </View>
 
-          {!hideReportInToolbar && onReportPress && (
-            <PressableIcon
-              name="file-text-o"
-              size={11}
-              color={isLightToolbar ? Theme.textPrimary : Theme.textOnDark}
-              onPress={onReportPress}
-              pulse
-              style={[
-                styles.reportIconBtn,
-                isLightToolbar && styles.reportIconBtnLight,
-              ]}
-            />
-          )}
+          {toolbarActionIcons}
         </View>
       ) : (
         <View style={[styles.toolbarRow, compactToolbar && styles.toolbarRowStacked]}>
@@ -1291,19 +1379,7 @@ export function TreasurySummaryCard({
                 </Text>
               </TouchableOpacity>
             )}
-            {!hideReportInToolbar && onReportPress && (
-              <PressableIcon
-                name="file-text-o"
-                size={11}
-                color={isLightToolbar ? Theme.textPrimary : Theme.textOnDark}
-                onPress={onReportPress}
-                pulse
-                style={[
-                  styles.reportIconBtn,
-                  isLightToolbar && styles.reportIconBtnLight,
-                ]}
-              />
-            )}
+            {toolbarActionIcons}
           </ScrollView>
         </View>
       )}
@@ -1671,6 +1747,16 @@ const styles = StyleSheet.create({
   reportIconBtnLight: {
     backgroundColor: Theme.screenBackground,
     borderColor: Theme.borderLight,
+  },
+  toolbarActionIcons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 0,
+  },
+  analyticsIconBtnActive: {
+    backgroundColor: Theme.brandBlueWashSubtle,
+    borderColor: Theme.brandBlue,
   },
   clearFiltersBtn: {
     flexDirection: 'row',

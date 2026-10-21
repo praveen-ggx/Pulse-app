@@ -240,6 +240,8 @@ export const ROUTES = {
   /** Party directory — customers, suppliers, drivers, vehicles. */
   partyDirectory: (kind: "customers" | "suppliers" | "drivers" | "vehicles") =>
     `/party/${kind}` as const,
+  partyAnalytics: (kind: "customers" | "suppliers" | "drivers" | "vehicles") =>
+    `/party/analytics/${kind}` as const,
   supplierProfile: (supplierId: string, tab?: string) => {
     const base = `/supplier/${encodeURIComponent(supplierId)}/profile` as const;
     if (!tab) return base;

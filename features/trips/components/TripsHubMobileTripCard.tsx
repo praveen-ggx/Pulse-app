@@ -28,7 +28,7 @@ import { splitHubRouteLocationDisplay } from "@/features/trips/utils/tripLocatio
 import { isLoadBasedTrip } from "@/features/trips/visibility/tripVisibility";
 import { formatIndianVehicleNumber } from "@/lib/format";
 import type { ReactNode } from "react";
-import { memo } from "react";
+import { memo, useState } from "react";
 import {
   Platform,
   Pressable,
@@ -38,6 +38,24 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+
+type HoverPressState = { pressed: boolean; hovered?: boolean };
+
+const WEB_POINTER: ViewStyle | null =
+  Platform.OS === "web" ? ({ cursor: "pointer" } as ViewStyle) : null;
+
+const WEB_TRANSITION: ViewStyle | null =
+  Platform.OS === "web"
+    ? ({
+        transitionDuration: "140ms",
+        transitionProperty: "background-color, border-color, box-shadow, transform",
+        transitionTimingFunction: "ease",
+      } as ViewStyle)
+    : null;
+
+function isHovered(state: HoverPressState): boolean {
+  return Boolean(state.hovered) || state.pressed;
+}
 
 import {
   HUB_MOBILE_LIST_CANVAS_BG,
@@ -499,23 +517,37 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
     />
   );
 
+  const [hovered, setHovered] = useState(false);
+  const cardActive = hovered;
+
   return (
-    <View style={[styles.cardWrap, fillGrid && styles.cardWrapGrid, style]}>
+    <View
+      style={[
+        styles.cardWrap,
+        fillGrid && styles.cardWrapGrid,
+        style,
+      ]}
+    >
       <View
         style={[
           styles.card,
+          WEB_TRANSITION,
           fillGrid && styles.cardGrid,
           fillGrid && styles.cardGridElevated,
+          cardActive && styles.cardHover,
         ]}
       >
         <Pressable
           onPress={onPress}
-          style={({ pressed }) => [
+          onHoverIn={() => setHovered(true)}
+          onHoverOut={() => setHovered(false)}
+          style={(state: HoverPressState) => [
             styles.body,
+            WEB_POINTER,
             dense && styles.bodyDense,
             fillGrid && styles.bodyGrid,
             showFooterBar && styles.bodyWithFooter,
-            pressed && styles.bodyPressed,
+            isHovered(state) && styles.bodyPressed,
           ]}
           accessibilityRole="button"
           accessibilityLabel={`${tripNo} ${clientName}, ${originTagJoined}, ${asLabel(origin)} to ${asLabel(dest)}${routeViaLabel ? `, ${routeViaLabel} in between${routeViaDetail ? `: ${routeViaDetail}` : ""}` : ""}`}
@@ -722,7 +754,9 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
           >
             <Pressable
               onPress={onPress}
-              style={styles.refBlockPress}
+              onHoverIn={() => setHovered(true)}
+              onHoverOut={() => setHovered(false)}
+              style={[styles.refBlockPress, WEB_POINTER]}
               accessibilityRole="button"
               accessibilityLabel={`${tripNo} ${clientName}, ${schedule.scheduleLine}`}
             >
@@ -748,6 +782,9 @@ const styles = StyleSheet.create({
     flex: 1,
     marginBottom: 0,
     minWidth: 0,
+  },
+  cardHover: {
+    backgroundColor: Theme.complianceSelectedWash,
   },
   card: {
     backgroundColor: Theme.cardWhite,

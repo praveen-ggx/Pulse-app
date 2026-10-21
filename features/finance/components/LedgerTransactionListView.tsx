@@ -6,6 +6,13 @@ import { PartyAvatar } from "@/components/PartyAvatar";
 import { TinyEmptyLottie } from "@/components/TinyEmptyLottie";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
+import {
+  WEB_POINTER,
+  WEB_TRANSITION,
+  hoverRowWash,
+  isHovered,
+  type HoverPressState,
+} from "@/constants/hoverSelection";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useTabBarAwareScrollProps } from "@/contexts/DemoTabBarScrollContext";
 import { getDoubleEntryDisplayLabel } from "@/features/finance/accounting/accountingModel";
@@ -34,6 +41,7 @@ import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import {
     Platform,
+    Pressable,
     ScrollView,
     StyleSheet,
     Text,
@@ -538,13 +546,15 @@ export function LedgerTransactionListView({
             </View>
           </View>
           <View style={styles.streamTabs}>
-            <TouchableOpacity
-              style={[
+            <Pressable
+              style={(state: HoverPressState) => [
                 styles.streamTab,
                 fiscalSubTab === "transaction" && styles.streamTabActive,
+                WEB_POINTER,
+                WEB_TRANSITION,
+                fiscalSubTab !== "transaction" && isHovered(state) && hoverRowWash,
               ]}
               onPress={() => setFiscalSubTab("transaction")}
-              activeOpacity={0.8}
             >
               <Text
                 style={[
@@ -557,14 +567,16 @@ export function LedgerTransactionListView({
               {fiscalSubTab === "transaction" && (
                 <View style={styles.streamTabUnderline} />
               )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
+            </Pressable>
+            <Pressable
+              style={(state: HoverPressState) => [
                 styles.streamTab,
                 fiscalSubTab === "table" && styles.streamTabActive,
+                WEB_POINTER,
+                WEB_TRANSITION,
+                fiscalSubTab !== "table" && isHovered(state) && hoverRowWash,
               ]}
               onPress={() => setFiscalSubTab("table")}
-              activeOpacity={0.8}
             >
               <Text
                 style={[
@@ -577,14 +589,16 @@ export function LedgerTransactionListView({
               {fiscalSubTab === "table" && (
                 <View style={styles.streamTabUnderline} />
               )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
+            </Pressable>
+            <Pressable
+              style={(state: HoverPressState) => [
                 styles.streamTab,
                 fiscalSubTab === "analytics" && styles.streamTabActive,
+                WEB_POINTER,
+                WEB_TRANSITION,
+                fiscalSubTab !== "analytics" && isHovered(state) && hoverRowWash,
               ]}
               onPress={() => setFiscalSubTab("analytics")}
-              activeOpacity={0.8}
             >
               <Text
                 style={[
@@ -597,7 +611,7 @@ export function LedgerTransactionListView({
               {fiscalSubTab === "analytics" && (
                 <View style={styles.streamTabUnderline} />
               )}
-            </TouchableOpacity>
+            </Pressable>
           </View>
         </View>
       ) : showHistoryHeader && !useTimelineLayout ? (
@@ -781,10 +795,14 @@ export function LedgerTransactionListView({
                             : dateStr;
                         return (
                           <View key={row.id}>
-                            <TouchableOpacity
-                              style={styles.tableViewRow}
+                            <Pressable
+                              style={(state: HoverPressState) => [
+                                styles.tableViewRow,
+                                WEB_POINTER,
+                                WEB_TRANSITION,
+                                isHovered(state) && hoverRowWash,
+                              ]}
                               onPress={() => handleRowPress(row.id)}
-                              activeOpacity={0.7}
                             >
                               <View
                                 style={[
@@ -904,7 +922,7 @@ export function LedgerTransactionListView({
                                   </View>
                                 )}
                               </View>
-                            </TouchableOpacity>
+                            </Pressable>
                             </View>
                         );
                       })}
@@ -1069,10 +1087,14 @@ export function LedgerTransactionListView({
                                       !isLastRow && styles.fiscalCardWrapSeparator,
                                     ]}
                                   >
-                                    <TouchableOpacity
-                                      style={styles.fiscalCard}
+                                    <Pressable
+                                      style={(state: HoverPressState) => [
+                                        styles.fiscalCard,
+                                        WEB_POINTER,
+                                        WEB_TRANSITION,
+                                        isHovered(state) && hoverRowWash,
+                                      ]}
                                       onPress={() => handleRowPress(row.id)}
-                                      activeOpacity={0.9}
                                     >
                                       <View
                                         style={[
@@ -1170,7 +1192,7 @@ export function LedgerTransactionListView({
                                           </Text>
                                         </View>
                                       </View>
-                                    </TouchableOpacity>
+                                    </Pressable>
                                     </View>
                                 );
                               })}
@@ -1240,10 +1262,14 @@ export function LedgerTransactionListView({
                             ) : null;
                             return (
                               <View key={row.id}>
-                                <TouchableOpacity
-                                  style={styles.tableRow}
+                                <Pressable
+                                  style={(state: HoverPressState) => [
+                                    styles.tableRow,
+                                    WEB_POINTER,
+                                    WEB_TRANSITION,
+                                    isHovered(state) && hoverRowWash,
+                                  ]}
                                   onPress={() => handleRowPress(row.id)}
-                                  activeOpacity={0.7}
                                 >
                                   <View
                                     style={[
@@ -1306,7 +1332,7 @@ export function LedgerTransactionListView({
                                         : "—"}
                                     </Text>
                                   </View>
-                                </TouchableOpacity>
+                                </Pressable>
                                 </View>
                             );
                           })}

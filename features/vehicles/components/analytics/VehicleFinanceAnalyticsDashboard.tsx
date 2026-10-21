@@ -2,35 +2,36 @@
  * Vehicle finance analytics — responsive Metronic BI (matches supplier dashboard).
  */
 import { PartyAvatar } from "@/components/PartyAvatar";
-import { RiskMeter } from "@/components/analytics/RiskMeter";
-import { TrendBarChart, type TrendPoint } from "@/components/analytics";
+import { MetricHover, TrendBarChart, type TrendPoint } from "@/components/analytics";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import {
+  WEB_POINTER,
+  WEB_TRANSITION,
+  hoverRowWash,
+  isHovered,
+  type HoverPressState,
+} from "@/constants/hoverSelection";
+import {
   computeVehiclePerformanceScore,
   deriveVehicleBadges,
-  scoreLevelFromValue,
   type VehiclePerformanceScore,
 } from "@/features/analytics";
 import { ClientAnalyticsInsightRow } from "@/features/clients/components/analytics/ClientAnalyticsInsightRow";
 import { ClientAnalyticsKpiLottie } from "@/features/clients/components/analytics/ClientAnalyticsKpiLottie";
+import {
+  computePartyContribution,
+  tripVehicleLabel,
+} from "@/features/clients/components/analytics/clientAnalyticsUtils";
 import { clientFinanceAnalyticsStyles as styles } from "@/features/clients/components/analytics/clientFinanceAnalytics.styles";
 import type { LedgerRow } from "@/features/finance";
-import { NetworkDesktopSalesBarChart } from "@/features/network/components/desktop/NetworkDesktopSalesBarChart";
 import { NetworkDesktopSalesDonut } from "@/features/network/components/desktop/NetworkDesktopSalesDonut";
 import { NetworkDesktopSalesLineChart } from "@/features/network/components/desktop/NetworkDesktopSalesLineChart";
-import {
-  SalesTripLaneCell,
-  SalesTripMoneyCell,
-  SalesTripRefCell,
-  SalesTripStatusCell,
-} from "@/features/network/components/desktop/NetworkDesktopSalesTripTableCells";
 import {
   METRONIC,
   networkDesktopHubStyles as hubStyles,
 } from "@/features/network/components/desktop/networkDesktopHub.styles";
 import type {
-  SalesBarItem,
   SalesSlice,
   SalesTripTableRow,
   SalesTrendPoint,
@@ -55,8 +56,9 @@ import {
   type VehicleAnalyticsDateRange,
   type VehicleMonthlyTrendPoint,
 } from "@/features/vehicles/components/analytics/vehicleFinanceAnalyticsUtils";
-import { formatINRChip } from "@/lib/format";
+import { formatINR, formatINRChip, formatLedgerDate, formatTripTableDate } from "@/lib/format";
 import { useVehiclePerformanceScoreQuery } from "@/lib/queries/useAnalyticsQueries";
+import { useRouter } from "expo-router";
 import { Search } from "lucide-react-native";
 import { useMemo, useState, type ReactNode } from "react";
 import {
@@ -197,6 +199,8 @@ function KpiCard({
   lottie,
   valueColor,
   compact,
+  wide,
+  solo,
 }: {
   label: string;
   value: string;
@@ -204,20 +208,45 @@ function KpiCard({
   lottie: ReactNode;
   valueColor?: string;
   compact?: boolean;
+  wide?: boolean;
+  solo?: boolean;
 }) {
   return (
-    <View style={[hubStyles.salesKpiCard, compact && styles.kpiCardMobile]}>
-      <View style={styles.kpiIconWrap}>{lottie}</View>
-      <Text style={[hubStyles.salesKpiValue, valueColor ? { color: valueColor } : null]}>
-        {value}
-      </Text>
-      <Text style={[hubStyles.salesKpiLabel, compact && styles.kpiLabelMobile]}>
-        {label}
-      </Text>
-      {sub ? (
-        <Text style={[hubStyles.salesKpiSub, compact && styles.kpiSubMobile]}>{sub}</Text>
-      ) : null}
-    </View>
+    <MetricHover
+      title={label}
+      rows={[
+        { label: "Value", value },
+        ...(sub ? [{ label: "Detail", value: sub }] : []),
+      ]}
+    >
+      <View
+        style={[
+          hubStyles.salesKpiCard,
+          styles.kpiCardElegant,
+          compact && styles.kpiCardMobile,
+          compact && (solo || wide) && styles.kpiCardMobileWide,
+          compact && solo && styles.kpiCardMobileSolo,
+        ]}
+      >
+        <View style={styles.kpiIllustrWell}>{lottie}</View>
+        <View style={styles.kpiCopy}>
+          <Text style={[hubStyles.salesKpiLabel, compact && styles.kpiLabelMobile]}>
+            {label}
+          </Text>
+          <Text style={[hubStyles.salesKpiValue, valueColor ? { color: valueColor } : null]}>
+            {value}
+          </Text>
+          {sub ? (
+            <Text
+              style={[hubStyles.salesKpiSub, compact && styles.kpiSubMobile]}
+              numberOfLines={2}
+            >
+              {sub}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+    </MetricHover>
   );
 }
 
@@ -227,12 +256,14 @@ function ChartShell({
   children,
   compact,
   shellStyle,
+  contained,
 }: {
   title: string;
   subtitle?: string;
   children: ReactNode;
   compact?: boolean;
   shellStyle?: object;
+  contained?: boolean;
 }) {
   return (
     <View
@@ -240,12 +271,31 @@ function ChartShell({
         hubStyles.salesCard,
         hubStyles.salesCardPadTight,
         compact && styles.chartCardMobile,
+        contained && styles.desktopQuadInner,
         shellStyle,
       ]}
     >
-      <Text style={hubStyles.salesCardTitle}>{title}</Text>
-      {subtitle ? <Text style={hubStyles.salesWidgetSub}>{subtitle}</Text> : null}
-      {children}
+      <Text style={hubStyles.salesCardTitle} numberOfLines={1}>
+        {title}
+      </Text>
+      {subtitle ? (
+        <Text style={hubStyles.salesWidgetSub} numberOfLines={1}>
+          {subtitle}
+        </Text>
+      ) : null}
+      {contained ? (
+        <ScrollView
+          style={styles.desktopQuadScroll}
+          contentContainerStyle={styles.desktopQuadScrollContent}
+          nestedScrollEnabled
+          showsVerticalScrollIndicator
+          showsHorizontalScrollIndicator
+        >
+          {children}
+        </ScrollView>
+      ) : (
+        children
+      )}
     </View>
   );
 }
@@ -258,6 +308,7 @@ export function VehicleFinanceAnalyticsDashboard({
   orgId,
   embedded = false,
 }: Props) {
+  const router = useRouter();
   const layout = useProfileHubCompactLayout();
   const compact = layout.compact;
   const { width } = useWindowDimensions();
@@ -265,19 +316,27 @@ export function VehicleFinanceAnalyticsDashboard({
 
   const [dateRange, setDateRange] = useState<VehicleAnalyticsDateRange>("12m");
   const [laneFilter, setLaneFilter] = useState<string | null>(null);
+  const [partyFilter, setPartyFilter] = useState<string | null>(null);
   const [monthKey, setMonthKey] = useState<string | null>(null);
   const [tableSearch, setTableSearch] = useState("");
   const [trendChartWidth, setTrendChartWidth] = useState(compact ? width - 48 : 320);
-  const [laneChartWidth, setLaneChartWidth] = useState(compact ? carouselCardWidth - 24 : 200);
+  const [collectionsChartWidth, setCollectionsChartWidth] = useState(
+    compact ? carouselCardWidth - 24 : 200,
+  );
 
   const vehicleId = vehicle?.id ?? null;
   const vehicleLabel = vehicle?.vehicle_number?.trim() || "Vehicle";
 
-  const scopedMissionRows = useMemo(() => {
+  const periodMissionRows = useMemo(() => {
     let list = filterVehicleRowsByDateRange(missionRows, dateRange);
     if (laneFilter) {
       list = list.filter((r) => laneFromTrip(r.trip) === laneFilter);
     }
+    return list;
+  }, [missionRows, dateRange, laneFilter]);
+
+  const scopedMissionRows = useMemo(() => {
+    let list = periodMissionRows;
     if (monthKey) {
       list = list.filter((r) => {
         const d = tripDate(r.trip);
@@ -286,12 +345,37 @@ export function VehicleFinanceAnalyticsDashboard({
         return key === monthKey;
       });
     }
+    if (partyFilter) {
+      list = list.filter((r) => {
+        const label = tripVehicleLabel(r.trip);
+        return partyFilter === "Others"
+          ? label === "Unassigned" || !label
+          : label === partyFilter;
+      });
+    }
     return list;
-  }, [missionRows, dateRange, laneFilter, monthKey]);
+  }, [periodMissionRows, monthKey, partyFilter]);
 
-  const scopedTrips = useMemo(() => {
+  const periodTrips = useMemo(() => {
     let list = filterTripsByDateRange(trips, dateRange);
     if (laneFilter) list = list.filter((t) => laneFromTrip(t) === laneFilter);
+    return list;
+  }, [trips, dateRange, laneFilter]);
+
+  const partyContribution = useMemo(
+    () =>
+      vehicleId
+        ? []
+        : computePartyContribution(periodTrips, {
+            topN: 6,
+            labelFor: tripVehicleLabel,
+            valueFor: (t) => Math.max(0, Number(t.client_price ?? 0)),
+          }),
+    [periodTrips, vehicleId],
+  );
+
+  const scopedTrips = useMemo(() => {
+    let list = periodTrips;
     if (monthKey) {
       list = list.filter((t) => {
         const d = tripDate(t);
@@ -300,8 +384,18 @@ export function VehicleFinanceAnalyticsDashboard({
         return key === monthKey;
       });
     }
+    if (partyFilter) {
+      const top = new Set(
+        partyContribution.filter((row) => row.id !== "others").map((row) => row.label),
+      );
+      list = list.filter((t) => {
+        const label = tripVehicleLabel(t);
+        if (partyFilter === "Others") return !top.has(label);
+        return label === partyFilter;
+      });
+    }
     return list;
-  }, [trips, dateRange, laneFilter, monthKey]);
+  }, [periodTrips, monthKey, partyFilter, partyContribution]);
 
   const { data: serverScore } = useVehiclePerformanceScoreQuery(orgId, vehicleId);
 
@@ -341,8 +435,8 @@ export function VehicleFinanceAnalyticsDashboard({
     [scopedTrips],
   );
   const monthly = useMemo(
-    () => computeVehicleMonthlyTrend(scopedMissionRows, { monthsBack: 12 }),
-    [scopedMissionRows],
+    () => computeVehicleMonthlyTrend(periodMissionRows, { monthsBack: 12 }),
+    [periodMissionRows],
   );
   const lanes = useMemo(
     () => computeVehicleLaneBreakdown(scopedMissionRows, { topN: 6 }),
@@ -359,6 +453,19 @@ export function VehicleFinanceAnalyticsDashboard({
 
   const trend = useMemo(() => toTrendPoints(monthly), [monthly]);
 
+  const handleSelectMonth = (key: string | null) => {
+    if (!key || key === monthKey) {
+      setMonthKey(null);
+      return;
+    }
+    const point = monthly.find((m) => m.monthKey === key);
+    if (!point || (point.trips === 0 && point.revenue === 0)) {
+      setMonthKey(null);
+      return;
+    }
+    setMonthKey(key);
+  };
+
   const laneSlices: SalesSlice[] = useMemo(
     () =>
       lanes.map((l, i) => ({
@@ -367,6 +474,17 @@ export function VehicleFinanceAnalyticsDashboard({
         color: DONUT_COLORS[i % DONUT_COLORS.length],
       })),
     [lanes],
+  );
+
+  const contributionSlices: SalesSlice[] = useMemo(
+    () =>
+      partyContribution.map((row, i) => ({
+        label: row.label,
+        value: row.revenue,
+        color: DONUT_COLORS[i % DONUT_COLORS.length],
+        valueLabel: formatINRChip(row.revenue),
+      })),
+    [partyContribution],
   );
 
   const loadSlices: SalesSlice[] = useMemo(
@@ -395,20 +513,6 @@ export function VehicleFinanceAnalyticsDashboard({
       { label: "Other", value: expenseBuckets.bucket90Plus, color: "#7239EA" },
     ].filter((s) => s.value > 0);
   }, [expenseBuckets]);
-
-  const laneBars: SalesBarItem[] = useMemo(
-    () =>
-      lanes.map((l, i) => ({
-        key: l.id,
-        label: l.label,
-        shortLabel: laneChipLabel(l.label),
-        value: l.revenue,
-        revenue: l.revenue,
-        contributionPct: 0,
-        color: DONUT_COLORS[i % DONUT_COLORS.length],
-      })),
-    [lanes],
-  );
 
   const missionByTripId = useMemo(() => {
     const map = new Map<string, MissionRow>();
@@ -449,6 +553,78 @@ export function VehicleFinanceAnalyticsDashboard({
       });
   }, [scopedMissionRows, tableSearch, vehicleLabel]);
 
+  const partyDetailRows = useMemo(() => {
+    const q = tableSearch.trim().toLowerCase();
+    const txByTrip = new Map<
+      string,
+      { received: number; expense: number; count: number; lastTxn: string | null }
+    >();
+    for (const tx of transactions) {
+      const key = String(tx.trip_id ?? "").trim().toLowerCase();
+      if (!key) continue;
+      const cur = txByTrip.get(key) ?? {
+        received: 0,
+        expense: 0,
+        count: 0,
+        lastTxn: null,
+      };
+      cur.received += Number(tx.amount_in ?? 0);
+      cur.expense += Number(tx.amount_out ?? 0);
+      cur.count += 1;
+      const d = tx.transaction_date ?? tx.created_at ?? null;
+      if (d && (!cur.lastTxn || String(d) > cur.lastTxn)) cur.lastTxn = String(d);
+      txByTrip.set(key, cur);
+    }
+
+    return scopedMissionRows
+      .filter((row) => {
+        if (!q) return true;
+        const t = row.trip;
+        const ref = getTripOperationalDisplay({
+          trip_number: t.trip_number ?? null,
+        }).toLowerCase();
+        const lane = `${t.pickup_area ?? ""} ${t.drop_location ?? ""}`.toLowerCase();
+        const client = (t.client_name ?? "").toLowerCase();
+        const driver = (t.driver_display_name ?? "").toLowerCase();
+        return (
+          ref.includes(q) ||
+          lane.includes(q) ||
+          client.includes(q) ||
+          driver.includes(q)
+        );
+      })
+      .slice(0, 50)
+      .map((row) => {
+        const t = row.trip;
+        const pickup = (t.pickup_area ?? "").trim();
+        const drop = (t.drop_location ?? "").trim();
+        const rawDriver = (t.driver_display_name ?? "").trim();
+        const driverName =
+          !rawDriver || /^driver$/i.test(rawDriver) ? "—" : rawDriver;
+        const clientName = (t.client_name ?? "").trim() || "—";
+        const meta = txByTrip.get(String(t.id).trim().toLowerCase()) ?? {
+          received: 0,
+          expense: 0,
+          count: 0,
+          lastTxn: null,
+        };
+        return {
+          trip: t,
+          missionId: getTripOperationalDisplay({
+            trip_number: t.trip_number ?? null,
+          }),
+          route: pickup && drop ? `${pickup} → ${drop}` : pickup || drop || "—",
+          clientName,
+          driverName,
+          sales: row.sales,
+          expense: row.expense,
+          profit: row.profit,
+          txnCount: meta.count,
+          lastTxn: meta.lastTxn,
+        };
+      });
+  }, [scopedMissionRows, transactions, tableSearch]);
+
   const insightLines = useMemo(
     () => deriveVehicleInsights(financial, operations),
     [financial, operations],
@@ -470,11 +646,12 @@ export function VehicleFinanceAnalyticsDashboard({
 
   const clearFilters = () => {
     setLaneFilter(null);
+    setPartyFilter(null);
     setMonthKey(null);
     setTableSearch("");
   };
 
-  const filtersActive = Boolean(laneFilter || monthKey || tableSearch.trim());
+  const filtersActive = Boolean(laneFilter || partyFilter || monthKey || tableSearch.trim());
 
   const setDateRangeAndResetMonth = (range: VehicleAnalyticsDateRange) => {
     setDateRange(range);
@@ -526,7 +703,11 @@ export function VehicleFinanceAnalyticsDashboard({
         value={formatINRChip(financial.revenue)}
         sub={`${formatINRChip(financial.revenuePerDay)}/day avg`}
         lottie={
-          <ClientAnalyticsKpiLottie source={VEHICLE_ANALYTICS_LOTTIE.revenue} size={40} />
+          <ClientAnalyticsKpiLottie
+            source={VEHICLE_ANALYTICS_LOTTIE.revenue}
+            size={34}
+            renderScale={1.35}
+          />
         }
       />
       <KpiCard
@@ -536,7 +717,11 @@ export function VehicleFinanceAnalyticsDashboard({
         sub={`Expense ${formatINRChip(financial.expense)}`}
         valueColor={financial.profit >= 0 ? Theme.positive : Theme.negative}
         lottie={
-          <ClientAnalyticsKpiLottie source={VEHICLE_ANALYTICS_LOTTIE.profit} size={40} />
+          <ClientAnalyticsKpiLottie
+            source={VEHICLE_ANALYTICS_LOTTIE.profit}
+            size={34}
+            renderScale={1.35}
+          />
         }
       />
       <KpiCard
@@ -552,7 +737,11 @@ export function VehicleFinanceAnalyticsDashboard({
               : Theme.negative
         }
         lottie={
-          <ClientAnalyticsKpiLottie source={VEHICLE_ANALYTICS_LOTTIE.profit} size={40} />
+          <ClientAnalyticsKpiLottie
+            source={VEHICLE_ANALYTICS_LOTTIE.profit}
+            size={34}
+            renderScale={1.35}
+          />
         }
       />
       <KpiCard
@@ -561,103 +750,125 @@ export function VehicleFinanceAnalyticsDashboard({
         value={String(operations.tripsCompleted)}
         sub={`${financial.utilizationPct}% utilization · ${operations.completionPct}% completion`}
         lottie={
-          <ClientAnalyticsKpiLottie source={VEHICLE_ANALYTICS_LOTTIE.trips} size={40} />
+          <ClientAnalyticsKpiLottie
+            source={VEHICLE_ANALYTICS_LOTTIE.trips}
+            size={34}
+            renderScale={1.35}
+          />
         }
       />
     </View>
   );
 
-  const healthCard = (
+  const healthBody = score ? (
+    <>
+      <View style={styles.healthScoreRow}>
+        <Text
+          style={[
+            styles.healthScore,
+            compact && styles.healthScoreCompact,
+            score.level === "critical" || score.level === "warning"
+              ? { color: Theme.negative }
+              : score.level === "good" || score.level === "excellent"
+                ? { color: Theme.positive }
+                : { color: Theme.warning },
+          ]}
+        >
+          {Math.round(score.score)}
+        </Text>
+        <Text
+          style={[styles.healthScoreMax, compact && styles.healthScoreMaxCompact]}
+        >
+          / 100
+        </Text>
+      </View>
+      <Text style={hubStyles.salesWidgetSub} numberOfLines={1}>
+        {score.breakdown.tripsTotal} trips · last 6 months
+      </Text>
+      {healthBars.map((bar) => (
+        <MetricHover
+          key={bar.label}
+          title={bar.label}
+          rows={[{ label: "Score", value: `${Math.round(bar.percent)} / 100` }]}
+        >
+          <View style={styles.healthBarRow}>
+            <Text
+              style={[styles.healthBarLabel, compact && styles.healthBarLabelCompact]}
+              numberOfLines={1}
+            >
+              {bar.label}
+            </Text>
+            <View style={styles.healthBarTrack}>
+              <View
+                style={[
+                  styles.healthBarFill,
+                  {
+                    width: `${Math.max(0, Math.min(100, bar.percent))}%`,
+                    backgroundColor:
+                      bar.color ??
+                      (bar.percent < 40 ? Theme.warning : METRONIC.link),
+                  },
+                ]}
+              />
+            </View>
+            <Text style={styles.healthBarValue}>{Math.round(bar.percent)}</Text>
+          </View>
+        </MetricHover>
+      ))}
+    </>
+  ) : (
+    <Text style={hubStyles.salesEmptySide}>
+      Not enough trip history for a performance score.
+    </Text>
+  );
+
+  const healthCard = !vehicleId ? (
+    <ChartShell
+      compact={compact}
+      shellStyle={!compact ? styles.desktopQuadInner : undefined}
+      title="Vehicle contribution"
+      subtitle="Share of billed sales by vehicle"
+    >
+      <View style={[hubStyles.salesWidgetDonutBody, styles.desktopQuadChartBody]}>
+        <NetworkDesktopSalesDonut
+          slices={contributionSlices}
+          stacked
+          activeLabel={partyFilter}
+          onSelectLabel={setPartyFilter}
+          emptyMessage="No vehicle billing yet."
+        />
+      </View>
+    </ChartShell>
+  ) : (
     <View
       style={[
         hubStyles.salesCard,
         hubStyles.salesCardPadTight,
         compact && styles.healthCardMobile,
+        !compact && styles.desktopQuadInner,
       ]}
     >
       <View style={styles.healthHeader}>
-        <ClientAnalyticsKpiLottie source={VEHICLE_ANALYTICS_LOTTIE.performance} size={32} />
-        <Text style={hubStyles.salesCardTitle}>Performance score</Text>
-      </View>
-      {score ? (
-        <>
-          <View style={styles.healthScoreRow}>
-            <Text
-              style={[
-                styles.healthScore,
-                compact && styles.healthScoreCompact,
-                score.level === "critical" || score.level === "warning"
-                  ? { color: Theme.negative }
-                  : score.level === "good" || score.level === "excellent"
-                    ? { color: Theme.positive }
-                    : { color: Theme.warning },
-              ]}
-            >
-              {Math.round(score.score)}
-            </Text>
-            <Text
-              style={[styles.healthScoreMax, compact && styles.healthScoreMaxCompact]}
-            >
-              / 100
-            </Text>
-          </View>
-          <Text style={hubStyles.salesWidgetSub}>
-            {score.breakdown.tripsTotal} trips · last 6 months
-          </Text>
-          {healthBars.map((bar) => (
-            <View key={bar.label} style={styles.healthBarRow}>
-              <Text
-                style={[styles.healthBarLabel, compact && styles.healthBarLabelCompact]}
-              >
-                {bar.label}
-              </Text>
-              <View style={styles.healthBarTrack}>
-                <View
-                  style={[
-                    styles.healthBarFill,
-                    {
-                      width: `${Math.max(0, Math.min(100, bar.percent))}%`,
-                      backgroundColor:
-                        bar.color ??
-                        (bar.percent < 40 ? Theme.warning : METRONIC.link),
-                    },
-                  ]}
-                />
-              </View>
-              <Text style={styles.healthBarValue}>{Math.round(bar.percent)}</Text>
-            </View>
-          ))}
-        </>
-      ) : (
-        <Text style={hubStyles.salesEmptySide}>
-          Not enough trip history for a performance score.
-        </Text>
-      )}
-    </View>
-  );
-
-  const utilizationGaugeCard = (
-    <View
-      style={[
-        hubStyles.salesCard,
-        hubStyles.salesCardPadTight,
-        styles.gaugeCard,
-        !compact && styles.gaugeCardDesktop,
-      ]}
-    >
-      <Text style={[hubStyles.salesCardTitle, compact && { textAlign: "center" }]}>
-        Utilization
-      </Text>
-      <View style={styles.gaugeBody}>
-        <RiskMeter
-          value={financial.utilizationPct}
-          level={scoreLevelFromValue(financial.utilizationPct)}
-          label="Fleet utilization"
-          caption={`${operations.tripsCompleted} completed trips`}
-          size={compact ? 112 : 128}
-          stroke={compact ? 9 : 10}
+        <ClientAnalyticsKpiLottie
+          source={VEHICLE_ANALYTICS_LOTTIE.performance}
+          size={compact ? 32 : 28}
         />
+        <Text style={hubStyles.salesCardTitle} numberOfLines={1}>
+          Performance score
+        </Text>
       </View>
+      {compact ? (
+        healthBody
+      ) : (
+        <ScrollView
+          style={styles.desktopQuadScroll}
+          contentContainerStyle={styles.desktopQuadScrollContent}
+          nestedScrollEnabled
+          showsVerticalScrollIndicator
+        >
+          {healthBody}
+        </ScrollView>
+      )}
     </View>
   );
 
@@ -680,7 +891,7 @@ export function VehicleFinanceAnalyticsDashboard({
           width={trendChartWidth}
           height={compact ? 148 : 132}
           activeMonthKey={monthKey}
-          onSelectMonth={setMonthKey}
+          onSelectMonth={handleSelectMonth}
           color={METRONIC.link}
         />
       </View>
@@ -722,42 +933,17 @@ export function VehicleFinanceAnalyticsDashboard({
     </ChartShell>
   );
 
-  const laneContributionCard = (
-    <ChartShell
-      compact={compact}
-      shellStyle={!compact ? hubStyles.salesBarLane : undefined}
-      title="Lane contribution"
-    >
-      <View
-        onLayout={(e) => {
-          const w = Math.floor(e.nativeEvent.layout.width);
-          if (w > 0 && w !== laneChartWidth) setLaneChartWidth(w);
-        }}
-      >
-        <NetworkDesktopSalesBarChart
-          items={laneBars}
-          width={laneChartWidth}
-          height={compact ? 132 : 148}
-          activeKey={laneFilter}
-          onSelectKey={(key) => {
-            const lane = lanes.find((l) => l.id === key);
-            setLaneFilter(lane ? lane.label : null);
-          }}
-          footerText="Revenue by lane · tap to cross-filter"
-        />
-      </View>
-    </ChartShell>
-  );
-
   const expenseBucketsCard = (
     <ChartShell
       compact={compact}
+      contained={!compact}
       shellStyle={!compact ? hubStyles.salesBarOrigin : undefined}
       title="Expense buckets"
     >
-      <View style={hubStyles.salesWidgetDonutBody}>
+      <View style={[hubStyles.salesWidgetDonutBody, styles.desktopQuadChartBody]}>
         <NetworkDesktopSalesDonut
           slices={expenseSlices}
+          stacked
           emptyMessage="No expense data yet."
         />
       </View>
@@ -767,18 +953,37 @@ export function VehicleFinanceAnalyticsDashboard({
   const profitTrendCard = (
     <ChartShell
       compact={compact}
+      contained={!compact}
       shellStyle={!compact ? hubStyles.salesBarOrigin : undefined}
       title="Profit trend"
     >
-      <TrendBarChart
-        data={toProfitLinePoints(monthly)}
-        width={Math.max(180, laneChartWidth)}
-        height={compact ? 132 : 140}
-        primaryField="revenue"
-        secondaryField="expense"
-        primaryColor={Theme.chartSeries2}
-        secondaryColor={Theme.chartSeries4}
-      />
+      <View
+        style={styles.desktopQuadChartBody}
+        onLayout={(e) => {
+          const w = Math.floor(e.nativeEvent.layout.width);
+          if (w > 0 && w !== collectionsChartWidth) setCollectionsChartWidth(w);
+        }}
+      >
+        <ScrollView
+          horizontal
+          nestedScrollEnabled
+          showsHorizontalScrollIndicator
+          style={{ width: "100%" }}
+        >
+          <TrendBarChart
+            data={toProfitLinePoints(monthly)}
+            width={Math.max(
+              180,
+              Math.max(collectionsChartWidth, monthly.length * 36),
+            )}
+            height={compact ? 132 : 168}
+            primaryField="revenue"
+            secondaryField="expense"
+            primaryColor={Theme.chartSeries2}
+            secondaryColor={Theme.chartSeries4}
+          />
+        </ScrollView>
+      </View>
     </ChartShell>
   );
 
@@ -876,8 +1081,8 @@ export function VehicleFinanceAnalyticsDashboard({
       )}
     </View>
   ) : (
-    <View style={[hubStyles.salesCard, hubStyles.salesTableCard]}>
-      <View style={hubStyles.salesTableTitleRow}>
+    <View style={[hubStyles.salesCard, hubStyles.salesTableCard, styles.partyTableCard]}>
+      <View style={styles.partyTableToolbar}>
         <View style={hubStyles.salesTripTableTitleCol}>
           <Text style={hubStyles.salesCardTitle}>Trips</Text>
           <Text style={hubStyles.salesTripTableSub}>
@@ -886,10 +1091,7 @@ export function VehicleFinanceAnalyticsDashboard({
               : "All vehicle trips in period"}
           </Text>
         </View>
-      </View>
-
-      <View style={hubStyles.salesTableToolbar}>
-        <View style={hubStyles.salesTableSearch}>
+        <View style={styles.partyTableSearch}>
           <Search size={14} color={METRONIC.muted} />
           <TextInput
             style={hubStyles.searchInput}
@@ -901,73 +1103,141 @@ export function VehicleFinanceAnalyticsDashboard({
         </View>
       </View>
 
-      <View style={hubStyles.salesTableScroll}>
-        <View style={hubStyles.salesTableHead}>
-          <View style={styles.clientTripsGrid}>
-            <Text style={[hubStyles.salesTableHeadCell, hubStyles.salesColTripRef]}>
-              Trip
-            </Text>
-            <Text style={[hubStyles.salesTableHeadCell, hubStyles.salesColLane]}>
-              Lane
-            </Text>
-            <Text style={[hubStyles.salesTableHeadCell, hubStyles.salesGridNumHead]}>
-              Revenue
-            </Text>
-            <Text style={[hubStyles.salesTableHeadCell, hubStyles.salesGridNumHead]}>
-              Expense
-            </Text>
-            <Text style={[hubStyles.salesTableHeadCell, hubStyles.salesGridNumHead]}>
-              Profit
-            </Text>
-            <Text style={[hubStyles.salesTableHeadCell, hubStyles.salesColStatus]}>
-              Status
-            </Text>
+      <View style={styles.partyTableScroll}>
+        <View style={styles.partyTableInner}>
+          <View style={[styles.partyTableHead, styles.partyTableGrid8]}>
+            <View style={styles.partyTripCol}>
+              <Text style={styles.partyTh}>Trip</Text>
+            </View>
+            <View style={styles.partyPartyCol}>
+              <Text style={styles.partyTh}>Client</Text>
+            </View>
+            <View style={styles.partyDriverCol}>
+              <Text style={styles.partyTh}>Driver</Text>
+            </View>
+            <View style={styles.partyAmtCol}>
+              <Text style={[styles.partyTh, styles.partyThRight]}>Revenue</Text>
+            </View>
+            <View style={styles.partyAmtCol}>
+              <Text style={[styles.partyTh, styles.partyThRight]}>Expense</Text>
+            </View>
+            <View style={styles.partyAmtCol}>
+              <Text style={[styles.partyTh, styles.partyThRight]}>Profit</Text>
+            </View>
+            <View style={styles.partyTxnCol}>
+              <Text style={[styles.partyTh, styles.partyThRight]}>Txns</Text>
+            </View>
+            <View style={styles.partyLastCol}>
+              <Text style={[styles.partyTh, styles.partyThRight]}>Last Txn</Text>
+            </View>
           </View>
-        </View>
 
-        {tableRows.length === 0 ? (
-          <View style={styles.tripsEmpty}>
-            <ClientAnalyticsKpiLottie source={VEHICLE_ANALYTICS_LOTTIE.trips} size={72} />
-            <Text style={styles.tripsEmptyText}>No trips match filters.</Text>
-          </View>
-        ) : (
-          tableRows.map((row, idx) => {
-            const mission = missionByTripId.get(row.id);
-            const revenue = mission?.sales ?? row.sales;
-            const expense = mission?.expense ?? row.cost;
-            const profit = mission?.profit ?? row.margin;
-            return (
-              <View
-                key={row.id}
-                style={[
-                  hubStyles.salesTableRow,
-                  idx === tableRows.length - 1 && hubStyles.salesTableRowLast,
-                ]}
-              >
-                <View style={styles.clientTripsGrid}>
-                  <View style={hubStyles.salesColTripRef}>
-                    <SalesTripRefCell row={row} />
+          {partyDetailRows.length === 0 ? (
+            <View style={styles.tripsEmpty}>
+              <ClientAnalyticsKpiLottie source={VEHICLE_ANALYTICS_LOTTIE.trips} size={72} />
+              <Text style={styles.tripsEmptyText}>No trips match filters.</Text>
+            </View>
+          ) : (
+            partyDetailRows.map((row) => {
+              const tripDateIso = row.trip.pickup_date ?? row.trip.created_at;
+              return (
+                <Pressable
+                  key={row.trip.id}
+                  style={(state: HoverPressState) => [
+                    styles.partyTableRow,
+                    styles.partyTableGrid8,
+                    WEB_POINTER,
+                    WEB_TRANSITION,
+                    isHovered(state) && hoverRowWash,
+                  ]}
+                  onPress={() =>
+                    router.push(
+                      `/trip/${row.trip.id}?entryContext=vehicle` as const,
+                    )
+                  }
+                >
+                  <View style={styles.partyTripCol}>
+                    <View style={styles.partyTripIdRow}>
+                      <Text
+                        style={styles.partyTripId}
+                        numberOfLines={1}
+                        ellipsizeMode="middle"
+                      >
+                        {row.missionId}
+                      </Text>
+                      <Text style={styles.partyTripSep}>·</Text>
+                      <Text style={styles.partyTripDate} numberOfLines={1}>
+                        {formatTripTableDate(tripDateIso)}
+                      </Text>
+                    </View>
+                    <Text style={styles.partyRoute} numberOfLines={2}>
+                      {row.route}
+                    </Text>
                   </View>
-                  <View style={hubStyles.salesColLane}>
-                    <SalesTripLaneCell row={row} />
+                  <View style={styles.partyPartyCol}>
+                    <View style={styles.partyAvatarRow}>
+                      <PartyAvatar
+                        name={row.clientName}
+                        entityType="client"
+                        size={28}
+                      />
+                      <View style={styles.partyTextStack}>
+                        <Text style={styles.partyName} numberOfLines={1}>
+                          {row.clientName}
+                        </Text>
+                      </View>
+                    </View>
                   </View>
-                  <View style={hubStyles.salesGridNumCell}>
-                    <SalesTripMoneyCell value={revenue} />
+                  <View style={styles.partyDriverCol}>
+                    <View style={styles.partyAvatarRow}>
+                      <PartyAvatar
+                        name={row.driverName}
+                        entityType="driver"
+                        size={28}
+                      />
+                      <View style={styles.partyTextStack}>
+                        <Text style={styles.partyName} numberOfLines={1}>
+                          {row.driverName}
+                        </Text>
+                      </View>
+                    </View>
                   </View>
-                  <View style={hubStyles.salesGridNumCell}>
-                    <SalesTripMoneyCell value={expense} />
+                  <View style={styles.partyAmtCol}>
+                    <Text style={styles.partyAmt} numberOfLines={1}>
+                      {formatINR(row.sales)}
+                    </Text>
                   </View>
-                  <View style={hubStyles.salesGridNumCell}>
-                    <SalesTripMoneyCell value={profit} />
+                  <View style={styles.partyAmtCol}>
+                    <Text style={styles.partyAmt} numberOfLines={1}>
+                      {formatINR(row.expense)}
+                    </Text>
                   </View>
-                  <View style={hubStyles.salesColStatus}>
-                    <SalesTripStatusCell row={row} />
+                  <View style={styles.partyAmtCol}>
+                    <Text
+                      style={[
+                        styles.partyAmt,
+                        row.profit >= 0 ? styles.partyAmtIn : styles.partyAmtOut,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {formatINR(row.profit)}
+                    </Text>
                   </View>
-                </View>
-              </View>
-            );
-          })
-        )}
+                  <View style={styles.partyTxnCol}>
+                    <Text style={styles.partyTxn} numberOfLines={1}>
+                      {row.txnCount}
+                    </Text>
+                  </View>
+                  <View style={styles.partyLastCol}>
+                    <Text style={styles.partyAmtMuted} numberOfLines={1}>
+                      {row.lastTxn ? formatLedgerDate(row.lastTxn) : "—"}
+                    </Text>
+                  </View>
+                </Pressable>
+              );
+            })
+          )}
+        </View>
       </View>
     </View>
   );
@@ -1012,10 +1282,7 @@ export function VehicleFinanceAnalyticsDashboard({
           </View>
 
           <View style={styles.mobileSection}>
-            <View style={styles.healthStackMobile}>
-              {healthCard}
-              {utilizationGaugeCard}
-            </View>
+            <View style={styles.healthStackMobile}>{healthCard}</View>
           </View>
 
           <ScrollView
@@ -1023,9 +1290,6 @@ export function VehicleFinanceAnalyticsDashboard({
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.carousel}
           >
-            <View style={[styles.carouselCard, { width: carouselCardWidth }]}>
-              <View style={styles.carouselCardInner}>{laneContributionCard}</View>
-            </View>
             <View style={[styles.carouselCard, { width: carouselCardWidth }]}>
               <View style={styles.carouselCardInner}>{expenseBucketsCard}</View>
             </View>
@@ -1043,96 +1307,19 @@ export function VehicleFinanceAnalyticsDashboard({
 
   return (
     <View style={[hubStyles.salesBody, styles.bodyDesktop]}>
-      <View style={[styles.pageIntro, styles.pageIntroDesktop]}>
-        <Text style={styles.pageTitle}>Vehicle finance analytics</Text>
-        <Text style={styles.pageSub}>
-          {vehicleLabel} · revenue, cost, and utilization
-        </Text>
-      </View>
-
-      <View style={hubStyles.splitRow}>
-        <View style={[hubStyles.sidebar, styles.desktopSidebar]}>
-          <View style={[hubStyles.salesCard, hubStyles.salesCardPad]}>
-            <Text style={hubStyles.cardTitle}>Intelligent filters</Text>
-            <Text style={hubStyles.salesFilterHint}>
-              Cross-filter charts and trips like Connection sales
-            </Text>
-            <Text style={hubStyles.salesFilterGroup}>Period</Text>
-            {periodFilters}
-            {lanes.length > 0 ? (
-              <>
-                <Text style={hubStyles.salesFilterGroup}>Lanes</Text>
-                {laneFilters}
-              </>
-            ) : null}
-            {filtersActive ? (
-              <Pressable onPress={clearFilters} style={hubStyles.salesClearBtn}>
-                <Text style={hubStyles.salesClearBtnText}>Clear all filters</Text>
-              </Pressable>
-            ) : null}
-          </View>
-
-          <View style={[hubStyles.salesCard, hubStyles.salesCardPad]}>
-            <Text style={hubStyles.cardTitle}>Top lanes</Text>
-            {lanes.slice(0, 4).map((lane, idx) => (
-              <Pressable
-                key={lane.id}
-                style={[
-                  hubStyles.salesContributorRow,
-                  idx === Math.min(3, lanes.length - 1) &&
-                    hubStyles.salesContributorRowLast,
-                ]}
-                onPress={() =>
-                  setLaneFilter((prev) => (prev === lane.label ? null : lane.label))
-                }
-              >
-                <View style={styles.kpiIconWrapLane}>
-                  <ClientAnalyticsKpiLottie
-                    source={VEHICLE_ANALYTICS_LOTTIE.lanes}
-                    size={32}
-                  />
-                </View>
-                <View style={hubStyles.salesContributorTextCol}>
-                  <Text style={hubStyles.salesContributorName} numberOfLines={2}>
-                    {lane.label}
-                  </Text>
-                  <Text style={hubStyles.salesContributorMeta}>
-                    {lane.trips} trips · {formatINRChip(lane.revenue)}
-                  </Text>
-                </View>
-              </Pressable>
-            ))}
-            {lanes.length === 0 ? (
-              <Text style={hubStyles.salesEmptySide}>No lane data yet.</Text>
-            ) : null}
-          </View>
-
-          {vehicleSummaryCard}
-          {insightsBlock}
+      <View style={styles.desktopMainCol}>
+        {kpiRow}
+        <View style={hubStyles.salesWidgetRow}>
+          {revenueTrendCard}
+          {laneMixCard}
+          {loadTypesCard}
         </View>
-
-        <View style={[hubStyles.mainCol, styles.desktopMainCol]}>
-          {kpiRow}
-
-          <View style={hubStyles.salesWidgetRow}>
-            {revenueTrendCard}
-            {laneMixCard}
-            {loadTypesCard}
-          </View>
-
-          <View style={hubStyles.salesBarRowDual}>
-            {healthCard}
-            {utilizationGaugeCard}
-          </View>
-
-          <View style={hubStyles.salesBarRow}>
-            {laneContributionCard}
-            {expenseBucketsCard}
-            {profitTrendCard}
-          </View>
-
-          {tripsBlock}
+        <View style={styles.desktopQuadRow}>
+          {healthCard}
+          {expenseBucketsCard}
+          {profitTrendCard}
         </View>
+        {tripsBlock}
       </View>
     </View>
   );

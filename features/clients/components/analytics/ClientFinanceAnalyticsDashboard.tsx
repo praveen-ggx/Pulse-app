@@ -2,8 +2,7 @@
  * Client finance analytics — responsive Metronic BI (Connection sales style).
  */
 import { PartyAvatar } from "@/components/PartyAvatar";
-import { RiskMeter } from "@/components/analytics/RiskMeter";
-import { TrendBarChart, type TrendPoint } from "@/components/analytics";
+import { MetricHover, TrendBarChart, type TrendPoint } from "@/components/analytics";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { CLIENT_ANALYTICS_LOTTIE } from "@/features/clients/components/analytics/clientAnalyticsAssets";
@@ -15,9 +14,11 @@ import {
   computeClientKpiHeader,
   computeClientMonthlyTrend,
   computeClientOperationalMetrics,
+  computeCustomerContribution,
   computeLaneBreakdown,
   computeLoadTypeBreakdown,
   computePaymentAging,
+  applyPartyChartFilters,
   deriveClientInsights,
   type ClientMonthlyTrendPoint,
 } from "@/features/clients/components/analytics/clientAnalyticsUtils";
@@ -25,33 +26,33 @@ import type { ClientRow } from "@/features/clients/services/clients.service";
 import {
   computeCustomerHealthScore,
   deriveCustomerBadges,
-  scoreLevelFromValue,
   type CustomerHealthScore,
 } from "@/features/analytics";
 import type { LedgerRow } from "@/features/finance";
-import { NetworkDesktopSalesBarChart } from "@/features/network/components/desktop/NetworkDesktopSalesBarChart";
 import { NetworkDesktopSalesDonut } from "@/features/network/components/desktop/NetworkDesktopSalesDonut";
 import { NetworkDesktopSalesLineChart } from "@/features/network/components/desktop/NetworkDesktopSalesLineChart";
 import {
-  SalesTripLaneCell,
-  SalesTripMoneyCell,
-  SalesTripRefCell,
-  SalesTripStatusCell,
-} from "@/features/network/components/desktop/NetworkDesktopSalesTripTableCells";
+  WEB_POINTER,
+  WEB_TRANSITION,
+  hoverRowWash,
+  isHovered,
+  type HoverPressState,
+} from "@/constants/hoverSelection";
 import {
   METRONIC,
   networkDesktopHubStyles as styles,
 } from "@/features/network/components/desktop/networkDesktopHub.styles";
 import type {
-  SalesBarItem,
   SalesSlice,
   SalesTripTableRow,
   SalesTrendPoint,
 } from "@/features/network/utils/connectionSalesAnalytics.util";
 import { useProfileHubCompactLayout } from "@/features/party/hooks/useProfileHubCompactLayout";
+import { isLoadBasedTrip } from "@/features/trips/visibility/tripVisibility";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { getTripOperationalDisplay } from "@/features/operations/display";
-import { formatINRChip } from "@/lib/format";
+import { formatINR, formatINRChip, formatLedgerDate, formatTripTableDate } from "@/lib/format";
+import { useRouter } from "expo-router";
 import { useCustomerHealthScoreQuery } from "@/lib/queries/useAnalyticsQueries";
 import { Search } from "lucide-react-native";
 import { useMemo, useState, type ReactNode } from "react";
@@ -136,7 +137,7 @@ function toTrendPoints(months: readonly ClientMonthlyTrendPoint[]): SalesTrendPo
   return months.map((m) => ({
     monthKey: m.monthKey,
     label: m.label,
-    trips: m.revenue,
+    trips: m.trips,
     revenue: m.revenue,
   }));
 }
@@ -222,27 +223,41 @@ function KpiCard({
   solo?: boolean;
 }) {
   return (
-    <View
-      style={[
-        styles.salesKpiCard,
-        compact && clientStyles.kpiCardMobile,
-        compact && (solo || wide) && clientStyles.kpiCardMobileWide,
-        compact && solo && clientStyles.kpiCardMobileSolo,
+    <MetricHover
+      title={label}
+      rows={[
+        { label: "Value", value },
+        ...(sub ? [{ label: "Detail", value: sub }] : []),
       ]}
     >
-      <View style={clientStyles.kpiIconWrap}>{lottie}</View>
-      <Text style={[styles.salesKpiValue, valueColor ? { color: valueColor } : null]}>
-        {value}
-      </Text>
-      <Text style={[styles.salesKpiLabel, compact && clientStyles.kpiLabelMobile]}>
-        {label}
-      </Text>
-      {sub ? (
-        <Text style={[styles.salesKpiSub, compact && clientStyles.kpiSubMobile]}>
-          {sub}
-        </Text>
-      ) : null}
-    </View>
+      <View
+        style={[
+          styles.salesKpiCard,
+          clientStyles.kpiCardElegant,
+          compact && clientStyles.kpiCardMobile,
+          compact && (solo || wide) && clientStyles.kpiCardMobileWide,
+          compact && solo && clientStyles.kpiCardMobileSolo,
+        ]}
+      >
+        <View style={clientStyles.kpiIllustrWell}>{lottie}</View>
+        <View style={clientStyles.kpiCopy}>
+          <Text style={[styles.salesKpiLabel, compact && clientStyles.kpiLabelMobile]}>
+            {label}
+          </Text>
+          <Text style={[styles.salesKpiValue, valueColor ? { color: valueColor } : null]}>
+            {value}
+          </Text>
+          {sub ? (
+            <Text
+              style={[styles.salesKpiSub, compact && clientStyles.kpiSubMobile]}
+              numberOfLines={2}
+            >
+              {sub}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+    </MetricHover>
   );
 }
 
@@ -252,12 +267,14 @@ function ChartShell({
   children,
   compact,
   shellStyle,
+  contained,
 }: {
   title: string;
   subtitle?: string;
   children: ReactNode;
   compact?: boolean;
-  shellStyle?: object;
+  shellStyle?: object | object[];
+  contained?: boolean;
 }) {
   return (
     <View
@@ -265,12 +282,31 @@ function ChartShell({
         styles.salesCard,
         styles.salesCardPadTight,
         compact && clientStyles.chartCardMobile,
+        contained && clientStyles.desktopQuadInner,
         shellStyle,
       ]}
     >
-      <Text style={styles.salesCardTitle}>{title}</Text>
-      {subtitle ? <Text style={styles.salesWidgetSub}>{subtitle}</Text> : null}
-      {children}
+      <Text style={styles.salesCardTitle} numberOfLines={1}>
+        {title}
+      </Text>
+      {subtitle ? (
+        <Text style={styles.salesWidgetSub} numberOfLines={1}>
+          {subtitle}
+        </Text>
+      ) : null}
+      {contained ? (
+        <ScrollView
+          style={clientStyles.desktopQuadScroll}
+          contentContainerStyle={clientStyles.desktopQuadScrollContent}
+          nestedScrollEnabled
+          showsVerticalScrollIndicator
+          showsHorizontalScrollIndicator
+        >
+          {children}
+        </ScrollView>
+      ) : (
+        children
+      )}
     </View>
   );
 }
@@ -282,6 +318,7 @@ export function ClientFinanceAnalyticsDashboard({
   orgId,
   embedded = false,
 }: Props) {
+  const router = useRouter();
   const layout = useProfileHubCompactLayout();
   const compact = layout.compact;
   const { width } = useWindowDimensions();
@@ -289,36 +326,24 @@ export function ClientFinanceAnalyticsDashboard({
 
   const [dateRange, setDateRange] = useState<ClientAnalyticsDateRange>("12m");
   const [laneFilter, setLaneFilter] = useState<string | null>(null);
+  const [loadTypeFilter, setLoadTypeFilter] = useState<string | null>(null);
+  const [agingFilter, setAgingFilter] = useState<string | null>(null);
+  const [clientFilter, setClientFilter] = useState<string | null>(null);
   const [monthKey, setMonthKey] = useState<string | null>(null);
   const [tableSearch, setTableSearch] = useState("");
   const [trendChartWidth, setTrendChartWidth] = useState(compact ? width - 48 : 320);
-  const [laneChartWidth, setLaneChartWidth] = useState(compact ? carouselCardWidth - 24 : 200);
+  const [collectionsChartWidth, setCollectionsChartWidth] = useState(
+    compact ? carouselCardWidth - 24 : 200,
+  );
 
   const clientId = client?.id ?? null;
 
-  const scopedTrips = useMemo(() => {
-    let list = filterByDateRange(trips, dateRange, tripDate);
-    if (laneFilter) {
-      list = list.filter((t) => {
-        const pickup = (t.pickup_area ?? "").trim();
-        const drop = (t.drop_location ?? "").trim();
-        const lane =
-          pickup && drop ? `${pickup} → ${drop}` : pickup || drop || "Unspecified lane";
-        return lane === laneFilter;
-      });
-    }
-    if (monthKey) {
-      list = list.filter((t) => {
-        const d = tripDate(t);
-        if (!d) return false;
-        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-        return key === monthKey;
-      });
-    }
-    return list;
-  }, [trips, dateRange, laneFilter, monthKey]);
+  const rangeTrips = useMemo(
+    () => filterByDateRange(trips, dateRange, tripDate),
+    [trips, dateRange],
+  );
 
-  const scopedTx = useMemo(
+  const rangeTx = useMemo(
     () =>
       filterByDateRange(transactions, dateRange, (tx) => {
         const raw = tx.transaction_date ?? tx.created_at;
@@ -329,25 +354,91 @@ export function ClientFinanceAnalyticsDashboard({
     [transactions, dateRange],
   );
 
+  const customerContribution = useMemo(
+    () => (clientId ? [] : computeCustomerContribution(rangeTrips, { topN: 6 })),
+    [clientId, rangeTrips],
+  );
+
+  const chartFilters = {
+    lane: laneFilter,
+    monthKey,
+    loadType: loadTypeFilter,
+    agingLabel: agingFilter,
+    clientLabel: clientFilter,
+    otherClientLabels: new Set(
+      customerContribution
+        .filter((row) => row.id !== "others")
+        .map((row) => row.label),
+    ),
+    agingMode: "receivable" as const,
+  };
+
+  const scopedTrips = useMemo(
+    () => applyPartyChartFilters(rangeTrips, rangeTx, chartFilters),
+    [rangeTrips, rangeTx, laneFilter, monthKey, loadTypeFilter, agingFilter, clientFilter, customerContribution],
+  );
+
+  const scopedTx = useMemo(() => {
+    if (
+      !laneFilter &&
+      !monthKey &&
+      !loadTypeFilter &&
+      !agingFilter &&
+      !clientFilter
+    ) {
+      return rangeTx;
+    }
+    const ids = new Set(scopedTrips.map((t) => t.id));
+    return rangeTx.filter((tx) => {
+      const id = String(tx.trip_id ?? "").trim();
+      return Boolean(id && ids.has(id));
+    });
+  }, [
+    agingFilter,
+    clientFilter,
+    laneFilter,
+    loadTypeFilter,
+    monthKey,
+    rangeTx,
+    scopedTrips,
+  ]);
+
   const kpis = useMemo(
     () => computeClientKpiHeader(scopedTrips, scopedTx),
     [scopedTrips, scopedTx],
   );
   const monthly = useMemo(
-    () => computeClientMonthlyTrend(scopedTrips, scopedTx, { monthsBack: 12 }),
-    [scopedTrips, scopedTx],
+    () =>
+      computeClientMonthlyTrend(
+        applyPartyChartFilters(rangeTrips, rangeTx, chartFilters, "month"),
+        rangeTx,
+        { monthsBack: 12 },
+      ),
+    [rangeTrips, rangeTx, laneFilter, loadTypeFilter, agingFilter, clientFilter, customerContribution],
   );
   const lanes = useMemo(
-    () => computeLaneBreakdown(scopedTrips, { topN: 6 }),
-    [scopedTrips],
+    () =>
+      computeLaneBreakdown(
+        applyPartyChartFilters(rangeTrips, rangeTx, chartFilters, "lane"),
+        { topN: 6, windowMonths: 24 },
+      ),
+    [rangeTrips, rangeTx, monthKey, loadTypeFilter, agingFilter, clientFilter, customerContribution],
   );
   const loadTypes = useMemo(
-    () => computeLoadTypeBreakdown(scopedTrips, { topN: 5 }),
-    [scopedTrips],
+    () =>
+      computeLoadTypeBreakdown(
+        applyPartyChartFilters(rangeTrips, rangeTx, chartFilters, "load"),
+        { topN: 5, windowMonths: 24 },
+      ),
+    [rangeTrips, rangeTx, laneFilter, monthKey, agingFilter, clientFilter, customerContribution],
   );
   const aging = useMemo(
-    () => computePaymentAging(scopedTrips, scopedTx),
-    [scopedTrips, scopedTx],
+    () =>
+      computePaymentAging(
+        applyPartyChartFilters(rangeTrips, rangeTx, chartFilters, "aging"),
+        rangeTx,
+      ),
+    [rangeTrips, rangeTx, laneFilter, monthKey, loadTypeFilter, clientFilter, customerContribution],
   );
   const operations = useMemo(
     () => computeClientOperationalMetrics(scopedTrips, scopedTx),
@@ -382,15 +473,6 @@ export function ClientFinanceAnalyticsDashboard({
   const badges = useMemo(() => deriveCustomerBadges(healthScore), [healthScore]);
   const primaryBadge = badges[0] ? badgeLabel(badges[0]) : undefined;
 
-  const paymentRisk = useMemo(() => {
-    if (!healthScore) {
-      const delay = kpis.avgPaymentDelayDays;
-      const v = delay <= 0 ? 100 : Math.max(0, 100 - delay * 1.5);
-      return Math.round(v);
-    }
-    return healthScore.paymentScore;
-  }, [healthScore, kpis.avgPaymentDelayDays]);
-
   const collectionPct = useMemo(() => {
     const billed = kpis.totalRevenue;
     const received = Math.max(0, billed - kpis.outstanding);
@@ -399,6 +481,22 @@ export function ClientFinanceAnalyticsDashboard({
 
   const collectedAmount = Math.max(0, kpis.totalRevenue - kpis.outstanding);
   const trend = useMemo(() => toTrendPoints(monthly), [monthly]);
+
+  const handleSelectMonth = (key: string | null) => {
+    if (!key || key === monthKey) {
+      setMonthKey(null);
+      return;
+    }
+    const point = monthly.find((m) => m.monthKey === key);
+    if (!point || (point.trips === 0 && point.revenue === 0)) {
+      setMonthKey(null);
+      return;
+    }
+    setMonthKey(key);
+  };
+
+  const selectedMonthLabel =
+    monthly.find((m) => m.monthKey === monthKey)?.label ?? null;
 
   const laneSlices: SalesSlice[] = useMemo(
     () =>
@@ -420,6 +518,17 @@ export function ClientFinanceAnalyticsDashboard({
     [loadTypes],
   );
 
+  const contributionSlices: SalesSlice[] = useMemo(
+    () =>
+      customerContribution.map((row, i) => ({
+        label: row.label,
+        value: row.revenue,
+        color: DONUT_COLORS[i % DONUT_COLORS.length],
+        valueLabel: formatINRChip(row.revenue),
+      })),
+    [customerContribution],
+  );
+
   const agingSlices: SalesSlice[] = useMemo(
     () =>
       [
@@ -429,20 +538,6 @@ export function ClientFinanceAnalyticsDashboard({
         { label: "90+d", value: aging.bucket90Plus, color: "#7239EA" },
       ].filter((s) => s.value > 0),
     [aging],
-  );
-
-  const laneBars: SalesBarItem[] = useMemo(
-    () =>
-      lanes.map((l, i) => ({
-        key: l.id,
-        label: l.label,
-        shortLabel: laneChipLabel(l.label),
-        value: l.revenue,
-        revenue: l.revenue,
-        contributionPct: 0,
-        color: DONUT_COLORS[i % DONUT_COLORS.length],
-      })),
-    [lanes],
   );
 
   const tableRows = useMemo((): SalesTripTableRow[] => {
@@ -480,6 +575,95 @@ export function ClientFinanceAnalyticsDashboard({
       });
   }, [scopedTrips, tableSearch, client?.name]);
 
+  const partyDetailRows = useMemo(() => {
+    const q = tableSearch.trim().toLowerCase();
+    const txByTrip = new Map<
+      string,
+      { received: number; expense: number; count: number; lastTxn: string | null }
+    >();
+    for (const tx of scopedTx) {
+      const key = String(tx.trip_id ?? "").trim().toLowerCase();
+      if (!key) continue;
+      const cur = txByTrip.get(key) ?? {
+        received: 0,
+        expense: 0,
+        count: 0,
+        lastTxn: null,
+      };
+      cur.received += Number(tx.amount_in ?? 0);
+      cur.expense += Number(tx.amount_out ?? 0);
+      cur.count += 1;
+      const d = tx.transaction_date ?? tx.created_at ?? null;
+      if (d && (!cur.lastTxn || String(d) > cur.lastTxn)) cur.lastTxn = String(d);
+      txByTrip.set(key, cur);
+    }
+
+    return scopedTrips
+      .filter((t) => {
+        if (!q) return true;
+        const ref = getTripOperationalDisplay({
+          trip_number: t.trip_number ?? null,
+        }).toLowerCase();
+        const lane = `${t.pickup_area ?? ""} ${t.drop_location ?? ""}`.toLowerCase();
+        const supplier = (t.supplier_name ?? "").toLowerCase();
+        const driver = (t.driver_display_name ?? "").toLowerCase();
+        return (
+          ref.includes(q) ||
+          lane.includes(q) ||
+          supplier.includes(q) ||
+          driver.includes(q)
+        );
+      })
+      .slice(0, 50)
+      .map((t) => {
+        const pickup = (t.pickup_area ?? "").trim();
+        const drop = (t.drop_location ?? "").trim();
+        const sales = Number(t.client_price ?? 0);
+        const meta = txByTrip.get(String(t.id).trim().toLowerCase()) ?? {
+          received: 0,
+          expense: 0,
+          count: 0,
+          lastTxn: null,
+        };
+        const supplierName = (t.supplier_name ?? "").trim();
+        const hasSupplier =
+          !!t.supplier_id ||
+          (!!supplierName &&
+            !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+              supplierName,
+            ));
+        const isAggregate = hasSupplier || isLoadBasedTrip(t);
+        const supplierTitle = isAggregate
+          ? supplierName || "Aggregate supplier"
+          : "Asset / Own Vehicle";
+        const supplierRate = Number(t.supplier_rate ?? 0);
+        const cost = supplierRate > 0 ? supplierRate : meta.expense;
+        const received = meta.received;
+        const due = Math.max(0, sales - received);
+        const pnl = sales - cost;
+        const rawDriver = (t.driver_display_name ?? "").trim();
+        const driverName =
+          !rawDriver || /^driver$/i.test(rawDriver) ? "—" : rawDriver;
+        return {
+          trip: t,
+          missionId: getTripOperationalDisplay({
+            trip_number: t.trip_number ?? null,
+          }),
+          route: pickup && drop ? `${pickup} → ${drop}` : pickup || drop || "—",
+          sales,
+          cost,
+          pnl,
+          received,
+          due,
+          txnCount: meta.count,
+          lastTxn: meta.lastTxn,
+          supplierTitle,
+          isAggregate,
+          driverName,
+        };
+      });
+  }, [scopedTrips, scopedTx, tableSearch]);
+
   const insights = useMemo(
     () => deriveClientInsights(monthly, kpis, operations, aging),
     [monthly, kpis, operations, aging],
@@ -497,11 +681,21 @@ export function ClientFinanceAnalyticsDashboard({
 
   const clearFilters = () => {
     setLaneFilter(null);
+    setLoadTypeFilter(null);
+    setAgingFilter(null);
+    setClientFilter(null);
     setMonthKey(null);
     setTableSearch("");
   };
 
-  const filtersActive = Boolean(laneFilter || monthKey || tableSearch.trim());
+  const filtersActive = Boolean(
+    laneFilter ||
+      loadTypeFilter ||
+      agingFilter ||
+      clientFilter ||
+      monthKey ||
+      tableSearch.trim(),
+  );
 
   const setDateRangeAndResetMonth = (range: ClientAnalyticsDateRange) => {
     setDateRange(range);
@@ -558,7 +752,13 @@ export function ClientFinanceAnalyticsDashboard({
         label="Total sales"
         value={formatINRChip(kpis.totalRevenue)}
         sub={`Received ${formatINRChip(collectedAmount)} · Due ${formatINRChip(kpis.outstanding)}`}
-        lottie={<ClientAnalyticsKpiLottie source={CLIENT_ANALYTICS_LOTTIE.sales} size={40} />}
+        lottie={
+          <ClientAnalyticsKpiLottie
+            source={CLIENT_ANALYTICS_LOTTIE.sales}
+            size={34}
+            renderScale={1.35}
+          />
+        }
       />
       <KpiCard
         compact={compact}
@@ -566,7 +766,13 @@ export function ClientFinanceAnalyticsDashboard({
         value={formatINRChip(kpis.netMargin)}
         sub={`${kpis.marginPct.toFixed(1)}% on sales`}
         valueColor={kpis.netMargin >= 0 ? Theme.positive : Theme.negative}
-        lottie={<ClientAnalyticsKpiLottie source={CLIENT_ANALYTICS_LOTTIE.revenue} size={40} />}
+        lottie={
+          <ClientAnalyticsKpiLottie
+            source={CLIENT_ANALYTICS_LOTTIE.revenue}
+            size={34}
+            renderScale={1.35}
+          />
+        }
       />
       <KpiCard
         compact={compact}
@@ -581,7 +787,11 @@ export function ClientFinanceAnalyticsDashboard({
               : Theme.negative
         }
         lottie={
-          <ClientAnalyticsKpiLottie source={CLIENT_ANALYTICS_LOTTIE.collection} size={40} />
+          <ClientAnalyticsKpiLottie
+            source={CLIENT_ANALYTICS_LOTTIE.collection}
+            size={34}
+            renderScale={1.35}
+          />
         }
       />
       <KpiCard
@@ -589,107 +799,124 @@ export function ClientFinanceAnalyticsDashboard({
         label="Trips completed"
         value={String(operations.tripsCompleted)}
         sub={`${operations.onTimePct}% on-time · ${operations.completionPct.toFixed(0)}% completion`}
-        lottie={<ClientAnalyticsKpiLottie source={CLIENT_ANALYTICS_LOTTIE.trips} size={40} />}
+        lottie={
+          <ClientAnalyticsKpiLottie
+            source={CLIENT_ANALYTICS_LOTTIE.trips}
+            size={34}
+            renderScale={1.35}
+          />
+        }
       />
     </View>
   );
 
-  const healthCard = (
+  const healthBody = healthScore ? (
+    <>
+      <View style={clientStyles.healthScoreRow}>
+        <Text
+          style={[
+            clientStyles.healthScore,
+            compact && clientStyles.healthScoreCompact,
+          ]}
+        >
+          {Math.round(healthScore.score)}
+        </Text>
+        <Text
+          style={[
+            clientStyles.healthScoreMax,
+            compact && clientStyles.healthScoreMaxCompact,
+          ]}
+        >
+          / 100
+        </Text>
+      </View>
+      <Text style={styles.salesWidgetSub} numberOfLines={1}>
+        {healthScore.breakdown.tripsTotal} trips · payment behaviour
+      </Text>
+      {healthBars.map((bar) => (
+        <MetricHover
+          key={bar.label}
+          title={bar.label}
+          rows={[{ label: "Score", value: `${Math.round(bar.percent)} / 100` }]}
+        >
+          <View style={clientStyles.healthBarRow}>
+            <Text
+              style={[
+                clientStyles.healthBarLabel,
+                compact && clientStyles.healthBarLabelCompact,
+              ]}
+              numberOfLines={1}
+            >
+              {bar.label}
+            </Text>
+            <View style={clientStyles.healthBarTrack}>
+              <View
+                style={[
+                  clientStyles.healthBarFill,
+                  {
+                    width: `${Math.max(0, Math.min(100, bar.percent))}%`,
+                    backgroundColor:
+                      bar.color ??
+                      (bar.percent < 40 ? Theme.warning : METRONIC.link),
+                  },
+                ]}
+              />
+            </View>
+            <Text style={clientStyles.healthBarValue}>{Math.round(bar.percent)}</Text>
+          </View>
+        </MetricHover>
+      ))}
+    </>
+  ) : (
+    <Text style={styles.salesEmptySide}>
+      Not enough trip history for a health score.
+    </Text>
+  );
+
+  const healthCard = !clientId ? (
+    <ChartShell
+      compact={compact}
+      shellStyle={!compact ? clientStyles.desktopQuadInner : undefined}
+      title="Customer contribution"
+      subtitle="Share of billed sales by customer"
+    >
+      <View style={[styles.salesWidgetDonutBody, clientStyles.desktopQuadChartBody]}>
+        <NetworkDesktopSalesDonut
+          slices={contributionSlices}
+          stacked
+          activeLabel={clientFilter}
+          onSelectLabel={setClientFilter}
+          emptyMessage="No customer billing yet."
+        />
+      </View>
+    </ChartShell>
+  ) : (
     <View
       style={[
         styles.salesCard,
         styles.salesCardPadTight,
         compact && clientStyles.healthCardMobile,
+        !compact && clientStyles.desktopQuadInner,
       ]}
     >
       <View style={clientStyles.healthHeader}>
-        <ClientAnalyticsKpiLottie source={CLIENT_ANALYTICS_LOTTIE.health} size={32} />
-        <Text style={styles.salesCardTitle}>Receivable health</Text>
-      </View>
-      {healthScore ? (
-        <>
-          <View style={clientStyles.healthScoreRow}>
-            <Text
-              style={[
-                clientStyles.healthScore,
-                compact && clientStyles.healthScoreCompact,
-              ]}
-            >
-              {Math.round(healthScore.score)}
-            </Text>
-            <Text
-              style={[
-                clientStyles.healthScoreMax,
-                compact && clientStyles.healthScoreMaxCompact,
-              ]}
-            >
-              / 100
-            </Text>
-          </View>
-          <Text style={styles.salesWidgetSub}>
-            {healthScore.breakdown.tripsTotal} trips · payment behaviour
-          </Text>
-          {healthBars.map((bar) => (
-            <View key={bar.label} style={clientStyles.healthBarRow}>
-              <Text
-                style={[
-                  clientStyles.healthBarLabel,
-                  compact && clientStyles.healthBarLabelCompact,
-                ]}
-              >
-                {bar.label}
-              </Text>
-              <View style={clientStyles.healthBarTrack}>
-                <View
-                  style={[
-                    clientStyles.healthBarFill,
-                    {
-                      width: `${Math.max(0, Math.min(100, bar.percent))}%`,
-                      backgroundColor:
-                        bar.color ??
-                        (bar.percent < 40 ? Theme.warning : METRONIC.link),
-                    },
-                  ]}
-                />
-              </View>
-              <Text style={clientStyles.healthBarValue}>{Math.round(bar.percent)}</Text>
-            </View>
-          ))}
-        </>
-      ) : (
-        <Text style={styles.salesEmptySide}>
-          Not enough trip history for a health score.
+        <ClientAnalyticsKpiLottie source={CLIENT_ANALYTICS_LOTTIE.health} size={28} />
+        <Text style={styles.salesCardTitle} numberOfLines={1}>
+          Receivable health
         </Text>
-      )}
-    </View>
-  );
-
-  const paymentRiskCard = (
-    <View
-      style={[
-        styles.salesCard,
-        styles.salesCardPadTight,
-        clientStyles.gaugeCard,
-        !compact && clientStyles.gaugeCardDesktop,
-      ]}
-    >
-      <Text style={[styles.salesCardTitle, compact && { textAlign: "center" }]}>
-        Payment risk
-      </Text>
-      <View style={clientStyles.gaugeBody}>
-        <RiskMeter
-          value={paymentRisk}
-          level={scoreLevelFromValue(paymentRisk)}
-          label="Payment risk"
-          caption={
-            kpis.avgPaymentDelayDays > 0
-              ? `${kpis.avgPaymentDelayDays}d average delay`
-              : "No delay history"
-          }
-          size={compact ? 112 : 128}
-          stroke={compact ? 9 : 10}
-        />
       </View>
+      {compact ? (
+        healthBody
+      ) : (
+        <ScrollView
+          style={clientStyles.desktopQuadScroll}
+          contentContainerStyle={clientStyles.desktopQuadScrollContent}
+          nestedScrollEnabled
+          showsVerticalScrollIndicator
+        >
+          {healthBody}
+        </ScrollView>
+      )}
     </View>
   );
 
@@ -712,7 +939,7 @@ export function ClientFinanceAnalyticsDashboard({
           width={trendChartWidth}
           height={compact ? 148 : 132}
           activeMonthKey={monthKey}
-          onSelectMonth={setMonthKey}
+          onSelectMonth={handleSelectMonth}
           color={METRONIC.link}
         />
       </View>
@@ -748,34 +975,9 @@ export function ClientFinanceAnalyticsDashboard({
       <View style={styles.salesWidgetDonutBody}>
         <NetworkDesktopSalesDonut
           slices={loadSlices}
+          activeLabel={loadTypeFilter}
+          onSelectLabel={setLoadTypeFilter}
           emptyMessage="No load-type data yet."
-        />
-      </View>
-    </ChartShell>
-  );
-
-  const laneContributionCard = (
-    <ChartShell
-      compact={compact}
-      shellStyle={!compact ? styles.salesBarLane : undefined}
-      title="Lane contribution"
-    >
-      <View
-        onLayout={(e) => {
-          const w = Math.floor(e.nativeEvent.layout.width);
-          if (w > 0 && w !== laneChartWidth) setLaneChartWidth(w);
-        }}
-      >
-        <NetworkDesktopSalesBarChart
-          items={laneBars}
-          width={laneChartWidth}
-          height={compact ? 132 : 148}
-          activeKey={laneFilter}
-          onSelectKey={(key) => {
-            const lane = lanes.find((l) => l.id === key);
-            setLaneFilter(lane ? lane.label : null);
-          }}
-          footerText="Revenue by lane · tap to cross-filter"
         />
       </View>
     </ChartShell>
@@ -784,33 +986,69 @@ export function ClientFinanceAnalyticsDashboard({
   const agingCard = (
     <ChartShell
       compact={compact}
-      shellStyle={!compact ? styles.salesBarOrigin : undefined}
+      shellStyle={!compact ? [styles.salesBarOrigin, clientStyles.desktopQuadInner] : undefined}
       title="Aging mix"
     >
-      <View style={styles.salesWidgetDonutBody}>
+      <View style={[styles.salesWidgetDonutBody, clientStyles.desktopQuadChartBody]}>
         <NetworkDesktopSalesDonut
           slices={agingSlices}
+          stacked
+          activeLabel={agingFilter}
+          onSelectLabel={setAgingFilter}
           emptyMessage="No outstanding aging."
         />
       </View>
     </ChartShell>
   );
 
+  const collectionsInnerWidth = Math.max(
+    collectionsChartWidth,
+    monthly.length * 36,
+  );
+
   const collectionsCard = (
     <ChartShell
       compact={compact}
+      contained={!compact}
       shellStyle={!compact ? styles.salesBarOrigin : undefined}
       title="Collections"
     >
-      <TrendBarChart
-        data={toRevenueLinePoints(monthly)}
-        width={Math.max(180, laneChartWidth)}
-        height={compact ? 132 : 140}
-        primaryField="revenue"
-        secondaryField="expense"
-        primaryColor={Theme.chartSeries2}
-        secondaryColor={Theme.chartSeries4}
-      />
+      <View
+        style={clientStyles.desktopQuadChartBody}
+        onLayout={(e) => {
+          const w = Math.floor(e.nativeEvent.layout.width);
+          if (w > 0 && w !== collectionsChartWidth) setCollectionsChartWidth(w);
+        }}
+      >
+        <ScrollView
+          horizontal
+          nestedScrollEnabled
+          showsHorizontalScrollIndicator
+          style={{ width: "100%" }}
+        >
+          <TrendBarChart
+            data={toRevenueLinePoints(monthly)}
+            width={Math.max(180, collectionsInnerWidth)}
+            height={compact ? 132 : 168}
+            primaryField="revenue"
+            secondaryField="expense"
+            primaryColor={Theme.chartSeries2}
+            secondaryColor={Theme.chartSeries4}
+            activeIndex={
+              monthKey
+                ? monthly.findIndex((m) => m.monthKey === monthKey)
+                : null
+            }
+            onSelectIndex={(index) => {
+              if (index == null) {
+                handleSelectMonth(null);
+                return;
+              }
+              handleSelectMonth(monthly[index]?.monthKey ?? null);
+            }}
+          />
+        </ScrollView>
+      </View>
     </ChartShell>
   );
 
@@ -870,9 +1108,14 @@ export function ClientFinanceAnalyticsDashboard({
         <Text style={styles.salesCardTitle}>Trips</Text>
         <Text style={styles.salesTripTableSub}>
           {filtersActive
-            ? "Filtered by period, lane, or month"
+            ? "Filtered by chart selection"
             : "All client trips in period"}
         </Text>
+        {filtersActive ? (
+          <Pressable onPress={clearFilters} hitSlop={8}>
+            <Text style={styles.salesTripTableSub}>Clear {selectedMonthLabel ?? "filters"}</Text>
+          </Pressable>
+        ) : null}
         <View style={clientStyles.tripsSearchMobile}>
           <Search size={16} color={METRONIC.muted} />
           <TextInput
@@ -913,20 +1156,24 @@ export function ClientFinanceAnalyticsDashboard({
       )}
     </View>
   ) : (
-    <View style={[styles.salesCard, styles.salesTableCard]}>
-      <View style={styles.salesTableTitleRow}>
+    <View style={[styles.salesCard, styles.salesTableCard, clientStyles.partyTableCard]}>
+      <View style={clientStyles.partyTableToolbar}>
         <View style={styles.salesTripTableTitleCol}>
           <Text style={styles.salesCardTitle}>Trips</Text>
           <Text style={styles.salesTripTableSub}>
             {filtersActive
-              ? "Filtered by period, lane, or month"
+              ? "Filtered by chart selection"
               : "All client trips in period"}
           </Text>
+          {filtersActive ? (
+            <Pressable onPress={clearFilters} hitSlop={8}>
+              <Text style={styles.salesFilterChipTextOn}>
+                Clear {selectedMonthLabel ?? "filters"}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
-      </View>
-
-      <View style={styles.salesTableToolbar}>
-        <View style={styles.salesTableSearch}>
+        <View style={clientStyles.partyTableSearch}>
           <Search size={14} color={METRONIC.muted} />
           <TextInput
             style={styles.searchInput}
@@ -938,76 +1185,198 @@ export function ClientFinanceAnalyticsDashboard({
         </View>
       </View>
 
-      <View style={styles.salesTableScroll}>
-        <View style={styles.salesTableHead}>
-          <View style={clientStyles.clientTripsGrid}>
-            <Text style={[styles.salesTableHeadCell, styles.salesColTripRef]}>
-              Trip
-            </Text>
-            <Text style={[styles.salesTableHeadCell, styles.salesColLane]}>
-              Lane
-            </Text>
-            <Text style={[styles.salesTableHeadCell, styles.salesGridNumHead]}>
-              Sales
-            </Text>
-            <Text style={[styles.salesTableHeadCell, styles.salesGridNumHead]}>
-              Received
-            </Text>
-            <Text style={[styles.salesTableHeadCell, styles.salesGridNumHead]}>
-              Due
-            </Text>
-            <Text style={[styles.salesTableHeadCell, styles.salesColStatus]}>
-              Status
-            </Text>
+      <View style={clientStyles.partyTableScroll}>
+        <View style={clientStyles.partyTableInner}>
+          <View style={[clientStyles.partyTableHead, clientStyles.partyTableGrid]}>
+            <View style={clientStyles.partyTripCol}>
+              <Text style={clientStyles.partyTh}>Trip</Text>
+            </View>
+            <View style={clientStyles.partyPartyCol}>
+              <Text style={clientStyles.partyTh}>Supplier</Text>
+            </View>
+            <View style={clientStyles.partyDriverCol}>
+              <Text style={clientStyles.partyTh}>Driver</Text>
+            </View>
+            <View style={clientStyles.partyAmtCol}>
+              <Text style={[clientStyles.partyTh, clientStyles.partyThRight]}>
+                Sales
+              </Text>
+            </View>
+            <View style={clientStyles.partyAmtCol}>
+              <Text style={[clientStyles.partyTh, clientStyles.partyThRight]}>
+                Cost
+              </Text>
+            </View>
+            <View style={clientStyles.partyAmtCol}>
+              <Text style={[clientStyles.partyTh, clientStyles.partyThRight]}>
+                P&L
+              </Text>
+            </View>
+            <View style={clientStyles.partyAmtCol}>
+              <Text style={[clientStyles.partyTh, clientStyles.partyThRight]}>
+                Received
+              </Text>
+            </View>
+            <View style={clientStyles.partyAmtCol}>
+              <Text style={[clientStyles.partyTh, clientStyles.partyThRight]}>
+                Due
+              </Text>
+            </View>
+            <View style={clientStyles.partyTxnCol}>
+              <Text style={[clientStyles.partyTh, clientStyles.partyThRight]}>
+                Txns
+              </Text>
+            </View>
+            <View style={clientStyles.partyLastCol}>
+              <Text style={[clientStyles.partyTh, clientStyles.partyThRight]}>
+                Last Txn
+              </Text>
+            </View>
           </View>
-        </View>
 
-        {tableRows.length === 0 ? (
-          <View style={clientStyles.tripsEmpty}>
-            <ClientAnalyticsKpiLottie
-              source={CLIENT_ANALYTICS_LOTTIE.trips}
-              size={72}
-            />
-            <Text style={clientStyles.tripsEmptyText}>No trips match filters.</Text>
-          </View>
-        ) : (
-          tableRows.map((row, idx) => {
-            const received = scopedTx
-              .filter((tx) => tx.trip_id === row.id)
-              .reduce((s, tx) => s + Number(tx.amount_in ?? 0), 0);
-            const due = Math.max(0, row.sales - received);
-            return (
-              <View
-                key={row.id}
-                style={[
-                  styles.salesTableRow,
-                  idx === tableRows.length - 1 && styles.salesTableRowLast,
-                ]}
-              >
-                <View style={clientStyles.clientTripsGrid}>
-                  <View style={styles.salesColTripRef}>
-                    <SalesTripRefCell row={row} />
+          {partyDetailRows.length === 0 ? (
+            <View style={clientStyles.tripsEmpty}>
+              <ClientAnalyticsKpiLottie
+                source={CLIENT_ANALYTICS_LOTTIE.trips}
+                size={72}
+              />
+              <Text style={clientStyles.tripsEmptyText}>
+                No trips match filters.
+              </Text>
+            </View>
+          ) : (
+            partyDetailRows.map((row) => {
+              const tripDateIso = row.trip.pickup_date ?? row.trip.created_at;
+              const vehicle = (row.trip.vehicle_display_number ?? "").trim();
+              return (
+                <Pressable
+                  key={row.trip.id}
+                  style={(state: HoverPressState) => [
+                    clientStyles.partyTableRow,
+                    clientStyles.partyTableGrid,
+                    WEB_POINTER,
+                    WEB_TRANSITION,
+                    isHovered(state) && hoverRowWash,
+                  ]}
+                  onPress={() =>
+                    router.push(
+                      `/trip/${row.trip.id}?entryContext=client` as const,
+                    )
+                  }
+                >
+                  <View style={clientStyles.partyTripCol}>
+                    <View style={clientStyles.partyTripIdRow}>
+                      <Text
+                        style={clientStyles.partyTripId}
+                        numberOfLines={1}
+                        ellipsizeMode="middle"
+                      >
+                        {row.missionId}
+                      </Text>
+                      <Text style={clientStyles.partyTripSep}>·</Text>
+                      <Text style={clientStyles.partyTripDate} numberOfLines={1}>
+                        {formatTripTableDate(tripDateIso)}
+                      </Text>
+                    </View>
+                    <Text style={clientStyles.partyRoute} numberOfLines={2}>
+                      {row.route}
+                    </Text>
                   </View>
-                  <View style={styles.salesColLane}>
-                    <SalesTripLaneCell row={row} />
+                  <View style={clientStyles.partyPartyCol}>
+                    <View style={clientStyles.partyAvatarRow}>
+                      <PartyAvatar
+                        name={row.supplierTitle}
+                        entityType="supplier"
+                        size={28}
+                      />
+                      <View style={clientStyles.partyTextStack}>
+                        <Text style={clientStyles.partyName} numberOfLines={1}>
+                          {row.supplierTitle}
+                        </Text>
+                        <Text style={clientStyles.partyHint} numberOfLines={1}>
+                          {row.isAggregate ? "Partner" : "Asset"}
+                        </Text>
+                      </View>
+                    </View>
                   </View>
-                  <View style={styles.salesGridNumCell}>
-                    <SalesTripMoneyCell value={row.sales} />
+                  <View style={clientStyles.partyDriverCol}>
+                    <View style={clientStyles.partyAvatarRow}>
+                      <PartyAvatar
+                        name={row.driverName}
+                        entityType="driver"
+                        size={28}
+                      />
+                      <View style={clientStyles.partyTextStack}>
+                        <Text style={clientStyles.partyName} numberOfLines={1}>
+                          {row.driverName}
+                        </Text>
+                        {vehicle ? (
+                          <Text style={clientStyles.partyHint} numberOfLines={1}>
+                            {vehicle}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </View>
                   </View>
-                  <View style={styles.salesGridNumCell}>
-                    <SalesTripMoneyCell value={received} />
+                  <View style={clientStyles.partyAmtCol}>
+                    <Text style={clientStyles.partyAmt} numberOfLines={1}>
+                      {formatINR(row.sales)}
+                    </Text>
                   </View>
-                  <View style={styles.salesGridNumCell}>
-                    <SalesTripMoneyCell value={due} />
+                  <View style={clientStyles.partyAmtCol}>
+                    <Text style={clientStyles.partyAmt} numberOfLines={1}>
+                      {formatINR(row.cost)}
+                    </Text>
                   </View>
-                  <View style={styles.salesColStatus}>
-                    <SalesTripStatusCell row={row} />
+                  <View style={clientStyles.partyAmtCol}>
+                    <Text
+                      style={[
+                        clientStyles.partyAmt,
+                        row.pnl >= 0
+                          ? clientStyles.partyAmtIn
+                          : clientStyles.partyAmtOut,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {formatINR(row.pnl)}
+                    </Text>
                   </View>
-                </View>
-              </View>
-            );
-          })
-        )}
+                  <View style={clientStyles.partyAmtCol}>
+                    <Text
+                      style={[clientStyles.partyAmt, clientStyles.partyAmtIn]}
+                      numberOfLines={1}
+                    >
+                      {formatINR(row.received)}
+                    </Text>
+                  </View>
+                  <View style={clientStyles.partyAmtCol}>
+                    <Text
+                      style={[
+                        clientStyles.partyAmt,
+                        row.due > 0
+                          ? clientStyles.partyAmtOut
+                          : clientStyles.partyAmtMuted,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {formatINR(row.due)}
+                    </Text>
+                  </View>
+                  <View style={clientStyles.partyTxnCol}>
+                    <Text style={clientStyles.partyTxn} numberOfLines={1}>
+                      {row.txnCount}
+                    </Text>
+                  </View>
+                  <View style={clientStyles.partyLastCol}>
+                    <Text style={clientStyles.partyAmtMuted} numberOfLines={1}>
+                      {row.lastTxn ? formatLedgerDate(row.lastTxn) : "—"}
+                    </Text>
+                  </View>
+                </Pressable>
+              );
+            })
+          )}
+        </View>
       </View>
     </View>
   );
@@ -1051,21 +1420,13 @@ export function ClientFinanceAnalyticsDashboard({
             </View>
           </View>
 
-          <View style={clientStyles.mobileSection}>
-            <View style={clientStyles.healthStackMobile}>
-              {healthCard}
-              {paymentRiskCard}
-            </View>
-          </View>
+          <View style={clientStyles.mobileSection}>{healthCard}</View>
 
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={clientStyles.carousel}
           >
-            <View style={[clientStyles.carouselCard, { width: carouselCardWidth }]}>
-              <View style={clientStyles.carouselCardInner}>{laneContributionCard}</View>
-            </View>
             <View style={[clientStyles.carouselCard, { width: carouselCardWidth }]}>
               <View style={clientStyles.carouselCardInner}>{agingCard}</View>
             </View>
@@ -1085,100 +1446,22 @@ export function ClientFinanceAnalyticsDashboard({
 
   return (
     <View style={[styles.salesBody, clientStyles.bodyDesktop]}>
-      <View style={[clientStyles.pageIntro, clientStyles.pageIntroDesktop]}>
-        <Text style={clientStyles.pageTitle}>Client finance analytics</Text>
-        <Text style={clientStyles.pageSub}>
-          {client?.name
-            ? `${client.name} · billing, P&L, and receivables`
-            : "Billing, P&L, and receivables for this client"}
-        </Text>
-      </View>
+      <View style={clientStyles.desktopMainCol}>
+        {kpiRow}
 
-      <View style={styles.splitRow}>
-        <View style={[styles.sidebar, clientStyles.desktopSidebar]}>
-          <View style={[styles.salesCard, styles.salesCardPad]}>
-            <Text style={styles.cardTitle}>Intelligent filters</Text>
-            <Text style={styles.salesFilterHint}>
-              Cross-filter charts and trips like Connection sales
-            </Text>
-            <Text style={styles.salesFilterGroup}>Period</Text>
-            {periodFilters}
-            {lanes.length > 0 ? (
-              <>
-                <Text style={styles.salesFilterGroup}>Lanes</Text>
-                {laneFilters}
-              </>
-            ) : null}
-            {filtersActive ? (
-              <Pressable onPress={clearFilters} style={styles.salesClearBtn}>
-                <Text style={styles.salesClearBtnText}>Clear all filters</Text>
-              </Pressable>
-            ) : null}
-          </View>
-
-          <View style={[styles.salesCard, styles.salesCardPad]}>
-            <Text style={styles.cardTitle}>Top lanes</Text>
-            {lanes.slice(0, 4).map((lane, idx) => (
-              <Pressable
-                key={lane.id}
-                style={[
-                  styles.salesContributorRow,
-                  idx === Math.min(3, lanes.length - 1) &&
-                    styles.salesContributorRowLast,
-                ]}
-                onPress={() =>
-                  setLaneFilter((prev) =>
-                    prev === lane.label ? null : lane.label,
-                  )
-                }
-              >
-                <View style={clientStyles.kpiIconWrapLane}>
-                  <ClientAnalyticsKpiLottie
-                    source={CLIENT_ANALYTICS_LOTTIE.lanes}
-                    size={32}
-                  />
-                </View>
-                <View style={styles.salesContributorTextCol}>
-                  <Text style={styles.salesContributorName} numberOfLines={2}>
-                    {lane.label}
-                  </Text>
-                  <Text style={styles.salesContributorMeta}>
-                    {lane.trips} trips · {formatINRChip(lane.revenue)}
-                  </Text>
-                </View>
-              </Pressable>
-            ))}
-            {lanes.length === 0 ? (
-              <Text style={styles.salesEmptySide}>No lane data yet.</Text>
-            ) : null}
-          </View>
-
-          {clientSummaryCard}
-          {insightsBlock}
+        <View style={styles.salesWidgetRow}>
+          {revenueTrendCard}
+          {laneMixCard}
+          {loadTypesCard}
         </View>
 
-        <View style={[styles.mainCol, clientStyles.desktopMainCol]}>
-          {kpiRow}
-
-          <View style={styles.salesWidgetRow}>
-            {revenueTrendCard}
-            {laneMixCard}
-            {loadTypesCard}
-          </View>
-
-          <View style={styles.salesBarRowDual}>
-            {healthCard}
-            {paymentRiskCard}
-          </View>
-
-          <View style={styles.salesBarRow}>
-            {laneContributionCard}
-            {agingCard}
-            {collectionsCard}
-          </View>
-
-          {tripsBlock}
+        <View style={clientStyles.desktopQuadRow}>
+          {healthCard}
+          {agingCard}
+          {collectionsCard}
         </View>
+
+        {tripsBlock}
       </View>
     </View>
   );

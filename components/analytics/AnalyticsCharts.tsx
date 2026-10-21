@@ -25,6 +25,7 @@ import Svg, {
   Text as SvgText,
 } from "react-native-svg";
 
+import { ChartValueCallout } from "@/components/analytics/ChartValueCallout";
 import Layout from "@/constants/Layout";
 import { Theme } from "@/constants/Theme";
 import { formatINRChip } from "@/lib/format";
@@ -508,6 +509,8 @@ export interface TrendBarChartProps {
   secondaryField?: "revenue" | "expense";
   primaryColor?: string;
   secondaryColor?: string;
+  activeIndex?: number | null;
+  onSelectIndex?: (index: number | null) => void;
 }
 
 export const TrendBarChart = memo(function TrendBarChart({
@@ -518,6 +521,8 @@ export const TrendBarChart = memo(function TrendBarChart({
   secondaryField = "expense",
   primaryColor = Theme.primary,
   secondaryColor = Theme.teslaRed,
+  activeIndex = null,
+  onSelectIndex,
 }: TrendBarChartProps) {
   const trigger = data.map((d) => d.label).join(",");
   const barAnim = useBarAnim(trigger);
@@ -536,9 +541,11 @@ export const TrendBarChart = memo(function TrendBarChart({
 
   const scaleH = (v: number) => Math.max(2, (v / maxVal) * chartH);
   const scaleX = (i: number) => PAD.left + i * barGroupW + barGroupW / 2;
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const hoverPoint = hoverIndex != null ? data[hoverIndex] : null;
 
   return (
-    <Animated.View style={{ opacity: entrance }}>
+    <Animated.View style={{ opacity: entrance, position: "relative", width, height }}>
       <Svg width={width} height={height}>
         {[0, 0.5, 1].map((t, i) => (
           <Line
@@ -567,6 +574,7 @@ export const TrendBarChart = memo(function TrendBarChart({
           const gx = scaleX(i);
           const primaryH = scaleH(d[primaryField]);
           const secondaryH = scaleH(d[secondaryField]);
+          const dimmed = activeIndex != null && activeIndex !== i;
 
           const animPrimaryH = barAnim.interpolate({
             inputRange: [0, 1],
@@ -594,7 +602,7 @@ export const TrendBarChart = memo(function TrendBarChart({
                 height={animPrimaryH as unknown as number}
                 fill={primaryColor}
                 rx={3}
-                fillOpacity={0.92}
+                fillOpacity={dimmed ? 0.28 : 0.92}
               />
               <AnimatedRect
                 x={gx + 1.5}
@@ -603,14 +611,14 @@ export const TrendBarChart = memo(function TrendBarChart({
                 height={animSecondaryH as unknown as number}
                 fill={secondaryColor}
                 rx={3}
-                fillOpacity={0.78}
+                fillOpacity={dimmed ? 0.22 : 0.78}
               />
               <SvgText
                 x={gx}
                 y={height - 7}
                 textAnchor="middle"
                 fontSize={9}
-                fill={Theme.textMuted}
+                fill={hoverIndex === i ? Theme.textPrimary : Theme.textMuted}
                 fontWeight="600"
               >
                 {d.label}
@@ -619,6 +627,35 @@ export const TrendBarChart = memo(function TrendBarChart({
           );
         })}
       </Svg>
+      {data.map((d, i) => (
+        <Pressable
+          key={`hit-${d.label}`}
+          onHoverIn={() => setHoverIndex(i)}
+          onHoverOut={() => setHoverIndex(null)}
+          onPress={() => onSelectIndex?.(activeIndex === i ? null : i)}
+          style={{
+            position: "absolute",
+            left: PAD.left + i * barGroupW,
+            top: PAD.top,
+            width: barGroupW,
+            height: chartH + PAD.bottom,
+          }}
+          accessibilityRole="button"
+          accessibilityState={{ selected: activeIndex === i }}
+          accessibilityLabel={d.label}
+        />
+      ))}
+      {hoverPoint && hoverIndex != null ? (
+        <ChartValueCallout
+          title={hoverPoint.label}
+          rows={[
+            { label: "In", value: formatINRChip(hoverPoint[primaryField]) },
+            { label: "Out", value: formatINRChip(hoverPoint[secondaryField]) },
+          ]}
+          left={Math.max(8, Math.min(scaleX(hoverIndex) - 66, width - 148))}
+          top={8}
+        />
+      ) : null}
     </Animated.View>
   );
 });

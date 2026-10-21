@@ -71,6 +71,12 @@ export { ScoreMeterRow } from "./ScoreMeterRow";
 export type { ScoreMeterRowProps } from "./ScoreMeterRow";
 
 export {
+  ChartValueCallout,
+  MetricHover,
+} from "./ChartValueCallout";
+export type { ChartValueCalloutRow } from "./ChartValueCallout";
+
+export {
   LineChart,
   RevExpBarChart,
   TrendBarChart,

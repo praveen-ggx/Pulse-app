@@ -51,6 +51,9 @@ export const chatFilterChromeStyles = StyleSheet.create({
     borderColor: Theme.loadAddButtonBorder,
     backgroundColor: Theme.pulseIndigoWash,
   },
+  tabPillHover: {
+    backgroundColor: Theme.complianceSelectedWash,
+  },
   /** Size to label + count — use on Trips / toolbars where equal flex causes truncation. */
   tabPillHug: {
     flexGrow: 0,

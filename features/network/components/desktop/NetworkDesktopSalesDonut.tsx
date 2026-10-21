@@ -1,10 +1,14 @@
+import Theme from "@/constants/Theme";
 import type { SalesSlice } from "@/features/network/utils/connectionSalesAnalytics.util";
+import { formatINRChip } from "@/lib/format";
+import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Svg, { Circle, G } from "react-native-svg";
 
 const SIZE = {
   md: { chart: 116, stroke: 11 },
   sm: { chart: 72, stroke: 8 },
+  stacked: { chart: 104, stroke: 10 },
 };
 
 type Props = {
@@ -14,6 +18,8 @@ type Props = {
   emptyMessage?: string;
   /** Smaller chart + legend for narrow profile / mobile panels. */
   compact?: boolean;
+  /** Donut above, legend below — use in narrow quad cards. */
+  stacked?: boolean;
 };
 
 export function NetworkDesktopSalesDonut({
@@ -22,10 +28,12 @@ export function NetworkDesktopSalesDonut({
   onSelectLabel,
   emptyMessage = "No contribution data.",
   compact = false,
+  stacked = false,
 }: Props) {
-  const dims = compact ? SIZE.sm : SIZE.md;
+  const dims = stacked ? SIZE.stacked : compact ? SIZE.sm : SIZE.md;
   const chartSize = dims.chart;
   const stroke = dims.stroke;
+  const [hoverLabel, setHoverLabel] = useState<string | null>(null);
   const total = slices.reduce((sum, slice) => sum + slice.value, 0);
   if (total <= 0) {
     return (
@@ -40,8 +48,8 @@ export function NetworkDesktopSalesDonut({
   let offset = 0;
 
   const legend = (
-    <View style={[styles.legend, compact && styles.legendSm]}>
-      {slices.map((slice) => {
+    <View style={[styles.legend, compact && styles.legendSm, stacked && styles.legendPanel]}>
+      {slices.map((slice, index) => {
         const active = activeLabel === slice.label;
         const pct = Math.round((slice.value / total) * 100);
         const row = (
@@ -80,14 +88,15 @@ export function NetworkDesktopSalesDonut({
             </Text>
           </View>
         );
-        if (!onSelectLabel) return <View key={slice.label}>{row}</View>;
         return (
           <Pressable
-            key={slice.label}
-            onPress={() => onSelectLabel(active ? null : slice.label)}
+            key={`${slice.label}-${index}`}
+            onHoverIn={() => setHoverLabel(slice.label)}
+            onHoverOut={() => setHoverLabel(null)}
+            onPress={() => onSelectLabel?.(active ? null : slice.label)}
             style={({ pressed }) => [
               styles.legendPress,
-              active && styles.legendPressActive,
+              (active || hoverLabel === slice.label) && styles.legendPressActive,
               pressed && { opacity: 0.85 },
             ]}
             accessibilityRole="button"
@@ -100,8 +109,21 @@ export function NetworkDesktopSalesDonut({
     </View>
   );
 
+  const focusSlice =
+    slices.find((s) => s.label === hoverLabel) ??
+    slices.find((s) => s.label === activeLabel) ??
+    null;
+  const focusPct =
+    focusSlice && total > 0 ? Math.round((focusSlice.value / total) * 100) : 0;
+
   return (
-    <View style={[styles.wrap, compact && styles.wrapCompact]}>
+    <View
+      style={[
+        styles.wrap,
+        compact && styles.wrapCompact,
+        stacked && styles.wrapStacked,
+      ]}
+    >
       <View style={[styles.chartCol, { width: chartSize, height: chartSize }]}>
         <Svg
           width={chartSize}
@@ -114,7 +136,7 @@ export function NetworkDesktopSalesDonut({
               cx={center}
               cy={center}
               r={radius}
-              stroke="#eef1f6"
+              stroke={Theme.borderLight}
               strokeWidth={stroke}
               fill="none"
             />
@@ -128,13 +150,21 @@ export function NetworkDesktopSalesDonut({
                   cy={center}
                   r={radius}
                   stroke={slice.color}
-                  strokeWidth={stroke}
+                  strokeWidth={
+                    hoverLabel === slice.label || activeLabel === slice.label
+                      ? stroke + 1.5
+                      : stroke
+                  }
                   fill="none"
                   strokeDasharray={`${dash} ${circumference - dash}`}
                   strokeDashoffset={-offset}
                   strokeLinecap="butt"
                   opacity={
-                    activeLabel && activeLabel !== slice.label ? 0.35 : 1
+                    (activeLabel || hoverLabel) &&
+                    activeLabel !== slice.label &&
+                    hoverLabel !== slice.label
+                      ? 0.28
+                      : 1
                   }
                 />
               );
@@ -143,38 +173,80 @@ export function NetworkDesktopSalesDonut({
             })}
           </G>
         </Svg>
+        <View style={styles.centerReadout} pointerEvents="none">
+          <Text style={styles.centerValue} numberOfLines={1}>
+            {focusSlice
+              ? focusSlice.valueLabel ?? formatINRChip(focusSlice.value)
+              : formatINRChip(total)}
+          </Text>
+          <Text style={styles.centerShare} numberOfLines={1}>
+            {focusSlice ? `${focusPct}%` : "Total"}
+          </Text>
+        </View>
       </View>
-      {slices.length > 5 ? (
-        <ScrollView
-          style={styles.legendScroll}
-          contentContainerStyle={styles.legendScrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {legend}
-        </ScrollView>
-      ) : (
-        legend
-      )}
+      <ScrollView
+        style={[styles.legendScroll, { maxHeight: chartSize }]}
+        contentContainerStyle={styles.legendScrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {legend}
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrap: {
+    position: "relative",
     flexDirection: "row",
     alignItems: "center",
     alignSelf: "stretch",
     width: "100%",
-    gap: 14,
+    flex: 1,
+    gap: 12,
     minWidth: 0,
+    minHeight: 104,
+    overflow: "hidden",
   },
   wrapCompact: {
     gap: 8,
+    minHeight: 72,
+  },
+  wrapStacked: {
+    gap: 12,
+    minHeight: 104,
   },
   chartCol: {
     flexShrink: 0,
     alignItems: "center",
     justifyContent: "center",
+    position: "relative",
+  },
+  centerReadout: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  centerTitle: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: Theme.textMuted,
+    textAlign: "center",
+    maxWidth: "100%",
+  },
+  centerValue: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: Theme.textPrimary,
+    textAlign: "center",
+    fontVariant: ["tabular-nums"],
+  },
+  centerShare: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: Theme.textSecondary,
+    textAlign: "center",
   },
   chartSvg: {
     overflow: "visible",
@@ -182,17 +254,19 @@ const styles = StyleSheet.create({
   legendScroll: {
     flex: 1,
     minWidth: 0,
-    maxHeight: 160,
   },
   legendScrollContent: {
     flexGrow: 1,
     justifyContent: "center",
+    paddingVertical: 2,
   },
   legend: {
-    flex: 1,
     minWidth: 0,
-    gap: 7,
+    gap: 6,
     justifyContent: "center",
+  },
+  legendPanel: {
+    gap: 5,
   },
   legendSm: {
     gap: 5,

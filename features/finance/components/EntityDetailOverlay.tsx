@@ -8,6 +8,14 @@ import { PartyAvatar } from "@/components/PartyAvatar";
 import { TeslaHeader } from "@/components/TeslaHeader";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
+import {
+  WEB_POINTER,
+  WEB_TRANSITION,
+  hoverRowSelected,
+  hoverRowWash,
+  isHovered,
+  type HoverPressState,
+} from "@/constants/hoverSelection";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { ClientRiskBadge } from "@/features/ai";
 import type { ClientRow } from "@/features/clients/services/clients.service";
@@ -2105,9 +2113,12 @@ export function EntityDetailOverlay({
                   return (
                     <View key={r.id} style={styles.ledgerRowWrapper}>
                       <Pressable
-                        style={({ pressed }) => [
+                        style={(state: HoverPressState) => [
                           styles.tableRow,
-                          pressed && styles.ledgerRowPressed,
+                          WEB_POINTER,
+                          WEB_TRANSITION,
+                          expanded && hoverRowSelected,
+                          isHovered(state) && [styles.ledgerRowPressed, hoverRowWash],
                         ]}
                         onPress={() =>
                           setExpandedDriverLedgerRowId((id) =>
@@ -2393,17 +2404,19 @@ export function EntityDetailOverlay({
                       monthlyStatement?.detailsByMonth[row.monthKey];
                     return (
                       <View key={row.monthKey}>
-                        <TouchableOpacity
-                          style={[
+                        <Pressable
+                          style={(state: HoverPressState) => [
                             styles.tableRow,
                             isExpanded && styles.tableRowExpanded,
+                            WEB_POINTER,
+                            WEB_TRANSITION,
+                            isHovered(state) && hoverRowWash,
                           ]}
                           onPress={() =>
                             setExpandedMonthKey((k) =>
                               k === row.monthKey ? null : row.monthKey,
                             )
                           }
-                          activeOpacity={0.8}
                         >
                           <View style={styles.tdMonth}>
                             <Text style={styles.tdMissionId} numberOfLines={1}>
@@ -2470,7 +2483,7 @@ export function EntityDetailOverlay({
                               {formatINR(row.balanceAfter)}
                             </Text>
                           </View>
-                        </TouchableOpacity>
+                        </Pressable>
                         {isExpanded && detail && (
                           <View style={styles.monthDetailWrap}>
                             <View style={styles.monthDetailSectionCard}>
@@ -2963,15 +2976,9 @@ export function EntityDetailOverlay({
                     entityType === "SUPPLIER" && isWebDesktop && !isVehicleRow;
                   const supplierWebRowOpensTrip =
                     showSupplierWebGrid && isTripRow && tripForRow != null;
-                  const RowWrapper = supplierWebRowOpensTrip
-                    ? TouchableOpacity
-                    : isPartyLedger && isExpandableTrip
-                      ? Pressable
-                      : TouchableOpacity;
                   const rowPressProps = supplierWebRowOpensTrip
                     ? {
                         onPress: () => router.push(`/trip/${r.id}` as const),
-                        activeOpacity: 0.75,
                       }
                     : isPartyLedger && isExpandableTrip
                       ? {
@@ -2986,16 +2993,18 @@ export function EntityDetailOverlay({
                               router.push(`/trip/${r.id}` as const);
                             }
                           },
-                          activeOpacity: r.id === "none" ? 1 : 0.7,
                           disabled: r.id === "none",
                         };
                   return (
                     <View key={r.id}>
-                      <RowWrapper
-                        style={[
+                      <Pressable
+                        style={(state: HoverPressState) => [
                           styles.tableRow,
                           showSupplierWebGrid && styles.spWebTableRow,
                           isPartyLedger && expanded && styles.ledgerRowPressed,
+                          WEB_POINTER,
+                          WEB_TRANSITION,
+                          isHovered(state) && hoverRowWash,
                         ]}
                         {...rowPressProps}
                       >
@@ -3577,7 +3586,7 @@ export function EntityDetailOverlay({
                               />
                             </View>
                           ))}
-                      </RowWrapper>
+                      </Pressable>
                       {isPartyLedger && expanded && isTripRow && tripForRow && (
                         <View style={styles.ledgerExpandedDetail}>
                           <View style={styles.ledgerExpandedBlock}>

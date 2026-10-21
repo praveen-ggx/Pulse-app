@@ -692,7 +692,7 @@ function TripsHubTripCardInner({
 
   return (
     <Pressable
-      style={(state: HoverPressState) => [
+      style={(_state: HoverPressState) => [
         styles.fleetCardOuter,
         WEB_TRANSITION,
         WEB_POINTER,

@@ -32,12 +32,6 @@ import type { LedgerRow } from "@/features/finance";
 import { NetworkDesktopSalesDonut } from "@/features/network/components/desktop/NetworkDesktopSalesDonut";
 import { NetworkDesktopSalesLineChart } from "@/features/network/components/desktop/NetworkDesktopSalesLineChart";
 import {
-  SalesTripLaneCell,
-  SalesTripMoneyCell,
-  SalesTripRefCell,
-  SalesTripStatusCell,
-} from "@/features/network/components/desktop/NetworkDesktopSalesTripTableCells";
-import {
   WEB_POINTER,
   WEB_TRANSITION,
   hoverRowWash,

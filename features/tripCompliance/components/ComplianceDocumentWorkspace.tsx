@@ -2221,6 +2221,7 @@ export function ComplianceDocumentWorkspace({
   stacked = false,
   style,
   canManageFinance = false,
+  hideCommercials = false,
   /** False on Compliance Pending queue chip only — hide Finance tab for every trip in that stage. */
   showFinanceTab = true,
   canManagePod = false,
@@ -2275,6 +2276,8 @@ export function ComplianceDocumentWorkspace({
   stacked?: boolean;
   style?: StyleProp<ViewStyle>;
   canManageFinance?: boolean;
+  /** Ground Ops: no rates, profit, supplier bank details or Advance Payment preview. */
+  hideCommercials?: boolean;
   /**
    * Finance documents tab. Off only while the page filter is Compliance Pending
    * (includes Declined-by-finance trips that still have verified_at).
@@ -2504,7 +2507,7 @@ export function ComplianceDocumentWorkspace({
     let cancelled = false;
     const orgId = (summary?.trip.organization_id ?? organizationId ?? "").trim();
     const supplierId = (summary?.trip.supplier_id ?? "").trim();
-    if (!summary || !orgId || !supplierId) {
+    if (!summary || !orgId || !supplierId || hideCommercials) {
       setSupplierBankProof(null);
       setSupplierBankLoading(false);
       return;
@@ -2546,13 +2549,14 @@ export function ComplianceDocumentWorkspace({
     summary,
     checklistPreviewMode,
     supplierBankRevision,
+    hideCommercials,
   ]);
 
   const financeRows = useMemo(() => {
     if (!summary) return [];
-    const base = deriveFinanceDocumentRows(summary.documents);
-    return mergeFinanceBankDocsFromSupplier(base, supplierBankProof);
-  }, [summary, supplierBankProof]);
+    const base = financeRowsFor(summary, hideCommercials);
+    return hideCommercials ? base : mergeFinanceBankDocsFromSupplier(base, supplierBankProof);
+  }, [summary, supplierBankProof, hideCommercials]);
   const isFinanceMode =
     showFinanceTab &&
     financeList &&
@@ -3575,7 +3579,7 @@ export function ComplianceDocumentWorkspace({
   );
   const tabMissingCounts = useMemo(() => {
     if (!summary) return { trip: 0, vehicle: 0, driver: 0, finance: 0 };
-    const finance = deriveFinanceDocumentRows(summary.documents);
+    const finance = financeRowsFor(summary, hideCommercials);
     return {
       trip: deriveTripVaultReviewRows(summary.documents).filter((row) => row.status === "missing").length,
       vehicle: summary.trip.vehicle_id
@@ -3590,7 +3594,7 @@ export function ComplianceDocumentWorkspace({
         : 0,
       finance: finance.filter((row) => row.status === "missing").length,
     };
-  }, [summary]);
+  }, [summary, hideCommercials]);
 
   const renderChecklistRow = (row: ComplianceDocRow, index: number) => {
     const displayRow = applyOptimisticDecision(row, localDecisionByKey[optimisticKey(reviewScope, row.key)]);
@@ -4314,7 +4318,7 @@ export function ComplianceDocumentWorkspace({
                             Trip Detail
                           </Text>
                         </Pressable>
-                        {showFinanceTab && !compliancePendingView ? (
+                        {showFinanceTab && !compliancePendingView && !hideCommercials ? (
                           <Pressable
                             style={(state: HoverPressState) => {
                               const active = checklistPreviewMode === "advance";
@@ -4629,9 +4633,10 @@ export function ComplianceDocumentWorkspace({
                         }
                         supplierName={supplierNameByTripId[summary.trip.id] ?? null}
                         onOpenDocumentUpload={openDocumentUploadFromDetails}
+                        hideCommercials={hideCommercials}
                       />
                     </ScrollView>
-                  ) : checklistPreviewMode === "advance" && summary && !compliancePendingView ? (
+                  ) : checklistPreviewMode === "advance" && summary && !compliancePendingView && !hideCommercials ? (
                     <ChecklistAdvancePaymentPanel
                       summary={summary}
                       supplierName={supplierNameByTripId[summary.trip.id] ?? null}
@@ -5330,7 +5335,13 @@ type TripDocOverview = {
   acceptedGroups: TripDocGroup[];
 };
 
-function tripDocumentGroups(summary: ComplianceTripSummary): Array<{
+/** Finance document rows; Ground Ops (hideCommercials) never see the supplier's Bank Docs. */
+function financeRowsFor(summary: ComplianceTripSummary, hideCommercials: boolean): ComplianceDocRow[] {
+  const rows = deriveFinanceDocumentRows(summary.documents);
+  return hideCommercials ? rows.filter((row) => row.type !== "bank_docs") : rows;
+}
+
+function tripDocumentGroups(summary: ComplianceTripSummary, hideCommercials = false): Array<{
   label: string;
   rows: ComplianceDocRow[];
   finance?: boolean;
@@ -5338,7 +5349,7 @@ function tripDocumentGroups(summary: ComplianceTripSummary): Array<{
   const groups: Array<{ label: string; rows: ComplianceDocRow[]; finance?: boolean }> = [
     {
       label: "Finance",
-      rows: deriveFinanceDocumentRows(summary.documents),
+      rows: financeRowsFor(summary, hideCommercials),
       finance: true,
     },
     { label: "Trip", rows: deriveTripVaultReviewRows(summary.documents) },
@@ -5364,7 +5375,7 @@ function tripDocumentGroups(summary: ComplianceTripSummary): Array<{
   return groups;
 }
 
-function tripDocumentOverview(summary: ComplianceTripSummary): TripDocOverview {
+function tripDocumentOverview(summary: ComplianceTripSummary, hideCommercials = false): TripDocOverview {
   const missingItems: TripMissingDocItem[] = [];
   const missingGroups: TripDocGroup[] = [];
   const pendingGroups: TripDocGroup[] = [];
@@ -5373,7 +5384,7 @@ function tripDocumentOverview(summary: ComplianceTripSummary): TripDocOverview {
   let pending = 0;
   let accepted = 0;
   let total = 0;
-  for (const group of tripDocumentGroups(summary)) {
+  for (const group of tripDocumentGroups(summary, hideCommercials)) {
     total += group.rows.length;
     const missingInGroup: TripMissingDocItem[] = [];
     const pendingInGroup: TripMissingDocItem[] = [];
@@ -5432,11 +5443,14 @@ function ChecklistTripDetailsPanel({
   truckType,
   supplierName,
   onOpenDocumentUpload,
+  hideCommercials = false,
 }: {
   summary: ComplianceTripSummary;
   truckType: string | null;
   supplierName: string | null;
   onOpenDocumentUpload?: (target: { vault: string; type?: string }) => void;
+  /** Ground Ops: drop the Rates and Banking cards (and never fetch the supplier bank account). */
+  hideCommercials?: boolean;
 }) {
   const trip = summary.trip;
   const commercial = trip as typeof trip & TripCommercialFacts;
@@ -5481,7 +5495,7 @@ function ChecklistTripDetailsPanel({
     let cancelled = false;
     const orgId = (trip.organization_id ?? "").trim();
     const supplierId = (trip.supplier_id ?? "").trim();
-    if (!orgId || !supplierId) {
+    if (!orgId || !supplierId || hideCommercials) {
       setBankDetails(null);
       return;
     }
@@ -5516,7 +5530,7 @@ function ChecklistTripDetailsPanel({
     return () => {
       cancelled = true;
     };
-  }, [trip.organization_id, trip.supplier_id, supplierLabel, payeeDetails, bankRevision]);
+  }, [trip.organization_id, trip.supplier_id, supplierLabel, payeeDetails, bankRevision, hideCommercials]);
 
   const tripId = getTripDisplayNumber(trip, trip.organization_id ?? null);
   const beneficiary = bankDetails?.beneficiaryName ?? "—";
@@ -5526,7 +5540,7 @@ function ChecklistTripDetailsPanel({
   const accountNumber = bankDetails?.accountNumber ?? "—";
   const ifsc = bankDetails?.ifsc ?? "—";
   const branch = bankDetails?.branchName ?? "—";
-  const docOverview = tripDocumentOverview(summary);
+  const docOverview = tripDocumentOverview(summary, hideCommercials);
   const requiredStillMissing = docOverview.missingGroups.some((group) =>
     group.items.some((item) => item.required),
   );
@@ -5610,6 +5624,7 @@ function ChecklistTripDetailsPanel({
         </TripDetailSection>
       </View>
 
+      {hideCommercials ? null : (
       <View style={[styles.tripDetailPairRow, !pairCards && styles.tripDetailPairRowStack]}>
         <TripDetailSection
           title="Rates"
@@ -5644,6 +5659,7 @@ function ChecklistTripDetailsPanel({
           <TripDetailFact label="Branch" value={branch} />
         </TripDetailSection>
       </View>
+      )}
 
       <View style={styles.tripDetailInsightCard}>
         <View style={styles.tripDetailSectionHeader}>

@@ -123,6 +123,7 @@ import {
 import { useSuppliersQuery } from "@/lib/queries/useSuppliersQuery";
 import { ROUTES } from "@/lib/routes";
 import { useMemberAccess } from "@/lib/useMemberAccess";
+import { useOptionalActiveWorkspace } from "@/contexts/ActiveWorkspaceContext";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Download, FileText, LayoutGrid, Search, Table2, Wallet } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -345,6 +346,8 @@ export default function ComplianceScreen() {
   const canManagePod = canSurface("trip_compliance.pod.manage");
   const canManageFinance = canSurface("trip_compliance.finance.manage");
   const canViewFinance = canSurface("trip_compliance.finance.view");
+  /** Ground Ops upload documents only: no rates, profit, bank details, advance or balance amounts. */
+  const hideCommercials = useOptionalActiveWorkspace()?.memberPlatformRole === "ground_ops";
   const groundOpsWarehouseGap = useGroundOpsWarehouseGap();
   const canTabAdvanceVerification = canSurface("trip_compliance.tab.advance_verification");
   const canTabAdvancePayment = canSurface("trip_compliance.tab.advance_payment");
@@ -1529,7 +1532,7 @@ export default function ComplianceScreen() {
     setExportToast(message);
     if (rows.length === 0) return;
     try {
-      await downloadComplianceTableExport(rows, stage === "compliance_pending");
+      await downloadComplianceTableExport(rows, stage === "compliance_pending" || hideCommercials);
     } catch (error) {
       alertMessage("Couldn't export", error instanceof Error ? error.message : "Please try again.");
     }
@@ -1540,6 +1543,7 @@ export default function ComplianceScreen() {
     podReceivedSubview,
     podSlice,
     settlementSlice,
+    hideCommercials,
     search,
     searched,
     stage,
@@ -1830,7 +1834,7 @@ export default function ComplianceScreen() {
               if (summary) openPay(summary);
             }}
             canManageFinance={canManageFinance}
-            compliancePendingLayout={stage === "compliance_pending"}
+            compliancePendingLayout={stage === "compliance_pending" || hideCommercials}
             dateSort={isAdvanceProcessedStage ? undefined : tableDateSort}
             onDateSortChange={isAdvanceProcessedStage ? undefined : setTableDateSort}
             dateSortEnabled={!isAdvanceProcessedStage}
@@ -1846,6 +1850,7 @@ export default function ComplianceScreen() {
           canVerify={canVerifyDocuments}
           canViewDocuments={canViewDocuments}
           canManageFinance={canManageFinance}
+          hideCommercials={hideCommercials}
           showFinanceTab={stage !== "compliance_pending"}
           onPay={openPay}
           paymentSubmitting={paying}

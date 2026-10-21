@@ -341,6 +341,25 @@ export async function getIndentsByOrganization(
 }
 
 /**
+ * Cancelled / expired indents only. The Trips hub Failed tag reads this instead
+ * of the capped full list, so older failures are not cut off by FINITE_LIST_CAP.
+ */
+export async function getFailedIndentsByOrganization(
+  orgId: string,
+): Promise<{ error: Error | null; indents: IndentRow[] }> {
+  const { data, error } = await supabase()
+    .from("indents")
+    .select("*")
+    .eq("organization_id", orgId)
+    .in("status", ["cancelled", "expired"])
+    .order("created_at", { ascending: false })
+    .limit(FINITE_LIST_CAP);
+  if (error) return { error: new Error(error.message), indents: [] };
+  const indents = await attachActiveTripRefs((data ?? []) as IndentRow[]);
+  return { error: null, indents };
+}
+
+/**
  * How many older code matches the Trips toolbar may merge in.
  * Ordered oldest-first so this fills the tail cut off by FINITE_LIST_CAP,
  * instead of repeating the newest rows the hub already has.

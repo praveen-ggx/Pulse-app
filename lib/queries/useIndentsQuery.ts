@@ -326,6 +326,21 @@ export function useIndentBidSnapshotsQuery(ownerOrgId: string | null, indentIds:
   });
 }
 
+/** Cancelled / expired indents for the Trips hub Failed tag. Invalidated with `indents.all`. */
+export function useFailedIndentsQuery(orgId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.indents.failed(orgId ?? ''),
+    queryFn: async () => {
+      const { getFailedIndentsByOrganization } = await loadIndentsService();
+      const res = await getFailedIndentsByOrganization(orgId!);
+      if (res.error) throw res.error;
+      return res.indents;
+    },
+    enabled: !!orgId,
+    staleTime: STALE.moderate,
+  });
+}
+
 /** Paginated list for Indents tab. */
 export function useIndentsInfiniteQuery(orgId: string | null, opts?: { pageSize?: number }) {
   const pageSize = opts?.pageSize ?? DEFAULT_PAGE_SIZE;

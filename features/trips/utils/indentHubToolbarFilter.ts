@@ -98,3 +98,17 @@ export function tripsHubAllToolbarCountLabel(opts: {
   const total = opts.dateFilteredIndentCount + opts.dateFilteredTripCount;
   return `Showing ${shown} of ${total}`;
 }
+
+/** One row per indent id across several lists; the most recently updated copy wins. */
+export function mergeIndentsByLatestUpdate(...lists: readonly (readonly IndentRow[])[]): IndentRow[] {
+  const byId = new Map<string, IndentRow>();
+  for (const list of lists) {
+    for (const indent of list) {
+      const prev = byId.get(indent.id);
+      if (!prev || String(indent.updated_at ?? "") >= String(prev.updated_at ?? "")) {
+        byId.set(indent.id, indent);
+      }
+    }
+  }
+  return [...byId.values()];
+}

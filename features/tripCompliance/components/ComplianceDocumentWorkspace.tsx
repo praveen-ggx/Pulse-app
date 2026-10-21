@@ -6720,8 +6720,8 @@ const styles = StyleSheet.create({
     borderBottomColor: Theme.complianceHoverBorder,
   },
   rowSelected: {
-    backgroundColor: Theme.complianceStageInfoBg,
-    borderBottomColor: Theme.complianceStageInfoFg,
+    backgroundColor: Theme.brandBlueSoft,
+    borderBottomColor: Theme.complianceBulk,
   },
   rowSelectedBar: {
     position: "absolute",
@@ -6729,11 +6729,11 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     width: 3,
-    backgroundColor: Theme.complianceStageInfoFg,
+    backgroundColor: Theme.complianceBulk,
   },
   rowSelectedHover: {
-    backgroundColor: Theme.complianceStageInfoBg,
-    borderBottomColor: Theme.complianceStageInfoFg,
+    backgroundColor: Theme.brandBlueSoft,
+    borderBottomColor: Theme.complianceBulk,
   },
   rowRejected: {
     borderBottomColor: Theme.complianceStageDocsFg,

@@ -54,6 +54,8 @@ type EntryProps = {
   submitLabel?: string;
   validationError?: string;
   confirmCopy?: { scopeNote?: string };
+  initialAmount?: number | null;
+  isUpdate?: boolean;
 };
 let lastEntry: EntryProps | null = null;
 jest.mock("@/features/indents/components/bidding/IndentBidAmountEntry", () => ({
@@ -602,6 +604,49 @@ describe("NetworkPoolQuoteModal", () => {
       screen.getByText(/Each shipper reviews, counters and awards its own load/),
     ).toBeTruthy();
     expect(lastEntry?.submitLabel).toBe("Quote for pool");
+    expect(lastEntry?.initialAmount ?? null).toBeNull();
+    expect(lastEntry?.isUpdate).toBeFalsy();
+  });
+
+  it("a first-time quote does not prefill an amount", async () => {
+    await renderQuoteModal();
+    expect(lastEntry?.initialAmount ?? null).toBeNull();
+    expect(lastEntry?.isUpdate).toBeFalsy();
+    expect(lastEntry?.submitLabel).toBe("Quote for pool");
+  });
+
+  it("prefills the existing pool bid when revising", async () => {
+    mockGetOrgNetworkPool.mockResolvedValue({
+      error: null,
+      pool: manifest({
+        org_quotes: memberIds.map((id) => ({
+          id: `q-${id}`,
+          indent_id: id,
+          status: "pending",
+          amount: 56000,
+          counter_amount: null,
+          quotable: true,
+          updated_at: "2026-10-07T00:00:00Z",
+        })),
+      }),
+    });
+    await renderQuoteModal();
+    expect(lastEntry?.initialAmount).toBe(56000);
+    expect(lastEntry?.isUpdate).toBe(true);
+    expect(lastEntry?.submitLabel).toBe("Revise bid");
+  });
+
+  it("prefills from the My Bids card rate before the manifest returns quotes", async () => {
+    const bidPool = { ...pool, rateMin: 56000, rateMax: 56000 };
+    render(
+      <QueryClientProvider client={queryClient}>
+        <NetworkPoolQuoteModal {...baseProps()} pool={bidPool} />
+      </QueryClientProvider>,
+    );
+    expect(lastEntry?.initialAmount).toBe(56000);
+    expect(lastEntry?.isUpdate).toBe(true);
+    await waitFor(() => expect(screen.queryByText("Preparing pool…")).toBeNull());
+    expect(lastEntry?.initialAmount).toBe(56000);
   });
 
   it("reads the pool from the server by its lane key", async () => {

@@ -2,8 +2,8 @@
  * One pooled Network bid in Get Load → My Bids: the lane this org quoted one
  * rate on, with its rate and how each member quote stands. Like the Network
  * Loads pool card it carries no party identity — no shipper name, avatar,
- * indent number or facepile. Pressing the card opens the pool. Revising
- * the bid happens on the loads inside it.
+ * indent number or facepile. Pressing the card opens the pool. Revising is
+ * one pooled action on this card — not a per-indent summary.
  */
 import Theme from "@/constants/Theme";
 import {
@@ -40,10 +40,14 @@ export function NetworkBidPoolCard({
   pool,
   showViewAction = true,
   onViewPool,
+  onReviseBid,
+  viaStops = [],
 }: {
   pool: NetworkBidPool<NetworkPoolLoad>;
   showViewAction?: boolean;
   onViewPool?: () => void;
+  onReviseBid?: () => void;
+  viaStops?: readonly string[];
 }) {
   const count = pool.members.length;
   const loadsLabel = plural(count, "load");
@@ -65,12 +69,8 @@ export function NetworkBidPoolCard({
   const label = `Network pool bid, ${pool.key.pickup} to ${pool.key.drop}, ${vehicle}, ${loadsLabel}, ${states}`;
   const opensDetail = showViewAction && onViewPool != null;
 
-  const body = (
-    <View
-      style={styles.card}
-      testID={`network-bid-pool-${pool.id}`}
-      accessibilityLabel={opensDetail ? undefined : label}
-    >
+  const summary = (
+    <>
       <View style={styles.top}>
         <View style={styles.tag}>
           <Layers size={12} color={Theme.primary} strokeWidth={2.4} />
@@ -94,7 +94,11 @@ export function NetworkBidPoolCard({
         </View>
       </View>
 
-      <MarketplaceRouteGrid pickup={pool.key.pickup} drop={pool.key.drop} />
+      <MarketplaceRouteGrid
+        pickup={pool.key.pickup}
+        drop={pool.key.drop}
+        viaStops={viaStops}
+      />
 
       <View style={styles.facts}>
         {facts.map((f, i) => (
@@ -122,26 +126,43 @@ export function NetworkBidPoolCard({
           {rate ?? "—"}
         </Text>
       </View>
+    </>
+  );
 
+  return (
+    <View
+      style={styles.card}
+      testID={`network-bid-pool-${pool.id}`}
+      accessibilityLabel={opensDetail ? undefined : label}
+    >
+      {opensDetail && onViewPool ? (
+        <Pressable
+          onPress={onViewPool}
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          style={({ pressed }) => pressed && bidStyles.pressed}
+        >
+          {summary}
+        </Pressable>
+      ) : (
+        summary
+      )}
       <View style={styles.footer}>
         <Text style={bidStyles.states} numberOfLines={2}>
           {states}
         </Text>
+        {onReviseBid ? (
+          <Pressable
+            onPress={onReviseBid}
+            style={styles.cta}
+            accessibilityRole="button"
+            accessibilityLabel={`Revise bid, ${loadsLabel}`}
+          >
+            <Text style={styles.ctaText}>Revise bid</Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
-  );
-
-  if (!opensDetail || !onViewPool) return body;
-
-  return (
-    <Pressable
-      onPress={onViewPool}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      style={({ pressed }) => [bidStyles.hit, pressed && bidStyles.pressed]}
-    >
-      {body}
-    </Pressable>
   );
 }
 
@@ -160,6 +181,5 @@ const bidStyles = StyleSheet.create({
     fontWeight: "700",
     color: Theme.textSecondary,
   },
-  hit: { alignSelf: "stretch" },
   pressed: { opacity: 0.92 },
 });

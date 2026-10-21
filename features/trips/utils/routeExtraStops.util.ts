@@ -105,6 +105,62 @@ export function extraStopChipLabel(count: number): string | null {
   return `+${count} stop${count === 1 ? "" : "s"}`;
 }
 
+/** Distinct stop places in sequence order — what a bidder should see on the lane. */
+export function uniqueViaStopLocations(
+  rows: readonly { location: string; sequence?: number }[],
+): string[] {
+  const ordered = [...rows].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const row of ordered) {
+    const location = row.location.trim();
+    if (!location) continue;
+    const key = location.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(location);
+  }
+  return out;
+}
+
+export function viaStopLocationsByParentId(
+  rows: readonly {
+    location: string;
+    sequence?: number;
+    indent_id?: string | null;
+    trip_id?: string | null;
+  }[],
+  parentKey: "indent_id" | "trip_id",
+): Map<string, string[]> {
+  const grouped = new Map<string, { location: string; sequence?: number }[]>();
+  for (const row of rows) {
+    const id = row[parentKey];
+    if (!id) continue;
+    const list = grouped.get(id) ?? [];
+    list.push(row);
+    grouped.set(id, list);
+  }
+  const out = new Map<string, string[]>();
+  for (const [id, list] of grouped) {
+    out.set(id, uniqueViaStopLocations(list));
+  }
+  return out;
+}
+
+export function viaStopLocationsForMemberIds(
+  memberIds: readonly string[],
+  byParent: ReadonlyMap<string, readonly string[]>,
+): string[] {
+  return uniqueViaStopLocations(
+    memberIds.flatMap((id, index) =>
+      (byParent.get(id) ?? []).map((location, stopIndex) => ({
+        location,
+        sequence: index * 100 + stopIndex,
+      })),
+    ),
+  );
+}
+
 /**
  * "incl. ₹X extra paid" for the side the viewer prices on. Owners see the
  * client charge; bidders and suppliers only ever see the supplier charge.

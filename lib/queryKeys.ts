@@ -171,6 +171,8 @@ export const queryKeys = {
   indents: {
     all: (orgId: string) => ["q", "indents", orgId] as const,
     finite: (orgId: string) => ["q", "indents", orgId, "finite"] as const,
+    /** Cancelled / expired only (Trips hub Failed tag), not capped by the finite list. */
+    failed: (orgId: string) => ["q", "indents", orgId, "failed"] as const,
     infinite: (orgId: string, pageSize: number) =>
       ["q", "indents", orgId, "infinite", pageSize] as const,
     list: (orgId: string, opts?: { limit?: number; offset?: number }) =>

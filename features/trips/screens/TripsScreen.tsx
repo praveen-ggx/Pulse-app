@@ -65,6 +65,7 @@ import { useGiveLoadIndentActions } from "@/features/network/hooks/useGiveLoadIn
 import type { IndentRow } from "@/features/indents";
 import {
   useIndentBidSnapshotsQuery,
+  useFailedIndentsQuery,
   useIndentOfferCountsQuery,
   useIndentsQuery,
 } from "@/lib/queries/useIndentsQuery";
@@ -112,6 +113,7 @@ import {
 } from "@/features/trips/utils/indentHubCardPresentation";
 import {
   indentMatchesHubDateFilter,
+  mergeIndentsByLatestUpdate,
   indentMatchesHubSearch,
   mergeIndentSearchHits,
   tripsHubAllToolbarCountLabel,
@@ -481,9 +483,16 @@ export default function TripsScreen() {
     }
     return byIndent;
   }, [extraStopRows]);
+  // The full list is capped (newest FINITE_LIST_CAP), so older failures come
+  // from their own query. Per id, keep whichever copy was updated last.
+  const { data: failedIndents = [] } = useFailedIndentsQuery(orgId);
+  const failedCandidateIndents = useMemo(
+    () => mergeIndentsByLatestUpdate(failedIndents, allIndents),
+    [failedIndents, allIndents],
+  );
   const failedStageIndents = useMemo(() => {
     if (!orgId) return [];
-    return allIndents.filter((indent) => {
+    return failedCandidateIndents.filter((indent) => {
       if ((indent.organization_id ?? "") !== orgId) return false;
       if (indentIdsWithTrip.has(indent.id)) return false;
       if (!isIndentFailedStatus(indent.status)) return false;
@@ -498,7 +507,7 @@ export default function TripsScreen() {
       return indentMatchesHubSearch(indent, searchQuery);
     });
   }, [
-    allIndents,
+    failedCandidateIndents,
     orgId,
     indentIdsWithTrip,
     dateRangeFilter,

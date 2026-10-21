@@ -310,6 +310,7 @@ export function NetworkProfileHubHero({
               <PartyAvatar
                 name={name}
                 entityType={entityType}
+                organizationImageUrl={avatarUrl}
                 avatarUrl={avatarUrl}
                 avatarSeed={avatarSeed}
                 size={avatarSize}

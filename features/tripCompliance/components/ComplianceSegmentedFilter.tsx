@@ -1,6 +1,11 @@
 import Theme from "@/constants/Theme";
 import React from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+
+const WEB_COPY =
+  Platform.OS === "web"
+    ? ({ whiteSpace: "pre-wrap", letterSpacing: 0 } as const)
+    : ({ letterSpacing: 0 } as const);
 
 export type ComplianceSegmentOption<T extends string> = {
   id: T;
@@ -71,9 +76,9 @@ export function ComplianceSegmentedFilter<T extends string>({
                 const { pressed, hovered } = state as { pressed: boolean; hovered?: boolean };
                 return [
                   styles.segment,
-                  !narrow && styles.segmentFlex,
+                  !cardDense && !narrow && styles.segmentFlex,
                   narrow && styles.segmentNarrow,
-                  compact && styles.segmentCompact,
+                  compact && !cardDense && styles.segmentCompact,
                   cardDense && styles.segmentCardDense,
                   cardDense && !active && (hovered || pressed) && styles.segmentCardDenseHover,
                   active && styles.segmentActive,
@@ -91,7 +96,7 @@ export function ComplianceSegmentedFilter<T extends string>({
                     style={[styles.cardDenseCopy, active && styles.labelActive]}
                     numberOfLines={1}
                   >
-                    {option.label}
+                    {`${option.label} `}
                   </Text>
                   <View
                     style={[
@@ -114,7 +119,7 @@ export function ComplianceSegmentedFilter<T extends string>({
                 <View style={[styles.segmentInner, !narrow && styles.segmentInnerFull]}>
                   {option.dot ? <View style={[styles.dot, { backgroundColor: option.dot }]} /> : null}
                   <Text style={[styles.label, active && styles.labelActive]} numberOfLines={1}>
-                    {option.label}
+                    {`${option.label} `}
                   </Text>
                   <View
                     style={[
@@ -237,7 +242,7 @@ const styles = StyleSheet.create({
   },
   cardDenseScroll: {
     width: "100%",
-    height: 36,
+    height: 34,
     flexGrow: 0,
     borderRadius: 999,
     borderWidth: 1,
@@ -246,15 +251,16 @@ const styles = StyleSheet.create({
   },
   cardDenseScrollContent: {
     alignItems: "center",
+    minHeight: 34,
   },
   trackCardDense: {
     width: "auto",
     alignSelf: "flex-start",
     alignItems: "center",
-    height: 36,
-    paddingHorizontal: 4,
-    paddingVertical: 0,
-    gap: 4,
+    height: 34,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    gap: 6,
     borderRadius: 0,
     backgroundColor: "transparent",
     borderWidth: 0,
@@ -287,10 +293,10 @@ const styles = StyleSheet.create({
   segmentCardDense: {
     flexGrow: 0,
     flexShrink: 0,
-    height: 28,
-    paddingLeft: 10,
-    paddingRight: 8,
-    paddingVertical: 0,
+    height: 26,
+    paddingLeft: 12,
+    paddingRight: 10,
+    paddingVertical: 4,
     borderRadius: 999,
     backgroundColor: Theme.surface,
     borderWidth: 1,
@@ -335,9 +341,9 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   dotCardDense: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
     flexShrink: 0,
   },
   label: {
@@ -348,15 +354,17 @@ const styles = StyleSheet.create({
     color: Theme.textPrimaryDark,
     includeFontPadding: false,
     textAlign: "center",
+    ...WEB_COPY,
   },
   cardDenseCopy: {
     flexShrink: 0,
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "700",
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: "600",
     color: Theme.textPrimaryDark,
     includeFontPadding: false,
     textAlign: "left",
+    ...WEB_COPY,
   },
   labelActive: {
     color: Theme.buttonDarkText,
@@ -372,9 +380,9 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.surface,
   },
   countBadgeDense: {
-    height: 16,
-    minWidth: 18,
-    paddingHorizontal: 5,
+    height: 14,
+    minWidth: 16,
+    paddingHorizontal: 4,
     flexShrink: 0,
   },
   countBadgeActive: {
@@ -390,8 +398,8 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
   },
   cardDenseCount: {
-    fontSize: 10,
-    lineHeight: 12,
+    fontSize: 8,
+    lineHeight: 10,
     fontWeight: "700",
     color: Theme.buttonDarkText,
     fontVariant: ["tabular-nums"],

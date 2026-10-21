@@ -5,6 +5,13 @@
  * indent number or facepile. Pressing the card opens the pool. Revising is
  * one pooled action on this card — not a per-indent summary.
  */
+import {
+  WEB_POINTER,
+  WEB_TRANSITION,
+  hoverRowWash,
+  isHovered,
+  type HoverPressState,
+} from "@/constants/hoverSelection";
 import Theme from "@/constants/Theme";
 import {
   MarketplaceRouteGrid,
@@ -140,7 +147,12 @@ export function NetworkBidPoolCard({
           onPress={onViewPool}
           accessibilityRole="button"
           accessibilityLabel={label}
-          style={({ pressed }) => pressed && bidStyles.pressed}
+          style={(state: HoverPressState) => [
+            WEB_TRANSITION,
+            WEB_POINTER,
+            isHovered(state) && hoverRowWash,
+            state.pressed && bidStyles.pressed,
+          ]}
         >
           {summary}
         </Pressable>
@@ -177,8 +189,8 @@ const bidStyles = StyleSheet.create({
   states: {
     flex: 1,
     minWidth: 0,
-    fontSize: 12,
-    fontWeight: "700",
+    fontSize: 11,
+    fontWeight: "500",
     color: Theme.textSecondary,
   },
   pressed: { opacity: 0.92 },

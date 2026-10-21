@@ -406,14 +406,6 @@ export function AwardModal({ visible, award, onViewIndent, insets }: AwardModalP
   const panelBody = (
     <View style={styles.panelRoot}>
       <View style={styles.reviewHubModalHeader}>
-        <TouchableOpacity
-          onPress={close}
-          hitSlop={12}
-          style={styles.reviewHubModalBack}
-          accessibilityLabel="Close Review Hub"
-        >
-          <X size={18} color={Theme.textPrimaryDark} strokeWidth={2.25} />
-        </TouchableOpacity>
         <View style={styles.modalHeaderTitleWrap}>
           <Text style={styles.modalTitle}>Review Hub</Text>
           {currentLoad ? (
@@ -436,9 +428,15 @@ export function AwardModal({ visible, award, onViewIndent, insets }: AwardModalP
               {revokingAward ? "…" : revokePresentation.mode === "refund_test" ? "Refund" : "Revoke"}
             </Text>
           </TouchableOpacity>
-        ) : (
-          <View style={styles.reviewHubModalHeaderSpacer} />
-        )}
+        ) : null}
+        <TouchableOpacity
+          onPress={close}
+          hitSlop={12}
+          style={styles.reviewHubModalBack}
+          accessibilityLabel="Close Review Hub"
+        >
+          <X size={16} color={Theme.textMuted} strokeWidth={2} />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.bodyColumn}>
@@ -455,15 +453,14 @@ export function AwardModal({ visible, award, onViewIndent, insets }: AwardModalP
             </Text>
             {showAwardRevokedTag ? (
               <View style={styles.revokedTag} accessibilityLabel="Award revoked">
-                <Text style={styles.revokedTagText}>AWARD REVOKED</Text>
+                <Text style={styles.revokedTagText}>Award revoked</Text>
               </View>
             ) : null}
             <Text
               style={indentReviewHubStyles.reviewHubHeroRoute}
               numberOfLines={2}
             >
-              {(currentLoad.pickup_area || "—").toUpperCase()} →{" "}
-              {(currentLoad.drop_location || "—").toUpperCase()}
+              {currentLoad.pickup_area || "—"} → {currentLoad.drop_location || "—"}
             </Text>
             <View style={indentReviewHubStyles.reviewHubHeroMeta}>
               <View style={indentReviewHubStyles.reviewHubHeroMetaCol}>
@@ -743,39 +740,26 @@ const styles = StyleSheet.create({
   reviewHubModalHeader: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 8,
+    justifyContent: "space-between",
+    marginBottom: 12,
     gap: 10,
     flexShrink: 0,
+    paddingBottom: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.borderLight,
   },
   reviewHubModalBack: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: Theme.cardWhite,
+    width: 28,
+    height: 28,
+    borderRadius: 6,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
-    ...Platform.select({
-      web: { boxShadow: "0 1px 4px rgba(15,23,42,0.06)" } as object,
-      ios: {
-        shadowColor: Theme.shadow,
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06,
-        shadowRadius: 3,
-      },
-      default: { elevation: 1 },
-    }),
-  },
-  reviewHubModalHeaderSpacer: {
-    width: 40,
-    height: 40,
+    flexShrink: 0,
   },
   reviewHubRevokeHeaderBtn: {
-    minWidth: 72,
-    minHeight: 40,
+    minHeight: 28,
     paddingHorizontal: 10,
-    borderRadius: 12,
+    borderRadius: 6,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: Theme.warningMuted,
@@ -783,33 +767,45 @@ const styles = StyleSheet.create({
     borderColor: Theme.warning,
   },
   reviewHubRevokeHeaderBtnText: {
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
+    fontSize: 12,
+    fontWeight: "500",
+    letterSpacing: 0,
     color: Theme.warning,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   modalHeaderTitleWrap: {
     flex: 1,
     justifyContent: "center",
-    alignItems: "center",
+    alignItems: "flex-start",
     minWidth: 0,
     gap: 2,
   },
   modalTitle: {
-    fontSize: 13,
-    fontWeight: "800",
-    letterSpacing: 1.1,
-    textTransform: "uppercase",
-    textAlign: "center",
+    fontSize: 15,
+    fontWeight: "500",
+    letterSpacing: 0,
+    textAlign: "left",
     color: Theme.textPrimaryDark,
     width: "100%",
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   modalSubtitle: {
     ...indentReviewHubText.modalSubtitle,
-    fontSize: 11,
-    letterSpacing: 0.2,
+    fontSize: 12,
+    fontWeight: "400",
+    letterSpacing: 0,
     marginTop: 0,
+    textAlign: "left",
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   bidsScroll: {
     flex: 1,
@@ -850,11 +846,14 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   marketSectionLabel: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
+    fontSize: 11,
+    fontWeight: "500",
+    letterSpacing: 0,
     color: Theme.textMuted,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   marketList: {
     gap: 8,
@@ -864,7 +863,12 @@ const styles = StyleSheet.create({
     marginTop: 10,
     marginBottom: 2,
     textAlign: "center",
-    fontSize: 11,
+    fontSize: 12,
+    letterSpacing: 0,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   footerActions: {
     marginTop: 12,
@@ -878,52 +882,64 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 16,
-    backgroundColor: Theme.darkBackground,
-    borderRadius: 12,
+    paddingVertical: 12,
+    backgroundColor: Theme.actionBtnInk,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnInk,
     alignSelf: "stretch",
     minWidth: 0,
-    minHeight: 48,
+    minHeight: 42,
   },
   modalSubmitDisabled: {
     opacity: 0.38,
   },
   modalSubmitText: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: Theme.textOnPrimary,
-    textTransform: "uppercase",
-    letterSpacing: 1.2,
+    fontSize: 13,
+    fontWeight: "500",
+    color: Theme.buttonDarkText,
+    letterSpacing: 0,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   revokedTag: {
     alignSelf: "flex-start",
     marginTop: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 4,
     backgroundColor: Theme.warningMuted,
   },
   revokedTagText: {
     fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.4,
+    fontWeight: "500",
+    letterSpacing: 0,
     color: Theme.warning,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   viewIndentBtn: {
-    paddingVertical: 14,
+    paddingVertical: 11,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: Theme.borderMedium,
-    borderRadius: 12,
+    borderColor: Theme.actionBtnGhostBorder,
+    borderRadius: 10,
     backgroundColor: Theme.cardWhite,
-    minHeight: 46,
+    minHeight: 42,
   },
   viewIndentBtnText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: Theme.textSecondary,
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
+    fontSize: 13,
+    fontWeight: "500",
+    color: Theme.actionBtnInk,
+    letterSpacing: 0,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
 });

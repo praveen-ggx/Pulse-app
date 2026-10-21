@@ -181,27 +181,31 @@ function GrowOrgAvatarBadge({
 }) {
   return (
     <View style={styles.growOrgIconHalo}>
-      <PartyAvatar
-        name={org.name}
-        initialsColorSeed={org.id}
-        avatarSeed={org.avatar_seed}
-        entityType="client"
-        size={size}
-      />
-      {showStatus ? (
-        <View
-          style={[
-            styles.growOrgOnlineDot,
-            {
-              backgroundColor: isConnected
-                ? "#50CD89"
-                : isPending
-                  ? "#FFC700"
-                  : METRONIC.border,
-            },
-          ]}
+      <View style={{ width: size, height: size, position: "relative" }}>
+        <PartyAvatar
+          name={org.name}
+          initialsColorSeed={org.id}
+          organizationImageUrl={org.avatar_url}
+          avatarUrl={org.avatar_url}
+          avatarSeed={org.avatar_seed}
+          entityType="client"
+          size={size}
         />
-      ) : null}
+        {showStatus ? (
+          <View
+            style={[
+              styles.growOrgOnlineDot,
+              {
+                backgroundColor: isConnected
+                  ? "#50CD89"
+                  : isPending
+                    ? "#FFC700"
+                    : METRONIC.border,
+              },
+            ]}
+          />
+        ) : null}
+      </View>
     </View>
   );
 }

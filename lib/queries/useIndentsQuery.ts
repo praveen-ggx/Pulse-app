@@ -24,6 +24,7 @@ import type { IndentRow } from '@/features/indents/services/indents.service';
 import type { IndentBidSnapshot } from '@/features/network/services/bids.service';
 import { getInitialIndentForDetail } from '@/features/indents/initialIndentForDetail';
 import { findIndentInMarketList } from '@/features/indents/utils/findIndentInList.util';
+import { peekCachedIndentLists } from '@/features/indents/utils/indentDetailBootstrap.util';
 import { fetchEntityListWithFallback } from '@/lib/queries/fetchEntityListWithFallback';
 import { clearDomainCacheMeta } from '@/lib/cache/cacheMetadataStore';
 import { useAppQueryGate } from '@/lib/hooks/useAppQueryGate';
@@ -41,27 +42,8 @@ const loadDirectQuotesService = () =>
   import('@/features/indents/services/direct-quotes.service');
 const loadBidsService = () => import('@/features/network/services/bids.service');
 
-/** Indent rows already on screen (market, org list, paged lists). */
 function cachedIndentLists(qc: QueryClient, orgId: string): IndentRow[] {
-  const rows: IndentRow[] = [];
-  const entries = qc.getQueriesData({ queryKey: ['q', 'indents', orgId] });
-  for (const [, data] of entries) {
-    if (Array.isArray(data)) {
-      rows.push(...(data as IndentRow[]));
-      continue;
-    }
-    if (
-      data &&
-      typeof data === 'object' &&
-      'pages' in data &&
-      Array.isArray((data as { pages: unknown }).pages)
-    ) {
-      for (const page of (data as { pages: unknown[] }).pages) {
-        if (Array.isArray(page)) rows.push(...(page as IndentRow[]));
-      }
-    }
-  }
-  return rows;
+  return peekCachedIndentLists(qc, orgId);
 }
 
 /** Full list. Use for Load Board, Create Indent when list is small. */

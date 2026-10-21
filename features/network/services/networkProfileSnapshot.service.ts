@@ -151,6 +151,58 @@ function orgDisplayToPartnerBatchRow(
   };
 }
 
+export type OrgProfileSnapshotOptions = {
+  /** When the linked-org bootstrap cache already has this partner, skip the batch RPC. */
+  partnerProfile?: OrgDisplayProfile | null;
+};
+
+/** Instant hero snapshot from the same partner-display payload other pages prefetch. */
+export function snapshotFromPartnerDisplay(
+  targetOrgId: string,
+  profile: OrgDisplayProfile,
+): NetworkProfileSnapshot {
+  const year =
+    yearFromTimestamp(profile.ownerSignedUpAt) ??
+    yearFromTimestamp(profile.orgCreatedAt);
+  return {
+    id: targetOrgId,
+    name: nonEmptyString(profile.organizationName) ?? "Organization",
+    type: "SUPPLIER",
+    location: formatLocation(null, null, null),
+    status: "LIVE",
+    rating:
+      typeof profile.averageRating === "number" ? profile.averageRating : null,
+    mutuals: null,
+    phone: nonEmptyString(profile.phone),
+    avatar_url:
+      nonEmptyString(profile.avatarUrl) ?? nonEmptyString(profile.logoUrl),
+    avatar_seed:
+      nonEmptyString(profile.avatarSeed) ?? nonEmptyString(profile.orgAvatarSeed),
+    is_integrated: false,
+    is_kyc_verified: isKycVerifiedStatus(profile.verificationStatus),
+    registered_address: null,
+    branch_count: 0,
+    sector: null,
+    website: null,
+    gstin: null,
+    operating_model: null,
+    total_trips: typeof profile.tripCount === "number" ? profile.tripCount : 0,
+    member_since_year: year,
+    vehicle_count:
+      typeof profile.vehicleCount === "number" ? profile.vehicleCount : 0,
+    indent_count:
+      typeof profile.networkIndentCount === "number"
+        ? profile.networkIndentCount
+        : 0,
+  };
+}
+
+export function memberSinceYearFromIso(
+  iso: string | null | undefined,
+): number | null {
+  return yearFromTimestamp(iso);
+}
+
 async function loadOrganizationRow(
   targetOrgId: string,
 ): Promise<{ error: Error | null; row: OrganizationSnapshotRow | null }> {
@@ -260,6 +312,7 @@ function isMissingColumnError(message: string | null | undefined): boolean {
 export async function getOrgProfileSnapshot(
   viewerOrgId: string,
   targetOrgId: string,
+  options?: OrgProfileSnapshotOptions,
 ): Promise<{ error: Error | null; snapshot: NetworkProfileSnapshot | null }> {
   if (!viewerOrgId || !targetOrgId) {
     return { error: null, snapshot: null };
@@ -268,6 +321,7 @@ export async function getOrgProfileSnapshot(
   const connectionSelect =
     "status, from_organization_id, to_organization_id, request_shipper_client, request_carrier_supplier";
 
+  const seededPartner = options?.partnerProfile ?? null;
   const [
     partnerProfiles,
     orgLoadRes,
@@ -277,7 +331,9 @@ export async function getOrgProfileSnapshot(
     supplierLinkRes,
     locationsRes,
   ] = await Promise.all([
-    getLinkedOrgProfilesBatch([targetOrgId]),
+    seededPartner
+      ? Promise.resolve({ [targetOrgId]: seededPartner })
+      : getLinkedOrgProfilesBatch([targetOrgId]),
     loadOrganizationRow(targetOrgId),
     supabase()
       .from("connection_requests")

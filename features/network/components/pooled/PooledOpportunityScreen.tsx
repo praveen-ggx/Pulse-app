@@ -58,9 +58,10 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
-import { ArrowLeft, Layers } from "lucide-react-native";
+import { Layers, X } from "lucide-react-native";
 import { useMemo, useState } from "react";
 import {
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -68,6 +69,11 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+
+const WEB_COPY = Platform.select({
+  web: { whiteSpace: "pre-wrap" } as object,
+  default: {},
+});
 
 const TWO_COLUMN_MIN_WIDTH = 900;
 /** list_my_org_market_bids caps p_limit at 100. */
@@ -101,7 +107,7 @@ function Fact({ label, value }: { label: string; value: string }) {
 
 export function PooledOpportunityScreen() {
   const layout = useLayoutInsets();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const router = useRouter();
   const queryClient = useQueryClient();
   const params = useLocalSearchParams<{
@@ -319,35 +325,33 @@ export function PooledOpportunityScreen() {
 
   const header = (
     <View style={styles.header}>
-      <View style={styles.headerTop}>
-        <Pressable
-          onPress={handleBack}
-          style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}
-          accessibilityRole="button"
-          accessibilityLabel="Back to Marketplace Loads"
-          hitSlop={Layout.touchTargetHitSlop}
-        >
-          <ArrowLeft
-            size={18}
-            color={Theme.textPrimaryDark}
-            strokeWidth={2.2}
-          />
-        </Pressable>
+      <View style={styles.headerCopy}>
         <View style={styles.headerEyebrow}>
           <Layers size={13} color={Theme.primary} strokeWidth={2.4} />
-          <Text style={styles.eyebrow}>POOLED OPPORTUNITY</Text>
+          <Text style={styles.eyebrow}>Pooled opportunity</Text>
         </View>
-        <PoolStatusPill state={summary.state} label={summary.stateLabel} />
+        <Text style={styles.title} numberOfLines={2}>
+          {keyReady ? `${key.pickup} → ${key.drop}` : "Pooled opportunity"}
+        </Text>
+        <Text style={styles.subtitle} numberOfLines={2}>
+          {vehicleLabel} · {countLabel} · one rate for the pool
+        </Text>
+        <Text style={styles.stateDetail} numberOfLines={2}>
+          {POOL_STATE_COPY[summary.state].detail}
+        </Text>
       </View>
-      <Text style={styles.title} numberOfLines={2}>
-        {keyReady ? `${key.pickup} → ${key.drop}` : "Pooled opportunity"}
-      </Text>
-      <Text style={styles.subtitle} numberOfLines={2}>
-        {vehicleLabel} · {countLabel} · one rate for the pool
-      </Text>
-      <Text style={styles.stateDetail}>
-        {POOL_STATE_COPY[summary.state].detail}
-      </Text>
+      <View style={styles.headerActions}>
+        <PoolStatusPill state={summary.state} label={summary.stateLabel} />
+        <Pressable
+          onPress={handleBack}
+          style={({ pressed }) => [styles.closeBtn, pressed && styles.pressed]}
+          accessibilityRole="button"
+          accessibilityLabel="Close pooled opportunity"
+          hitSlop={Layout.touchTargetHitSlop}
+        >
+          <X size={16} color={Theme.textPrimaryDark} strokeWidth={2.4} />
+        </Pressable>
+      </View>
     </View>
   );
 
@@ -356,11 +360,13 @@ export function PooledOpportunityScreen() {
       <Text style={styles.cardEyebrow}>
         {countLabel.toUpperCase()} IN THIS POOL
       </Text>
-      <MarketplaceRouteGrid
-        pickup={key.pickup}
-        drop={key.drop}
-        dropLabel="Destination"
-      />
+      <View style={styles.routePanel}>
+        <MarketplaceRouteGrid
+          pickup={key.pickup}
+          drop={key.drop}
+          dropLabel="Destination"
+        />
+      </View>
       <View style={styles.facts}>
         <Fact label="Vehicle" value={vehicleLabel || "—"} />
         <Fact label="Loads in pool" value={String(poolCount)} />
@@ -441,37 +447,64 @@ export function PooledOpportunityScreen() {
   ) : null;
   const showCommercial = keyReady && !poolQ.isError;
 
+  const dialogMaxHeight = Math.max(
+    420,
+    height - contentTopInset - layout.bottom - 32,
+  );
+
   return (
-    <View style={[styles.root, { paddingTop: contentTopInset }]}>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[
-          styles.content,
-          layout.isDesktopWeb && styles.contentDesktop,
-          { paddingBottom: layout.bottom + 32 },
+    <View
+      style={[
+        styles.overlay,
+        {
+          paddingTop: contentTopInset + 16,
+          paddingBottom: layout.bottom + 16,
+          paddingLeft: 16 + layout.left,
+          paddingRight: 16 + layout.right,
+        },
+      ]}
+    >
+      <Pressable
+        style={styles.backdrop}
+        onPress={handleBack}
+        accessibilityRole="button"
+        accessibilityLabel="Close pooled opportunity"
+      />
+      <View
+        style={[
+          styles.dialog,
+          { maxHeight: Math.min(dialogMaxHeight, 840) },
+          twoColumn ? styles.dialogWide : styles.dialogNarrow,
         ]}
+        accessibilityViewIsModal
       >
         {header}
-        {twoColumn ? (
-          <View style={styles.columns}>
-            <View style={styles.mainCol}>
-              {summaryCard}
-              {loadsBody}
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
+          {twoColumn ? (
+            <View style={styles.columns}>
+              <View style={styles.mainCol}>
+                {summaryCard}
+                {loadsBody}
+              </View>
+              <View style={styles.sideCol}>
+                {showCommercial ? bidPanel : null}
+                {handoff}
+              </View>
             </View>
-            <View style={styles.sideCol}>
+          ) : (
+            <View style={styles.stack}>
+              {summaryCard}
               {showCommercial ? bidPanel : null}
               {handoff}
+              {loadsBody}
             </View>
-          </View>
-        ) : (
-          <View style={styles.stack}>
-            {summaryCard}
-            {showCommercial ? bidPanel : null}
-            {handoff}
-            {loadsBody}
-          </View>
-        )}
-      </ScrollView>
+          )}
+        </ScrollView>
+      </View>
 
       <MarketLoadBidSheet
         visible={bidTargets != null}
@@ -504,83 +537,155 @@ export function PooledOpportunityScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: Theme.analyticsCanvas },
-  scroll: { flex: 1, width: "100%" },
-  content: { paddingHorizontal: 16, paddingTop: 12, gap: 16 },
-  contentDesktop: { paddingHorizontal: 32, paddingTop: 20 },
+  overlay: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.overlayBackdrop,
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  dialog: {
+    width: "100%",
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
+    overflow: "hidden",
+    zIndex: 1,
+  },
+  dialogWide: { maxWidth: 1080 },
+  dialogNarrow: { maxWidth: 560 },
+  scroll: { flexGrow: 0, flexShrink: 1, width: "100%" },
+  content: {
+    paddingHorizontal: 20,
+    paddingTop: 4,
+    paddingBottom: 20,
+    gap: 16,
+  },
   centered: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     padding: 24,
   },
-  header: { gap: 4 },
-  headerTop: {
+  header: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.borderLight,
+  },
+  headerActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    marginBottom: 6,
+    gap: 8,
+    flexShrink: 0,
   },
-  backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  closeBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: Theme.borderInput,
+    borderColor: Theme.actionBtnGhostBorder,
     backgroundColor: Theme.cardWhite,
     alignItems: "center",
     justifyContent: "center",
   },
+  headerCopy: { flex: 1, minWidth: 0, gap: 4 },
   headerEyebrow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    flex: 1,
-    minWidth: 0,
+    gap: 6,
   },
   eyebrow: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1.1,
+    fontSize: 11,
+    fontWeight: "500",
+    letterSpacing: 0,
     color: Theme.primary,
+    ...WEB_COPY,
   },
   title: {
-    fontSize: 24,
-    fontWeight: "800",
+    fontSize: 18,
+    fontWeight: "600",
     color: Theme.textPrimaryDark,
-    letterSpacing: -0.5,
-    lineHeight: 30,
+    letterSpacing: 0,
+    lineHeight: 24,
+    ...WEB_COPY,
   },
-  subtitle: { fontSize: 13, fontWeight: "600", color: Theme.textSecondary },
-  stateDetail: { fontSize: 12, color: Theme.textMuted },
-  columns: { flexDirection: "row", alignItems: "flex-start", gap: 20 },
-  mainCol: { flex: 1, minWidth: 0, gap: 16 },
-  sideCol: { width: 360, flexShrink: 0, gap: 16 },
-  stack: { gap: 16 },
+  subtitle: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: Theme.textSecondary,
+    lineHeight: 17,
+    letterSpacing: 0,
+    ...WEB_COPY,
+  },
+  stateDetail: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: Theme.textMuted,
+    letterSpacing: 0,
+    ...WEB_COPY,
+  },
+  columns: { flexDirection: "row", alignItems: "flex-start", gap: 16 },
+  mainCol: { flex: 1, minWidth: 0, gap: 14 },
+  sideCol: { width: 340, flexShrink: 0, gap: 14 },
+  stack: { gap: 14 },
   card: {
     borderRadius: 16,
     borderWidth: 1,
     borderColor: Theme.surfaceBorder,
     backgroundColor: Theme.cardWhite,
-    padding: 16,
-    gap: 14,
+    padding: 20,
+    gap: 16,
   },
   cardEyebrow: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1.1,
+    fontSize: 11,
+    fontWeight: "500",
+    letterSpacing: 0,
     color: Theme.textMuted,
+    ...WEB_COPY,
   },
-  facts: { flexDirection: "row", flexWrap: "wrap", rowGap: 12, columnGap: 16 },
-  fact: { minWidth: 120, flexGrow: 1, flexBasis: "40%", gap: 2 },
+  routePanel: {
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: Theme.analyticsCanvas,
+    borderWidth: 1,
+    borderColor: Theme.surfaceBorder,
+  },
+  facts: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  fact: {
+    minWidth: 140,
+    flexGrow: 1,
+    flexBasis: "30%",
+    gap: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: Theme.analyticsCanvas,
+    borderWidth: 1,
+    borderColor: Theme.surfaceBorder,
+  },
   factLabel: {
-    fontSize: 9,
-    fontWeight: "600",
-    letterSpacing: 0.45,
+    fontSize: 10,
+    fontWeight: "500",
+    letterSpacing: 0,
     textTransform: "uppercase",
     color: Theme.textMuted,
+    ...WEB_COPY,
   },
-  factValue: { fontSize: 13, fontWeight: "700", color: Theme.textPrimaryDark },
+  factValue: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: Theme.textPrimaryDark,
+    lineHeight: 18,
+    ...WEB_COPY,
+  },
   stateBox: { alignItems: "center", gap: 12, paddingVertical: 24 },
   message: {
     fontSize: 15,

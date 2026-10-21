@@ -213,13 +213,17 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.border,
   },
   routeLabel: {
-    fontSize: 9,
-    fontWeight: "600",
+    fontSize: 10,
+    fontWeight: "500",
     color: Theme.textMuted,
-    letterSpacing: 0.5,
+    letterSpacing: 0.2,
     textTransform: "uppercase",
-    marginBottom: 3,
-    lineHeight: 11,
+    marginBottom: 4,
+    lineHeight: 13,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   routeLabelEnd: {
     textAlign: "right",
@@ -227,10 +231,14 @@ const styles = StyleSheet.create({
   },
   routeCity: {
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "600",
     color: Theme.textPrimaryDark,
     lineHeight: 16,
-    letterSpacing: -0.2,
+    letterSpacing: 0,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   routeState: {
     marginTop: 1,

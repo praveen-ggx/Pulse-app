@@ -112,10 +112,6 @@ export function NetworkLoadPoolList({
 
   return (
     <View style={styles.wrap}>
-      <Text style={styles.summary}>
-        {shownPools.length} pool{shownPools.length === 1 ? "" : "s"} · one quote
-        per pool
-      </Text>
       {shownPools.map((pool) => (
         <NetworkLoadPoolCard
           key={pool.id}
@@ -142,11 +138,6 @@ export function NetworkLoadPoolList({
 
 const styles = StyleSheet.create({
   wrap: { gap: 12 },
-  summary: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: Theme.textSecondary,
-  },
   back: {
     flexDirection: "row",
     alignItems: "center",

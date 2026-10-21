@@ -47,6 +47,7 @@ export function TripsHubIndentStageCard({
   clientAvatarFallbackSeed,
   clientOrganizationImageUrl,
   clientOrganizationAvatarSeed,
+  clientIntegrated,
 }: {
   indent: IndentRow;
   bidCount: number;
@@ -65,6 +66,7 @@ export function TripsHubIndentStageCard({
   clientAvatarFallbackSeed?: string;
   clientOrganizationImageUrl?: string | null;
   clientOrganizationAvatarSeed?: string | null;
+  clientIntegrated?: boolean;
 }) {
   const stageLabel = indentHubLifecycleStatus(indent.status, bidCount);
   const cancelReason = indentCancelReasonLabel(indent.cancel_reason);
@@ -96,6 +98,7 @@ export function TripsHubIndentStageCard({
       clientAvatarFallbackSeed={clientAvatarFallbackSeed}
       clientOrganizationImageUrl={clientOrganizationImageUrl}
       clientOrganizationAvatarSeed={clientOrganizationAvatarSeed}
+      clientIntegrated={clientIntegrated}
       specLine={indentHubLoadSpecLine(indent)}
       dense={hubGrid || layoutCompact}
       fillGrid={hubGrid}

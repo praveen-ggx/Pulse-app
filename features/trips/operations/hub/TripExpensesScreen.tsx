@@ -1,6 +1,6 @@
 import Feather from "@expo/vector-icons/Feather";
 import { useFocusEffect } from "@react-navigation/native";
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
@@ -491,6 +491,8 @@ export function TripExpensesScreen({
   onBack,
   embedded = false,
   density = "compact",
+  layout = "stack",
+  leadingSlot,
   onAddFuel,
   onAddToll,
   onAddOtherExpense,
@@ -504,6 +506,10 @@ export function TripExpensesScreen({
   embedded?: boolean;
   /** Desktop trip detail uses `comfortable` so type/actions stay readable. */
   density?: "compact" | "comfortable";
+  /** `split` = expenses list left, summary + reimbursements right. */
+  layout?: "stack" | "split";
+  /** Odometer (or similar) rendered in the summary pane on split layouts. */
+  leadingSlot?: ReactNode;
   onAddFuel?: () => void;
   onAddToll?: () => void;
   onAddOtherExpense?: () => void;
@@ -518,6 +524,7 @@ export function TripExpensesScreen({
   const { profile } = useAuth();
   const queryClient = useQueryClient();
   const comfortable = density === "comfortable";
+  const split = layout === "split";
   const isDriverViewer = profile?.role === "driver";
   const [listFilter, setListFilter] = useState<ListFilter>(isDriverViewer ? "action" : "all");
   const driverDefaultTabSetRef = useRef(false);
@@ -853,6 +860,11 @@ export function TripExpensesScreen({
     return events;
   }, [actionNeededEvents, events, listFilter]);
 
+  const reimbursementEvents = useMemo(
+    () => events.filter((event) => event.reimbursable),
+    [events],
+  );
+
   const iconSm = comfortable ? 14 : embedded ? 13 : 12;
   const iconMd = comfortable ? 16 : embedded ? 14 : 14;
   const iconLg = comfortable ? 18 : embedded ? 16 : 16;
@@ -871,6 +883,474 @@ export function TripExpensesScreen({
 
   const onAddExpense =
     onAddOtherExpense ?? onAddFuel ?? onAddToll ?? undefined;
+
+  const previewSheet = (
+    <ExpensePreviewSheet
+      visible={previewEvent != null}
+      costEventId={previewEvent?.id ?? null}
+      event={previewEvent}
+      isDriverViewer={isDriverViewer}
+      onClose={() => setPreviewEvent(null)}
+      onEdit={onEditExpense}
+      onRemind={handleRemindRequest}
+      onCancel={handleCancelRequest}
+      statusLabel={
+        previewEvent
+          ? isDriverViewer
+            ? driverEventStatusLabel(previewEvent)
+            : eventStatusLabel(previewEvent)
+          : undefined
+      }
+    />
+  );
+
+  if (split) {
+    return (
+      <View
+        style={[
+          styles.container,
+          embedded ? styles.containerEmbedded : null,
+          styles.containerSplit,
+          { paddingTop: embedded ? 0 : insets.top + 10 },
+        ]}
+      >
+        {!embedded && onBack ? (
+          <Pressable style={styles.backBtn} onPress={onBack}>
+            <Text style={[styles.backBtnText, styles.backBtnTextComfortable]}>
+              ← Back
+            </Text>
+          </Pressable>
+        ) : null}
+
+        <View style={styles.splitGrid}>
+          <View style={styles.splitBand}>
+            <View style={styles.splitHalf}>
+            <View style={styles.splitComposerCard}>
+              {onAddExpense ? (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.addExpenseBtn,
+                    styles.addExpenseBtnSplit,
+                    pressed && styles.addExpenseBtnPressed,
+                  ]}
+                  onPress={onAddExpense}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add expense"
+                >
+                  <View style={[styles.addExpenseBtnIcon, styles.addExpenseBtnIconComfortable]}>
+                    <Feather name="plus" size={16} color={Theme.textOnPrimary} />
+                  </View>
+                  <View style={styles.addExpenseBtnCopy}>
+                    <Text style={[styles.addExpenseBtnTitle, styles.addExpenseBtnTitleComfortable]}>
+                      Add expense
+                    </Text>
+                    <Text
+                      style={[styles.addExpenseBtnSub, styles.addExpenseBtnSubComfortable]}
+                      numberOfLines={1}
+                    >
+                      Fuel, toll, parking & other trip costs
+                    </Text>
+                  </View>
+                  <Feather name="chevron-right" size={16} color={Theme.textMuted} />
+                </Pressable>
+              ) : null}
+
+              {quickActions.length > 0 ? (
+                <View style={styles.splitQuickRow}>
+                  {quickActions.map((action) => {
+                    const accent =
+                      QUICK_ACTION_STYLE[action.key] ?? QUICK_ACTION_STYLE.other;
+                    return (
+                      <Pressable
+                        key={action.key}
+                        style={({ pressed }) => [
+                          styles.quickTile,
+                          styles.splitQuickTile,
+                          pressed && styles.quickTilePressed,
+                        ]}
+                        onPress={() => action.onPress?.()}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Add ${action.label}`}
+                      >
+                        <View
+                          style={[
+                            styles.quickTileIcon,
+                            styles.quickTileIconComfortable,
+                            { backgroundColor: accent.bg, borderColor: accent.ring },
+                          ]}
+                        >
+                          <Feather name={action.icon} size={16} color={accent.fg} />
+                        </View>
+                        <Text style={[styles.quickTileLabel, styles.quickTileLabelComfortable]}>
+                          {action.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : null}
+
+              <View style={[styles.segmentTrack, styles.segmentTrackComfortable]}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.segmentBtn,
+                    styles.segmentBtnComfortable,
+                    listFilter === "all" ? styles.segmentBtnActive : null,
+                    pressed && styles.segmentBtnPressed,
+                  ]}
+                  onPress={() => setListFilter("all")}
+                >
+                  <Text
+                    style={[
+                      styles.segmentBtnText,
+                      styles.segmentBtnTextComfortable,
+                      listFilter === "all" ? styles.segmentBtnTextActive : null,
+                    ]}
+                  >
+                    All
+                  </Text>
+                  <View
+                    style={[
+                      styles.segmentCount,
+                      styles.segmentCountComfortable,
+                      listFilter === "all" ? styles.segmentCountActive : null,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.segmentCountText,
+                        styles.segmentCountTextComfortable,
+                        listFilter === "all" ? styles.segmentCountTextActive : null,
+                      ]}
+                    >
+                      {events.length}
+                    </Text>
+                  </View>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.segmentBtn,
+                    styles.segmentBtnComfortable,
+                    listFilter === "action" ? styles.segmentBtnActive : null,
+                    pressed && styles.segmentBtnPressed,
+                  ]}
+                  onPress={() => setListFilter("action")}
+                >
+                  <Text
+                    style={[
+                      styles.segmentBtnText,
+                      styles.segmentBtnTextComfortable,
+                      listFilter === "action" ? styles.segmentBtnTextActive : null,
+                    ]}
+                  >
+                    {isDriverViewer ? "Pending" : "Needs action"}
+                  </Text>
+                  <View
+                    style={[
+                      styles.segmentCount,
+                      styles.segmentCountComfortable,
+                      listFilter === "action" ? styles.segmentCountActive : null,
+                      actionNeededEvents.length > 0 && listFilter !== "action"
+                        ? styles.segmentCountHighlight
+                        : null,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.segmentCountText,
+                        styles.segmentCountTextComfortable,
+                        listFilter === "action" ? styles.segmentCountTextActive : null,
+                        actionNeededEvents.length > 0 && listFilter !== "action"
+                          ? styles.segmentCountTextHighlight
+                          : null,
+                      ]}
+                    >
+                      {actionNeededEvents.length}
+                    </Text>
+                  </View>
+                </Pressable>
+              </View>
+            </View>
+            </View>
+            <View style={styles.splitHalf}>
+              <View style={styles.splitOdometerSlot}>
+                {leadingSlot ?? (
+                  <View style={styles.splitOdometerFallback}>
+                    <Text style={styles.splitPaneKicker}>Odometer</Text>
+                    <Text style={styles.splitSummaryCaption}>
+                      Not used on this trip
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.splitBand}>
+            <View style={styles.splitHalf}>
+            <View style={styles.splitListCard}>
+              <View style={[styles.listSectionHead, styles.listSectionHeadComfortable]}>
+                <Text style={[styles.listSectionTitle, styles.listSectionTitleComfortable]}>
+                  Line items
+                </Text>
+                <View style={[styles.listSectionBadge, styles.listSectionBadgeComfortable]}>
+                  <Text
+                    style={[
+                      styles.listSectionBadgeText,
+                      styles.listSectionBadgeTextComfortable,
+                    ]}
+                  >
+                    {displayedEvents.length}
+                  </Text>
+                </View>
+              </View>
+
+              {summaryQuery.isError ? (
+                <Text style={[styles.empty, styles.emptyComfortable]}>
+                  {summaryQuery.error instanceof Error
+                    ? summaryQuery.error.message
+                    : "Could not load expenses."}
+                </Text>
+              ) : summaryQuery.isLoading ? (
+                <Text style={[styles.empty, styles.emptyComfortable]}>Loading expenses…</Text>
+              ) : displayedEvents.length === 0 ? (
+                <View style={[styles.emptyCard, styles.emptyCardSplit]}>
+                  <Feather
+                    name={listFilter === "action" ? "check-circle" : "inbox"}
+                    size={22}
+                    color={Theme.textMuted}
+                  />
+                  <Text style={[styles.emptyTitle, styles.emptyTitleComfortable]}>
+                    {listFilter === "action" ? "All caught up" : "No expenses yet"}
+                  </Text>
+                  <Text style={[styles.empty, styles.emptyComfortable]}>
+                    {listFilter === "action"
+                      ? isDriverViewer
+                        ? "No reimbursement requests waiting on fleet right now."
+                        : "Nothing waiting for approve, post, or reimburse."
+                      : "Add fuel, toll, or other costs for this trip."}
+                  </Text>
+                </View>
+              ) : (
+                displayedEvents.map((event) => (
+                  <ExpenseRow
+                    key={event.id}
+                    event={event}
+                    embedded={embedded}
+                    comfortable
+                    iconMd={iconMd}
+                    loadingAction={loadingAction}
+                    isDriverViewer={isDriverViewer}
+                    onApprove={canApproveExpenses ? handleApprove : undefined}
+                    onReject={handleReject}
+                    onMarkSettled={handleMarkSettled}
+                    onCancelRequest={handleCancelRequest}
+                    onRemindRequest={handleRemindRequest}
+                    onEdit={onEditExpense}
+                    onPreview={handlePreview}
+                  />
+                ))
+              )}
+            </View>
+            </View>
+
+            <View style={styles.splitHalf}>
+            <View style={styles.splitRightStack}>
+            <View style={styles.splitSummaryCard}>
+              {!isDriverViewer ? (
+                <>
+                  <Text style={styles.splitPaneKicker}>Ledger summary</Text>
+                  <Text style={styles.splitSummaryValue}>{inr(postedCostInr)}</Text>
+                  <Text style={styles.splitSummaryCaption}>Posted to ledger</Text>
+                  {vehicleLabel ? (
+                    <View style={styles.vehicleRow}>
+                      <Feather name="truck" size={iconSm} color={Theme.textMuted} />
+                      <Text style={[styles.vehicleRowText, styles.vehicleRowTextComfortable]} numberOfLines={1}>
+                        {vehicleLabel}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {hasSummaryAlerts ? (
+                    <View style={styles.splitAlertRow}>
+                      {pendingPostCount > 0 ? (
+                        <View style={[styles.alertPill, styles.alertPillComfortable]}>
+                          <Feather name="clock" size={iconSm} color={Theme.warning} />
+                          <Text style={[styles.alertPillText, styles.alertPillTextComfortable]}>
+                            {pendingPostCount} awaiting post
+                          </Text>
+                        </View>
+                      ) : null}
+                      {reimbursementDueInr > 0 ? (
+                        <View
+                          style={[
+                            styles.alertPill,
+                            styles.alertPillDue,
+                            styles.alertPillComfortable,
+                          ]}
+                        >
+                          <Feather name="credit-card" size={iconSm} color={Theme.primary} />
+                          <Text
+                            style={[
+                              styles.alertPillText,
+                              styles.alertPillDueText,
+                              styles.alertPillTextComfortable,
+                            ]}
+                          >
+                            {inr(reimbursementDueInr)} to reimburse
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <Text style={styles.splitPaneKicker}>Your expenses</Text>
+                  <Text style={styles.splitSummaryValue}>{inr(driverExpensesInr)}</Text>
+                  <Text style={[styles.driverSummaryHint, styles.driverSummaryHintComfortable]}>
+                    {actionNeededEvents.length > 0
+                      ? `${actionNeededEvents.length} request${actionNeededEvents.length === 1 ? "" : "s"} awaiting fleet approval`
+                      : reimbursementDueInr > 0
+                        ? `${inr(reimbursementDueInr)} pending payout from fleet`
+                        : "Submit expenses you paid out of pocket for fleet review"}
+                  </Text>
+                </>
+              )}
+            </View>
+
+            {!isDriverViewer ? (
+              <View style={styles.splitReimburseCard}>
+                <View style={[styles.listSectionHead, styles.listSectionHeadComfortable]}>
+                  <Text style={[styles.listSectionTitle, styles.listSectionTitleComfortable]}>
+                    Reimbursements
+                  </Text>
+                  <View style={[styles.listSectionBadge, styles.listSectionBadgeComfortable]}>
+                    <Text
+                      style={[
+                        styles.listSectionBadgeText,
+                        styles.listSectionBadgeTextComfortable,
+                      ]}
+                    >
+                      {reimbursementEvents.length}
+                    </Text>
+                  </View>
+                </View>
+
+                {showDriverPaymentCta ? (
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.driverPayBanner,
+                      styles.driverPayBannerSplit,
+                      pressed && styles.driverPayBannerPressed,
+                    ]}
+                    onPress={() => onRecordDriverPayment?.()}
+                  >
+                    <View
+                      style={[
+                        styles.driverPayIconWrap,
+                        styles.driverPayIconWrapComfortable,
+                      ]}
+                    >
+                      <Feather name="credit-card" size={iconMd} color={Theme.primary} />
+                    </View>
+                    <View style={styles.driverPayBannerText}>
+                      <Text
+                        style={[
+                          styles.driverPayBannerTitle,
+                          styles.driverPayBannerTitleComfortable,
+                        ]}
+                      >
+                        {reimbursementDueInr > 0
+                          ? `${inr(reimbursementDueInr)} due to driver`
+                          : "Record driver payment"}
+                      </Text>
+                      <Text
+                        style={[styles.driverPayBannerSub, styles.driverPayBannerSubComfortable]}
+                        numberOfLines={2}
+                      >
+                        Cash payout posts in Finance, separate from approve & post.
+                      </Text>
+                    </View>
+                    <Feather name="chevron-right" size={iconLg} color={Theme.textMuted} />
+                  </Pressable>
+                ) : null}
+
+                {reimbursementEvents.length === 0 ? (
+                  <Text style={[styles.payoutEmpty, styles.payoutEmptyComfortable]}>
+                    No reimbursable expenses on this trip.
+                  </Text>
+                ) : (
+                  reimbursementEvents.map((event) => (
+                    <Pressable
+                      key={`reimburse:${event.id}`}
+                      style={({ pressed }) => [
+                        styles.splitReimburseRow,
+                        pressed && styles.addExpenseBtnPressed,
+                      ]}
+                      onPress={() => handlePreview(event)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${toCategoryLabel(event)} reimbursement`}
+                    >
+                      <View
+                        style={[
+                          styles.splitReimburseDot,
+                          { backgroundColor: categoryVisual(event.category).rail },
+                        ]}
+                      />
+                      <View style={styles.splitReimburseCopy}>
+                        <Text style={styles.splitReimburseTitle} numberOfLines={1}>
+                          {toCategoryLabel(event)}
+                        </Text>
+                        <Text style={styles.splitReimburseHint} numberOfLines={1}>
+                          {eventStatusLabel(event)}
+                        </Text>
+                      </View>
+                      <Text style={styles.splitReimburseAmount}>{inr(event.amount)}</Text>
+                    </Pressable>
+                  ))
+                )}
+
+                <View style={styles.splitPayoutDivider} />
+                <Text style={[styles.payoutSectionTitle, styles.payoutSectionTitleComfortable]}>
+                  Driver cash payouts
+                </Text>
+                {driverCashPayouts.length === 0 ? (
+                  <Text style={[styles.payoutEmpty, styles.payoutEmptyComfortable]}>
+                    No driver payment recorded on this trip yet.
+                  </Text>
+                ) : (
+                  driverCashPayouts.map((payout) => (
+                    <View key={payout.id} style={[styles.payoutRow, styles.payoutRowComfortable]}>
+                      <View style={styles.payoutRowLeft}>
+                        <Feather name="user" size={iconMd} color={Theme.positive} />
+                        <View style={styles.payoutRowText}>
+                          <Text
+                            style={[styles.payoutRowTitle, styles.payoutRowTitleComfortable]}
+                            numberOfLines={1}
+                          >
+                            {payout.description?.trim() || "Driver payment"}
+                          </Text>
+                          <Text style={[styles.payoutRowDate, styles.payoutRowDateComfortable]}>
+                            {payout.dateLabel}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={[styles.payoutRowAmount, styles.payoutRowAmountComfortable]}>
+                        {inr(payout.amount)}
+                      </Text>
+                    </View>
+                  ))
+                )}
+              </View>
+            ) : null}
+            </View>
+            </View>
+          </View>
+        </View>
+        {previewSheet}
+      </View>
+    );
+  }
 
   return (
     <View
@@ -2697,5 +3177,178 @@ const styles = StyleSheet.create({
   },
   backBtnTextComfortable: {
     fontSize: 15,
+  },
+  containerSplit: {
+    width: "100%",
+    alignSelf: "stretch",
+  },
+  splitGrid: {
+    width: "100%",
+    alignSelf: "stretch",
+    gap: 16,
+  },
+  splitBand: {
+    flexDirection: "row",
+    flexWrap: "nowrap",
+    alignItems: "stretch",
+    width: "100%",
+    gap: 16,
+  },
+  splitHalf: {
+    flex: 1,
+    flexBasis: 0,
+    minWidth: 0,
+  },
+  splitComposerCard: {
+    flex: 1,
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    padding: 14,
+    gap: 10,
+  },
+  splitOdometerSlot: {
+    flex: 1,
+    minHeight: 0,
+    height: "100%",
+  },
+  splitOdometerFallback: {
+    flex: 1,
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    padding: 14,
+    gap: 6,
+    justifyContent: "center",
+  },
+  splitListCard: {
+    flex: 1,
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    padding: 14,
+    gap: 10,
+  },
+  splitRightStack: {
+    flex: 1,
+    gap: 12,
+  },
+  splitSummaryCard: {
+    backgroundColor: Theme.brandBlueSoft,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 6,
+  },
+  splitReimburseCard: {
+    flex: 1,
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    padding: 14,
+    gap: 10,
+  },
+  splitPaneKicker: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: Theme.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  splitSummaryValue: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: Theme.textPrimaryDark,
+    letterSpacing: -0.6,
+    fontVariant: ["tabular-nums"],
+  },
+  splitSummaryCaption: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: Theme.textSecondary,
+  },
+  splitAlertRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 6,
+  },
+  addExpenseBtnSplit: {
+    marginHorizontal: 0,
+    marginTop: 0,
+    marginBottom: 0,
+    minHeight: 56,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+  splitQuickRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 8,
+  },
+  splitQuickTile: {
+    flex: 1,
+    minHeight: 72,
+    paddingVertical: 10,
+    backgroundColor: Theme.surface,
+  },
+  emptyCardSplit: {
+    maxWidth: "100%",
+    alignSelf: "stretch",
+    paddingVertical: 20,
+  },
+  driverPayBannerSplit: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    padding: 12,
+    paddingLeft: 12,
+    backgroundColor: Theme.surface,
+  },
+  splitReimburseRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 44,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.borderLight,
+  },
+  splitReimburseDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  splitReimburseCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  splitReimburseTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+  },
+  splitReimburseHint: {
+    fontSize: 11,
+    fontWeight: "500",
+    color: Theme.textMuted,
+  },
+  splitReimburseAmount: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: Theme.textPrimaryDark,
+    fontVariant: ["tabular-nums"],
+  },
+  splitPayoutDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: Theme.borderLight,
+    marginTop: 4,
   },
 });

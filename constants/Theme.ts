@@ -212,6 +212,9 @@ export const Theme = {
   buttonMatteBlackText: "#ffffff",
   /** Navy ink fill (#0f172a) — always pair with buttonDarkText. */
   buttonDark: "#0f172a",
+  /** Compact ghost/primary action buttons (notifications + compliance). */
+  actionBtnInk: "#181C32",
+  actionBtnGhostBorder: "#DBDFE9",
   /** Text/icons on dark/black filled CTAs (hub grid, registry, matte black). Not pastel-blue pills. */
   buttonDarkText: "#ffffff",
   fabBackground: "#151515",

@@ -25,7 +25,6 @@ import {
   ewayLabelMatchesHubFilter,
   type EwayHubStatusFilter,
 } from "@/features/trips/services/ewayBillFields.util";
-import { isElrAfterLoadingStage } from "@/features/trips/services/elrSnapshot.util";
 import { type TripAdjustment } from "@/features/trips/services/tripAdjustments";
 import { tripNonSupplierOutflowTotal } from "@/features/trips/utils/tripManifestFreightCost";
 import { isLoadBasedTrip } from "@/features/trips/visibility/tripVisibility";
@@ -39,7 +38,10 @@ import {
     formatLedgerDate,
     formatLedgerDateTime,
 } from "@/lib/format";
-import { partyAvatarHasRenderableOutput } from "@/lib/partyAvatarDisplay";
+import {
+  partyAvatarHasRenderableOutput,
+  pickPartyOrganizationImageUrl,
+} from "@/lib/partyAvatarDisplay";
 import type { LinkedOrgDisplay } from "@/lib/useLinkedOrgProfileMap";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import {
@@ -370,17 +372,20 @@ const HUB_TABLE_AVATAR = 26;
 export function linkedOrgAvatarFields(
   linkedOrgId: string | null | undefined,
   linkedMap: Record<string, LinkedOrgDisplay> | undefined,
+  partyAvatarUrl?: string | null,
 ): {
   organizationImageUrl?: string | null;
   organizationAvatarSeed?: string | null;
 } {
   const id = (linkedOrgId ?? "").trim();
-  if (!id || !linkedMap) return {};
-  const o = linkedMap[id];
-  if (!o) return {};
+  const o = id && linkedMap ? linkedMap[id] : undefined;
   return {
-    organizationImageUrl: o.avatarUrl ?? null,
-    organizationAvatarSeed: o.avatarSeed ?? null,
+    organizationImageUrl: pickPartyOrganizationImageUrl({
+      organizationImageUrl: o?.avatarUrl,
+      logoUrl: o?.logoUrl,
+      avatarUrl: partyAvatarUrl,
+    }),
+    organizationAvatarSeed: o?.avatarSeed ?? null,
   };
 }
 
@@ -404,6 +409,8 @@ export type TripsHubTripCardProps = {
   clientOrganizationAvatarSeed?: string | null;
   supplierOrganizationImageUrl?: string | null;
   supplierOrganizationAvatarSeed?: string | null;
+  clientIntegrated?: boolean;
+  supplierIntegrated?: boolean;
   driverAvatarUrl?: string | null;
   driverAvatarSeed?: string | null;
   driverAvatarFallbackSeed?: string;
@@ -449,6 +456,12 @@ export type TripsHubTripCardProps = {
   hardPodReceived?: boolean;
   /** EW-Bill expiring / expired label for this trip. */
   ewayExpiryLabel?: string | null;
+  /** Vault LR number(s) shown on the ticket footer. */
+  lrLabel?: string | null;
+  /** Completed E-LR number — hidden until generated with required details. */
+  elrLabel?: string | null;
+  canEditLr?: boolean;
+  onPressLr?: (tripId: string) => void;
 };
 
 function tripsHubTripCardAreEqual(
@@ -466,6 +479,9 @@ function tripsHubTripCardAreEqual(
   if (prev.softPodReceived !== next.softPodReceived) return false;
   if (prev.hardPodReceived !== next.hardPodReceived) return false;
   if (prev.ewayExpiryLabel !== next.ewayExpiryLabel) return false;
+  if (prev.lrLabel !== next.lrLabel) return false;
+  if (prev.elrLabel !== next.elrLabel) return false;
+  if (prev.canEditLr !== next.canEditLr) return false;
   if (prev.trip.pod_received_at !== next.trip.pod_received_at) return false;
   if (prev.financeAdjustments !== next.financeAdjustments) return false;
   if (prev.ledgerReceivedTotal !== next.ledgerReceivedTotal) return false;
@@ -485,6 +501,24 @@ function tripsHubTripCardAreEqual(
     return false;
   }
   if (prev.currentOrganizationId !== next.currentOrganizationId) return false;
+  if (prev.clientAvatarUrl !== next.clientAvatarUrl) return false;
+  if (prev.clientAvatarSeed !== next.clientAvatarSeed) return false;
+  if (prev.clientOrganizationImageUrl !== next.clientOrganizationImageUrl) return false;
+  if (prev.clientOrganizationAvatarSeed !== next.clientOrganizationAvatarSeed) {
+    return false;
+  }
+  if (prev.supplierAvatarUrl !== next.supplierAvatarUrl) return false;
+  if (prev.supplierAvatarSeed !== next.supplierAvatarSeed) return false;
+  if (prev.supplierOrganizationImageUrl !== next.supplierOrganizationImageUrl) {
+    return false;
+  }
+  if (prev.supplierOrganizationAvatarSeed !== next.supplierOrganizationAvatarSeed) {
+    return false;
+  }
+  if (prev.driverAvatarUrl !== next.driverAvatarUrl) return false;
+  if (prev.driverAvatarSeed !== next.driverAvatarSeed) return false;
+  if (prev.clientIntegrated !== next.clientIntegrated) return false;
+  if (prev.supplierIntegrated !== next.supplierIntegrated) return false;
   return true;
 }
 
@@ -504,6 +538,8 @@ function TripsHubTripCardInner({
   clientOrganizationAvatarSeed,
   supplierOrganizationImageUrl,
   supplierOrganizationAvatarSeed,
+  clientIntegrated,
+  supplierIntegrated,
   driverAvatarUrl,
   driverAvatarSeed,
   driverAvatarFallbackSeed,
@@ -527,6 +563,10 @@ function TripsHubTripCardInner({
   softPodReceived = false,
   hardPodReceived,
   ewayExpiryLabel = null,
+  lrLabel = null,
+  elrLabel = null,
+  canEditLr = false,
+  onPressLr,
 }: TripsHubTripCardProps) {
   const [fleetHovered, setFleetHovered] = useState(false);
   const handlePress = useCallback(() => {
@@ -638,6 +678,8 @@ function TripsHubTripCardInner({
     supplierAvatarFallbackSeed: supplierFb,
     supplierOrganizationImageUrl,
     supplierOrganizationAvatarSeed,
+    clientIntegrated,
+    supplierIntegrated,
     driverAvatarUrl,
     driverAvatarSeed,
     driverAvatarFallbackSeed: driverFb,
@@ -653,9 +695,11 @@ function TripsHubTripCardInner({
     secondaryLabel: tripSecondaryLabel,
     softPodReceived,
     hardPodReceived: hardPodReceived ?? tripPodIsReceived(trip),
+    lrLabel,
+    elrLabel,
+    canEditLr,
+    onPressLr: onPressLr ? () => onPressLr(trip.id) : undefined,
   };
-
-  const showElr = isElrAfterLoadingStage(trip.status);
 
   if (hubGrid) {
     return (
@@ -666,7 +710,6 @@ function TripsHubTripCardInner({
         actions={
           <TripsHubTripCardToolbar
             ewayExpiryLabel={ewayExpiryLabel}
-            showElr={showElr}
             dense
           />
         }
@@ -682,7 +725,6 @@ function TripsHubTripCardInner({
           stackedCardShowsToolbar(viewportWidth) ? (
             <TripsHubTripCardToolbar
               ewayExpiryLabel={ewayExpiryLabel}
-              showElr={showElr}
             />
           ) : undefined
         }
@@ -822,6 +864,7 @@ function TripsHubTripCardInner({
                       avatarUrl={clientAvatarUrl}
                       avatarSeed={clientAvatarSeed}
                       entityType="client"
+                      isIntegrated={clientIntegrated}
                       size={34}
                     />
                     <Text
@@ -879,6 +922,7 @@ function TripsHubTripCardInner({
                       avatarUrl={supplierAvatarUrl}
                       avatarSeed={supplierAvatarSeed}
                       entityType="supplier"
+                      isIntegrated={supplierIntegrated}
                       size={34}
                     />
                   </View>
@@ -899,6 +943,7 @@ function TripsHubTripCardInner({
                   avatarUrl={clientAvatarUrl}
                   avatarSeed={clientAvatarSeed}
                   entityType="client"
+                  isIntegrated={clientIntegrated}
                   size={34}
                 />
                 <Text
@@ -2075,10 +2120,12 @@ export function TripsHubTableView({
             const clientOrgFields = linkedOrgAvatarFields(
               meta?.clientLinkedOrgId,
               linkedOrgByOrganizationId,
+              meta?.clientAvatarUrl,
             );
             const supplierOrgFields = linkedOrgAvatarFields(
               meta?.supplierLinkedOrgId,
               linkedOrgByOrganizationId,
+              meta?.supplierAvatarUrl,
             );
             const showSupplierParty =
               (supplierLine !== "—" && supplierLine.trim() !== "") ||
@@ -2460,6 +2507,7 @@ export function TripsHubTableView({
                                   }
                                   avatarUrl={meta?.clientAvatarUrl}
                                   avatarSeed={meta?.clientAvatarSeed}
+                                  isIntegrated={meta?.clientIntegrated}
                                   size={HUB_TABLE_AVATAR}
                                 />
                               </View>
@@ -2592,6 +2640,7 @@ export function TripsHubTableView({
                                   }
                                   avatarUrl={meta?.supplierAvatarUrl}
                                   avatarSeed={meta?.supplierAvatarSeed}
+                                  isIntegrated={meta?.supplierIntegrated}
                                   size={HUB_TABLE_AVATAR}
                                 />
                               </View>

@@ -11,6 +11,8 @@ import {
   mostUrgentEwayExpiryLabel,
   parseEwayFieldEntries,
 } from "@/features/trips/services/ewayBillFields.util";
+import { isCompleteElrSnapshot } from "@/features/trips/services/elrCompletion.util";
+import { readStoredElrSnapshot } from "@/features/trips/services/elrSnapshot.util";
 
 /** After trip_documents SELECT uses can_read_trip_document, larger IN-lists
  *  are cheap. Keep a cap so PostgREST URLs stay bounded. */
@@ -940,6 +942,69 @@ export async function loadLrPodIndexByTripIds(
     ) ??
     (await fetchLrPodRowsViaRest(unique, ["lr", "pod", "soft_pod", "pod_soft"]));
   return indexLrPodDocuments(rows);
+}
+
+export type HubTripDocumentLabels = {
+  lrLabels: Record<string, string>;
+  /** Complete generated E-LR numbers only — never a default ELR-{trip}. */
+  elrLabels: Record<string, string>;
+};
+
+function collectHubDocumentLabels(
+  rows: TripDocumentLrPodRow[],
+): HubTripDocumentLabels {
+  const lrLabels: Record<string, string> = {};
+  const elrLabels: Record<string, string> = {};
+  for (const row of rows) {
+    const id = normalizeTripPodId(row.trip_id);
+    if (!id) continue;
+    const snapshot = readStoredElrSnapshot(row.document_number);
+    if (snapshot) {
+      if (isCompleteElrSnapshot(snapshot)) {
+        const number = (snapshot.lrNumber ?? "").trim();
+        if (number && !elrLabels[id]) elrLabels[id] = number;
+      }
+      continue;
+    }
+    const raw = (parseLrFieldValues(row.document_number).lrNumber ?? "").trim();
+    if (!raw) continue;
+    const existing = lrLabels[id];
+    if (!existing) {
+      lrLabels[id] = raw;
+      continue;
+    }
+    if (!existing.split(" · ").includes(raw)) {
+      lrLabels[id] = `${existing} · ${raw}`;
+    }
+  }
+  return { lrLabels, elrLabels };
+}
+
+async function fetchHubLrDocumentRows(
+  tripIds: string[],
+): Promise<TripDocumentLrPodRow[]> {
+  const unique = Array.from(new Set(tripIds.filter(Boolean)));
+  if (unique.length === 0) return [];
+  const viaRpc = await fetchLrPodRowsViaRpc(unique);
+  return (
+    viaRpc?.filter(
+      (row) => String(row.document_type ?? "").trim().toLowerCase() === "lr",
+    ) ?? (await fetchLrPodRowsViaRest(unique, ["lr"]))
+  );
+}
+
+/** Vault LR + completed E-LR labels for hub cards. Keys are lowercased trip ids. */
+export async function loadHubTripDocumentLabelsByTripIds(
+  tripIds: string[],
+): Promise<HubTripDocumentLabels> {
+  return collectHubDocumentLabels(await fetchHubLrDocumentRows(tripIds));
+}
+
+/** Vault LR labels for hub cards. Keys are lowercased trip ids. */
+export async function loadHubLrLabelsByTripIds(
+  tripIds: string[],
+): Promise<Record<string, string>> {
+  return (await loadHubTripDocumentLabelsByTripIds(tripIds)).lrLabels;
 }
 
 export type HubPodReceiptFlags = {

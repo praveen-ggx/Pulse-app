@@ -1,6 +1,9 @@
 import { serializeEwayFieldEntries } from "../ewayBillFields.util";
+import { serializeElrDocumentNumber, type ElrSnapshot } from "../elrSnapshot.util";
 import {
   __resetTripDocumentLrPodRpcProbeForTests,
+  loadHubLrLabelsByTripIds,
+  loadHubTripDocumentLabelsByTripIds,
   loadHubPodReceiptFlags,
   loadLrPodIndexByTripIds,
 } from "../tripDocumentLrPod.service";
@@ -118,5 +121,85 @@ describe("loadLrPodIndexByTripIds", () => {
 
     expect(index.get(tripA)).toEqual({ lrNumbers: [], hasPodDocument: true });
     expect(index.has(tripC)).toBe(false);
+  });
+
+  it("maps vault LR document numbers onto hub card labels", async () => {
+    const tripA = "11111111-1111-4111-8111-111111111111";
+    mockRpc.mockResolvedValue({
+      data: [
+        { trip_id: tripA, document_type: "lr", document_number: "AI3583" },
+        { trip_id: tripA, document_type: "pod", document_number: null },
+      ],
+      error: null,
+    });
+
+    const labels = await loadHubLrLabelsByTripIds([tripA]);
+    expect(labels[tripA]).toBe("AI3583");
+  });
+
+  it("shows E-LR on the hub only after a completed receipt exists", async () => {
+    const tripA = "11111111-1111-4111-8111-111111111111";
+    const tripB = "22222222-2222-4222-8222-222222222222";
+    const party = {
+      name: "Acme",
+      address: "1 Road",
+      city: "Chennai",
+      state: "TN",
+      pin: "600001",
+      gstStatus: "unregistered" as const,
+    };
+    const complete: ElrSnapshot = {
+      tripId: tripA,
+      lrNumber: "ELR-COMPLETE-1",
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      consignor: party,
+      consignee: party,
+      transporter: party,
+      vehicle: { registrationNumber: "TN01AB1234", type: "LCV" },
+      route: { origin: "A", destination: "B" },
+      trip: { tripId: tripA, tripNumber: "AJI862AJITRIP0001", tripDate: "2026-01-01" },
+      cargo: {
+        description: "Coils",
+        quantity: 1,
+        unit: "Nos",
+        weight: 10,
+        weightUnit: "tons",
+      },
+      commercial: {
+        goodsValue: 1000,
+        sourceDocument: { type: "tax_invoice", number: "INV1", date: "2026-01-01" },
+      },
+    };
+    const incomplete: ElrSnapshot = {
+      tripId: tripB,
+      lrNumber: "ELR-AJI862AJITRIP0001",
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      consignor: { name: "Acme" },
+      transporter: { name: "Fleet" },
+      vehicle: { registrationNumber: "TN01AB1234" },
+      route: { origin: "A", destination: "B" },
+      trip: { tripId: tripB, tripNumber: "AJI862AJITRIP0001", tripDate: "2026-01-01" },
+    };
+    mockRpc.mockResolvedValue({
+      data: [
+        {
+          trip_id: tripA,
+          document_type: "lr",
+          document_number: serializeElrDocumentNumber(complete),
+        },
+        {
+          trip_id: tripB,
+          document_type: "lr",
+          document_number: serializeElrDocumentNumber(incomplete),
+        },
+      ],
+      error: null,
+    });
+
+    const labels = await loadHubTripDocumentLabelsByTripIds([tripA, tripB]);
+    expect(labels.elrLabels[tripA]).toBe("ELR-COMPLETE-1");
+    expect(labels.lrLabels[tripA]).toBeUndefined();
+    expect(labels.elrLabels[tripB]).toBeUndefined();
+    expect(labels.lrLabels[tripB]).toBeUndefined();
   });
 });

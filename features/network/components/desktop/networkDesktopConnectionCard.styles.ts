@@ -150,14 +150,15 @@ export const connectionCardStyles = StyleSheet.create({
   },
   onlineDot: {
     position: "absolute",
-    right: 0,
-    bottom: 0,
+    right: 2,
+    bottom: 2,
     width: 12,
     height: 12,
     borderRadius: 6,
     backgroundColor: "#50CD89",
     borderWidth: 2,
     borderColor: Theme.cardWhite,
+    zIndex: 2,
   },
   nameRow: {
     flexDirection: "row",
@@ -571,7 +572,7 @@ export const growConnectionCardStyles = StyleSheet.create({
   bizAvatarCol: {
     width: 52,
     flexShrink: 0,
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 0,
   },
   bizAvatar: {
@@ -579,6 +580,8 @@ export const growConnectionCardStyles = StyleSheet.create({
     height: 52,
     position: "relative",
     flexShrink: 0,
+    alignSelf: "flex-start",
+    overflow: "visible",
   },
   avatarRatingBadge: {
     flexDirection: "row",

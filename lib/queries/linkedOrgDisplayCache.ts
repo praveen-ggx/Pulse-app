@@ -14,6 +14,24 @@ import {
 import { queryKeys } from "@/lib/queryKeys";
 import type { QueryClient } from "@tanstack/react-query";
 
+function pickOrgAvatarStorageRef(
+  logoUrl?: string | null,
+  avatarUrl?: string | null,
+): string | null {
+  const logo = (logoUrl ?? "").trim();
+  if (logo) return logo;
+  const avatar = (avatarUrl ?? "").trim();
+  if (!avatar) return null;
+  if (
+    avatar.includes("org-logos/") ||
+    avatar.startsWith("org-assets/") ||
+    avatar.toLowerCase().startsWith("s3://")
+  ) {
+    return avatar;
+  }
+  return avatar;
+}
+
 export type LinkedOrgDisplayProfile = {
   avatarUrl?: string;
   avatarSeed?: string;
@@ -25,6 +43,10 @@ export type LinkedOrgDisplayProfile = {
   averageRating?: number | null;
   ratingCount?: number;
   orgCreatedAt?: string;
+  phone?: string;
+  ownerSignedUpAt?: string;
+  vehicleCount?: number;
+  networkIndentCount?: number;
 };
 
 /** In-flight fetches keyed by `${viewerOrgId}::${sortedMissingIds}`. */
@@ -66,12 +88,16 @@ export function toLinkedOrgDisplayProfile(
   profile: OrgDisplayProfile,
 ): LinkedOrgDisplayProfile {
   const avatarUrl =
-    (profile.avatarUrl ?? profile.logoUrl ?? "").trim() || undefined;
+    pickOrgAvatarStorageRef(profile.logoUrl, profile.avatarUrl) ||
+    (profile.avatarUrl ?? profile.logoUrl ?? "").trim() ||
+    undefined;
   const avatarSeed =
     (profile.avatarSeed ?? profile.orgAvatarSeed ?? "").trim() || undefined;
   const logoUrl = (profile.logoUrl ?? "").trim() || undefined;
   const orgAvatarSeed = (profile.orgAvatarSeed ?? "").trim() || undefined;
   const orgCreatedAt = (profile.orgCreatedAt ?? "").trim() || undefined;
+  const phone = (profile.phone ?? "").trim() || undefined;
+  const ownerSignedUpAt = (profile.ownerSignedUpAt ?? "").trim() || undefined;
   return {
     avatarUrl,
     avatarSeed,
@@ -85,7 +111,50 @@ export function toLinkedOrgDisplayProfile(
       : {}),
     ...(profile.ratingCount !== undefined ? { ratingCount: profile.ratingCount } : {}),
     ...(orgCreatedAt ? { orgCreatedAt } : {}),
+    ...(phone ? { phone } : {}),
+    ...(ownerSignedUpAt ? { ownerSignedUpAt } : {}),
+    ...(profile.vehicleCount !== undefined
+      ? { vehicleCount: profile.vehicleCount }
+      : {}),
+    ...(profile.networkIndentCount !== undefined
+      ? { networkIndentCount: profile.networkIndentCount }
+      : {}),
   };
+}
+
+export function linkedDisplayToOrgDisplay(
+  profile: LinkedOrgDisplayProfile,
+): OrgDisplayProfile {
+  return {
+    organizationName: profile.organizationName ?? "",
+    contactPerson: "",
+    phone: profile.phone ?? "",
+    logoUrl: profile.logoUrl,
+    orgAvatarSeed: profile.orgAvatarSeed,
+    avatarUrl: profile.avatarUrl,
+    avatarSeed: profile.avatarSeed,
+    orgCreatedAt: profile.orgCreatedAt,
+    ownerSignedUpAt: profile.ownerSignedUpAt,
+    tripCount: profile.tripCount,
+    averageRating: profile.averageRating,
+    ratingCount: profile.ratingCount,
+    verificationStatus: profile.verificationStatus,
+    vehicleCount: profile.vehicleCount,
+    networkIndentCount: profile.networkIndentCount,
+  };
+}
+
+export function peekLinkedOrgDisplayProfile(
+  qc: QueryClient,
+  viewerOrgId: string | null | undefined,
+  targetOrgId: string | null | undefined,
+): LinkedOrgDisplayProfile | undefined {
+  const viewer = (viewerOrgId ?? "").trim();
+  const target = (targetOrgId ?? "").trim();
+  if (!viewer || !target) return undefined;
+  return qc.getQueryData<Record<string, LinkedOrgDisplayProfile>>(
+    canonicalKey(viewer),
+  )?.[target];
 }
 
 function pickWanted(

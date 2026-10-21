@@ -71,6 +71,9 @@ export const queryKeys = {
     /** Hub list: last ping time / offline for in-transit trips. */
     hubInTransitPings: (orgId: string, tripIdsKey: string) =>
       ["q", "trips", "hub", orgId, "in-transit-pings", tripIdsKey] as const,
+    /** Hub list: vault LR numbers, keyed by lowercased trip id. */
+    hubLrLabels: (orgId: string, tripIdsKey: string) =>
+      ["q", "trips", "hub", orgId, "lr-labels", tripIdsKey] as const,
   },
 
   transactions: {

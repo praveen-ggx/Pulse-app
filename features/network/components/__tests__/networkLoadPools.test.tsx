@@ -136,7 +136,7 @@ describe("NetworkLoadPoolList (phone Network Loads)", () => {
 
   it("lists canonical pools across shippers, with one quote per pool", () => {
     renderList();
-    expect(screen.getByText("2 pools · one quote per pool")).toBeTruthy();
+    expect(screen.queryByText(/one quote per pool/i)).toBeNull();
     expect(screen.getByLabelText("Quote for pool, 3 loads")).toBeTruthy();
     expect(screen.queryByLabelText("Card IND-a")).toBeNull();
     expect(screen.queryByLabelText(/^Bid now/)).toBeNull();
@@ -172,7 +172,7 @@ describe("NetworkLoadPoolList (phone Network Loads)", () => {
 
   it("a search that matches one indent still quotes the whole pool", () => {
     const onQuotePool = renderList([LOADS[0]!]);
-    expect(screen.getByText("1 pool · one quote per pool")).toBeTruthy();
+    expect(screen.getByLabelText("Quote for pool, 3 loads")).toBeTruthy();
     fireEvent.press(screen.getByLabelText("Quote for pool, 3 loads"));
     expect(onQuotePool.mock.calls[0][0].members).toHaveLength(3);
     expect(screen.queryByText("Incomplete lane")).toBeNull();
@@ -188,7 +188,6 @@ describe("NetworkLoadPoolList (phone Network Loads)", () => {
       const puneMumbai = pools.find((p) => p.members.length === 3)!;
       mockServerPoolIds = new Set([puneMumbai.id]);
       renderList();
-      expect(screen.getByText("1 pool · one quote per pool")).toBeTruthy();
       expect(screen.getByLabelText("Quote for pool, 3 loads")).toBeTruthy();
       expect(screen.queryByLabelText("Quote for pool, 1 load")).toBeNull();
     });

@@ -12,7 +12,6 @@ import {
   type TripRow,
 } from "@/features/trips/services/trips.service";
 import { tripIsDeliveredStatus } from "@/features/trips/services/tripDocumentLrPod.service";
-import { isElrAfterLoadingStage } from "@/features/trips/services/elrSnapshot.util";
 import {
   HUB_GRID_CARD_MIN_HEIGHT,
   HUB_GRID_DIVIDER_MARGIN_BOTTOM,
@@ -104,6 +103,49 @@ function HubCardRefMeta({
   );
 }
 
+function HubLrChip({
+  lrLabel,
+  canEditLr,
+  onPressLr,
+}: {
+  lrLabel?: string | null;
+  canEditLr?: boolean;
+  onPressLr?: () => void;
+}) {
+  const lrText = (lrLabel ?? "").trim();
+  if (!lrText && !canEditLr) return null;
+  return (
+    <Pressable
+      onPress={(event) => {
+        event.stopPropagation();
+        onPressLr?.();
+      }}
+      {...(Platform.OS === "web"
+        ? {
+            onClick: (event: { stopPropagation: () => void }) => {
+              event.stopPropagation();
+            },
+          }
+        : null)}
+      disabled={!canEditLr && !lrText}
+      style={({ pressed }) => [
+        styles.lrChip,
+        canEditLr && WEB_POINTER,
+        pressed && canEditLr && styles.lrSlotPressed,
+      ]}
+      accessibilityRole={canEditLr ? "button" : "text"}
+      accessibilityLabel={
+        lrText ? `LR ${lrText}${canEditLr ? ", update" : ""}` : "Add LR number"
+      }
+    >
+      <Text style={styles.lrChipKicker}>LR</Text>
+      <Text style={[styles.lrChipValue, !lrText && styles.lrValueEmpty]} numberOfLines={1}>
+        {lrText || "Add LR"}
+      </Text>
+    </Pressable>
+  );
+}
+
 /** Asset label under client only; supplier/driver use the chip row. */
 export function mobileTripClientSubline(isAssetTrip: boolean, typeLabel: string): string | null {
   if (!isAssetTrip) return null;
@@ -175,6 +217,7 @@ function PartyChip({
   initialsColorSeed,
   organizationImageUrl,
   organizationAvatarSeed,
+  isIntegrated,
   alignEnd,
   presencePing,
 }: {
@@ -185,6 +228,7 @@ function PartyChip({
   initialsColorSeed?: string;
   organizationImageUrl?: string | null;
   organizationAvatarSeed?: string | null;
+  isIntegrated?: boolean;
   alignEnd?: boolean;
   presencePing?: TripHubInTransitPingMeta | null;
 }) {
@@ -207,6 +251,7 @@ function PartyChip({
         avatarUrl={avatarUrl}
         avatarSeed={avatarSeed}
         entityType={entityType}
+        isIntegrated={isIntegrated}
         size={CHIP_AVATAR}
       />
       <View
@@ -363,6 +408,8 @@ export type TripsHubMobileTripCardProps = {
   supplierAvatarFallbackSeed?: string;
   supplierOrganizationImageUrl?: string | null;
   supplierOrganizationAvatarSeed?: string | null;
+  clientIntegrated?: boolean;
+  supplierIntegrated?: boolean;
   driverAvatarUrl?: string | null;
   driverAvatarSeed?: string | null;
   driverAvatarFallbackSeed?: string;
@@ -402,6 +449,12 @@ export type TripsHubMobileTripCardProps = {
   routeViaLabel?: string | null;
   /** Stop names under the arrow, shown only with `routeViaLabel`. */
   routeViaDetail?: string | null;
+  /** Vault LR number(s) for the bottom-right slot. */
+  lrLabel?: string | null;
+  /** Completed E-LR number — omitted until the receipt is generated. */
+  elrLabel?: string | null;
+  canEditLr?: boolean;
+  onPressLr?: () => void;
 };
 
 export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
@@ -419,6 +472,8 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
   supplierAvatarFallbackSeed,
   supplierOrganizationImageUrl,
   supplierOrganizationAvatarSeed,
+  clientIntegrated,
+  supplierIntegrated,
   driverAvatarUrl,
   driverAvatarSeed,
   driverAvatarFallbackSeed,
@@ -446,6 +501,10 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
   specLine = null,
   routeViaLabel = null,
   routeViaDetail = null,
+  lrLabel = null,
+  elrLabel = null,
+  canEditLr = false,
+  onPressLr,
 }: TripsHubMobileTripCardProps) {
   const tripNo = asLabel(
     displayNumber?.trim() || getTripDisplayNumber(trip, viewerOrgId),
@@ -470,7 +529,7 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
     displayDriverName,
     tr("unassigned"),
   );
-  const showElr = isElrAfterLoadingStage(trip.status);
+  const elrNumber = (elrLabel ?? "").trim() || null;
   const clientFb =
     (clientAvatarFallbackSeed ?? "").trim() ||
     (trip.client_id
@@ -515,6 +574,12 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
       scheduleLine={schedule.scheduleLine}
       secondaryLabel={secondaryLabel}
     />
+  );
+  const bottomRef = (
+    <View style={styles.refRow}>
+      {refMeta}
+      <HubLrChip lrLabel={lrLabel} canEditLr={canEditLr} onPressLr={onPressLr} />
+    </View>
   );
 
   const [hovered, setHovered] = useState(false);
@@ -567,6 +632,7 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
                 avatarUrl={clientAvatarUrl}
                 avatarSeed={clientAvatarSeed}
                 entityType="client"
+                isIntegrated={clientIntegrated}
                 size={HUB_CARD_HEAD_AVATAR}
               />
               <View
@@ -586,16 +652,19 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
               </View>
             </View>
             <View style={styles.headMetaCol}>
-              <Text style={styles.headMeta} numberOfLines={1}>
-                {stageUpper}
-              </Text>
-              {showElr ? (
-                <View style={styles.elrTag} accessibilityLabel="E-LR">
-                  <Text style={styles.elrTagText} numberOfLines={1}>
-                    E-LR
-                  </Text>
-                </View>
-              ) : null}
+              <View style={styles.headMetaRow}>
+                {elrNumber ? (
+                  <View style={styles.elrChip} accessibilityLabel={`E-LR ${elrNumber}`}>
+                    <Text style={styles.elrChipKicker}>E-LR</Text>
+                    <Text style={styles.elrChipValue} numberOfLines={1}>
+                      {elrNumber}
+                    </Text>
+                  </View>
+                ) : null}
+                <Text style={styles.headMeta} numberOfLines={1}>
+                  {stageUpper}
+                </Text>
+              </View>
               {originTagItems.length > 0 ? (
               <View style={styles.originTagsRow}>
                 {originTagItems.map((tag) => {
@@ -692,7 +761,7 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
           {fillGrid ? (
             <View style={styles.metaBlockGrid}>
               <View style={styles.metaBlockGridGrow} />
-              {showFooterBar ? null : refMeta}
+              {showFooterBar ? null : bottomRef}
               {hidePartyRow ? null : (
                 <View style={[styles.partyRow, styles.partyRowGrid]}>
                   <PartyChip
@@ -703,6 +772,11 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
                     initialsColorSeed={leftChipInitialsSeed}
                     organizationImageUrl={leftChipOrgImageUrl}
                     organizationAvatarSeed={leftChipOrgAvatarSeed}
+                    isIntegrated={
+                      leftChipEntityType === "supplier"
+                        ? supplierIntegrated
+                        : undefined
+                    }
                   />
                   <PartyChip
                     name={driverChipName}
@@ -718,7 +792,7 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
             </View>
           ) : (
             <>
-              {showFooterBar ? null : refMeta}
+              {showFooterBar ? null : bottomRef}
               {hidePartyRow ? null : (
                 <View style={styles.partyRow}>
                   <PartyChip
@@ -729,6 +803,11 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
                     initialsColorSeed={leftChipInitialsSeed}
                     organizationImageUrl={leftChipOrgImageUrl}
                     organizationAvatarSeed={leftChipOrgAvatarSeed}
+                    isIntegrated={
+                      leftChipEntityType === "supplier"
+                        ? supplierIntegrated
+                        : undefined
+                    }
                   />
                   <PartyChip
                     name={driverChipName}
@@ -763,6 +842,7 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
               {refMeta}
             </Pressable>
             <View style={styles.actionsSlotFooter}>{actions}</View>
+            <HubLrChip lrLabel={lrLabel} canEditLr={canEditLr} onPressLr={onPressLr} />
           </View>
         ) : null}
       </View>
@@ -872,9 +952,43 @@ const styles = StyleSheet.create({
     minWidth: 0,
     justifyContent: "center",
   },
+  refRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: 12,
+    width: "100%",
+    minWidth: 0,
+  },
   refBlock: {
+    flex: 1,
     minWidth: 0,
     gap: 2,
+  },
+  lrSlot: {
+    flexShrink: 0,
+    maxWidth: "46%",
+    alignItems: "flex-end",
+    gap: 2,
+  },
+  lrSlotPressed: { opacity: 0.75 },
+  lrEyebrow: {
+    fontSize: 9,
+    fontWeight: "500",
+    letterSpacing: 0,
+    color: REF.muted,
+    textAlign: "right",
+  },
+  lrValue: {
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0,
+    color: REF.ink,
+    textAlign: "right",
+  },
+  lrValueEmpty: {
+    fontWeight: "500",
+    color: Theme.primary,
   },
   actionsSlotFooter: {
     flexShrink: 0,
@@ -953,13 +1067,23 @@ const styles = StyleSheet.create({
     fontWeight: "400",
   },
   headMetaCol: {
-    flexShrink: 0,
-    maxWidth: "42%",
+    flexShrink: 1,
+    minWidth: 0,
+    maxWidth: "58%",
     alignItems: "flex-end",
     gap: 5,
     paddingTop: 1,
   },
+  headMetaRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "flex-end",
+    gap: 10,
+    maxWidth: "100%",
+    minWidth: 0,
+  },
   headMeta: {
+    flexShrink: 0,
     fontSize: 10,
     lineHeight: 13,
     fontWeight: "500",
@@ -968,20 +1092,57 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.25,
   },
-  elrTag: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.primary,
+  lrElrRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "flex-end",
+    gap: 10,
+    maxWidth: "100%",
     alignSelf: "flex-end",
   },
-  elrTagText: {
+  lrChip: {
+    alignItems: "flex-end",
+    flexShrink: 0,
+    minWidth: 0,
+    maxWidth: 120,
+    gap: 1,
+  },
+  lrChipKicker: {
     fontSize: 8,
-    lineHeight: 10,
     fontWeight: "600",
+    lineHeight: 10,
+    color: REF.muted,
+    letterSpacing: 0,
+  },
+  lrChipValue: {
+    fontSize: 11,
+    fontWeight: "600",
+    lineHeight: 14,
+    color: REF.ink,
+    letterSpacing: 0,
+    textAlign: "right",
+  },
+  elrChip: {
+    alignItems: "flex-end",
+    flexShrink: 1,
+    minWidth: 0,
+    maxWidth: 148,
+    gap: 1,
+  },
+  elrChipKicker: {
+    fontSize: 8,
+    fontWeight: "600",
+    lineHeight: 10,
     color: Theme.primary,
-    letterSpacing: 0.3,
+    letterSpacing: 0,
+  },
+  elrChipValue: {
+    fontSize: 11,
+    fontWeight: "600",
+    lineHeight: 14,
+    color: Theme.primary,
+    letterSpacing: 0,
+    textAlign: "right",
   },
   originTagsRow: {
     flexDirection: "row",

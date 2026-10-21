@@ -3,7 +3,7 @@
  * Aligns with pulse-unified-base detail panels (client, supplier, trip, driver, vehicle).
  */
 import type { ReactNode } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, RefreshControl } from 'react-native';
+import { Platform, View, Text, TouchableOpacity, ScrollView, StyleSheet, RefreshControl } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import Layout from '@/constants/Layout';
@@ -132,12 +132,16 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   title: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '600',
     color: Theme.textPrimaryDark,
     textAlign: 'center',
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0,
+    ...Platform.select({
+      web: { whiteSpace: 'pre-wrap' as const },
+      default: {},
+    }),
   },
   titleSubline: {
     marginTop: 2,

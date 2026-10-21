@@ -1484,6 +1484,7 @@ export function LoadCenterView({
           organizationImageUrl={avatar.organizationImageUrl}
           organizationAvatarSeed={avatar.organizationAvatarSeed}
           initialsColorSeed={avatar.initialsColorSeed}
+          isIntegrated={avatar.isIntegrated}
           tripAllocation={tripAllocationForLoad(load.id)}
           onPress={() =>
             isDone ? handleCardIndentPress(load) : openIndentAllocation(load)
@@ -1669,6 +1670,7 @@ export function LoadCenterView({
           organizationImageUrl={avatar.organizationImageUrl}
           organizationAvatarSeed={avatar.organizationAvatarSeed}
           initialsColorSeed={avatar.initialsColorSeed}
+          isIntegrated={avatar.isIntegrated}
           avatarPartyName={avatar.partyName}
           clientFaces={clientFaces.length > 1 ? clientFaces : null}
           tripAllocation={tripAllocationForLoad(load.id)}
@@ -1928,6 +1930,7 @@ export function LoadCenterView({
           organizationImageUrl={avatar.organizationImageUrl}
           organizationAvatarSeed={avatar.organizationAvatarSeed}
           initialsColorSeed={avatar.initialsColorSeed}
+          isIntegrated={avatar.isIntegrated}
           tripAllocation={tripAllocationForLoad(load.id)}
           onPress={openLoad}
           dense={layout.dense}
@@ -2081,6 +2084,7 @@ export function LoadCenterView({
           organizationImageUrl={avatar.organizationImageUrl}
           organizationAvatarSeed={avatar.organizationAvatarSeed}
           initialsColorSeed={avatar.initialsColorSeed}
+          isIntegrated={avatar.isIntegrated}
           tripAllocation={tripAllocationForLoad(load.id)}
           onPress={() => handleCardIndentPress(load)}
           dense
@@ -2418,6 +2422,8 @@ export function LoadCenterView({
                       mode={loadSubTab === "GET_LOAD" ? "get" : "give"}
                       onViewAll={openNetworkForParties}
                       enabled={enrichmentOpen}
+                      fillHeight
+                      style={styles.loadDesktopRecsPanel}
                     />
                   </View>
                 </View>
@@ -3179,13 +3185,13 @@ const styles = StyleSheet.create({
     minHeight: 0,
     flexGrow: 1,
     flexShrink: 1,
-    gap: 10,
+    flexBasis: 0,
+    gap: 8,
     overflow: "hidden",
     ...Platform.select({
       web: {
         display: "flex" as const,
         flexDirection: "column" as const,
-        height: "100%",
       },
     }),
   },
@@ -3204,9 +3210,9 @@ const styles = StyleSheet.create({
   },
   findVehiclesBtnText: {
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
     color: Theme.textOnDark,
-    letterSpacing: 0.2,
+    letterSpacing: 0.15,
   },
   loadsCombinedTabRow: {
     flexDirection: "row",
@@ -3385,9 +3391,25 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
   },
   loadDesktopRecs: {
-    flexShrink: 0,
-    maxHeight: 168,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minHeight: 0,
     overflow: "hidden",
+    ...Platform.select({
+      web: {
+        display: "flex" as const,
+        flexDirection: "column" as const,
+      },
+    }),
+  },
+  loadDesktopRecsPanel: {
+    flex: 1,
+    minHeight: 0,
+    height: "100%",
+    borderWidth: 1,
+    borderRadius: 12,
+    backgroundColor: Theme.cardWhite,
   },
   loadContentWrapClaimed: {
     marginTop: 0,

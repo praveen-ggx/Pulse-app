@@ -26,19 +26,11 @@ import {
   type SupplierKycDocType,
   SUPPLIER_KYC_DOC_LABELS,
 } from "@/features/suppliers/types/supplierManagement.types";
-import {
-  ProfileHubChatSplitLayout,
-  profileHubChatPartnerFromParty,
-} from "@/features/network/components/desktop/ProfileHubChatSplitLayout";
 import { profileHubLayoutStyles as mobile } from "@/features/party/components/profileHubLayout.styles";
 import {
   PartyProfileCompactChrome,
   publicEntityToChromeModel,
 } from "@/features/party/components/PartyProfileCompactChrome";
-import {
-  ProfileHubChatActionIcon,
-  ProfileHubHeaderIconButton,
-} from "@/features/party/components/ProfileHubAnimatedIcons";
 import { supplierToPublicEntity } from "@/features/public-profile/mappers";
 import { useProfileHubCompact } from "@/features/party/hooks/useProfileHubCompact";
 import { SupplierProfileHubHero } from "@/features/suppliers/components/desktop/SupplierProfileHubHero";
@@ -52,7 +44,7 @@ import {
   notifySupplierKycUser,
 } from "@/features/suppliers/utils/supplierKycUpload.util";
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Linking, Pressable, ScrollView, Text, View } from "react-native";
+import { Linking, Pressable, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { FileText, Plus } from "lucide-react-native";
 
@@ -263,7 +255,6 @@ export function SupplierProfileHub({
   const { can: canSurface } = useMemberAccess();
   const canEditSupplier = canSurface("sales.suppliers.edit");
   const [tab, setTab] = useState<SupplierProfileTab>(initialTab);
-  const [chatOpen, setChatOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
 
   useEffect(() => {
@@ -275,54 +266,6 @@ export function SupplierProfileHub({
     (supplier.name || supplier.company_name || supplier.contact_person || "Supplier").trim();
   const isIntegrated =
     supplier.supplier_type === "integrated" || Boolean(supplier.linked_organization_id);
-  const chatPartner = useMemo(
-    () =>
-      profileHubChatPartnerFromParty({
-        linkedOrgId: supplier.linked_organization_id,
-        name: displayName,
-        avatarUrl: supplier.avatar_url,
-        avatarSeed: supplier.avatar_seed,
-        role: "SUPPLIER",
-        isIntegrated,
-      }),
-    [
-      displayName,
-      isIntegrated,
-      supplier.avatar_seed,
-      supplier.avatar_url,
-      supplier.linked_organization_id,
-    ],
-  );
-
-  const openIntegratedChat = () => {
-    if (chatPartner) {
-      setChatOpen(true);
-      return;
-    }
-    const phoneDigits = String(supplier.phone ?? "").replace(/\D/g, "");
-    if (phoneDigits.length >= 8) {
-      Alert.alert(
-        "Direct contact",
-        "This supplier is not on Pulse chat yet. Call or text their registered number, or invite them to connect for in-app messaging.",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Text",
-            onPress: () => void Linking.openURL(`sms:${phoneDigits}`),
-          },
-          {
-            text: "Call",
-            onPress: () => void Linking.openURL(`tel:${phoneDigits}`),
-          },
-        ],
-      );
-      return;
-    }
-    Alert.alert(
-      "Chat unavailable",
-      "This supplier is not integrated on Pulse yet. Add a phone number or invite them to connect before using workspace chat.",
-    );
-  };
   const kycTotal = kyc_documents.length;
   const kycVerified = kyc_documents.filter((d) => d.status === "verified").length;
   const kycScore = kycTotal > 0 ? Math.round((kycVerified / kycTotal) * 100) : 0;
@@ -425,15 +368,6 @@ export function SupplierProfileHub({
     [supplier],
   );
 
-  const chatActionButton = (
-    <ProfileHubHeaderIconButton
-      onPress={() => (chatOpen ? setChatOpen(false) : openIntegratedChat())}
-      accessibilityLabel={chatOpen ? "Close chat" : "Open chat"}
-    >
-      <ProfileHubChatActionIcon size={36} active={chatOpen} />
-    </ProfileHubHeaderIconButton>
-  );
-
   const hubScroll = (
     <ScrollView
       style={styles.root}
@@ -448,7 +382,6 @@ export function SupplierProfileHub({
         <PartyProfileCompactChrome
           model={chromeModel}
           onBack={onBack}
-          chatAction={chatActionButton}
         />
       ) : (
         <SupplierProfileHubHero
@@ -484,16 +417,6 @@ export function SupplierProfileHub({
           })}
         </ScrollView>
 
-        {!compact ? (
-          <View style={styles.tabActions}>
-            <ProfileHubHeaderIconButton
-              onPress={() => (chatOpen ? setChatOpen(false) : openIntegratedChat())}
-              accessibilityLabel={chatOpen ? "Close chat" : "Open chat"}
-            >
-              <ProfileHubChatActionIcon size={36} active={chatOpen} />
-            </ProfileHubHeaderIconButton>
-          </View>
-        ) : null}
       </View>
 
       {compact ? panel : (
@@ -517,13 +440,7 @@ export function SupplierProfileHub({
 
   return (
     <>
-      <ProfileHubChatSplitLayout
-        chatOpen={chatOpen}
-        onCloseChat={() => setChatOpen(false)}
-        partner={chatPartner}
-      >
-        {hubScroll}
-      </ProfileHubChatSplitLayout>
+      {hubScroll}
       <EditSupplierModal
         visible={editOpen && canEditSupplier}
         supplier={supplier}

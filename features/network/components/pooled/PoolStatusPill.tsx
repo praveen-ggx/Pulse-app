@@ -3,7 +3,7 @@ import {
   POOL_STATE_COPY,
   type PoolCommercialState,
 } from "@/features/network/utils/pooledOpportunity.util";
-import { StyleSheet, Text, View } from "react-native";
+import { Platform, StyleSheet, Text, View } from "react-native";
 
 const TONE: Record<PoolCommercialState, { bg: string; fg: string }> = {
   open: { bg: Theme.brandBlueSoft, fg: Theme.primary },
@@ -36,14 +36,19 @@ export function PoolStatusPill({
 
 const styles = StyleSheet.create({
   pill: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
     flexShrink: 0,
+    marginTop: 2,
   },
   text: {
-    fontSize: 9,
-    fontWeight: "700",
-    letterSpacing: 0.3,
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.15,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
 });

@@ -26,16 +26,8 @@ import {
   PartyProfileCompactChrome,
   publicEntityToChromeModel,
 } from "@/features/party/components/PartyProfileCompactChrome";
-import {
-  ProfileHubChatActionIcon,
-  ProfileHubHeaderIconButton,
-} from "@/features/party/components/ProfileHubAnimatedIcons";
 import { clientToPublicEntity } from "@/features/public-profile/mappers";
 import { useProfileHubCompact } from "@/features/party/hooks/useProfileHubCompact";
-import {
-  ProfileHubChatSplitLayout,
-  profileHubChatPartnerFromParty,
-} from "@/features/network/components/desktop/ProfileHubChatSplitLayout";
 import { useLayoutInsets } from "@/lib/layoutInsets";
 import { EditClientModal } from "@/features/clients/components/EditClientModal";
 import { getLinkedOrgProfile, updateClient } from "@/features/clients/services/clients.service";
@@ -43,7 +35,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft } from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 const TABS: { id: ClientProfileTab; label: string }[] = [
   { id: "overview", label: "Overview" },
@@ -91,7 +83,6 @@ export function ClientProfileHub({
   const layoutInsets = useLayoutInsets();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<ClientProfileTab>(initialTab);
-  const [chatOpen, setChatOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const orgId = String((bundle.client as Record<string, unknown>)?.organization_id ?? client.organization_id ?? "");
   const clientId = client.id;
@@ -99,55 +90,6 @@ export function ClientProfileHub({
   const isIntegrated =
     client.is_integrated ?? Boolean(client.linked_organization_id);
   const status = (client as { client_status?: string | null }).client_status ?? "customer";
-  const chatPartner = useMemo(
-    () =>
-      profileHubChatPartnerFromParty({
-        linkedOrgId: client.linked_organization_id,
-        name: client.name?.trim() || "Client",
-        avatarUrl: client.avatar_url,
-        avatarSeed: client.avatar_seed,
-        role: "CLIENT",
-        isIntegrated,
-      }),
-    [
-      client.avatar_seed,
-      client.avatar_url,
-      client.linked_organization_id,
-      client.name,
-      isIntegrated,
-    ],
-  );
-
-  const openIntegratedChat = () => {
-    if (chatPartner) {
-      setChatOpen(true);
-      return;
-    }
-    const phoneDigits = String(client.phone ?? "").replace(/\D/g, "");
-    if (phoneDigits.length >= 8) {
-      Alert.alert(
-        "Direct contact",
-        "This client is not on Pulse chat yet. Call or text their registered number, or invite them to connect for in-app messaging.",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Text",
-            onPress: () => void Linking.openURL(`sms:${phoneDigits}`),
-          },
-          {
-            text: "Call",
-            onPress: () => void Linking.openURL(`tel:${phoneDigits}`),
-          },
-        ],
-      );
-      return;
-    }
-    Alert.alert(
-      "Chat unavailable",
-      "This client is not integrated on Pulse yet. Add a phone number or invite them to connect before using workspace chat.",
-    );
-  };
-
   useEffect(() => {
     if (initialTab) setTab(initialTab);
   }, [initialTab]);
@@ -225,16 +167,7 @@ export function ClientProfileHub({
     [client],
   );
 
-  const chatActionButton = (
-    <ProfileHubHeaderIconButton
-      onPress={() => (chatOpen ? setChatOpen(false) : openIntegratedChat())}
-      accessibilityLabel={chatOpen ? "Close chat" : "Open chat"}
-    >
-      <ProfileHubChatActionIcon size={36} active={chatOpen} />
-    </ProfileHubHeaderIconButton>
-  );
-
-  const isTabActive = (id: ClientProfileTab) =>
+  const isTabActive = (id: ClientProfileTab) => {
     id === tab || (id === "warehouses" && (tab === "contracts" || tab === "commercials"));
 
   const displayName = client.name?.trim() || "Client";
@@ -279,8 +212,6 @@ export function ClientProfileHub({
           <Text style={ac.headerStatDot}>·</Text>
           <Text style={ac.headerStat}>{bundle.lane_rates.length} LANES</Text>
         </View>
-
-        {chatActionButton}
       </View>
 
       <View style={ac.tabRow}>
@@ -327,7 +258,6 @@ export function ClientProfileHub({
       <PartyProfileCompactChrome
         model={chromeModel}
         onBack={onBack}
-        chatAction={chatActionButton}
       />
 
       <View style={[styles.tabBar, mobile.tabBarCompact]}>
@@ -362,13 +292,7 @@ export function ClientProfileHub({
 
   return (
     <>
-      <ProfileHubChatSplitLayout
-        chatOpen={chatOpen}
-        onCloseChat={() => setChatOpen(false)}
-        partner={chatPartner}
-      >
-        {compact ? compactScroll : desktopLayout}
-      </ProfileHubChatSplitLayout>
+      {compact ? compactScroll : desktopLayout}
       <EditClientModal
         visible={editOpen}
         client={client}

@@ -88,6 +88,9 @@ import {
   tripHasHubPodFlag,
   tripPodIsReceived,
 } from "@/features/trips/services/tripDocumentLrPod.service";
+import { getTripStatusTimes } from "@/features/trips/services/tripStatusTimes.service";
+import { buildManifestDeliveryPlan } from "@/features/trips/utils/manifestDeliveryPlan.util";
+import { useMemberCapabilities } from "@/lib/useMemberCapabilities";
 import { shouldFetchHubDigitalPodFlags } from "@/features/trips/components/trip-detail/completedTripInitialLoad.util";
 import {
   classifyTripMetric,
@@ -263,6 +266,9 @@ function historyTripDueState(
   };
 }
 
+/** Survives the hub remounting when returning from trip detail. */
+let lastOpenedHubTripId: string | null = null;
+
 export default function TripsScreen() {
   const { width, height } = useWindowDimensions();
   /** Desktop card grid — hub ticket cards (4 per row), aligned with Load Center. */
@@ -288,7 +294,18 @@ export default function TripsScreen() {
     stage?: string;
   }>();
   const indentDeepLink = tripsStageParam === "indent";
-  const { openTripDetail } = useOpenTripDetail();
+  const { openTripDetail: openTripDetailRaw } = useOpenTripDetail();
+  const [lastOpenedTripId, setLastOpenedTripId] = useState<string | null>(
+    lastOpenedHubTripId,
+  );
+  const openTripDetail = useCallback(
+    (...args: Parameters<typeof openTripDetailRaw>) => {
+      lastOpenedHubTripId = args[0];
+      setLastOpenedTripId(args[0]);
+      openTripDetailRaw(...args);
+    },
+    [openTripDetailRaw],
+  );
   const tripsHubLayoutCompact = width > 0 && width < 640;
   const handleOpenTripDetails = useCallback(
     (trip: TripRow) => {
@@ -831,6 +848,10 @@ export default function TripsScreen() {
     if (!map || typeof map !== "object") return {} as Record<string, string>;
     return map;
   }, [hubPodFlagsRaw]);
+  const lrNumbersByTripId = useMemo(
+    () => hubPodFlagsRaw?.lrNumbersByTripId ?? ({} as Record<string, string>),
+    [hubPodFlagsRaw],
+  );
   const tripIdsWithDocuments = useMemo(() => {
     const soft = hubPodFlagsRaw?.softTripIds;
     if (Array.isArray(soft)) {
@@ -1008,11 +1029,24 @@ export default function TripsScreen() {
         const tripRef = `${t.trip_number ?? ""} ${t.display_trip_id ?? ""}`
           .trim()
           .toLowerCase();
+        const lrNos = (
+          lrNumbersByTripId[t.id.trim().toLowerCase()] ?? ""
+        ).toLowerCase();
+        const qCompact = q.replace(/\s+/g, "");
+        const vehicleNo = (t.vehicle_display_number ?? "")
+          .toLowerCase()
+          .replace(/\s+/g, "");
+        const driver = (t.driver_display_name ?? "").toLowerCase();
+        const supplier = (t.supplier_name ?? "").toLowerCase();
         return (
           displayName.includes(q) ||
           pickup.includes(q) ||
           drop.includes(q) ||
-          tripRef.includes(q)
+          tripRef.includes(q) ||
+          lrNos.includes(q) ||
+          (qCompact.length > 0 && vehicleNo.includes(qCompact)) ||
+          driver.includes(q) ||
+          supplier.includes(q)
         );
       });
     }
@@ -1052,6 +1086,7 @@ export default function TripsScreen() {
     attributionFilter,
     tripKindPillMetaByTripId,
     searchQuery,
+    lrNumbersByTripId,
     shipperNameByTripId,
     showCompletedList,
     sortBy,
@@ -1533,6 +1568,107 @@ export default function TripsScreen() {
     tripHubPartyMetaByTripId,
     tripFinanceAdjForHub,
     hubSubcontractRateByTripId,
+  ]);
+
+  /** Trip Ops members without Finance export the ops sheet instead of the ledger. */
+  const memberDomains = useMemberCapabilities();
+  const useOpsTripExport = memberDomains.tripops && !memberDomains.finance;
+  const opsExportTripIds = useMemo(
+    () => (useOpsTripExport ? filtered.map((t) => t.id) : []),
+    [useOpsTripExport, filtered],
+  );
+  const { data: opsStatusTimes = {} } = useQuery({
+    queryKey: ["q", "trips", "ops-export-status-times", orgId ?? "", opsExportTripIds],
+    enabled: tripLedgerExportOpen && opsExportTripIds.length > 0,
+    queryFn: async () => {
+      const { error, times } = await getTripStatusTimes(opsExportTripIds);
+      if (error) throw error;
+      return times;
+    },
+  });
+  const driverPhoneById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const d of drivers) {
+      const phone = (d.phone ?? "").trim();
+      if (phone) map.set(d.id.trim().toLowerCase(), phone);
+    }
+    return map;
+  }, [drivers]);
+
+  const tripOpsExportReport = useMemo(() => {
+    const columns: Array<{ key: string; label: string }> = [
+      { key: "tripId", label: "TRIP ID" },
+      { key: "lrNo", label: "LR NO" },
+      { key: "client", label: "CLIENT" },
+      { key: "source", label: "SOURCE" },
+      { key: "destination", label: "DESTINATION" },
+      { key: "supplier", label: "SUPPLIER" },
+      { key: "vehicleNo", label: "VEHICLE NO" },
+      { key: "driver", label: "DRIVER" },
+      { key: "driverNo", label: "DRIVER NO" },
+      { key: "status", label: "STATUS" },
+      { key: "km", label: "Km" },
+      { key: "indent", label: "Indent" },
+      { key: "assigned", label: "ASSIGNED" },
+      { key: "pickup", label: "PICKUP" },
+      { key: "inTransit", label: "IN-TRANSIT" },
+      { key: "eta", label: "ETA" },
+      { key: "arrivedAtDrop", label: "ARRIVED AT DROP OFF" },
+      { key: "delivered", label: "DELIVERED" },
+    ];
+    const fmt = (iso: string | null | undefined): string => {
+      if (!iso) return "";
+      const d = new Date(iso);
+      if (!Number.isFinite(d.getTime())) return "";
+      return d.toLocaleString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    };
+    const rows = filtered.map((trip) => {
+      const key = trip.id.trim().toLowerCase();
+      const times = opsStatusTimes[key] ?? {};
+      const meta = tripHubPartyMetaByTripId.get(trip.id);
+      const km = Number(trip.distance ?? trip.actual_distance_traveled_km);
+      const eta = buildManifestDeliveryPlan({
+        tripDistance: trip.distance,
+        startedAt: trip.started_at,
+        pickupAt: trip.pickup_date,
+        createdAt: trip.created_at,
+      }).estimatedDeliveryAt;
+      return {
+        tripId: (trip.display_trip_id ?? trip.trip_number ?? trip.id).trim(),
+        lrNo: lrNumbersByTripId[key] ?? "",
+        client: tripCardClientName(trip),
+        source: (trip.pickup_area ?? "").trim(),
+        destination: (trip.drop_location ?? "").trim(),
+        supplier: (meta?.displaySupplierName ?? trip.supplier_name ?? "").trim(),
+        vehicleNo: (trip.vehicle_display_number ?? "").trim(),
+        driver: (meta?.displayDriverName ?? trip.driver_display_name ?? "").trim(),
+        driverNo: driverPhoneById.get((trip.driver_id ?? "").trim().toLowerCase()) ?? "",
+        status: getStageLabelForTrip(trip),
+        km: Number.isFinite(km) && km > 0 ? km : "",
+        indent: (trip.indent_reference_code ?? trip.source_indent_code ?? "").trim(),
+        assigned: fmt(times.assigned ?? trip.created_at),
+        pickup: fmt(times.in_progress ?? trip.started_at),
+        inTransit: fmt(times.in_transit),
+        eta: eta ? fmt(eta.toISOString()) : "",
+        arrivedAtDrop: fmt(times.at_drop),
+        delivered: fmt(trip.completed_at ?? times.completed),
+      };
+    });
+    return { columns, rows };
+  }, [
+    filtered,
+    opsStatusTimes,
+    tripHubPartyMetaByTripId,
+    lrNumbersByTripId,
+    tripCardClientName,
+    driverPhoneById,
+    getStageLabelForTrip,
   ]);
 
   const historyMetricCards = useMemo(() => {
@@ -2792,6 +2928,7 @@ export default function TripsScreen() {
                   softPodTripIds={tripIdsWithDocuments}
                   hardPodTripIds={hardPodTripIds}
                   ewayExpiryByTripId={ewayExpiryByTripId}
+                lrNumbersByTripId={lrNumbersByTripId}
                 />
                 {filtered.length === 0 &&
                 visibleUnallocatedIndents.length === 0 ? (
@@ -2855,6 +2992,7 @@ export default function TripsScreen() {
                 softPodTripIds={tripIdsWithDocuments}
                 hardPodTripIds={hardPodTripIds}
                 ewayExpiryByTripId={ewayExpiryByTripId}
+                lrNumbersByTripId={lrNumbersByTripId}
                 renderBody={(rows) =>
                   rows.length === 0 &&
                   filtered.length === 0 &&
@@ -2902,6 +3040,7 @@ export default function TripsScreen() {
                               ewayExpiryByTripId[t.id.trim().toLowerCase()] ??
                               null
                             }
+                            highlighted={lastOpenedTripId === t.id}
                             currentOrganizationId={
                               currentOrganization?.id ?? null
                             }
@@ -3010,6 +3149,7 @@ export default function TripsScreen() {
                             ewayExpiryByTripId[t.id.trim().toLowerCase()] ??
                             null
                           }
+                          highlighted={lastOpenedTripId === t.id}
                           currentOrganizationId={
                             currentOrganization?.id ?? null
                           }
@@ -3087,9 +3227,9 @@ export default function TripsScreen() {
         visible={tripLedgerExportOpen}
         onClose={() => setTripLedgerExportOpen(false)}
         transactions={[]}
-        title="Trips Ledger Export"
+        title={useOpsTripExport ? "Trips Export" : "Trips Ledger Export"}
         hideCashSummary
-        customReport={tripLedgerExportReport}
+        customReport={useOpsTripExport ? tripOpsExportReport : tripLedgerExportReport}
       />
     </View>
     </HubScreenShell>

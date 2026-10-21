@@ -431,6 +431,8 @@ export type TripsHubTripCardProps = {
   hardPodReceived?: boolean;
   /** EW-Bill expiring / expired label for this trip. */
   ewayExpiryLabel?: string | null;
+  /** Last trip the viewer opened. */
+  highlighted?: boolean;
 };
 
 function tripsHubTripCardAreEqual(
@@ -448,6 +450,7 @@ function tripsHubTripCardAreEqual(
   if (prev.softPodReceived !== next.softPodReceived) return false;
   if (prev.hardPodReceived !== next.hardPodReceived) return false;
   if (prev.ewayExpiryLabel !== next.ewayExpiryLabel) return false;
+  if (prev.highlighted !== next.highlighted) return false;
   if (prev.trip.pod_received_at !== next.trip.pod_received_at) return false;
   if (prev.financeAdjustments !== next.financeAdjustments) return false;
   if (prev.ledgerReceivedTotal !== next.ledgerReceivedTotal) return false;
@@ -509,6 +512,7 @@ function TripsHubTripCardInner({
   softPodReceived = false,
   hardPodReceived,
   ewayExpiryLabel = null,
+  highlighted = false,
 }: TripsHubTripCardProps) {
   const handlePress = useCallback(() => {
     if (onPress) onPress();
@@ -634,6 +638,7 @@ function TripsHubTripCardInner({
     secondaryLabel: tripSecondaryLabel,
     softPodReceived,
     hardPodReceived: hardPodReceived ?? tripPodIsReceived(trip),
+    highlighted,
   };
 
   const showElr = isElrAfterLoadingStage(trip.status);
@@ -673,7 +678,11 @@ function TripsHubTripCardInner({
 
   return (
     <Pressable
-      style={[styles.fleetCardOuter, rowWebStyle]}
+      style={[
+        styles.fleetCardOuter,
+        highlighted && { borderWidth: 2, borderColor: Theme.primary, borderRadius: 16 },
+        rowWebStyle,
+      ]}
       onPress={handlePress}
       accessibilityRole="button"
       accessibilityLabel={`${tripNo} ${displayClientName}${
@@ -1079,6 +1088,8 @@ export type TripsHubTableViewProps = {
   hardPodTripIds?: Set<string>;
   /** Most critical e-way label per trip id. Omit on lists that are not trips. */
   ewayExpiryByTripId?: Record<string, string>;
+  /** LR numbers per lowercased trip id — hub search. */
+  lrNumbersByTripId?: Record<string, string>;
 };
 
 function txnAmount(row: LedgerRow): number {
@@ -1222,6 +1233,7 @@ export function TripsHubTableView({
   softPodTripIds,
   hardPodTripIds,
   ewayExpiryByTripId,
+  lrNumbersByTripId,
 }: TripsHubTableViewProps) {
   const insets = useSafeAreaInsets();
   const { width: layoutWidth } = useWindowDimensions();
@@ -1291,8 +1303,15 @@ export function TripsHubTableView({
           .trim()
           .toLowerCase();
         const tripNo = getTripDisplayNumber(t, currentOrganizationId).toLowerCase();
+        const vehicleNo = (t.vehicle_display_number ?? "").toLowerCase().replace(/\s+/g, "");
+        const lrNos = (
+          lrNumbersByTripId?.[t.id.trim().toLowerCase()] ?? ""
+        ).toLowerCase();
+        const qCompact = q.replace(/\s+/g, "");
         return (
           tripNo.includes(q) ||
+          (qCompact.length > 0 && vehicleNo.includes(qCompact)) ||
+          lrNos.includes(q) ||
           clientName.includes(q) ||
           supplierName.includes(q) ||
           driverName.includes(q) ||
@@ -1337,6 +1356,7 @@ export function TripsHubTableView({
     financeAdjustmentsByTripId,
     ewayExpiryByTripId,
     ewayStatusFilter,
+    lrNumbersByTripId,
   ]);
 
   const rowsForTableBody = useMemo(() => {
@@ -1739,7 +1759,7 @@ export function TripsHubTableView({
       <TextInput
         value={tableQuery}
         onChangeText={setTableQuery}
-        placeholder="Search trip / client / supplier"
+        placeholder="Search trip / LR / vehicle / client / driver"
         placeholderTextColor="#94a3b8"
         autoCapitalize="none"
         style={styles.auditSearchInput}
@@ -1887,7 +1907,7 @@ export function TripsHubTableView({
                     <TextInput
                       value={tableQuery}
                       onChangeText={setTableQuery}
-                      placeholder="Search trip / client / supplier"
+                      placeholder="Search trip / LR / vehicle / client / driver"
                       placeholderTextColor={Theme.textMuted}
                       autoCapitalize="none"
                       style={styles.auditSearchInputStandard}

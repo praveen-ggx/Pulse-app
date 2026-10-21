@@ -7,6 +7,7 @@ import { vendorCostAfterIbond } from "@/features/debit-control/utils/podChargeTo
 import { supabase } from "@/lib/supabase";
 import { expandLR } from "@/lib/utils/lr";
 import { parseLrFieldValues } from "@/features/trips/services/lrDocumentOcr.util";
+import { lrNumberFromStoredDocumentNumber } from "@/features/trips/services/orgLrNumber.util";
 import {
   mostUrgentEwayExpiryLabel,
   parseEwayFieldEntries,
@@ -947,6 +948,8 @@ export type HubPodReceiptFlags = {
   hardTripIds: string[];
   /** Soonest e-way bill expiry label, keyed by lowercased trip id. */
   ewayExpiryByTripId: Record<string, string>;
+  /** LR numbers (comma-joined), keyed by lowercased trip id. */
+  lrNumbersByTripId: Record<string, string>;
 };
 
 /**
@@ -961,17 +964,23 @@ export async function loadHubPodReceiptFlags(
     new Set(tripIds.map((id) => normalizeTripPodId(id)).filter(Boolean)),
   );
   if (wanted.length === 0) {
-    return { softTripIds: [], hardTripIds: [], ewayExpiryByTripId: {} };
+    return {
+      softTripIds: [],
+      hardTripIds: [],
+      ewayExpiryByTripId: {},
+      lrNumbersByTripId: {},
+    };
   }
 
   const soft = new Set<string>();
   const ewayTillsByTrip = new Map<string, string[]>();
+  const lrsByTrip = new Map<string, Set<string>>();
   const viaRpc = await fetchLrPodRowsViaRpc(wanted);
   const rows =
     viaRpc ??
     (await fetchLrPodRowsViaRest(
       wanted,
-      ["pod", "soft_pod", "pod_soft", "eway_bill"],
+      ["lr", "pod", "soft_pod", "pod_soft", "eway_bill"],
       1,
     ));
 
@@ -980,6 +989,15 @@ export async function loadHubPodReceiptFlags(
     if (!id) continue;
     if (isSoftPodDocumentType(row.document_type)) {
       soft.add(id);
+      continue;
+    }
+    if (String(row.document_type ?? "").trim().toLowerCase() === "lr") {
+      const lr = lrNumberFromStoredDocumentNumber(row.document_number);
+      if (lr) {
+        const set = lrsByTrip.get(id) ?? new Set<string>();
+        set.add(lr);
+        lrsByTrip.set(id, set);
+      }
       continue;
     }
     if (String(row.document_type ?? "").trim().toLowerCase() !== "eway_bill") {
@@ -1000,7 +1018,15 @@ export async function loadHubPodReceiptFlags(
     if (label) ewayExpiryByTripId[id] = label;
   }
 
-  return { softTripIds: [...soft], hardTripIds: [], ewayExpiryByTripId };
+  const lrNumbersByTripId: Record<string, string> = {};
+  for (const [id, set] of lrsByTrip) lrNumbersByTripId[id] = [...set].join(", ");
+
+  return {
+    softTripIds: [...soft],
+    hardTripIds: [],
+    ewayExpiryByTripId,
+    lrNumbersByTripId,
+  };
 }
 
 /** Header tag for one trip. The detail bundle does not include document_number. */

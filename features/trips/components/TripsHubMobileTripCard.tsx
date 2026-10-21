@@ -384,6 +384,8 @@ export type TripsHubMobileTripCardProps = {
   routeViaLabel?: string | null;
   /** Stop names under the arrow, shown only with `routeViaLabel`. */
   routeViaDetail?: string | null;
+  /** Last trip the viewer opened — outlined so ops can find their place. */
+  highlighted?: boolean;
 };
 
 export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
@@ -428,6 +430,7 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
   specLine = null,
   routeViaLabel = null,
   routeViaDetail = null,
+  highlighted = false,
 }: TripsHubMobileTripCardProps) {
   const tripNo = asLabel(
     displayNumber?.trim() || getTripDisplayNumber(trip, viewerOrgId),
@@ -452,7 +455,8 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
     displayDriverName,
     tr("unassigned"),
   );
-  const showElr = isElrAfterLoadingStage(trip.status);
+  // The footer toolbar carries its own E-LR tag; avoid showing it twice.
+  const showElr = !actions && isElrAfterLoadingStage(trip.status);
   const clientFb =
     (clientAvatarFallbackSeed ?? "").trim() ||
     (trip.client_id
@@ -506,6 +510,7 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
           styles.card,
           fillGrid && styles.cardGrid,
           fillGrid && styles.cardGridElevated,
+          highlighted && styles.cardHighlighted,
         ]}
       >
         <Pressable
@@ -748,6 +753,10 @@ const styles = StyleSheet.create({
     flex: 1,
     marginBottom: 0,
     minWidth: 0,
+  },
+  cardHighlighted: {
+    borderColor: Theme.primary,
+    borderWidth: 2,
   },
   card: {
     backgroundColor: Theme.cardWhite,

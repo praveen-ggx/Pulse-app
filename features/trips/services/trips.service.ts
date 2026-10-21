@@ -289,6 +289,32 @@ export async function getTripsForOrg(
   });
 }
 
+/**
+ * Trips hub search across every trip the org can see — not only the newest 400 in
+ * getTripsForOrg. Matches trip ids, client, supplier, route, vehicle, driver name /
+ * phone, indent code and LR number server-side. Same row shape as getTripsForOrg.
+ * Returns no hits (not an error) until the RPC is deployed.
+ */
+export async function searchTripsForOrg(
+  orgId: string,
+  query: string,
+): Promise<{ error: Error | null; trips: TripRow[] }> {
+  const needle = query.trim();
+  if (!orgId || needle.length < 2) return { error: null, trips: [] };
+  const { data, error } = await supabase().rpc("search_trips_for_org", {
+    p_org_id: orgId,
+    p_query: needle,
+  });
+  if (error) {
+    if (shouldFallbackTripsTableScan(error)) return { error: null, trips: [] };
+    return { error: new Error(error.message), trips: [] };
+  }
+  const trips = ((data ?? []) as TripRow[]).map((row) =>
+    normalizeTripRowWithIndent(row as TripRow & { indents?: TripIndentJoin | null }),
+  );
+  return { error: null, trips };
+}
+
 export type TripPartyCounts = {
   byClientId: Record<string, number>;
   bySupplierId: Record<string, number>;

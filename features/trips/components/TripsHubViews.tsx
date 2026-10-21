@@ -1044,7 +1044,11 @@ export type TripsHubTableViewProps = {
     /** Reason chips expand under Failed and use the failed tone. */
     kind?: "status" | "reason";
   }>;
-  /** Controlled hub search. When omitted, the table keeps internal search state. */
+  /**
+   * Controlled hub search. When set, the parent has already filtered `trips` by it
+   * (including server-side matches), so the table does not filter again.
+   * When omitted, the table keeps internal search state and filters itself.
+   */
   searchQuery?: string;
   onSearchQueryChange?: (next: string) => void;
   dateRangeFilter?:
@@ -1285,7 +1289,7 @@ export function TripsHubTableView({
   const displayedTrips = useMemo(() => {
     const q = tableQuery.trim().toLowerCase();
     let rows = trips;
-    if (q) {
+    if (q && searchQueryProp === undefined) {
       rows = rows.filter((t) => {
         const meta = partyMetaByTripId?.get(t.id);
         const clientName = (clientNameByTripId?.[t.id] ?? (t.organization_id !== currentOrganizationId ? "" : t.client_name ?? ""))
@@ -1349,6 +1353,7 @@ export function TripsHubTableView({
   }, [
     trips,
     tableQuery,
+    searchQueryProp,
     sortKey,
     partyMetaByTripId,
     clientNameByTripId,

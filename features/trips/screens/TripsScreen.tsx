@@ -92,6 +92,7 @@ import { getTripStatusTimes } from "@/features/trips/services/tripStatusTimes.se
 import { buildManifestDeliveryPlan } from "@/features/trips/utils/manifestDeliveryPlan.util";
 import { useMemberCapabilities } from "@/lib/useMemberCapabilities";
 import { shouldFetchHubDigitalPodFlags } from "@/features/trips/components/trip-detail/completedTripInitialLoad.util";
+import { getTripDriverPhones } from "@/features/tripCompliance/services/tripDriverPhones.service";
 import {
   classifyTripMetric,
   countTripsByMetric,
@@ -122,6 +123,7 @@ import {
   tripsHubAllToolbarCountLabel,
 } from "@/features/trips/utils/indentHubToolbarFilter";
 import { useTripsIndentCodeSearch } from "@/features/trips/hooks/useTripsIndentCodeSearch";
+import { useTripsHubSearch } from "@/features/trips/hooks/useTripsHubSearch";
 import type { TripHubPartyMeta } from "@/features/trips/utils/tripHubPartyMeta";
 import {
   getTripHubInTransitPing,
@@ -265,6 +267,18 @@ function historyTripDueState(
     payableDue: settlement.payableDue,
   };
 }
+
+/** Phone digits for hub search: "+91 98765 43210" / "098765…" search as "9876543210". */
+function hubSearchPhoneDigits(query: string): string {
+  const digits = query.replace(/\D/g, "");
+  if (digits.length > 10 && digits.startsWith("91")) return digits.slice(-10);
+  if (digits.length === 11 && digits.startsWith("0")) return digits.slice(1);
+  return digits;
+}
+
+/** get_trip_driver_phones accepts at most 500 trip ids per call. */
+const TRIP_DRIVER_PHONES_CHUNK = 500;
+const EMPTY_PHONE_BY_TRIP_ID: Record<string, string> = {};
 
 /** Survives the hub remounting when returning from trip detail. */
 let lastOpenedHubTripId: string | null = null;
@@ -435,6 +449,24 @@ export default function TripsScreen() {
     refetch: refetchTrips,
   } = useTripsQuery(orgId);
   const trips = tripsData as TripRow[];
+  // The list is the newest 400 trips; server search adds older matches while searching.
+  const { hits: hubSearchHits, needle: hubSearchNeedle } = useTripsHubSearch(
+    orgId,
+    searchQuery,
+  );
+  const hubSearchHitsCurrent =
+    hubSearchNeedle.length >= 2 &&
+    hubSearchNeedle.toLowerCase() === searchQuery.trim().toLowerCase();
+  const hubSearchHitIds = useMemo(
+    () => new Set(hubSearchHitsCurrent ? hubSearchHits.map((t) => t.id) : []),
+    [hubSearchHitsCurrent, hubSearchHits],
+  );
+  const hubTrips = useMemo(() => {
+    if (!hubSearchHitsCurrent || hubSearchHits.length === 0) return trips;
+    const loadedIds = new Set(trips.map((t) => t.id));
+    const older = hubSearchHits.filter((t) => !loadedIds.has(t.id));
+    return older.length > 0 ? trips.concat(older) : trips;
+  }, [trips, hubSearchHits, hubSearchHitsCurrent]);
   // INDENT stage: same `useIndentsQuery` Give Load already runs (shared
   // TanStack Query cache — no duplicate fetch), filtered to indents this org
   // owns that have not yet been allocated to a trip. Allocation is read from
@@ -654,6 +686,14 @@ export default function TripsScreen() {
   const { data: clients = [] } = useClientsQuery(orgId);
   const { data: suppliers = [] } = useSuppliersQuery(orgId);
   const { data: drivers = [] } = useDriversQuery(orgId);
+  const driverPhoneById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const d of drivers) {
+      const phone = (d.phone ?? "").trim();
+      if (phone) map.set(d.id.trim().toLowerCase(), phone);
+    }
+    return map;
+  }, [drivers]);
   const linkedOrgByOrganizationId = useLinkedOrgProfileMap(clients, suppliers);
   const clientById = useMemo(() => {
     const map = new Map<string, (typeof clients)[number]>();
@@ -786,12 +826,12 @@ export default function TripsScreen() {
     () =>
       showCompletedList
         ? // History tab: show completed trips only.
-          trips.filter((t) => isCompletedStatus(t.status))
-        : trips.filter(
+          hubTrips.filter((t) => isCompletedStatus(t.status))
+        : hubTrips.filter(
             (t) =>
               !isCompletedStatus(t.status) && !isTripCancelledForHub(t.status),
           ),
-    [showCompletedList, trips],
+    [showCompletedList, hubTrips],
   );
 
   /** Pill context only (linked org + tracking_only); independent of async supplier name fallback. */
@@ -820,7 +860,8 @@ export default function TripsScreen() {
       "q",
       "trips",
       "doc-trip-ids",
-      "v6-pod-eway",
+      // v7: adds ewayNumbersByTripId; older persisted payloads lack it.
+      "v7-pod-eway",
       orgId ?? "",
       podDocumentTripIdsSorted,
     ],
@@ -841,10 +882,74 @@ export default function TripsScreen() {
     if (!map || typeof map !== "object") return {} as Record<string, string>;
     return map;
   }, [hubPodFlagsRaw]);
+  /**
+   * The flags above skip phones and History. While searching there, load the same
+   * document flags just for their LR / e-way numbers so those searches still work.
+   */
+  const hubDocFlagsLoadedForView = shouldFetchHubDigitalPodFlags(showCompletedList, {
+    compactViewport: isMobileViewport,
+  });
+  const hubSearchActive = searchQuery.trim().length >= 2;
+  const { data: searchDocFlags } = useQuery({
+    queryKey: [
+      "q",
+      "trips",
+      "search-doc-numbers",
+      orgId ?? "",
+      podDocumentTripIdsSorted,
+    ],
+    enabled:
+      !!orgId &&
+      hubSearchActive &&
+      !hubDocFlagsLoadedForView &&
+      podDocumentTripIdsSorted.length > 0,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const ids = podDocumentTripIdsSorted.split(",").filter(Boolean);
+      return loadHubPodReceiptFlags(ids);
+    },
+  });
+  const docNumberFlags = hubDocFlagsLoadedForView ? hubPodFlagsRaw : searchDocFlags;
   const lrNumbersByTripId = useMemo(
-    () => hubPodFlagsRaw?.lrNumbersByTripId ?? ({} as Record<string, string>),
-    [hubPodFlagsRaw],
+    () => docNumberFlags?.lrNumbersByTripId ?? ({} as Record<string, string>),
+    [docNumberFlags],
   );
+  const ewayNumbersByTripId = useMemo(
+    () => docNumberFlags?.ewayNumbersByTripId ?? ({} as Record<string, string>),
+    [docNumberFlags],
+  );
+
+  /**
+   * Driver numbers for search. The drivers list only has this org's active fleet,
+   * so vendor / former drivers have no number there; get_trip_driver_phones covers
+   * every trip in the list. Fetched only while the search has 4+ digits.
+   */
+  const hubSearchPhoneActive = hubSearchPhoneDigits(searchQuery.trim()).length >= 4;
+  // Plain object, not Map: the persisted query cache is JSON.
+  const { data: searchDriverPhoneByTripId = EMPTY_PHONE_BY_TRIP_ID } = useQuery({
+    queryKey: [
+      "q",
+      "trips",
+      "search-driver-phones",
+      orgId ?? "",
+      podDocumentTripIdsSorted,
+    ],
+    enabled: !!orgId && hubSearchPhoneActive && podDocumentTripIdsSorted.length > 0,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const withDriver = tripsByStatus
+        .filter((t) => Boolean(t.driver_id))
+        .map((t) => ({ id: t.id, driver_id: t.driver_id ?? null }));
+      const phones: Record<string, string> = {};
+      for (let i = 0; i < withDriver.length; i += TRIP_DRIVER_PHONES_CHUNK) {
+        const part = await getTripDriverPhones(
+          withDriver.slice(i, i + TRIP_DRIVER_PHONES_CHUNK),
+        );
+        for (const [tripId, phone] of part) phones[tripId] = phone;
+      }
+      return phones;
+    },
+  });
   const tripIdsWithDocuments = useMemo(() => {
     const soft = hubPodFlagsRaw?.softTripIds;
     if (Array.isArray(soft)) {
@@ -959,7 +1064,7 @@ export default function TripsScreen() {
         const deliveredDocsPendingTrips = tripsByStatus.filter(
           (t) => classifyTripMetric(t, tripIdsWithDocuments) === activeMetricTab,
         );
-        const completedTrips = trips.filter((t) => isCompletedStatus(t.status));
+        const completedTrips = hubTrips.filter((t) => isCompletedStatus(t.status));
         const seen = new Set(deliveredDocsPendingTrips.map((t) => t.id));
         list = deliveredDocsPendingTrips.concat(
           completedTrips.filter((t) => !seen.has(t.id)),
@@ -1012,11 +1117,39 @@ export default function TripsScreen() {
 
     const q = searchQuery.trim().toLowerCase();
     if (q) {
+      const qDigits = hubSearchPhoneDigits(q);
       list = list.filter((t) => {
+        // Server search already matched it (LR, driver phone, client master, …).
+        if (hubSearchHitIds.has(t.id)) return true;
         const displayName = (
           shipperNameByTripId[t.id] ??
           (t.organization_id !== orgId ? "" : t.client_name ?? "")
         ).toLowerCase();
+        const clientMaster = (
+          t.organization_id === orgId && t.client_id
+            ? clientById.get(t.client_id)?.name ?? ""
+            : ""
+        ).toLowerCase();
+        const driverPhone = (
+          searchDriverPhoneByTripId[t.id] ??
+          driverPhoneById.get((t.driver_id ?? "").trim().toLowerCase()) ??
+          ""
+        ).replace(/\D/g, "");
+        const pillMeta = tripKindPillMetaByTripId.get(t.id);
+        const supplierShown = (pillMeta?.displaySupplierName ?? "").toLowerCase();
+        const driverShown = (pillMeta?.displayDriverName ?? "").toLowerCase();
+        const refs = [
+          t.booking_ref,
+          t.trip_code,
+          t.trip_operational_code,
+          t.driver_display_trip_id,
+          t.indent_reference_code,
+          t.source_indent_code,
+          t.indent_number,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
         const pickup = (t.pickup_area ?? "").toLowerCase();
         const drop = (t.drop_location ?? "").toLowerCase();
         const tripRef = `${t.trip_number ?? ""} ${t.display_trip_id ?? ""}`
@@ -1026,6 +1159,9 @@ export default function TripsScreen() {
           lrNumbersByTripId[t.id.trim().toLowerCase()] ?? ""
         ).toLowerCase();
         const qCompact = q.replace(/\s+/g, "");
+        const ewayNos = (
+          ewayNumbersByTripId[t.id.trim().toLowerCase()] ?? ""
+        ).toLowerCase();
         const vehicleNo = (t.vehicle_display_number ?? "")
           .toLowerCase()
           .replace(/\s+/g, "");
@@ -1039,7 +1175,13 @@ export default function TripsScreen() {
           lrNos.includes(q) ||
           (qCompact.length > 0 && vehicleNo.includes(qCompact)) ||
           driver.includes(q) ||
-          supplier.includes(q)
+          supplier.includes(q) ||
+          clientMaster.includes(q) ||
+          supplierShown.includes(q) ||
+          driverShown.includes(q) ||
+          refs.includes(q) ||
+          (qCompact.length > 0 && ewayNos.includes(qCompact)) ||
+          (qDigits.length >= 4 && driverPhone.includes(qDigits))
         );
       });
     }
@@ -1072,14 +1214,19 @@ export default function TripsScreen() {
     return sorted;
   }, [
     tripsByStatus,
-    trips,
+    hubTrips,
     activeMetricTab,
     tripIdsWithDocuments,
     supplyFilter,
     attributionFilter,
     tripKindPillMetaByTripId,
     searchQuery,
+    hubSearchHitIds,
+    clientById,
+    driverPhoneById,
+    searchDriverPhoneByTripId,
     lrNumbersByTripId,
+    ewayNumbersByTripId,
     shipperNameByTripId,
     showCompletedList,
     sortBy,
@@ -1579,14 +1726,6 @@ export default function TripsScreen() {
       return times;
     },
   });
-  const driverPhoneById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const d of drivers) {
-      const phone = (d.phone ?? "").trim();
-      if (phone) map.set(d.id.trim().toLowerCase(), phone);
-    }
-    return map;
-  }, [drivers]);
 
   const tripOpsExportReport = useMemo(() => {
     const columns: Array<{ key: string; label: string }> = [

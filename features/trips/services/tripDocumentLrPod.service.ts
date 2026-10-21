@@ -950,6 +950,8 @@ export type HubPodReceiptFlags = {
   ewayExpiryByTripId: Record<string, string>;
   /** LR numbers (comma-joined), keyed by lowercased trip id. */
   lrNumbersByTripId: Record<string, string>;
+  /** E-way bill numbers (comma-joined, spaces removed), keyed by lowercased trip id. */
+  ewayNumbersByTripId: Record<string, string>;
 };
 
 /**
@@ -969,12 +971,14 @@ export async function loadHubPodReceiptFlags(
       hardTripIds: [],
       ewayExpiryByTripId: {},
       lrNumbersByTripId: {},
+      ewayNumbersByTripId: {},
     };
   }
 
   const soft = new Set<string>();
   const ewayTillsByTrip = new Map<string, string[]>();
   const lrsByTrip = new Map<string, Set<string>>();
+  const ewaysByTrip = new Map<string, Set<string>>();
   const viaRpc = await fetchLrPodRowsViaRpc(wanted);
   const rows =
     viaRpc ??
@@ -1003,7 +1007,15 @@ export async function loadHubPodReceiptFlags(
     if (String(row.document_type ?? "").trim().toLowerCase() !== "eway_bill") {
       continue;
     }
-    const tills = parseEwayFieldEntries(row.document_number)
+    const ewayEntries = parseEwayFieldEntries(row.document_number);
+    for (const entry of ewayEntries) {
+      const ewayNo = entry.ewayNo.replace(/\s+/g, "");
+      if (!ewayNo) continue;
+      const set = ewaysByTrip.get(id) ?? new Set<string>();
+      set.add(ewayNo);
+      ewaysByTrip.set(id, set);
+    }
+    const tills = ewayEntries
       .map((entry) => entry.validTill)
       .filter((value) => value.trim().length > 0);
     if (tills.length === 0) continue;
@@ -1020,12 +1032,15 @@ export async function loadHubPodReceiptFlags(
 
   const lrNumbersByTripId: Record<string, string> = {};
   for (const [id, set] of lrsByTrip) lrNumbersByTripId[id] = [...set].join(", ");
+  const ewayNumbersByTripId: Record<string, string> = {};
+  for (const [id, set] of ewaysByTrip) ewayNumbersByTripId[id] = [...set].join(", ");
 
   return {
     softTripIds: [...soft],
     hardTripIds: [],
     ewayExpiryByTripId,
     lrNumbersByTripId,
+    ewayNumbersByTripId,
   };
 }
 

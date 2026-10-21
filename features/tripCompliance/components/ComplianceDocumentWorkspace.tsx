@@ -2221,6 +2221,7 @@ export function ComplianceDocumentWorkspace({
   stacked = false,
   style,
   canManageFinance = false,
+  hideCommercials = false,
   /** False on Compliance Pending queue chip only — hide Finance tab for every trip in that stage. */
   showFinanceTab = true,
   canManagePod = false,
@@ -2275,6 +2276,8 @@ export function ComplianceDocumentWorkspace({
   stacked?: boolean;
   style?: StyleProp<ViewStyle>;
   canManageFinance?: boolean;
+  /** Ground Ops: no rates, profit, supplier bank details or Advance Payment preview. */
+  hideCommercials?: boolean;
   /**
    * Finance documents tab. Off only while the page filter is Compliance Pending
    * (includes Declined-by-finance trips that still have verified_at).
@@ -4314,7 +4317,7 @@ export function ComplianceDocumentWorkspace({
                             Trip Detail
                           </Text>
                         </Pressable>
-                        {showFinanceTab && !compliancePendingView ? (
+                        {showFinanceTab && !compliancePendingView && !hideCommercials ? (
                           <Pressable
                             style={(state: HoverPressState) => {
                               const active = checklistPreviewMode === "advance";
@@ -4629,9 +4632,10 @@ export function ComplianceDocumentWorkspace({
                         }
                         supplierName={supplierNameByTripId[summary.trip.id] ?? null}
                         onOpenDocumentUpload={openDocumentUploadFromDetails}
+                        hideCommercials={hideCommercials}
                       />
                     </ScrollView>
-                  ) : checklistPreviewMode === "advance" && summary && !compliancePendingView ? (
+                  ) : checklistPreviewMode === "advance" && summary && !compliancePendingView && !hideCommercials ? (
                     <ChecklistAdvancePaymentPanel
                       summary={summary}
                       supplierName={supplierNameByTripId[summary.trip.id] ?? null}
@@ -5432,11 +5436,14 @@ function ChecklistTripDetailsPanel({
   truckType,
   supplierName,
   onOpenDocumentUpload,
+  hideCommercials = false,
 }: {
   summary: ComplianceTripSummary;
   truckType: string | null;
   supplierName: string | null;
   onOpenDocumentUpload?: (target: { vault: string; type?: string }) => void;
+  /** Ground Ops: drop the Rates and Banking cards (and never fetch the supplier bank account). */
+  hideCommercials?: boolean;
 }) {
   const trip = summary.trip;
   const commercial = trip as typeof trip & TripCommercialFacts;
@@ -5481,7 +5488,7 @@ function ChecklistTripDetailsPanel({
     let cancelled = false;
     const orgId = (trip.organization_id ?? "").trim();
     const supplierId = (trip.supplier_id ?? "").trim();
-    if (!orgId || !supplierId) {
+    if (!orgId || !supplierId || hideCommercials) {
       setBankDetails(null);
       return;
     }
@@ -5516,7 +5523,7 @@ function ChecklistTripDetailsPanel({
     return () => {
       cancelled = true;
     };
-  }, [trip.organization_id, trip.supplier_id, supplierLabel, payeeDetails, bankRevision]);
+  }, [trip.organization_id, trip.supplier_id, supplierLabel, payeeDetails, bankRevision, hideCommercials]);
 
   const tripId = getTripDisplayNumber(trip, trip.organization_id ?? null);
   const beneficiary = bankDetails?.beneficiaryName ?? "—";
@@ -5610,6 +5617,7 @@ function ChecklistTripDetailsPanel({
         </TripDetailSection>
       </View>
 
+      {hideCommercials ? null : (
       <View style={[styles.tripDetailPairRow, !pairCards && styles.tripDetailPairRowStack]}>
         <TripDetailSection
           title="Rates"
@@ -5644,6 +5652,7 @@ function ChecklistTripDetailsPanel({
           <TripDetailFact label="Branch" value={branch} />
         </TripDetailSection>
       </View>
+      )}
 
       <View style={styles.tripDetailInsightCard}>
         <View style={styles.tripDetailSectionHeader}>

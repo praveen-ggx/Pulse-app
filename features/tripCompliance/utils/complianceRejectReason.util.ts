@@ -10,7 +10,7 @@ export const COMPLIANCE_REJECT_REASON_OPTIONS = [
   { id: "memo_missing", label: "Memo missing" },
   { id: "truck_no_mismatch", label: "Truck No mismatch" },
   { id: "vendor_mismatch", label: "Vendor mismatch" },
-  { id: "client_date_mismatch", label: "Client date mismatch" },
+  { id: "client_rate_mismatch", label: "Client rate mismatch" },
   { id: "vendor_rate_mismatch", label: "Vendor rate mismatch" },
   { id: "other", label: "Other" },
 ] as const;
@@ -21,13 +21,13 @@ export type ComplianceRejectReasonOptionId =
 /** Presets that send a Verified reject back to Pending Docs (document / identity). */
 export const COMPLIANCE_REJECT_PENDING_DOCS_OPTION_IDS = [
   "truck_no_mismatch",
-  "client_date_mismatch",
 ] as const satisfies readonly ComplianceRejectReasonOptionId[];
 
 /** Presets that send a Verified reject to Compliance Pending (memo / commercial). */
 export const COMPLIANCE_REJECT_COMPLIANCE_PENDING_OPTION_IDS = [
   "memo_missing",
   "vendor_mismatch",
+  "client_rate_mismatch",
   "vendor_rate_mismatch",
 ] as const satisfies readonly ComplianceRejectReasonOptionId[];
 
@@ -35,11 +35,13 @@ export type ComplianceRejectQueueDestination = "pending_for_docs" | "compliance_
 
 const OPTION_ORDER = COMPLIANCE_REJECT_REASON_OPTIONS.map((item) => item.id);
 
-const PENDING_DOCS_LABELS = new Set(
-  COMPLIANCE_REJECT_PENDING_DOCS_OPTION_IDS.map(
+const PENDING_DOCS_LABELS = new Set([
+  ...COMPLIANCE_REJECT_PENDING_DOCS_OPTION_IDS.map(
     (id) => COMPLIANCE_REJECT_REASON_OPTIONS.find((item) => item.id === id)!.label.toLowerCase(),
   ),
-);
+  // Retired preset (renamed to "Client rate mismatch"); older rejects still carry it.
+  "client date mismatch",
+]);
 const COMPLIANCE_PENDING_LABELS = new Set(
   COMPLIANCE_REJECT_COMPLIANCE_PENDING_OPTION_IDS.map(
     (id) => COMPLIANCE_REJECT_REASON_OPTIONS.find((item) => item.id === id)!.label.toLowerCase(),

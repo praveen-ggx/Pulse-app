@@ -129,7 +129,7 @@ export const FINANCE_FLAG_REASON_SECTIONS: readonly ComplianceDeclineReasonSecti
       "Memo missing",
       "Truck No mismatch",
       "Vendor mismatch",
-      "Client date mismatch",
+      "Client rate mismatch",
       "Vendor rate mismatch",
       "Freight / amount mismatch",
       "Bank details mismatch",

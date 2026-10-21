@@ -29,6 +29,10 @@ export const SHELL_STYLE_ID = 'pulse-mobile-web-reset';
 export const VIEWPORT_CONTENT_BASE =
   'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
 
+/** Desktop browsers: allow Ctrl/trackpad zoom. Mobile keeps BASE (form-field zoom). */
+export const VIEWPORT_CONTENT_DESKTOP =
+  'width=device-width, initial-scale=1, viewport-fit=cover';
+
 /** @deprecated Use VIEWPORT_CONTENT_BASE — interactive-widget is Android-only. */
 export const VIEWPORT_CONTENT = VIEWPORT_CONTENT_BASE;
 
@@ -69,6 +73,29 @@ export function setupViewportHeightBootstrap() {
       /iPad|iPhone|iPod/i.test(ua) ||
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
     );
+  }
+
+  function isDesktopFinePointer() {
+    var ua = navigator.userAgent || '';
+    if (/Mobi|Android|iPhone|iPad|iPod/i.test(ua)) return false;
+    try {
+      return window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  if (isIOSWeb()) {
+    document.documentElement.classList.add('pulse-ios-web');
+  } else if (isDesktopFinePointer()) {
+    document.documentElement.classList.add('pulse-desktop-web');
+    var desktopMeta = document.querySelector('meta[name="viewport"]');
+    if (desktopMeta) {
+      desktopMeta.setAttribute(
+        'content',
+        'width=device-width, initial-scale=1, viewport-fit=cover',
+      );
+    }
   }
 
   function setAppVh() {
@@ -142,29 +169,43 @@ body {
   text-size-adjust: 100%;
 }
 
-/*
-  iOS Safari: when the keyboard opens the layout document scrolls. Pin html/body/#root
-  to visualViewport (top + height) so the app stays aligned with the visible area.
-*/
-@supports (-webkit-touch-callout: none) {
-  html, body {
-    position: fixed;
-    width: 100%;
-    left: 0;
-    right: 0;
-    overflow: hidden;
-  }
+/* Desktop: let browser zoom resize type instead of locking at 100%. */
+html.pulse-desktop-web,
+html.pulse-desktop-web body,
+html.pulse-desktop-web #root {
+  max-height: none;
+  height: 100%;
+  height: 100dvh;
+  min-height: 100dvh;
+}
+html.pulse-desktop-web body {
+  -webkit-text-size-adjust: auto;
+  text-size-adjust: auto;
+}
 
-  #root {
-    position: fixed;
-    left: 0;
-    right: 0;
-    width: 100%;
-    top: var(--app-vt, 0px);
-    height: var(--app-vh, 100dvh);
-    max-height: var(--app-vh, 100dvh);
-    overflow: hidden;
-  }
+/*
+  iOS only (class set by setupViewportHeightBootstrap). The old
+  @supports (-webkit-touch-callout: none) block also matched desktop Safari
+  and broke Ctrl/trackpad zoom (fixed cage + visualViewport desync).
+*/
+html.pulse-ios-web,
+html.pulse-ios-web body {
+  position: fixed;
+  width: 100%;
+  left: 0;
+  right: 0;
+  overflow: hidden;
+}
+
+html.pulse-ios-web #root {
+  position: fixed;
+  left: 0;
+  right: 0;
+  width: 100%;
+  top: var(--app-vt, 0px);
+  height: var(--app-vh, 100dvh);
+  max-height: var(--app-vh, 100dvh);
+  overflow: hidden;
 }
 
 /* Remove the gray/blue tap flash on tappable elements (iOS/Android) */

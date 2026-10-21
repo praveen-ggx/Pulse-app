@@ -58,8 +58,8 @@ const VARIANT_BLOB: Record<BentoMetricVariant, string> = {
 };
 
 /** Typography parity with `TripsHubViews` fleet / ledger cards. */
-const FS_CAPTION = 8;
-const FS_AMOUNT_LABEL = 7;
+const FS_CAPTION = 10;
+const FS_AMOUNT_LABEL = 9;
 const FS_COUNT_LARGE = 22;
 const FS_COUNT_SMALL = 18;
 
@@ -224,7 +224,7 @@ function BentoMetricCard({
                 styles.label,
                 active ? styles.labelActive : styles.labelIdle,
               ]}
-              numberOfLines={1}
+              numberOfLines={2}
             >
               {item.title}
             </Text>
@@ -615,12 +615,14 @@ const styles = StyleSheet.create({
   },
   bentoRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "stretch",
     gap: 6,
     width: "100%" as const,
   },
   historyClusters: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "stretch",
     gap: 10,
     width: "100%" as const,
@@ -644,13 +646,16 @@ const styles = StyleSheet.create({
     paddingBottom: 2,
   },
   flexLarge: {
-    flex: 1.15,
-    minWidth: 88,
-    maxWidth: "15%" as const,
+    flexGrow: 1.15,
+    flexShrink: 1,
+    flexBasis: 148,
+    minWidth: 148,
   },
   flexSmall: {
-    flex: 1,
-    minWidth: 0,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 132,
+    minWidth: 132,
   },
   cardPressable: {
     minHeight: 76,
@@ -726,12 +731,12 @@ const styles = StyleSheet.create({
   countLarge: {
     fontSize: FS_COUNT_LARGE,
     lineHeight: FS_COUNT_LARGE + 2,
-    letterSpacing: -0.8,
+    letterSpacing: -0.2,
   },
   countSmall: {
     fontSize: FS_COUNT_SMALL,
     lineHeight: FS_COUNT_SMALL + 2,
-    letterSpacing: -0.6,
+    letterSpacing: -0.15,
   },
   countActive: {
     color: Theme.textOnDark,

@@ -1,9 +1,49 @@
+import type { ViewStyle } from "react-native";
+
 /**
  * Web: min viewport for the multi-column hub grid (trips + load center).
  * Below this — phones **and tablets** — hubs stack one hub list card per row,
  * so no width falls between the stacked card and the grid card.
  */
 export const HUB_GRID_MIN_WIDTH = 1024;
+
+/**
+ * CSS-pixel floor for one hub ticket. Browser zoom changes `innerWidth`, so a
+ * hard 25%/33% grid crushes type when the visual card is narrower than this.
+ */
+export const HUB_GRID_CARD_MIN_WIDTH = 292;
+
+/** Horizontal chrome (page pad + grid negative margin) reserved beside cards. */
+export const HUB_GRID_VIEWPORT_CHROME = 64;
+
+export function hubGridColumnCount(
+  viewportWidth: number,
+  maxColumns: number = 4,
+): number {
+  if (!Number.isFinite(viewportWidth) || viewportWidth < HUB_GRID_MIN_WIDTH) {
+    return 1;
+  }
+  const available = Math.max(0, viewportWidth - HUB_GRID_VIEWPORT_CHROME);
+  const fitted = Math.floor(available / HUB_GRID_CARD_MIN_WIDTH);
+  return Math.max(1, Math.min(maxColumns, fitted || 1));
+}
+
+export function hubGridItemStyle(
+  columns: number,
+  options?: { paddingHorizontal?: number; marginBottom?: number },
+): ViewStyle {
+  const n = Math.max(1, columns);
+  const pct: `${number}%` = `${Number((100 / n).toFixed(4))}%`;
+  return {
+    width: pct,
+    maxWidth: pct,
+    flexBasis: pct,
+    minWidth: 0,
+    paddingHorizontal: options?.paddingHorizontal ?? 6,
+    marginBottom: options?.marginBottom ?? 14,
+    alignSelf: "stretch",
+  };
+}
 
 /**
  * Web: min viewport where a stacked hub card is wide enough to also carry the

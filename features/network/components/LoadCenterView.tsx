@@ -4,7 +4,11 @@
  */
 import { PulsePillButton } from "@/components/PulsePillButton";
 import { ContentErrorState } from '@/components/ContentErrorState';
-import { HUB_GRID_MIN_WIDTH } from "@/components/hub/hubGridCardLayout";
+import {
+  HUB_GRID_MIN_WIDTH,
+  hubGridColumnCount,
+  hubGridItemStyle,
+} from "@/components/hub/hubGridCardLayout";
 import { HubScreenShell } from "@/components/hub/HubScreenShell";
 import { hubMobileChromeStyles as hubChrome } from "@/components/hub";
 import { useTabBarAwareScrollProps } from "@/contexts/DemoTabBarScrollContext";
@@ -415,8 +419,12 @@ export function LoadCenterView({
     [],
   );
 
-  /** Desktop web: 3 indent cards per row (phones + tablets use hub list cards). */
+  /** Desktop web: 2–3 indent cards per row (phones + tablets use hub list cards). */
   const useGridLayout = Platform.OS === "web" && width >= HUB_GRID_MIN_WIDTH;
+  const loadGridItem = hubGridItemStyle(hubGridColumnCount(width, 3), {
+    paddingHorizontal: 4,
+    marginBottom: 12,
+  });
   const isMobileView = width < 820;
   /** Desktop: Suggested partners sit in a Network-style left sidebar. */
   const usePartnerSidebar =
@@ -2118,7 +2126,7 @@ export function LoadCenterView({
           <View
             key={load.id}
             style={[
-              styles.gridCardWrap,
+              loadGridItem,
               highlightedIndentId === load.id && styles.highlightedIndentCard,
             ]}
           >
@@ -2475,7 +2483,7 @@ export function LoadCenterView({
                         <View
                           key={load.id}
                           style={[
-                            styles.gridCardWrap,
+                            loadGridItem,
                             highlightedIndentId === load.id &&
                               styles.highlightedIndentCard,
                           ]}
@@ -2603,7 +2611,7 @@ export function LoadCenterView({
                   <View
                     key={load.id}
                     style={[
-                      styles.gridCardWrap,
+                      loadGridItem,
                       highlightedIndentId === load.id &&
                         styles.highlightedIndentCard,
                     ]}
@@ -2690,7 +2698,7 @@ export function LoadCenterView({
                     <View
                       key={`claimed-${load.id}`}
                       style={[
-                        styles.gridCardWrap,
+                        loadGridItem,
                         highlightedIndentId === load.id &&
                           styles.highlightedIndentCard,
                       ]}

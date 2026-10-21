@@ -4,9 +4,8 @@
  * - Any iOS browser (Safari, Chrome/CriOS, Firefox/FxiOS, Edge/EdgiOS): all run
  *   on WebKit — Apple requires it — so all of them resize `visualViewport` and
  *   scroll the layout document via `offsetTop` the same way. htmlShell's
- *   `@supports (-webkit-touch-callout: none)` CSS block (which pins html/body/
- *   #root to `position: fixed`) is an engine-level feature query and applies to
- *   all of them identically — it cannot distinguish Safari from Chrome. The JS
+ *   `html.pulse-ios-web` CSS block (which pins html/body/#root to
+ *   `position: fixed`) applies to all of them identically. The JS
  *   that keeps `--app-vh`/`--app-vt` in sync with that CSS must therefore also
  *   run for all of them (gate on isIOSWeb, not isIOSWebSafari) or non-Safari
  *   iOS browsers get the fixed-position cage with no compensating offset sync,

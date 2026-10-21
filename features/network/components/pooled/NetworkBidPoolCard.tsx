@@ -137,21 +137,28 @@ export function NetworkBidPoolCard({
   );
 
   return (
-    <Pressable
-      onPress={opensDetail ? onViewPool : undefined}
-      disabled={!opensDetail}
-      style={(state: HoverPressState) => [
-        styles.card,
-        WEB_TRANSITION,
-        opensDetail && WEB_POINTER,
-        isHovered(state) && hoverRowWash,
-        state.pressed && opensDetail && bidStyles.pressed,
-      ]}
+    <View
+      style={styles.card}
       testID={`network-bid-pool-${pool.id}`}
-      accessibilityRole={opensDetail ? "button" : undefined}
-      accessibilityLabel={label}
+      accessibilityLabel={opensDetail ? undefined : label}
     >
-      {summary}
+      {opensDetail && onViewPool ? (
+        <Pressable
+          onPress={onViewPool}
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          style={(state: HoverPressState) => [
+            WEB_TRANSITION,
+            WEB_POINTER,
+            isHovered(state) && hoverRowWash,
+            state.pressed && bidStyles.pressed,
+          ]}
+        >
+          {summary}
+        </Pressable>
+      ) : (
+        summary
+      )}
       <View style={styles.footer}>
         <Text style={bidStyles.states} numberOfLines={2}>
           {states}
@@ -167,7 +174,7 @@ export function NetworkBidPoolCard({
           </Pressable>
         ) : null}
       </View>
-    </Pressable>
+    </View>
   );
 }
 

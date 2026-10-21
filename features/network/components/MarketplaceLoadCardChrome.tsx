@@ -133,8 +133,8 @@ const styles = StyleSheet.create({
   },
   viaKicker: {
     fontSize: 9,
-    fontWeight: "600",
-    letterSpacing: 0.4,
+    fontWeight: "800",
+    letterSpacing: 0.5,
     textTransform: "uppercase",
     color: Theme.primary,
     paddingTop: 1,
@@ -142,10 +142,10 @@ const styles = StyleSheet.create({
   viaPlaces: {
     flex: 1,
     minWidth: 0,
-    fontSize: 11,
-    fontWeight: "600",
+    fontSize: 12,
+    fontWeight: "700",
     color: Theme.textPrimaryDark,
-    lineHeight: 15,
+    lineHeight: 16,
   },
   routeGrid: Platform.select({
     web: {

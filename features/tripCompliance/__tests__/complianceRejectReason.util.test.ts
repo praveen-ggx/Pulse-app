@@ -36,7 +36,7 @@ describe("composeComplianceRejectReason", () => {
       "memo_missing",
       "truck_no_mismatch",
       "vendor_mismatch",
-      "client_date_mismatch",
+      "client_rate_mismatch",
       "vendor_rate_mismatch",
       "other",
     ]);
@@ -53,6 +53,7 @@ describe("complianceRejectQueueDestination", () => {
     expect(complianceRejectQueueDestination("Memo missing")).toBe("compliance_pending");
     expect(complianceRejectQueueDestination("Vendor mismatch")).toBe("compliance_pending");
     expect(complianceRejectQueueDestination("Vendor rate mismatch")).toBe("compliance_pending");
+    expect(complianceRejectQueueDestination("Client rate mismatch")).toBe("compliance_pending");
   });
 
   it("prefers Pending Docs when a docs preset is mixed with a finance preset", () => {

@@ -809,13 +809,6 @@ export default function TripsScreen() {
     [trips, clients, suppliers, drivers, transactions, orgId, hubTripSubcontracts],
   );
 
-  /** Active ops trips only — used to resolve which trips have any uploaded document (POD split). */
-  const activeOpsTripIdsSorted = useMemo(() => {
-    if (showCompletedList) return "";
-    const ids = tripsByStatus.map((t) => t.id).sort();
-    return ids.join(",");
-  }, [showCompletedList, tripsByStatus]);
-
   const podDocumentTripIdsSorted = useMemo(() => {
     const ids = tripsByStatus.map((t) => t.id).filter(Boolean).sort();
     return [...new Set(ids)].join(",");
@@ -1577,7 +1570,7 @@ export default function TripsScreen() {
     () => (useOpsTripExport ? filtered.map((t) => t.id) : []),
     [useOpsTripExport, filtered],
   );
-  const { data: opsStatusTimes = {} } = useQuery({
+  const { data: opsStatusTimes = {}, isLoading: opsStatusTimesLoading } = useQuery({
     queryKey: ["q", "trips", "ops-export-status-times", orgId ?? "", opsExportTripIds],
     enabled: tripLedgerExportOpen && opsExportTripIds.length > 0,
     queryFn: async () => {
@@ -1616,6 +1609,8 @@ export default function TripsScreen() {
       { key: "arrivedAtDrop", label: "ARRIVED AT DROP OFF" },
       { key: "delivered", label: "DELIVERED" },
     ];
+    // Only Trip Ops members see this sheet, and only once Export is open.
+    if (!useOpsTripExport || !tripLedgerExportOpen) return { columns, rows: [] };
     const fmt = (iso: string | null | undefined): string => {
       if (!iso) return "";
       const d = new Date(iso);
@@ -1662,6 +1657,8 @@ export default function TripsScreen() {
     });
     return { columns, rows };
   }, [
+    useOpsTripExport,
+    tripLedgerExportOpen,
     filtered,
     opsStatusTimes,
     tripHubPartyMetaByTripId,
@@ -2928,7 +2925,7 @@ export default function TripsScreen() {
                   softPodTripIds={tripIdsWithDocuments}
                   hardPodTripIds={hardPodTripIds}
                   ewayExpiryByTripId={ewayExpiryByTripId}
-                lrNumbersByTripId={lrNumbersByTripId}
+                  lrNumbersByTripId={lrNumbersByTripId}
                 />
                 {filtered.length === 0 &&
                 visibleUnallocatedIndents.length === 0 ? (
@@ -3223,7 +3220,8 @@ export default function TripsScreen() {
           )}
         </ScrollView>
       <TripsLedgerExportModalGate
-        active={tripLedgerExportOpen}
+        // Ops sheet waits for stage times so the stage columns are never blank.
+        active={tripLedgerExportOpen && !(useOpsTripExport && opsStatusTimesLoading)}
         visible={tripLedgerExportOpen}
         onClose={() => setTripLedgerExportOpen(false)}
         transactions={[]}

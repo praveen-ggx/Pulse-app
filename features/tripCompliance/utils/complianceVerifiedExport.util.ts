@@ -41,7 +41,7 @@ export const VERIFIED_EXPORT_CSV_HEADERS = [
   "Driver No.",
   "C Price",
   "S Price",
-  "% of advance",
+  "Advance",
   "Documentation charges",
   "TDS",
   "Final Advance",
@@ -245,7 +245,7 @@ export function buildVerifiedExportCsvRow(
     "Driver No.": formatExportPhone(enrichment.driverPhone),
     "C Price": Number.isFinite(cPrice) && cPrice > 0 ? formatMoney(cPrice) : "",
     "S Price": formatMoney(sPrice),
-    "% of advance": formatMoney(advancePercent),
+    Advance: formatMoney(sPrice != null ? (sPrice * advancePercent) / 100 : null),
     "Documentation charges": formatMoney(documentationCharges),
     TDS: formatMoney(tdsAmount),
     "Final Advance": formatMoney(finalAdvance),
@@ -258,7 +258,7 @@ export function buildVerifiedExportCsvRow(
 const VERIFIED_EXPORT_NUMERIC_COLUMNS: Partial<Record<VerifiedExportCsvHeader, string>> = {
   "C Price": "#,##0.00",
   "S Price": "#,##0.00",
-  "% of advance": "0.0",
+  Advance: "#,##0.00",
   "Documentation charges": "#,##0.00",
   TDS: "#,##0.00",
   "Final Advance": "#,##0.00",
@@ -278,16 +278,33 @@ function excelColumnName(index: number): string {
 }
 
 /**
+ * Sheet heading for the Advance column: "90% Advance" when every row uses the
+ * same advance %, otherwise plain "Advance".
+ */
+export function verifiedAdvanceColumnLabel(advancePercents: readonly number[] = []): string {
+  const unique = [...new Set(advancePercents.filter((p) => Number.isFinite(p)))];
+  return unique.length === 1 ? `${formatPercent(unique[0])}% Advance` : "Advance";
+}
+
+function headerLabel(header: VerifiedExportCsvHeader, advancePercents?: readonly number[]): string {
+  return header === "Advance" ? verifiedAdvanceColumnLabel(advancePercents) : header;
+}
+
+/**
  * Excel sheet for the Verified report. Every non-money column is written as a
  * text cell ("@"), so Account No / IFSC / phone / LR keep leading zeros and
  * full length instead of turning into 1.23E+15.
  */
-export function buildVerifiedExportWorksheet(rows: VerifiedExportCsvRow[]): XLSX.WorkSheet {
+export function buildVerifiedExportWorksheet(
+  rows: VerifiedExportCsvRow[],
+  advancePercents?: readonly number[],
+): XLSX.WorkSheet {
   const sheet: XLSX.WorkSheet = {};
-  const widths = VERIFIED_EXPORT_CSV_HEADERS.map((header) => header.length);
+  const labels = VERIFIED_EXPORT_CSV_HEADERS.map((header) => headerLabel(header, advancePercents));
+  const widths = labels.map((label) => label.length);
 
-  VERIFIED_EXPORT_CSV_HEADERS.forEach((header, c) => {
-    sheet[`${excelColumnName(c)}1`] = { t: "s", v: header };
+  labels.forEach((label, c) => {
+    sheet[`${excelColumnName(c)}1`] = { t: "s", v: label };
   });
 
   rows.forEach((row, r) => {
@@ -315,14 +332,26 @@ export function buildVerifiedExportWorksheet(rows: VerifiedExportCsvRow[]): XLSX
   return sheet;
 }
 
-export function buildVerifiedExportWorkbook(rows: VerifiedExportCsvRow[]): XLSX.WorkBook {
+export function buildVerifiedExportWorkbook(
+  rows: VerifiedExportCsvRow[],
+  advancePercents?: readonly number[],
+): XLSX.WorkBook {
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, buildVerifiedExportWorksheet(rows), "Verified Report");
+  XLSX.utils.book_append_sheet(
+    workbook,
+    buildVerifiedExportWorksheet(rows, advancePercents),
+    "Verified Report",
+  );
   return workbook;
 }
 
-export function verifiedExportRowsToCsv(rows: VerifiedExportCsvRow[]): string {
-  const headerLine = VERIFIED_EXPORT_CSV_HEADERS.map((key) => csvEscape(key)).join(",");
+export function verifiedExportRowsToCsv(
+  rows: VerifiedExportCsvRow[],
+  advancePercents?: readonly number[],
+): string {
+  const headerLine = VERIFIED_EXPORT_CSV_HEADERS.map((key) =>
+    csvEscape(headerLabel(key, advancePercents)),
+  ).join(",");
   const lines = rows.map((row) =>
     VERIFIED_EXPORT_CSV_HEADERS.map((key) => csvEscape(row[key] ?? "")).join(","),
   );

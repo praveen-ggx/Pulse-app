@@ -35,6 +35,7 @@ import {
 } from "@/features/tripCompliance/utils/complianceAdvanceProcessedExport.util";
 import { sortAdvanceProcessedSummaries } from "@/features/tripCompliance/utils/complianceAdvanceProcessedSort.util";
 import {
+  COMPLIANCE_DEFAULT_ADVANCE_PERCENT,
   resolveComplianceTdsRate,
   type ComplianceDocumentChargeConfig,
 } from "@/features/tripCompliance/utils/compliancePaymentAmount.util";
@@ -296,8 +297,12 @@ export async function exportVerifiedStageComplianceReport(orgId: string): Promis
   const rows = summaries.map((summary) =>
     buildVerifiedExportCsvRow(summary, enrichmentByTrip.get(summary.trip.id) ?? {}),
   );
+  const advancePercents = summaries.map((summary) => {
+    const pct = enrichmentByTrip.get(summary.trip.id)?.advancePercent;
+    return pct != null && Number.isFinite(Number(pct)) ? Number(pct) : COMPLIANCE_DEFAULT_ADVANCE_PERCENT;
+  });
   await exportComplianceWorkbook(
-    buildVerifiedExportWorkbook(rows),
+    buildVerifiedExportWorkbook(rows, advancePercents),
     `compliance-verified-report_${exportFileStamp()}.xlsx`,
   );
   return rows.length;

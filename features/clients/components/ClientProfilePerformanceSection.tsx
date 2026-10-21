@@ -676,7 +676,9 @@ export function ClientProfilePerformanceSection({
           </Text>
         </View>
         <View style={[styles.kpiCard, isCompact && styles.kpiCardCompact]}>
-          <Text style={[styles.kpiLabel, isCompact && styles.kpiLabelSm]}>Sales</Text>
+          <Text style={[styles.kpiLabel, isCompact && styles.kpiLabelSm]}>
+            {isSupplier ? "Cost" : "Sales"}
+          </Text>
           <Text style={[styles.kpiValue, isCompact && styles.kpiValueSm]}>
             {formatInr(monthActuals.revenueInr)}
           </Text>
@@ -685,7 +687,9 @@ export function ClientProfilePerformanceSection({
           </Text>
         </View>
         <View style={[styles.kpiCard, isCompact && styles.kpiCardCompact]}>
-          <Text style={[styles.kpiLabel, isCompact && styles.kpiLabelSm]}>Open AR</Text>
+          <Text style={[styles.kpiLabel, isCompact && styles.kpiLabelSm]}>
+            {isSupplier ? "Open AP" : "Open AR"}
+          </Text>
           <Text style={[styles.kpiValue, isCompact && styles.kpiValueSm]}>
             {formatInr(aging.outstanding)}
           </Text>
@@ -1164,7 +1168,7 @@ export function ClientProfilePerformanceSection({
             ]}
           >
             <Text style={[styles.cardTitle, isCompact && styles.cardTitleSm]}>
-              AR aging
+              {isSupplier ? "AP aging" : "AR aging"}
             </Text>
             <Text style={[styles.cardSub, isCompact && styles.cardSubSm]}>
               Outstanding by bucket
@@ -1172,7 +1176,7 @@ export function ClientProfilePerformanceSection({
             <NetworkDesktopSalesDonut
               slices={agingSlices}
               compact={isCompact}
-              emptyMessage="No open receivables."
+              emptyMessage={isSupplier ? "No open payables." : "No open receivables."}
             />
             <View style={styles.agingMeta}>
               <Text style={[styles.laneMeta, isCompact && styles.laneMetaSm]}>

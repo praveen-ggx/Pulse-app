@@ -4,6 +4,7 @@ import {
   formatExportPhone,
   verifiedExportRowsToCsv,
   VERIFIED_EXPORT_CSV_HEADERS,
+  verifiedAdvanceColumnLabel,
 } from "@/features/tripCompliance/utils/complianceVerifiedExport.util";
 import * as XLSX from "xlsx";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
@@ -94,7 +95,7 @@ describe("complianceVerifiedExport.util", () => {
       "Driver No.",
       "C Price",
       "S Price",
-      "% of advance",
+      "Advance",
       "Documentation charges",
       "TDS",
       "Final Advance",
@@ -151,7 +152,7 @@ describe("complianceVerifiedExport.util", () => {
     expect(row["Driver No."]).toBe("+919876543210");
     expect(row["C Price"]).toBe("100000");
     expect(row["S Price"]).toBe("80000");
-    expect(row["% of advance"]).toBe("90");
+    expect(row.Advance).toBe("72000");
     expect(row["Documentation charges"]).toBe("0");
     expect(row.TDS).toBe("1600");
     expect(row["Final Advance"]).toBe("70400");
@@ -232,5 +233,18 @@ describe("complianceVerifiedExport.util", () => {
     expect(lines[0].startsWith("TRIP ID,Verification status,Loading date")).toBe(true);
     expect(lines[1]).toContain('"Acme, Logistics"');
     expect(lines[1]).toContain('"Durgapur, West Bengal"');
+  });
+});
+
+describe("verifiedAdvanceColumnLabel", () => {
+  it("names the shared advance % in the heading", () => {
+    expect(verifiedAdvanceColumnLabel([90, 90])).toBe("90% Advance");
+    expect(verifiedAdvanceColumnLabel([90, 80])).toBe("Advance");
+    expect(verifiedAdvanceColumnLabel([])).toBe("Advance");
+  });
+
+  it("puts the heading in the CSV header line", () => {
+    const csv = verifiedExportRowsToCsv([], [90]);
+    expect(csv.split(",")).toContain("90% Advance");
   });
 });

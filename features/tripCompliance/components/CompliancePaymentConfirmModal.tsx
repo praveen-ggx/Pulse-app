@@ -87,6 +87,24 @@ function supplierCostTotal(trip: PaymentTripFacts): number | null {
   return rate;
 }
 
+/** Client rate per MT, only when the client priced per MT. */
+function clientRatePerMt(trip: PaymentTripFacts | undefined): number | null {
+  if (!trip || trip.sale_rate_basis !== "per_mt") return null;
+  const unit = Number(trip.sale_unit_rate);
+  if (Number.isFinite(unit) && unit > 0) return unit;
+  const tons = Number(trip.load_tons);
+  const price = Number(trip.client_price);
+  if (Number.isFinite(tons) && tons > 0 && Number.isFinite(price) && price > 0) return price / tons;
+  return null;
+}
+
+/** Supplier rate per MT, only when the supplier priced per MT. */
+function supplierRatePerMt(trip: PaymentTripFacts | undefined): number | null {
+  if (!trip || trip.supplier_rate_basis !== "per_mt") return null;
+  const rate = Number(trip.supplier_rate);
+  return Number.isFinite(rate) && rate > 0 ? rate : null;
+}
+
 /** Base supplier freight for this Compliance payment category (Record payment “revised cost”). */
 function baseFreightAmount(
   trip: PaymentTripFacts | undefined,
@@ -361,6 +379,7 @@ export function CompliancePaymentConfirmModal({
   readOnly = false,
   onFinanceVerify,
   financeVerifySubmitting = false,
+  onPreviewMemo,
 }: {
   visible: boolean;
   summary: ComplianceTripSummary | null;
@@ -381,6 +400,8 @@ export function CompliancePaymentConfirmModal({
   readOnly?: boolean;
   onFinanceVerify?: () => void;
   financeVerifySubmitting?: boolean;
+  /** Opens the memo in the workspace viewer (zoom / rotate) instead of a new tab. */
+  onPreviewMemo?: () => void;
 }) {
   const { height, width: windowWidth } = useWindowDimensions();
   const isInline = presentation === "inline";
@@ -416,6 +437,8 @@ export function CompliancePaymentConfirmModal({
     [trip, category, summary?.advance?.amount],
   );
   const baseFreightLabel = baseFreight != null ? formatInr(baseFreight) : "—";
+  const clientPerMt = clientRatePerMt(trip);
+  const supplierPerMt = supplierRatePerMt(trip);
   const docCharge = useMemo(
     () =>
       isAdvance
@@ -624,6 +647,10 @@ export function CompliancePaymentConfirmModal({
     !!category;
 
   const openMemoPreview = async () => {
+    if (onPreviewMemo) {
+      onPreviewMemo();
+      return;
+    }
     const path = memoDocument?.storage_path?.trim();
     const orgId = trip?.organization_id?.trim();
     if (!path || !orgId) {
@@ -686,6 +713,12 @@ export function CompliancePaymentConfirmModal({
       <FactRow compact={isInline} label="Truck type" value={truckType?.trim() || "—"} />
       <FactRow compact={isInline} label="Trip" value={tripLabel} />
       <FactRow compact={isInline} label="Category" value={categoryLabel} />
+      {clientPerMt != null ? (
+        <FactRow compact={isInline} label="Client rate / MT" value={formatInr(clientPerMt)} />
+      ) : null}
+      {supplierPerMt != null ? (
+        <FactRow compact={isInline} label="Supplier rate / MT" value={formatInr(supplierPerMt)} />
+      ) : null}
       <FactRow compact={isInline} label="Base freight" value={baseFreightLabel} emphasize />
       <View style={[styles.factRow, isInline && styles.factRowCompact]}>
         <Text style={[styles.factLabel, isInline && styles.factLabelCompact]}>Memo</Text>

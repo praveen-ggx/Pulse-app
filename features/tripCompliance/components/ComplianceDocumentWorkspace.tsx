@@ -3536,6 +3536,17 @@ export function ComplianceDocumentWorkspace({
     if (!hasFile(row)) return;
     resetPreviewView();
   }, [resetPreviewView]);
+  const financeMemoRow = useMemo(
+    () => financeRows.find((row) => row.type === "memo" && hasFile(row)) ?? null,
+    [financeRows],
+  );
+  /** Advance panel Memo "Preview": show the memo in this viewer, not a raw new tab. */
+  const previewFinanceMemo = useCallback(() => {
+    if (!financeMemoRow) return;
+    setTab("trip");
+    setFinanceList(true);
+    previewChecklistRow(financeMemoRow);
+  }, [financeMemoRow, previewChecklistRow]);
   const openDocumentUploadFromDetails = useCallback(
     (target: { vault: string; type?: string }) => {
       const vault = target.vault.trim().toLowerCase();
@@ -4624,6 +4635,7 @@ export function ComplianceDocumentWorkspace({
                     <ChecklistAdvancePaymentPanel
                       summary={summary}
                       supplierName={supplierNameByTripId[summary.trip.id] ?? null}
+                      onPreviewMemo={financeMemoRow ? previewFinanceMemo : undefined}
                       readiness={readiness}
                       canPay={showPay}
                       paymentCategory={readyPaymentCategory}
@@ -5813,10 +5825,13 @@ function ChecklistAdvancePaymentPanel({
   onUpdateUtr,
   onUpdatePaidAt,
   supplierName,
+  onPreviewMemo,
 }: {
   summary: ComplianceTripSummary;
   /** Resolved supplier display name for the "Paid to" card. */
   supplierName: string | null;
+  /** Memo "Preview" opens the in-app viewer (zoom / rotate). */
+  onPreviewMemo?: () => void;
   /** Edit only the UTR of the posted advance. Rejects with a user-facing error. */
   onUpdateUtr?: (
     summary: ComplianceTripSummary,
@@ -6015,6 +6030,7 @@ function ChecklistAdvancePaymentPanel({
             }}
             onReject={onReject}
             onFlag={onFlag}
+            onPreviewMemo={onPreviewMemo}
           />
         </View>
       ) : null}
@@ -6054,6 +6070,7 @@ function ChecklistAdvancePaymentPanel({
             onFlag={onFlag}
             onFinanceVerify={onFinanceVerify}
             financeVerifySubmitting={financeVerifySubmitting}
+            onPreviewMemo={onPreviewMemo}
           />
         </View>
       ) : null}

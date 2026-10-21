@@ -4,6 +4,7 @@
 - Signing out, or signing in as someone else on the same browser, now wipes the saved app data before any screen loads. The saved data is tagged with the user it belongs to; a different user (or nobody) clears it.
 - The app's data cache and the cache that the "switch organization" clean-up empties are now the same instance (they were two separate ones, so that clean-up emptied a cache nothing used).
 - Ground Ops on the Compliance page no longer see Rates (supplier rate, client rate, profit), Banking (account number, IFSC, branch), the Advance Payment preview, or the Payment / Advance / Balance columns in the table and its Excel export. Documents, uploads and trip details are unchanged. The supplier bank account is no longer fetched for them.
+- Ground Ops also no longer see the Finance → Bank Docs row ("Synced from supplier Banking"): it is dropped from the Finance list, its missing-count badge and the trip summary chips, and the supplier bank proof is not loaded.
 
 ## Why
 - 21 Oct: a Ground Ops login on a browser previously used by an admin saw the admin's Compliance queue (345 trips instead of 102). Deepak (Ground Ops) saw Dinesh Sharma's 4 trips instead of his own 72. The database returned the right rows; the browser served the previous login's saved list, which was kept per organization, not per user, and never cleared on sign-out.

@@ -2507,7 +2507,7 @@ export function ComplianceDocumentWorkspace({
     let cancelled = false;
     const orgId = (summary?.trip.organization_id ?? organizationId ?? "").trim();
     const supplierId = (summary?.trip.supplier_id ?? "").trim();
-    if (!summary || !orgId || !supplierId) {
+    if (!summary || !orgId || !supplierId || hideCommercials) {
       setSupplierBankProof(null);
       setSupplierBankLoading(false);
       return;
@@ -2549,13 +2549,14 @@ export function ComplianceDocumentWorkspace({
     summary,
     checklistPreviewMode,
     supplierBankRevision,
+    hideCommercials,
   ]);
 
   const financeRows = useMemo(() => {
     if (!summary) return [];
-    const base = deriveFinanceDocumentRows(summary.documents);
-    return mergeFinanceBankDocsFromSupplier(base, supplierBankProof);
-  }, [summary, supplierBankProof]);
+    const base = financeRowsFor(summary, hideCommercials);
+    return hideCommercials ? base : mergeFinanceBankDocsFromSupplier(base, supplierBankProof);
+  }, [summary, supplierBankProof, hideCommercials]);
   const isFinanceMode =
     showFinanceTab &&
     financeList &&
@@ -3578,7 +3579,7 @@ export function ComplianceDocumentWorkspace({
   );
   const tabMissingCounts = useMemo(() => {
     if (!summary) return { trip: 0, vehicle: 0, driver: 0, finance: 0 };
-    const finance = deriveFinanceDocumentRows(summary.documents);
+    const finance = financeRowsFor(summary, hideCommercials);
     return {
       trip: deriveTripVaultReviewRows(summary.documents).filter((row) => row.status === "missing").length,
       vehicle: summary.trip.vehicle_id
@@ -3593,7 +3594,7 @@ export function ComplianceDocumentWorkspace({
         : 0,
       finance: finance.filter((row) => row.status === "missing").length,
     };
-  }, [summary]);
+  }, [summary, hideCommercials]);
 
   const renderChecklistRow = (row: ComplianceDocRow, index: number) => {
     const displayRow = applyOptimisticDecision(row, localDecisionByKey[optimisticKey(reviewScope, row.key)]);
@@ -5334,7 +5335,13 @@ type TripDocOverview = {
   acceptedGroups: TripDocGroup[];
 };
 
-function tripDocumentGroups(summary: ComplianceTripSummary): Array<{
+/** Finance document rows; Ground Ops (hideCommercials) never see the supplier's Bank Docs. */
+function financeRowsFor(summary: ComplianceTripSummary, hideCommercials: boolean): ComplianceDocRow[] {
+  const rows = deriveFinanceDocumentRows(summary.documents);
+  return hideCommercials ? rows.filter((row) => row.type !== "bank_docs") : rows;
+}
+
+function tripDocumentGroups(summary: ComplianceTripSummary, hideCommercials = false): Array<{
   label: string;
   rows: ComplianceDocRow[];
   finance?: boolean;
@@ -5342,7 +5349,7 @@ function tripDocumentGroups(summary: ComplianceTripSummary): Array<{
   const groups: Array<{ label: string; rows: ComplianceDocRow[]; finance?: boolean }> = [
     {
       label: "Finance",
-      rows: deriveFinanceDocumentRows(summary.documents),
+      rows: financeRowsFor(summary, hideCommercials),
       finance: true,
     },
     { label: "Trip", rows: deriveTripVaultReviewRows(summary.documents) },
@@ -5368,7 +5375,7 @@ function tripDocumentGroups(summary: ComplianceTripSummary): Array<{
   return groups;
 }
 
-function tripDocumentOverview(summary: ComplianceTripSummary): TripDocOverview {
+function tripDocumentOverview(summary: ComplianceTripSummary, hideCommercials = false): TripDocOverview {
   const missingItems: TripMissingDocItem[] = [];
   const missingGroups: TripDocGroup[] = [];
   const pendingGroups: TripDocGroup[] = [];
@@ -5377,7 +5384,7 @@ function tripDocumentOverview(summary: ComplianceTripSummary): TripDocOverview {
   let pending = 0;
   let accepted = 0;
   let total = 0;
-  for (const group of tripDocumentGroups(summary)) {
+  for (const group of tripDocumentGroups(summary, hideCommercials)) {
     total += group.rows.length;
     const missingInGroup: TripMissingDocItem[] = [];
     const pendingInGroup: TripMissingDocItem[] = [];
@@ -5533,7 +5540,7 @@ function ChecklistTripDetailsPanel({
   const accountNumber = bankDetails?.accountNumber ?? "—";
   const ifsc = bankDetails?.ifsc ?? "—";
   const branch = bankDetails?.branchName ?? "—";
-  const docOverview = tripDocumentOverview(summary);
+  const docOverview = tripDocumentOverview(summary, hideCommercials);
   const requiredStillMissing = docOverview.missingGroups.some((group) =>
     group.items.some((item) => item.required),
   );

@@ -1,8 +1,5 @@
 import Theme from "@/constants/Theme";
-import {
-  HUB_GRID_PAGE_SIZE_OPTIONS,
-  type HubGridPageSize,
-} from "@/components/hub/hubGridCardLayout";
+import { HUB_GRID_PAGE_SIZE_OPTIONS } from "@/components/hub/hubGridCardLayout";
 import {
   Platform,
   Pressable,

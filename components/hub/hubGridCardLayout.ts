@@ -33,7 +33,7 @@ export function hubGridItemStyle(
   options?: { paddingHorizontal?: number; marginBottom?: number },
 ): ViewStyle {
   const n = Math.max(1, columns);
-  const pct = `${Number((100 / n).toFixed(4))}%`;
+  const pct: `${number}%` = `${Number((100 / n).toFixed(4))}%`;
   return {
     width: pct,
     maxWidth: pct,

@@ -12,6 +12,13 @@ import { FinanceFAB } from "@/components/FinanceFAB";
 import { getAvatarUriForSeed } from "@/constants/DriverLevels";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
+import {
+  WEB_POINTER,
+  WEB_TRANSITION,
+  hoverRowWash,
+  isHovered,
+  type HoverPressState,
+} from "@/constants/hoverSelection";
 import { entityDetailDownloadIconColor } from "@/components/entityDetailPageChrome.styles";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
@@ -2336,10 +2343,14 @@ export default function DriverDetailScreen({
                 monthlyRowsReversed.map((row) => {
                   const isExpanded = expandedStatementMonthKey === row.monthKey;
                   return (
-                    <TouchableOpacity
+                    <Pressable
                       key={row.monthKey}
-                      style={styles.statementMonthRow}
-                      activeOpacity={0.8}
+                      style={(state: HoverPressState) => [
+                        styles.statementMonthRow,
+                        WEB_POINTER,
+                        WEB_TRANSITION,
+                        isHovered(state) && hoverRowWash,
+                      ]}
                       onPress={() =>
                         setExpandedStatementMonthKey((prev) =>
                           prev === row.monthKey ? null : row.monthKey,
@@ -2410,7 +2421,7 @@ export default function DriverDetailScreen({
                           style={styles.statementMonthChevron}
                         />
                       </View>
-                    </TouchableOpacity>
+                    </Pressable>
                   );
                 })
               )}

@@ -1,6 +1,8 @@
+import { ChartValueCallout } from "@/components/analytics/ChartValueCallout";
 import Theme from "@/constants/Theme";
 import type { SalesTrendPoint } from "@/features/network/utils/connectionSalesAnalytics.util";
-import { useMemo } from "react";
+import { formatINRChip } from "@/lib/format";
+import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Svg, {
   Circle,
@@ -14,6 +16,27 @@ import Svg, {
 } from "react-native-svg";
 
 const PAD = { top: 12, right: 8, bottom: 24, left: 8 };
+const CALLOUT_W = 148;
+const CALLOUT_H = 72;
+const DOT_GAP = 16;
+
+function plotValue(d: SalesTrendPoint): number {
+  return d.revenue || d.trips;
+}
+
+function calloutOrigin(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): { left: number; top: number } {
+  let left = x + DOT_GAP;
+  if (left + CALLOUT_W > width - 4) left = x - CALLOUT_W - DOT_GAP;
+  left = Math.max(4, Math.min(left, width - CALLOUT_W - 4));
+  let top = y - CALLOUT_H / 2;
+  top = Math.max(4, Math.min(top, height - CALLOUT_H - 4));
+  return { left, top };
+}
 
 function smoothLinePath(pts: { x: number; y: number }[]): string {
   if (pts.length === 0) return "";
@@ -58,11 +81,12 @@ export function NetworkDesktopSalesLineChart({
   onSelectMonth,
   color = "#3E97FF",
 }: Props) {
+  const [hoverKey, setHoverKey] = useState<string | null>(null);
   const chartW = width - PAD.left - PAD.right;
   const chartH = height - PAD.top - PAD.bottom;
 
   const { pts, linePath, areaPath } = useMemo(() => {
-    const values = data.map((d) => d.trips);
+    const values = data.map((d) => plotValue(d));
     const max = Math.max(...values, 1);
     const n = data.length;
     const scaleX = (i: number) =>
@@ -70,7 +94,7 @@ export function NetworkDesktopSalesLineChart({
     const scaleY = (v: number) => PAD.top + ((max - v) / max) * chartH;
     const points = data.map((d, i) => ({
       x: scaleX(i),
-      y: scaleY(d.trips),
+      y: scaleY(plotValue(d)),
       monthKey: d.monthKey,
     }));
     const base = PAD.top + chartH;
@@ -83,7 +107,7 @@ export function NetworkDesktopSalesLineChart({
     };
   }, [chartH, chartW, data]);
 
-  if (data.every((d) => d.trips === 0)) {
+  if (data.every((d) => plotValue(d) === 0)) {
     return (
       <View style={[styles.empty, { height }]}>
         <Text style={styles.emptyText}>No trip trend for current filters.</Text>
@@ -91,8 +115,11 @@ export function NetworkDesktopSalesLineChart({
     );
   }
 
+  const hoverPoint = pts.find((p) => p.monthKey === (hoverKey ?? activeMonthKey));
+  const hoverData = data.find((d) => d.monthKey === hoverPoint?.monthKey);
+
   return (
-    <View style={{ width, height }}>
+    <View style={{ width, height, position: "relative" }}>
       <Svg width={width} height={height}>
         <Defs>
           <LinearGradient id="salesLineGrad" x1="0" y1="0" x2="0" y2="1">
@@ -129,7 +156,7 @@ export function NetworkDesktopSalesLineChart({
         ) : null}
 
         {pts.map((p, i) => {
-          const active = activeMonthKey === p.monthKey;
+          const active = activeMonthKey === p.monthKey || hoverKey === p.monthKey;
           return (
             <G key={p.monthKey}>
               <Circle
@@ -155,25 +182,40 @@ export function NetworkDesktopSalesLineChart({
         })}
       </Svg>
 
-      {onSelectMonth
-        ? pts.map((p) => (
-            <Pressable
-              key={`hit-${p.monthKey}`}
-              style={[
-                styles.hit,
-                {
-                  left: p.x - 14,
-                  top: p.y - 14,
-                },
-              ]}
-              onPress={() =>
-                onSelectMonth(activeMonthKey === p.monthKey ? null : p.monthKey)
-              }
-              accessibilityRole="button"
-              accessibilityLabel={`Filter month ${p.monthKey}`}
-            />
-          ))
-        : null}
+      {pts.map((p, i) => {
+        const colW = Math.max(28, chartW / Math.max(data.length, 1));
+        return (
+          <Pressable
+            key={`hit-${p.monthKey}`}
+            style={[
+              styles.hit,
+              {
+                left: p.x - colW / 2,
+                top: 0,
+                width: colW,
+                height,
+              },
+            ]}
+            onHoverIn={() => setHoverKey(p.monthKey)}
+            onHoverOut={() => setHoverKey(null)}
+            onPress={() =>
+              onSelectMonth?.(activeMonthKey === p.monthKey ? null : p.monthKey)
+            }
+            accessibilityRole="button"
+            accessibilityLabel={`Month ${data[i]?.label ?? p.monthKey}`}
+          />
+        );
+      })}
+      {hoverPoint && hoverData ? (
+        <ChartValueCallout
+          title={hoverData.label}
+          rows={[
+            { label: "Amount", value: formatINRChip(hoverData.revenue) },
+            { label: "Trips", value: String(hoverData.trips) },
+          ]}
+          {...calloutOrigin(hoverPoint.x, hoverPoint.y, width, height)}
+        />
+      ) : null}
     </View>
   );
 }
@@ -190,8 +232,5 @@ const styles = StyleSheet.create({
   },
   hit: {
     position: "absolute",
-    width: 28,
-    height: 28,
-    borderRadius: 14,
   },
 });

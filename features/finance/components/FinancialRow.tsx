@@ -10,6 +10,13 @@
  * Drivers:    DRIVER 32% | TRIPS 12% | EARNINGS 18.5% | PAID 18.5% | DUE 19%
  */
 import Theme from "@/constants/Theme";
+import {
+  WEB_POINTER,
+  WEB_TRANSITION,
+  hoverRowWash,
+  isHovered,
+  type HoverPressState,
+} from "@/constants/hoverSelection";
 import { EntityIdentityAvatar } from "@/components/EntityIdentityAvatar";
 import { PartyAvatar } from "@/components/PartyAvatar";
 import { resolveFinancialRowPartyIdentity } from "@/lib/entityIdentity";
@@ -972,7 +979,13 @@ export function FinancialRow({
     return (
       <View style={styles.ledgerRowWrapper}>
         <Pressable
-          style={({ pressed }) => [styles.row, styles.rowLedger, pressed && styles.rowPressed]}
+          style={(state: HoverPressState) => [
+            styles.row,
+            styles.rowLedger,
+            WEB_POINTER,
+            WEB_TRANSITION,
+            isHovered(state) && [styles.rowPressed, hoverRowWash],
+          ]}
           onPress={() => onSelect?.(data)}
           android_ripple={undefined}
         >
@@ -985,10 +998,12 @@ export function FinancialRow({
   if (onSelect) {
     return (
       <Pressable
-        style={({ pressed }) => [
+        style={(state: HoverPressState) => [
           styles.row,
           type === "drivers" && styles.rowDrivers,
-          pressed && styles.rowPressed,
+          WEB_POINTER,
+          WEB_TRANSITION,
+          isHovered(state) && [styles.rowPressed, hoverRowWash],
         ]}
         onPress={() => onSelect(data)}
         android_ripple={undefined}

@@ -6,6 +6,13 @@ import { FinancePromoCard } from "@/features/finance/components/FinancePromoCard
 import { EntityAvatar } from "@/components/EntityAvatar";
 import { LiquidFillPill } from "@/components/LiquidFillPill";
 import Theme from "@/constants/Theme";
+import {
+  WEB_POINTER,
+  WEB_TRANSITION,
+  hoverRowWash,
+  isHovered,
+  type HoverPressState,
+} from "@/constants/hoverSelection";
 import { useTabBarAwareScrollProps } from "@/contexts/DemoTabBarScrollContext";
 import type { EntityListFilter } from "@/features/finance/components/TreasurySummaryCard";
 import { aggregateSuppliersFromRpc, type FinancialRowData, type TripPartyMap } from "@/features/finance/aggregation";
@@ -23,6 +30,7 @@ import {
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -32,6 +40,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { FleetSupplierAnalyticsTab } from "@/features/suppliers/components/analytics/FleetSupplierAnalyticsTab";
 import type { SupplierRow } from "../services/suppliers.service";
 
 export type SuppliersViewTab = "list" | "analytics";
@@ -106,6 +115,7 @@ export function SuppliersTab({
   bottomInset = 100,
   tripFinanceAdjustmentsByTripId,
   hideSummaryRow = false,
+  viewTab = "list",
   embedInParentScroll = false,
   onAddPartyPress,
 }: SuppliersTabProps) {
@@ -185,7 +195,7 @@ export function SuppliersTab({
     return <Text style={styles.loading}>Loading…</Text>;
   }
   const hasSuppliers = filteredRows.length > 0;
-  if (!hasSuppliers) {
+  if (!hasSuppliers && viewTab !== "analytics") {
     return (
       <ScrollView
         contentContainerStyle={[
@@ -236,7 +246,7 @@ export function SuppliersTab({
   const tableBody = (
     <>
       {topContent}
-      {!hideSummaryRow && (
+      {!hideSummaryRow && viewTab !== "analytics" && (
         <View style={styles.summaryRow}>
           <View style={styles.summaryCard}>
             <Text style={styles.summaryLabel}>Total Due</Text>
@@ -251,6 +261,10 @@ export function SuppliersTab({
           />
         </View>
       )}
+      {viewTab === "analytics" ? (
+        <FleetSupplierAnalyticsTab rows={filteredRows} suppliers={suppliers} />
+      ) : (
+        <>
       <View style={styles.tableHeader}>
         <View style={isWebDesktop ? styles.headerEntityCol : styles.headerEntityColMobile}>
           <Text style={[styles.tableHeaderCell, styles.ctLeft]} numberOfLines={1}>
@@ -297,15 +311,19 @@ export function SuppliersTab({
           const avatarData = supplierAvatarById.get(data.id);
           if (isWebDesktop) {
             return (
-              <TouchableOpacity
+              <Pressable
                 key={data.id}
-                style={styles.tableRow}
+                style={(state: HoverPressState) => [
+                  styles.tableRow,
+                  WEB_POINTER,
+                  WEB_TRANSITION,
+                  isHovered(state) && hoverRowWash,
+                ]}
                 onPress={() =>
                   onRowSelect
                     ? onRowSelect(data, "SUPPLIER", "suppliers")
                     : router.push(`/supplier/${data.id}`)
                 }
-                activeOpacity={0.7}
               >
                 <View style={[styles.tableCell, styles.ctEntity]}>
                   <View style={styles.tableEntityMain}>
@@ -349,19 +367,23 @@ export function SuppliersTab({
                     ₹{due.toLocaleString("en-IN")}
                   </Text>
                 </View>
-              </TouchableOpacity>
+              </Pressable>
             );
           }
           return (
-            <TouchableOpacity
+            <Pressable
               key={data.id}
-              style={styles.tableRowMobile}
+              style={(state: HoverPressState) => [
+                styles.tableRowMobile,
+                WEB_POINTER,
+                WEB_TRANSITION,
+                isHovered(state) && hoverRowWash,
+              ]}
               onPress={() =>
                 onRowSelect
                   ? onRowSelect(data, "SUPPLIER", "suppliers")
                   : router.push(`/supplier/${data.id}`)
               }
-              activeOpacity={0.7}
             >
               <EntityAvatar
                 name={data.name ?? ""}
@@ -402,10 +424,12 @@ export function SuppliersTab({
                   </Text>
                 </Text>
               </View>
-            </TouchableOpacity>
+            </Pressable>
           );
         })}
       </View>
+        </>
+      )}
     </>
   );
 
@@ -426,7 +450,7 @@ export function SuppliersTab({
         {...tabBarScrollProps}
         onScroll={handleSupplierTableScroll}
         scrollEventThrottle={tabBarScrollProps.scrollEventThrottle ?? 100}
-        stickyHeaderIndices={[stickyHeaderIndex]}
+        stickyHeaderIndices={viewTab !== "analytics" ? [stickyHeaderIndex] : []}
         refreshControl={
           onRefresh ? (
             <RefreshControl

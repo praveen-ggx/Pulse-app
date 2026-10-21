@@ -3,13 +3,21 @@
  * Light variant matches Trips hub date chips (compact tray + black active pill).
  */
 import Theme from "@/constants/Theme";
+import {
+  WEB_POINTER,
+  WEB_TRANSITION,
+  hoverOnDarkWash,
+  hoverRowWash,
+  isHovered,
+  type HoverPressState,
+} from "@/constants/hoverSelection";
 import type { FinancePeriodFilter } from "@/features/finance/types";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import {
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
 
@@ -68,15 +76,19 @@ export function DatePresetPillBar({
           {presets.map(({ id, label }) => {
             const active = period === id;
             return (
-              <TouchableOpacity
+              <Pressable
                 key={id}
-                style={[
+                style={(state: HoverPressState) => [
                   onLight ? styles.lightChip : styles.darkPill,
                   active &&
                     (onLight ? styles.lightChipActive : styles.darkPillActive),
+                  WEB_POINTER,
+                  WEB_TRANSITION,
+                  !active &&
+                    isHovered(state) &&
+                    (onLight ? hoverRowWash : hoverOnDarkWash),
                 ]}
                 onPress={() => onPeriodChange(id)}
-                activeOpacity={0.85}
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
                 accessibilityLabel={label}
@@ -93,17 +105,21 @@ export function DatePresetPillBar({
                 >
                   {label}
                 </Text>
-              </TouchableOpacity>
+              </Pressable>
             );
           })}
-          <TouchableOpacity
-            style={[
+          <Pressable
+            style={(state: HoverPressState) => [
               onLight ? styles.lightIconBtn : styles.darkIconPill,
               customActive &&
                 (onLight ? styles.lightChipActive : styles.darkPillActive),
+              WEB_POINTER,
+              WEB_TRANSITION,
+              !customActive &&
+                isHovered(state) &&
+                (onLight ? hoverRowWash : hoverOnDarkWash),
             ]}
             onPress={onCustomRangePress}
-            activeOpacity={0.8}
             accessibilityRole="button"
             accessibilityLabel="Pick custom date range"
           >
@@ -120,7 +136,7 @@ export function DatePresetPillBar({
                     : Theme.textOnDarkMuted
               }
             />
-          </TouchableOpacity>
+          </Pressable>
         </View>
       </ScrollView>
     </View>

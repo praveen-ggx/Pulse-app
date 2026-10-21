@@ -1646,6 +1646,19 @@ export function FinanceScreen() {
           financeSubTab === "suppliers" ? supplierViewTab : undefined
         }
         onSupplierViewTabChange={setSupplierViewTab}
+        onPartyAnalyticsPress={
+          financeSubTab === "customers" ||
+          financeSubTab === "suppliers" ||
+          financeSubTab === "drivers" ||
+          financeSubTab === "garage"
+            ? () =>
+                router.push(
+                  ROUTES.partyAnalytics(
+                    financeSubTab === "garage" ? "vehicles" : financeSubTab,
+                  ),
+                )
+            : undefined
+        }
         showPeriodFilter={false}
         periodFilter={financePeriodFilter}
         onPeriodFilterChange={setFinancePeriodFilter}

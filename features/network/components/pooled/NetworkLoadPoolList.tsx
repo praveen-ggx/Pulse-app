@@ -21,6 +21,7 @@ import {
   type NetworkLoadPool,
 } from "@/features/network/utils/networkLoadPools.util";
 import type { IndentRow } from "@/features/indents/services/indents.service";
+import { viaStopLocationsForMemberIds } from "@/features/trips/utils/routeExtraStops.util";
 import { ChevronLeft } from "lucide-react-native";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -33,6 +34,7 @@ export function NetworkLoadPoolList({
   onQuotePool,
   renderPoolMemberCard,
   onViewIndents,
+  viaStopsByIndentId,
 }: {
   orgId: string | null;
   openLoads: readonly IndentRow[];
@@ -43,6 +45,7 @@ export function NetworkLoadPoolList({
   renderPoolMemberCard: (load: IndentRow) => ReactNode;
   /** Opens the pool elsewhere (desktop column view) instead of inline. */
   onViewIndents?: (pool: NetworkLoadPool<IndentRow>) => void;
+  viaStopsByIndentId?: ReadonlyMap<string, readonly string[]>;
 }) {
   const [openPoolId, setOpenPoolId] = useState<string | null>(null);
 
@@ -71,6 +74,14 @@ export function NetworkLoadPoolList({
     if (openPoolId && !openPool) setOpenPoolId(null);
   }, [openPoolId, openPool]);
 
+  const viaFor = (pool: NetworkLoadPool<IndentRow>) =>
+    viaStopsByIndentId
+      ? viaStopLocationsForMemberIds(
+          pool.members.map((m) => m.id),
+          viaStopsByIndentId,
+        )
+      : [];
+
   if (openPool) {
     return (
       <View style={styles.wrap}>
@@ -89,6 +100,7 @@ export function NetworkLoadPoolList({
           canQuote={canQuote}
           showIndentsAction={false}
           onQuote={() => onQuotePool(openPool)}
+          viaStops={viaFor(openPool)}
         />
         <Text style={styles.sectionTitle}>Indents in this pool</Text>
         {openPool.members.map((load) => (
@@ -100,10 +112,6 @@ export function NetworkLoadPoolList({
 
   return (
     <View style={styles.wrap}>
-      <Text style={styles.summary}>
-        {shownPools.length} pool{shownPools.length === 1 ? "" : "s"} · one quote
-        per pool
-      </Text>
       {shownPools.map((pool) => (
         <NetworkLoadPoolCard
           key={pool.id}
@@ -113,6 +121,7 @@ export function NetworkLoadPoolList({
           onViewIndents={() =>
             onViewIndents ? onViewIndents(pool) : setOpenPoolId(pool.id)
           }
+          viaStops={viaFor(pool)}
         />
       ))}
       {shownUnpooled.length > 0 ? (
@@ -129,11 +138,6 @@ export function NetworkLoadPoolList({
 
 const styles = StyleSheet.create({
   wrap: { gap: 12 },
-  summary: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: Theme.textSecondary,
-  },
   back: {
     flexDirection: "row",
     alignItems: "center",

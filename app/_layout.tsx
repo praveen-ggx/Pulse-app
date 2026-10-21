@@ -616,6 +616,15 @@ function RootLayoutNav() {
               <Stack.Screen name="pulse-loads" options={{ animation: 'slide_from_right', headerShown: false }} />
               <Stack.Screen name="find-loads" options={{ animation: 'slide_from_right', headerShown: false }} />
               <Stack.Screen name="create-indent" options={{ presentation: 'fullScreenModal' }} />
+              <Stack.Screen
+                name="indent"
+                options={{
+                  presentation: "transparentModal",
+                  animation: "fade",
+                  headerShown: false,
+                  contentStyle: { flex: 1, backgroundColor: "transparent" },
+                }}
+              />
               <Stack.Screen name="log-incoming-pods" options={{ presentation: 'card', animation: 'slide_from_right' }} />
               <Stack.Screen name="debit-control" options={{ presentation: 'card', animation: 'slide_from_right', headerShown: false }} />
               <Stack.Screen name="invoicing-execute" options={{ presentation: 'card', animation: 'slide_from_right' }} />

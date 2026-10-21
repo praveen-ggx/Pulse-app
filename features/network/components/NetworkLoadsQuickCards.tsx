@@ -74,7 +74,17 @@ function MarketplaceArt({
     action.aspect,
   );
   return (
-    <Illustration width={illusSize.width} height={illusSize.height} />
+    <View
+      style={{
+        width: illusBoxW,
+        height: illusBoxH,
+        overflow: "hidden",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <Illustration width={illusSize.width} height={illusSize.height} />
+    </View>
   );
 }
 
@@ -92,8 +102,8 @@ function MarketplaceCard({
   const mobileTile = isMobile && variant === "tile";
   const locked = Boolean(action.locked);
 
-  const illusMaxW = sidebar && !inline ? 88 : compact || width < 380 ? 92 : 112;
-  const illusMaxH = sidebar && !inline ? 72 : compact || width < 380 ? 78 : 92;
+  const illusMaxW = sidebar && !inline ? 104 : compact || width < 380 ? 108 : 136;
+  const illusMaxH = sidebar && !inline ? 80 : compact || width < 380 ? 86 : 100;
 
   // The illustration and arrow are fixed-size, so a narrow card used to squeeze
   // the text column to a few pixels. Give the text its floor first, then spend
@@ -135,8 +145,8 @@ function MarketplaceCard({
   );
 
   if (mobileTile) {
-    const artW = compact ? 88 : 100;
-    const artH = compact ? 74 : 84;
+    const artW = compact ? 112 : 132;
+    const artH = compact ? 88 : 102;
 
     return (
       <View

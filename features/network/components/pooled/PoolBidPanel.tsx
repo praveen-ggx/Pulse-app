@@ -13,7 +13,12 @@ import {
   type PoolCommercialState,
 } from "@/features/network/utils/pooledOpportunity.util";
 import { Check, Minus } from "lucide-react-native";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+
+const WEB_COPY = Platform.select({
+  web: { whiteSpace: "pre-wrap" } as object,
+  default: {},
+});
 
 function targetRangeLabel(
   min: number | null,
@@ -186,33 +191,58 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Theme.surfaceBorder,
     backgroundColor: Theme.cardWhite,
-    padding: 16,
-    gap: 8,
+    padding: 20,
+    gap: 10,
   },
   eyebrow: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1.1,
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0,
     color: Theme.textMuted,
+    ...WEB_COPY,
   },
   title: {
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: "600",
     color: Theme.textPrimaryDark,
-    letterSpacing: -0.3,
+    letterSpacing: 0,
+    lineHeight: 22,
+    ...WEB_COPY,
   },
-  body: { fontSize: 13, color: Theme.textSecondary, lineHeight: 18 },
-  statRow: { flexDirection: "row", gap: 12, marginTop: 4 },
-  stat: { flex: 1, minWidth: 0, gap: 2 },
+  body: {
+    fontSize: 13,
+    color: Theme.textSecondary,
+    lineHeight: 18,
+    ...WEB_COPY,
+  },
+  statRow: { flexDirection: "row", gap: 10, marginTop: 4 },
+  stat: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: Theme.analyticsCanvas,
+    borderWidth: 1,
+    borderColor: Theme.surfaceBorder,
+  },
   statEnd: { alignItems: "flex-end" },
   statLabel: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: "600",
-    letterSpacing: 0.45,
+    letterSpacing: 0,
     textTransform: "uppercase",
     color: Theme.textMuted,
+    ...WEB_COPY,
   },
-  statValue: { fontSize: 15, fontWeight: "700", color: Theme.textPrimaryDark },
+  statValue: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: Theme.textPrimaryDark,
+    lineHeight: 18,
+    ...WEB_COPY,
+  },
   statRate: { color: Theme.primary },
   blocked: {
     fontSize: 12,
@@ -220,7 +250,7 @@ const styles = StyleSheet.create({
     color: Theme.warning,
     lineHeight: 16,
   },
-  note: { fontSize: 12, color: Theme.textMuted, lineHeight: 16 },
+  note: { fontSize: 12, color: Theme.textMuted, lineHeight: 17, ...WEB_COPY },
   cta: {
     marginTop: 4,
     minHeight: Layout.minTouchTargetSize,
@@ -233,7 +263,7 @@ const styles = StyleSheet.create({
   },
   ctaDisabled: { opacity: 0.45 },
   ctaPressed: { opacity: 0.88 },
-  ctaText: { fontSize: 14, fontWeight: "700", color: Theme.buttonPrimaryText },
+  ctaText: { fontSize: 14, fontWeight: "600", color: Theme.buttonPrimaryText },
   banner: { borderRadius: 10, padding: 10, gap: 3 },
   bannerOk: { backgroundColor: Theme.positiveMuted },
   bannerOkText: { fontSize: 13, fontWeight: "600", color: Theme.positive },
@@ -245,7 +275,7 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.surfaceBorder,
     marginVertical: 6,
   },
-  eligRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  eligText: { fontSize: 13, color: Theme.textPrimaryDark },
+  eligRow: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 22 },
+  eligText: { fontSize: 13, color: Theme.textPrimaryDark, ...WEB_COPY },
   eligTextOff: { color: Theme.textMuted },
 });

@@ -187,7 +187,11 @@ import {
     View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouteExtraStopsSummaries } from "@/features/trips/hooks/useRouteExtraStopsQuery";
+import { useRouteExtraStopRows } from "@/features/trips/hooks/useRouteExtraStopsQuery";
+import { summarizeRouteExtraStopRows } from "@/features/trips/services/routeExtraStops.service";
+import {
+  viaStopLocationsByParentId,
+} from "@/features/trips/utils/routeExtraStops.util";
 
 interface LoadCenterViewProps {
   /** Top padding (e.g. from parent sub-tab row + safe area). */
@@ -348,9 +352,14 @@ export function LoadCenterView({
     () => [...indents, ...marketIndents].map((row) => row.id),
     [indents, marketIndents],
   );
-  const extraStopsByIndentId = useRouteExtraStopsSummaries(
-    "indent",
-    extraStopIndentIds,
+  const extraStopRows = useRouteExtraStopRows("indent", extraStopIndentIds);
+  const extraStopsByIndentId = useMemo(
+    () => summarizeRouteExtraStopRows(extraStopRows, "indent_id"),
+    [extraStopRows],
+  );
+  const viaStopsByIndentId = useMemo(
+    () => viaStopLocationsByParentId(extraStopRows, "indent_id"),
+    [extraStopRows],
   );
   const { data: planClientsById } = useExecutionPlanClients(
     orgId,
@@ -1451,6 +1460,7 @@ export function LoadCenterView({
       return (
         <LoadCenterHubMobileIndentCard
           routeExtraStops={extraStopsByIndentId.get(load.id) ?? null}
+          viaStopLocations={viaStopsByIndentId.get(load.id)}
           key={load.id}
           indent={load}
           titleName={clientLabel}
@@ -1474,6 +1484,7 @@ export function LoadCenterView({
           organizationImageUrl={avatar.organizationImageUrl}
           organizationAvatarSeed={avatar.organizationAvatarSeed}
           initialsColorSeed={avatar.initialsColorSeed}
+          isIntegrated={avatar.isIntegrated}
           tripAllocation={tripAllocationForLoad(load.id)}
           onPress={() =>
             isDone ? handleCardIndentPress(load) : openIndentAllocation(load)
@@ -1637,6 +1648,7 @@ export function LoadCenterView({
       return (
         <LoadCenterHubMobileIndentCard
           routeExtraStops={extraStopsByIndentId.get(load.id) ?? null}
+          viaStopLocations={viaStopsByIndentId.get(load.id)}
           indent={load}
           titleName={clientName}
           statusLabel={displayStatus}
@@ -1658,6 +1670,7 @@ export function LoadCenterView({
           organizationImageUrl={avatar.organizationImageUrl}
           organizationAvatarSeed={avatar.organizationAvatarSeed}
           initialsColorSeed={avatar.initialsColorSeed}
+          isIntegrated={avatar.isIntegrated}
           avatarPartyName={avatar.partyName}
           clientFaces={clientFaces.length > 1 ? clientFaces : null}
           tripAllocation={tripAllocationForLoad(load.id)}
@@ -1900,6 +1913,7 @@ export function LoadCenterView({
       return (
         <LoadCenterHubMobileIndentCard
           routeExtraStops={extraStopsByIndentId.get(load.id) ?? null}
+          viaStopLocations={viaStopsByIndentId.get(load.id)}
           indent={load}
           titleName={clientLabel}
           statusLabel={statusLabel}
@@ -1916,6 +1930,7 @@ export function LoadCenterView({
           organizationImageUrl={avatar.organizationImageUrl}
           organizationAvatarSeed={avatar.organizationAvatarSeed}
           initialsColorSeed={avatar.initialsColorSeed}
+          isIntegrated={avatar.isIntegrated}
           tripAllocation={tripAllocationForLoad(load.id)}
           onPress={openLoad}
           dense={layout.dense}
@@ -2053,6 +2068,7 @@ export function LoadCenterView({
       return (
         <LoadCenterHubMobileIndentCard
           routeExtraStops={extraStopsByIndentId.get(load.id) ?? null}
+          viaStopLocations={viaStopsByIndentId.get(load.id)}
           indent={load}
           titleName={clientLabel}
           statusLabel={isDone ? "completed" : "action required"}
@@ -2068,6 +2084,7 @@ export function LoadCenterView({
           organizationImageUrl={avatar.organizationImageUrl}
           organizationAvatarSeed={avatar.organizationAvatarSeed}
           initialsColorSeed={avatar.initialsColorSeed}
+          isIntegrated={avatar.isIntegrated}
           tripAllocation={tripAllocationForLoad(load.id)}
           onPress={() => handleCardIndentPress(load)}
           dense
@@ -2405,6 +2422,8 @@ export function LoadCenterView({
                       mode={loadSubTab === "GET_LOAD" ? "get" : "give"}
                       onViewAll={openNetworkForParties}
                       enabled={enrichmentOpen}
+                      fillHeight
+                      style={styles.loadDesktopRecsPanel}
                     />
                   </View>
                 </View>
@@ -2576,6 +2595,7 @@ export function LoadCenterView({
                             onViewIndents={(pool) =>
                               openKanbanColumn("get", col, pool.id)
                             }
+                            viaStopsByIndentId={viaStopsByIndentId}
                           />
                         ) : col.id === "QUOTED" ? (
                           <NetworkBidPoolList
@@ -2588,6 +2608,8 @@ export function LoadCenterView({
                             onViewPool={(pool) =>
                               openKanbanColumn("get", col, pool.id)
                             }
+                            onRevisePool={setQuotePool}
+                            viaStopsByIndentId={viaStopsByIndentId}
                           />
                         ) : null
                       }
@@ -2641,6 +2663,7 @@ export function LoadCenterView({
                     canQuote={Boolean(orgId)}
                     onQuotePool={setQuotePool}
                     renderPoolMemberCard={renderGetLoadPoolMemberCard}
+                    viaStopsByIndentId={viaStopsByIndentId}
                   />
                 ) : statusFilterTab === "QUOTED" ? (
                   <NetworkBidPoolList
@@ -2652,6 +2675,8 @@ export function LoadCenterView({
                       isMobileView ? renderGetLoadMobileCard : renderGetLoadListCard
                     }
                     renderPoolMemberCard={renderGetLoadBidPoolMemberCard}
+                    onRevisePool={setQuotePool}
+                    viaStopsByIndentId={viaStopsByIndentId}
                   />
                 ) : null}
                 {statusFilterTab === "OPEN" || statusFilterTab === "QUOTED" ? null : visibleFindWorkList.map((load) => (
@@ -2837,6 +2862,8 @@ export function LoadCenterView({
         bidPoolQuotes={expandedKanbanMode === "get" ? myQuoteByIndentId : undefined}
         bidPoolLoads={expandedKanbanMode === "get" ? quotedFindWorkLoads : undefined}
         isBidPoolable={isPoolableOpenLoad}
+        onReviseBidPool={expandedKanbanMode === "get" ? setQuotePool : undefined}
+        viaStopsByIndentId={viaStopsByIndentId}
       >
         <NetworkPoolQuoteModal
           pool={quotePool}
@@ -3158,13 +3185,13 @@ const styles = StyleSheet.create({
     minHeight: 0,
     flexGrow: 1,
     flexShrink: 1,
-    gap: 10,
+    flexBasis: 0,
+    gap: 8,
     overflow: "hidden",
     ...Platform.select({
       web: {
         display: "flex" as const,
         flexDirection: "column" as const,
-        height: "100%",
       },
     }),
   },
@@ -3183,9 +3210,9 @@ const styles = StyleSheet.create({
   },
   findVehiclesBtnText: {
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
     color: Theme.textOnDark,
-    letterSpacing: 0.2,
+    letterSpacing: 0.15,
   },
   loadsCombinedTabRow: {
     flexDirection: "row",
@@ -3364,9 +3391,25 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
   },
   loadDesktopRecs: {
-    flexShrink: 0,
-    maxHeight: 168,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minHeight: 0,
     overflow: "hidden",
+    ...Platform.select({
+      web: {
+        display: "flex" as const,
+        flexDirection: "column" as const,
+      },
+    }),
+  },
+  loadDesktopRecsPanel: {
+    flex: 1,
+    minHeight: 0,
+    height: "100%",
+    borderWidth: 1,
+    borderRadius: 12,
+    backgroundColor: Theme.cardWhite,
   },
   loadContentWrapClaimed: {
     marginTop: 0,

@@ -26,6 +26,7 @@ export function ConnectionEntityAvatar({
   return (
     <EntityAvatar
       name={item.name}
+      organizationImageUrl={item.avatar_url}
       avatarUrl={item.avatar_url}
       avatarSeed={item.avatar_seed}
       entityType={entityTypeForConnectionRole(item.role)}

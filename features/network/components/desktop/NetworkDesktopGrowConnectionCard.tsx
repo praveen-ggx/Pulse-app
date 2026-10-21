@@ -89,6 +89,7 @@ export type NetworkDesktopGrowConnectionCardProps = {
   pendingRole?: ConnectionInviteRole | null;
   connecting?: boolean;
   onOpenProfile?: () => void;
+  onPrefetchProfile?: () => void;
   onConnect?: () => void;
   onCancel?: () => void;
   onDismiss?: () => void;
@@ -105,6 +106,7 @@ export function NetworkDesktopGrowConnectionCard({
   pendingRole = null,
   connecting = false,
   onOpenProfile,
+  onPrefetchProfile,
   onConnect,
   onCancel,
   onDismiss,
@@ -166,6 +168,7 @@ export function NetworkDesktopGrowConnectionCard({
 
       <Pressable
         onPress={onOpenProfile}
+        onPressIn={onPrefetchProfile}
         disabled={!onOpenProfile}
         style={({ pressed }) => [
           growStyles.bizBody,

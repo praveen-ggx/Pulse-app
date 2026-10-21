@@ -184,6 +184,7 @@ export function ElrTripDetailAction({
       queryClient.setQueryData(["q", "trips", "elr-draft", tripId], null);
       void clearElrDraft(tripId);
       void queryClient.invalidateQueries({ queryKey: ["q", "trips", "elr", tripId] });
+      void queryClient.invalidateQueries({ queryKey: ["q", "trips", "hub"] });
       onSaved?.();
     }
   };
@@ -607,6 +608,7 @@ const styles = StyleSheet.create({
     color: Theme.textSecondary,
     fontSize: 10,
     textAlign: "right",
+    letterSpacing: 0,
   },
   subActions: { flexDirection: "row", gap: 10, marginTop: 2 },
   subActionText: { color: Theme.textSecondary, fontSize: 10, fontWeight: "600" },

@@ -2,6 +2,9 @@ import {
   EMPTY_ROUTE_EXTRA_STOP_SUMMARY,
   extraStopChipLabel,
   extraStopPaidLabel,
+  uniqueViaStopLocations,
+  viaStopLocationsByParentId,
+  viaStopLocationsForMemberIds,
   freightWithExtraStops,
   newRouteExtraStopDraft,
   parseStopCharge,
@@ -63,6 +66,29 @@ describe("routeExtraStops.util", () => {
     expect(extraStopPaidLabel(summary, "supplier", inr)).toBe("incl. ₹700 extra paid");
     expect(extraStopPaidLabel({ ...summary, supplierCharge: 0 }, "supplier", inr)).toBeNull();
     expect(extraStopPaidLabel(EMPTY_ROUTE_EXTRA_STOP_SUMMARY, "client", inr)).toBeNull();
+  });
+
+  it("lists unique via stop places in sequence for the bidder", () => {
+    expect(
+      uniqueViaStopLocations([
+        { location: " Krishnagiri ", sequence: 2 },
+        { location: "Hosur", sequence: 1 },
+        { location: "hosur", sequence: 3 },
+        { location: "  ", sequence: 0 },
+      ]),
+    ).toEqual(["Hosur", "Krishnagiri"]);
+    const byIndent = viaStopLocationsByParentId(
+      [
+        { location: "Hosur", sequence: 1, indent_id: "a" },
+        { location: "Salem", sequence: 1, indent_id: "b" },
+        { location: "Hosur", sequence: 2, indent_id: "b" },
+      ],
+      "indent_id",
+    );
+    expect(viaStopLocationsForMemberIds(["a", "b"], byIndent)).toEqual([
+      "Hosur",
+      "Salem",
+    ]);
   });
 
   it("rebuilds editor rows from saved stops", () => {

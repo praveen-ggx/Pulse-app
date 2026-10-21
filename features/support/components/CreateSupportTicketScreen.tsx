@@ -54,6 +54,10 @@ import {
 
 const MAX_ATTACHMENTS = SUPPORT_ATTACHMENT_MAX_PER_UPLOAD;
 const RECENT_TICKETS_LIMIT = 5;
+const WEB_COPY = Platform.select({
+  web: { whiteSpace: 'pre-wrap' as const },
+  default: {},
+});
 
 type StagedAttachment = StagedSupportAttachment & { localId: string };
 
@@ -241,13 +245,24 @@ export function CreateSupportTicketScreen() {
       rightAction={
         <Pressable
           onPress={() => router.push(ROUTES.SUPPORT_TICKETS as Href)}
-          hitSlop={10}
+          hitSlop={8}
           style={styles.myTicketsBtn}
+          accessibilityRole="button"
+          accessibilityLabel="My tickets"
         >
-          <Text style={styles.myTicketsBtnText}>My Tickets</Text>
+          <Text style={styles.myTicketsBtnText}>My tickets</Text>
         </Pressable>
       }
     >
+      <View style={styles.page}>
+      <View style={styles.formCard}>
+        <View style={styles.formHead}>
+          <Text style={styles.cardKicker}>New ticket</Text>
+          <Text style={styles.cardHint}>
+            Pick a category, add a short subject, then describe what went wrong.
+          </Text>
+        </View>
+
       <Text style={styles.fieldLabel}>Category</Text>
       <View style={styles.categoryRow}>
         {SUPPORT_TICKET_CATEGORIES.map((c) => {
@@ -257,6 +272,8 @@ export function CreateSupportTicketScreen() {
               key={c}
               onPress={() => setCategory(c)}
               style={[styles.categoryChip, on && styles.categoryChipActive]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: on }}
             >
               <Text style={[styles.categoryChipText, on && styles.categoryChipTextActive]}>
                 {c}
@@ -310,11 +327,11 @@ export function CreateSupportTicketScreen() {
           activeOpacity={0.7}
         >
         {picking ? (
-          <ActivityIndicator color={Theme.primary} size="small" />
+          <ActivityIndicator color={Theme.textMuted} size="small" />
         ) : (
-          <Paperclip size={16} color={Theme.primary} />
+          <Paperclip size={14} color={Theme.textMuted} />
         )}
-        <View>
+        <View style={styles.attachCopy}>
           <Text style={styles.attachBtnText}>Attach files</Text>
           <Text style={styles.attachBtnSubtext}>
             Screenshots, documents or other evidence
@@ -342,7 +359,7 @@ export function CreateSupportTicketScreen() {
                 hitSlop={10}
                 disabled={submitting}
               >
-                <X size={16} color={Theme.textMuted} />
+                <X size={14} color={Theme.textMuted} />
               </TouchableOpacity>
             </View>
           ))}
@@ -353,19 +370,22 @@ export function CreateSupportTicketScreen() {
         style={[styles.submitBtn, submitting && styles.submitBtnDisabled]}
         onPress={() => void handleSubmit()}
         disabled={submitting}
-        activeOpacity={0.9}
+        activeOpacity={0.88}
+        accessibilityRole="button"
+        accessibilityLabel="Submit ticket"
       >
         {submitting ? (
-          <ActivityIndicator color={Theme.buttonPrimaryText} size="small" />
+          <ActivityIndicator color={Theme.buttonDarkText} size="small" />
         ) : (
-          <Text style={styles.submitBtnText}>Submit</Text>
+          <Text style={styles.submitBtnText}>Submit ticket</Text>
         )}
       </TouchableOpacity>
+      </View>
 
       <View style={styles.recentSection}>
         <View style={styles.recentHeader}>
           <View style={styles.recentTitleRow}>
-            <Text style={styles.fieldLabel}>Recent tickets</Text>
+            <Text style={styles.sectionLabel}>Recent tickets</Text>
             {updateBadge ? (
               <View style={styles.updateBadge} accessibilityLabel={`${updateBadge} updates`}>
                 <Text style={styles.updateBadgeText}>{updateBadge}</Text>
@@ -430,173 +450,243 @@ export function CreateSupportTicketScreen() {
           })
         )}
       </View>
+      </View>
     </DetailPageLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  fieldLabel: {
+  page: {
+    width: '100%',
+    maxWidth: 720,
+    alignSelf: 'center',
+    gap: 16,
+  },
+  formCard: {
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
+    borderRadius: 12,
+    backgroundColor: Theme.cardWhite,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 14,
+  },
+  formHead: {
+    marginBottom: 12,
+    gap: 4,
+  },
+  cardKicker: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Theme.actionBtnInk,
+    letterSpacing: 0,
+    ...WEB_COPY,
+  },
+  cardHint: {
     fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
+    fontWeight: '400',
+    lineHeight: 16,
     color: Theme.textMuted,
-    marginBottom: 8,
+    letterSpacing: 0,
+    ...WEB_COPY,
+  },
+  fieldLabel: {
+    fontSize: 10,
+    fontWeight: '500',
+    letterSpacing: 0,
+    color: Theme.textMuted,
+    marginBottom: 6,
+    ...WEB_COPY,
   },
   categoryRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 16,
+    gap: 6,
+    marginBottom: 12,
   },
   categoryChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 999,
+    minHeight: 28,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
     borderWidth: 1,
-    borderColor: Theme.borderLight,
+    borderColor: Theme.actionBtnGhostBorder,
     backgroundColor: Theme.cardWhite,
+    justifyContent: 'center',
   },
   categoryChipActive: {
-    backgroundColor: Theme.buttonPrimary,
-    borderColor: Theme.buttonPrimary,
+    backgroundColor: Theme.actionBtnInk,
+    borderColor: Theme.actionBtnInk,
   },
   categoryChipText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Theme.textPrimaryDark,
-  },
-  categoryChipTextActive: {
-    color: Theme.buttonPrimaryText,
-  },
-  input: {
-    backgroundColor: Theme.cardWhite,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
+    fontSize: 11,
     fontWeight: '500',
     color: Theme.textPrimaryDark,
-    marginBottom: 16,
-    minHeight: 48,
+    letterSpacing: 0,
+    ...WEB_COPY,
+  },
+  categoryChipTextActive: {
+    color: Theme.buttonDarkText,
+  },
+  input: {
+    backgroundColor: Theme.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    fontSize: 13,
+    fontWeight: '400',
+    color: Theme.textPrimaryDark,
+    marginBottom: 12,
+    minHeight: 40,
     borderWidth: 1,
-    borderColor: Theme.borderLight,
+    borderColor: Theme.actionBtnGhostBorder,
     borderRadius: 8,
   },
   descriptionInput: {
-    minHeight: 140,
+    minHeight: 96,
+    paddingTop: 10,
   },
   attachBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingVertical: 10,
-    marginBottom: 12,
+    gap: 8,
+    minHeight: 44,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: Theme.actionBtnGhostBorder,
+    borderRadius: 8,
+    backgroundColor: Theme.surface,
+  },
+  attachCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
   },
   attachBtnText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Theme.primary,
+    fontSize: 12,
+    fontWeight: '500',
+    color: Theme.actionBtnInk,
+    letterSpacing: 0,
+    ...WEB_COPY,
   },
   attachBtnSubtext: {
-    fontSize: 11,
+    fontSize: 10,
+    fontWeight: '400',
     color: Theme.textMuted,
-    marginTop: 1,
+    letterSpacing: 0,
+    ...WEB_COPY,
   },
   attachmentList: {
-    gap: 8,
-    marginBottom: 16,
+    gap: 6,
+    marginBottom: 12,
   },
   attachmentRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     borderWidth: 1,
-    borderColor: Theme.borderLight,
+    borderColor: Theme.actionBtnGhostBorder,
     borderRadius: 8,
-    backgroundColor: Theme.cardWhite,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 10,
+    backgroundColor: Theme.surface,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 8,
   },
   attachmentInfo: {
     flex: 1,
-    gap: 2,
+    gap: 1,
   },
   attachmentName: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '500',
     color: Theme.textPrimaryDark,
   },
   attachmentMeta: {
-    fontSize: 11,
+    fontSize: 10,
     color: Theme.textMuted,
   },
   submitBtn: {
-    backgroundColor: Theme.buttonPrimary,
-    minHeight: 48,
+    backgroundColor: Theme.actionBtnInk,
+    minHeight: 40,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 4,
+    marginTop: 2,
   },
   submitBtnDisabled: {
     opacity: 0.65,
   },
   submitBtnText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: Theme.buttonPrimaryText,
+    fontSize: 12,
+    fontWeight: '500',
+    color: Theme.buttonDarkText,
+    letterSpacing: 0,
+    ...WEB_COPY,
   },
   recentSection: {
-    marginTop: 28,
-    marginBottom: 24,
-    gap: 10,
+    gap: 8,
   },
   recentHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 2,
   },
   recentTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
+  },
+  sectionLabel: {
+    fontSize: 10,
+    fontWeight: '500',
+    letterSpacing: 0,
+    color: Theme.textMuted,
+    ...WEB_COPY,
   },
   updateBadge: {
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
-    paddingHorizontal: 6,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 5,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: Theme.destructive,
-    marginBottom: 8,
   },
   updateBadgeText: {
-    fontSize: 11,
-    fontWeight: '800',
+    fontSize: 10,
+    fontWeight: '600',
     color: Theme.buttonDestructiveText,
   },
   seeAllText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: Theme.primary,
-    marginBottom: 8,
+    fontSize: 11,
+    fontWeight: '500',
+    color: Theme.actionBtnInk,
+    letterSpacing: 0,
+    ...WEB_COPY,
   },
   recentEmpty: {
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 17,
     color: Theme.textMuted,
-    paddingVertical: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
+    borderRadius: 8,
+    backgroundColor: Theme.surface,
+    letterSpacing: 0,
+    ...WEB_COPY,
   },
   recentCard: {
-    borderRadius: 12,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: Theme.borderLight,
+    borderColor: Theme.actionBtnGhostBorder,
     backgroundColor: Theme.cardWhite,
-    padding: 14,
-    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 3,
   },
   recentCardUpdate: {
     borderColor: Theme.warning,
@@ -617,42 +707,59 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   updateDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: Theme.destructive,
   },
   recentDisplayId: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '500',
     color: Theme.textMuted,
-    letterSpacing: 0.3,
+    letterSpacing: 0,
   },
   recentStatusPill: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    borderRadius: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
   },
-  recentStatusText: { fontSize: 11, fontWeight: '700' },
+  recentStatusText: {
+    fontSize: 10,
+    fontWeight: '500',
+    letterSpacing: 0,
+    ...WEB_COPY,
+  },
   recentSubject: {
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '500',
     color: Theme.textPrimaryDark,
+    letterSpacing: 0,
+    ...WEB_COPY,
   },
   recentSubjectUpdate: {
-    fontWeight: '800',
+    fontWeight: '600',
   },
   recentMeta: {
-    fontSize: 12,
+    fontSize: 10,
     color: Theme.textMuted,
+    letterSpacing: 0,
+    ...WEB_COPY,
   },
   myTicketsBtn: {
+    minHeight: 32,
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
+    backgroundColor: Theme.cardWhite,
+    justifyContent: 'center',
   },
   myTicketsBtnText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Theme.primary,
+    fontSize: 12,
+    fontWeight: '500',
+    color: Theme.actionBtnInk,
+    letterSpacing: 0,
+    ...WEB_COPY,
   },
 });

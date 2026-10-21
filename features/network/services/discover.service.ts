@@ -2,6 +2,7 @@
  * Discover service — search organizations outside your current network.
  */
 import { isOrgKycVerified } from '@/features/network/utils/orgVerification.util';
+import { pickOrgAvatarStorageRef } from '@/features/network/utils/orgAvatarRef.util';
 import { supabase } from '@/lib/supabase';
 
 function parseRating(value: unknown): number | null {
@@ -35,12 +36,16 @@ export function applyPartnerDisplayToDiscoverOrgs(
     string,
     {
       avatarUrl?: string | null;
+      logoUrl?: string | null;
       avatarSeed?: string | null;
       verificationStatus?: string | null;
       averageRating?: number | string | null;
       tripCount?: number | string | null;
       ratingCount?: number | string | null;
       orgCreatedAt?: string | null;
+      phone?: string | null;
+      vehicleCount?: number | string | null;
+      networkIndentCount?: number | string | null;
     }
   >,
 ): DiscoverOrg[] {
@@ -48,7 +53,9 @@ export function applyPartnerDisplayToDiscoverOrgs(
 
   return orgs.map((org) => {
     const row = profiles[org.id];
-    const batchUrl = (row?.avatarUrl ?? "").trim();
+    const batchUrl =
+      pickOrgAvatarStorageRef(row?.logoUrl, row?.avatarUrl) ??
+      (row?.avatarUrl ?? "").trim();
     const batchSeed = (row?.avatarSeed ?? "").trim();
     const verificationStatus =
       (
@@ -66,6 +73,14 @@ export function applyPartnerDisplayToDiscoverOrgs(
     const ratingCount = parseCount(row?.ratingCount) ?? parseCount(org.rating_count);
     const orgCreatedAt =
       parseTimestamp(row?.orgCreatedAt) ?? parseTimestamp(org.org_created_at);
+    const phone =
+      (typeof row?.phone === "string" ? row.phone.trim() : "") ||
+      org.phone ||
+      null;
+    const vehicleCount =
+      parseCount(row?.vehicleCount) ?? parseCount(org.vehicle_count);
+    const networkIndentCount =
+      parseCount(row?.networkIndentCount) ?? parseCount(org.network_indent_count);
     return {
       ...org,
       avatar_url: (org.avatar_url ?? "").trim() || batchUrl || null,
@@ -80,6 +95,9 @@ export function applyPartnerDisplayToDiscoverOrgs(
       trip_count: tripCount,
       rating_count: ratingCount,
       org_created_at: orgCreatedAt,
+      phone,
+      vehicle_count: vehicleCount,
+      network_indent_count: networkIndentCount,
     };
   });
 }
@@ -109,6 +127,7 @@ export interface DiscoverOrg {
   rating_count?: number | null;
   vehicle_count?: number | null;
   network_indent_count?: number | null;
+  phone?: string | null;
   org_created_at?: string | null;
   lane_overlap_count?: number | null;
   recommendation_score?: number | null;

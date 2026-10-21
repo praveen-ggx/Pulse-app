@@ -44,6 +44,7 @@ import {
 } from "@/features/network/utils/discoverRecommendations.util";
 import { useEnsureVerified } from "@/features/network/utils/verifiedActionGuard";
 import { showAppAlert } from "@/lib/appAlert";
+import { prefetchNetworkProfileSnapshot } from "@/lib/queries/useNetworkProfileSnapshotQuery";
 import { todayPendingInviteCountFromSent } from "@/lib/todayPendingInviteCount";
 import {
   useConnectionRequestsSentQuery,
@@ -324,6 +325,9 @@ export function NetworkDesktopGrowPanel({
           pendingRole={pending ? pendingRole : null}
           connecting={connectingId === org.id}
           onOpenProfile={() => onOpenProfile(org)}
+          onPrefetchProfile={() => {
+            void prefetchNetworkProfileSnapshot(queryClient, orgId, org.id);
+          }}
           onConnect={() => tryBeginConnectionRequest(org)}
           onCancel={() => void handleCancel(org)}
           onDismiss={
@@ -566,6 +570,7 @@ export function NetworkDesktopGrowPanel({
                   <PartyAvatar
                     name={item.name}
                     initialsColorSeed={item.id}
+                    organizationImageUrl={item.avatar_url}
                     avatarUrl={item.avatar_url}
                     avatarSeed={item.avatar_seed}
                     entityType={entityType}

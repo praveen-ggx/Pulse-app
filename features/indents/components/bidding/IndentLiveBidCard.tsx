@@ -279,7 +279,7 @@ export const IndentLiveBidCard = memo(function IndentLiveBidCard({
               ]}
               numberOfLines={1}
             >
-              {statusToneLabel.toUpperCase()}
+              {statusToneLabel}
             </Text>
           </View>
         </View>
@@ -369,7 +369,7 @@ export const IndentLiveBidCard = memo(function IndentLiveBidCard({
         <View style={styles.body}>
           <View style={styles.nameRow}>
             <Text style={styles.partyName} numberOfLines={1}>
-              {partyName.toUpperCase()}
+              {partyName}
             </Text>
             {isConnectedPartner ? (
               <View style={styles.partnerPill}>
@@ -453,7 +453,7 @@ export const IndentLiveBidCard = memo(function IndentLiveBidCard({
                     styles.statusTextSelected,
                 ]}
               >
-                {statusLabel.toUpperCase()}
+                {statusLabel}
               </Text>
             </View>
             {submitted ? (
@@ -566,7 +566,7 @@ export const IndentLiveBidCard = memo(function IndentLiveBidCard({
               hitSlop={Layout.touchTargetHitSlop}
             >
               <Text style={styles.counterBtnText}>
-                {isCountered ? "Update counter" : "Counter"}
+                {isCountered ? "Update" : "Counter"}
               </Text>
             </TouchableOpacity>
           </View>
@@ -704,26 +704,33 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   partyName: {
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.15,
+    fontSize: 13,
+    fontWeight: "500",
+    letterSpacing: 0,
     color: Theme.gpayListTitle,
     flexShrink: 1,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   partnerPill: {
-    paddingHorizontal: 6,
+    paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 4,
     backgroundColor: Theme.brandBlueSoft,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     borderColor: Theme.brandBlue,
   },
   partnerPillText: {
-    fontSize: 8,
-    fontWeight: "700",
-    letterSpacing: 0.3,
-    textTransform: "uppercase",
+    fontSize: 10,
+    fontWeight: "500",
+    letterSpacing: 0,
     color: Theme.primary,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   partnerPillMarket: {
     backgroundColor: Theme.surface,
@@ -765,10 +772,13 @@ const styles = StyleSheet.create({
     borderColor: Theme.borderMedium,
   },
   badgeText: {
-    fontSize: 8,
-    fontWeight: "700",
-    letterSpacing: 0.25,
-    textTransform: "uppercase",
+    fontSize: 10,
+    fontWeight: "500",
+    letterSpacing: 0,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   badgeTextRecommended: { color: Theme.primary },
   badgeTextLowest: { color: Theme.gpayListSubtitle },
@@ -793,9 +803,9 @@ const styles = StyleSheet.create({
     color: Theme.gpayListSubtitle,
   },
   amount: {
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: -0.2,
+    fontSize: 14,
+    fontWeight: "600",
+    letterSpacing: 0,
     maxWidth: 108,
     color: Theme.gpayListTitle,
     fontVariant: ["tabular-nums"],
@@ -840,10 +850,14 @@ const styles = StyleSheet.create({
     borderColor: Theme.aggregatePillBorder,
   },
   statusText: {
-    fontSize: 8,
-    fontWeight: "700",
-    letterSpacing: 0.35,
+    fontSize: 10,
+    fontWeight: "500",
+    letterSpacing: 0,
     color: Theme.textMuted,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   statusTextPending: { color: Theme.gpayListSubtitle },
   statusTextSelected: { color: Theme.primary },
@@ -879,21 +893,28 @@ const styles = StyleSheet.create({
     marginVertical: 1,
   },
   metricLabel: {
-    fontSize: 8,
-    fontWeight: "600",
-    letterSpacing: 0.4,
-    textTransform: "uppercase",
+    fontSize: 10,
+    fontWeight: "500",
+    letterSpacing: 0,
     color: Theme.gpayListSubtitle,
     marginBottom: 4,
     width: "100%",
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   metricValue: {
-    fontSize: 11,
-    fontWeight: "700",
+    fontSize: 12,
+    fontWeight: "500",
     fontVariant: ["tabular-nums"],
     color: Theme.gpayListTitle,
-    letterSpacing: -0.1,
+    letterSpacing: 0,
     width: "100%",
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   metricPositive: {
     color: Theme.gpayAmountReceived,
@@ -924,10 +945,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 8,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: Theme.brandBlueSoft,
+    paddingVertical: 10,
+    backgroundColor: Theme.cardWhite,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Theme.brandBlue,
+    borderTopColor: Theme.borderLight,
   },
   actionLeft: {
     flexDirection: "row",
@@ -938,10 +959,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   actionLeftText: {
-    fontSize: 10,
-    fontWeight: "600",
-    color: Theme.gpayListTitle,
+    fontSize: 12,
+    fontWeight: "400",
+    color: Theme.gpayListSubtitle,
     flexShrink: 1,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   selectedStrip: {
     flexDirection: "row",
@@ -975,21 +1000,22 @@ const styles = StyleSheet.create({
     color: Theme.textMuted,
   },
   counterBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    minHeight: 32,
-    borderRadius: 999,
+    height: 26,
+    minWidth: 68,
+    paddingHorizontal: 10,
+    borderRadius: 4,
     backgroundColor: Theme.cardWhite,
     borderWidth: 1,
-    borderColor: Theme.primary,
+    borderColor: Theme.actionBtnGhostBorder,
+    alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
   },
   counterBtnText: {
     fontSize: 10,
-    fontWeight: "700",
-    color: Theme.primary,
-    letterSpacing: 0.2,
+    fontWeight: "500",
+    color: Theme.actionBtnInk,
+    letterSpacing: 0,
   },
   alertPanel: {
     flexDirection: "row",

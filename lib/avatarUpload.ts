@@ -488,6 +488,51 @@ async function buildAvatarPathCandidates(path: string): Promise<string[]> {
   return Array.from(deduped);
 }
 
+function orgLogoObjectPathLocal(raw: string): string | null {
+  let candidate = raw;
+  if (candidate.toLowerCase().startsWith("s3://")) {
+    const withoutScheme = candidate.slice(5);
+    const slash = withoutScheme.indexOf("/");
+    candidate =
+      slash > 0 ? withoutScheme.slice(slash + 1) || withoutScheme : withoutScheme;
+  }
+  const idx = candidate.indexOf(PUBLIC_ORG_LOGO_PREFIX);
+  if (idx >= 0) return candidate.slice(idx).split("?")[0] ?? null;
+  if (candidate.startsWith(`${PUBLIC_ORG_ASSET_BUCKET}/`)) {
+    return candidate.slice(PUBLIC_ORG_ASSET_BUCKET.length + 1).split("?")[0] ?? null;
+  }
+  return null;
+}
+
+/** Public URL for an org-logo storage ref. Never signs. */
+export function resolveOrgLogoPublicUrl(
+  raw: string | null | undefined,
+): string | null {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) return null;
+  const path = orgLogoObjectPathLocal(trimmed);
+  if (path) {
+    return supabase()
+      .storage
+      .from(PUBLIC_ORG_ASSET_BUCKET)
+      .getPublicUrl(path).data.publicUrl;
+  }
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    try {
+      const parsed = new URL(trimmed);
+      if (
+        parsed.hostname.includes("amazonaws.com") ||
+        parsed.hostname.includes("cloudfront.net")
+      ) {
+        return trimmed;
+      }
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 export function extractPathFromStorageUrl(
   rawUrl: string
 ): { bucket: string; path: string } | null {
@@ -518,6 +563,8 @@ export function extractPathFromStorageUrl(
 export function resolveAvatarPublicUrl(path: string | null | undefined): string | null {
   const p = (path ?? '').trim();
   if (!p) return null;
+  const orgLogo = resolveOrgLogoPublicUrl(p);
+  if (orgLogo) return orgLogo;
   if (p.startsWith('http://') || p.startsWith('https://')) {
     const ref = extractPathFromStorageUrl(p);
     if (ref && (ref.bucket === AVATAR_BUCKET || ref.bucket === LEGACY_AVATAR_BUCKET)) {
@@ -536,15 +583,9 @@ export function resolveAvatarPublicUrl(path: string | null | undefined): string 
  */
 export async function getSignedAvatarUrl(path: string): Promise<string | null> {
   const cacheKey = path.trim();
-  // Org logos live in the PUBLIC `org-assets` bucket (`org-logos/<orgId>/...`).
-  // getPublicUrl is a pure string builder, so short-circuit before any signing:
-  // signing these was ~90% of storage traffic and held Storage->Postgres connections.
-  if (cacheKey.startsWith(PUBLIC_ORG_LOGO_PREFIX)) {
-    return supabase()
-      .storage
-      .from(PUBLIC_ORG_ASSET_BUCKET)
-      .getPublicUrl(cacheKey).data.publicUrl;
-  }
+  // Org logos live in the PUBLIC S3 `org-assets` bucket. Never sign them.
+  const orgLogoUrl = resolveOrgLogoPublicUrl(cacheKey);
+  if (orgLogoUrl) return orgLogoUrl;
   // Breaker open: fall back to initials rather than re-probing Storage.
   if (Date.now() < signBreakerOpenUntil) return null;
 

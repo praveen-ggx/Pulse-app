@@ -50,6 +50,22 @@ describe("giveLoadIndentAvatarProps", () => {
     expect(avatar.organizationImageUrl).toBe("https://cdn.example/aero.png");
     expect(avatar.initialsColorSeed).toBe("client-entity:c-aero");
     expect(avatar.partyName).toBe("AERO");
+    expect(avatar.isIntegrated).toBe(true);
+  });
+
+  it("marks an offline CRM client so indent cards use the trip gold plate", () => {
+    const offline = client({
+      id: "c-adani",
+      name: "ADANI GROUPS",
+      is_integrated: false,
+    });
+    const avatar = giveLoadIndentAvatarProps(
+      { id: "ind-off", client_name: "ADANI GROUPS" } as IndentRow,
+      new Map([[offline.id, offline]]),
+      {},
+    );
+    expect(avatar.isIntegrated).toBe(false);
+    expect(avatar.partyName).toBe("ADANI GROUPS");
   });
 
   it("falls back to client.avatar_url when linked-org map has no logo yet", () => {

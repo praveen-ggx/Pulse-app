@@ -21,40 +21,58 @@ export function MarketplaceRouteGrid({
   drop,
   pickupLabel = "Pickup",
   dropLabel = "Drop",
+  viaStops = [],
 }: {
   pickup: string | null | undefined;
   drop: string | null | undefined;
   pickupLabel?: string;
   dropLabel?: string;
+  viaStops?: readonly string[];
 }) {
+  const via = viaStops.map((s) => s.trim()).filter(Boolean);
+  const viaLabel = via.join(" · ");
   return (
-    <View style={styles.routeGrid}>
-      <View style={styles.routeCol}>
-        <Text style={styles.routeLabel}>{pickupLabel}</Text>
-        <View style={styles.routeStack}>
-          <RouteEndpointStack
-            value={pickup}
-            primaryStyle={styles.routeCity}
-            secondaryStyle={styles.routeState}
-          />
+    <View style={styles.routeBlock}>
+      <View style={styles.routeGrid}>
+        <View style={styles.routeCol}>
+          <Text style={styles.routeLabel}>{pickupLabel}</Text>
+          <View style={styles.routeStack}>
+            <RouteEndpointStack
+              value={pickup}
+              primaryStyle={styles.routeCity}
+              secondaryStyle={styles.routeState}
+            />
+          </View>
+        </View>
+        <View style={styles.routeSep} pointerEvents="none" accessibilityElementsHidden>
+          <View style={styles.routeSepLine} />
+          <ArrowRight size={14} color={Theme.textMuted} strokeWidth={2.2} />
+          <View style={styles.routeSepLine} />
+        </View>
+        <View style={[styles.routeCol, styles.routeColEnd]}>
+          <Text style={[styles.routeLabel, styles.routeLabelEnd]}>{dropLabel}</Text>
+          <View style={[styles.routeStack, styles.routeStackEnd]}>
+            <RouteEndpointStack
+              value={drop}
+              align="end"
+              primaryStyle={styles.routeCity}
+              secondaryStyle={styles.routeState}
+            />
+          </View>
         </View>
       </View>
-      <View style={styles.routeSep} pointerEvents="none" accessibilityElementsHidden>
-        <View style={styles.routeSepLine} />
-        <ArrowRight size={14} color={Theme.textMuted} strokeWidth={2.2} />
-        <View style={styles.routeSepLine} />
-      </View>
-      <View style={[styles.routeCol, styles.routeColEnd]}>
-        <Text style={[styles.routeLabel, styles.routeLabelEnd]}>{dropLabel}</Text>
-        <View style={[styles.routeStack, styles.routeStackEnd]}>
-          <RouteEndpointStack
-            value={drop}
-            align="end"
-            primaryStyle={styles.routeCity}
-            secondaryStyle={styles.routeState}
-          />
+      {viaLabel ? (
+        <View
+          style={styles.viaRow}
+          accessible
+          accessibilityLabel={`Via ${viaLabel}`}
+        >
+          <Text style={styles.viaKicker}>Via</Text>
+          <Text style={styles.viaPlaces} numberOfLines={2}>
+            {viaLabel}
+          </Text>
         </View>
-      </View>
+      ) : null}
     </View>
   );
 }
@@ -97,6 +115,38 @@ export function MarketplaceSpecChips({
 }
 
 const styles = StyleSheet.create({
+  routeBlock: {
+    width: "100%",
+    maxWidth: "100%",
+    gap: 8,
+  },
+  viaRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: Theme.brandBlueSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.brandBlue,
+  },
+  viaKicker: {
+    fontSize: 9,
+    fontWeight: "600",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    color: Theme.primary,
+    paddingTop: 1,
+  },
+  viaPlaces: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 11,
+    fontWeight: "600",
+    color: Theme.textPrimaryDark,
+    lineHeight: 15,
+  },
   routeGrid: Platform.select({
     web: {
       display: "grid",
@@ -163,13 +213,17 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.border,
   },
   routeLabel: {
-    fontSize: 9,
-    fontWeight: "600",
+    fontSize: 10,
+    fontWeight: "500",
     color: Theme.textMuted,
-    letterSpacing: 0.5,
+    letterSpacing: 0.2,
     textTransform: "uppercase",
-    marginBottom: 3,
-    lineHeight: 11,
+    marginBottom: 4,
+    lineHeight: 13,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   routeLabelEnd: {
     textAlign: "right",
@@ -177,10 +231,14 @@ const styles = StyleSheet.create({
   },
   routeCity: {
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "600",
     color: Theme.textPrimaryDark,
     lineHeight: 16,
-    letterSpacing: -0.2,
+    letterSpacing: 0,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   routeState: {
     marginTop: 1,

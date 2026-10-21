@@ -10,6 +10,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Check, TrendingUp, UserPlus } from "lucide-react-native";
 import { useMemo, type ReactNode } from "react";
 import {
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -439,11 +440,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   kicker: {
-    fontSize: 8,
-    fontWeight: "700",
-    letterSpacing: 0.65,
-    textTransform: "uppercase",
-    color: Theme.textRouteCard,
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.15,
+    textTransform: "none",
+    color: Theme.textMuted,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   countPill: {
     minWidth: 18,

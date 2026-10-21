@@ -84,12 +84,30 @@ export const FEMALE_USER_2D_AVATARS: UserAvatarPreset[] = USER_2D_AVATARS.filter
 
 export const DEFAULT_USER_2D_AVATAR_SEED = USER_2D_AVATARS[0]?.seed ?? 'user-1';
 
+/** Catalog seed, or a stable `user-N` hashed from any other id (UUID, org-mutual-0). */
+export function stableUser2DAvatarSeed(raw: string | null | undefined): string {
+  const s = (raw ?? "").trim();
+  if (s && USER_2D_AVATARS.some((avatar) => avatar.seed === s)) return s;
+  const key = s || "?";
+  let n = 0;
+  for (let i = 0; i < key.length; i += 1) {
+    n = (n * 31 + key.charCodeAt(i)) >>> 0;
+  }
+  return (
+    USER_2D_AVATARS[n % USER_2D_AVATARS.length]?.seed ?? DEFAULT_USER_2D_AVATAR_SEED
+  );
+}
+
 export function getUser2DAvatarUriForSeed(seed: string): string | null {
-  const preset = USER_2D_AVATARS.find((a) => a.seed === seed);
+  const preset = USER_2D_AVATARS.find(
+    (a) => a.seed === stableUser2DAvatarSeed(seed),
+  );
   return preset ? getPresetAvatarUri(preset) : null;
 }
 
 export function getUser2DPresetImageSourceForSeed(seed: string): ImageSourcePropType | null {
-  const preset = USER_2D_AVATARS.find((a) => a.seed === seed);
+  const preset = USER_2D_AVATARS.find(
+    (a) => a.seed === stableUser2DAvatarSeed(seed),
+  );
   return preset ? preset.image : null;
 }

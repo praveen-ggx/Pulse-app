@@ -1,17 +1,19 @@
 import { memo, useMemo } from "react";
 import { Text, View } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import {
   AlertTriangle,
   ArrowRight,
+  Calendar,
+  ClipboardList,
   Clock3,
+  MapPin,
+  Package,
   Scale,
-  Sparkles,
   Truck,
   Wallet,
 } from "lucide-react-native";
+import type { LucideIcon } from "lucide-react-native";
 
-import { LoadCardRouteRow } from "@/components/LoadCardRouteRow";
 import { PartyAvatar } from "@/components/PartyAvatar";
 import Theme from "@/constants/Theme";
 import { useOrganization } from "@/contexts/OrganizationContext";
@@ -24,18 +26,6 @@ import {
   type IndentBidAlertTone,
 } from "@/features/indents/utils/bidding/indentBidAlert.util";
 import { formatINR, formatIndentTonsToCarry } from "@/lib/format";
-
-const FINANCE_SCORECARD_GRADIENT = [
-  Theme.financeCardSlateFrom,
-  Theme.financeCardSlateTo,
-] as const;
-
-const VEHICLE_ACCENT = Theme.buttonMatteBlack;
-
-const heroOnGradient = {
-  eyebrow: Theme.textOnDarkMuted,
-  subtitle: "rgba(255,255,255,0.78)",
-} as const;
 
 const NEXT_STEPS = [
   "Assign driver and vehicle to put this trip on your books",
@@ -55,17 +45,32 @@ function dueTextStyle(tone: IndentBidAlertTone) {
   }
 }
 
-function dueIconColor(tone: IndentBidAlertTone): string {
-  switch (tone) {
-    case "overdue":
-      return "#DC2626";
-    case "urgent":
-      return "#EA580C";
-    case "soon":
-      return "#D97706";
-    default:
-      return Theme.buttonMatteBlack;
-  }
+function MetaRow({
+  icon: Icon,
+  text,
+  tone = "default",
+}: {
+  icon: LucideIcon;
+  text: string;
+  tone?: "default" | "alert";
+}) {
+  return (
+    <View style={styles.metaRow}>
+      <View style={[styles.iconWell, tone === "alert" && styles.iconWellAlert]}>
+        <Icon
+          size={12}
+          color={tone === "alert" ? Theme.negative : Theme.textSecondary}
+          strokeWidth={2.2}
+        />
+      </View>
+      <Text
+        style={[styles.metaRowText, tone === "alert" && styles.metaRowTextAlert]}
+        numberOfLines={2}
+      >
+        {text}
+      </Text>
+    </View>
+  );
 }
 
 export type AwardedIndentDeployModalPageProps = {
@@ -99,13 +104,9 @@ export const AwardedIndentDeployModalPage = memo(function AwardedIndentDeployMod
   const vehicleType = indent.vehicle_type ? indent.vehicle_type.toUpperCase() : null;
   const tonsToCarry = formatIndentTonsToCarry(indent.weight);
   const hasTons = indent.weight != null && indent.weight > 0;
-  // Tile: show tons as amount when available, else show vehicle type as amount
   const tonsTileAmount = hasTons ? tonsToCarry : (vehicleType ?? "—");
-  // When no tons: don't repeat load_type in tile (already shown as chip in header)
-  const tonsTileHint = hasTons ? (vehicleType ?? null) : null;
   const loadType = indent.load_type ? indent.load_type : null;
 
-  // "2 details" → real inline detail chips
   const detailChips: string[] = [];
   if (loadType) detailChips.push(loadType);
   if (vehicleType && hasTons) detailChips.push(vehicleType);
@@ -160,28 +161,21 @@ export const AwardedIndentDeployModalPage = memo(function AwardedIndentDeployMod
 
   return (
     <View style={styles.pagerPage}>
-      <LinearGradient
-        colors={[...FINANCE_SCORECARD_GRADIENT]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.hero}
-      >
+      <View style={styles.hero}>
         <View style={styles.heroTopRow}>
-          <View style={styles.heroEyebrowRow}>
-            <Sparkles size={11} color={heroOnGradient.subtitle} strokeWidth={2.5} />
-            <Text style={styles.heroEyebrow}>ACTION REQUIRED</Text>
-          </View>
           {pageTotal > 1 ? (
             <View style={styles.queueBadge}>
               <Text style={styles.queueText}>
                 {pageNumber}/{pageTotal}
               </Text>
             </View>
-          ) : null}
+          ) : (
+            <View />
+          )}
         </View>
 
-        <View style={styles.heroBody}>
-          <View style={styles.heroLogoWrap}>
+        <View style={styles.avatarStack}>
+          <View style={styles.heroAvatarRing}>
             <PartyAvatar
               name={shipperName}
               avatarUrl={clientAvatar.avatarUrl}
@@ -190,119 +184,97 @@ export const AwardedIndentDeployModalPage = memo(function AwardedIndentDeployMod
               organizationAvatarSeed={clientAvatar.organizationAvatarSeed}
               initialsColorSeed={indent.organization_id ?? shipperName}
               entityType="client"
-              size={56}
+              size={72}
+              shape="circle"
               style={styles.heroAvatar}
               borderStyle={styles.heroAvatar}
             />
-            <View style={styles.heroLogoBadge}>
-              <Truck size={8} color="#fff" strokeWidth={2.5} />
-            </View>
           </View>
-          <View style={styles.heroTextBlock}>
-            <Text style={styles.heroTitle} numberOfLines={2}>
-              Trip awarded to you
-            </Text>
-            <Text style={styles.heroShipperName} numberOfLines={2}>
-              {shipperName}
-            </Text>
-            <View style={styles.heroPillRow}>
-              <View style={styles.heroPill}>
-                <Text style={styles.heroPillText}>Vehicle deploy</Text>
-              </View>
-              {pickupDateLabel ? (
-                <Text style={styles.heroDate}>Pickup {pickupDateLabel}</Text>
-              ) : null}
+          <Text style={styles.heroTitle} numberOfLines={2}>
+            Trip awarded to you
+          </Text>
+          <Text style={styles.heroShipperName} numberOfLines={2}>
+            {shipperName}
+          </Text>
+          <View style={styles.heroPillRow}>
+            <View style={styles.heroPillAccent}>
+              <Text style={styles.heroPillAccentText}>Action required</Text>
             </View>
-          </View>
-        </View>
-      </LinearGradient>
-
-      <View style={styles.body}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionLabel}>YOUR OFFER</Text>
-          <View style={styles.offerPillRow}>
+            <View style={styles.heroPill}>
+              <Text style={styles.heroPillText}>Vehicle deploy</Text>
+            </View>
             {detailChips.map((chip) => (
-              <View key={chip} style={styles.offerPill}>
-                <Text style={styles.offerPillText}>{chip}</Text>
+              <View key={chip} style={styles.heroPill}>
+                <Text style={styles.heroPillText}>{chip}</Text>
               </View>
             ))}
           </View>
         </View>
 
-        <View style={styles.payGrid}>
-          <View style={[styles.payTile, styles.payTileAccent]}>
-            <View style={[styles.payTileIconWrap, styles.payTileIconOnAccent]}>
-              <Wallet size={15} color={VEHICLE_ACCENT} strokeWidth={2.2} />
-            </View>
-            <Text style={styles.payTileAmount}>
+        <View style={styles.metaCard}>
+          <MetaRow icon={Package} text={shipperName} />
+          <View style={styles.metaDivider} />
+          <MetaRow icon={MapPin} text={`${origin} → ${dest}`} />
+          <View style={styles.metaDivider} />
+          <MetaRow
+            icon={Calendar}
+            text={pickupDateLabel ? `Pickup ${pickupDateLabel}` : "Pickup date pending"}
+          />
+          <View style={styles.metaDivider} />
+          <MetaRow icon={ClipboardList} text={pickupMeta} />
+          <View style={styles.metaDivider} />
+          <MetaRow icon={Truck} text="Vehicle required" />
+        </View>
+
+        <View style={styles.statsRow}>
+          <View style={styles.statTile}>
+            <Wallet size={14} color={Theme.primary} strokeWidth={2.2} />
+            <Text style={styles.statTileValue} numberOfLines={1}>
               {awardAmountInr != null ? formatINR(awardAmountInr) : "—"}
             </Text>
-            <Text style={styles.payTileLabel}>AGREED RATE</Text>
-            <Text style={styles.payTileHint} numberOfLines={1}>
-              {shipperName}
-            </Text>
+            <Text style={styles.statTileLabel}>Agreed rate</Text>
           </View>
-
-          <View style={[styles.payTile, styles.payTileNeutral]}>
-            <View style={styles.payTileIconWrap}>
-              <Scale size={15} color={VEHICLE_ACCENT} strokeWidth={2.2} />
-            </View>
-            <Text style={styles.payTileAmount} numberOfLines={1}>
+          <View style={styles.statTile}>
+            <Scale size={14} color={Theme.primary} strokeWidth={2.2} />
+            <Text style={styles.statTileValue} numberOfLines={1}>
               {tonsTileAmount}
             </Text>
-            <Text style={styles.payTileLabel}>{hasTons ? "TONS TO CARRY" : "VEHICLE TYPE"}</Text>
-            {tonsTileHint ? (
-              <Text style={styles.payTileHint} numberOfLines={1}>
-                {tonsTileHint}
-              </Text>
-            ) : null}
+            <Text style={styles.statTileLabel}>
+              {hasTons ? "Tons to carry" : "Vehicle type"}
+            </Text>
           </View>
         </View>
 
-        <LoadCardRouteRow
-          origin={origin}
-          destination={dest}
-          compact
-          style={styles.routeRow}
-        />
-
         {showTimingCard ? (
-          <View style={styles.timingCard}>
+          <View style={[styles.metaCard, timing.tone === "overdue" && styles.metaCardAlert]}>
             {timing.combinedLabel ? (
-              <View style={styles.timingLine}>
-                {timing.tone === "overdue" ? (
-                  <AlertTriangle
-                    size={12}
-                    color={dueIconColor(timing.tone)}
-                    strokeWidth={2.2}
-                  />
-                ) : (
-                  <Clock3
-                    size={12}
-                    color={dueIconColor(timing.tone)}
-                    strokeWidth={2.2}
-                  />
-                )}
-                <Text
-                  style={[styles.timingText, dueTextStyle(timing.tone)]}
-                  numberOfLines={2}
-                >
-                  {timing.combinedLabel}
-                </Text>
-              </View>
+              <>
+                <MetaRow
+                  icon={timing.tone === "overdue" ? AlertTriangle : Clock3}
+                  text={timing.combinedLabel}
+                  tone={timing.tone === "overdue" ? "alert" : "default"}
+                />
+                {timing.tone === "overdue" || timing.transitDurationLabel ? (
+                  <View style={styles.metaDivider} />
+                ) : null}
+              </>
             ) : null}
             {timing.tone === "overdue" ? (
-              <View style={styles.timingLine}>
-                <AlertTriangle size={12} color="#DC2626" strokeWidth={2.2} />
-                <Text style={[styles.timingText, styles.timingDueOverdue]} numberOfLines={2}>
-                  Contact shipper to confirm — pickup window has passed
-                </Text>
-              </View>
+              <>
+                <MetaRow
+                  icon={AlertTriangle}
+                  text="Contact shipper to confirm — pickup window has passed"
+                  tone="alert"
+                />
+                {timing.transitDurationLabel ? <View style={styles.metaDivider} /> : null}
+              </>
             ) : null}
             {timing.transitDurationLabel ? (
-              <View style={styles.timingLine}>
-                <Truck size={12} color={Theme.textMuted} strokeWidth={2.2} />
-                <Text style={[styles.timingText, styles.timingDuration]} numberOfLines={1}>
+              <View style={styles.metaRow}>
+                <View style={styles.iconWell}>
+                  <Truck size={12} color={Theme.textSecondary} strokeWidth={2.2} />
+                </View>
+                <Text style={[styles.metaRowText, dueTextStyle(timing.tone)]} numberOfLines={1}>
                   {timing.transitDurationLabel}
                 </Text>
               </View>
@@ -310,24 +282,32 @@ export const AwardedIndentDeployModalPage = memo(function AwardedIndentDeployMod
           </View>
         ) : null}
 
-        <View style={styles.metaRow}>
-          <Text style={styles.metaText} numberOfLines={1}>
-            {pickupMeta}
-          </Text>
-          <View style={styles.statusPill}>
-            <Truck size={10} color={VEHICLE_ACCENT} strokeWidth={2.2} />
-            <Text style={styles.statusPillText}>Vehicle required</Text>
-          </View>
-        </View>
-
-        <View style={styles.nextCard}>
+        <View style={styles.metaCard}>
           <Text style={styles.nextTitle}>What happens next</Text>
-          {NEXT_STEPS.map((step) => (
-            <View key={step} style={styles.nextRow}>
-              <ArrowRight size={12} color={VEHICLE_ACCENT} strokeWidth={2.4} />
-              <Text style={styles.nextText}>{step}</Text>
+          {NEXT_STEPS.map((step, index) => (
+            <View key={step}>
+              {index > 0 ? <View style={styles.metaDivider} /> : null}
+              <View style={styles.metaRow}>
+                <View style={styles.iconWell}>
+                  <ArrowRight size={12} color={Theme.textSecondary} strokeWidth={2.4} />
+                </View>
+                <Text style={styles.metaRowText}>{step}</Text>
+              </View>
             </View>
           ))}
+        </View>
+
+        <View style={styles.statusRow}>
+          {pickupDateLabel ? (
+            <View style={styles.statusPill}>
+              <Calendar size={11} color={Theme.textSecondary} strokeWidth={2.4} />
+              <Text style={styles.statusPillText}>Pickup {pickupDateLabel}</Text>
+            </View>
+          ) : null}
+          <View style={styles.statusPillLive}>
+            <Truck size={11} color={Theme.textOnPrimary} strokeWidth={2.4} />
+            <Text style={styles.statusPillLiveText}>Vehicle required</Text>
+          </View>
         </View>
       </View>
     </View>

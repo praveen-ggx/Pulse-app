@@ -270,6 +270,7 @@ function ConnectionProfileCard({
     <View style={hubCardStyles.listShell}>
       <NetworkPartyHubListCard
         partyId={item.id}
+        mutualsOrgId={item.linked_organization_id ?? item.id}
         name={item.name}
         partyType={roleLine}
         phone={formatPartyContactPhone(item.phone)}
@@ -1437,7 +1438,7 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
     paddingTop: 4,
     paddingBottom: 8,
-    overflow: "hidden",
+    overflow: "visible",
     position: "relative",
   },
   connectionsPhotoWatermark: {

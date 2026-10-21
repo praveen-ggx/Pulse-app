@@ -1149,7 +1149,7 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     justifyContent: "flex-end",
     gap: 4,
-    maxWidth: 168,
+    maxWidth: 200,
     alignSelf: "flex-end",
   },
   originTag: {

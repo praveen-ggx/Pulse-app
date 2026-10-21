@@ -695,7 +695,7 @@ function NetworkScreenInner() {
    *  synthetic faces at the source, but we re-check here so any future
    *  caller is also safe. */
   const handleOpenMutualProfile = useCallback(
-    (row: Pick<MutualConnectionRow, "id" | "name">) => {
+    (row: Pick<MutualConnectionRow, "id" | "name" | "avatar_seed" | "avatar_url">) => {
       const looksLikeOrgUuid = isRegisteredOrgId(row.id);
       if (!looksLikeOrgUuid) {
         if (__DEV__) {
@@ -706,6 +706,7 @@ function NetworkScreenInner() {
         }
         return;
       }
+      setMutualModalTarget(null);
       handleOpenProfileFromDiscover({
         id: row.id,
         name: row.name,
@@ -714,6 +715,8 @@ function NetworkScreenInner() {
         mutual_connections_count: undefined,
         rating_value: null,
         location_value: undefined,
+        avatar_seed: row.avatar_seed,
+        avatar_url: row.avatar_url,
       });
     },
     [handleOpenProfileFromDiscover],

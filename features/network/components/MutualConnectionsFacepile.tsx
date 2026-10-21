@@ -1,7 +1,6 @@
 /**
  * Overlapping mutual-connection avatars; each face opens that org's profile.
  */
-import { LoadingIndicator } from "@/components/LoadingIndicator";
 import Theme from "@/constants/Theme";
 import { MutualAvatarStack, type MutualFace } from "@/features/network/components/MutualAvatarStack";
 import {
@@ -41,7 +40,7 @@ export function MutualConnectionsFacepile({
   resolveFaces = true,
 }: MutualConnectionsFacepileProps) {
   const canQuery = Boolean(viewerOrgId && targetOrgId);
-  const { data: mutuals = [], isLoading, isError } = useMutualConnectionsQuery(
+  const { data: mutuals = [], isError } = useMutualConnectionsQuery(
     viewerOrgId,
     targetOrgId,
     resolveFaces && mutualCount > 0 && canQuery,
@@ -50,7 +49,7 @@ export function MutualConnectionsFacepile({
   if (mutualCount <= 0) return null;
 
   const liveCount =
-    canQuery && !isLoading && !isError ? mutuals.length : null;
+    canQuery && !isError && mutuals.length > 0 ? mutuals.length : null;
   const displayCount =
     liveCount != null && liveCount > 0 ? liveCount : mutualCount;
   if (displayCount <= 0) return null;
@@ -86,14 +85,7 @@ export function MutualConnectionsFacepile({
     />
   );
 
-  const body =
-    canQuery && isLoading ? (
-      <View style={styles.loading}>
-        <LoadingIndicator size={14} color={Theme.primary} />
-      </View>
-    ) : (
-      stack
-    );
+  const body = stack;
 
   const inner = (
     <View style={[styles.wrap, compact && styles.wrapCompact]}>
@@ -141,11 +133,5 @@ const styles = StyleSheet.create({
     letterSpacing: 1.1,
     color: Theme.textSection,
     textAlign: "left",
-  },
-  loading: {
-    minHeight: 28,
-    minWidth: 48,
-    alignItems: "flex-start",
-    justifyContent: "center",
   },
 });

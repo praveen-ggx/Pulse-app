@@ -183,15 +183,16 @@ export function PartyAvatar({
   }
 
   const seedUri = resolvePartyDisplayUri({
-    // If a photo fails to load, prefer a deterministic seed-based avatar instead
-    // of dropping straight to initials.
+    // Photo missing, still signing, or failed — keep the seed face so
+    // mutuals never collapse to initials like "M1".
     organizationImageUrl: null,
     avatarUrl: null,
     organizationAvatarSeed,
     avatarSeed,
     entityType,
   });
-  const uri = !imageFailed ? candidateUri : seedUri;
+  const uri =
+    candidateUri && !imageFailed ? candidateUri : seedUri;
   const displayName = (name ?? "").trim() || "Party";
   const colorSeed = (initialsColorSeed ?? avatarSeed ?? "").trim() || displayName;
   const initials = partyInitialsFromName(displayName);

@@ -75,6 +75,7 @@ import {
   requirementScopeLabel,
   type ComplianceDocRow,
 } from "@/features/tripCompliance/utils/complianceDocumentRows.util";
+import { compliancePreviewSourceForRow } from "@/features/tripCompliance/utils/compliancePreviewSource.util";
 import { deriveComplianceQueueReadiness } from "@/features/tripCompliance/utils/complianceReadiness.util";
 import {
   applyOptimisticDecision,
@@ -2783,18 +2784,8 @@ export function ComplianceDocumentWorkspace({
   );
   const checklistSelectedRow = useMemo(() => {
     if (!showDocumentShell || showEntityUnassigned) return null;
-    if (isFinanceMode) {
-      return financeRows.find((row) => row.key === checklistKey) ?? null;
-    }
-    return checklistRows.find((row) => row.key === checklistKey) ?? null;
-  }, [
-    showDocumentShell,
-    showEntityUnassigned,
-    isFinanceMode,
-    checklistRows,
-    financeRows,
-    checklistKey,
-  ]);
+    return listRows.find((row) => row.key === checklistKey) ?? null;
+  }, [showDocumentShell, showEntityUnassigned, listRows, checklistKey]);
   const previewable = useMemo(() => {
     if (!showDocumentShell || showEntityUnassigned) return [];
     return listRows.filter(hasFile);
@@ -2960,12 +2951,7 @@ export function ComplianceDocumentWorkspace({
 
   const activePreviewPath =
     activeRow?.doc?.storage_path ?? activeRow?.entityDoc?.storage_path ?? null;
-  const activePreviewSource =
-    activeRow?.entityDoc?.source === "supplier-kyc" && !activeRow?.doc
-      ? "supplier-kyc"
-      : reviewScope === "trip"
-        ? "trip"
-        : activeRow?.entityDoc?.source;
+  const activePreviewSource = compliancePreviewSourceForRow(activeRow);
   const activePreviewEntityId =
     activeRow?.entityDoc?.entity_id ??
     (reviewScope === "vehicle" ? summary?.trip.vehicle_id : summary?.trip.driver_id) ??
@@ -3035,12 +3021,7 @@ export function ComplianceDocumentWorkspace({
     let cancelled = false;
     void signCompliancePreviewUrl({
       storagePath: path,
-      source:
-        nextRow.entityDoc?.source === "supplier-kyc" && !nextRow.doc
-          ? "supplier-kyc"
-          : reviewScope === "trip"
-            ? "trip"
-            : nextRow.entityDoc?.source,
+      source: compliancePreviewSourceForRow(nextRow),
       sourceEntityDocumentId: nextRow.doc?.source_entity_document_id,
       organizationId,
       entityId:

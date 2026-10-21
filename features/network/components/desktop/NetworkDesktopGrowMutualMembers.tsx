@@ -97,8 +97,9 @@ export function NetworkDesktopGrowMutualMembers({
             initialsColorSeed={row.id}
             organizationImageUrl={row.avatar_url}
             avatarUrl={row.avatar_url}
-            avatarSeed={row.avatar_seed}
+            avatarSeed={row.avatar_seed ?? row.id}
             entityType="client"
+            isIntegrated
             size={avatarSize}
           />
           <Text

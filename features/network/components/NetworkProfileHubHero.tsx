@@ -312,7 +312,7 @@ export function NetworkProfileHubHero({
                 entityType={entityType}
                 organizationImageUrl={avatarUrl}
                 avatarUrl={avatarUrl}
-                avatarSeed={avatarSeed}
+                avatarSeed={avatarSeed ?? name}
                 size={avatarSize}
                 shape="circle"
                 style={{ borderWidth: 0 }}

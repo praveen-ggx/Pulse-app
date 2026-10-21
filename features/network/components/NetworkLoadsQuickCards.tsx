@@ -37,7 +37,8 @@ const SUB_ON_WASH = "#64748B";
 const TILE_FOUR_UP_MIN_WIDTH = 1280;
 const TILE_PAD_H = 16;
 const SIDEBAR_PAD_H = 14;
-const ARROW_ORB_W = 32;
+const INLINE_PAD_H = 14;
+const ARROW_ORB_W = 30;
 /** Text column floor: under this the label truncates to "Give …" and the chip wraps. */
 const TEXT_MIN_W = 128;
 /** Below this the illustration is noise, not art — drop it and give the text the space. */
@@ -102,24 +103,36 @@ function MarketplaceCard({
   const mobileTile = isMobile && variant === "tile";
   const locked = Boolean(action.locked);
 
-  const illusMaxW = sidebar && !inline ? 104 : compact || width < 380 ? 108 : 136;
-  const illusMaxH = sidebar && !inline ? 80 : compact || width < 380 ? 86 : 100;
+  // Keep each SVG's native aspect (robot is nearly square, Reach is wider)
+  // so the art does not get squashed into a shared wide box.
+  const illusMaxH = inline
+    ? 80
+    : sidebar
+      ? 72
+      : compact || width < 380
+        ? 82
+        : 92;
 
-  // The illustration and arrow are fixed-size, so a narrow card used to squeeze
-  // the text column to a few pixels. Give the text its floor first, then spend
-  // whatever is left on the art.
-  const rowPadH = sidebar ? SIDEBAR_PAD_H : TILE_PAD_H;
-  const rowGap = sidebar ? 10 : 12;
+  const rowPadH = inline ? INLINE_PAD_H : sidebar ? SIDEBAR_PAD_H : TILE_PAD_H;
+  const rowGap = inline || sidebar ? 10 : 12;
+  const widestAspect = Math.max(
+    ...NETWORK_LOADS_QUICK_ACTIONS.map((item) => item.aspect),
+  );
   const artBudget =
     cardWidth > 0
       ? cardWidth - rowPadH * 2 - rowGap * 2 - ARROW_ORB_W - TEXT_MIN_W
-      : illusMaxW;
-  const illusBoxW = Math.min(illusMaxW, Math.floor(artBudget));
-  const showIllustration = illusBoxW >= ART_MIN_W;
-  const illusBoxH = Math.max(
-    48,
-    Math.round(illusMaxH * (illusBoxW / illusMaxW)),
+      : Math.round(illusMaxH * widestAspect);
+  const artSlotW = Math.max(
+    0,
+    Math.min(Math.round(illusMaxH * widestAspect), artBudget),
   );
+  let illusBoxH = illusMaxH;
+  let illusBoxW = Math.round(illusBoxH * action.aspect);
+  if (artSlotW > 0 && illusBoxW > artSlotW) {
+    illusBoxW = artSlotW;
+    illusBoxH = Math.max(48, Math.round(illusBoxW / action.aspect));
+  }
+  const showIllustration = artSlotW >= ART_MIN_W;
 
   const actionOrb = (
     <View
@@ -136,7 +149,7 @@ function MarketplaceCard({
         />
       ) : (
         <ArrowUpRight
-          size={mobileTile ? 14 : sidebar ? 13 : 14}
+          size={mobileTile ? 14 : 13}
           color={Theme.textPrimaryDark}
           strokeWidth={2.2}
         />
@@ -145,8 +158,8 @@ function MarketplaceCard({
   );
 
   if (mobileTile) {
-    const artW = compact ? 112 : 132;
-    const artH = compact ? 88 : 102;
+    const artH = compact ? 70 : 80;
+    const artW = Math.round(artH * action.aspect);
 
     return (
       <View
@@ -175,7 +188,7 @@ function MarketplaceCard({
             <Text style={styles.titleMobile} numberOfLines={1}>
               {action.label}
             </Text>
-            <Text style={styles.subMobile} numberOfLines={2}>
+            <Text style={styles.subMobile} numberOfLines={1}>
               {action.sub}
             </Text>
           </View>
@@ -201,6 +214,7 @@ function MarketplaceCard({
       style={[
         styles.card,
         sidebar && styles.cardSidebar,
+        inline && styles.cardInline,
         compact && !sidebar && !inline && styles.cardCompact,
         { backgroundColor: action.wash },
         locked && styles.cardLocked,
@@ -217,9 +231,16 @@ function MarketplaceCard({
         style={[
           styles.cardBody,
           sidebar && !inline && styles.cardBodySidebar,
+          inline && styles.cardBodyInline,
         ]}
       >
-        <View style={[styles.textCol, sidebar && !inline && styles.textColSidebar]}>
+        <View
+          style={[
+            styles.textCol,
+            sidebar && !inline && styles.textColSidebar,
+            inline && styles.textColInline,
+          ]}
+        >
           <Text
             style={[styles.chip, { color: action.accent }]}
             numberOfLines={1}
@@ -228,13 +249,13 @@ function MarketplaceCard({
           </Text>
           <Text
             style={[styles.title, sidebar && !inline && styles.titleSidebar]}
-            numberOfLines={2}
+            numberOfLines={1}
           >
             {action.label}
           </Text>
           <Text
             style={[styles.sub, sidebar && !inline && styles.subSidebar]}
-            numberOfLines={2}
+            numberOfLines={1}
           >
             {action.sub}
           </Text>
@@ -244,7 +265,7 @@ function MarketplaceCard({
           <View
             style={[
               styles.illusWrap,
-              { width: illusBoxW, height: illusBoxH },
+              { width: artSlotW, height: illusBoxH },
               sidebar && styles.illusWrapSidebar,
               locked && styles.illusLocked,
             ]}
@@ -526,13 +547,13 @@ const styles = StyleSheet.create({
   railInline: {
     flexDirection: "row",
     alignItems: "stretch",
-    gap: 12,
+    gap: 10,
     width: "100%",
   },
   card: {
     flex: 1,
     width: "100%",
-    minHeight: 118,
+    minHeight: 104,
     borderRadius: 18,
     borderWidth: 0,
     overflow: "hidden",
@@ -568,7 +589,7 @@ const styles = StyleSheet.create({
   },
   cardMobile: {
     width: "100%",
-    minHeight: 104,
+    minHeight: 96,
     borderRadius: 18,
     borderWidth: 0,
     overflow: "hidden",
@@ -578,7 +599,7 @@ const styles = StyleSheet.create({
     ...cardShadow,
   },
   cardMobileCompact: {
-    minHeight: 96,
+    minHeight: 88,
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -592,15 +613,15 @@ const styles = StyleSheet.create({
   cardMobileText: {
     flex: 1,
     minWidth: 0,
-    gap: 3,
+    gap: 2,
     justifyContent: "center",
   },
   titleMobile: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: "700",
     color: Theme.textPrimaryDark,
-    letterSpacing: -0.35,
-    lineHeight: 21,
+    letterSpacing: -0.2,
+    lineHeight: 20,
   },
   subMobile: {
     fontSize: 12,
@@ -615,9 +636,9 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   arrowOrbMobile: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
@@ -632,15 +653,15 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.surface,
   },
   cardCompact: {
-    minHeight: 108,
+    minHeight: 96,
     borderRadius: 16,
   },
   cardSidebar: {
-    minHeight: 100,
+    minHeight: 92,
   },
   cardInline: {
-    minHeight: 118,
-    borderRadius: 18,
+    minHeight: 100,
+    borderRadius: 16,
   },
   cardPressed: {
     opacity: 0.94,
@@ -652,45 +673,52 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     paddingHorizontal: 16,
-    paddingVertical: 16,
-    minHeight: 118,
+    paddingVertical: 14,
+    minHeight: 104,
   },
   cardBodySidebar: {
     paddingHorizontal: 14,
-    paddingVertical: 14,
-    minHeight: 100,
+    paddingVertical: 12,
+    minHeight: 92,
     gap: 10,
   },
   cardBodyInline: {
-    paddingVertical: 16,
-    minHeight: 118,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    minHeight: 100,
+    gap: 10,
   },
   textCol: {
     flex: 1,
     minWidth: 0,
-    gap: 4,
+    gap: 2,
     justifyContent: "center",
     paddingRight: 4,
   },
   textColSidebar: {
-    gap: 3,
+    gap: 2,
+  },
+  textColInline: {
+    gap: 2,
+    justifyContent: "center",
   },
   chip: {
-    fontSize: 9,
+    fontSize: 10,
+    lineHeight: 13,
     fontWeight: "700",
-    letterSpacing: 0.8,
+    letterSpacing: 0.7,
     textTransform: "uppercase",
   },
   title: {
     fontSize: 15,
     fontWeight: "700",
     color: Theme.textPrimaryDark,
-    letterSpacing: -0.35,
-    lineHeight: 19,
+    letterSpacing: -0.2,
+    lineHeight: 20,
   },
   titleSidebar: {
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 20,
   },
   sub: {
     fontSize: 12,
@@ -699,8 +727,8 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   subSidebar: {
-    fontSize: 11,
-    lineHeight: 15,
+    fontSize: 12,
+    lineHeight: 16,
   },
   illusWrap: {
     alignItems: "center",
@@ -711,9 +739,9 @@ const styles = StyleSheet.create({
     marginRight: 0,
   },
   arrowOrb: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,

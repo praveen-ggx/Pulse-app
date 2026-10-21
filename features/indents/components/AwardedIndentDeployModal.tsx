@@ -13,8 +13,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
-import { Check, ChevronLeft, ChevronRight } from "lucide-react-native";
+import { Check, ChevronLeft, ChevronRight, X } from "lucide-react-native";
 
 import Theme from "@/constants/Theme";
 import { AwardedIndentDeployModalPage } from "@/features/indents/components/AwardedIndentDeployModalPage";
@@ -32,11 +31,6 @@ export type AwardedIndentDeployModalProps = {
   onMinimize: () => void;
   onViewLoad?: () => void;
 };
-
-const FINANCE_SCORECARD_GRADIENT = [
-  Theme.financeCardSlateFrom,
-  Theme.financeCardSlateTo,
-] as const;
 
 const MINIMIZE_DRAG_PX = 72;
 const MINIMIZE_VELOCITY = 0.65;
@@ -255,6 +249,15 @@ export const AwardedIndentDeployModal = memo(function AwardedIndentDeployModal({
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
           />
+          <Pressable
+            onPress={finishMinimize}
+            style={styles.closeBtn}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+          >
+            <X size={15} color={Theme.textPrimaryDark} strokeWidth={2.4} />
+          </Pressable>
 
           <View
             style={styles.pagerMeasure}
@@ -364,15 +367,8 @@ export const AwardedIndentDeployModal = memo(function AwardedIndentDeployModal({
                 accessibilityRole="button"
                 accessibilityLabel="Assign vehicle"
               >
-                <LinearGradient
-                  colors={[...FINANCE_SCORECARD_GRADIENT]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.assignGradient}
-                >
-                  <Check size={14} color={Theme.textOnDark} strokeWidth={3} />
-                  <Text style={styles.assignText}>Assign vehicle</Text>
-                </LinearGradient>
+                <Check size={14} color={Theme.buttonMatteBlackText} strokeWidth={3} />
+                <Text style={styles.assignText}>Assign vehicle</Text>
               </TouchableOpacity>
             </View>
 

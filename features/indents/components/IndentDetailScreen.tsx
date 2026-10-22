@@ -2,6 +2,7 @@
  * Indent detail — single indent view. Hero card aligns with Load Center cards
  * (pills, route row, indent id, specs slab); freight card, Live Bids, footer follow.
  */
+import { useOptionalActiveWorkspace } from "@/contexts/ActiveWorkspaceContext";
 import {
   useRouteExtraStopRowsFor,
   useRouteExtraStopsSummary,
@@ -284,10 +285,13 @@ export function IndentDetailScreen({
   const { currentOrganization } = useOrganization();
   const capabilities = useCapabilities();
   const { can: canSurface } = useMemberAccess();
-  const canViewIndent = canSurface("tripops.indents.view");
+  // Ground Ops read the indents of their own warehouses (the database only
+  // returns those); every action below still needs its own tripops.indents.* grant.
+  const isGroundOpsMember = useOptionalActiveWorkspace()?.memberPlatformRole === "ground_ops";
+  const canViewIndent = canSurface("tripops.indents.view") || isGroundOpsMember;
   const canAllocateIndent = canSurface("tripops.indents.allocate");
   const canUseSuppliers =
-    canAccessSuppliers(capabilities) && canViewIndent;
+    canAccessSuppliers(capabilities) && canSurface("tripops.indents.view");
   const orgId = currentOrganization?.id ?? null;
   const queryClient = useQueryClient();
   const invalidateIndents = useInvalidateIndents();

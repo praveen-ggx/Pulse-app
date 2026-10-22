@@ -124,9 +124,11 @@ describe("search_trips_for_org migration", () => {
   );
 
   it("never casts document_number to jsonb without the validity guard", () => {
-    expect(sql).toMatch(/pg_input_is_valid\(/);
-    const casts = sql.match(/document_number\)?::jsonb/g) ?? [];
-    for (const cast of casts) expect(cast).toBeTruthy();
+    // Exactly one cast, and it is the THEN branch of the pg_input_is_valid check.
+    expect(sql.match(/document_number\)?::jsonb/g) ?? []).toHaveLength(1);
+    expect(sql).toMatch(
+      /pg_input_is_valid\(btrim\(td\.document_number\), 'jsonb'\)\s*THEN btrim\(td\.document_number\)::jsonb/,
+    );
     // No raw text match on stored document JSON remains.
     expect(sql).not.toMatch(/td\.document_number ILIKE p\.pat/);
   });

@@ -30,6 +30,7 @@ Trip page work only. Includes Gowtham's PR #24 (`gowtham/V1.0.6`, commits f88c24
 - New tests: `lib/__tests__/queryKeys.tripIdsHash.test.ts` (id-set hash, cache save rule) and `features/trips/services/__tests__/tripsHubSearch.regression.test.ts` (LR / e-way numbers from stored JSON, stage-time paging past 1,000 rows, migration guard / revoke / visibility rules).
 - The search function body was run read-only on prod data before and after the fix: "invoice", "date", "sep" went from 200 matches to 0; a real LR and e-way number still match; a Ground Ops user finds only their hubs' trips. Malformed stored values tested on a local throwaway Postgres 17.
 - Full checks on this branch: see the PR.
+- PR #25 review: the migration test now fails if the JSON cast loses its `pg_input_is_valid` guard (it previously asserted nothing); checked against a copy with the guard removed. Preprod and prod both run Postgres 17.6, which has `pg_input_is_valid`.
 
 ## Not tested
 - Not clicked through in the app (search, History export, phone layout).

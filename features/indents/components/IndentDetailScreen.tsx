@@ -20,6 +20,7 @@ import { CancelIndentReasonModal } from "@/features/indents/components/CancelInd
 import { IndentGiveLoadPartiesStrip } from "@/features/indents/components/IndentGiveLoadPartiesStrip";
 import { IndentLinkedTripCard } from "@/features/indents/components/IndentLinkedTripCard";
 import { IndentReviewHubCard } from "@/features/indents/components/IndentReviewHubCard";
+import { IndentReviewHubDialogShell } from "@/features/indents/components/IndentReviewHubDialogShell";
 import {
     IndentReviewHubBidsBody,
     IndentReviewHubBidsHeader,
@@ -54,6 +55,12 @@ import {
   getInitialIndentForDetail,
   setInitialIndentForDetail,
 } from "@/features/indents/initialIndentForDetail";
+import {
+  indentDetailCacheHint,
+  peekCachedIndentLists,
+  peekIndentDetailListsWarm,
+  resolveIndentDetailBootstrap,
+} from "@/features/indents/utils/indentDetailBootstrap.util";
 import {
     indentReviewHubLayout,
     indentReviewHubSpecValue,
@@ -125,6 +132,7 @@ import { useCapabilities } from "@/lib/useCapabilities";
 import { useLinkedOrgProfileMap } from "@/lib/useLinkedOrgProfileMap";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
+import { X } from "lucide-react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { STALE, shouldRetryQuery } from "@/lib/queryClient";
 import { useRouter } from "expo-router";
@@ -142,13 +150,19 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 /**
- * First paint: the list IndentRow seed stashed by the Load Center / Load
- * Board before navigating here, if any. `getVisibleIndentById` remains the
- * authoritative hydration source — never written into any query cache.
+ * First paint: navigation seed, then any indent list already in TanStack
+ * (Trips / Load Center). `getVisibleIndentById` remains the refresh source.
  */
-function peekIndentFirstPaint(indentId: string | null | undefined): IndentRow | null {
-  if (!indentId) return null;
-  return getInitialIndentForDetail(indentId);
+function peekIndentFirstPaint(
+  indentId: string | null | undefined,
+  queryClient: ReturnType<typeof useQueryClient>,
+  orgId: string | null,
+): IndentRow | null {
+  return resolveIndentDetailBootstrap(
+    indentId,
+    indentId ? getInitialIndentForDetail(indentId) : null,
+    peekCachedIndentLists(queryClient, orgId),
+  );
 }
 
 export interface IndentDetailScreenProps {
@@ -278,7 +292,8 @@ export function IndentDetailScreen({
   const queryClient = useQueryClient();
   const invalidateIndents = useInvalidateIndents();
   const invalidatePosts = useInvalidatePosts(orgId);
-  const [enrichmentOpen, setEnrichmentOpen] = useState(false);
+  const listsWarm = peekIndentDetailListsWarm(queryClient, orgId);
+  const [enrichmentOpen, setEnrichmentOpen] = useState(listsWarm);
   const enrichmentOrgId = enrichmentOpen ? orgId : null;
   const { data: trips = [] } = useTripsQuery(enrichmentOrgId);
   const { data: drivers = [] } = useDriversQuery(enrichmentOrgId);
@@ -294,7 +309,7 @@ export function IndentDetailScreen({
     [suppliers, linkedOrgByOrganizationId],
   );
   const [indent, setIndent] = useState<IndentRow | null>(() =>
-    peekIndentFirstPaint(indentId),
+    peekIndentFirstPaint(indentId, queryClient, orgId),
   );
   const extraStops = useRouteExtraStopsSummary("indent", indent?.id);
   const extraStopRows = useRouteExtraStopRowsFor("indent", indent?.id);
@@ -308,7 +323,9 @@ export function IndentDetailScreen({
     : undefined;
   const pulseStoryLive = pulseStoryState?.isLive === true;
   const pulseStoryPostId = pulseStoryState?.postId ?? null;
-  const [loading, setLoading] = useState(() => peekIndentFirstPaint(indentId) == null);
+  const [loading, setLoading] = useState(
+    () => peekIndentFirstPaint(indentId, queryClient, orgId) == null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -340,7 +357,9 @@ export function IndentDetailScreen({
   const isRefreshingRef = useRef(false);
   const initialLoadDoneRef = useRef(false);
   /** Whether we currently have seed data to show while `load()` is in flight — first mount only, reset per `indentId`. */
-  const hasSeedDataRef = useRef(peekIndentFirstPaint(indentId) != null);
+  const hasSeedDataRef = useRef(
+    peekIndentFirstPaint(indentId, queryClient, orgId) != null,
+  );
   /** Guards a resolving `load()` from writing state after the user has already switched to a different indent. */
   const activeIndentIdRef = useRef(indentId);
 
@@ -357,20 +376,24 @@ export function IndentDetailScreen({
     // Switching to a different indent on an already-mounted screen instance:
     // reset first so stale Indent A data never shows under Indent B's id,
     // then seed from the registry if available.
-    const seed = peekIndentFirstPaint(indentId);
+    const seed = peekIndentFirstPaint(indentId, queryClient, orgId);
     hasSeedDataRef.current = seed != null;
     setIndent(seed);
     setLoading(seed == null);
-  }, [indentId]);
+  }, [indentId, orgId, queryClient]);
 
   useEffect(() => {
     if (!indent?.id) {
       setEnrichmentOpen(false);
       return;
     }
+    if (listsWarm) {
+      setEnrichmentOpen(true);
+      return;
+    }
     const t = setTimeout(() => setEnrichmentOpen(true), 1_600);
     return () => clearTimeout(t);
-  }, [indent?.id]);
+  }, [indent?.id, listsWarm]);
 
   const isLikelyOwner = !indent || indent.organization_id === orgId;
   const {
@@ -417,18 +440,34 @@ export function IndentDetailScreen({
   const { data: myQuotes = [], refetch: refetchMyQuotes } =
     useMyDirectQuotesQuery(orgId, { immediate: true });
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (mode: "bootstrap" | "refresh" = "bootstrap") => {
     if (!indentId) {
       setLoading(false);
       return;
     }
     const requestIndentId = indentId;
+    const bootstrapped =
+      mode === "bootstrap"
+        ? peekIndentFirstPaint(requestIndentId, queryClient, orgId)
+        : null;
+    if (bootstrapped) {
+      hasSeedDataRef.current = true;
+      setIndent(bootstrapped);
+    }
     if (!isRefreshingRef.current && !initialLoadDoneRef.current && !hasSeedDataRef.current)
       setLoading(true);
     setError(null);
+    const hint =
+      mode === "bootstrap"
+        ? indentDetailCacheHint(
+            bootstrapped ?? getInitialIndentForDetail(requestIndentId),
+            peekCachedIndentLists(queryClient, orgId),
+          )
+        : undefined;
     const { error: err, indent: row } = await getVisibleIndentById(
       orgId,
       indentId,
+      hint?.length ? { marketIndentsHint: hint } : undefined,
     );
     // The user navigated to a different indent while this was in flight — a
     // newer load() for the new indentId owns state now, discard this one.
@@ -445,12 +484,12 @@ export function IndentDetailScreen({
       return;
     }
     setIndent(row);
-  }, [indentId, orgId]);
+  }, [indentId, orgId, queryClient]);
 
   const handleRefresh = useCallback(() => {
     isRefreshingRef.current = true;
     setRefreshing(true);
-    load();
+    void load("refresh");
     refetchQuotes();
   }, [load, refetchQuotes]);
 
@@ -479,7 +518,7 @@ export function IndentDetailScreen({
     }
     setConfirmShareVisible(false);
     if (orgId) invalidateIndents(orgId, { bustPartnerSupplierMarket: true });
-    await load();
+    await load("refresh");
     setIsBroadcasting(true);
     setTimeout(() => setIsBroadcasting(false), 1800);
   }, [indent, orgId, invalidateIndents, load]);
@@ -642,7 +681,7 @@ export function IndentDetailScreen({
         queryClient.invalidateQueries({
           queryKey: ["indents", indentId, "direct-quotes"],
         });
-        await load();
+        await load("refresh");
         refetchQuotes();
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Unknown error.";
@@ -832,7 +871,7 @@ export function IndentDetailScreen({
         if (indent.organization_id) {
           invalidateIndents(indent.organization_id);
         }
-        await load();
+        await load("refresh");
       } catch (e) {
         setCancelling(false);
         const msg = e instanceof Error ? e.message : "Unknown error";
@@ -968,7 +1007,7 @@ export function IndentDetailScreen({
           queryKey: ["indents", "quote-counts"],
         });
         setQuoteEntryError(undefined);
-        await Promise.allSettled([refetchMyQuotes(), refetchQuotes(), load()]);
+        await Promise.allSettled([refetchMyQuotes(), refetchQuotes(), load("refresh")]);
         // Keep entry open — IndentBidAmountEntry shows BidConfirmModal success.
         return true;
       } catch (e) {
@@ -1035,52 +1074,62 @@ export function IndentDetailScreen({
   );
 
   if (loading && !indent) {
-    return <CenteredLoadingView message="Loading indent…" />;
+    return (
+      <IndentReviewHubDialogShell onDismiss={onBack} stacked={stackedHub}>
+        <CenteredLoadingView message="Loading indent…" />
+      </IndentReviewHubDialogShell>
+    );
   }
 
   if (!canViewIndent) {
     return (
-      <View style={styles.errorStateBody}>
-        <Text style={styles.errorText}>
-          You don’t have access to this indent.
-        </Text>
-      </View>
+      <IndentReviewHubDialogShell onDismiss={onBack} stacked={stackedHub}>
+        <View style={styles.dialogHead}>
+          <View style={styles.dialogHeadCopy}>
+            <Text style={styles.dialogEyebrow}>Review Hub</Text>
+            <Text style={styles.dialogTitle}>Indent</Text>
+          </View>
+          <Pressable
+            onPress={onBack}
+            style={styles.dialogClose}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            hitSlop={Layout.touchTargetHitSlop}
+          >
+            <X size={16} color={Theme.textPrimaryDark} strokeWidth={2.2} />
+          </Pressable>
+        </View>
+        <View style={styles.errorStateBody}>
+          <Text style={styles.errorText}>
+            You don’t have access to this indent.
+          </Text>
+        </View>
+      </IndentReviewHubDialogShell>
     );
   }
 
   if (error || !indent) {
     return (
-      <View style={styles.container}>
-        <View
-          style={[
-            styles.header,
-            { paddingTop: insets.top + Layout.headerPaddingBelowInset },
-          ]}
-        >
-          <TouchableOpacity
-            onPress={onBack}
-            style={styles.headerIconBtn}
-            activeOpacity={0.8}
-            accessibilityLabel="Back"
-          >
-            <FontAwesome
-              name="chevron-left"
-              size={20}
-              color={Theme.textOnDark}
-            />
-          </TouchableOpacity>
-          <View style={styles.headerCenter}>
-            <Text style={styles.headerId} numberOfLines={1}>
-              INDENT
-            </Text>
-            <Text style={styles.headerSubtitle}>Review Hub • Indent</Text>
+      <IndentReviewHubDialogShell onDismiss={onBack} stacked={stackedHub}>
+        <View style={styles.dialogHead}>
+          <View style={styles.dialogHeadCopy}>
+            <Text style={styles.dialogEyebrow}>Review Hub</Text>
+            <Text style={styles.dialogTitle}>Indent</Text>
           </View>
-          <View style={styles.headerIconBtnPlaceholder} />
+          <Pressable
+            onPress={onBack}
+            style={styles.dialogClose}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            hitSlop={Layout.touchTargetHitSlop}
+          >
+            <X size={16} color={Theme.textPrimaryDark} strokeWidth={2.2} />
+          </Pressable>
         </View>
         <View style={styles.errorStateBody}>
           <Text style={styles.errorText}>{error ?? "Indent not found."}</Text>
         </View>
-      </View>
+      </IndentReviewHubDialogShell>
     );
   }
 
@@ -1409,111 +1458,65 @@ export function IndentDetailScreen({
     return null;
   })();
 
+  const hubLive =
+    (statusLower === "open" ||
+      statusLower === "broadcast" ||
+      statusLower === "quoted" ||
+      statusLower === "pending") &&
+    !["awarded", "completed", "deployed", "cancelled"].includes(statusLower);
+  const tripOpLabel = getTripOperationalDisplay({
+    trip_number: indent.trip_number ?? null,
+  });
+  const dialogMeta = [
+    status === "OPEN" ? "Active" : status,
+    clientEntityRawName && clientEntityRawName !== "—" ? clientEntityRawName : null,
+    tripOpLabel !== "—" ? tripOpLabel : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
+    <IndentReviewHubDialogShell onDismiss={onBack} stacked={stackedHub}>
     <View
       style={[
         styles.container,
         stackedHub && styles.containerMobile,
       ]}
     >
-      {/* Header */}
       <View
         style={[
-          styles.header,
-          stackedHub && styles.headerMobile,
-          compactHub && styles.headerCompact,
-          { paddingTop: insets.top + (stackedHub ? 8 : Layout.headerPaddingBelowInset) },
+          styles.dialogHead,
+          compactHub && styles.dialogHeadCompact,
         ]}
       >
-        <TouchableOpacity
+        <View style={styles.dialogHeadCopy}>
+          <Text style={styles.dialogEyebrow} numberOfLines={1}>
+            {isOwner ? "Review Hub" : anonymous ? "Pool load" : "My bid"}
+          </Text>
+          <Text style={styles.dialogTitle} numberOfLines={1}>
+            {displayNumber}
+          </Text>
+          <View style={styles.dialogMetaRow}>
+            {hubLive ? <View style={styles.headerLiveDot} /> : null}
+            <Text style={styles.dialogMeta} numberOfLines={1}>
+              {dialogMeta}
+            </Text>
+            {indentHasAwardRevokedTag(indent.status, indent.award_revoked_at) ? (
+              <View style={styles.awardRevokedTag} accessibilityLabel="Award revoked">
+                <Text style={styles.awardRevokedTagText}>AWARD REVOKED</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+        <Pressable
           onPress={onBack}
-          style={[styles.headerIconBtn, stackedHub && styles.headerIconBtnMobile]}
-          activeOpacity={0.8}
-          accessibilityLabel="Back"
+          style={styles.dialogClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
           hitSlop={Layout.touchTargetHitSlop}
         >
-          <FontAwesome
-            name="chevron-left"
-            size={stackedHub ? 18 : 20}
-            color={stackedHub ? Theme.textPrimaryDark : Theme.textOnDark}
-          />
-        </TouchableOpacity>
-        {stackedHub ? (
-          <>
-            <Text style={styles.headerMobileTitle} numberOfLines={1}>
-              {isOwner ? "Loads" : anonymous ? "Pool load" : "My bid"}
-            </Text>
-            <TouchableOpacity
-              style={styles.headerHelpBtn}
-              activeOpacity={0.8}
-              accessibilityLabel="Help"
-              hitSlop={Layout.touchTargetHitSlop}
-              onPress={() =>
-                Alert.alert(
-                  isOwner ? "Load help" : "Bid help",
-                  isOwner
-                    ? "Track status, review bids, and manage rates from this page. Cancel is available until the load is awarded."
-                    : "See your bid amount, status vs shipper target, and update while pending. Awarded bids unlock vehicle allocation.",
-                )
-              }
-            >
-              <View style={styles.headerHelpIcon}>
-                <Text style={styles.headerHelpIconText}>?</Text>
-              </View>
-              <Text style={styles.headerHelpText}>Help</Text>
-            </TouchableOpacity>
-          </>
-        ) : (
-          <>
-            <View style={styles.headerCenter}>
-              <Text style={styles.headerId} numberOfLines={1}>
-                {displayNumber}
-              </Text>
-              <View style={styles.headerSubtitleRow}>
-                {(statusLower === "open" ||
-                  statusLower === "broadcast" ||
-                  // Legacy compatibility only — no new 'quoted' after 20270128103100.
-                  statusLower === "quoted" ||
-                  statusLower === "pending") &&
-                !["awarded", "completed", "deployed", "cancelled"].includes(
-                  statusLower,
-                ) ? (
-                  <View style={styles.headerLiveDot} />
-                ) : (
-                  <View style={styles.headerStatusDot} />
-                )}
-                <Text style={styles.headerSubtitle} numberOfLines={1}>
-                  {compactHub
-                    ? `Review Hub · ${status === "OPEN" ? "Active" : status}`
-                    : `Review Hub · ${status === "OPEN" ? "Active" : status}${
-                        clientEntityRawName && clientEntityRawName !== "—"
-                          ? ` · ${clientEntityRawName}`
-                          : ""
-                      }${
-                        getTripOperationalDisplay({
-                          trip_number: indent.trip_number ?? null,
-                        }) !== "—"
-                          ? ` · ${getTripOperationalDisplay({ trip_number: indent.trip_number ?? null })}`
-                          : ""
-                      }`}
-                </Text>
-                {indentHasAwardRevokedTag(indent.status, indent.award_revoked_at) ? (
-                  <View style={styles.awardRevokedTag} accessibilityLabel="Award revoked">
-                    <Text style={styles.awardRevokedTagText}>AWARD REVOKED</Text>
-                  </View>
-                ) : null}
-              </View>
-            </View>
-            <TouchableOpacity
-              style={styles.headerIconBtn}
-              activeOpacity={0.8}
-              accessibilityLabel="More actions"
-              hitSlop={Layout.touchTargetHitSlop}
-            >
-              <FontAwesome name="ellipsis-h" size={20} color={Theme.textOnDark} />
-            </TouchableOpacity>
-          </>
-        )}
+          <X size={16} color={Theme.textPrimaryDark} strokeWidth={2.2} />
+        </Pressable>
       </View>
 
       {/* Summary + bids (split on wide web, stacked on mobile) */}
@@ -1753,7 +1756,7 @@ export function IndentDetailScreen({
         }
         bidsHeader={
           <IndentReviewHubBidsHeader
-            title={isOwner ? "LIVE BIDS" : "QUOTE STATUS"}
+            title={isOwner ? "Live bids" : "Quote status"}
             liveBidsCount={liveBidsCount}
             isListeningForBids={isListeningForBids}
             showTrophy={
@@ -1769,7 +1772,7 @@ export function IndentDetailScreen({
             isOwner={isOwner}
             compact={hubDense}
             stacked={stackedHub}
-            title={isOwner ? "LIVE BIDS" : "QUOTE STATUS"}
+            title={isOwner ? "Live bids" : "Quote status"}
             liveBidsCount={liveBidsCount}
             isListeningForBids={isListeningForBids}
             showTrophy={
@@ -1822,7 +1825,7 @@ export function IndentDetailScreen({
             compactHub && styles.footerCompact,
             stackedHub && styles.footerMobile,
             {
-              paddingBottom: (stackedHub ? 8 : compactHub ? 10 : 14) + insets.bottom,
+              paddingBottom: stackedHub ? 8 : compactHub ? 10 : 14,
             },
           ]}
         >
@@ -2246,42 +2249,78 @@ export function IndentDetailScreen({
         onClose={() => setAwardCelebration(null)}
       />
     </View>
+    </IndentReviewHubDialogShell>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Theme.darkBackground,
+    minHeight: 0,
+    backgroundColor: Theme.analyticsCanvas,
   },
   containerMobile: {
-    backgroundColor: "#F0F2F5",
+    backgroundColor: Theme.analyticsCanvas,
   },
-  header: {
+  dialogHead: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: Layout.screenPaddingHorizontal,
-    paddingBottom: 10,
-    backgroundColor: Theme.darkBackground,
-    zIndex: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: Theme.borderOnDark,
-  },
-  headerMobile: {
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
     backgroundColor: Theme.cardWhite,
-    borderBottomColor: Theme.borderLight,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Theme.surfaceBorder,
+    zIndex: 10,
+  },
+  dialogHeadCompact: {
+    paddingVertical: 10,
     paddingHorizontal: 14,
   },
-  headerCompact: {
-    paddingBottom: 6,
+  dialogHeadCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  dialogEyebrow: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+  },
+  dialogTitle: {
+    marginTop: 2,
+    fontSize: 16,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+  },
+  dialogMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 4,
+    gap: 6,
+    flexWrap: "wrap",
+  },
+  dialogMeta: {
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: "500",
+    color: Theme.textSecondary,
+  },
+  dialogClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: Theme.surfaceBorder,
+    backgroundColor: Theme.cardWhite,
   },
   headerIconBtn: {
     width: 40,
     height: 40,
-    backgroundColor: Theme.driverWhiteMutedStrong,
+    backgroundColor: Theme.surfaceGray,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2296,34 +2335,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Theme.gpayListTitle,
     marginLeft: 2,
-  },
-  headerHelpBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    minHeight: 44,
-  },
-  headerHelpIcon: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 1.5,
-    borderColor: "#2874F0",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerHelpIconText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#2874F0",
-    lineHeight: 12,
-  },
-  headerHelpText: {
-    fontSize: 13,
-    fontWeight: "500",
-    color: "#2874F0",
   },
   headerIconBtnPlaceholder: {
     width: 40,
@@ -2369,18 +2380,18 @@ const styles = StyleSheet.create({
   },
   headerSubtitle: {
     ...indentReviewHubText.headerSubtitle,
-    color: Theme.textOnDarkMuted,
+    color: Theme.textSecondary,
   },
   errorStateBody: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: Layout.screenPaddingHorizontal,
-    backgroundColor: Theme.darkBackground,
+    backgroundColor: Theme.analyticsCanvas,
   },
   errorText: {
     fontSize: 15,
-    color: Theme.textOnDarkMuted,
+    color: Theme.textSecondary,
     textAlign: "center",
   },
   scroll: {
@@ -2832,9 +2843,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: Layout.screenPaddingHorizontal,
     paddingTop: 8,
-    backgroundColor: Theme.screenBackground,
+    backgroundColor: Theme.cardWhite,
     borderTopWidth: 1,
-    borderTopColor: Theme.borderLight,
+    borderTopColor: Theme.surfaceBorder,
     shadowColor: Theme.shadow,
     shadowOffset: { width: 0, height: -1 },
     shadowOpacity: 0.04,

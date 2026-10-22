@@ -6,6 +6,13 @@
  */
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { PartyAvatar } from "@/components/PartyAvatar";
+import {
+  WEB_POINTER,
+  WEB_TRANSITION,
+  hoverRowWash,
+  isHovered,
+  type HoverPressState,
+} from "@/constants/hoverSelection";
 import Theme from "@/constants/Theme";
 import {
   CONNECTION_REQUEST_DAILY_LIMIT_MESSAGE,
@@ -37,15 +44,24 @@ import { isRegisteredOrgId } from "@/features/network/utils/networkActions.util"
 import { maskGstin } from "@/features/network/utils/partyContactDisplay.util";
 import { useEnsureVerified } from "@/features/network/utils/verifiedActionGuard";
 import { showAppAlert } from "@/lib/appAlert";
-import { useNetworkProfileSnapshotQuery } from "@/lib/queries/useNetworkProfileSnapshotQuery";
+import {
+  peekNetworkProfileSnapshot,
+  prefetchNetworkProfileSnapshot,
+  useNetworkProfileSnapshotQuery,
+} from "@/lib/queries/useNetworkProfileSnapshotQuery";
+import { peekLinkedOrgDisplayProfile } from "@/lib/queries/linkedOrgDisplayCache";
+import {
+  buildNetworkProfileSeed,
+  hasSeededNetworkProfileHeroStats,
+  preferProfileConnectionStatus,
+} from "@/features/network/utils/networkProfileBootstrap.util";
 import {
   useConnectionRequestsSentQuery,
   useInvalidateNetwork,
 } from "@/lib/queries/useNetworkQueries";
-import { ROUTES } from "@/lib/routes";
 import { todayPendingInviteCountFromSent } from "@/lib/todayPendingInviteCount";
-import { useRouter } from "expo-router";
 import { ChevronDown, ChevronUp, Sparkles, UserPlus, X } from "lucide-react-native";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -62,29 +78,6 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const RECOMMENDATION_LIMIT = 6;
-
-function discoverOrgToProfileNode(org: DiscoverOrg): NetworkProfileModalNode {
-  const normalized = String(org.connection_status ?? "").toLowerCase();
-  const status: NetworkProfileModalNode["status"] =
-    normalized === "approved"
-      ? "CONNECTED"
-      : normalized === "pending"
-        ? "REQUEST SENT"
-        : "LIVE";
-  return {
-    id: org.id,
-    name: org.name,
-    type: "SUPPLIER",
-    location: getDiscoverOrgLocation(org)?.trim() || "Not available",
-    status,
-    rating: org.rating ?? org.average_rating ?? null,
-    mutuals: org.mutual_count ?? org.mutual_connections_count ?? 0,
-    avatar_url: org.avatar_url ?? null,
-    avatar_seed: org.avatar_seed ?? null,
-    is_kyc_verified: org.is_kyc_verified ?? false,
-    operating_model: org.operating_model ?? null,
-  };
-}
 
 type Props = {
   orgId: string;
@@ -116,6 +109,7 @@ function RecommendationRow({
   striped,
   compact,
   onOpenProfile,
+  onPrefetchProfile,
   onDismiss,
   onConnect,
   onCancel,
@@ -132,6 +126,7 @@ function RecommendationRow({
   striped: boolean;
   compact?: boolean;
   onOpenProfile?: () => void;
+  onPrefetchProfile?: () => void;
   onDismiss: () => void;
   onConnect: () => void;
   onCancel: () => void;
@@ -152,17 +147,22 @@ function RecommendationRow({
     >
       <Pressable
         onPress={onOpenProfile}
+        onPressIn={onPrefetchProfile}
         disabled={!onOpenProfile}
         accessibilityRole="button"
         accessibilityLabel={`View ${org.name} public profile`}
-        style={({ pressed }) => [
+        style={(state: HoverPressState) => [
           styles.salesGrowRowMain,
-          pressed && onOpenProfile && styles.salesGrowRowHeadPressed,
+          WEB_TRANSITION,
+          onOpenProfile && WEB_POINTER,
+          onOpenProfile && isHovered(state) && hoverRowWash,
+          state.pressed && onOpenProfile && styles.salesGrowRowHeadPressed,
         ]}
       >
         <PartyAvatar
           name={org.name}
           initialsColorSeed={org.id}
+          organizationImageUrl={org.avatar_url}
           avatarUrl={org.avatar_url}
           avatarSeed={org.avatar_seed}
           entityType="supplier"
@@ -280,13 +280,11 @@ export function LoadCenterPartnerRecommendations({
   orgId,
   mode,
   onOpenProfile,
-  onViewAll,
   compact = false,
   enabled = true,
   fillHeight = false,
   style,
 }: Props) {
-  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isMobileLayout = width < 768 || Platform.OS !== "web";
@@ -310,9 +308,17 @@ export function LoadCenterPartnerRecommendations({
 
   const profileTargetId =
     profileNode && isRegisteredOrgId(profileNode.id) ? profileNode.id : null;
+  const queryClient = useQueryClient();
   const profileSnapshotQ = useNetworkProfileSnapshotQuery(orgId, profileTargetId);
   const profileStatsLoading = Boolean(
-    profileTargetId && profileSnapshotQ.isPending,
+    profileTargetId &&
+      profileSnapshotQ.isPending &&
+      !hasSeededNetworkProfileHeroStats({
+        totalTrips: profileTrips,
+        vehicleCount: profileNode?.vehicle_count,
+        indentCount: profileNode?.indent_count,
+        phone: profileNode?.phone,
+      }),
   );
 
   useEffect(() => {
@@ -331,7 +337,8 @@ export function LoadCenterPartnerRecommendations({
             : prev.location && prev.location !== "Not available"
               ? prev.location
               : snap.location,
-        status: snap.status ?? prev.status,
+        status:
+          preferProfileConnectionStatus(prev.status, snap.status) ?? prev.status,
         rating: snap.rating ?? prev.rating,
         mutuals:
           typeof snap.mutuals === "number" ? snap.mutuals : prev.mutuals,
@@ -382,14 +389,37 @@ export function LoadCenterPartnerRecommendations({
         return;
       }
       if (!isRegisteredOrgId(org.id)) return;
-      setProfileNode(discoverOrgToProfileNode(org));
-      setProfileTrips(
-        typeof org.trip_count === "number" && org.trip_count >= 0
-          ? org.trip_count
-          : null,
-      );
+      const cached = peekLinkedOrgDisplayProfile(queryClient, orgId, org.id);
+      const snap = peekNetworkProfileSnapshot(queryClient, orgId, org.id);
+      const seeded = buildNetworkProfileSeed(org, cached);
+      setProfileNode({
+        ...seeded.node,
+        ...(snap
+          ? {
+              type: snap.type,
+              location:
+                snap.location !== "Not available"
+                  ? snap.location
+                  : seeded.node.location,
+              status:
+                preferProfileConnectionStatus(seeded.node.status, snap.status) ??
+                seeded.node.status,
+              rating: snap.rating ?? seeded.node.rating,
+              phone: snap.phone ?? seeded.node.phone,
+              avatar_url: snap.avatar_url ?? seeded.node.avatar_url,
+              avatar_seed: snap.avatar_seed ?? seeded.node.avatar_seed,
+              is_kyc_verified:
+                snap.is_kyc_verified ?? seeded.node.is_kyc_verified,
+              member_since_year:
+                snap.member_since_year ?? seeded.node.member_since_year,
+              vehicle_count: snap.vehicle_count ?? seeded.node.vehicle_count,
+              indent_count: snap.indent_count ?? seeded.node.indent_count,
+            }
+          : {}),
+      });
+      setProfileTrips(snap?.total_trips ?? seeded.totalTrips);
     },
-    [onOpenProfile],
+    [onOpenProfile, orgId, queryClient],
   );
 
   const atDailyInviteLimit = useMemo(() => {
@@ -497,14 +527,6 @@ export function LoadCenterPartnerRecommendations({
     [invalidateCache, invalidateNetwork, orgId, refetch],
   );
 
-  const handleViewAll = () => {
-    if (onViewAll) {
-      onViewAll();
-      return;
-    }
-    router.push(ROUTES.TABS.NETWORK as never);
-  };
-
   const titleText =
     recommendations.length > 0
       ? `${recommendations.length} suggested`
@@ -603,6 +625,15 @@ export function LoadCenterPartnerRecommendations({
                     striped={idx % 2 === 1}
                     compact={compact}
                     onOpenProfile={() => openProfileForOrg(org)}
+                    onPrefetchProfile={() => {
+                      if (isRegisteredOrgId(org.id)) {
+                        void prefetchNetworkProfileSnapshot(
+                          queryClient,
+                          orgId,
+                          org.id,
+                        );
+                      }
+                    }}
                     onDismiss={() => handleDismiss(org.id)}
                     onConnect={() => void handleConnect(org)}
                     onCancel={() => void handleCancel(org)}
@@ -615,16 +646,6 @@ export function LoadCenterPartnerRecommendations({
           <View style={styles.salesGrowInviteMeta}>
             <Text style={styles.salesGrowInviteMetaText}>{inviteSummary}</Text>
           </View>
-
-          <Pressable
-            onPress={handleViewAll}
-            style={({ pressed }) => [
-              styles.salesGrowFooterBtn,
-              pressed && styles.salesGrowActionPressed,
-            ]}
-          >
-            <Text style={styles.salesGrowFooterBtnText}>View all</Text>
-          </Pressable>
         </>
       ) : (
         <View style={[styles.salesGrowInviteMeta, local.inviteCollapsed]}>

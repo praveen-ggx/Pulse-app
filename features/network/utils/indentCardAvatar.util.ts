@@ -1,5 +1,6 @@
 import type { ClientRow } from "@/features/clients/services/clients.service";
 import type { IndentRow } from "@/features/indents";
+import { pickPartyOrganizationImageUrl } from "@/lib/media/partyOrganizationImage.util";
 import type { LinkedOrgDisplay } from "@/lib/useLinkedOrgProfileMap";
 
 export type IndentCardAvatarProps = {
@@ -10,7 +11,15 @@ export type IndentCardAvatarProps = {
   initialsColorSeed: string;
   /** Name used for PartyAvatar initials — not the card title when they differ. */
   partyName: string;
+  /** Same rule as trip hub cards: gold role plate when the CRM party is offline. */
+  isIntegrated?: boolean;
 };
+
+function partyIsIntegrated(
+  row?: Pick<ClientRow, "is_integrated" | "linked_organization_id"> | null,
+): boolean {
+  return Boolean(row?.is_integrated || row?.linked_organization_id);
+}
 
 function normalizePartyName(name: string | null | undefined): string {
   return (name ?? "").trim().toLowerCase();
@@ -70,17 +79,20 @@ export type IndentCardClientFace = {
 function linkedOrgAvatarFields(
   linkedOrgId: string | null | undefined,
   linkedMap: Record<string, LinkedOrgDisplay> | undefined,
+  partyAvatarUrl?: string | null,
 ): {
   organizationImageUrl?: string | null;
   organizationAvatarSeed?: string | null;
 } {
   const id = (linkedOrgId ?? "").trim();
-  if (!id || !linkedMap) return {};
-  const o = linkedMap[id];
-  if (!o) return {};
+  const o = id && linkedMap ? linkedMap[id] : undefined;
   return {
-    organizationImageUrl: o.avatarUrl ?? null,
-    organizationAvatarSeed: o.avatarSeed ?? null,
+    organizationImageUrl: pickPartyOrganizationImageUrl({
+      organizationImageUrl: o?.avatarUrl,
+      logoUrl: o?.logoUrl,
+      avatarUrl: partyAvatarUrl,
+    }),
+    organizationAvatarSeed: o?.avatarSeed ?? null,
   };
 }
 
@@ -119,6 +131,7 @@ export function tripStyleClientFace(
   const orgFields = linkedOrgAvatarFields(
     client.linked_organization_id,
     linkedOrgMap,
+    client.avatar_url,
   );
   const orgUrl = (orgFields.organizationImageUrl ?? "").trim();
   const contactUrl = (client.avatar_url ?? "").trim();
@@ -195,6 +208,7 @@ export function giveLoadIndentAvatarProps(
     const orgFields = linkedOrgAvatarFields(
       client.linked_organization_id,
       linkedOrgMap,
+      client.avatar_url,
     );
     const clientAvatarUrl = (client.avatar_url ?? "").trim() || null;
     const clientAvatarSeed = (client.avatar_seed ?? "").trim() || null;
@@ -218,6 +232,7 @@ export function giveLoadIndentAvatarProps(
         ? `client-entity:${client.id}`
         : `indent:${load.id}`,
       partyName,
+      isIntegrated: partyIsIntegrated(client),
     };
   }
 
@@ -237,6 +252,7 @@ export function giveLoadIndentAvatarProps(
     organizationAvatarSeed: ownSeed,
     initialsColorSeed: ownId ? `org:${ownId}` : `indent:${load.id}`,
     partyName,
+    isIntegrated: true,
   };
 }
 
@@ -254,6 +270,7 @@ export function marketLoadIndentAvatarProps(
     organizationAvatarSeed: (org?.avatarSeed ?? "").trim() || null,
     initialsColorSeed: orgId ? `org:${orgId}` : `indent:${load.id}`,
     partyName: (org as { organizationName?: string } | undefined)?.organizationName?.trim() || "Shipper",
+    isIntegrated: Boolean(orgId),
   };
 }
 
@@ -286,5 +303,6 @@ export function opportunityPostAvatarProps(
     partyName:
       (org as { organizationName?: string } | undefined)?.organizationName?.trim() ||
       "Organization",
+    isIntegrated: Boolean(orgId),
   };
 }

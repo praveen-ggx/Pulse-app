@@ -41,15 +41,24 @@ import { useVerifiedActionGuard } from "@/features/network/utils/verifiedActionG
 import { showAppAlert } from "@/lib/appAlert";
 import { ROUTES } from "@/lib/routes";
 import { MutualConnectionsModal } from "@/features/network/components/MutualConnectionsModal";
-import type { MutualConnectionRow } from "@/features/network/services/mutual-connections.service";
 import {
   NETWORK_HUB_GRID_ROW_PADDING_H,
   NETWORK_HUB_SPLIT_COLUMN_GAP_PX,
 } from "@/features/network/constants/networkHubGrid";
 import { NetworkLoadsQuickCards } from "@/features/network/components/NetworkLoadsQuickCards";
-import { NetworkProfileDirectMessageButton } from "@/features/network/components/NetworkProfileDirectMessageButton";
 import { NetworkProfileModalBody } from "@/features/network/components/NetworkProfileModalBody";
-import { useNetworkProfileSnapshotQuery } from "@/lib/queries/useNetworkProfileSnapshotQuery";
+import {
+  peekNetworkProfileSnapshot,
+  prefetchNetworkProfileSnapshot,
+  useNetworkProfileSnapshotQuery,
+} from "@/lib/queries/useNetworkProfileSnapshotQuery";
+import { peekLinkedOrgDisplayProfile } from "@/lib/queries/linkedOrgDisplayCache";
+import {
+  buildNetworkProfileSeed,
+  type NetworkProfileSeedInput,
+  hasSeededNetworkProfileHeroStats,
+  preferProfileConnectionStatus,
+} from "@/features/network/utils/networkProfileBootstrap.util";
 import { ContentErrorState } from "@/components/ContentErrorState";
 import { NetworkTabErrorBoundary } from "@/components/network/NetworkTabErrorBoundary";
 import { StoryReel } from "@/features/network/components/StoryReel";
@@ -523,7 +532,16 @@ function NetworkScreenInner() {
       ? selectedProfileNode.id
       : null;
   const profileSnapshotQ = useNetworkProfileSnapshotQuery(orgId, profileTargetId);
-  const profileStatsLoading = Boolean(profileTargetId && profileSnapshotQ.isPending);
+  const profileStatsLoading = Boolean(
+    profileTargetId &&
+      profileSnapshotQ.isPending &&
+      !hasSeededNetworkProfileHeroStats({
+        totalTrips: selectedProfileStats.totalTrips,
+        vehicleCount: selectedProfileNode?.vehicle_count,
+        indentCount: selectedProfileNode?.indent_count,
+        phone: selectedProfileNode?.phone,
+      }),
+  );
 
   useEffect(() => {
     setProtocolRoleModalOpen(false);
@@ -548,7 +566,8 @@ function NetworkScreenInner() {
             : prev.location && prev.location !== "Not available"
               ? prev.location
               : snap.location,
-        status: snap.status ?? prev.status,
+        status:
+          preferProfileConnectionStatus(prev.status, snap.status) ?? prev.status,
         rating: snap.rating ?? prev.rating,
         mutuals:
           typeof snap.mutuals === "number" ? snap.mutuals : prev.mutuals,
@@ -592,6 +611,14 @@ function NetworkScreenInner() {
     });
   }, [profileSnapshotQ.data, profileTargetId]);
 
+  const handlePrefetchProfile = useCallback(
+    (targetOrgId: string) => {
+      if (!orgId || !isRegisteredOrgId(targetOrgId)) return;
+      void prefetchNetworkProfileSnapshot(queryClient, orgId, targetOrgId);
+    },
+    [orgId, queryClient],
+  );
+
   const handleOpenProfileFromDiscover = useCallback(
     (org: {
       id: string;
@@ -601,33 +628,59 @@ function NetworkScreenInner() {
       mutual_connections_count?: number | null;
       rating_value?: number | null;
       location_value?: string | null;
+      location?: string | null;
+      city?: string | null;
+      state?: string | null;
+      rating?: number | null;
+      average_rating?: number | null;
       avatar_url?: string | null;
       avatar_seed?: string | null;
       trip_count?: number | null;
+      vehicle_count?: number | null;
+      network_indent_count?: number | null;
+      phone?: string | null;
+      org_created_at?: string | null;
+      is_kyc_verified?: boolean;
+      operating_model?: string | null;
     }) => {
-      const normalized = String(org.connection_status ?? "").toLowerCase();
-      const status: NetworkProfileNode["status"] =
-        normalized === "approved"
-          ? "CONNECTED"
-          : normalized === "pending"
-            ? "REQUEST SENT"
-            : "LIVE";
+      const cached = orgId
+        ? peekLinkedOrgDisplayProfile(queryClient, orgId, org.id)
+        : undefined;
+      const snap = orgId
+        ? peekNetworkProfileSnapshot(queryClient, orgId, org.id)
+        : undefined;
+      // Discover rows carry optional fields; the seed builder reads each one defensively.
+      const seeded = buildNetworkProfileSeed(org as NetworkProfileSeedInput, cached);
       setSelectedProfileNode({
-        id: org.id,
-        name: org.name,
-        type: "SUPPLIER",
-        location: org.location_value?.trim() || "Not available",
-        status,
-        rating: org.rating_value ?? null,
-        mutuals: org.mutual_count ?? org.mutual_connections_count ?? 0,
-        avatar_url: org.avatar_url ?? null,
-        avatar_seed: org.avatar_seed ?? null,
+        ...seeded.node,
+        ...(snap
+          ? {
+              type: snap.type,
+              location:
+                snap.location !== "Not available"
+                  ? snap.location
+                  : seeded.node.location,
+              status:
+                preferProfileConnectionStatus(seeded.node.status, snap.status) ??
+                seeded.node.status,
+              rating: snap.rating ?? seeded.node.rating,
+              phone: snap.phone ?? seeded.node.phone,
+              avatar_url: snap.avatar_url ?? seeded.node.avatar_url,
+              avatar_seed: snap.avatar_seed ?? seeded.node.avatar_seed,
+              is_kyc_verified: snap.is_kyc_verified ?? seeded.node.is_kyc_verified,
+              member_since_year:
+                snap.member_since_year ?? seeded.node.member_since_year,
+              vehicle_count: snap.vehicle_count ?? seeded.node.vehicle_count,
+              indent_count: snap.indent_count ?? seeded.node.indent_count,
+            }
+          : {}),
       });
       setSelectedProfileStats({
-        totalTrips: org.trip_count ?? null,
+        totalTrips: snap?.total_trips ?? seeded.totalTrips,
       });
+      handlePrefetchProfile(org.id);
     },
-    [],
+    [orgId, queryClient, handlePrefetchProfile],
   );
 
   const handlePressMutuals = useCallback((target: { id: string; name: string }) => {
@@ -643,7 +696,7 @@ function NetworkScreenInner() {
    *  synthetic faces at the source, but we re-check here so any future
    *  caller is also safe. */
   const handleOpenMutualProfile = useCallback(
-    (row: Pick<MutualConnectionRow, "id" | "name">) => {
+    (row: { id: string; name: string; avatar_seed?: string | null; avatar_url?: string | null }) => {
       const looksLikeOrgUuid = isRegisteredOrgId(row.id);
       if (!looksLikeOrgUuid) {
         if (__DEV__) {
@@ -654,6 +707,7 @@ function NetworkScreenInner() {
         }
         return;
       }
+      setMutualModalTarget(null);
       handleOpenProfileFromDiscover({
         id: row.id,
         name: row.name,
@@ -662,6 +716,8 @@ function NetworkScreenInner() {
         mutual_connections_count: undefined,
         rating_value: null,
         location_value: undefined,
+        avatar_seed: row.avatar_seed ?? null,
+        avatar_url: row.avatar_url ?? null,
       });
     },
     [handleOpenProfileFromDiscover],
@@ -928,36 +984,6 @@ function NetworkScreenInner() {
     );
     await sentQ.refetch();
     invalidateNetwork();
-  };
-
-  const handleOpenDirectMessage = async () => {
-    if (!selectedProfileNode || !orgId) return;
-    // Button is disabled (see profileNetworkActions.secondaryEnabled) for
-    // unregistered profiles — this stays as a safety net, not the gate.
-    if (!isRegisteredOrgId(selectedProfileNode.id)) return;
-    const orgName = organization?.name?.trim() || "My Organization";
-    try {
-      const { getOrCreateNetworkConversation } = await import("@/features/chat/services/chat.service");
-      const conversation = await getOrCreateNetworkConversation({
-        orgId,
-        orgName,
-        partnerOrgId: selectedProfileNode.id,
-        partnerOrgName: selectedProfileNode.name,
-      });
-      setSelectedProfileNode(null);
-      router.push({
-        pathname: ROUTES.CHAT,
-        params: {
-          tab: "network",
-          conversationId: conversation.id,
-          openDetail: "1",
-          ts: String(Date.now()),
-        },
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not open conversation.";
-      Alert.alert("Direct message", message);
-    }
   };
 
   const discoverToolsPanel = (
@@ -1443,6 +1469,7 @@ function NetworkScreenInner() {
                   showSearchChrome={false}
                   suppressGrowSectionHeader
                   onOpenProfile={handleOpenProfileFromDiscover}
+                  onPrefetchProfile={handlePrefetchProfile}
                   onPressMutuals={handlePressMutuals}
                   onPressMutual={handleOpenMutualProfile}
                   inviteDailyCapReached={discoverInviteCount >= discoverInviteLimit}
@@ -1645,6 +1672,9 @@ function NetworkScreenInner() {
                     onClose={() => setSelectedProfileNode(null)}
                   />
 
+                  {profileNetworkActions?.primaryAction === "pending" ||
+                  profileNetworkActions?.primaryAction === "connect" ||
+                  profileNetworkActions?.primaryAction === "invite" ? (
                   <View
                     style={[
                       styles.profileCtaStack,
@@ -1652,8 +1682,7 @@ function NetworkScreenInner() {
                       isWideNetwork && styles.profileCtaStackDesktop,
                     ]}
                   >
-                    {profileNetworkActions?.primaryAction !== "message" ? (
-                      profileNetworkActions?.primaryAction === "pending" ? (
+                    {profileNetworkActions?.primaryAction === "pending" ? (
                         /* Request already exists for this org. The
                          *  primary CTA flips to a withdraw button so
                          *  the user can recall the invite from the
@@ -1715,20 +1744,14 @@ function NetworkScreenInner() {
                           accessibilityRole="button"
                           accessibilityLabel={profileNetworkActions.primaryLabel}
                         >
-                          <UserPlus size={14} color={Theme.buttonPrimaryText} strokeWidth={2.2} />
+                          <UserPlus size={14} color={Theme.actionBtnInk} strokeWidth={2.2} />
                           <Text style={styles.profilePrimaryBtnText}>
                             {profileNetworkActions.primaryLabel}
                           </Text>
                         </Pressable>
-                      ) : null
-                    ) : null}
-                    <NetworkProfileDirectMessageButton
-                      compact={isMobileLayout}
-                      onPress={() => void handleOpenDirectMessage()}
-                      disabled={!(profileNetworkActions?.secondaryEnabled ?? true)}
-                      helperText={profileNetworkActions?.secondaryHelperText ?? null}
-                    />
+                      ) : null}
                   </View>
+                  ) : null}
                 </ScrollView>
             </View>
         </View>
@@ -2507,45 +2530,52 @@ const styles = StyleSheet.create({
   profileCtaStack: {
     width: "100%",
     alignSelf: "stretch",
-    alignItems: "stretch",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     gap: 8,
     paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 4,
+    paddingTop: 10,
+    paddingBottom: 8,
   },
   profileCtaStackMobile: {
     paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 6,
+    paddingTop: 10,
+    paddingBottom: 8,
     gap: 8,
   },
   profileCtaStackDesktop: {
     paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 6,
+    paddingTop: 10,
+    paddingBottom: 8,
     gap: 8,
     width: "100%",
     alignSelf: "stretch",
     maxWidth: "100%",
   },
   profilePrimaryBtn: {
-    width: "100%",
-    alignSelf: "stretch",
+    flex: 1,
+    minWidth: 0,
     minHeight: 42,
+    paddingHorizontal: 16,
     borderRadius: 10,
-    backgroundColor: Theme.buttonPrimary,
-    borderWidth: Theme.buttonPrimaryBorderWidth,
-    borderColor: Theme.buttonPrimaryBorder,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
   },
   profilePrimaryBtnText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: Theme.buttonPrimaryText,
-    letterSpacing: 0.2,
+    fontSize: 12,
+    fontWeight: "500",
+    color: Theme.actionBtnInk,
+    letterSpacing: 0,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   /* "Request sent" CTA row in the profile modal: a CLIENT/SUPPLIER
    *  pill on the left and a tappable "Request sent · Cancel" button

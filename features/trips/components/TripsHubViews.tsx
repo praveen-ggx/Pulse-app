@@ -25,7 +25,6 @@ import {
   ewayLabelMatchesHubFilter,
   type EwayHubStatusFilter,
 } from "@/features/trips/services/ewayBillFields.util";
-import { isElrAfterLoadingStage } from "@/features/trips/services/elrSnapshot.util";
 import { type TripAdjustment } from "@/features/trips/services/tripAdjustments";
 import { tripNonSupplierOutflowTotal } from "@/features/trips/utils/tripManifestFreightCost";
 import { isLoadBasedTrip } from "@/features/trips/visibility/tripVisibility";
@@ -39,7 +38,10 @@ import {
     formatLedgerDate,
     formatLedgerDateTime,
 } from "@/lib/format";
-import { partyAvatarHasRenderableOutput } from "@/lib/partyAvatarDisplay";
+import {
+  partyAvatarHasRenderableOutput,
+  pickPartyOrganizationImageUrl,
+} from "@/lib/partyAvatarDisplay";
 import type { LinkedOrgDisplay } from "@/lib/useLinkedOrgProfileMap";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import {
@@ -292,6 +294,24 @@ function formatTripPickupCell(iso: string | null | undefined): string {
   }
 }
 
+type HoverPressState = { pressed: boolean; hovered?: boolean };
+
+const WEB_POINTER: ViewStyle | null =
+  Platform.OS === "web" ? ({ cursor: "pointer" } as ViewStyle) : null;
+
+const WEB_TRANSITION: ViewStyle | null =
+  Platform.OS === "web"
+    ? ({
+        transitionDuration: "140ms",
+        transitionProperty: "background-color, border-color, box-shadow, opacity",
+        transitionTimingFunction: "ease",
+      } as ViewStyle)
+    : null;
+
+function isHovered(state: HoverPressState): boolean {
+  return Boolean(state.hovered) || state.pressed;
+}
+
 export type TripsHubTableColumnId =
   | "party"
   | "driver"
@@ -352,17 +372,20 @@ const HUB_TABLE_AVATAR = 26;
 export function linkedOrgAvatarFields(
   linkedOrgId: string | null | undefined,
   linkedMap: Record<string, LinkedOrgDisplay> | undefined,
+  partyAvatarUrl?: string | null,
 ): {
   organizationImageUrl?: string | null;
   organizationAvatarSeed?: string | null;
 } {
   const id = (linkedOrgId ?? "").trim();
-  if (!id || !linkedMap) return {};
-  const o = linkedMap[id];
-  if (!o) return {};
+  const o = id && linkedMap ? linkedMap[id] : undefined;
   return {
-    organizationImageUrl: o.avatarUrl ?? null,
-    organizationAvatarSeed: o.avatarSeed ?? null,
+    organizationImageUrl: pickPartyOrganizationImageUrl({
+      organizationImageUrl: o?.avatarUrl,
+      logoUrl: o?.logoUrl,
+      avatarUrl: partyAvatarUrl,
+    }),
+    organizationAvatarSeed: o?.avatarSeed ?? null,
   };
 }
 
@@ -386,6 +409,8 @@ export type TripsHubTripCardProps = {
   clientOrganizationAvatarSeed?: string | null;
   supplierOrganizationImageUrl?: string | null;
   supplierOrganizationAvatarSeed?: string | null;
+  clientIntegrated?: boolean;
+  supplierIntegrated?: boolean;
   driverAvatarUrl?: string | null;
   driverAvatarSeed?: string | null;
   driverAvatarFallbackSeed?: string;
@@ -431,6 +456,12 @@ export type TripsHubTripCardProps = {
   hardPodReceived?: boolean;
   /** EW-Bill expiring / expired label for this trip. */
   ewayExpiryLabel?: string | null;
+  /** Vault LR number(s) shown on the ticket footer. */
+  lrLabel?: string | null;
+  /** Completed E-LR number — hidden until generated with required details. */
+  elrLabel?: string | null;
+  canEditLr?: boolean;
+  onPressLr?: (tripId: string) => void;
   /** Last trip the viewer opened. */
   highlighted?: boolean;
 };
@@ -450,6 +481,9 @@ function tripsHubTripCardAreEqual(
   if (prev.softPodReceived !== next.softPodReceived) return false;
   if (prev.hardPodReceived !== next.hardPodReceived) return false;
   if (prev.ewayExpiryLabel !== next.ewayExpiryLabel) return false;
+  if (prev.lrLabel !== next.lrLabel) return false;
+  if (prev.elrLabel !== next.elrLabel) return false;
+  if (prev.canEditLr !== next.canEditLr) return false;
   if (prev.highlighted !== next.highlighted) return false;
   if (prev.trip.pod_received_at !== next.trip.pod_received_at) return false;
   if (prev.financeAdjustments !== next.financeAdjustments) return false;
@@ -470,6 +504,24 @@ function tripsHubTripCardAreEqual(
     return false;
   }
   if (prev.currentOrganizationId !== next.currentOrganizationId) return false;
+  if (prev.clientAvatarUrl !== next.clientAvatarUrl) return false;
+  if (prev.clientAvatarSeed !== next.clientAvatarSeed) return false;
+  if (prev.clientOrganizationImageUrl !== next.clientOrganizationImageUrl) return false;
+  if (prev.clientOrganizationAvatarSeed !== next.clientOrganizationAvatarSeed) {
+    return false;
+  }
+  if (prev.supplierAvatarUrl !== next.supplierAvatarUrl) return false;
+  if (prev.supplierAvatarSeed !== next.supplierAvatarSeed) return false;
+  if (prev.supplierOrganizationImageUrl !== next.supplierOrganizationImageUrl) {
+    return false;
+  }
+  if (prev.supplierOrganizationAvatarSeed !== next.supplierOrganizationAvatarSeed) {
+    return false;
+  }
+  if (prev.driverAvatarUrl !== next.driverAvatarUrl) return false;
+  if (prev.driverAvatarSeed !== next.driverAvatarSeed) return false;
+  if (prev.clientIntegrated !== next.clientIntegrated) return false;
+  if (prev.supplierIntegrated !== next.supplierIntegrated) return false;
   return true;
 }
 
@@ -489,6 +541,8 @@ function TripsHubTripCardInner({
   clientOrganizationAvatarSeed,
   supplierOrganizationImageUrl,
   supplierOrganizationAvatarSeed,
+  clientIntegrated,
+  supplierIntegrated,
   driverAvatarUrl,
   driverAvatarSeed,
   driverAvatarFallbackSeed,
@@ -512,8 +566,13 @@ function TripsHubTripCardInner({
   softPodReceived = false,
   hardPodReceived,
   ewayExpiryLabel = null,
+  lrLabel = null,
+  elrLabel = null,
+  canEditLr = false,
+  onPressLr,
   highlighted = false,
 }: TripsHubTripCardProps) {
+  const [fleetHovered, setFleetHovered] = useState(false);
   const handlePress = useCallback(() => {
     if (onPress) onPress();
     else onOpenTrip?.(trip.id, trip);
@@ -623,6 +682,8 @@ function TripsHubTripCardInner({
     supplierAvatarFallbackSeed: supplierFb,
     supplierOrganizationImageUrl,
     supplierOrganizationAvatarSeed,
+    clientIntegrated,
+    supplierIntegrated,
     driverAvatarUrl,
     driverAvatarSeed,
     driverAvatarFallbackSeed: driverFb,
@@ -638,10 +699,12 @@ function TripsHubTripCardInner({
     secondaryLabel: tripSecondaryLabel,
     softPodReceived,
     hardPodReceived: hardPodReceived ?? tripPodIsReceived(trip),
+    lrLabel,
+    elrLabel,
+    canEditLr,
+    onPressLr: onPressLr ? () => onPressLr(trip.id) : undefined,
     highlighted,
   };
-
-  const showElr = isElrAfterLoadingStage(trip.status);
 
   if (hubGrid) {
     return (
@@ -652,7 +715,6 @@ function TripsHubTripCardInner({
         actions={
           <TripsHubTripCardToolbar
             ewayExpiryLabel={ewayExpiryLabel}
-            showElr={showElr}
             dense
           />
         }
@@ -668,7 +730,6 @@ function TripsHubTripCardInner({
           stackedCardShowsToolbar(viewportWidth) ? (
             <TripsHubTripCardToolbar
               ewayExpiryLabel={ewayExpiryLabel}
-              showElr={showElr}
             />
           ) : undefined
         }
@@ -678,11 +739,15 @@ function TripsHubTripCardInner({
 
   return (
     <Pressable
-      style={[
+      style={(_state: HoverPressState) => [
         styles.fleetCardOuter,
+        WEB_TRANSITION,
+        WEB_POINTER,
         highlighted && { borderWidth: 2, borderColor: Theme.primary, borderRadius: 16 },
         rowWebStyle,
       ]}
+      onHoverIn={() => setFleetHovered(true)}
+      onHoverOut={() => setFleetHovered(false)}
       onPress={handlePress}
       accessibilityRole="button"
       accessibilityLabel={`${tripNo} ${displayClientName}${
@@ -691,7 +756,12 @@ function TripsHubTripCardInner({
           : ""
       }`}
     >
-      <View style={styles.fleetCard}>
+      <View
+        style={[
+          styles.fleetCard,
+          fleetHovered && styles.fleetCardHover,
+        ]}
+      >
         <View style={[styles.fleetOrb, { pointerEvents: "none" }]} />
         <View style={styles.fleetHead}>
           <View style={styles.fleetHeadLeft}>
@@ -800,6 +870,7 @@ function TripsHubTripCardInner({
                       avatarUrl={clientAvatarUrl}
                       avatarSeed={clientAvatarSeed}
                       entityType="client"
+                      isIntegrated={clientIntegrated}
                       size={34}
                     />
                     <Text
@@ -857,6 +928,7 @@ function TripsHubTripCardInner({
                       avatarUrl={supplierAvatarUrl}
                       avatarSeed={supplierAvatarSeed}
                       entityType="supplier"
+                      isIntegrated={supplierIntegrated}
                       size={34}
                     />
                   </View>
@@ -877,6 +949,7 @@ function TripsHubTripCardInner({
                   avatarUrl={clientAvatarUrl}
                   avatarSeed={clientAvatarSeed}
                   entityType="client"
+                  isIntegrated={clientIntegrated}
                   size={34}
                 />
                 <Text
@@ -1250,6 +1323,7 @@ export function TripsHubTableView({
   const useDesktopToolbarRow =
     Platform.OS === "web" && layoutWidth >= 1024;
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
   const [visibleCols, setVisibleCols] = useState<
     Record<TripsHubTableColumnId, boolean>
   >(() => ({ ...DEFAULT_TRIPS_HUB_TABLE_COLUMNS }));
@@ -1954,7 +2028,7 @@ export function TripsHubTableView({
           {renderBody(rowsForTableBody)}
         </View>
       ) : (
-        <>
+        <View style={styles.manifestTable}>
           <View style={styles.manifestHeaderRow}>
             <View style={[styles.manifestTh, styles.manifestColIdentity]}>
               <Text style={styles.manifestThText}>Trip identity</Text>
@@ -1963,7 +2037,7 @@ export function TripsHubTableView({
               style={[
                 styles.manifestTh,
                 styles.manifestColTelemetry,
-                styles.manifestThDivider,
+                styles.manifestThOnDark,
               ]}
             >
               <Text style={styles.manifestThText}>Telemetry path</Text>
@@ -1972,7 +2046,7 @@ export function TripsHubTableView({
               style={[
                 styles.manifestTh,
                 styles.manifestColEarnings,
-                styles.manifestThDivider,
+                styles.manifestThOnDark,
                 styles.manifestThAlignEnd,
               ]}
             >
@@ -1984,7 +2058,7 @@ export function TripsHubTableView({
               style={[
                 styles.manifestTh,
                 styles.manifestColReceivable,
-                styles.manifestThDivider,
+                styles.manifestThOnDark,
                 styles.manifestThAlignEnd,
               ]}
             >
@@ -1996,7 +2070,7 @@ export function TripsHubTableView({
               style={[
                 styles.manifestTh,
                 styles.manifestColPayable,
-                styles.manifestThDivider,
+                styles.manifestThOnDark,
                 styles.manifestThAlignEnd,
               ]}
             >
@@ -2008,7 +2082,7 @@ export function TripsHubTableView({
               style={[
                 styles.manifestTh,
                 styles.manifestColActions,
-                styles.manifestThDivider,
+                styles.manifestThOnDark,
               ]}
             >
               <Text
@@ -2074,10 +2148,12 @@ export function TripsHubTableView({
             const clientOrgFields = linkedOrgAvatarFields(
               meta?.clientLinkedOrgId,
               linkedOrgByOrganizationId,
+              meta?.clientAvatarUrl,
             );
             const supplierOrgFields = linkedOrgAvatarFields(
               meta?.supplierLinkedOrgId,
               linkedOrgByOrganizationId,
+              meta?.supplierAvatarUrl,
             );
             const showSupplierParty =
               (supplierLine !== "—" && supplierLine.trim() !== "") ||
@@ -2172,21 +2248,43 @@ export function TripsHubTableView({
                   ? "NO DRIVER PAYABLE"
                   : "NO VEHICLE EXPENSE";
 
+            const rowHovered = hoveredRowId === t.id;
             return (
-              <View key={t.id} style={styles.auditRowGroup}>
+              <View
+                key={t.id}
+                style={[
+                  styles.auditRowGroup,
+                  WEB_TRANSITION,
+                  rowHovered && !expanded && styles.auditRowHover,
+                  expanded && styles.auditRowSelected,
+                  rowHovered && expanded && styles.auditRowSelectedHover,
+                ]}
+                {...(Platform.OS === "web"
+                  ? ({
+                      onMouseEnter: () => setHoveredRowId(t.id),
+                      onMouseLeave: () =>
+                        setHoveredRowId((cur) => (cur === t.id ? null : cur)),
+                    } as object)
+                  : null)}
+              >
                 <View style={styles.auditTr}>
                   {hasSalesConflict ? (
                     <View style={styles.mismatchStripe} />
                   ) : null}
                   <Pressable
-                    style={({ pressed }) => [
+                    style={(state: HoverPressState) => [
                       styles.auditTrMain,
+                      WEB_POINTER,
                       rowWebCursor,
-                      pressed && styles.auditTrPressed,
+                      isHovered(state) && !expanded && styles.auditTrPressed,
                     ]}
+                    onHoverIn={() => setHoveredRowId(t.id)}
+                    onHoverOut={() =>
+                      setHoveredRowId((cur) => (cur === t.id ? null : cur))
+                    }
                     onPress={() => toggleExpanded(t.id)}
                     accessibilityRole="button"
-                    accessibilityState={{ expanded }}
+                    accessibilityState={{ expanded, selected: expanded }}
                     accessibilityLabel={`${getTripDisplayNumber(t, currentOrganizationId)} ${expanded ? tr("tripsHubCollapseRow") : tr("tripsHubExpandRow")}`}
                   >
                     <View
@@ -2437,6 +2535,7 @@ export function TripsHubTableView({
                                   }
                                   avatarUrl={meta?.clientAvatarUrl}
                                   avatarSeed={meta?.clientAvatarSeed}
+                                  isIntegrated={meta?.clientIntegrated}
                                   size={HUB_TABLE_AVATAR}
                                 />
                               </View>
@@ -2569,6 +2668,7 @@ export function TripsHubTableView({
                                   }
                                   avatarUrl={meta?.supplierAvatarUrl}
                                   avatarSeed={meta?.supplierAvatarSeed}
+                                  isIntegrated={meta?.supplierIntegrated}
                                   size={HUB_TABLE_AVATAR}
                                 />
                               </View>
@@ -2708,7 +2808,7 @@ export function TripsHubTableView({
                 </View>
 
                 {expanded ? (
-                  <View style={styles.expandPanel}>
+                  <View style={[styles.expandPanel, styles.expandPanelSelected]}>
                     {sortedEntries.length === 0 ? (
                       <Text style={styles.expandEmpty}>
                         {tr("tripsHubNoTransactions")}
@@ -2877,7 +2977,7 @@ export function TripsHubTableView({
               </View>
             );
           })}
-        </>
+        </View>
       )}
 
       {/* Audit footer (Fleet Confidence / Export Ledger) is rendered by the
@@ -3337,6 +3437,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.07,
     shadowRadius: 16,
     elevation: 3,
+  },
+  fleetCardHover: {
+    backgroundColor: Theme.complianceSelectedWash,
   },
   fleetOrb: {
     position: "absolute",
@@ -4212,19 +4315,25 @@ const styles = StyleSheet.create({
   manifestFilterPillTextOn: {
     color: Theme.textOnDark,
   },
+  manifestTable: {
+    width: "100%",
+    alignSelf: "stretch",
+  },
   manifestHeaderRow: {
     flexDirection: "row",
     alignItems: "stretch",
+    width: "100%",
     backgroundColor: Theme.textPrimaryDark,
     borderBottomWidth: 1,
     borderBottomColor: Theme.borderOnDark,
     paddingHorizontal: 14,
-    paddingVertical: 9,
-    gap: 4,
+    paddingVertical: 10,
+    gap: 0,
   },
   manifestTh: {
     minWidth: 0,
     justifyContent: "center",
+    overflow: "hidden",
   },
   manifestThText: {
     fontSize: 9,
@@ -4239,9 +4348,8 @@ const styles = StyleSheet.create({
   manifestThTextRight: {
     textAlign: "right",
   },
-  manifestThDivider: {
-    borderLeftWidth: StyleSheet.hairlineWidth * 2,
-    borderLeftColor: "rgba(255,255,255,0.12)",
+  manifestThOnDark: {
+    borderLeftColor: Theme.borderOnDark,
   },
   manifestThAlignEnd: {
     alignItems: "flex-end",
@@ -4251,6 +4359,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "flex-start",
     paddingVertical: 1,
+    overflow: "hidden",
   },
   manifestTdCenter: {
     alignItems: "center",
@@ -4259,45 +4368,64 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   manifestColIdentity: {
-    width: "22%",
-    minWidth: 208,
+    flexGrow: 2.2,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    paddingRight: 10,
   },
   manifestColTelemetry: {
-    width: "20%",
-    minWidth: 190,
-    borderLeftWidth: 1,
+    flexGrow: 2,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    borderLeftWidth: StyleSheet.hairlineWidth,
     borderLeftColor: Theme.surfaceBorder,
-    paddingLeft: 6,
+    paddingLeft: 10,
+    paddingRight: 10,
   },
   manifestColEarnings: {
-    width: "12%",
-    minWidth: 116,
-    borderLeftWidth: 1,
+    flexGrow: 1.2,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    borderLeftWidth: StyleSheet.hairlineWidth,
     borderLeftColor: Theme.surfaceBorder,
-    paddingLeft: 6,
+    paddingLeft: 10,
+    paddingRight: 10,
   },
   manifestColReceivable: {
-    width: "20%",
-    minWidth: 170,
-    borderLeftWidth: 1,
+    flexGrow: 2,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    borderLeftWidth: StyleSheet.hairlineWidth,
     borderLeftColor: Theme.surfaceBorder,
-    paddingLeft: 6,
+    paddingLeft: 10,
+    paddingRight: 10,
   },
   manifestColPayable: {
-    width: "20%",
-    minWidth: 170,
-    borderLeftWidth: 1,
+    flexGrow: 2,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    borderLeftWidth: StyleSheet.hairlineWidth,
     borderLeftColor: Theme.surfaceBorder,
-    paddingLeft: 6,
+    paddingLeft: 10,
+    paddingRight: 10,
   },
   manifestColActions: {
-    width: "6%",
+    flexGrow: 0.75,
+    flexShrink: 0,
+    flexBasis: 88,
     minWidth: 88,
+    maxWidth: 104,
     zIndex: 2,
-    borderLeftWidth: 1,
+    borderLeftWidth: StyleSheet.hairlineWidth,
     borderLeftColor: Theme.surfaceBorder,
     alignItems: "center",
-    paddingLeft: 0,
+    paddingLeft: 8,
+    paddingRight: 4,
   },
   manifestIdentityRow: {
     flexDirection: "row",
@@ -5071,27 +5199,45 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
   },
   auditRowGroup: {
+    position: "relative",
     borderBottomWidth: 1,
     borderBottomColor: Theme.surfaceBorder,
     backgroundColor: Theme.screenBackground,
   },
+  auditRowHover: {
+    backgroundColor: Theme.complianceSelectedWash,
+  },
+  auditRowSelected: {
+    backgroundColor: Theme.complianceSelectedWash,
+  },
+  auditRowSelectedHover: {},
   auditTr: {
     position: "relative" as const,
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "stretch",
+    width: "100%",
     paddingVertical: 10,
     paddingHorizontal: 14,
-    gap: 4,
+    gap: 0,
     overflow: "hidden",
   },
   auditTrPressed: { backgroundColor: Theme.surface },
-  /** Main row tap target — sibling to action icons so web does not nest <button> inside <button>. */
+  /**
+   * Main row tap target — sibling to Health actions so web does not nest
+   * <button> inside <button>. `display: contents` keeps the five data cells
+   * on the same flex track as the header (and the Health column).
+   */
   auditTrMain: {
-    flex: 1,
+    flexGrow: 9.2,
+    flexShrink: 1,
+    flexBasis: 0,
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 4,
+    alignItems: "stretch",
+    gap: 0,
     minWidth: 0,
+    ...(Platform.OS === "web"
+      ? ({ display: "contents" } as unknown as ViewStyle)
+      : null),
   },
   mismatchStripe: {
     position: "absolute",
@@ -5400,6 +5546,9 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.surface,
     borderTopWidth: 1,
     borderTopColor: Theme.surfaceBorder,
+  },
+  expandPanelSelected: {
+    backgroundColor: Theme.complianceSelectedWash,
   },
   txnSectionHead: {
     flexDirection: "row",

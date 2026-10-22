@@ -212,6 +212,9 @@ export const Theme = {
   buttonMatteBlackText: "#ffffff",
   /** Navy ink fill (#0f172a) — always pair with buttonDarkText. */
   buttonDark: "#0f172a",
+  /** Compact ghost/primary action buttons (notifications + compliance). */
+  actionBtnInk: "#181C32",
+  actionBtnGhostBorder: "#DBDFE9",
   /** Text/icons on dark/black filled CTAs (hub grid, registry, matte black). Not pastel-blue pills. */
   buttonDarkText: "#ffffff",
   fabBackground: "#151515",
@@ -470,6 +473,8 @@ export const Theme = {
   financeHeroBorder: "rgba(255,255,255,0.12)",
   financeHeroRangeBg: "rgba(255,255,255,0.08)",
   financeHeroRangeBorder: "rgba(255,255,255,0.22)",
+  financeHeroRangeHoverBg: "rgba(255,255,255,0.14)",
+  financeHeroRangeHoverBorder: "rgba(255,255,255,0.28)",
   financeCardBlueFrom: "#1d4ed8",
   financeCardBlueTo: "#312e81",
   financeCardOrangeFrom: "#ea580c",
@@ -586,6 +591,8 @@ export const Theme = {
   complianceHoverBg: "rgba(15, 23, 42, 0.04)",
   complianceHoverBorder: "#CBD5E1",
   complianceSelectedWash: "#F8FAFC",
+  /** Table / list row hover — visible on white and on surface rows. */
+  tableRowHover: "#F1F5F9",
   complianceUploadHover: "#166534",
   complianceStageDocsFg: "#DC2626",
   complianceStageDocsBg: "#FEF2F2",

@@ -295,20 +295,24 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
   },
   metricLabel: {
-    fontSize: 8,
-    fontWeight: "700",
-    letterSpacing: 0.5,
+    fontSize: 10,
+    fontWeight: "600",
+    letterSpacing: 0.15,
     textTransform: "uppercase",
     color: Theme.textRouteCard,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   metricLabelCompact: {
-    fontSize: 7,
-    letterSpacing: 0.35,
+    fontSize: 9,
+    letterSpacing: 0.15,
   },
   metricValue: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "800",
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "600",
     fontVariant: ["tabular-nums"],
   },
   metricValueCompact: {

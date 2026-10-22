@@ -93,7 +93,12 @@ export function NetworkProfileModalBody({
   const mutualsQuery = useMutualConnectionsQuery(
     viewerOrgId,
     node.id,
-    Boolean(viewerOrgId && node.id && viewerOrgId !== node.id),
+    Boolean(
+      viewerOrgId &&
+        node.id &&
+        viewerOrgId !== node.id &&
+        !(typeof node.mutuals === "number" && node.mutuals > 0),
+    ),
   );
   const seededMutuals =
     typeof node.mutuals === "number" && Number.isFinite(node.mutuals)

@@ -176,13 +176,13 @@ const styles = StyleSheet.create({
   legCity: {
     flex: 1,
     minWidth: 0,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "600",
     color: REF.ink,
-    letterSpacing: -0.1,
+    letterSpacing: 0,
     textTransform: "uppercase",
     ...Platform.select({
-      web: { width: "100%" } as ViewStyle,
+      web: { width: "100%", whiteSpace: "pre-wrap" } as ViewStyle,
       default: {},
     }),
   },
@@ -196,6 +196,11 @@ const styles = StyleSheet.create({
     color: REF.muted,
     lineHeight: 12,
     width: "100%",
+    letterSpacing: 0,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as ViewStyle,
+      default: {},
+    }),
   },
   legStateStart: {
     paddingLeft: ROUTE_PIN_SIZE + 6,

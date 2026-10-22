@@ -1,4 +1,4 @@
-import type { ViewStyle } from "react-native";
+import type { DimensionValue, ViewStyle } from "react-native";
 
 /**
  * Web: min viewport for the multi-column hub grid (trips + load center).
@@ -33,7 +33,7 @@ export function hubGridItemStyle(
   options?: { paddingHorizontal?: number; marginBottom?: number },
 ): ViewStyle {
   const n = Math.max(1, columns);
-  const pct: `${number}%` = `${Number((100 / n).toFixed(4))}%`;
+  const pct = `${Number((100 / n).toFixed(4))}%` as DimensionValue;
   return {
     width: pct,
     maxWidth: pct,

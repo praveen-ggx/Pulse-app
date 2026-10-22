@@ -29,6 +29,8 @@ export type TripHubPartyMeta = {
   supplierFallbackSeed: string;
   clientLinkedOrgId: string | null;
   supplierLinkedOrgId: string | null;
+  clientIntegrated: boolean;
+  supplierIntegrated: boolean;
   driverAvatarUrl: string | null;
   driverAvatarSeed: string | null;
   /** From drivers.tracking_only — OTP/ad-hoc lane for trip-kind pill only. */
@@ -100,6 +102,31 @@ function isGenericDriverLabel(value: string): boolean {
   return !v || v === "driver" || v === "—" || v === "-";
 }
 
+function findPartyByIdOrUniqueName<
+  T extends { name?: string | null; company_name?: string | null },
+>(
+  byId: Map<string, T>,
+  id: string,
+  name: string,
+): T | undefined {
+  const idKey = id.trim().toLowerCase();
+  if (idKey) {
+    const row = byId.get(idKey);
+    if (row) return row;
+  }
+  const wanted = name.trim().toLowerCase();
+  if (!wanted) return undefined;
+  let match: T | undefined;
+  let hits = 0;
+  for (const row of byId.values()) {
+    const label = (row.name ?? row.company_name ?? "").trim().toLowerCase();
+    if (label !== wanted) continue;
+    hits += 1;
+    match = row;
+  }
+  return hits === 1 ? match : undefined;
+}
+
 function resolveDriverName(
   t: TripRow,
   driverById: Map<string, DriverRow>,
@@ -131,6 +158,8 @@ export function buildTripHubPartyMetaByTripId(
       supplier_id: string;
       rate: number;
     }>;
+    /** Signed/public URLs from `get_driver_profile_display_batch`. */
+    driverImageById?: Record<string, string>;
   },
 ): Map<string, TripHubPartyMeta> {
   const clientById = new Map(
@@ -194,13 +223,31 @@ export function buildTripHubPartyMetaByTripId(
     );
 
     const clientIdKey = (t.client_id ?? "").trim().toLowerCase();
-    const clientRow = clientIdKey ? clientById.get(clientIdKey) : undefined;
+    const clientRow = findPartyByIdOrUniqueName(
+      clientById,
+      clientIdKey,
+      t.client_name ?? "",
+    );
 
     const supplierIdKey = (t.supplier_id ?? "").trim().toLowerCase();
-    const supplierRow = supplierIdKey ? supplierById.get(supplierIdKey) : undefined;
+    const supplierRow = findPartyByIdOrUniqueName(
+      supplierById,
+      supplierIdKey,
+      displaySupplierName || (t.supplier_name ?? ""),
+    );
 
     const driverIdKey = (t.driver_id ?? "").trim().toLowerCase();
-    const driverRow = driverIdKey ? driverById.get(driverIdKey) : undefined;
+    const driverRow = findPartyByIdOrUniqueName(
+      driverById,
+      driverIdKey,
+      t.driver_display_name ?? "",
+    );
+    const driverImageId = (driverRow?.id ?? t.driver_id ?? "").trim();
+    const driverImage =
+      (opts?.driverImageById?.[driverImageId] ??
+        opts?.driverImageById?.[driverImageId.toLowerCase()] ??
+        "")
+        .trim() || null;
 
     const clientFallbackSeed = clientIdKey
       ? `client-entity:${clientIdKey}`
@@ -222,7 +269,16 @@ export function buildTripHubPartyMetaByTripId(
       supplierFallbackSeed,
       clientLinkedOrgId: (clientRow?.linked_organization_id ?? "").trim() || null,
       supplierLinkedOrgId: (supplierRow?.linked_organization_id ?? "").trim() || null,
-      driverAvatarUrl: (driverRow?.avatar_url ?? "").trim() || null,
+      clientIntegrated: Boolean(
+        clientRow?.is_integrated || clientRow?.linked_organization_id,
+      ),
+      supplierIntegrated: Boolean(
+        supplierRow?.is_integrated ||
+          supplierRow?.linked_organization_id ||
+          supplierRow?.supplier_type === "integrated",
+      ),
+      driverAvatarUrl:
+        driverImage || (driverRow?.avatar_url ?? "").trim() || null,
       driverAvatarSeed: (driverRow?.avatar_seed ?? "").trim() || null,
       driverTrackingOnly: driverRow?.tracking_only === true ? true : driverRow ? false : null,
     });

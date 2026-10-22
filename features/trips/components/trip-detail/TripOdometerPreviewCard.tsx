@@ -25,6 +25,8 @@ type Props = {
   compact?: boolean;
   /** Desktop trip detail — larger type/touch targets than mobile compact. */
   density?: "compact" | "comfortable";
+  /** Stretch to the sibling card height in the 50/50 Expense Hub grid. */
+  fillHeight?: boolean;
 };
 
 function odometerReading(km: number | null): string {
@@ -38,6 +40,7 @@ export const TripOdometerPreviewCard = memo(function TripOdometerPreviewCard({
   onRecordEnd,
   compact = false,
   density = "compact",
+  fillHeight = false,
 }: Props) {
   const qc = useQueryClient();
   const verificationQuery = useTripVerification(trip.id);
@@ -97,6 +100,7 @@ export const TripOdometerPreviewCard = memo(function TripOdometerPreviewCard({
         styles.card,
         compact && styles.cardCompact,
         comfortable && styles.cardComfortable,
+        fillHeight && styles.cardFill,
       ]}
     >
       <View
@@ -477,10 +481,16 @@ const styles = StyleSheet.create({
     marginBottom: 0,
     borderRadius: 16,
     width: "100%",
-    padding: 16,
+    padding: 14,
     gap: 12,
     borderColor: Theme.borderLight,
     backgroundColor: Theme.cardWhite,
+  },
+  cardFill: {
+    flex: 1,
+    alignSelf: "stretch",
+    height: "100%",
+    justifyContent: "space-between",
   },
   headerComfortable: {
     paddingHorizontal: 0,

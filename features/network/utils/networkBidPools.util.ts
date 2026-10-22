@@ -141,3 +141,19 @@ export function buildNetworkBidPools<L extends BidLoad>(
   const individual = loads.filter((l) => sponsored.has(l.id) || unpooledIds.has(l.id));
   return { pools, individual };
 }
+
+/**
+ * Lowest positive quoted amount among rows. Used to prefill Revise bid
+ * without touching a first-time Quote (no amounts → null).
+ */
+export function existingNetworkPoolQuoteAmount(
+  amounts: readonly (number | string | null | undefined)[],
+): number | null {
+  let min: number | null = null;
+  for (const raw of amounts) {
+    const n = Number(raw ?? 0);
+    if (!Number.isFinite(n) || n <= 0) continue;
+    min = min == null ? n : Math.min(min, n);
+  }
+  return min;
+}

@@ -193,6 +193,9 @@ function renderScreen() {
   );
 }
 
+// The bid sheet renders outside the accessibilityViewIsModal dialog (on device it is its own RN Modal).
+const SHEET = { includeHiddenElements: true } as const;
+
 function allText(screen: ReturnType<typeof renderScreen>): string {
   return JSON.stringify(screen.toJSON());
 }
@@ -201,7 +204,7 @@ async function openSheetAndSubmit(screen: ReturnType<typeof renderScreen>) {
   await screen.findByText(/^All \d+ eligible loads?$/);
   fireEvent.press(screen.getByLabelText("Submit rate for pool"));
   await act(async () => {
-    fireEvent.press(screen.getByLabelText("Sheet: Submit rate for pool"));
+    fireEvent.press(screen.getByLabelText("Sheet: Submit rate for pool", SHEET));
   });
 }
 
@@ -282,15 +285,16 @@ describe("PooledOpportunityScreen — one rate for the whole pool", () => {
     expect(await screen.findByText("All 3 eligible loads")).toBeTruthy();
     expect(screen.getAllByLabelText("Submit rate for pool")).toHaveLength(1);
     fireEvent.press(screen.getByLabelText("Submit rate for pool"));
-    expect(screen.getByText("Pooled opportunity · 3 loads")).toBeTruthy();
+    expect(screen.getByText("Pooled opportunity · 3 loads", SHEET)).toBeTruthy();
     expect(
-      within(screen.getByTestId("bid-sheet")).getByText(
+      within(screen.getByTestId("bid-sheet", SHEET)).getByText(
         "Your rate will be submitted for all 3 eligible loads in this pool. The shipper reviews bids; nothing is awarded until the shipper accepts.",
+        SHEET,
       ),
     ).toBeTruthy();
     expect(allText(screen)).not.toMatch(IDENTITY);
     await act(async () => {
-      fireEvent.press(screen.getByLabelText("Sheet: Submit rate for pool"));
+      fireEvent.press(screen.getByLabelText("Sheet: Submit rate for pool", SHEET));
     });
     expect(svc.submitOrgPoolBid).toHaveBeenCalledTimes(1);
     const [orgId, pool, amount] = svc.submitOrgPoolBid.mock.calls[0]!;
@@ -330,7 +334,7 @@ describe("PooledOpportunityScreen — one rate for the whole pool", () => {
     const screen = renderScreen();
     await openSheetAndSubmit(screen);
     expect(svc.submitOrgPoolBid).not.toHaveBeenCalled();
-    expect(screen.queryByTestId("bid-sheet")).toBeNull();
+    expect(screen.queryByTestId("bid-sheet", SHEET)).toBeNull();
     expect(
       await screen.findByText(
         "This pool changed while you were bidding. Nothing was submitted — review the updated pool and submit again.",
@@ -347,7 +351,7 @@ describe("PooledOpportunityScreen — one rate for the whole pool", () => {
     await openSheetAndSubmit(screen);
     expect(svc.submitOrgPoolBid).not.toHaveBeenCalled();
     expect(
-      screen.getByText("Couldn't load this pool. Nothing was submitted — try again."),
+      screen.getByText("Couldn't load this pool. Nothing was submitted — try again.", SHEET),
     ).toBeTruthy();
   });
 
@@ -371,7 +375,7 @@ describe("PooledOpportunityScreen — one rate for the whole pool", () => {
     const cta = screen.getByLabelText("Submit rate for pool");
     expect(cta.props.accessibilityState).toMatchObject({ disabled: true });
     fireEvent.press(cta);
-    expect(screen.queryByTestId("bid-sheet")).toBeNull();
+    expect(screen.queryByTestId("bid-sheet", SHEET)).toBeNull();
     expect(svc.submitOrgPoolBid).not.toHaveBeenCalled();
   });
 
@@ -402,8 +406,8 @@ describe("PooledOpportunityScreen — one rate for the whole pool", () => {
     });
     const screen = renderScreen();
     await openSheetAndSubmit(screen);
-    expect(screen.getByLabelText("Sheet: Submit rate for pool")).toBeTruthy();
-    expect(screen.getByText(/None of the 3 loads took your rate/)).toBeTruthy();
+    expect(screen.getByLabelText("Sheet: Submit rate for pool", SHEET)).toBeTruthy();
+    expect(screen.getByText(/None of the 3 loads took your rate/, SHEET)).toBeTruthy();
   });
 
   it("shows the submitted state and offers to update the pool rate", async () => {

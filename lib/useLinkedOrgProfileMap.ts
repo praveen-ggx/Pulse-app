@@ -1,7 +1,11 @@
 import { useLinkedOrgDisplayMap } from "@/lib/queries/useLinkedOrgDisplayQuery";
 import { useMemo } from "react";
 
-export type LinkedOrgDisplay = { avatarUrl?: string; avatarSeed?: string };
+export type LinkedOrgDisplay = {
+  avatarUrl?: string;
+  avatarSeed?: string;
+  logoUrl?: string;
+};
 
 /**
  * Fetches display profiles (avatar URL + seed) for all linked org IDs found in
@@ -31,6 +35,7 @@ export function useLinkedOrgProfileMap(
       result[oid] = {
         avatarUrl: profile.avatarUrl,
         avatarSeed: profile.avatarSeed,
+        ...(profile.logoUrl ? { logoUrl: profile.logoUrl } : {}),
       };
     }
     return result;

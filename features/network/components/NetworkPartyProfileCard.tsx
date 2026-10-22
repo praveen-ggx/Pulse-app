@@ -661,20 +661,14 @@ export function NetworkPartyProfileCard({
     const showRolePills = Boolean(rolePills?.length) && !listMobile;
 
     return (
-      <Pressable
-        onPress={onPressCard}
-        onPressIn={onIn}
-        onPressOut={onOut}
-        disabled={!onPressCard}
+      <Animated.View
+        style={[
+          s.cardList,
+          listMobile && s.cardListMobile,
+          listDesktop && s.cardListDesktop,
+          { transform: [{ scale }] },
+        ]}
       >
-        <Animated.View
-          style={[
-            s.cardList,
-            listMobile && s.cardListMobile,
-            listDesktop && s.cardListDesktop,
-            { transform: [{ scale }] },
-          ]}
-        >
           <View
             style={[
               s.listSingleRow,
@@ -682,12 +676,18 @@ export function NetworkPartyProfileCard({
               listDesktop ? s.listSingleRowDesktop : null,
             ]}
           >
-            <View
+            <Pressable
+              onPress={onPressCard}
+              onPressIn={onIn}
+              onPressOut={onOut}
+              disabled={!onPressCard}
               style={[
                 s.listAvatarCol,
                 listMobile && s.listAvatarColMobile,
                 listDesktop && s.listAvatarColDesktop,
               ]}
+              accessibilityRole={onPressCard ? "button" : undefined}
+              accessibilityLabel={displayName}
             >
               <View
                 style={[
@@ -707,9 +707,17 @@ export function NetworkPartyProfileCard({
                 />
                 {showOnline ? <View style={s.onlineDot} /> : null}
               </View>
-            </View>
+            </Pressable>
 
-            <View style={s.listInfo}>
+            <Pressable
+              onPress={onPressCard}
+              onPressIn={onIn}
+              onPressOut={onOut}
+              disabled={!onPressCard}
+              style={s.listInfo}
+              accessibilityRole={onPressCard ? "button" : undefined}
+              accessibilityLabel={displayName}
+            >
               <View style={s.listHeaderRow}>
                 <Text
                   style={[s.listName, listMobile && s.listNameMobile]}
@@ -797,7 +805,7 @@ export function NetworkPartyProfileCard({
                   ))}
                 </View>
               ) : null}
-            </View>
+            </Pressable>
 
             {showListMetrics ? (
               <View style={[s.listMidGroup, listMobile && s.listMidGroupMobile]}>
@@ -815,7 +823,6 @@ export function NetworkPartyProfileCard({
             </View>
           </View>
         </Animated.View>
-      </Pressable>
     );
   }
 

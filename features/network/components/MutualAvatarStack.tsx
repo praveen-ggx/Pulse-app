@@ -156,27 +156,20 @@ export function MutualAvatarStack({
     index: number,
   ) => {
     /**
-     * Real mutuals: only render a photo when we actually have one
-     * (`avatar_url` = org `logo_url` → owner profile avatar). When no
-     * photo exists, fall back to the party's **initials** (e.g. "AC"
-     * for "Amilthan Client") — same style as the main party avatar in
-     * the profile card. We deliberately suppress the `avatar_seed`
-     * DiceBear cartoon for real mutuals so the row stays visually
-     * consistent and the avatar genuinely represents that party.
-     *
-     * Synthetic placeholder faces (shown briefly while mutuals load)
-     * still use `face.avatar_seed`/`face.id` so the stack settles into
-     * its final layout shape without snapping when data resolves.
+     * Photo when we have one (org logo → owner avatar). Otherwise the
+     * seed avatar — same as the rest of Network — so mutuals never
+     * collapse to "M1" / "M2" initials.
      */
     const inner = (
       <View style={dynamic.faceWrap}>
         <PartyAvatar
           name={face.name}
           initialsColorSeed={face.id}
-          avatarSeed={face.isReal ? null : (face.avatar_seed ?? face.id)}
+          avatarSeed={face.avatar_seed ?? face.id}
           organizationImageUrl={face.avatar_url ?? null}
           avatarUrl={face.avatar_url ?? null}
           entityType="client"
+          isIntegrated
           size={faceSize}
           borderStyle={styles.faceImage}
           style={styles.faceImage}
@@ -231,7 +224,8 @@ export function MutualAvatarStack({
     return (
       <Pressable
         key={face.id}
-        onPress={() =>
+        onPress={(event) => {
+          event.stopPropagation?.();
           onPressFace(
             {
               id: face.id,
@@ -240,8 +234,8 @@ export function MutualAvatarStack({
               avatar_url: face.avatar_url ?? null,
             },
             index,
-          )
-        }
+          );
+        }}
         style={({ pressed }) => [slotStyle, pressed && { opacity: 0.88 }]}
         accessibilityRole="button"
         accessibilityLabel={face.name}

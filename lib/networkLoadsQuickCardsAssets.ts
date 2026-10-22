@@ -1,8 +1,8 @@
 import type { ComponentType } from "react";
 import type { SvgProps } from "react-native-svg";
 
-import PulseExchangeTruck from "@/assets/illustrations/pulse_exchange_truck.svg";
-import PulseMarketplaceBoost from "@/assets/illustrations/pulse_marketplace_boost.svg";
+import Illustration11 from "@/assets/illustrations/11.svg";
+import Illustration20 from "@/assets/illustrations/20.svg";
 import Theme from "@/constants/Theme";
 
 export type NetworkLoadsQuickActionId = "give" | "reach";
@@ -21,8 +21,8 @@ export type NetworkLoadsQuickAction = {
 };
 
 /**
- * Marketplace quick-action cards — Metronic-style SVG illustrations
- * (character art), not Lottie. Exchange / growth.
+ * Marketplace quick-action cards — early Metronic line art
+ * (bidding desk + delivery truck), not photoreal mascot PNGs.
  */
 export const NETWORK_LOADS_QUICK_ACTIONS: NetworkLoadsQuickAction[] = [
   {
@@ -30,20 +30,20 @@ export const NETWORK_LOADS_QUICK_ACTIONS: NetworkLoadsQuickAction[] = [
     label: "Pulse Exchange",
     sub: "Post loads, win live bids",
     chip: "Exchange",
-    illustration: PulseExchangeTruck,
-    aspect: 480 / 282,
+    illustration: Illustration11,
+    aspect: 580 / 600,
     accent: Theme.brandBlueInk,
-    wash: "rgba(205, 233, 247, 0.45)",
+    wash: Theme.brandBlueWash,
   },
   {
     id: "reach",
     label: "Pulse Reach",
     sub: "Boost loads, earn credits",
     chip: "Growth",
-    illustration: PulseMarketplaceBoost,
-    aspect: 480 / 421,
+    illustration: Illustration20,
+    aspect: 600 / 480,
     accent: Theme.accentBrown,
-    wash: "rgba(107, 79, 58, 0.08)",
+    wash: Theme.accentBrownWash,
   },
 ];
 

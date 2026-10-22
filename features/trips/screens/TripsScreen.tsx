@@ -64,6 +64,7 @@ import {
 import { GiveLoadIndentCardActions } from "@/features/network/components/LoadCenterIndentCardActions";
 import { useGiveLoadIndentActions } from "@/features/network/hooks/useGiveLoadIndentActions";
 import type { IndentRow } from "@/features/indents";
+import { setInitialIndentForDetail } from "@/features/indents/initialIndentForDetail";
 import {
   useIndentBidSnapshotsQuery,
   useFailedIndentsQuery,
@@ -84,7 +85,10 @@ import {
 import { computeTripSettlementDues } from "@/features/finance/utils/tripSettlement.util";
 import type { TripAdjustment } from "@/features/trips/services/tripAdjustments";
 import type { TripRow } from "@/features/trips/services/trips.service";
+import { HubTripLrUpdateModal } from "@/features/trips/components/HubTripLrUpdateModal";
+import type { ElrTripSource } from "@/features/trips/services/elrSnapshot.util";
 import {
+  loadHubTripDocumentLabelsByTripIds,
   type HubPodReceiptFlags,
   loadHubPodReceiptFlags,
   tripHasHubPodFlag,
@@ -135,6 +139,7 @@ import {
 import { buildTripHubPartyMetaByTripId } from "@/features/trips/utils/tripHubPartyMeta";
 import { tripNonSupplierOutflowTotal } from "@/features/trips/utils/tripManifestFreightCost";
 import { canAccessTrips } from "@/lib/capabilities";
+import { useOptionalAuth } from "@/contexts/AuthContext";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import {
   compareTripsByScheduleAsc,
@@ -147,6 +152,7 @@ import { shouldShowAggregateTripKindPill } from "@/features/drivers/utils/driver
 import { formatLedgerDate } from "@/lib/format";
 import { toReportIsoDate } from "@/features/finance/lib/ledgerReportTable.util";
 import { useClientsQuery } from "@/lib/queries/useClientsQuery";
+import { useDriverProfileImagesQuery } from "@/lib/queries/useDriverProfileImagesQuery";
 import { useDriversQuery } from "@/lib/queries/useDriversQuery";
 import { useTripSubcontractsQuery } from "@/lib/queries/useFinanceEntityQueries";
 import {
@@ -176,6 +182,7 @@ import {
     NativeScrollEvent,
     NativeSyntheticEvent,
     Platform,
+    Pressable,
     RefreshControl,
     ScrollView,
     StyleSheet,
@@ -268,6 +275,34 @@ function historyTripDueState(
   return {
     receivableDue: settlement.receivableDue,
     payableDue: settlement.payableDue,
+  };
+}
+
+function hubElrSourceFromTrip(
+  trip: TripRow,
+  org: { id?: string | null; name?: string | null } | null,
+): ElrTripSource {
+  return {
+    tripId: trip.id,
+    tripNumber: trip.trip_number,
+    organizationId: trip.organization_id,
+    viewerOrganizationId: org?.id ?? null,
+    transporterName: org?.name ?? trip.organization_name ?? null,
+    clientName: trip.client_name,
+    clientId: trip.client_id,
+    vehicleId: trip.vehicle_id ?? trip.owner_vehicle_id,
+    vehicleRegistration: trip.vehicle_display_number,
+    driverId: trip.driver_id,
+    driverName: trip.driver_display_name,
+    origin: trip.pickup_area,
+    destination: trip.drop_location,
+    pickupDate: trip.pickup_date,
+    loadType: trip.load_type,
+    loadTons: trip.load_tons,
+    freight: trip.client_price,
+    indentId: trip.indent_reference_code ?? trip.indent_id,
+    indentRecordId: trip.indent_id,
+    tripStatus: trip.status,
   };
 }
 
@@ -445,6 +480,16 @@ export default function TripsScreen() {
 
   const { can: canSurface, orgCapabilities, isLoading: memberAccessLoading } =
     useMemberAccess();
+  const auth = useOptionalAuth();
+  const canEditHubLr = canSurface("tripops.trips.docs");
+  const [hubLrEdit, setHubLrEdit] = useState<{
+    tripId: string;
+    label: string;
+    organizationId: string | null;
+  } | null>(null);
+  const [hubLrPreviewByTripId, setHubLrPreviewByTripId] = useState<
+    Record<string, string>
+  >({});
   const groundOpsWarehouseGap = useGroundOpsWarehouseGap();
   // Org model decides whether trips exist at all; the surface decides whether
   // this member may open them. Gating on member-filtered capabilities too would
@@ -719,6 +764,7 @@ export default function TripsScreen() {
     activeMetricTab === "all" || activeMetricTab === "indent" ? orgId : null;
   const handleOpenUnallocatedIndent = useCallback(
     (indent: IndentRow) => {
+      setInitialIndentForDetail(indent);
       router.push(`/indent/${indent.id}` as import("expo-router").Href);
     },
     [router],
@@ -740,6 +786,15 @@ export default function TripsScreen() {
   const { data: clients = [] } = useClientsQuery(orgId);
   const { data: suppliers = [] } = useSuppliersQuery(orgId);
   const { data: drivers = [] } = useDriversQuery(orgId);
+  const hubDriverIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const trip of trips) {
+      const id = (trip.driver_id ?? "").trim();
+      if (id) ids.add(id);
+    }
+    return Array.from(ids);
+  }, [trips]);
+  const driverImageById = useDriverProfileImagesQuery(hubDriverIds);
   const driverPhoneById = useMemo(() => {
     const map = new Map<string, string>();
     for (const d of drivers) {
@@ -907,9 +962,22 @@ export default function TripsScreen() {
         drivers,
         transactions,
         {},
-        { viewerOrgId: orgId, subcontracts: hubTripSubcontracts },
+        {
+          viewerOrgId: orgId,
+          subcontracts: hubTripSubcontracts,
+          driverImageById,
+        },
       ),
-    [trips, clients, suppliers, drivers, transactions, orgId, hubTripSubcontracts],
+    [
+      trips,
+      clients,
+      suppliers,
+      drivers,
+      transactions,
+      orgId,
+      hubTripSubcontracts,
+      driverImageById,
+    ],
   );
 
   const podDocumentTripIdsSorted = useMemo(() => {
@@ -1039,6 +1107,46 @@ export default function TripsScreen() {
     }
     return new Set<string>();
   }, [hubPodFlags]);
+  const hubLrTripIdsKey = useMemo(
+    () =>
+      tripsByStatus
+        .map((row) => row.id.trim().toLowerCase())
+        .filter(Boolean)
+        .sort()
+        .join(","),
+    [tripsByStatus],
+  );
+  const { data: hubDocLabels } = useQuery({
+    queryKey: queryKeys.trips.hubLrLabels(orgId ?? "", hubLrTripIdsKey),
+    enabled: Boolean(orgId && hubLrTripIdsKey),
+    staleTime: 60_000,
+    queryFn: () => loadHubTripDocumentLabelsByTripIds(hubLrTripIdsKey.split(",")),
+  });
+  const hubLrLabels = hubDocLabels?.lrLabels ?? {};
+  const hubElrLabels = hubDocLabels?.elrLabels ?? {};
+  const hubLrLabelFor = useCallback(
+    (tripId: string) => {
+      const id = tripId.trim().toLowerCase();
+      return hubLrPreviewByTripId[id] || hubLrLabels[id] || "";
+    },
+    [hubLrLabels, hubLrPreviewByTripId],
+  );
+  const hubElrLabelFor = useCallback(
+    (tripId: string) => hubElrLabels[tripId.trim().toLowerCase()] || "",
+    [hubElrLabels],
+  );
+  const openHubLrEdit = useCallback(
+    (tripId: string) => {
+      if (!canEditHubLr) return;
+      const trip = tripsByStatus.find((row) => row.id === tripId);
+      setHubLrEdit({
+        tripId,
+        label: hubLrLabelFor(tripId),
+        organizationId: trip?.organization_id ?? orgId ?? null,
+      });
+    },
+    [canEditHubLr, hubLrLabelFor, orgId, tripsByStatus],
+  );
   const hardPodTripIds = useMemo(() => {
     const set = new Set<string>();
     for (const row of tripsByStatus) {
@@ -1621,7 +1729,11 @@ export default function TripsScreen() {
         drivers,
         transactions,
         supplierNameFallbackById,
-        { viewerOrgId: orgId, subcontracts: hubTripSubcontracts },
+        {
+          viewerOrgId: orgId,
+          subcontracts: hubTripSubcontracts,
+          driverImageById,
+        },
       ),
     [
       trips,
@@ -1632,6 +1744,7 @@ export default function TripsScreen() {
       supplierNameFallbackById,
       orgId,
       hubTripSubcontracts,
+      driverImageById,
     ],
   );
 
@@ -2288,6 +2401,7 @@ export default function TripsScreen() {
           clientAvatarFallbackSeed={avatarProps.initialsColorSeed}
           clientOrganizationImageUrl={avatarProps.organizationImageUrl}
           clientOrganizationAvatarSeed={avatarProps.organizationAvatarSeed}
+          clientIntegrated={avatarProps.isIntegrated}
           actions={
             <GiveLoadIndentCardActions
               load={indent}
@@ -2649,6 +2763,29 @@ export default function TripsScreen() {
         maxScrollHeight={width > 1024 ? 560 : 440}
       />
 
+      <HubTripLrUpdateModal
+        visible={Boolean(hubLrEdit)}
+        tripId={hubLrEdit?.tripId ?? ""}
+        organizationId={orgId ?? ""}
+        tripOrganizationId={hubLrEdit?.organizationId ?? orgId ?? null}
+        actorId={auth?.profile?.uid ?? auth?.user?.uid ?? ""}
+        existingLabel={hubLrEdit?.label ?? ""}
+        elrSource={
+          hubLrEdit
+            ? (() => {
+                const trip = tripsByStatus.find((row) => row.id === hubLrEdit.tripId);
+                return trip ? hubElrSourceFromTrip(trip, currentOrganization) : null;
+              })()
+            : null
+        }
+        onClose={() => setHubLrEdit(null)}
+        onSubmitted={(lrNumber) => {
+          const id = (hubLrEdit?.tripId ?? "").trim().toLowerCase();
+          if (!id) return;
+          setHubLrPreviewByTripId((current) => ({ ...current, [id]: lrNumber }));
+        }}
+      />
+
       <DateRangePickerModal
         visible={showDateRangePicker}
         initialFrom={customDateFrom}
@@ -2777,16 +2914,21 @@ export default function TripsScreen() {
                         ]}
                       >
                         {subTabs.map((tab) => (
-                          <TouchableOpacity
+                          <Pressable
                             key={tab.id}
-                            style={[
+                            style={({ hovered, pressed }: { pressed: boolean; hovered?: boolean }) => [
                               chatChrome.tabPill,
                               chatChrome.tabPillHug,
                               styles.tripsFilterTabPillCompact,
                               tab.isActive && chatChrome.tabPillActive,
+                              !tab.isActive &&
+                                (hovered || pressed) &&
+                                chatChrome.tabPillHover,
+                              Platform.OS === "web"
+                                ? ({ cursor: "pointer" } as ViewStyle)
+                                : null,
                             ]}
                             onPress={tab.onPress}
-                            activeOpacity={0.75}
                             accessibilityRole="tab"
                             accessibilityState={{ selected: tab.isActive }}
                           >
@@ -2800,7 +2942,7 @@ export default function TripsScreen() {
                             >
                               {tab.label}
                             </Text>
-                          </TouchableOpacity>
+                          </Pressable>
                         ))}
                       </View>
                     ) : null}
@@ -2818,16 +2960,21 @@ export default function TripsScreen() {
                         ]}
                       >
                         {mainTabs.map((tab) => (
-                          <TouchableOpacity
+                          <Pressable
                             key={tab.id}
-                            style={[
+                            style={({ hovered, pressed }: { pressed: boolean; hovered?: boolean }) => [
                               chatChrome.tabPill,
                               chatChrome.tabPillHug,
                               styles.tripsFilterTabPillCompact,
                               tab.isActive && chatChrome.tabPillActive,
+                              !tab.isActive &&
+                                (hovered || pressed) &&
+                                chatChrome.tabPillHover,
+                              Platform.OS === "web"
+                                ? ({ cursor: "pointer" } as ViewStyle)
+                                : null,
                             ]}
                             onPress={tab.onPress}
-                            activeOpacity={0.75}
                             accessibilityRole="tab"
                             accessibilityState={{ selected: tab.isActive }}
                             accessibilityLabel={`${tab.label}, ${tab.count} trips`}
@@ -2842,7 +2989,7 @@ export default function TripsScreen() {
                             >
                               {formatMainTabLabel(tab.label, tab.count)}
                             </Text>
-                          </TouchableOpacity>
+                          </Pressable>
                         ))}
                       </View>
                       {!isMobileViewport ? (
@@ -3280,10 +3427,12 @@ export default function TripsScreen() {
                       const clientOrgFields = linkedOrgAvatarFields(
                         party?.clientLinkedOrgId,
                         linkedOrgByOrganizationId,
+                        party?.clientAvatarUrl,
                       );
                       const supplierOrgFields = linkedOrgAvatarFields(
                         party?.supplierLinkedOrgId,
                         linkedOrgByOrganizationId,
+                        party?.supplierAvatarUrl,
                       );
                       return (
                         <View key={t.id} style={hubGridItem}>
@@ -3302,6 +3451,10 @@ export default function TripsScreen() {
                               ewayExpiryByTripId[t.id.trim().toLowerCase()] ??
                               null
                             }
+                            lrLabel={hubLrLabelFor(t.id)}
+                            elrLabel={hubElrLabelFor(t.id)}
+                            canEditLr={canEditHubLr}
+                            onPressLr={openHubLrEdit}
                             highlighted={lastOpenedTripId === t.id}
                             currentOrganizationId={
                               currentOrganization?.id ?? null
@@ -3349,6 +3502,8 @@ export default function TripsScreen() {
                             supplierOrganizationAvatarSeed={
                               supplierOrgFields.organizationAvatarSeed
                             }
+                            clientIntegrated={party?.clientIntegrated}
+                            supplierIntegrated={party?.supplierIntegrated}
                             driverAvatarUrl={party?.driverAvatarUrl ?? null}
                             driverAvatarSeed={party?.driverAvatarSeed ?? null}
                             cardDate={getTripCardDate(t)}
@@ -3390,10 +3545,12 @@ export default function TripsScreen() {
                       const clientOrgFields = linkedOrgAvatarFields(
                         party?.clientLinkedOrgId,
                         linkedOrgByOrganizationId,
+                        party?.clientAvatarUrl,
                       );
                       const supplierOrgFields = linkedOrgAvatarFields(
                         party?.supplierLinkedOrgId,
                         linkedOrgByOrganizationId,
+                        party?.supplierAvatarUrl,
                       );
                       return (
                         <TripsHubTripCard
@@ -3411,6 +3568,10 @@ export default function TripsScreen() {
                             ewayExpiryByTripId[t.id.trim().toLowerCase()] ??
                             null
                           }
+                          lrLabel={hubLrLabelFor(t.id)}
+                          elrLabel={hubElrLabelFor(t.id)}
+                          canEditLr={canEditHubLr}
+                          onPressLr={openHubLrEdit}
                           highlighted={lastOpenedTripId === t.id}
                           currentOrganizationId={
                             currentOrganization?.id ?? null
@@ -3454,6 +3615,8 @@ export default function TripsScreen() {
                           supplierOrganizationAvatarSeed={
                             supplierOrgFields.organizationAvatarSeed
                           }
+                          clientIntegrated={party?.clientIntegrated}
+                          supplierIntegrated={party?.supplierIntegrated}
                           driverAvatarUrl={party?.driverAvatarUrl ?? null}
                           driverAvatarSeed={party?.driverAvatarSeed ?? null}
                           cardDate={getTripCardDate(t)}

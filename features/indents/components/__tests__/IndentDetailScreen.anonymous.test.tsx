@@ -70,10 +70,14 @@ jest.mock("@/lib/queries/usePostsQuery", () => ({
   useInvalidatePosts: () => jest.fn(),
   useIndentStoryStatesQuery: () => ({ data: {} }),
 }));
-jest.mock("@tanstack/react-query", () => ({
-  useQuery: () => ({ data: null }),
-  useQueryClient: () => ({ invalidateQueries: jest.fn() }),
-}));
+jest.mock("@tanstack/react-query", () => {
+  // One client for every render, like the real QueryClientProvider.
+  const mockClient = { invalidateQueries: jest.fn(), getQueryData: () => undefined };
+  return {
+    useQuery: () => ({ data: null }),
+    useQueryClient: () => mockClient,
+  };
+});
 jest.mock("@/features/indents/services/indents.service", () => ({
   getVisibleIndentById: jest.fn(async () => ({ indent: mockIndent(), error: null })),
   getIndentDisplayNumber: (row: { indent_number?: string }) => row.indent_number ?? "",

@@ -55,6 +55,21 @@ describe("runSingleflight", () => {
     expect(started).toBe(2);
   });
 
+  it("wraps a thenable that has no finally (PostgREST builder)", async () => {
+    const thenable = {
+      then(
+        onFulfilled?: (value: string) => unknown,
+        onRejected?: (reason: unknown) => unknown,
+      ) {
+        return Promise.resolve("rpc-ok").then(onFulfilled, onRejected);
+      },
+    };
+    await expect(
+      runSingleflight("rpc", () => thenable as Promise<string>),
+    ).resolves.toBe("rpc-ok");
+    expect(singleflightInflightCountForTests()).toBe(0);
+  });
+
   it("releases the slot in finally after rejection", async () => {
     await expect(
       runSingleflight("tx-cleanup", async () => {

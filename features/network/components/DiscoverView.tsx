@@ -81,6 +81,7 @@ interface DiscoverViewProps {
   onSearchChange?: (value: string) => void;
   showSearchChrome?: boolean;
   onOpenProfile?: (org: DiscoverOrg & { rating_value?: number | null; location_value?: string | null }) => void;
+  onPrefetchProfile?: (orgId: string) => void;
   onPressMutuals?: (org: { id: string; name: string }) => void;
   onPressMutual?: (org: { id: string; name: string; avatar_seed?: string | null }) => void;
   /** Called whenever the daily invite count changes so the parent can display it inline. */
@@ -206,6 +207,7 @@ function OrgCard({
   onCancel,
   loading,
   onOpenProfile,
+  onPrefetchProfile,
   onPressMutuals,
   onPressMutual,
   viewerOrgId,
@@ -220,6 +222,7 @@ function OrgCard({
   onCancel: () => void;
   loading: boolean;
   onOpenProfile?: () => void;
+  onPrefetchProfile?: () => void;
   onPressMutuals?: () => void;
   onPressMutual?: (org: { id: string; name: string; avatar_seed?: string | null }) => void;
   viewerOrgId?: string | null;
@@ -247,6 +250,7 @@ function OrgCard({
         pendingRole={pendingRole}
         connecting={loading}
         onOpenProfile={onOpenProfile}
+        onPrefetchProfile={onPrefetchProfile}
         onConnect={onConnect}
         onCancel={onCancel}
         onDismiss={onDismiss}
@@ -290,6 +294,7 @@ export function DiscoverView({
   onSearchChange,
   showSearchChrome = true,
   onOpenProfile,
+  onPrefetchProfile,
   onPressMutuals,
   onPressMutual,
   onInviteCountChange,
@@ -696,6 +701,9 @@ export function DiscoverView({
               location_value: getBusinessLocation(org, discoverOrgLocationFallback(org)),
             });
           }}
+          onPrefetchProfile={
+            onPrefetchProfile ? () => onPrefetchProfile(org.id) : undefined
+          }
           onPressMutuals={orgPressMutualsHandler(org)}
           onPressMutual={onPressMutual}
           viewerOrgId={orgId}
@@ -746,6 +754,7 @@ export function DiscoverView({
       isMobileHub,
       isNativeApp,
       onOpenProfile,
+      onPrefetchProfile,
       onPressMutual,
       orgId,
       orgPressMutualsHandler,
@@ -942,6 +951,11 @@ export function DiscoverView({
                     location_value: getBusinessLocation(item.org),
                   });
                 }}
+                onPrefetchProfile={
+                  onPrefetchProfile
+                    ? () => onPrefetchProfile(item.org.id)
+                    : undefined
+                }
                 onPressMutuals={orgPressMutualsHandler(item.org)}
                 onPressMutual={onPressMutual}
                 viewerOrgId={orgId}

@@ -5,6 +5,13 @@
  * indents (with their detail) open from "View N indents".
  * One rate is quoted for the whole pool.
  */
+import {
+  WEB_POINTER,
+  WEB_TRANSITION,
+  hoverRowWash,
+  isHovered,
+  type HoverPressState,
+} from "@/constants/hoverSelection";
 import Theme from "@/constants/Theme";
 import {
   MarketplaceRouteGrid,
@@ -56,12 +63,14 @@ export function NetworkLoadPoolCard({
   showIndentsAction = true,
   onQuote,
   onViewIndents,
+  viaStops = [],
 }: {
   pool: NetworkLoadPool<NetworkPoolLoad>;
   canQuote: boolean;
   showIndentsAction?: boolean;
   onQuote: () => void;
   onViewIndents?: () => void;
+  viaStops?: readonly string[];
 }) {
   const count = pool.members.length;
   const loadsLabel = plural(count, "load");
@@ -76,8 +85,13 @@ export function NetworkLoadPoolCard({
   ];
 
   return (
-    <View
-      style={styles.card}
+    <Pressable
+      style={(state: HoverPressState) => [
+        styles.card,
+        WEB_TRANSITION,
+        WEB_POINTER,
+        isHovered(state) && hoverRowWash,
+      ]}
       testID={`network-pool-${pool.id}`}
       accessibilityLabel={`Network pool, ${pool.key.pickup} to ${pool.key.drop}, ${vehicle}, ${loadsLabel}`}
     >
@@ -103,7 +117,11 @@ export function NetworkLoadPoolCard({
         ) : null}
       </View>
 
-      <MarketplaceRouteGrid pickup={pool.key.pickup} drop={pool.key.drop} />
+      <MarketplaceRouteGrid
+        pickup={pool.key.pickup}
+        drop={pool.key.drop}
+        viaStops={viaStops}
+      />
 
       <View style={styles.facts}>
         {facts.map((f, i) => (
@@ -147,7 +165,7 @@ export function NetworkLoadPoolCard({
           <Text style={styles.ctaText}>Quote for pool</Text>
         </Pressable>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -157,9 +175,9 @@ export const networkPoolCardStyles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: Theme.borderInput,
-    padding: 14,
+    padding: 12,
     backgroundColor: Theme.cardWhite,
-    gap: 12,
+    gap: 10,
     overflow: "hidden",
     ...Platform.select({
       web: { boxShadow: `0 6px 16px ${Theme.actionAccentShadow}` } as object,
@@ -186,9 +204,9 @@ export const networkPoolCardStyles = StyleSheet.create({
     flexShrink: 1,
   },
   tagText: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.6,
+    fontSize: 9,
+    fontWeight: "600",
+    letterSpacing: 0.45,
     color: Theme.primary,
   },
   countPill: {
@@ -198,13 +216,13 @@ export const networkPoolCardStyles = StyleSheet.create({
     backgroundColor: Theme.brandBlueSoft,
   },
   countPillText: {
-    fontSize: 9.5,
-    fontWeight: "800",
-    letterSpacing: 0.4,
+    fontSize: 9,
+    fontWeight: "600",
+    letterSpacing: 0.3,
     color: Theme.primary,
   },
   view: { flexDirection: "row", alignItems: "center", gap: 1 },
-  viewText: { fontSize: 11, fontWeight: "700", color: Theme.primary },
+  viewText: { fontSize: 11, fontWeight: "600", color: Theme.primary },
 
   facts: {
     flexDirection: "row",
@@ -216,8 +234,8 @@ export const networkPoolCardStyles = StyleSheet.create({
   fact: {
     flex: 1,
     minWidth: 0,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 8,
     gap: 2,
   },
   factDivider: {
@@ -225,13 +243,13 @@ export const networkPoolCardStyles = StyleSheet.create({
     borderLeftColor: Theme.borderInput,
   },
   factLabel: {
-    fontSize: 9.5,
-    fontWeight: "700",
-    letterSpacing: 0.4,
+    fontSize: 9,
+    fontWeight: "500",
+    letterSpacing: 0.35,
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
-  factValue: { fontSize: 12, fontWeight: "700", color: Theme.textPrimaryDark },
+  factValue: { fontSize: 11, fontWeight: "600", color: Theme.textPrimaryDark },
 
   target: {
     flexDirection: "row",
@@ -240,16 +258,16 @@ export const networkPoolCardStyles = StyleSheet.create({
     gap: 8,
   },
   targetLabel: {
-    fontSize: 9.5,
-    fontWeight: "700",
-    letterSpacing: 0.4,
+    fontSize: 9,
+    fontWeight: "500",
+    letterSpacing: 0.35,
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
   targetValue: {
     flexShrink: 1,
-    fontSize: 16,
-    fontWeight: "800",
+    fontSize: 14,
+    fontWeight: "600",
     color: Theme.textPrimaryDark,
   },
 
@@ -258,14 +276,14 @@ export const networkPoolCardStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    paddingTop: 12,
+    paddingTop: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Theme.borderInput,
   },
   footerLeft: { flex: 1, minWidth: 0 },
   cta: {
     paddingHorizontal: 16,
-    minHeight: 36,
+    minHeight: 32,
     justifyContent: "center",
     borderRadius: 999,
     backgroundColor: Theme.buttonPrimary,
@@ -273,6 +291,6 @@ export const networkPoolCardStyles = StyleSheet.create({
     borderColor: Theme.buttonPrimaryBorder,
   },
   ctaDisabled: { opacity: 0.45 },
-  ctaText: { fontSize: 12, fontWeight: "700", color: Theme.buttonPrimaryText },
+  ctaText: { fontSize: 11, fontWeight: "600", color: Theme.buttonPrimaryText },
 });
 const styles = networkPoolCardStyles;

@@ -1,5 +1,12 @@
 import { useLanguage } from "@/contexts/LanguageContext";
-import { ScrollView, Text, TouchableOpacity } from "react-native";
+import {
+  WEB_POINTER,
+  WEB_TRANSITION,
+  hoverOnDarkWash,
+  isHovered,
+  type HoverPressState,
+} from "@/constants/hoverSelection";
+import { Pressable, ScrollView, Text } from "react-native";
 import { TABS, type FinanceSubTab } from "../types";
 import { styles } from "./FinanceScreen.styles";
 
@@ -50,16 +57,18 @@ export function FinanceTabRow({
       {tabs.map((tab) => {
         const isActive = activeTab === tab.id;
         return (
-          <TouchableOpacity
+          <Pressable
             key={tab.id}
-            style={[
+            style={(state: HoverPressState) => [
               styles.financeHeroPill,
               mobileBar && styles.financeHeroPillMobile,
               !isActive && styles.financeHeroPillInactive,
               isActive && styles.financeHeroPillActive,
+              WEB_POINTER,
+              WEB_TRANSITION,
+              !isActive && isHovered(state) && hoverOnDarkWash,
             ]}
             onPress={() => onTabPress(tab.id)}
-            activeOpacity={0.82}
             accessibilityRole="tab"
             accessibilityState={{ selected: isActive }}
           >
@@ -72,7 +81,7 @@ export function FinanceTabRow({
             >
               {t(TAB_I18N_KEYS[tab.id])}
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         );
       })}
     </ScrollView>

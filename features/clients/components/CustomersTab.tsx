@@ -7,6 +7,13 @@ import { FAB } from "@/components/FAB";
 import { EntityAvatar } from "@/components/EntityAvatar";
 import { LiquidFillPill } from "@/components/LiquidFillPill";
 import Theme from "@/constants/Theme";
+import {
+  WEB_POINTER,
+  WEB_TRANSITION,
+  hoverRowWash,
+  isHovered,
+  type HoverPressState,
+} from "@/constants/hoverSelection";
 import { useTabBarAwareScrollProps } from "@/contexts/DemoTabBarScrollContext";
 import {
     aggregateCustomersFromRpc,
@@ -33,6 +40,7 @@ import {
     NativeScrollEvent,
     NativeSyntheticEvent,
     Platform,
+    Pressable,
     RefreshControl,
     ScrollView,
     StyleSheet,
@@ -43,6 +51,7 @@ import {
     useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { FleetClientAnalyticsTab } from "@/features/clients/components/analytics/FleetClientAnalyticsTab";
 import type { ClientRow } from "../services/clients.service";
 
 export type EntityType = "CLIENT" | "SUPPLIER" | "VEHICLE" | "DRIVER";
@@ -1670,6 +1679,7 @@ export function CustomersTab({
   bottomInset = 100,
   tripFinanceAdjustmentsByTripId,
   hideSummaryRow = false,
+  viewTab = "list",
   embedInParentScroll = false,
   onAddPartyPress,
 }: CustomersTabProps) {
@@ -1807,7 +1817,7 @@ export function CustomersTab({
     );
   }
 
-  if (!hasCustomers) {
+  if (!hasCustomers && viewTab !== "analytics") {
     return (
       <ScrollView
         contentContainerStyle={[
@@ -1867,7 +1877,7 @@ export function CustomersTab({
   const tableBody = (
     <>
       {topContent}
-      {!hideSummaryRow && (
+      {!hideSummaryRow && viewTab !== "analytics" && (
         <View style={styles.receivablesSummaryRow}>
           <View style={styles.receivablesSummaryCard}>
             <Text style={styles.receivablesSummaryLabel}>Total Outstanding</Text>
@@ -1882,6 +1892,10 @@ export function CustomersTab({
           />
         </View>
       )}
+      {viewTab === "analytics" ? (
+        <FleetClientAnalyticsTab rows={filteredRows} clients={clients} />
+      ) : (
+        <>
       {isWebDesktop ? (
         <View style={styles.customerTableHeader}>
           <View style={styles.customerTableHeaderEntityCol}>
@@ -1962,11 +1976,15 @@ export function CustomersTab({
           const avatarData = clientAvatarById.get(data.id);
           if (isWebDesktop) {
             return (
-              <TouchableOpacity
+              <Pressable
                 key={data.id}
-                style={styles.customerTableRow}
+                style={(state: HoverPressState) => [
+                  styles.customerTableRow,
+                  WEB_POINTER,
+                  WEB_TRANSITION,
+                  isHovered(state) && hoverRowWash,
+                ]}
                 onPress={() => handleRowSelect(data)}
-                activeOpacity={0.7}
               >
                 <View style={[styles.customerTableCell, styles.ctEntity]}>
                   <View style={styles.customerTableEntityMain}>
@@ -2018,15 +2036,19 @@ export function CustomersTab({
                     ₹{due.toLocaleString("en-IN")}
                   </Text>
                 </View>
-              </TouchableOpacity>
+              </Pressable>
             );
           }
           return (
-            <TouchableOpacity
+            <Pressable
               key={data.id}
-              style={styles.customerTableRowMobile}
+              style={(state: HoverPressState) => [
+                styles.customerTableRowMobile,
+                WEB_POINTER,
+                WEB_TRANSITION,
+                isHovered(state) && hoverRowWash,
+              ]}
               onPress={() => handleRowSelect(data)}
-              activeOpacity={0.7}
             >
               <EntityAvatar
                 name={data.name ?? ""}
@@ -2079,13 +2101,15 @@ export function CustomersTab({
                   </Text>
                 </Text>
               </View>
-            </TouchableOpacity>
+            </Pressable>
           );
         })}
         <View style={styles.customerTableFooter}>
           <Text style={styles.customerTableFooterText}>All Clients Synced</Text>
         </View>
       </View>
+        </>
+      )}
     </>
   );
 
@@ -2106,7 +2130,7 @@ export function CustomersTab({
         {...tabBarScrollProps}
         onScroll={handleCustomerTableScroll}
         scrollEventThrottle={tabBarScrollProps.scrollEventThrottle ?? 100}
-        stickyHeaderIndices={[stickyHeaderIndex]}
+        stickyHeaderIndices={viewTab !== "analytics" ? [stickyHeaderIndex] : []}
         refreshControl={
           onRefresh ? (
             <RefreshControl

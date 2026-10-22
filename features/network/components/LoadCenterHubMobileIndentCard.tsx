@@ -6,6 +6,13 @@ import {
   HUB_GRID_CARD_MIN_HEIGHT,
 } from "@/components/hub/hubGridCardLayout";
 import { PartyAvatar } from "@/components/PartyAvatar";
+import {
+  WEB_POINTER,
+  WEB_TRANSITION,
+  hoverRowWash,
+  isHovered,
+  type HoverPressState,
+} from "@/constants/hoverSelection";
 import Theme from "@/constants/Theme";
 import { getIndentDisplayNumber, type IndentRow } from "@/features/indents";
 import type {
@@ -257,6 +264,8 @@ export type LoadCenterHubMobileIndentCardProps = {
   ticketCommerce?: LoadCenterTicketCommerce | null;
   /** FTL stops in between; their charges are already inside the indent rates. */
   routeExtraStops?: RouteExtraStopSummary | null;
+  /** Saved extra-stop places so the bidder sees the via locations, not only a count. */
+  viaStopLocations?: readonly string[] | null;
   /** Network partner vs market discovery (Reach / ad). */
   sourceTag?: GetLoadSourceTag | null;
   avatarUrl?: string | null;
@@ -266,6 +275,7 @@ export type LoadCenterHubMobileIndentCardProps = {
   initialsColorSeed?: string;
   /** Initials fallback name (own org / client). Defaults to `titleName`. */
   avatarPartyName?: string | null;
+  isIntegrated?: boolean;
   /** Merged-order customers — overlapping stack, same pattern as network mutuals. */
   clientFaces?: MutualFace[] | null;
   /** Shown on Done → Converted to trips (driver + vehicle from linked trip). */
@@ -316,6 +326,7 @@ export function LoadCenterHubMobileIndentCard({
   rightFooterLabel,
   ticketCommerce,
   routeExtraStops = null,
+  viaStopLocations = null,
   sourceTag = null,
   avatarUrl,
   avatarSeed,
@@ -323,6 +334,7 @@ export function LoadCenterHubMobileIndentCard({
   organizationAvatarSeed,
   initialsColorSeed,
   avatarPartyName,
+  isIntegrated,
   clientFaces = null,
   tripAllocation,
   onPress,
@@ -350,9 +362,14 @@ export function LoadCenterHubMobileIndentCard({
     showPlanInRoute && routeHierarchy.finalDropPlace
       ? routeHierarchy.finalDropPlace
       : dest;
+  const viaPlaces = (viaStopLocations ?? [])
+    .map((place) => place.trim())
+    .filter(Boolean);
   const ftlStopLabel = showPlanInRoute
     ? null
-    : extraStopChipLabel(routeExtraStops?.count ?? 0);
+    : viaPlaces.length > 0
+      ? viaPlaces.join(" · ")
+      : extraStopChipLabel(routeExtraStops?.count ?? 0);
   const viaLabel =
     extraStops > 0
       ? `+${extraStops} ${extraStops === 1 ? "stop" : "stops"}`
@@ -478,11 +495,14 @@ export function LoadCenterHubMobileIndentCard({
         <Pressable
           onPress={onPress}
           disabled={!onPress}
-          style={({ pressed }) => [
+          style={(state: HoverPressState) => [
             styles.body,
             dense && styles.bodyDense,
             fillGrid && styles.bodyGrid,
-            Boolean(onPress) && pressed && styles.bodyPressed,
+            WEB_TRANSITION,
+            Boolean(onPress) && WEB_POINTER,
+            Boolean(onPress) && isHovered(state) && hoverRowWash,
+            Boolean(onPress) && state.pressed && styles.bodyPressed,
           ]}
           accessibilityRole={onPress ? "button" : undefined}
           accessibilityLabel={
@@ -542,6 +562,7 @@ export function LoadCenterHubMobileIndentCard({
                 avatarUrl={avatarUrl}
                 avatarSeed={avatarSeed}
                 entityType="client"
+                isIntegrated={isIntegrated}
                 size={32}
               />
             )}
@@ -1395,16 +1416,16 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   price: {
-    fontSize: 16,
-    fontWeight: "700",
+    fontSize: 14,
+    fontWeight: "600",
     color: INK,
     fontVariant: ["tabular-nums"],
-    letterSpacing: -0.3,
-    lineHeight: 20,
+    letterSpacing: -0.2,
+    lineHeight: 18,
   },
   priceDense: {
-    fontSize: 15,
-    lineHeight: 19,
+    fontSize: 13,
+    lineHeight: 17,
   },
   priceRef: {
     marginTop: 2,

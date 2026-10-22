@@ -295,6 +295,15 @@ export const ORG_POLICIES: readonly PolicyRecord[] = [
     softDeny: true,
   },
   {
+    id: 'org.party-analytics',
+    pattern: '/party/analytics/:kind',
+    experience: 'org',
+    priority: 96,
+    grants: { anyOf: ['dispatch', 'dispatch_for_own_fleet', 'fleet_management'] },
+    onDeny: { type: 'path', path: '/finance' },
+    softDeny: true,
+  },
+  {
     id: 'org.party-kind',
     pattern: '/party/:kind',
     experience: 'org',

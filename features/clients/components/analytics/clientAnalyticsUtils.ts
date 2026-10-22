@@ -75,10 +75,110 @@ function asNumber(v: unknown): number {
 /** Asset-operated (own fleet) vs supplier/market-operated. */
 export type ClientOpModelKind = "asset" | "supplier";
 
-function laneLabel(t: TripRow): string {
+export function tripLaneLabel(t: TripRow): string {
   const pickup = formatCityStateLabel(t.pickup_area);
   const drop = formatCityStateLabel(t.drop_location);
   return formatLaneRouteLabel(pickup, drop) || "Unspecified lane";
+}
+
+function laneLabel(t: TripRow): string {
+  return tripLaneLabel(t);
+}
+
+export function tripLoadTypeLabel(t: TripRow): string {
+  return (t.load_type ?? "").trim() || "Unspecified";
+}
+
+export type AgingBucketKey =
+  | "bucket0_30"
+  | "bucket31_60"
+  | "bucket61_90"
+  | "bucket90Plus";
+
+export const AGING_BUCKET_LABEL: Record<AgingBucketKey, string> = {
+  bucket0_30: "0-30d",
+  bucket31_60: "31-60d",
+  bucket61_90: "61-90d",
+  bucket90Plus: "90+d",
+};
+
+export function agingLabelToBucket(label: string): AgingBucketKey | null {
+  const found = (Object.entries(AGING_BUCKET_LABEL) as [AgingBucketKey, string][]).find(
+    ([, value]) => value === label,
+  );
+  return found?.[0] ?? null;
+}
+
+export type PartyChartFilterSkip =
+  | "lane"
+  | "month"
+  | "load"
+  | "aging"
+  | "client"
+  | "party"
+  | null;
+
+export function applyPartyChartFilters(
+  trips: readonly TripRow[],
+  txns: readonly LedgerRow[],
+  filters: {
+    lane?: string | null;
+    monthKey?: string | null;
+    loadType?: string | null;
+    agingLabel?: string | null;
+    clientLabel?: string | null;
+    otherClientLabels?: ReadonlySet<string>;
+    partyLabel?: string | null;
+    partyLabelFor?: (t: TripRow) => string;
+    otherPartyLabels?: ReadonlySet<string>;
+    agingMode?: "receivable" | "payable";
+  },
+  skip?: PartyChartFilterSkip,
+): TripRow[] {
+  let next = [...trips];
+  if (filters.lane && skip !== "lane") {
+    next = next.filter((t) => tripLaneLabel(t) === filters.lane);
+  }
+  if (filters.monthKey && skip !== "month") {
+    next = next.filter((t) => {
+      const d = tripDate(t);
+      if (!d) return false;
+      return monthKey(d) === filters.monthKey;
+    });
+  }
+  if (filters.loadType && skip !== "load") {
+    next = next.filter((t) => tripLoadTypeLabel(t) === filters.loadType);
+  }
+  if (filters.agingLabel && skip !== "aging") {
+    const bucket = agingLabelToBucket(filters.agingLabel);
+    if (bucket) {
+      const open =
+        filters.agingMode === "payable"
+          ? listOpenPayableTrips(next, txns, { bucket })
+          : listOpenReceivableTrips(next, txns, { bucket });
+      const ids = new Set(open.map((row) => row.trip.id));
+      next = next.filter((t) => ids.has(t.id));
+    }
+  }
+  if (filters.clientLabel && skip !== "client") {
+    next = next.filter((t) => {
+      const label = (t.client_name ?? "").trim() || "Unassigned";
+      if (filters.clientLabel === "Others") {
+        return !filters.otherClientLabels?.has(label);
+      }
+      return label === filters.clientLabel;
+    });
+  }
+  if (filters.partyLabel && skip !== "party" && filters.partyLabelFor) {
+    next = next.filter((t) => {
+      const label = filters.partyLabelFor?.(t) ?? "Unassigned";
+      if (filters.partyLabel === "Others") {
+        return !filters.otherPartyLabels?.has(label);
+      }
+      return label === filters.partyLabel;
+    });
+  }
+  return next;
 }
 
 function tripRevenueAmount(t: TripRow): number {
@@ -138,6 +238,14 @@ export interface ClientLaneBreakdown {
   trips: number;
   margin: number;
   marginPct: number;
+}
+
+export interface ClientContributionRow {
+  id: string;
+  label: string;
+  revenue: number;
+  trips: number;
+  contributionPct: number;
 }
 
 export interface ClientLoadTypeBreakdown {
@@ -455,6 +563,72 @@ export function computeLaneBreakdown(
   return rows.slice(0, options.topN ?? 5);
 }
 
+export function tripSupplierLabel(t: TripRow): string {
+  return (t.supplier_name ?? "").trim() || "Unassigned";
+}
+
+export function tripDriverLabel(t: TripRow): string {
+  const raw = (t.driver_display_name ?? "").trim();
+  if (!raw || /^driver$/i.test(raw)) return "Unassigned";
+  return raw;
+}
+
+export function tripVehicleLabel(t: TripRow): string {
+  return (t.vehicle_display_number ?? "").trim() || "Unassigned";
+}
+
+/** Fleet view — share of billed / paid amount by party name. */
+export function computePartyContribution(
+  trips: readonly TripRow[],
+  options: {
+    topN?: number;
+    labelFor: (t: TripRow) => string;
+    valueFor?: (t: TripRow) => number;
+  },
+): ClientContributionRow[] {
+  const valueFor = options.valueFor ?? tripRevenueAmount;
+  const map = new Map<string, { id: string; label: string; revenue: number; trips: number }>();
+  for (const t of trips) {
+    const label = options.labelFor(t).trim() || "Unassigned";
+    const key = label.toLowerCase();
+    const entry = map.get(key) ?? { id: key, label, revenue: 0, trips: 0 };
+    entry.revenue += valueFor(t);
+    entry.trips += 1;
+    if (label !== "Unassigned") entry.label = label;
+    map.set(key, entry);
+  }
+
+  const ranked = Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
+  const total = ranked.reduce((sum, row) => sum + row.revenue, 0);
+  const topN = options.topN ?? 6;
+  const top = ranked.slice(0, topN);
+  const rest = ranked.slice(topN);
+  if (rest.length > 0) {
+    top.push({
+      id: "others",
+      label: "Others",
+      revenue: rest.reduce((sum, row) => sum + row.revenue, 0),
+      trips: rest.reduce((sum, row) => sum + row.trips, 0),
+    });
+  }
+
+  return top.map((row) => ({
+    ...row,
+    contributionPct: total > 0 ? Math.round((row.revenue / total) * 100) : 0,
+  }));
+}
+
+export function computeCustomerContribution(
+  trips: readonly TripRow[],
+  options: { topN?: number } = {},
+): ClientContributionRow[] {
+  return computePartyContribution(trips, {
+    topN: options.topN,
+    labelFor: (t) => (t.client_name ?? "").trim() || "Unassigned",
+    valueFor: tripRevenueAmount,
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Margin analysis — lane contribution + asset vs supplier operation
 // ─────────────────────────────────────────────────────────────────────────────
@@ -706,12 +880,6 @@ export function computePaymentAging(
     totalOverdueTrips: overdueTrips,
   };
 }
-
-export type AgingBucketKey =
-  | "bucket0_30"
-  | "bucket31_60"
-  | "bucket61_90"
-  | "bucket90Plus";
 
 export type AgingTripRow = {
   trip: TripRow;

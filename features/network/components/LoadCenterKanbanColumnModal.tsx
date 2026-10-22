@@ -21,6 +21,7 @@ import {
   type MarketplaceLoadSearch,
 } from "@/features/network/utils/marketplaceSearch.util";
 import { MARKETPLACE_LOAD_PAGE_SIZE } from "@/features/network/utils/marketplaceLoadsPage.util";
+import { viaStopLocationsForMemberIds } from "@/features/trips/utils/routeExtraStops.util";
 import { IncompleteLaneNotice } from "@/features/network/components/pooled/IncompleteLaneNotice";
 import { NetworkBidPoolCard } from "@/features/network/components/pooled/NetworkBidPoolCard";
 import { NetworkLoadPoolCard } from "@/features/network/components/pooled/NetworkLoadPoolCard";
@@ -58,12 +59,10 @@ const IndentDetailScreen = lazy(() =>
 );
 
 const TABLET_BREAKPOINT = 720;
-const DESKTOP_SIDE_PAD = 32;
+const DESKTOP_FOUR_COL = 1180;
+const DESKTOP_SIDE_PAD = 40;
 const MOBILE_SIDE_PAD = Layout.screenPaddingHorizontal;
-const GRID_GAP = 14;
-const BOARD_MAX_ONE = 720;
-const BOARD_MAX_TWO = 980;
-const BOARD_MAX_THREE = 1180;
+const GRID_GAP = 16;
 /** Collapsed edge rail width — content inset keeps cards clear of the icon. */
 const STAGE_BOOKMARK_RAIL = 40;
 
@@ -101,8 +100,12 @@ export type LoadCenterKanbanColumnModalProps = {
   canQuotePools?: boolean;
   /** Indent card inside an opened open-market pool — details only, no per-indent quote. */
   renderPoolMemberCard?: (load: IndentRow) => ReactNode;
-  /** Indent card inside an opened My Bids pool. Its action revises that bid. */
+  /** Indent card inside an opened My Bids pool. Unused while pool bidding is the only action. */
   renderBidPoolMemberCard?: (load: IndentRow) => ReactNode;
+  /** Revise the pooled My Bids quote (one rate for the lane). */
+  onReviseBidPool?: (pool: NetworkLoadPool<IndentRow>) => void;
+  /** Extra-stop places by indent, shown to bidders on pool cards. */
+  viaStopsByIndentId?: ReadonlyMap<string, readonly string[]>;
   /**
    * Every open Network load before search, so a shown pool is always whole.
    * Column loads may be search-filtered, so without this no pool is shown or quotable.
@@ -122,17 +125,11 @@ export type LoadCenterKanbanColumnModalProps = {
   bidPoolLoads?: IndentRow[];
 };
 
-function maxColumnsForWidth(width: number): 1 | 2 | 3 {
+function maxColumnsForWidth(width: number): 1 | 2 | 3 | 4 {
+  if (width >= DESKTOP_FOUR_COL) return 4;
   if (width >= HUB_GRID_MIN_WIDTH) return 3;
   if (width >= TABLET_BREAKPOINT) return 2;
   return 1;
-}
-
-/** Cap columns to viewport + card count so sparse stages fill the row (no empty right half). */
-function columnsForGrid(width: number, cardCount: number): number {
-  const viewportMax = maxColumnsForWidth(width);
-  if (cardCount <= 0) return viewportMax;
-  return Math.min(viewportMax, Math.max(cardCount, 1));
 }
 
 function gridTemplateColumns(columns: number): string {
@@ -288,12 +285,20 @@ export function LoadCenterKanbanColumnModal({
   bidPoolQuotes,
   isBidPoolable,
   bidPoolLoads,
+  onReviseBidPool,
+  viaStopsByIndentId,
 }: LoadCenterKanbanColumnModalProps) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isDesktop = width >= TABLET_BREAKPOINT;
   const sidePad = isDesktop ? DESKTOP_SIDE_PAD : MOBILE_SIDE_PAD;
   const showDetail = Boolean(detailIndentId);
+  const railLeft =
+    isDesktop && !showDetail && previousStage ? STAGE_BOOKMARK_RAIL : 0;
+  const railRight =
+    isDesktop && !showDetail && nextStage ? STAGE_BOOKMARK_RAIL : 0;
+  const pagePadLeft = sidePad + railLeft;
+  const pagePadRight = sidePad + railRight;
 
   const [searchQuery, setSearchQuery] = useState("");
   const [pickupFilter, setPickupFilter] = useState("");
@@ -422,9 +427,20 @@ export function LoadCenterKanbanColumnModal({
       ? (bidPools.pools.find((p) => p.id === openPoolId) ?? null)
       : null;
 
+  const viaForPool = useCallback(
+    (members: readonly IndentRow[]) =>
+      viaStopsByIndentId
+        ? viaStopLocationsForMemberIds(
+            members.map((m) => m.id),
+            viaStopsByIndentId,
+          )
+        : [],
+    [viaStopsByIndentId],
+  );
+
   const filteredLoads = useMemo(() => {
     if (bidPools) {
-      if (openBidPool) return openBidPool.members;
+      if (openBidPool) return [];
       return bidPools.individual.filter(shownInStage);
     }
     if (pooledMode) {
@@ -479,14 +495,7 @@ export function LoadCenterKanbanColumnModal({
 
   const showPoolList = pooledMode && !openPool;
   const showBidPoolList = bidPools != null && !openBidPool;
-  const columns = columnsForGrid(
-    width,
-    showPoolList
-      ? shownPools.length
-      : showBidPoolList
-        ? shownBidPools.length + visibleLoads.length
-        : visibleLoads.length,
-  );
+  const columns = maxColumnsForWidth(width);
 
   const cellStyle = useMemo(() => {
     if (Platform.OS === "web") {
@@ -507,9 +516,6 @@ export function LoadCenterKanbanColumnModal({
     };
   }, [columns]);
 
-  const boardMaxWidth =
-    columns <= 1 ? BOARD_MAX_ONE : columns === 2 ? BOARD_MAX_TWO : BOARD_MAX_THREE;
-
   const webGridStyle = useMemo(() => {
     if (Platform.OS !== "web") return null;
     return {
@@ -517,11 +523,11 @@ export function LoadCenterKanbanColumnModal({
       gridTemplateColumns: gridTemplateColumns(columns),
       gap: GRID_GAP,
       width: "100%",
-      maxWidth: boardMaxWidth,
-      alignSelf: "center" as const,
+      maxWidth: "100%" as const,
+      alignSelf: "stretch" as const,
       alignItems: "stretch" as const,
     };
-  }, [columns, boardMaxWidth]);
+  }, [columns]);
 
   const hasActiveFilters = pooledMode
     ? Boolean(appliedSearch?.pickup || appliedSearch?.drop || appliedSearch?.vehicleType)
@@ -663,86 +669,96 @@ export function LoadCenterKanbanColumnModal({
           },
         ]}
       >
-        <View style={[styles.headerBand, { paddingHorizontal: sidePad }]}>
+        <View
+          style={[
+            styles.headerBand,
+            { paddingLeft: pagePadLeft, paddingRight: pagePadRight },
+          ]}
+        >
           <View
             style={[styles.headerInner, !isDesktop && styles.headerInnerMobile]}
           >
-            <View style={styles.headerTopRow}>
-              <View style={styles.headerLeft}>
+            <View
+              style={[
+                styles.accent,
+                !isDesktop && styles.accentMobile,
+                { backgroundColor: column.accent },
+              ]}
+            />
+            <View style={styles.headerText}>
+              <Text style={styles.eyebrow} numberOfLines={1}>
+                {searchFirst ? "Get Load" : "Load stage"}
+              </Text>
+              <Text
+                style={[
+                  styles.title,
+                  isDesktop && styles.titleDesktop,
+                  !isDesktop && styles.titleMobile,
+                ]}
+                numberOfLines={isDesktop ? 1 : 2}
+              >
+                {column.label}
+              </Text>
+              <Text
+                style={[styles.subtitle, !isDesktop && styles.subtitleMobile]}
+                numberOfLines={isDesktop ? 1 : 2}
+              >
+                {awaitingSearch
+                  ? "Choose pickup, drop, and vehicle to see matching loads"
+                  : openPool
+                    ? `${openPool.members.length} load${openPool.members.length === 1 ? "" : "s"} in this pool · one quote`
+                    : openBidPool
+                      ? `${openBidPool.members.length} load${openBidPool.members.length === 1 ? "" : "s"} in this pool · your pooled bid`
+                      : showBidPoolList && shownBidPools.length > 0
+                        ? bidPoolSummary
+                    : showPoolList
+                      ? poolSummary
+                      : hasActiveFilters
+                    ? `${shownCount} matching load${shownCount === 1 ? "" : "s"}`
+                    : `${badgeCount} load${badgeCount === 1 ? "" : "s"} in this stage`}
+              </Text>
+            </View>
+            <View style={styles.headerRight}>
+              {awaitingSearch ? null : (
                 <View
-                  style={[styles.accent, { backgroundColor: column.accent }]}
-                />
-                <View style={styles.headerText}>
-                  <Text style={styles.eyebrow} numberOfLines={1}>
-                    {searchFirst ? "GET LOAD" : "LOAD STAGE"}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.title,
-                      isDesktop && styles.titleDesktop,
-                      !isDesktop && styles.titleMobile,
-                    ]}
-                    numberOfLines={isDesktop ? 1 : 2}
-                  >
-                    {column.label}
+                  style={[
+                    styles.countBadge,
+                    !isDesktop && styles.countBadgeMobile,
+                  ]}
+                >
+                  <Text style={styles.countText}>
+                    {hasActiveFilters ? shownCount : badgeCount}
                   </Text>
                 </View>
-              </View>
-              <View style={styles.headerRight}>
-                {awaitingSearch ? null : (
-                  <View
-                    style={[
-                      styles.countBadge,
-                      !isDesktop && styles.countBadgeMobile,
-                    ]}
-                  >
-                    <Text style={styles.countText}>
-                      {hasActiveFilters ? shownCount : badgeCount}
-                    </Text>
-                  </View>
-                )}
-                <Pressable
-                  onPress={onClose}
-                  style={({ pressed }) => [
-                    styles.headerAction,
-                    !isDesktop && styles.headerActionMobile,
-                    pressed && styles.closeBtnPressed,
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Close"
-                  hitSlop={8}
-                >
-                  <FontAwesome
-                    name="times"
-                    size={16}
-                    color={Theme.textPrimaryDark}
-                  />
-                </Pressable>
-              </View>
+              )}
+              <Pressable
+                onPress={onClose}
+                style={({ pressed }) => [
+                  styles.headerAction,
+                  !isDesktop && styles.headerActionMobile,
+                  pressed && styles.closeBtnPressed,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+                hitSlop={8}
+              >
+                <FontAwesome
+                  name="times"
+                  size={14}
+                  color={Theme.textSecondary}
+                />
+              </Pressable>
             </View>
-            <Text
-              style={[styles.subtitle, !isDesktop && styles.subtitleMobile]}
-              numberOfLines={isDesktop ? 1 : 2}
-            >
-              {awaitingSearch
-                ? "Choose pickup, drop, and vehicle to see matching loads"
-                : openPool
-                  ? `${openPool.members.length} load${openPool.members.length === 1 ? "" : "s"} in this pool · one quote`
-                  : openBidPool
-                    ? `${openBidPool.members.length} load${openBidPool.members.length === 1 ? "" : "s"} in this pool · your pooled bid`
-                  : showBidPoolList && shownBidPools.length > 0
-                    ? bidPoolSummary
-                  : showPoolList
-                    ? `${poolSummary} · one quote per pool`
-                    : hasActiveFilters
-                  ? `${shownCount} matching load${shownCount === 1 ? "" : "s"}`
-                  : `${badgeCount} load${badgeCount === 1 ? "" : "s"} in this stage`}
-            </Text>
           </View>
         </View>
 
         {hasTabs ? (
-          <View style={[styles.subTabBand, { paddingHorizontal: sidePad }]}>
+          <View
+            style={[
+              styles.subTabBand,
+              { paddingLeft: pagePadLeft, paddingRight: pagePadRight },
+            ]}
+          >
             <View style={styles.subTabRow}>
               {tabs.map((tab) => {
                 const on = tab.id === (activeTab?.id ?? "");
@@ -780,7 +796,12 @@ export function LoadCenterKanbanColumnModal({
         ) : null}
 
         {searchFirst ? (
-          <View style={[styles.toolbarBand, { paddingHorizontal: sidePad }]}>
+          <View
+            style={[
+              styles.toolbarBand,
+              { paddingLeft: pagePadLeft, paddingRight: pagePadRight },
+            ]}
+          >
             <View style={[styles.lanePanel, !isDesktop && styles.lanePanelMobile]}>
               <View style={styles.lanePanelHead}>
                 <Text style={styles.lanePanelHint}>
@@ -804,7 +825,12 @@ export function LoadCenterKanbanColumnModal({
             </View>
           </View>
         ) : (
-        <View style={[styles.toolbarBand, { paddingHorizontal: sidePad }]}>
+        <View
+          style={[
+            styles.toolbarBand,
+            { paddingLeft: pagePadLeft, paddingRight: pagePadRight },
+          ]}
+        >
           <View style={[styles.toolbar, !isDesktop && styles.toolbarMobile]}>
             <View style={[styles.searchWrap, !isDesktop && styles.searchWrapMobile]}>
               <FontAwesome
@@ -876,18 +902,10 @@ export function LoadCenterKanbanColumnModal({
           contentContainerStyle={[
             styles.scrollContent,
             {
-              paddingLeft:
-                sidePad +
-                (isDesktop && !showDetail && previousStage
-                  ? STAGE_BOOKMARK_RAIL
-                  : 0),
-              paddingRight:
-                sidePad +
-                (isDesktop && !showDetail && nextStage
-                  ? STAGE_BOOKMARK_RAIL
-                  : 0),
-              paddingTop: isDesktop ? 16 : 14,
-              paddingBottom: isDesktop ? 32 : 28,
+              paddingLeft: pagePadLeft,
+              paddingRight: pagePadRight,
+              paddingTop: isDesktop ? 20 : 14,
+              paddingBottom: isDesktop ? 36 : 28,
             },
           ]}
           showsVerticalScrollIndicator
@@ -900,7 +918,7 @@ export function LoadCenterKanbanColumnModal({
               style={[
                 styles.poolDetail,
                 Platform.OS === "web"
-                  ? ({ maxWidth: boardMaxWidth, alignSelf: "center", width: "100%" } as object)
+                  ? ({ maxWidth: "100%", alignSelf: "stretch", width: "100%" } as object)
                   : null,
               ]}
             >
@@ -919,6 +937,7 @@ export function LoadCenterKanbanColumnModal({
                 canQuote={canQuotePools}
                 showIndentsAction={false}
                 onQuote={() => onQuotePool?.(openPool)}
+                viaStops={viaForPool(openPool.members)}
               />
               <Text style={styles.poolSectionTitle}>
                 Indents in this pool
@@ -930,7 +949,7 @@ export function LoadCenterKanbanColumnModal({
               style={[
                 styles.poolDetail,
                 Platform.OS === "web"
-                  ? ({ maxWidth: boardMaxWidth, alignSelf: "center", width: "100%" } as object)
+                  ? ({ maxWidth: "100%", alignSelf: "stretch", width: "100%" } as object)
                   : null,
               ]}
             >
@@ -944,10 +963,16 @@ export function LoadCenterKanbanColumnModal({
                 <FontAwesome name="chevron-left" size={11} color={Theme.primary} />
                 <Text style={styles.poolBackText}>My bids</Text>
               </Pressable>
-              <NetworkBidPoolCard pool={openBidPool} showViewAction={false} />
-              <Text style={styles.poolSectionTitle}>
-                Indents in this pool
-              </Text>
+              <NetworkBidPoolCard
+                pool={openBidPool}
+                showViewAction={false}
+                onReviseBid={
+                  onReviseBidPool
+                    ? () => onReviseBidPool(openBidPool)
+                    : undefined
+                }
+                viaStops={viaForPool(openBidPool.members)}
+              />
             </View>
           ) : null}
           {showBidPoolList && shownBidPools.length > 0 ? (
@@ -955,7 +980,7 @@ export function LoadCenterKanbanColumnModal({
               style={[
                 styles.grid,
                 columns === 1 && styles.gridStack,
-                Platform.OS !== "web" && { maxWidth: boardMaxWidth, alignSelf: "center" },
+                Platform.OS !== "web" && { maxWidth: "100%", alignSelf: "stretch" },
                 webGridStyle as object,
                 filteredLoads.length > 0 && styles.bidPoolGridGap,
               ]}
@@ -965,6 +990,10 @@ export function LoadCenterKanbanColumnModal({
                   <NetworkBidPoolCard
                     pool={pool}
                     onViewPool={() => setOpenPoolId(pool.id)}
+                    onReviseBid={
+                      onReviseBidPool ? () => onReviseBidPool(pool) : undefined
+                    }
+                    viaStops={viaForPool(pool.members)}
                   />
                 </View>
               ))}
@@ -995,7 +1024,7 @@ export function LoadCenterKanbanColumnModal({
                 style={[
                   styles.grid,
                   columns === 1 && styles.gridStack,
-                  Platform.OS !== "web" && { maxWidth: boardMaxWidth, alignSelf: "center" },
+                  Platform.OS !== "web" && { maxWidth: "100%", alignSelf: "stretch" },
                   webGridStyle as object,
                 ]}
               >
@@ -1006,6 +1035,7 @@ export function LoadCenterKanbanColumnModal({
                       canQuote={canQuotePools}
                       onQuote={() => onQuotePool?.(pool)}
                       onViewIndents={() => setOpenPoolId(pool.id)}
+                      viaStops={viaForPool(pool.members)}
                     />
                   </View>
                 ))}
@@ -1013,7 +1043,9 @@ export function LoadCenterKanbanColumnModal({
             )
           ) : null}
           {showPoolList && filteredLoads.length > 0 ? <IncompleteLaneNotice /> : null}
-          {(showPoolList || (showBidPoolList && shownBidPools.length > 0)) &&
+          {(showPoolList ||
+            (showBidPoolList && shownBidPools.length > 0) ||
+            openBidPool) &&
           filteredLoads.length === 0 ? null : filteredLoads.length === 0 ? (
             <View style={styles.empty}>
               <View style={styles.emptyIcon}>
@@ -1056,7 +1088,7 @@ export function LoadCenterKanbanColumnModal({
               style={[
                 styles.grid,
                 columns === 1 && styles.gridStack,
-                Platform.OS !== "web" && { maxWidth: boardMaxWidth, alignSelf: "center" },
+                Platform.OS !== "web" && { maxWidth: "100%", alignSelf: "stretch" },
                 webGridStyle as object,
               ]}
             >
@@ -1272,6 +1304,7 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.surfaceBorder,
+    paddingTop: 14,
     paddingBottom: 16,
     width: "100%",
     ...Platform.select({
@@ -1283,64 +1316,71 @@ const styles = StyleSheet.create({
   },
   headerInner: {
     width: "100%",
-    gap: 8,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 14,
   },
   headerInnerMobile: {
-    gap: 10,
-  },
-  headerTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    width: "100%",
-  },
-  headerLeft: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
     gap: 12,
   },
   accent: {
-    width: 4,
-    height: 44,
+    width: 3,
+    height: 52,
     borderRadius: 999,
     flexShrink: 0,
+    marginTop: 4,
+  },
+  accentMobile: {
+    height: 48,
+    marginTop: 2,
   },
   headerText: {
     flex: 1,
     minWidth: 0,
-    gap: 2,
+    gap: 4,
+    paddingTop: 1,
   },
   eyebrow: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1.1,
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.4,
     color: Theme.textMuted,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   title: {
     fontSize: 22,
-    fontWeight: "800",
+    fontWeight: "600",
+    lineHeight: 28,
     color: Theme.textPrimaryDark,
-    letterSpacing: -0.5,
+    letterSpacing: 0,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   titleDesktop: {
-    fontSize: 26,
-    letterSpacing: -0.6,
+    fontSize: 24,
+    lineHeight: 30,
   },
   titleMobile: {
     fontSize: 20,
-    lineHeight: 24,
-    letterSpacing: -0.4,
+    lineHeight: 26,
   },
   subtitle: {
     fontSize: 13,
+    lineHeight: 18,
     fontWeight: "500",
     color: Theme.textSecondary,
+    marginTop: 2,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   subtitleMobile: {
-    paddingLeft: 16,
     lineHeight: 18,
   },
   headerRight: {
@@ -1348,39 +1388,40 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     flexShrink: 0,
+    paddingTop: 2,
   },
   headerAction: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: Theme.borderLight,
-    backgroundColor: Theme.cardWhite,
+    backgroundColor: Theme.surfaceGray,
     alignItems: "center",
     justifyContent: "center",
   },
   headerActionMobile: {
-    width: 44,
-    height: 44,
+    width: 40,
+    height: 40,
   },
   countBadge: {
-    minWidth: 40,
-    height: 40,
+    minWidth: 36,
+    height: 36,
     paddingHorizontal: 10,
-    borderRadius: 12,
-    backgroundColor: Theme.surface,
+    borderRadius: 10,
+    backgroundColor: Theme.surfaceGray,
     borderWidth: 1,
     borderColor: Theme.borderLight,
     alignItems: "center",
     justifyContent: "center",
   },
   countBadgeMobile: {
-    minWidth: 44,
-    height: 44,
+    minWidth: 40,
+    height: 40,
   },
   countText: {
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
     color: Theme.textPrimaryDark,
     fontVariant: ["tabular-nums"],
   },
@@ -1556,9 +1597,9 @@ const styles = StyleSheet.create({
   },
   lanePanel: {
     width: "100%",
-    maxWidth: BOARD_MAX_THREE,
-    alignSelf: "center",
-    padding: 14,
+    maxWidth: "100%",
+    alignSelf: "stretch",
+    padding: 16,
     borderRadius: 16,
     backgroundColor: Theme.cardWhite,
     borderWidth: 1,

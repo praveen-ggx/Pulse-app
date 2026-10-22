@@ -128,7 +128,7 @@ export function NetworkHubConnectionsPagedGrid<T>({
     [isWeb],
   );
 
-  const swipePager = !isWeb && pageCount > 1 && slideWidth > 0;
+  const swipePager = pageCount > 1 && slideWidth > 0;
 
   const goToPage = useCallback(
     (target: number, animated = true) => {
@@ -141,6 +141,38 @@ export function NetworkHubConnectionsPagedGrid<T>({
     },
     [pageCount, scrollPagerTo, slideWidth, swipePager],
   );
+
+  useEffect(() => {
+    if (!isWeb || !swipePager) return;
+    const scroller = listRef.current;
+    const node =
+      typeof (scroller as unknown as { getNativeScrollRef?: () => unknown })
+        ?.getNativeScrollRef === "function"
+        ? (scroller as unknown as { getNativeScrollRef: () => HTMLElement | null }).getNativeScrollRef()
+        : typeof (scroller as unknown as { getScrollableNode?: () => unknown })
+              ?.getScrollableNode === "function"
+          ? (scroller as unknown as { getScrollableNode: () => HTMLElement | null }).getScrollableNode()
+          : null;
+    if (!node) return;
+
+    const onWheel = (event: WheelEvent) => {
+      const horizontal = event.shiftKey
+        ? event.deltaY
+        : Math.abs(event.deltaX) >= Math.abs(event.deltaY)
+          ? event.deltaX
+          : 0;
+      if (horizontal === 0) return;
+      const max = node.scrollWidth - node.clientWidth;
+      if (max <= 0) return;
+      const next = Math.max(0, Math.min(max, node.scrollLeft + horizontal));
+      if (next === node.scrollLeft) return;
+      event.preventDefault();
+      node.scrollLeft = next;
+    };
+
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => node.removeEventListener("wheel", onWheel);
+  }, [isWeb, swipePager, slideWidth, pageCount]);
 
   useEffect(() => {
     pageRef.current = 0;
@@ -247,8 +279,8 @@ export function NetworkHubConnectionsPagedGrid<T>({
           nestedScrollEnabled
           directionalLockEnabled
           disableIntervalMomentum
-          pagingEnabled={Platform.OS === "ios"}
-          snapToInterval={Platform.OS === "android" ? slideWidth : undefined}
+          pagingEnabled={Platform.OS !== "android"}
+          snapToInterval={Platform.OS === "android" ? slideWidth : isWeb ? slideWidth : undefined}
           snapToAlignment="start"
           decelerationRate="fast"
           bounces={false}
@@ -335,11 +367,15 @@ export function NetworkHubConnectionsPagedGrid<T>({
 }
 
 const WEB_PAGER_SCROLL: ViewStyle = {
+  width: "100%",
+  maxWidth: "100%",
+  minWidth: 0,
   overflowX: "auto",
   overflowY: "hidden",
   scrollSnapType: "x mandatory",
   overscrollBehaviorX: "contain",
   WebkitOverflowScrolling: "touch",
+  touchAction: "pan-x",
 } as ViewStyle;
 
 const WEB_PAGE_SLIDE: ViewStyle = {
@@ -350,17 +386,22 @@ const WEB_PAGE_SLIDE: ViewStyle = {
 const styles = StyleSheet.create({
   root: {
     width: "100%",
+    minWidth: 0,
     gap: 8,
   },
   pagerList: {
     width: "100%",
+    maxWidth: "100%",
+    minWidth: 0,
   },
   pagerContent: {
     flexDirection: "row",
     alignItems: "stretch",
+    flexGrow: 0,
   },
   pageSlide: {
     flexShrink: 0,
+    flexGrow: 0,
   },
   grid: {
     width: "100%",

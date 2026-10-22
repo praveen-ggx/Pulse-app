@@ -1,9 +1,9 @@
 /**
  * Get Load → My Bids with Network quotes grouped back into their Indent Pools.
  * A pooled quote is one direct_quotes row per member indent; the list shows
- * one anonymous card per pool and, when opened, the member indents with each
- * one's own quote status. The member action revises that bid. Sponsored Reach
- * and incomplete-lane loads were quoted individually and keep their card.
+ * one anonymous card per pool. Opened pools stay on that card (pool bidding
+ * only — no indent summary). Sponsored Reach and incomplete-lane loads were
+ * quoted individually and keep their card.
  *
  * Pools are built from every quoted load so a shown pool is always whole;
  * `shownLoads` (search) only decides which pools and cards appear.
@@ -16,6 +16,7 @@ import {
   type NetworkBidPool,
   type NetworkBidQuote,
 } from "@/features/network/utils/networkBidPools.util";
+import { viaStopLocationsForMemberIds } from "@/features/trips/utils/routeExtraStops.util";
 import { ChevronLeft } from "lucide-react-native";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -26,8 +27,10 @@ export function NetworkBidPoolList({
   quoteByIndentId,
   isPoolable,
   renderIndividualCard,
-  renderPoolMemberCard,
+  renderPoolMemberCard: _renderPoolMemberCard,
   onViewPool,
+  onRevisePool,
+  viaStopsByIndentId,
 }: {
   quotedLoads: readonly IndentRow[];
   shownLoads: readonly IndentRow[];
@@ -35,10 +38,12 @@ export function NetworkBidPoolList({
   isPoolable: (load: IndentRow) => boolean;
   /** Existing individual card (sponsored Reach, incomplete lane). */
   renderIndividualCard: (load: IndentRow) => ReactNode;
-  /** Anonymous card for a member of an opened pool. Its action revises the bid. */
+  /** Kept for callers; opened My Bids pools no longer list member indents. */
   renderPoolMemberCard: (load: IndentRow) => ReactNode;
   /** Opens the pool elsewhere (desktop column view) instead of inline. */
   onViewPool?: (pool: NetworkBidPool<IndentRow>) => void;
+  onRevisePool?: (pool: NetworkBidPool<IndentRow>) => void;
+  viaStopsByIndentId?: ReadonlyMap<string, readonly string[]>;
 }) {
   const [openPoolId, setOpenPoolId] = useState<string | null>(null);
 
@@ -61,6 +66,14 @@ export function NetworkBidPoolList({
     if (openPoolId && !openPool) setOpenPoolId(null);
   }, [openPoolId, openPool]);
 
+  const viaFor = (pool: NetworkBidPool<IndentRow>) =>
+    viaStopsByIndentId
+      ? viaStopLocationsForMemberIds(
+          pool.members.map((m) => m.id),
+          viaStopsByIndentId,
+        )
+      : [];
+
   if (openPool) {
     return (
       <View style={styles.wrap}>
@@ -74,11 +87,12 @@ export function NetworkBidPoolList({
           <ChevronLeft size={14} color={Theme.primary} strokeWidth={2.4} />
           <Text style={styles.backText}>My bids</Text>
         </Pressable>
-        <NetworkBidPoolCard pool={openPool} showViewAction={false} />
-        <Text style={styles.sectionTitle}>Indents in this pool</Text>
-        {openPool.members.map((load) => (
-          <View key={load.id}>{renderPoolMemberCard(load)}</View>
-        ))}
+        <NetworkBidPoolCard
+          pool={openPool}
+          showViewAction={false}
+          onReviseBid={onRevisePool ? () => onRevisePool(openPool) : undefined}
+          viaStops={viaFor(openPool)}
+        />
       </View>
     );
   }
@@ -90,6 +104,8 @@ export function NetworkBidPoolList({
           key={pool.id}
           pool={pool}
           onViewPool={() => (onViewPool ? onViewPool(pool) : setOpenPoolId(pool.id))}
+          onReviseBid={onRevisePool ? () => onRevisePool(pool) : undefined}
+          viaStops={viaFor(pool)}
         />
       ))}
       {shownIndividual.map((load) => (
@@ -109,12 +125,4 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   backText: { fontSize: 13, fontWeight: "700", color: Theme.primary },
-  sectionTitle: {
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
-    color: Theme.textMuted,
-    marginTop: 8,
-  },
 });

@@ -1,4 +1,11 @@
 import { DatePresetPillBar } from "@/components/DatePresetPillBar";
+import {
+  WEB_POINTER,
+  WEB_TRANSITION,
+  hoverOnDarkWash,
+  isHovered,
+  type HoverPressState,
+} from "@/constants/hoverSelection";
 import Theme from "@/constants/Theme";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useEffect, type ReactNode } from "react";
@@ -56,6 +63,7 @@ export interface FinanceSummarySectionProps {
   onCustomerViewTabChange?: (v: "list" | "analytics") => void;
   supplierViewTab?: "list" | "analytics";
   onSupplierViewTabChange?: (v: "list" | "analytics") => void;
+  onPartyAnalyticsPress?: () => void;
   showPeriodFilter?: boolean;
   periodFilter?: FinancePeriodFilter;
   onPeriodFilterChange?: (p: FinancePeriodFilter) => void;
@@ -204,6 +212,7 @@ export function FinanceSummarySection({
   onCustomerViewTabChange,
   supplierViewTab,
   onSupplierViewTabChange,
+  onPartyAnalyticsPress,
   showPeriodFilter,
   periodFilter,
   onPeriodFilterChange,
@@ -309,6 +318,7 @@ export function FinanceSummarySection({
               onCustomerViewTabChange={onCustomerViewTabChange}
               supplierViewTab={supplierViewTab}
               onSupplierViewTabChange={onSupplierViewTabChange}
+              onPartyAnalyticsPress={onPartyAnalyticsPress}
               showPeriodFilter={showPeriodFilter}
               periodFilter={periodFilter}
               onPeriodFilterChange={onPeriodFilterChange}
@@ -379,10 +389,13 @@ export function FinanceSummarySection({
                             <Pressable
                               key={pill.id}
                               onPress={() => datePreset.onPeriodChange(pill.id)}
-                              style={[
+                              style={(state: HoverPressState) => [
                                 styles.financeRangePill,
                                 styles.financeRangePillDesktop,
                                 active && styles.financeRangePillActive,
+                                WEB_POINTER,
+                                WEB_TRANSITION,
+                                !active && isHovered(state) && hoverOnDarkWash,
                               ]}
                             >
                               <Text
@@ -419,11 +432,16 @@ export function FinanceSummarySection({
                               );
                             }
                           }}
-                          style={[
+                          style={(state: HoverPressState) => [
                             styles.financeRangePill,
                             styles.financeRangePillDesktop,
                             datePreset.period === "CUSTOM" &&
                               styles.financeRangePillActive,
+                            WEB_POINTER,
+                            WEB_TRANSITION,
+                            datePreset.period !== "CUSTOM" &&
+                              isHovered(state) &&
+                              hoverOnDarkWash,
                           ]}
                         >
                           <Text
@@ -438,10 +456,13 @@ export function FinanceSummarySection({
                         </Pressable>
                         <Pressable
                           onPress={() => datePreset.onCustomRangePress()}
-                          style={[
+                          style={(state: HoverPressState) => [
                             styles.financeRangePill,
                             styles.financeRangePillDesktop,
                             styles.financeRangePillCustom,
+                            WEB_POINTER,
+                            WEB_TRANSITION,
+                            isHovered(state) && hoverOnDarkWash,
                           ]}
                         >
                           <FontAwesome
@@ -542,6 +563,7 @@ export function FinanceSummarySection({
             onCustomerViewTabChange={onCustomerViewTabChange}
             supplierViewTab={supplierViewTab}
             onSupplierViewTabChange={onSupplierViewTabChange}
+            onPartyAnalyticsPress={onPartyAnalyticsPress}
             showPeriodFilter={showPeriodFilter}
             periodFilter={periodFilter}
             onPeriodFilterChange={onPeriodFilterChange}

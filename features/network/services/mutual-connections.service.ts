@@ -118,7 +118,7 @@ export async function getMutualConnections(
 
   const { data, error } = await runSingleflight(
     `get_mutual_connections:${viewerOrgId}:${targetOrgId}`,
-    () =>
+    async () =>
       supabase().rpc("get_mutual_connections", {
         p_viewer_org_id: viewerOrgId,
         p_target_org_id: targetOrgId,

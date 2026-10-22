@@ -71,6 +71,9 @@ export const queryKeys = {
     /** Hub list: last ping time / offline for in-transit trips. */
     hubInTransitPings: (orgId: string, tripIdsKey: string) =>
       ["q", "trips", "hub", orgId, "in-transit-pings", tripIdsKey] as const,
+    /** Hub list: vault LR numbers, keyed by lowercased trip id. */
+    hubLrLabels: (orgId: string, tripIdsKey: string) =>
+      ["q", "trips", "hub", orgId, "lr-labels", tripIdsKey] as const,
     /** Hub server search: older trips beyond the newest 400. Not persisted. */
     hubSearch: (orgId: string, needle: string) =>
       ["q", "trips", orgId, "hub-search", needle.toLowerCase()] as const,

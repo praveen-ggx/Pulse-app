@@ -6,8 +6,8 @@ import Theme from "@/constants/Theme";
 import { Pressable, StyleSheet, Text, View, type ViewStyle } from "react-native";
 
 const METRONIC = {
-  primaryBtn: "#181C32",
-  ghostBorder: "#DBDFE9",
+  primaryBtn: Theme.actionBtnInk,
+  ghostBorder: Theme.actionBtnGhostBorder,
 } as const;
 
 const BTN = {

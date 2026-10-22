@@ -12,6 +12,21 @@ export type TripsHubTripCardToolbarProps = {
   dense?: boolean;
 };
 
+const WEB_COPY =
+  Platform.OS === "web"
+    ? ({ whiteSpace: "pre-wrap", letterSpacing: 0 } as const)
+    : ({ letterSpacing: 0 } as const);
+
+function splitEwayExpiryLabel(label: string): { kicker: string; detail: string } {
+  if (label === "EW-Bill expired") {
+    return { kicker: "EW-Bill", detail: "expired" };
+  }
+  if (label.startsWith("EW-Bill ")) {
+    return { kicker: "EW-Bill", detail: label.slice("EW-Bill ".length) };
+  }
+  return { kicker: "EW-Bill", detail: label };
+}
+
 export function TripsHubTripCardToolbar({
   ewayExpiryLabel,
   showElr = false,
@@ -19,24 +34,29 @@ export function TripsHubTripCardToolbar({
   const label = (ewayExpiryLabel ?? "").trim();
   if (!label && !showElr) return null;
   const tone = label ? ewayExpiryTone(label) : "ok";
+  const split = label ? splitEwayExpiryLabel(label) : null;
 
   return (
     <View style={styles.wrap} accessibilityLabel={showElr ? "E-LR" : label}>
       {showElr ? (
-        <View style={[styles.tag, styles.tagElr]}>
-          <Text style={[styles.tagText, styles.tagTextElr]} numberOfLines={1}>
+        <View style={styles.tag}>
+          <Text style={[styles.tagKicker, styles.tagTextElr]} numberOfLines={1}>
             E-LR
           </Text>
         </View>
       ) : null}
-      {label ? (
-        <View
-          style={[
-            styles.tag,
-            tone === "ok" && styles.tagOk,
-            tone === "expired" && styles.tagExpired,
-          ]}
-        >
+      {split ? (
+        <View style={styles.tag}>
+          <Text
+            style={[
+              styles.tagKicker,
+              tone === "ok" && styles.tagTextOk,
+              tone === "expired" && styles.tagTextExpired,
+            ]}
+            numberOfLines={1}
+          >
+            {split.kicker}
+          </Text>
           <Text
             style={[
               styles.tagText,
@@ -45,7 +65,7 @@ export function TripsHubTripCardToolbar({
             ]}
             numberOfLines={1}
           >
-            {label}
+            {split.detail}
           </Text>
         </View>
       ) : null}
@@ -56,44 +76,41 @@ export function TripsHubTripCardToolbar({
 const styles = StyleSheet.create({
   wrap: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-end",
     justifyContent: "flex-end",
     alignSelf: "center",
-    gap: 4,
+    gap: 6,
     backgroundColor: "transparent",
     maxWidth: "100%",
     marginTop: -2,
   },
   tag: {
-    height: 14,
-    alignItems: "center",
+    alignItems: "flex-end",
     justifyContent: "center",
-    borderRadius: 999,
-    paddingHorizontal: 5,
+    borderRadius: 8,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    gap: 1,
     backgroundColor: "transparent",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.warning,
     maxWidth: "100%",
   },
-  tagOk: {
-    borderColor: Theme.positive,
-  },
-  tagExpired: {
-    borderColor: Theme.negative,
-  },
-  tagElr: {
-    borderColor: Theme.primary,
+  tagKicker: {
+    color: Theme.warning,
+    fontSize: 8,
+    fontWeight: "600",
+    lineHeight: 10,
+    includeFontPadding: false,
+    textAlign: "right",
+    ...WEB_COPY,
   },
   tagText: {
     color: Theme.warning,
-    fontSize: 8,
-    fontWeight: "500",
-    lineHeight: 10,
+    fontSize: 11,
+    fontWeight: "600",
+    lineHeight: 14,
     includeFontPadding: false,
-    ...Platform.select({
-      android: { textAlignVertical: "center" as const },
-      default: {},
-    }),
+    textAlign: "right",
+    ...WEB_COPY,
   },
   tagTextOk: {
     color: Theme.positive,

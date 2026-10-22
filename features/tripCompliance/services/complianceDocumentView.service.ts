@@ -17,6 +17,7 @@ import {
   isVehicleDocumentReferencePath,
   resolveTripDocumentPreviewUrl,
 } from "@/features/tripCompliance/services/vehicleDocumentReuse.service";
+import { previewPrivateObject } from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import {
   composeComplianceActorDetail,
   type ComplianceActorDetail,
@@ -58,6 +59,24 @@ async function lookupEntityDocumentStoragePath(input: {
   return String(data.storage_path).trim() || null;
 }
 
+function bucketForPreviewSource(source: ComplianceViewSource): string {
+  if (source === "vehicle-vault") return "vehicle-documents";
+  if (source === "driver-kyc") return "driver-documents";
+  if (source === "entity" || source === "supplier-kyc") return "compliance-documents";
+  return "trip-documents";
+}
+
+async function paintCompliancePreviewUrl(
+  path: string,
+  source: ComplianceViewSource,
+  signed: string | null,
+): Promise<string | null> {
+  if (/^https?:\/\//i.test(path)) return path;
+  if (!path) return signed;
+  const painted = await previewPrivateObject(bucketForPreviewSource(source), path, signed);
+  return painted.url ?? signed;
+}
+
 export async function signCompliancePreviewUrl(input: {
   storagePath: string | null | undefined;
   source?: ComplianceViewSource;
@@ -67,22 +86,25 @@ export async function signCompliancePreviewUrl(input: {
   docType?: string | null;
 }): Promise<string | null> {
   const raw = (input.storagePath ?? "").trim();
+  const source = input.source ?? "trip";
   if (input.sourceEntityDocumentId || isVehicleDocumentReferencePath(raw)) {
-    return resolveTripDocumentPreviewUrl({
+    const signed = await resolveTripDocumentPreviewUrl({
       storagePath: raw,
       sourceEntityDocumentId: input.sourceEntityDocumentId,
       organizationId: input.organizationId,
     });
+    return paintCompliancePreviewUrl(raw, "vehicle-vault", signed);
   }
   if (!raw) return null;
   const parsed = parseComplianceStorageRef(raw);
   if (parsed.kind === "url") return parsed.value;
   const path = parsed.value.trim();
   if (!path) return null;
-  const source = input.source ?? "trip";
   const orgId = (input.organizationId ?? "").trim();
 
   try {
+    let signed: string | null = null;
+    let objectPath = path;
     if (source === "vehicle-vault") {
       const candidates = [path];
       if (orgId) {
@@ -90,37 +112,35 @@ export async function signCompliancePreviewUrl(input: {
         if (rewritten) candidates.push(rewritten);
       }
       for (const candidate of candidates) {
-        const url = await getVehicleDocumentViewUrl(candidate);
-        if (url) return url;
+        signed = await getVehicleDocumentViewUrl(candidate);
+        if (signed) {
+          objectPath = candidate;
+          break;
+        }
       }
-      if (orgId && input.entityId && input.docType) {
+      if (!signed && orgId && input.entityId && input.docType) {
         const entityPath = await lookupEntityDocumentStoragePath({
           organizationId: orgId,
           entityId: input.entityId,
           docType: input.docType,
         });
         if (entityPath) {
+          objectPath = entityPath;
           const { url } = await getComplianceDocumentSignedUrl(entityPath);
-          if (url) return url;
-          const viaVehicleHelper = await getVehicleDocumentViewUrl(entityPath);
-          if (viaVehicleHelper) return viaVehicleHelper;
+          signed = url ?? (await getVehicleDocumentViewUrl(entityPath));
+          return paintCompliancePreviewUrl(objectPath, url ? "entity" : "vehicle-vault", signed);
         }
       }
-      return null;
-    }
-    if (source === "entity" || source === "supplier-kyc") {
+    } else if (source === "entity" || source === "supplier-kyc") {
       const { url } = await getComplianceDocumentSignedUrl(path);
-      if (url) return url;
-      return await getVehicleDocumentViewUrl(path);
-    }
-    if (source === "driver-kyc") {
+      signed = url ?? (await getVehicleDocumentViewUrl(path));
+    } else if (source === "driver-kyc") {
       const { data } = await supabase().storage.from("driver-documents").createSignedUrl(path, 3600);
-      return data?.signedUrl ?? null;
+      signed = data?.signedUrl ?? null;
+    } else {
+      signed = (await tryGetDocumentViewUrl(path)) ?? (await getVehicleDocumentViewUrl(path));
     }
-    const tripUrl = await tryGetDocumentViewUrl(path);
-    if (tripUrl) return tripUrl;
-    // Last resort: path may actually be a vehicle/compliance object.
-    return await getVehicleDocumentViewUrl(path);
+    return paintCompliancePreviewUrl(objectPath, source, signed);
   } catch {
     return null;
   }

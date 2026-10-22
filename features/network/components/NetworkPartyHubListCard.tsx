@@ -37,6 +37,8 @@ const HUB_LIST_COMPACT_BREAKPOINT = 720;
 
 export type NetworkPartyHubListCardProps = {
   partyId: string;
+  /** Org id for the mutuals RPC — not the client/supplier row id. */
+  mutualsOrgId?: string | null;
   name: string;
   partyType: string;
   phone: string;
@@ -71,6 +73,7 @@ export type NetworkPartyHubListCardProps = {
 
 export function NetworkPartyHubListCard({
   partyId,
+  mutualsOrgId,
   name,
   partyType,
   phone,
@@ -118,7 +121,8 @@ export function NetworkPartyHubListCard({
       ? ratingValue.toFixed(1)
       : "—";
   const showPhone = phone.trim().length > 0 && phone !== "NA";
-  const hasMutuals = mutualCount > 0 && Boolean(viewerOrgId);
+  const mutualsTargetOrgId = (mutualsOrgId ?? partyId).trim();
+  const hasMutuals = mutualCount > 0 && Boolean(viewerOrgId && mutualsTargetOrgId);
 
   const actionLabel = useMemo(
     () =>
@@ -178,7 +182,7 @@ export function NetworkPartyHubListCard({
         <View style={styles.mutualsSlot}>
           <MutualConnectionsFacepile
             viewerOrgId={viewerOrgId!}
-            targetOrgId={partyId}
+            targetOrgId={mutualsTargetOrgId}
             mutualCount={mutualCount}
             faceSize={32}
             showSectionLabel={false}
@@ -196,7 +200,7 @@ export function NetworkPartyHubListCard({
         <View style={styles.mutualsSlot}>
           <MutualConnectionsFacepile
             viewerOrgId={viewerOrgId!}
-            targetOrgId={partyId}
+            targetOrgId={mutualsTargetOrgId}
             mutualCount={mutualCount}
             faceSize={mobileGrid ? 30 : compact ? 34 : 36}
             showSectionLabel={false}

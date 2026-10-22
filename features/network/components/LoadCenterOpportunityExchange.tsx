@@ -9,6 +9,13 @@
  */
 import { PartyAvatar } from "@/components/PartyAvatar";
 import { LoadCenterSidebarFindEmpty } from "@/features/network/components/LoadCenterSidebarFindEmpty";
+import {
+  WEB_POINTER,
+  WEB_TRANSITION,
+  hoverRowWash,
+  isHovered,
+  type HoverPressState,
+} from "@/constants/hoverSelection";
 import Theme from "@/constants/Theme";
 import { useLinkedOrgDisplayMap } from "@/lib/queries/useLinkedOrgDisplayQuery";
 import type { LinkedOrgDisplay } from "@/lib/useLinkedOrgProfileMap";
@@ -338,11 +345,14 @@ export const OpportunityCard = memo(function OpportunityCard({
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [
+      style={(state: HoverPressState) => [
         styles.card,
         fillWidth && styles.cardFillWidth,
         isSponsored && styles.cardSponsored,
-        pressed && styles.cardPressed,
+        WEB_TRANSITION,
+        WEB_POINTER,
+        isHovered(state) && hoverRowWash,
+        state.pressed && styles.cardPressed,
       ]}
       accessibilityRole="button"
       accessibilityLabel={
@@ -896,16 +906,16 @@ const styles = StyleSheet.create({
   },
   headerText: { flex: 1, minWidth: 0, gap: 2 },
   headerTitle: {
-    fontSize: 13,
-    fontWeight: "700",
+    fontSize: 12,
+    fontWeight: "600",
     color: INK,
-    letterSpacing: -0.15,
+    letterSpacing: -0.1,
   },
   headerSub: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "400",
     color: MUTED,
-    lineHeight: 14,
+    lineHeight: 13,
   },
   countCluster: {
     flexDirection: "row",
@@ -934,9 +944,9 @@ const styles = StyleSheet.create({
     borderColor: "rgba(37, 99, 235, 0.22)",
   },
   countChipText: {
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 0.2,
+    fontSize: 9,
+    fontWeight: "600",
+    letterSpacing: 0.15,
   },
   countChipTextAd: {
     color: Theme.accentBrown,
@@ -970,10 +980,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: CARD_EDGE,
     backgroundColor: Theme.cardWhite,
-    paddingHorizontal: 14,
-    paddingTop: 14,
+    paddingHorizontal: 12,
+    paddingTop: 12,
     paddingBottom: 0,
-    gap: 12,
+    gap: 10,
     overflow: "hidden",
     ...cardShadow,
   },
@@ -1023,16 +1033,16 @@ const styles = StyleSheet.create({
   },
   cardTopText: { flex: 1, minWidth: 0, gap: 3 },
   orgName: {
-    fontSize: 14,
-    fontWeight: "700",
+    fontSize: 13,
+    fontWeight: "600",
     color: INK,
-    letterSpacing: -0.2,
+    letterSpacing: -0.15,
   },
   metaLine: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "400",
     color: MUTED,
-    lineHeight: 14,
+    lineHeight: 13,
   },
   statusChip: {
     paddingHorizontal: 7,
@@ -1072,9 +1082,9 @@ const styles = StyleSheet.create({
     borderColor: BORDER,
   },
   statusChipText: {
-    fontSize: 9,
-    fontWeight: "700",
-    letterSpacing: 0.4,
+    fontSize: 8,
+    fontWeight: "600",
+    letterSpacing: 0.35,
     textTransform: "uppercase",
   },
   statusChipTextAd: {
@@ -1192,9 +1202,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
-    marginHorizontal: -14,
+    marginHorizontal: -12,
     marginTop: 2,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingTop: 11,
     paddingBottom: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -1203,20 +1213,20 @@ const styles = StyleSheet.create({
   },
   priceCol: { flex: 1, minWidth: 0, gap: 1 },
   priceHint: {
-    fontSize: 9,
-    fontWeight: "700",
-    letterSpacing: 0.45,
+    fontSize: 8,
+    fontWeight: "500",
+    letterSpacing: 0.4,
     textTransform: "uppercase",
     color: MUTED,
-    lineHeight: 12,
+    lineHeight: 11,
   },
   price: {
-    fontSize: 16,
-    fontWeight: "700",
+    fontSize: 14,
+    fontWeight: "600",
     color: INK,
     fontVariant: ["tabular-nums"],
-    letterSpacing: -0.3,
-    lineHeight: 20,
+    letterSpacing: -0.2,
+    lineHeight: 18,
   },
   priceMuted: {
     fontSize: 12,
@@ -1231,7 +1241,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   ctaText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "600",
     color: LINK,
   },

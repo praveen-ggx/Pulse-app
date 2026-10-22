@@ -13,6 +13,7 @@ import {
 } from "@/features/tripCompliance/complianceDecisionConfig";
 import { ComplianceDeclineModal } from "@/features/tripCompliance/components/ComplianceDeclineModal";
 import { COMPLIANCE_DECLINE_REASON_SECTIONS } from "@/features/tripCompliance/utils/complianceDeclineReason.util";
+import { complianceActionButtonStyles } from "@/features/tripCompliance/utils/complianceActionButton.util";
 import { ComplianceNumberStack } from "@/features/tripCompliance/components/ComplianceNumberStack";
 import { COMPLIANCE_STATUS_META, ComplianceStatusChip } from "@/features/tripCompliance/components/ComplianceStatusIcon";
 import { tripAppearsInAwaitingPod } from "@/features/tripCompliance/services/tripComplianceRead.service";
@@ -454,7 +455,7 @@ function TripRowContent({
           {!isVerified && onMarkComplianceVerified ? (
             <TouchableOpacity
               testID={`compliance-verify-${tripId}`}
-              style={[styles.actionButton, styles.actionItem]}
+              style={[styles.actionPrimary, styles.actionItem, verifyDisabled && styles.actionDisabled]}
               disabled={verifyDisabled}
               hitSlop={{ top: 8, bottom: 8, left: 2, right: 2 }}
               onPress={handleVerify}
@@ -465,7 +466,10 @@ function TripRowContent({
               }
               accessibilityState={{ disabled: verifyDisabled, busy: markingTrip }}
             >
-              <Text style={[styles.actionLink, !verifyEligibility.allowed && styles.disabledLink]} numberOfLines={1}>
+              <Text
+                style={[styles.actionPrimaryText, !verifyEligibility.allowed && styles.disabledLink]}
+                numberOfLines={1}
+              >
                 {markingTrip ? "Verifying…" : "Verify"}
               </Text>
             </TouchableOpacity>
@@ -473,20 +477,20 @@ function TripRowContent({
           {!isVerified && !isFinanceDeclined && onDeclineCompliance ? (
             <TouchableOpacity
               testID={`compliance-decline-${tripId}`}
-              style={[styles.actionButton, styles.actionItem]}
+              style={[styles.actionGhost, styles.actionItem]}
               hitSlop={{ top: 8, bottom: 8, left: 2, right: 2 }}
               onPress={() => setDeclineOpen(true)}
               accessibilityRole="button"
               accessibilityLabel={`${COMPLIANCE_DECLINE_ACTION_LABEL} trip compliance`}
             >
-              <Text style={[styles.actionLink, styles.dangerText]} numberOfLines={1}>
+              <Text style={styles.actionGhostText} numberOfLines={1}>
                 {COMPLIANCE_DECLINE_ACTION_LABEL}
               </Text>
             </TouchableOpacity>
           ) : null}
           {canManageFinance && readiness.paymentReady && onPay ? (
-            <TouchableOpacity onPress={() => onPay(summary.trip.id)}>
-              <Text style={styles.actionLink}>Pay</Text>
+            <TouchableOpacity style={styles.actionPrimary} onPress={() => onPay(summary.trip.id)}>
+              <Text style={styles.actionPrimaryText}>Pay</Text>
             </TouchableOpacity>
           ) : null}
         </View>
@@ -756,20 +760,32 @@ const styles = StyleSheet.create({
   colMoney: { width: 72, minWidth: 72, flexGrow: 0, flexShrink: 0 },
   colIbond: { width: 72, flexGrow: 0, flexShrink: 0 },
   colAction: {
-    width: 108,
-    minWidth: 108,
+    width: 152,
+    minWidth: 152,
     flexGrow: 0,
     flexShrink: 0,
     flexDirection: "row",
     flexWrap: "nowrap",
-    gap: 6,
+    gap: 8,
     alignItems: "center",
-    justifyContent: "flex-start",
+    justifyContent: "flex-end",
   },
-  colActionLabel: { width: 108, minWidth: 108, flexGrow: 0, flexShrink: 0 },
+  colActionLabel: { width: 152, minWidth: 152, flexGrow: 0, flexShrink: 0 },
   actionItem: { flexGrow: 0, flexShrink: 0 },
-  actionButton: { justifyContent: "center" },
-  actionLink: { fontSize: 11, lineHeight: 14, fontWeight: "700", color: Theme.complianceBulk },
+  actionGhost: {
+    ...complianceActionButtonStyles.ghost,
+  },
+  actionGhostText: {
+    ...complianceActionButtonStyles.ghostText,
+  },
+  actionPrimary: {
+    ...complianceActionButtonStyles.primary,
+  },
+  actionPrimaryText: {
+    ...complianceActionButtonStyles.primaryText,
+  },
+  actionDisabled: { opacity: 0.55 },
+  actionLink: { fontSize: 10, lineHeight: 12, fontWeight: "500", color: Theme.actionBtnInk },
   disabledLink: { color: Theme.textMuted },
   rejectLink: { color: Theme.teslaRed },
   expandedWrap: { backgroundColor: Theme.compliancePageBg, paddingLeft: 28, paddingRight: 8 },

@@ -100,4 +100,53 @@ describe("getOrgProfileSnapshot partner-display reuse", () => {
     expect(snapshot?.rating).toBe(4.5);
     expect(snapshot?.member_since_year).toBe(2023);
   });
+
+  it("skips the partner-display batch when bootstrap already seeded the profile", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "organizations") {
+        return thenableQuery({
+          data: {
+            id: "org-target",
+            name: "Gogovan",
+            avatar_seed: "seed",
+            logo_url: null,
+            city: "Chennai",
+            state: "TN",
+            address_line: null,
+            owner_id: "user-1",
+            profile_sector: null,
+            profile_website: null,
+            gstin: null,
+            operating_model: null,
+            created_at: "2024-01-15T00:00:00.000Z",
+            verification_status: "verified",
+          },
+          error: null,
+        });
+      }
+      return thenableQuery({ data: null, error: null });
+    });
+
+    const { error, snapshot } = await getOrgProfileSnapshot(
+      "org-viewer",
+      "org-target",
+      {
+        partnerProfile: {
+          organizationName: "Gogovan",
+          contactPerson: "A",
+          phone: "+919600096556",
+          tripCount: 686,
+          vehicleCount: 2,
+          networkIndentCount: 13994,
+          averageRating: 3,
+        },
+      },
+    );
+    expect(error).toBeNull();
+    expect(mockGetLinkedOrgProfilesBatch).not.toHaveBeenCalled();
+    expect(snapshot?.phone).toBe("+919600096556");
+    expect(snapshot?.total_trips).toBe(686);
+    expect(snapshot?.vehicle_count).toBe(2);
+    expect(snapshot?.indent_count).toBe(13994);
+  });
 });

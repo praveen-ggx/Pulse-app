@@ -10,7 +10,12 @@ import Theme from "@/constants/Theme";
 import type { FeePaymentStatus } from "@/features/network/services/findLoadsForOrg.service";
 import { poolIdentityGate } from "@/features/network/utils/pooledOpportunity.util";
 import { ChevronRight, Lock } from "lucide-react-native";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+
+const WEB_COPY = Platform.select({
+  web: { whiteSpace: "pre-wrap" } as object,
+  default: {},
+});
 
 type Step = { label: string; detail: string; done: boolean };
 
@@ -109,22 +114,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Theme.surfaceBorder,
     backgroundColor: Theme.cardWhite,
-    padding: 16,
+    padding: 20,
     gap: 10,
   },
   wrapAwarded: { borderColor: Theme.positiveMutedDarkBorder },
-  lockRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  lockRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   eyebrow: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1.1,
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0,
     color: Theme.textMuted,
+    ...WEB_COPY,
   },
   title: {
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: "600",
     color: Theme.textPrimaryDark,
-    letterSpacing: -0.3,
+    letterSpacing: 0,
+    ...WEB_COPY,
   },
   step: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   dot: {
@@ -141,7 +148,12 @@ const styles = StyleSheet.create({
   dotTextDone: { color: Theme.textOnPrimary },
   stepBody: { flex: 1, minWidth: 0 },
   stepLabel: { fontSize: 13, fontWeight: "700", color: Theme.textPrimaryDark },
-  stepDetail: { fontSize: 12, color: Theme.textSecondary, lineHeight: 16 },
+  stepDetail: {
+    fontSize: 13,
+    color: Theme.textSecondary,
+    lineHeight: 18,
+    ...WEB_COPY,
+  },
   cta: {
     flexDirection: "row",
     alignItems: "center",

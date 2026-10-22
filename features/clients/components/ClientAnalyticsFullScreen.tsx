@@ -1,5 +1,4 @@
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { useRouter } from "expo-router";
 import { Suspense, lazy } from "react";
 import {
   Pressable,
@@ -17,6 +16,8 @@ import { isPulseDesktop } from "@/components/analytics/pulse/pulseStyles";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { METRONIC } from "@/features/network/components/desktop/networkDesktopHub.styles";
+import { ROUTES } from "@/lib/routes";
+import { useSafeBack } from "@/lib/useSafeBack";
 import { useClientAnalyticsData } from "../hooks/useClientAnalyticsData";
 
 const ClientAnalyticsTab = lazy(() =>
@@ -24,7 +25,7 @@ const ClientAnalyticsTab = lazy(() =>
 );
 
 export function ClientAnalyticsFullScreen({ clientId }: { clientId: string }) {
-  const router = useRouter();
+  const safeBack = useSafeBack(ROUTES.clientDetail(clientId));
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const desktop = isPulseDesktop(width);
@@ -49,7 +50,13 @@ export function ClientAnalyticsFullScreen({ clientId }: { clientId: string }) {
     return (
       <View style={[styles.wrap, { paddingTop: insets.top }]}>
         <View style={styles.header}>
-          <Pressable style={styles.headerIconBtn} onPress={() => router.back()} hitSlop={8}>
+          <Pressable
+            style={styles.headerIconBtn}
+            onPress={safeBack}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
             <FontAwesome name="chevron-left" size={18} color={Theme.textPrimaryDark} />
           </Pressable>
           <Text style={styles.headerTitle}>{t("client")}</Text>
@@ -71,7 +78,13 @@ export function ClientAnalyticsFullScreen({ clientId }: { clientId: string }) {
       ]}
     >
       <View style={styles.header}>
-        <Pressable style={styles.headerIconBtn} onPress={() => router.back()} hitSlop={8}>
+        <Pressable
+          style={styles.headerIconBtn}
+          onPress={safeBack}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
           <FontAwesome name="chevron-left" size={18} color={Theme.textPrimaryDark} />
         </Pressable>
         <View style={styles.headerCenter}>
@@ -152,6 +165,7 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.surfaceGray,
     alignItems: "center",
     justifyContent: "center",
+    zIndex: 2,
   },
   headerIconBtnActive: {
     backgroundColor: "#EEF2FF",

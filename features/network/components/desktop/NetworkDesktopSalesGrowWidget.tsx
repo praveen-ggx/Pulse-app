@@ -99,6 +99,8 @@ function GrowRecommendationRow({
         <PartyAvatar
           name={org.name}
           initialsColorSeed={org.id}
+          organizationImageUrl={org.avatar_url}
+          avatarUrl={org.avatar_url}
           avatarSeed={org.avatar_seed}
           entityType="client"
           size={30}
@@ -201,7 +203,6 @@ export function NetworkDesktopSalesGrowWidget({
   orgId,
   activeLanes = [],
   onOpenProfile,
-  onViewAllGrow,
   inviteDailyCapReached = false,
 }: Props) {
   const { orgs, loading, error, refetch, invalidateCache } = useNetworkDiscovery({
@@ -381,18 +382,6 @@ export function NetworkDesktopSalesGrowWidget({
       <View style={styles.salesGrowInviteMeta}>
         <Text style={styles.salesGrowInviteMetaText}>{inviteSummary}</Text>
       </View>
-
-      {onViewAllGrow ? (
-        <Pressable
-          onPress={onViewAllGrow}
-          style={({ pressed }) => [
-            styles.salesGrowFooterBtn,
-            pressed && styles.salesGrowActionPressed,
-          ]}
-        >
-          <Text style={styles.salesGrowFooterBtnText}>View all</Text>
-        </Pressable>
-      ) : null}
     </View>
   );
 }

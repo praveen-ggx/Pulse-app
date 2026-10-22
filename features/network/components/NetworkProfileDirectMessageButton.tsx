@@ -37,7 +37,7 @@ export function NetworkProfileDirectMessageButton({
         accessibilityLabel={label}
         accessibilityHint={disabled && helperText ? helperText : undefined}
       >
-        <Mail size={14} color={Theme.textOnPrimary} strokeWidth={2.2} />
+        <Mail size={14} color={Theme.buttonDarkText} strokeWidth={2.2} />
         <Text style={[styles.label, compact && styles.labelCompact]}>{label}</Text>
       </Pressable>
       {disabled && helperText ? (
@@ -49,7 +49,8 @@ export function NetworkProfileDirectMessageButton({
 
 const styles = StyleSheet.create({
   wrap: {
-    width: "100%",
+    flex: 1,
+    minWidth: 0,
     alignSelf: "stretch",
   },
   helperText: {
@@ -62,43 +63,37 @@ const styles = StyleSheet.create({
     width: "100%",
     alignSelf: "stretch",
     minHeight: 42,
+    paddingHorizontal: 16,
     borderRadius: 10,
-    backgroundColor: Theme.textPrimaryDark,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnInk,
+    backgroundColor: Theme.actionBtnInk,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    ...Platform.select({
-      ios: {
-        shadowColor: "#0F172A",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.12,
-        shadowRadius: 8,
-      },
-      android: { elevation: 3 },
-      web: {
-        boxShadow: "0 4px 14px rgba(15, 23, 42, 0.18)",
-      },
-      default: {},
-    }),
   },
   buttonCompact: {
     minHeight: 42,
     borderRadius: 10,
   },
   buttonDisabled: {
-    opacity: 0.6,
+    opacity: 0.55,
   },
   label: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: Theme.textOnPrimary,
-    letterSpacing: 0.2,
+    fontSize: 12,
+    fontWeight: "500",
+    color: Theme.buttonDarkText,
+    letterSpacing: 0,
     zIndex: 1,
+    ...Platform.select({
+      web: { whiteSpace: "pre-wrap" } as object,
+      default: {},
+    }),
   },
   labelCompact: {
-    fontWeight: "700",
-    letterSpacing: 0.2,
+    fontWeight: "500",
+    letterSpacing: 0,
     textTransform: "none",
   },
 });

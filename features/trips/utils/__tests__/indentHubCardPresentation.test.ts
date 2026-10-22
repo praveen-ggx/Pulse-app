@@ -1,6 +1,7 @@
 import { isIndentUnallocated } from "@/features/network/utils/loadCenter.model";
 import { isLoadBasedTrip } from "@/features/trips/visibility/tripVisibility";
 import {
+  circulationTargetFromChannels,
   indentHubLifecycleStatus,
   indentHubSourceTags,
   indentHubStatusTag,
@@ -19,6 +20,12 @@ describe("indentHubSourceTags", () => {
 
   it("maps both → NETWORK + MARKETPLACE", () => {
     expect(indentHubSourceTags("both")).toEqual(["NETWORK", "MARKETPLACE"]);
+    expect(circulationTargetFromChannels(true, true)).toBe("both");
+    expect(circulationTargetFromChannels(true, false)).toBe(
+      "integrated_supplier",
+    );
+    expect(circulationTargetFromChannels(false, true)).toBe("marketplace");
+    expect(circulationTargetFromChannels(false, false)).toBe(null);
   });
 
   it("defaults unset to NETWORK (Give Load / create-indent default)", () => {

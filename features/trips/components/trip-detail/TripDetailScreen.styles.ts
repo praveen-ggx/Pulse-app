@@ -1857,9 +1857,9 @@ export const neoStyles = StyleSheet.create({
   },
   expenseHubStackDesktop: {
     gap: 16,
-    maxWidth: 920,
+    maxWidth: "100%",
     width: "100%",
-    alignSelf: "center",
+    alignSelf: "stretch",
   },
   /** Desktop finance summary: same manifest + adjustment stack as mobile, max width for readability. */
   financeManifestDesktopWrap: {

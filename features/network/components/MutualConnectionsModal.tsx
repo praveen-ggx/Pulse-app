@@ -87,7 +87,9 @@ export function MutualConnectionsModal({
               <LoadingIndicator color={Theme.primary} />
             </View>
           ) : error ? (
-            <Text style={styles.errorText}>{error}</Text>
+            <Text style={styles.errorText}>
+              Could not load mutual connections. Try again.
+            </Text>
           ) : mutuals.length === 0 ? (
             <Text style={styles.emptyText}>{t("networkMutualConnectionsEmpty")}</Text>
           ) : (
@@ -113,8 +115,9 @@ export function MutualConnectionsModal({
                     initialsColorSeed={row.id}
                     organizationImageUrl={row.avatar_url}
                     avatarUrl={row.avatar_url}
-                    avatarSeed={row.avatar_seed}
+                    avatarSeed={row.avatar_seed ?? row.id}
                     entityType="client"
+                    isIntegrated
                     size={36}
                     borderStyle={styles.avatarBorder}
                   />

@@ -20,6 +20,13 @@ import { EntityIdentityAvatar } from "@/components/EntityIdentityAvatar";
 import { PartyAvatar } from "@/components/PartyAvatar";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
+import {
+  WEB_POINTER,
+  WEB_TRANSITION,
+  hoverRowWash,
+  isHovered,
+  type HoverPressState,
+} from "@/constants/hoverSelection";
 import { getUser2DAvatarUriForSeed } from "@/constants/UserAvatars";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
@@ -113,6 +120,7 @@ import {
     Image,
     Modal,
     Platform,
+    Pressable,
     RefreshControl,
     ScrollView,
     Share,
@@ -2256,11 +2264,14 @@ export default function ClientDetailScreen({
             </View>
             {tripPageView.rows.length > 0 ? (
               tripPageView.rows.map((row) => (
-                <TouchableOpacity
+                <Pressable
                   key={row.trip.id}
-                  style={[
+                  style={(state: HoverPressState) => [
                     styles.tableRow,
                     isWebDesktop && styles.tableRowWebDesktop,
+                    WEB_POINTER,
+                    WEB_TRANSITION,
+                    isHovered(state) && hoverRowWash,
                   ]}
                   onPress={() => {
                     const q = new URLSearchParams();
@@ -2269,7 +2280,6 @@ export default function ClientDetailScreen({
                     q.set("clientNameFromContext", clientName);
                     router.push(`/trip/${row.trip.id}?${q.toString()}`);
                   }}
-                  activeOpacity={0.7}
                 >
                   {(() => {
                     const meta = tripTransactionMetaById[
@@ -2570,7 +2580,7 @@ export default function ClientDetailScreen({
                       </>
                     );
                   })()}
-                </TouchableOpacity>
+                </Pressable>
               ))
             ) : (
               <EntityTripTableEmptyRow />

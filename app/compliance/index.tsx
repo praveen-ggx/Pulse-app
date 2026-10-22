@@ -1993,7 +1993,7 @@ export default function ComplianceScreen() {
               accessibilityRole="button"
               accessibilityLabel="Export table"
             >
-              <Download size={13} color={Theme.textPrimary} strokeWidth={2} />
+              <Download size={11} color={Theme.actionBtnInk} strokeWidth={2} />
               {!isNarrow ? <Text style={styles.reportBtnText}>Export</Text> : null}
             </TouchableOpacity>
           ) : null}
@@ -2005,7 +2005,7 @@ export default function ComplianceScreen() {
               accessibilityRole="button"
               accessibilityLabel="Export Report"
             >
-              <Download size={13} color={Theme.textPrimary} strokeWidth={2} />
+              <Download size={11} color={Theme.actionBtnInk} strokeWidth={2} />
               {!isNarrow ? (
                 <Text style={styles.reportBtnText}>{compactActions ? "Export" : "Export Report"}</Text>
               ) : null}
@@ -2019,7 +2019,7 @@ export default function ComplianceScreen() {
               accessibilityRole="button"
               accessibilityLabel="Export Report"
             >
-              <Download size={13} color={Theme.textPrimary} strokeWidth={2} />
+              <Download size={11} color={Theme.actionBtnInk} strokeWidth={2} />
               {!isNarrow ? (
                 <Text style={styles.reportBtnText}>{compactActions ? "Export" : "Export Report"}</Text>
               ) : null}
@@ -2033,7 +2033,7 @@ export default function ComplianceScreen() {
               accessibilityRole="button"
               accessibilityLabel="Export Report"
             >
-              <Download size={13} color={Theme.textPrimary} strokeWidth={2} />
+              <Download size={11} color={Theme.actionBtnInk} strokeWidth={2} />
               {!isNarrow ? (
                 <Text style={styles.reportBtnText}>{compactActions ? "Export" : "Export Report"}</Text>
               ) : null}
@@ -2047,7 +2047,7 @@ export default function ComplianceScreen() {
               accessibilityRole="button"
               accessibilityLabel="Bulk Payment"
             >
-              <Wallet size={13} color={Theme.complianceBulkText} strokeWidth={2} />
+              <Wallet size={11} color={Theme.buttonDarkText} strokeWidth={2} />
               {!isNarrow ? (
                 <Text style={styles.bulkBtnText}>{compactActions ? "Bulk" : "Bulk Payment"}</Text>
               ) : null}
@@ -2236,9 +2236,13 @@ const styles = StyleSheet.create({
   },
   bulkBtn: {
     height: 26,
+    minHeight: 26,
+    minWidth: 68,
     paddingHorizontal: 10,
-    borderRadius: 999,
-    backgroundColor: Theme.complianceBulk,
+    borderRadius: 4,
+    backgroundColor: Theme.actionBtnInk,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnInk,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -2246,11 +2250,13 @@ const styles = StyleSheet.create({
   },
   reportBtn: {
     height: 26,
+    minHeight: 26,
+    minWidth: 68,
     paddingHorizontal: 10,
-    borderRadius: 999,
+    borderRadius: 4,
     backgroundColor: Theme.cardWhite,
     borderWidth: 1,
-    borderColor: Theme.complianceCardBorder,
+    borderColor: Theme.actionBtnGhostBorder,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -2260,28 +2266,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     minWidth: 36,
   },
-  bulkBtnText: { fontSize: 11, fontWeight: "600", lineHeight: 14, color: Theme.complianceBulkText },
-  reportBtnText: { fontSize: 11, fontWeight: "500", lineHeight: 14, color: Theme.textPrimary },
+  bulkBtnText: { fontSize: 10, fontWeight: "500", lineHeight: 12, color: Theme.buttonDarkText },
+  reportBtnText: { fontSize: 10, fontWeight: "500", lineHeight: 12, color: Theme.actionBtnInk },
   logHardCopyPodBtn: {
     flexShrink: 0,
-    height: 24,
+    height: 26,
+    minHeight: 26,
+    minWidth: 68,
     marginLeft: 8,
     paddingHorizontal: 10,
-    borderRadius: 999,
+    borderRadius: 4,
     backgroundColor: Theme.cardWhite,
     borderWidth: 1,
-    borderColor: Theme.complianceCardBorder,
+    borderColor: Theme.actionBtnGhostBorder,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 4,
   },
   logHardCopyPodBtnText: {
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.3,
-    lineHeight: 13,
-    color: Theme.textSecondary,
+    fontSize: 10,
+    fontWeight: "500",
+    letterSpacing: 0,
+    lineHeight: 12,
+    color: Theme.actionBtnInk,
   },
   toolbarRow: {
     width: "100%",
@@ -2297,13 +2305,13 @@ const styles = StyleSheet.create({
   filtersRow: {
     flex: 1,
     minWidth: 0,
-    minHeight: 72,
+    minHeight: 56,
     justifyContent: "center",
   },
   chipScroll: {
     flexGrow: 1,
     width: "100%",
-    height: 40,
+    height: 32,
   },
   subChipScroll: {
     flexGrow: 0,
@@ -2405,9 +2413,9 @@ const styles = StyleSheet.create({
   pendingDocsFilterStackCard: {
     width: "100%",
     paddingHorizontal: 10,
-    paddingTop: 10,
-    paddingBottom: 10,
-    gap: 8,
+    paddingTop: 6,
+    paddingBottom: 8,
+    gap: 4,
     alignItems: "stretch",
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.complianceCardBorder,
@@ -2494,17 +2502,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "nowrap",
     alignItems: "center",
-    gap: 6,
-    height: 40,
+    gap: 4,
+    height: 32,
     paddingRight: 4,
   },
   stageTrack: {
     flexDirection: "row",
     alignItems: "center",
     width: "100%",
-    height: 72,
-    paddingHorizontal: 8,
-    paddingVertical: 14,
+    height: 56,
+    paddingHorizontal: 6,
+    paddingVertical: 10,
     overflow: "hidden",
     borderRadius: 999,
     backgroundColor: Theme.cardWhite,
@@ -2519,15 +2527,15 @@ const styles = StyleSheet.create({
   },
   chipStack: {
     flexShrink: 0,
-    height: 40,
+    height: 32,
     justifyContent: "center",
   },
   chip: {
     flexShrink: 0,
-    height: 40,
+    height: 32,
     minWidth: 44,
-    paddingLeft: 16,
-    paddingRight: 12,
+    paddingLeft: 12,
+    paddingRight: 10,
     borderRadius: 999,
     backgroundColor: Theme.surface,
     borderWidth: 1,
@@ -2535,7 +2543,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 10,
+    gap: 8,
     ...(Platform.OS === "web"
       ? {
           transitionDuration: "140ms",
@@ -2563,11 +2571,11 @@ const styles = StyleSheet.create({
     gap: 1,
   },
   chipText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
     fontStyle: "italic",
     color: Theme.textPrimaryDark,
-    lineHeight: 13,
+    lineHeight: 12,
     letterSpacing: 0.5,
     textTransform: "uppercase",
   },
@@ -2575,11 +2583,11 @@ const styles = StyleSheet.create({
     color: Theme.buttonDarkText,
   },
   chipSubtitle: {
-    fontSize: 8,
+    fontSize: 7,
     fontWeight: "600",
     fontStyle: "italic",
     color: Theme.textMuted,
-    lineHeight: 10,
+    lineHeight: 9,
     letterSpacing: 0.5,
     textTransform: "uppercase",
   },
@@ -2590,18 +2598,18 @@ const styles = StyleSheet.create({
     color: Theme.accentGold,
   },
   chipCountBadge: {
-    minWidth: 24,
-    height: 22,
-    paddingHorizontal: 7,
+    minWidth: 20,
+    height: 18,
+    paddingHorizontal: 6,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
   },
   chipCount: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
-    lineHeight: 13,
+    lineHeight: 12,
     textAlign: "center",
     fontVariant: ["tabular-nums"],
     includeFontPadding: false,
@@ -2668,7 +2676,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 8,
   },
   footerSideEnd: { justifyContent: "flex-end" },
   footerCenter: { width: 160 },

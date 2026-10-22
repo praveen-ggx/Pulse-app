@@ -229,11 +229,15 @@ const styles = StyleSheet.create({
     minHeight: 22,
   },
   hLabel: {
-    width: 116,
+    flexGrow: 0,
+    flexShrink: 1,
+    flexBasis: "32%",
+    minWidth: 64,
+    maxWidth: 120,
     fontSize: 10,
     fontWeight: "600",
     color: "#181C32",
-    flexShrink: 0,
+    overflow: "hidden",
   },
   hLabelSidebar: {
     width: 78,
@@ -261,7 +265,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   hValue: {
-    width: 32,
+    width: 40,
     fontSize: 10,
     fontWeight: "700",
     color: "#78829D",

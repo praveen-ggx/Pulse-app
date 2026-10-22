@@ -33,12 +33,44 @@ export function indentHubSourceTags(
     return ["NETWORK"];
   }
   const target = String(circulationTarget).trim().toLowerCase();
-  if (target === "both") return ["NETWORK", "MARKETPLACE"];
-  if (target === "marketplace") return ["MARKETPLACE"];
-  if (target === "integrated_supplier") return ["NETWORK"];
-  // `offline` (and any other stored value): no source chip. Product can add
-  // an OFFLINE treatment later; Give Load had none.
-  return [];
+  const network =
+    target === "both" ||
+    target === "all" ||
+    target === "integrated_supplier" ||
+    target.includes("network") ||
+    target.includes("supplier");
+  const marketplace =
+    target === "both" ||
+    target === "all" ||
+    target === "marketplace" ||
+    target.includes("marketplace") ||
+    target.includes("market");
+  if (target === "offline") return [];
+  const tags: IndentHubSourceTag[] = [];
+  if (network) tags.push("NETWORK");
+  if (marketplace) tags.push("MARKETPLACE");
+  return tags;
+}
+
+/** Persist Network + Marketplace checkboxes as a single circulation_target. */
+export function circulationTargetFromChannels(
+  network: boolean,
+  marketplace: boolean,
+): "integrated_supplier" | "marketplace" | "both" | null {
+  if (network && marketplace) return "both";
+  if (marketplace) return "marketplace";
+  if (network) return "integrated_supplier";
+  return null;
+}
+
+export function circulationChannelsFromTarget(
+  circulationTarget: string | null | undefined,
+): { network: boolean; marketplace: boolean } {
+  const tags = indentHubSourceTags(circulationTarget);
+  return {
+    network: tags.includes("NETWORK"),
+    marketplace: tags.includes("MARKETPLACE"),
+  };
 }
 
 /**

@@ -4057,12 +4057,14 @@ export default function TripDetailScreen({
 
   const showOdometerVerification =
     isDcoOperatingTrip(trip) || isAssetExecutionTrip(trip);
-  const expenseHubDensity = "compact";
+  const expenseHubDensity = isDesktop ? "comfortable" : "compact";
+  const expenseHubLayout = isDesktop ? "split" : "stack";
   const odometerPreviewEl = showOdometerVerification ? (
     <TripOdometerPreviewCard
       trip={trip}
-      compact
+      compact={!isDesktop}
       density={expenseHubDensity}
+      fillHeight={isDesktop}
       onRecordStart={() => openOdometerVerification("start")}
       onRecordEnd={() => openOdometerVerification("end")}
     />
@@ -5415,12 +5417,14 @@ export default function TripDetailScreen({
             {showExpenseHub && canTripExpensesTab ? (
               <PersistentTabPanel active={activeTab === "expenses"}>
               <View style={[styles.refFinanceWrap, styles.mobileOrderTabPad]}>
-                {odometerPreviewEl}
+                {expenseHubLayout === "stack" ? odometerPreviewEl : null}
                 <Suspense fallback={<ActivityIndicator style={{ margin: 24 }} color="#818cf8" />}>
                 <TripExpensesScreen
                   trip={trip}
                   embedded
                   density={expenseHubDensity}
+                  layout={expenseHubLayout}
+                  leadingSlot={expenseHubLayout === "split" ? odometerPreviewEl : undefined}
                   onAddFuel={() => router.push(ROUTES.tripFuelEntry(trip.id) as never)}
                   onAddToll={() => router.push(ROUTES.tripTollEntry(trip.id) as never)}
                   onAddOtherExpense={() => router.push(ROUTES.tripOtherExpenseEntry(trip.id) as never)}
@@ -6503,12 +6507,14 @@ export default function TripDetailScreen({
                       isDesktop && neoStyles.expenseHubStackDesktop,
                     ]}
                   >
-                    {odometerPreviewEl}
+                    {expenseHubLayout === "stack" ? odometerPreviewEl : null}
                     <Suspense fallback={<ActivityIndicator style={{ margin: 24 }} color="#818cf8" />}>
                     <TripExpensesScreen
                       trip={trip}
                       embedded
                       density={expenseHubDensity}
+                      layout={expenseHubLayout}
+                      leadingSlot={expenseHubLayout === "split" ? odometerPreviewEl : undefined}
                       onAddFuel={() => router.push(ROUTES.tripFuelEntry(trip.id) as never)}
                       onAddToll={() => router.push(ROUTES.tripTollEntry(trip.id) as never)}
                       onAddOtherExpense={() => router.push(ROUTES.tripOtherExpenseEntry(trip.id) as never)}

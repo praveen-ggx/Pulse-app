@@ -35,7 +35,7 @@ export function indentShareSubmitLabel(
     case "marketplace":
       return "Share it to marketplace";
     case "both":
-      return "Share it to both (network and market)";
+      return "Share it to Network and Marketplace";
     default:
       return "Share it to network";
   }

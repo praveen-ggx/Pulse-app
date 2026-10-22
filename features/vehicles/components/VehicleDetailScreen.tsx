@@ -8,6 +8,7 @@ import {
   Easing,
   Modal,
   Platform,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -20,6 +21,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
+import {
+  WEB_POINTER,
+  WEB_TRANSITION,
+  hoverRowWash,
+  isHovered,
+  type HoverPressState,
+} from "@/constants/hoverSelection";
 import { entityCompanionCardStyles as ecc } from "@/components/entityCompanionCard.styles";
 import { entityHeroScorecardStyles as ehs } from "@/components/entityHeroScorecard.styles";
 import { EntityTripTableEmptyRow } from "@/components/EntityTripTableEmptyRow";
@@ -961,10 +969,14 @@ export default function VehicleDetailScreen({
             </View>
             {missionRows.length > 0 ? (
               missionRows.map((row) => (
-                <TouchableOpacity
+                <Pressable
                   key={row.trip.id}
-                  style={styles.tableRow}
-                  activeOpacity={0.7}
+                  style={(state: HoverPressState) => [
+                    styles.tableRow,
+                    WEB_POINTER,
+                    WEB_TRANSITION,
+                    isHovered(state) && hoverRowWash,
+                  ]}
                   onPress={() =>
                     router.push(
                       `/trip/${row.trip.id}?entryContext=vehicle` as const,
@@ -998,7 +1010,7 @@ export default function VehicleDetailScreen({
                   >
                     {formatINR(row.profit)}
                   </Text>
-                </TouchableOpacity>
+                </Pressable>
               ))
             ) : (
               <EntityTripTableEmptyRow textStyle={styles.emptyRowText} style={styles.emptyRow} />

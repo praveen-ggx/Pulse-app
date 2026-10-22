@@ -10,25 +10,30 @@ import {
   getSignedAvatarUrl,
   LEGACY_AVATAR_BUCKET,
   extractPathFromStorageUrl,
+  resolveOrgLogoPublicUrl,
 } from "@/lib/avatarUpload";
-import { supabase } from "@/lib/supabase";
 
 /**
- * Org logos live in the PUBLIC `org-assets` bucket under `org-logos/<orgId>/...`.
+ * Org logos live in the PUBLIC S3 `org-assets` bucket under `org-logos/<orgId>/...`.
  * getPublicUrl is a pure string builder — no network call, no Storage->Postgres
  * connection — so these must never go through createSignedUrl.
  */
 export const PUBLIC_ORG_ASSET_BUCKET = "org-assets";
-const PUBLIC_ORG_LOGO_PREFIX = "org-logos/";
 
 function isPublicOrgLogoPath(raw: string): boolean {
-  return raw.startsWith(PUBLIC_ORG_LOGO_PREFIX);
+  const t = raw.trim();
+  return (
+    t.includes("org-logos/") ||
+    t.startsWith("org-assets/") ||
+    t.toLowerCase().startsWith("s3://")
+  );
 }
 
-/** Public URL for an `org-logos/...` path. Never signs. */
+export { pickPartyOrganizationImageUrl } from "@/lib/media/partyOrganizationImage.util";
+
+/** Public URL for an org-logo storage ref. Never signs. */
 function publicOrgLogoUrl(path: string): string {
-  return supabase().storage.from(PUBLIC_ORG_ASSET_BUCKET).getPublicUrl(path).data
-    .publicUrl;
+  return resolveOrgLogoPublicUrl(path) ?? path;
 }
 
 export type PartyEntityType = "client" | "supplier" | "driver" | "vehicle";

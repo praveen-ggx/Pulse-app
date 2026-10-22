@@ -3,6 +3,7 @@ import {
   getDriverAvailabilityByPhone,
   getDriverAvailabilityByPhoneGlobal,
 } from "@/features/trips/services/trips.service";
+import { isBusyOnExcludedTrip } from "@/features/trips/utils/assignmentLookupGate.util";
 import {
   lookupDriversByPhoneVariants,
   normalizeIndianMobileLast10,
@@ -64,29 +65,36 @@ export function useAggregateDriverPhoneLookup({
 
     void (async () => {
       try {
-        const { matches: found } = await lookupDriversByPhoneVariants(debouncedPhone);
-        if (requestId !== requestRef.current) return;
-
-        setMatches(found);
-        setSelectedUserId(found.length === 1 ? (found[0]?.user_id ?? null) : null);
-
         const normalized = debouncedPhone.trim().replace(/\s+/g, "");
         const orgForDriver =
           (driverAssignOrgId ?? organizationId).trim() || organizationId;
-        const { error: availabilityError, result } = driverAssignOrgId
-          ? await getDriverAvailabilityByPhoneGlobal(normalized, {
-              excludeTripId: tripId,
-              anyOpenTripBlocks: true,
-              requireAuthoritativeRpc: true,
-            })
-          : await getDriverAvailabilityByPhone(orgForDriver, normalized, {
-              excludeTripId: tripId,
-            });
-
+        const [foundResult, availability] = await Promise.all([
+          lookupDriversByPhoneVariants(debouncedPhone),
+          driverAssignOrgId
+            ? getDriverAvailabilityByPhoneGlobal(normalized, {
+                excludeTripId: tripId,
+                anyOpenTripBlocks: true,
+                requireAuthoritativeRpc: true,
+              })
+            : getDriverAvailabilityByPhone(orgForDriver, normalized, {
+                excludeTripId: tripId,
+              }),
+        ]);
         if (requestId !== requestRef.current) return;
 
-        if (availabilityError) {
-          setLookupError(availabilityError.message);
+        const found = foundResult.matches;
+        setMatches(found);
+        setSelectedUserId(found.length === 1 ? (found[0]?.user_id ?? null) : null);
+
+        if (availability.error) {
+          setLookupError(availability.error.message);
+          setInTrip(false);
+          setBusyTripLabel(null);
+          return;
+        }
+
+        const result = availability.result;
+        if (isBusyOnExcludedTrip(result.ongoingTripId, tripId)) {
           setInTrip(false);
           setBusyTripLabel(null);
           return;

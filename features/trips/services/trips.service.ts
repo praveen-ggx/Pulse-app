@@ -1490,12 +1490,28 @@ export async function getDriverAvailabilityByPhoneGlobal(
       trip_label?: string | null;
     };
     if (obj.is_busy === true) {
+      const busyTripId = obj.trip_id ?? null;
+      if (
+        busyTripId &&
+        opts?.excludeTripId &&
+        busyTripId === opts.excludeTripId
+      ) {
+        return {
+          error: null,
+          result: {
+            isBusy: false,
+            driverId: null,
+            ongoingTripId: null,
+            ongoingTripLabel: null,
+          },
+        };
+      }
       return {
         error: null,
         result: {
           isBusy: true,
           driverId: null,
-          ongoingTripId: obj.trip_id ?? null,
+          ongoingTripId: busyTripId,
           ongoingTripLabel: obj.trip_label ?? "another active trip",
         },
       };

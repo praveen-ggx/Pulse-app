@@ -49,6 +49,10 @@ import {
 } from "@/features/trips/components/allocation/tripPhoneAssignmentWizardSteps";
 import { TripPhoneReassignContextRail } from "@/features/trips/components/allocation/TripPhoneReassignContextRail";
 import { useAggregateDriverPhoneLookup } from "@/features/trips/hooks/useAggregateDriverPhoneLookup";
+import {
+  assignmentLookupBlocksSubmit,
+  isCurrentAssignedPhone,
+} from "@/features/trips/utils/assignmentLookupGate.util";
 import { assignmentShellStyles } from "@/features/trips/styles/assignmentShellShared";
 import { formatIndianVehicleNumber, formatMobileNumber } from "@/lib/format";
 import { getTripDisplayNumber, type TripRow } from "@/features/trips/services/trips.service";
@@ -153,7 +157,6 @@ export function TripPhoneAssignmentWizard({
   const [changeReason, setChangeReason] =
     useState<ChangeReasonCode>("AD_HOC_SUBSTITUTION");
   const [changeRemarks, setChangeRemarks] = useState("");
-  const [workspaceToast, setWorkspaceToast] = useState<string | null>(null);
 
   const resolvedActiveDriverName = useMemo(
     () => (activeDriverName ?? initialDriverName ?? trip.driver_display_name ?? "").trim(),
@@ -299,6 +302,17 @@ export function TripPhoneAssignmentWizard({
       wizardStep !== "review",
   });
 
+  const editingCurrentDriver = isCurrentAssignedPhone(
+    driverPhone,
+    resolvedActiveDriverPhone,
+  );
+  const lookupBlocksSubmit = assignmentLookupBlocksSubmit({
+    inTrip: lookup.inTrip,
+    loading: lookup.loading,
+    skipDriverSteps,
+    isCurrentAssignedPhone: editingCurrentDriver,
+  });
+
   const tripLabel = getTripDisplayNumber(trip);
 
   useEffect(() => {
@@ -356,8 +370,10 @@ export function TripPhoneAssignmentWizard({
       driverName: skipDriverSteps ? resolvedActiveDriverName : driverName,
       vehiclePlate,
       phoneComplete: skipDriverSteps ? true : lookup.phoneComplete,
-      phoneLookupLoading: skipDriverSteps ? false : lookup.loading,
-      phoneInTrip: skipDriverSteps ? false : lookup.inTrip,
+      phoneLookupLoading:
+        skipDriverSteps || editingCurrentDriver ? false : lookup.loading,
+      phoneInTrip:
+        skipDriverSteps || editingCurrentDriver ? false : lookup.inTrip,
       phoneMatches: skipDriverSteps ? [] : lookup.matches,
       selectedMatchUserId: skipDriverSteps ? null : lookup.selectedUserId,
       vehicleRequired: effectiveVehicleRequired,
@@ -366,6 +382,7 @@ export function TripPhoneAssignmentWizard({
     }),
     [
       skipDriverSteps,
+      editingCurrentDriver,
       resolvedActiveDriverPhone,
       resolvedActiveDriverName,
       driverPhone,
@@ -513,8 +530,8 @@ export function TripPhoneAssignmentWizard({
 
   const submitBlockedHint = useMemo((): string | null => {
     if (saving) return null;
-    if (lookup.loading) return "Checking driver availability…";
-    if (lookup.inTrip) {
+    if (lookupBlocksSubmit && lookup.loading) return "Checking driver availability…";
+    if (lookupBlocksSubmit && lookup.inTrip) {
       return `This driver is on ${lookup.busyTripLabel ?? "another active trip"} — use another number.`;
     }
     if (lookup.lookupError) return lookup.lookupError;
@@ -540,6 +557,7 @@ export function TripPhoneAssignmentWizard({
     return error;
   }, [
     saving,
+    lookupBlocksSubmit,
     lookup.loading,
     lookup.inTrip,
     lookup.busyTripLabel,
@@ -735,13 +753,23 @@ export function TripPhoneAssignmentWizard({
                 onDriverActionChange={(action) => {
                   setDriverAction(action);
                   setReassignFocus("driver");
-                  if (action === "EDIT") editCurrentDriver();
+                  if (action === "EDIT") {
+                    editCurrentDriver();
+                    return;
+                  }
+                  setDriverNameManual(true);
+                  onDriverNameChange("");
+                  onDriverPhoneChange("");
                 }}
                 vehicleAction={vehicleAction}
                 onVehicleActionChange={(action) => {
                   setVehicleAction(action);
+                  if (action === "EDIT") {
+                    editCurrentVehicle();
+                    return;
+                  }
                   setReassignFocus("vehicle");
-                  if (action === "EDIT") editCurrentVehicle();
+                  onVehiclePlateChange("");
                 }}
                 driverPanelBody={
                   <View style={{ gap: 12, flex: 1 }}>
@@ -819,7 +847,7 @@ export function TripPhoneAssignmentWizard({
                         ))}
                       </View>
                     ) : null}
-                    {lookup.inTrip ? (
+                    {lookupBlocksSubmit && lookup.inTrip ? (
                       <Text style={styles.errorText}>
                         This driver is on {lookup.busyTripLabel ?? "another trip"}.
                       </Text>
@@ -891,15 +919,9 @@ export function TripPhoneAssignmentWizard({
                 onChangeRemarksChange={setChangeRemarks}
                 onConfirm={() => {
                   onSubmit();
-                  setWorkspaceToast(
-                    isReassign
-                      ? "Manifest update requested — share OTP with the driver if shown."
-                      : "Assignment requested — share OTP with the driver if shown.",
-                  );
-                  setTimeout(() => setWorkspaceToast(null), 3500);
                 }}
                 confirmDisabled={
-                  !canSubmitAll || saving || lookup.inTrip || lookup.loading
+                  !canSubmitAll || saving || lookupBlocksSubmit
                 }
                 confirmLoading={saving}
                 confirmHint={submitBlockedHint}
@@ -909,7 +931,7 @@ export function TripPhoneAssignmentWizard({
                     : "Confirm & assign driver"
                 }
                 onClose={onClose}
-                toastMessage={workspaceToast}
+                toastMessage={null}
               />
           ) : (
             <AssignmentFlowShell
@@ -950,9 +972,8 @@ export function TripPhoneAssignmentWizard({
                     useSteppedWizard
                       ? !canContinue ||
                         saving ||
-                        lookup.inTrip ||
-                        (wizardStep !== "review" && lookup.loading)
-                      : !canSubmitAll || saving || lookup.inTrip || lookup.loading
+                        lookupBlocksSubmit
+                      : !canSubmitAll || saving || lookupBlocksSubmit
                   }
                   loading={saving}
                   hint={submitBlockedHint}

@@ -189,6 +189,8 @@ export interface TripRow {
   finance_verified_at?: string | null;
   finance_verified_by?: string | null;
   compliance_reject_return_to?: string | null;
+  /** Latest compliance hold / finance reject (decline_trip_compliance / reject_trip_compliance). */
+  compliance_declined_at?: string | null;
   compliance_resubmitted_at?: string | null;
   compliance_resubmit_note?: string | null;
   finance_flagged_at?: string | null;

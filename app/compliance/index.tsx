@@ -1851,6 +1851,7 @@ export default function ComplianceScreen() {
           canViewDocuments={canViewDocuments}
           canManageFinance={canManageFinance}
           hideCommercials={hideCommercials}
+          groundOpsDocumentLock={hideCommercials}
           showFinanceTab={stage !== "compliance_pending"}
           onPay={openPay}
           paymentSubmitting={paying}

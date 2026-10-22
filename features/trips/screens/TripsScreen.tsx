@@ -33,6 +33,7 @@ import { useTabBarAwareScrollProps } from "@/contexts/DemoTabBarScrollContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useOptionalOrganization } from "@/contexts/OrganizationContext";
 import { useOptionalActiveWorkspace } from "@/contexts/ActiveWorkspaceContext";
+import { groundOpsDocumentLockReason } from "@/features/tripCompliance/utils/groundOpsDocumentLock.util";
 import { useAlertRegistryFinanceHandlers } from "@/lib/hooks/useAlertRegistryFinanceHandlers";
 import { useLoadingStuck } from "@/lib/hooks/useLoadingStuck";
 import { isInfrastructureErrorMessage } from "@/lib/supabaseHttp.util";
@@ -404,6 +405,7 @@ export default function TripsScreen() {
   const { t: tr } = useLanguage();
   const orgCtx = useOptionalOrganization();
   const workspaceCtx = useOptionalActiveWorkspace();
+  const isGroundOpsMember = workspaceCtx?.memberPlatformRole === "ground_ops";
   const { finance } = useAlertRegistryFinanceHandlers();
   const salaryRequestRows = useGlobalSyncStore((s) => s.salaryRequestRows);
   const [refreshing, setRefreshing] = useState(false);
@@ -1135,17 +1137,29 @@ export default function TripsScreen() {
     (tripId: string) => hubElrLabels[tripId.trim().toLowerCase()] || "",
     [hubElrLabels],
   );
+  /** Ground Ops can add a missing LR, but not change one once the trip is in transit / approved. */
+  const canEditHubLrFor = useCallback(
+    (trip: TripRow | undefined) =>
+      canEditHubLr &&
+      !(
+        isGroundOpsMember &&
+        trip &&
+        hubLrLabelFor(trip.id) &&
+        groundOpsDocumentLockReason({ trip }) != null
+      ),
+    [canEditHubLr, isGroundOpsMember, hubLrLabelFor],
+  );
   const openHubLrEdit = useCallback(
     (tripId: string) => {
-      if (!canEditHubLr) return;
       const trip = tripsByStatus.find((row) => row.id === tripId);
+      if (!canEditHubLrFor(trip)) return;
       setHubLrEdit({
         tripId,
         label: hubLrLabelFor(tripId),
         organizationId: trip?.organization_id ?? orgId ?? null,
       });
     },
-    [canEditHubLr, hubLrLabelFor, orgId, tripsByStatus],
+    [canEditHubLrFor, hubLrLabelFor, orgId, tripsByStatus],
   );
   const hardPodTripIds = useMemo(() => {
     const set = new Set<string>();
@@ -3453,7 +3467,7 @@ export default function TripsScreen() {
                             }
                             lrLabel={hubLrLabelFor(t.id)}
                             elrLabel={hubElrLabelFor(t.id)}
-                            canEditLr={canEditHubLr}
+                            canEditLr={canEditHubLrFor(t)}
                             onPressLr={openHubLrEdit}
                             highlighted={lastOpenedTripId === t.id}
                             currentOrganizationId={
@@ -3570,7 +3584,7 @@ export default function TripsScreen() {
                           }
                           lrLabel={hubLrLabelFor(t.id)}
                           elrLabel={hubElrLabelFor(t.id)}
-                          canEditLr={canEditHubLr}
+                          canEditLr={canEditHubLrFor(t)}
                           onPressLr={openHubLrEdit}
                           highlighted={lastOpenedTripId === t.id}
                           currentOrganizationId={

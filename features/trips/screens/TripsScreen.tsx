@@ -2417,6 +2417,9 @@ export default function TripsScreen() {
           clientOrganizationAvatarSeed={avatarProps.organizationAvatarSeed}
           clientIntegrated={avatarProps.isIntegrated}
           actions={
+            // Ground Ops see their warehouses' indents read-only: no share,
+            // marketplace, story, broadcast or award. Tapping the card opens detail.
+            isGroundOpsMember ? undefined : (
             <GiveLoadIndentCardActions
               load={indent}
               bidCount={bidCount}
@@ -2441,6 +2444,7 @@ export default function TripsScreen() {
               onOpenAwardModal={indentHubActions.awardModal.open}
               dense={hubGrid || tripsHubLayoutCompact}
             />
+            )
           }
         />
       );

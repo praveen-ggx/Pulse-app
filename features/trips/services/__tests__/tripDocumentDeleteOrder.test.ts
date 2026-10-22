@@ -1,5 +1,10 @@
 import { deleteTripDocument, type TripDocumentRow } from "../tripDocuments.service";
 
+/**
+ * The row is deleted before the stored file. When the database refuses the
+ * delete (approved / Ground Ops-locked document), the file must stay.
+ */
+
 const calls: string[] = [];
 let mockDbError: { message: string; code?: string } | null = null;
 let mockStorageError: { message: string } | null = null;
@@ -61,6 +66,16 @@ describe("deleteTripDocument", () => {
     };
     const { error } = await deleteTripDocument(DOC);
     expect(error?.message).toMatch(/document_audit_log_document_id_fkey/);
+    expect(calls).toEqual(["db.delete"]);
+  });
+
+  it("keeps the file when Ground Ops may not change the document", async () => {
+    mockDbError = {
+      message: "Ground Ops cannot change this document: trip is in transit",
+      code: "42501",
+    };
+    const { error } = await deleteTripDocument(DOC);
+    expect(error?.message).toMatch(/Ground Ops cannot change/);
     expect(calls).toEqual(["db.delete"]);
   });
 

@@ -41,7 +41,6 @@ import { useVerifiedActionGuard } from "@/features/network/utils/verifiedActionG
 import { showAppAlert } from "@/lib/appAlert";
 import { ROUTES } from "@/lib/routes";
 import { MutualConnectionsModal } from "@/features/network/components/MutualConnectionsModal";
-import type { MutualConnectionRow } from "@/features/network/services/mutual-connections.service";
 import {
   NETWORK_HUB_GRID_ROW_PADDING_H,
   NETWORK_HUB_SPLIT_COLUMN_GAP_PX,
@@ -56,6 +55,7 @@ import {
 import { peekLinkedOrgDisplayProfile } from "@/lib/queries/linkedOrgDisplayCache";
 import {
   buildNetworkProfileSeed,
+  type NetworkProfileSeedInput,
   hasSeededNetworkProfileHeroStats,
   preferProfileConnectionStatus,
 } from "@/features/network/utils/networkProfileBootstrap.util";
@@ -649,7 +649,8 @@ function NetworkScreenInner() {
       const snap = orgId
         ? peekNetworkProfileSnapshot(queryClient, orgId, org.id)
         : undefined;
-      const seeded = buildNetworkProfileSeed(org, cached);
+      // Discover rows carry optional fields; the seed builder reads each one defensively.
+      const seeded = buildNetworkProfileSeed(org as NetworkProfileSeedInput, cached);
       setSelectedProfileNode({
         ...seeded.node,
         ...(snap
@@ -695,7 +696,7 @@ function NetworkScreenInner() {
    *  synthetic faces at the source, but we re-check here so any future
    *  caller is also safe. */
   const handleOpenMutualProfile = useCallback(
-    (row: Pick<MutualConnectionRow, "id" | "name" | "avatar_seed" | "avatar_url">) => {
+    (row: { id: string; name: string; avatar_seed?: string | null; avatar_url?: string | null }) => {
       const looksLikeOrgUuid = isRegisteredOrgId(row.id);
       if (!looksLikeOrgUuid) {
         if (__DEV__) {
@@ -715,8 +716,8 @@ function NetworkScreenInner() {
         mutual_connections_count: undefined,
         rating_value: null,
         location_value: undefined,
-        avatar_seed: row.avatar_seed,
-        avatar_url: row.avatar_url,
+        avatar_seed: row.avatar_seed ?? null,
+        avatar_url: row.avatar_url ?? null,
       });
     },
     [handleOpenProfileFromDiscover],

@@ -52,6 +52,7 @@ import {
 } from '@/lib/queries/linkedOrgDisplayCache';
 import { useQueryCacheOwner } from '@/lib/cache/cacheOwner';
 import { getQueryClient } from '@/lib/queryClient';
+import { isNonPersistedTripsQueryKey } from '@/lib/queryKeys';
 import {
     installForegroundPruning,
     installRealtimeDiagnosticsGlobalHook,
@@ -427,6 +428,8 @@ export default function RootLayout() {
                   // Linked-org display is workspace-scoped; a persisted map can
                   // hydrate before org resolution and leak across sessions.
                   if (isLinkedOrgDisplayQueryKey(query.queryKey)) return false;
+                  // Hub search hits, driver phones, export lookups: large / personal.
+                  if (isNonPersistedTripsQueryKey(query.queryKey)) return false;
                   return true;
                 },
               },

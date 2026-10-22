@@ -119,7 +119,9 @@ AS $function$
         '%' || replace(replace(replace(btrim(p_query), '\', '\\'), '%', '\%'), '_', '\_') || '%' AS pat,
         '%' || replace(replace(replace(replace(lower(btrim(p_query)), ' ', ''), '\', '\\'), '%', '\%'), '_', '\_') || '%' AS compact_pat,
         -- Phone digits; "+91 98765 43210" / "098765…" search as "9876543210".
+        -- Only for phone-like queries, so "TRP-0012" does not phone-match "0012".
         CASE
+          WHEN btrim(COALESCE(p_query, '')) !~ '^[0-9+()\s-]+$' THEN ''
           WHEN length(x.d) > 10 AND left(x.d, 2) = '91' THEN right(x.d, 10)
           WHEN length(x.d) = 11 AND left(x.d, 1) = '0' THEN right(x.d, 10)
           ELSE x.d
@@ -227,20 +229,71 @@ AS $function$
           WHERE d.id = tr.driver_id
             AND (
               d.name ILIKE p.pat
+              -- Phone only where trip detail already shows it: same driver-org
+              -- rule as get_trip_detail_bundle (trip org, viewer org, or the
+              -- supplier's linked org).
               OR (
                 length(p.digits) >= 4
+                AND (
+                  d.organization_id IN (tr.organization_id, p_org_id)
+                  OR EXISTS (
+                    SELECT 1 FROM public.suppliers s4
+                    WHERE s4.id = tr.supplier_id
+                      AND s4.linked_organization_id = d.organization_id
+                  )
+                )
                 AND regexp_replace(COALESCE(d.phone, ''), '\D', '', 'g') LIKE '%' || p.digits || '%'
               )
             )
         )
+        -- LR / e-way: match only the numbers, not the whole stored value. Most rows
+        -- hold JSON ({"lrNumber","invoice","date"} / {"ewayNo",...,"entries":[...]}),
+        -- so raw text would match words like "invoice" or "date" on every trip.
+        -- Parsing mirrors lrNumberFromStoredDocumentNumber / parseEwayFieldEntries:
+        -- plain text, or JSON that does not parse, is the number itself.
+        -- pg_input_is_valid guards the cast so a malformed value cannot raise.
         OR EXISTS (
-          SELECT 1 FROM public.trip_documents td
+          SELECT 1
+          FROM public.trip_documents td
+          CROSS JOIN LATERAL (
+            SELECT CASE
+              WHEN left(btrim(td.document_number), 1) IN ('{', '[')
+                   AND pg_input_is_valid(btrim(td.document_number), 'jsonb')
+              THEN btrim(td.document_number)::jsonb
+            END AS js
+          ) doc
+          CROSS JOIN LATERAL (
+            SELECT td.document_number AS num
+            WHERE doc.js IS NULL
+               OR (td.document_type = 'lr' AND jsonb_typeof(doc.js) <> 'object')
+            UNION ALL
+            SELECT CASE
+                     WHEN doc.js ->> 'kind' = 'e_lr'
+                          AND COALESCE(doc.js -> 'snapshot' ->> 'lrNumber', '') <> ''
+                     THEN doc.js -> 'snapshot' ->> 'lrNumber'
+                     ELSE COALESCE(doc.js ->> 'lrNumber', doc.js ->> 'n', doc.js ->> 'number')
+                   END
+            WHERE td.document_type = 'lr' AND jsonb_typeof(doc.js) = 'object'
+            UNION ALL
+            SELECT COALESCE(doc.js ->> 'ewayNo', doc.js ->> 'n')
+            WHERE td.document_type = 'eway_bill' AND jsonb_typeof(doc.js) = 'object'
+            UNION ALL
+            SELECT COALESCE(e.value ->> 'ewayNo', e.value ->> 'n')
+            FROM jsonb_array_elements(
+              CASE
+                WHEN td.document_type <> 'eway_bill' THEN NULL
+                WHEN jsonb_typeof(doc.js) = 'array' THEN doc.js
+                WHEN jsonb_typeof(doc.js -> 'entries') = 'array' THEN doc.js -> 'entries'
+              END
+            ) e
+          ) n
           WHERE td.trip_id = tr.id
+            AND td.document_type IN ('lr', 'eway_bill')
             AND (
-              (td.document_type = 'lr' AND td.document_number ILIKE p.pat)
+              (td.document_type = 'lr' AND n.num ILIKE p.pat)
               OR (
                 td.document_type = 'eway_bill'
-                AND replace(lower(COALESCE(td.document_number, '')), ' ', '') LIKE p.compact_pat
+                AND replace(lower(COALESCE(n.num, '')), ' ', '') LIKE p.compact_pat
               )
             )
         )
@@ -252,4 +305,7 @@ AS $function$
   LIMIT LEAST(GREATEST(COALESCE(p_limit, 200), 1), 500);
 $function$;
 
-grant execute on function public.search_trips_for_org(uuid, text, integer) to authenticated, service_role;
+revoke execute on function public.search_trips_for_org(uuid, text, integer)
+  from public, anon;
+grant execute on function public.search_trips_for_org(uuid, text, integer)
+  to authenticated, service_role;

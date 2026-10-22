@@ -169,6 +169,7 @@ export function OrganizationVerifyWizard({
         : INFO_COPY[step];
 
   const cinRequired = registrationTypeRequiresCin(typeDraft);
+  const isIndividual = typeDraft === 'individual';
   const profile = buildKycRequirementProfile(kyc);
   const gstChoice: 'yes' | 'no' | null =
     gstIntent ??
@@ -316,56 +317,58 @@ export function OrganizationVerifyWizard({
       </View>
     ) : step === 2 ? (
       <View style={styles.stack}>
-        <View style={panelStyles.detailCard}>
-          <SectionHeader label="GST registration" />
-          <Text style={styles.gstPrompt}>Is your business registered for GST?</Text>
-          <View style={styles.gstChoiceRow}>
-            <Pressable
-              style={[styles.gstChoice, gstChoice === 'yes' && styles.gstChoiceOn]}
-              onPress={() => {
-                setGstIntent('yes');
-                if (kyc?.gst_not_applicable) void onSetGstNotApplicable(false);
-              }}
-              accessibilityRole="button"
-              accessibilityState={{ selected: gstChoice === 'yes' }}
-            >
-              <Text style={[styles.gstChoiceText, gstChoice === 'yes' && styles.gstChoiceTextOn]}>
-                Yes
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[styles.gstChoice, gstChoice === 'no' && styles.gstChoiceOn]}
-              onPress={() => {
-                setGstIntent('no');
-                if (!kyc?.gst_not_applicable) void onSetGstNotApplicable(true);
-              }}
-              accessibilityRole="button"
-              accessibilityState={{ selected: gstChoice === 'no' }}
-            >
-              <Text style={[styles.gstChoiceText, gstChoice === 'no' && styles.gstChoiceTextOn]}>
-                No
-              </Text>
-            </Pressable>
-          </View>
-          {gstChoice === 'yes' ? (
-            <KycFieldRow
-              field="gstin"
-              value={kyc?.gstin}
-              verificationStatus={kyc?.verification_status}
-              canEdit={canEdit && !frozen}
-              onSave={onSaveKycField}
-              onValidateGstin={onValidateGstin}
-              required
-            />
-          ) : gstChoice === 'no' ? (
-            <View style={styles.gstSkipped}>
-              <Text style={styles.gstSkippedTitle}>Not registered for GST</Text>
-              <Text style={styles.gstSkippedSub}>
-                GSTIN and GST certificate are not required.
-              </Text>
+        {!isIndividual ? (
+          <View style={panelStyles.detailCard}>
+            <SectionHeader label="GST registration" />
+            <Text style={styles.gstPrompt}>Is your business registered for GST?</Text>
+            <View style={styles.gstChoiceRow}>
+              <Pressable
+                style={[styles.gstChoice, gstChoice === 'yes' && styles.gstChoiceOn]}
+                onPress={() => {
+                  setGstIntent('yes');
+                  if (kyc?.gst_not_applicable) void onSetGstNotApplicable(false);
+                }}
+                accessibilityRole="button"
+                accessibilityState={{ selected: gstChoice === 'yes' }}
+              >
+                <Text style={[styles.gstChoiceText, gstChoice === 'yes' && styles.gstChoiceTextOn]}>
+                  Yes
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[styles.gstChoice, gstChoice === 'no' && styles.gstChoiceOn]}
+                onPress={() => {
+                  setGstIntent('no');
+                  if (!kyc?.gst_not_applicable) void onSetGstNotApplicable(true);
+                }}
+                accessibilityRole="button"
+                accessibilityState={{ selected: gstChoice === 'no' }}
+              >
+                <Text style={[styles.gstChoiceText, gstChoice === 'no' && styles.gstChoiceTextOn]}>
+                  No
+                </Text>
+              </Pressable>
             </View>
-          ) : null}
-        </View>
+            {gstChoice === 'yes' ? (
+              <KycFieldRow
+                field="gstin"
+                value={kyc?.gstin}
+                verificationStatus={kyc?.verification_status}
+                canEdit={canEdit && !frozen}
+                onSave={onSaveKycField}
+                onValidateGstin={onValidateGstin}
+                required
+              />
+            ) : gstChoice === 'no' ? (
+              <View style={styles.gstSkipped}>
+                <Text style={styles.gstSkippedTitle}>Not registered for GST</Text>
+                <Text style={styles.gstSkippedSub}>
+                  GSTIN and GST certificate are not required.
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
         <View style={panelStyles.detailCard}>
           <SectionHeader label="Required" />
           <KycFieldsList
@@ -448,9 +451,18 @@ export function OrganizationVerifyWizard({
           />
           <InfoRow
             label="GSTIN"
-            value={kyc?.gst_not_applicable ? 'Not registered for GST' : kyc?.gstin?.trim() || '—'}
+            value={
+              isIndividual
+                ? 'Not required'
+                : kyc?.gst_not_applicable
+                  ? 'Not registered for GST'
+                  : kyc?.gstin?.trim() || '—'
+            }
           />
-          <InfoRow label="Business PAN" value={kyc?.business_pan?.trim() || '—'} />
+          <InfoRow
+            label={isIndividual ? 'PAN' : 'Business PAN'}
+            value={kyc?.business_pan?.trim() || '—'}
+          />
           {kyc?.cin?.trim() ? <InfoRow label="CIN" value={kyc.cin} /> : null}
           {kyc?.msme_number?.trim() ? (
             <InfoRow label="Udyam" value={kyc.msme_number} />

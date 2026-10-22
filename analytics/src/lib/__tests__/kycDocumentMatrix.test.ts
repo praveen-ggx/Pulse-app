@@ -19,6 +19,14 @@ describe('admin requiredKycDocSlots', () => {
     );
   });
 
+  it.each([false, true])('individual needs only PAN, address proof and Aadhaar (gstSkip=%s)', (gstSkip) => {
+    expect(requiredKycDocSlots('individual', gstSkip).map((s) => s.type)).toEqual([
+      'PAN Card',
+      'Address Proof',
+      'Aadhaar',
+    ]);
+  });
+
   it('requires partnership deed', () => {
     expect(requiredKycDocSlots('partnership', false).map((s) => s.type)).toContain(
       'Partnership Deed',

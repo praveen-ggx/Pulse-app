@@ -60,7 +60,8 @@ function resolveVerificationDocumentType(
     docType === 'iec_certificate' ||
     docType === 'incorporation_certificate' ||
     docType === 'partnership_deed' ||
-    docType === 'llp_agreement'
+    docType === 'llp_agreement' ||
+    docType === 'aadhaar_card'
   ) {
     return docType;
   }

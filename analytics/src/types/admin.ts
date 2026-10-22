@@ -1,6 +1,6 @@
 // ─── KYC primitive types (owned here; kyc.ts re-exports) ─────────────────────
 
-export type EntityType     = 'Pvt Ltd' | 'LLP' | 'Proprietorship' | 'Partnership' | 'Public Ltd';
+export type EntityType     = 'Pvt Ltd' | 'LLP' | 'Proprietorship' | 'Partnership' | 'Public Ltd' | 'Individual';
 export type AppStatus      = 'Pending' | 'Approved' | 'Rejected' | 'Escalated' | 'Under Review';
 export type RiskLevel      = 'Low' | 'Medium' | 'High';
 export type DocumentType =
@@ -14,6 +14,7 @@ export type DocumentType =
   | 'LLP Agreement'
   | 'MSME / Udyam'
   | 'IEC'
+  | 'Aadhaar'
   | 'Activity Proof';
 export type DocumentStatus = 'Valid' | 'Pending' | 'Flagged' | 'Unreadable' | 'Missing' | 'Expired';
 export type CheckStatus    = 'Passed' | 'Failed' | 'Pending' | 'Manual Review' | 'N/A';

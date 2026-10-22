@@ -402,3 +402,39 @@ describe('requirement matrix lockstep (type × GST)', () => {
     expect(profile.requiredDocuments.some((d) => d.type === 'gst_certificate')).toBe(!gstSkip);
   });
 });
+
+describe('individual registration type', () => {
+  it('maps signup INDIVIDUAL to individual', () => {
+    expect(registrationTypeFromBusinessType('INDIVIDUAL')).toBe('individual');
+  });
+
+  it.each([false, true])('needs only PAN, Aadhaar and address proof (gstSkip=%s)', (gstSkip) => {
+    const profile = buildKycRequirementProfile(
+      baseKyc({ registration_type: 'individual', gst_not_applicable: gstSkip }),
+    );
+    expect(profile.gstRequired).toBe(false);
+    expect(profile.requiredTaxFields).toEqual(['business_pan']);
+    expect(profile.requiredDocuments.map((d) => d.type)).toEqual([
+      'pan_card',
+      'address_proof',
+      'aadhaar_card',
+    ]);
+    expect(isKycTaxFieldRequired('gstin', 'individual', gstSkip)).toBe(false);
+  });
+
+  it('is ready to submit without GST or Udyam', () => {
+    const kyc = baseKyc({
+      registration_type: 'individual',
+      business_pan: 'ABCPE1234F',
+      address_line: '1 Main Rd',
+      city: 'Chennai',
+      state: 'TN',
+    });
+    const docs = [doc('pan_card'), doc('address_proof'), doc('aadhaar_card')];
+    expect(kycTaxIdentifiersComplete(kyc)).toBe(true);
+    expect(listKycVerificationGaps(kyc, docs)).toEqual([]);
+    expect(listKycVerificationGaps(kyc, [doc('pan_card'), doc('address_proof')])).toEqual([
+      'Upload Aadhaar card',
+    ]);
+  });
+});

@@ -24,8 +24,13 @@ Lockstep tests: Pulse `kycVerification.util.test.ts` (`requirement matrix lockst
 
 ## Inputs
 
-1. Business type (`registration_type`: proprietorship, partnership, pvt_ltd, public_ltd, llp)
+1. Business type (`registration_type`: individual, proprietorship, partnership, pvt_ltd, public_ltd, llp)
 2. GST registered? (`gst_not_applicable` = false means Yes)
+
+`individual` (e.g. a single truck owner, signup business type `INDIVIDUAL`)
+needs only PAN card, Aadhaar card (`aadhaar_card`) and address proof. GST is
+never required for it, whatever `gst_not_applicable` says. Aadhaar uploads
+skip OCR and go to manual review.
 
 ## Signature rule
 

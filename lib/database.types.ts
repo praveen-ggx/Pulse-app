@@ -19266,6 +19266,7 @@ export type Database = {
         | "pvt_ltd"
         | "public_ltd"
         | "partnership"
+        | "individual"
       verification_document_status:
         | "UPLOADED"
         | "OCR_PASSED"
@@ -19284,6 +19285,7 @@ export type Database = {
         | "partnership_deed"
         | "llp_agreement"
         | "iec_certificate"
+        | "aadhaar_card"
       verification_job_status:
         | "QUEUED"
         | "PROCESSING"
@@ -19442,6 +19444,7 @@ export const Constants = {
         "pvt_ltd",
         "public_ltd",
         "partnership",
+        "individual",
       ],
       verification_document_status: [
         "UPLOADED",
@@ -19462,6 +19465,7 @@ export const Constants = {
         "partnership_deed",
         "llp_agreement",
         "iec_certificate",
+        "aadhaar_card",
       ],
       verification_job_status: [
         "QUEUED",

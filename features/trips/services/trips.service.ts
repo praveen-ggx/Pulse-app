@@ -135,6 +135,8 @@ export interface TripRow {
   gps_distance_km?: number | null;
   /** Absolute discrepancy between odometer and GPS distance. */
   distance_discrepancy_km?: number | null;
+  /** Distance actually travelled (trips.actual_distance_traveled_km). */
+  actual_distance_traveled_km?: number | null;
   /** Source preference for distance (odometer/gps/hybrid/estimated). */
   distance_source?: string | null;
   /** Visual verification state, no workflow blocking. */
@@ -287,6 +289,32 @@ export async function getTripsForOrg(
     }
     return getTripsByOrganization(orgId);
   });
+}
+
+/**
+ * Trips hub search across every trip the org can see — not only the newest 400 in
+ * getTripsForOrg. Matches trip ids, client, supplier, route, vehicle, driver name /
+ * phone, indent code and LR number server-side. Same row shape as getTripsForOrg.
+ * Returns no hits (not an error) until the RPC is deployed.
+ */
+export async function searchTripsForOrg(
+  orgId: string,
+  query: string,
+): Promise<{ error: Error | null; trips: TripRow[] }> {
+  const needle = query.trim();
+  if (!orgId || needle.length < 2) return { error: null, trips: [] };
+  const { data, error } = await supabase().rpc("search_trips_for_org", {
+    p_org_id: orgId,
+    p_query: needle,
+  });
+  if (error) {
+    if (shouldFallbackTripsTableScan(error)) return { error: null, trips: [] };
+    return { error: new Error(error.message), trips: [] };
+  }
+  const trips = ((data ?? []) as TripRow[]).map((row) =>
+    normalizeTripRowWithIndent(row as TripRow & { indents?: TripIndentJoin | null }),
+  );
+  return { error: null, trips };
 }
 
 export type TripPartyCounts = {

@@ -24,6 +24,7 @@ import type { CommodityTypeKind } from "@/features/trips/services/userCommodityT
 import { ROUTES } from "@/lib/routes";
 import { VehicleTypeCatalogSheet } from "@/features/vehicles/components/VehicleTypeCatalogSheet";
 import {
+  formatSelectedVehicleTypeLabel,
   parseVehicleTypeSelection,
   passingTonRange,
   passingTonsFor,
@@ -298,7 +299,7 @@ export const TripCommodityFields = memo(function TripCommodityFields({
             ]}
             numberOfLines={2}
           >
-            {vehicleType.trim() || "Select vehicle type (optional)"}
+            {formatSelectedVehicleTypeLabel(vehicleType) || "Select vehicle type (optional)"}
           </Text>
           <ChevronRight size={18} color={Theme.iconPrimary} />
         </Pressable>

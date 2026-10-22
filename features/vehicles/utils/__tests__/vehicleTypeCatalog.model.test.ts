@@ -1,5 +1,6 @@
 import {
   capacityForPassingTon,
+  formatSelectedVehicleTypeLabel,
   formatVehicleTypeSelection,
   parseVehicleTypeSelection,
   passingTonForTons,
@@ -36,6 +37,22 @@ describe("vehicleTypeCatalog", () => {
     expect(vehicleTonRange("Open 20 Feet")).toEqual({ min: 7, max: 15 });
     expect(vehicleTonRange("LCV Open 8 Feet")).toEqual({ min: 0.75, max: 1 });
     expect(vehicleTonRange("Tata Ace")).toBeNull();
+  });
+
+  it("uses the container capacities for 32FT SXL and 32FT MXL, and Open for 40FT", () => {
+    expect(parseVehicleTypeSelection("Open 40 Feet")).toEqual({
+      group: "Open",
+      type: "40 Feet",
+    });
+    expect(parseVehicleTypeSelection("Container 40 Feet")).toBeNull();
+    expect(vehicleTonRange("Container 32 Feet SXL")).toEqual({ min: 7, max: 9 });
+    expect(vehicleTonRange("LCV Container 32 Feet SXL")).toEqual({ min: 7, max: 9 });
+    expect(vehicleTonRange("Container 32 Feet MXL")).toEqual({ min: 15, max: 18 });
+    expect(vehicleTonRange("Open 40 Feet")).toEqual({ min: 20, max: 24 });
+    expect(formatSelectedVehicleTypeLabel("Open 40 Feet")).toBe("Open 40 Feet · 20 MT");
+    expect(formatSelectedVehicleTypeLabel("Container 32 Feet SXL")).toBe("Container 32 Feet SXL · 7-9 MT");
+    expect(formatSelectedVehicleTypeLabel("Container 32 Feet MXL")).toBe("Container 32 Feet MXL · 15-18 MT");
+    expect(formatSelectedVehicleTypeLabel("Open 20 Feet")).toBe("Open 20 Feet");
   });
 
   it("flags tons outside the vehicle range", () => {

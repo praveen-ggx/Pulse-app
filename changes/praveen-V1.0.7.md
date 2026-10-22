@@ -14,5 +14,7 @@
 - None.
 
 ## Tested
-- Catalog unit tests pass for the three ranges and the selected-field labels.
-- Picker clicked through: 40 Feet under Open, capacities not on the tiles, selected field shows the MT label.
+- Rebased on V1 2a2cde0d. No migrations.
+- lint 55 (≤104), typecheck 61 (≤89, Node 24, no errors in files touched), cycles 111, lib-files 178. navigation-policy 64 pass. git diff --check clean.
+- Catalog unit tests pass for the three ranges and the selected-field labels. Picker clicked through: 40 Feet under Open, capacities not on the tiles, selected field shows the MT label.
+- Full jest on this machine: 520 passed, 8 failed. None of the failures are in the vehicle catalog. They are migration contract / release-set checksum tests and a Windows path check in lib/__tests__/singleOwnerOperatorConcept.test.ts (`lib\\database.types.ts`). `node scripts/ci-baseline.js` cannot spawn `npx` here (no npx.exe); the counts above are from the same eslint, tsc, and madge commands.

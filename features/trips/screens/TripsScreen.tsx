@@ -1816,10 +1816,11 @@ export default function TripsScreen() {
     opsStatusTimesQuery.isLoading ||
     opsExportDocFlagsQuery.isLoading ||
     opsExportDriverPhonesQuery.isLoading;
-  const opsExportFailed =
-    opsStatusTimesQuery.isError ||
-    opsExportDocFlagsQuery.isError ||
-    opsExportDriverPhonesQuery.isError;
+  // Not while refetching: a retry keeps isError true until it settles, and
+  // counting that would close the sheet again before the retry can succeed.
+  const opsExportFailed = [opsStatusTimesQuery, opsExportDocFlagsQuery, opsExportDriverPhonesQuery].some(
+    (q) => q.isError && !q.isFetching,
+  );
   // Don't open the sheet with blank columns; close it and say so instead.
   useEffect(() => {
     if (!opsExportFailed || !tripLedgerExportOpen || !useOpsTripExport) return;

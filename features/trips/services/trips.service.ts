@@ -135,6 +135,8 @@ export interface TripRow {
   gps_distance_km?: number | null;
   /** Absolute discrepancy between odometer and GPS distance. */
   distance_discrepancy_km?: number | null;
+  /** Distance actually travelled (trips.actual_distance_traveled_km). */
+  actual_distance_traveled_km?: number | null;
   /** Source preference for distance (odometer/gps/hybrid/estimated). */
   distance_source?: string | null;
   /** Visual verification state, no workflow blocking. */

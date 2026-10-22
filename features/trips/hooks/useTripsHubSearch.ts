@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { searchTripsForOrg, type TripRow } from "@/features/trips/services/trips.service";
 import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
 import { STALE } from "@/lib/queryClient";
+import { queryKeys } from "@/lib/queryKeys";
 
 /**
  * Trips hub server search. The hub list is only the newest 400 trips, so older
@@ -12,7 +13,7 @@ import { STALE } from "@/lib/queryClient";
 export function useTripsHubSearch(orgId: string | null, searchQuery: string) {
   const needle = useDebouncedValue(searchQuery.trim(), 300);
   const query = useQuery<TripRow[]>({
-    queryKey: ["q", "trips", orgId ?? "", "hub-search", needle.toLowerCase()],
+    queryKey: queryKeys.trips.hubSearch(orgId ?? "", needle),
     queryFn: async () => {
       const res = await searchTripsForOrg(orgId!, needle);
       if (res.error) throw res.error;

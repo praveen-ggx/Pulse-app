@@ -167,7 +167,7 @@ export function ClientProfileHub({
     [client],
   );
 
-  const isTabActive = (id: ClientProfileTab) => {
+  const isTabActive = (id: ClientProfileTab) =>
     id === tab || (id === "warehouses" && (tab === "contracts" || tab === "commercials"));
 
   const displayName = client.name?.trim() || "Client";

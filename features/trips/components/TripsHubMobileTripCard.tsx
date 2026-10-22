@@ -455,6 +455,8 @@ export type TripsHubMobileTripCardProps = {
   elrLabel?: string | null;
   canEditLr?: boolean;
   onPressLr?: () => void;
+  /** Last trip the viewer opened — outlined so ops can find their place. */
+  highlighted?: boolean;
 };
 
 export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
@@ -505,6 +507,7 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
   elrLabel = null,
   canEditLr = false,
   onPressLr,
+  highlighted = false,
 }: TripsHubMobileTripCardProps) {
   const tripNo = asLabel(
     displayNumber?.trim() || getTripDisplayNumber(trip, viewerOrgId),
@@ -600,6 +603,7 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
           fillGrid && styles.cardGrid,
           fillGrid && styles.cardGridElevated,
           cardActive && styles.cardHover,
+          highlighted && styles.cardHighlighted,
         ]}
       >
         <Pressable
@@ -865,6 +869,10 @@ const styles = StyleSheet.create({
   },
   cardHover: {
     backgroundColor: Theme.complianceSelectedWash,
+  },
+  cardHighlighted: {
+    borderColor: Theme.primary,
+    borderWidth: 2,
   },
   card: {
     backgroundColor: Theme.cardWhite,

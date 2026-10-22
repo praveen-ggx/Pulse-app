@@ -16,7 +16,7 @@ export function resolveIndentDetailBootstrap(
   if (!raw) return null;
   if (seed && findIndentInMarketList([seed], raw)) return seed;
   if (!cachedLists.length) return null;
-  return findIndentInMarketList(cachedLists, raw);
+  return findIndentInMarketList([...cachedLists], raw);
 }
 
 export function indentDetailCacheHint(

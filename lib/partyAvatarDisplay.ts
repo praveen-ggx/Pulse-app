@@ -29,23 +29,7 @@ function isPublicOrgLogoPath(raw: string): boolean {
   );
 }
 
-/**
- * Same stack as network / grow cards: S3 `org-logos/` (or `logo_url`) first,
- * then the CRM/contact photo so trip cards never drop a stored party mark.
- */
-export function pickPartyOrganizationImageUrl(options: {
-  organizationImageUrl?: string | null;
-  logoUrl?: string | null;
-  avatarUrl?: string | null;
-}): string | null {
-  const branded =
-    (options.organizationImageUrl ?? "").trim() ||
-    (options.logoUrl ?? "").trim();
-  if (branded) return branded;
-  const avatar = (options.avatarUrl ?? "").trim();
-  if (!avatar) return null;
-  return avatar;
-}
+export { pickPartyOrganizationImageUrl } from "@/lib/media/partyOrganizationImage.util";
 
 /** Public URL for an org-logo storage ref. Never signs. */
 function publicOrgLogoUrl(path: string): string {

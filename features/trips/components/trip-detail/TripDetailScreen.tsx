@@ -87,6 +87,7 @@ import {
 } from "@/features/trips/services/lrDocumentOcr.util";
 import { findOrgDuplicateLrNumberForTrip } from "@/features/trips/services/orgLrDuplicate.service";
 import {
+  lrNumberFromStoredDocumentNumber,
   normalizeOrgLrNumber,
   ORG_LR_DUPLICATE_MESSAGE,
 } from "@/features/trips/services/orgLrNumber.util";
@@ -3384,6 +3385,18 @@ export default function TripDetailScreen({
       ledgerEntries,
     }) || awaitingDataLabel;
   const clientNameCard = clientNameForParty.toUpperCase();
+  /**
+   * LR number(s) for the route hero, from the trip's LR documents (typed or E-LR).
+   * Plain computation, not useMemo: this runs after an early return.
+   */
+  const heroLrNumber = [
+    ...new Set(
+      detail.tripDocuments
+        .filter((doc) => doc.document_type === "lr")
+        .map((doc) => lrNumberFromStoredDocumentNumber(doc.document_number))
+        .filter(Boolean),
+    ),
+  ].join(", ");
   const supplierName = supplierNameForParty.toUpperCase();
   const isIntegratedTrip = Boolean(trip.indent_id);
 
@@ -5609,6 +5622,17 @@ export default function TripDetailScreen({
                       </Text>
                       <Text style={neoStyles.heroMetricValue}>
                         {liveTrackingPresentation?.eta.label ?? '—'}
+                      </Text>
+                    </View>
+                    <View style={neoStyles.heroMetricDivider} />
+                    <View style={neoStyles.heroMetric}>
+                      <Text style={neoStyles.heroMetricLabel}>LR No</Text>
+                      <Text
+                        style={neoStyles.heroMetricValue}
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
+                      >
+                        {heroLrNumber || "—"}
                       </Text>
                     </View>
                     <View style={neoStyles.heroMetricDivider} />

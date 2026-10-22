@@ -4,6 +4,7 @@ import {
   indentMatchesHubDateFilter,
   indentMatchesHubSearch,
   mergeIndentSearchHits,
+  mergeIndentsByLatestUpdate,
   tripsHubAllToolbarCountLabel,
 } from "@/features/trips/utils/indentHubToolbarFilter";
 
@@ -117,5 +118,21 @@ describe("tripsHubAllToolbarCountLabel", () => {
         dateFilteredTripCount: 16,
       }),
     ).toBe("Showing 29 of 29");
+  });
+});
+
+describe("mergeIndentsByLatestUpdate", () => {
+  it("keeps older failed indents that the capped list does not have", () => {
+    const old = indent({ id: "old", status: "expired", updated_at: "2026-10-12T17:47:00Z" });
+    const recent = indent({ id: "new", status: "open", updated_at: "2026-10-20T10:00:00Z" });
+    const merged = mergeIndentsByLatestUpdate([old], [recent]);
+    expect(merged.map((i) => i.id).sort()).toEqual(["new", "old"]);
+  });
+
+  it("uses the most recently updated copy of the same indent", () => {
+    const staleFailed = indent({ id: "a", status: "expired", updated_at: "2026-10-12T00:00:00Z" });
+    const reactivated = indent({ id: "a", status: "open", updated_at: "2026-10-21T00:00:00Z" });
+    expect(mergeIndentsByLatestUpdate([staleFailed], [reactivated])).toEqual([reactivated]);
+    expect(mergeIndentsByLatestUpdate([reactivated], [staleFailed])).toEqual([reactivated]);
   });
 });

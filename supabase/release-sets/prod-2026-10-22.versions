@@ -1,0 +1,14 @@
+# Release 2026-10-22 (Vasanthgogox V1.0.1): the one migration prod is missing.
+# Trips hub search across all trips (search_trips_for_org), PR #24 / #25. Additive: one new
+# SECURITY DEFINER function, execute revoked from public/anon and granted to authenticated.
+# Already applied on preprod (xbisiveavvbifbzyfhgy) 2026-10-21.
+#
+# Apply only via: npm run db:push-set -- prod-2026-10-22   (dry-run first; apply needs Vasanth's GO)
+# Never via plain `supabase db push` / `npm run db:push`.
+#
+# Excluded on purpose: nothing else. Prod-only history (pulse_audit_v2_data_detail,
+# populate_public_users_on_signup from pulse-unified-base) is remote-only and untouched.
+#
+# Verify before applying:  npx jest supabase/migrations/__tests__/prodRelease20261022Set.test.ts
+# sha256 8fa57817c717ccd8b5cca8824d63187047a1b37cd3d709d89e68da4c06493e37  20261021094632_trips_hub_search.sql
+20261021094632

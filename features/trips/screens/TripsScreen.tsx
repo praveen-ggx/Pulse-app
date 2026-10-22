@@ -119,6 +119,7 @@ import {
   tripsHubAllToolbarCountLabel,
 } from "@/features/trips/utils/indentHubToolbarFilter";
 import { useTripsIndentCodeSearch } from "@/features/trips/hooks/useTripsIndentCodeSearch";
+import { getIndentDisplayNumber } from "@/features/indents/services/indents.service";
 import type { TripHubPartyMeta } from "@/features/trips/utils/tripHubPartyMeta";
 import {
   getTripHubInTransitPing,
@@ -435,6 +436,16 @@ export default function TripsScreen() {
         : allIndents,
     [allIndents, indentCodeSearchHits, indentCodeSearchQuery],
   );
+  const indentCodesByIndentId = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const i of hubIndents) {
+      const codes = [i.indent_operational_code, i.indent_code, i.indent_number, getIndentDisplayNumber(i)]
+        .map((v) => String(v ?? "").toLowerCase())
+        .join(" ");
+      byId.set(i.id, codes);
+    }
+    return byId;
+  }, [hubIndents]);
   const indentIdsWithTrip = useMemo(
     () => new Set(trips.map((t) => t.indent_id).filter((id): id is string => Boolean(id))),
     [trips],
@@ -1008,11 +1019,14 @@ export default function TripsScreen() {
         const tripRef = `${t.trip_number ?? ""} ${t.display_trip_id ?? ""}`
           .trim()
           .toLowerCase();
+        // Allocated indents have no card of their own, so their codes match the trip.
+        const indentRef = t.indent_id ? indentCodesByIndentId.get(t.indent_id) ?? "" : "";
         return (
           displayName.includes(q) ||
           pickup.includes(q) ||
           drop.includes(q) ||
-          tripRef.includes(q)
+          tripRef.includes(q) ||
+          indentRef.includes(q)
         );
       });
     }
@@ -1052,6 +1066,7 @@ export default function TripsScreen() {
     attributionFilter,
     tripKindPillMetaByTripId,
     searchQuery,
+    indentCodesByIndentId,
     shipperNameByTripId,
     showCompletedList,
     sortBy,
@@ -2767,6 +2782,7 @@ export default function TripsScreen() {
                   tr={tr}
                   searchQuery={searchQuery}
                   onSearchQueryChange={setSearchQuery}
+                  indentSearchTextByIndentId={indentCodesByIndentId}
                   toolbarCountLabel={
                     activeMetricTab === "all" ? allToolbarCountLabel : undefined
                   }
@@ -2830,6 +2846,7 @@ export default function TripsScreen() {
                 tr={tr}
                 searchQuery={searchQuery}
                 onSearchQueryChange={setSearchQuery}
+                indentSearchTextByIndentId={indentCodesByIndentId}
                 toolbarCountLabel={
                   activeMetricTab === "all" ? allToolbarCountLabel : undefined
                 }

@@ -1038,6 +1038,8 @@ export type TripsHubTableViewProps = {
   /** Controlled hub search. When omitted, the table keeps internal search state. */
   searchQuery?: string;
   onSearchQueryChange?: (next: string) => void;
+  /** Lowercased indent codes keyed by indent id, so a trip matches its source indent's code. */
+  indentSearchTextByIndentId?: ReadonlyMap<string, string>;
   dateRangeFilter?:
     | "all"
     | "today"
@@ -1211,6 +1213,7 @@ export function TripsHubTableView({
   toolbarTags,
   searchQuery: searchQueryProp,
   onSearchQueryChange,
+  indentSearchTextByIndentId,
   dateRangeFilter = "all",
   onDateRangeFilterChange,
   onOpenDateRangePicker,
@@ -1290,9 +1293,11 @@ export function TripsHubTableView({
         const route = `${t.pickup_area ?? ""} ${t.drop_location ?? ""}`
           .trim()
           .toLowerCase();
-        const tripNo = getTripDisplayNumber(t, currentOrganizationId).toLowerCase();
+        const tripNo = `${getTripDisplayNumber(t, currentOrganizationId)} ${t.trip_number ?? ""} ${t.display_trip_id ?? ""}`.toLowerCase();
+        const indentRef = t.indent_id ? indentSearchTextByIndentId?.get(t.indent_id) ?? "" : "";
         return (
           tripNo.includes(q) ||
+          indentRef.includes(q) ||
           clientName.includes(q) ||
           supplierName.includes(q) ||
           driverName.includes(q) ||
@@ -1330,6 +1335,7 @@ export function TripsHubTableView({
   }, [
     trips,
     tableQuery,
+    indentSearchTextByIndentId,
     sortKey,
     partyMetaByTripId,
     clientNameByTripId,

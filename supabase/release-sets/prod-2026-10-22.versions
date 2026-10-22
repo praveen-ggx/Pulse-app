@@ -1,7 +1,9 @@
-# Release 2026-10-22 (Vasanthgogox V1.0.1): the one migration prod is missing.
-# Trips hub search across all trips (search_trips_for_org), PR #24 / #25. Additive: one new
-# SECURITY DEFINER function, execute revoked from public/anon and granted to authenticated.
-# Already applied on preprod (xbisiveavvbifbzyfhgy) 2026-10-21.
+# Release 2026-10-22 (Vasanthgogox V1.0.1): the three migrations prod is missing, in apply order.
+# 1. trips_hub_search: search_trips_for_org (PR #24 / #25). Applied on preprod 2026-10-21.
+# 2. ground_ops_trip_document_lock: lock reason function + trip_documents trigger (PR #27).
+# 3. ground_ops_warehouse_indents_read: SELECT-only indents policy + get_indents_delta body (PR #28).
+# All additive: functions, one trigger, one policy; no table or data changes.
+# 2 and 3 rely on compliance_awaiting_resubmit / ground_ops_can_see_trip, already on prod.
 #
 # Apply only via: npm run db:push-set -- prod-2026-10-22   (dry-run first; apply needs Vasanth's GO)
 # Never via plain `supabase db push` / `npm run db:push`.
@@ -12,3 +14,7 @@
 # Verify before applying:  npx jest supabase/migrations/__tests__/prodRelease20261022Set.test.ts
 # sha256 8fa57817c717ccd8b5cca8824d63187047a1b37cd3d709d89e68da4c06493e37  20261021094632_trips_hub_search.sql
 20261021094632
+# sha256 70d0c020d9e83207771bdcd736d585b9a06cefb418ce045e39f116705b81e50c  20261022093720_ground_ops_trip_document_lock.sql
+20261022093720
+# sha256 ec6a0ba517595fec7063d7bad8be28f41d649b50a82eff265578d6536a6eed29  20261022100607_ground_ops_warehouse_indents_read.sql
+20261022100607

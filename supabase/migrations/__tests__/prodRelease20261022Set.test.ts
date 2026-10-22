@@ -5,8 +5,8 @@ import path from "path";
 const migrations = path.join(__dirname, "..");
 const setFile = path.join(migrations, "../release-sets/prod-2026-10-22.versions");
 
-// The one version production is missing for release 2026-10-22.
-const APPROVED = ["20261021094632"];
+// The versions production is missing for release 2026-10-22, in apply order.
+const APPROVED = ["20261021094632", "20261022093720", "20261022100607"];
 
 // Never applied to any database (team workflow), plus the frozen file.
 const EXCLUDED = ["20271005130000", "20271005190000", "20271014184500"];

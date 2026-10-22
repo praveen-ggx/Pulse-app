@@ -97,6 +97,11 @@ import {
   isFinanceDeclinedTrip,
   isResubmittedFinanceReject,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
+import {
+  groundOpsDocumentLockLabel,
+  groundOpsDocumentLockReason,
+  isOwnRecentUpload,
+} from "@/features/tripCompliance/utils/groundOpsDocumentLock.util";
 import { alertMessage, confirmAction } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import {
   COMPLIANCE_DECLINE_REASON_SECTIONS,
@@ -2341,6 +2346,7 @@ export function ComplianceDocumentWorkspace({
   style,
   canManageFinance = false,
   hideCommercials = false,
+  groundOpsDocumentLock = false,
   /** False on Compliance Pending queue chip only — hide Finance tab for every trip in that stage. */
   showFinanceTab = true,
   canManagePod = false,
@@ -2397,6 +2403,8 @@ export function ComplianceDocumentWorkspace({
   canManageFinance?: boolean;
   /** Ground Ops: no rates, profit, supplier bank details or Advance Payment preview. */
   hideCommercials?: boolean;
+  /** Ground Ops: existing trip files lock in transit / after approval (groundOpsDocumentLock.util). */
+  groundOpsDocumentLock?: boolean;
   /**
    * Finance documents tab. Off only while the page filter is Compliance Pending
    * (includes Declined-by-finance trips that still have verified_at).
@@ -5029,7 +5037,22 @@ export function ComplianceDocumentWorkspace({
         );
         const files: ComplianceDocTypeFile[] = fileRows.map((row, index) => {
           const isTripFile = Boolean(row.doc);
-          const approved = row.status === "verified" || verifiedLock;
+          const groundOpsLock =
+            groundOpsDocumentLock && summary && isTripFile
+              ? groundOpsDocumentLockReason({
+                  trip: {
+                    status: summary.trip.status,
+                    compliance_verified_at: summary.complianceVerifiedAt,
+                    compliance_declined_at: summary.complianceDeclinedAt,
+                    compliance_resubmitted_at: summary.complianceResubmittedAt ?? null,
+                    finance_verified_at: summary.financeVerifiedAt ?? null,
+                  },
+                  documentStatus: row.doc?.status,
+                  advancePosted: Boolean(summary.advance || summary.advanceBeforeVerification),
+                  ownRecentUpload: isOwnRecentUpload(row.doc, actorId),
+                })
+              : null;
+          const approved = row.status === "verified" || verifiedLock || groundOpsLock != null;
           return {
             key: row.key,
             label: fileRows.length > 1 ? `${label} · ${index + 1}` : label,
@@ -5045,11 +5068,36 @@ export function ComplianceDocumentWorkspace({
               approved && isTripFile && canUploadHere
                 ? row.status === "verified"
                   ? "Approved files are locked"
-                  : "Locked after the trip is verified"
+                  : groundOpsLock
+                    ? groundOpsDocumentLockLabel(groundOpsLock)
+                    : "Locked after the trip is verified"
                 : null,
           };
         });
         const addRow = typeRows[0];
+        // Ground Ops may not add a second file over a locked type either; a rejected
+        // file or a trip back for resubmit reopens it (groundOpsDocumentLock.util).
+        // Same as the database: only a file that is neither rejected nor this
+        // user's own recent upload blocks adding another of the type.
+        const blockingTypeFiles = fileRows.filter(
+          (row) =>
+            row.doc &&
+            row.doc.status !== "rejected" &&
+            !isOwnRecentUpload(row.doc, actorId),
+        );
+        const typeLock =
+          groundOpsDocumentLock && summary && blockingTypeFiles.length > 0
+            ? groundOpsDocumentLockReason({
+                trip: {
+                  status: summary.trip.status,
+                  compliance_verified_at: summary.complianceVerifiedAt,
+                  compliance_declined_at: summary.complianceDeclinedAt,
+                  compliance_resubmitted_at: summary.complianceResubmittedAt ?? null,
+                  finance_verified_at: summary.financeVerifiedAt ?? null,
+                },
+                advancePosted: Boolean(summary.advance || summary.advanceBeforeVerification),
+              })
+            : null;
         return (
           <ComplianceDocTypeFilesModal
             visible
@@ -5057,11 +5105,13 @@ export function ComplianceDocumentWorkspace({
             files={files}
             busyKey={fileActionKey}
             adding={Boolean(addRow && uploadingFinanceType === addRow.key)}
-            canAdd={canUploadHere && Boolean(addRow)}
+            canAdd={canUploadHere && Boolean(addRow) && !typeLock}
             footnote={
-              fileRows.some((row) => !row.doc)
-                ? "Vehicle and driver files are shared with other trips. Replace or remove them from the vehicle or driver profile."
-                : null
+              typeLock
+                ? groundOpsDocumentLockLabel(typeLock)
+                : fileRows.some((row) => !row.doc)
+                  ? "Vehicle and driver files are shared with other trips. Replace or remove them from the vehicle or driver profile."
+                  : null
             }
             onPreview={(key) => {
               const row = fileRows.find((item) => item.key === key);

@@ -466,7 +466,9 @@ export async function syncIndentsWithCache(orgId: string, currentRows: IndentRow
       // v3 discards cursors written before the truncation guard below — those
       // may already point past rows the client never merged, so they cannot be
       // trusted even though the row shape is unchanged.
-      schemaVersion: "3",
+      // v4: Ground Ops now receive their warehouses' indents (they got none
+      // before), so cursors stored while they saw nothing must be dropped.
+      schemaVersion: "4",
       // Was fullSyncEveryMs: 4h — a cursor that had drifted stayed authoritative
       // for a whole shift, so a user could create an indent and simply not see it.
       // 15m bounds the worst case; the count reconciliation below catches it sooner.

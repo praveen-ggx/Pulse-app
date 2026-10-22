@@ -6,7 +6,6 @@ import { createStyles, text, view } from "@/lib/styles/createStyles";
 import { Platform, StyleSheet } from "react-native";
 
 import { FinanceTxnTypography } from "@/constants/FinanceTxnTypography";
-import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 
 const WEB_COPY = Platform.select({

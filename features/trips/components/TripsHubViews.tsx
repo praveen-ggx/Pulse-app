@@ -462,6 +462,8 @@ export type TripsHubTripCardProps = {
   elrLabel?: string | null;
   canEditLr?: boolean;
   onPressLr?: (tripId: string) => void;
+  /** Last trip the viewer opened. */
+  highlighted?: boolean;
 };
 
 function tripsHubTripCardAreEqual(
@@ -482,6 +484,7 @@ function tripsHubTripCardAreEqual(
   if (prev.lrLabel !== next.lrLabel) return false;
   if (prev.elrLabel !== next.elrLabel) return false;
   if (prev.canEditLr !== next.canEditLr) return false;
+  if (prev.highlighted !== next.highlighted) return false;
   if (prev.trip.pod_received_at !== next.trip.pod_received_at) return false;
   if (prev.financeAdjustments !== next.financeAdjustments) return false;
   if (prev.ledgerReceivedTotal !== next.ledgerReceivedTotal) return false;
@@ -567,6 +570,7 @@ function TripsHubTripCardInner({
   elrLabel = null,
   canEditLr = false,
   onPressLr,
+  highlighted = false,
 }: TripsHubTripCardProps) {
   const [fleetHovered, setFleetHovered] = useState(false);
   const handlePress = useCallback(() => {
@@ -699,6 +703,7 @@ function TripsHubTripCardInner({
     elrLabel,
     canEditLr,
     onPressLr: onPressLr ? () => onPressLr(trip.id) : undefined,
+    highlighted,
   };
 
   if (hubGrid) {
@@ -738,6 +743,7 @@ function TripsHubTripCardInner({
         styles.fleetCardOuter,
         WEB_TRANSITION,
         WEB_POINTER,
+        highlighted && { borderWidth: 2, borderColor: Theme.primary, borderRadius: 16 },
         rowWebStyle,
       ]}
       onHoverIn={() => setFleetHovered(true)}
@@ -1111,9 +1117,15 @@ export type TripsHubTableViewProps = {
     /** Reason chips expand under Failed and use the failed tone. */
     kind?: "status" | "reason";
   }>;
-  /** Controlled hub search. When omitted, the table keeps internal search state. */
+  /**
+   * Controlled hub search. When set, the parent has already filtered `trips` by it
+   * (including server-side matches), so the table does not filter again.
+   * When omitted, the table keeps internal search state and filters itself.
+   */
   searchQuery?: string;
   onSearchQueryChange?: (next: string) => void;
+  /** Lowercased indent codes keyed by indent id, so a trip matches its source indent's code. */
+  indentSearchTextByIndentId?: ReadonlyMap<string, string>;
   dateRangeFilter?:
     | "all"
     | "today"
@@ -1155,6 +1167,8 @@ export type TripsHubTableViewProps = {
   hardPodTripIds?: Set<string>;
   /** Most critical e-way label per trip id. Omit on lists that are not trips. */
   ewayExpiryByTripId?: Record<string, string>;
+  /** LR numbers per lowercased trip id — hub search. */
+  lrNumbersByTripId?: Record<string, string>;
 };
 
 function txnAmount(row: LedgerRow): number {
@@ -1287,6 +1301,7 @@ export function TripsHubTableView({
   toolbarTags,
   searchQuery: searchQueryProp,
   onSearchQueryChange,
+  indentSearchTextByIndentId,
   dateRangeFilter = "all",
   onDateRangeFilterChange,
   onOpenDateRangePicker,
@@ -1298,6 +1313,7 @@ export function TripsHubTableView({
   softPodTripIds,
   hardPodTripIds,
   ewayExpiryByTripId,
+  lrNumbersByTripId,
 }: TripsHubTableViewProps) {
   const insets = useSafeAreaInsets();
   const { width: layoutWidth } = useWindowDimensions();
@@ -1350,7 +1366,7 @@ export function TripsHubTableView({
   const displayedTrips = useMemo(() => {
     const q = tableQuery.trim().toLowerCase();
     let rows = trips;
-    if (q) {
+    if (q && searchQueryProp === undefined) {
       rows = rows.filter((t) => {
         const meta = partyMetaByTripId?.get(t.id);
         const clientName = (clientNameByTripId?.[t.id] ?? (t.organization_id !== currentOrganizationId ? "" : t.client_name ?? ""))
@@ -1367,9 +1383,18 @@ export function TripsHubTableView({
         const route = `${t.pickup_area ?? ""} ${t.drop_location ?? ""}`
           .trim()
           .toLowerCase();
-        const tripNo = getTripDisplayNumber(t, currentOrganizationId).toLowerCase();
+        const tripNo = `${getTripDisplayNumber(t, currentOrganizationId)} ${t.trip_number ?? ""} ${t.display_trip_id ?? ""}`.toLowerCase();
+        const indentRef = t.indent_id ? indentSearchTextByIndentId?.get(t.indent_id) ?? "" : "";
+        const vehicleNo = (t.vehicle_display_number ?? "").toLowerCase().replace(/\s+/g, "");
+        const lrNos = (
+          lrNumbersByTripId?.[t.id.trim().toLowerCase()] ?? ""
+        ).toLowerCase();
+        const qCompact = q.replace(/\s+/g, "");
         return (
           tripNo.includes(q) ||
+          indentRef.includes(q) ||
+          (qCompact.length > 0 && vehicleNo.includes(qCompact)) ||
+          lrNos.includes(q) ||
           clientName.includes(q) ||
           supplierName.includes(q) ||
           driverName.includes(q) ||
@@ -1407,6 +1432,8 @@ export function TripsHubTableView({
   }, [
     trips,
     tableQuery,
+    indentSearchTextByIndentId,
+    searchQueryProp,
     sortKey,
     partyMetaByTripId,
     clientNameByTripId,
@@ -1414,6 +1441,7 @@ export function TripsHubTableView({
     financeAdjustmentsByTripId,
     ewayExpiryByTripId,
     ewayStatusFilter,
+    lrNumbersByTripId,
   ]);
 
   const rowsForTableBody = useMemo(() => {
@@ -1816,7 +1844,7 @@ export function TripsHubTableView({
       <TextInput
         value={tableQuery}
         onChangeText={setTableQuery}
-        placeholder="Search trip / client / supplier"
+        placeholder="Search trip / LR / vehicle / client / driver"
         placeholderTextColor="#94a3b8"
         autoCapitalize="none"
         style={styles.auditSearchInput}
@@ -1964,7 +1992,7 @@ export function TripsHubTableView({
                     <TextInput
                       value={tableQuery}
                       onChangeText={setTableQuery}
-                      placeholder="Search trip / client / supplier"
+                      placeholder="Search trip / LR / vehicle / client / driver"
                       placeholderTextColor={Theme.textMuted}
                       autoCapitalize="none"
                       style={styles.auditSearchInputStandard}

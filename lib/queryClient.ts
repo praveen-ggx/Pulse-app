@@ -10,6 +10,7 @@
  */
 import { QueryClient, QueryCache, MutationCache } from '@tanstack/react-query';
 import type { QueryCacheNotifyEvent } from '@tanstack/react-query';
+import { CACHE_OWNER_QUERY_KEY } from '@/lib/cache/cacheOwner';
 import { isWithinAppQueryBootQuietPeriod } from '@/lib/hooks/appQueryGateState';
 import { logger } from '@/lib/logger';
 import {
@@ -304,6 +305,8 @@ export function makeQueryClient() {
       },
     },
   });
+  // The owner tag has no observers; it must outlive gcTime to be persisted.
+  client.setQueryDefaults(CACHE_OWNER_QUERY_KEY, { gcTime: Infinity, staleTime: Infinity });
   attachPlatformCacheMetrics(client);
   attachDevObserver(client);
   return client;

@@ -1484,7 +1484,7 @@ export function LoadCenterView({
           organizationImageUrl={avatar.organizationImageUrl}
           organizationAvatarSeed={avatar.organizationAvatarSeed}
           initialsColorSeed={avatar.initialsColorSeed}
-          isIntegrated={avatar.isIntegrated}
+          isIntegrated={"isIntegrated" in avatar ? avatar.isIntegrated : undefined}
           tripAllocation={tripAllocationForLoad(load.id)}
           onPress={() =>
             isDone ? handleCardIndentPress(load) : openIndentAllocation(load)
@@ -1670,7 +1670,7 @@ export function LoadCenterView({
           organizationImageUrl={avatar.organizationImageUrl}
           organizationAvatarSeed={avatar.organizationAvatarSeed}
           initialsColorSeed={avatar.initialsColorSeed}
-          isIntegrated={avatar.isIntegrated}
+          isIntegrated={"isIntegrated" in avatar ? avatar.isIntegrated : undefined}
           avatarPartyName={avatar.partyName}
           clientFaces={clientFaces.length > 1 ? clientFaces : null}
           tripAllocation={tripAllocationForLoad(load.id)}
@@ -1930,7 +1930,7 @@ export function LoadCenterView({
           organizationImageUrl={avatar.organizationImageUrl}
           organizationAvatarSeed={avatar.organizationAvatarSeed}
           initialsColorSeed={avatar.initialsColorSeed}
-          isIntegrated={avatar.isIntegrated}
+          isIntegrated={"isIntegrated" in avatar ? avatar.isIntegrated : undefined}
           tripAllocation={tripAllocationForLoad(load.id)}
           onPress={openLoad}
           dense={layout.dense}
@@ -2084,7 +2084,7 @@ export function LoadCenterView({
           organizationImageUrl={avatar.organizationImageUrl}
           organizationAvatarSeed={avatar.organizationAvatarSeed}
           initialsColorSeed={avatar.initialsColorSeed}
-          isIntegrated={avatar.isIntegrated}
+          isIntegrated={"isIntegrated" in avatar ? avatar.isIntegrated : undefined}
           tripAllocation={tripAllocationForLoad(load.id)}
           onPress={() => handleCardIndentPress(load)}
           dense

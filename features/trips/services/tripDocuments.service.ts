@@ -33,7 +33,7 @@ const BUCKET = "trip-documents";
 const VEHICLE_DOCUMENT_REF_PREFIX = "ref:vehicle-document:";
 
 const TRIP_DOCUMENTS_SELECT =
-  "id, trip_id, file_name, storage_path, mime_type, size_bytes, uploaded_at, uploaded_by, document_type, document_number, ocr_job_id";
+  "id, trip_id, file_name, storage_path, mime_type, size_bytes, uploaded_at, uploaded_by, document_type, document_number, ocr_job_id, status";
 const TRIP_DOCUMENTS_SELECT_WITH_SOURCE = `${TRIP_DOCUMENTS_SELECT}, source_entity_document_id`;
 
 function isVehicleDocumentReferenceStoragePath(storagePath: string | null | undefined): boolean {
@@ -141,6 +141,8 @@ export interface TripDocumentRow {
   document_number?: string | null;
   /** Printed LR date from OCR (client-enriched; not a dedicated column). */
   document_date?: string | null;
+  /** Compliance review state: pending / verified / rejected. */
+  status?: string | null;
   /**
    * Exact `entity_documents.id` when this row is reused workspace-vehicle
    * evidence. Null for a normal trip-documents upload. Authoritative pin —
@@ -824,22 +826,26 @@ export async function uploadTripChatImage(
  * Synthetic IDs from storage fallback list still delete by storage_path only.
  */
 export async function deleteTripDocument(doc: TripDocumentRow): Promise<{ error: Error | null }> {
-  const { error: storageErr } = await supabase().storage.from(BUCKET).remove([doc.storage_path]);
-
+  // Row first: when the database refuses (approved / locked document), the file
+  // must stay, or the row would point at a file that no longer exists.
   const synthetic = doc.id.startsWith("storage-") || doc.id.startsWith("storage-meta-");
   if (!synthetic) {
-    const { error: dbErr } = await supabase().from("trip_documents").delete().eq("id", doc.id);
-    if (dbErr) {
-      // REST 404 / PGRST205: relation missing from API — storage remove still clears the file.
-      if (!storageErr && isTripDocumentsRestEndpointMissing(dbErr)) {
-        tripDocSignedUrls.invalidate(doc.storage_path);
-        return { error: null };
-      }
-      if (storageErr) return { error: new Error(storageErr.message) };
+    const { data: deleted, error: dbErr } = await supabase()
+      .from("trip_documents")
+      .delete()
+      .eq("id", doc.id)
+      .select("id");
+    // REST 404 / PGRST205: relation missing from API — the storage remove below still clears the file.
+    if (dbErr && !isTripDocumentsRestEndpointMissing(dbErr)) {
       return { error: new Error(dbErr.message) };
+    }
+    // Row access rules skip a delete silently (no error, no row): keep the file.
+    if (!dbErr && (deleted ?? []).length === 0) {
+      return { error: new Error("This document could not be deleted. Refresh and try again.") };
     }
   }
 
+  const { error: storageErr } = await supabase().storage.from(BUCKET).remove([doc.storage_path]);
   if (storageErr) {
     return { error: new Error(storageErr.message) };
   }

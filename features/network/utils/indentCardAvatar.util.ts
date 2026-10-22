@@ -1,6 +1,6 @@
 import type { ClientRow } from "@/features/clients/services/clients.service";
 import type { IndentRow } from "@/features/indents";
-import { pickPartyOrganizationImageUrl } from "@/lib/partyAvatarDisplay";
+import { pickPartyOrganizationImageUrl } from "@/lib/media/partyOrganizationImage.util";
 import type { LinkedOrgDisplay } from "@/lib/useLinkedOrgProfileMap";
 
 export type IndentCardAvatarProps = {

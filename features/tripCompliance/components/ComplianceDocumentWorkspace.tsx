@@ -97,6 +97,11 @@ import {
   isFinanceDeclinedTrip,
   isResubmittedFinanceReject,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
+import {
+  groundOpsDocumentLockLabel,
+  groundOpsDocumentLockReason,
+  isOwnRecentUpload,
+} from "@/features/tripCompliance/utils/groundOpsDocumentLock.util";
 import { alertMessage, confirmAction } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import {
   COMPLIANCE_DECLINE_REASON_SECTIONS,
@@ -2340,6 +2345,8 @@ export function ComplianceDocumentWorkspace({
   stacked = false,
   style,
   canManageFinance = false,
+  hideCommercials = false,
+  groundOpsDocumentLock = false,
   /** False on Compliance Pending queue chip only — hide Finance tab for every trip in that stage. */
   showFinanceTab = true,
   canManagePod = false,
@@ -2394,6 +2401,10 @@ export function ComplianceDocumentWorkspace({
   stacked?: boolean;
   style?: StyleProp<ViewStyle>;
   canManageFinance?: boolean;
+  /** Ground Ops: no rates, profit, supplier bank details or Advance Payment preview. */
+  hideCommercials?: boolean;
+  /** Ground Ops: existing trip files lock in transit / after approval (groundOpsDocumentLock.util). */
+  groundOpsDocumentLock?: boolean;
   /**
    * Finance documents tab. Off only while the page filter is Compliance Pending
    * (includes Declined-by-finance trips that still have verified_at).
@@ -2662,7 +2673,7 @@ export function ComplianceDocumentWorkspace({
     let cancelled = false;
     const orgId = (summary?.trip.organization_id ?? organizationId ?? "").trim();
     const supplierId = (summary?.trip.supplier_id ?? "").trim();
-    if (!summary || !orgId || !supplierId) {
+    if (!summary || !orgId || !supplierId || hideCommercials) {
       setSupplierBankProof(null);
       setSupplierBankLoading(false);
       return;
@@ -2704,13 +2715,14 @@ export function ComplianceDocumentWorkspace({
     summary,
     checklistPreviewMode,
     supplierBankRevision,
+    hideCommercials,
   ]);
 
   const financeRows = useMemo(() => {
     if (!summary) return [];
-    const base = deriveFinanceDocumentRows(summary.documents);
-    return mergeFinanceBankDocsFromSupplier(base, supplierBankProof);
-  }, [summary, supplierBankProof]);
+    const base = financeRowsFor(summary, hideCommercials);
+    return hideCommercials ? base : mergeFinanceBankDocsFromSupplier(base, supplierBankProof);
+  }, [summary, supplierBankProof, hideCommercials]);
   const isFinanceMode =
     showFinanceTab &&
     financeList &&
@@ -3727,7 +3739,7 @@ export function ComplianceDocumentWorkspace({
   );
   const tabMissingCounts = useMemo(() => {
     if (!summary) return { all: 0, trip: 0, vehicle: 0, driver: 0, finance: 0 };
-    const finance = deriveFinanceDocumentRows(summary.documents);
+    const finance = financeRowsFor(summary, hideCommercials);
     const trip = deriveTripVaultReviewRows(summary.documents).filter((row) => row.status === "missing").length;
     const vehicle = summary.trip.vehicle_id
       ? deriveEntityComplianceRows(COMPLIANCE_VEHICLE_DOCUMENT_TYPES, summary.vehicleDocuments).filter(
@@ -3747,7 +3759,7 @@ export function ComplianceDocumentWorkspace({
       driver,
       finance: financeMissing,
     };
-  }, [summary]);
+  }, [summary, hideCommercials]);
 
   const renderChecklistRow = (row: ComplianceDocRow, index: number) => {
     const displayRow = applyOptimisticDecision(row, localDecisionByKey[optimisticKey(reviewScope, row.key)]);
@@ -4426,7 +4438,7 @@ export function ComplianceDocumentWorkspace({
                             Trip Detail
                           </Text>
                         </Pressable>
-                        {showFinanceTab && !compliancePendingView ? (
+                        {showFinanceTab && !compliancePendingView && !hideCommercials ? (
                           <Pressable
                             style={(state: HoverPressState) => {
                               const active = checklistPreviewMode === "advance";
@@ -4741,9 +4753,10 @@ export function ComplianceDocumentWorkspace({
                         }
                         supplierName={supplierNameByTripId[summary.trip.id] ?? null}
                         onOpenDocumentUpload={openDocumentUploadFromDetails}
+                        hideCommercials={hideCommercials}
                       />
                     </ScrollView>
-                  ) : checklistPreviewMode === "advance" && summary && !compliancePendingView ? (
+                  ) : checklistPreviewMode === "advance" && summary && !compliancePendingView && !hideCommercials ? (
                     <ChecklistAdvancePaymentPanel
                       summary={summary}
                       supplierName={supplierNameByTripId[summary.trip.id] ?? null}
@@ -5024,7 +5037,22 @@ export function ComplianceDocumentWorkspace({
         );
         const files: ComplianceDocTypeFile[] = fileRows.map((row, index) => {
           const isTripFile = Boolean(row.doc);
-          const approved = row.status === "verified" || verifiedLock;
+          const groundOpsLock =
+            groundOpsDocumentLock && summary && isTripFile
+              ? groundOpsDocumentLockReason({
+                  trip: {
+                    status: summary.trip.status,
+                    compliance_verified_at: summary.complianceVerifiedAt,
+                    compliance_declined_at: summary.complianceDeclinedAt,
+                    compliance_resubmitted_at: summary.complianceResubmittedAt ?? null,
+                    finance_verified_at: summary.financeVerifiedAt ?? null,
+                  },
+                  documentStatus: row.doc?.status,
+                  advancePosted: Boolean(summary.advance || summary.advanceBeforeVerification),
+                  ownRecentUpload: isOwnRecentUpload(row.doc, actorId),
+                })
+              : null;
+          const approved = row.status === "verified" || verifiedLock || groundOpsLock != null;
           return {
             key: row.key,
             label: fileRows.length > 1 ? `${label} · ${index + 1}` : label,
@@ -5040,11 +5068,36 @@ export function ComplianceDocumentWorkspace({
               approved && isTripFile && canUploadHere
                 ? row.status === "verified"
                   ? "Approved files are locked"
-                  : "Locked after the trip is verified"
+                  : groundOpsLock
+                    ? groundOpsDocumentLockLabel(groundOpsLock)
+                    : "Locked after the trip is verified"
                 : null,
           };
         });
         const addRow = typeRows[0];
+        // Ground Ops may not add a second file over a locked type either; a rejected
+        // file or a trip back for resubmit reopens it (groundOpsDocumentLock.util).
+        // Same as the database: only a file that is neither rejected nor this
+        // user's own recent upload blocks adding another of the type.
+        const blockingTypeFiles = fileRows.filter(
+          (row) =>
+            row.doc &&
+            row.doc.status !== "rejected" &&
+            !isOwnRecentUpload(row.doc, actorId),
+        );
+        const typeLock =
+          groundOpsDocumentLock && summary && blockingTypeFiles.length > 0
+            ? groundOpsDocumentLockReason({
+                trip: {
+                  status: summary.trip.status,
+                  compliance_verified_at: summary.complianceVerifiedAt,
+                  compliance_declined_at: summary.complianceDeclinedAt,
+                  compliance_resubmitted_at: summary.complianceResubmittedAt ?? null,
+                  finance_verified_at: summary.financeVerifiedAt ?? null,
+                },
+                advancePosted: Boolean(summary.advance || summary.advanceBeforeVerification),
+              })
+            : null;
         return (
           <ComplianceDocTypeFilesModal
             visible
@@ -5052,11 +5105,13 @@ export function ComplianceDocumentWorkspace({
             files={files}
             busyKey={fileActionKey}
             adding={Boolean(addRow && uploadingFinanceType === addRow.key)}
-            canAdd={canUploadHere && Boolean(addRow)}
+            canAdd={canUploadHere && Boolean(addRow) && !typeLock}
             footnote={
-              fileRows.some((row) => !row.doc)
-                ? "Vehicle and driver files are shared with other trips. Replace or remove them from the vehicle or driver profile."
-                : null
+              typeLock
+                ? groundOpsDocumentLockLabel(typeLock)
+                : fileRows.some((row) => !row.doc)
+                  ? "Vehicle and driver files are shared with other trips. Replace or remove them from the vehicle or driver profile."
+                  : null
             }
             onPreview={(key) => {
               const row = fileRows.find((item) => item.key === key);
@@ -5442,7 +5497,13 @@ type TripDocOverview = {
   acceptedGroups: TripDocGroup[];
 };
 
-function tripDocumentGroups(summary: ComplianceTripSummary): Array<{
+/** Finance document rows; Ground Ops (hideCommercials) never see the supplier's Bank Docs. */
+function financeRowsFor(summary: ComplianceTripSummary, hideCommercials: boolean): ComplianceDocRow[] {
+  const rows = deriveFinanceDocumentRows(summary.documents);
+  return hideCommercials ? rows.filter((row) => row.type !== "bank_docs") : rows;
+}
+
+function tripDocumentGroups(summary: ComplianceTripSummary, hideCommercials = false): Array<{
   label: string;
   rows: ComplianceDocRow[];
   finance?: boolean;
@@ -5450,7 +5511,7 @@ function tripDocumentGroups(summary: ComplianceTripSummary): Array<{
   const groups: Array<{ label: string; rows: ComplianceDocRow[]; finance?: boolean }> = [
     {
       label: "Finance",
-      rows: deriveFinanceDocumentRows(summary.documents),
+      rows: financeRowsFor(summary, hideCommercials),
       finance: true,
     },
     { label: "Trip", rows: deriveTripVaultReviewRows(summary.documents) },
@@ -5476,7 +5537,7 @@ function tripDocumentGroups(summary: ComplianceTripSummary): Array<{
   return groups;
 }
 
-function tripDocumentOverview(summary: ComplianceTripSummary): TripDocOverview {
+function tripDocumentOverview(summary: ComplianceTripSummary, hideCommercials = false): TripDocOverview {
   const missingItems: TripMissingDocItem[] = [];
   const missingGroups: TripDocGroup[] = [];
   const pendingGroups: TripDocGroup[] = [];
@@ -5485,7 +5546,7 @@ function tripDocumentOverview(summary: ComplianceTripSummary): TripDocOverview {
   let pending = 0;
   let accepted = 0;
   let total = 0;
-  for (const group of tripDocumentGroups(summary)) {
+  for (const group of tripDocumentGroups(summary, hideCommercials)) {
     total += group.rows.length;
     const missingInGroup: TripMissingDocItem[] = [];
     const pendingInGroup: TripMissingDocItem[] = [];
@@ -5544,11 +5605,14 @@ function ChecklistTripDetailsPanel({
   truckType,
   supplierName,
   onOpenDocumentUpload,
+  hideCommercials = false,
 }: {
   summary: ComplianceTripSummary;
   truckType: string | null;
   supplierName: string | null;
   onOpenDocumentUpload?: (target: { vault: string; type?: string }) => void;
+  /** Ground Ops: drop the Rates and Banking cards (and never fetch the supplier bank account). */
+  hideCommercials?: boolean;
 }) {
   const trip = summary.trip;
   const commercial = trip as typeof trip & TripCommercialFacts;
@@ -5593,7 +5657,7 @@ function ChecklistTripDetailsPanel({
     let cancelled = false;
     const orgId = (trip.organization_id ?? "").trim();
     const supplierId = (trip.supplier_id ?? "").trim();
-    if (!orgId || !supplierId) {
+    if (!orgId || !supplierId || hideCommercials) {
       setBankDetails(null);
       return;
     }
@@ -5628,7 +5692,7 @@ function ChecklistTripDetailsPanel({
     return () => {
       cancelled = true;
     };
-  }, [trip.organization_id, trip.supplier_id, supplierLabel, payeeDetails, bankRevision]);
+  }, [trip.organization_id, trip.supplier_id, supplierLabel, payeeDetails, bankRevision, hideCommercials]);
 
   const tripId = getTripDisplayNumber(trip, trip.organization_id ?? null);
   const beneficiary = bankDetails?.beneficiaryName ?? "—";
@@ -5638,7 +5702,7 @@ function ChecklistTripDetailsPanel({
   const accountNumber = bankDetails?.accountNumber ?? "—";
   const ifsc = bankDetails?.ifsc ?? "—";
   const branch = bankDetails?.branchName ?? "—";
-  const docOverview = tripDocumentOverview(summary);
+  const docOverview = tripDocumentOverview(summary, hideCommercials);
   const requiredStillMissing = docOverview.missingGroups.some((group) =>
     group.items.some((item) => item.required),
   );
@@ -5722,6 +5786,7 @@ function ChecklistTripDetailsPanel({
         </TripDetailSection>
       </View>
 
+      {hideCommercials ? null : (
       <View style={[styles.tripDetailPairRow, !pairCards && styles.tripDetailPairRowStack]}>
         <TripDetailSection
           title="Rates"
@@ -5756,6 +5821,7 @@ function ChecklistTripDetailsPanel({
           <TripDetailFact label="Branch" value={branch} />
         </TripDetailSection>
       </View>
+      )}
 
       <View style={styles.tripDetailInsightCard}>
         <View style={styles.tripDetailSectionHeader}>

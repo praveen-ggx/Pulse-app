@@ -50,7 +50,9 @@ import {
     isLinkedOrgDisplayQueryKey,
     purgeLinkedOrgDisplayQueries,
 } from '@/lib/queries/linkedOrgDisplayCache';
-import { makeQueryClient } from '@/lib/queryClient';
+import { useQueryCacheOwner } from '@/lib/cache/cacheOwner';
+import { getQueryClient } from '@/lib/queryClient';
+import { isNonPersistedTripsQueryKey } from '@/lib/queryKeys';
 import {
     installForegroundPruning,
     installRealtimeDiagnosticsGlobalHook,
@@ -328,7 +330,9 @@ export default function RootLayout() {
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
     ...FontAwesome.font,
   });
-  const queryClient = useMemo(() => makeQueryClient(), []);
+  // Same instance as getQueryClient(): OrganizationContext's org-switch eviction
+  // calls getQueryClient(), which used to build a second, unused client.
+  const queryClient = useMemo(() => getQueryClient(), []);
   const persister = useMemo(
     () =>
       createAsyncStoragePersister({
@@ -424,6 +428,8 @@ export default function RootLayout() {
                   // Linked-org display is workspace-scoped; a persisted map can
                   // hydrate before org resolution and leak across sessions.
                   if (isLinkedOrgDisplayQueryKey(query.queryKey)) return false;
+                  // Hub search hits, driver phones, export lookups: large / personal.
+                  if (isNonPersistedTripsQueryKey(query.queryKey)) return false;
                   return true;
                 },
               },
@@ -500,16 +506,19 @@ function PublicAuthTree() {
  * is not enough.
  */
 function AppSessionTree() {
-  const { status, sessionAttached } = useAuth();
+  const { status, sessionAttached, user } = useAuth();
   const pathname = usePathname();
   const publicRoute = isPublicAuthRoute(pathname);
+  const userId = user?.uid ?? null;
+  // Wipe a previous user's persisted cache before any data screen mounts.
+  const cacheOwnedByUser = useQueryCacheOwner(userId, userId !== null || status !== 'restoring');
 
   useEffect(() => {
     if (sessionAttached) return;
     void safeHideSplashAsync().catch(() => {});
   }, [sessionAttached]);
 
-  if (shouldMountAuthenticatedDataPlane(sessionAttached)) {
+  if (shouldMountAuthenticatedDataPlane(sessionAttached) && cacheOwnedByUser) {
     return <AuthenticatedDataPlane />;
   }
 

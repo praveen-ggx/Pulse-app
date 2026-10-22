@@ -74,6 +74,18 @@ export const queryKeys = {
     /** Hub list: vault LR numbers, keyed by lowercased trip id. */
     hubLrLabels: (orgId: string, tripIdsKey: string) =>
       ["q", "trips", "hub", orgId, "lr-labels", tripIdsKey] as const,
+    /** Hub server search: older trips beyond the newest 400. Not persisted. */
+    hubSearch: (orgId: string, needle: string) =>
+      ["q", "trips", orgId, "hub-search", needle.toLowerCase()] as const,
+    /** LR / e-way numbers for a trip set (`tripIdsHashKey`). Not persisted. */
+    hubDocNumbers: (orgId: string, tripIdsKey: string) =>
+      ["q", "trips", "search-doc-numbers", orgId, tripIdsKey] as const,
+    /** Driver phone per trip for a trip set (`tripIdsHashKey`). Not persisted. */
+    hubDriverPhones: (orgId: string, tripIdsKey: string) =>
+      ["q", "trips", "search-driver-phones", orgId, tripIdsKey] as const,
+    /** Trip Ops export: stage times for a trip set (`tripIdsHashKey`). Not persisted. */
+    opsExportStatusTimes: (orgId: string, tripIdsKey: string) =>
+      ["q", "trips", "ops-export-status-times", orgId, tripIdsKey] as const,
   },
 
   transactions: {
@@ -174,6 +186,8 @@ export const queryKeys = {
   indents: {
     all: (orgId: string) => ["q", "indents", orgId] as const,
     finite: (orgId: string) => ["q", "indents", orgId, "finite"] as const,
+    /** Cancelled / expired only (Trips hub Failed tag), not capped by the finite list. */
+    failed: (orgId: string) => ["q", "indents", orgId, "failed"] as const,
     infinite: (orgId: string, pageSize: number) =>
       ["q", "indents", orgId, "infinite", pageSize] as const,
     list: (orgId: string, opts?: { limit?: number; offset?: number }) =>
@@ -669,3 +683,44 @@ export const queryKeys = {
       ["q", "tripCompliance", "listFacts", "v1", orgId, signature] as const,
   },
 } as const;
+
+/**
+ * Short stable key for a set of trip ids (order and duplicates ignored), so
+ * query keys don't carry hundreds of uuids. Count + two 32-bit FNV-1a hashes.
+ */
+export function tripIdsHashKey(ids: readonly string[]): string {
+  const sorted = Array.from(
+    new Set(ids.map((id) => id.trim().toLowerCase()).filter(Boolean)),
+  ).sort();
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  for (const id of sorted) {
+    for (let i = 0; i <= id.length; i += 1) {
+      // Hash a separator after each id so ["ab","c"] and ["a","bc"] differ.
+      const c = i < id.length ? id.charCodeAt(i) : 44;
+      h1 = Math.imul(h1 ^ c, 0x01000193);
+      h2 = Math.imul(h2 ^ c, 0x5bd1e995);
+    }
+  }
+  return `${sorted.length}-${(h1 >>> 0).toString(36)}${(h2 >>> 0).toString(36)}`;
+}
+
+/** Segment at index 2 of `["q", "trips", <segment>, orgId, idsKey]`. */
+const NON_PERSISTED_TRIPS_SEGMENTS = new Set([
+  "search-doc-numbers",
+  "search-driver-phones",
+  "ops-export-status-times",
+]);
+
+/**
+ * Hub search results, driver phone numbers and export lookups: large or
+ * personal, and only useful for the current screen. Kept out of the persisted cache.
+ */
+export function isNonPersistedTripsQueryKey(queryKey: readonly unknown[]): boolean {
+  if (queryKey[0] !== "q" || queryKey[1] !== "trips") return false;
+  // hubSearch is `["q", "trips", orgId, "hub-search", needle]`.
+  return (
+    NON_PERSISTED_TRIPS_SEGMENTS.has(String(queryKey[2])) ||
+    (queryKey.length === 5 && queryKey[3] === "hub-search")
+  );
+}

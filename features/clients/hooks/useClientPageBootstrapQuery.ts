@@ -1,6 +1,6 @@
 import { useQuery, type QueryClient } from "@tanstack/react-query";
 import {
-  fetchClientPageBootstrap,
+  queryClientPageBootstrap,
   type ClientPageBootstrap,
 } from "@/features/clients/services/clientPageBootstrap.service";
 import { queryKeys } from "@/lib/queryKeys";
@@ -16,12 +16,7 @@ export function prefetchClientPageBootstrap(
   if (!org || !id) return Promise.resolve();
   return queryClient.prefetchQuery({
     queryKey: queryKeys.clients.pageBootstrap(org, id),
-    queryFn: async () => {
-      const res = await fetchClientPageBootstrap(org, id);
-      if (res.missingRpc) return null;
-      if (res.error) throw res.error;
-      return res.bundle;
-    },
+    queryFn: () => queryClientPageBootstrap(org, id),
     staleTime: 60_000,
   });
 }
@@ -34,10 +29,7 @@ export function useClientPageBootstrapQuery(
     queryKey: queryKeys.clients.pageBootstrap(orgId ?? "", clientId ?? ""),
     queryFn: async () => {
       if (!orgId || !clientId) return null;
-      const res = await fetchClientPageBootstrap(orgId, clientId);
-      if (res.missingRpc) return null;
-      if (res.error) throw res.error;
-      return res.bundle;
+      return queryClientPageBootstrap(orgId, clientId);
     },
     enabled: Boolean(orgId && clientId),
     staleTime: 60_000,

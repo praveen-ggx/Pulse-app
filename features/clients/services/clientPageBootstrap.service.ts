@@ -12,6 +12,7 @@ import {
 } from "@/features/finance/services/finance.service";
 import type { RatingRow } from "@/features/ratings";
 import type { SupplierRow } from "@/features/suppliers/services/suppliers.service";
+import { unwrapPartyBootstrapBundle } from "@/features/clients/utils/unwrapPartyBootstrap.util";
 import { viewerOwnedClientTrips } from "@/features/clients/utils/viewerClientTrips.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { supabase } from "@/lib/supabase";
@@ -165,4 +166,12 @@ export async function fetchClientPageBootstrap(
   }
   const scoped = await fetchClientPageBootstrapScoped(orgId, clientId);
   return { error: scoped.error, missingRpc: Boolean(error && isMissingRpc(error)), bundle: scoped.bundle };
+}
+
+/** Keep the scoped fallback bundle. Never cache `null` just because the RPC is missing. */
+export async function queryClientPageBootstrap(
+  orgId: string,
+  clientId: string,
+): Promise<ClientPageBootstrap | null> {
+  return unwrapPartyBootstrapBundle(await fetchClientPageBootstrap(orgId, clientId));
 }

@@ -17,8 +17,11 @@ const DL_CLEAN = /[\s-]/g;
  * one typed unless the user picks another format explicitly.
  *   standard  — TN01 20200001234 (2 letters · 2 digits · 4-digit year · 7-8 digits)
  *   rtoLetter — TN29 Z19940001713 (2 letters · 2 digits · 1 letter · 4-digit year · 7 digits)
+ *   other     — older cards still in use (Telangana/AP):
+ *               DLFAP12810371208 (DLF · 2-letter state · 9-13 digits) or
+ *               1043/HW/1997OD (number / RTO letters / year + optional letters; slashes auto-added)
  */
-export type IndianDlFormat = "standard" | "rtoLetter";
+export type IndianDlFormat = "standard" | "rtoLetter" | "other";
 
 export const INDIAN_DL_FORMATS: readonly {
   id: IndianDlFormat;
@@ -27,16 +30,19 @@ export const INDIAN_DL_FORMATS: readonly {
 }[] = [
   { id: "standard", label: "Standard", example: "TN01 20200001234" },
   { id: "rtoLetter", label: "Letter after RTO", example: "TN29 Z19940001713" },
+  { id: "other", label: "Old / smart card", example: "1043/HW/1997OD" },
 ];
 
 const DL_FORMAT_PATTERNS: Record<IndianDlFormat, RegExp> = {
   standard: /^[A-Z]{2}[0-9]{2}[0-9]{4}[0-9]{7,8}$/,
   rtoLetter: /^[A-Z]{2}[0-9]{2}[A-Z][0-9]{4}[0-9]{7}$/,
+  other: /^(?:DLF[A-Z]{2}[0-9]{9,13}|[0-9]{1,7}\/[A-Z]{1,4}\/[0-9]{4}[A-Z]{0,3})$/,
 };
 
 const DL_FORMAT_MAX_LENGTH: Record<IndianDlFormat, number> = {
   standard: 16,
   rtoLetter: 16,
+  other: 18,
 };
 
 /** Positions (0-based) that take a letter; every other position takes a digit. */
@@ -45,22 +51,9 @@ function isDlLetterPosition(pos: number, format: IndianDlFormat): boolean {
   return format === "rtoLetter" && pos === 4;
 }
 
-/**
- * Older layouts still on valid cards, accepted when typed freely but not offered
- * in the format picker:
- *   smart card — DLFAP12810371208 (DLF · 2-letter state · 9-13 digits, Telangana/AP)
- *   legacy     — 1043/HW/1997OD (number / RTO letters / year + optional letters)
- */
-const DL_LEGACY_PATTERNS: readonly RegExp[] = [
-  /^DLF[A-Z]{2}[0-9]{9,13}$/,
-  /^[0-9]{1,7}\/[A-Z]{1,4}\/[0-9]{4}[A-Z]{0,3}$/,
-];
-
 /** True when the licence matches one of the supported formats (spaces / hyphens ignored). */
 export function isIndianDrivingLicenseFormatValid(display: string): boolean {
-  if (detectIndianDlFormat(display) !== null) return true;
-  const norm = normalizeIndianDrivingLicense(display);
-  return DL_LEGACY_PATTERNS.some((re) => re.test(norm));
+  return detectIndianDlFormat(display) !== null;
 }
 
 /** Which supported format a complete licence matches, or null. */
@@ -97,6 +90,9 @@ export function getIndianDlFormatHint(
   normalizedLen: number,
   format: IndianDlFormat = "standard",
 ): string {
+  if (format === "other") {
+    return "Old card: 1043/HW/1997OD (slashes added for you) or smart card: DLFAP12810371208";
+  }
   if (format === "rtoLetter") {
     if (normalizedLen < 2) return "Enter 2 letters (state code, e.g. TN)";
     if (normalizedLen < 4) return "Enter 2 digits (RTO code)";
@@ -123,8 +119,34 @@ export function getIndianDlFormatHint(
 
 export function formatIndianDrivingLicenseInput(built: string): string {
   const norm = normalizeIndianDrivingLicense(built);
-  if (norm.length <= 4) return norm;
+  // Space after the state + RTO block only; old / smart cards are kept as typed.
+  if (norm.length <= 4 || !/^[A-Z]{2}[0-9]{2}/.test(norm)) return norm;
   return `${norm.slice(0, 4)} ${norm.slice(4)}`;
+}
+
+/** "other": free letters/digits; a card starting with a digit gets its two slashes added at letter↔digit switches. */
+function buildOtherDl(norm: string): string {
+  const chars = norm.replace(/[^A-Z0-9]/g, "");
+  const max = DL_FORMAT_MAX_LENGTH.other;
+  const legacy = /^[0-9]/.test(chars);
+  let built = "";
+  let slashes = 0;
+  for (const ch of chars) {
+    if (built.length >= max) break;
+    if (legacy && built.length > 0) {
+      const prevIsDigit = /[0-9]/.test(built[built.length - 1]!);
+      const isDigit = /[0-9]/.test(ch);
+      const switched =
+        (slashes === 0 && prevIsDigit && !isDigit) ||
+        (slashes === 1 && !prevIsDigit && isDigit);
+      if (switched) {
+        built += "/";
+        slashes++;
+      }
+    }
+    built += ch;
+  }
+  return built.slice(0, max);
 }
 
 export function applyIndianDlKeystroke(
@@ -132,6 +154,7 @@ export function applyIndianDlKeystroke(
   format: IndianDlFormat = "standard",
 ): string {
   const norm = normalizeIndianDrivingLicense(nextRaw);
+  if (format === "other") return buildOtherDl(norm);
   const max = DL_FORMAT_MAX_LENGTH[format];
   let built = "";
   for (let i = 0; i < norm.length && built.length < max; i++) {

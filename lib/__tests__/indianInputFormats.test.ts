@@ -4,7 +4,9 @@
  * layout passes validation (so saved records and Continue gates agree).
  */
 import {
+  appendIndianDlChar,
   applyIndianDlKeystroke,
+  deleteIndianDlLastChar,
   detectIndianDlFormat,
   getIndianDlKeyboardKind,
   isIndianDrivingLicenseComplete,
@@ -52,9 +54,21 @@ describe("Licence format: letter after RTO (TN29Z19940001713)", () => {
     expect(isIndianDrivingLicenseFormatValid("DLFAP12810371208")).toBe(true);
     expect(isIndianDrivingLicenseFormatValid("1043/HW/1997OD")).toBe(true);
     expect(isIndianDrivingLicenseFormatValid(" 1043/HW/1997OD ")).toBe(true);
-    expect(detectIndianDlFormat("DLFAP12810371208")).toBeNull();
+    expect(detectIndianDlFormat("DLFAP12810371208")).toBe("other");
+    expect(detectIndianDlFormat("1043/HW/1997OD")).toBe("other");
     expect(isIndianDrivingLicenseFormatValid("1043/HW")).toBe(false);
     expect(isIndianDrivingLicenseFormatValid("DLFAP1234")).toBe(false);
+  });
+
+  it("types old / smart cards under the Old / smart card option", () => {
+    expect(applyIndianDlKeystroke("1043HW1997OD", "other")).toBe("1043/HW/1997OD");
+    expect(applyIndianDlKeystroke("1043/hw/1997od", "other")).toBe("1043/HW/1997OD");
+    expect(applyIndianDlKeystroke("DLFAP12810371208", "other")).toBe("DLFAP12810371208");
+    let v = "";
+    for (const ch of "1043HW1997OD") v = appendIndianDlChar(v, ch, "other");
+    expect(v).toBe("1043/HW/1997OD");
+    expect(deleteIndianDlLastChar("1043/HW/1997OD")).toBe("1043/HW/1997O");
+    expect(applyIndianDlKeystroke("TN0120200001234", "standard")).toBe("TN01 20200001234");
   });
 });
 

@@ -97,6 +97,7 @@ import {
   isFinanceDeclinedTrip,
   isResubmittedFinanceReject,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
+import { groundOpsTransitDocLabel } from "@/features/tripCompliance/utils/groundOpsTransitGate.util";
 import {
   groundOpsDocumentLockLabel,
   groundOpsDocumentLockReason,
@@ -3501,6 +3502,17 @@ export function ComplianceDocumentWorkspace({
    * and not rejected (also enforced by resubmit_trip_compliance), and for a
    * hold the vehicle / driver files too (stage leaves pending_for_docs).
    */
+  /** Names the required trip documents that block Resubmit (e.g. "LR (rejected)"). */
+  const resubmitBlockingDocsLabel = summary
+    ? missingOrRejectedRequiredTripDocs(summary)
+        .map((type) => {
+          const rejected = summary.documents.some(
+            (doc) => doc.document_type === type && doc.status === "rejected",
+          );
+          return `${groundOpsTransitDocLabel(type)} (${rejected ? "rejected — replace it" : "missing"})`;
+        })
+        .join(", ")
+    : "";
   const resubmitBlockedByMissingDocs = Boolean(
     summary &&
       (missingOrRejectedRequiredTripDocs(summary).length > 0 ||
@@ -4614,7 +4626,9 @@ export function ComplianceDocumentWorkspace({
                               if (resubmitBlockedByMissingDocs) {
                                 alertMessage(
                                   "Upload missing documents first",
-                                  "Some required Trip, Vehicle or Driver documents are missing or rejected. Upload or replace them, then Resubmit.",
+                                  resubmitBlockingDocsLabel
+                                    ? `Upload or replace: ${resubmitBlockingDocsLabel}. Then Resubmit.`
+                                    : "Some required Trip, Vehicle or Driver documents are missing or rejected. Upload or replace them, then Resubmit.",
                                 );
                                 return;
                               }

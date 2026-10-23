@@ -22,3 +22,10 @@
 
 ## Not tested
 - Not clicked through in the app or admin console. Not applied to preprod yet.
+
+## Also in this round: driving licence formats
+- What broke: Add driver rejected real Telangana/AP licences, the smart card `DLFAP12810371208` and the old slash format `1043/HW/1997OD`. The party driver form only offered "Standard" and "Letter after RTO" and dropped characters that didn't fit, so these couldn't even be typed.
+- What: the licence check accepts both formats. The party driver form (keypad + desktop) has a third option, "Old / smart card": slashes are added automatically, and ABC/123 switches the keypad. Existing formats are unchanged.
+- Areas: lib/indianDrivingLicenseInput.util.ts, components/party/keypad/IndianDrivingLicenseKeypadFlow.tsx.
+- Migrations: none.
+- Tested: Jest licence format tests + drivers/finance/party suites pass; lint and typecheck clean on touched files. Not clicked through yet.

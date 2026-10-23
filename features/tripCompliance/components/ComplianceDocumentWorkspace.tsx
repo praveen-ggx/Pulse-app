@@ -449,6 +449,12 @@ function groupTypedDetailLines(lines: TypedDetailLineView[]): {
   return groups;
 }
 
+/**
+ * Android ignores `numberOfLines` on selectable Text, so long e-way numbers and
+ * dates wrapped and the card clipped the second line. Keep copy-select elsewhere.
+ */
+const TYPED_VALUE_SELECTABLE = Platform.OS !== "android";
+
 function TypedDetailsPreview({
   title,
   lines,
@@ -689,7 +695,7 @@ function TypedDetailsPreview({
                         <Text style={styles.typedEntryKicker} numberOfLines={1}>
                           {primary?.label ?? group.heading}
                         </Text>
-                        <Text style={styles.typedEntryHeading} numberOfLines={1} selectable>
+                        <Text style={styles.typedEntryHeading} numberOfLines={1} selectable={TYPED_VALUE_SELECTABLE}>
                           {primary?.value ?? group.heading}
                         </Text>
                       </View>
@@ -706,7 +712,7 @@ function TypedDetailsPreview({
                         <Text style={styles.typedFieldLabel} numberOfLines={1}>
                           {line.label}
                         </Text>
-                        <Text style={styles.typedFieldValue} numberOfLines={1} selectable>
+                        <Text style={styles.typedFieldValue} numberOfLines={1} selectable={TYPED_VALUE_SELECTABLE}>
                           {line.value}
                         </Text>
                       </View>
@@ -7564,6 +7570,8 @@ const styles = StyleSheet.create({
   },
   typedPreviewHeader: {
     flexShrink: 0,
+    // Same right edge as the entry cards (typedPreviewScrollContent leaves 18 for the rail).
+    marginRight: 18,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,

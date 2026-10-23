@@ -82,6 +82,7 @@ import {
   shouldShowManifestHeroDriverParty,
   type AggregateTripKindPillContext,
 } from "@/features/drivers/utils/driverUtils.util";
+import { forgetLastFullPath } from "@/lib/lastRoute";
 import { ROUTES, tripExpenseEntryEditRoute } from "@/lib/routes";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import { formatINR, formatIndianVehicleNumber } from "@/lib/format";
@@ -3185,6 +3186,13 @@ export default function TripDetailScreen({
     [openVaultDocLikeChat],
   );
 
+  // Trip not readable (deleted, or outside this member's access, e.g. Ground Ops
+  // warehouses): stop cold start reopening it as the last screen.
+  const tripUnavailable = Boolean(tripId) && !detail.loading && !detail.trip && !detail.error;
+  useEffect(() => {
+    if (tripUnavailable && tripId) void forgetLastFullPath(ROUTES.tripDetail(tripId));
+  }, [tripId, tripUnavailable]);
+
   // Spinner only when there is no list/cache seed and no trip yet.
   // Bundle may still be in flight; do not block first paint when `trip` is seeded.
   if (detail.loading && !detail.trip) {
@@ -3205,6 +3213,11 @@ export default function TripDetailScreen({
     return (
       <View style={styles.errorWrap}>
         <Text style={styles.errorText}>{detail.error ?? "Trip not found"}</Text>
+        {tripUnavailable ? (
+          <Text style={styles.errorHint}>
+            It may have been removed, or it is outside the trips you can access.
+          </Text>
+        ) : null}
         <TouchableOpacity
           style={styles.retryBtn}
           onPress={() => {
@@ -3220,6 +3233,16 @@ export default function TripDetailScreen({
             style={{ marginRight: 8 }}
           />
           <Text style={styles.retryBtnText}>Try Again</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.errorBackBtn}
+          // Replace, not back: on a cold start there is no screen behind this one.
+          onPress={() => router.replace(ROUTES.TABS.TRIPS)}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Back to trips"
+        >
+          <Text style={styles.errorBackBtnText}>Back to Trips</Text>
         </TouchableOpacity>
       </View>
     );

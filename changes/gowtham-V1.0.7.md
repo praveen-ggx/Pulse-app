@@ -7,17 +7,23 @@
 
 - Compliance on a phone (native): the stage rail (Document Upload tab) shows again above the queue, and the white gap above the bottom bar is gone. E-LR / jsPDF no longer crashes trip screens on Android (latin1 TextDecoder shim).
 
+- Trip detail "Trip not found": stops reopening that trip on every launch (cold start restored it as the last screen) and adds Back to Trips plus a short hint; Try Again stays.
+
 ## Why
 - Ground Ops on mobile had no way to reach Compliance (the mobile bar had no slot for it), and their Chat tab did nothing when tapped (no sales.chat, so openMessages returns early).
 - On a phone the trip list and documents were squeezed into one screen (list 42% high, documents list capped at 46% of the rest), so the trip card was cut off and the list of documents to upload had no height at all: Ground Ops could not see what to upload. "Declined by finance" ran off the screen.
 
 - On Android the stacked toolbar's `flex: 1` row collapsed to 0 high, so the queue drew over the stage rail; the screen also reserved space for a floating tab dock, but on native the root dock sits below the screen. jsPDF's fast-png dep calls `new TextDecoder('latin1')` at import; Expo's native decoder is UTF-8 only.
 
+- A Ground Ops member whose warehouses changed (Perambra removed on preprod) was sent to a trip they can no longer read on every app open, with only Try Again, which can never succeed.
+
 ## Areas
 - components/navigation/PulseBottomTabBar/PulseBottomTabBar.tsx (Compliance slot, showChat, memo compares compliance), components/demo/DemoTabBar.tsx (passes canOpenChat).
 - features/tripCompliance/components/ComplianceDocumentWorkspace.tsx (phoneFlow prop, PhoneDetailFrame), app/compliance/index.tsx (groundOpsPhone: phoneFlow, chip labels, footer hidden).
 
 - app/compliance/index.tsx (filtersRowStacked, native paddingBottom), features/trips/utils/latin1TextDecoder.util.ts (+test), features/trips/services/elrPdf.util.ts (imports the shim).
+
+- lib/lastRoute.ts (forgetLastFullPath + test), features/trips/components/trip-detail/TripDetailScreen.tsx (+ .styles.ts): not-found state only.
 
 ## Migrations
 - None of mine. 20261022123845_individual_registration_type.sql comes from Nihas, who runs it on preprod/prod.
@@ -30,3 +36,4 @@
 - Mobile bar: new PulseBottomTabBar test (Ground Ops slots, Compliance press, Compliance hidden without access) passes; lint and typecheck clean on touched files. Not yet checked on a phone or at mobile width with a Ground Ops login.
 - Document Upload phone flow: tripCompliance + navigation Jest (60 suites, 701 tests) pass; lint 102 and typecheck 62 unchanged (the defaultFinanceList lint error and 2 tsc errors in ComplianceDocumentWorkspace were there before). Not yet checked on a phone with a Ground Ops login.
 - Stage rail / bottom gap / latin1 fixes: tripCompliance + compliance + navigation Jest (59 suites, 642 tests) and ELR tests pass; typecheck 62 unchanged; no new lint. Web unchanged by design (both layout fixes are native-only or stacked-toolbar-only). Not yet re-checked on the phone.
+- Trip not found fix: lastRoute tests (6) pass; lib + trips + app Jest 537 suites pass (one pulse-v2 auth test flaked in that run and passes alone); typecheck 62; no new lint in touched files. Not yet checked on the phone.

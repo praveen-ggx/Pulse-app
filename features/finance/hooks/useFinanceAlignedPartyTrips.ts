@@ -1,18 +1,24 @@
 import { useMemo } from "react";
 import { aggregateCustomersFromRpc } from "@/features/finance/aggregation/aggregateCustomersFromRpc";
 import { allocateAmountsToLargestDueTrips } from "@/features/finance/utils/allocateToLargestDue";
-import { useSuppliersQuery, useTripsQuery, useTripsWhereOrgIsClientQuery } from "@/lib/queries";
 import { useCustomerLedgerInputsQuery, useSupplierLedgerAggregationQuery } from "@/lib/queries/useLedgerAggregationQuery";
-import { buildUniqueLinkedOrgIdMap, isLoadBasedTrip } from "@/features/trips/visibility/tripVisibility";
 import type { TripRow } from "@/features/trips/services/trips.service";
-import { isDcoOperatingTrip } from "@/features/trips/domain/tripDcoOperating";
 
+/**
+ * Finance-aligned client totals. Trip rows come from the scoped party-page
+ * catalog — never `useTripsQuery` (full org). The org-wide ledger RPC is
+ * deferred until that catalog is hydrated so it does not starve first paint.
+ */
 export function useFinanceAlignedClientLedger(
   orgId: string | null,
   clientId: string | null,
+  catalogTrips: readonly TripRow[] = [],
+  catalogReady = catalogTrips.length > 0,
 ) {
-  const { data: inputs, isSuccess } = useCustomerLedgerInputsQuery(orgId, true);
-  const { data: tripRows = [] } = useTripsQuery(orgId);
+  const { data: inputs, isSuccess } = useCustomerLedgerInputsQuery(
+    orgId && clientId && catalogReady ? orgId : null,
+    true,
+  );
 
   return useMemo(() => {
     if (!isSuccess || !inputs || !clientId) {
@@ -45,7 +51,7 @@ export function useFinanceAlignedClientLedger(
       },
     );
     const summary = rows[0];
-    const byId = new Map(tripRows.map((trip) => [trip.id, trip]));
+    const byId = new Map(catalogTrips.map((trip) => [trip.id, trip]));
     const trips = tripInputs
       .map((row) => byId.get(row.trip_id))
       .filter((trip): trip is TripRow => Boolean(trip));
@@ -70,20 +76,23 @@ export function useFinanceAlignedClientLedger(
       salesByTripId,
       paidByTripId: allocated,
     };
-  }, [isSuccess, inputs, tripRows, clientId]);
+  }, [isSuccess, inputs, catalogTrips, clientId]);
 }
 
+/**
+ * Finance-aligned supplier totals. Same rule: scoped catalog only, no
+ * org-wide trip / as-client / supplier list fetches on the party page.
+ */
 export function useFinanceAlignedSupplierLedger(
   orgId: string | null,
   supplierId: string | null,
+  catalogTrips: readonly TripRow[] = [],
+  catalogReady = catalogTrips.length > 0,
 ) {
   const { data: rpcRows = [], isSuccess } = useSupplierLedgerAggregationQuery(
-    orgId,
+    orgId && supplierId && catalogReady ? orgId : null,
     true,
   );
-  const { data: tripRows = [] } = useTripsQuery(orgId);
-  const { data: asClientTrips = [] } = useTripsWhereOrgIsClientQuery(orgId);
-  const { data: suppliers = [] } = useSuppliersQuery(orgId);
 
   return useMemo(() => {
     if (!isSuccess || !supplierId || !orgId) {
@@ -97,29 +106,13 @@ export function useFinanceAlignedSupplierLedger(
       };
     }
     const financials = rpcRows.find((row) => row.supplier_id === supplierId);
-    const uniqueLinked = buildUniqueLinkedOrgIdMap(suppliers);
-    const own = tripRows.filter(
-      (trip) =>
-        trip.organization_id === orgId &&
-        trip.supplier_id === supplierId &&
-        !isDcoOperatingTrip(trip),
-    );
-    const seen = new Set(own.map((trip) => trip.id));
-    const extra: TripRow[] = [];
-    for (const trip of asClientTrips) {
-      if (!isLoadBasedTrip(trip) || !trip.organization_id) continue;
-      if (uniqueLinked.get(trip.organization_id) !== supplierId) continue;
-      if (seen.has(trip.id)) continue;
-      seen.add(trip.id);
-      extra.push(trip);
-    }
     return {
       ready: true as const,
-      trips: [...own, ...extra],
-      tripCount: financials?.trips_count ?? own.length + extra.length,
+      trips: catalogTrips as TripRow[],
+      tripCount: financials?.trips_count ?? catalogTrips.length,
       due: financials?.due ?? 0,
       paid: financials?.paid ?? 0,
       unsettled: financials?.unsettled ?? 0,
     };
-  }, [isSuccess, rpcRows, supplierId, orgId, tripRows, asClientTrips, suppliers]);
+  }, [isSuccess, rpcRows, supplierId, orgId, catalogTrips]);
 }

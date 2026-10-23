@@ -64,7 +64,7 @@ import {
     type TripRow,
 } from "@/features/trips/services/trips.service";
 import { isLoadBasedTrip } from "@/features/trips/visibility/tripVisibility";
-import { fetchClientPageBootstrap } from "@/features/clients/services/clientPageBootstrap.service";
+import { queryClientPageBootstrap } from "@/features/clients/services/clientPageBootstrap.service";
 import { useFinanceAlignedClientLedger } from "@/features/finance/hooks/useFinanceAlignedPartyTrips";
 import { computeClientPaidSeed } from "@/features/clients/utils/clientPaidSeed.util";
 import {
@@ -253,9 +253,12 @@ export default function ClientDetailScreen({
   );
   const clientName = client?.name || client?.contact_person || t("client");
   const [trips, setTrips] = useState<TripRow[]>([]);
+  const [loading, setLoading] = useState(() => peekClientFirstPaint(clientId) == null);
   const financeAligned = useFinanceAlignedClientLedger(
     currentOrganization?.id ?? null,
     clientId,
+    trips,
+    trips.length > 0 || !loading,
   );
   const tripIdsForFinanceAdj = useMemo(
     () => trips.map((t) => String(t.id)).filter(Boolean),
@@ -295,7 +298,6 @@ export default function ClientDetailScreen({
   const [clientReportKind, setClientReportKind] = useState<"receivable" | "pnl" | "ledger">(
     "receivable",
   );
-  const [loading, setLoading] = useState(() => peekClientFirstPaint(clientId) == null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const isRefreshingRef = useRef(false);
@@ -509,11 +511,7 @@ export default function ClientDetailScreen({
     queryClient
       .fetchQuery({
         queryKey: queryKeys.clients.pageBootstrap(orgId, requestClientId),
-        queryFn: async () => {
-          const r = await fetchClientPageBootstrap(orgId, requestClientId);
-          if (r.error) throw r.error;
-          return r.bundle;
-        },
+        queryFn: () => queryClientPageBootstrap(orgId, requestClientId),
         staleTime: 60_000,
       })
       .then((bundle) => {

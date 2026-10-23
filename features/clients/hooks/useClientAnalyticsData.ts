@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import type { LedgerRow } from "@/features/finance";
-import { fetchClientPageBootstrap } from "@/features/clients/services/clientPageBootstrap.service";
+import { queryClientPageBootstrap } from "@/features/clients/services/clientPageBootstrap.service";
 import { viewerOwnedClientTrips } from "@/features/clients/utils/viewerClientTrips.util";
 import type { ClientRow } from "@/features/clients/services/clients.service";
 import type { TripRow } from "@/features/trips/services/trips.service";
@@ -56,11 +56,7 @@ export function useClientAnalyticsData(clientId: string) {
     queryClient
       .fetchQuery({
         queryKey: queryKeys.clients.pageBootstrap(orgId, clientId),
-        queryFn: async () => {
-          const r = await fetchClientPageBootstrap(orgId, clientId);
-          if (r.error) throw r.error;
-          return r.bundle;
-        },
+        queryFn: () => queryClientPageBootstrap(orgId, clientId),
         staleTime: 60_000,
       })
       .then((bundle) => {

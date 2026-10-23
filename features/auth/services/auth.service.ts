@@ -248,7 +248,7 @@ export interface SignUpOptions {
   /** Office HQ from places search (create-trip LocationSearchField). */
   officeLatitude?: number;
   officeLongitude?: number;
-  /** Legal structure of the business: Sole Proprietor, Partnership, Pvt Ltd, LLP, OPC, or Other. */
+  /** Legal structure of the business: Individual, Sole Proprietor, Partnership, Pvt Ltd, LLP, OPC, or Other. */
   businessType?: string;
   /** Number of employees band, e.g. "1-10", "11-50", "51-200", "201-500", "500+". */
   employeeCount?: string;

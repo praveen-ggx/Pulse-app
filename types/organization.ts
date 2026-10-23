@@ -82,7 +82,13 @@ export type OrgTeamRoster = {
 
 export type KycVerificationStatus = 'unverified' | 'pending' | 'verified' | 'rejected';
 
-export type RegistrationType = 'proprietorship' | 'llp' | 'pvt_ltd' | 'public_ltd' | 'partnership';
+export type RegistrationType =
+  | 'individual'
+  | 'proprietorship'
+  | 'llp'
+  | 'pvt_ltd'
+  | 'public_ltd'
+  | 'partnership';
 export type AddressProofType = 'lease' | 'utility_bill' | 'other';
 
 export interface WorkspaceKyc {

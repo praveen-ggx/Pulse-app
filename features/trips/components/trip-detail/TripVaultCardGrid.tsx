@@ -87,6 +87,8 @@ export function TripVaultCardGrid({
   compact = false,
 }: Props) {
   const cards = docs.filter((doc) => !isEwayBillVaultDoc(doc));
+  /** Half-width phone cards are too narrow for Preview + Add side by side. */
+  const stackButtons = columns === 2 && !compact;
 
   return (
     <View style={[neoStyles.vaultGrid, compact && neoStyles.vaultGridCompact]}>
@@ -138,7 +140,11 @@ export function TripVaultCardGrid({
               </Text>
             </TouchableOpacity>
             <View
-              style={[neoStyles.vaultBtnRow, compact && neoStyles.vaultBtnRowCompact]}
+              style={[
+                neoStyles.vaultBtnRow,
+                compact && neoStyles.vaultBtnRowCompact,
+                stackButtons && neoStyles.vaultBtnRowStacked,
+              ]}
             >
               <TouchableOpacity
                 onPress={() => onOpen(doc)}
@@ -146,6 +152,7 @@ export function TripVaultCardGrid({
                   neoStyles.vaultBtn,
                   neoStyles.vaultBtnFlex,
                   compact && neoStyles.vaultBtnCompact,
+                  stackButtons && neoStyles.vaultBtnStacked,
                   !previewReady && neoStyles.vaultBtnPreviewIdle,
                 ]}
                 activeOpacity={0.85}
@@ -179,6 +186,7 @@ export function TripVaultCardGrid({
                         compact && neoStyles.vaultBtnTextCompact,
                         !previewReady && neoStyles.vaultBtnTextDisabled,
                       ]}
+                      numberOfLines={1}
                     >
                       Preview
                     </Text>
@@ -193,6 +201,7 @@ export function TripVaultCardGrid({
                     neoStyles.vaultBtnUpload,
                     neoStyles.vaultBtnFlex,
                     compact && neoStyles.vaultBtnCompact,
+                    stackButtons && neoStyles.vaultBtnStacked,
                   ]}
                   activeOpacity={0.85}
                   disabled={isUploadingThis}
@@ -209,6 +218,7 @@ export function TripVaultCardGrid({
                       neoStyles.vaultBtnTextUpload,
                       compact && neoStyles.vaultBtnTextCompact,
                     ]}
+                    numberOfLines={1}
                   >
                     Add
                   </Text>

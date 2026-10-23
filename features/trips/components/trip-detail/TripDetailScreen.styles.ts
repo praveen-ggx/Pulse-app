@@ -3326,6 +3326,8 @@ export const neoStyles = StyleSheet.create({
     position: "relative",
   },
   vaultCardHalf: {
+    // flexBasis too: vaultCard's 31.8% basis wins over width in a row, so phones got 3 across.
+    flexBasis: "48%",
     width: "48%",
     maxWidth: "48%",
   },
@@ -3450,6 +3452,20 @@ export const neoStyles = StyleSheet.create({
     flex: 1,
     marginTop: 0,
     justifyContent: "center",
+  },
+  /** Phone half-width cards: Preview above Add, each full card width. */
+  vaultBtnRowStacked: {
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: 6,
+  },
+  vaultBtnStacked: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: "auto",
+    width: "100%",
+    minHeight: 44,
+    paddingHorizontal: 8,
   },
   vaultBtnUpload: {
     backgroundColor: Theme.buttonPrimary,
@@ -6641,6 +6657,25 @@ export const styles = StyleSheet.create({
     gap: 16,
   },
   errorText: { fontSize: 15, color: "#6b7280" },
+  errorHint: {
+    maxWidth: 300,
+    marginTop: -8,
+    paddingHorizontal: 16,
+    fontSize: 13,
+    textAlign: "center",
+    color: Theme.textSecondary,
+  },
+  errorBackBtn: {
+    minHeight: 44,
+    paddingHorizontal: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+    backgroundColor: Theme.cardWhite,
+  },
+  errorBackBtnText: { fontSize: 14, fontWeight: "600", color: Theme.textPrimary },
   retryBtn: {
     flexDirection: "row",
     alignItems: "center",

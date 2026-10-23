@@ -23,7 +23,8 @@ export type VerificationDocumentType =
   | 'iec_certificate'
   | 'incorporation_certificate'
   | 'partnership_deed'
-  | 'llp_agreement';
+  | 'llp_agreement'
+  | 'aadhaar_card';
 
 /** Tax scans must pass Gemini; constitutional docs soft-fail (register if OCR unavailable). */
 const OCR_STRICT_DOCUMENT_TYPES: ReadonlySet<VerificationDocumentType> = new Set([
@@ -268,7 +269,11 @@ export async function uploadVerificationDocument(
 
   if (uploadError) return { path: null, error: new Error(uploadError.message), verify: null };
 
-  const verify = await verifyUploadedDocument(documentType, path, typedValues);
+  // Aadhaar is stored for manual review only — never sent to OCR.
+  const verify =
+    documentType === 'aadhaar_card'
+      ? null
+      : await verifyUploadedDocument(documentType, path, typedValues);
   const strictOcr = OCR_STRICT_DOCUMENT_TYPES.has(documentType);
 
   if (strictOcr) {

@@ -9,7 +9,11 @@ import { useSuppliersQuery } from "@/lib/queries/useSuppliersQuery";
 import { useLinkedOrgProfileMap, type LinkedOrgDisplay } from "@/lib/useLinkedOrgProfileMap";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import Theme from "@/constants/Theme";
-import { rejectDocument, verifyDocument } from "@/features/compliance/services/documents.service";
+import {
+  rejectDocument,
+  updateEntityDocumentExpiry,
+  verifyDocument,
+} from "@/features/compliance/services/documents.service";
 import { getSupplierBankAccount } from "@/features/suppliers/services/supplierVendorOnboarding.service";
 import { resolveBankBranch } from "@/features/suppliers/utils/ifscDirectory.util";
 import { subscribeSupplierBankChanged } from "@/features/suppliers/utils/supplierBankEvents.util";
@@ -26,7 +30,6 @@ import {
   type ComplianceDocTypeFile,
 } from "@/features/tripCompliance/components/ComplianceDocTypeFilesModal";
 import { NoDocumentPreviewEmpty, NoTripsFoundEmpty } from "@/features/tripCompliance/components/ComplianceEmptyState";
-import { ComplianceInputModal } from "@/features/tripCompliance/components/ComplianceInputModal";
 import { ComplianceNumberStack } from "@/features/tripCompliance/components/ComplianceNumberStack";
 import {
   CompliancePaymentConfirmModal,
@@ -53,10 +56,13 @@ import {
   COMPLIANCE_FINANCE_DOCUMENT_TYPES,
   COMPLIANCE_VEHICLE_DOCUMENT_TYPES,
   REQUIRED_COMPLIANCE_DOCUMENT_TYPES,
+  REQUIRED_DRIVER_DOCUMENT_TYPES,
+  REQUIRED_VEHICLE_DOCUMENT_TYPES,
   documentRequiresExpiry,
   type ComplianceStage,
   type ComplianceTripSummary,
 } from "@/features/tripCompliance/tripCompliance.types";
+import { isEntityDocumentSlotVerified } from "@/features/tripCompliance/utils/complianceChecklist.util";
 import {
   formatComplianceTimestamp,
   isComplianceVerifiedRejected,
@@ -97,6 +103,8 @@ import {
   isFinanceDeclinedTrip,
   isResubmittedFinanceReject,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
+import { groundOpsTransitDocLabel } from "@/features/tripCompliance/utils/groundOpsTransitGate.util";
+import { ExpiryDatePickerModal } from "@/components/ExpiryDatePicker";
 import {
   groundOpsDocumentLockLabel,
   groundOpsDocumentLockReason,
@@ -136,6 +144,7 @@ import {
 } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { TripVaultFilePreview } from "@/features/trips/components/trip-detail/TripVaultFilePreview";
 import { getTripExecutionModel } from "@/features/trips/domain/tripExecutionModel";
+import { isEwayBillMetaPath } from "@/features/trips/services/ewayBillFields.util";
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { lrReceiptForTrip } from "@/features/trips/utils/lrReceiptStatus.util";
 import { splitHubRouteLocationDisplay } from "@/features/trips/utils/tripLocationDisplay.util";
@@ -150,6 +159,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import {
   ActivityIndicator,
   Animated,
+  BackHandler,
   Easing,
   Image,
   Modal,
@@ -440,6 +450,25 @@ function groupTypedDetailLines(lines: TypedDetailLineView[]): {
   return groups;
 }
 
+/** "Eway no" → "E-way No", "Doc no" → "Doc No": same wording as the vault e-way strip. */
+function typedLineLabel(label: string): string {
+  return label.replace(/^e-?way\b/i, "E-way").replace(/\bno\b/gi, "No");
+}
+
+/**
+ * Fixed-width digits only for pure numbers (e-way / doc no). On dates the tabular
+ * font also widened the hyphens on Android ("16 - Oct - 26").
+ */
+function typedValueStyle(value: string) {
+  return /^[\d\s]+$/.test(value.trim()) ? styles.typedValueTabular : null;
+}
+
+/**
+ * Android ignores `numberOfLines` on selectable Text, so long e-way numbers and
+ * dates wrapped and the card clipped the second line. Keep copy-select elsewhere.
+ */
+const TYPED_VALUE_SELECTABLE = Platform.OS !== "android";
+
 function TypedDetailsPreview({
   title,
   lines,
@@ -457,7 +486,10 @@ function TypedDetailsPreview({
 }) {
   const groups = useMemo(() => groupTypedDetailLines(lines), [lines]);
   const entryCount = groups.filter((group) => group.key.startsWith("entry-")).length;
-  const multiColumn = groups.length >= 2;
+  const { width: windowWidth } = useWindowDimensions();
+  // Phone: two cards side by side (between the prev/next chevrons) cut labels and
+  // wrap values, so one entry per row there.
+  const multiColumn = groups.length >= 2 && windowWidth >= 560;
   const rows = useMemo(() => {
     if (!multiColumn) return [groups];
     const next: (typeof groups)[] = [];
@@ -597,6 +629,7 @@ function TypedDetailsPreview({
         insetForSideNav && styles.typedPreviewContentWithNav,
       ]}
     >
+      <View style={styles.typedPreviewColumn}>
       <View style={styles.typedPreviewHeader}>
         <View style={styles.typedPreviewHeaderIcon}>
           <ClipboardList size={14} color={Theme.buttonDarkText} strokeWidth={2.1} />
@@ -675,9 +708,13 @@ function TypedDetailsPreview({
                       </View>
                       <View style={styles.typedEntryHeadingCopy}>
                         <Text style={styles.typedEntryKicker} numberOfLines={1}>
-                          {primary?.label ?? group.heading}
+                          {primary ? typedLineLabel(primary.label) : group.heading}
                         </Text>
-                        <Text style={styles.typedEntryHeading} numberOfLines={1} selectable>
+                        <Text
+                          style={[styles.typedEntryHeading, typedValueStyle(primary?.value ?? "")]}
+                          numberOfLines={1}
+                          selectable={TYPED_VALUE_SELECTABLE}
+                        >
                           {primary?.value ?? group.heading}
                         </Text>
                       </View>
@@ -692,9 +729,13 @@ function TypedDetailsPreview({
                         ]}
                       >
                         <Text style={styles.typedFieldLabel} numberOfLines={1}>
-                          {line.label}
+                          {typedLineLabel(line.label)}
                         </Text>
-                        <Text style={styles.typedFieldValue} numberOfLines={1} selectable>
+                        <Text
+                          style={[styles.typedFieldValue, typedValueStyle(line.value)]}
+                          numberOfLines={1}
+                          selectable={TYPED_VALUE_SELECTABLE}
+                        >
                           {line.value}
                         </Text>
                       </View>
@@ -707,6 +748,7 @@ function TypedDetailsPreview({
           ))}
         </ScrollView>
         <PreviewScrollRail axis="y" value={pan.y} max={pan.maxY} onChange={moveY} />
+      </View>
       </View>
     </View>
   );
@@ -2334,6 +2376,64 @@ export function DocumentScreen({
   );
 }
 
+/**
+ * Phone document pane (`phoneFlow`): back bar to the trip list + one vertical
+ * scroll for tabs, rows and preview. Inactive → children render as before.
+ */
+function PhoneDetailFrame({
+  active,
+  title,
+  subtitle,
+  onBack,
+  children,
+}: {
+  active: boolean;
+  title: string;
+  subtitle: string | null;
+  onBack: () => void;
+  children: React.ReactNode;
+}) {
+  if (!active) return <>{children}</>;
+  return (
+    <View style={styles.phoneDetail}>
+      <View style={styles.phoneBackBar}>
+        <Pressable
+          onPress={onBack}
+          style={(state: HoverPressState) => [
+            styles.phoneBackBtn,
+            WEB_POINTER,
+            state.pressed && styles.phoneBackBtnPressed,
+          ]}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel="Back to trips"
+        >
+          <ChevronLeft size={18} color={Theme.textPrimary} strokeWidth={2.2} />
+          <Text style={styles.phoneBackText}>Trips</Text>
+        </Pressable>
+        <View style={styles.phoneBackTitleWrap}>
+          <Text style={styles.phoneBackTitle} numberOfLines={1}>
+            {title}
+          </Text>
+          {subtitle ? (
+            <Text style={styles.phoneBackSubtitle} numberOfLines={1}>
+              {subtitle}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+      <ScrollView
+        style={styles.phoneDetailScroll}
+        contentContainerStyle={styles.phoneDetailContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {children}
+      </ScrollView>
+    </View>
+  );
+}
+
 export function ComplianceDocumentWorkspace({
   summaries,
   tripFacts,
@@ -2343,6 +2443,7 @@ export function ComplianceDocumentWorkspace({
   canViewDocuments,
   onChanged,
   stacked = false,
+  phoneFlow = false,
   style,
   canManageFinance = false,
   hideCommercials = false,
@@ -2399,6 +2500,11 @@ export function ComplianceDocumentWorkspace({
   /** Exactly what changed, so the pipeline patches only the affected inputs. */
   onChanged: (change: ComplianceChange) => void;
   stacked?: boolean;
+  /**
+   * Phone (Ground Ops): full-height trip list, tapping a trip opens its documents
+   * full-height with a back bar, instead of squeezing both into one screen.
+   */
+  phoneFlow?: boolean;
   style?: StyleProp<ViewStyle>;
   canManageFinance?: boolean;
   /** Ground Ops: no rates, profit, supplier bank details or Advance Payment preview. */
@@ -2543,6 +2649,8 @@ export function ComplianceDocumentWorkspace({
     suppliersQuery.data,
   ]);
   const [selectedId, setSelectedId] = useState<string | null>(selectedTripId ?? summaries[0]?.trip.id ?? null);
+  /** `phoneFlow` only: which of the two full-height panes is showing. */
+  const [phonePane, setPhonePane] = useState<"list" | "detail">("list");
   const [docFilter, setDocFilter] = useState<DocFilter>("all");
   const [docIndex, setDocIndex] = useState(0);
   const [checklistKey, setChecklistKey] = useState<string | null>(null);
@@ -2637,6 +2745,24 @@ export function ComplianceDocumentWorkspace({
       (tab === "driver" && !summary?.trip.driver_id));
   /** Same dual-pane shell (tabs + upload pill + list | preview) on every tab and stage. */
   const showDocumentShell = Boolean(summary);
+  /** Phone: the selected trip's documents fill the screen (list hidden). */
+  const phoneDetail =
+    phoneFlow &&
+    phonePane === "detail" &&
+    !hideDocumentPanes &&
+    summary != null &&
+    summary.trip.id === selectedId;
+  /** Phone: the trip list fills the screen (documents hidden). */
+  const phoneList = phoneFlow && !hideDocumentPanes && !phoneDetail;
+
+  useEffect(() => {
+    if (!phoneDetail) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      setPhonePane("list");
+      return true;
+    });
+    return () => sub.remove();
+  }, [phoneDetail]);
   const showEntityUnassigned = Boolean(summary && entityUnassigned);
   /** Trip/Vehicle/Driver list always uses vault rows inside the shared shell. */
   const checklistRows = useMemo(() => {
@@ -2871,6 +2997,7 @@ export function ComplianceDocumentWorkspace({
       resetPreviewView();
       // Debit control: no side pane — tapping a trip opens Log hard copy POD.
       if (hideDocumentPanes && showHardCopyPodLog) setPodOpen(true);
+      if (phoneFlow) setPhonePane("detail");
     },
     [
       defaultPreview,
@@ -2878,6 +3005,7 @@ export function ComplianceDocumentWorkspace({
       hideDocumentPanes,
       showHardCopyPodLog,
       onSelectedTripChange,
+      phoneFlow,
     ],
   );
 
@@ -2888,7 +3016,17 @@ export function ComplianceDocumentWorkspace({
     setChecklistPreviewMode("document");
     resetPreviewView();
     setScreenOpen(false);
-  }, [focusTab, focusToken, resetPreviewView]);
+    // Opened for one trip's documents (e.g. from trip detail): show them, not the list.
+    if (phoneFlow) setPhonePane("detail");
+  }, [focusTab, focusToken, resetPreviewView, phoneFlow]);
+
+  // The open trip left this queue (e.g. moved stage): back to the list rather
+  // than silently showing whichever trip is now first.
+  useEffect(() => {
+    if (phonePane === "detail" && !summaries.some((item) => item.trip.id === selectedId)) {
+      setPhonePane("list");
+    }
+  }, [phonePane, selectedId, summaries]);
 
   useEffect(() => {
     setLocalDecisionByKey({});
@@ -3501,10 +3639,51 @@ export function ComplianceDocumentWorkspace({
    * and not rejected (also enforced by resubmit_trip_compliance), and for a
    * hold the vehicle / driver files too (stage leaves pending_for_docs).
    */
+  /** Required vehicle / driver docs that keep the trip in Pending Docs, with the reason. */
+  function resubmitEntityBlockers(current: ComplianceTripSummary): string[] {
+    const check = (
+      types: readonly string[],
+      rows: readonly ComplianceTripSummary["vehicleDocuments"][number][],
+    ) =>
+      types.flatMap((type) => {
+        const onFile = rows.filter(
+          (doc) =>
+            doc.doc_type === type &&
+            !!doc.storage_path &&
+            !["rejected", "replaced", "expired"].includes(doc.status),
+        );
+        const label = groundOpsTransitDocLabel(type);
+        if (onFile.length === 0) return [`${label} (missing)`];
+        if (onFile.some((doc) => isEntityDocumentSlotVerified(doc, new Date(), doc.doc_type))) return [];
+        if (documentRequiresExpiry(type) && onFile.every((doc) => !doc.expiry_date?.trim())) {
+          return [`${label} (expiry date missing — Add expiry)`];
+        }
+        return [`${label} (expired)`];
+      });
+    return [
+      ...check(REQUIRED_VEHICLE_DOCUMENT_TYPES, current.vehicleDocuments ?? []),
+      ...check(REQUIRED_DRIVER_DOCUMENT_TYPES, current.driverDocuments ?? []),
+    ];
+  }
+  /** Names the required documents that block Resubmit (e.g. "LR (rejected)"). */
+  const resubmitBlockingDocsLabel = summary
+    ? missingOrRejectedRequiredTripDocs(summary)
+        .map((type) => {
+          const rejected = summary.documents.some(
+            (doc) => doc.document_type === type && doc.status === "rejected",
+          );
+          return `${groundOpsTransitDocLabel(type)} (${rejected ? "rejected — replace it" : "missing"})`;
+        })
+        .concat(resubmitEntityBlockers(summary))
+        .join(", ")
+    : "";
+  // Judge the files themselves, not `summary.stage`: for hold fixers the screen
+  // routes every held trip to "pending_for_docs" so it shows in Document Upload,
+  // which would block Resubmit exactly when every file is on it.
   const resubmitBlockedByMissingDocs = Boolean(
     summary &&
       (missingOrRejectedRequiredTripDocs(summary).length > 0 ||
-        (isComplianceHoldAwaitingResubmit(summary) && summary.stage === "pending_for_docs")),
+        resubmitEntityBlockers(summary).length > 0),
   );
   const showMarkVerified = Boolean(
     !isCompliancePendingStage &&
@@ -3629,6 +3808,53 @@ export function ComplianceDocumentWorkspace({
       vaultCopy.unassignedHint,
     ],
   );
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  /** Insurance / FC / licence file on file without the expiry date the checklist needs. */
+  const entityRowNeedsExpiry = (row: ComplianceDocRow): boolean =>
+    Boolean(
+      row.entityDoc &&
+        documentRequiresExpiry(row.type) &&
+        row.entityDoc.storage_path &&
+        row.entityDoc.status !== "rejected" &&
+        !row.entityDoc.expiry_date?.trim(),
+    );
+  /** Saved straight on the entity_documents row (vault-JSON files must be re-uploaded). */
+  const canSetEntityExpiry = (row: ComplianceDocRow): boolean =>
+    Boolean(
+      row.entityDoc &&
+        (row.entityDoc.source ?? "entity") === "entity" &&
+        UUID_RE.test(row.entityDoc.id),
+    );
+  const [savingExpiryKey, setSavingExpiryKey] = useState<string | null>(null);
+  const addEntityExpiry = useCallback(
+    async (row: ComplianceDocRow) => {
+      const doc = row.entityDoc;
+      if (!summary || !doc || savingExpiryKey) return;
+      const entered = (await promptExpiryDate(row.type))?.trim() ?? "";
+      if (!entered) return;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(entered)) {
+        alertMessage("Invalid expiry date", "Use YYYY-MM-DD (for example 2027-03-15).");
+        return;
+      }
+      setSavingExpiryKey(row.key);
+      try {
+        const { error } = await updateEntityDocumentExpiry(doc.id, entered);
+        if (error) {
+          alertMessage("Couldn't save expiry date", error.message);
+          return;
+        }
+        onChanged(
+          doc.entity_type === "driver"
+            ? { type: "driverDocuments", driverId: doc.entity_id }
+            : { type: "vehicleDocuments", vehicleId: doc.entity_id },
+        );
+      } finally {
+        setSavingExpiryKey(null);
+      }
+    },
+    [onChanged, promptExpiryDate, savingExpiryKey, summary],
+  );
+
   // The files dialog belongs to one trip and tab.
   useEffect(() => {
     setFilesModalType(null);
@@ -3838,6 +4064,8 @@ export function ComplianceDocumentWorkspace({
               ? `${statusMeta.label} · ${fileName}`
               : `${statusMeta.label} · ready to preview`
             : statusMeta.label;
+    const needsExpiry = !isFinanceMode && entityRowNeedsExpiry(displayRow);
+    const rowStatusLabel = needsExpiry ? `${statusLabel} · Expiry date missing` : statusLabel;
     return (
       <Pressable
         key={displayRow.key}
@@ -3893,11 +4121,17 @@ export function ComplianceDocumentWorkspace({
             <Text
               style={[
                 styles.missingStatus,
-                displayRow.status === "missing" ? null : { color: typeStatusColor ?? statusMeta.color },
+                displayRow.status === "missing"
+                  ? null
+                  : {
+                      color: needsExpiry
+                        ? COMPLIANCE_STATUS_META.rejected.color
+                        : (typeStatusColor ?? statusMeta.color),
+                    },
               ]}
               numberOfLines={1}
             >
-              {statusLabel}
+              {rowStatusLabel}
             </Text>
           ) : null}
           {declineReason ? (
@@ -3942,6 +4176,29 @@ export function ComplianceDocumentWorkspace({
               strokeWidth={2.2}
             />
           </Pressable>
+          {canEditFiles && needsExpiry && canSetEntityExpiry(displayRow) ? (
+            <Pressable
+              style={(state: HoverPressState) => [
+                styles.missingUploadBtn,
+                WEB_POINTER,
+                WEB_TRANSITION,
+                savingExpiryKey === displayRow.key && styles.btnDisabled,
+                isHovered(state) && !savingExpiryKey && styles.missingUploadBtnHover,
+              ]}
+              disabled={Boolean(savingExpiryKey)}
+              onPress={() => void addEntityExpiry(displayRow)}
+              accessibilityRole="button"
+              accessibilityLabel={`Add expiry date for ${rowLabel}`}
+              accessibilityState={{ busy: savingExpiryKey === displayRow.key }}
+            >
+              {savingExpiryKey === displayRow.key ? (
+                <ActivityIndicator size="small" color={Theme.buttonDarkText} />
+              ) : null}
+              <Text style={styles.missingUploadBtnText}>
+                {savingExpiryKey === displayRow.key ? "Saving…" : "Add expiry"}
+              </Text>
+            </Pressable>
+          ) : null}
           {canEditFiles && displayRow.status === "missing" ? (
             <Pressable
               style={(state: HoverPressState) => [
@@ -4064,13 +4321,96 @@ export function ComplianceDocumentWorkspace({
     );
   };
 
+  const renderChecklistPanelTabs = () =>
+    (
+      [
+        { key: "all" as const, label: "All" },
+        ...(showFinanceTab && !compliancePendingView
+          ? [{ key: "finance" as const, label: "Finance" }]
+          : []),
+        ...TABS,
+      ] as const
+    ).map((item) => {
+      const active = docFilter === item.key;
+      const missingCount =
+        item.key === "all"
+          ? tabMissingCounts.all
+          : item.key === "finance"
+            ? tabMissingCounts.finance
+            : tabMissingCounts[item.key];
+      const approved =
+        item.key !== "all" &&
+        item.key !== "finance" &&
+        isCompliancePendingStage &&
+        tabMarkedApproved[item.key];
+      return (
+        <Pressable
+          key={item.key}
+          onPress={() => applyDocFilter(item.key)}
+          style={(state: HoverPressState) => [
+            styles.tab,
+            styles.checklistPanelTab,
+            WEB_POINTER,
+            WEB_TRANSITION,
+            isHovered(state) && !active && styles.tabHover,
+            active && styles.tabActive,
+            isHovered(state) && active && styles.tabActiveHover,
+          ]}
+          accessibilityRole="tab"
+          accessibilityState={{ selected: active }}
+          accessibilityLabel={
+            item.key === "all"
+              ? "Show all documents"
+              : `Show ${item.label} documents${active ? ", tap again for all" : ""}`
+          }
+        >
+          <Text
+            style={[
+              styles.tabText,
+              styles.checklistPanelTabText,
+              active && styles.tabTextActive,
+            ]}
+            numberOfLines={1}
+          >
+            {item.label}
+          </Text>
+          {approved ? (
+            <View style={[styles.tabBadge, styles.checklistPanelTabBadge, styles.tabApprovedBadge]}>
+              <Text style={[styles.tabBadgeText, styles.checklistPanelTabBadgeText, styles.tabApprovedBadgeText]}>
+                Approved
+              </Text>
+            </View>
+          ) : missingCount > 0 ? (
+            <View
+              style={[
+                styles.tabBadge,
+                styles.checklistPanelTabBadge,
+                active && styles.tabBadgeActive,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.tabBadgeText,
+                  styles.checklistPanelTabBadgeText,
+                  active && styles.tabBadgeTextActive,
+                ]}
+              >
+                {missingCount}
+              </Text>
+            </View>
+          ) : null}
+        </Pressable>
+      );
+    });
+
   return (
     <View style={[styles.workspace, stacked && styles.workspaceStacked, style]}>
+      {phoneDetail ? null : (
       <View
         style={[
           styles.listPane,
           stacked && styles.listPaneStacked,
-          hideDocumentPanes && !showValidationPane && styles.listPaneFull,
+          ((hideDocumentPanes && !showValidationPane) || phoneList) && styles.listPaneFull,
         ]}
       >
         {listHeader}
@@ -4147,7 +4487,15 @@ export function ComplianceDocumentWorkspace({
         </ScrollView>
         )}
       </View>
+      )}
 
+      {phoneList ? null : (
+      <PhoneDetailFrame
+        active={phoneDetail}
+        title={summary ? getTripDisplayNumber(summary.trip, organizationId || null) : ""}
+        subtitle={summary?.trip.client_name?.trim() || null}
+        onBack={() => setPhonePane("list")}
+      >
       {showValidationPane ? (
         <View style={[styles.previewPane, styles.podLogPane]}>
           {summary ? (
@@ -4219,12 +4567,27 @@ export function ComplianceDocumentWorkspace({
           </View>
         </View>
       ) : hideDocumentPanes ? null : (
-      <View style={styles.previewPane}>
-        <View style={styles.stage}>
+      <View style={[styles.previewPane, phoneDetail && styles.phoneNatural]}>
+        <View style={[styles.stage, phoneDetail && styles.phoneNatural]}>
           {showDocumentShell ? (
-            <View style={[styles.checklistStage, stacked && styles.checklistStageStacked]}>
-              <View style={[styles.checklistListPane, stacked && styles.checklistListPaneStacked]}>
+            <View
+              style={[
+                styles.checklistStage,
+                stacked && styles.checklistStageStacked,
+                phoneDetail && styles.phoneNatural,
+              ]}
+            >
+              <View
+                style={[
+                  styles.checklistListPane,
+                  stacked && (phoneDetail ? styles.checklistListPanePhone : styles.checklistListPaneStacked),
+                ]}
+              >
                 <View style={styles.checklistPanelToolbar}>
+                  {/* Phone: tabs wrap so Driver is not hidden past the edge of a side scroll. */}
+                  {phoneDetail ? (
+                    <View style={styles.checklistPanelTabsWrapPhone}>{renderChecklistPanelTabs()}</View>
+                  ) : (
                   <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
@@ -4232,87 +4595,11 @@ export function ComplianceDocumentWorkspace({
                     contentContainerStyle={styles.checklistPanelTabs}
                     keyboardShouldPersistTaps="handled"
                   >
-                    {(
-                      [
-                        { key: "all" as const, label: "All" },
-                        ...(showFinanceTab && !compliancePendingView
-                          ? [{ key: "finance" as const, label: "Finance" }]
-                          : []),
-                        ...TABS,
-                      ] as const
-                    ).map((item) => {
-                      const active = docFilter === item.key;
-                      const missingCount =
-                        item.key === "all"
-                          ? tabMissingCounts.all
-                          : item.key === "finance"
-                            ? tabMissingCounts.finance
-                            : tabMissingCounts[item.key];
-                      const approved =
-                        item.key !== "all" &&
-                        item.key !== "finance" &&
-                        isCompliancePendingStage &&
-                        tabMarkedApproved[item.key];
-                      return (
-                        <Pressable
-                          key={item.key}
-                          onPress={() => applyDocFilter(item.key)}
-                          style={(state: HoverPressState) => [
-                            styles.tab,
-                            styles.checklistPanelTab,
-                            WEB_POINTER,
-                            WEB_TRANSITION,
-                            isHovered(state) && !active && styles.tabHover,
-                            active && styles.tabActive,
-                            isHovered(state) && active && styles.tabActiveHover,
-                          ]}
-                          accessibilityRole="tab"
-                          accessibilityState={{ selected: active }}
-                          accessibilityLabel={
-                            item.key === "all"
-                              ? "Show all documents"
-                              : `Show ${item.label} documents${active ? ", tap again for all" : ""}`
-                          }
-                        >
-                          <Text
-                            style={[
-                              styles.tabText,
-                              styles.checklistPanelTabText,
-                              active && styles.tabTextActive,
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {item.label}
-                          </Text>
-                          {approved ? (
-                            <View style={[styles.tabBadge, styles.checklistPanelTabBadge, styles.tabApprovedBadge]}>
-                              <Text style={[styles.tabBadgeText, styles.checklistPanelTabBadgeText, styles.tabApprovedBadgeText]}>
-                                Approved
-                              </Text>
-                            </View>
-                          ) : missingCount > 0 ? (
-                            <View
-                              style={[
-                                styles.tabBadge,
-                                styles.checklistPanelTabBadge,
-                                active && styles.tabBadgeActive,
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  styles.tabBadgeText,
-                                  styles.checklistPanelTabBadgeText,
-                                  active && styles.tabBadgeTextActive,
-                                ]}
-                              >
-                                {missingCount}
-                              </Text>
-                            </View>
-                          ) : null}
-                        </Pressable>
-                      );
-                    })}
+                    {renderChecklistPanelTabs()}
                   </ScrollView>
+                  )}
+                  {/* Phone: the headline below already says what's missing; tabs get the width. */}
+                  {phoneDetail ? null : (
                   <View style={styles.checklistToolbarActions}>
                     <View style={[styles.missingNavPill, styles.checklistUploadPill]}>
                       <Text style={[styles.missingNavLabel, styles.checklistUploadPillText]} numberOfLines={1}>
@@ -4324,6 +4611,7 @@ export function ComplianceDocumentWorkspace({
                       </Text>
                     </View>
                   </View>
+                  )}
                 </View>
                 {showEntityUnassigned ? (
                   <View style={styles.missingHeader}>
@@ -4371,8 +4659,9 @@ export function ComplianceDocumentWorkspace({
                       </View>
                     ) : null}
                     <ScrollView
-                      style={styles.checklistDocs}
+                      style={[styles.checklistDocs, phoneDetail && styles.phoneNatural]}
                       contentContainerStyle={styles.checklistDocsContent}
+                      scrollEnabled={!phoneDetail}
                       nestedScrollEnabled
                       showsVerticalScrollIndicator
                       keyboardShouldPersistTaps="handled"
@@ -4399,6 +4688,7 @@ export function ComplianceDocumentWorkspace({
                           })
                         : firstRowPerType(listRows).map(renderChecklistRow)}
                     </ScrollView>
+                    {phoneDetail ? null : (
                     <View
                       style={styles.checklistListGapArt}
                       pointerEvents="none"
@@ -4407,6 +4697,7 @@ export function ComplianceDocumentWorkspace({
                     >
                       <ComplianceChecklistGapArt />
                     </View>
+                    )}
                     <View style={styles.checklistPreviewActionsSection}>
                       <View style={styles.checklistPreviewActionsHeader}>
                         <Text style={styles.checklistPreviewActionsLabel}>PREVIEW</Text>
@@ -4614,7 +4905,9 @@ export function ComplianceDocumentWorkspace({
                               if (resubmitBlockedByMissingDocs) {
                                 alertMessage(
                                   "Upload missing documents first",
-                                  "Some required Trip, Vehicle or Driver documents are missing or rejected. Upload or replace them, then Resubmit.",
+                                  resubmitBlockingDocsLabel
+                                    ? `Upload or replace: ${resubmitBlockingDocsLabel}. Then Resubmit.`
+                                    : "Some required Trip, Vehicle or Driver documents are missing or rejected. Upload or replace them, then Resubmit.",
                                 );
                                 return;
                               }
@@ -4636,7 +4929,12 @@ export function ComplianceDocumentWorkspace({
                 )}
               </View>
 
-              <View style={[styles.checklistPreviewPane, stacked && styles.checklistPreviewPaneStacked]}>
+              <View
+                style={[
+                  styles.checklistPreviewPane,
+                  stacked && (phoneDetail ? styles.checklistPreviewPanePhone : styles.checklistPreviewPaneStacked),
+                ]}
+              >
                 {(() => {
                   const previewingDocument =
                     checklistPreviewMode === "document";
@@ -4978,6 +5276,8 @@ export function ComplianceDocumentWorkspace({
         ) : null}
       </View>
       )}
+      </PhoneDetailFrame>
+      )}
       <DocumentScreen
         visible={screenOpen}
         uri={previewUrl}
@@ -5056,7 +5356,10 @@ export function ComplianceDocumentWorkspace({
           return {
             key: row.key,
             label: fileRows.length > 1 ? `${label} · ${index + 1}` : label,
-            fileName: row.doc?.file_name?.trim() || (row.declineReason ? "" : row.entityDoc?.notes?.trim()) || "",
+            // Typed e-way details are stored as eway-fields.json; show what it is, not the file.
+            fileName: isEwayBillMetaPath(row.doc?.storage_path, row.doc?.file_name)
+              ? "Entered details"
+              : row.doc?.file_name?.trim() || (row.declineReason ? "" : row.entityDoc?.notes?.trim()) || "",
             statusLabel: row.declineReason
               ? `${COMPLIANCE_STATUS_META[row.status].label}: ${row.declineReason}`
               : COMPLIANCE_STATUS_META[row.status].label,
@@ -5225,24 +5528,16 @@ export function ComplianceDocumentWorkspace({
           setRejectOpen(false);
         }}
       />
-      <ComplianceInputModal
+      <ExpiryDatePickerModal
         visible={expiryPrompt != null}
         title={`Expiry date — ${expiryPrompt ? labelForDocType(expiryPrompt.docType) : "Document"}`}
-        fields={[
-          {
-            key: "expiry",
-            label: "Expiry date (YYYY-MM-DD)",
-            placeholder: "2027-03-15",
-            required: true,
-          },
-        ]}
         confirmLabel="Continue"
         onCancel={() => {
           expiryPrompt?.resolve(null);
           setExpiryPrompt(null);
         }}
-        onSubmit={(values) => {
-          expiryPrompt?.resolve(values.expiry ?? null);
+        onConfirm={(iso) => {
+          expiryPrompt?.resolve(iso);
           setExpiryPrompt(null);
         }}
       />
@@ -6720,6 +7015,42 @@ const styles = StyleSheet.create({
   },
   listPaneStacked: { width: "100%", maxWidth: "100%", height: "42%", maxHeight: "42%" },
 
+  /** Phone (`phoneFlow`) document pane: back bar + one scroll, panes at natural height. */
+  phoneDetail: { flex: 1, minHeight: 0, width: "100%", gap: 8 },
+  phoneBackBar: {
+    flexShrink: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 48,
+    paddingLeft: 4,
+    paddingRight: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+    backgroundColor: Theme.cardWhite,
+  },
+  phoneBackBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    minHeight: 44,
+    minWidth: 44,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+  },
+  phoneBackBtnPressed: { opacity: 0.7 },
+  phoneBackText: { fontSize: 14, fontWeight: "600", color: Theme.textPrimary },
+  phoneBackTitleWrap: { flex: 1, minWidth: 0, alignItems: "flex-end" },
+  phoneBackTitle: { fontSize: 14, fontWeight: "700", color: Theme.textPrimary },
+  phoneBackSubtitle: { fontSize: 12, color: Theme.textSecondary },
+  phoneDetailScroll: { flex: 1, minHeight: 0 },
+  phoneDetailContent: { paddingBottom: 12 },
+  /** Size to content inside the phone scroll (overrides `flex: 1` panes). */
+  phoneNatural: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: "auto" },
+  checklistListPanePhone: { width: "100%", maxWidth: "100%", flexShrink: 0 },
+  checklistPreviewPanePhone: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: "auto", height: 460 },
+
   /** Debit control: no checklist / preview, the trip list takes the row. */
   listPaneFull: { flex: 1, width: "auto", maxWidth: "100%", height: "100%", maxHeight: "100%" },
   listEmpty: {
@@ -7258,6 +7589,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     gap: 8,
   },
+  /** Header + entries share one centred column; wide web screens stop stretching the cards. */
+  typedPreviewColumn: {
+    flex: 1,
+    minHeight: 0,
+    width: "100%",
+    maxWidth: 960,
+    alignSelf: "center",
+    gap: 8,
+  },
   typedPreviewScrollDark: {
     backgroundColor: Theme.darkSurface,
   },
@@ -7266,6 +7606,8 @@ const styles = StyleSheet.create({
   },
   typedPreviewHeader: {
     flexShrink: 0,
+    // Same right edge as the entry cards (typedPreviewScrollContent leaves 18 for the rail).
+    marginRight: 18,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
@@ -7330,6 +7672,8 @@ const styles = StyleSheet.create({
   typedPreviewRow: {
     flexGrow: 0,
     flexShrink: 0,
+    // Single column: space between stacked entry cards (grid rows use their own gap).
+    gap: 8,
   },
   typedPreviewRowGrid: {
     flexDirection: "row",
@@ -7391,7 +7735,6 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: "700",
     color: Theme.textPrimaryDark,
-    fontVariant: ["tabular-nums"],
   },
   typedFieldRow: {
     flexDirection: "row",
@@ -7417,6 +7760,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
     color: Theme.textMuted,
   },
+  typedValueTabular: { fontVariant: ["tabular-nums"] },
   typedFieldValue: {
     flexGrow: 1,
     flexShrink: 1,
@@ -7426,7 +7770,6 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     color: Theme.textPrimaryDark,
     textAlign: "right",
-    fontVariant: ["tabular-nums"],
     ...(Platform.OS === "web" ? ({ whiteSpace: "nowrap" } as unknown as TextStyle) : null),
   },
   docSideNavOverlayLeft: {
@@ -7575,6 +7918,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
     backgroundColor: Theme.cardWhite,
+  },
+  /** Phone document pane: tabs wrap onto a second row instead of a side scroll. */
+  checklistPanelTabsWrapPhone: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 6,
   },
   checklistPanelTabs: {
     flexDirection: "row",

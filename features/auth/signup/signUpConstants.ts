@@ -1,6 +1,6 @@
 import type { OperatingModel } from '@/features/auth/services/auth.service';
 
-export type BusinessType = 'SOLE_PROPRIETOR' | 'PARTNERSHIP' | 'PVT_LTD' | 'LLP' | 'OPC' | 'OTHER';
+export type BusinessType = 'INDIVIDUAL' | 'SOLE_PROPRIETOR' | 'PARTNERSHIP' | 'PVT_LTD' | 'LLP' | 'OPC' | 'OTHER';
 export type EmployeeCount = '1-10' | '11-50' | '51-200' | '201-500' | '500+';
 export type FleetSize = '1-5' | '6-15' | '16-30' | '31-50' | '50+';
 export type MonthlyVolume = '<50' | '50-200' | '200-500' | '500-1000' | '1000+';
@@ -86,6 +86,7 @@ export const OPERATING_MODELS: { value: OperatingModel; label: string; sub: stri
 ];
 
 export const BUSINESS_TYPES: { value: BusinessType; label: string }[] = [
+  { value: 'INDIVIDUAL', label: 'Individual' },
   { value: 'SOLE_PROPRIETOR', label: 'Sole Proprietor' },
   { value: 'PARTNERSHIP', label: 'Partnership' },
   { value: 'PVT_LTD', label: 'Pvt. Limited' },

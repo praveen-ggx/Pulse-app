@@ -25,6 +25,7 @@ import {
   partyKeypadFlowStyles as flow,
 } from "@/components/party/keypad/partyKeypadFlowStyles";
 import { KeypadDisplayValueWithCaret } from "@/components/party/keypad/KeypadDisplayValueWithCaret";
+import type { IndianVehicleKeyboardKind } from "@/lib/indianVehicleInput.util";
 import {
   appendIndianDlChar,
   applyIndianDlKeystroke,
@@ -52,7 +53,11 @@ const SEGMENTS: Record<IndianDlFormat, readonly { label: string; doneAt: number 
     { label: "0000", doneAt: 9 },
     { label: "0000000", doneAt: 16 },
   ],
+  // Old / smart cards vary in shape — no fixed mask.
+  other: [],
 };
+
+const OTHER_DL_MAX_LENGTH = 18;
 
 export interface IndianDrivingLicenseKeypadFlowProps {
   value: string;
@@ -72,13 +77,18 @@ export const IndianDrivingLicenseKeypadFlow = memo(
       () => detectIndianDlFormat(value) ?? "standard",
     );
     const normLen = getIndianDlNormalizedLength(value);
-    const keyboardKind = getIndianDlKeyboardKind(normLen, format);
+    const isOther = format === "other";
+    // "other" mixes letters and digits freely, so the user switches with ABC/123.
+    const [otherKind, setOtherKind] = useState<IndianVehicleKeyboardKind>("numbers");
+    const keyboardKind = isOther
+      ? otherKind
+      : getIndianDlKeyboardKind(normLen, format);
     const formatHint = useMemo(
       () => getIndianDlFormatHint(normLen, format),
       [normLen, format],
     );
     const displayValue = value.trim();
-    const showCursor = normLen < INDIAN_DL_MAX_LENGTH;
+    const showCursor = normLen < (isOther ? OTHER_DL_MAX_LENGTH : INDIAN_DL_MAX_LENGTH);
     const inputPlatform = useInputPlatform();
     const { width } = useWindowDimensions();
     const isDesktopWeb = Platform.OS === "web" && inputPlatform === "desktop";
@@ -109,6 +119,7 @@ export const IndianDrivingLicenseKeypadFlow = memo(
     useIndianVehiclePhysicalKeypad({
       enabled: isDesktopWeb,
       kind: keyboardKind,
+      allowed: isOther ? { letters: true, digits: true } : undefined,
       onKey: handleKey,
     });
 
@@ -189,6 +200,10 @@ export const IndianDrivingLicenseKeypadFlow = memo(
               kind={keyboardKind}
               onKey={handleKey}
               normalizedLength={Math.min(normLen, 1)}
+              canToggleMode={isOther}
+              onToggleMode={() =>
+                setOtherKind((k) => (k === "letters" ? "numbers" : "letters"))
+              }
             />
           </View>
         )}

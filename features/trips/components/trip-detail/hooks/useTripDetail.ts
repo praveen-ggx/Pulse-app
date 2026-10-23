@@ -3,6 +3,7 @@
  * Extracts all state, data loading, side effects, and computed values
  * from the 5k-line monolith so the screen component stays thin.
  */
+import { useOptionalActiveWorkspace } from "@/contexts/ActiveWorkspaceContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
@@ -135,7 +136,7 @@ import type { ReassignCompletedMeta } from "../../reassign/reassign.types";
 
 export type { ReassignCompletedMeta };
 import type { TripDetailTab } from "../TripDetailFinanceView";
-import { isPdfTripDoc, joinInvoiceNumbers, readStoredInvoiceNumber, TRIP_DETAILS_TYPE_HINT, type TripDetailsSlot, type TripDocFile, type TripDocItem } from "../tripDocTypes";
+import { isPdfTripDoc, joinInvoiceNumbers, readStoredInvoiceNumber, TRIP_DETAILS_TYPE_HINT, TRIP_DETAILS_TYPE_HINT_NO_BANK, type TripDetailsSlot, type TripDocFile, type TripDocItem } from "../tripDocTypes";
 import {
   isNarrowWebViewport,
   shouldFetchTripSubcontractsOnDetail,
@@ -314,6 +315,8 @@ export interface VehiclePreviewDoc {
   expiryDate?: string | null;
   /** entity_documents id for an added (extra) file. */
   documentId?: string;
+  /** Compliance type (rc, insurance, …) so one type's files can be previewed together. */
+  docType?: string;
 }
 
 /** One extra vehicle / driver file from entity_documents (display only). */
@@ -467,6 +470,8 @@ export function useTripDetail({
   const { t } = useLanguage();
   const { profile, user } = useAuth();
   const { currentOrganization } = useOrganization();
+  // Ground Ops never upload or see bank details (trip Bank Docs or supplier banking).
+  const hideBankDocs = useOptionalActiveWorkspace()?.memberPlatformRole === "ground_ops";
   const queryClient = useQueryClient();
   const { state: hardCopyPod } = useTripHardCopyPodQuery(tripId);
   void onBack;
@@ -1253,6 +1258,7 @@ export function useTripDetail({
             status: "Uploaded" as const,
             storagePath,
             expiryDate: vDoc?.expiryDate ?? null,
+            docType,
           }
         : {
             id: `vehicle-${docType}`,
@@ -1280,6 +1286,7 @@ export function useTripDetail({
       storagePath: extra.storagePath,
       expiryDate: extra.expiryDate ?? null,
       documentId: extra.id,
+      docType: extra.docType,
     }));
     return [...complianceDocs, ...extraDocs, ...entityDocs];
   }, [vehicleDocs, vehicleEntityExtras]);
@@ -1296,6 +1303,7 @@ export function useTripDetail({
             status: "Uploaded" as const,
             storagePath,
             documentId: row?.id,
+            docType,
           }
         : {
             id: `driver-${docType}`,
@@ -1311,6 +1319,7 @@ export function useTripDetail({
       status: "Uploaded" as const,
       storagePath: extra.storagePath,
       documentId: extra.id,
+      docType: extra.docType,
     }));
     return [...slots, ...extras];
   }, [driverIdentityDocs, driverIdentityExtras]);
@@ -1363,7 +1372,7 @@ export function useTripDetail({
           { id: "other", label: "Other Documents", pendingType: "PDF", category: "trip" },
         );
         const bankSlot = buildSlotCard(
-          tripDocuments.filter((d) => d.document_type === "bank_docs"),
+          hideBankDocs ? [] : tripDocuments.filter((d) => d.document_type === "bank_docs"),
           { id: "bank_docs", label: "Bank Docs", pendingType: "PDF", category: "trip" },
         );
         const tag = (card: TripDocItem, slotType: TripDetailsSlot): TripDocFile[] =>
@@ -1380,12 +1389,14 @@ export function useTripDetail({
           invoiceSlot.status !== "Pending" ? "INVOICE" : null,
           memoSlot.status !== "Pending" ? "MEMO" : null,
           otherSlot.status !== "Pending" ? "OTHER" : null,
-          bankSlot.status !== "Pending" ? "BANK" : null,
+          !hideBankDocs && bankSlot.status !== "Pending" ? "BANK" : null,
         ].filter((label): label is string => !!label);
         return {
           id: "trip-details",
           label: "Trip Details",
-          type: onFile.join(" · ") || TRIP_DETAILS_TYPE_HINT,
+          type:
+            onFile.join(" · ") ||
+            (hideBankDocs ? TRIP_DETAILS_TYPE_HINT_NO_BANK : TRIP_DETAILS_TYPE_HINT),
           status: files.length > 0 ? ("Uploaded" as const) : ("Pending" as const),
           storagePath: lrSlot.storagePath ?? files[0]?.storagePath,
           documentId: lrSlot.documentId,
@@ -1460,6 +1471,7 @@ export function useTripDetail({
     vehicleDocs,
     driverIdentityPreviewDocs,
     driverIdentityDocs,
+    hideBankDocs,
   ]);
 
   const docPreviewStoragePath = useMemo(() => {
@@ -3293,11 +3305,13 @@ export function useTripDetail({
     let isActive = true;
     setDocPreviewLoading(true);
 
-    const signGallery = isVehicleGalleryDoc
+    // Bucket follows the file's owner: per-type vehicle / driver galleries carry the
+    // same category as the whole-card gallery.
+    const signGallery = isVehicleGalleryDoc || selectedDoc?.category === "vehicle"
       ? getVehicleDocumentViewUrls(
           galleryDocs.map((doc) => doc.storagePath!),
         )
-      : isDriverIdentityGalleryDoc
+      : isDriverIdentityGalleryDoc || selectedDoc?.category === "driver_identity"
         ? Promise.all(
             galleryDocs.map(async (doc) => {
               const { url } = await getComplianceDocumentSignedUrl(doc.storagePath!);
@@ -3331,7 +3345,7 @@ export function useTripDetail({
     return () => {
       isActive = false;
     };
-  }, [galleryStorageKey, isGalleryPreviewDoc, isVehicleGalleryDoc, isDriverIdentityGalleryDoc, galleryPreviewDocs]);
+  }, [galleryStorageKey, isGalleryPreviewDoc, isVehicleGalleryDoc, isDriverIdentityGalleryDoc, galleryPreviewDocs, selectedDoc?.category]);
 
   useEffect(() => {
     if (!selectedDoc) {
@@ -3753,6 +3767,7 @@ export function useTripDetail({
     upsertTripDocument,
     computedTripDocs,
     vehiclePreviewDocs,
+    driverIdentityPreviewDocs,
     vehiclePreviewUrls,
     vehiclePreviewIndex,
     setVehiclePreviewIndex,

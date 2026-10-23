@@ -17,6 +17,7 @@ import { isVerificationFrozen } from '@/types/organization';
  * OPC / OTHER have no matrix equivalent and stay unset.
  */
 export const BUSINESS_TYPE_TO_REGISTRATION: Record<string, RegistrationType> = {
+  INDIVIDUAL: 'individual',
   SOLE_PROPRIETOR: 'proprietorship',
   PARTNERSHIP: 'partnership',
   PVT_LTD: 'pvt_ltd',
@@ -38,6 +39,19 @@ export function effectiveKycRegistrationType(
 ): RegistrationType | null {
   if (!kyc) return null;
   return kyc.registration_type ?? registrationTypeFromBusinessType(kyc.business_type);
+}
+
+/** Individuals (e.g. a single truck owner) are never asked for GST. */
+export function registrationTypeSkipsGst(
+  registrationType: RegistrationType | null | undefined,
+): boolean {
+  return registrationType === 'individual';
+}
+
+/** GSTIN + GST certificate required: not marked "not registered" and not an individual. */
+export function kycGstRequired(kyc: WorkspaceKyc | null | undefined): boolean {
+  if (!kyc) return true;
+  return !kyc.gst_not_applicable && !registrationTypeSkipsGst(effectiveKycRegistrationType(kyc));
 }
 
 function isWorkspaceKyc(
@@ -110,15 +124,17 @@ export function kycRequiredDocumentDefs(
     registrationType = registrationTypeOrKyc ?? null;
     skipGst = !!gstNotApplicable;
   }
+  if (registrationTypeSkipsGst(registrationType)) skipGst = true;
 
+  const isIndividual = registrationType === 'individual';
   const required: OrganizationKycDocDefinition[] = [
     def('pan_card', {
-      label: 'Business PAN',
+      label: isIndividual ? 'PAN card' : 'Business PAN',
       hint: 'PAN card',
     }),
     def('address_proof', {
-      label: 'Business Address Proof',
-      hint: 'Registered office / address proof',
+      label: isIndividual ? 'Address proof' : 'Business Address Proof',
+      hint: isIndividual ? 'Home or office address proof' : 'Registered office / address proof',
     }),
   ];
 
@@ -132,6 +148,14 @@ export function kycRequiredDocumentDefs(
   }
 
   switch (registrationType) {
+    case 'individual':
+      required.push(
+        def('aadhaar_card', {
+          label: 'Aadhaar card',
+          hint: 'Front and back of the Aadhaar card (masked Aadhaar is fine)',
+        }),
+      );
+      break;
     case 'proprietorship':
       if (skipGst) {
         required.push(
@@ -258,7 +282,7 @@ export function isKycTaxFieldRequired(
   gstNotApplicable = false,
 ): boolean {
   if (field === 'business_pan') return true;
-  if (field === 'gstin') return !gstNotApplicable;
+  if (field === 'gstin') return !gstNotApplicable && !registrationTypeSkipsGst(registrationType);
   if (field === 'cin') return registrationTypeRequiresCin(registrationType);
   return false;
 }
@@ -292,7 +316,7 @@ export function buildKycRequirementProfile(
   kyc: WorkspaceKyc | null,
 ): KycRequirementProfile {
   const registrationType = effectiveKycRegistrationType(kyc);
-  const gstRequired = !kyc?.gst_not_applicable;
+  const gstRequired = kycGstRequired(kyc);
   const cinRequired = registrationTypeRequiresCin(registrationType);
   const requiredTaxFields: KycTaxField[] = ['business_pan'];
   if (gstRequired) requiredTaxFields.unshift('gstin');
@@ -319,7 +343,7 @@ export function kycTaxIdentityCaption(
 /** Core tax identifiers required before submit. GSTIN skipped when gst_not_applicable. */
 export function kycTaxIdentifiersComplete(kyc: WorkspaceKyc | null): boolean {
   if (!kyc?.business_pan?.trim()) return false;
-  if (kyc.gst_not_applicable) return true;
+  if (!kycGstRequired(kyc)) return true;
   return !!kyc.gstin?.trim();
 }
 
@@ -362,7 +386,7 @@ export function listMissingKycRequirements(
   const resolvedType = effectiveKycRegistrationType(kyc);
   if (!resolvedType) fields.push('registration_type');
   if (!kyc.business_pan?.trim()) fields.push('business_pan');
-  if (!kyc.gst_not_applicable && !kyc.gstin?.trim()) fields.push('gstin');
+  if (kycGstRequired(kyc) && !kyc.gstin?.trim()) fields.push('gstin');
   if (registrationTypeRequiresCin(resolvedType) && !kyc.cin?.trim()) {
     fields.push('cin');
   }
@@ -463,7 +487,7 @@ export function kycTaxIdentityCounts(kyc: WorkspaceKyc | null): {
   if (!kyc) return { done: 0, total: 2, remaining: 2 };
   const needsCin = registrationTypeRequiresCin(effectiveKycRegistrationType(kyc));
   const checks = [
-    !!kyc.gst_not_applicable || !!kyc.gstin?.trim(),
+    !kycGstRequired(kyc) || !!kyc.gstin?.trim(),
     !!kyc.business_pan?.trim(),
     ...(needsCin ? [!!kyc.cin?.trim()] : []),
   ];
@@ -530,7 +554,7 @@ export function kycVerificationProgressPct(
   if (!kyc) return 0;
   const resolvedType = effectiveKycRegistrationType(kyc);
   const checks = [
-    kyc.gst_not_applicable || !!kyc.gstin?.trim(),
+    !kycGstRequired(kyc) || !!kyc.gstin?.trim(),
     !!kyc.business_pan?.trim(),
     !registrationTypeRequiresCin(resolvedType) || !!kyc.cin?.trim(),
     !!resolvedType,
@@ -542,6 +566,7 @@ export function kycVerificationProgressPct(
 }
 
 export const REGISTRATION_TYPE_OPTIONS = [
+  { value: 'individual' as const, label: 'Individual' },
   { value: 'proprietorship' as const, label: 'Proprietorship' },
   { value: 'llp' as const, label: 'LLP' },
   { value: 'pvt_ltd' as const, label: 'Private Limited' },
@@ -578,6 +603,8 @@ export function kycStructureRequirementsHint(
   const base = 'PAN card, address proof, and GSTIN + GST certificate (or mark GST as not applicable)';
 
   switch (registrationType) {
+    case 'individual':
+      return `For ${label}: PAN card, Aadhaar card, and address proof. GST is not required.`;
     case 'proprietorship':
       return gstNotApplicable
         ? `For ${label}: ${base} — and because GST is skipped, also one activity proof (Udyam or IEC).`

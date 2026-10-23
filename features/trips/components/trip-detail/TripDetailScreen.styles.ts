@@ -3453,6 +3453,20 @@ export const neoStyles = StyleSheet.create({
     marginTop: 0,
     justifyContent: "center",
   },
+  /** Phone half-width cards: Preview above Add, each full card width. */
+  vaultBtnRowStacked: {
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: 6,
+  },
+  vaultBtnStacked: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: "auto",
+    width: "100%",
+    minHeight: 44,
+    paddingHorizontal: 8,
+  },
   vaultBtnUpload: {
     backgroundColor: Theme.buttonPrimary,
     borderWidth: Theme.buttonPrimaryBorderWidth,

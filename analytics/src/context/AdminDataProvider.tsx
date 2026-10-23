@@ -189,6 +189,7 @@ function mapEntityType(r: string): Organization['entity_type'] {
     case 'llp':        return 'LLP';
     case 'public_ltd': return 'Public Ltd';
     case 'partnership':return 'Partnership';
+    case 'individual': return 'Individual';
     default:           return 'Proprietorship';
   }
 }

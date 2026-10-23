@@ -1,5 +1,6 @@
 /**
- * Compact mobile bottom navigation — flat five-tab row with underline selection.
+ * Compact mobile bottom navigation — flat tab row with underline selection.
+ * Each slot follows the same member access as the desktop top nav.
  */
 import { memo, useCallback } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
@@ -7,6 +8,7 @@ import {
   DollarSign,
   Home,
   MessageSquare,
+  ShieldCheck,
   Signpost,
   Truck,
   User,
@@ -35,6 +37,8 @@ export type PulseBottomTabBarProps = {
   /** Per-domain tab visibility (functional member roles). Omitted → all visible. */
   visibility?: DemoTabVisibility;
   isChatRoute: boolean;
+  /** `sales.chat` grant — without it the Chat slot is a dead end, so it is hidden. */
+  showChat?: boolean;
   isCompactMobile: boolean;
   footerPadBottom: number;
   messageUnreadCount: number;
@@ -71,6 +75,7 @@ function PulseBottomTabBarInner({
   activeTab,
   visibility,
   isChatRoute,
+  showChat = true,
   isCompactMobile,
   footerPadBottom,
   messageUnreadCount,
@@ -88,6 +93,7 @@ function PulseBottomTabBarInner({
   const showTrips = visibility?.trips ?? true;
   const showNetwork = visibility?.network ?? true;
   const showLoadCenter = visibility?.loadCenter ?? true;
+  const showCompliance = visibility?.compliance ?? true;
 
   const switchTab = useCallback(
     (tab: DemoTabId) => {
@@ -192,20 +198,37 @@ function PulseBottomTabBarInner({
             }
           />
         ) : null}
-        <PulseBottomTabSlot
-          label="Chat"
-          active={isChatRoute}
-          badgeCount={messageUnreadCount}
-          compact={isCompactMobile}
-          onPressIn={onOpenChatWarm}
-          onPress={() => {
-            onCollapseNetworkDock();
-            onOpenChat();
-          }}
-          icon={
-            <TabOutlineIcon Icon={MessageSquare} active={isChatRoute} size={iconSize} />
-          }
-        />
+        {showCompliance ? (
+          <PulseBottomTabSlot
+            label="Compliance"
+            active={activeTab === 'compliance'}
+            compact={isCompactMobile}
+            onPress={() => switchTab('compliance')}
+            icon={
+              <TabOutlineIcon
+                Icon={ShieldCheck}
+                active={activeTab === 'compliance'}
+                size={iconSize}
+              />
+            }
+          />
+        ) : null}
+        {showChat ? (
+          <PulseBottomTabSlot
+            label="Chat"
+            active={isChatRoute}
+            badgeCount={messageUnreadCount}
+            compact={isCompactMobile}
+            onPressIn={onOpenChatWarm}
+            onPress={() => {
+              onCollapseNetworkDock();
+              onOpenChat();
+            }}
+            icon={
+              <TabOutlineIcon Icon={MessageSquare} active={isChatRoute} size={iconSize} />
+            }
+          />
+        ) : null}
         <PulseBottomTabSlot
           label="Profile"
           active={false}
@@ -225,7 +248,9 @@ function propsEqual(prev: PulseBottomTabBarProps, next: PulseBottomTabBarProps):
     prev.visibility?.trips === next.visibility?.trips &&
     prev.visibility?.network === next.visibility?.network &&
     prev.visibility?.loadCenter === next.visibility?.loadCenter &&
+    prev.visibility?.compliance === next.visibility?.compliance &&
     prev.isChatRoute === next.isChatRoute &&
+    prev.showChat === next.showChat &&
     prev.isCompactMobile === next.isCompactMobile &&
     prev.footerPadBottom === next.footerPadBottom &&
     prev.messageUnreadCount === next.messageUnreadCount &&

@@ -8,6 +8,7 @@ export type OrganizationKycDocType =
   | 'incorporation_certificate'
   | 'partnership_deed'
   | 'llp_agreement'
+  | 'aadhaar_card'
   | 'other';
 
 export type OrganizationKycDocStatus = 'pending' | 'verified' | 'rejected' | 'expired';
@@ -102,6 +103,7 @@ export const ORG_KYC_DOC_LABELS: Record<OrganizationKycDocType, string> = {
   incorporation_certificate: 'Incorporation certificate',
   partnership_deed: 'Partnership deed',
   llp_agreement: 'LLP agreement',
+  aadhaar_card: 'Aadhaar card',
   other: 'Other',
 };
 

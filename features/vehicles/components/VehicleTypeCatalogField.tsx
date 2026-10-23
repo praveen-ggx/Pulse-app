@@ -12,6 +12,7 @@ import { ChevronRight } from "lucide-react-native";
 
 import Theme from "@/constants/Theme";
 import { VehicleTypeCatalogSheet } from "@/features/vehicles/components/VehicleTypeCatalogSheet";
+import { formatSelectedVehicleTypeLabel } from "@/features/vehicles/utils/vehicleTypeCatalog.model";
 
 type Props = {
   /** Stored vehicle type ("Open 20 Feet" or a legacy free-text value). */
@@ -41,6 +42,7 @@ export function VehicleTypeCatalogField({
 }: Props) {
   const [open, setOpen] = useState(false);
   const hasValue = value.trim().length > 0;
+  const selectedLabel = hasValue ? formatSelectedVehicleTypeLabel(value) : placeholder;
 
   return (
     <>
@@ -55,13 +57,13 @@ export function VehicleTypeCatalogField({
         onPress={() => setOpen(true)}
         disabled={disabled}
         accessibilityRole="button"
-        accessibilityLabel={hasValue ? `Vehicle type ${value}` : placeholder}
+        accessibilityLabel={hasValue ? `Vehicle type ${selectedLabel}` : placeholder}
       >
         <Text
           style={[styles.text, textStyle, !hasValue && styles.placeholder]}
-          numberOfLines={1}
+          numberOfLines={2}
         >
-          {hasValue ? value : placeholder}
+          {selectedLabel}
         </Text>
         <ChevronRight size={18} color={Theme.iconPrimary} />
       </Pressable>

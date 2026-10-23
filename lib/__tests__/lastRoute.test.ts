@@ -1,4 +1,10 @@
-import { resolveRestorableDispatcherRoute, resolveRestorableFullPath } from '@/lib/lastRoute';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+import {
+  forgetLastFullPath,
+  resolveRestorableDispatcherRoute,
+  resolveRestorableFullPath,
+} from '@/lib/lastRoute';
 
 describe('resolveRestorableFullPath', () => {
   it('keeps trip detail (and query) so refresh can restore the same page', () => {
@@ -24,5 +30,26 @@ describe('resolveRestorableDispatcherRoute', () => {
   it('still maps tab pathnames to dispatcher tabs', () => {
     expect(resolveRestorableDispatcherRoute('/trips')).toBe('/(tabs)/trips');
     expect(resolveRestorableDispatcherRoute('/trip/abc')).toBeNull();
+  });
+});
+
+describe('forgetLastFullPath', () => {
+  const storage = AsyncStorage as unknown as { getItem: jest.Mock; removeItem: jest.Mock };
+
+  beforeEach(() => {
+    storage.getItem.mockReset();
+    storage.removeItem.mockClear();
+  });
+
+  it('clears the stored trip (any query) so cold start falls back to the last tab', async () => {
+    storage.getItem.mockResolvedValue('/trip/abc?tab=docs');
+    await forgetLastFullPath('/trip/abc');
+    expect(storage.removeItem).toHaveBeenCalledWith('app:last_full_path');
+  });
+
+  it('keeps a different stored screen', async () => {
+    storage.getItem.mockResolvedValue('/trip/other');
+    await forgetLastFullPath('/trip/abc');
+    expect(storage.removeItem).not.toHaveBeenCalled();
   });
 });

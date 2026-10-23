@@ -868,6 +868,7 @@ export function DemoTabBar({
       activeTab={activeTab}
       visibility={visibility}
       isChatRoute={isChatRoute}
+      showChat={canOpenChat}
       isCompactMobile={isCompactMobile}
       footerPadBottom={footerPadBottom}
       messageUnreadCount={messageUnreadCount}

@@ -9,6 +9,7 @@
  *  4. Paginate only the visible list (UI), not the totals query
  */
 import { useAuth } from "@/contexts/AuthContext";
+import { useOptionalActiveWorkspace } from "@/contexts/ActiveWorkspaceContext";
 import { useOptionalOrganization } from "@/contexts/OrganizationContext";
 import {
   changedTripIds,
@@ -164,9 +165,11 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
   const qc = useQueryClient();
   const tripsQuery = useComplianceTripCatalogQuery(orgId || null);
 
+  // Ground Ops also see Assigned trips (reached pickup / upload before loading).
+  const includeAssigned = useOptionalActiveWorkspace()?.memberPlatformRole === "ground_ops";
   const pipelineTrips = useMemo(
-    () => selectCompliancePipelineTrips(tripsQuery.data ?? []),
-    [tripsQuery.data],
+    () => selectCompliancePipelineTrips(tripsQuery.data ?? [], { includeAssigned }),
+    [tripsQuery.data, includeAssigned],
   );
   const pipelineTripsRef = useRef<TripRow[]>(pipelineTrips);
   pipelineTripsRef.current = pipelineTrips;

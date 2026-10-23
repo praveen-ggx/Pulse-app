@@ -11,6 +11,7 @@
 import type { DocumentType } from '@/types/admin';
 
 export type RegistrationTypeDb =
+  | 'individual'
   | 'proprietorship'
   | 'partnership'
   | 'pvt_ltd'
@@ -45,7 +46,8 @@ export function requiredKycDocSlots(
 ): RequiredDocSlot[] {
   const slots: RequiredDocSlot[] = [...ALWAYS_BASE];
 
-  if (!gstNotApplicable) {
+  // Individuals are never asked for GST.
+  if (!gstNotApplicable && registrationType !== 'individual') {
     slots.unshift({
       type: 'GST Certificate',
       satisfyWith: ['GST Certificate'],
@@ -54,6 +56,13 @@ export function requiredKycDocSlots(
   }
 
   switch (registrationType) {
+    case 'individual':
+      slots.push({
+        type: 'Aadhaar',
+        satisfyWith: ['Aadhaar'],
+        label: 'Aadhaar card',
+      });
+      break;
     case 'proprietorship':
       if (gstNotApplicable) {
         slots.push({
@@ -128,6 +137,8 @@ export function mapDbDocTypeToAdmin(docType: string): DocumentType {
       return 'MSME / Udyam';
     case 'iec_certificate':
       return 'IEC';
+    case 'aadhaar_card':
+      return 'Aadhaar';
     default:
       return 'Address Proof';
   }

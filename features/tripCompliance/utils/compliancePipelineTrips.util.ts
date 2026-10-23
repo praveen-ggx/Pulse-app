@@ -3,7 +3,9 @@
  *
  * Same trip catalog as `/trips` (`getTripsForOrg` / `useTripsQuery`), then keep
  * only Loading → In Transit → Unloading → Delivered/Completed.
- * Indent / Unassigned / Assigned / cancelled stay out.
+ * Indent / Unassigned / Assigned / cancelled stay out — except for Ground Ops,
+ * who also get Assigned trips (driver set) so they can mark reached pickup and
+ * upload before loading (`includeAssigned`).
  *
  * Uses an explicit status allowlist (no classifyTripMetric fallback) so unknown
  * statuses cannot silently inflate the queue.
@@ -20,6 +22,13 @@ const UNLOADING_OR_DELIVERED_DOCS_STATUSES = new Set([
   "at_destination",
 ]);
 const COMPLETED_STATUSES = new Set(["delivered", "completed", "done"]);
+/** Driver assigned, not yet at pickup — Ground Ops queue only. */
+const ASSIGNED_STATUSES = new Set(["assigned", "draft"]);
+
+export type CompliancePipelineOptions = {
+  /** Ground Ops: also keep Assigned trips that have a driver. */
+  includeAssigned?: boolean;
+};
 
 function normStatus(status: string | null | undefined): string {
   return String(status ?? "")
@@ -47,7 +56,10 @@ export function isPendingDocsInTransitTrip(summary: {
   return !isPendingDocsDeliveredTrip(summary);
 }
 
-export function isComplianceOpsPipelineTrip(trip: TripRow): boolean {
+export function isComplianceOpsPipelineTrip(
+  trip: TripRow,
+  options: CompliancePipelineOptions = {},
+): boolean {
   if (isTripCancelledForHub(trip.status)) return false;
 
   const status = normStatus(trip.status);
@@ -59,6 +71,7 @@ export function isComplianceOpsPipelineTrip(trip: TripRow): boolean {
   if (!hasDriver) return false;
 
   return (
+    (options.includeAssigned === true && ASSIGNED_STATUSES.has(status)) ||
     LOADING_STATUSES.has(status) ||
     IN_TRANSIT_STATUSES.has(status) ||
     UNLOADING_OR_DELIVERED_DOCS_STATUSES.has(status)
@@ -66,6 +79,9 @@ export function isComplianceOpsPipelineTrip(trip: TripRow): boolean {
 }
 
 /** Filter the `/trips` catalog down to the compliance document queue. */
-export function selectCompliancePipelineTrips(trips: readonly TripRow[]): TripRow[] {
-  return trips.filter(isComplianceOpsPipelineTrip);
+export function selectCompliancePipelineTrips(
+  trips: readonly TripRow[],
+  options: CompliancePipelineOptions = {},
+): TripRow[] {
+  return trips.filter((trip) => isComplianceOpsPipelineTrip(trip, options));
 }

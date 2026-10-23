@@ -19,7 +19,7 @@ export type VehicleCategory = {
 
 export const VEHICLE_MAIN_CATEGORIES: VehicleCategory[] = [
   { key: "open", name: "Open", capacityRange: "7.5 - 43 Ton" },
-  { key: "container", name: "Container", capacityRange: "7.5 - 30 Ton" },
+  { key: "container", name: "Container", capacityRange: "7 - 18 Ton" },
   { key: "lcv", name: "LCV", capacityRange: "0.75 - 7 Ton" },
 ];
 
@@ -29,6 +29,7 @@ export const OPEN_VEHICLE_TYPES = [
   "20 Feet",
   "22 Feet",
   "24 Feet",
+  "40 Feet",
   "10 Wheeler",
   "12 Wheeler",
   "14 Wheeler",
@@ -60,6 +61,7 @@ export const OPEN_TYPE_PASSING_TONS: Record<string, string[]> = {
   "14 Wheeler": ["24-25 Ton", "26-28 Ton", "29-30 Ton"],
   "16 Wheeler": ["31-35 Ton"],
   "18 Wheeler": ["36-40 Ton", "41-43 Ton"],
+  "40 Feet": ["20-24 Ton"],
 };
 
 export const CONTAINER_VEHICLE_TYPES = [
@@ -76,8 +78,8 @@ export const CONTAINER_TYPE_PASSING_TONS: Record<string, string[]> = {
   "20 Feet": ["7.5-10 Ton"],
   "22 Feet": ["7.5-10 Ton", "11-15 Ton"],
   "24 Feet": ["7.5-10 Ton", "11-15 Ton"],
-  "32 Feet SXL": ["7.5-10 Ton", "11-15 Ton"],
-  "32 Feet MXL": ["16-20 Ton", "21-25 Ton", "26-30 Ton"],
+  "32 Feet SXL": ["7-9 Ton"],
+  "32 Feet MXL": ["15-18 Ton"],
 };
 
 export const LCV_SUB_CATEGORIES: { key: LcvSubCategoryKey; name: string }[] = [
@@ -114,6 +116,9 @@ export const LCV_CATALOG: Record<
   },
   lcv_container: {
     truckLengths: ["14 Feet", "17 Feet", "19 Feet", "20 Feet", "22 Feet", "24 Feet", "32 Feet SXL"],
+    passingTonsByLength: {
+      "32 Feet SXL": ["7-9 Ton"],
+    },
     passingTonOptions: ["3 Ton"],
   },
 };
@@ -145,12 +150,37 @@ export function passingTonsFor(group: VehicleGroupLabel, type: string | null): s
   if (group === "LCV Open") {
     return LCV_CATALOG.lcv_open.passingTonsByLength?.[type] ?? LCV_CATALOG.lcv_open.passingTonOptions;
   }
-  if (group === "LCV Container") return LCV_CATALOG.lcv_container.passingTonOptions;
+  if (group === "LCV Container") {
+    return (
+      LCV_CATALOG.lcv_container.passingTonsByLength?.[type] ??
+      LCV_CATALOG.lcv_container.passingTonOptions
+    );
+  }
   return [];
 }
 
 export function formatVehicleTypeSelection(sel: VehicleTypeSelection): string {
   return `${sel.group} ${sel.type}`;
+}
+
+/**
+ * Capacity shown inside the closed vehicle-type field. Not part of the stored
+ * name, and not shown on the option tiles.
+ */
+const SELECTED_FIELD_CAPACITY_MT: Record<string, string> = {
+  "Open 40 Feet": "20 MT",
+  "Container 32 Feet SXL": "7-9 MT",
+  "Container 32 Feet MXL": "15-18 MT",
+  "LCV Container 32 Feet SXL": "7-9 MT",
+};
+
+/** Stored catalog value plus its MT capacity, for the selected-field label only. */
+export function formatSelectedVehicleTypeLabel(value: string | null | undefined): string {
+  const raw = (value ?? "").replace(/\s+/g, " ").trim();
+  if (!raw) return "";
+  const capacity = SELECTED_FIELD_CAPACITY_MT[raw];
+  if (!capacity || raw.endsWith(capacity)) return raw;
+  return `${raw} · ${capacity}`;
 }
 
 /** Longest group names first so "LCV Open 8 Feet" isn't read as group "Open". */

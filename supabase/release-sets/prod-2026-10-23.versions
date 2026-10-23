@@ -1,0 +1,16 @@
+# Release 2026-10-23 (Vasanthgogox V1.0.1): the one migration prod is missing.
+# 1. individual_registration_type: KYC "Individual" business type (PR #32, nihas V1.0.14).
+#    Adds enum value individual, upload type aadhaar_card (enum + doc_type check), and re-creates
+#    submit_business_verification (6-arg) and kyc_missing_required_documents with only the
+#    individual branch added. Applied on preprod 2026-10-23 (set individual-registration-type), verified.
+# Additive: enum values, a widened check, two function bodies; no table or data changes.
+#
+# Apply only via: npm run db:push-set -- prod-2026-10-23   (dry-run first; apply needs Vasanth's GO)
+# Never via plain `supabase db push` / `npm run db:push`.
+#
+# Excluded on purpose: nothing else. Prod-only history (pulse_audit_v2_data_detail,
+# populate_public_users_on_signup from pulse-unified-base) is remote-only and untouched.
+#
+# Verify before applying:  npx jest supabase/migrations/__tests__/prodRelease20261023Set.test.ts
+# sha256 923648affa24ffda9afa1aa93186dc88585a962b9d9291fd2b3cff896da6f751  20261022123845_individual_registration_type.sql
+20261022123845

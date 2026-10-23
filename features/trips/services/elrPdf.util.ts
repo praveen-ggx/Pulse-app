@@ -1,3 +1,6 @@
+// Must run before jspdf: its fast-png dep decodes latin1 at load (fails on native).
+import "@/features/trips/utils/latin1TextDecoder.util";
+
 import { jsPDF } from "jspdf";
 
 import type { ElrSnapshot } from "@/features/trips/services/elrSnapshot.util";

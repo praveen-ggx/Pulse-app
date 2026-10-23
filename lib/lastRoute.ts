@@ -186,6 +186,31 @@ export async function getLastFullPath(): Promise<string | null> {
 }
 
 /**
+ * Drop the stored full path when it is `href` (e.g. a trip that no longer
+ * loads), so cold start falls back to the last tab instead of reopening it.
+ */
+export async function forgetLastFullPath(href: string): Promise<void> {
+  const target = resolveRestorableFullPath(href)?.split('?')[0];
+  if (!target) return;
+  // Same screen with any query (`/trip/:id?tab=docs`) counts as a match.
+  const matches = (stored: string | null) => stored != null && stored.split('?')[0] === target;
+  try {
+    if (typeof sessionStorage !== 'undefined' && matches(sessionStorage.getItem(FULL_PATH_KEY))) {
+      sessionStorage.removeItem(FULL_PATH_KEY);
+    }
+  } catch {
+    // Private mode / unavailable
+  }
+  try {
+    if (matches(await AsyncStorage.getItem(FULL_PATH_KEY))) {
+      await AsyncStorage.removeItem(FULL_PATH_KEY);
+    }
+  } catch {
+    // Storage unavailable
+  }
+}
+
+/**
  * Cold-start destination: last full screen, else last tab, else trips.
  */
 export async function getLastRestorableRoute(): Promise<string> {

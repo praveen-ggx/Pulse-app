@@ -567,6 +567,20 @@ export function TripsHubHistoryBentoMetrics({
   );
 
   if (!isDesktop) {
+    // Few tiles (e.g. Ground Ops: POD only) share the width instead of scrolling.
+    if (items.length <= 2) {
+      return (
+        <View style={[styles.hub, style]}>
+          <View style={styles.historyFillRow}>
+            {items.map((item) => (
+              <View key={item.id} style={styles.historyFillCell}>
+                {renderCard(item)}
+              </View>
+            ))}
+          </View>
+        </View>
+      );
+    }
     return (
       <View style={[styles.hub, style]}>
         <ScrollView
@@ -583,9 +597,11 @@ export function TripsHubHistoryBentoMetrics({
   return (
     <View style={[styles.hub, style]}>
       <View style={styles.historyClusters}>
-        <View style={[styles.historyCluster, styles.historyClusterFinance]}>
-          {financeItems.map(renderCard)}
-        </View>
+        {financeItems.length > 0 ? (
+          <View style={[styles.historyCluster, styles.historyClusterFinance]}>
+            {financeItems.map(renderCard)}
+          </View>
+        ) : null}
         {podItems.length > 0 ? (
           <View style={[styles.historyCluster, styles.historyClusterPod]}>
             {podItems.map(renderCard)}
@@ -638,6 +654,16 @@ const styles = StyleSheet.create({
   },
   historyClusterPod: {
     flex: 1,
+  },
+  historyFillRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 6,
+    width: "100%" as const,
+  },
+  historyFillCell: {
+    flex: 1,
+    minWidth: 0,
   },
   mobileScroll: {
     flexDirection: "row",

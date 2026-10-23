@@ -348,6 +348,8 @@ export default function ComplianceScreen() {
   const canViewFinance = canSurface("trip_compliance.finance.view");
   /** Ground Ops upload documents only: no rates, profit, bank details, advance or balance amounts. */
   const hideCommercials = useOptionalActiveWorkspace()?.memberPlatformRole === "ground_ops";
+  /** Ground Ops on a phone: list → trip documents flow, cards only, short chip labels. */
+  const groundOpsPhone = hideCommercials && width < 560;
   const groundOpsWarehouseGap = useGroundOpsWarehouseGap();
   const canTabAdvanceVerification = canSurface("trip_compliance.tab.advance_verification");
   const canTabAdvancePayment = canSurface("trip_compliance.tab.advance_payment");
@@ -458,6 +460,10 @@ export default function ComplianceScreen() {
     setStage(visibleStages.has("pending_for_docs") ? "pending_for_docs" : [...visibleStages][0]);
   }, [canViewCompliance, setStage, stage, visibleStages]);
   const [viewMode, setViewMode] = useState<"card" | "table">("card");
+  // Phone Ground Ops have no Cards/Table toggle, so never leave them in Table.
+  useEffect(() => {
+    if (groundOpsPhone) setViewMode("card");
+  }, [groundOpsPhone]);
   const [cardTripId, setCardTripId] = useState<string | null>(null);
   const [chargeFocus, setChargeFocus] = useState<{ tripId: string; token: number } | null>(null);
   const [cardFocus, setCardFocus] = useState<{
@@ -972,13 +978,13 @@ export default function ComplianceScreen() {
             { id: "all", label: "Inbox", a11yLabel: "Inbox", dot: null },
             {
               id: "hold",
-              label: "Compliance Hold",
+              label: groundOpsPhone ? "On hold" : "Compliance Hold",
               a11yLabel: "Compliance Hold",
               dot: COMPLIANCE_STAGE_TONE.compliance_pending.fg,
             },
             {
               id: "rejected",
-              label: "Declined by finance",
+              label: groundOpsPhone ? "Declined" : "Declined by finance",
               a11yLabel: "Declined by finance",
               dot: COMPLIANCE_STAGE_TONE.pending_for_docs.fg,
             },
@@ -1200,6 +1206,7 @@ export default function ComplianceScreen() {
     pendingDocsTransitPool.length,
     pendingSlice,
     pendingTransitSlice,
+    groundOpsPhone,
     search,
     stage,
     verifiedOnlyCount,
@@ -1650,7 +1657,8 @@ export default function ComplianceScreen() {
         styles.screen,
         {
           paddingTop: contentTopInset,
-          paddingBottom: layout.scrollBottomPadding(4),
+          // Native: the root tab dock sits below the screen (not over it), so no dock clearance.
+          paddingBottom: Platform.OS === "web" ? layout.scrollBottomPadding(4) : 4,
           paddingHorizontal: pagePad,
           maxHeight: windowHeight,
         },
@@ -1680,7 +1688,7 @@ export default function ComplianceScreen() {
           />
         </View>
         ) : null}
-        <View style={styles.filtersRow}>
+        <View style={[styles.filtersRow, stackToolbar && styles.filtersRowStacked]}>
           <View style={styles.stageTrack}>
             <ScrollView
               horizontal
@@ -1926,6 +1934,7 @@ export default function ComplianceScreen() {
           listHeader={cardsListHeader}
           detailHeader={awaitingFiltersOnDetail ? renderAwaitingPodFilters(true) : null}
           stacked={isNarrow}
+          phoneFlow={groundOpsPhone}
           onChanged={(change) => void syncChange(change)}
           onReviewTripDocs={(tripId, _documentKey, scope = "trip") => {
             openComplianceCard(tripId, scope);
@@ -1933,6 +1942,8 @@ export default function ComplianceScreen() {
         />
       )}
 
+      {/* Ground Ops on a phone work in cards only: no Cards/Table toggle or export. */}
+      {groundOpsPhone ? null : (
       <View style={styles.footer}>
         <View style={styles.footerSide}>
           <View style={[styles.viewToggle, compactActions && styles.viewToggleCompact]}>
@@ -2056,6 +2067,7 @@ export default function ComplianceScreen() {
           ) : null}
         </View>
       </View>
+      )}
       </View>
 
       {exportToast ? (
@@ -2309,6 +2321,11 @@ const styles = StyleSheet.create({
     minHeight: 56,
     justifyContent: "center",
   },
+  /**
+   * Stacked toolbar is a column: `flex: 1` (basis 0) collapses the rail to 0 high
+   * on Android and the queue draws over it. Size it to the rail instead.
+   */
+  filtersRowStacked: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: "auto", width: "100%" },
   chipScroll: {
     flexGrow: 1,
     width: "100%",

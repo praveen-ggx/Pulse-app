@@ -94,6 +94,8 @@ export type IndentReviewHubCardProps = {
   liveBidsCount?: number;
   clientPriceInr?: number;
   supplierTargetInr?: number;
+  /** Ground Ops: no client rate, supplier target, margin or vendor rate. */
+  hideCommercials?: boolean;
   /** Stops in between; their charges are already inside the shown rates. */
   extraStops?: RouteExtraStopSummary;
   /** The stops themselves, in order — listed under the route. */
@@ -207,6 +209,7 @@ export const IndentReviewHubCard = memo(function IndentReviewHubCard({
   liveBidsCount = 0,
   clientPriceInr = 0,
   supplierTargetInr = 0,
+  hideCommercials = false,
   extraStops = EMPTY_ROUTE_EXTRA_STOP_SUMMARY,
   extraStopRows = NO_EXTRA_STOP_ROWS,
   vendorName = null,
@@ -251,6 +254,7 @@ export const IndentReviewHubCard = memo(function IndentReviewHubCard({
         marginPct={marginPct}
         clientPriceInr={clientPriceInr}
         supplierTargetInr={supplierTargetInr}
+        hideCommercials={hideCommercials}
         extraStops={extraStops}
         extraStopRows={extraStopRows}
         vendorName={vendorName}
@@ -469,7 +473,34 @@ export const IndentReviewHubCard = memo(function IndentReviewHubCard({
           <SpecTile label="Cargo Load" value={material} />
         </View>
 
-        {isOwner ? (
+        {hideCommercials ? (
+          <View style={styles.financeRow}>
+            <View style={[styles.clientRateCard, { flex: 1 }]}>
+              <IndentFreightClientEntity
+                label="CLIENT"
+                displayName={client.displayName}
+                avatarName={client.avatarName}
+                clientId={client.clientId}
+                ownerOrgId={client.ownerOrgId}
+                shipperOrgId={client.shipperOrgId}
+                isOwner={client.isOwner}
+                anonymous={client.anonymous}
+                align="left"
+                nameLines={1}
+                surface="light"
+                avatarSize={compact ? 28 : 32}
+              />
+              {vendorName ? (
+                <View style={styles.vendorEntitySlot}>
+                  <Text style={styles.financeLabelLight}>VENDOR</Text>
+                  <Text style={styles.vendorName} numberOfLines={1}>
+                    {vendorName}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+        ) : isOwner ? (
           <View style={styles.financeRow}>
             <View style={styles.supplierTargetCard}>
               <Text style={styles.financeLabelDark}>SUPPLIER TARGET</Text>

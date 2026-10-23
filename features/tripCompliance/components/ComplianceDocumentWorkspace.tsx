@@ -144,6 +144,7 @@ import {
 } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { TripVaultFilePreview } from "@/features/trips/components/trip-detail/TripVaultFilePreview";
 import { getTripExecutionModel } from "@/features/trips/domain/tripExecutionModel";
+import { isEwayBillMetaPath } from "@/features/trips/services/ewayBillFields.util";
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { lrReceiptForTrip } from "@/features/trips/utils/lrReceiptStatus.util";
 import { splitHubRouteLocationDisplay } from "@/features/trips/utils/tripLocationDisplay.util";
@@ -449,6 +450,19 @@ function groupTypedDetailLines(lines: TypedDetailLineView[]): {
   return groups;
 }
 
+/** "Eway no" → "E-way No", "Doc no" → "Doc No": same wording as the vault e-way strip. */
+function typedLineLabel(label: string): string {
+  return label.replace(/^e-?way\b/i, "E-way").replace(/\bno\b/gi, "No");
+}
+
+/**
+ * Fixed-width digits only for pure numbers (e-way / doc no). On dates the tabular
+ * font also widened the hyphens on Android ("16 - Oct - 26").
+ */
+function typedValueStyle(value: string) {
+  return /^[\d\s]+$/.test(value.trim()) ? styles.typedValueTabular : null;
+}
+
 /**
  * Android ignores `numberOfLines` on selectable Text, so long e-way numbers and
  * dates wrapped and the card clipped the second line. Keep copy-select elsewhere.
@@ -694,9 +708,13 @@ function TypedDetailsPreview({
                       </View>
                       <View style={styles.typedEntryHeadingCopy}>
                         <Text style={styles.typedEntryKicker} numberOfLines={1}>
-                          {primary?.label ?? group.heading}
+                          {primary ? typedLineLabel(primary.label) : group.heading}
                         </Text>
-                        <Text style={styles.typedEntryHeading} numberOfLines={1} selectable={TYPED_VALUE_SELECTABLE}>
+                        <Text
+                          style={[styles.typedEntryHeading, typedValueStyle(primary?.value ?? "")]}
+                          numberOfLines={1}
+                          selectable={TYPED_VALUE_SELECTABLE}
+                        >
                           {primary?.value ?? group.heading}
                         </Text>
                       </View>
@@ -711,9 +729,13 @@ function TypedDetailsPreview({
                         ]}
                       >
                         <Text style={styles.typedFieldLabel} numberOfLines={1}>
-                          {line.label}
+                          {typedLineLabel(line.label)}
                         </Text>
-                        <Text style={styles.typedFieldValue} numberOfLines={1} selectable={TYPED_VALUE_SELECTABLE}>
+                        <Text
+                          style={[styles.typedFieldValue, typedValueStyle(line.value)]}
+                          numberOfLines={1}
+                          selectable={TYPED_VALUE_SELECTABLE}
+                        >
                           {line.value}
                         </Text>
                       </View>
@@ -5334,7 +5356,10 @@ export function ComplianceDocumentWorkspace({
           return {
             key: row.key,
             label: fileRows.length > 1 ? `${label} · ${index + 1}` : label,
-            fileName: row.doc?.file_name?.trim() || (row.declineReason ? "" : row.entityDoc?.notes?.trim()) || "",
+            // Typed e-way details are stored as eway-fields.json; show what it is, not the file.
+            fileName: isEwayBillMetaPath(row.doc?.storage_path, row.doc?.file_name)
+              ? "Entered details"
+              : row.doc?.file_name?.trim() || (row.declineReason ? "" : row.entityDoc?.notes?.trim()) || "",
             statusLabel: row.declineReason
               ? `${COMPLIANCE_STATUS_META[row.status].label}: ${row.declineReason}`
               : COMPLIANCE_STATUS_META[row.status].label,
@@ -7710,7 +7735,6 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: "700",
     color: Theme.textPrimaryDark,
-    fontVariant: ["tabular-nums"],
   },
   typedFieldRow: {
     flexDirection: "row",
@@ -7736,6 +7760,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
     color: Theme.textMuted,
   },
+  typedValueTabular: { fontVariant: ["tabular-nums"] },
   typedFieldValue: {
     flexGrow: 1,
     flexShrink: 1,
@@ -7745,7 +7770,6 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     color: Theme.textPrimaryDark,
     textAlign: "right",
-    fontVariant: ["tabular-nums"],
     ...(Platform.OS === "web" ? ({ whiteSpace: "nowrap" } as unknown as TextStyle) : null),
   },
   docSideNavOverlayLeft: {

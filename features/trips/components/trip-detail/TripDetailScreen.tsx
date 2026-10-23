@@ -26,6 +26,16 @@ import { CompactValidTillCalendar, EwayBillLrStrip, buildEwayBillStripRows } fro
 import { ElrTripDetailAction } from "@/features/trips/components/trip-detail/ElrTripDetailAction";
 import { SimCompletionTimeField } from "@/features/trips/components/trip-detail/SimCompletionTimeField";
 import {
+  revokeGroundOpsPickupStatus,
+  simulateGroundOpsPickupStatus,
+  type GroundOpsPickupTarget,
+} from "@/features/trips/services/groundOpsPickup.service";
+import { loadCompliancePipelineInputs } from "@/features/tripCompliance/services/compliancePipelineSync.service";
+import {
+  groundOpsTransitDocLabel,
+  listMissingDocsForGroundOpsTransit,
+} from "@/features/tripCompliance/utils/groundOpsTransitGate.util";
+import {
   ewayDocHasPreviewableFile,
   ewayExpiryTone,
   mostUrgentEwayExpiryLabel,
@@ -778,7 +788,10 @@ export default function TripDetailScreen({
   const canTripTrackingTab = canSurface("tripops.trips.tracking");
   const canTripReassign = canSurface("tripops.trips.reassign");
   const canTripVerification = canSurface("tripops.trips.verification");
-  const canTripSimulate = canSurface("tripops.trips.simulate");
+  // Ground Ops never use the full simulate (the database blocks their trip
+  // writes); they get the pickup-side steps through the Ground Ops RPC instead.
+  const canTripSimulate = canSurface("tripops.trips.simulate") && !isGroundOpsOnly;
+  const canGroundOpsPickupSimulate = isGroundOpsOnly;
   const canTripRatings = canSurface("tripops.trips.ratings");
 
   const manifestInsightsEnabled = shouldFetchManifestRefAssetInsights(
@@ -1210,7 +1223,12 @@ export default function TripDetailScreen({
     driverLat: number | null;
     driverLng: number | null;
     driverLocLabel: string | null;
+    /** Ground Ops pickup-side step (RPC path, no time / location fields). */
+    groundOps?: boolean;
   } | null>(null);
+  /** Ground Ops Start trip: required docs still missing (null = not checked yet). */
+  const [groundOpsMissingDocs, setGroundOpsMissingDocs] = useState<string[] | null>(null);
+  const [groundOpsDocsChecking, setGroundOpsDocsChecking] = useState(false);
   const [simulating, setSimulating] = useState(false);
   const [revokingSimulation, setRevokingSimulation] = useState(false);
   const [simError, setSimError] = useState<string | null>(null);
@@ -3592,9 +3610,27 @@ export default function TripDetailScreen({
   const isIntegratedTrip = Boolean(trip.indent_id);
 
   // Next step the business can simulate
-  const nextSimulateStep = (() => {
-    if (!canTripSimulate) return null;
+  const nextSimulateStep: NonNullable<typeof simConfirmStep> | null = (() => {
     const s = String(trip.status ?? "").toLowerCase();
+    if (canGroundOpsPickupSimulate) {
+      // Same two edges the RPC allows; at drop / delivered stay with Trip Ops.
+      const groundOpsStep = (label: string, targetStatus: GroundOpsPickupTarget) => ({
+        label,
+        targetStatus,
+        driverLat: null,
+        driverLng: null,
+        driverLocLabel: null,
+        groundOps: true,
+      });
+      if (["draft", "assigned"].includes(s)) {
+        return groundOpsStep("Driver reached pickup", "in_progress");
+      }
+      if (s === "in_progress") {
+        return groundOpsStep("Loaded — start trip (in transit)", "in_transit");
+      }
+      return null;
+    }
+    if (!canTripSimulate) return null;
     const loc = detail.driverLocation;
     const live = {
       lat: loc?.latitude ?? null,
@@ -3676,18 +3712,102 @@ export default function TripDetailScreen({
       fromStatus: fromStatus || fallbackFrom,
       lat: last.lat ?? null,
       lng: last.lng ?? null,
+      userName: last.userName,
     };
   })();
 
   const currentTripStatusLower = String(trip.status ?? "").trim().toLowerCase();
+  // Ground Ops undo only their own last pickup-side step (same name the RPC
+  // writes), never a Trip Ops simulation.
+  const groundOpsOwnSimName = detail.profile?.full_name?.trim() || "Ground Ops";
   const canRevokeLastSimulation =
-    canTripSimulate &&
     !!lastSimulatedTransition?.toStatus &&
     currentTripStatusLower === lastSimulatedTransition.toStatus &&
-    !!lastSimulatedTransition.fromStatus;
+    !!lastSimulatedTransition.fromStatus &&
+    (canTripSimulate ||
+      (canGroundOpsPickupSimulate &&
+        ["in_progress", "in_transit"].includes(lastSimulatedTransition.toStatus) &&
+        lastSimulatedTransition.userName === groundOpsOwnSimName));
+
+  /** Start trip stays disabled until the document check passes. */
+  const groundOpsConfirmBlocked =
+    !!simConfirmStep?.groundOps &&
+    simConfirmStep.targetStatus === "in_transit" &&
+    (groundOpsDocsChecking || !groundOpsMissingDocs || groundOpsMissingDocs.length > 0);
+
+  /** Fresh check of the Document Upload Required rows for this trip. */
+  const loadGroundOpsTransitMissing = async (): Promise<string[] | null> => {
+    const viewerOrgId = currentOrganization?.id ?? trip.organization_id ?? "";
+    if (!viewerOrgId) return null;
+    try {
+      const [inputs] = await loadCompliancePipelineInputs(undefined, [trip], {
+        full: true,
+        viewerOrgId,
+      });
+      if (!inputs) return null;
+      return listMissingDocsForGroundOpsTransit(inputs);
+    } catch {
+      return null;
+    }
+  };
+
+  const openSimulateConfirm = (step: NonNullable<typeof simConfirmStep>) => {
+    simCompletionRef.current = toSimCompletionPickerValue();
+    setSimError(null);
+    setGroundOpsMissingDocs(null);
+    setSimConfirmStep(step);
+    if (step.groundOps && step.targetStatus === "in_transit") {
+      setGroundOpsDocsChecking(true);
+      void loadGroundOpsTransitMissing().then((missing) => {
+        setGroundOpsMissingDocs(missing);
+        if (missing === null) setSimError("Could not check documents. Try again.");
+        setGroundOpsDocsChecking(false);
+      });
+    }
+  };
+
+  const handleConfirmGroundOpsPickup = async () => {
+    if (!simConfirmStep?.groundOps) return;
+    const target = simConfirmStep.targetStatus as GroundOpsPickupTarget;
+    setSimulating(true);
+    setSimError(null);
+    try {
+      if (target === "in_transit") {
+        // Re-check at confirm: documents may have changed since the dialog opened.
+        const missing = await loadGroundOpsTransitMissing();
+        setGroundOpsMissingDocs(missing);
+        if (missing === null) {
+          setSimError("Could not check documents. Try again.");
+          return;
+        }
+        if (missing.length > 0) return;
+      }
+      const result = await simulateGroundOpsPickupStatus(trip.id, target);
+      if (!result.ok) {
+        if (result.missingDocumentTypes?.length) {
+          setGroundOpsMissingDocs(result.missingDocumentTypes);
+        } else {
+          setSimError(result.error);
+        }
+        return;
+      }
+      notifyTripChatMessagesChanged();
+      refreshComplianceForTrip();
+      detail.handleRefresh();
+      setSimConfirmStep(null);
+    } catch (e: unknown) {
+      setSimError(e instanceof Error ? e.message : "Could not update the trip");
+    } finally {
+      setSimulating(false);
+    }
+  };
 
   // Execute simulation: one timed status+notes write (no extra preflight SELECTs).
   const handleConfirmSimulate = async () => {
+    if (simConfirmStep?.groundOps) {
+      await handleConfirmGroundOpsPickup();
+      return;
+    }
     if (!simConfirmStep || !canTripSimulate) return;
     simulateAbortRef.current?.abort();
     const abort = new AbortController();
@@ -3747,6 +3867,24 @@ export default function TripDetailScreen({
     if (!canRevokeLastSimulation || !lastSimulatedTransition?.fromStatus) return;
     setRevokingSimulation(true);
     setSimError(null);
+    if (!canTripSimulate) {
+      // Ground Ops: undo through the RPC (role, warehouse and edge re-checked there).
+      try {
+        const result = await revokeGroundOpsPickupStatus(trip.id);
+        if (!result.ok) {
+          showAppAlert("Could not undo", result.error);
+          return;
+        }
+        notifyTripChatMessagesChanged();
+        refreshComplianceForTrip();
+        detail.handleRefresh();
+      } catch (e: unknown) {
+        showAppAlert("Could not undo", e instanceof Error ? e.message : "Undo failed");
+      } finally {
+        setRevokingSimulation(false);
+      }
+      return;
+    }
     try {
       const revertToStatus = lastSimulatedTransition.fromStatus;
       const revertPayload = {
@@ -5982,18 +6120,18 @@ export default function TripDetailScreen({
                                     isMobile && neoStyles.simBtnTextMobile,
                                   ]}
                                 >
-                                  {revokingSimulation ? "Revoking…" : "Revoke Last"}
+                                  {revokingSimulation
+                                    ? "Revoking…"
+                                    : canTripSimulate
+                                      ? "Revoke Last"
+                                      : "Undo"}
                                 </Text>
                               </TouchableOpacity>
                             ) : null}
                             {nextSimulateStep && !tripCompleted ? (
                               <TouchableOpacity
                                 style={[neoStyles.simBtn, isMobile && neoStyles.simBtnMobile]}
-                                onPress={() => {
-                                  simCompletionRef.current = toSimCompletionPickerValue();
-                                  setSimError(null);
-                                  setSimConfirmStep(nextSimulateStep);
-                                }}
+                                onPress={() => openSimulateConfirm(nextSimulateStep)}
                                 activeOpacity={0.85}
                                 disabled={revokingSimulation}
                               >
@@ -6004,9 +6142,13 @@ export default function TripDetailScreen({
                                     isMobile && neoStyles.simBtnTextMobile,
                                   ]}
                                 >
-                                  {nextSimulateStep.targetStatus === "completed"
-                                    ? "Simulate Complete"
-                                    : "Simulate"}
+                                  {nextSimulateStep.groundOps
+                                    ? nextSimulateStep.targetStatus === "in_transit"
+                                      ? "Start Trip"
+                                      : "Reached Pickup"
+                                    : nextSimulateStep.targetStatus === "completed"
+                                      ? "Simulate Complete"
+                                      : "Simulate"}
                                 </Text>
                               </TouchableOpacity>
                             ) : null}
@@ -6165,14 +6307,39 @@ export default function TripDetailScreen({
                             <View style={neoStyles.simModalHeader}>
                               <Feather name="zap" size={18} color="#f59e0b" />
                               <Text style={neoStyles.simModalTitle}>
-                                Simulate Stage
+                                {simConfirmStep.groundOps ? "Update trip" : "Simulate Stage"}
                               </Text>
                             </View>
                             <Text style={neoStyles.simModalAction}>
                               {simConfirmStep.label}
                             </Text>
                             <View style={neoStyles.simModalDivider} />
-                            {simConfirmStep.driverLat != null ? (
+                            {simConfirmStep.groundOps ? (
+                              simConfirmStep.targetStatus === "in_transit" ? (
+                                groundOpsDocsChecking ? (
+                                  <Text style={neoStyles.simModalNoLoc}>
+                                    Checking required documents…
+                                  </Text>
+                                ) : groundOpsMissingDocs && groundOpsMissingDocs.length > 0 ? (
+                                  <View>
+                                    <Text style={neoStyles.simModalError}>
+                                      Upload these required documents before starting the trip:
+                                    </Text>
+                                    <Text style={neoStyles.simModalLocValue}>
+                                      {groundOpsMissingDocs.map(groundOpsTransitDocLabel).join(" · ")}
+                                    </Text>
+                                  </View>
+                                ) : groundOpsMissingDocs ? (
+                                  <Text style={neoStyles.simModalLocValue}>
+                                    All required documents are attached.
+                                  </Text>
+                                ) : null
+                              ) : (
+                                <Text style={neoStyles.simModalLocValue}>
+                                  Marks that the driver has reached the pickup point.
+                                </Text>
+                              )
+                            ) : simConfirmStep.driverLat != null ? (
                               <View style={neoStyles.simModalLocRow}>
                                 <Feather
                                   name="map-pin"
@@ -6203,6 +6370,7 @@ export default function TripDetailScreen({
                                 No driver GPS data available
                               </Text>
                             )}
+                            {simConfirmStep.groundOps ? null : (
                             <View style={neoStyles.simModalTime}>
                               <Text style={neoStyles.simModalLocLabel}>Completion time</Text>
                               <SimCompletionTimeField
@@ -6213,6 +6381,7 @@ export default function TripDetailScreen({
                                 }}
                               />
                             </View>
+                            )}
                             {simError ? (
                               <Text style={neoStyles.simModalError}>
                                 {simError}
@@ -6234,10 +6403,10 @@ export default function TripDetailScreen({
                               <TouchableOpacity
                                 style={[
                                   neoStyles.simModalConfirm,
-                                  simulating && { opacity: 0.6 },
+                                  (simulating || groundOpsConfirmBlocked) && { opacity: 0.6 },
                                 ]}
                                 onPress={handleConfirmSimulate}
-                                disabled={simulating}
+                                disabled={simulating || groundOpsConfirmBlocked}
                                 activeOpacity={0.85}
                               >
                                 {simulating ? (
@@ -6250,8 +6419,12 @@ export default function TripDetailScreen({
                                 )}
                                 <Text style={neoStyles.simModalConfirmText}>
                                   {simulating
-                                    ? "Simulating…"
-                                    : "Confirm Simulate"}
+                                    ? simConfirmStep.groundOps
+                                      ? "Updating…"
+                                      : "Simulating…"
+                                    : simConfirmStep.groundOps
+                                      ? "Confirm"
+                                      : "Confirm Simulate"}
                                 </Text>
                               </TouchableOpacity>
                             </View>

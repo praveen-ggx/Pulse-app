@@ -37,3 +37,10 @@
 - Areas: features/trips/components/trip-detail (TripDetailScreen, useTripDetail, tripDocTypes).
 - Migrations: none. UI-only hiding for Bank Docs; database access is unchanged.
 - Tested: Jest trips + tripCompliance suites pass (1090 tests); typecheck count unchanged (62). Not clicked through yet.
+
+## Also in this round: Ground Ops Reached pickup / Start trip
+- What broke: Ground Ops could not move a trip forward (no simulate access, and the database blocks their trip writes), and Assigned trips never showed on their Document Upload page.
+- What: trip detail (Manifest Pulse) shows Ground Ops "Reached Pickup" (Assigned → at pickup) and "Start Trip" (at pickup → in transit), same buttons and dialog as Trip Ops simulate. Start Trip checks all Required documents first (LR, E-way bill, Invoice, Memo, RC, Insurance, Fitness, Driving licence; rejected or expired don't count) and stays disabled with the missing list until they are attached. "Undo" reverses only their own last step. Uses the database functions already on preprod and prod (they re-check role, warehouse and step). Trip Ops simulate unchanged. Document Upload lists Assigned trips for Ground Ops only.
+- Areas: TripDetailScreen, new groundOpsPickup.service.ts and groundOpsTransitGate.util.ts, compliance queue filter, RBAC changelog.
+- Migrations: none (uses 20270919100000, already applied on preprod and prod).
+- Tested: new unit tests (8) + trips / tripCompliance / lib Jest (1815 pass); typecheck 62 (unchanged), cycles and lib-files no regression. Not clicked through as a Ground Ops login yet.

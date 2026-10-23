@@ -15,7 +15,7 @@ import {
   registryStatusStyle,
   registryTagStyle,
 } from "@/lib/alertRegistry/registryAlertPresentation.util";
-import type { RegistryNotificationAvatar } from "@/lib/alertRegistry/registryNotificationAvatar.util";
+import type { RegistryNotificationAvatar } from "@/lib/alertRegistry/registryNotificationAvatar.types";
 import { createStyles, text, view, webView } from "@/lib/styles/createStyles";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 

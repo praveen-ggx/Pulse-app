@@ -7,18 +7,11 @@ import type {
 import type { NetworkNotificationRow } from "@/features/network/services/networkNotifications.service";
 import type { GlobalOperationAlert } from "@/lib/globalSync/priorityEngine.util";
 import type { ActiveTripSummary } from "@/lib/globalSync/types";
-import type { PartyEntityType } from "@/lib/partyAvatarDisplay";
 import type { CurrentOrganization } from "@/types/organization";
 
-export type RegistryNotificationAvatar = {
-  name: string;
-  entityType?: PartyEntityType;
-  avatarUrl?: string | null;
-  avatarSeed?: string | null;
-  organizationImageUrl?: string | null;
-  organizationAvatarSeed?: string | null;
-  initialsColorSeed?: string | null;
-};
+import type { RegistryNotificationAvatar } from "@/lib/alertRegistry/registryNotificationAvatar.types";
+
+export type { RegistryNotificationAvatar };
 
 function driverFallbackSeed(driverId: string): string {
   const value = (driverId ?? "").trim() || "driver";

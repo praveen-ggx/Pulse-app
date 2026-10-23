@@ -1,20 +1,10 @@
 import { useQuery, type QueryClient } from "@tanstack/react-query";
 import {
-  fetchClientPageBootstrap,
+  queryClientPageBootstrap,
   type ClientPageBootstrap,
 } from "@/features/clients/services/clientPageBootstrap.service";
 import { queryKeys } from "@/lib/queryKeys";
 import { shouldRetryQuery } from "@/lib/queryClient";
-
-/** Keep the scoped fallback bundle. Never cache `null` just because the RPC is missing. */
-export async function queryClientPageBootstrap(
-  orgId: string,
-  clientId: string,
-): Promise<ClientPageBootstrap | null> {
-  const res = await fetchClientPageBootstrap(orgId, clientId);
-  if (res.error) throw res.error;
-  return res.bundle;
-}
 
 export function prefetchClientPageBootstrap(
   queryClient: QueryClient,

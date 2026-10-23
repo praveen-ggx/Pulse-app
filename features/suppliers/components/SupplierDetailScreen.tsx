@@ -104,7 +104,7 @@ import {
     View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { querySupplierPageBootstrap } from "@/features/suppliers/hooks/useSupplierPageBootstrapQuery";
+import { querySupplierPageBootstrap } from "@/features/suppliers/services/supplierPageBootstrap.service";
 import { useFinanceAlignedSupplierLedger } from "@/features/finance/hooks/useFinanceAlignedPartyTrips";
 import {
     getLinkedOrgProfileForSupplier,

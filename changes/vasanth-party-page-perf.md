@@ -3,6 +3,7 @@
 ## What
 - Finance client and supplier pages load trip rows from the scoped party bootstrap and wait to start the org-wide ledger RPC until that catalog is on screen.
 - Prefetch keeps the scoped fallback bundle when the page RPC is missing, and profile fallback uses `get_client_detail_bundle` only.
+- Keep party-page loaders on the service module so screens do not import hook files (CI cycle gate).
 
 ## Why
 Opening a Finance client or supplier page was competing with a full-org trip list and ledger fetch, which made first paint slow after the recent merge.

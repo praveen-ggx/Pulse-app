@@ -64,7 +64,7 @@ import {
     type TripRow,
 } from "@/features/trips/services/trips.service";
 import { isLoadBasedTrip } from "@/features/trips/visibility/tripVisibility";
-import { queryClientPageBootstrap } from "@/features/clients/hooks/useClientPageBootstrapQuery";
+import { queryClientPageBootstrap } from "@/features/clients/services/clientPageBootstrap.service";
 import { useFinanceAlignedClientLedger } from "@/features/finance/hooks/useFinanceAlignedPartyTrips";
 import { computeClientPaidSeed } from "@/features/clients/utils/clientPaidSeed.util";
 import {

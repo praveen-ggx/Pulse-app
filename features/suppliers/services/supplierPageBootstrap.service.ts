@@ -1,3 +1,4 @@
+import { unwrapPartyBootstrapBundle } from "@/features/clients/utils/unwrapPartyBootstrap.util";
 import type { ClientRow } from "@/features/clients/services/clients.service";
 import type { DriverRow } from "@/features/drivers/services/drivers.service";
 import {
@@ -201,4 +202,12 @@ export async function fetchSupplierPageBootstrap(
   }
   const scoped = await fetchSupplierPageBootstrapScoped(orgId, supplierId);
   return { error: scoped.error, missingRpc: Boolean(error && isMissingRpc(error)), bundle: scoped.bundle };
+}
+
+/** Keep the scoped fallback bundle. Never cache `null` just because the RPC is missing. */
+export async function querySupplierPageBootstrap(
+  orgId: string,
+  supplierId: string,
+): Promise<SupplierPageBootstrap | null> {
+  return unwrapPartyBootstrapBundle(await fetchSupplierPageBootstrap(orgId, supplierId));
 }

@@ -105,6 +105,8 @@ import {
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
 import { groundOpsTransitDocLabel } from "@/features/tripCompliance/utils/groundOpsTransitGate.util";
 import { ExpiryDatePickerModal } from "@/components/ExpiryDatePicker";
+import { HubTripLrUpdateModal } from "@/features/trips/components/HubTripLrUpdateModal";
+import { parseLrFieldValues } from "@/features/trips/services/lrDocumentOcr.util";
 import {
   groundOpsDocumentLockLabel,
   groundOpsDocumentLockReason,
@@ -3726,6 +3728,8 @@ export function ComplianceDocumentWorkspace({
         ? `Plus ${missingOptionalCount} optional from this ${vaultCopy.vaultLabel.toLowerCase()}`
         : vaultCopy.vaultHint;
   /** Upload / Replace in place: file picker → vault write → refetch. No review sheet. */
+  /** LR upload dialog (shared with the Trips hub) for the selected trip. */
+  const [lrDialogOpen, setLrDialogOpen] = useState(false);
   const uploadVaultDocument = useCallback(
     async (row: ComplianceDocRow) => {
       if (!summary) return;
@@ -3734,6 +3738,13 @@ export function ComplianceDocumentWorkspace({
         return;
       }
       if (uploadingFinanceType) return;
+      // LR: same dialog as the Trips hub (LR number + copies, duplicate check),
+      // so the number is never left empty after an upload from here.
+      if (row.type === "lr" && !isFinanceMode) {
+        setChecklistKey(row.key);
+        setLrDialogOpen(true);
+        return;
+      }
       const scope: DocTab = isFinanceMode ? "trip" : tab;
       const entityId =
         scope === "vehicle" ? summary.trip.vehicle_id : scope === "driver" ? summary.trip.driver_id : null;
@@ -4403,6 +4414,29 @@ export function ComplianceDocumentWorkspace({
       );
     });
 
+  /** Document rows of the checklist pane (scrolls itself on desktop, with the page on phones). */
+  const checklistDocRows = showGroupedReview
+    ? (["required", "optional"] as const).map((group) => {
+        const requiredTypes = new Set(
+          listRows.filter((row) => row.required).map((row) => row.type),
+        );
+        const groupRows = listRows.filter((row) => {
+          const withRequiredType = requiredTypes.has(row.type);
+          return group === "required" ? withRequiredType : !withRequiredType;
+        });
+        if (groupRows.length === 0) return null;
+        return (
+          <View
+            key={group}
+            style={[styles.reviewGroup, group === "optional" && styles.reviewGroupSpaced]}
+          >
+            {renderReviewGroupHeader(group, groupRows.length)}
+            {firstRowPerType(groupRows).map(renderChecklistRow)}
+          </View>
+        );
+      })
+    : firstRowPerType(listRows).map(renderChecklistRow);
+
   return (
     <View style={[styles.workspace, stacked && styles.workspaceStacked, style]}>
       {phoneDetail ? null : (
@@ -4658,36 +4692,24 @@ export function ComplianceDocumentWorkspace({
                         </Text>
                       </View>
                     ) : null}
+                    {/* Phone: the whole pane already scrolls (PhoneDetailFrame). A
+                        scrollEnabled={false} ScrollView gets touch-action: none on web,
+                        so swipes starting on a long list (All tab) never scrolled. */}
+                    {phoneDetail ? (
+                      <View style={[styles.checklistDocsContent, styles.phoneNatural]}>
+                        {checklistDocRows}
+                      </View>
+                    ) : (
                     <ScrollView
-                      style={[styles.checklistDocs, phoneDetail && styles.phoneNatural]}
+                      style={styles.checklistDocs}
                       contentContainerStyle={styles.checklistDocsContent}
-                      scrollEnabled={!phoneDetail}
                       nestedScrollEnabled
                       showsVerticalScrollIndicator
                       keyboardShouldPersistTaps="handled"
                     >
-                      {showGroupedReview
-                        ? (["required", "optional"] as const).map((group) => {
-                            const requiredTypes = new Set(
-                              listRows.filter((row) => row.required).map((row) => row.type),
-                            );
-                            const groupRows = listRows.filter((row) => {
-                              const withRequiredType = requiredTypes.has(row.type);
-                              return group === "required" ? withRequiredType : !withRequiredType;
-                            });
-                            if (groupRows.length === 0) return null;
-                            return (
-                              <View
-                                key={group}
-                                style={[styles.reviewGroup, group === "optional" && styles.reviewGroupSpaced]}
-                              >
-                                {renderReviewGroupHeader(group, groupRows.length)}
-                                {firstRowPerType(groupRows).map(renderChecklistRow)}
-                              </View>
-                            );
-                          })
-                        : firstRowPerType(listRows).map(renderChecklistRow)}
+                      {checklistDocRows}
                     </ScrollView>
+                    )}
                     {phoneDetail ? null : (
                     <View
                       style={styles.checklistListGapArt}
@@ -5528,6 +5550,26 @@ export function ComplianceDocumentWorkspace({
           setRejectOpen(false);
         }}
       />
+      {summary && lrDialogOpen ? (
+        <HubTripLrUpdateModal
+          visible
+          tripId={summary.trip.id}
+          organizationId={organizationId}
+          tripOrganizationId={summary.trip.organization_id ?? organizationId}
+          actorId={actorId ?? ""}
+          existingLabel={
+            summary.documents
+              .filter((doc) => doc.document_type === "lr" && doc.status !== "rejected")
+              .map((doc) => parseLrFieldValues(doc.document_number).lrNumber.trim())
+              .find(Boolean) ?? ""
+          }
+          onClose={() => setLrDialogOpen(false)}
+          onSubmitted={() => {
+            focusUploadTypeRef.current = "lr";
+            onChanged({ type: "tripDocuments", tripId: summary.trip.id });
+          }}
+        />
+      ) : null}
       <ExpiryDatePickerModal
         visible={expiryPrompt != null}
         title={`Expiry date — ${expiryPrompt ? labelForDocType(expiryPrompt.docType) : "Document"}`}

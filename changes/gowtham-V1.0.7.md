@@ -21,6 +21,8 @@
 
 - E-way entered details: labels read "E-way No" / "Doc No"; dates keep normal hyphens on Android (tabular digits only for pure numbers); the E-way Bill file sheet shows "Entered details" instead of eway-fields.json.
 
+- CI baseline lowered to the current counts (lint 104 → 102, typecheck 89 → 62), as ci-baseline.js asks when a PR goes below it.
+
 ## Why
 - Ground Ops on mobile had no way to reach Compliance (the mobile bar had no slot for it), and their Chat tab did nothing when tapped (no sales.chat, so openMessages returns early).
 - On a phone the trip list and documents were squeezed into one screen (list 42% high, documents list capped at 46% of the rest), so the trip card was cut off and the list of documents to upload had no height at all: Ground Ops could not see what to upload. "Declined by finance" ran off the screen.
@@ -79,3 +81,4 @@
 - E-way preview: tripCompliance Jest (642 tests) pass; typecheck 62; lint unchanged. Not yet checked on the phone or web.
 - E-way polish: before/after screenshots at phone and desktop width from a temporary local harness (removed, not committed); tripCompliance + trips Jest (1102 tests) pass; typecheck 62; lint unchanged.
 - E-way labels / dates / file name: checked in a local web render (phone + desktop width; harness removed); tripCompliance + trips Jest (1102 tests) pass; typecheck 62; lint unchanged. Android hyphen spacing not yet re-checked on the phone.
+- Handoff checks (branch on nihas/V1.0.14 ed22b5bc, V1 8a2bb97a): lint 102, typecheck 62, cycles 111, lib-files 178; test:navigation-policy 64 pass; full Jest 538 suites / 4209 tests pass; git diff --check clean. db:preflight not run (Supabase CLI not installed on this machine).

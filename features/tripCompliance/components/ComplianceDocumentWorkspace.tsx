@@ -9,7 +9,11 @@ import { useSuppliersQuery } from "@/lib/queries/useSuppliersQuery";
 import { useLinkedOrgProfileMap, type LinkedOrgDisplay } from "@/lib/useLinkedOrgProfileMap";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import Theme from "@/constants/Theme";
-import { rejectDocument, verifyDocument } from "@/features/compliance/services/documents.service";
+import {
+  rejectDocument,
+  updateEntityDocumentExpiry,
+  verifyDocument,
+} from "@/features/compliance/services/documents.service";
 import { getSupplierBankAccount } from "@/features/suppliers/services/supplierVendorOnboarding.service";
 import { resolveBankBranch } from "@/features/suppliers/utils/ifscDirectory.util";
 import { subscribeSupplierBankChanged } from "@/features/suppliers/utils/supplierBankEvents.util";
@@ -26,7 +30,6 @@ import {
   type ComplianceDocTypeFile,
 } from "@/features/tripCompliance/components/ComplianceDocTypeFilesModal";
 import { NoDocumentPreviewEmpty, NoTripsFoundEmpty } from "@/features/tripCompliance/components/ComplianceEmptyState";
-import { ComplianceInputModal } from "@/features/tripCompliance/components/ComplianceInputModal";
 import { ComplianceNumberStack } from "@/features/tripCompliance/components/ComplianceNumberStack";
 import {
   CompliancePaymentConfirmModal,
@@ -53,10 +56,13 @@ import {
   COMPLIANCE_FINANCE_DOCUMENT_TYPES,
   COMPLIANCE_VEHICLE_DOCUMENT_TYPES,
   REQUIRED_COMPLIANCE_DOCUMENT_TYPES,
+  REQUIRED_DRIVER_DOCUMENT_TYPES,
+  REQUIRED_VEHICLE_DOCUMENT_TYPES,
   documentRequiresExpiry,
   type ComplianceStage,
   type ComplianceTripSummary,
 } from "@/features/tripCompliance/tripCompliance.types";
+import { isEntityDocumentSlotVerified } from "@/features/tripCompliance/utils/complianceChecklist.util";
 import {
   formatComplianceTimestamp,
   isComplianceVerifiedRejected,
@@ -98,6 +104,7 @@ import {
   isResubmittedFinanceReject,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
 import { groundOpsTransitDocLabel } from "@/features/tripCompliance/utils/groundOpsTransitGate.util";
+import { ExpiryDatePickerModal } from "@/components/ExpiryDatePicker";
 import {
   groundOpsDocumentLockLabel,
   groundOpsDocumentLockReason,
@@ -3502,7 +3509,33 @@ export function ComplianceDocumentWorkspace({
    * and not rejected (also enforced by resubmit_trip_compliance), and for a
    * hold the vehicle / driver files too (stage leaves pending_for_docs).
    */
-  /** Names the required trip documents that block Resubmit (e.g. "LR (rejected)"). */
+  /** Required vehicle / driver docs that keep the trip in Pending Docs, with the reason. */
+  function resubmitEntityBlockers(current: ComplianceTripSummary): string[] {
+    const check = (
+      types: readonly string[],
+      rows: readonly ComplianceTripSummary["vehicleDocuments"][number][],
+    ) =>
+      types.flatMap((type) => {
+        const onFile = rows.filter(
+          (doc) =>
+            doc.doc_type === type &&
+            !!doc.storage_path &&
+            !["rejected", "replaced", "expired"].includes(doc.status),
+        );
+        const label = groundOpsTransitDocLabel(type);
+        if (onFile.length === 0) return [`${label} (missing)`];
+        if (onFile.some((doc) => isEntityDocumentSlotVerified(doc, new Date(), doc.doc_type))) return [];
+        if (documentRequiresExpiry(type) && onFile.every((doc) => !doc.expiry_date?.trim())) {
+          return [`${label} (expiry date missing — Add expiry)`];
+        }
+        return [`${label} (expired)`];
+      });
+    return [
+      ...check(REQUIRED_VEHICLE_DOCUMENT_TYPES, current.vehicleDocuments ?? []),
+      ...check(REQUIRED_DRIVER_DOCUMENT_TYPES, current.driverDocuments ?? []),
+    ];
+  }
+  /** Names the required documents that block Resubmit (e.g. "LR (rejected)"). */
   const resubmitBlockingDocsLabel = summary
     ? missingOrRejectedRequiredTripDocs(summary)
         .map((type) => {
@@ -3511,12 +3544,16 @@ export function ComplianceDocumentWorkspace({
           );
           return `${groundOpsTransitDocLabel(type)} (${rejected ? "rejected — replace it" : "missing"})`;
         })
+        .concat(resubmitEntityBlockers(summary))
         .join(", ")
     : "";
+  // Judge the files themselves, not `summary.stage`: for hold fixers the screen
+  // routes every held trip to "pending_for_docs" so it shows in Document Upload,
+  // which would block Resubmit exactly when every file is on it.
   const resubmitBlockedByMissingDocs = Boolean(
     summary &&
       (missingOrRejectedRequiredTripDocs(summary).length > 0 ||
-        (isComplianceHoldAwaitingResubmit(summary) && summary.stage === "pending_for_docs")),
+        resubmitEntityBlockers(summary).length > 0),
   );
   const showMarkVerified = Boolean(
     !isCompliancePendingStage &&
@@ -3641,6 +3678,53 @@ export function ComplianceDocumentWorkspace({
       vaultCopy.unassignedHint,
     ],
   );
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  /** Insurance / FC / licence file on file without the expiry date the checklist needs. */
+  const entityRowNeedsExpiry = (row: ComplianceDocRow): boolean =>
+    Boolean(
+      row.entityDoc &&
+        documentRequiresExpiry(row.type) &&
+        row.entityDoc.storage_path &&
+        row.entityDoc.status !== "rejected" &&
+        !row.entityDoc.expiry_date?.trim(),
+    );
+  /** Saved straight on the entity_documents row (vault-JSON files must be re-uploaded). */
+  const canSetEntityExpiry = (row: ComplianceDocRow): boolean =>
+    Boolean(
+      row.entityDoc &&
+        (row.entityDoc.source ?? "entity") === "entity" &&
+        UUID_RE.test(row.entityDoc.id),
+    );
+  const [savingExpiryKey, setSavingExpiryKey] = useState<string | null>(null);
+  const addEntityExpiry = useCallback(
+    async (row: ComplianceDocRow) => {
+      const doc = row.entityDoc;
+      if (!summary || !doc || savingExpiryKey) return;
+      const entered = (await promptExpiryDate(row.type))?.trim() ?? "";
+      if (!entered) return;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(entered)) {
+        alertMessage("Invalid expiry date", "Use YYYY-MM-DD (for example 2027-03-15).");
+        return;
+      }
+      setSavingExpiryKey(row.key);
+      try {
+        const { error } = await updateEntityDocumentExpiry(doc.id, entered);
+        if (error) {
+          alertMessage("Couldn't save expiry date", error.message);
+          return;
+        }
+        onChanged(
+          doc.entity_type === "driver"
+            ? { type: "driverDocuments", driverId: doc.entity_id }
+            : { type: "vehicleDocuments", vehicleId: doc.entity_id },
+        );
+      } finally {
+        setSavingExpiryKey(null);
+      }
+    },
+    [onChanged, promptExpiryDate, savingExpiryKey, summary],
+  );
+
   // The files dialog belongs to one trip and tab.
   useEffect(() => {
     setFilesModalType(null);
@@ -3850,6 +3934,8 @@ export function ComplianceDocumentWorkspace({
               ? `${statusMeta.label} · ${fileName}`
               : `${statusMeta.label} · ready to preview`
             : statusMeta.label;
+    const needsExpiry = !isFinanceMode && entityRowNeedsExpiry(displayRow);
+    const rowStatusLabel = needsExpiry ? `${statusLabel} · Expiry date missing` : statusLabel;
     return (
       <Pressable
         key={displayRow.key}
@@ -3905,11 +3991,17 @@ export function ComplianceDocumentWorkspace({
             <Text
               style={[
                 styles.missingStatus,
-                displayRow.status === "missing" ? null : { color: typeStatusColor ?? statusMeta.color },
+                displayRow.status === "missing"
+                  ? null
+                  : {
+                      color: needsExpiry
+                        ? COMPLIANCE_STATUS_META.rejected.color
+                        : (typeStatusColor ?? statusMeta.color),
+                    },
               ]}
               numberOfLines={1}
             >
-              {statusLabel}
+              {rowStatusLabel}
             </Text>
           ) : null}
           {declineReason ? (
@@ -3954,6 +4046,29 @@ export function ComplianceDocumentWorkspace({
               strokeWidth={2.2}
             />
           </Pressable>
+          {canEditFiles && needsExpiry && canSetEntityExpiry(displayRow) ? (
+            <Pressable
+              style={(state: HoverPressState) => [
+                styles.missingUploadBtn,
+                WEB_POINTER,
+                WEB_TRANSITION,
+                savingExpiryKey === displayRow.key && styles.btnDisabled,
+                isHovered(state) && !savingExpiryKey && styles.missingUploadBtnHover,
+              ]}
+              disabled={Boolean(savingExpiryKey)}
+              onPress={() => void addEntityExpiry(displayRow)}
+              accessibilityRole="button"
+              accessibilityLabel={`Add expiry date for ${rowLabel}`}
+              accessibilityState={{ busy: savingExpiryKey === displayRow.key }}
+            >
+              {savingExpiryKey === displayRow.key ? (
+                <ActivityIndicator size="small" color={Theme.buttonDarkText} />
+              ) : null}
+              <Text style={styles.missingUploadBtnText}>
+                {savingExpiryKey === displayRow.key ? "Saving…" : "Add expiry"}
+              </Text>
+            </Pressable>
+          ) : null}
           {canEditFiles && displayRow.status === "missing" ? (
             <Pressable
               style={(state: HoverPressState) => [
@@ -5239,24 +5354,16 @@ export function ComplianceDocumentWorkspace({
           setRejectOpen(false);
         }}
       />
-      <ComplianceInputModal
+      <ExpiryDatePickerModal
         visible={expiryPrompt != null}
         title={`Expiry date — ${expiryPrompt ? labelForDocType(expiryPrompt.docType) : "Document"}`}
-        fields={[
-          {
-            key: "expiry",
-            label: "Expiry date (YYYY-MM-DD)",
-            placeholder: "2027-03-15",
-            required: true,
-          },
-        ]}
         confirmLabel="Continue"
         onCancel={() => {
           expiryPrompt?.resolve(null);
           setExpiryPrompt(null);
         }}
-        onSubmit={(values) => {
-          expiryPrompt?.resolve(values.expiry ?? null);
+        onConfirm={(iso) => {
+          expiryPrompt?.resolve(iso);
           setExpiryPrompt(null);
         }}
       />

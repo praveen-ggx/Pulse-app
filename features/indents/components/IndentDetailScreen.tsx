@@ -21,6 +21,14 @@ import { CancelIndentReasonModal } from "@/features/indents/components/CancelInd
 import { IndentGiveLoadPartiesStrip } from "@/features/indents/components/IndentGiveLoadPartiesStrip";
 import { IndentLinkedTripCard } from "@/features/indents/components/IndentLinkedTripCard";
 import { IndentReviewHubCard } from "@/features/indents/components/IndentReviewHubCard";
+import {
+  IndentGroundOpsBiddingHeader,
+  IndentGroundOpsBiddingPanel,
+} from "@/features/indents/components/IndentGroundOpsBiddingPanel";
+import {
+  redactExtraStopRows,
+  redactExtraStopSummary,
+} from "@/features/indents/utils/indentCommercialsRedaction.util";
 import { IndentReviewHubDialogShell } from "@/features/indents/components/IndentReviewHubDialogShell";
 import {
     IndentReviewHubBidsBody,
@@ -288,6 +296,8 @@ export function IndentDetailScreen({
   // Ground Ops read the indents of their own warehouses (the database only
   // returns those); every action below still needs its own tripops.indents.* grant.
   const isGroundOpsMember = useOptionalActiveWorkspace()?.memberPlatformRole === "ground_ops";
+  // Ground Ops never see a load's money; values are stripped below, not just hidden.
+  const hideCommercials = isGroundOpsMember;
   const canViewIndent = canSurface("tripops.indents.view") || isGroundOpsMember;
   const canAllocateIndent = canSurface("tripops.indents.allocate");
   const canUseSuppliers =
@@ -315,8 +325,16 @@ export function IndentDetailScreen({
   const [indent, setIndent] = useState<IndentRow | null>(() =>
     peekIndentFirstPaint(indentId, queryClient, orgId),
   );
-  const extraStops = useRouteExtraStopsSummary("indent", indent?.id);
-  const extraStopRows = useRouteExtraStopRowsFor("indent", indent?.id);
+  const extraStopsAll = useRouteExtraStopsSummary("indent", indent?.id);
+  const extraStopRowsAll = useRouteExtraStopRowsFor("indent", indent?.id);
+  const extraStops = useMemo(
+    () => (hideCommercials ? redactExtraStopSummary(extraStopsAll) : extraStopsAll),
+    [hideCommercials, extraStopsAll],
+  );
+  const extraStopRows = useMemo(
+    () => (hideCommercials ? redactExtraStopRows(extraStopRowsAll) : extraStopRowsAll),
+    [hideCommercials, extraStopRowsAll],
+  );
   const indentStoryIds = useMemo(
     () => (indent?.id ? [indent.id] : []),
     [indent?.id],
@@ -405,7 +423,7 @@ export function IndentDetailScreen({
     refetch: refetchQuotes,
     isPending: directQuotesPending,
     isFetched: directQuotesFetched,
-  } = useIndentDirectQuotesQuery(indentId);
+  } = useIndentDirectQuotesQuery(hideCommercials ? null : indentId);
   const linkedPostQ = useQuery({
     queryKey: ["q", "posts", "latest-load-for-indent", indentId ?? ""],
     queryFn: async () => {
@@ -416,7 +434,7 @@ export function IndentDetailScreen({
       if (res.error) throw res.error;
       return res.postId;
     },
-    enabled: Boolean(indentId && orgId && isLikelyOwner),
+    enabled: Boolean(indentId && orgId && isLikelyOwner && !hideCommercials),
     staleTime: STALE.moderate,
     retry: shouldRetryQuery,
   });
@@ -424,7 +442,7 @@ export function IndentDetailScreen({
     isLikelyOwner ? (linkedPostQ.data ?? null) : null,
   );
   const marketBidsQ = useMarketBidsForIndentQuery(
-    isLikelyOwner ? indentId : null,
+    isLikelyOwner && !hideCommercials ? indentId : null,
   );
   const quotes = useMemo(
     () =>
@@ -442,7 +460,7 @@ export function IndentDetailScreen({
       marketBidsQ.isPending &&
       !marketBidsQ.isFetched);
   const { data: myQuotes = [], refetch: refetchMyQuotes } =
-    useMyDirectQuotesQuery(orgId, { immediate: true });
+    useMyDirectQuotesQuery(hideCommercials ? null : orgId, { immediate: true });
 
   const load = useCallback(async (mode: "bootstrap" | "refresh" = "bootstrap") => {
     if (!indentId) {
@@ -1573,12 +1591,14 @@ export function IndentDetailScreen({
               createdAtLabel={createdAtLabel}
               pickupDateIso={indent.pickup_date ?? null}
               liveBidsCount={liveBidsCount}
-              clientPriceInr={clientPriceNum}
-              supplierTargetInr={supplierTargetNum}
+              hideCommercials={hideCommercials}
+              clientPriceInr={hideCommercials ? 0 : clientPriceNum}
+              supplierTargetInr={hideCommercials ? 0 : supplierTargetNum}
               extraStops={extraStops}
               extraStopRows={extraStopRows}
               vendorName={isOwner ? awardedVendorName : null}
               vendorRate={
+                !hideCommercials &&
                 isOwner &&
                 awardedVendorName &&
                 awardedSupplierAmount != null &&
@@ -1589,7 +1609,14 @@ export function IndentDetailScreen({
               primaryActionLabel={mobilePrimaryAction?.label}
               onPrimaryAction={mobilePrimaryAction?.onPress}
               bidsSlot={
-                stackedHub && isOwner ? (
+                hideCommercials ? (
+                  stackedHub ? (
+                    <View style={styles.mobileLiveBidsShell}>
+                      <IndentGroundOpsBiddingHeader />
+                      <IndentGroundOpsBiddingPanel statusLower={statusLower} />
+                    </View>
+                  ) : undefined
+                ) : stackedHub && isOwner ? (
                   <View style={styles.mobileLiveBidsShell}>
                     <IndentReviewHubBidsHeader
                       title={
@@ -1669,18 +1696,20 @@ export function IndentDetailScreen({
               onEditAll={handleEditAll}
               suppressSupplierQuoteHero={useSplitHub && !isOwner}
               primaryAmount={
-                isOwner
-                  ? freight
-                  : supplierNum > 0
-                    ? formatINR(supplierNum)
-                    : "—"
+                hideCommercials
+                  ? "—"
+                  : isOwner
+                    ? freight
+                    : supplierNum > 0
+                      ? formatINR(supplierNum)
+                      : "—"
               }
-              supplierRate={supplierTarget}
-              supplierPerMt={supplierLines.perMt}
-              supplierOverall={supplierLines.overall}
-              clientPerMt={clientLines.perMt}
-              clientOverall={clientLines.overall}
-              marginPct={marginPct}
+              supplierRate={hideCommercials ? "—" : supplierTarget}
+              supplierPerMt={hideCommercials ? null : supplierLines.perMt}
+              supplierOverall={hideCommercials ? null : supplierLines.overall}
+              clientPerMt={hideCommercials ? null : clientLines.perMt}
+              clientOverall={hideCommercials ? null : clientLines.overall}
+              marginPct={hideCommercials ? null : marginPct}
               client={
                 anonymous
                   ? {
@@ -1709,9 +1738,9 @@ export function IndentDetailScreen({
                   ? Number(myQuote.counter_amount)
                   : null
               }
-              targetRateInr={Number(indent.supplier_target ?? 0)}
-              footerInsight={supplierFooterInsight}
-              alertInfo={supplierQuoteAlert}
+              targetRateInr={hideCommercials ? 0 : Number(indent.supplier_target ?? 0)}
+              footerInsight={hideCommercials ? undefined : supplierFooterInsight}
+              alertInfo={hideCommercials ? undefined : supplierQuoteAlert}
               onQuotePress={
                 useSplitHub && !isOwner
                   ? undefined
@@ -1720,7 +1749,7 @@ export function IndentDetailScreen({
                     : undefined
               }
               partiesStrip={
-                showGiveLoadPartiesStrip ? (
+                showGiveLoadPartiesStrip && !hideCommercials ? (
                   <IndentGiveLoadPartiesStrip
                     parties={integratedSuppliers}
                     quotes={quotes}
@@ -1759,7 +1788,7 @@ export function IndentDetailScreen({
           </>
         }
         bidsHeader={
-          <IndentReviewHubBidsHeader
+          hideCommercials ? <IndentGroundOpsBiddingHeader /> : <IndentReviewHubBidsHeader
             title={isOwner ? "Live bids" : "Quote status"}
             liveBidsCount={liveBidsCount}
             isListeningForBids={isListeningForBids}
@@ -1772,7 +1801,7 @@ export function IndentDetailScreen({
           />
         }
         bidsBody={
-          <IndentReviewHubBidsBody
+          hideCommercials ? <IndentGroundOpsBiddingPanel statusLower={statusLower} /> : <IndentReviewHubBidsBody
             isOwner={isOwner}
             compact={hubDense}
             stacked={stackedHub}

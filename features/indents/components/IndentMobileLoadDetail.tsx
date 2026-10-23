@@ -87,6 +87,8 @@ export type IndentMobileLoadDetailProps = {
   extraStopRows?: readonly RouteExtraStopRow[];
   vendorName?: string | null;
   vendorRate?: string | null;
+  /** Ground Ops: no rate row, rate breakup, client rate or vendor rate. */
+  hideCommercials?: boolean;
   client: IndentFreightCardClientProps;
   quoteStatus?: string | null;
   quoteAmountInr?: number | null;
@@ -400,6 +402,7 @@ export const IndentMobileLoadDetail = memo(function IndentMobileLoadDetail({
   extraStopRows = NO_EXTRA_STOP_ROWS,
   vendorName = null,
   vendorRate = null,
+  hideCommercials = false,
   client,
   quoteStatus,
   quoteAmountInr,
@@ -698,6 +701,11 @@ export const IndentMobileLoadDetail = memo(function IndentMobileLoadDetail({
           <View style={styles.dividerDash} />
 
           <View style={styles.rateRow}>
+            {hideCommercials ? (
+              <View style={styles.rateCol}>
+                <Text style={styles.rateLabel}>Load detail</Text>
+              </View>
+            ) : (
             <View style={styles.rateCol}>
               <Text style={styles.rateLabel}>{rateLabel}</Text>
               <Text style={styles.rateValue} numberOfLines={1}>
@@ -714,6 +722,7 @@ export const IndentMobileLoadDetail = memo(function IndentMobileLoadDetail({
                 </Text>
               ) : null}
             </View>
+            )}
             <TouchableOpacity
               onPress={() => setDetailsOpen((v) => !v)}
               hitSlop={Layout.touchTargetHitSlop}
@@ -727,7 +736,7 @@ export const IndentMobileLoadDetail = memo(function IndentMobileLoadDetail({
             </TouchableOpacity>
           </View>
 
-          {detailsOpen ? (
+          {detailsOpen && !hideCommercials ? (
             <View style={styles.breakupPanel}>
               {isOwner ? (
                 <>
@@ -843,12 +852,14 @@ export const IndentMobileLoadDetail = memo(function IndentMobileLoadDetail({
                       avatarSize={32}
                     />
                   </View>
-                  <View style={styles.clientPartyRate}>
-                    <Text style={styles.labelXxs}>Rate</Text>
-                    <Text style={styles.clientPartyRateValue} numberOfLines={1}>
-                      {primaryAmount}
-                    </Text>
-                  </View>
+                  {hideCommercials ? null : (
+                    <View style={styles.clientPartyRate}>
+                      <Text style={styles.labelXxs}>Rate</Text>
+                      <Text style={styles.clientPartyRateValue} numberOfLines={1}>
+                        {primaryAmount}
+                      </Text>
+                    </View>
+                  )}
                 </View>
                 {vendorName ? (
                   <View style={styles.clientPartyCard}>
@@ -858,7 +869,7 @@ export const IndentMobileLoadDetail = memo(function IndentMobileLoadDetail({
                         {vendorName}
                       </Text>
                     </View>
-                    {vendorRate ? (
+                    {vendorRate && !hideCommercials ? (
                       <View style={styles.clientPartyRate}>
                         <Text style={styles.labelXxs}>Awarded</Text>
                         <Text style={styles.clientPartyRateValue} numberOfLines={1}>
@@ -868,7 +879,7 @@ export const IndentMobileLoadDetail = memo(function IndentMobileLoadDetail({
                     ) : null}
                   </View>
                 ) : null}
-                {partiesStrip ? (
+                {partiesStrip && !hideCommercials ? (
                   <View style={styles.partiesStripWrap}>{partiesStrip}</View>
                 ) : null}
               </View>

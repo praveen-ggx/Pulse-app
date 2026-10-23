@@ -756,6 +756,7 @@ export function IndentDetailScreen({
 
   const revokePresentation = awardRevokePresentation(marketBidsQ.data ?? []);
   const handleRevokeAward = useCallback(async () => {
+    if (!indent || !canSurface("tripops.indents.award")) return;
     if (!indent?.id || revokingAward || (marketBidsQ.isPending && !marketBidsQ.data)) return;
     const confirmed = await confirmDialog({
       title: revokePresentation.confirmTitle,
@@ -812,6 +813,7 @@ export function IndentDetailScreen({
       setRevokingAward(false);
     }
   }, [
+    canSurface,
     indent,
     invalidateIndents,
     marketBidsQ.data,
@@ -1287,6 +1289,12 @@ export function IndentDetailScreen({
     statusLower !== "completed" &&
     statusLower !== "deployed" &&
     canSurface("tripops.indents.award");
+  // Revoking is part of award authority (Ground Ops and view-only members never see it).
+  const canRevokeAward =
+    isOwner &&
+    statusLower === "awarded" &&
+    !hideCommercials &&
+    canSurface("tripops.indents.award");
   const canSupplierBid =
     !anonymous &&
     !isOwner &&
@@ -1398,7 +1406,7 @@ export function IndentDetailScreen({
     isCounteredPending && (canOpenQuoteModal || canAcceptCounterAnonymously);
 
   const mobilePrimaryAction = (() => {
-    if (isOwner && statusLower === "awarded") {
+    if (canRevokeAward) {
       return {
         label: revokingAward ? revokePresentation.busyLabel : revokePresentation.buttonLabel,
         onPress: () => {
@@ -1878,7 +1886,7 @@ export function IndentDetailScreen({
                   color={canEditLoad ? Theme.textSecondary : Theme.textMuted}
                 />
               </TouchableOpacity>
-              {statusLower === "awarded" ? (
+              {canRevokeAward ? (
                 <TouchableOpacity
                   style={[
                     styles.footerAwardBtn,

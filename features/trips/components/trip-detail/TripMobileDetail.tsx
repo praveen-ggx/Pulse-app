@@ -53,6 +53,13 @@ export type TripMobilePartyFace = {
   isIntegrated?: boolean;
 };
 
+export type TripMobileStageAction = {
+  key: string;
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+};
+
 export type TripMobileDetailProps = {
   tripIdLabel: string;
   status: string;
@@ -92,6 +99,8 @@ export type TripMobileDetailProps = {
   canChangeAssets?: boolean;
   onChangeAssets?: () => void;
   onOpenFinance?: () => void;
+  /** Trip stage buttons (simulate / Ground Ops Reached pickup · Start trip / undo). */
+  stageActions?: readonly TripMobileStageAction[];
   children?: ReactNode;
 };
 
@@ -436,6 +445,7 @@ export const TripMobileDetail = memo(function TripMobileDetail({
   canChangeAssets,
   onChangeAssets,
   onOpenFinance,
+  stageActions,
   children,
 }: TripMobileDetailProps) {
   const completed =
@@ -723,6 +733,26 @@ export const TripMobileDetail = memo(function TripMobileDetail({
                   </Text>
                 </TouchableOpacity>
               ) : null}
+            </View>
+          ) : null}
+
+          {stageActions && stageActions.length > 0 ? (
+            <View style={styles.actionRow}>
+              {stageActions.map((action) => (
+                <TouchableOpacity
+                  key={action.key}
+                  style={[styles.secondaryBtn, styles.actionBtnFlex]}
+                  onPress={action.onPress}
+                  disabled={action.disabled}
+                  activeOpacity={0.88}
+                  accessibilityRole="button"
+                  accessibilityLabel={action.label}
+                >
+                  <Text style={styles.secondaryBtnText} numberOfLines={1}>
+                    {action.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
           ) : null}
 

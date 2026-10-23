@@ -44,3 +44,4 @@
 - Areas: TripDetailScreen, new groundOpsPickup.service.ts and groundOpsTransitGate.util.ts, compliance queue filter, RBAC changelog.
 - Migrations: none (uses 20270919100000, already applied on preprod and prod).
 - Tested: new unit tests (8) + trips / tripCompliance / lib Jest (1815 pass); typecheck 62 (unchanged), cycles and lib-files no regression. Not clicked through as a Ground Ops login yet.
+- Mobile trip detail (Journey tab) had no simulate buttons at all, so Ground Ops on a phone saw nothing. The same buttons (Reached Pickup / Start Trip / Undo for Ground Ops; Simulate / Revoke Last for Trip Ops) now sit under View details, and the confirm dialog is shared by both layouts.

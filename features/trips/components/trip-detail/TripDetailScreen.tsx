@@ -5023,6 +5023,177 @@ export default function TripDetailScreen({
                             </View>
   ) : null;
 
+  const nextSimulateLabel = nextSimulateStep
+    ? nextSimulateStep.groundOps
+      ? nextSimulateStep.targetStatus === "in_transit"
+        ? "Start Trip"
+        : "Reached Pickup"
+      : nextSimulateStep.targetStatus === "completed"
+        ? "Simulate Complete"
+        : "Simulate"
+    : null;
+  const mobileStageActions = [
+    ...(canRevokeLastSimulation
+      ? [
+          {
+            key: "revoke",
+            label: revokingSimulation ? "Revoking…" : canTripSimulate ? "Revoke Last" : "Undo",
+            onPress: () => void handleRevokeLastSimulation(),
+            disabled: simulating || revokingSimulation,
+          },
+        ]
+      : []),
+    ...(nextSimulateStep && nextSimulateLabel && !tripCompleted
+      ? [
+          {
+            key: "simulate",
+            label: nextSimulateLabel,
+            onPress: () => openSimulateConfirm(nextSimulateStep),
+            disabled: revokingSimulation,
+          },
+        ]
+      : []),
+  ];
+
+  // Shared by the desktop Manifest Pulse card and the mobile stage actions.
+  const simConfirmModal = simConfirmStep ? (
+      <Modal
+        transparent
+        animationType="fade"
+        visible
+        onRequestClose={() => setSimConfirmStep(null)}
+      >
+        <View style={neoStyles.simModalBackdrop}>
+          <View style={neoStyles.simModal}>
+            <View style={neoStyles.simModalHeader}>
+              <Feather name="zap" size={18} color="#f59e0b" />
+              <Text style={neoStyles.simModalTitle}>
+                {simConfirmStep.groundOps ? "Update trip" : "Simulate Stage"}
+              </Text>
+            </View>
+            <Text style={neoStyles.simModalAction}>
+              {simConfirmStep.label}
+            </Text>
+            <View style={neoStyles.simModalDivider} />
+            {simConfirmStep.groundOps ? (
+              simConfirmStep.targetStatus === "in_transit" ? (
+                groundOpsDocsChecking ? (
+                  <Text style={neoStyles.simModalNoLoc}>
+                    Checking required documents…
+                  </Text>
+                ) : groundOpsMissingDocs && groundOpsMissingDocs.length > 0 ? (
+                  <View>
+                    <Text style={neoStyles.simModalError}>
+                      Upload these required documents before starting the trip:
+                    </Text>
+                    <Text style={neoStyles.simModalLocValue}>
+                      {groundOpsMissingDocs.map(groundOpsTransitDocLabel).join(" · ")}
+                    </Text>
+                  </View>
+                ) : groundOpsMissingDocs ? (
+                  <Text style={neoStyles.simModalLocValue}>
+                    All required documents are attached.
+                  </Text>
+                ) : null
+              ) : (
+                <Text style={neoStyles.simModalLocValue}>
+                  Marks that the driver has reached the pickup point.
+                </Text>
+              )
+            ) : simConfirmStep.driverLat != null ? (
+              <View style={neoStyles.simModalLocRow}>
+                <Feather
+                  name="map-pin"
+                  size={13}
+                  color="#10b981"
+                />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={neoStyles.simModalLocLabel}>
+                    Driver location
+                  </Text>
+                  <Text
+                    style={neoStyles.simModalLocValue}
+                    numberOfLines={2}
+                  >
+                    {simConfirmStep.driverLocLabel ||
+                      `${simConfirmStep.driverLat.toFixed(5)}°N, ${simConfirmStep.driverLng?.toFixed(5) ?? "—"}°E`}
+                  </Text>
+                  <Text style={neoStyles.simModalLocCoords}>
+                    {simConfirmStep.driverLat.toFixed(5)}°N{" "}
+                    {simConfirmStep.driverLng?.toFixed(5) ??
+                      "—"}
+                    °E
+                  </Text>
+                </View>
+              </View>
+            ) : (
+              <Text style={neoStyles.simModalNoLoc}>
+                No driver GPS data available
+              </Text>
+            )}
+            {simConfirmStep.groundOps ? null : (
+            <View style={neoStyles.simModalTime}>
+              <Text style={neoStyles.simModalLocLabel}>Completion time</Text>
+              <SimCompletionTimeField
+                key={`${simConfirmStep.targetStatus}-${simConfirmStep.label}`}
+                initialValue={simCompletionRef.current}
+                onChange={(value) => {
+                  simCompletionRef.current = value;
+                }}
+              />
+            </View>
+            )}
+            {simError ? (
+              <Text style={neoStyles.simModalError}>
+                {simError}
+              </Text>
+            ) : null}
+            <View style={neoStyles.simModalBtns}>
+              <TouchableOpacity
+                style={neoStyles.simModalCancel}
+                onPress={() => {
+                  setSimConfirmStep(null);
+                  setSimError(null);
+                }}
+                activeOpacity={0.8}
+              >
+                <Text style={neoStyles.simModalCancelText}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  neoStyles.simModalConfirm,
+                  (simulating || groundOpsConfirmBlocked) && { opacity: 0.6 },
+                ]}
+                onPress={handleConfirmSimulate}
+                disabled={simulating || groundOpsConfirmBlocked}
+                activeOpacity={0.85}
+              >
+                {simulating ? (
+                  <LoadingIndicator
+                    size="small"
+                    color="#fff"
+                  />
+                ) : (
+                  <Feather name="zap" size={14} color="#fff" />
+                )}
+                <Text style={neoStyles.simModalConfirmText}>
+                  {simulating
+                    ? simConfirmStep.groundOps
+                      ? "Updating…"
+                      : "Simulating…"
+                    : simConfirmStep.groundOps
+                      ? "Confirm"
+                      : "Confirm Simulate"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    ) : null;
+
   return (
     <TripProvider
       value={{
@@ -5593,7 +5764,9 @@ export default function TripDetailScreen({
                     ? () => setActiveTab("finance")
                     : undefined
                 }
+                stageActions={mobileStageActions}
               >
+                {simConfirmModal}
                 {canTripTrackingTab &&
                 driverMapTrackingEligible &&
                 (isDesktop || detail.showTrackingModal) ? (
@@ -6142,13 +6315,7 @@ export default function TripDetailScreen({
                                     isMobile && neoStyles.simBtnTextMobile,
                                   ]}
                                 >
-                                  {nextSimulateStep.groundOps
-                                    ? nextSimulateStep.targetStatus === "in_transit"
-                                      ? "Start Trip"
-                                      : "Reached Pickup"
-                                    : nextSimulateStep.targetStatus === "completed"
-                                      ? "Simulate Complete"
-                                      : "Simulate"}
+                                  {nextSimulateLabel}
                                 </Text>
                               </TouchableOpacity>
                             ) : null}
@@ -6294,144 +6461,7 @@ export default function TripDetailScreen({
                       </View>
                     </View>
 
-                    {/* Business Simulate Confirmation Modal */}
-                    {simConfirmStep ? (
-                      <Modal
-                        transparent
-                        animationType="fade"
-                        visible
-                        onRequestClose={() => setSimConfirmStep(null)}
-                      >
-                        <View style={neoStyles.simModalBackdrop}>
-                          <View style={neoStyles.simModal}>
-                            <View style={neoStyles.simModalHeader}>
-                              <Feather name="zap" size={18} color="#f59e0b" />
-                              <Text style={neoStyles.simModalTitle}>
-                                {simConfirmStep.groundOps ? "Update trip" : "Simulate Stage"}
-                              </Text>
-                            </View>
-                            <Text style={neoStyles.simModalAction}>
-                              {simConfirmStep.label}
-                            </Text>
-                            <View style={neoStyles.simModalDivider} />
-                            {simConfirmStep.groundOps ? (
-                              simConfirmStep.targetStatus === "in_transit" ? (
-                                groundOpsDocsChecking ? (
-                                  <Text style={neoStyles.simModalNoLoc}>
-                                    Checking required documents…
-                                  </Text>
-                                ) : groundOpsMissingDocs && groundOpsMissingDocs.length > 0 ? (
-                                  <View>
-                                    <Text style={neoStyles.simModalError}>
-                                      Upload these required documents before starting the trip:
-                                    </Text>
-                                    <Text style={neoStyles.simModalLocValue}>
-                                      {groundOpsMissingDocs.map(groundOpsTransitDocLabel).join(" · ")}
-                                    </Text>
-                                  </View>
-                                ) : groundOpsMissingDocs ? (
-                                  <Text style={neoStyles.simModalLocValue}>
-                                    All required documents are attached.
-                                  </Text>
-                                ) : null
-                              ) : (
-                                <Text style={neoStyles.simModalLocValue}>
-                                  Marks that the driver has reached the pickup point.
-                                </Text>
-                              )
-                            ) : simConfirmStep.driverLat != null ? (
-                              <View style={neoStyles.simModalLocRow}>
-                                <Feather
-                                  name="map-pin"
-                                  size={13}
-                                  color="#10b981"
-                                />
-                                <View style={{ flex: 1, minWidth: 0 }}>
-                                  <Text style={neoStyles.simModalLocLabel}>
-                                    Driver location
-                                  </Text>
-                                  <Text
-                                    style={neoStyles.simModalLocValue}
-                                    numberOfLines={2}
-                                  >
-                                    {simConfirmStep.driverLocLabel ||
-                                      `${simConfirmStep.driverLat.toFixed(5)}°N, ${simConfirmStep.driverLng?.toFixed(5) ?? "—"}°E`}
-                                  </Text>
-                                  <Text style={neoStyles.simModalLocCoords}>
-                                    {simConfirmStep.driverLat.toFixed(5)}°N{" "}
-                                    {simConfirmStep.driverLng?.toFixed(5) ??
-                                      "—"}
-                                    °E
-                                  </Text>
-                                </View>
-                              </View>
-                            ) : (
-                              <Text style={neoStyles.simModalNoLoc}>
-                                No driver GPS data available
-                              </Text>
-                            )}
-                            {simConfirmStep.groundOps ? null : (
-                            <View style={neoStyles.simModalTime}>
-                              <Text style={neoStyles.simModalLocLabel}>Completion time</Text>
-                              <SimCompletionTimeField
-                                key={`${simConfirmStep.targetStatus}-${simConfirmStep.label}`}
-                                initialValue={simCompletionRef.current}
-                                onChange={(value) => {
-                                  simCompletionRef.current = value;
-                                }}
-                              />
-                            </View>
-                            )}
-                            {simError ? (
-                              <Text style={neoStyles.simModalError}>
-                                {simError}
-                              </Text>
-                            ) : null}
-                            <View style={neoStyles.simModalBtns}>
-                              <TouchableOpacity
-                                style={neoStyles.simModalCancel}
-                                onPress={() => {
-                                  setSimConfirmStep(null);
-                                  setSimError(null);
-                                }}
-                                activeOpacity={0.8}
-                              >
-                                <Text style={neoStyles.simModalCancelText}>
-                                  Cancel
-                                </Text>
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                style={[
-                                  neoStyles.simModalConfirm,
-                                  (simulating || groundOpsConfirmBlocked) && { opacity: 0.6 },
-                                ]}
-                                onPress={handleConfirmSimulate}
-                                disabled={simulating || groundOpsConfirmBlocked}
-                                activeOpacity={0.85}
-                              >
-                                {simulating ? (
-                                  <LoadingIndicator
-                                    size="small"
-                                    color="#fff"
-                                  />
-                                ) : (
-                                  <Feather name="zap" size={14} color="#fff" />
-                                )}
-                                <Text style={neoStyles.simModalConfirmText}>
-                                  {simulating
-                                    ? simConfirmStep.groundOps
-                                      ? "Updating…"
-                                      : "Simulating…"
-                                    : simConfirmStep.groundOps
-                                      ? "Confirm"
-                                      : "Confirm Simulate"}
-                                </Text>
-                              </TouchableOpacity>
-                            </View>
-                          </View>
-                        </View>
-                      </Modal>
-                    ) : null}
+                    {simConfirmModal}
 
                     <View style={neoStyles.radarCard}>
                       <View style={neoStyles.radarMapLayer}>

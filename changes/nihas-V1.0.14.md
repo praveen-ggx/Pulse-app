@@ -30,3 +30,10 @@
 - Areas: lib/indianDrivingLicenseInput.util.ts, components/party/keypad/IndianDrivingLicenseKeypadFlow.tsx, components/indianVehicle/InputFormatPicker.tsx.
 - Migrations: none.
 - Tested: Jest licence format tests + drivers/finance/party suites pass; lint and typecheck clean on touched files. Checked on localhost:8081 (Finance → Drivers → Add driver, desktop web): picker fits one row, Old card turns 1043HW1997OD into 1043/HW/1997OD. Mobile keypad not clicked through.
+
+## Also in this round: trip Asset Vault and Ground Ops bank hiding
+- What broke: in the vehicle / driver document choosers, Preview opened only the file in the slot (the last upload). Older uploads were kept as rows but never shown, so it looked like uploads replaced each other. Ground Ops could also see Bank Docs and supplier banking (account number, IFSC) in Trip Details.
+- What: each chooser row now shows how many files there are ("2 files"), and Preview pages through all of them (same gallery as Trip Details, delete still per file). Trip Details rows show "1 file" / "N files". Ground Ops no longer see the Bank Docs row, the BANK tag, or supplier banking (not even fetched).
+- Areas: features/trips/components/trip-detail (TripDetailScreen, useTripDetail, tripDocTypes).
+- Migrations: none. UI-only hiding for Bank Docs; database access is unchanged.
+- Tested: Jest trips + tripCompliance suites pass (1090 tests); typecheck count unchanged (62). Not clicked through yet.

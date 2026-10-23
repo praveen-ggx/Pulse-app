@@ -29,6 +29,8 @@ export const TRIP_DETAILS_SLOTS: readonly {
 ];
 
 export const TRIP_DETAILS_TYPE_HINT = "LR · INVOICE · MEMO · OTHER · BANK";
+/** Trip Details hint for viewers who never see Bank Docs (Ground Ops). */
+export const TRIP_DETAILS_TYPE_HINT_NO_BANK = "LR · INVOICE · MEMO · OTHER";
 
 export interface TripDocFile {
   id: string;

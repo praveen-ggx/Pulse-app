@@ -1034,7 +1034,13 @@ export default function TripDetailScreen({
   const groundOpsPreviewLock = useMemo(() => {
     const selected = detail.selectedDoc;
     if (!isGroundOpsOnly || !selected) return null;
-    if (detail.isVehicleGalleryDoc || isDriverIdentityVaultDoc(selected)) return null;
+    if (
+      detail.isVehicleGalleryDoc ||
+      selected.category === "vehicle" ||
+      isDriverIdentityVaultDoc(selected)
+    ) {
+      return null;
+    }
     const storagePath = (
       isGalleryPreview
         ? previewGalleryDocs[detail.vehiclePreviewIndex]?.storagePath
@@ -1550,7 +1556,8 @@ export default function TripDetailScreen({
       ""
     ).trim();
     const supplierId = (detail.trip?.supplier_id ?? "").trim();
-    if (!orgId || !supplierId) {
+    // Ground Ops never see supplier banking.
+    if (!orgId || !supplierId || isGroundOpsOnly) {
       setSupplierBankProof(null);
       return;
     }
@@ -1566,6 +1573,7 @@ export default function TripDetailScreen({
     detail.trip?.organization_id,
     detail.trip?.supplier_id,
     currentOrganization?.id,
+    isGroundOpsOnly,
   ]);
 
   const [vaultDeleteTarget, setVaultDeleteTarget] = useState<{
@@ -2239,7 +2247,7 @@ export default function TripDetailScreen({
         });
         return;
       }
-      if (detail.isVehicleGalleryDoc) {
+      if (detail.isVehicleGalleryDoc || selected.category === "vehicle") {
         if (current.id.startsWith("vehicle-extra-")) {
           setVaultDeleteTarget({
             cardId: selected.id,
@@ -2982,6 +2990,52 @@ export default function TripDetailScreen({
       );
     },
     [openVaultDocLikeChat],
+  );
+
+  /**
+   * Chooser eye for one vehicle / driver type: every file on file for that type
+   * (slot + added), paged in the gallery. One file opens directly as before.
+   */
+  const previewAssetDocType = useCallback(
+    (owner: "vehicle" | "driver", docType: string, label: string) => {
+      const docs = (owner === "vehicle"
+        ? detail.vehiclePreviewDocs
+        : detail.driverIdentityPreviewDocs
+      ).filter((doc) => doc.docType === docType && !!doc.storagePath?.trim());
+      if (docs.length === 0) return;
+      if (docs.length === 1) {
+        if (owner === "vehicle") previewVehicleDoc(docs[0].storagePath!, label);
+        else previewDriverIdentityDoc(docs[0].storagePath!, label);
+        return;
+      }
+      const files = docs.map((doc, index) => ({
+        id: doc.id,
+        label: `${label} ${index + 1} of ${docs.length}`,
+        type: doc.type,
+        storagePath: doc.storagePath!,
+        documentId: doc.documentId,
+        docSource: owner === "vehicle" ? ("vehicle" as const) : ("compliance" as const),
+      }));
+      detail.setVehiclePreviewIndex(0);
+      detail.setSelectedDoc({
+        id: `${owner}-type-${docType}`,
+        label,
+        type: "FILES",
+        status: "Uploaded",
+        category: owner === "vehicle" ? "vehicle" : "driver_identity",
+        docSource: owner === "vehicle" ? "vehicle" : "compliance",
+        files,
+        storagePath: files[0].storagePath,
+      });
+    },
+    [
+      detail.vehiclePreviewDocs,
+      detail.driverIdentityPreviewDocs,
+      detail.setVehiclePreviewIndex,
+      detail.setSelectedDoc,
+      previewVehicleDoc,
+      previewDriverIdentityDoc,
+    ],
   );
 
   const previewTripDetailsSlot = useCallback(
@@ -4266,7 +4320,7 @@ export default function TripDetailScreen({
   const tripDetailsCard = vaultDocs.find(isTripDetailsVaultDoc);
   const tripDetailsFields = (
     <View style={styles.tripDetailsFields}>
-      {TRIP_DETAILS_SLOTS.map((slot) => {
+      {TRIP_DETAILS_SLOTS.filter((slot) => !(isGroundOpsOnly && slot.id === "bank_docs")).map((slot) => {
         const files = (tripDetailsCard?.files ?? []).filter(
           (file) => file.slotType === slot.id && !!file.storagePath?.trim(),
         );
@@ -4308,9 +4362,11 @@ export default function TripDetailScreen({
         const meta =
           metaParts.length > 0
             ? metaParts.join(" · ")
-            : onFile
-              ? "On file"
-              : supplierBankOnFile
+            : files.length > 0
+              ? `${files.length} file${files.length === 1 ? "" : "s"}`
+              : onFile
+                ? "On file"
+                : supplierBankOnFile
                 ? "From supplier banking"
                 : "Not uploaded";
         return (
@@ -8216,7 +8272,9 @@ export default function TripDetailScreen({
               <View style={styles.docModalTitleBlock}>
                 <Text style={styles.docModalTitle}>Trip Details</Text>
                 <Text style={styles.docModalSubtitle}>
-                  LR, Invoice, Memo, Other Documents, and Bank Docs
+                  {isGroundOpsOnly
+                    ? "LR, Invoice, Memo, and Other Documents"
+                    : "LR, Invoice, Memo, Other Documents, and Bank Docs"}
                 </Text>
               </View>
               <TouchableOpacity
@@ -8378,8 +8436,10 @@ export default function TripDetailScreen({
             >
               <View style={styles.tripDetailsFields}>
                 {VEHICLE_UPLOAD_CHOOSER_ORDER.map((docType) => {
-                  const path = detail.vehicleDocs?.[docType]?.url?.trim() ?? "";
-                  const onFile = !!path;
+                  const fileCount = detail.vehiclePreviewDocs.filter(
+                    (doc) => doc.docType === docType && !!doc.storagePath?.trim(),
+                  ).length;
+                  const onFile = fileCount > 0;
                   const canUpload = canUploadTripDocs && !uploadingDocId;
                   return (
                     <View key={docType} style={styles.tripDetailsRow}>
@@ -8388,7 +8448,9 @@ export default function TripDetailScreen({
                           {DOCUMENT_LABELS[docType]}
                         </Text>
                         <Text style={styles.addDocTypeBtnMeta}>
-                          {onFile ? "On file" : "Not uploaded"}
+                          {onFile
+                            ? `${fileCount} file${fileCount === 1 ? "" : "s"}`
+                            : "Not uploaded"}
                         </Text>
                       </View>
                       <TouchableOpacity
@@ -8408,7 +8470,7 @@ export default function TripDetailScreen({
                       <TouchableOpacity
                         style={styles.tripDetailsIconBtn}
                         onPress={() =>
-                          previewVehicleDoc(path, DOCUMENT_LABELS[docType])
+                          previewAssetDocType("vehicle", docType, DOCUMENT_LABELS[docType])
                         }
                         disabled={!onFile}
                         activeOpacity={0.85}
@@ -8462,8 +8524,10 @@ export default function TripDetailScreen({
             <View style={styles.tripDetailsDialogBody}>
               <View style={styles.tripDetailsFields}>
                 {DRIVER_IDENTITY_UPLOAD_ORDER.map((docType) => {
-                  const path = detail.driverIdentityDocs?.[docType]?.url?.trim() ?? "";
-                  const onFile = !!path;
+                  const fileCount = detail.driverIdentityPreviewDocs.filter(
+                    (doc) => doc.docType === docType && !!doc.storagePath?.trim(),
+                  ).length;
+                  const onFile = fileCount > 0;
                   const canUpload = canUploadTripDocs && !uploadingDocId;
                   return (
                     <View key={docType} style={styles.tripDetailsRow}>
@@ -8472,7 +8536,9 @@ export default function TripDetailScreen({
                           {DRIVER_IDENTITY_LABELS[docType]}
                         </Text>
                         <Text style={styles.addDocTypeBtnMeta}>
-                          {onFile ? "On file" : "Not uploaded"}
+                          {onFile
+                            ? `${fileCount} file${fileCount === 1 ? "" : "s"}`
+                            : "Not uploaded"}
                         </Text>
                       </View>
                       <TouchableOpacity
@@ -8492,7 +8558,7 @@ export default function TripDetailScreen({
                       <TouchableOpacity
                         style={styles.tripDetailsIconBtn}
                         onPress={() =>
-                          previewDriverIdentityDoc(path, DRIVER_IDENTITY_LABELS[docType])
+                          previewAssetDocType("driver", docType, DRIVER_IDENTITY_LABELS[docType])
                         }
                         disabled={!onFile}
                         activeOpacity={0.85}

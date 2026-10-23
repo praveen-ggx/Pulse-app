@@ -29,8 +29,8 @@ export const INDIAN_DL_FORMATS: readonly {
   example: string;
 }[] = [
   { id: "standard", label: "Standard", example: "TN01 20200001234" },
-  { id: "rtoLetter", label: "Letter after RTO", example: "TN29 Z19940001713" },
-  { id: "other", label: "Old / smart card", example: "1043/HW/1997OD" },
+  { id: "rtoLetter", label: "RTO letter", example: "TN29 Z19940001713" },
+  { id: "other", label: "Old card", example: "1043/HW/1997OD" },
 ];
 
 const DL_FORMAT_PATTERNS: Record<IndianDlFormat, RegExp> = {

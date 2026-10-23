@@ -4414,6 +4414,29 @@ export function ComplianceDocumentWorkspace({
       );
     });
 
+  /** Document rows of the checklist pane (scrolls itself on desktop, with the page on phones). */
+  const checklistDocRows = showGroupedReview
+    ? (["required", "optional"] as const).map((group) => {
+        const requiredTypes = new Set(
+          listRows.filter((row) => row.required).map((row) => row.type),
+        );
+        const groupRows = listRows.filter((row) => {
+          const withRequiredType = requiredTypes.has(row.type);
+          return group === "required" ? withRequiredType : !withRequiredType;
+        });
+        if (groupRows.length === 0) return null;
+        return (
+          <View
+            key={group}
+            style={[styles.reviewGroup, group === "optional" && styles.reviewGroupSpaced]}
+          >
+            {renderReviewGroupHeader(group, groupRows.length)}
+            {firstRowPerType(groupRows).map(renderChecklistRow)}
+          </View>
+        );
+      })
+    : firstRowPerType(listRows).map(renderChecklistRow);
+
   return (
     <View style={[styles.workspace, stacked && styles.workspaceStacked, style]}>
       {phoneDetail ? null : (
@@ -4669,36 +4692,24 @@ export function ComplianceDocumentWorkspace({
                         </Text>
                       </View>
                     ) : null}
+                    {/* Phone: the whole pane already scrolls (PhoneDetailFrame). A
+                        scrollEnabled={false} ScrollView gets touch-action: none on web,
+                        so swipes starting on a long list (All tab) never scrolled. */}
+                    {phoneDetail ? (
+                      <View style={[styles.checklistDocsContent, styles.phoneNatural]}>
+                        {checklistDocRows}
+                      </View>
+                    ) : (
                     <ScrollView
-                      style={[styles.checklistDocs, phoneDetail && styles.phoneNatural]}
+                      style={styles.checklistDocs}
                       contentContainerStyle={styles.checklistDocsContent}
-                      scrollEnabled={!phoneDetail}
                       nestedScrollEnabled
                       showsVerticalScrollIndicator
                       keyboardShouldPersistTaps="handled"
                     >
-                      {showGroupedReview
-                        ? (["required", "optional"] as const).map((group) => {
-                            const requiredTypes = new Set(
-                              listRows.filter((row) => row.required).map((row) => row.type),
-                            );
-                            const groupRows = listRows.filter((row) => {
-                              const withRequiredType = requiredTypes.has(row.type);
-                              return group === "required" ? withRequiredType : !withRequiredType;
-                            });
-                            if (groupRows.length === 0) return null;
-                            return (
-                              <View
-                                key={group}
-                                style={[styles.reviewGroup, group === "optional" && styles.reviewGroupSpaced]}
-                              >
-                                {renderReviewGroupHeader(group, groupRows.length)}
-                                {firstRowPerType(groupRows).map(renderChecklistRow)}
-                              </View>
-                            );
-                          })
-                        : firstRowPerType(listRows).map(renderChecklistRow)}
+                      {checklistDocRows}
                     </ScrollView>
+                    )}
                     {phoneDetail ? null : (
                     <View
                       style={styles.checklistListGapArt}

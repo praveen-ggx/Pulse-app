@@ -17,6 +17,8 @@
 
 - E-way "Entered details" preview: numbers and dates stay on one line on Android (no clipped second line); header card lines up with the entry cards (phone and web).
 
+- E-way polish (checked in a local web render at 390 and 1440 wide): entered-details entries spaced 8pt apart on phones, one centred column up to 960pt on web (cards no longer stretch edge to edge); vault e-way table action columns 48pt so "Upload" fits on one line.
+
 ## Why
 - Ground Ops on mobile had no way to reach Compliance (the mobile bar had no slot for it), and their Chat tab did nothing when tapped (no sales.chat, so openMessages returns early).
 - On a phone the trip list and documents were squeezed into one screen (list 42% high, documents list capped at 46% of the rest), so the trip card was cut off and the list of documents to upload had no height at all: Ground Ops could not see what to upload. "Declined by finance" ran off the screen.
@@ -32,6 +34,8 @@
 - In a half-width card the two buttons got ~37pt of text room each, so PREVIEW broke across lines.
 
 - Android ignores numberOfLines on selectable Text, so values wrapped inside fixed-height rows; the header had no room left for the 18pt scroll rail the entries keep.
+
+- Stacked entry cards touched; on wide web the cards ran the full screen width with labels and values far apart; the 36pt action column broke "Upload" into "Uploa / d".
 
 ## Areas
 - components/navigation/PulseBottomTabBar/PulseBottomTabBar.tsx (Compliance slot, showChat, memo compares compliance), components/demo/DemoTabBar.tsx (passes canOpenChat).
@@ -49,6 +53,8 @@
 
 - features/tripCompliance/components/ComplianceDocumentWorkspace.tsx (TYPED_VALUE_SELECTABLE, typedPreviewHeader marginRight).
 
+- features/tripCompliance/components/ComplianceDocumentWorkspace.tsx (typedPreviewColumn, typedPreviewRow gap), features/trips/components/trip-detail/EwayBillVaultTab.tsx (colAction / iconBtn 48).
+
 ## Migrations
 - None of mine. 20261022123845_individual_registration_type.sql comes from Nihas, who runs it on preprod/prod.
 
@@ -65,3 +71,4 @@
 - Vault cards / e-way preview: tripCompliance + trips Jest (133 suites, 1102 tests) pass; typecheck 62; lint unchanged. Not yet checked on the phone.
 - Vault buttons: trips Jest (460 tests) pass; typecheck 62; no lint in touched files. Not yet checked on the phone.
 - E-way preview: tripCompliance Jest (642 tests) pass; typecheck 62; lint unchanged. Not yet checked on the phone or web.
+- E-way polish: before/after screenshots at phone and desktop width from a temporary local harness (removed, not committed); tripCompliance + trips Jest (1102 tests) pass; typecheck 62; lint unchanged.

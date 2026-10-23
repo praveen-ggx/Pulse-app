@@ -804,12 +804,13 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  // 48: "Upload" header fits on one line; icons stay centred under their headers.
   colAction: {
-    width: 36,
+    width: 48,
     textAlign: "center",
   },
   iconBtn: {
-    width: 36,
+    width: 48,
     minHeight: Layout.minTouchTargetSize,
     alignItems: "center",
     justifyContent: "center",

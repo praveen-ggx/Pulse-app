@@ -615,6 +615,7 @@ function TypedDetailsPreview({
         insetForSideNav && styles.typedPreviewContentWithNav,
       ]}
     >
+      <View style={styles.typedPreviewColumn}>
       <View style={styles.typedPreviewHeader}>
         <View style={styles.typedPreviewHeaderIcon}>
           <ClipboardList size={14} color={Theme.buttonDarkText} strokeWidth={2.1} />
@@ -725,6 +726,7 @@ function TypedDetailsPreview({
           ))}
         </ScrollView>
         <PreviewScrollRail axis="y" value={pan.y} max={pan.maxY} onChange={moveY} />
+      </View>
       </View>
     </View>
   );
@@ -7562,6 +7564,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     gap: 8,
   },
+  /** Header + entries share one centred column; wide web screens stop stretching the cards. */
+  typedPreviewColumn: {
+    flex: 1,
+    minHeight: 0,
+    width: "100%",
+    maxWidth: 960,
+    alignSelf: "center",
+    gap: 8,
+  },
   typedPreviewScrollDark: {
     backgroundColor: Theme.darkSurface,
   },
@@ -7636,6 +7647,8 @@ const styles = StyleSheet.create({
   typedPreviewRow: {
     flexGrow: 0,
     flexShrink: 0,
+    // Single column: space between stacked entry cards (grid rows use their own gap).
+    gap: 8,
   },
   typedPreviewRowGrid: {
     flexDirection: "row",

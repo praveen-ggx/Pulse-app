@@ -158,6 +158,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import {
   ActivityIndicator,
   Animated,
+  BackHandler,
   Easing,
   Image,
   Modal,
@@ -2342,6 +2343,64 @@ export function DocumentScreen({
   );
 }
 
+/**
+ * Phone document pane (`phoneFlow`): back bar to the trip list + one vertical
+ * scroll for tabs, rows and preview. Inactive → children render as before.
+ */
+function PhoneDetailFrame({
+  active,
+  title,
+  subtitle,
+  onBack,
+  children,
+}: {
+  active: boolean;
+  title: string;
+  subtitle: string | null;
+  onBack: () => void;
+  children: React.ReactNode;
+}) {
+  if (!active) return <>{children}</>;
+  return (
+    <View style={styles.phoneDetail}>
+      <View style={styles.phoneBackBar}>
+        <Pressable
+          onPress={onBack}
+          style={(state: HoverPressState) => [
+            styles.phoneBackBtn,
+            WEB_POINTER,
+            state.pressed && styles.phoneBackBtnPressed,
+          ]}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel="Back to trips"
+        >
+          <ChevronLeft size={18} color={Theme.textPrimary} strokeWidth={2.2} />
+          <Text style={styles.phoneBackText}>Trips</Text>
+        </Pressable>
+        <View style={styles.phoneBackTitleWrap}>
+          <Text style={styles.phoneBackTitle} numberOfLines={1}>
+            {title}
+          </Text>
+          {subtitle ? (
+            <Text style={styles.phoneBackSubtitle} numberOfLines={1}>
+              {subtitle}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+      <ScrollView
+        style={styles.phoneDetailScroll}
+        contentContainerStyle={styles.phoneDetailContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {children}
+      </ScrollView>
+    </View>
+  );
+}
+
 export function ComplianceDocumentWorkspace({
   summaries,
   tripFacts,
@@ -2351,6 +2410,7 @@ export function ComplianceDocumentWorkspace({
   canViewDocuments,
   onChanged,
   stacked = false,
+  phoneFlow = false,
   style,
   canManageFinance = false,
   hideCommercials = false,
@@ -2407,6 +2467,11 @@ export function ComplianceDocumentWorkspace({
   /** Exactly what changed, so the pipeline patches only the affected inputs. */
   onChanged: (change: ComplianceChange) => void;
   stacked?: boolean;
+  /**
+   * Phone (Ground Ops): full-height trip list, tapping a trip opens its documents
+   * full-height with a back bar, instead of squeezing both into one screen.
+   */
+  phoneFlow?: boolean;
   style?: StyleProp<ViewStyle>;
   canManageFinance?: boolean;
   /** Ground Ops: no rates, profit, supplier bank details or Advance Payment preview. */
@@ -2551,6 +2616,8 @@ export function ComplianceDocumentWorkspace({
     suppliersQuery.data,
   ]);
   const [selectedId, setSelectedId] = useState<string | null>(selectedTripId ?? summaries[0]?.trip.id ?? null);
+  /** `phoneFlow` only: which of the two full-height panes is showing. */
+  const [phonePane, setPhonePane] = useState<"list" | "detail">("list");
   const [docFilter, setDocFilter] = useState<DocFilter>("all");
   const [docIndex, setDocIndex] = useState(0);
   const [checklistKey, setChecklistKey] = useState<string | null>(null);
@@ -2645,6 +2712,24 @@ export function ComplianceDocumentWorkspace({
       (tab === "driver" && !summary?.trip.driver_id));
   /** Same dual-pane shell (tabs + upload pill + list | preview) on every tab and stage. */
   const showDocumentShell = Boolean(summary);
+  /** Phone: the selected trip's documents fill the screen (list hidden). */
+  const phoneDetail =
+    phoneFlow &&
+    phonePane === "detail" &&
+    !hideDocumentPanes &&
+    summary != null &&
+    summary.trip.id === selectedId;
+  /** Phone: the trip list fills the screen (documents hidden). */
+  const phoneList = phoneFlow && !hideDocumentPanes && !phoneDetail;
+
+  useEffect(() => {
+    if (!phoneDetail) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      setPhonePane("list");
+      return true;
+    });
+    return () => sub.remove();
+  }, [phoneDetail]);
   const showEntityUnassigned = Boolean(summary && entityUnassigned);
   /** Trip/Vehicle/Driver list always uses vault rows inside the shared shell. */
   const checklistRows = useMemo(() => {
@@ -2879,6 +2964,7 @@ export function ComplianceDocumentWorkspace({
       resetPreviewView();
       // Debit control: no side pane — tapping a trip opens Log hard copy POD.
       if (hideDocumentPanes && showHardCopyPodLog) setPodOpen(true);
+      if (phoneFlow) setPhonePane("detail");
     },
     [
       defaultPreview,
@@ -2886,6 +2972,7 @@ export function ComplianceDocumentWorkspace({
       hideDocumentPanes,
       showHardCopyPodLog,
       onSelectedTripChange,
+      phoneFlow,
     ],
   );
 
@@ -2896,7 +2983,17 @@ export function ComplianceDocumentWorkspace({
     setChecklistPreviewMode("document");
     resetPreviewView();
     setScreenOpen(false);
-  }, [focusTab, focusToken, resetPreviewView]);
+    // Opened for one trip's documents (e.g. from trip detail): show them, not the list.
+    if (phoneFlow) setPhonePane("detail");
+  }, [focusTab, focusToken, resetPreviewView, phoneFlow]);
+
+  // The open trip left this queue (e.g. moved stage): back to the list rather
+  // than silently showing whichever trip is now first.
+  useEffect(() => {
+    if (phonePane === "detail" && !summaries.some((item) => item.trip.id === selectedId)) {
+      setPhonePane("list");
+    }
+  }, [phonePane, selectedId, summaries]);
 
   useEffect(() => {
     setLocalDecisionByKey({});
@@ -4193,11 +4290,12 @@ export function ComplianceDocumentWorkspace({
 
   return (
     <View style={[styles.workspace, stacked && styles.workspaceStacked, style]}>
+      {phoneDetail ? null : (
       <View
         style={[
           styles.listPane,
           stacked && styles.listPaneStacked,
-          hideDocumentPanes && !showValidationPane && styles.listPaneFull,
+          ((hideDocumentPanes && !showValidationPane) || phoneList) && styles.listPaneFull,
         ]}
       >
         {listHeader}
@@ -4274,7 +4372,15 @@ export function ComplianceDocumentWorkspace({
         </ScrollView>
         )}
       </View>
+      )}
 
+      {phoneList ? null : (
+      <PhoneDetailFrame
+        active={phoneDetail}
+        title={summary ? getTripDisplayNumber(summary.trip, organizationId || null) : ""}
+        subtitle={summary?.trip.client_name?.trim() || null}
+        onBack={() => setPhonePane("list")}
+      >
       {showValidationPane ? (
         <View style={[styles.previewPane, styles.podLogPane]}>
           {summary ? (
@@ -4346,11 +4452,22 @@ export function ComplianceDocumentWorkspace({
           </View>
         </View>
       ) : hideDocumentPanes ? null : (
-      <View style={styles.previewPane}>
-        <View style={styles.stage}>
+      <View style={[styles.previewPane, phoneDetail && styles.phoneNatural]}>
+        <View style={[styles.stage, phoneDetail && styles.phoneNatural]}>
           {showDocumentShell ? (
-            <View style={[styles.checklistStage, stacked && styles.checklistStageStacked]}>
-              <View style={[styles.checklistListPane, stacked && styles.checklistListPaneStacked]}>
+            <View
+              style={[
+                styles.checklistStage,
+                stacked && styles.checklistStageStacked,
+                phoneDetail && styles.phoneNatural,
+              ]}
+            >
+              <View
+                style={[
+                  styles.checklistListPane,
+                  stacked && (phoneDetail ? styles.checklistListPanePhone : styles.checklistListPaneStacked),
+                ]}
+              >
                 <View style={styles.checklistPanelToolbar}>
                   <ScrollView
                     horizontal
@@ -4440,6 +4557,8 @@ export function ComplianceDocumentWorkspace({
                       );
                     })}
                   </ScrollView>
+                  {/* Phone: the headline below already says what's missing; tabs get the width. */}
+                  {phoneDetail ? null : (
                   <View style={styles.checklistToolbarActions}>
                     <View style={[styles.missingNavPill, styles.checklistUploadPill]}>
                       <Text style={[styles.missingNavLabel, styles.checklistUploadPillText]} numberOfLines={1}>
@@ -4451,6 +4570,7 @@ export function ComplianceDocumentWorkspace({
                       </Text>
                     </View>
                   </View>
+                  )}
                 </View>
                 {showEntityUnassigned ? (
                   <View style={styles.missingHeader}>
@@ -4498,8 +4618,9 @@ export function ComplianceDocumentWorkspace({
                       </View>
                     ) : null}
                     <ScrollView
-                      style={styles.checklistDocs}
+                      style={[styles.checklistDocs, phoneDetail && styles.phoneNatural]}
                       contentContainerStyle={styles.checklistDocsContent}
+                      scrollEnabled={!phoneDetail}
                       nestedScrollEnabled
                       showsVerticalScrollIndicator
                       keyboardShouldPersistTaps="handled"
@@ -4526,6 +4647,7 @@ export function ComplianceDocumentWorkspace({
                           })
                         : firstRowPerType(listRows).map(renderChecklistRow)}
                     </ScrollView>
+                    {phoneDetail ? null : (
                     <View
                       style={styles.checklistListGapArt}
                       pointerEvents="none"
@@ -4534,6 +4656,7 @@ export function ComplianceDocumentWorkspace({
                     >
                       <ComplianceChecklistGapArt />
                     </View>
+                    )}
                     <View style={styles.checklistPreviewActionsSection}>
                       <View style={styles.checklistPreviewActionsHeader}>
                         <Text style={styles.checklistPreviewActionsLabel}>PREVIEW</Text>
@@ -4765,7 +4888,12 @@ export function ComplianceDocumentWorkspace({
                 )}
               </View>
 
-              <View style={[styles.checklistPreviewPane, stacked && styles.checklistPreviewPaneStacked]}>
+              <View
+                style={[
+                  styles.checklistPreviewPane,
+                  stacked && (phoneDetail ? styles.checklistPreviewPanePhone : styles.checklistPreviewPaneStacked),
+                ]}
+              >
                 {(() => {
                   const previewingDocument =
                     checklistPreviewMode === "document";
@@ -5106,6 +5234,8 @@ export function ComplianceDocumentWorkspace({
           </View>
         ) : null}
       </View>
+      )}
+      </PhoneDetailFrame>
       )}
       <DocumentScreen
         visible={screenOpen}
@@ -6840,6 +6970,42 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   listPaneStacked: { width: "100%", maxWidth: "100%", height: "42%", maxHeight: "42%" },
+
+  /** Phone (`phoneFlow`) document pane: back bar + one scroll, panes at natural height. */
+  phoneDetail: { flex: 1, minHeight: 0, width: "100%", gap: 8 },
+  phoneBackBar: {
+    flexShrink: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 48,
+    paddingLeft: 4,
+    paddingRight: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+    backgroundColor: Theme.cardWhite,
+  },
+  phoneBackBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    minHeight: 44,
+    minWidth: 44,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+  },
+  phoneBackBtnPressed: { opacity: 0.7 },
+  phoneBackText: { fontSize: 14, fontWeight: "600", color: Theme.textPrimary },
+  phoneBackTitleWrap: { flex: 1, minWidth: 0, alignItems: "flex-end" },
+  phoneBackTitle: { fontSize: 14, fontWeight: "700", color: Theme.textPrimary },
+  phoneBackSubtitle: { fontSize: 12, color: Theme.textSecondary },
+  phoneDetailScroll: { flex: 1, minHeight: 0 },
+  phoneDetailContent: { paddingBottom: 12 },
+  /** Size to content inside the phone scroll (overrides `flex: 1` panes). */
+  phoneNatural: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: "auto" },
+  checklistListPanePhone: { width: "100%", maxWidth: "100%", flexShrink: 0 },
+  checklistPreviewPanePhone: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: "auto", height: 460 },
 
   /** Debit control: no checklist / preview, the trip list takes the row. */
   listPaneFull: { flex: 1, width: "auto", maxWidth: "100%", height: "100%", maxHeight: "100%" },

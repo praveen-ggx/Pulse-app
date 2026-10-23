@@ -2496,13 +2496,14 @@ export default function TripsScreen() {
     );
   };
 
+  // Ground Ops never see receivable / payable money: History keeps only the POD tiles.
   const historyReceivableIds: HistoryTripMetricId[] = useMemo(
-    () => ["due_to_get", "no_due_to_get"],
-    [],
+    () => (isGroundOpsMember ? [] : ["due_to_get", "no_due_to_get"]),
+    [isGroundOpsMember],
   );
   const historyPayableIds: HistoryTripMetricId[] = useMemo(
-    () => ["due_to_pay", "no_due_to_pay"],
-    [],
+    () => (isGroundOpsMember ? [] : ["due_to_pay", "no_due_to_pay"]),
+    [isGroundOpsMember],
   );
   const historyPodIds: HistoryTripMetricId[] = useMemo(
     () => ["pending_soft_pod", "pending_hard_pod"],

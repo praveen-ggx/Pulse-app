@@ -12,7 +12,11 @@ import { AdjustableSplitLayout } from "@/components/layout/AdjustableSplitLayout
 import { ThemedAlertModal } from "@/components/ThemedAlertModal";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
-import { rejectDocument, verifyDocument } from "@/features/compliance/services/documents.service";
+import {
+  rejectDocument,
+  updateEntityDocumentExpiry,
+  verifyDocument,
+} from "@/features/compliance/services/documents.service";
 import { getSupplierBankAccount } from "@/features/suppliers/services/supplierVendorOnboarding.service";
 import { resolveBankBranch } from "@/features/suppliers/utils/ifscDirectory.util";
 import { subscribeSupplierBankChanged } from "@/features/suppliers/utils/supplierBankEvents.util";
@@ -31,7 +35,7 @@ import { NoDocumentPreviewEmpty, NoTripsFoundEmpty } from "@/features/tripCompli
 import { ComplianceActivityLogButton } from "@/features/tripCompliance/components/ComplianceTripActivityLog";
 import { ComplianceTripCard } from "@/features/tripCompliance/components/ComplianceTripCard";
 import { hubMobileListCanvasStyles, HUB_MOBILE_LIST_CANVAS_BG } from "@/components/hub";
-import { ComplianceInputModal } from "@/features/tripCompliance/components/ComplianceInputModal";
+import { ComplianceNumberStack } from "@/features/tripCompliance/components/ComplianceNumberStack";
 import {
   CompliancePaymentConfirmModal,
   type CompliancePaymentConfirmValues,
@@ -57,10 +61,13 @@ import {
   COMPLIANCE_FINANCE_DOCUMENT_TYPES,
   COMPLIANCE_VEHICLE_DOCUMENT_TYPES,
   REQUIRED_COMPLIANCE_DOCUMENT_TYPES,
+  REQUIRED_DRIVER_DOCUMENT_TYPES,
+  REQUIRED_VEHICLE_DOCUMENT_TYPES,
   documentRequiresExpiry,
   type ComplianceStage,
   type ComplianceTripSummary,
 } from "@/features/tripCompliance/tripCompliance.types";
+import { isEntityDocumentSlotVerified } from "@/features/tripCompliance/utils/complianceChecklist.util";
 import {
   formatComplianceTimestamp,
   isComplianceVerifiedRejected,
@@ -101,6 +108,10 @@ import {
   isFinanceDeclinedTrip,
   isResubmittedFinanceReject,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
+import { groundOpsTransitDocLabel } from "@/features/tripCompliance/utils/groundOpsTransitGate.util";
+import { ExpiryDatePickerModal } from "@/components/ExpiryDatePicker";
+import { HubTripLrUpdateModal } from "@/features/trips/components/HubTripLrUpdateModal";
+import { parseLrFieldValues } from "@/features/trips/services/lrDocumentOcr.util";
 import {
   groundOpsDocumentLockLabel,
   groundOpsDocumentLockReason,
@@ -161,6 +172,7 @@ import {
 import { TripVaultFilePreview } from "@/features/trips/components/trip-detail/TripVaultFilePreview";
 import { VaultChooserNotifyRow } from "@/features/trips/components/trip-detail/VaultChooserNotifyRow";
 import { getTripExecutionModel } from "@/features/trips/domain/tripExecutionModel";
+import { isEwayBillMetaPath } from "@/features/trips/services/ewayBillFields.util";
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { lrReceiptForTrip } from "@/features/trips/utils/lrReceiptStatus.util";
 import { splitHubRouteLocationDisplay } from "@/features/trips/utils/tripLocationDisplay.util";
@@ -480,6 +492,25 @@ function groupTypedDetailLines(lines: TypedDetailLineView[]): {
   return groups;
 }
 
+/** "Eway no" → "E-way No", "Doc no" → "Doc No": same wording as the vault e-way strip. */
+function typedLineLabel(label: string): string {
+  return label.replace(/^e-?way\b/i, "E-way").replace(/\bno\b/gi, "No");
+}
+
+/**
+ * Fixed-width digits only for pure numbers (e-way / doc no). On dates the tabular
+ * font also widened the hyphens on Android ("16 - Oct - 26").
+ */
+function typedValueStyle(value: string) {
+  return /^[\d\s]+$/.test(value.trim()) ? styles.typedValueTabular : null;
+}
+
+/**
+ * Android ignores `numberOfLines` on selectable Text, so long e-way numbers and
+ * dates wrapped and the card clipped the second line. Keep copy-select elsewhere.
+ */
+const TYPED_VALUE_SELECTABLE = Platform.OS !== "android";
+
 function TypedDetailsPreview({
   title,
   lines,
@@ -497,7 +528,10 @@ function TypedDetailsPreview({
 }) {
   const groups = useMemo(() => groupTypedDetailLines(lines), [lines]);
   const entryCount = groups.filter((group) => group.key.startsWith("entry-")).length;
-  const multiColumn = groups.length >= 2;
+  const { width: windowWidth } = useWindowDimensions();
+  // Phone: two cards side by side (between the prev/next chevrons) cut labels and
+  // wrap values, so one entry per row there.
+  const multiColumn = groups.length >= 2 && windowWidth >= 560;
   const rows = useMemo(() => {
     if (!multiColumn) return [groups];
     const next: (typeof groups)[] = [];
@@ -637,6 +671,7 @@ function TypedDetailsPreview({
         insetForSideNav && styles.typedPreviewContentWithNav,
       ]}
     >
+      <View style={styles.typedPreviewColumn}>
       <View style={styles.typedPreviewHeader}>
         <View style={styles.typedPreviewHeaderIcon}>
           <ClipboardList size={15} color={Theme.buttonDarkText} strokeWidth={2.1} />
@@ -733,9 +768,13 @@ function TypedDetailsPreview({
                       </View>
                       <View style={styles.typedEntryHeadingCopy}>
                         <Text style={styles.typedEntryKicker} numberOfLines={1}>
-                          {primary?.label ?? group.heading}
+                          {primary ? typedLineLabel(primary.label) : group.heading}
                         </Text>
-                        <Text style={styles.typedEntryHeading} numberOfLines={2} selectable>
+                        <Text
+                          style={[styles.typedEntryHeading, typedValueStyle(primary?.value ?? "")]}
+                          numberOfLines={2}
+                          selectable={TYPED_VALUE_SELECTABLE}
+                        >
                           {primary?.value ?? group.heading}
                         </Text>
                       </View>
@@ -782,9 +821,13 @@ function TypedDetailsPreview({
                         ]}
                       >
                         <Text style={styles.typedFactLabel} numberOfLines={1}>
-                          {line.label}
+                          {typedLineLabel(line.label)}
                         </Text>
-                        <Text style={styles.typedFactValue} numberOfLines={2} selectable>
+                        <Text
+                          style={[styles.typedFactValue, typedValueStyle(line.value)]}
+                          numberOfLines={2}
+                          selectable={TYPED_VALUE_SELECTABLE}
+                        >
                           {line.value}
                         </Text>
                       </View>
@@ -799,6 +842,7 @@ function TypedDetailsPreview({
           ))}
         </ScrollView>
         <PreviewScrollRail axis="y" value={pan.y} max={pan.maxY} onChange={moveY} />
+      </View>
       </View>
     </View>
   );
@@ -3680,10 +3724,51 @@ export function ComplianceDocumentWorkspace({
    * and not rejected (also enforced by resubmit_trip_compliance), and for a
    * hold the vehicle / driver files too (stage leaves pending_for_docs).
    */
+  /** Required vehicle / driver docs that keep the trip in Pending Docs, with the reason. */
+  function resubmitEntityBlockers(current: ComplianceTripSummary): string[] {
+    const check = (
+      types: readonly string[],
+      rows: readonly ComplianceTripSummary["vehicleDocuments"][number][],
+    ) =>
+      types.flatMap((type) => {
+        const onFile = rows.filter(
+          (doc) =>
+            doc.doc_type === type &&
+            !!doc.storage_path &&
+            !["rejected", "replaced", "expired"].includes(doc.status),
+        );
+        const label = groundOpsTransitDocLabel(type);
+        if (onFile.length === 0) return [`${label} (missing)`];
+        if (onFile.some((doc) => isEntityDocumentSlotVerified(doc, new Date(), doc.doc_type))) return [];
+        if (documentRequiresExpiry(type) && onFile.every((doc) => !doc.expiry_date?.trim())) {
+          return [`${label} (expiry date missing — Add expiry)`];
+        }
+        return [`${label} (expired)`];
+      });
+    return [
+      ...check(REQUIRED_VEHICLE_DOCUMENT_TYPES, current.vehicleDocuments ?? []),
+      ...check(REQUIRED_DRIVER_DOCUMENT_TYPES, current.driverDocuments ?? []),
+    ];
+  }
+  /** Names the required documents that block Resubmit (e.g. "LR (rejected)"). */
+  const resubmitBlockingDocsLabel = summary
+    ? missingOrRejectedRequiredTripDocs(summary)
+        .map((type) => {
+          const rejected = summary.documents.some(
+            (doc) => doc.document_type === type && doc.status === "rejected",
+          );
+          return `${groundOpsTransitDocLabel(type)} (${rejected ? "rejected — replace it" : "missing"})`;
+        })
+        .concat(resubmitEntityBlockers(summary))
+        .join(", ")
+    : "";
+  // Judge the files themselves, not `summary.stage`: for hold fixers the screen
+  // routes every held trip to "pending_for_docs" so it shows in Document Upload,
+  // which would block Resubmit exactly when every file is on it.
   const resubmitBlockedByMissingDocs = Boolean(
     summary &&
       (missingOrRejectedRequiredTripDocs(summary).length > 0 ||
-        (isComplianceHoldAwaitingResubmit(summary) && summary.stage === "pending_for_docs")),
+        resubmitEntityBlockers(summary).length > 0),
   );
   const showMarkVerified = Boolean(
     !isCompliancePendingStage &&
@@ -3727,6 +3812,8 @@ export function ComplianceDocumentWorkspace({
         ? `Plus ${missingOptionalCount} optional from this ${vaultCopy.vaultLabel.toLowerCase()}`
         : vaultCopy.vaultHint;
   /** Upload / Replace in place: file picker → vault write → refetch. No review sheet. */
+  /** LR upload dialog (shared with the Trips hub) for the selected trip. */
+  const [lrDialogOpen, setLrDialogOpen] = useState(false);
   const uploadVaultDocument = useCallback(
     async (row: ComplianceDocRow) => {
       if (!summary) return;
@@ -3735,6 +3822,13 @@ export function ComplianceDocumentWorkspace({
         return;
       }
       if (uploadingFinanceType) return;
+      // LR: same dialog as the Trips hub (LR number + copies, duplicate check),
+      // so the number is never left empty after an upload from here.
+      if (row.type === "lr" && !isFinanceMode) {
+        setChecklistKey(row.key);
+        setLrDialogOpen(true);
+        return;
+      }
       const scope: DocTab = isFinanceMode ? "trip" : tab;
       const entityId =
         scope === "vehicle" ? summary.trip.vehicle_id : scope === "driver" ? summary.trip.driver_id : null;
@@ -3809,6 +3903,53 @@ export function ComplianceDocumentWorkspace({
       vaultCopy.unassignedHint,
     ],
   );
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  /** Insurance / FC / licence file on file without the expiry date the checklist needs. */
+  const entityRowNeedsExpiry = (row: ComplianceDocRow): boolean =>
+    Boolean(
+      row.entityDoc &&
+        documentRequiresExpiry(row.type) &&
+        row.entityDoc.storage_path &&
+        row.entityDoc.status !== "rejected" &&
+        !row.entityDoc.expiry_date?.trim(),
+    );
+  /** Saved straight on the entity_documents row (vault-JSON files must be re-uploaded). */
+  const canSetEntityExpiry = (row: ComplianceDocRow): boolean =>
+    Boolean(
+      row.entityDoc &&
+        (row.entityDoc.source ?? "entity") === "entity" &&
+        UUID_RE.test(row.entityDoc.id),
+    );
+  const [savingExpiryKey, setSavingExpiryKey] = useState<string | null>(null);
+  const addEntityExpiry = useCallback(
+    async (row: ComplianceDocRow) => {
+      const doc = row.entityDoc;
+      if (!summary || !doc || savingExpiryKey) return;
+      const entered = (await promptExpiryDate(row.type))?.trim() ?? "";
+      if (!entered) return;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(entered)) {
+        alertMessage("Invalid expiry date", "Use YYYY-MM-DD (for example 2027-03-15).");
+        return;
+      }
+      setSavingExpiryKey(row.key);
+      try {
+        const { error } = await updateEntityDocumentExpiry(doc.id, entered);
+        if (error) {
+          alertMessage("Couldn't save expiry date", error.message);
+          return;
+        }
+        onChanged(
+          doc.entity_type === "driver"
+            ? { type: "driverDocuments", driverId: doc.entity_id }
+            : { type: "vehicleDocuments", vehicleId: doc.entity_id },
+        );
+      } finally {
+        setSavingExpiryKey(null);
+      }
+    },
+    [onChanged, promptExpiryDate, savingExpiryKey, summary],
+  );
+
   // The files dialog belongs to one trip and tab.
   useEffect(() => {
     setFilesModalType(null);
@@ -3990,8 +4131,11 @@ export function ComplianceDocumentWorkspace({
             )
           ? "vehicle"
           : "client";
+    // Insurance / FC / licence rows without an expiry date (release 2026-10-23).
+    const needsExpiry = !isFinanceMode && entityRowNeedsExpiry(displayRow);
     const meta = [
       declineReason ? `Reason: ${declineReason}` : null,
+      needsExpiry ? "Expiry date missing" : null,
       isBankDocs && supplierBankLoading ? "Fetching supplier Banking…" : null,
       bankFromSupplier && displayRow.status !== "missing" ? "Synced from supplier Banking" : null,
       vaultDetail && vaultNumbers.length === 0 ? vaultDetail : null,
@@ -4046,6 +4190,30 @@ export function ComplianceDocumentWorkspace({
           }}
           onAdd={() => void uploadVaultDocument(row)}
         />
+        {canEditFiles && needsExpiry && canSetEntityExpiry(displayRow) ? (
+          <Pressable
+            style={(state: HoverPressState) => [
+              styles.missingUploadBtn,
+              styles.checklistExpiryBtn,
+              WEB_POINTER,
+              WEB_TRANSITION,
+              savingExpiryKey === displayRow.key && styles.btnDisabled,
+              isHovered(state) && !savingExpiryKey && styles.missingUploadBtnHover,
+            ]}
+            disabled={Boolean(savingExpiryKey)}
+            onPress={() => void addEntityExpiry(displayRow)}
+            accessibilityRole="button"
+            accessibilityLabel={`Add expiry date for ${rowLabel}`}
+            accessibilityState={{ busy: savingExpiryKey === displayRow.key }}
+          >
+            {savingExpiryKey === displayRow.key ? (
+              <ActivityIndicator size="small" color={Theme.buttonDarkText} />
+            ) : null}
+            <Text style={styles.missingUploadBtnText}>
+              {savingExpiryKey === displayRow.key ? "Saving…" : "Add expiry"}
+            </Text>
+          </Pressable>
+        ) : null}
       </Pressable>
     );
   };
@@ -4780,7 +4948,9 @@ export function ComplianceDocumentWorkspace({
                               if (resubmitBlockedByMissingDocs) {
                                 alertMessage(
                                   "Upload missing documents first",
-                                  "Some required Trip, Vehicle or Driver documents are missing or rejected. Upload or replace them, then Resubmit.",
+                                  resubmitBlockingDocsLabel
+                                    ? `Upload or replace: ${resubmitBlockingDocsLabel}. Then Resubmit.`
+                                    : "Some required Trip, Vehicle or Driver documents are missing or rejected. Upload or replace them, then Resubmit.",
                                 );
                                 return;
                               }
@@ -5244,7 +5414,10 @@ export function ComplianceDocumentWorkspace({
           return {
             key: row.key,
             label: fileRows.length > 1 ? `${label} · ${index + 1}` : label,
-            fileName: row.doc?.file_name?.trim() || (row.declineReason ? "" : row.entityDoc?.notes?.trim()) || "",
+            // Typed e-way details are stored as eway-fields.json; show what it is, not the file.
+            fileName: isEwayBillMetaPath(row.doc?.storage_path, row.doc?.file_name)
+              ? "Entered details"
+              : row.doc?.file_name?.trim() || (row.declineReason ? "" : row.entityDoc?.notes?.trim()) || "",
             statusLabel: row.declineReason
               ? `${COMPLIANCE_STATUS_META[row.status].label}: ${row.declineReason}`
               : COMPLIANCE_STATUS_META[row.status].label,
@@ -5413,24 +5586,36 @@ export function ComplianceDocumentWorkspace({
           setRejectOpen(false);
         }}
       />
-      <ComplianceInputModal
+      {summary && lrDialogOpen ? (
+        <HubTripLrUpdateModal
+          visible
+          tripId={summary.trip.id}
+          organizationId={organizationId}
+          tripOrganizationId={summary.trip.organization_id ?? organizationId}
+          actorId={actorId ?? ""}
+          existingLabel={
+            summary.documents
+              .filter((doc) => doc.document_type === "lr" && doc.status !== "rejected")
+              .map((doc) => parseLrFieldValues(doc.document_number).lrNumber.trim())
+              .find(Boolean) ?? ""
+          }
+          onClose={() => setLrDialogOpen(false)}
+          onSubmitted={() => {
+            focusUploadTypeRef.current = "lr";
+            onChanged({ type: "tripDocuments", tripId: summary.trip.id });
+          }}
+        />
+      ) : null}
+      <ExpiryDatePickerModal
         visible={expiryPrompt != null}
         title={`Expiry date — ${expiryPrompt ? labelForDocType(expiryPrompt.docType) : "Document"}`}
-        fields={[
-          {
-            key: "expiry",
-            label: "Expiry date (YYYY-MM-DD)",
-            placeholder: "2027-03-15",
-            required: true,
-          },
-        ]}
         confirmLabel="Continue"
         onCancel={() => {
           expiryPrompt?.resolve(null);
           setExpiryPrompt(null);
         }}
-        onSubmit={(values) => {
-          expiryPrompt?.resolve(values.expiry ?? null);
+        onConfirm={(iso) => {
+          expiryPrompt?.resolve(iso);
           setExpiryPrompt(null);
         }}
       />
@@ -6946,6 +7131,7 @@ const styles = StyleSheet.create({
     overflow: "visible",
   },
 
+
   /** Debit control: no checklist / preview, the trip list takes the row. */
   listPaneFull: { flex: 1, width: "auto", maxWidth: "100%", height: "100%", maxHeight: "100%" },
   listEmpty: {
@@ -7509,6 +7695,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     gap: 12,
   },
+  /** Header + entries share one centred column; wide web screens stop stretching the cards. */
+  typedPreviewColumn: {
+    flex: 1,
+    minHeight: 0,
+    width: "100%",
+    maxWidth: 960,
+    alignSelf: "center",
+    gap: 8,
+  },
   typedPreviewScrollDark: {
     backgroundColor: Theme.darkSurface,
   },
@@ -7517,6 +7712,8 @@ const styles = StyleSheet.create({
   },
   typedPreviewHeader: {
     flexShrink: 0,
+    // Same right edge as the entry cards (typedPreviewScrollContent leaves 18 for the rail).
+    marginRight: 18,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -7604,6 +7801,8 @@ const styles = StyleSheet.create({
   typedPreviewRow: {
     flexGrow: 0,
     flexShrink: 0,
+    // Single column: space between stacked entry cards (grid rows use their own gap).
+    gap: 8,
   },
   typedPreviewRowGrid: {
     flexDirection: "row",
@@ -7691,7 +7890,6 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontWeight: "700",
     color: Theme.textPrimaryDark,
-    fontVariant: ["tabular-nums"],
     letterSpacing: 0.2,
   },
   typedStatusPill: {
@@ -7749,7 +7947,6 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     fontWeight: "600",
     color: Theme.textPrimaryDark,
-    fontVariant: ["tabular-nums"],
   },
   typedFieldRow: {
     flexDirection: "row",
@@ -7775,6 +7972,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
     color: Theme.textMuted,
   },
+  typedValueTabular: { fontVariant: ["tabular-nums"] },
   typedFieldValue: {
     flexGrow: 1,
     flexShrink: 1,
@@ -7784,7 +7982,6 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     color: Theme.textPrimaryDark,
     textAlign: "right",
-    fontVariant: ["tabular-nums"],
     ...(Platform.OS === "web" ? ({ whiteSpace: "nowrap" } as unknown as TextStyle) : null),
   },
   docSideNavOverlayLeft: {
@@ -8157,6 +8354,11 @@ const styles = StyleSheet.create({
   checklistVaultRow: {
     borderRadius: 12,
     overflow: "hidden",
+  },
+  checklistExpiryBtn: {
+    alignSelf: "flex-start",
+    marginLeft: 12,
+    marginBottom: 8,
   },
   checklistVaultRowHover: {
     backgroundColor: Theme.complianceSelectedWash,

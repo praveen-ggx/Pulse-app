@@ -12,6 +12,8 @@ import {
 } from "@/features/trips/components/trip-detail/VaultDraftPreviewBlock";
 import { serializeLrFieldValues } from "@/features/trips/services/lrDocumentOcr.util";
 import * as tripDocumentsService from "@/features/trips/services/tripDocuments.service";
+import { findOrgDuplicateLrNumberForTrip } from "@/features/trips/services/orgLrDuplicate.service";
+import { ORG_LR_DUPLICATE_MESSAGE } from "@/features/trips/services/orgLrNumber.util";
 import type { ElrTripSource } from "@/features/trips/services/elrSnapshot.util";
 import type { VaultCategoryPreviewFile } from "@/features/trips/components/trip-detail/vaultCategoryPreview.types";
 import { showAppAlert } from "@/lib/appAlert";
@@ -208,6 +210,12 @@ export function HubTripLrUpdateModal({
     }
     setBusy(true);
     try {
+      // Same org-wide rule as trip detail: one LR number per trip.
+      const duplicate = await findOrgDuplicateLrNumberForTrip({ tripId, lrNumber: number });
+      if (duplicate) {
+        showAppAlert("LR already exists", ORG_LR_DUPLICATE_MESSAGE);
+        return;
+      }
       const vaultOrgId = (tripOrganizationId || organizationId || "").trim() || null;
       const storedNumber = serializeLrFieldValues({
         lrNumber: number,

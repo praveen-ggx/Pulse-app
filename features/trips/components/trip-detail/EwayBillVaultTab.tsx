@@ -221,7 +221,9 @@ export function EwayBillLrStrip({
   onSave,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  /** Phone: 7 columns leave ~40pt per text column, so each row becomes a card. */
+  const compact = windowWidth < 560;
   const displayRows = rows.length > 0 ? rows : [EMPTY_ROW];
   const showEdit = !!canEdit && !!onSave;
   const showUpload = !!canUpload && !!onUpload;
@@ -290,8 +292,126 @@ export function EwayBillLrStrip({
     }
   };
 
+  const hitSlop = {
+    top: Layout.touchTargetHitSlop,
+    bottom: Layout.touchTargetHitSlop,
+    left: Layout.touchTargetHitSlop,
+    right: Layout.touchTargetHitSlop,
+  };
+
+  const renderActions = (row: EwayBillStripRow) => (
+    <>
+      {showUpload ? (
+        <TouchableOpacity
+          style={styles.iconBtn}
+          onPress={() => onUpload?.(row.id)}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel={
+            row.canView
+              ? `Upload another e-way bill document${row.ewayNo !== "—" ? ` for ${row.ewayNo}` : ""}`
+              : `Upload e-way bill document${row.ewayNo !== "—" ? ` for ${row.ewayNo}` : ""}`
+          }
+          hitSlop={hitSlop}
+        >
+          <Feather name="upload" size={16} color={Theme.primary} />
+        </TouchableOpacity>
+      ) : null}
+      <TouchableOpacity
+        style={styles.iconBtn}
+        onPress={() => onView(row.id)}
+        disabled={!row.canView}
+        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel={
+          row.canView
+            ? `Preview uploaded document${row.ewayNo !== "—" ? ` ${row.ewayNo}` : ""}`
+            : "No document to preview"
+        }
+        hitSlop={hitSlop}
+      >
+        <Feather
+          name="eye"
+          size={16}
+          color={row.canView ? Theme.primary : Theme.textMuted}
+        />
+      </TouchableOpacity>
+      {showEdit ? (
+        <TouchableOpacity
+          style={styles.iconBtn}
+          onPress={() => openEditor(row)}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Enter e-way bill details"
+          hitSlop={hitSlop}
+        >
+          <Feather name="edit-2" size={15} color={Theme.primary} />
+        </TouchableOpacity>
+      ) : null}
+    </>
+  );
+
+  const renderExpiry = (row: EwayBillStripRow) => {
+    const expiry = ewayExpiryLabel(row.validTill);
+    if (!expiry) return null;
+    const expiryTone = ewayExpiryTone(expiry);
+    return (
+      <Text
+        style={[
+          styles.expiryText,
+          expiryTone === "ok" && styles.expiryOk,
+          expiryTone === "expired" && styles.expiryExpired,
+        ]}
+        numberOfLines={1}
+      >
+        {expiry}
+      </Text>
+    );
+  };
+
   return (
     <View style={styles.wrap} accessibilityLabel="E-way bill">
+      {compact ? (
+        <View style={styles.table}>
+          <View style={styles.header}>
+            <Text style={styles.headCell}>E-way bill</Text>
+          </View>
+          {displayRows.map((row) => (
+            <View key={row.id} style={styles.compactRow}>
+              <View style={styles.compactTop}>
+                <View style={styles.compactNumber}>
+                  <Text style={styles.compactLabel}>E-way No</Text>
+                  <Text style={styles.compactNumberText} numberOfLines={1}>
+                    {row.ewayNo}
+                  </Text>
+                </View>
+                <View style={styles.compactActions}>{renderActions(row)}</View>
+              </View>
+              <View style={styles.compactFields}>
+                <View style={styles.compactField}>
+                  <Text style={styles.compactLabel}>Created date</Text>
+                  <Text style={styles.cell} numberOfLines={1}>
+                    {row.createdDate}
+                  </Text>
+                </View>
+                <View style={styles.compactField}>
+                  <Text style={styles.compactLabel}>Valid till</Text>
+                  <Text style={styles.cell} numberOfLines={1}>
+                    {row.validTill}
+                  </Text>
+                  {renderExpiry(row)}
+                </View>
+                <View style={styles.compactField}>
+                  <Text style={styles.compactLabel}>Doc No</Text>
+                  <Text style={styles.cell} numberOfLines={1}>
+                    {row.docNo}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : (
       <View style={styles.table}>
         <View style={styles.header}>
           <Text style={[styles.headCell, styles.colEway]}>E-way No</Text>
@@ -403,6 +523,7 @@ export function EwayBillLrStrip({
           );
         })}
       </View>
+      )}
       {showEdit ? (
         <TouchableOpacity
           style={styles.addBtn}
@@ -692,6 +813,47 @@ const styles = StyleSheet.create({
     minHeight: Layout.minTouchTargetSize,
     alignItems: "center",
     justifyContent: "center",
+  },
+  /** Phone card per e-way row (`compact`). */
+  compactRow: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 6,
+    borderTopWidth: 1,
+    borderTopColor: Theme.borderLight,
+  },
+  compactTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  compactNumber: {
+    flex: 1,
+    minWidth: 0,
+  },
+  compactNumberText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+  },
+  compactActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 0,
+  },
+  compactFields: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  compactField: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  compactLabel: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: Theme.textMuted,
   },
   modalRoot: {
     flex: 1,

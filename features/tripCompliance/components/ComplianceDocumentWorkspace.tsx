@@ -4288,6 +4288,88 @@ export function ComplianceDocumentWorkspace({
     );
   };
 
+  const renderChecklistPanelTabs = () =>
+    (
+      [
+        { key: "all" as const, label: "All" },
+        ...(showFinanceTab && !compliancePendingView
+          ? [{ key: "finance" as const, label: "Finance" }]
+          : []),
+        ...TABS,
+      ] as const
+    ).map((item) => {
+      const active = docFilter === item.key;
+      const missingCount =
+        item.key === "all"
+          ? tabMissingCounts.all
+          : item.key === "finance"
+            ? tabMissingCounts.finance
+            : tabMissingCounts[item.key];
+      const approved =
+        item.key !== "all" &&
+        item.key !== "finance" &&
+        isCompliancePendingStage &&
+        tabMarkedApproved[item.key];
+      return (
+        <Pressable
+          key={item.key}
+          onPress={() => applyDocFilter(item.key)}
+          style={(state: HoverPressState) => [
+            styles.tab,
+            styles.checklistPanelTab,
+            WEB_POINTER,
+            WEB_TRANSITION,
+            isHovered(state) && !active && styles.tabHover,
+            active && styles.tabActive,
+            isHovered(state) && active && styles.tabActiveHover,
+          ]}
+          accessibilityRole="tab"
+          accessibilityState={{ selected: active }}
+          accessibilityLabel={
+            item.key === "all"
+              ? "Show all documents"
+              : `Show ${item.label} documents${active ? ", tap again for all" : ""}`
+          }
+        >
+          <Text
+            style={[
+              styles.tabText,
+              styles.checklistPanelTabText,
+              active && styles.tabTextActive,
+            ]}
+            numberOfLines={1}
+          >
+            {item.label}
+          </Text>
+          {approved ? (
+            <View style={[styles.tabBadge, styles.checklistPanelTabBadge, styles.tabApprovedBadge]}>
+              <Text style={[styles.tabBadgeText, styles.checklistPanelTabBadgeText, styles.tabApprovedBadgeText]}>
+                Approved
+              </Text>
+            </View>
+          ) : missingCount > 0 ? (
+            <View
+              style={[
+                styles.tabBadge,
+                styles.checklistPanelTabBadge,
+                active && styles.tabBadgeActive,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.tabBadgeText,
+                  styles.checklistPanelTabBadgeText,
+                  active && styles.tabBadgeTextActive,
+                ]}
+              >
+                {missingCount}
+              </Text>
+            </View>
+          ) : null}
+        </Pressable>
+      );
+    });
+
   return (
     <View style={[styles.workspace, stacked && styles.workspaceStacked, style]}>
       {phoneDetail ? null : (
@@ -4469,6 +4551,10 @@ export function ComplianceDocumentWorkspace({
                 ]}
               >
                 <View style={styles.checklistPanelToolbar}>
+                  {/* Phone: tabs wrap so Driver is not hidden past the edge of a side scroll. */}
+                  {phoneDetail ? (
+                    <View style={styles.checklistPanelTabsWrapPhone}>{renderChecklistPanelTabs()}</View>
+                  ) : (
                   <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
@@ -4476,87 +4562,9 @@ export function ComplianceDocumentWorkspace({
                     contentContainerStyle={styles.checklistPanelTabs}
                     keyboardShouldPersistTaps="handled"
                   >
-                    {(
-                      [
-                        { key: "all" as const, label: "All" },
-                        ...(showFinanceTab && !compliancePendingView
-                          ? [{ key: "finance" as const, label: "Finance" }]
-                          : []),
-                        ...TABS,
-                      ] as const
-                    ).map((item) => {
-                      const active = docFilter === item.key;
-                      const missingCount =
-                        item.key === "all"
-                          ? tabMissingCounts.all
-                          : item.key === "finance"
-                            ? tabMissingCounts.finance
-                            : tabMissingCounts[item.key];
-                      const approved =
-                        item.key !== "all" &&
-                        item.key !== "finance" &&
-                        isCompliancePendingStage &&
-                        tabMarkedApproved[item.key];
-                      return (
-                        <Pressable
-                          key={item.key}
-                          onPress={() => applyDocFilter(item.key)}
-                          style={(state: HoverPressState) => [
-                            styles.tab,
-                            styles.checklistPanelTab,
-                            WEB_POINTER,
-                            WEB_TRANSITION,
-                            isHovered(state) && !active && styles.tabHover,
-                            active && styles.tabActive,
-                            isHovered(state) && active && styles.tabActiveHover,
-                          ]}
-                          accessibilityRole="tab"
-                          accessibilityState={{ selected: active }}
-                          accessibilityLabel={
-                            item.key === "all"
-                              ? "Show all documents"
-                              : `Show ${item.label} documents${active ? ", tap again for all" : ""}`
-                          }
-                        >
-                          <Text
-                            style={[
-                              styles.tabText,
-                              styles.checklistPanelTabText,
-                              active && styles.tabTextActive,
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {item.label}
-                          </Text>
-                          {approved ? (
-                            <View style={[styles.tabBadge, styles.checklistPanelTabBadge, styles.tabApprovedBadge]}>
-                              <Text style={[styles.tabBadgeText, styles.checklistPanelTabBadgeText, styles.tabApprovedBadgeText]}>
-                                Approved
-                              </Text>
-                            </View>
-                          ) : missingCount > 0 ? (
-                            <View
-                              style={[
-                                styles.tabBadge,
-                                styles.checklistPanelTabBadge,
-                                active && styles.tabBadgeActive,
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  styles.tabBadgeText,
-                                  styles.checklistPanelTabBadgeText,
-                                  active && styles.tabBadgeTextActive,
-                                ]}
-                              >
-                                {missingCount}
-                              </Text>
-                            </View>
-                          ) : null}
-                        </Pressable>
-                      );
-                    })}
+                    {renderChecklistPanelTabs()}
                   </ScrollView>
+                  )}
                   {/* Phone: the headline below already says what's missing; tabs get the width. */}
                   {phoneDetail ? null : (
                   <View style={styles.checklistToolbarActions}>
@@ -7862,6 +7870,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
     backgroundColor: Theme.cardWhite,
+  },
+  /** Phone document pane: tabs wrap onto a second row instead of a side scroll. */
+  checklistPanelTabsWrapPhone: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 6,
   },
   checklistPanelTabs: {
     flexDirection: "row",

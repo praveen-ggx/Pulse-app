@@ -21,6 +21,7 @@ import {
 import {
   passThroughRecommendationAfterClientSave,
   type ClientPassThroughRecommendation,
+  type ProvisionAdjustmentPreset,
 } from "@/features/trips/components/trip-detail/adjustment/tripAdjustmentPassThrough.util";
 import type { TripAdjustment } from "@/features/trips/services/tripAdjustments";
 import {
@@ -48,14 +49,7 @@ export type ProvisionSide = "client" | "supplier";
 
 type FlowPhase = "hub" | "wizard" | "success";
 
-export type ProvisionAdjustmentPreset = {
-  type?: TripAdjustmentType;
-  impact?: TripAdjustmentImpact;
-  reasonSeed?: string | null;
-  amountSeed?: number | null;
-  /** Client sale line this cost deduction mirrors (audit). */
-  passThroughFromId?: string | null;
-};
+export type { ProvisionAdjustmentPreset };
 
 export interface ProvisionAdjustmentModalProps {
   visible: boolean;

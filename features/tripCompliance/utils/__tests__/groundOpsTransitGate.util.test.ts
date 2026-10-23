@@ -78,6 +78,35 @@ describe("listMissingDocsForGroundOpsTransit", () => {
     ).toEqual(["license"]);
   });
 
+  it("accepts files uploaded without an expiry date", () => {
+    expect(
+      listMissingDocsForGroundOpsTransit(
+        {
+          documents: ALL_TRIP,
+          vehicleDocuments: ["rc", "insurance", "fitness"].map((t) => entityDoc(t, "pending", null)),
+          driverDocuments: [entityDoc("license", "pending", null)],
+        },
+        NOW,
+      ),
+    ).toEqual([]);
+  });
+
+  it("does not count a slot with no file", () => {
+    expect(
+      listMissingDocsForGroundOpsTransit(
+        {
+          documents: ALL_TRIP,
+          vehicleDocuments: [
+            ...ALL_VEHICLE.filter((d) => d.doc_type !== "insurance"),
+            { doc_type: "insurance", status: "verified", expiry_date: null, storage_path: null },
+          ],
+          driverDocuments: ALL_DRIVER,
+        },
+        NOW,
+      ),
+    ).toEqual(["insurance"]);
+  });
+
   it("ignores optional documents", () => {
     expect(
       listMissingDocsForGroundOpsTransit(

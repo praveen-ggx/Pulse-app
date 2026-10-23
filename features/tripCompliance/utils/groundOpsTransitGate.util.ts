@@ -5,7 +5,9 @@
  *   Trip:    LR · E-way bill · Invoice · Memo
  *   Vehicle: RC · Insurance · Fitness (not expired)
  *   Driver:  Driving licence (not expired)
- * A rejected file does not count. The database RPC
+ * "Attached" means a file is on the slot and it is not rejected / replaced /
+ * expired. A missing expiry date does not block (the vault upload does not ask
+ * for one) — that is Compliance's check, not this gate's. The database RPC
  * `simulate_ground_ops_pickup_status` re-checks the trip documents listed in
  * `organizations.settings.groundOpsMandatoryDocumentTypes` (default LR).
  */
@@ -20,9 +22,20 @@ import {
   REQUIRED_VEHICLE_DOCUMENT_TYPES,
 } from "@/features/tripCompliance/tripCompliance.types";
 import {
-  isEntityDocumentSlotVerified,
+  isEntityDocumentExpired,
   isTripVaultDocumentOnFile,
 } from "@/features/tripCompliance/utils/complianceChecklist.util";
+
+const NOT_ATTACHED_STATUSES = new Set(["rejected", "replaced", "expired"]);
+
+function isEntityDocumentAttached(
+  doc: { status: string; expiry_date?: string | null; storage_path?: string | null },
+  now: Date,
+): boolean {
+  if (!doc.storage_path?.trim()) return false;
+  if (NOT_ATTACHED_STATUSES.has(doc.status)) return false;
+  return !isEntityDocumentExpired(doc, now);
+}
 
 export const GROUND_OPS_TRANSIT_REQUIRED_TRIP_TYPES: readonly string[] = [
   ...REQUIRED_COMPLIANCE_DOCUMENT_TYPES,
@@ -71,7 +84,7 @@ export function listMissingDocsForGroundOpsTransit(
   ): Set<string> =>
     new Set(
       rows
-        .filter((doc) => isEntityDocumentSlotVerified(doc, now, doc.doc_type))
+        .filter((doc) => isEntityDocumentAttached(doc, now))
         .map((doc) => doc.doc_type),
     );
   const vehicleOnFile = entityOnFile(input.vehicleDocuments);

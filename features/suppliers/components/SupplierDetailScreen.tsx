@@ -104,7 +104,7 @@ import {
     View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { fetchSupplierPageBootstrap } from "../services/supplierPageBootstrap.service";
+import { querySupplierPageBootstrap } from "@/features/suppliers/hooks/useSupplierPageBootstrapQuery";
 import { useFinanceAlignedSupplierLedger } from "@/features/finance/hooks/useFinanceAlignedPartyTrips";
 import {
     getLinkedOrgProfileForSupplier,
@@ -190,9 +190,12 @@ export default function SupplierDetailScreen({
     supplier?.contact_person ||
     t("supplier");
   const [trips, setTrips] = useState<TripRow[]>([]);
+  const [loading, setLoading] = useState(() => peekSupplierFirstPaint(supplierId) == null);
   const financeAligned = useFinanceAlignedSupplierLedger(
     currentOrganization?.id ?? null,
     supplierId,
+    trips,
+    trips.length > 0 || !loading,
   );
   const tripIdsForFinanceAdj = useMemo(
     () => trips.map((t) => String(t.id)).filter(Boolean),
@@ -210,7 +213,6 @@ export default function SupplierDetailScreen({
   const [cashFlowDriverProfileUrls, setCashFlowDriverProfileUrls] = useState<
     Record<string, string>
   >({});
-  const [loading, setLoading] = useState(() => peekSupplierFirstPaint(supplierId) == null);
   const [error, setError] = useState<string | null>(null);
   const [showReportModal, setShowReportModal] = useState(false);
   const [supplierReportKind, setSupplierReportKind] = useState<
@@ -319,11 +321,7 @@ export default function SupplierDetailScreen({
     });
     const bundle = await queryClient.fetchQuery({
       queryKey: queryKeys.suppliers.pageBootstrap(orgId, supplierId),
-      queryFn: async () => {
-        const r = await fetchSupplierPageBootstrap(orgId, supplierId);
-        if (r.error) throw r.error;
-        return r.bundle;
-      },
+      queryFn: () => querySupplierPageBootstrap(orgId, supplierId),
     });
     if (bundle?.supplier && activeSupplierIdRef.current === supplierId) {
       setSupplier(bundle.supplier);
@@ -516,11 +514,7 @@ export default function SupplierDetailScreen({
     queryClient
       .fetchQuery({
         queryKey: queryKeys.suppliers.pageBootstrap(orgId, requestSupplierId),
-        queryFn: async () => {
-          const r = await fetchSupplierPageBootstrap(orgId, requestSupplierId);
-          if (r.error) throw r.error;
-          return r.bundle;
-        },
+        queryFn: () => querySupplierPageBootstrap(orgId, requestSupplierId),
         staleTime: 60_000,
       })
       .then((bundle) => {

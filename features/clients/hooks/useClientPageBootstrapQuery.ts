@@ -6,6 +6,16 @@ import {
 import { queryKeys } from "@/lib/queryKeys";
 import { shouldRetryQuery } from "@/lib/queryClient";
 
+/** Keep the scoped fallback bundle. Never cache `null` just because the RPC is missing. */
+export async function queryClientPageBootstrap(
+  orgId: string,
+  clientId: string,
+): Promise<ClientPageBootstrap | null> {
+  const res = await fetchClientPageBootstrap(orgId, clientId);
+  if (res.error) throw res.error;
+  return res.bundle;
+}
+
 export function prefetchClientPageBootstrap(
   queryClient: QueryClient,
   orgId: string | null | undefined,
@@ -16,12 +26,7 @@ export function prefetchClientPageBootstrap(
   if (!org || !id) return Promise.resolve();
   return queryClient.prefetchQuery({
     queryKey: queryKeys.clients.pageBootstrap(org, id),
-    queryFn: async () => {
-      const res = await fetchClientPageBootstrap(org, id);
-      if (res.missingRpc) return null;
-      if (res.error) throw res.error;
-      return res.bundle;
-    },
+    queryFn: () => queryClientPageBootstrap(org, id),
     staleTime: 60_000,
   });
 }
@@ -34,10 +39,7 @@ export function useClientPageBootstrapQuery(
     queryKey: queryKeys.clients.pageBootstrap(orgId ?? "", clientId ?? ""),
     queryFn: async () => {
       if (!orgId || !clientId) return null;
-      const res = await fetchClientPageBootstrap(orgId, clientId);
-      if (res.missingRpc) return null;
-      if (res.error) throw res.error;
-      return res.bundle;
+      return queryClientPageBootstrap(orgId, clientId);
     },
     enabled: Boolean(orgId && clientId),
     staleTime: 60_000,

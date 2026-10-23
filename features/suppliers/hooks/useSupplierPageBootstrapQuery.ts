@@ -6,6 +6,16 @@ import {
 import { queryKeys } from "@/lib/queryKeys";
 import { shouldRetryQuery } from "@/lib/queryClient";
 
+/** Keep the scoped fallback bundle. Never cache `null` just because the RPC is missing. */
+export async function querySupplierPageBootstrap(
+  orgId: string,
+  supplierId: string,
+): Promise<SupplierPageBootstrap | null> {
+  const res = await fetchSupplierPageBootstrap(orgId, supplierId);
+  if (res.error) throw res.error;
+  return res.bundle;
+}
+
 export function prefetchSupplierPageBootstrap(
   queryClient: QueryClient,
   orgId: string | null | undefined,
@@ -16,12 +26,7 @@ export function prefetchSupplierPageBootstrap(
   if (!org || !id) return Promise.resolve();
   return queryClient.prefetchQuery({
     queryKey: queryKeys.suppliers.pageBootstrap(org, id),
-    queryFn: async () => {
-      const res = await fetchSupplierPageBootstrap(org, id);
-      if (res.missingRpc) return null;
-      if (res.error) throw res.error;
-      return res.bundle;
-    },
+    queryFn: () => querySupplierPageBootstrap(org, id),
     staleTime: 60_000,
   });
 }
@@ -34,10 +39,7 @@ export function useSupplierPageBootstrapQuery(
     queryKey: queryKeys.suppliers.pageBootstrap(orgId ?? "", supplierId ?? ""),
     queryFn: async () => {
       if (!orgId || !supplierId) return null;
-      const res = await fetchSupplierPageBootstrap(orgId, supplierId);
-      if (res.missingRpc) return null;
-      if (res.error) throw res.error;
-      return res.bundle;
+      return querySupplierPageBootstrap(orgId, supplierId);
     },
     enabled: Boolean(orgId && supplierId),
     staleTime: 60_000,

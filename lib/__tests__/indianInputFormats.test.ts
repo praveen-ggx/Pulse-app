@@ -47,6 +47,15 @@ describe("Licence format: letter after RTO (TN29Z19940001713)", () => {
     expect(isIndianDrivingLicenseFormatValid("ABCDEF123456")).toBe(false);
     expect(isIndianDrivingLicenseFormatValid("TN29ZZ1994000171")).toBe(false);
   });
+
+  it("accepts Telangana smart-card and old slash licences", () => {
+    expect(isIndianDrivingLicenseFormatValid("DLFAP12810371208")).toBe(true);
+    expect(isIndianDrivingLicenseFormatValid("1043/HW/1997OD")).toBe(true);
+    expect(isIndianDrivingLicenseFormatValid(" 1043/HW/1997OD ")).toBe(true);
+    expect(detectIndianDlFormat("DLFAP12810371208")).toBeNull();
+    expect(isIndianDrivingLicenseFormatValid("1043/HW")).toBe(false);
+    expect(isIndianDrivingLicenseFormatValid("DLFAP1234")).toBe(false);
+  });
 });
 
 describe("Plate format: no series letter (KA566088)", () => {

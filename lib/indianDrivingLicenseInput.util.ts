@@ -45,9 +45,22 @@ function isDlLetterPosition(pos: number, format: IndianDlFormat): boolean {
   return format === "rtoLetter" && pos === 4;
 }
 
+/**
+ * Older layouts still on valid cards, accepted when typed freely but not offered
+ * in the format picker:
+ *   smart card — DLFAP12810371208 (DLF · 2-letter state · 9-13 digits, Telangana/AP)
+ *   legacy     — 1043/HW/1997OD (number / RTO letters / year + optional letters)
+ */
+const DL_LEGACY_PATTERNS: readonly RegExp[] = [
+  /^DLF[A-Z]{2}[0-9]{9,13}$/,
+  /^[0-9]{1,7}\/[A-Z]{1,4}\/[0-9]{4}[A-Z]{0,3}$/,
+];
+
 /** True when the licence matches one of the supported formats (spaces / hyphens ignored). */
 export function isIndianDrivingLicenseFormatValid(display: string): boolean {
-  return detectIndianDlFormat(display) !== null;
+  if (detectIndianDlFormat(display) !== null) return true;
+  const norm = normalizeIndianDrivingLicense(display);
+  return DL_LEGACY_PATTERNS.some((re) => re.test(norm));
 }
 
 /** Which supported format a complete licence matches, or null. */

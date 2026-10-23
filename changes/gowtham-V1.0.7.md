@@ -11,6 +11,8 @@
 
 - Phone: e-way bill strip in the trip vault shows one card per e-way bill (number + Upload/View/Edit on top, Created / Valid till / Doc No below) instead of a 7-column table; Compliance trip documents tabs wrap so Driver is visible. Wider screens unchanged.
 
+- Phone: trip vault cards 2 across (were 3, Preview/Add squeezed into vertical letters); Compliance e-way "Entered details" preview shows one entry per row (was 2 side by side with cut labels and wrapped values). Wider screens unchanged.
+
 ## Why
 - Ground Ops on mobile had no way to reach Compliance (the mobile bar had no slot for it), and their Chat tab did nothing when tapped (no sales.chat, so openMessages returns early).
 - On a phone the trip list and documents were squeezed into one screen (list 42% high, documents list capped at 46% of the rest), so the trip card was cut off and the list of documents to upload had no height at all: Ground Ops could not see what to upload. "Declined by finance" ran off the screen.
@@ -21,6 +23,8 @@
 
 - At phone width the e-way table left ~40pt per text column (number and dates cut to "…", headers wrapping out of line), and the five document tabs (72pt minimum each) did not fit, so Driver sat past the edge of a side scroll with no hint.
 
+- vaultCardHalf set width 48% but vaultCard's flexBasis 31.8% wins in a row, so columns={2} never applied. TypedDetailsPreview always paired entries, leaving ~110pt per card between the prev/next chevrons on a phone.
+
 ## Areas
 - components/navigation/PulseBottomTabBar/PulseBottomTabBar.tsx (Compliance slot, showChat, memo compares compliance), components/demo/DemoTabBar.tsx (passes canOpenChat).
 - features/tripCompliance/components/ComplianceDocumentWorkspace.tsx (phoneFlow prop, PhoneDetailFrame), app/compliance/index.tsx (groundOpsPhone: phoneFlow, chip labels, footer hidden).
@@ -30,6 +34,8 @@
 - lib/lastRoute.ts (forgetLastFullPath + test), features/trips/components/trip-detail/TripDetailScreen.tsx (+ .styles.ts): not-found state only.
 
 - features/trips/components/trip-detail/EwayBillVaultTab.tsx (compact < 560), features/tripCompliance/components/ComplianceDocumentWorkspace.tsx (renderChecklistPanelTabs, phone wrap).
+
+- features/trips/components/trip-detail/TripDetailScreen.styles.ts (vaultCardHalf flexBasis), features/tripCompliance/components/ComplianceDocumentWorkspace.tsx (TypedDetailsPreview multiColumn ≥ 560).
 
 ## Migrations
 - None of mine. 20261022123845_individual_registration_type.sql comes from Nihas, who runs it on preprod/prod.
@@ -44,3 +50,4 @@
 - Stage rail / bottom gap / latin1 fixes: tripCompliance + compliance + navigation Jest (59 suites, 642 tests) and ELR tests pass; typecheck 62 unchanged; no new lint. Web unchanged by design (both layout fixes are native-only or stacked-toolbar-only). Not yet re-checked on the phone.
 - Trip not found fix: lastRoute tests (6) pass; lib + trips + app Jest 537 suites pass (one pulse-v2 auth test flaked in that run and passes alone); typecheck 62; no new lint in touched files. Not yet checked on the phone.
 - E-way / document tabs: tripCompliance + trips Jest (133 suites, 1102 tests) pass; typecheck 62; lint unchanged in both files. Not yet checked on the phone.
+- Vault cards / e-way preview: tripCompliance + trips Jest (133 suites, 1102 tests) pass; typecheck 62; lint unchanged. Not yet checked on the phone.

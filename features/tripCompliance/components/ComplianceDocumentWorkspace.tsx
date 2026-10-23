@@ -466,7 +466,10 @@ function TypedDetailsPreview({
 }) {
   const groups = useMemo(() => groupTypedDetailLines(lines), [lines]);
   const entryCount = groups.filter((group) => group.key.startsWith("entry-")).length;
-  const multiColumn = groups.length >= 2;
+  const { width: windowWidth } = useWindowDimensions();
+  // Phone: two cards side by side (between the prev/next chevrons) cut labels and
+  // wrap values, so one entry per row there.
+  const multiColumn = groups.length >= 2 && windowWidth >= 560;
   const rows = useMemo(() => {
     if (!multiColumn) return [groups];
     const next: (typeof groups)[] = [];

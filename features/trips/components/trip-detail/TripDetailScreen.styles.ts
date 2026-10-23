@@ -3326,6 +3326,8 @@ export const neoStyles = StyleSheet.create({
     position: "relative",
   },
   vaultCardHalf: {
+    // flexBasis too: vaultCard's 31.8% basis wins over width in a row, so phones got 3 across.
+    flexBasis: "48%",
     width: "48%",
     maxWidth: "48%",
   },

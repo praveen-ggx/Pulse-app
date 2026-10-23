@@ -2617,20 +2617,31 @@ export function useTripDetail({
   }, [load, loadAdjustments, loadAssignmentAudit, loadTripDocuments, tripId, queryClient, bundleActive]);
 
 
-  /** Immediate refresh after assignment/reassignment actions. */
+  /** Immediate refresh after assignment/reassignment — trip + OTP only. */
   const handleAssignmentUpdated = useCallback(() => {
-    setFinanceRefreshKey((k) => k + 1);
-    refetchTransactionsRef.current();
     if (bundleActive && tripId) {
       void queryClient.invalidateQueries({ queryKey: queryKeys.trips.bundle(tripId) });
     } else {
       load();
       loadAssignmentAudit();
-      loadAdjustments();
-      loadTripDocuments();
       loadTripOtp();
     }
-  }, [load, loadAssignmentAudit, loadAdjustments, loadTripDocuments, loadTripOtp, tripId, queryClient, bundleActive]);
+    if (tripId) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.trips.detail(tripId) });
+    }
+    const orgId = currentOrganization?.id;
+    if (orgId) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.trips.all(orgId) });
+    }
+  }, [
+    load,
+    loadAssignmentAudit,
+    loadTripOtp,
+    tripId,
+    queryClient,
+    bundleActive,
+    currentOrganization?.id,
+  ]);
 
 
   // ── Entry modal ───────────────────────────────────────────────────────────

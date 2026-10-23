@@ -22,6 +22,7 @@ import {
     getDriverAvailabilityByPhone,
     getDriverAvailabilityByPhoneGlobal,
     getTripsByOrganization,
+    getVehicleOngoingTrip,
     getTripDisplayNumber,
     humanizeTripIdInRpcError,
     isTripCompleted,
@@ -511,29 +512,21 @@ export function TripAssignmentBlock({
         )
       : null;
     if (matchedVehicle) {
-      const tripsRes = await getTripsByOrganization(organizationId);
-      if (!tripsRes.error) {
-        const activeTrips = (tripsRes.trips ?? []).filter((t) => {
-          const s = String(t.status ?? "").toLowerCase();
-          return t.id !== trip.id && !isTripCompleted(t) && s !== "cancelled";
-        });
-        const vehicleBusyTrip = activeTrips.find((t) => t.vehicle_id === matchedVehicle.id);
-        if (vehicleBusyTrip && availability.isBusy) {
+      const { error: vehicleBusyErr, trip: vehicleBusyTrip } =
+        await getVehicleOngoingTrip(matchedVehicle.id, trip.id);
+      if (!vehicleBusyErr && vehicleBusyTrip) {
+        const vehicleLabel = getTripDisplayNumber(vehicleBusyTrip);
+        setPhoneSaving(false);
+        if (availability.isBusy) {
           const driverLabel =
             availability.ongoingTripLabel ?? "another ongoing trip";
-          const vehicleLabel = getTripDisplayNumber(vehicleBusyTrip);
-          setPhoneSaving(false);
           setPhoneError(
             `Driver is already in ${driverLabel} and vehicle is already in ${vehicleLabel}.`,
           );
           return;
         }
-        if (vehicleBusyTrip) {
-          const vehicleLabel = getTripDisplayNumber(vehicleBusyTrip);
-          setPhoneSaving(false);
-          setPhoneError(`Vehicle is already assigned to ${vehicleLabel}.`);
-          return;
-        }
+        setPhoneError(`Vehicle is already assigned to ${vehicleLabel}.`);
+        return;
       }
     }
 

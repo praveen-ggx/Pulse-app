@@ -105,6 +105,8 @@ import {
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
 import { groundOpsTransitDocLabel } from "@/features/tripCompliance/utils/groundOpsTransitGate.util";
 import { ExpiryDatePickerModal } from "@/components/ExpiryDatePicker";
+import { HubTripLrUpdateModal } from "@/features/trips/components/HubTripLrUpdateModal";
+import { parseLrFieldValues } from "@/features/trips/services/lrDocumentOcr.util";
 import {
   groundOpsDocumentLockLabel,
   groundOpsDocumentLockReason,
@@ -3726,6 +3728,8 @@ export function ComplianceDocumentWorkspace({
         ? `Plus ${missingOptionalCount} optional from this ${vaultCopy.vaultLabel.toLowerCase()}`
         : vaultCopy.vaultHint;
   /** Upload / Replace in place: file picker → vault write → refetch. No review sheet. */
+  /** LR upload dialog (shared with the Trips hub) for the selected trip. */
+  const [lrDialogOpen, setLrDialogOpen] = useState(false);
   const uploadVaultDocument = useCallback(
     async (row: ComplianceDocRow) => {
       if (!summary) return;
@@ -3734,6 +3738,13 @@ export function ComplianceDocumentWorkspace({
         return;
       }
       if (uploadingFinanceType) return;
+      // LR: same dialog as the Trips hub (LR number + copies, duplicate check),
+      // so the number is never left empty after an upload from here.
+      if (row.type === "lr" && !isFinanceMode) {
+        setChecklistKey(row.key);
+        setLrDialogOpen(true);
+        return;
+      }
       const scope: DocTab = isFinanceMode ? "trip" : tab;
       const entityId =
         scope === "vehicle" ? summary.trip.vehicle_id : scope === "driver" ? summary.trip.driver_id : null;
@@ -5528,6 +5539,26 @@ export function ComplianceDocumentWorkspace({
           setRejectOpen(false);
         }}
       />
+      {summary && lrDialogOpen ? (
+        <HubTripLrUpdateModal
+          visible
+          tripId={summary.trip.id}
+          organizationId={organizationId}
+          tripOrganizationId={summary.trip.organization_id ?? organizationId}
+          actorId={actorId ?? ""}
+          existingLabel={
+            summary.documents
+              .filter((doc) => doc.document_type === "lr" && doc.status !== "rejected")
+              .map((doc) => parseLrFieldValues(doc.document_number).lrNumber.trim())
+              .find(Boolean) ?? ""
+          }
+          onClose={() => setLrDialogOpen(false)}
+          onSubmitted={() => {
+            focusUploadTypeRef.current = "lr";
+            onChanged({ type: "tripDocuments", tripId: summary.trip.id });
+          }}
+        />
+      ) : null}
       <ExpiryDatePickerModal
         visible={expiryPrompt != null}
         title={`Expiry date — ${expiryPrompt ? labelForDocType(expiryPrompt.docType) : "Document"}`}

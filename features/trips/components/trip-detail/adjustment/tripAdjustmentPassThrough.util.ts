@@ -1,6 +1,18 @@
-import type { TripAdjustment } from "@/features/trips/services/tripAdjustments";
+import type {
+  TripAdjustment,
+  TripAdjustmentImpact,
+  TripAdjustmentType,
+} from "@/features/trips/services/tripAdjustments";
 import { isAdjustmentVoided } from "@/features/trips/services/tripAdjustments";
-import type { ProvisionAdjustmentPreset } from "@/features/trips/components/trip-detail/adjustment/ProvisionAdjustmentModal";
+
+export type ProvisionAdjustmentPreset = {
+  type?: TripAdjustmentType;
+  impact?: TripAdjustmentImpact;
+  reasonSeed?: string | null;
+  amountSeed?: number | null;
+  /** Client sale line this cost deduction mirrors (audit). */
+  passThroughFromId?: string | null;
+};
 
 export type PassThroughTargetKind = "driver" | "supplier";
 

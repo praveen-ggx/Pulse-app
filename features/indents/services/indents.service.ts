@@ -939,8 +939,19 @@ async function insertIndentRow(
   if (!client_name) client_name = data.client_name || "";
 
   // Link the indent to the client warehouse its pickup was picked from, so
-  // Ground Ops assigned to that warehouse see the trip. Typed pickups stay null.
+  // Ground Ops assigned to that warehouse see the trip. A saved lane carries
+  // its pickup warehouse; otherwise only an untouched warehouse address links.
+  // Typed pickups stay null.
   let warehouse_id = data.warehouse_id ?? null;
+  if (!warehouse_id && data.lane_id) {
+    const { data: lane } = await supabase()
+      .from("client_lane_rates")
+      .select("origin_warehouse_id")
+      .eq("id", data.lane_id)
+      .eq("organization_id", orgId)
+      .maybeSingle();
+    warehouse_id = (lane?.origin_warehouse_id as string | null | undefined) ?? null;
+  }
   if (!warehouse_id && data.client_id && data.pickup_area?.trim()) {
     const { warehouses } = await getWarehousesByClient(orgId, data.client_id);
     warehouse_id = warehouseIdForPickup(data.pickup_area, warehouses);

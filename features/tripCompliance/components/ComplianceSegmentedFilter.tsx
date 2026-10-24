@@ -90,25 +90,31 @@ export function ComplianceSegmentedFilter<T extends string>({
               {cardDense ? (
                 <View style={styles.segmentInnerCardDense}>
                   {option.dot ? (
-                    <View style={[styles.dotCardDense, { backgroundColor: active ? Theme.accentGold : option.dot }]} />
+                    <View
+                      style={[
+                        styles.dotCardDense,
+                        { backgroundColor: active ? Theme.accentGold : option.dot },
+                        active && styles.dotCardDenseActive,
+                      ]}
+                    />
                   ) : null}
                   <Text
                     style={[styles.cardDenseCopy, active && styles.labelActive]}
                     numberOfLines={1}
                   >
-                    {`${option.label} `}
+                    {option.label}
                   </Text>
                   <View
                     style={[
                       styles.countBadge,
                       styles.countBadgeDense,
-                      { backgroundColor: active ? Theme.accentGold : option.dot ?? Theme.buttonDark },
+                      active ? styles.countBadgeDenseActive : styles.countBadgeDenseIdle,
                     ]}
                   >
                     <Text
                       style={[
                         styles.cardDenseCount,
-                        { color: active ? Theme.buttonDark : Theme.buttonDarkText },
+                        active ? styles.cardDenseCountActive : styles.cardDenseCountIdle,
                       ]}
                     >
                       {count}
@@ -242,23 +248,24 @@ const styles = StyleSheet.create({
   },
   cardDenseScroll: {
     width: "100%",
-    height: 34,
+    height: 44,
     flexGrow: 0,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
-    backgroundColor: Theme.cardWhite,
+    backgroundColor: Theme.surface,
   },
   cardDenseScrollContent: {
     alignItems: "center",
-    minHeight: 34,
+    minHeight: 44,
+    paddingHorizontal: 4,
   },
   trackCardDense: {
     width: "auto",
     alignSelf: "flex-start",
     alignItems: "center",
-    height: 34,
-    paddingHorizontal: 8,
+    height: 44,
+    paddingHorizontal: 4,
     paddingVertical: 4,
     gap: 6,
     borderRadius: 0,
@@ -293,20 +300,21 @@ const styles = StyleSheet.create({
   segmentCardDense: {
     flexGrow: 0,
     flexShrink: 0,
-    height: 26,
+    height: 34,
     paddingLeft: 12,
-    paddingRight: 10,
+    paddingRight: 6,
     paddingVertical: 4,
     borderRadius: 999,
-    backgroundColor: Theme.surface,
+    backgroundColor: Theme.cardWhite,
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
   },
   segmentCardDenseHover: {
-    backgroundColor: Theme.cardWhite,
+    backgroundColor: Theme.surface,
     borderColor: Theme.complianceHoverBorder,
   },
   segmentCardDenseActive: {
+    backgroundColor: Theme.buttonDark,
     borderColor: Theme.buttonDark,
   },
   segmentActive: {
@@ -332,7 +340,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     flexWrap: "nowrap",
-    gap: 6,
+    gap: 8,
   },
   dot: {
     width: 5,
@@ -341,10 +349,15 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   dotCardDense: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
     flexShrink: 0,
+  },
+  dotCardDenseActive: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
   },
   label: {
     flexShrink: 0,
@@ -358,8 +371,8 @@ const styles = StyleSheet.create({
   },
   cardDenseCopy: {
     flexShrink: 0,
-    fontSize: 9,
-    lineHeight: 11,
+    fontSize: 12,
+    lineHeight: 15,
     fontWeight: "600",
     color: Theme.textPrimaryDark,
     includeFontPadding: false,
@@ -380,10 +393,18 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.surface,
   },
   countBadgeDense: {
-    height: 14,
-    minWidth: 16,
-    paddingHorizontal: 4,
+    height: 20,
+    minWidth: 20,
+    paddingHorizontal: 6,
     flexShrink: 0,
+  },
+  countBadgeDenseIdle: {
+    backgroundColor: Theme.surface,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+  },
+  countBadgeDenseActive: {
+    backgroundColor: Theme.cardWhite,
   },
   countBadgeActive: {
     backgroundColor: Theme.cardWhite,
@@ -398,12 +419,17 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
   },
   cardDenseCount: {
-    fontSize: 8,
-    lineHeight: 10,
+    fontSize: 11,
+    lineHeight: 13,
     fontWeight: "700",
-    color: Theme.buttonDarkText,
     fontVariant: ["tabular-nums"],
     includeFontPadding: false,
+  },
+  cardDenseCountIdle: {
+    color: Theme.textPrimaryDark,
+  },
+  cardDenseCountActive: {
+    color: Theme.buttonDark,
   },
   countOnLight: {
     color: Theme.textPrimaryDark,

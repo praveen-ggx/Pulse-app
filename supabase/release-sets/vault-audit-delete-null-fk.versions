@@ -1,0 +1,5 @@
+# Vault workspace-document delete: AFTER DELETE audit row uses document_id NULL,
+# keeps the original id/type/path in metadata (insert/update audit unchanged).
+# Preprod first (GO apply xbisiveavvbifbzyfhgy); prod needs its own GO.
+# sha256 5ecc25def4ee256e25a0c2169ed2c285dc599f8ff70824d4ff2ce776d17e09da  20271024194500_entity_documents_audit_delete_null_fk.sql
+20271024194500

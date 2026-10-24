@@ -7,7 +7,6 @@ import { vendorCostAfterIbond } from "@/features/debit-control/utils/podChargeTo
 import { supabase } from "@/lib/supabase";
 import { expandLR } from "@/lib/utils/lr";
 import { parseLrFieldValues } from "@/features/trips/services/lrDocumentOcr.util";
-import { lrNumberFromStoredDocumentNumber } from "@/features/trips/services/orgLrNumber.util";
 import {
   mostUrgentEwayExpiryLabel,
   parseEwayFieldEntries,
@@ -926,6 +925,25 @@ async function fetchLrPodRowsViaRest(
   return rows;
 }
 
+/**
+ * Raw LR rows (trip_id + stored document_number) for many trips. Same RPC-first,
+ * bounded-concurrency path as the hub index, so org-wide LR checks skip the
+ * per-row trip_documents RLS.
+ */
+export async function loadLrDocumentRowsByTripIds(
+  tripIds: string[],
+): Promise<TripDocumentLrPodRow[]> {
+  const unique = Array.from(new Set(tripIds.filter(Boolean)));
+  if (unique.length === 0) return [];
+  const viaRpc = await fetchLrPodRowsViaRpc(unique);
+  if (viaRpc) {
+    return viaRpc.filter(
+      (row) => String(row.document_type ?? "").trim().toLowerCase() === "lr",
+    );
+  }
+  return fetchLrPodRowsViaRest(unique, ["lr"]);
+}
+
 /** One bulk read of LR + POD metadata for many trips. */
 export async function loadLrPodIndexByTripIds(
   tripIds: string[],
@@ -1013,10 +1031,6 @@ export type HubPodReceiptFlags = {
   hardTripIds: string[];
   /** Soonest e-way bill expiry label, keyed by lowercased trip id. */
   ewayExpiryByTripId: Record<string, string>;
-  /** LR numbers (comma-joined), keyed by lowercased trip id. */
-  lrNumbersByTripId: Record<string, string>;
-  /** E-way bill numbers (comma-joined, spaces removed), keyed by lowercased trip id. */
-  ewayNumbersByTripId: Record<string, string>;
 };
 
 /**
@@ -1031,25 +1045,17 @@ export async function loadHubPodReceiptFlags(
     new Set(tripIds.map((id) => normalizeTripPodId(id)).filter(Boolean)),
   );
   if (wanted.length === 0) {
-    return {
-      softTripIds: [],
-      hardTripIds: [],
-      ewayExpiryByTripId: {},
-      lrNumbersByTripId: {},
-      ewayNumbersByTripId: {},
-    };
+    return { softTripIds: [], hardTripIds: [], ewayExpiryByTripId: {} };
   }
 
   const soft = new Set<string>();
   const ewayTillsByTrip = new Map<string, string[]>();
-  const lrsByTrip = new Map<string, Set<string>>();
-  const ewaysByTrip = new Map<string, Set<string>>();
   const viaRpc = await fetchLrPodRowsViaRpc(wanted);
   const rows =
     viaRpc ??
     (await fetchLrPodRowsViaRest(
       wanted,
-      ["lr", "pod", "soft_pod", "pod_soft", "eway_bill"],
+      ["pod", "soft_pod", "pod_soft", "eway_bill"],
       1,
     ));
 
@@ -1060,27 +1066,10 @@ export async function loadHubPodReceiptFlags(
       soft.add(id);
       continue;
     }
-    if (String(row.document_type ?? "").trim().toLowerCase() === "lr") {
-      const lr = lrNumberFromStoredDocumentNumber(row.document_number);
-      if (lr) {
-        const set = lrsByTrip.get(id) ?? new Set<string>();
-        set.add(lr);
-        lrsByTrip.set(id, set);
-      }
-      continue;
-    }
     if (String(row.document_type ?? "").trim().toLowerCase() !== "eway_bill") {
       continue;
     }
-    const ewayEntries = parseEwayFieldEntries(row.document_number);
-    for (const entry of ewayEntries) {
-      const ewayNo = entry.ewayNo.replace(/\s+/g, "");
-      if (!ewayNo) continue;
-      const set = ewaysByTrip.get(id) ?? new Set<string>();
-      set.add(ewayNo);
-      ewaysByTrip.set(id, set);
-    }
-    const tills = ewayEntries
+    const tills = parseEwayFieldEntries(row.document_number)
       .map((entry) => entry.validTill)
       .filter((value) => value.trim().length > 0);
     if (tills.length === 0) continue;
@@ -1095,18 +1084,7 @@ export async function loadHubPodReceiptFlags(
     if (label) ewayExpiryByTripId[id] = label;
   }
 
-  const lrNumbersByTripId: Record<string, string> = {};
-  for (const [id, set] of lrsByTrip) lrNumbersByTripId[id] = [...set].join(", ");
-  const ewayNumbersByTripId: Record<string, string> = {};
-  for (const [id, set] of ewaysByTrip) ewayNumbersByTripId[id] = [...set].join(", ");
-
-  return {
-    softTripIds: [...soft],
-    hardTripIds: [],
-    ewayExpiryByTripId,
-    lrNumbersByTripId,
-    ewayNumbersByTripId,
-  };
+  return { softTripIds: [...soft], hardTripIds: [], ewayExpiryByTripId };
 }
 
 /** Header tag for one trip. The detail bundle does not include document_number. */

@@ -9,6 +9,7 @@
  * look up entity_documents when the primary sign fails.
  */
 import { getComplianceDocumentSignedUrl } from "@/features/compliance/services/documents.service";
+import { previewPrivateObject } from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import { tryGetDocumentViewUrl } from "@/features/trips/services/tripDocuments.service";
 import { parseComplianceStorageRef } from "@/features/tripCompliance/utils/complianceVaultDocuments.util";
 import { getVehicleDocumentViewUrl } from "@/features/vehicles/services/vehicleDocuments.service";
@@ -17,7 +18,6 @@ import {
   isVehicleDocumentReferencePath,
   resolveTripDocumentPreviewUrl,
 } from "@/features/tripCompliance/services/vehicleDocumentReuse.service";
-import { previewPrivateObject } from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import {
   composeComplianceActorDetail,
   type ComplianceActorDetail,

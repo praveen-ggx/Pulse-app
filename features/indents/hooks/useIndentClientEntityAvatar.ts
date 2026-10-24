@@ -3,12 +3,14 @@ import { useEffect, useState } from "react";
 import {
   getClientById,
   getLinkedOrgProfile,
+  getLinkedOrgProfilesBatch,
 } from "@/features/clients/services/clients.service";
 import {
   resolveIndentPartnerPublicProfile,
   type IndentPartnerPublicProfileTarget,
 } from "@/features/indents/utils/indentPartnerPublicProfile.util";
 import { resolvePartyAvatarIdentityFromClient } from "@/lib/entityIdentity";
+import { pickPartyOrganizationImageUrl } from "@/lib/partyAvatarDisplay";
 import type { LinkedOrgDisplay } from "@/lib/useLinkedOrgProfileMap";
 
 export type IndentClientAvatarFields = {
@@ -138,12 +140,34 @@ export function useIndentClientEntityAvatar(options: {
     async function loadShipperOrg() {
       const orgId = (shipperOrgId ?? "").trim();
       if (!orgId) return;
+
+      const batch = await getLinkedOrgProfilesBatch([orgId]);
+      const batchProfile = batch[orgId];
+      if (batchProfile) {
+        if (cancelled) return;
+        setFields({
+          avatarUrl: null,
+          avatarSeed: null,
+          organizationImageUrl: pickPartyOrganizationImageUrl({
+            logoUrl: batchProfile.logoUrl,
+            organizationImageUrl: batchProfile.avatarUrl,
+          }),
+          organizationAvatarSeed:
+            (batchProfile.orgAvatarSeed ?? "").trim() || null,
+          detailLine: detailFromPartnerProfile(batchProfile),
+          isIntegrated: true,
+        });
+        return;
+      }
+
       const { profile } = await getLinkedOrgProfile(orgId);
       if (cancelled || !profile) return;
       setFields({
         avatarUrl: null,
         avatarSeed: null,
-        organizationImageUrl: (profile.avatarUrl ?? "").trim() || null,
+        organizationImageUrl: pickPartyOrganizationImageUrl({
+          organizationImageUrl: profile.avatarUrl,
+        }),
         organizationAvatarSeed: (profile.avatarSeed ?? "").trim() || null,
         detailLine: detailFromPartnerProfile(profile),
         isIntegrated: true,

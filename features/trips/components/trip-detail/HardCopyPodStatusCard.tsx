@@ -189,13 +189,13 @@ function Fact({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 8,
-    backgroundColor: Theme.surfaceGray,
+    borderRadius: 22,
+    backgroundColor: Theme.tripDetailAssetCardBackgroundColor,
     borderWidth: 1,
-    borderColor: Theme.borderLight,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    gap: 8,
+    borderColor: Theme.surfaceBorder,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 10,
     width: "100%",
     alignSelf: "stretch",
     flexGrow: 0,

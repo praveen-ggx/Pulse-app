@@ -10,7 +10,6 @@
  */
 import { QueryClient, QueryCache, MutationCache } from '@tanstack/react-query';
 import type { QueryCacheNotifyEvent } from '@tanstack/react-query';
-import { CACHE_OWNER_QUERY_KEY } from '@/lib/cache/cacheOwner';
 import { isWithinAppQueryBootQuietPeriod } from '@/lib/hooks/appQueryGateState';
 import { logger } from '@/lib/logger';
 import {
@@ -25,6 +24,7 @@ import {
   isServiceUnavailableError,
   isSupabaseCircuitOpen,
 } from '@/lib/supabaseHttp.util';
+import { isPermanentSchemaOrRlsError } from '@/lib/queryRetry';
 
 /** Shared stale-time constants — import in query hooks to apply per-query tiers. */
 export const STALE = {
@@ -254,6 +254,7 @@ export function shouldRetryQuery(failureCount: number, error: unknown): boolean 
   if (isAbortError(error)) return false;
   if (isTimeoutError(error)) return false;
   if (isQueryOriginDownError(error)) return false;
+  if (isPermanentSchemaOrRlsError(error)) return false;
   return true;
 }
 
@@ -305,8 +306,6 @@ export function makeQueryClient() {
       },
     },
   });
-  // The owner tag has no observers; it must outlive gcTime to be persisted.
-  client.setQueryDefaults(CACHE_OWNER_QUERY_KEY, { gcTime: Infinity, staleTime: Infinity });
   attachPlatformCacheMetrics(client);
   attachDevObserver(client);
   return client;

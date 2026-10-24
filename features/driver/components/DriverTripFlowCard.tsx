@@ -1,3 +1,4 @@
+import { releaseStoragePreviewUrl } from '@/features/trips/utils/storagePreviewObjectUrl.util';
 import Theme from '@/constants/Theme';
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import {
@@ -23,7 +24,10 @@ import { useDriverReferralForTripQuery } from '@/lib/queries/useReachCampaignsQu
 import type { JobCardAssignerPayload } from '@/features/trips/utils/driverAssignerDisplay.util';
 import type { DriverRoutePlanMap } from '@/features/driver/job-card/driverRoutePlanMap';
 import type { DriverFlowStepId as StepId } from '@/features/driver/utils/driverTripStatusNotes.util';
-import { deriveDriverFlowStepFromTrip } from '@/features/driver/utils/driverTripStatusNotes.util';
+import {
+  appendDriverStatusNote,
+  deriveDriverFlowStepFromTrip,
+} from '@/features/driver/utils/driverTripStatusNotes.util';
 import {
   computeJourneyMetrics,
   computeTripStageMetrics,
@@ -65,6 +69,7 @@ import * as tripDocumentsService from '@/features/trips/services/tripDocuments.s
 import { findOrgDuplicateLrNumberForTrip } from '@/features/trips/services/orgLrDuplicate.service';
 import { ORG_LR_DUPLICATE_MESSAGE } from '@/features/trips/services/orgLrNumber.util';
 import * as tripsService from '@/features/trips/services/trips.service';
+import { previousStageTarget } from '@/features/driver/utils/driverStageRevoke.util';
 import {
   applyDriverCommandResult,
   executeDriverCommand,
@@ -90,11 +95,13 @@ import {
     Modal,
     Platform,
     Pressable,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   compressLocalImageForUpload,
   PROOF_IMAGE_JPEG_QUALITY,
@@ -113,6 +120,12 @@ import Animated, {
 /** Secondary row (Call / Chat / Camera, Navigate) and the stage CTA below it. */
 const ACTION_BTN_HEIGHT = 52;
 const PRIMARY_BTN_HEIGHT = 58;
+
+const REVOKE_REASON_CHIPS = [
+  'Marked by mistake',
+  'Not at this stop yet',
+  'Need to correct this stage',
+] as const;
 
 const DRIVER_ACCEPTED_TRIP_ID_KEY = 'driver_accepted_trip_id';
 const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -422,6 +435,9 @@ export function DriverTripFlowCard({
   const [step, setStep] = useState<StepId>(() => deriveDriverFlowStepFromTrip(trip));
   const [stepLoading, setStepLoading] = useState(false);
   const [stepError, setStepError] = useState<string | null>(null);
+  const [revokeOpen, setRevokeOpen] = useState(false);
+  const [revokeReason, setRevokeReason] = useState('');
+  const insets = useSafeAreaInsets();
 
   // Owner Vehicle Link — DCO explicit vehicle selection for this trip.
   // Never auto-selected, including when the DCO has exactly one vehicle.
@@ -494,6 +510,7 @@ export function DriverTripFlowCard({
   /** Full-page LR / pickup-proof flow — auto-opens after Package collected. */
   const [lrPageVisible, setLrPageVisible] = useState(false);
   const prevStepForLrPageRef = useRef<StepId>(deriveDriverFlowStepFromTrip(trip));
+  const revokeHoldRef = useRef<StepId | null>(null);
 
   const [lrDocuments, setLrDocuments] = useState<tripDocumentsService.TripDocumentRow[]>([]);
   const [lrNumber, setLrNumber] = useState('');
@@ -501,6 +518,31 @@ export function DriverTripFlowCard({
   const [lrUploading, setLrUploading] = useState(false);
   const [lrSkipped, setLrSkipped] = useState(false);
   const [lrViewUrls, setLrViewUrls] = useState<Record<string, string>>({});
+  const heldDocPreviewUrls = useRef<Map<string, string>>(new Map());
+  useEffect(() => () => {
+    for (const url of heldDocPreviewUrls.current.values()) releaseStoragePreviewUrl(url);
+    heldDocPreviewUrls.current.clear();
+  }, []);
+  const retainDocPreview = (docId: string, url: string | null) => {
+    const previous = heldDocPreviewUrls.current.get(docId);
+    if (previous) {
+      releaseStoragePreviewUrl(previous);
+      heldDocPreviewUrls.current.delete(docId);
+    }
+    if (url) heldDocPreviewUrls.current.set(docId, url);
+    return url;
+  };
+  useEffect(() => {
+    const live = new Set([
+      ...lrDocuments.map((doc) => doc.id),
+      ...podDocuments.map((doc) => doc.id),
+    ]);
+    for (const [id, url] of heldDocPreviewUrls.current) {
+      if (live.has(id)) continue;
+      releaseStoragePreviewUrl(url);
+      heldDocPreviewUrls.current.delete(id);
+    }
+  }, [lrDocuments, podDocuments]);
   const lrViewUrlsRequestedRef = useRef<Set<string>>(new Set());
   const lastLrTripIdRef = useRef<string | null>(null);
   const [lrDeletingId, setLrDeletingId] = useState<string | null>(null);
@@ -522,6 +564,12 @@ export function DriverTripFlowCard({
     setLocalTrip(trip);
     const derived = deriveDriverFlowStepFromTrip(trip);
     setStep((prev) => {
+      const hold = revokeHoldRef.current;
+      if (hold) {
+        const holdSatisfied = derived === hold || (hold === 'lr' && derived === 'pickup');
+        if (holdSatisfied) revokeHoldRef.current = null;
+        else return hold;
+      }
       // Keep LR sub-step while still on pickup status.
       if (prev === 'lr' && derived === 'pickup') return prev;
       // Don't regress past a locally confirmed advance when parent still has stale status.
@@ -664,7 +712,10 @@ export function DriverTripFlowCard({
     async (doc: tripDocumentsService.TripDocumentRow): Promise<string | null> => {
       const cached = podViewUrls[doc.id];
       if (cached) return cached;
-      const url = await tripDocumentsService.tryGetDocumentViewUrl(doc.storage_path);
+      const url = retainDocPreview(
+        doc.id,
+        await tripDocumentsService.tryGetDocumentViewUrl(doc.storage_path),
+      );
       if (url) {
         setPodViewUrls((prev) => ({ ...prev, [doc.id]: url }));
       }
@@ -699,7 +750,10 @@ export function DriverTripFlowCard({
     async (doc: tripDocumentsService.TripDocumentRow): Promise<string | null> => {
       const cached = lrViewUrls[doc.id];
       if (cached) return cached;
-      const url = await tripDocumentsService.tryGetDocumentViewUrl(doc.storage_path);
+      const url = retainDocPreview(
+        doc.id,
+        await tripDocumentsService.tryGetDocumentViewUrl(doc.storage_path),
+      );
       if (url) {
         setLrViewUrls((prev) => ({ ...prev, [doc.id]: url }));
       }
@@ -758,7 +812,14 @@ export function DriverTripFlowCard({
         delete next[doc.id];
         return next;
       });
-      podViewUrlsRequestedRef.current.delete(doc.id);
+      for (const key of podViewUrlsRequestedRef.current) {
+        if (key === doc.id || key.startsWith(`${doc.id}:`)) podViewUrlsRequestedRef.current.delete(key);
+      }
+      const heldPodUrl = heldDocPreviewUrls.current.get(doc.id);
+      if (heldPodUrl) {
+        releaseStoragePreviewUrl(heldPodUrl);
+        heldDocPreviewUrls.current.delete(doc.id);
+      }
       void revokeSharedTripDocumentInChat(doc.storage_path);
       // Local list already updated — do not onRefresh (closes sheet / flashes map).
     },
@@ -990,32 +1051,48 @@ export function DriverTripFlowCard({
 
   useEffect(() => {
     if (lrDocuments.length === 0) return;
+    let cancelled = false;
     lrDocuments.forEach((doc) => {
-      if (lrViewUrlsRequestedRef.current.has(doc.id)) return;
-      lrViewUrlsRequestedRef.current.add(doc.id);
+      const requestKey = `${doc.id}:${doc.storage_path}`;
+      if (lrViewUrlsRequestedRef.current.has(requestKey)) return;
+      lrViewUrlsRequestedRef.current.add(requestKey);
       tripDocumentsService.tryGetDocumentViewUrl(doc.storage_path).then((url) => {
-        if (!url) {
-          setLrDocuments((prev) => prev.filter((d) => d.id !== doc.id));
+        if (cancelled) {
+          lrViewUrlsRequestedRef.current.delete(requestKey);
+          releaseStoragePreviewUrl(url);
           return;
         }
-        setLrViewUrls((prev) => (prev[doc.id] ? prev : { ...prev, [doc.id]: url }));
+        retainDocPreview(doc.id, url);
+        if (!url) return;
+        setLrViewUrls((prev) => ({ ...prev, [doc.id]: url }));
       });
     });
+    return () => {
+      cancelled = true;
+    };
   }, [lrDocuments]);
 
   useEffect(() => {
     if (podDocuments.length === 0) return;
+    let cancelled = false;
     podDocuments.forEach((doc) => {
-      if (podViewUrlsRequestedRef.current.has(doc.id)) return;
-      podViewUrlsRequestedRef.current.add(doc.id);
+      const requestKey = `${doc.id}:${doc.storage_path}`;
+      if (podViewUrlsRequestedRef.current.has(requestKey)) return;
+      podViewUrlsRequestedRef.current.add(requestKey);
       tripDocumentsService.tryGetDocumentViewUrl(doc.storage_path).then((url) => {
-        if (!url) {
-          setPodDocuments((prev) => prev.filter((d) => d.id !== doc.id));
+        if (cancelled) {
+          podViewUrlsRequestedRef.current.delete(requestKey);
+          releaseStoragePreviewUrl(url);
           return;
         }
-        setPodViewUrls((prev) => (prev[doc.id] ? prev : { ...prev, [doc.id]: url }));
+        retainDocPreview(doc.id, url);
+        if (!url) return;
+        setPodViewUrls((prev) => ({ ...prev, [doc.id]: url }));
       });
     });
+    return () => {
+      cancelled = true;
+    };
   }, [podDocuments]);
 
   const confirmArrival = async () => {
@@ -1091,6 +1168,41 @@ export function DriverTripFlowCard({
     const updated = applyDriverCommandResult(localTrip, result);
     setLocalTrip(updated);
     onTripUpdated?.(updated);
+    syncAfterStatusWrite();
+  };
+
+  const revokeTarget = previousStageTarget(step);
+
+  const confirmRevokeStage = async () => {
+    const id = localTrip?.id;
+    const target = previousStageTarget(step);
+    const reason = revokeReason.trim();
+    if (!id || !target || stepLoading || reason.length === 0) return;
+    setStepError(null);
+    setStepLoading(true);
+    if (target.status) {
+      const { error, result } = await executeDriverCommand(
+        { tripId: id, command: 'UNDO_STEP', expectedStatus: localTrip?.status ?? null },
+        localTrip,
+      );
+      if (error || !result) {
+        setStepLoading(false);
+        setStepError(error?.message ?? 'Could not go back a stage.');
+        return;
+      }
+      const nextTrip = applyDriverCommandResult(localTrip, result);
+      setLocalTrip(nextTrip);
+      onTripUpdated?.(nextTrip);
+    }
+    if (target.lr === 'clear') void clearLrPhase(id);
+    if (target.lr === 'enter') void markLrPhaseEntered(id);
+    revokeHoldRef.current = target.step;
+    setStep(target.step);
+    setRevokeOpen(false);
+    setRevokeReason('');
+    setStepLoading(false);
+    const noted = await appendDriverStatusNote(id, target.step, `Stage revoked — ${reason}`);
+    if (noted.error) setStepError(noted.error);
     syncAfterStatusWrite();
   };
 
@@ -1250,9 +1362,6 @@ export function DriverTripFlowCard({
       }
       if (doc) {
         setPodDocuments((prev) => [doc, ...prev]);
-        tripDocumentsService.getDocumentViewUrl(doc.storage_path).then((u) => {
-          setPodViewUrls((prev) => ({ ...prev, [doc.id]: u }));
-        });
         await shareTripDocumentInChat(doc, 'Proof of delivery');
       }
       // Local POD list + chat share update UI — do not onRefresh (sheet remount / map flash).
@@ -1337,9 +1446,6 @@ export function DriverTripFlowCard({
       if (doc) {
         setLrDocuments((prev) => [doc, ...prev]);
         setLrNumber('');
-        tripDocumentsService.getDocumentViewUrl(doc.storage_path).then((u) => {
-          setLrViewUrls((prev) => ({ ...prev, [doc.id]: u }));
-        });
         await shareTripDocumentInChat(doc, 'LR / pickup proof');
       }
       // NOTE: intentionally NOT calling onRefresh?.() here. LR upload does not
@@ -1379,7 +1485,14 @@ export function DriverTripFlowCard({
         delete next[doc.id];
         return next;
       });
-      lrViewUrlsRequestedRef.current.delete(doc.id);
+      for (const key of lrViewUrlsRequestedRef.current) {
+        if (key === doc.id || key.startsWith(`${doc.id}:`)) lrViewUrlsRequestedRef.current.delete(key);
+      }
+      const heldLrUrl = heldDocPreviewUrls.current.get(doc.id);
+      if (heldLrUrl) {
+        releaseStoragePreviewUrl(heldLrUrl);
+        heldDocPreviewUrls.current.delete(doc.id);
+      }
       void revokeSharedTripDocumentInChat(doc.storage_path);
       // Local LR list already updated — do not onRefresh.
     },
@@ -1538,6 +1651,27 @@ export function DriverTripFlowCard({
       </>
     );
   }
+
+  const revokeButton = revokeTarget ? (
+    <TouchableOpacity
+      style={[
+        styles.revokeBtn,
+        { backgroundColor: Theme.surface, borderColor: Theme.border },
+        stepLoading && styles.btnDisabled,
+      ]}
+      onPress={() => {
+        setRevokeReason('');
+        setRevokeOpen(true);
+      }}
+      disabled={stepLoading}
+      activeOpacity={0.85}
+      accessibilityRole="button"
+      accessibilityLabel={`Go back to ${revokeTarget.label}`}
+    >
+      <FontAwesome name="undo" size={14} color={Theme.textPrimaryDark} />
+      <Text style={[styles.revokeBtnText, { color: Theme.textPrimaryDark }]}>Back</Text>
+    </TouchableOpacity>
+  ) : null;
 
   const viewingPodIndex = viewingPodDocId
     ? podDocuments.findIndex((d) => d.id === viewingPodDocId)
@@ -1829,75 +1963,85 @@ export function DriverTripFlowCard({
             </TouchableOpacity>
           ) : null}
 
-          {step === 'pickup' ? (
-            <TouchableOpacity
-              style={[styles.primaryBtnWrap, stepLoading && styles.btnDisabled]}
-              onPress={handlePackageCollected}
-              disabled={stepLoading}
-              activeOpacity={0.88}
-            >
-              <LinearGradient
-                colors={[FLOW_EMERALD, FLOW_EMERALD_DARK]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.primaryGradient}
-              >
-                <FontAwesome name="archive" size={17} color="#fff" />
-                <Text style={styles.primaryBtnText}>{stepLoading ? 'Updating…' : 'Package collected'}</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          ) : null}
-
-          {step === 'transit' ? (
-            <TouchableOpacity
-              style={[styles.primaryBtnWrap, stepLoading && styles.btnDisabled]}
-              onPress={confirmReached}
-              disabled={stepLoading}
-              activeOpacity={0.88}
-            >
-              <LinearGradient
-                colors={[FLOW_EMERALD, FLOW_EMERALD_DARK]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.primaryGradient}
-              >
-                <FontAwesome name="map-marker" size={17} color="#fff" />
-                <Text style={styles.primaryBtnText}>{stepLoading ? 'Updating…' : 'Arrived at drop-off'}</Text>
-              </LinearGradient>
-            </TouchableOpacity>
+          {step === 'pickup' || step === 'transit' ? (
+            <View style={styles.stageActionRow}>
+              <View style={styles.stageActionMain}>
+                {step === 'pickup' ? (
+                  <TouchableOpacity
+                    style={[styles.primaryBtnWrap, stepLoading && styles.btnDisabled]}
+                    onPress={handlePackageCollected}
+                    disabled={stepLoading}
+                    activeOpacity={0.88}
+                  >
+                    <LinearGradient
+                      colors={[FLOW_EMERALD, FLOW_EMERALD_DARK]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.primaryGradient}
+                    >
+                      <FontAwesome name="archive" size={17} color="#fff" />
+                      <Text style={styles.primaryBtnText}>{stepLoading ? 'Updating…' : 'Package collected'}</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    style={[styles.primaryBtnWrap, stepLoading && styles.btnDisabled]}
+                    onPress={confirmReached}
+                    disabled={stepLoading}
+                    activeOpacity={0.88}
+                  >
+                    <LinearGradient
+                      colors={[FLOW_EMERALD, FLOW_EMERALD_DARK]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.primaryGradient}
+                    >
+                      <FontAwesome name="map-marker" size={17} color="#fff" />
+                      <Text style={styles.primaryBtnText}>{stepLoading ? 'Updating…' : 'Arrived at drop-off'}</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                )}
+              </View>
+              {revokeButton}
+            </View>
           ) : null}
         </View>
       ) : null}
 
       {step === 'lr' ? (
         <View style={styles.reachedBlock}>
-          {!lrPageVisible ? (
-            <TouchableOpacity
-              style={[styles.primaryBtnWrap, { marginBottom: 4 }]}
-              onPress={() => setLrPageVisible(true)}
-              activeOpacity={0.88}
-              accessibilityRole="button"
-              accessibilityLabel="Open pickup proof attachment page"
-            >
-              <LinearGradient
-                colors={[FLOW_EMERALD, FLOW_EMERALD_DARK]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.primaryGradient}
-              >
-                <FontAwesome name="file-text-o" size={16} color="#fff" />
-                <Text style={styles.primaryBtnText}>
-                  {lrDocuments.length >= 1 || lrSkipped
-                    ? 'Continue to start transit'
-                    : 'Upload LR / pickup proof'}
+          <View style={styles.stageActionRow}>
+            <View style={styles.stageActionMain}>
+              {!lrPageVisible ? (
+                <TouchableOpacity
+                  style={styles.primaryBtnWrap}
+                  onPress={() => setLrPageVisible(true)}
+                  activeOpacity={0.88}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open pickup proof attachment page"
+                >
+                  <LinearGradient
+                    colors={[FLOW_EMERALD, FLOW_EMERALD_DARK]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.primaryGradient}
+                  >
+                    <FontAwesome name="file-text-o" size={16} color="#fff" />
+                    <Text style={styles.primaryBtnText}>
+                      {lrDocuments.length >= 1 || lrSkipped
+                        ? 'Continue to start transit'
+                        : 'Upload LR / pickup proof'}
+                    </Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              ) : (
+                <Text style={[styles.podRequired, { color: Theme.textMuted }]}>
+                  Finish attachments on the pickup proof page…
                 </Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          ) : (
-            <Text style={[styles.podRequired, { color: Theme.textMuted }]}>
-              Finish attachments on the pickup proof page…
-            </Text>
-          )}
+              )}
+            </View>
+            {revokeButton}
+          </View>
         </View>
       ) : null}
 
@@ -1932,33 +2076,38 @@ export function DriverTripFlowCard({
 
       {step === 'reached' ? (
         <View style={styles.reachedBlock}>
-          {!podPageVisible ? (
-            <TouchableOpacity
-              style={[styles.primaryBtnWrap, { marginBottom: 4 }]}
-              onPress={() => setPodPageVisible(true)}
-              activeOpacity={0.88}
-              accessibilityRole="button"
-              accessibilityLabel="Open proof of delivery page"
-            >
-              <LinearGradient
-                colors={[FLOW_EMERALD, FLOW_EMERALD_DARK]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.primaryGradient}
-              >
-                <FontAwesome name="file-text-o" size={16} color="#fff" />
-                <Text style={styles.primaryBtnText}>
-                  {podDocuments.length >= 1 || podSkipped
-                    ? 'Continue to complete delivery'
-                    : 'Upload POD (preferred) & complete'}
+          <View style={styles.stageActionRow}>
+            <View style={styles.stageActionMain}>
+              {!podPageVisible ? (
+                <TouchableOpacity
+                  style={styles.primaryBtnWrap}
+                  onPress={() => setPodPageVisible(true)}
+                  activeOpacity={0.88}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open proof of delivery page"
+                >
+                  <LinearGradient
+                    colors={[FLOW_EMERALD, FLOW_EMERALD_DARK]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.primaryGradient}
+                  >
+                    <FontAwesome name="file-text-o" size={16} color="#fff" />
+                    <Text style={styles.primaryBtnText}>
+                      {podDocuments.length >= 1 || podSkipped
+                        ? 'Continue to complete delivery'
+                        : 'Upload POD (preferred) & complete'}
+                    </Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              ) : (
+                <Text style={[styles.podRequired, { color: Theme.textMuted }]}>
+                  Finish on the proof of delivery page…
                 </Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          ) : (
-            <Text style={[styles.podRequired, { color: Theme.textMuted }]}>
-              Finish on the proof of delivery page…
-            </Text>
-          )}
+              )}
+            </View>
+            {revokeButton}
+          </View>
         </View>
       ) : null}
 
@@ -2034,15 +2183,117 @@ export function DriverTripFlowCard({
             ) : null}
           </View>
 
-          <TouchableOpacity
-            style={[styles.primaryBtn, { backgroundColor: Theme.textPrimaryDark }]}
-            onPress={onBackToDashboard}
-            activeOpacity={0.9}
-          >
-            <Text style={styles.primaryBtnText}>Close</Text>
-          </TouchableOpacity>
+          <View style={styles.stageActionRow}>
+            <View style={styles.stageActionMain}>
+              <TouchableOpacity
+                style={[styles.primaryBtn, { backgroundColor: Theme.textPrimaryDark, marginTop: 0 }]}
+                onPress={onBackToDashboard}
+                activeOpacity={0.9}
+              >
+                <Text style={styles.primaryBtnText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+            {revokeButton}
+          </View>
         </View>
       ) : null}
+
+      <Modal
+        visible={revokeOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!stepLoading) setRevokeOpen(false);
+        }}
+      >
+        <View style={styles.revokeBackdrop}>
+          <View
+            style={[
+              styles.revokeSheet,
+              {
+                backgroundColor: Theme.surface,
+                borderColor: Theme.border,
+                marginBottom: Math.max(insets.bottom, 12),
+              },
+            ]}
+          >
+            <Text style={[styles.revokeTitle, { color: Theme.textPrimaryDark }]}>
+              Go back to {revokeTarget?.label ?? 'the previous stage'}?
+            </Text>
+            <Text style={[styles.revokeHint, { color: Theme.textMuted }]}>
+              This revokes the current stage. A reason is required.
+            </Text>
+            <View style={styles.revokeChips}>
+              {REVOKE_REASON_CHIPS.map((chip) => {
+                const selected = revokeReason === chip;
+                return (
+                  <TouchableOpacity
+                    key={chip}
+                    onPress={() => setRevokeReason(chip)}
+                    style={[
+                      styles.revokeChip,
+                      {
+                        borderColor: selected ? colors.emerald : Theme.border,
+                        backgroundColor: selected ? colors.emeraldMuted : Theme.surface,
+                      },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                  >
+                    <Text
+                      style={[
+                        styles.revokeChipText,
+                        { color: selected ? colors.emerald : Theme.textPrimaryDark },
+                      ]}
+                    >
+                      {chip}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <TextInput
+              value={revokeReason}
+              onChangeText={setRevokeReason}
+              placeholder="Reason for going back"
+              placeholderTextColor={Theme.textMuted}
+              style={[
+                styles.revokeInput,
+                { color: Theme.textPrimaryDark, borderColor: Theme.border, backgroundColor: Theme.screenBackground },
+              ]}
+              multiline
+              maxLength={240}
+              accessibilityLabel="Reason for going back"
+            />
+            <View style={styles.revokeActions}>
+              <TouchableOpacity
+                onPress={() => setRevokeOpen(false)}
+                disabled={stepLoading}
+                style={[styles.revokeCancel, { borderColor: Theme.border }]}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel going back"
+              >
+                <Text style={[styles.revokeCancelText, { color: Theme.textMuted }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => { void confirmRevokeStage(); }}
+                disabled={stepLoading || revokeReason.trim().length === 0}
+                style={[
+                  styles.revokeConfirm,
+                  { backgroundColor: colors.emerald },
+                  (stepLoading || revokeReason.trim().length === 0) && styles.btnDisabled,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Revoke stage and go back"
+              >
+                <Text style={styles.revokeConfirmText}>
+                  {stepLoading ? 'Updating…' : 'Revoke stage'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={!!(viewingPodUrl || viewingPodLoading)}
@@ -2337,6 +2588,111 @@ const styles = StyleSheet.create({
     marginTop: 2,
     borderRadius: 12,
     overflow: 'hidden',
+  },
+  stageActionRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 8,
+  },
+  stageActionMain: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
+  },
+  revokeBtn: {
+    marginTop: 2,
+    width: 64,
+    minHeight: PRIMARY_BTN_HEIGHT,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingHorizontal: 6,
+  },
+  revokeBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  revokeBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: Theme.overlayBackdrop,
+    paddingHorizontal: 16,
+  },
+  revokeSheet: {
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 14,
+    gap: 10,
+  },
+  revokeTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  revokeHint: {
+    fontSize: 13,
+    fontWeight: '500',
+    lineHeight: 18,
+  },
+  revokeChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  revokeChip: {
+    minHeight: 44,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  revokeChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  revokeInput: {
+    minHeight: 72,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    fontWeight: '500',
+    textAlignVertical: 'top',
+  },
+  revokeActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  revokeCancel: {
+    minHeight: 48,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  revokeCancelText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  revokeConfirm: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  revokeConfirmText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: Theme.textOnPrimary,
   },
   primaryGradient: {
     minHeight: PRIMARY_BTN_HEIGHT,

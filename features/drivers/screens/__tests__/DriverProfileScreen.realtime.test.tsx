@@ -13,7 +13,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import DriverProfileScreen from '../DriverProfileScreen';
 import { useAuth } from '@/contexts/AuthContext';
 import * as driversService from '@/features/drivers/services/drivers.service';
-import * as tripsService from '@/features/trips/services/trips.service';
 import { subscribeSharedPostgresChanges } from '@/lib/realtimeRegistry';
 
 // Required in this project's Jest setup for any test that renders RN host components —
@@ -60,6 +59,7 @@ jest.mock('@/features/vehicles/services/vehicles.service', () => ({
 }));
 jest.mock('@/features/ratings/services/ratings.service', () => ({
   getRatingsForDriver: jest.fn(() => Promise.resolve({ error: null, ratings: [] })),
+  getRatingsForDrivers: jest.fn(() => Promise.resolve({ error: null, byDriverId: {} })),
   averageScore: jest.fn(() => 0),
 }));
 
@@ -68,7 +68,7 @@ jest.mock('@/lib/supabase', () => ({
     from: () => {
       const resolved = { data: null, error: null, count: 0 };
       const builder: Record<string, unknown> = {};
-      for (const m of ['select', 'eq', 'is', 'order', 'limit']) {
+      for (const m of ['select', 'eq', 'is', 'in', 'or', 'not', 'order', 'limit']) {
         builder[m] = jest.fn(() => builder);
       }
       builder.maybeSingle = jest.fn(() => Promise.resolve(resolved));
@@ -101,13 +101,9 @@ jest.mock('lucide-react-native', () => new Proxy({}, {
 jest.mock('@/features/drivers/services/drivers.service', () => ({
   getLinkedDriversForCurrentUser: jest.fn(),
 }));
-jest.mock('@/features/trips/services/trips.service', () => ({
-  getDriverUiTripsByDriverIds: jest.fn(() => Promise.resolve({ error: null, trips: [] })),
-}));
 
 const mockSubscribe = subscribeSharedPostgresChanges as jest.Mock;
 const mockGetLinkedDrivers = driversService.getLinkedDriversForCurrentUser as jest.Mock;
-const mockGetTrips = tripsService.getDriverUiTripsByDriverIds as jest.Mock;
 
 function driverRow(id: string, orgId: string) {
   return {
@@ -154,7 +150,6 @@ beforeEach(() => {
     refreshSession: jest.fn(),
     patchProfile: jest.fn(),
   });
-  mockGetTrips.mockResolvedValue({ error: null, trips: [] });
   mockSubscribe.mockReturnValue(jest.fn()); // each call returns its own unsubscribe fn
 });
 
@@ -257,7 +252,7 @@ describe('DriverProfileScreen trips realtime subscription', () => {
     renderScreen();
     await waitFor(() => expect(mockSubscribe).toHaveBeenCalledTimes(1));
 
-    const initialTripsCalls = mockGetTrips.mock.calls.length;
+    const initialDriverCalls = mockGetLinkedDrivers.mock.calls.length;
     const onEvent = mockSubscribe.mock.calls[0][2];
 
     await act(async () => {
@@ -265,6 +260,6 @@ describe('DriverProfileScreen trips realtime subscription', () => {
       await Promise.resolve();
     });
 
-    await waitFor(() => expect(mockGetTrips.mock.calls.length).toBeGreaterThan(initialTripsCalls));
+    await waitFor(() => expect(mockGetLinkedDrivers.mock.calls.length).toBeGreaterThan(initialDriverCalls));
   });
 });

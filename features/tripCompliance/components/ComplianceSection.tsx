@@ -4,7 +4,7 @@
  * TripPodStatusSection right above its insertion point. Not a second Trip
  * Detail page; this only renders when Compliance is enabled + permitted.
  */
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Linking, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import Theme from "@/constants/Theme";
 import { alertMessage } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
@@ -13,6 +13,7 @@ import { PAYMENT_MODES } from "@/lib/paymentModes";
 import { describeStopProofDocument } from "@/features/driver/job-card/deliveryProof";
 import { type TripDocumentRow } from "@/features/trips/services/tripDocuments.service";
 import { resolveTripDocumentPreviewUrl } from "@/features/tripCompliance/services/vehicleDocumentReuse.service";
+import { releaseStoragePreviewUrl } from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import { markTripHardCopyPodReceived } from "@/features/trips/services/tripDocumentLrPod.service";
 import { syncHardCopyPodRecord } from "@/lib/queries/invalidateHardCopyPodCaches";
 import { useQueryClient } from "@tanstack/react-query";
@@ -137,6 +138,15 @@ export function ComplianceSection({
   const [payCategory, setPayCategory] = useState<ComplianceLedgerCategory | null>(null);
   const [paying, setPaying] = useState(false);
 
+  const heldPreviewUrl = useRef<string | null>(null);
+  useEffect(() => () => {
+    const url = heldPreviewUrl.current;
+    heldPreviewUrl.current = null;
+    if (!url) return;
+    // The external viewer needs the Blob until it has loaded. Revoke after
+    // that window instead of while Linking.openURL is still navigating.
+    setTimeout(() => releaseStoragePreviewUrl(url), 60_000);
+  }, []);
   // Advance/balance are read straight from canonical `transactions`
   // (ledger_category) — never duplicated locally beyond this render cache.
   useEffect(() => {
@@ -263,8 +273,21 @@ export function ComplianceSection({
       sourceEntityDocumentId: doc.source_entity_document_id,
       organizationId,
     });
-    if (url) void Linking.openURL(url);
-    else alertMessage("Couldn't preview document", "This file is not available.");
+    if (!url) {
+      alertMessage("Couldn't preview document", "This file is not available.");
+      return;
+    }
+    const previous = heldPreviewUrl.current;
+    if (previous === url) {
+      releaseStoragePreviewUrl(url);
+    } else {
+      heldPreviewUrl.current = url;
+      if (previous) {
+        const stale = previous;
+        setTimeout(() => releaseStoragePreviewUrl(stale), 60_000);
+      }
+    }
+    void Linking.openURL(url);
   }, [organizationId]);
 
   const handleVerify = useCallback(

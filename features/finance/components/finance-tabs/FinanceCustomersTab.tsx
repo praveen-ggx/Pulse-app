@@ -12,6 +12,7 @@ export function FinanceCustomersTab(props: FinanceTabBodyProps) {
     clientRows,
     tripRows,
     tripsWhereOrgIsSupplier,
+    clientsLoading,
     entitiesLoading,
     onTabTotals,
     onEntityRowSelect,
@@ -44,7 +45,7 @@ export function FinanceCustomersTab(props: FinanceTabBodyProps) {
         trips={tripRows}
         tripsWhereOrgIsSupplier={tripsWhereOrgIsSupplier}
         transactions={entityAggregationLedger}
-        parentLoading={entitiesLoading}
+        parentLoading={clientsLoading ?? entitiesLoading}
         onTotals={onTabTotals}
         onRowSelect={(data, entityType) =>
           onEntityRowSelect(data, entityType, financeSubTab)

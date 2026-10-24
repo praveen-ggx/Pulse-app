@@ -54,6 +54,8 @@ export interface UseFinanceEntitiesResult {
   connectionRequestsSent: ConnectionRequestRow[];
   pendingDriverSalaryRequests: SalaryRequestWithDriverRow[];
   entitiesLoading: boolean;
+  clientsLoading: boolean;
+  suppliersLoading: boolean;
   /** True when the trips fetch (get_trips_for_org) failed — party ledgers may show zero trips even though trips exist. */
   tripsError: boolean;
   refetchTrips: () => void;
@@ -268,6 +270,8 @@ export function useFinanceEntities({
     connectionRequestsSent,
     pendingDriverSalaryRequests,
     entitiesLoading,
+    clientsLoading,
+    suppliersLoading,
     tripsError,
     refetchTrips: () => refetchTrips(),
     garagePeriodOptions,

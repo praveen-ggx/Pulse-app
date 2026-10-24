@@ -15,7 +15,7 @@ import {
   registryStatusStyle,
   registryTagStyle,
 } from "@/lib/alertRegistry/registryAlertPresentation.util";
-import type { RegistryNotificationAvatar } from "@/lib/alertRegistry/registryNotificationAvatar.types";
+import type { RegistryNotificationAvatar } from "@/lib/alertRegistry/registryNotificationAvatar.util";
 import { createStyles, text, view, webView } from "@/lib/styles/createStyles";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -51,6 +51,8 @@ export type AlertRegistrySignalCardProps = {
   detailTitle?: string;
   /** Secondary line in the detail card — e.g. category or note. */
   detailSubtitle?: string;
+  /** Optional media inside the gray quote card (uploaded document thumb). */
+  detailMedia?: React.ReactNode;
   timeLabel: string;
   contextLabel?: string;
   tags?: RegistryTag[];
@@ -167,6 +169,7 @@ export function AlertRegistrySignalCard({
   detail,
   detailTitle,
   detailSubtitle,
+  detailMedia,
   timeLabel,
   contextLabel,
   tags,
@@ -179,7 +182,7 @@ export function AlertRegistrySignalCard({
   variant = "feed",
   compact = false,
 }: AlertRegistrySignalCardProps) {
-  const showDetailCard = Boolean(detailTitle || detailSubtitle || detail);
+  const showDetailCard = Boolean(detailTitle || detailSubtitle || detail || detailMedia);
   const avatarSize = compact && variant === "tile" ? COMPACT_AVATAR_SIZE : AVATAR_SIZE;
 
   const content = (
@@ -241,6 +244,7 @@ export function AlertRegistrySignalCard({
               compact && variant === "tile" && styles.detailCardCompact,
             ]}
           >
+            {detailMedia ? <View style={styles.detailMedia}>{detailMedia}</View> : null}
             {detailTitle ? (
               <Text
                 style={[
@@ -302,24 +306,29 @@ export function AlertRegistrySignalCard({
     </View>
   );
 
-  if (onPress) {
-    return (
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => [styles.pressable, pressed && styles.pressablePressed]}
-        accessibilityRole={footer ? "none" : "button"}
-      >
-        {content}
-      </Pressable>
-    );
-  }
-
-  return content;
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={!onPress}
+      style={({ pressed, hovered }) => [
+        styles.pressable,
+        hovered && styles.pressableHover,
+        pressed && onPress ? styles.pressablePressed : null,
+      ]}
+      accessibilityRole={onPress && !footer ? "button" : "none"}
+    >
+      {content}
+    </Pressable>
+  );
 }
 
 const stylesDef = {
   pressable: view({
     width: "100%",
+    backgroundColor: Theme.cardWhite,
+  }),
+  pressableHover: view({
+    backgroundColor: Theme.tableRowHover,
   }),
   pressablePressed: view({
     opacity: 0.92,
@@ -332,7 +341,7 @@ const stylesDef = {
     paddingHorizontal: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: METRONIC.border,
-    backgroundColor: Theme.cardWhite,
+    backgroundColor: "transparent",
   }),
   rowCompleted: view({
     backgroundColor: "#FCFCFD",
@@ -451,6 +460,14 @@ const stylesDef = {
     paddingHorizontal: 8,
     paddingVertical: 6,
     gap: 1,
+  }),
+  detailMedia: view({
+    width: "100%",
+    minHeight: 120,
+    maxHeight: 168,
+    borderRadius: 6,
+    overflow: "hidden",
+    marginBottom: 4,
   }),
   detailTitle: text({
     fontSize: 12,

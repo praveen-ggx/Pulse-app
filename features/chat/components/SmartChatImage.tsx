@@ -123,6 +123,16 @@ export function SmartChatImage({
   const [prebuiltFailed, setPrebuiltFailed] = useState(false);
 
   const inFlightRef = useRef<string | null>(null);
+  const blobRevokeRef = useRef<(() => void) | null>(null);
+  const adoptBlob = useCallback((blob: { url: string; revoke: () => void }) => {
+    blobRevokeRef.current?.();
+    blobRevokeRef.current = blob.revoke;
+    return blob.url;
+  }, []);
+  useEffect(() => () => {
+    blobRevokeRef.current?.();
+    blobRevokeRef.current = null;
+  }, []);
   /** Invalidates in-flight lightbox loads when `storagePath` changes (list recycle). */
   const fullLightboxGenRef = useRef(0);
 
@@ -224,7 +234,7 @@ export function SmartChatImage({
       setThumbState("loading");
       void tryChatDocumentBlobObjectUrl(storagePath).then((blob) => {
         if (blob?.url) {
-          setThumbUri(blob.url);
+          setThumbUri(adoptBlob(blob));
           setThumbState("ready");
         } else {
           setThumbState("error");
@@ -233,7 +243,7 @@ export function SmartChatImage({
       return;
     }
     setThumbState("error");
-  }, [prebuiltThumb, thumbUri, prebuiltFailed, storagePath]);
+  }, [prebuiltThumb, thumbUri, prebuiltFailed, storagePath, adoptBlob]);
 
   const placeholderSource = useMemo(() => {
     if (thin.thumbhash) return { thumbhash: thin.thumbhash };

@@ -31,7 +31,13 @@ import { buildUniqueLinkedOrgIdMap, isLoadBasedTrip } from "@/features/trips/vis
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { formatLedgerDate } from "@/lib/format";
 import { useClientsQuery, useTripsQuery } from "@/lib/queries";
-import { useCustomerLedgerInputsQuery } from "@/lib/queries/useLedgerAggregationQuery";
+import { useFinanceCustomerLedgerInputs } from "@/lib/queries/useLedgerAggregationQuery";
+import {
+  customerLedgerLoadState,
+  filterCustomerRowsByDue,
+  formatCustomerLedgerFigure,
+  shouldPublishCustomerTabTotals,
+} from "@/features/finance/utils/customerLedgerContract.util";
 import { usePaginatedScroll } from "@/lib/usePaginatedScroll";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import type { ReactNode } from "react";
@@ -57,14 +63,6 @@ import type { ClientRow } from "../services/clients.service";
 export type EntityType = "CLIENT" | "SUPPLIER" | "VEHICLE" | "DRIVER";
 
 export type CustomersViewTab = "list" | "analytics";
-
-/** Compact ₹ for secondary lines when space is tight (mobile list). */
-function formatCustomerAmountCompact(value: number): string {
-  const abs = Math.abs(value);
-  if (abs >= 100000) return `${(value / 100000).toFixed(1)}L`;
-  if (abs >= 1000) return `${(value / 1000).toFixed(1)}k`;
-  return value.toLocaleString("en-IN");
-}
 
 /** Format date as "11 MAR" for receivables-by-trip row. */
 function formatTripDateShort(iso: string | null | undefined): string {
@@ -1677,7 +1675,7 @@ export function CustomersTab({
   refreshing = false,
   onRefresh,
   bottomInset = 100,
-  tripFinanceAdjustmentsByTripId,
+  tripFinanceAdjustmentsByTripId: _tripFinanceAdjustmentsByTripId,
   hideSummaryRow = false,
   viewTab = "list",
   embedInParentScroll = false,
@@ -1694,19 +1692,18 @@ export function CustomersTab({
 
   const { data: clientsFromQuery = [], isPending: clientsLoading } =
     useClientsQuery(isControlled ? null : organizationId);
-  const { data: tripsFromQuery = [], isPending: tripsLoading } = useTripsQuery(
+  const { data: tripsFromQuery = [] } = useTripsQuery(
     isControlled ? null : organizationId,
   );
 
   const clients = isControlled ? (clientsProp ?? []) : clientsFromQuery;
   const ownTrips = isControlled ? (tripsProp ?? []) : tripsFromQuery;
-  const applyAdjustments = tripFinanceAdjustmentsByTripId !== undefined;
-  const {
-    data: customerLedgerInputs,
-    isPending: customerLedgerLoading,
-  } = useCustomerLedgerInputsQuery(organizationId, applyAdjustments);
-  const loading = clientsLoading || tripsLoading;
-  const showLoading = parentLoading || (!isControlled && loading) || customerLedgerLoading;
+  const customerLedgerQuery = useFinanceCustomerLedgerInputs(organizationId);
+  const ledgerState = customerLedgerLoadState(customerLedgerQuery);
+  const customerLedgerInputs =
+    ledgerState === "success" ? customerLedgerQuery.data : undefined;
+  const catalogPending = isControlled ? parentLoading : clientsLoading;
+  const showLoading = catalogPending && clients.length === 0;
 
   // Merge own trips with cross-org supplier-view trips so the shipper appears as a customer.
   // Deduplicate by trip id: trips we own (as supplier) appear in both ownTrips and tripsWhereOrgIsSupplier.
@@ -1729,16 +1726,26 @@ export function CustomersTab({
   );
 
   const { rows, totals } = useMemo(() => {
-    return aggregateCustomersFromRpc(
-      clients,
-      customerLedgerInputs ?? {
-        trip_inputs: [],
-        unlinked_payments: [],
-        ledger_only_parties: [],
-        client_ledger_totals: [],
-      },
-    );
-  }, [clients, customerLedgerInputs]);
+    if (ledgerState !== "success" || !customerLedgerInputs) {
+      return {
+        rows: clients.map((c) => ({
+          id: c.id,
+          name: (c.name || c.contact_person || "Unnamed").trim() || "Unnamed",
+          subline:
+            c.is_integrated === true
+              ? "INTEGRATED"
+              : c.is_integrated === false
+                ? "NON_INTEGRATED"
+                : "SECURE NODE",
+          is_integrated: c.is_integrated ?? false,
+          linked_organization_id: c.linked_organization_id ?? undefined,
+          contactPerson: (c.contact_person ?? "").trim() || undefined,
+        })),
+        totals: { totalIn: 0, totalOut: 0 },
+      };
+    }
+    return aggregateCustomersFromRpc(clients, customerLedgerInputs);
+  }, [clients, customerLedgerInputs, ledgerState]);
 
   const q = searchQuery.trim().toLowerCase();
   const filteredRows = useMemo(() => {
@@ -1751,12 +1758,8 @@ export function CustomersTab({
           (r.contactPerson ?? "").toLowerCase().includes(q),
       );
     }
-    if (entityFilter === "has_due")
-      list = list.filter((r) => (r.pending ?? 0) > 0);
-    if (entityFilter === "no_due")
-      list = list.filter((r) => (r.pending ?? 0) === 0);
-    return list;
-  }, [rows, q, entityFilter]);
+    return filterCustomerRowsByDue(list, entityFilter, ledgerState);
+  }, [rows, q, entityFilter, ledgerState]);
 
   const customerTableResetKey = useMemo(
     () => `${filteredRows.length}|${q}|${entityFilter}|${searchQuery}`,
@@ -1786,10 +1789,9 @@ export function CustomersTab({
   }, [pendingClientInvites, q]);
 
   useEffect(() => {
-    if (onTotals) {
-      onTotals(totals);
-    }
-  }, [onTotals, totals.totalIn, totals.totalOut]);
+    if (!onTotals || !shouldPublishCustomerTabTotals(ledgerState)) return;
+    onTotals(totals);
+  }, [onTotals, ledgerState, totals.totalIn, totals.totalOut]);
 
   if (showLoading) {
     return <Text style={styles.loading}>Loading…</Text>;
@@ -1877,12 +1879,27 @@ export function CustomersTab({
   const tableBody = (
     <>
       {topContent}
+      {ledgerState === "error" ? (
+        <View style={styles.ledgerErrorRow}>
+          <Text style={styles.ledgerErrorText}>
+            Customer ledger is unavailable. Names are shown; amounts are not confirmed.
+          </Text>
+          <Pressable
+            onPress={() => {
+              void customerLedgerQuery.refetch();
+            }}
+            style={styles.ledgerRetryBtn}
+          >
+            <Text style={styles.ledgerRetryText}>Retry ledger</Text>
+          </Pressable>
+        </View>
+      ) : null}
       {!hideSummaryRow && viewTab !== "analytics" && (
         <View style={styles.receivablesSummaryRow}>
           <View style={styles.receivablesSummaryCard}>
             <Text style={styles.receivablesSummaryLabel}>Total Outstanding</Text>
             <Text style={styles.receivablesSummaryOutstanding}>
-              ₹{pendingBalance.toLocaleString("en-IN")}
+              {formatCustomerLedgerFigure(pendingBalance, ledgerState)}
             </Text>
           </View>
           <LiquidFillPill
@@ -1969,10 +1986,10 @@ export function CustomersTab({
       )}
       <View style={styles.customerTableCard}>
         {rowsToRender.map((data) => {
-          const due = data.pending ?? 0;
-          const sales = data.billed ?? 0;
-          const received = data.received ?? Math.max(0, sales - due);
-          const tripCount = data.trips ?? 0;
+          const due = data.pending;
+          const sales = data.billed;
+          const received = data.received;
+          const tripCount = data.trips;
           const avatarData = clientAvatarById.get(data.id);
           if (isWebDesktop) {
             return (
@@ -2009,31 +2026,31 @@ export function CustomersTab({
                 <View style={[styles.customerTableCell, styles.ctTrips]}>
                   <View style={styles.customerTableTripsPill}>
                     <Text style={styles.customerTableTripsPillText}>
-                      {tripCount}
+                      {ledgerState === "success" ? tripCount ?? 0 : "—"}
                     </Text>
                   </View>
                 </View>
                 <View style={[styles.customerTableCell, styles.ctAmt]}>
                   <Text style={styles.customerTableAmtValue} numberOfLines={1}>
-                    ₹{sales.toLocaleString("en-IN")}
+                    {formatCustomerLedgerFigure(sales, ledgerState)}
                   </Text>
                 </View>
                 <View style={[styles.customerTableCell, styles.ctAmt]}>
                   <Text style={styles.customerTableAmtReceived} numberOfLines={1}>
-                    ₹{received.toLocaleString("en-IN")}
+                    {formatCustomerLedgerFigure(received, ledgerState)}
                   </Text>
                 </View>
                 <View style={[styles.customerTableCell, styles.ctAmt]}>
                   <Text
                     style={[
                       styles.customerTableDueValue,
-                      due > 0
+                      ledgerState === "success" && (due ?? 0) > 0
                         ? styles.customerTableDueUnpaid
                         : styles.customerTableDueSettled,
                     ]}
                     numberOfLines={1}
                   >
-                    ₹{due.toLocaleString("en-IN")}
+                    {formatCustomerLedgerFigure(due, ledgerState)}
                   </Text>
                 </View>
               </Pressable>
@@ -2072,13 +2089,13 @@ export function CustomersTab({
                   numberOfLines={1}
                   ellipsizeMode="tail"
                 >
-                  Sales: ₹{formatCustomerAmountCompact(sales)}
+                  Sales: {formatCustomerLedgerFigure(sales, ledgerState)}
                 </Text>
               </View>
               <View style={[styles.customerTableCell, styles.ctTrips]}>
                 <View style={styles.customerTableTripsPill}>
                   <Text style={styles.customerTableTripsPillText}>
-                    {tripCount}
+                    {ledgerState === "success" ? tripCount ?? 0 : "—"}
                   </Text>
                 </View>
               </View>
@@ -2086,18 +2103,18 @@ export function CustomersTab({
                 <Text
                   style={[
                     styles.customerTableOutstandingValue,
-                    due > 0
+                    ledgerState === "success" && (due ?? 0) > 0
                       ? styles.customerTableDueUnpaid
                       : styles.customerTableDueSettled,
                   ]}
                   numberOfLines={1}
                 >
-                  ₹{due.toLocaleString("en-IN")}
+                  {formatCustomerLedgerFigure(due, ledgerState)}
                 </Text>
                 <Text style={styles.customerTableReceivedLine} numberOfLines={1}>
                   Received:{" "}
                   <Text style={styles.customerTableDueSettled}>
-                    ₹{formatCustomerAmountCompact(received)}
+                    {formatCustomerLedgerFigure(received, ledgerState)}
                   </Text>
                 </Text>
               </View>
@@ -2489,5 +2506,30 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Theme.textMutedDemo,
     textTransform: "uppercase",
+  },
+  ledgerErrorRow: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    backgroundColor: Theme.surface,
+    gap: 8,
+  },
+  ledgerErrorText: {
+    fontSize: 13,
+    color: Theme.textSecondary,
+  },
+  ledgerRetryBtn: {
+    alignSelf: "flex-start",
+    minHeight: 44,
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  ledgerRetryText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: Theme.primary,
   },
 });

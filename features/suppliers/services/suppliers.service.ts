@@ -348,6 +348,12 @@ export async function getLinkedOrgProfileForSupplier(
     verificationStatus?: string | null;
   } | null;
 }> {
+  const { data: sessionData } = await supabase().auth.getSession();
+  // Anon EXECUTE is revoked; calling before session restore logs 42501.
+  // Fail locally (not `profile: null`) so callers don't read it as "no profile".
+  if (!sessionData.session?.access_token) {
+    return { error: new Error('Not authenticated'), profile: null };
+  }
   const { data, error } = await supabase().rpc('get_connection_partner_display', {
     p_linked_organization_id: linkedOrganizationId,
   });

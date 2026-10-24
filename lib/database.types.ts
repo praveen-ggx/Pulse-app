@@ -3939,6 +3939,8 @@ export type Database = {
           account_number: string | null
           account_type: string | null
           bank_name: string | null
+          beneficiary_name: string | null
+          branch_name: string | null
           cancelled_cheque_url: string | null
           created_at: string
           created_by: string | null
@@ -3958,6 +3960,8 @@ export type Database = {
           account_number?: string | null
           account_type?: string | null
           bank_name?: string | null
+          beneficiary_name?: string | null
+          branch_name?: string | null
           cancelled_cheque_url?: string | null
           created_at?: string
           created_by?: string | null
@@ -3977,6 +3981,8 @@ export type Database = {
           account_number?: string | null
           account_type?: string | null
           bank_name?: string | null
+          beneficiary_name?: string | null
+          branch_name?: string | null
           cancelled_cheque_url?: string | null
           created_at?: string
           created_by?: string | null
@@ -9829,6 +9835,7 @@ export type Database = {
           pan_number?: string | null
           primary_region?: string | null
           phone?: string | null
+          primary_region?: string | null
           secondary_phone?: string | null
           status_changed_at?: string | null
           vendor_status?: string
@@ -9872,6 +9879,7 @@ export type Database = {
           pan_number?: string | null
           primary_region?: string | null
           phone?: string | null
+          primary_region?: string | null
           secondary_phone?: string | null
           status_changed_at?: string | null
           vendor_status?: string
@@ -19266,7 +19274,6 @@ export type Database = {
         | "pvt_ltd"
         | "public_ltd"
         | "partnership"
-        | "individual"
       verification_document_status:
         | "UPLOADED"
         | "OCR_PASSED"
@@ -19285,7 +19292,6 @@ export type Database = {
         | "partnership_deed"
         | "llp_agreement"
         | "iec_certificate"
-        | "aadhaar_card"
       verification_job_status:
         | "QUEUED"
         | "PROCESSING"
@@ -19444,7 +19450,6 @@ export const Constants = {
         "pvt_ltd",
         "public_ltd",
         "partnership",
-        "individual",
       ],
       verification_document_status: [
         "UPLOADED",
@@ -19465,7 +19470,6 @@ export const Constants = {
         "partnership_deed",
         "llp_agreement",
         "iec_certificate",
-        "aadhaar_card",
       ],
       verification_job_status: [
         "QUEUED",

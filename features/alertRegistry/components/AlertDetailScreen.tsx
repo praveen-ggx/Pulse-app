@@ -5,7 +5,6 @@ import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { FullPageWizardFooter } from "@/components/full-page-wizard";
 import { buildAlertDetailFooterPlan } from "@/lib/alertRegistry/alertDetailPlan.util";
 import type { AlertDetailMode } from "@/lib/alertRegistry/alertDetailRoute.util";
-import { navigateToOpsAlert } from "@/lib/alertRegistry/registryOpsNavigation.util";
 import type { AlertRegistryFinanceHandlers } from "@/components/AlertRegistryPanel";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
@@ -188,7 +187,7 @@ export function AlertDetailScreen({
       return;
     }
     if (kind === "ops" && ops) {
-      navigateToOpsAlert(router, ops);
+      finance.onOpenOps(ops);
       onNavigateAway?.();
     }
   }, [kind, salary, ops, mode, finance, router, onNavigateAway]);

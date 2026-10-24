@@ -41,6 +41,16 @@ describe('useDriverUiTripsQuery', () => {
       </QueryClientProvider>,
     );
     await waitFor(() => expect(mockGetTrips).toHaveBeenCalledTimes(1));
-    expect(mockGetTrips).toHaveBeenCalledWith(['drv-1', 'drv-2']);
+    expect(mockGetTrips).toHaveBeenCalledWith(
+      ['drv-1', 'drv-2'],
+      expect.objectContaining({
+        limit: 80,
+        offset: 0,
+        exactLimit: true,
+        preferStarted: true,
+        excludeStatuses: expect.arrayContaining(['completed', 'cancelled', 'delivered']),
+        signal: expect.any(AbortSignal),
+      }),
+    );
   });
 });

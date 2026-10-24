@@ -1,6 +1,7 @@
 import {
   canAddMoreTripDocs,
   canMutateTripVaultDoc,
+  viewerCanUploadTripDocuments,
   formatLrVaultDateLabel,
   formatLrVaultNumberLabel,
   formatInvoiceVaultNumberLabel,
@@ -118,6 +119,30 @@ describe("canAddMoreTripDocs", () => {
     expect(canAddMoreTripDocs({ category: "trip_details", id: "trip-details" })).toBe(
       true,
     );
+  it("uses the same party rule for cancelled and pre-assignment trips", () => {
+    // The helper has no trip-status argument. Completion is not a lock, and
+    // no product rule names a stage where an authorized party must be refused.
+    const clientOnCancelledOrPreAssignment = {
+      viewerOrganizationId: "client-org",
+      tripOrganizationId: "trip-org",
+      clientOrganizationId: "client-org",
+    };
+    expect(viewerCanUploadTripDocuments(clientOnCancelledOrPreAssignment)).toBe(true);
+    expect(
+      viewerCanUploadTripDocuments({
+        ...clientOnCancelledOrPreAssignment,
+        viewerOrganizationId: "other-org",
+      }),
+    ).toBe(false);
+    expect(
+      canMutateTripVaultDoc({
+        doc: { id: "lr", category: "lr" },
+        canUploadTripDocs: true,
+        tripCompleted: true,
+      }),
+    ).toBe(true);
+  });
+
     expect(canAddMoreTripDocs({ category: "driver_identity" })).toBe(true);
     expect(canAddMoreTripDocs({ id: "driver-documents" })).toBe(true);
     expect(

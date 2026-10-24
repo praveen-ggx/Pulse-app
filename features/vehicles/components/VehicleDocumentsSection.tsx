@@ -16,7 +16,8 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import * as ImagePicker from 'expo-image-picker';
 import * as Linking from 'expo-linking';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { releaseStoragePreviewUrl } from '@/features/trips/utils/storagePreviewObjectUrl.util';
 import {
   Alert,
   Image,
@@ -162,6 +163,11 @@ export function VehicleDocumentsSection({
   } | null>(null);
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  useEffect(() => {
+    return () => {
+      releaseStoragePreviewUrl(previewUrl);
+    };
+  }, [previewUrl]);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewDocType, setPreviewDocType] = useState<VehicleComplianceDocType | null>(null);
 

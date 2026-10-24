@@ -63,4 +63,11 @@ describe("isTripPhoneWizardStepComplete", () => {
       }),
     ).toBe(true);
   });
+
+  it("treats driver steps as complete when vehicle-only replace skipped them", () => {
+    const skipped = { ...baseState, skipDriverSteps: true, driverPhone: "", driverName: "" };
+    expect(isTripPhoneWizardStepComplete("driverPhone", skipped)).toBe(true);
+    expect(isTripPhoneWizardStepComplete("driverName", skipped)).toBe(true);
+    expect(isTripPhoneWizardStepComplete("review", skipped)).toBe(true);
+  });
 });

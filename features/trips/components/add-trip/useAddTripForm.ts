@@ -419,7 +419,11 @@ export function useAddTripForm(options?: {
       })),
     [],
   );
-  const setDropCoords = useCallback((lat: number, lon: number) => setState((s) => ({ ...s, dropLat: lat, dropLon: lon })), []);
+  const setDropCoords = useCallback(
+    (lat: number | null, lon: number | null) =>
+      setState((s) => ({ ...s, dropLat: lat, dropLon: lon })),
+    [],
+  );
   const setTripStartDate = useCallback((v: string) => setState((s) => ({ ...s, tripStartDate: v })), []);
   const setTons = useCallback((v: string) => setState((s) => ({ ...s, tons: v })), []);
   const setVehicleType = useCallback(

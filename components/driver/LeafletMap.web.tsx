@@ -571,6 +571,8 @@ export const LeafletMap = React.forwardRef<LeafletMapRef, LeafletMapProps>(
               isOnline: m.isOnline,
               highlighted: m.highlighted,
               kindIndex: m.kindIndex ?? kindIndexFromMarkerId(m.id) ?? undefined,
+              clusterBadges: m.clusterBadges,
+              nextLabel: m.nextLabel,
             });
             if (m.onPress) {
               el.style.cursor = "pointer";
@@ -594,6 +596,7 @@ export const LeafletMap = React.forwardRef<LeafletMapRef, LeafletMapProps>(
                 ? "bottom"
                 : "center";
 
+            if (m.nudgeX) el.style.marginLeft = `${m.nudgeX}px`;
             const marker = new maplibregl.Marker({
               element: el,
               anchor,

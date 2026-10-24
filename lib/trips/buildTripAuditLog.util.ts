@@ -166,6 +166,18 @@ function resolveStatusActor(
   userProfileById: Record<string, TripActivityUserProfile>,
 ): string {
   const context = item.status_context;
+  if (item.actorUserId) {
+    if (context === "accepted") {
+      return driverDisplayName?.trim() || "Driver";
+    }
+    return resolveTripActivityUserLabel(
+      item.actorUserId,
+      currentUserId,
+      userDisplayById,
+      context === "assigned" ? "Dispatcher" : "Staff",
+      userProfileById,
+    );
+  }
   if (context === "created") {
     const creatorId =
       trip.created_by_user_id ?? trip.created_by ?? trip.owner_user_id ?? null;

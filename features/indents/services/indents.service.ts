@@ -341,25 +341,6 @@ export async function getIndentsByOrganization(
 }
 
 /**
- * Cancelled / expired indents only. The Trips hub Failed tag reads this instead
- * of the capped full list, so older failures are not cut off by FINITE_LIST_CAP.
- */
-export async function getFailedIndentsByOrganization(
-  orgId: string,
-): Promise<{ error: Error | null; indents: IndentRow[] }> {
-  const { data, error } = await supabase()
-    .from("indents")
-    .select("*")
-    .eq("organization_id", orgId)
-    .in("status", ["cancelled", "expired"])
-    .order("created_at", { ascending: false })
-    .limit(FINITE_LIST_CAP);
-  if (error) return { error: new Error(error.message), indents: [] };
-  const indents = await attachActiveTripRefs((data ?? []) as IndentRow[]);
-  return { error: null, indents };
-}
-
-/**
  * How many older code matches the Trips toolbar may merge in.
  * Ordered oldest-first so this fills the tail cut off by FINITE_LIST_CAP,
  * instead of repeating the newest rows the hub already has.
@@ -405,6 +386,40 @@ export async function searchIndentsByCodeForTrips(
   if (error) return { error: new Error(error.message), indents: [] };
   const indents = await attachActiveTripRefs((data ?? []) as IndentRow[]);
   return { error: null, indents };
+}
+
+const FAILED_INDENT_PAGE_SIZE = 200;
+const FAILED_INDENT_STATUSES = ["cancelled", "expired"] as const;
+
+/**
+ * Failed hub tab: cancelled/expired org indents that never converted to a trip.
+ * Must not reuse `getIndentsByOrganization` — that list is newest-500 and drops
+ * older expired rows (e.g. SAT812GOGIND001680) in orgs with more than 500 indents.
+ */
+export async function getFailedIndentsByOrganization(
+  orgId: string,
+): Promise<{ error: Error | null; indents: IndentRow[] }> {
+  const pages: IndentRow[] = [];
+  let offset = 0;
+  for (;;) {
+    const { data, error } = await supabase()
+      .from("indents")
+      .select("*")
+      .eq("organization_id", orgId)
+      .in("status", [...FAILED_INDENT_STATUSES])
+      .order("created_at", { ascending: false })
+      .range(offset, offset + FAILED_INDENT_PAGE_SIZE - 1);
+    if (error) return { error: new Error(error.message), indents: [] };
+    const page = (data ?? []) as IndentRow[];
+    pages.push(...page);
+    if (page.length < FAILED_INDENT_PAGE_SIZE) break;
+    offset += FAILED_INDENT_PAGE_SIZE;
+  }
+  const withTripRefs = await attachActiveTripRefs(pages);
+  return {
+    error: null,
+    indents: withTripRefs.filter((row) => (row.active_trip?.length ?? 0) === 0),
+  };
 }
 
 export async function getIndentsDelta(
@@ -466,9 +481,7 @@ export async function syncIndentsWithCache(orgId: string, currentRows: IndentRow
       // v3 discards cursors written before the truncation guard below — those
       // may already point past rows the client never merged, so they cannot be
       // trusted even though the row shape is unchanged.
-      // v4: Ground Ops now receive their warehouses' indents (they got none
-      // before), so cursors stored while they saw nothing must be dropped.
-      schemaVersion: "4",
+      schemaVersion: "3",
       // Was fullSyncEveryMs: 4h — a cursor that had drifted stayed authoritative
       // for a whole shift, so a user could create an indent and simply not see it.
       // 15m bounds the worst case; the count reconciliation below catches it sooner.
@@ -905,19 +918,8 @@ async function insertIndentRow(
   if (!client_name) client_name = data.client_name || "";
 
   // Link the indent to the client warehouse its pickup was picked from, so
-  // Ground Ops assigned to that warehouse see the trip. A saved lane carries
-  // its pickup warehouse; otherwise only an untouched warehouse address links.
-  // Typed pickups stay null.
+  // Ground Ops assigned to that warehouse see the trip. Typed pickups stay null.
   let warehouse_id = data.warehouse_id ?? null;
-  if (!warehouse_id && data.lane_id) {
-    const { data: lane } = await supabase()
-      .from("client_lane_rates")
-      .select("origin_warehouse_id")
-      .eq("id", data.lane_id)
-      .eq("organization_id", orgId)
-      .maybeSingle();
-    warehouse_id = (lane?.origin_warehouse_id as string | null | undefined) ?? null;
-  }
   if (!warehouse_id && data.client_id && data.pickup_area?.trim()) {
     const { warehouses } = await getWarehousesByClient(orgId, data.client_id);
     warehouse_id = warehouseIdForPickup(data.pickup_area, warehouses);

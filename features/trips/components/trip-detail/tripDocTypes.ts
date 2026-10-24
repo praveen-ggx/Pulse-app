@@ -29,8 +29,6 @@ export const TRIP_DETAILS_SLOTS: readonly {
 ];
 
 export const TRIP_DETAILS_TYPE_HINT = "LR · INVOICE · MEMO · OTHER · BANK";
-/** Trip Details hint for viewers who never see Bank Docs (Ground Ops). */
-export const TRIP_DETAILS_TYPE_HINT_NO_BANK = "LR · INVOICE · MEMO · OTHER";
 
 export interface TripDocFile {
   id: string;
@@ -185,6 +183,31 @@ export function canMutateTripVaultDoc(options: {
 }): boolean {
   if (!options.canUploadTripDocs || !options.doc) return false;
   return true;
+}
+
+/**
+ * Trip vault upload stays open at every stage for the trip org and for the
+ * other party on the trip (client org or supplier-linked org). Ground ops
+ * stays behind the org toggle, which the caller passes as groundOpsBlocked.
+ */
+export function viewerCanUploadTripDocuments(input: {
+  viewerOrganizationId?: string | null;
+  tripOrganizationId?: string | null;
+  clientOrganizationId?: string | null;
+  supplierOrganizationId?: string | null;
+  groundOpsBlocked?: boolean;
+}): boolean {
+  if (input.groundOpsBlocked) return false;
+  const viewer = (input.viewerOrganizationId ?? "").trim();
+  if (!viewer) return false;
+  const allowed = [
+    input.tripOrganizationId,
+    input.clientOrganizationId,
+    input.supplierOrganizationId,
+  ]
+    .map((value) => (value ?? "").trim())
+    .filter(Boolean);
+  return allowed.includes(viewer);
 }
 
 export function canAddMoreTripDocs(

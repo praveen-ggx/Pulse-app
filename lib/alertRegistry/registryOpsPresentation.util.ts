@@ -217,9 +217,9 @@ function buildUnassignedPresentation(
   return {
     avatar,
     actorName: tripLabel,
-    actionText: "needs a driver for",
+    actionText: "needs a driver change for",
     highlightText: clientName,
-    detail: ops.subtitle?.trim() || `${tripLabel} · Assign a driver to continue`,
+    detail: ops.subtitle?.trim() || `${tripLabel} · Change driver to continue`,
   };
 }
 
@@ -305,7 +305,7 @@ function tripHasDriver(ops: GlobalOperationAlert, ctx: RegistryPartyLookup): boo
 
 export function opsRegistryActionLabel(ops: GlobalOperationAlert): string {
   if (ops.category === "payment_received") return "View payment";
-  if (ops.category === "unassigned_trip") return "Assign driver";
+  if (ops.category === "unassigned_trip") return "Change driver";
   if (ops.category === "late_log") return "View trip";
   if (ops.category === "vehicle_idle") return "View trip";
   return "View trip";

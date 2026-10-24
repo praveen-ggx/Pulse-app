@@ -113,9 +113,6 @@ const ALLOWED_MIME_TYPES: ReadonlySet<string> = new Set([
   "application/pdf",
 ]);
 
-type SignedUrlCacheEntry = { url: string; expiresAtMs: number };
-const signedUrlCache = new Map<string, SignedUrlCacheEntry>();
-
 // ── Internals ──────────────────────────────────────────────────────────────
 
 function sleep(ms: number): Promise<void> {
@@ -517,26 +514,37 @@ export async function getComplianceDocumentSignedUrl(
     return { url: null, error: new Error("Missing storage path.") };
   }
 
-  const now = Date.now();
-  const cached = signedUrlCache.get(storagePath);
-  if (cached && cached.expiresAtMs > now) {
-    return { url: cached.url, error: null };
-  }
-
   const { data, error } = await supabase()
     .storage.from(COMPLIANCE_BUCKET)
     .createSignedUrl(storagePath, SIGNED_URL_EXPIRY_SEC);
 
   if (error || !data?.signedUrl) {
-    return { url: null, error: new Error(error?.message ?? "No signed URL.") };
+    const kind = /not found/i.test(error?.message ?? "")
+      ? "This document is missing."
+      : /unauthorized|permission|jwt/i.test(error?.message ?? "")
+        ? "You don't have access to this document."
+        : /expired/i.test(error?.message ?? "")
+          ? "This preview expired. Try again."
+          : (error?.message ?? "No signed URL.");
+    return { url: null, error: new Error(kind) };
   }
 
-  signedUrlCache.set(storagePath, {
-    url: data.signedUrl,
-    expiresAtMs: now + SIGNED_URL_CACHE_TTL_MS,
-  });
+  const { previewPrivateObject, storagePreviewFailureMessage } = await import(
+    "@/features/trips/utils/storagePreviewObjectUrl.util"
+  );
+  const preview = await previewPrivateObject(
+    COMPLIANCE_BUCKET,
+    storagePath,
+    data.signedUrl,
+  );
+  if (!preview.url) {
+    return {
+      url: null,
+      error: new Error(storagePreviewFailureMessage(preview.kind ?? "failed")),
+    };
+  }
 
-  return { url: data.signedUrl, error: null };
+  return { url: preview.url, error: null };
 }
 
 /** Hard delete — DB row first, then storage. Refused deletes keep the file. */
@@ -564,7 +572,6 @@ export async function deleteComplianceDocument(
         error: new Error(storageLeftAfterDbDeleteMessage(storageError.message)),
       };
     }
-    signedUrlCache.delete(storagePath);
   }
   return { error: null };
 }

@@ -164,14 +164,14 @@ const styles = StyleSheet.create({
     alignItems: 'stretch',
   },
   card: {
-    width: 124,
+    width: 132,
     minHeight: Layout.minTouchTargetSize,
-    paddingVertical: 7,
+    paddingVertical: 8,
     paddingHorizontal: 9,
     borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
-    gap: 1,
-    justifyContent: 'center',
+    gap: 2,
+    justifyContent: 'flex-start',
   },
   kicker: {
     fontSize: 8,
@@ -180,6 +180,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   name: {
+    alignSelf: 'stretch',
     fontSize: 11,
     fontWeight: '600',
     letterSpacing: -0.15,

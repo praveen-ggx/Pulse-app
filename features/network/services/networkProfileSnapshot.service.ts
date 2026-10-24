@@ -375,7 +375,11 @@ export async function getOrgProfileSnapshot(
   const partnerBatch = orgDisplayToPartnerBatchRow(partnerProfiles[targetOrgId]);
 
   let partnerProfile: PartnerDisplaySingleRow | null = null;
-  if (!partnerBatch) {
+  const hasSession = partnerBatch
+    ? true
+    : Boolean((await supabase().auth.getSession()).data.session?.access_token);
+  // Batch returns {} without a session; don't fall back to the single RPC as anon (42501).
+  if (!partnerBatch && hasSession) {
     const partnerProfileRes = await supabase().rpc("get_connection_partner_display", {
       p_linked_organization_id: targetOrgId,
     });

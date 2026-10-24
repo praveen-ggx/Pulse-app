@@ -16,6 +16,7 @@ import { TripCommodityFields } from "@/features/trips/components/add-trip/TripCo
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { formatINRChip } from "@/lib/format";
 import { formatCityStateLabel } from "@/lib/placeCityState.util";
+import { coordsOrUnset } from "@/lib/placeSearch.util";
 import { getLaneDistanceKm, type LatLon } from "@/lib/routingService";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -630,11 +631,17 @@ export function ClientProfileLanesEditSection({
                 value={draft.origin_label}
                 onChangeText={(v) => setDraft((d) => ({ ...d, origin_label: v }))}
                 onSelectPlace={(label, coords) =>
-                  setDraft((d) => ({
-                    ...d,
-                    origin_label: label,
-                    origin_coords: { latitude: coords.lat, longitude: coords.lon },
-                  }))
+                  setDraft((d) => {
+                    const { lat, lon } = coordsOrUnset(coords);
+                    return {
+                      ...d,
+                      origin_label: label,
+                      origin_coords:
+                        lat != null && lon != null
+                          ? { latitude: lat, longitude: lon }
+                          : null,
+                    };
+                  })
                 }
                 compact
                 labelStyle={styles.fieldLabel}
@@ -651,11 +658,17 @@ export function ClientProfileLanesEditSection({
               value={draft.destination_label}
               onChangeText={(v) => setDraft((d) => ({ ...d, destination_label: v }))}
               onSelectPlace={(label, coords) =>
-                setDraft((d) => ({
-                  ...d,
-                  destination_label: label,
-                  destination_coords: { latitude: coords.lat, longitude: coords.lon },
-                }))
+                setDraft((d) => {
+                  const { lat, lon } = coordsOrUnset(coords);
+                  return {
+                    ...d,
+                    destination_label: label,
+                    destination_coords:
+                      lat != null && lon != null
+                        ? { latitude: lat, longitude: lon }
+                        : null,
+                  };
+                })
               }
               compact
               labelStyle={styles.fieldLabel}

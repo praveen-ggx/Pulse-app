@@ -187,6 +187,10 @@ export async function getVehicleDocumentViewUrl(storagePath: string): Promise<st
 
   const looksLikeComplianceEntityPath = /\/(vehicle|driver|trip)\//i.test(path);
 
+  const { previewPrivateObject } = await import(
+    "@/features/trips/utils/storagePreviewObjectUrl.util"
+  );
+
   if (looksLikeComplianceEntityPath) {
     try {
       const { getComplianceDocumentSignedUrl } = await import(
@@ -200,7 +204,10 @@ export async function getVehicleDocumentViewUrl(storagePath: string): Promise<st
   }
 
   const fromVehicleBucket = await vehicleDocSignedUrls.getUrl(path);
-  if (fromVehicleBucket) return fromVehicleBucket;
+  if (fromVehicleBucket) {
+    const preview = await previewPrivateObject(BUCKET, path, fromVehicleBucket);
+    return preview.url;
+  }
 
   try {
     const { getComplianceDocumentSignedUrl } = await import(

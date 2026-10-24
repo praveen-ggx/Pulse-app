@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import type { AlertRegistryFinanceHandlers } from "@/components/AlertRegistryPanel";
 import { alertDetailRoute } from "@/lib/alertRegistry/alertDetailRoute.util";
+import { useOptionalChangeDriverPopup } from "@/contexts/ChangeDriverPopupContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { navigateToOpsAlert } from "@/lib/alertRegistry/registryOpsNavigation.util";
@@ -17,6 +18,7 @@ export function useAlertRegistryFinanceHandlers(): {
   const router = useRouter();
   const { t } = useLanguage();
   const { currentOrganization } = useOrganization();
+  const changeDriver = useOptionalChangeDriverPopup();
   const orgId = currentOrganization?.id ?? null;
   const [notifActionId, setNotifActionId] = useState<string | null>(null);
   const {
@@ -103,9 +105,11 @@ export function useAlertRegistryFinanceHandlers(): {
 
   const handleOpenOps = useCallback(
     (ops: GlobalOperationAlert) => {
-      navigateToOpsAlert(router, ops);
+      navigateToOpsAlert(router, ops, {
+        onOpenChangeDriver: changeDriver?.openChangeDriver,
+      });
     },
-    [router],
+    [changeDriver?.openChangeDriver, router],
   );
 
   const finance: AlertRegistryFinanceHandlers = {

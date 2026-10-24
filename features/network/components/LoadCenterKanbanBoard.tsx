@@ -10,8 +10,10 @@ import { MARKETPLACE_LOAD_PAGE_SIZE } from "@/features/network/utils/marketplace
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { Maximize2 } from "lucide-react-native";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  Animated,
+  Easing,
   Platform,
   Pressable,
   ScrollView,
@@ -64,14 +66,123 @@ export type LoadCenterKanbanBoardProps = {
   renderColumnBody?: (column: LoadCenterKanbanColumn) => ReactNode | null;
 };
 
+function KanbanEmptyStage({ delayMs }: { delayMs: number }) {
+  const appear = useRef(new Animated.Value(0)).current;
+  const bob = useRef(new Animated.Value(0)).current;
+  const glow = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const enter = Animated.timing(appear, {
+      toValue: 1,
+      duration: 420,
+      delay: delayMs,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    const float = Animated.loop(
+      Animated.sequence([
+        Animated.timing(bob, {
+          toValue: 1,
+          duration: 1400,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(bob, {
+          toValue: 0,
+          duration: 1400,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(glow, {
+          toValue: 1,
+          duration: 1600,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(glow, {
+          toValue: 0,
+          duration: 1600,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    enter.start();
+    const start = setTimeout(() => {
+      float.start();
+      pulse.start();
+    }, delayMs + 200);
+    return () => {
+      enter.stop();
+      float.stop();
+      pulse.stop();
+      clearTimeout(start);
+    };
+  }, [appear, bob, delayMs, glow]);
+
+  return (
+    <Animated.View
+      style={[
+        styles.emptyColumn,
+        {
+          opacity: appear,
+          transform: [
+            {
+              translateY: appear.interpolate({
+                inputRange: [0, 1],
+                outputRange: [6, 0],
+              }),
+            },
+          ],
+        },
+      ]}
+    >
+      <Animated.View
+        style={[
+          styles.emptyIconWrap,
+          {
+            opacity: glow.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0.72, 1],
+            }),
+            transform: [
+              {
+                translateY: bob.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, -4],
+                }),
+              },
+              {
+                scale: glow.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [1, 1.06],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        <FontAwesome name="inbox" size={14} color={Theme.textMuted} />
+      </Animated.View>
+      <Text style={styles.emptyText}>No loads in this stage</Text>
+    </Animated.View>
+  );
+}
+
 function KanbanColumn({
   column,
+  columnIndex,
   renderCard,
   highlightedIndentId,
   onColumnPress,
   renderColumnBody,
 }: {
   column: LoadCenterKanbanColumn;
+  columnIndex: number;
   renderCard: (load: IndentRow) => ReactNode;
   highlightedIndentId?: string | null;
   onColumnPress?: (column: LoadCenterKanbanColumn) => void;
@@ -183,12 +294,7 @@ function KanbanColumn({
         {customBody != null && !showEmpty ? (
           customBody
         ) : showEmpty ? (
-          <View style={styles.emptyColumn}>
-            <View style={styles.emptyIconWrap}>
-              <FontAwesome name="inbox" size={14} color={Theme.textMuted} />
-            </View>
-            <Text style={styles.emptyText}>No loads in this stage</Text>
-          </View>
+          <KanbanEmptyStage delayMs={columnIndex * 90} />
         ) : (
           visibleLoads.map((load) => (
             <View
@@ -254,10 +360,11 @@ export function LoadCenterKanbanBoard({
         contentContainerStyle={styles.boardScrollContent}
         nestedScrollEnabled
       >
-        {columns.map((column) => (
+        {columns.map((column, index) => (
           <KanbanColumn
             key={column.id}
             column={column}
+            columnIndex={index}
             renderCard={renderCard}
             highlightedIndentId={highlightedIndentId}
             onColumnPress={onColumnPress}

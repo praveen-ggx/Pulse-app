@@ -1,4 +1,7 @@
 import Theme from "@/constants/Theme";
+import Typography from "@/constants/Typography";
+import Layout from "@/constants/Layout";
+import { typography } from "@/design-system/typography";
 import { Platform, StyleSheet } from "react-native";
 
 export const aws = StyleSheet.create({
@@ -8,6 +11,11 @@ export const aws = StyleSheet.create({
     maxWidth: "100%",
     overflow: "hidden",
     backgroundColor: Theme.assignmentPageBg,
+  },
+  rootMobileFullPage: {
+    height: "100%",
+    minHeight: Platform.OS === "web" ? ("100vh" as unknown as number) : undefined,
+    alignSelf: "stretch",
   },
   header: {
     backgroundColor: Theme.cardWhite,
@@ -23,7 +31,7 @@ export const aws = StyleSheet.create({
     maxWidth: 1280,
     width: "100%",
     alignSelf: "center",
-    paddingHorizontal: 16,
+    paddingHorizontal: Layout.screenPaddingHorizontal,
     minHeight: 64,
     flexDirection: "row",
     alignItems: "center",
@@ -48,12 +56,8 @@ export const aws = StyleSheet.create({
     justifyContent: "center",
   },
   eyebrow: {
-    fontSize: 10,
-    fontWeight: "800",
+    ...Typography.headerTitle,
     color: Theme.textMuted,
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
   },
   tripTitleRow: {
     flexDirection: "row",
@@ -63,13 +67,9 @@ export const aws = StyleSheet.create({
     minWidth: 0,
   },
   tripCode: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: Theme.textPrimaryDark,
-    letterSpacing: -0.3,
+    ...typography.title,
     flexShrink: 1,
     minWidth: 0,
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
   },
   tripCodePhone: {
     fontSize: 14,
@@ -89,11 +89,8 @@ export const aws = StyleSheet.create({
     maxWidth: 120,
   },
   statusPillText: {
-    fontSize: 10,
-    fontWeight: "700",
+    ...typography.label,
     color: Theme.networkHubListCardConnectedText,
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
   },
   headerRight: {
     flexDirection: "row",
@@ -113,10 +110,9 @@ export const aws = StyleSheet.create({
     borderColor: Theme.networkCardBorder,
   },
   phoneChipText: {
-    fontSize: 12,
+    ...typography.caption,
     fontWeight: "600",
     color: Theme.textPrimary,
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
   },
   activityBtn: {
     flexDirection: "row",
@@ -130,18 +126,15 @@ export const aws = StyleSheet.create({
     borderColor: Theme.networkCardBorder,
   },
   activityBtnText: {
-    fontSize: 11,
-    fontWeight: "700",
+    ...typography.label,
     color: Theme.textPrimary,
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
   },
   main: {
     flexGrow: 1,
     maxWidth: 1280,
     width: "100%",
     alignSelf: "center",
-    paddingHorizontal: 16,
+    paddingHorizontal: Layout.screenPaddingHorizontal,
     paddingVertical: 20,
     gap: 20,
     overflow: "hidden",
@@ -183,13 +176,12 @@ export const aws = StyleSheet.create({
     justifyContent: "center",
   },
   heroMetaLabel: {
-    fontSize: 11,
+    ...typography.label,
     color: Theme.textMuted,
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
   },
   heroMetaValue: {
-    fontSize: 12,
-    fontWeight: "700",
+    ...typography.caption,
+    fontWeight: "600",
     color: Theme.cardWhite,
   },
   routeRow: {
@@ -215,17 +207,14 @@ export const aws = StyleSheet.create({
     flexBasis: "auto",
   },
   routeCity: {
-    fontSize: 22,
-    fontWeight: "900",
+    ...typography.heading,
     color: Theme.cardWhite,
-    letterSpacing: 0.4,
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
   },
   routeCityEnd: {
     textAlign: "right",
   },
   routeSub: {
-    fontSize: 11,
+    ...typography.label,
     color: Theme.textMuted,
     marginTop: 2,
   },
@@ -250,9 +239,8 @@ export const aws = StyleSheet.create({
     marginBottom: 4,
   },
   routeCenterLabel: {
-    fontSize: 10,
+    ...typography.label,
     color: Theme.textMuted,
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
   },
   routeLine: {
     width: "100%",
@@ -295,7 +283,7 @@ export const aws = StyleSheet.create({
     paddingVertical: 8,
   },
   metricCell: {
-    paddingHorizontal: 16,
+    paddingHorizontal: Layout.screenPaddingHorizontal,
     paddingVertical: 6,
     alignItems: "center",
     borderRightWidth: StyleSheet.hairlineWidth,
@@ -305,27 +293,17 @@ export const aws = StyleSheet.create({
     borderRightWidth: 0,
   },
   metricLabel: {
-    fontSize: 10,
-    fontWeight: "700",
+    ...typography.label,
     color: Theme.textMuted,
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
     marginBottom: 2,
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
   },
   metricValue: {
-    fontSize: 13,
-    fontWeight: "800",
+    ...typography.bodyMedium,
     color: Theme.cardWhite,
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
   },
   metricValueWarn: {
-    fontSize: 12,
-    fontWeight: "700",
+    ...typography.label,
     color: Theme.feedbackModalStarActive,
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
   },
   toolbarRow: {
     flexDirection: "row",
@@ -348,7 +326,7 @@ export const aws = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingHorizontal: 16,
+    paddingHorizontal: Layout.screenPaddingHorizontal,
     paddingVertical: 10,
     borderRadius: 12,
   },
@@ -444,10 +422,9 @@ export const aws = StyleSheet.create({
     textTransform: "uppercase",
   },
   infoBody: {
-    fontSize: 11,
-    color: "rgba(30, 58, 138, 0.9)",
+    ...typography.caption,
+    color: Theme.textSecondary,
     marginTop: 2,
-    lineHeight: 16,
   },
   verifyChip: {
     paddingHorizontal: 10,
@@ -461,26 +438,33 @@ export const aws = StyleSheet.create({
     fontSize: 10,
     fontWeight: "700",
     color: Theme.assignmentInfoBannerText,
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
   },
   dualGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 20,
+    gap: 12,
     alignItems: "stretch",
-    ...Platform.select({
-      web: {
-        display: "grid" as unknown as undefined,
-        gridTemplateColumns: "repeat(2, minmax(0, 1fr))" as unknown as undefined,
-      },
-      default: {},
-    }),
+    width: "100%",
+    minWidth: 0,
+  },
+  dualGridSingle: {
+    flexDirection: "column",
+  },
+  panelSingle: {
+    flexBasis: "100%",
+    minWidth: 0,
+    maxWidth: 720,
+    alignSelf: "center",
+    width: "100%",
   },
   panel: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 360,
     minWidth: 300,
+    maxWidth: "100%",
     backgroundColor: Theme.cardWhite,
-    borderRadius: 20,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: Theme.networkCardBorder,
     // NOTE: overflow is set per-platform in the Platform.select below (both
@@ -489,10 +473,8 @@ export const aws = StyleSheet.create({
     flexDirection: "column",
     ...Platform.select({
       web: {
-        minWidth: 0,
-        width: "100%",
-        height: "100%",
-        // Keep card chrome rounded without clipping the list scrollport.
+        minWidth: 300,
+        height: "auto",
         overflow: "hidden",
         boxShadow: `0 8px 24px -6px ${Theme.assignmentCardShadow}`,
       },
@@ -507,6 +489,192 @@ export const aws = StyleSheet.create({
         elevation: 2,
       },
     }),
+  },
+  panelNotifyCard: {
+    width: "100%",
+    minWidth: 0,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.surfaceBorder,
+    backgroundColor: Theme.cardWhite,
+  },
+  notifyCard: {
+    width: "100%",
+    minWidth: 0,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 12,
+    gap: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.surfaceBorder,
+    backgroundColor: Theme.cardWhite,
+  },
+  notifyTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    width: "100%",
+    minWidth: 0,
+  },
+  notifyCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  notifyKicker: {
+    ...typography.label,
+    color: Theme.textMuted,
+  },
+  notifyName: {
+    ...typography.title,
+  },
+  notifyMeta: {
+    ...typography.caption,
+  },
+  notifyActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    width: "100%",
+  },
+  notifyIconCluster: {
+    alignItems: "flex-end",
+    gap: 8,
+    flexShrink: 0,
+  },
+  notifyIconRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  notifyIconItem: {
+    alignItems: "center",
+    gap: 3,
+    minWidth: 44,
+  },
+  notifyIconCaption: {
+    ...typography.label,
+    textTransform: "none",
+    letterSpacing: 0,
+    color: Theme.textMuted,
+  },
+  notifyIconCaptionActive: {
+    color: Theme.actionBtnInk,
+  },
+  notifyIconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
+    backgroundColor: Theme.cardWhite,
+    alignItems: "center",
+    justifyContent: "center",
+    ...Platform.select({
+      web: { cursor: "pointer" as unknown as undefined },
+      default: {},
+    }),
+  },
+  notifyIconBtnActive: {
+    borderColor: Theme.actionBtnInk,
+    backgroundColor: Theme.surface,
+  },
+  notifyGhostBtn: {
+    flex: 1,
+    minHeight: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
+    backgroundColor: Theme.cardWhite,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  notifyPrimaryBtn: {
+    flex: 1,
+    minHeight: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnInk,
+    backgroundColor: Theme.actionBtnInk,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  notifyGhostBtnText: {
+    fontSize: 11,
+    lineHeight: 13,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+    color: Theme.actionBtnInk,
+  },
+  notifyPrimaryBtnText: {
+    fontSize: 11,
+    lineHeight: 13,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+    color: Theme.buttonDarkText,
+  },
+  notifyCardDesktop: {
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 16,
+    gap: 14,
+  },
+  notifyKickerDesktop: {
+    ...typography.label,
+  },
+  notifyNameDesktop: {
+    ...typography.title,
+  },
+  notifyMetaDesktop: {
+    ...typography.caption,
+  },
+  notifyBtnDesktop: {
+    minHeight: 42,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    ...Platform.select({
+      web: { cursor: "pointer" as unknown as undefined },
+      default: {},
+    }),
+  },
+  notifyBtnTextDesktop: {
+    fontSize: 13,
+    lineHeight: 16,
+  },
+  notifyGhostBtnActive: {
+    backgroundColor: Theme.surface,
+    borderColor: Theme.actionBtnInk,
+  },
+  notifyGhostBtnTextActive: {
+    fontWeight: "700",
+  },
+  notifyPrimaryBtnActive: {
+    backgroundColor: Theme.actionBtnInk,
+  },
+  notifyPrimaryBtnIdle: {
+    backgroundColor: Theme.cardWhite,
+    borderColor: Theme.actionBtnGhostBorder,
+  },
+  notifyPrimaryBtnTextIdle: {
+    color: Theme.actionBtnInk,
+  },
+  dualGridDesktop: {
+    flexWrap: "nowrap",
+    gap: 20,
+    alignItems: "stretch",
+  },
+  panelDesktop: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    maxWidth: "none",
+    borderRadius: 16,
+  },
+  panelBodyDesktop: {
+    padding: 20,
+    gap: 14,
   },
   panelHeader: {
     flexDirection: "row",
@@ -624,8 +792,8 @@ export const aws = StyleSheet.create({
     color: Theme.cardWhite,
   },
   panelBody: {
-    padding: 18,
-    gap: 14,
+    padding: 14,
+    gap: 10,
     // No `flex: 1` — inside the ScrollView contentContainer there is no bounded
     // height to flex against, so the body collapsed and `panel`'s overflow:hidden
     // clipped the swap roster (iPad/native). Let it size to its content.
@@ -633,8 +801,8 @@ export const aws = StyleSheet.create({
   },
   fieldsArea: {
     flexGrow: 1,
-    gap: 12,
-    minHeight: 148,
+    gap: 10,
+    minHeight: 0,
     // Allow nested roster lists to own their scroll (do not clip children).
     overflow: "visible",
   },
@@ -679,24 +847,15 @@ export const aws = StyleSheet.create({
     color: Theme.cardWhite,
   },
   snapshotEyebrow: {
-    fontSize: 11,
-    fontWeight: "700",
+    ...typography.label,
     color: Theme.textMuted,
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
   },
   snapshotName: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: Theme.textPrimaryDark,
-    letterSpacing: -0.2,
+    ...typography.title,
   },
   snapshotMeta: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: Theme.textSecondary,
+    ...typography.caption,
     marginTop: 2,
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
   },
   badgeOk: {
     paddingHorizontal: 10,
@@ -712,7 +871,6 @@ export const aws = StyleSheet.create({
     color: Theme.networkHubListCardConnectedText,
     letterSpacing: 0.4,
     textTransform: "uppercase",
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
   },
   badgeBlue: {
     paddingHorizontal: 10,
@@ -728,24 +886,22 @@ export const aws = StyleSheet.create({
     color: Theme.assignmentVehicleAccentText,
     letterSpacing: 0.4,
     textTransform: "uppercase",
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
   },
   fieldLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: Theme.textSecondary,
+    ...typography.label,
+    textTransform: "none",
+    letterSpacing: 0,
     marginBottom: 6,
   },
   input: {
     width: "100%",
-    paddingHorizontal: 14,
-    paddingVertical: Platform.OS === "web" ? 12 : 13,
-    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === "web" ? 10 : 12,
+    borderRadius: 12,
     backgroundColor: Theme.surface,
     borderWidth: 1,
-    borderColor: Theme.networkCardBorder,
-    fontSize: 14,
-    fontWeight: "600",
+    borderColor: Theme.borderInput,
+    ...typography.bodyMedium,
     color: Theme.textPrimaryDark,
     ...Platform.select({
       web: {
@@ -913,8 +1069,8 @@ export const aws = StyleSheet.create({
     overflow: "hidden",
   },
   routeCityMobile: {
-    fontSize: 15,
-    letterSpacing: 0.15,
+    ...typography.title,
+    color: Theme.cardWhite,
   },
   routeRowPhone: {
     gap: 6,
@@ -961,26 +1117,23 @@ export const aws = StyleSheet.create({
     minHeight: 0,
     gap: 10,
     width: "100%",
-    overflow: "hidden",
+    overflow: "visible",
   },
   confirmBtnTextPhone: {
-    fontSize: 11,
+    ...typography.bodyMedium,
+    color: Theme.cardWhite,
     textAlign: "center",
     flexShrink: 1,
   },
   confirmHintPhone: {
-    fontSize: 11,
-    lineHeight: 15,
+    ...typography.caption,
   },
   reasonChipsPhone: {
-    gap: 6,
+    flexWrap: "nowrap",
   },
   reasonChipPhone: {
-    flexGrow: 1,
-    flexBasis: "30%",
-    minWidth: 0,
-    maxWidth: "48%",
-    alignItems: "center",
+    flexGrow: 0,
+    flexShrink: 0,
   },
   metricsBoxMobile: {
     width: "100%",
@@ -1043,27 +1196,19 @@ export const aws = StyleSheet.create({
     gap: 8,
   },
   sectionHint: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: Theme.textMuted,
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
+    ...typography.label,
     flexShrink: 1,
   },
   sectionHintRowPhone: {
     marginBottom: 0,
   },
   kycHint: {
-    fontSize: 10,
-    fontWeight: "700",
+    ...typography.label,
     color: Theme.networkHubListCardConnectedText,
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
   },
   kycHintVehicle: {
-    fontSize: 10,
-    fontWeight: "700",
+    ...typography.label,
     color: Theme.assignmentVehicleAccent,
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
   },
   fieldsGridPhone: {
     flexDirection: "column",
@@ -1108,24 +1253,24 @@ export const aws = StyleSheet.create({
     minWidth: 0,
   },
   auditTitle: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: Theme.textPrimaryDark,
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
+    ...typography.title,
     flexShrink: 1,
   },
   auditId: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: Theme.textMuted,
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
+    ...typography.caption,
   },
   auditGrid: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
     gap: 14,
     alignItems: "flex-end",
+    width: "100%",
+    minWidth: 0,
+  },
+  auditReasonBlock: {
+    width: "100%",
+    minWidth: 0,
+    gap: 8,
   },
   auditReason: {
     flexGrow: 1,
@@ -1133,13 +1278,14 @@ export const aws = StyleSheet.create({
     minWidth: 180,
   },
   auditRemarks: {
-    flexGrow: 2,
-    flexBasis: 260,
-    minWidth: 180,
+    flexGrow: 1,
+    flexBasis: 0,
+    minWidth: 0,
   },
   auditSubmitWrap: {
-    flexGrow: 1,
-    flexBasis: 180,
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: "auto",
     minWidth: 160,
   },
   confirmBtn: {
@@ -1157,11 +1303,8 @@ export const aws = StyleSheet.create({
     opacity: 0.45,
   },
   confirmBtnText: {
-    fontSize: 11,
-    fontWeight: "800",
+    ...typography.bodyMedium,
     color: Theme.cardWhite,
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
     flexShrink: 1,
     minWidth: 0,
   },
@@ -1187,7 +1330,7 @@ export const aws = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    paddingHorizontal: 16,
+    paddingHorizontal: Layout.screenPaddingHorizontal,
     paddingVertical: 12,
     borderRadius: 14,
     backgroundColor: Theme.textPrimaryDark,
@@ -1235,7 +1378,6 @@ export const aws = StyleSheet.create({
   drawerSub: {
     fontSize: 11,
     color: Theme.textMuted,
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
   },
   timeline: {
     borderLeftWidth: 2,
@@ -1257,7 +1399,6 @@ export const aws = StyleSheet.create({
   timelineTime: {
     fontSize: 10,
     color: Theme.textMuted,
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
   },
   timelineTitle: {
     fontSize: 12,
@@ -1301,16 +1442,25 @@ export const aws = StyleSheet.create({
     fontWeight: "500",
     color: Theme.textPrimaryDark,
   },
+  reasonChipsScroll: {
+    width: "100%",
+    maxWidth: "100%",
+    flexGrow: 0,
+    flexShrink: 0,
+    marginTop: 0,
+  },
   reasonChips: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-    marginTop: 8,
+    flexWrap: "nowrap",
+    alignItems: "center",
+    gap: 8,
+    paddingRight: 4,
   },
   reasonChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+    flexShrink: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
     backgroundColor: Theme.surface,
     borderWidth: 1,
     borderColor: Theme.networkCardBorder,
@@ -1320,239 +1470,79 @@ export const aws = StyleSheet.create({
     borderColor: Theme.assignmentHeroBg,
   },
   reasonChipText: {
-    fontSize: 10,
+    ...typography.caption,
     fontWeight: "600",
     color: Theme.textSecondary,
   },
   reasonChipTextActive: {
     color: Theme.cardWhite,
   },
-});
-
-export const nws = StyleSheet.create({
-  root: {
-    flex: 1,
+  popupRoot: {
     width: "100%",
+    maxHeight: "100%",
     backgroundColor: Theme.cardWhite,
+    position: "relative",
   },
-  header: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Theme.networkCardBorder,
-    backgroundColor: Theme.cardWhite,
-    ...Platform.select({
-      web: { position: "sticky" as unknown as undefined, top: 0 },
-      default: {},
-    }),
-  },
-  headerInner: {
-    maxWidth: 720,
-    width: "100%",
-    alignSelf: "center",
-    paddingHorizontal: 16,
-    minHeight: 56,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: Theme.textPrimaryDark,
-  },
-  headerActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  iconBtn: {
-    minHeight: 44,
-    minWidth: 44,
+  popupClose: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    zIndex: 8,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: Theme.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderLight,
   },
-  activityLink: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: Theme.textSecondary,
+  popupScroll: {
+    maxHeight: 380,
   },
-  scroll: {
-    maxWidth: 720,
-    width: "100%",
-    alignSelf: "center",
-    paddingHorizontal: 16,
-    paddingTop: 12,
+  popupScrollContent: {
+    paddingHorizontal: 14,
+    paddingBottom: 16,
     gap: 12,
   },
-  tripMeta: {
+  popupSection: {
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    borderRadius: 12,
+    padding: 12,
+    gap: 10,
+    backgroundColor: Theme.cardWhite,
+  },
+  popupSectionHead: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
-    paddingVertical: 4,
   },
-  tripCode: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: Theme.textPrimaryDark,
+  popupSectionTitle: {
+    ...typography.title,
   },
-  cardGrid: {
+  popupPartyRow: {
     flexDirection: "row",
-    gap: 12,
-    alignItems: "flex-start",
-  },
-  cardGridStack: {
-    flexDirection: "column",
-  },
-  feedCard: {
-    flex: 1,
-    minWidth: 0,
-    backgroundColor: Theme.cardWhite,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Theme.networkCardBorder,
-    paddingVertical: 14,
+    alignItems: "center",
     gap: 10,
-  },
-  feedHead: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-  },
-  feedHeadCopy: {
-    flex: 1,
     minWidth: 0,
-    gap: 2,
   },
-  feedTitle: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: Theme.textPrimaryDark,
-    lineHeight: 18,
-  },
-  feedAction: {
-    fontWeight: "400",
-    color: Theme.textSecondary,
-  },
-  feedHighlight: {
-    fontWeight: "700",
-    color: Theme.primary,
-  },
-  feedTime: {
-    fontSize: 11,
-    fontWeight: "400",
-    color: Theme.textMuted,
-  },
-  quote: {
-    marginLeft: 46,
+  popupRemarks: {
+    minHeight: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
     backgroundColor: Theme.surface,
-    borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 8,
-    gap: 2,
-  },
-  quoteTitle: {
-    fontSize: 12,
-    fontWeight: "700",
+    ...typography.body,
     color: Theme.textPrimaryDark,
   },
-  quoteBody: {
+  popupHint: {
     fontSize: 11,
-    fontWeight: "400",
-    color: Theme.textSecondary,
-    lineHeight: 15,
-  },
-  cardFooter: {
-    marginLeft: 46,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-    flexWrap: "wrap",
-  },
-  fields: {
-    marginLeft: 46,
-    gap: 12,
-  },
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: "600",
+    fontWeight: "500",
     color: Theme.textMuted,
-  },
-  reasonRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-  },
-  reasonChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 4,
-    backgroundColor: Theme.surface,
-    borderWidth: 1,
-    borderColor: Theme.networkCardBorder,
-  },
-  reasonChipActive: {
-    backgroundColor: Theme.buttonDark,
-    borderColor: Theme.buttonDark,
-  },
-  reasonChipText: {
-    fontSize: 10,
-    fontWeight: "500",
-    color: Theme.textSecondary,
-  },
-  reasonChipTextActive: {
-    color: Theme.buttonDarkText,
-  },
-  hint: {
-    fontSize: 11,
-    color: Theme.destructive,
     lineHeight: 15,
-  },
-  submitRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 8,
-    marginTop: 4,
-  },
-  toast: {
-    position: "absolute",
-    left: 16,
-    right: 16,
-    bottom: 24,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 8,
-    backgroundColor: Theme.buttonDark,
-  },
-  toastText: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: Theme.buttonDarkText,
-    textAlign: "center",
-  },
-  drawerBackdrop: {
-    flex: 1,
-    backgroundColor: Theme.overlayBackdrop,
-    justifyContent: "flex-end",
-  },
-  drawer: {
-    backgroundColor: Theme.cardWhite,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingHorizontal: 16,
-    paddingBottom: 24,
-    maxHeight: "80%",
-  },
-  drawerHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 16,
-  },
-  activityRow: {
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Theme.networkCardBorder,
-    gap: 2,
   },
 });

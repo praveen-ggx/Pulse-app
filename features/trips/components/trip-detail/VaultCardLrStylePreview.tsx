@@ -10,11 +10,27 @@ import {
   type TripDocFile,
   type TripDocItem,
 } from "@/features/trips/components/trip-detail/tripDocTypes";
-import { filesFromVaultDoc } from "@/features/trips/components/trip-detail/vaultCardPreviewFiles.util";
 import { getDocumentViewUrls } from "@/features/trips/services/tripDocuments.service";
 import { getVehicleDocumentViewUrl } from "@/features/vehicles/services/vehicleDocuments.service";
 import { invalidatePdfPreview } from "@/components/pdfEmbedCache.util";
 import { useEffect, useMemo, useRef, useState } from "react";
+
+function filesFromDoc(doc: TripDocItem): TripDocFile[] {
+  const nested = (doc.files ?? []).filter((file) => !!file.storagePath?.trim());
+  if (nested.length > 0) return nested;
+  const path = doc.storagePath?.trim();
+  if (!path) return [];
+  return [
+    {
+      id: doc.id,
+      label: doc.label,
+      type: doc.type,
+      storagePath: path,
+      fileName: doc.label,
+      docSource: doc.docSource,
+    },
+  ];
+}
 
 async function resolveUrl(file: TripDocFile): Promise<string | null> {
   const path = file.storagePath.trim();
@@ -49,7 +65,7 @@ export function VaultCardLrStylePreview({
   onAdd?: () => void;
   disabled?: boolean;
 }) {
-  const files = useMemo(() => filesFromVaultDoc(doc), [doc]);
+  const files = useMemo(() => filesFromDoc(doc), [doc]);
   const [urls, setUrls] = useState<Record<string, string | null>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [signEpoch, setSignEpoch] = useState(0);

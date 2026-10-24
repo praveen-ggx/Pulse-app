@@ -1,11 +1,11 @@
 jest.mock("@/lib/queries/useLedgerAggregationQuery", () => ({
-  useCustomerLedgerInputsQuery: (...args: unknown[]) =>
-    mockUseCustomerLedgerInputsQuery(...args),
+  useFinanceCustomerLedgerInputs: (...args: unknown[]) =>
+    mockUseFinanceCustomerLedgerInputs(...args),
   useSupplierLedgerAggregationQuery: (...args: unknown[]) =>
     mockUseSupplierLedgerAggregationQuery(...args),
 }));
 
-const mockUseCustomerLedgerInputsQuery = jest.fn();
+const mockUseFinanceCustomerLedgerInputs = jest.fn();
 const mockUseSupplierLedgerAggregationQuery = jest.fn();
 
 import { renderHook } from "@testing-library/react-native";
@@ -19,9 +19,12 @@ const catalogTrip = { id: "trip-1" } as TripRow;
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockUseCustomerLedgerInputsQuery.mockReturnValue({
+  mockUseFinanceCustomerLedgerInputs.mockReturnValue({
     data: undefined,
     isSuccess: false,
+    isPending: true,
+    isError: false,
+    refetch: jest.fn(),
   });
   mockUseSupplierLedgerAggregationQuery.mockReturnValue({
     data: [],
@@ -30,17 +33,18 @@ beforeEach(() => {
 });
 
 describe("party-page ledger fetch gate", () => {
-  it("does not start the org-wide customer ledger RPC before the client catalog is ready", () => {
+  it("reuses the shared Finance Customers ledger query instead of a second contract", () => {
     const { result } = renderHook(() =>
-      useFinanceAlignedClientLedger("org-1", "client-1", [], false),
+      useFinanceAlignedClientLedger("org-1", "client-1", [catalogTrip]),
     );
 
-    expect(mockUseCustomerLedgerInputsQuery).toHaveBeenCalledWith(null, true);
+    expect(mockUseFinanceCustomerLedgerInputs).toHaveBeenCalledWith("org-1");
     expect(result.current.ready).toBe(false);
+    expect(result.current.loadState).toBe("pending");
   });
 
-  it("starts the customer ledger RPC only after scoped client trips are hydrated", () => {
-    mockUseCustomerLedgerInputsQuery.mockReturnValue({
+  it("derives detail totals from the cached customer ledger inputs", () => {
+    mockUseFinanceCustomerLedgerInputs.mockReturnValue({
       data: {
         trip_inputs: [
           { client_id: "client-1", trip_id: "trip-1", sales: 100, initial_paid: 40 },
@@ -50,40 +54,46 @@ describe("party-page ledger fetch gate", () => {
         client_ledger_totals: [],
       },
       isSuccess: true,
+      isPending: false,
+      isError: false,
+      refetch: jest.fn(),
     });
 
     const { result } = renderHook(() =>
-      useFinanceAlignedClientLedger("org-1", "client-1", [catalogTrip], true),
+      useFinanceAlignedClientLedger("org-1", "client-1", [catalogTrip]),
     );
 
-    expect(mockUseCustomerLedgerInputsQuery).toHaveBeenCalledWith("org-1", true);
     expect(result.current.ready).toBe(true);
-    expect(result.current.trips.map((trip) => trip.id)).toEqual(["trip-1"]);
     expect(result.current.billed).toBe(100);
+    expect(result.current.received).toBe(40);
+    expect(result.current.pending).toBe(60);
+    expect(result.current.trips.map((trip) => trip.id)).toEqual(["trip-1"]);
+    expect(result.current.loadState).toBe("success");
   });
 
-  it("does not start the org-wide supplier ledger RPC before the supplier catalog is ready", () => {
+  it("surfaces a ledger query error instead of treating it as pending success", () => {
+    mockUseFinanceCustomerLedgerInputs.mockReturnValue({
+      data: undefined,
+      isSuccess: false,
+      isPending: false,
+      isError: true,
+      refetch: jest.fn(),
+    });
+
     const { result } = renderHook(() =>
-      useFinanceAlignedSupplierLedger("org-1", "supplier-1", [], false),
+      useFinanceAlignedClientLedger("org-1", "client-1", [catalogTrip]),
+    );
+
+    expect(result.current.ready).toBe(false);
+    expect(result.current.loadState).toBe("error");
+  });
+
+  it("does not start the org-wide supplier ledger RPC on the supplier party page", () => {
+    const { result } = renderHook(() =>
+      useFinanceAlignedSupplierLedger("org-1", "supplier-1", [catalogTrip]),
     );
 
     expect(mockUseSupplierLedgerAggregationQuery).toHaveBeenCalledWith(null, true);
     expect(result.current.ready).toBe(false);
-  });
-
-  it("uses scoped supplier catalog trips after the supplier ledger RPC is allowed", () => {
-    mockUseSupplierLedgerAggregationQuery.mockReturnValue({
-      data: [{ supplier_id: "supplier-1", trips_count: 1, due: 80, paid: 20, unsettled: 60 }],
-      isSuccess: true,
-    });
-
-    const { result } = renderHook(() =>
-      useFinanceAlignedSupplierLedger("org-1", "supplier-1", [catalogTrip], true),
-    );
-
-    expect(mockUseSupplierLedgerAggregationQuery).toHaveBeenCalledWith("org-1", true);
-    expect(result.current.ready).toBe(true);
-    expect(result.current.trips).toEqual([catalogTrip]);
-    expect(result.current.due).toBe(80);
   });
 });

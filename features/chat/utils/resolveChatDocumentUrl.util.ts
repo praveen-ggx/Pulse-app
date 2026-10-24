@@ -25,13 +25,12 @@ const CANONICAL_BUCKET = 'trip-documents' as const;
 const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
 
 /**
- * Session-scoped blob URL cache.
- * Keyed by storage path; values are never revoked so callers don't need to
- * manage lifetime — the URLs live until the JS runtime is torn down (app close
- * or page reload). This prevents re-downloading the same image binary every
- * time a DocumentShareCard mounts or its parent re-renders.
+ * Session-scoped blob URL cache, reference-counted.
+ * Each tryChatDocumentBlobObjectUrl caller must call revoke when it drops the
+ * URL. The object URL is revoked when the last caller releases it, or when
+ * invalidateChatDocumentUrlCaches runs after the object is deleted.
  */
-const blobUrlCache = new Map<string, string>();
+const blobUrlCache = new Map<string, { url: string; refs: number }>();
 
 /**
  * In-flight request dedup — separate from the TTL caches above, which only short-circuit
@@ -40,7 +39,7 @@ const blobUrlCache = new Map<string, string>();
  * way as the corresponding cache; cleared once the shared promise settles either way.
  */
 const inFlightSignedUrl = new Map<string, Promise<string | null>>();
-const inFlightBlobUrl = new Map<string, Promise<{ url: string; revoke: () => void } | null>>();
+const inFlightBlobUrl = new Map<string, Promise<string | null>>();
 
 type ImageTransformResize = "cover" | "contain";
 
@@ -136,17 +135,41 @@ export async function resolveChatDocumentStorageUrl(storagePath: string): Promis
  * Use for inline preview on web when `<Image source={{ uri: signedUrl }}>` is blocked by CORS.
  * Caller must revoke the URL when unmounting.
  */
-async function fetchChatDocumentBlobObjectUrl(
-  path: string,
-): Promise<{ url: string; revoke: () => void } | null> {
+function retainChatBlob(path: string): { url: string; revoke: () => void } | null {
+  const entry = blobUrlCache.get(path);
+  if (!entry) return null;
+  entry.refs += 1;
+  let released = false;
+  return {
+    url: entry.url,
+    revoke: () => {
+      if (released) return;
+      released = true;
+      const current = blobUrlCache.get(path);
+      if (!current || current.url !== entry.url) return;
+      current.refs -= 1;
+      if (current.refs > 0) return;
+      blobUrlCache.delete(path);
+      try {
+        if (typeof URL !== "undefined" && typeof URL.revokeObjectURL === "function") {
+          URL.revokeObjectURL(current.url);
+        }
+      } catch {
+        /* noop */
+      }
+    },
+  };
+}
+
+async function fetchChatDocumentBlobObjectUrl(path: string): Promise<string | null> {
   try {
     const { data, error } = await supabase()
       .storage.from(CANONICAL_BUCKET)
       .download(path);
     if (!error && data) {
       const url = URL.createObjectURL(data);
-      blobUrlCache.set(path, url);
-      return { url, revoke: () => {} };
+      blobUrlCache.set(path, { url, refs: 0 });
+      return url;
     }
   } catch {
     return null;
@@ -164,20 +187,21 @@ export async function tryChatDocumentBlobObjectUrl(
   }
 
   // Return cached blob URL — avoids re-downloading the same binary on every
-  // component mount or parent re-render.
-  const cached = blobUrlCache.get(path);
-  if (cached) {
-    return { url: cached, revoke: () => {} };
-  }
+  // component mount or parent re-render. Each caller holds one reference.
+  if (blobUrlCache.has(path)) return retainChatBlob(path);
 
   const pending = inFlightBlobUrl.get(path);
-  if (pending) return pending;
+  if (pending) {
+    const url = await pending;
+    return url ? retainChatBlob(path) : null;
+  }
 
   const request = fetchChatDocumentBlobObjectUrl(path).finally(() => {
     inFlightBlobUrl.delete(path);
   });
   inFlightBlobUrl.set(path, request);
-  return request;
+  const url = await request;
+  return url ? retainChatBlob(path) : null;
 }
 
 /**
@@ -250,7 +274,7 @@ export function invalidateChatDocumentUrlCaches(storagePath: string): void {
     blobUrlCache.delete(path);
     try {
       if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
-        URL.revokeObjectURL(blob);
+        URL.revokeObjectURL(blob.url);
       }
     } catch {
       /* noop */

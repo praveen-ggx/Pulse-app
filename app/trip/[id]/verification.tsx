@@ -1,5 +1,6 @@
 import { CenteredLoadingView } from "@/components/CenteredLoadingView";
 import { useAuth } from "@/contexts/AuthContext";
+import { peekMountedDriverDetailTrip } from "@/features/driver/components/DriverTripHistoryDetailScreen";
 import { getDriverOwnedTrip } from "@/features/driver/services/driverOwnedTrip.service";
 import {
   OdometerEntryScreen,
@@ -10,6 +11,10 @@ import { getAccessibleTripById, type TripRow } from "@/features/trips/services/t
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Text, View } from "react-native";
+
+function parentTripIfAvailable(tripId: string): TripRow | null {
+  return tripId ? peekMountedDriverDetailTrip(tripId) : null;
+}
 
 export default function TripVerificationRoute() {
   const { profile } = useAuth();
@@ -24,8 +29,9 @@ export default function TripVerificationRoute() {
         : "start";
   const side: VerificationSide | "both" =
     sideRaw === "end" ? "end" : sideRaw === "both" ? "both" : "start";
-  const [trip, setTrip] = useState<TripRow | null>(null);
-  const [loading, setLoading] = useState(true);
+  const reusedParent = parentTripIfAvailable(tripId);
+  const [trip, setTrip] = useState<TripRow | null>(reusedParent);
+  const [loading, setLoading] = useState(!reusedParent);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -34,6 +40,13 @@ export default function TripVerificationRoute() {
       setTrip(null);
       setLoading(false);
       setError("Trip not found.");
+      return;
+    }
+    const parentTrip = peekMountedDriverDetailTrip(tripId);
+    if (parentTrip) {
+      setTrip(parentTrip);
+      setError(null);
+      setLoading(false);
       return;
     }
     setLoading(true);

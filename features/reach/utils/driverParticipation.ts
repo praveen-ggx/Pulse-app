@@ -23,9 +23,17 @@ export interface DriverMembershipLike {
   role: string;
 }
 
+/**
+ * `marketplaceDco` is the server-resolved operating mode (get_my_driver_operating_mode
+ * → marketplace_allowed). When true the server has already ruled the driver is not
+ * employed, so roster memberships (e.g. ADR-010 backfilled `independent` links) must
+ * not turn the CTA into Recommend.
+ */
 export function resolveDriverParticipation(
   memberships: DriverMembershipLike[],
+  opts?: { marketplaceDco?: boolean },
 ): DriverParticipation {
+  if (opts?.marketplaceDco) return { mode: 'independent' };
   const driverMemberships = memberships.filter((m) => m.role === 'driver');
   const active = driverMemberships.find((m) => m.status === 'active');
   if (active) return { mode: 'employed', fleetOrgId: active.organization_id };

@@ -35,10 +35,11 @@ function row(partial: Partial<DriverTripRow> & Pick<DriverTripRow, "id">): Drive
 }
 
 function builder(result: { data: unknown; error: unknown }) {
-  const query: { selects: string[]; ranges: unknown[][]; orders: unknown[][] } = {
+  const query: { selects: string[]; ranges: unknown[][]; orders: unknown[][]; ors: string[] } = {
     selects: [],
     ranges: [],
     orders: [],
+    ors: [],
   };
   const chain: Record<string, unknown> = {
     select: jest.fn((cols: string) => {
@@ -48,6 +49,10 @@ function builder(result: { data: unknown; error: unknown }) {
     in: jest.fn(() => chain),
     order: jest.fn((...args: unknown[]) => {
       query.orders.push(args);
+      return chain;
+    }),
+    or: jest.fn((filter: string) => {
+      query.ors.push(filter);
       return chain;
     }),
     range: jest.fn((...args: unknown[]) => {
@@ -132,5 +137,51 @@ describe("getDriverUiTripsByDriverIds commerce origin", () => {
     expect(byId["trip-mover"].indent_id).toBeNull();
     expect(byId["trip-mover"].source_indent_id).toBe("indent-mover");
     expect(getDriverTripExperience(byId["trip-mover"])).toBe("COMMERCE_MULTI_ORDER");
+  });
+
+  it("does not fall back to the trips table when a status filter matches nothing", async () => {
+    const tables: string[] = [];
+    mockFrom.mockImplementation((table: string) => {
+      tables.push(table);
+      if (table === "drivers") return builder({ data: [{ organization_id: "org-1" }], error: null });
+      if (table === "trips_driver_view") return builder({ data: [], error: null });
+      if (table === "trips") return builder({ data: [{ id: "history" }], error: null });
+      throw new Error(`unexpected table ${table}`);
+    });
+
+    const res = await getDriverUiTripsByDriverIds(["driver-1"], {
+      limit: 80,
+      offset: 0,
+      excludeStatuses: ["completed", "cancelled"],
+    });
+
+    expect(res.error).toBeNull();
+    expect(res.trips).toEqual([]);
+    expect(tables).toEqual(["drivers", "trips_driver_view"]);
+    const viewQuery = mockFrom.mock.results.find((call) => call.value.query.ors.length > 0)
+      ?.value.query as { ors: string[] };
+    expect(viewQuery.ors[0]).toContain("status.is.null");
+    expect(viewQuery.ors[0]).toContain("completed");
+  });
+
+  it("skips the drivers org lookup when the caller already has those ids", async () => {
+    const tables: string[] = [];
+    mockFrom.mockImplementation((table: string) => {
+      tables.push(table);
+      if (table === "trips_driver_view") {
+        return builder({ data: [row({ id: "trip-open", status: "assigned" })], error: null });
+      }
+      throw new Error(`unexpected table ${table}`);
+    });
+
+    const res = await getDriverUiTripsByDriverIds(["driver-1"], {
+      limit: 80,
+      offset: 0,
+      knownOrganizationIds: ["org-1"],
+    });
+
+    expect(res.error).toBeNull();
+    expect(res.trips.map((trip) => trip.id)).toEqual(["trip-open"]);
+    expect(tables).toEqual(["trips_driver_view"]);
   });
 });

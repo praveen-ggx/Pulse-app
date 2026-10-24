@@ -98,6 +98,7 @@ import { useCompleteInvitationJoin } from './useCompleteInvitationJoin';
 import type { InvitePhase, SignupTrack } from '../signupInviteTypes';
 import { usePendingOnboarding } from '@/contexts/PendingOnboardingContext';
 import { reverseGeocodePlaceInIndia, resolveIndiaPincode } from '@/lib/placesService';
+import { coordsOrUnset } from '@/lib/placeSearch.util';
 import { useViewportWidth } from '@/lib/hooks/useViewportWidth';
 import {
   matchIndiaLocation,
@@ -1112,20 +1113,21 @@ export function useBusinessSignUpFlow() {
 
   const applyOfficePlaceFromMap = async (
     displayName: string,
-    lat: number,
-    lon: number,
+    lat: number | null | undefined,
+    lon: number | null | undefined,
     hints?: { pincode?: string | null; city?: string | null; state?: string | null },
   ) => {
     setOfficePlaceLabel(displayName);
     setPincode('');
 
-    if (lat === 0 && lon === 0) {
+    const placeCoords = coordsOrUnset({ lat, lon });
+    if (placeCoords.lat == null || placeCoords.lon == null) {
       setOfficeLatitude(null);
       setOfficeLongitude(null);
       const fromName = parsePlaceDisplayName(displayName);
       const matched = matchIndiaLocation(fromName.city, fromName.state);
       if (matched) setSelectedLocation(matched);
-      const pin = await resolveIndiaPincode({
+      const resolvedPin = await resolveIndiaPincode({
         lat: 0,
         lon: 0,
         displayName,
@@ -1133,22 +1135,22 @@ export function useBusinessSignUpFlow() {
         city: hints?.city || fromName.city,
         state: hints?.state || fromName.state,
       });
-      setPincode(pin ?? '');
+      setPincode(resolvedPin ?? '');
       return;
     }
 
-    setOfficeLatitude(lat);
-    setOfficeLongitude(lon);
+    setOfficeLatitude(placeCoords.lat);
+    setOfficeLongitude(placeCoords.lon);
     setOfficePlaceResolving(true);
 
     try {
       const fromName = parsePlaceDisplayName(displayName);
-      const geo = await reverseGeocodePlaceInIndia(lat, lon);
+      const geo = await reverseGeocodePlaceInIndia(placeCoords.lat, placeCoords.lon);
       const city = geo.city || hints?.city || fromName.city || null;
       const state = geo.state || hints?.state || fromName.state || null;
-      const pin = await resolveIndiaPincode({
-        lat,
-        lon,
+      const resolvedPin = await resolveIndiaPincode({
+        lat: placeCoords.lat,
+        lon: placeCoords.lon,
         displayName,
         hintPincode: hints?.pincode,
         city,
@@ -1156,7 +1158,7 @@ export function useBusinessSignUpFlow() {
         reverseGeo: geo,
       });
 
-      setPincode(pin ?? '');
+      setPincode(resolvedPin ?? '');
 
       const matched = matchIndiaLocation(city, state);
       if (matched) setSelectedLocation(matched);

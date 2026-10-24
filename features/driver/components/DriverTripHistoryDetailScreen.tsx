@@ -1,6 +1,7 @@
 /**
  * Full-screen trip history detail (stack route).
  */
+import { releaseStoragePreviewUrl } from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
@@ -116,6 +117,30 @@ export type DriverTripHistoryDetailScreenProps = {
   initialSelectedExpenseId?: string | null;
 };
 
+const mountedDriverDetailTrips = new Map<string, tripsService.TripRow>();
+
+/** Currently mounted Driver Trip Detail trip, if any. Used by Odometer/Expense routes to skip a redundant fetch. */
+export function peekMountedDriverDetailTrip(tripId: string): tripsService.TripRow | null {
+  const id = tripId.trim();
+  if (!id) return null;
+  return mountedDriverDetailTrips.get(id) ?? null;
+}
+
+export function rememberMountedDriverDetailTrip(
+  tripId: string,
+  trip: tripsService.TripRow | null,
+): void {
+  const id = tripId.trim();
+  if (!id) return;
+  if (trip && trip.id === id) mountedDriverDetailTrips.set(id, trip);
+  else mountedDriverDetailTrips.delete(id);
+}
+
+export function forgetMountedDriverDetailTrip(tripId: string): void {
+  const id = tripId.trim();
+  if (id) mountedDriverDetailTrips.delete(id);
+}
+
 export function DriverTripHistoryDetailScreen({
   tripId,
   initialTab,
@@ -146,9 +171,28 @@ export function DriverTripHistoryDetailScreen({
   const [detailPodLoading, setDetailPodLoading] = useState(false);
   const [detailPodViewUrls, setDetailPodViewUrls] = useState<Record<string, string>>({});
   const detailPodUrlRequestedRef = useRef<Set<string>>(new Set());
-  const [podPreviewIndex, setPodPreviewIndex] = useState<number | null>(null);
-
-  useRegisterDriverContextTrip(trip);
+  const heldPodPreviewUrls = useRef<Map<string, string>>(new Map());
+  useEffect(() => () => {
+    for (const url of heldPodPreviewUrls.current.values()) releaseStoragePreviewUrl(url);
+    heldPodPreviewUrls.current.clear();
+  }, []);
+  const retainPodPreview = (docId: string, url: string | null) => {
+    const previous = heldPodPreviewUrls.current.get(docId);
+    if (previous) {
+      releaseStoragePreviewUrl(previous);
+      heldPodPreviewUrls.current.delete(docId);
+    }
+    if (url) heldPodPreviewUrls.current.set(docId, url);
+    return url;
+  };
+  useEffect(() => {
+    const live = new Set(detailPodDocuments.map((doc) => doc.id));
+    for (const [id, url] of heldPodPreviewUrls.current) {
+      if (live.has(id)) continue;
+      releaseStoragePreviewUrl(url);
+      heldPodPreviewUrls.current.delete(id);
+    }
+  }, [detailPodDocuments]);
 
   useEffect(() => {
     if (detailTab !== "journey") return;
@@ -212,22 +256,25 @@ export function DriverTripHistoryDetailScreen({
   const [attrSalaryRequests, setAttrSalaryRequests] = useState<salaryRequestsService.SalaryRequestRow[]>([]);
   const [attributeLoading, setAttributeLoading] = useState(false);
 
+  const tripRef = useRef<tripsService.TripRow | null>(null);
+  tripRef.current = trip;
+
   const loadTrip = useCallback(async (isMounted: () => boolean) => {
-    if (isMounted()) setLoading(true);
+    const hasLoadedTrip = tripRef.current != null && tripRef.current.id === tripId;
+    // Only the first load for this tripId may take the full-screen spinner.
+    if (isMounted() && !hasLoadedTrip) setLoading(true);
     const res = await tripsService.getDriverTripById(tripId);
     if (!isMounted()) return;
-    setTrip(res.trip ? tripsService.driverRowToTripRow(res.trip) : null);
-    setLoading(false);
+    if (res.trip) {
+      setTrip(tripsService.driverRowToTripRow(res.trip));
+    } else if (!hasLoadedTrip) {
+      setTrip(null);
+    }
+    if (isMounted()) setLoading(false);
   }, [tripId]);
 
-  useEffect(() => {
-    let mounted = true;
-    void loadTrip(() => mounted);
-    return () => {
-      mounted = false;
-    };
-  }, [loadTrip]);
-
+  // useFocusEffect also runs on first focus (initial mount). Do not also fetch in a
+  // mount useEffect — that duplicated getDriverTripById and blanked the screen on back.
   useFocusEffect(
     useCallback(() => {
       let mounted = true;
@@ -237,6 +284,13 @@ export function DriverTripHistoryDetailScreen({
       };
     }, [loadTrip]),
   );
+
+  useEffect(() => {
+    rememberMountedDriverDetailTrip(tripId, trip);
+    return () => {
+      forgetMountedDriverDetailTrip(tripId);
+    };
+  }, [trip, tripId]);
 
   useEffect(() => {
     const uid = profile?.uid;
@@ -318,31 +372,26 @@ export function DriverTripHistoryDetailScreen({
   }, [trip?.id]);
 
   useEffect(() => {
+    let cancelled = false;
     detailPodDocuments.forEach((doc) => {
-      if (detailPodUrlRequestedRef.current.has(doc.id)) return;
-      detailPodUrlRequestedRef.current.add(doc.id);
-      tripDocumentsService.tryGetDocumentViewUrl(doc.storage_path).then((url) => {
-        if (!url) {
-          // Drop deleted / missing storage objects so they never become empty gallery cells.
-          setDetailPodDocuments((prev) => prev.filter((d) => d.id !== doc.id));
+      const requestKey = `${doc.id}:${doc.storage_path}`;
+      if (detailPodUrlRequestedRef.current.has(requestKey)) return;
+      detailPodUrlRequestedRef.current.add(requestKey);
+      void tripDocumentsService.tryGetDocumentViewUrl(doc.storage_path).then((url) => {
+        if (cancelled) {
+          detailPodUrlRequestedRef.current.delete(requestKey);
+          releaseStoragePreviewUrl(url);
           return;
         }
-        setDetailPodViewUrls((prev) => (prev[doc.id] ? prev : { ...prev, [doc.id]: url }));
+        retainPodPreview(doc.id, url);
+        if (!url) return;
+        setDetailPodViewUrls((prev) => ({ ...prev, [doc.id]: url }));
       });
     });
+    return () => {
+      cancelled = true;
+    };
   }, [detailPodDocuments]);
-
-  const resolveDetailPodPreview = useCallback(
-    async (doc: tripDocumentsService.TripDocumentRow): Promise<string | null> => {
-      const cached = detailPodViewUrls[doc.id];
-      if (cached) return cached;
-      const url = await tripDocumentsService.tryGetDocumentViewUrl(doc.storage_path);
-      if (!url) return null;
-      setDetailPodViewUrls((prev) => ({ ...prev, [doc.id]: url }));
-      return url;
-    },
-    [detailPodViewUrls],
-  );
 
   const handleUnusablePodDocument = useCallback(
     (doc: tripDocumentsService.TripDocumentRow) => {

@@ -162,30 +162,38 @@ export type DriverMapMarkerOptions = {
   /** Pulse ring on pickup/drop when this stop is the active guidance target. */
   highlighted?: boolean;
   kindIndex?: number;
+  /** Numbered pins drawn in a row when several stops share one coordinate. */
+  clusterBadges?: readonly { kind: 'pickup' | 'drop'; index: number }[];
+  /** Compact following-stop line, e.g. "+1 next · Drop 2". */
+  nextLabel?: string | null;
 };
 
 let tripMapMarkerStylesInjected = false;
 
 function ensureTripMapMarkerStyles(): void {
   if (typeof document === 'undefined' || tripMapMarkerStylesInjected) return;
-  const id = 'pulse-trip-map-marker-styles-v2';
+  const id = 'pulse-trip-map-marker-styles-v3';
   if (document.getElementById(id)) {
     tripMapMarkerStylesInjected = true;
     return;
   }
+  document.getElementById('pulse-trip-map-marker-styles-v2')?.remove();
   const el = document.createElement('style');
   el.id = id;
   el.textContent = `
 @keyframes pulseTripMapPinRing{0%,100%{transform:scale(0.88);opacity:0.45;}50%{transform:scale(1.18);opacity:0.12;}}
-.pulse-trip-map-marker{display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;pointer-events:auto;}
-.pulse-trip-map-chip{background:rgba(255,255,255,0.94);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);color:#065f46;font-size:11px;font-weight:600;padding:4px 11px;border-radius:999px;border:1px solid rgba(4,120,87,0.24);white-space:nowrap;max-width:168px;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.02em;box-shadow:0 2px 10px rgba(15,23,42,0.1),0 0 0 1px rgba(255,255,255,0.5) inset;line-height:1.2;}
+.pulse-trip-map-marker{display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;pointer-events:auto;}
+.pulse-trip-map-chip{background:rgba(255,255,255,0.94);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);color:#065f46;font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;border:1px solid rgba(4,120,87,0.24);white-space:nowrap;max-width:148px;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.01em;box-shadow:0 1px 6px rgba(15,23,42,0.08);line-height:1.2;}
 .pulse-trip-map-chip--drop{color:#92400e;border-color:rgba(245,158,11,0.38);}
-.pulse-trip-map-chip--active{box-shadow:0 2px 12px rgba(5,150,105,0.22),0 0 0 1px rgba(5,150,105,0.18) inset;}
-.pulse-trip-map-chip--drop.pulse-trip-map-chip--active{box-shadow:0 2px 12px rgba(245,158,11,0.28),0 0 0 1px rgba(245,158,11,0.2) inset;}
+.pulse-trip-map-chip--active{box-shadow:0 1px 6px rgba(5,150,105,0.18);}
+.pulse-trip-map-next{font-size:9px;font-weight:700;color:#64748b;background:rgba(255,255,255,0.96);border:1px solid rgba(15,23,42,0.08);border-radius:999px;padding:1px 7px;white-space:nowrap;max-width:148px;overflow:hidden;text-overflow:ellipsis;line-height:1.3;}
+.pulse-trip-map-pin-row{display:flex;align-items:flex-end;gap:6px;}
+.pulse-trip-map-pin-slot{display:flex;line-height:0;}
+.pulse-trip-map-pin-slot svg{width:22px;height:32px;display:block;}
 .pulse-trip-map-pin-host{position:relative;display:flex;justify-content:center;}
-.pulse-trip-map-pin-host--pulse::before{content:'';position:absolute;bottom:5px;left:50%;width:34px;height:34px;margin-left:-17px;border-radius:50%;border:2px solid var(--pin-accent,#059669);animation:pulseTripMapPinRing 2.2s ease-in-out infinite;pointer-events:none;}
+.pulse-trip-map-pin-host--pulse::before{content:'';position:absolute;bottom:5px;left:50%;width:28px;height:28px;margin-left:-14px;border-radius:50%;border:2px solid var(--pin-accent,#059669);animation:pulseTripMapPinRing 2.2s ease-in-out infinite;pointer-events:none;}
 .pulse-trip-map-pin-host--drop.pulse-trip-map-pin-host--pulse::before{border-color:#f59e0b;}
-.pulse-route-distance-label{background:rgba(255,255,255,0.96);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);color:#065f46;font-size:11px;font-weight:700;padding:5px 11px;border-radius:999px;border:1px solid rgba(4,120,87,0.28);box-shadow:0 2px 10px rgba(15,23,42,0.12),0 0 0 1px rgba(255,255,255,0.55) inset;white-space:nowrap;pointer-events:none;letter-spacing:0.02em;line-height:1.2;}
+.pulse-route-distance-label{background:rgba(255,255,255,0.96);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);color:#065f46;font-size:10px;font-weight:700;padding:3px 8px;border-radius:999px;border:1px solid rgba(4,120,87,0.28);box-shadow:0 1px 6px rgba(15,23,42,0.1);white-space:nowrap;pointer-events:none;letter-spacing:0.01em;line-height:1.2;}
 `;
   document.head.appendChild(el);
   tripMapMarkerStylesInjected = true;
@@ -232,13 +240,29 @@ export function createTripMapMarkerElement(
   if (trimmedLabel && isPin) {
     appendTripMapLabelChip(wrap, trimmedLabel, role, driverOptions?.highlighted);
   }
+  const nextLabel = driverOptions?.nextLabel?.trim();
+  if (nextLabel && isPin) {
+    const next = document.createElement('div');
+    next.className = 'pulse-trip-map-next';
+    next.textContent = nextLabel;
+    wrap.appendChild(next);
+  }
 
   const iconHost = document.createElement('div');
+  const badges = driverOptions?.clusterBadges?.filter((badge) => badge.index > 0) ?? [];
   if (isPin) {
-    iconHost.className = `pulse-trip-map-pin-host${role === 'destination' ? ' pulse-trip-map-pin-host--drop' : ''}${driverOptions?.highlighted ? ' pulse-trip-map-pin-host--pulse' : ''}`;
+    iconHost.className = `pulse-trip-map-pin-host${role === 'destination' ? ' pulse-trip-map-pin-host--drop' : ''}${driverOptions?.highlighted && badges.length < 2 ? ' pulse-trip-map-pin-host--pulse' : ''}`;
     iconHost.style.setProperty('--pin-accent', role === 'destination' ? '#f59e0b' : Theme.driverPrimary);
   }
-  if (role === 'origin') {
+  if (badges.length > 1) {
+    iconHost.className = 'pulse-trip-map-pin-row';
+    iconHost.innerHTML = badges
+      .map((badge) => {
+        const kind = badge.kind === 'pickup' ? 'pickup' : 'drop';
+        return `<span class="pulse-trip-map-pin-slot">${numberedMapPinHtml(kind, badge.index)}</span>`;
+      })
+      .join('');
+  } else if (role === 'origin') {
     const n = driverOptions?.kindIndex;
     iconHost.innerHTML =
       n != null && n > 0 ? numberedMapPinHtml('pickup', n) : MAP_SOURCE_PIN_HTML;

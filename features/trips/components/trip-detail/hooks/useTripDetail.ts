@@ -3,7 +3,6 @@
  * Extracts all state, data loading, side effects, and computed values
  * from the 5k-line monolith so the screen component stays thin.
  */
-import { useOptionalActiveWorkspace } from "@/contexts/ActiveWorkspaceContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
@@ -42,11 +41,6 @@ import { getVehicleDocumentViewUrl, getVehicleDocumentViewUrls, mergeEntityDocum
 import { resolveTripDocumentPreviewUrl } from "@/features/tripCompliance/services/vehicleDocumentReuse.service";
 import { getVehicleById, getVehicleForTripViewer, findVehicleByPlate, createVehicle } from "@/features/vehicles/services/vehicles.service";
 import type { VehicleDocuments } from "@/features/vehicles/utils/vehicleDocuments.util";
-import type { VehicleComplianceDocType } from "@/features/vehicles/utils/vehicleDocuments.util";
-import {
-  collectAssetEntityExtras,
-  type AssetEntityExtraFile,
-} from "@/features/trips/components/trip-detail/assetEntityExtras.util";
 import {
     DOCUMENT_LABELS,
     VEHICLE_COMPLIANCE_TYPE_HINT,
@@ -102,6 +96,12 @@ import {
   isTripTrackingActive,
   shouldShowDriverTrackingOfflineOverlay,
 } from "@/features/trips/utils/tripTrackingStatus.util";
+import { resolveTripDriverDisplayName } from "@/features/trips/utils/driverDisplayName.util";
+import {
+    applyAssignmentPaintToTrip,
+    peekAssignmentPaint,
+    subscribeAssignmentPaint,
+} from "@/features/trips/utils/assignmentPaint.util";
 import { useTripLiveTracking } from "@/features/trips/hooks/useTripLiveTracking";
 import { useRequestDriverPing } from "@/features/trips/hooks/useRequestDriverPing";
 import {
@@ -136,7 +136,7 @@ import type { ReassignCompletedMeta } from "../../reassign/reassign.types";
 
 export type { ReassignCompletedMeta };
 import type { TripDetailTab } from "../TripDetailFinanceView";
-import { isPdfTripDoc, joinInvoiceNumbers, readStoredInvoiceNumber, TRIP_DETAILS_TYPE_HINT, TRIP_DETAILS_TYPE_HINT_NO_BANK, type TripDetailsSlot, type TripDocFile, type TripDocItem } from "../tripDocTypes";
+import { isPdfTripDoc, joinInvoiceNumbers, readStoredInvoiceNumber, TRIP_DETAILS_TYPE_HINT, type TripDetailsSlot, type TripDocFile, type TripDocItem } from "../tripDocTypes";
 import {
   isNarrowWebViewport,
   shouldFetchTripSubcontractsOnDetail,
@@ -313,14 +313,7 @@ export interface VehiclePreviewDoc {
   status: "Uploaded" | "Pending";
   storagePath?: string;
   expiryDate?: string | null;
-  /** entity_documents id for an added (extra) file. */
-  documentId?: string;
-  /** Compliance type (rc, insurance, …) so one type's files can be previewed together. */
-  docType?: string;
 }
-
-/** One extra vehicle / driver file from entity_documents (display only). */
-export type AssetEntityExtra = AssetEntityExtraFile;
 
 export type DriverActivityTimelineRow =
   | { kind: "assignment"; row: TripAssignmentAuditRow }
@@ -338,6 +331,8 @@ export type DriverActivityTimelineRow =
         | "assigned"
         | "pod_received";
       detail_line: string;
+      /** profiles.id of the staff or driver who recorded this event. */
+      actorUserId?: string | null;
     };
 
 type TripMapCoordinateFields = TripRow & {
@@ -470,8 +465,6 @@ export function useTripDetail({
   const { t } = useLanguage();
   const { profile, user } = useAuth();
   const { currentOrganization } = useOrganization();
-  // Ground Ops never upload or see bank details (trip Bank Docs or supplier banking).
-  const hideBankDocs = useOptionalActiveWorkspace()?.memberPlatformRole === "ground_ops";
   const queryClient = useQueryClient();
   const { state: hardCopyPod } = useTripHardCopyPodQuery(tripId);
   void onBack;
@@ -504,15 +497,6 @@ export function useTripDetail({
   const [vehicleDocs, setVehicleDocs] = useState<VehicleDocuments | null>(null);
   const [driverIdentityDocs, setDriverIdentityDocs] =
     useState<DriverIdentityDocuments | null>(null);
-  /**
-   * Extra vehicle / driver files in entity_documents beyond the one shown per type
-   * (a second RC, an older licence). Display only — never written back into the
-   * vehicle vault JSON. Added files land here instead of replacing the first.
-   */
-  const [vehicleEntityExtras, setVehicleEntityExtras] = useState<AssetEntityExtra[]>([]);
-  const [driverIdentityExtras, setDriverIdentityExtras] = useState<AssetEntityExtra[]>([]);
-  const [assetExtrasReloadKey, setAssetExtrasReloadKey] = useState(0);
-  const reloadAssetExtras = useCallback(() => setAssetExtrasReloadKey((key) => key + 1), []);
   const [displayVehicleFromInput, setDisplayVehicleFromInput] = useState("");
   const [driverLinked, setDriverLinked] = useState(false);
 
@@ -874,6 +858,8 @@ export function useTripDetail({
         status_label: "Trip Created",
         changed_at: trip.created_at,
         status_context: "created",
+        actorUserId:
+          trip.created_by_user_id ?? trip.created_by ?? trip.owner_user_id ?? null,
         detail_line: `System generated trip ${getTripDisplayNumber(trip)}`,
       });
     }
@@ -895,6 +881,7 @@ export function useTripDetail({
           status_label: "Assigned",
           changed_at: row.changed_at,
           status_context: "assigned",
+          actorUserId: row.changed_by ?? trip.assigned_by_user_id ?? null,
           detail_line:
             [dName, vLabel].filter(Boolean).join(" · ") ||
             trip.pickup_area ||
@@ -908,6 +895,7 @@ export function useTripDetail({
         status_label: "Assigned",
         changed_at: trip.updated_at ?? trip.created_at ?? new Date().toISOString(),
         status_context: "assigned",
+        actorUserId: trip.assigned_by_user_id ?? trip.created_by_user_id ?? trip.created_by ?? null,
         detail_line:
           [trip.driver_display_name, trip.vehicle_display_number].filter(Boolean).join(" · ") ||
           trip.pickup_area ||
@@ -925,6 +913,7 @@ export function useTripDetail({
         status_label: "Driver Accepted",
         changed_at: trip.updated_at ?? trip.started_at ?? new Date().toISOString(),
         status_context: "accepted",
+        actorUserId: trip.status_updated_by ?? trip.driver_id ?? null,
         detail_line: trip.pickup_area || "Accepted assignment",
       });
     }
@@ -948,6 +937,10 @@ export function useTripDetail({
           trip.updated_at ??
           new Date().toISOString(),
         status_context: "in_transit",
+        actorUserId:
+          trip.status_updated_role === "driver"
+            ? null
+            : trip.status_updated_by ?? null,
         detail_line: trip.pickup_area || "Origin",
       });
     }
@@ -967,6 +960,10 @@ export function useTripDetail({
           trip.updated_at ??
           new Date().toISOString(),
         status_context: "completed",
+        actorUserId:
+          trip.status_updated_role === "driver"
+            ? null
+            : trip.status_updated_by ?? null,
         detail_line: trip.drop_location || "Destination",
       });
     }
@@ -983,6 +980,7 @@ export function useTripDetail({
           trip.updated_at ??
           new Date().toISOString(),
         status_context: "pod_received",
+        actorUserId: hardCopyPod?.actorId ?? null,
         detail_line: [
           received ? "RECEIVED" : "IN TRANSIT",
           hardCopyPod?.receivedBy ? `Received by ${hardCopyPod.receivedBy}` : null,
@@ -1258,7 +1256,6 @@ export function useTripDetail({
             status: "Uploaded" as const,
             storagePath,
             expiryDate: vDoc?.expiryDate ?? null,
-            docType,
           }
         : {
             id: `vehicle-${docType}`,
@@ -1278,21 +1275,11 @@ export function useTripDetail({
         storagePath: extra.url,
         expiryDate: extra.expiryDate || null,
       }));
-    const entityDocs = vehicleEntityExtras.map((extra) => ({
-      id: `vehicle-entity-${extra.id}`,
-      label: `${DOCUMENT_LABELS[extra.docType as VehicleComplianceDocType] ?? extra.docType} · added`,
-      type: docTypeFromFileName(extra.storagePath),
-      status: "Uploaded" as const,
-      storagePath: extra.storagePath,
-      expiryDate: extra.expiryDate ?? null,
-      documentId: extra.id,
-      docType: extra.docType,
-    }));
-    return [...complianceDocs, ...extraDocs, ...entityDocs];
-  }, [vehicleDocs, vehicleEntityExtras]);
+    return [...complianceDocs, ...extraDocs];
+  }, [vehicleDocs]);
 
   const driverIdentityPreviewDocs = useMemo(() => {
-    const slots = DRIVER_IDENTITY_UPLOAD_ORDER.map((docType) => {
+    return DRIVER_IDENTITY_UPLOAD_ORDER.map((docType) => {
       const row = driverIdentityDocs?.[docType];
       const storagePath = row?.url?.trim();
       return storagePath
@@ -1303,7 +1290,6 @@ export function useTripDetail({
             status: "Uploaded" as const,
             storagePath,
             documentId: row?.id,
-            docType,
           }
         : {
             id: `driver-${docType}`,
@@ -1312,17 +1298,7 @@ export function useTripDetail({
             status: "Pending" as const,
           };
     });
-    const extras = driverIdentityExtras.map((extra) => ({
-      id: `driver-entity-${extra.id}`,
-      label: `${DRIVER_IDENTITY_LABELS[extra.docType as "license" | "aadhaar"] ?? extra.docType} · added`,
-      type: docTypeFromFileName(extra.storagePath),
-      status: "Uploaded" as const,
-      storagePath: extra.storagePath,
-      documentId: extra.id,
-      docType: extra.docType,
-    }));
-    return [...slots, ...extras];
-  }, [driverIdentityDocs, driverIdentityExtras]);
+  }, [driverIdentityDocs]);
 
   const computedTripDocs = useMemo<TripDocItem[]>(() => {
     const hasVehicleDoc = vehiclePreviewDocs.some((doc) => !!doc.storagePath);
@@ -1335,6 +1311,7 @@ export function useTripDetail({
         label: doc.label,
         type: doc.type,
         storagePath: doc.storagePath!,
+        docSource: "vehicle" as const,
       }));
 
     const hasDriverIdentityDoc = driverIdentityPreviewDocs.some(
@@ -1351,6 +1328,7 @@ export function useTripDetail({
         type: doc.type,
         storagePath: doc.storagePath!,
         documentId: doc.documentId,
+        docSource: "compliance" as const,
       }));
 
     return [
@@ -1372,7 +1350,7 @@ export function useTripDetail({
           { id: "other", label: "Other Documents", pendingType: "PDF", category: "trip" },
         );
         const bankSlot = buildSlotCard(
-          hideBankDocs ? [] : tripDocuments.filter((d) => d.document_type === "bank_docs"),
+          tripDocuments.filter((d) => d.document_type === "bank_docs"),
           { id: "bank_docs", label: "Bank Docs", pendingType: "PDF", category: "trip" },
         );
         const tag = (card: TripDocItem, slotType: TripDetailsSlot): TripDocFile[] =>
@@ -1389,14 +1367,12 @@ export function useTripDetail({
           invoiceSlot.status !== "Pending" ? "INVOICE" : null,
           memoSlot.status !== "Pending" ? "MEMO" : null,
           otherSlot.status !== "Pending" ? "OTHER" : null,
-          !hideBankDocs && bankSlot.status !== "Pending" ? "BANK" : null,
+          bankSlot.status !== "Pending" ? "BANK" : null,
         ].filter((label): label is string => !!label);
         return {
           id: "trip-details",
           label: "Trip Details",
-          type:
-            onFile.join(" · ") ||
-            (hideBankDocs ? TRIP_DETAILS_TYPE_HINT_NO_BANK : TRIP_DETAILS_TYPE_HINT),
+          type: onFile.join(" · ") || TRIP_DETAILS_TYPE_HINT,
           status: files.length > 0 ? ("Uploaded" as const) : ("Pending" as const),
           storagePath: lrSlot.storagePath ?? files[0]?.storagePath,
           documentId: lrSlot.documentId,
@@ -1471,7 +1447,6 @@ export function useTripDetail({
     vehicleDocs,
     driverIdentityPreviewDocs,
     driverIdentityDocs,
-    hideBankDocs,
   ]);
 
   const docPreviewStoragePath = useMemo(() => {
@@ -1774,8 +1749,13 @@ export function useTripDetail({
         if (cancelled) return;
         const d = res.driver;
         if (d) {
-          const fromDriver = (d.name || d.phone || "").trim() || null;
-          setDriverName(fromDriver ?? fallbackDriverName ?? "—");
+          setDriverName(
+            resolveTripDriverDisplayName({
+              localDisplayName: fallbackDriverName,
+              appName: d.name,
+              phoneFallback: d.phone,
+            }) ?? "—",
+          );
           setDriverPhone((d.phone ?? "").trim() || null);
           setDriverLinked(!!d.user_id);
           void resolveDriverAvatarUri(trip.driver_id!, d.avatar_url ?? null).then(
@@ -1798,8 +1778,13 @@ export function useTripDetail({
                 if (cancelled) return;
                 const d2 = res2.driver;
                 if (d2) {
-                  const fromDriver2 = (d2.name || d2.phone || "").trim() || null;
-                  setDriverName(fromDriver2 ?? fallbackDriverName ?? "—");
+                  setDriverName(
+                    resolveTripDriverDisplayName({
+                      localDisplayName: fallbackDriverName,
+                      appName: d2.name,
+                      phoneFallback: d2.phone,
+                    }) ?? "—",
+                  );
                   setDriverPhone((d2.phone ?? "").trim() || null);
                   setDriverLinked(!!d2.user_id);
                   void resolveDriverAvatarUri(trip.driver_id!, d2.avatar_url ?? null).then(
@@ -1830,10 +1815,13 @@ export function useTripDetail({
           getDriverById(viewerOrgId, trip.driver_id!).then((res3) => {
             if (cancelled) return;
             const d3 = res3.driver;
-            const fromDriver3 = d3
-              ? (d3.name || d3.phone || "").trim() || null
-              : null;
-            setDriverName(fromDriver3 ?? fallbackDriverName ?? "—");
+            setDriverName(
+              resolveTripDriverDisplayName({
+                localDisplayName: fallbackDriverName,
+                appName: d3?.name,
+                phoneFallback: d3?.phone,
+              }) ?? "—",
+            );
             setDriverPhone((d3?.phone ?? "").trim() || null);
             void resolveDriverAvatarUri(trip.driver_id!, d3?.avatar_url ?? null).then(
               (uri) => {
@@ -1860,8 +1848,16 @@ export function useTripDetail({
       const applyVehicleRow = (
         v: NonNullable<Awaited<ReturnType<typeof getVehicleById>>["vehicle"]>,
       ) => {
-        const parts = [v.vehicle_number];
-        if (v.vehicle_type) parts.push(v.vehicle_type);
+        const live = peekAssignmentPaint();
+        const preferredPlate =
+          (live?.tripId === trip.id ? live.vehicleLabel.trim() : "") ||
+          (trip.vehicle_display_number ?? "").trim() ||
+          v.vehicle_number;
+        const preferredType =
+          (live?.tripId === trip.id ? live.vehicleType?.trim() : "") ||
+          v.vehicle_type;
+        const parts = [preferredPlate];
+        if (preferredType) parts.push(preferredType);
         setVehicleLabel(parts.join(" · "));
         const base = (v.documents ?? null) as VehicleDocuments | null;
         setVehicleDocs(base);
@@ -1941,9 +1937,7 @@ export function useTripDetail({
         });
       }
       const next: DriverIdentityDocuments = {};
-      const shownIds = new Set<string>();
       for (const [docType, value] of bestByType) {
-        shownIds.add(value.id);
         next[docType] = {
           id: value.id,
           url: value.url,
@@ -1952,56 +1946,11 @@ export function useTripDetail({
         };
       }
       setDriverIdentityDocs(next);
-      setDriverIdentityExtras(
-        collectAssetEntityExtras(res.documents, {
-          allowedTypes: DRIVER_IDENTITY_UPLOAD_ORDER,
-          shownIds,
-        }),
-      );
     });
     return () => {
       cancelled = true;
     };
-  }, [trip?.driver_id, trip?.organization_id, currentOrganization?.id, assetExtrasReloadKey]);
-
-  // Extra vehicle files saved in entity_documents (trip / viewer / owner org) that
-  // are not the file shown in the vault slot for their type.
-  useEffect(() => {
-    let cancelled = false;
-    const vehicleId = vaultVehicleId ?? trip?.vehicle_id?.trim() ?? null;
-    const orgs = [trip?.organization_id ?? "", currentOrganization?.id ?? "", vehicleOwnerOrgId ?? ""]
-      .map((id) => id.trim())
-      .filter((id, index, all) => id && all.indexOf(id) === index);
-    if (!vehicleId || orgs.length === 0) {
-      setVehicleEntityExtras([]);
-      return;
-    }
-    const slotPaths = new Set(
-      VEHICLE_UPLOAD_CHOOSER_ORDER.map((type) => vehicleDocs?.[type]?.url?.trim() ?? "").filter(Boolean),
-    );
-    void Promise.all(orgs.map((org) => getDocumentsByEntity(org, "vehicle", vehicleId))).then(
-      (results) => {
-        if (cancelled) return;
-        setVehicleEntityExtras(
-          collectAssetEntityExtras(
-            results.flatMap((res) => res.documents),
-            { allowedTypes: VEHICLE_UPLOAD_CHOOSER_ORDER, shownPaths: slotPaths },
-          ),
-        );
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    vaultVehicleId,
-    trip?.vehicle_id,
-    trip?.organization_id,
-    currentOrganization?.id,
-    vehicleOwnerOrgId,
-    vehicleDocs,
-    assetExtrasReloadKey,
-  ]);
+  }, [trip?.driver_id, trip?.organization_id, currentOrganization?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2381,7 +2330,15 @@ export function useTripDetail({
       const ownerOrgId = vehicle.organization_id?.trim() || orgId;
       setVaultVehicleId(vehicle.id);
       setVehicleOwnerOrgId(ownerOrgId);
-      const label = [vehicle.vehicle_number, vehicle.vehicle_type].filter(Boolean).join(" · ");
+      const live = peekAssignmentPaint();
+      const preferredPlate =
+        (live?.tripId === requestedTripId ? live.vehicleLabel.trim() : "") ||
+        (trip?.vehicle_display_number ?? "").trim() ||
+        vehicle.vehicle_number;
+      const preferredType =
+        (live?.tripId === requestedTripId ? live.vehicleType?.trim() : "") ||
+        vehicle.vehicle_type;
+      const label = [preferredPlate, preferredType].filter(Boolean).join(" · ");
       if (label) setVehicleLabel(label);
       applyVehicleVaultDocs(vehicle.id, ownerOrgId, (vehicle.documents ?? null) as VehicleDocuments | null);
     })();
@@ -2629,31 +2586,20 @@ export function useTripDetail({
   }, [load, loadAdjustments, loadAssignmentAudit, loadTripDocuments, tripId, queryClient, bundleActive]);
 
 
-  /** Immediate refresh after assignment/reassignment — trip + OTP only. */
+  /** Immediate refresh after assignment/reassignment actions. */
   const handleAssignmentUpdated = useCallback(() => {
+    setFinanceRefreshKey((k) => k + 1);
+    refetchTransactionsRef.current();
     if (bundleActive && tripId) {
       void queryClient.invalidateQueries({ queryKey: queryKeys.trips.bundle(tripId) });
     } else {
       load();
       loadAssignmentAudit();
+      loadAdjustments();
+      loadTripDocuments();
       loadTripOtp();
     }
-    if (tripId) {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.trips.detail(tripId) });
-    }
-    const orgId = currentOrganization?.id;
-    if (orgId) {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.trips.all(orgId) });
-    }
-  }, [
-    load,
-    loadAssignmentAudit,
-    loadTripOtp,
-    tripId,
-    queryClient,
-    bundleActive,
-    currentOrganization?.id,
-  ]);
+  }, [load, loadAssignmentAudit, loadAdjustments, loadTripDocuments, loadTripOtp, tripId, queryClient, bundleActive]);
 
 
   // ── Entry modal ───────────────────────────────────────────────────────────
@@ -2912,10 +2858,40 @@ export function useTripDetail({
 
     if (tripOnlyPatch) {
       const tripRow = bundle.trip as unknown as TripRow;
+      const bundleDriver = bundle.driver as
+        | { name?: string | null; phone?: string | null }
+        | null
+        | undefined;
       setTrip((prev) => {
-        if (!prev || prev.id !== tripRow.id) return tripRow;
-        return { ...prev, ...tripRow };
+        const merged =
+          !prev || prev.id !== tripRow.id ? tripRow : { ...prev, ...tripRow };
+        return applyAssignmentPaintToTrip(merged);
       });
+      const paint = peekAssignmentPaint();
+      setDriverName(
+        paint?.tripId === tripRow.id
+          ? paint.driverName
+          : resolveTripDriverDisplayName({
+              localDisplayName: tripRow.driver_display_name,
+              appName: bundleDriver?.name,
+              phoneFallback: bundleDriver?.phone,
+            }),
+      );
+      if (bundleDriver?.phone) {
+        setDriverPhone((bundleDriver.phone ?? "").trim() || null);
+      }
+      const paintedVehicle =
+        paint?.tripId === tripRow.id ? paint.vehicleLabel.trim() : "";
+      const nextPlate =
+        paintedVehicle || (tripRow.vehicle_display_number ?? "").trim();
+      if (nextPlate) {
+        const type =
+          paint?.tripId === tripRow.id
+            ? paint.vehicleType?.trim() || ""
+            : "";
+        setVehicleLabel([nextPlate, type].filter(Boolean).join(" · "));
+        setDisplayVehicleFromInput(formatIndianVehicleNumber(nextPlate));
+      }
       return;
     }
 
@@ -2933,10 +2909,12 @@ export function useTripDetail({
     };
 
     setTrip(
-      applyHardCopyPodColumnsToTrip(
-        bundle.trip as unknown as TripRow,
-        queryClient.getQueryData(queryKeys.trips.hardCopyPod(bundle.trip.id)) ??
-          hardCopyPod,
+      applyAssignmentPaintToTrip(
+        applyHardCopyPodColumnsToTrip(
+          bundle.trip as unknown as TripRow,
+          queryClient.getQueryData(queryKeys.trips.hardCopyPod(bundle.trip.id)) ??
+            hardCopyPod,
+        ),
       ),
     );
     setLoading(false);
@@ -2995,13 +2973,26 @@ export function useTripDetail({
     }
     if (bundle.driver) {
       const d = bundle.driver;
-      setDriverName((d.name || d.phone || '').trim() || (bundle.trip as unknown as TripRow).driver_display_name || null);
+      setDriverName(
+        resolveTripDriverDisplayName({
+          localDisplayName: (bundle.trip as unknown as TripRow).driver_display_name,
+          appName: d.name,
+          phoneFallback: d.phone,
+        }),
+      );
       setDriverPhone((d.phone ?? "").trim() || null);
       setDriverLinked(!!d.user_id);
     }
     if (bundle.vehicle) {
       const v = bundle.vehicle;
-      setVehicleLabel([v.vehicle_number, v.vehicle_type].filter(Boolean).join(' · '));
+      const livePaint = peekAssignmentPaint();
+      const liveForTrip = livePaint?.tripId === bundle.trip.id ? livePaint : null;
+      const plate =
+        liveForTrip?.vehicleLabel.trim() ||
+        (bundle.trip as unknown as TripRow).vehicle_display_number?.trim() ||
+        v.vehicle_number;
+      const type = liveForTrip?.vehicleType?.trim() || v.vehicle_type;
+      setVehicleLabel([plate, type].filter(Boolean).join(' · '));
       const base = (v.documents ?? null) as unknown as VehicleDocuments | null;
       setVehicleDocs(base);
       const vehicleId = (bundle.trip as unknown as TripRow).vehicle_id;
@@ -3305,13 +3296,11 @@ export function useTripDetail({
     let isActive = true;
     setDocPreviewLoading(true);
 
-    // Bucket follows the file's owner: per-type vehicle / driver galleries carry the
-    // same category as the whole-card gallery.
-    const signGallery = isVehicleGalleryDoc || selectedDoc?.category === "vehicle"
+    const signGallery = isVehicleGalleryDoc
       ? getVehicleDocumentViewUrls(
           galleryDocs.map((doc) => doc.storagePath!),
         )
-      : isDriverIdentityGalleryDoc || selectedDoc?.category === "driver_identity"
+      : isDriverIdentityGalleryDoc
         ? Promise.all(
             galleryDocs.map(async (doc) => {
               const { url } = await getComplianceDocumentSignedUrl(doc.storagePath!);
@@ -3345,7 +3334,7 @@ export function useTripDetail({
     return () => {
       isActive = false;
     };
-  }, [galleryStorageKey, isGalleryPreviewDoc, isVehicleGalleryDoc, isDriverIdentityGalleryDoc, galleryPreviewDocs, selectedDoc?.category]);
+  }, [galleryStorageKey, isGalleryPreviewDoc, isVehicleGalleryDoc, isDriverIdentityGalleryDoc, galleryPreviewDocs]);
 
   useEffect(() => {
     if (!selectedDoc) {
@@ -3661,6 +3650,41 @@ export function useTripDetail({
     ],
   );
 
+  useEffect(() => {
+    if (!tripId) return;
+    const applyPaint = () => {
+      const paint = peekAssignmentPaint();
+      if (!paint || paint.tripId !== tripId) return;
+      setDriverName(paint.driverName);
+      if (paint.driverPhone) setDriverPhone(paint.driverPhone);
+      if (paint.vehicleLabel) {
+        const plate = formatIndianVehicleNumber(paint.vehicleLabel);
+        const type = paint.vehicleType?.trim() || "";
+        setVehicleLabel([plate, type].filter(Boolean).join(" · "));
+        setDisplayVehicleFromInput(plate);
+      }
+      setTrip((prev) => {
+        if (!prev || prev.id !== paint.tripId) return prev;
+        return {
+          ...prev,
+          driver_display_name: paint.driverName,
+          ...(paint.vehicleId !== undefined ? { vehicle_id: paint.vehicleId } : {}),
+          ...(paint.vehicleLabel
+            ? { vehicle_display_number: paint.vehicleLabel }
+            : {}),
+          ...(paint.vehicleType
+            ? {
+                vehicle_type: paint.vehicleType,
+                truck_type: paint.vehicleType,
+              }
+            : {}),
+        } as typeof prev;
+      });
+    };
+    applyPaint();
+    return subscribeAssignmentPaint(applyPaint);
+  }, [tripId]);
+
   const mergeTripRow = useCallback(
     (row: Partial<TripRow> & { id: string }) => {
       setTrip((prev) => {
@@ -3767,7 +3791,6 @@ export function useTripDetail({
     upsertTripDocument,
     computedTripDocs,
     vehiclePreviewDocs,
-    driverIdentityPreviewDocs,
     vehiclePreviewUrls,
     vehiclePreviewIndex,
     setVehiclePreviewIndex,
@@ -3843,8 +3866,6 @@ export function useTripDetail({
     setVehiclePreviewUrls,
     setVehicleDocs,
     setDriverIdentityDocs,
-    /** Re-read extra vehicle / driver files after an upload or delete. */
-    reloadAssetExtras,
     setDriverLocation,
     setDriverLocationLoading,
   };

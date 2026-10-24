@@ -872,7 +872,7 @@ const styles = StyleSheet.create({
       web: {
         display: "flex",
         flexDirection: "column",
-        height: "100%",
+        flex: 1,
         minHeight: 0,
       } as object,
       default: {},

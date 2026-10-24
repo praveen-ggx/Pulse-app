@@ -50,9 +50,7 @@ import {
     isLinkedOrgDisplayQueryKey,
     purgeLinkedOrgDisplayQueries,
 } from '@/lib/queries/linkedOrgDisplayCache';
-import { useQueryCacheOwner } from '@/lib/cache/cacheOwner';
-import { getQueryClient } from '@/lib/queryClient';
-import { isNonPersistedTripsQueryKey } from '@/lib/queryKeys';
+import { makeQueryClient } from '@/lib/queryClient';
 import {
     installForegroundPruning,
     installRealtimeDiagnosticsGlobalHook,
@@ -106,6 +104,7 @@ import { AuthProvider, useAuth, useOptionalAuth } from '@/contexts/AuthContext';
 import { KeyboardAccessoryProvider } from '@/contexts/KeyboardAccessoryContext';
 import { LanguageProvider, tGlobal } from '@/contexts/LanguageContext';
 import { NetworkProvider } from '@/contexts/NetworkContext';
+import { ChangeDriverPopupProvider } from '@/contexts/ChangeDriverPopupContext';
 import { OrganizationProvider, useOptionalOrganization } from '@/contexts/OrganizationContext';
 import { PendingOnboardingProvider } from '@/contexts/PendingOnboardingContext';
 import { WalletProvider } from '@/contexts/WalletContext';
@@ -330,9 +329,7 @@ export default function RootLayout() {
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
     ...FontAwesome.font,
   });
-  // Same instance as getQueryClient(): OrganizationContext's org-switch eviction
-  // calls getQueryClient(), which used to build a second, unused client.
-  const queryClient = useMemo(() => getQueryClient(), []);
+  const queryClient = useMemo(() => makeQueryClient(), []);
   const persister = useMemo(
     () =>
       createAsyncStoragePersister({
@@ -428,8 +425,6 @@ export default function RootLayout() {
                   // Linked-org display is workspace-scoped; a persisted map can
                   // hydrate before org resolution and leak across sessions.
                   if (isLinkedOrgDisplayQueryKey(query.queryKey)) return false;
-                  // Hub search hits, driver phones, export lookups: large / personal.
-                  if (isNonPersistedTripsQueryKey(query.queryKey)) return false;
                   return true;
                 },
               },
@@ -478,11 +473,13 @@ function AuthenticatedDataPlane() {
           <WalletProvider>
             <KeyboardAccessoryProvider>
               <GlobalSyncProvider>
-                <AppBootGate>
-                  <OrgVerificationReminderProvider>
-                    <RootLayoutNav />
-                  </OrgVerificationReminderProvider>
-                </AppBootGate>
+                <ChangeDriverPopupProvider>
+                  <AppBootGate>
+                    <OrgVerificationReminderProvider>
+                      <RootLayoutNav />
+                    </OrgVerificationReminderProvider>
+                  </AppBootGate>
+                </ChangeDriverPopupProvider>
               </GlobalSyncProvider>
             </KeyboardAccessoryProvider>
           </WalletProvider>
@@ -506,19 +503,16 @@ function PublicAuthTree() {
  * is not enough.
  */
 function AppSessionTree() {
-  const { status, sessionAttached, user } = useAuth();
+  const { status, sessionAttached } = useAuth();
   const pathname = usePathname();
   const publicRoute = isPublicAuthRoute(pathname);
-  const userId = user?.uid ?? null;
-  // Wipe a previous user's persisted cache before any data screen mounts.
-  const cacheOwnedByUser = useQueryCacheOwner(userId, userId !== null || status !== 'restoring');
 
   useEffect(() => {
     if (sessionAttached) return;
     void safeHideSplashAsync().catch(() => {});
   }, [sessionAttached]);
 
-  if (shouldMountAuthenticatedDataPlane(sessionAttached) && cacheOwnedByUser) {
+  if (shouldMountAuthenticatedDataPlane(sessionAttached)) {
     return <AuthenticatedDataPlane />;
   }
 

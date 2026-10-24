@@ -18,7 +18,10 @@ import {
   CompliancePaymentConfirmModal,
   compliancePaymentNotes,
 } from "@/features/tripCompliance/components/CompliancePaymentConfirmModal";
-import { ComplianceMobileChrome } from "@/features/tripCompliance/components/ComplianceMobileChrome";
+import {
+  ComplianceMobileChrome,
+  ComplianceMobileReviewHeader,
+} from "@/features/tripCompliance/components/ComplianceMobileChrome";
 import { ComplianceSegmentedFilter } from "@/features/tripCompliance/components/ComplianceSegmentedFilter";
 import { isComplianceMobileViewport } from "@/features/tripCompliance/utils/complianceMobileLayout.util";
 import { HUB_MOBILE_LIST_CANVAS_BG } from "@/components/hub";
@@ -126,7 +129,6 @@ import {
 import { useSuppliersQuery } from "@/lib/queries/useSuppliersQuery";
 import { ROUTES } from "@/lib/routes";
 import { useMemberAccess } from "@/lib/useMemberAccess";
-import { useOptionalActiveWorkspace } from "@/contexts/ActiveWorkspaceContext";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Download, FileText, LayoutGrid, Search, Table2, Wallet } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -350,10 +352,6 @@ export default function ComplianceScreen() {
   const canManagePod = canSurface("trip_compliance.pod.manage");
   const canManageFinance = canSurface("trip_compliance.finance.manage");
   const canViewFinance = canSurface("trip_compliance.finance.view");
-  /** Ground Ops upload documents only: no rates, profit, bank details, advance or balance amounts. */
-  const hideCommercials = useOptionalActiveWorkspace()?.memberPlatformRole === "ground_ops";
-  /** Ground Ops on a phone: list → trip documents flow, cards only, short chip labels. */
-  const groundOpsPhone = hideCommercials && width < 560;
   const groundOpsWarehouseGap = useGroundOpsWarehouseGap();
   const canTabAdvanceVerification = canSurface("trip_compliance.tab.advance_verification");
   const canTabAdvancePayment = canSurface("trip_compliance.tab.advance_payment");
@@ -464,10 +462,14 @@ export default function ComplianceScreen() {
     setStage(visibleStages.has("pending_for_docs") ? "pending_for_docs" : [...visibleStages][0]);
   }, [canViewCompliance, setStage, stage, visibleStages]);
   const [viewMode, setViewMode] = useState<"card" | "table">("card");
-  // Phone layouts stay on cards. Ground Ops already had no table toggle.
+  const [mobileReviewing, setMobileReviewing] = useState(false);
   useEffect(() => {
-    if (groundOpsPhone || isMobile) setViewMode("card");
-  }, [groundOpsPhone, isMobile]);
+    if (!isMobile) {
+      setMobileReviewing(false);
+      return;
+    }
+    setViewMode("card");
+  }, [isMobile]);
   const [cardTripId, setCardTripId] = useState<string | null>(null);
   const [chargeFocus, setChargeFocus] = useState<{ tripId: string; token: number } | null>(null);
   const [cardFocus, setCardFocus] = useState<{
@@ -508,6 +510,7 @@ export default function ComplianceScreen() {
   }, [stage, podSlice, podReceivedPool]);
   const selectStage = useCallback((next: Parameters<typeof setStage>[0]) => {
     setStage(next);
+    setMobileReviewing(false);
     if (next !== "hard_copy_pod_received") {
       setPodSlice("all");
       setAwaitingPodSubview("all");
@@ -982,13 +985,13 @@ export default function ComplianceScreen() {
             { id: "all", label: "Inbox", a11yLabel: "Inbox", dot: null },
             {
               id: "hold",
-              label: groundOpsPhone ? "On hold" : "Compliance Hold",
+              label: "Compliance Hold",
               a11yLabel: "Compliance Hold",
               dot: COMPLIANCE_STAGE_TONE.compliance_pending.fg,
             },
             {
               id: "rejected",
-              label: groundOpsPhone ? "Declined" : "Declined by finance",
+              label: "Declined by finance",
               a11yLabel: "Declined by finance",
               dot: COMPLIANCE_STAGE_TONE.pending_for_docs.fg,
             },
@@ -1177,11 +1180,7 @@ export default function ComplianceScreen() {
 
   /** Cards: queue subfilter above the trip list. Table: under stage chips. Verified has no subfilter. */
   const cardsListHeader = useMemo(() => {
-    if (isMobile) {
-      return hasQueueSubFilter ? (
-        <View style={styles.cardListHeader}>{renderQueueSubFilter(false)}</View>
-      ) : null;
-    }
+    if (isMobile) return null;
     return (
       <View style={styles.cardListHeader}>
         <View style={styles.cardSearchRow}>
@@ -1215,7 +1214,6 @@ export default function ComplianceScreen() {
     pendingDocsTransitPool.length,
     pendingSlice,
     pendingTransitSlice,
-    groundOpsPhone,
     search,
     stage,
     verifiedOnlyCount,
@@ -1229,7 +1227,6 @@ export default function ComplianceScreen() {
     settlementPendingPool.length,
     settlementSettledPool.length,
     filtered.length,
-    hasQueueSubFilter,
     isMobile,
   ]);
   const showToolbarSubFilter = viewMode === "table" && hasQueueSubFilter;
@@ -1550,7 +1547,7 @@ export default function ComplianceScreen() {
     setExportToast(message);
     if (rows.length === 0) return;
     try {
-      await downloadComplianceTableExport(rows, stage === "compliance_pending" || hideCommercials);
+      await downloadComplianceTableExport(rows, stage === "compliance_pending");
     } catch (error) {
       alertMessage("Couldn't export", error instanceof Error ? error.message : "Please try again.");
     }
@@ -1561,7 +1558,6 @@ export default function ComplianceScreen() {
     podReceivedSubview,
     podSlice,
     settlementSlice,
-    hideCommercials,
     search,
     searched,
     stage,
@@ -1573,6 +1569,7 @@ export default function ComplianceScreen() {
     setCardTripId(tripId);
     setCardFocus({ tab, token: Date.now() });
     setViewMode("card");
+    setMobileReviewing(true);
   }, []);
 
   const openDetails = useCallback(
@@ -1600,7 +1597,7 @@ export default function ComplianceScreen() {
     openComplianceCard(routeTripId, routeTab);
   }, [openComplianceCard, routeTab, routeTripId, setStage, summaries]);
 
-  const awaitingFiltersOnDetail = viewMode === "card" && !debitControlOnly;
+  const awaitingFiltersOnDetail = viewMode === "card" && !debitControlOnly && (!isMobile || mobileReviewing);
   const renderAwaitingPodFilters = (onDetail: boolean) =>
     awaitingPodCounts ? (
       <View style={onDetail ? styles.detailFilterRow : styles.subchipRow}>
@@ -1664,14 +1661,6 @@ export default function ComplianceScreen() {
     }
     return items;
   }, [counts, podReceivedCount, visibleStages]);
-  const mobileCanExport =
-    Boolean(canViewFinance) &&
-    (isVerifiedStage || isAdvancePaymentStage || (isAdvanceProcessedStage && !isAdvancePaymentStage));
-  const onMobileExport = () => {
-    if (isVerifiedStage) setExportOpen(true);
-    else if (isAdvancePaymentStage) openAdvancePaymentExport();
-    else if (isAdvanceProcessedStage) openAdvanceProcessedExport();
-  };
 
   if (orgCtx === undefined || accessLoading || productsLoading) {
     return <ChromeBelowTopNavLoadingScreen variant="preparing" />;
@@ -1693,6 +1682,20 @@ export default function ComplianceScreen() {
     return <GroundOpsWarehouseNotice />;
   }
 
+  const mobileReviewSummary =
+    (cardTripId
+      ? summaries.find((item) => item.trip.id === cardTripId) ??
+        visible.find((item) => item.trip.id === cardTripId)
+      : null) ?? null;
+  const mobileCanExport =
+    Boolean(canViewFinance) &&
+    (isVerifiedStage || isAdvancePaymentStage || (isAdvanceProcessedStage && !isAdvancePaymentStage));
+  const onMobileExport = () => {
+    if (isVerifiedStage) setExportOpen(true);
+    else if (isAdvancePaymentStage) openAdvancePaymentExport();
+    else if (isAdvanceProcessedStage) openAdvanceProcessedExport();
+  };
+
   return (
     <View
       style={[
@@ -1700,15 +1703,24 @@ export default function ComplianceScreen() {
         isMobile && styles.screenMobile,
         {
           paddingTop: contentTopInset,
-          // Native: the root tab dock sits below the screen (not over it), so no dock clearance.
-          paddingBottom: Platform.OS === "web" ? layout.scrollBottomPadding(4) : 4,
+          paddingBottom: layout.scrollBottomPadding(4),
           paddingHorizontal: isMobile ? Layout.screenPaddingHorizontal : pagePad,
           maxHeight: windowHeight,
         },
       ]}
     >
       <View style={[styles.chrome, isMobile && styles.chromeMobile]}>
-      {isMobile ? (
+      {isMobile && mobileReviewing ? (
+        <ComplianceMobileReviewHeader
+          title={
+            mobileReviewSummary
+              ? getTripDisplayNumber(mobileReviewSummary.trip, currentOrganization?.id ?? null)
+              : "Trip"
+          }
+          subtitle={mobileReviewSummary?.trip.client_name?.trim() || undefined}
+          onBack={() => setMobileReviewing(false)}
+        />
+      ) : isMobile ? (
         <ComplianceMobileChrome
           search={search}
           onSearchChange={setSearch}
@@ -1778,7 +1790,7 @@ export default function ComplianceScreen() {
           />
         </View>
         ) : null}
-        <View style={[styles.filtersRow, stackToolbar && styles.filtersRowStacked]}>
+        <View style={styles.filtersRow}>
           <View style={styles.stageTrack}>
             <ScrollView
               horizontal
@@ -1934,7 +1946,7 @@ export default function ComplianceScreen() {
               if (summary) openPay(summary);
             }}
             canManageFinance={canManageFinance}
-            compliancePendingLayout={stage === "compliance_pending" || hideCommercials}
+            compliancePendingLayout={stage === "compliance_pending"}
             dateSort={isAdvanceProcessedStage ? undefined : tableDateSort}
             onDateSortChange={isAdvanceProcessedStage ? undefined : setTableDateSort}
             dateSortEnabled={!isAdvanceProcessedStage}
@@ -1950,8 +1962,6 @@ export default function ComplianceScreen() {
           canVerify={canVerifyDocuments}
           canViewDocuments={canViewDocuments}
           canManageFinance={canManageFinance}
-          hideCommercials={hideCommercials}
-          groundOpsDocumentLock={hideCommercials}
           showFinanceTab={stage !== "compliance_pending"}
           onPay={openPay}
           paymentSubmitting={paying}
@@ -2013,6 +2023,7 @@ export default function ComplianceScreen() {
           onChargesSaved={(tripId) => {
             setChargeFocus({ tripId, token: Date.now() });
             selectStage("balance_pending");
+            if (isMobile) setMobileReviewing(true);
           }}
           chargeFocusTripId={chargeFocus?.tripId ?? null}
           chargeFocusToken={chargeFocus?.token ?? 0}
@@ -2020,13 +2031,17 @@ export default function ComplianceScreen() {
           logHardCopyPodRequest={logHardCopyPodRequest}
           courierLrOptions={courierLrOptions}
           selectedTripId={cardTripId}
-          onSelectedTripChange={setCardTripId}
+          onSelectedTripChange={(tripId) => {
+            setCardTripId(tripId);
+            if (isMobile && !debitControlOnly) setMobileReviewing(true);
+          }}
           focusTab={cardFocus?.tab ?? null}
           focusToken={cardFocus?.token ?? 0}
           listHeader={cardsListHeader}
           detailHeader={awaitingFiltersOnDetail ? renderAwaitingPodFilters(true) : null}
-          stacked={isNarrow}
-          phoneFlow={groundOpsPhone}
+          stacked={isNarrow || isMobile}
+          mobileExclusive={isMobile}
+          mobileReviewing={isMobile && mobileReviewing}
           onChanged={(change) => void syncChange(change)}
           onReviewTripDocs={(tripId, _documentKey, scope = "trip") => {
             openComplianceCard(tripId, scope);
@@ -2034,8 +2049,7 @@ export default function ComplianceScreen() {
         />
       )}
 
-      {/* Ground Ops on a phone work in cards only: no Cards/Table toggle or export. */}
-      {groundOpsPhone || isMobile ? null : (
+      {isMobile ? null : (
       <View style={styles.footer}>
         <View style={styles.footerSide}>
           <View style={[styles.viewToggle, compactActions && styles.viewToggleCompact]}>
@@ -2416,11 +2430,6 @@ const styles = StyleSheet.create({
     minHeight: 56,
     justifyContent: "center",
   },
-  /**
-   * Stacked toolbar is a column: `flex: 1` (basis 0) collapses the rail to 0 high
-   * on Android and the queue draws over it. Size it to the rail instead.
-   */
-  filtersRowStacked: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: "auto", width: "100%" },
   chipScroll: {
     flexGrow: 1,
     width: "100%",

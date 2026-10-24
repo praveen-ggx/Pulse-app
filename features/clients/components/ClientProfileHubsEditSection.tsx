@@ -8,6 +8,7 @@ import {
 import { LocationSearchField } from "@/features/trips/components/add-trip/LocationSearchField";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { formatCityStateLabel } from "@/lib/placeCityState.util";
+import { coordsOrUnset } from "@/lib/placeSearch.util";
 import { formatMobileNumber } from "@/lib/format";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { MapPin } from "lucide-react-native";
@@ -390,8 +391,8 @@ export function ClientProfileHubsEditSection({
                   city: coords.city?.trim() || "",
                   state: coords.state?.trim() || "",
                   pincode: coords.pincode?.trim() || "",
-                  latitude: coords.lat,
-                  longitude: coords.lon,
+                  latitude: coordsOrUnset(coords).lat,
+                  longitude: coordsOrUnset(coords).lon,
                 }));
               }}
               leadingIcon={<MapPin size={14} color={Theme.aggregatePillText} strokeWidth={2} />}

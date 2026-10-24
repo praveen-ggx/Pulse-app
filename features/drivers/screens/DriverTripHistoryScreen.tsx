@@ -334,15 +334,29 @@ export default function DriverTripsScreen() {
     }
   }, [historyParams.type]);
 
+  const historyFocusedRef = useRef(false);
+  const historyLoadGen = useRef(0);
+  const historyAbortRef = useRef<AbortController | null>(null);
+
+  const stopHistoryLoad = useCallback(() => {
+    historyLoadGen.current += 1;
+    historyAbortRef.current?.abort();
+    historyAbortRef.current = null;
+  }, []);
+
   const fetch = useCallback(() => {
     if (!profile?.uid) {
       setLoading(false);
-      return () => {};
+      return;
     }
     if (!isRefreshingRef.current && !initialLoadDoneRef.current) setLoading(true);
-    let cancelled = false;
+    const gen = ++historyLoadGen.current;
+    historyAbortRef.current?.abort();
+    const ac = new AbortController();
+    historyAbortRef.current = ac;
+    const stale = () => historyLoadGen.current !== gen;
     driversService.getLinkedDriversForCurrentUser(profile.uid).then((res) => {
-      if (cancelled) return;
+      if (stale()) return;
       if (res.error && __DEV__) {
         console.warn("[trip-history] getLinkedDriversForCurrentUser:", res.error.message);
       }
@@ -354,12 +368,12 @@ export default function DriverTripsScreen() {
         setDriver(activeDriver);
         const driverIds = drivers.map((d) => d.id);
         Promise.all([
-          tripsService.getDriverUiTripsByDriverIds(driverIds),
+          tripsService.getDriverUiTripsByDriverIds(driverIds, { signal: ac.signal }),
           driversService.getDriverInvitesReceived(),
           salaryRequestsService.getSalaryRequestsByDriverIds(driverIds),
         ])
           .then(([tRes, invitesRes, salaryRes]) => {
-            if (cancelled) return;
+            if (stale()) return;
             if (tRes.error && __DEV__) {
               console.warn("[trip-history] getDriverUiTripsByDriverIds:", tRes.error.message);
             }
@@ -375,7 +389,7 @@ export default function DriverTripsScreen() {
             setRefreshing(false);
           })
           .catch((e) => {
-            if (cancelled) return;
+            if (stale()) return;
             if (__DEV__) console.warn("[trip-history] trips/invites fetch failed:", e);
             setTrips([]);
             setInvites([]);
@@ -395,27 +409,22 @@ export default function DriverTripsScreen() {
         setRefreshing(false);
       }
     });
-    return () => {
-      cancelled = true;
-    };
   }, [profile?.uid]);
-
-  useEffect(() => {
-    const cancel = fetch();
-    return cancel;
-  }, [fetch]);
 
   useFocusEffect(
     useCallback(() => {
-      if (!profile?.uid) return;
-      const cancel = fetch();
-      return cancel;
-    }, [profile?.uid, fetch]),
+      historyFocusedRef.current = true;
+      if (profile?.uid) fetch();
+      return () => {
+        historyFocusedRef.current = false;
+        stopHistoryLoad();
+      };
+    }, [fetch, profile?.uid, stopHistoryLoad]),
   );
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
-      if (state === "active" && profile?.uid) fetch();
+      if (state === "active" && historyFocusedRef.current && profile?.uid) fetch();
     });
     return () => sub.remove();
   }, [profile?.uid, fetch]);

@@ -22,6 +22,7 @@ import Theme from "@/constants/Theme";
 import { supabase } from "@/lib/supabase";
 import { VEHICLE_DOC_TYPES } from "@/features/compliance/utils/docTypes.util";
 import { getComplianceDocumentSignedUrl } from "@/features/compliance/services/documents.service";
+import { releaseStoragePreviewUrl } from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import { ComplianceDocumentPreviewModal } from "@/features/tripCompliance/components/ComplianceDocumentPreviewModal";
 import { uploadTripDocument, type TripDocumentType } from "@/features/trips/services/tripDocuments.service";
 import {
@@ -111,6 +112,12 @@ export function VehicleDocumentReuseSection({
   const [busyType, setBusyType] = useState<ReusableVehicleDocumentType | null>(null);
   const [uploadingType, setUploadingType] = useState<ReusableVehicleDocumentType | null>(null);
   const [preview, setPreview] = useState<PreviewState>(null);
+  useEffect(() => {
+    const url = preview?.url ?? null;
+    return () => {
+      releaseStoragePreviewUrl(url);
+    };
+  }, [preview?.url]);
 
   const load = useCallback(() => {
     setLoading(true);

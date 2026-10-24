@@ -58,6 +58,8 @@ export interface FinanceTabBodyProps {
   driverRows: DriverRow[];
   driverOffers: Record<string, DriverOffer>;
   entitiesLoading: boolean;
+  clientsLoading?: boolean;
+  suppliersLoading?: boolean;
   onTabTotals: (totals: { totalIn: number; totalOut: number }) => void;
   onEntityRowSelect: (
     data: FinancialRowData,

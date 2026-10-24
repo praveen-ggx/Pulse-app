@@ -20,6 +20,7 @@ import { useDriverTheme, useDriverThemeColors } from '@/contexts/DriverThemeCont
 import { DriverSelfAvatar } from '@/components/driver/DriverSelfAvatar';
 import { useDriverAvatarUri } from '@/lib/avatarUpload';
 import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
+import { confirmDialog } from '@/lib/confirmDialog';
 import {
     buildBulkTripClaimWhatsappMessage,
     buildSettlementShareMessage,
@@ -174,7 +175,11 @@ export default function DriverWalletScreen() {
     useOptionalDriverInviteModal()?.fleetConnectionRevision ?? 0;
   useDriverAvatar();
   const { avatarUri } = useDriverAvatarUri();
-  const { isDco } = useDriverOperatingModeQuery(profile?.uid ?? null);
+  const {
+    isDco,
+    operatingMode,
+    invalidate: invalidateOperatingMode,
+  } = useDriverOperatingModeQuery(profile?.uid ?? null);
   const [_driver, setDriver] = useState<driversService.DriverRow | null>(null);
   const [linkedDrivers, setLinkedDrivers] = useState<driversService.DriverRow[]>([]);
   const [invites, setInvites] = useState<driversService.DriverInviteRow[]>([]);
@@ -2119,31 +2124,67 @@ export default function DriverWalletScreen() {
   }, [claimAllLoading, pendingTripJourneyItems, linkedDrivers, profile?.uid, shareBulkClaimPdf, openWhatsAppReminder]);
 
   const handleLeaveFleet = useCallback(
-    (orgId: string, orgName: string) => {
-      Alert.alert(
-        'Disconnect from employer?',
-        `You will be removed from ${orgName}'s fleet. Salary flow will stop. You can reconnect by accepting a new invite.`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Disconnect',
-            style: 'destructive',
-            onPress: async () => {
-              setLeaveFleetLoading(true);
-              const { error } = await driversService.leaveFleet(orgId);
-              setLeaveFleetLoading(false);
-              if (error) {
-                Alert.alert('Error', error.message);
-              } else {
-                load();
-              }
-            },
-          },
-        ],
+    async (orgId: string, orgName: string) => {
+      const confirmed = await confirmDialog({
+        title: 'Disconnect from employer?',
+        message: `You will be removed from ${orgName}'s fleet. Salary flow will stop. You can reconnect by accepting a new invite.`,
+        confirmLabel: 'Disconnect',
+        destructive: true,
+      });
+      if (!confirmed) return;
+      setLeaveFleetLoading(true);
+      const { error } = await driversService.leaveFleet(orgId);
+      setLeaveFleetLoading(false);
+      if (error) {
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+          window.alert(error.message);
+        } else {
+          Alert.alert('Error', error.message);
+        }
+        return;
+      }
+      const leftAt = new Date().toISOString();
+      setLinkedDrivers((prev) =>
+        prev.map((d) =>
+          String(d.organization_id ?? '') === orgId && !d.left_at
+            ? { ...d, left_at: leftAt, relationship_status: 'disconnected' }
+            : d,
+        ),
       );
+      invalidateOperatingMode();
+      load();
     },
-    [load],
+    [load, invalidateOperatingMode],
   );
+
+  /**
+   * One entry per org the driver is still linked to. tracking_only rows are trip-assignment
+   * identities (market_award = the shipper that awarded a Marketplace/Reach bid) — the
+   * shipper is not an employer or fleet, so those rows never appear here.
+   */
+  const dcoFleetLinks = useMemo(() => {
+    const byOrg = new Map<
+      string,
+      { orgId: string; orgName: string; isEmployee: boolean; since: string }
+    >();
+    for (const d of linkedDrivers) {
+      const orgId = String(d.organization_id ?? '');
+      if (!orgId || d.left_at || d.tracking_only === true) continue;
+      const isEmployee = d.relationship_status === 'active_employee';
+      const existing = byOrg.get(orgId);
+      if (existing) {
+        existing.isEmployee = existing.isEmployee || isEmployee;
+        continue;
+      }
+      byOrg.set(orgId, {
+        orgId,
+        orgName: orgNameById[orgId] ?? 'Fleet',
+        isEmployee,
+        since: d.created_at ?? '',
+      });
+    }
+    return Array.from(byOrg.values());
+  }, [linkedDrivers, orgNameById]);
 
   /**
    * Find which employer the driver was connected to at the time of a given trip.
@@ -2582,6 +2623,105 @@ export default function DriverWalletScreen() {
       {mainTab === 'fleet' ? (
         isDco ? (
           <View style={[styles.ledgerSection, { paddingHorizontal: Layout.screenPaddingHorizontal }]}>
+            {dcoFleetLinks.length > 0 ? (
+              <View style={{ gap: 10, marginBottom: 18 }}>
+                <Text style={[styles.transactionHistoryTitle, { color: colors.text }]}>Linked fleets</Text>
+                {operatingMode.mode === 'DCO_EMPLOYMENT_CONFLICT' ? (
+                  <View
+                    style={[
+                      styles.dcoConflictNote,
+                      { backgroundColor: Theme.warningMuted, borderColor: Theme.warning },
+                    ]}
+                  >
+                    <FontAwesome name="exclamation-triangle" size={12} color={Theme.warning} />
+                    <Text style={[styles.dcoConflictNoteText, { color: Theme.warning }]}>
+                      Marketplace is locked while you are linked to a fleet as a driver. Disconnect below to operate independently as a DCO.
+                    </Text>
+                  </View>
+                ) : null}
+                {dcoFleetLinks.map((link) => (
+                  <View
+                    key={link.orgId}
+                    style={[
+                      styles.fleetCard,
+                      {
+                        backgroundColor: colors.surface,
+                        borderColor: isDark ? colors.borderSubtle : 'rgba(226,232,240,0.9)',
+                        shadowColor: isDark ? '#000' : 'rgba(15,23,42,0.10)',
+                      },
+                    ]}
+                  >
+                    <View style={styles.fleetCardTopRowNew}>
+                      <TouchableOpacity
+                        style={styles.fleetCardTopLeft}
+                        activeOpacity={0.8}
+                        accessibilityRole="button"
+                        accessibilityLabel={`View ${link.orgName}`}
+                        onPress={() =>
+                          router.push({
+                            pathname: `/(driver)/passbook/${link.orgId}`,
+                            params: { orgName: link.orgName, from: 'wallet' },
+                          } as Parameters<typeof router.push>[0])
+                        }
+                      >
+                        <View
+                          style={[
+                            styles.fleetCardLogoNew,
+                            {
+                              backgroundColor: isDark ? colors.surfaceElevated : 'rgba(248,250,252,0.92)',
+                              overflow: 'hidden',
+                              borderWidth: 1,
+                              borderColor: isDark ? colors.borderSubtle : 'rgba(226,232,240,0.9)',
+                            },
+                          ]}
+                        >
+                          <Image
+                            source={{
+                              uri: resolveDriverOrgAvatarUri({
+                                orgId: link.orgId,
+                                orgName: link.orgName,
+                                branding: orgAvatarById[link.orgId],
+                              }),
+                            }}
+                            style={styles.fleetCardLogoImage}
+                            resizeMode="cover"
+                          />
+                        </View>
+                        <View style={styles.fleetCardBody}>
+                          <Text style={[styles.fleetCardTitle, { color: colors.text }]} numberOfLines={1}>
+                            {link.orgName}
+                          </Text>
+                          <Text style={[styles.fleetMetaText, { color: colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
+                            {link.isEmployee ? 'Employee driver' : 'Roster driver'}
+                            {link.since ? ` · ${formatEmploymentDuration(link.since)}` : ''}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.fleetDisconnectBtn,
+                          {
+                            borderColor: isDark ? 'rgba(239,68,68,0.35)' : 'rgba(239,68,68,0.22)',
+                            backgroundColor: isDark ? 'rgba(239,68,68,0.10)' : 'rgba(254,242,242,0.7)',
+                          },
+                        ]}
+                        activeOpacity={0.75}
+                        disabled={leaveFleetLoading}
+                        hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Disconnect from ${link.orgName}`}
+                        onPress={() => handleLeaveFleet(link.orgId, link.orgName)}
+                      >
+                        <FontAwesome name="unlink" size={12} color={Theme.negative} />
+                        <Text style={[styles.fleetDisconnectBtnText, { color: Theme.negative }]}>
+                          {leaveFleetLoading ? 'Leaving…' : 'Disconnect'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ) : null}
             <DriverSelfLedgerPanel
               entries={ledgerEntries}
               orgNameById={orgNameById}
@@ -3907,6 +4047,20 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.4,
+  },
+  dcoConflictNote: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  dcoConflictNoteText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 12,
+    lineHeight: 17,
   },
   careerTimeline: {
     gap: 0,

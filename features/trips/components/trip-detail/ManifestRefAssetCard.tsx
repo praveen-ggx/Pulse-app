@@ -2,7 +2,6 @@ import { EntityAvatar as PartyAvatar } from "@/components/EntityAvatar";
 import Theme from "@/constants/Theme";
 import { formatIndianVehicleNumber } from "@/lib/format";
 import { formatPhoneForDisplay } from "@/lib/phoneLookup";
-import { formatChatPartyInboxLine } from "@/features/chat/utils/partyDisplay";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { Feather } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
@@ -208,12 +207,14 @@ function VehicleTypeMetaRow({
   return (
     <View style={styles.metaRow}>
       {typeLabel ? (
-        <Text
-          style={[styles.vehicleTypeText, desktop && styles.vehicleTypeTextDesktop]}
-          numberOfLines={1}
-        >
-          {typeLabel}
-        </Text>
+        <View style={[styles.typeChip, desktop && styles.typeChipDesktop]}>
+          <Text
+            style={[styles.vehicleTypeText, desktop && styles.vehicleTypeTextDesktop]}
+            numberOfLines={1}
+          >
+            {typeLabel}
+          </Text>
+        </View>
       ) : (
         <View style={styles.vehicleTypeSpacer} />
       )}
@@ -261,10 +262,6 @@ export function ManifestRefAssetCard({
     return tail || null;
   })();
   const isDriver = variant === "driver";
-  const displayRoleLabel =
-    isDriver && displayPrimary && displayPrimary !== "—" && displayPrimary !== "Unassigned"
-      ? formatChatPartyInboxLine("driver", displayPrimary) ?? roleLabel
-      : roleLabel;
   const avatarSize = desktop ? AVATAR_SIZE_DESKTOP : AVATAR_SIZE;
 
   const copyValue = isDriver ? phoneDisplay : displayPrimary;
@@ -280,116 +277,117 @@ export function ManifestRefAssetCard({
       ]}
     >
       <View style={[styles.cardBody, desktop && styles.cardBodyDesktop]}>
-      <View style={styles.headerRow}>
-        <Text
-          style={[styles.roleLabel, desktop && styles.roleLabelDesktop]}
-          numberOfLines={1}
-        >
-          {displayRoleLabel}
-        </Text>
-        {showChange && onChange ? (
-          <TouchableOpacity
-            onPress={onChange}
-            style={styles.changeBtn}
-            activeOpacity={0.85}
-            accessibilityRole="button"
-            accessibilityLabel={`Change ${roleLabel.toLowerCase()}`}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Text style={[styles.changeBtnText, desktop && styles.changeBtnTextDesktop]}>
-              Change
-            </Text>
-          </TouchableOpacity>
-        ) : null}
-      </View>
-
-      <View style={styles.contentRow}>
-        {!isDriver ? (
-          <View
-            style={[
-              styles.vehicleIcon,
-              desktop && styles.vehicleIconDesktop,
-            ]}
-          >
-            <Feather
-              name="truck"
-              size={desktop ? 18 : 14}
-              color={Theme.textOnPrimary}
-            />
-          </View>
-        ) : null}
-
-        <View style={styles.bodyCol}>
+        <View style={styles.headerRow}>
           <Text
-            style={[styles.primaryText, desktop && styles.primaryTextDesktop]}
+            style={[styles.roleLabel, desktop && styles.roleLabelDesktop]}
             numberOfLines={1}
           >
-            {displayPrimary}
+            {roleLabel}
           </Text>
-
-          {isDriver && phoneDisplay ? (
-            <Text
-              selectable
-              onPress={
-                Platform.OS === "web"
-                  ? undefined
-                  : () => {
-                      if (phoneDigits) void Linking.openURL(`tel:${phoneDigits}`);
-                    }
-              }
-              style={[
-                styles.phoneText,
-                desktop && styles.phoneTextDesktop,
-                styles.phoneTextSelectable,
-              ]}
-              numberOfLines={1}
-              accessibilityRole={Platform.OS === "web" ? "text" : "link"}
-              accessibilityLabel={
-                Platform.OS === "web"
-                  ? `Driver mobile ${phoneDisplay}`
-                  : `Call ${displayPrimary} at ${phoneDisplay}`
-              }
-            >
-              {phoneDisplay}
-            </Text>
-          ) : null}
-
-          {isDriver ? (
-            <RatingMetaRow
-              ratingAvg={ratingAvg}
-              loading={insightsLoading}
-              desktop={desktop}
+          <View style={styles.headerActions}>
+            <AssetCopyButton
+              value={copyValue}
+              label={copyLabel}
+              size={desktop ? 13 : 12}
+              docsIssue={docsIssue}
             />
-          ) : (
-            <VehicleTypeMetaRow
-              vehicleType={displayVehicleType}
-              loading={insightsLoading}
-              desktop={desktop}
-            />
-          )}
+            {showChange && onChange ? (
+              <TouchableOpacity
+                onPress={onChange}
+                style={styles.changeBtn}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel={`Change ${roleLabel.toLowerCase()}`}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text
+                  style={[
+                    styles.changeBtnText,
+                    desktop && styles.changeBtnTextDesktop,
+                  ]}
+                >
+                  Change
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
         </View>
 
-        {isDriver ? (
-          <View style={styles.avatarCol}>
-            <PartyAvatar
-              name={driverName ?? displayPrimary}
-              entityType="driver"
-              size={avatarSize}
-              avatarUrl={driverAvatarUrl ?? undefined}
-              avatarSeed={driverId ?? undefined}
-              showIntegrationBadge={false}
-            />
+        <View style={styles.contentRow}>
+          {isDriver ? (
+            <View style={styles.avatarCol}>
+              <PartyAvatar
+                name={driverName ?? displayPrimary}
+                entityType="driver"
+                size={avatarSize}
+                avatarUrl={driverAvatarUrl ?? undefined}
+                avatarSeed={driverId ?? undefined}
+                showIntegrationBadge={false}
+              />
+            </View>
+          ) : (
+            <View
+              style={[styles.vehicleIcon, desktop && styles.vehicleIconDesktop]}
+            >
+              <Feather
+                name="truck"
+                size={desktop ? 18 : 14}
+                color={Theme.textOnPrimary}
+              />
+            </View>
+          )}
+
+          <View style={styles.bodyCol}>
+            <Text
+              style={[styles.primaryText, desktop && styles.primaryTextDesktop]}
+              numberOfLines={1}
+            >
+              {displayPrimary}
+            </Text>
+
+            {isDriver && phoneDisplay ? (
+              <Text
+                selectable
+                onPress={
+                  Platform.OS === "web"
+                    ? undefined
+                    : () => {
+                        if (phoneDigits) void Linking.openURL(`tel:${phoneDigits}`);
+                      }
+                }
+                style={[
+                  styles.phoneText,
+                  desktop && styles.phoneTextDesktop,
+                  styles.phoneTextSelectable,
+                ]}
+                numberOfLines={1}
+                accessibilityRole={Platform.OS === "web" ? "text" : "link"}
+                accessibilityLabel={
+                  Platform.OS === "web"
+                    ? `Driver mobile ${phoneDisplay}`
+                    : `Call ${displayPrimary} at ${phoneDisplay}`
+                }
+              >
+                {phoneDisplay}
+              </Text>
+            ) : null}
+
+            {isDriver ? (
+              <RatingMetaRow
+                ratingAvg={ratingAvg}
+                loading={insightsLoading}
+                desktop={desktop}
+              />
+            ) : (
+              <VehicleTypeMetaRow
+                vehicleType={displayVehicleType}
+                loading={insightsLoading}
+                desktop={desktop}
+              />
+            )}
           </View>
-        ) : null}
+        </View>
       </View>
-      </View>
-      <AssetCopyButton
-        value={copyValue}
-        label={copyLabel}
-        size={desktop ? 13 : 12}
-        docsIssue={docsIssue}
-        style={[styles.copyCorner, desktop && styles.copyCornerDesktop]}
-      />
     </View>
   );
 }
@@ -398,13 +396,13 @@ const styles = StyleSheet.create({
   card: {
     flex: 1,
     minWidth: 0,
-    borderRadius: 14,
+    borderRadius: 16,
     backgroundColor: Theme.cardWhite,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Theme.borderLight,
-    paddingHorizontal: 10,
-    paddingTop: 9,
-    paddingBottom: 10,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 12,
     gap: 8,
     ...Platform.select({
       web: {
@@ -422,28 +420,22 @@ const styles = StyleSheet.create({
   cardDesktop: {
     flex: undefined,
     width: "100%",
-    paddingHorizontal: 18,
-    paddingTop: 16,
-    paddingBottom: 16,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 14,
     borderRadius: 22,
-    gap: 12,
+    gap: 10,
     backgroundColor: Theme.tripDetailAssetCardBackgroundColor,
     borderColor: Theme.surfaceBorder,
   },
   cardBody: {
     flex: 1,
     minWidth: 0,
-    paddingHorizontal: 10,
-    paddingTop: 9,
-    paddingBottom: 10,
-    gap: 8,
+    gap: 10,
     justifyContent: "center",
   },
   cardBodyDesktop: {
-    paddingHorizontal: 8,
-    paddingTop: 8,
-    paddingBottom: 8,
-    gap: 6,
+    gap: 12,
   },
   cardFill: {
     flexGrow: 1,
@@ -452,21 +444,15 @@ const styles = StyleSheet.create({
     minHeight: 0,
     justifyContent: "center",
   },
-  copyCorner: {
-    position: "absolute",
-    right: 10,
-    bottom: 10,
-    zIndex: 1,
-  },
-  copyCornerDesktop: {
-    right: 8,
-    bottom: 8,
-  },
   copySlot: {
-    width: 16,
-    height: 16,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: Theme.cardWhite,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderLight,
     ...Platform.select({
       web: { cursor: "pointer" } as ViewStyle,
       default: {},
@@ -477,49 +463,62 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
-    minHeight: 18,
+    minHeight: 28,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 0,
   },
   roleLabel: {
     flex: 1,
     minWidth: 0,
-    fontSize: 8,
-    fontWeight: "700",
-    letterSpacing: 0.4,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
     color: Theme.textMuted,
-    lineHeight: 11,
+    lineHeight: 13,
   },
   roleLabelDesktop: {
-    fontSize: 10,
-    letterSpacing: 0.55,
-    lineHeight: 13,
+    fontSize: 11,
+    letterSpacing: 1,
+    lineHeight: 14,
   },
   changeBtn: {
     flexShrink: 0,
-    paddingVertical: 2,
-    paddingHorizontal: 2,
+    minHeight: 28,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderLight,
+    alignItems: "center",
+    justifyContent: "center",
   },
   changeBtnText: {
-    fontSize: 8,
-    fontWeight: "700",
+    fontSize: 10,
+    fontWeight: "800",
     color: Theme.pulseIndigo,
     textTransform: "uppercase",
-    letterSpacing: 0.4,
+    letterSpacing: 0.5,
   },
   changeBtnTextDesktop: {
-    fontSize: 10,
-    letterSpacing: 0.55,
+    fontSize: 11,
+    letterSpacing: 0.6,
   },
   contentRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: 12,
     minWidth: 0,
   },
   bodyCol: {
     flex: 1,
     minWidth: 0,
-    gap: 4,
-    paddingRight: 2,
+    gap: 3,
   },
   primaryText: {
     fontSize: 12,
@@ -583,15 +582,28 @@ const styles = StyleSheet.create({
     color: Theme.textSecondary,
     lineHeight: 14,
   },
+  typeChip: {
+    alignSelf: "flex-start",
+    maxWidth: "100%",
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: Theme.surfaceGray,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderLight,
+  },
+  typeChipDesktop: {
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+  },
   vehicleTypeText: {
-    flex: 1,
+    flexShrink: 1,
     minWidth: 0,
-    fontSize: 7,
-    fontWeight: "500",
-    color: Theme.textMuted,
-    letterSpacing: 0.15,
-    lineHeight: 9,
-    marginTop: 1,
+    fontSize: 11,
+    fontWeight: "600",
+    color: Theme.textSecondary,
+    letterSpacing: 0.1,
+    lineHeight: 14,
   },
   ratingValueDesktop: {
     fontSize: 13,
@@ -604,7 +616,6 @@ const styles = StyleSheet.create({
   vehicleTypeTextDesktop: {
     fontSize: 12,
     lineHeight: 16,
-    marginTop: 0,
   },
   vehicleTypeSpacer: {
     flex: 1,
@@ -613,13 +624,12 @@ const styles = StyleSheet.create({
   avatarCol: {
     flexShrink: 0,
     alignItems: "center",
-    justifyContent: "flex-start",
-    marginLeft: 2,
+    justifyContent: "center",
   },
   vehicleIcon: {
     width: AVATAR_SIZE,
     height: AVATAR_SIZE,
-    borderRadius: 10,
+    borderRadius: AVATAR_SIZE / 2,
     backgroundColor: Theme.textPrimaryDark,
     alignItems: "center",
     justifyContent: "center",
@@ -628,6 +638,6 @@ const styles = StyleSheet.create({
   vehicleIconDesktop: {
     width: VEHICLE_ICON_SIZE_DESKTOP,
     height: VEHICLE_ICON_SIZE_DESKTOP,
-    borderRadius: 12,
+    borderRadius: VEHICLE_ICON_SIZE_DESKTOP / 2,
   },
 });

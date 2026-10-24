@@ -8,6 +8,7 @@ import {
   parseDriverExpenseKindParam,
 } from "@/features/trips/operations/shared/driverExpenseCategoryNav.util";
 import { useLeaveTripExpenseEntry } from "@/features/trips/operations/shared/useLeaveTripExpenseEntry";
+import { peekMountedDriverDetailTrip } from "@/features/driver/components/DriverTripHistoryDetailScreen";
 import { getDriverOwnedTrip } from "@/features/driver/services/driverOwnedTrip.service";
 import { getAccessibleTripById, type TripRow } from "@/features/trips/services/trips.service";
 import { ROUTES } from "@/lib/routes";
@@ -123,8 +124,9 @@ export default function TripOtherExpenseEntryRoute() {
   const entryId = readParam(params.entryId);
   const initialCategory = parseDriverExpenseCategoryParam(readParam(params.category));
   const initialKind = parseDriverExpenseKindParam(readParam(params.kind));
-  const [trip, setTrip] = useState<TripRow | null>(null);
-  const [loading, setLoading] = useState(true);
+  const reusedParent = tripId ? peekMountedDriverDetailTrip(tripId) : null;
+  const [trip, setTrip] = useState<TripRow | null>(reusedParent);
+  const [loading, setLoading] = useState(!reusedParent);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -134,6 +136,15 @@ export default function TripOtherExpenseEntryRoute() {
       setLoading(false);
       setError("Trip not found.");
       setTrip(null);
+      return () => {
+        mounted = false;
+      };
+    }
+    const parentTrip = peekMountedDriverDetailTrip(tripId);
+    if (parentTrip) {
+      setTrip(parentTrip);
+      setError(null);
+      setLoading(false);
       return () => {
         mounted = false;
       };

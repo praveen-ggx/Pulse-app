@@ -14,3 +14,10 @@
 
 ## Tested
 - Full Jest, ci-baseline checks. Not clicked through: creating an indent from a lane on preprod.
+
+## Also: KYC PAN/GST upload no longer blocked by the Gemini check
+- What broke / root cause: on gogopulse.com every Business PAN / GST certificate upload in Workspace → KYC → Verification failed with "This doesn't look like a PAN card". The upload runs the Gemini OCR check (gemini-doc-verify), prod has no Gemini key, and PAN/GST were set to fail when the check fails.
+- What: the Gemini OCR check is switched off (one flag, `DOC_OCR_ENABLED = false`, in the business verification service). Uploads are saved and go to manual review; no auto-fill of PAN/GSTIN from the scan. Turn the flag back on once the Gemini key is set on prod.
+- Areas: features/organization/services/businessVerification.service.ts.
+- Migrations: none.
+- Tested: eslint + tsc on the file. Upload not clicked through on preprod/prod.

@@ -26,6 +26,11 @@ export type VerificationDocumentType =
   | 'llp_agreement'
   | 'aadhaar_card';
 
+/** Gemini OCR document check is switched off: prod has no Gemini key, so
+ *  every PAN/GST upload was rejected. Uploads go straight to manual review.
+ *  Set back to true once GEMINI_API_KEY is configured for gemini-doc-verify. */
+const DOC_OCR_ENABLED = false;
+
 /** Tax scans must pass Gemini; constitutional docs soft-fail (register if OCR unavailable). */
 const OCR_STRICT_DOCUMENT_TYPES: ReadonlySet<VerificationDocumentType> = new Set([
   'gst_certificate',
@@ -219,7 +224,7 @@ export async function uploadAddressProof(
     : proofType === 'utility_bill' ? 'address_proof_utility_bill'
     : 'address_proof_other';
 
-  const verify = await verifyUploadedDocument(documentType, path);
+  const verify = DOC_OCR_ENABLED ? await verifyUploadedDocument(documentType, path) : null;
   if (verify && !verify.passed) {
     await supabase().storage.from(VERIFICATION_BUCKET).remove([path]);
     return { path: null, error: new Error(verify.message), verify };
@@ -271,10 +276,10 @@ export async function uploadVerificationDocument(
 
   // Aadhaar is stored for manual review only — never sent to OCR.
   const verify =
-    documentType === 'aadhaar_card'
+    !DOC_OCR_ENABLED || documentType === 'aadhaar_card'
       ? null
       : await verifyUploadedDocument(documentType, path, typedValues);
-  const strictOcr = OCR_STRICT_DOCUMENT_TYPES.has(documentType);
+  const strictOcr = DOC_OCR_ENABLED && OCR_STRICT_DOCUMENT_TYPES.has(documentType);
 
   if (strictOcr) {
     if (!verify || !verify.passed) {

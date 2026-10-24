@@ -46,6 +46,9 @@ Base: `personal/V1.0.1` @ `c10f8ff2`. Branch: `release/ui-assignment-2026-10-24`
 - ESLint: `react-hooks/exhaustive-deps` warning on `cardsListHeader` (`renderQueueSubFilter` omitted; same pattern as the pre-existing memo). Non-blocking.
 - Browser verification not run.
 
+## Deploy preview
+`pulse-gx` production CONTEXT stays on prod `nafxpivddesgsrthmosv`. `CONTEXT=deploy-preview` is forced to preprod `xbisiveavvbifbzyfhgy` (public anon only) in `netlify.toml` plus `scripts/netlifyDeployPreviewSupabase.cjs`, so dashboard prod `EXPO_PUBLIC_*` cannot leak into PR previews.
+
 ## Migrations
 None.
 

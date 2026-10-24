@@ -29,6 +29,15 @@
   SECRETS_SCAN_OMIT_KEYS = "EXPO_PUBLIC_WEB_BASE_URL,EXPO_PUBLIC_SUPABASE_URL,EXPO_PUBLIC_SUPABASE_ANON_KEY,VITE_SUPABASE_URL,VITE_SUPABASE_ANON_KEY"
   VITE_SUPABASE_URL      = "https://nafxpivddesgsrthmosv.supabase.co"
   VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5hZnhwaXZkZGVzZ3NydGhtb3N2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2OTg3NTYsImV4cCI6MjA4NjI3NDc1Nn0.nXCf5LrTXtg9NNi850MKTCcG_FEE7Tb4qbpP7ftoVBY"
+
+# PR deploy previews only. Production / branch deploys keep the values above.
+# Public anon client config — no service_role. build-ci.js / app.config.js also
+# force this host when CONTEXT=deploy-preview so dashboard prod vars cannot win.
+[context.deploy-preview.environment]
+  EXPO_PUBLIC_SUPABASE_URL      = "https://xbisiveavvbifbzyfhgy.supabase.co"
+  EXPO_PUBLIC_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhiaXNpdmVhdnZiaWZienlmaGd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkxMDM0MjIsImV4cCI6MjEwNDY3OTQyMn0.CcTUwoX9tKkp0_4Uj-Q45FVkzrW_qIF4mMqnkHD_3o4"
+  VITE_SUPABASE_URL             = "https://xbisiveavvbifbzyfhgy.supabase.co"
+  VITE_SUPABASE_ANON_KEY        = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhiaXNpdmVhdnZiaWZienlmaGd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkxMDM0MjIsImV4cCI6MjEwNDY3OTQyMn0.CcTUwoX9tKkp0_4Uj-Q45FVkzrW_qIF4mMqnkHD_3o4"
   # VITE_ADMIN_TOKEN and VITE_SUPABASE_SERVICE_ROLE_KEY must be set in
   # Netlify Dashboard → Site settings → Environment variables (never commit secrets)
 

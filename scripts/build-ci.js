@@ -19,6 +19,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
+require('./netlifyDeployPreviewSupabase.cjs').applyDeployPreviewSupabaseEnv(process.env);
 
 /**
  * Live children, so a SIGINT/SIGTERM can tear down the whole tree. Without

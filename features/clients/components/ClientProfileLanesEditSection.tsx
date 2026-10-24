@@ -10,6 +10,7 @@ import {
   updateClientLaneRate,
 } from "@/features/clients/services/clientLaneRates.service";
 import { formatWarehouseLaneLabel } from "@/features/clients/utils/clientManagement.util";
+import { laneWarehouseError } from "@/features/clients/utils/warehouseAddress.util";
 import { ClientProfileDateField } from "@/features/clients/components/desktop/ClientProfileDateField";
 import { LocationSearchField } from "@/features/trips/components/add-trip/LocationSearchField";
 import { TripCommodityFields } from "@/features/trips/components/add-trip/TripCommodityFields";
@@ -319,7 +320,16 @@ export function ClientProfileLanesEditSection({
       ? "Custom"
       : (warehouses.find((w) => w.id === draft.origin_warehouse_id)?.name ?? "Hub");
 
+  const laneWarehouseProblem = laneWarehouseError({
+    warehouseId: draft.origin_warehouse_id,
+    clientWarehouseIds: warehouses.map((w) => w.id),
+  });
+
   const handleSave = async () => {
+    if (laneWarehouseProblem) {
+      Alert.alert("Pickup warehouse required", laneWarehouseProblem);
+      return;
+    }
     const hub = draft.origin_warehouse_id
       ? warehouses.find((w) => w.id === draft.origin_warehouse_id)
       : null;
@@ -640,6 +650,9 @@ export function ClientProfileLanesEditSection({
                 labelStyle={styles.fieldLabel}
                 inputStyle={styles.fieldInput}
               />
+              {laneWarehouseProblem ? (
+                <Text style={styles.laneWarehouseRequired}>{laneWarehouseProblem}</Text>
+              ) : null}
             </View>
           )}
           </View>
@@ -821,6 +834,7 @@ function Field({
 }
 
 const styles = StyleSheet.create({
+  laneWarehouseRequired: { fontSize: 12, color: Theme.warning, marginTop: 4 },
   root: { width: "100%", alignSelf: "stretch" },
   headerRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" },
   editSectionBarNavy: { width: 2, height: 12, borderRadius: 1, backgroundColor: Theme.textPrimaryDark },

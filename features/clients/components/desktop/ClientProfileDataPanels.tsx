@@ -23,6 +23,7 @@ import {
   PAYMENT_TERMS_OPTIONS,
 } from "@/features/clients/constants/clientReference.constants";
 import { formatWarehouseLaneLabel } from "@/features/clients/utils/clientManagement.util";
+import { laneWarehouseError } from "@/features/clients/utils/warehouseAddress.util";
 import { formatINR } from "@/lib/format";
 import { formatCityStateLabel } from "@/lib/placeCityState.util";
 import { LocationSearchField } from "@/features/trips/components/add-trip/LocationSearchField";
@@ -597,6 +598,14 @@ export function ClientProfileCommercialsPanel({ bundle, orgId, clientId, onRefre
   };
 
   const handleSave = async () => {
+    const warehouseProblem = laneWarehouseError({
+      warehouseId: form.origin_warehouse_id || null,
+      clientWarehouseIds: warehouses.map((w) => w.id),
+    });
+    if (warehouseProblem && !hasWarehouses) {
+      setError(warehouseProblem);
+      return;
+    }
     const origin = resolveOrigin();
     if (!origin || !form.destination_label.trim()) {
       setError(

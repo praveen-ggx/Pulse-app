@@ -19,6 +19,7 @@ import {
   type TripDocItem,
   vaultDocHasPreviewableFile,
 } from "@/features/trips/components/trip-detail/tripDocTypes";
+import { VaultCardLrStylePreview } from "@/features/trips/components/trip-detail/VaultCardLrStylePreview";
 import { VEHICLE_COMPLIANCE_TYPE_HINT } from "@/features/vehicles/utils/vehicleDocuments.util";
 import Feather from "@expo/vector-icons/Feather";
 import { Text, TouchableOpacity, View } from "react-native";
@@ -117,11 +118,6 @@ export function TripVaultCardGrid({
               accessibilityRole={dialog ? "button" : undefined}
               accessibilityLabel={dialog ? `Open ${doc.label}` : undefined}
             >
-              <Feather
-                name={!previewReady ? "upload-cloud" : "file-text"}
-                size={compact ? 22 : 34}
-                color={!previewReady ? Theme.textMuted : Theme.textSecondary}
-              />
               <Text
                 style={[neoStyles.vaultTitle, compact && neoStyles.vaultTitleCompact]}
                 numberOfLines={2}
@@ -139,6 +135,16 @@ export function TripVaultCardGrid({
                 {isUploadingThis ? "Uploading…" : failure ?? statusLabel}
               </Text>
             </TouchableOpacity>
+            <View style={neoStyles.vaultCardHeader}>
+              <VaultCardLrStylePreview
+                doc={doc}
+                disabled={isUploadingThis || (!previewReady && !dialog)}
+                onAdd={showAdd ? () => onAdd(doc) : undefined}
+                onPressFile={() => {
+                  if (!isUploadingThis && (previewReady || dialog)) onOpen(doc);
+                }}
+              />
+            </View>
             <View
               style={[
                 neoStyles.vaultBtnRow,

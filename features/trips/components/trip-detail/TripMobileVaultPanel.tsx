@@ -1,16 +1,32 @@
 /**
- * Narrow-screen vault tab. Same four cards as the desktop Asset Vault.
+ * Narrow-screen vault — stacked category cards + e-way feed.
  */
 import Theme from "@/constants/Theme";
-import { canMutateTripVaultDoc, type TripDocItem, VAULT_DOC_LIMIT_HINT } from "@/features/trips/components/trip-detail/tripDocTypes";
+import Layout from "@/constants/Layout";
+import { DRIVER_IDENTITY_TYPE_HINT } from "@/features/drivers/utils/driverIdentityDocuments.util";
 import {
   type EwayBillStripRow,
   type EwayFieldValues,
+  EwayBillLrStrip,
 } from "@/features/trips/components/trip-detail/EwayBillVaultTab";
-import { TripVaultCardGrid } from "@/features/trips/components/trip-detail/TripVaultCardGrid";
+import { TripMobileVaultCategoryRow } from "@/features/trips/components/trip-detail/TripMobileVaultCategoryRow";
 import { neoStyles } from "@/features/trips/components/trip-detail/TripDetailScreen.styles";
+import {
+  canMutateTripVaultDoc,
+  isDriverIdentityVaultDoc,
+  isEwayBillVaultDoc,
+  type TripDocItem,
+  VAULT_DOC_LIMIT_HINT,
+} from "@/features/trips/components/trip-detail/tripDocTypes";
+import { VEHICLE_COMPLIANCE_TYPE_HINT } from "@/features/vehicles/utils/vehicleDocuments.util";
 import { memo } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Platform, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+const WEB_COPY =
+  Platform.OS === "web"
+    ? ({ whiteSpace: "pre-wrap", letterSpacing: 0 } as const)
+    : ({ letterSpacing: 0 } as const);
 
 type Props = {
   docs: TripDocItem[];
@@ -19,7 +35,7 @@ type Props = {
   uploadingDocId: string | null;
   uploadError?: { slotId: string; message: string } | null;
   vehicleId: string | null;
-  onCardPress: (doc: TripDocItem) => void;
+  onCardPress: (doc: TripDocItem, fileIndex?: number) => void;
   onAddMore?: (doc: TripDocItem) => void;
   ewayStripRows?: EwayBillStripRow[];
   onViewEwayBill?: (rowId: string) => void;
@@ -39,6 +55,21 @@ function onFileSummary(doc: TripDocItem | undefined): string {
   return type;
 }
 
+function cardStatus(
+  doc: TripDocItem,
+  vehicleSummary: string,
+  driverSummary: string,
+): string {
+  if (doc.id === "vehicle-documents" || doc.category === "vehicle") {
+    return vehicleSummary || VEHICLE_COMPLIANCE_TYPE_HINT;
+  }
+  if (isDriverIdentityVaultDoc(doc)) {
+    return driverSummary || DRIVER_IDENTITY_TYPE_HINT;
+  }
+  if (doc.status === "Verified" || doc.status === "Uploaded") return "Uploaded";
+  return "Pending";
+}
+
 export const TripMobileVaultPanel = memo(function TripMobileVaultPanel({
   docs,
   canUploadTripDocs,
@@ -56,40 +87,57 @@ export const TripMobileVaultPanel = memo(function TripMobileVaultPanel({
   tripIdLabel,
   createdAtLabel,
 }: Props) {
+  const insets = useSafeAreaInsets();
   const vehicleCard = docs.find((doc) => doc.id === "vehicle-documents");
   const driverCard = docs.find((doc) => doc.id === "driver-documents");
+  const vehicleSummary = onFileSummary(vehicleCard);
+  const driverSummary = onFileSummary(driverCard);
+  const cards = docs.filter((doc) => !isEwayBillVaultDoc(doc));
 
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, { paddingBottom: 12 + insets.bottom }]}>
       {canUploadTripDocs ? (
-        <Text style={[neoStyles.vaultLimitsHint, styles.hint]}>{VAULT_DOC_LIMIT_HINT}</Text>
-      ) : null}
-      <TripVaultCardGrid
-        docs={docs}
-        uploadingDocId={uploadingDocId}
-        uploadError={uploadError}
-        canUpload={(doc) =>
-          canMutateTripVaultDoc({ doc, canUploadTripDocs, tripCompleted }) &&
-          Boolean(onAddMore)
-        }
-        vehicleSummary={onFileSummary(vehicleCard)}
-        driverSummary={onFileSummary(driverCard)}
-        onOpen={onCardPress}
-        onAdd={(doc) => onAddMore?.(doc)}
-        ewayStripRows={ewayStripRows}
-        onViewEwayBill={onViewEwayBill ?? (() => undefined)}
-        onUploadEwayBill={onUploadEwayBill ?? (() => undefined)}
-        canUploadEwayBill={canUploadEwayBill}
-        canEditEwayBill={canEditEwayBill}
-        onSaveEwayBill={onSaveEwayBill ?? (async () => false)}
-        columns={2}
-      />
-      <View style={styles.bottomBar}>
-        <Text style={styles.bottomText} numberOfLines={1}>
-          Trip ID: <Text style={styles.bottomStrong}>{tripIdLabel}</Text>
+        <Text style={[neoStyles.vaultLimitsHint, styles.hint, WEB_COPY]}>
+          {VAULT_DOC_LIMIT_HINT}
         </Text>
-        <Text style={styles.bottomTextEnd} numberOfLines={1}>
-          Placed On: <Text style={styles.bottomStrong}>{createdAtLabel}</Text>
+      ) : null}
+      <View style={styles.list}>
+        {cards.map((doc) => (
+          <TripMobileVaultCategoryRow
+            key={doc.id}
+            doc={doc}
+            statusLabel={cardStatus(doc, vehicleSummary, driverSummary)}
+            error={uploadError?.slotId === doc.id ? uploadError.message : null}
+            uploading={uploadingDocId === doc.id}
+            canAdd={
+              canMutateTripVaultDoc({ doc, canUploadTripDocs, tripCompleted }) &&
+              Boolean(onAddMore)
+            }
+            onPreview={(fileIndex) => onCardPress(doc, fileIndex)}
+            onAdd={() => onAddMore?.(doc)}
+          />
+        ))}
+      </View>
+      <View style={styles.eway}>
+        <Text style={[styles.sectionTitle, WEB_COPY]}>E-way Bill</Text>
+        <EwayBillLrStrip
+          rows={ewayStripRows}
+          onView={onViewEwayBill ?? (() => undefined)}
+          onUpload={onUploadEwayBill ?? (() => undefined)}
+          canUpload={canUploadEwayBill}
+          canEdit={canEditEwayBill}
+          onSave={onSaveEwayBill ?? (async () => false)}
+          variant="feed"
+        />
+      </View>
+      <View style={styles.bottomBar}>
+        <Text style={[styles.bottomText, WEB_COPY]} numberOfLines={2}>
+          Trip ID{"\n"}
+          <Text style={styles.bottomStrong}>{tripIdLabel}</Text>
+        </Text>
+        <Text style={[styles.bottomTextEnd, WEB_COPY]} numberOfLines={2}>
+          Placed on{"\n"}
+          <Text style={styles.bottomStrong}>{createdAtLabel}</Text>
         </Text>
       </View>
     </View>
@@ -100,34 +148,51 @@ const styles = StyleSheet.create({
   root: {
     width: "100%",
     backgroundColor: Theme.screenBackground,
-    paddingBottom: 8,
   },
   hint: {
-    paddingHorizontal: 14,
+    paddingHorizontal: Layout.screenPaddingHorizontal,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  list: {
+    paddingHorizontal: Layout.screenPaddingHorizontal,
     paddingTop: 8,
+    gap: 12,
+  },
+  eway: {
+    paddingHorizontal: Layout.screenPaddingHorizontal,
+    paddingTop: 16,
+    gap: 8,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: Theme.actionBtnInk,
   },
   bottomBar: {
     flexDirection: "row",
     justifyContent: "space-between",
     gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: Layout.screenPaddingHorizontal,
+    paddingTop: 16,
   },
   bottomText: {
     flex: 1,
-    color: Theme.textMuted,
-    fontSize: 11,
-    fontWeight: "600",
+    color: Theme.textSecondary,
+    fontSize: 12,
+    fontWeight: "400",
+    lineHeight: 18,
   },
   bottomTextEnd: {
     flex: 1,
     textAlign: "right",
-    color: Theme.textMuted,
-    fontSize: 11,
-    fontWeight: "600",
+    color: Theme.textSecondary,
+    fontSize: 12,
+    fontWeight: "400",
+    lineHeight: 18,
   },
   bottomStrong: {
-    color: Theme.textPrimary,
-    fontWeight: "800",
+    color: Theme.actionBtnInk,
+    fontWeight: "600",
   },
 });

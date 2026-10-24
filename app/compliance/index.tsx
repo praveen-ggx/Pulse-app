@@ -18,7 +18,10 @@ import {
   CompliancePaymentConfirmModal,
   compliancePaymentNotes,
 } from "@/features/tripCompliance/components/CompliancePaymentConfirmModal";
+import { ComplianceMobileChrome } from "@/features/tripCompliance/components/ComplianceMobileChrome";
 import { ComplianceSegmentedFilter } from "@/features/tripCompliance/components/ComplianceSegmentedFilter";
+import { isComplianceMobileViewport } from "@/features/tripCompliance/utils/complianceMobileLayout.util";
+import { HUB_MOBILE_LIST_CANVAS_BG } from "@/components/hub";
 import { ComplianceTripsTable } from "@/features/tripCompliance/components/ComplianceTripsTable";
 import { DebitControlTripsTable } from "@/features/tripCompliance/components/DebitControlTripsTable";
 import {
@@ -333,6 +336,7 @@ const ADVANCE_PROCESSED_TONE = COMPLIANCE_STAGE_TONE.advance_payment_processed;
 export default function ComplianceScreen() {
   const layout = useLayoutInsets();
   const { width, height: windowHeight } = useWindowDimensions();
+  const isMobile = isComplianceMobileViewport(width);
   const router = useRouter();
   const { can: canSurface, isLoading: accessLoading } = useMemberAccess();
   const { enabled: complianceEnabled, isLoading: productsLoading } = useComplianceProductEnabled();
@@ -460,10 +464,10 @@ export default function ComplianceScreen() {
     setStage(visibleStages.has("pending_for_docs") ? "pending_for_docs" : [...visibleStages][0]);
   }, [canViewCompliance, setStage, stage, visibleStages]);
   const [viewMode, setViewMode] = useState<"card" | "table">("card");
-  // Phone Ground Ops have no Cards/Table toggle, so never leave them in Table.
+  // Phone layouts stay on cards. Ground Ops already had no table toggle.
   useEffect(() => {
-    if (groundOpsPhone) setViewMode("card");
-  }, [groundOpsPhone]);
+    if (groundOpsPhone || isMobile) setViewMode("card");
+  }, [groundOpsPhone, isMobile]);
   const [cardTripId, setCardTripId] = useState<string | null>(null);
   const [chargeFocus, setChargeFocus] = useState<{ tripId: string; token: number } | null>(null);
   const [cardFocus, setCardFocus] = useState<{
@@ -1173,6 +1177,11 @@ export default function ComplianceScreen() {
 
   /** Cards: queue subfilter above the trip list. Table: under stage chips. Verified has no subfilter. */
   const cardsListHeader = useMemo(() => {
+    if (isMobile) {
+      return hasQueueSubFilter ? (
+        <View style={styles.cardListHeader}>{renderQueueSubFilter(false)}</View>
+      ) : null;
+    }
     return (
       <View style={styles.cardListHeader}>
         <View style={styles.cardSearchRow}>
@@ -1220,6 +1229,8 @@ export default function ComplianceScreen() {
     settlementPendingPool.length,
     settlementSettledPool.length,
     filtered.length,
+    hasQueueSubFilter,
+    isMobile,
   ]);
   const showToolbarSubFilter = viewMode === "table" && hasQueueSubFilter;
 
@@ -1631,6 +1642,37 @@ export default function ComplianceScreen() {
       </View>
     ) : null;
 
+  const mobileStageItems = useMemo(() => {
+    const show = (item: ComplianceQueueFilter) => visibleStages.has(item);
+    const items: {
+      id: ComplianceQueueFilter;
+      label: string;
+      count: number;
+      caption?: string;
+    }[] = [];
+    if (show("all")) items.push({ id: "all", label: "All", count: counts.all });
+    for (const group of STAGE_DEPT_GROUPS) {
+      for (const item of group.stages) {
+        if (!show(item)) continue;
+        items.push({
+          id: item,
+          label: complianceQueueLabel(item),
+          count: item === "pod_received" ? podReceivedCount : counts[item],
+          caption: group.department,
+        });
+      }
+    }
+    return items;
+  }, [counts, podReceivedCount, visibleStages]);
+  const mobileCanExport =
+    Boolean(canViewFinance) &&
+    (isVerifiedStage || isAdvancePaymentStage || (isAdvanceProcessedStage && !isAdvancePaymentStage));
+  const onMobileExport = () => {
+    if (isVerifiedStage) setExportOpen(true);
+    else if (isAdvancePaymentStage) openAdvancePaymentExport();
+    else if (isAdvanceProcessedStage) openAdvanceProcessedExport();
+  };
+
   if (orgCtx === undefined || accessLoading || productsLoading) {
     return <ChromeBelowTopNavLoadingScreen variant="preparing" />;
   }
@@ -1655,16 +1697,64 @@ export default function ComplianceScreen() {
     <View
       style={[
         styles.screen,
+        isMobile && styles.screenMobile,
         {
           paddingTop: contentTopInset,
           // Native: the root tab dock sits below the screen (not over it), so no dock clearance.
           paddingBottom: Platform.OS === "web" ? layout.scrollBottomPadding(4) : 4,
-          paddingHorizontal: pagePad,
+          paddingHorizontal: isMobile ? Layout.screenPaddingHorizontal : pagePad,
           maxHeight: windowHeight,
         },
       ]}
     >
-      <View style={styles.chrome}>
+      <View style={[styles.chrome, isMobile && styles.chromeMobile]}>
+      {isMobile ? (
+        <ComplianceMobileChrome
+          search={search}
+          onSearchChange={setSearch}
+          stages={mobileStageItems}
+          stage={stage}
+          onSelectStage={selectStage}
+          subFilter={hasQueueSubFilter ? renderQueueSubFilter(false) : null}
+          extraFilters={
+            <>
+              {awaitingPodCounts && !awaitingFiltersOnDetail ? renderAwaitingPodFilters(false) : null}
+              {podReceivedCounts ? (
+                <View style={styles.subchipRow}>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.subchipScroll}
+                    contentContainerStyle={styles.chipWrap}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    <StageChip
+                      label="All"
+                      count={podReceivedCounts.all}
+                      countColor={Theme.complianceStageSuccessFg}
+                      active={podReceivedSubview === "all"}
+                      onPress={() => setPodReceivedSubview("all")}
+                    />
+                    <StageChip
+                      label="IBond"
+                      count={podReceivedCounts.ibond}
+                      countColor={Theme.complianceStageInfoFg}
+                      active={podReceivedSubview === "ibond"}
+                      onPress={() => setPodReceivedSubview("ibond")}
+                    />
+                  </ScrollView>
+                </View>
+              ) : null}
+            </>
+          }
+          canBulkPay={canManageFinance}
+          onBulkPay={() => router.push(ROUTES.COMPLIANCE_BULK_PAYMENT as Parameters<typeof router.push>[0])}
+          canExport={mobileCanExport}
+          onExport={onMobileExport}
+          exportLabel="Export Report"
+        />
+      ) : (
+      <View>
       <View style={[styles.toolbarRow, stackToolbar && styles.toolbarStack]}>
         {viewMode !== "card" ? (
         <View
@@ -1739,8 +1829,10 @@ export default function ComplianceScreen() {
         </View>
       ) : null}
       </View>
+      )}
+      </View>
 
-      <View style={styles.queueBody}>
+      <View style={[styles.queueBody, isMobile && styles.queueBodyMobile]}>
       {isFetching && summaries.length > 0 ? (
         <Text style={styles.stale}>Updating queue…</Text>
       ) : null}
@@ -1943,7 +2035,7 @@ export default function ComplianceScreen() {
       )}
 
       {/* Ground Ops on a phone work in cards only: no Cards/Table toggle or export. */}
-      {groundOpsPhone ? null : (
+      {groundOpsPhone || isMobile ? null : (
       <View style={styles.footer}>
         <View style={styles.footerSide}>
           <View style={[styles.viewToggle, compactActions && styles.viewToggleCompact]}>
@@ -2190,8 +2282,11 @@ export default function ComplianceScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, minHeight: 0, overflow: "hidden", backgroundColor: Theme.compliancePageBg },
+  screenMobile: { backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
   chrome: { flexShrink: 0, paddingTop: 8 },
+  chromeMobile: { paddingTop: 2 },
   queueBody: { flex: 1, minHeight: 0, marginTop: 8, gap: 4 },
+  queueBodyMobile: { marginTop: 2 },
   queueScroll: { flex: 1, width: "100%", minWidth: 0 },
   queueScrollContent: { paddingBottom: 8, width: "100%", minWidth: 0 },
   tableLoadMore: {

@@ -7,7 +7,6 @@ import Theme from "@/constants/Theme";
 import {
     getDriversByOrganization,
     searchExistingDriversByPhone,
-    updateDriver,
     type DriverRow,
 } from "@/features/drivers/services/drivers.service";
 import {
@@ -422,16 +421,26 @@ export function TripAssignmentBlock({
   }, [phoneInput, driverAssignOrgId, organizationId, trip.id]);
 
   const applyPhoneDriverDisplayName = useCallback(
-    async (driverId: string | null | undefined, orgForDriver: string) => {
+    async (driverId: string | null | undefined, _orgForDriver: string) => {
       const customName = phoneDriverNameInput.trim();
       if (!driverId || customName.length < 2 || /^driver$/i.test(customName)) {
         return;
       }
-      // Always stamp — aggregate RPC may leave placeholder "Driver" even when the
-      // dispatcher kept the phone-lookup suggestion (previously skipped as no-op).
-      await updateDriver(orgForDriver, driverId, { name: customName });
+      // Trip-local label only. Never write this name onto the driver profile.
+      const { error: labelErr } = await updateTripAssignment(trip.id, {
+        driver_display_name: customName,
+      });
+      if (labelErr) {
+        console.warn(
+          "[trips] trip-local driver name was not saved:",
+          labelErr.message,
+        );
+        setPhoneError(
+          `Driver assigned, but the trip name could not be saved: ${labelErr.message}`,
+        );
+      }
     },
-    [phoneDriverNameInput],
+    [phoneDriverNameInput, trip.id],
   );
 
   const assignByPhone = useCallback(async () => {

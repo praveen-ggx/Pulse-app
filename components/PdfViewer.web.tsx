@@ -1,7 +1,15 @@
 import Theme from "@/constants/Theme";
-import React, { useEffect, useState } from "react";
+import { previewTierForBox, type PreviewTier } from "@/components/documentPreviewPipeline.util";
+import {
+  peekPdfPreview,
+  previewRequestFromFile,
+  requestPdfPreview,
+} from "@/components/pdfEmbedCache.util";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
     ActivityIndicator,
+    Image,
+    Pressable,
     StyleSheet,
     Text,
     View,
@@ -12,7 +20,7 @@ import {
 interface PdfViewerProps {
   pdfUri: string | null;
   style?: StyleProp<ViewStyle>;
-  /** Browser PDF chrome. Off keeps the page itself in the frame. */
+  /** Native browser PDF chrome (zoom/print). Full-page preview only. */
   showToolbar?: boolean;
   /** 1 = 100% of the file. The viewer does not fit-to-width on open. */
   zoom?: number;
@@ -30,6 +38,12 @@ interface PdfViewerProps {
   interactive?: boolean;
   /** Side scrollbar on the file. Off when a parent already draws its own rail. */
   scrollbar?: boolean;
+  documentKey?: string | null;
+  documentVersion?: string | null;
+  previewTier?: PreviewTier;
+  lazy?: boolean;
+  priority?: number;
+  onRetrySign?: () => void;
 }
 
 function withPdfViewerHash(
@@ -44,40 +58,161 @@ function withPdfViewerHash(
   const base = uri.split("#")[0];
   const toolbar = showToolbar ? "1" : "0";
   const percent = Math.max(10, Math.round(zoom * 100));
-  // Numeric zoom with a page origin. Fit-to-width is what was opening notes at ~119%.
   const view = sizing === "original" ? `zoom=${percent},0,0` : "view=FitH";
   const pagePart = page && page > 0 ? `&page=${Math.round(page)}` : "";
   const scrollbarFlag = (scrollbar ?? showToolbar) ? "1" : "0";
   return `${base}#toolbar=${toolbar}&navpanes=0&scrollbar=${scrollbarFlag}&${view}${pagePart}`;
 }
 
+/** Cached first-page JPEG — no Safari/Chrome PDF plugin on vault thumbs. */
+function PdfEmbedPage({
+  uri,
+  page = 1,
+  style,
+  documentKey,
+  documentVersion,
+  previewTier,
+  lazy = false,
+  priority = 0,
+  onRetrySign,
+}: {
+  uri: string;
+  page?: number;
+  style?: StyleProp<ViewStyle>;
+  documentKey?: string | null;
+  documentVersion?: string | null;
+  previewTier?: PreviewTier;
+  lazy?: boolean;
+  priority?: number;
+  onRetrySign?: () => void;
+}) {
+  const boxRef = useRef<View>(null);
+  const [visible, setVisible] = useState(!lazy);
+  const [tier, setTier] = useState<PreviewTier>(previewTier ?? "thumb");
+  const [retry, setRetry] = useState(0);
+  const request = useMemo(
+    () =>
+      previewRequestFromFile({
+        storagePath: documentKey ?? uri.split("?")[0],
+        documentId: documentVersion,
+        fileId: documentKey ?? uri.split("?")[0],
+        signedUrl: uri,
+        page,
+        tier,
+      }),
+    [documentKey, documentVersion, page, tier, uri],
+  );
+  const [bitmap, setBitmap] = useState<string | null>(() =>
+    request ? peekPdfPreview(request) : null,
+  );
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (previewTier) {
+      setTier(previewTier);
+      return;
+    }
+    const node = boxRef.current as unknown as HTMLElement | null;
+    if (!node) return;
+    const box = node.getBoundingClientRect();
+    setTier(previewTierForBox(box.width || 160, box.height || 160));
+  }, [previewTier]);
+
+  useEffect(() => {
+    if (!lazy) {
+      setVisible(true);
+      return;
+    }
+    const node = boxRef.current as unknown as HTMLElement | null;
+    if (!node || typeof IntersectionObserver === "undefined") {
+      setVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) setVisible(true);
+      },
+      { rootMargin: "80px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [lazy]);
+
+  useEffect(() => {
+    if (!visible || !request) return;
+    const cached = peekPdfPreview(request);
+    if (cached) {
+      setBitmap(cached);
+      setFailed(false);
+      return;
+    }
+    const controller = new AbortController();
+    setFailed(false);
+    void requestPdfPreview(request, { signal: controller.signal, priority })
+      .then((url) => setBitmap(url))
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        setFailed(true);
+        if (error instanceof Error && /401|403|expired/i.test(error.message)) {
+          onRetrySign?.();
+        }
+      });
+    return () => controller.abort();
+  }, [onRetrySign, priority, request, retry, visible]);
+
+  if (failed) {
+    return (
+      <View style={[styles.container, styles.centered, styles.embed, style]}>
+        <Text style={styles.embedFallback}>PDF unavailable</Text>
+        <Pressable
+          onPress={() => {
+            setFailed(false);
+            setRetry((value) => value + 1);
+            onRetrySign?.();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Retry document preview"
+          style={styles.retry}
+        >
+          <Text style={styles.retryText}>Retry</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  return (
+    <View
+      ref={boxRef}
+      style={[styles.container, styles.embed, style]}
+      accessibilityLabel="PDF page preview"
+    >
+      {bitmap ? (
+        <Image source={{ uri: bitmap }} style={styles.bitmap} resizeMode="contain" />
+      ) : (
+        <View style={styles.skeleton} accessibilityLabel="Loading document preview">
+          <ActivityIndicator color={Theme.textMuted} size="small" />
+        </View>
+      )}
+    </View>
+  );
+}
+
 export function PdfViewer({
   pdfUri,
   style,
-  showToolbar = true,
+  showToolbar = false,
   zoom = 1,
   sizing = "fit",
   page,
   interactive = true,
   scrollbar,
+  documentKey,
+  documentVersion,
+  previewTier,
+  lazy,
+  priority,
+  onRetrySign,
 }: PdfViewerProps) {
-  const [src, setSrc] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!pdfUri) {
-      setSrc(null);
-      setLoading(false);
-      return;
-    }
-
-    // Signed storage URLs render directly; the hash (zoom/page/toolbar) is added
-    // at render. Downloading the file into a blob first held the preview on a
-    // spinner for the whole transfer, and Chrome drops #zoom/#page on blob: copies.
-    setSrc(pdfUri);
-    setLoading(false);
-  }, [pdfUri]);
-
   if (!pdfUri) {
     return (
       <View style={[styles.container, styles.centered, style]}>
@@ -86,20 +221,27 @@ export function PdfViewer({
     );
   }
 
-  if (loading || !src) {
+  if (!showToolbar) {
     return (
-      <View style={[styles.container, styles.centered, style]}>
-        <ActivityIndicator size="large" color={Theme.primary} />
-        <Text style={styles.message}>Loading preview…</Text>
-      </View>
+      <PdfEmbedPage
+        uri={pdfUri}
+        page={page ?? 1}
+        style={style}
+        documentKey={documentKey}
+        documentVersion={documentVersion}
+        previewTier={previewTier}
+        lazy={lazy}
+        priority={priority}
+        onRetrySign={onRetrySign}
+      />
     );
   }
 
   return (
     <View style={[styles.container, style]}>
       <iframe
-        src={withPdfViewerHash(src, showToolbar, zoom, sizing, page, scrollbar)}
-        key={`${page ?? 0}-${Math.round(zoom * 100)}`}
+        src={withPdfViewerHash(pdfUri, true, zoom, sizing, page, scrollbar)}
+        key={`${page ?? 0}-${Math.round(zoom * 100)}-chrome`}
         style={{
           position: "absolute",
           top: 0,
@@ -122,12 +264,49 @@ const styles = StyleSheet.create({
     flex: 1,
     width: "100%",
     height: "100%",
-    minHeight: 140,
+    minHeight: 0,
     maxHeight: "100%",
     position: "relative",
     backgroundColor: Theme.surface,
     overflow: "hidden",
     zIndex: 0,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  embed: {
+    minHeight: 0,
+  },
+  bitmap: {
+    width: "100%",
+    height: "100%",
+  },
+  skeleton: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.surface,
+  },
+  retry: {
+    marginTop: 8,
+    minHeight: 32,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
+  },
+  retryText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: Theme.actionBtnInk,
+  },
+  embedFallback: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    color: Theme.textMuted,
   },
   centered: {
     alignItems: "center",

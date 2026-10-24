@@ -117,6 +117,30 @@ describe('updateTripAssignment — TripAssigned event', () => {
     expect(mockPublish).not.toHaveBeenCalled();
   });
 
+  it('persists a trip-local driver_display_name without changing driver_id', async () => {
+    const update = updateBuilder({
+      data: { ...trip, driver_display_name: 'On this trip' },
+      error: null,
+    });
+    mockFrom
+      .mockReturnValueOnce(awaitable({ data: trip, error: null }))
+      .mockReturnValueOnce(update);
+
+    const { error, trip: result } = await updateTripAssignment('trip-1', {
+      driver_display_name: 'On this trip',
+    });
+
+    expect(error).toBeNull();
+    expect(result?.driver_display_name).toBe('On this trip');
+    expect(update.update).toHaveBeenCalledWith(
+      expect.objectContaining({ driver_display_name: 'On this trip' }),
+    );
+    expect(update.update).toHaveBeenCalledWith(
+      expect.not.objectContaining({ driver_id: expect.anything() }),
+    );
+    expect(mockPublish).not.toHaveBeenCalled();
+  });
+
   it('does not publish for a vehicle-only update with no driver_id', async () => {
     mockFrom
       .mockReturnValueOnce(awaitable({ data: trip, error: null })) // trip gate select

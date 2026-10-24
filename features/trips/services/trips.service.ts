@@ -2280,6 +2280,8 @@ export interface UpdateTripAssignmentData {
   vehicle_id?: string | null;
   /** Ad-hoc vehicle number when vehicle_id is null (e.g. aggregate trip). */
   vehicle_display_number?: string | null;
+  /** Trip-local label. Must not be written to the driver profile. */
+  driver_display_name?: string | null;
 }
 
 export interface UpdateTripSupplierData {
@@ -2367,6 +2369,8 @@ export async function updateTripAssignment(
   if (data.vehicle_id !== undefined) updates.vehicle_id = data.vehicle_id;
   if (data.vehicle_display_number !== undefined)
     updates.vehicle_display_number = data.vehicle_display_number;
+  if (data.driver_display_name !== undefined)
+    updates.driver_display_name = data.driver_display_name?.trim() || null;
   // Reassign preserves trip stage — only driver_id and vehicle_id change.
   // Only push status → 'assigned' on first assign before the trip has started.
   if (
@@ -2684,7 +2688,7 @@ export async function assignAggregateTripDriverByPhone(
   vehicleDisplayNumber?: string | null,
   vehicleId?: string | null,
   previousDriverId?: string | null,
-  /** Dispatcher-entered name — stored on drivers.name so hub does not show UNASSIGNED. */
+  /** Dispatcher-entered trip label. Sent as optional p_driver_name; persisted on trips.driver_display_name. */
   driverName?: string | null,
   /** Explicit own-asset vs third-party choice (Issue B). Omitted/undefined = NULL, preserving legacy AGGREGATE-default behavior. */
   executionType?: "ASSET" | "AGGREGATE" | null,
@@ -2836,9 +2840,20 @@ export async function assignAggregateTripDriverByPhone(
     };
   }
   const driverLinked = obj.driver_linked === true;
-  const resultTrip = (obj.trip ?? null) as TripRow | null;
+  let resultTrip = (obj.trip ?? null) as TripRow | null;
   if (resultTrip && usableDriverName) {
     resultTrip.driver_display_name = usableDriverName;
+    const { error: labelErr, trip: labeled } = await updateTripAssignment(tripId, {
+      driver_display_name: usableDriverName,
+    });
+    if (labelErr) {
+      console.warn(
+        "[trips] trip-local driver name was not saved after assignment:",
+        labelErr.message,
+      );
+    } else if (labeled) {
+      resultTrip = labeled;
+    }
   }
   if (resultTrip) {
     const { postAggregateAssignmentMessage } = await import(

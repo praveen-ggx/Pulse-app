@@ -427,7 +427,18 @@ export function TripAssignmentBlock({
         return;
       }
       // Trip-local label only. Never write this name onto the driver profile.
-      await updateTripAssignment(trip.id, { driver_display_name: customName });
+      const { error: labelErr } = await updateTripAssignment(trip.id, {
+        driver_display_name: customName,
+      });
+      if (labelErr) {
+        console.warn(
+          "[trips] trip-local driver name was not saved:",
+          labelErr.message,
+        );
+        setPhoneError(
+          `Driver assigned, but the trip name could not be saved: ${labelErr.message}`,
+        );
+      }
     },
     [phoneDriverNameInput, trip.id],
   );

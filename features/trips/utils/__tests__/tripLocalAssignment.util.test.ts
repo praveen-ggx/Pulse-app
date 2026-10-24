@@ -1,4 +1,5 @@
 import {
+  assignAggregateNameWrites,
   buildTripLocalAssignmentPatch,
   suggestedNameForPhoneLookup,
   tripLocalDriverDisplayName,
@@ -44,6 +45,36 @@ describe("suggestedNameForPhoneLookup", () => {
         nameOwnedLocally: true,
       }),
     ).toBe("ZZ");
+  });
+});
+
+describe("assignAggregateNameWrites", () => {
+  it("seeds a new roster name and a trip label without an existing-row update", () => {
+    expect(
+      assignAggregateNameWrites({
+        pDriverName: "On this trip",
+        existingDriver: false,
+        profileName: "Fleet Profile",
+      }),
+    ).toEqual({
+      driversNameInsert: "On this trip",
+      driversNameUpdate: null,
+      tripDisplayName: "On this trip",
+    });
+  });
+
+  it("does not update an existing roster name; trip label stays trip-local", () => {
+    expect(
+      assignAggregateNameWrites({
+        pDriverName: "On this trip",
+        existingDriver: true,
+        profileName: "Fleet Profile",
+      }),
+    ).toEqual({
+      driversNameInsert: null,
+      driversNameUpdate: null,
+      tripDisplayName: "On this trip",
+    });
   });
 });
 

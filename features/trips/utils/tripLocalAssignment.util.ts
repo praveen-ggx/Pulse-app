@@ -28,6 +28,30 @@ export function suggestedNameForPhoneLookup(args: {
   return trimAssignmentLabel(args.suggestedAppName) ?? args.currentName;
 }
 
+/**
+ * Intended writes for assign_aggregate_trip_driver.p_driver_name.
+ * Phone remains the identity. Existing roster / profile names are not overwritten.
+ */
+export function assignAggregateNameWrites(input: {
+  pDriverName?: string | null;
+  existingDriver: boolean;
+  profileName?: string | null;
+}): {
+  driversNameInsert: string | null;
+  driversNameUpdate: null;
+  tripDisplayName: string | null;
+} {
+  const typed = tripLocalDriverDisplayName(input.pDriverName);
+  const profile = trimAssignmentLabel(input.profileName);
+  return {
+    driversNameInsert: input.existingDriver
+      ? null
+      : typed ?? profile ?? "Driver",
+    driversNameUpdate: null,
+    tripDisplayName: typed,
+  };
+}
+
 export function buildTripLocalAssignmentPatch(args: {
   driverDisplayName?: string | null;
   vehicleId?: string | null;

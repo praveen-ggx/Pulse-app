@@ -29,6 +29,10 @@
  */
 
 import { supabase } from "@/lib/supabase";
+import {
+  documentAuditLookupOrFilter,
+  storageLeftAfterDbDeleteMessage,
+} from "../utils/documentAuditLookup.util";
 import type {
   ComplianceBlockResult,
   ComplianceScore,
@@ -535,20 +539,34 @@ export async function getComplianceDocumentSignedUrl(
   return { url: data.signedUrl, error: null };
 }
 
-/** Hard delete — removes storage object and DB row (audit row remains). */
+/** Hard delete — DB row first, then storage. Refused deletes keep the file. */
 export async function deleteComplianceDocument(
   docId: string,
   storagePath: string | null,
 ): Promise<{ error: Error | null }> {
-  if (storagePath) {
-    await supabase().storage.from(COMPLIANCE_BUCKET).remove([storagePath]);
-    signedUrlCache.delete(storagePath);
-  }
-  const { error } = await supabase()
+  const { data: deleted, error } = await supabase()
     .from("entity_documents")
     .delete()
-    .eq("id", docId);
-  return { error: (error as Error | null) ?? null };
+    .eq("id", docId)
+    .select("id");
+  if (error) {
+    return { error: new Error(error.message) };
+  }
+  if ((deleted ?? []).length === 0) {
+    return { error: new Error("This document could not be deleted. Refresh and try again.") };
+  }
+  if (storagePath) {
+    const { error: storageError } = await supabase()
+      .storage.from(COMPLIANCE_BUCKET)
+      .remove([storagePath]);
+    if (storageError) {
+      return {
+        error: new Error(storageLeftAfterDbDeleteMessage(storageError.message)),
+      };
+    }
+    signedUrlCache.delete(storagePath);
+  }
+  return { error: null };
 }
 
 // ── Audit log ──────────────────────────────────────────────────────────────
@@ -557,10 +575,14 @@ export async function getDocumentAuditLog(
   documentId: string,
   options: { limit?: number } = {},
 ): Promise<{ error: Error | null; entries: DocumentAuditEntry[] }> {
+  const orFilter = documentAuditLookupOrFilter(documentId);
+  if (!orFilter) {
+    return { error: new Error("Invalid document id."), entries: [] };
+  }
   let q = supabase()
     .from("document_audit_log")
     .select("*")
-    .eq("document_id", documentId)
+    .or(orFilter)
     .order("created_at", { ascending: false });
   if (options.limit) q = q.limit(options.limit);
 

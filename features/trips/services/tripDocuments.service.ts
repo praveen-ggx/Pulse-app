@@ -847,7 +847,11 @@ export async function deleteTripDocument(doc: TripDocumentRow): Promise<{ error:
 
   const { error: storageErr } = await supabase().storage.from(BUCKET).remove([doc.storage_path]);
   if (storageErr) {
-    return { error: new Error(storageErr.message) };
+    return {
+      error: new Error(
+        `The document record was removed, but the file may still be in storage. ${storageErr.message}`,
+      ),
+    };
   }
   tripDocSignedUrls.invalidate(doc.storage_path);
   return { error: null };

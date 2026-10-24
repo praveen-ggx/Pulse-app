@@ -1,4 +1,5 @@
 import type { ClientLaneRate, LaneRateType } from '@/features/clients/types/clientManagement.types';
+import { laneWarehouseError } from '@/features/clients/utils/warehouseAddress.util';
 import { supabase } from '@/lib/supabase';
 
 export type CreateLaneRateData = {
@@ -74,11 +75,33 @@ export async function getClientLaneRates(
   return { error: null, laneRates: (data ?? []) as ClientLaneRate[] };
 }
 
+/** Rejects a lane whose pickup warehouse is missing or not the client's (see laneWarehouseError). */
+async function validateLaneWarehouse(
+  orgId: string,
+  clientId: string,
+  warehouseId: string | null | undefined,
+): Promise<Error | null> {
+  const { data, error } = await supabase()
+    .from('client_warehouses')
+    .select('id')
+    .eq('organization_id', orgId)
+    .eq('client_id', clientId)
+    .is('deleted_at', null);
+  if (error) return new Error(error.message);
+  const message = laneWarehouseError({
+    warehouseId,
+    clientWarehouseIds: ((data ?? []) as { id: string }[]).map((w) => w.id),
+  });
+  return message ? new Error(message) : null;
+}
+
 export async function createClientLaneRate(
   orgId: string,
   clientId: string,
   payload: CreateLaneRateData,
 ): Promise<{ error: Error | null; laneRate: ClientLaneRate | null }> {
+  const invalid = await validateLaneWarehouse(orgId, clientId, payload.origin_warehouse_id);
+  if (invalid) return { error: invalid, laneRate: null };
   const { data, error } = await supabase()
     .from('client_lane_rates')
     .insert({ organization_id: orgId, client_id: clientId, ...payload })
@@ -92,6 +115,22 @@ export async function updateClientLaneRate(
   laneRateId: string,
   payload: Partial<CreateLaneRateData>,
 ): Promise<{ error: Error | null }> {
+  // A saved lane must end up with a valid pickup warehouse, including an old
+  // lane that had none (it is not saved again until one is chosen).
+  const { data: lane, error: readError } = await supabase()
+    .from('client_lane_rates')
+    .select('organization_id, client_id, origin_warehouse_id')
+    .eq('id', laneRateId)
+    .maybeSingle();
+  if (readError) return { error: new Error(readError.message) };
+  if (!lane) return { error: new Error('Lane not found.') };
+  const current = lane as { organization_id: string; client_id: string; origin_warehouse_id: string | null };
+  const invalid = await validateLaneWarehouse(
+    current.organization_id,
+    current.client_id,
+    payload.origin_warehouse_id !== undefined ? payload.origin_warehouse_id : current.origin_warehouse_id,
+  );
+  if (invalid) return { error: invalid };
   const { error } = await supabase()
     .from('client_lane_rates')
     .update({ ...payload, updated_at: new Date().toISOString() })

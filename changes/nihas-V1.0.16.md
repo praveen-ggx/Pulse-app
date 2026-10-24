@@ -21,3 +21,17 @@
 - Areas: features/organization/services/businessVerification.service.ts.
 - Migrations: none.
 - Tested: eslint + tsc on the file. Upload not clicked through on preprod/prod.
+
+## Also: one warehouse resolver, draft edits re-link, warnings for unlinked pickups
+- What broke / root cause: editing a draft's pickup, lane or client never updated `indents.warehouse_id`, so a draft could keep the old warehouse (wrong Ground Ops) or stay unlinked. The lane warehouse was trusted without checking it belongs to the indent's client. Typed pickups (the place search does not know places like Arupukottai, Perunduraipattu) and Custom lanes were silently unlinked.
+- What: one resolver for create and draft edits — explicit warehouse of the client, else the lane's pickup warehouse (same client only), else a pickup that is exactly one warehouse's suggested address; no city / partial matching, duplicates never picked. Draft edits re-link only when pickup / lane / client is sent and changed (or the draft has no link yet); a route that no longer resolves clears the link. Create indent shows a warning (not a block) when the pickup will not link to any of the client's warehouses; the mobile lane editor warns on a Custom pickup for a client with warehouses. Typing a pickup and Custom lanes stay allowed.
+- Areas: features/clients/utils/warehouseAddress.util.ts, features/indents/services/indents.service.ts, app/create-indent/index.tsx, features/clients/components/ClientProfileLanesEditSection.tsx.
+- Migrations: none.
+- Tested: Jest warehouseAddress.util (16) + indentWarehouseLink (14). Warnings not clicked through in the app.
+
+## Also: every saved lane needs one of its client's warehouses
+- What broke / root cause: the mobile lane editor (and the desktop add-lane form for clients with no warehouse) saved lanes with a typed pickup and no warehouse; indents from those lanes could never link to a warehouse, so Ground Ops never saw their trips.
+- What: `createClientLaneRate` / `updateClientLaneRate` refuse a lane whose pickup warehouse is missing or not one of the client's (also on update, so an old no-warehouse lane is not saved again until one is chosen). Mobile editor blocks Save on a Custom pickup and shows why; desktop add-lane form asks to add a warehouse first when the client has none. Adhoc indents unchanged (typed pickup still allowed, with the warning).
+- Areas: features/clients/services/clientLaneRates.service.ts, features/clients/utils/warehouseAddress.util.ts, features/clients/components/ClientProfileLanesEditSection.tsx, features/clients/components/desktop/ClientProfileDataPanels.tsx.
+- Migrations: none. Existing no-warehouse lanes left as they are (prod 24 Oct, read-only: 7 GOGOVAN — Mayora 1, Megha 4, Sarvoday 2; 7 in "nihas logs").
+- Tested: Jest clientLaneRates.warehouse (10), warehouseAddress.util. Lane screens not clicked through.

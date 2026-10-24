@@ -266,7 +266,11 @@ export function HardCopyPodPhotoUpload({
               accessibilityRole="imagebutton"
               accessibilityLabel={`Preview ${active.fileName}`}
             >
-              <PdfViewer pdfUri={active.previewUri} style={styles.paneFile} />
+              <PdfViewer
+                pdfUri={active.previewUri}
+                showToolbar={false}
+                style={styles.paneFile}
+              />
             </Pressable>
           ) : active?.previewUri ? (
             <Pressable
@@ -942,7 +946,11 @@ function PodFilePreview({
             {item?.previewUri ? (
               <View style={[styles.previewZoom, zoomStyle]} pointerEvents={keepPdfChrome ? "box-none" : "none"}>
                 {isPdf ? (
-                  <PdfViewer pdfUri={item.previewUri} style={styles.previewFile} />
+                  <PdfViewer
+                    pdfUri={item.previewUri}
+                    showToolbar={keepPdfChrome}
+                    style={styles.previewFile}
+                  />
                 ) : (
                   <Image
                     source={{ uri: item.previewUri }}

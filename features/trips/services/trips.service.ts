@@ -2280,6 +2280,8 @@ export interface UpdateTripAssignmentData {
   vehicle_id?: string | null;
   /** Ad-hoc vehicle number when vehicle_id is null (e.g. aggregate trip). */
   vehicle_display_number?: string | null;
+  /** Trip-local label. Must not be written to the driver profile. */
+  driver_display_name?: string | null;
 }
 
 export interface UpdateTripSupplierData {
@@ -2367,6 +2369,8 @@ export async function updateTripAssignment(
   if (data.vehicle_id !== undefined) updates.vehicle_id = data.vehicle_id;
   if (data.vehicle_display_number !== undefined)
     updates.vehicle_display_number = data.vehicle_display_number;
+  if (data.driver_display_name !== undefined)
+    updates.driver_display_name = data.driver_display_name?.trim() || null;
   // Reassign preserves trip stage — only driver_id and vehicle_id change.
   // Only push status → 'assigned' on first assign before the trip has started.
   if (

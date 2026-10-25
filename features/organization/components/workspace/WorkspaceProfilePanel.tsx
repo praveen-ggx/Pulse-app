@@ -41,7 +41,6 @@ export function WorkspaceProfilePanel({
         onOpenVerification={() => onOpenOrgSection('verification')}
         onOpenBusinessIdentity={() => onOpenOrgSection('details')}
         onOpenWorkspaceSettings={() => onOpenPanel('settings')}
-        onOpenProducts={() => onOpenPanel('products')}
         onOpenScanUsage={() => onOpenPanel('ocr-usage')}
         onOpenRoute={onOpenRoute}
       />

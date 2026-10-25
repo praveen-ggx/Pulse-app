@@ -103,12 +103,12 @@ async function main() {
     log(`✓ loaded ${ROUTE} (HTTP 200, title="${title}") in ${secs}s`);
     if (errors.length) log(`⚠ ${errors.length} console error(s): ${errors.slice(0, 3).join(' | ')}`);
 
-    // Click the "Enter OS" CTA (href="/sign-in"). The landing page renders
-    // inside a srcDoc iframe (title="Pulse Website"); reach into it via
+    // Click the "Enter OS" CTA (href="/onboarding"). The landing page renders
+    // inside a srcDoc iframe (title="pulse."); reach into it via
     // frameLocator so we wait for the frame's content to render.
-    log('clicking "Enter OS" (→ /sign-in)...');
+    log('clicking "Enter OS" (→ /onboarding)...');
     const cta = page
-      .frameLocator('iframe[title="Pulse Website"]')
+      .frameLocator('iframe[title="pulse."]')
       .getByRole('link', { name: 'Enter OS' })
       .first();
     await cta.waitFor({ state: 'visible', timeout: 30_000 });

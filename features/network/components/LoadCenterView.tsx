@@ -2,7 +2,6 @@
  * Load Center — reference UI: Hire Partners | Find Work | Awarded.
  * Header "Load Center" / "Find or Hire Work", three sub-tabs, cards, modals.
  */
-import { PulsePillButton } from "@/components/PulsePillButton";
 import { ContentErrorState } from '@/components/ContentErrorState';
 import {
   HUB_GRID_MIN_WIDTH,
@@ -164,7 +163,7 @@ import {
     prefetchTripDetailBundle,
 } from "@/lib/queries";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { Compass, Search } from "lucide-react-native";
+import { Search } from "lucide-react-native";
 import { type FlashListRef } from "@shopify/flash-list";
 import { useQueryClient } from "@tanstack/react-query";
 import * as Linking from "expo-linking";
@@ -1266,17 +1265,25 @@ export function LoadCenterView({
                   />
                 </View>
                 {loadSubTab !== "GIVE_LOAD" ? (
-                  <PulsePillButton
-                    label="Marketplace Loads"
-                    size="compact"
-                    variant="outline"
-                    showPlusIcon
-                    IconComponent={Compass}
+                  <Pressable
                     onPress={() =>
                       router.push(ROUTES.FIND_LOADS as import("expo-router").Href)
                     }
+                    style={({ pressed }) => [
+                      styles.findVehiclesBtn,
+                      pressed && styles.findVehiclesBtnPressed,
+                    ]}
+                    accessibilityRole="button"
                     accessibilityLabel="Marketplace Loads — open Marketplace opportunities"
-                  />
+                  >
+                    <FontAwesome
+                      name="cube"
+                      size={12}
+                      color={Theme.textOnDark}
+                      style={{ marginRight: 8 }}
+                    />
+                    <Text style={styles.findVehiclesBtnText}>Marketplace Loads</Text>
+                  </Pressable>
                 ) : null}
               </View>
             </View>
@@ -2274,17 +2281,25 @@ export function LoadCenterView({
                 onDoneSubTabChange={(id) => setDoneSubTab(id as DoneSubTab)}
                 findLoadsAction={
                   loadSubTab === "GIVE_LOAD" ? undefined : (
-                  <PulsePillButton
-                    label="Marketplace Loads"
-                    size="compact"
-                    variant="outline"
-                    showPlusIcon
-                    IconComponent={Compass}
+                  <Pressable
                     onPress={() =>
                       router.push(ROUTES.FIND_LOADS as import("expo-router").Href)
                     }
+                    style={({ pressed }) => [
+                      styles.findVehiclesBtn,
+                      pressed && styles.findVehiclesBtnPressed,
+                    ]}
+                    accessibilityRole="button"
                     accessibilityLabel="Marketplace Loads — open Marketplace opportunities"
-                  />
+                  >
+                    <FontAwesome
+                      name="cube"
+                      size={12}
+                      color={Theme.textOnDark}
+                      style={{ marginRight: 8 }}
+                    />
+                    <Text style={styles.findVehiclesBtnText}>Marketplace Loads</Text>
+                  </Pressable>
                   )
                 }
               />
@@ -2396,25 +2411,6 @@ export function LoadCenterView({
                         embedded
                         sidebarStack
                       />
-                      <Pressable
-                        onPress={() => setFindMarketplaceMode("get")}
-                        style={({ pressed }) => [
-                          styles.findVehiclesBtn,
-                          pressed && styles.findVehiclesBtnPressed,
-                        ]}
-                        accessibilityRole="button"
-                        accessibilityLabel="Find load"
-                      >
-                        <FontAwesome
-                          name="cube"
-                          size={12}
-                          color={Theme.textOnDark}
-                          style={{ marginRight: 8 }}
-                        />
-                        <Text style={styles.findVehiclesBtnText}>
-                          Find load
-                        </Text>
-                      </Pressable>
                     </View>
                   )}
                   <View style={styles.loadDesktopRecs}>

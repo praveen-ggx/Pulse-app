@@ -6,7 +6,7 @@ import { resolveCommercialOpportunity } from '@/features/marketplace/domain';
 import { StoryMobilePopupShell } from '@/features/network/components/StoryMobilePopupShell';
 import StoryDetailScreen from '@/features/network/screens/StoryDetailScreen';
 import {
-  checkOrgsConnected,
+  checkOrgsConnectedForStoryPreview,
   getStoryClosedInfo,
   getStoryPreview,
   type StoryClosedReason,
@@ -16,6 +16,7 @@ import { getDriverReachStories } from '@/features/reach/services/driverReferrals
 import { DriverPulseStoryViewer } from '@/features/reach/screens/DriverPulseStoryViewer';
 import { ROUTES } from '@/lib/routes';
 import { useMemberAccess } from '@/lib/useMemberAccess';
+import { useSafeBack } from '@/lib/useSafeBack';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
@@ -137,10 +138,12 @@ function StoryClosedView({
 function PreviewShell({
   preview,
   children,
+  onClose,
 }: {
   preview: StoryPreviewRow;
   /** Omitted when there's no action to offer (e.g. member lacks the story grant). */
   children?: React.ReactNode;
+  onClose?: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const routeLabel =
@@ -149,7 +152,7 @@ function PreviewShell({
       : null;
 
   return (
-    <StoryMobilePopupShell>
+    <StoryMobilePopupShell onBackdropPress={onClose}>
     <View style={[styles.container, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>
       <View style={styles.card}>
         <View style={styles.iconWrap}>
@@ -185,6 +188,7 @@ export default function StoryDetailRoute() {
   const { currentOrganization } = useOrganization();
   const { can: canSurface, isLoading: accessLoading } = useMemberAccess();
   const router = useRouter();
+  const closeStory = useSafeBack(ROUTES.TABS.NETWORK);
   const params = useLocalSearchParams<{ postId?: string; orgId?: string; storyType?: string; queue?: string }>();
   const myOrgId = currentOrganization?.id ?? '';
   const isDriver = profile?.role === 'driver';
@@ -233,7 +237,7 @@ export default function StoryDetailRoute() {
   const connectionQ = useQuery({
     queryKey: ['q', 'posts', 'org-connected', myOrgId, previewQ.data?.organization_id, params.postId],
     queryFn: async () => {
-      const { connected } = await checkOrgsConnected(
+      const { connected } = await checkOrgsConnectedForStoryPreview(
         myOrgId,
         previewQ.data!.organization_id,
         params.postId,
@@ -257,7 +261,7 @@ export default function StoryDetailRoute() {
 
   if (status === 'restoring' || previewQ.isLoading) {
     return (
-      <StoryMobilePopupShell onBackdropPress={() => router.back()}>
+      <StoryMobilePopupShell onBackdropPress={closeStory}>
         <LazySuspenseInlineFallback />
       </StoryMobilePopupShell>
     );
@@ -281,7 +285,7 @@ export default function StoryDetailRoute() {
           : [];
     if (driverStoriesQ.isLoading && !driverStory) {
       return (
-        <StoryMobilePopupShell onBackdropPress={() => router.back()}>
+        <StoryMobilePopupShell onBackdropPress={closeStory}>
           <LazySuspenseInlineFallback />
         </StoryMobilePopupShell>
       );
@@ -294,34 +298,40 @@ export default function StoryDetailRoute() {
           postId={params.postId}
           story={driverStory}
           shipperName={driverStory.org_name ?? preview?.org_name}
-          onClose={() => router.back()}
+          onClose={closeStory}
         />
       );
     }
   }
 
+  const waitForConnection =
+    Boolean(user) && Boolean(myOrgId) && !isDriver && !isOwnStory;
   if (storyClosed && !isOwnStory) {
-    if (closedInfoQ.isLoading) {
+    if (closedInfoQ.isLoading || (waitForConnection && connectionQ.isLoading)) {
       return (
-        <StoryMobilePopupShell onBackdropPress={() => router.back()}>
+        <StoryMobilePopupShell onBackdropPress={closeStory}>
           <LazySuspenseInlineFallback />
         </StoryMobilePopupShell>
       );
     }
-    return (
-      <StoryClosedView
-        reason={closedInfoQ.data?.reason ?? 'removed'}
-        onGoHome={() => router.replace(ROUTES.INDEX)}
-      />
-    );
+    // Connected / client-book partners still preview the story card.
+    // Market-closed only blocks strangers.
+    if (!waitForConnection || !connectionQ.data) {
+      return (
+        <StoryClosedView
+          reason={closedInfoQ.data?.reason ?? 'removed'}
+          onGoHome={() => router.replace(ROUTES.INDEX)}
+        />
+      );
+    }
   }
 
   if (!preview) {
     return (
-      <StoryMobilePopupShell onBackdropPress={() => router.back()}>
+      <StoryMobilePopupShell onBackdropPress={closeStory}>
         <View style={[styles.centered, { flex: 1, padding: 24 }]}>
           <Text style={styles.metaText}>This story could not be opened.</Text>
-          <Pressable onPress={() => router.back()} style={styles.ctaBtn}>
+          <Pressable onPress={closeStory} style={styles.ctaBtn}>
             <Text style={styles.ctaBtnText}>Close</Text>
           </Pressable>
         </View>
@@ -331,7 +341,7 @@ export default function StoryDetailRoute() {
 
   if (!user) {
     return (
-      <PreviewShell preview={preview}>
+      <PreviewShell preview={preview} onClose={closeStory}>
         <Pressable
           style={styles.ctaBtn}
           onPress={() => router.replace(`/sign-in?returnTo=${returnTo}`)}
@@ -350,12 +360,12 @@ export default function StoryDetailRoute() {
    * Own-org broadcasts stay visible so a load giver never locks themselves out.
    */
   if (!accessLoading && !isOwnStory && !canSurface('sales.network.stories')) {
-    return <PreviewShell preview={preview} />;
+    return <PreviewShell preview={preview} onClose={closeStory} />;
   }
 
   if (accessLoading || connectionQ.isLoading) {
     return (
-      <StoryMobilePopupShell onBackdropPress={() => router.back()}>
+      <StoryMobilePopupShell onBackdropPress={closeStory}>
         <LazySuspenseInlineFallback />
       </StoryMobilePopupShell>
     );
@@ -363,7 +373,7 @@ export default function StoryDetailRoute() {
 
   if (!connectionQ.data) {
     return (
-      <PreviewShell preview={preview}>
+      <PreviewShell preview={preview} onClose={closeStory}>
         <Pressable style={styles.ctaBtn} onPress={() => router.replace(ROUTES.TABS.NETWORK)}>
           <Text style={styles.ctaBtnText}>Connect with {preview.org_name || 'this org'} to bid</Text>
         </Pressable>

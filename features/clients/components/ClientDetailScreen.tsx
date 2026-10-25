@@ -258,17 +258,33 @@ export default function ClientDetailScreen({
     peekClientFirstPaint(clientId),
   );
   const clientName = client?.name || client?.contact_person || t("client");
-  const [trips, setTrips] = useState<TripRow[]>([]);
+  const [trips, setTrips] = useState<TripRow[]>(() => {
+    const seed = peekClientFirstPaint(clientId);
+    const orgId = currentOrganization?.id;
+    if (!seed || !orgId) return [];
+    const catalog =
+      queryClient.getQueryData<TripRow[]>(queryKeys.trips.finite(orgId)) ?? [];
+    return viewerOwnedClientTrips(catalog, orgId, seed);
+  });
   const [loading, setLoading] = useState(() => peekClientFirstPaint(clientId) == null);
   const bootstrapQuery = useClientPageBootstrapQuery(
     orgLoading ? null : currentOrganization?.id ?? null,
     clientId,
   );
+  const cachedOrgTripCatalog = useMemo(() => {
+    const orgId = currentOrganization?.id;
+    if (!orgId) return [] as TripRow[];
+    return queryClient.getQueryData<TripRow[]>(queryKeys.trips.finite(orgId)) ?? [];
+  }, [currentOrganization?.id, queryClient, clientId, bootstrapQuery.dataUpdatedAt]);
+  const financeAlignedCatalog =
+    trips.length > 0 ? trips : cachedOrgTripCatalog;
   const financeAligned = useFinanceAlignedClientLedger(
     currentOrganization?.id ?? null,
     clientId,
-    trips,
+    financeAlignedCatalog,
   );
+  const financeAlignedReadyRef = useRef(false);
+  financeAlignedReadyRef.current = financeAligned.ready;
   const tripIdsForFinanceAdj = useMemo(
     () => trips.map((t) => String(t.id)).filter(Boolean),
     [trips],
@@ -366,8 +382,15 @@ export default function ClientDetailScreen({
 
   const mountRef = useRef(true);
   useEffect(() => {
+    activeOrgIdRef.current = currentOrganization?.id ?? null;
+  }, [currentOrganization?.id]);
+  useEffect(() => {
     activeClientIdRef.current = clientId;
     activeOrgIdRef.current = currentOrganization?.id ?? null;
+    if (mountRef.current) {
+      mountRef.current = false;
+      return;
+    }
     setIsLinked(false);
     setClientRatingAvg(null);
     initialLoadDoneRef.current = false;
@@ -382,15 +405,11 @@ export default function ClientDetailScreen({
     setTripSubcontractByTripId({});
     setPartnerOrgNamesByOrgId({});
     setPartnerOrgBrandingByOrgId({});
-    if (mountRef.current) {
-      mountRef.current = false;
-      return;
-    }
     const seed = peekClientFirstPaint(clientId);
     hasSeedDataRef.current = seed != null;
     setClient(seed);
     setLoading(seed == null);
-  }, [clientId, currentOrganization?.id]);
+  }, [clientId]);
 
 
   useEffect(() => {
@@ -497,7 +516,9 @@ export default function ClientDetailScreen({
       setOrgTrips(bundle.trips);
       setOrganizationClients(bundle.clients);
       setAllOrgTransactions(bundle.transactions);
-      setTrips(viewerOwnedClientTrips(bundle.trips, orgId, bundle.client));
+      if (!financeAlignedReadyRef.current) {
+        setTrips(viewerOwnedClientTrips(bundle.trips, orgId, bundle.client));
+      }
       setSuppliers(bundle.suppliers);
       setDrivers(bundle.drivers);
       setClientRatingAvg(averageScore(bundle.ratings ?? []));
@@ -586,7 +607,9 @@ export default function ClientDetailScreen({
     setOrgTrips(bundle.trips);
     setOrganizationClients(bundle.clients);
     setAllOrgTransactions(bundle.transactions);
-    setTrips(viewerOwnedClientTrips(bundle.trips, orgId, bundle.client));
+    if (!financeAlignedReadyRef.current) {
+      setTrips(viewerOwnedClientTrips(bundle.trips, orgId, bundle.client));
+    }
     setSuppliers(bundle.suppliers);
     setDrivers(bundle.drivers);
     setClientRatingAvg(averageScore(bundle.ratings ?? []));
@@ -594,6 +617,19 @@ export default function ClientDetailScreen({
     setLoading(false);
     initialLoadDoneRef.current = true;
   }, [bootstrapQuery.data, clientId, currentOrganization?.id]);
+
+  useEffect(() => {
+    if (!financeAligned.ready || financeAligned.trips.length === 0) return;
+    setTrips((prev) => {
+      if (
+        prev.length === financeAligned.trips.length &&
+        prev.every((trip, index) => trip.id === financeAligned.trips[index]?.id)
+      ) {
+        return prev;
+      }
+      return financeAligned.trips;
+    });
+  }, [financeAligned.ready, financeAligned.trips]);
 
   useEffect(() => {
     fetchedPartnerOrgIdsRef.current = new Set();

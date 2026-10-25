@@ -26,6 +26,14 @@ describe('submitPulseBidWithDirectQuote', () => {
       p_amount: 18000,
       p_note: '',
     });
+    expect(mockRpc).not.toHaveBeenCalledWith(
+      'submit_network_pool_quote',
+      expect.anything(),
+    );
+    expect(mockRpc).not.toHaveBeenCalledWith(
+      'submit_network_quote',
+      expect.anything(),
+    );
   });
 
   it('explains a countered or decided quote instead of the raw code', async () => {

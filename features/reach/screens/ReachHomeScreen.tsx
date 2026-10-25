@@ -1,89 +1,91 @@
 /**
- * Pulse Reach — Story Campaign Studio (Metronic Campaign Manager).
- * Live ticker, KPI strip, Ads Manager table + ad preview + insights.
+ * Pulse Boost — Campaign Manager, aligned with Trips / Broadcast hub chrome.
  */
+import {
+  HubMobileListCanvas,
+  HubMobileSearchRow,
+  HubMobileUnderlineTab,
+  hubMobileChromeStyles,
+} from "@/components/hub";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { useOrganization } from "@/contexts/OrganizationContext";
-import { ReachCampaignReelCard } from "@/features/reach/components/ReachCampaignReelCard";
-import { ReachLiveTicker } from "@/features/reach/components/ReachLiveTicker";
-import { ReachMarketingInsights } from "@/features/reach/components/ReachMarketingInsights";
-import { ReachStoryPostPreview } from "@/features/reach/components/ReachStoryPostPreview";
+import { ReachBillingPanel } from "@/features/reach/components/ReachBillingPanel";
+import { ReachCampaignDetailPanel } from "@/features/reach/components/ReachCampaignDetailPanel";
+import { ReachCampaignHubCard } from "@/features/reach/components/ReachCampaignHubCard";
+import { ReachAboutPulseBoost } from "@/features/reach/components/ReachAboutPulseBoost";
+import { ReachCreateCampaignSheet } from "@/features/reach/components/ReachCreateCampaignSheet";
+import { indentCanBroadcastToPulseNetwork } from "@/features/network/utils/indentBroadcastEligibility.util";
+import { classifyStoredPostType } from "@/features/network/utils/storyDisplay";
 import {
-    REACH_DESKTOP_BP,
-    REACH_M,
-    REACH_PAGE_MAX,
-    reachMetronicShared as m,
-} from "@/features/reach/styles/reachMetronic";
-import { groupReachCampaignsByPost } from "@/features/reach/utils/campaignFormat";
+  groupReachCampaignsByPool,
+  indentCountForReachPool,
+} from "@/features/reach/utils/reachCampaignPool.util";
 import {
-    useReachCampaignPurchasesQuery,
-    useReachCampaignsQuery,
-    useReachOrgSummaryQuery,
-    useReachPlansQuery,
-    useReachReferralInboxQuery,
+  useReachCampaignPurchasesQuery,
+  useReachCampaignsQuery,
+  useReachOrgSummaryQuery,
+  useReachPlansQuery,
+  useReachReferralInboxQuery,
 } from "@/lib/queries/useReachCampaignsQuery";
-import {
-    REACH_METRONIC_KPI_ICONS,
-    type ReachMetronicKpiId,
-} from "@/lib/reachMetronicAssets";
+import { useIndentsQuery } from "@/lib/queries/useIndentsQuery";
 import { ROUTES } from "@/lib/routes";
+import { useSafeBack } from "@/lib/useSafeBack";
 import { useRouter } from "expo-router";
+import { ArrowLeft, Inbox as InboxIcon, Plus, Rocket } from "lucide-react-native";
+import { useEffect, useMemo, useState } from "react";
 import {
-    ArrowLeft,
-    Coins,
-    Inbox as InboxIcon,
-    Plus,
-    Rocket,
-    Search,
-    TrendingUp,
-} from "lucide-react-native";
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-    ActivityIndicator,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    useWindowDimensions,
-    View,
-    type NativeScrollEvent,
-    type NativeSyntheticEvent,
+  ActivityIndicator,
+  Pressable,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-const DESKTOP_BREAKPOINT = REACH_DESKTOP_BP;
-const PAGE_MAX_WIDTH = REACH_PAGE_MAX;
-const CARD_WIDTH = 300;
-const CARD_GAP = 10;
-const KPI_ICON_SIZE = 40;
-
-function MetronicKpiIcon({ id }: { id: ReachMetronicKpiId }) {
-  const { Icon } = REACH_METRONIC_KPI_ICONS[id];
-  return (
-    <View style={m.kpiIconOrb}>
-      <Icon width={KPI_ICON_SIZE} height={KPI_ICON_SIZE} />
-    </View>
-  );
-}
-
 type ReelFilter = "active" | "history";
-type StudioTab = "campaigns" | "insights" | "credits";
+type StudioTab = "campaigns" | "credits";
 
 interface ReachStudioScreenProps {
-  /** History route opens on completed/cancelled; Home opens on active. */
   initialReelFilter?: ReelFilter;
+}
+
+function storyFilterTone(kind: "active" | "history") {
+  if (kind === "active") {
+    return {
+      bg: Theme.screenBackground,
+      border: Theme.positive,
+      text: Theme.positive,
+      dot: Theme.positive,
+      selectedBg: Theme.positive,
+      selectedBorder: Theme.positive,
+      selectedText: Theme.buttonDarkText,
+      selectedDot: Theme.buttonDarkText,
+    };
+  }
+  return {
+    bg: Theme.screenBackground,
+    border: Theme.brandBlueInk,
+    text: Theme.brandBlueInk,
+    dot: Theme.brandBlueInk,
+    selectedBg: Theme.brandBlue,
+    selectedBorder: Theme.brandBlueInk,
+    selectedText: Theme.brandBlueInk,
+    selectedDot: Theme.brandBlueInk,
+  };
 }
 
 export default function ReachHomeScreen({
   initialReelFilter = "active",
 }: ReachStudioScreenProps) {
   const router = useRouter();
+  const goBack = useSafeBack(ROUTES.TABS.NETWORK);
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const isDesktop = Platform.OS === "web" && width >= DESKTOP_BREAKPOINT;
+  const isDesktop = width >= 960;
   const { currentOrganization: organization } = useOrganization();
   const orgId = organization?.id ?? null;
 
@@ -92,6 +94,7 @@ export default function ReachHomeScreen({
   const purchasesQ = useReachCampaignPurchasesQuery(orgId);
   const plansQ = useReachPlansQuery();
   const inboxQ = useReachReferralInboxQuery(orgId);
+  const indentsQ = useIndentsQuery(orgId);
   const pendingRecommendations = (inboxQ.data ?? []).filter(
     (r) => r.status === "recommended",
   ).length;
@@ -103,24 +106,15 @@ export default function ReachHomeScreen({
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [studioTab, setStudioTab] = useState<StudioTab>("campaigns");
-  const deckRef = useRef<ScrollView>(null);
-  const [deckIndex, setDeckIndex] = useState(0);
-  const useManagerList = isDesktop;
+  const [createOpen, setCreateOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
 
-  // One card per trip, not per campaign row. Group ACROSS every status first
-  // (an upgraded/re-broadcast trip's earlier expired or cancelled campaigns
-  // still belong to its timeline), then bucket each trip as "active" if any
-  // of its campaigns is currently active — that's what decides which reel
-  // tab it surfaces under, independent of which row happens to rank highest.
-  //
-  // The plan-tier timeline is read from reach_campaign_purchases, not from
-  // the campaign rows themselves: upgrade_reach_campaign mutates plan_id on
-  // the SAME row in place (Starter -> Growth -> Business is one row, three
-  // purchases), while a re-broadcast trip gets one purchase per new row.
-  // Purchases are the only source that captures both.
   const allTripGroups = useMemo(() => {
     const purchases = purchasesQ.data ?? [];
-    return groupReachCampaignsByPost(allCampaigns).map((camps) => {
+    const allIndents = indentsQ.data ?? [];
+    const openIndents = allIndents.filter(indentCanBroadcastToPulseNetwork);
+    const indentById = new Map(allIndents.map((indent) => [indent.id, indent]));
+    return groupReachCampaignsByPool(allCampaigns, indentById).map((camps) => {
       const activeOnes = camps.filter((c) => c.status === "active");
       const rankPool = activeOnes.length > 0 ? activeOnes : camps;
       const byRank = [...rankPool].sort((a, b) => {
@@ -131,7 +125,6 @@ export default function ReachHomeScreen({
       });
       const primary = byRank[0];
       const campaignIds = new Set(camps.map((c) => c.id));
-      // purchasesQ is already ordered oldest-first by the query.
       const tripPurchases = purchases.filter((p) => campaignIds.has(p.campaign_id));
       const planTimeline =
         tripPurchases.length > 0
@@ -140,12 +133,13 @@ export default function ReachHomeScreen({
       return {
         primary,
         campaignIds: camps.map((c) => c.id),
+        indentCount: indentCountForReachPool(primary, openIndents, camps, indentById),
         bucket: (activeOnes.length > 0 ? "active" : "history") as ReelFilter,
         boostCount: Math.max(tripPurchases.length, camps.length),
         planTimeline,
       };
     });
-  }, [allCampaigns, plansQ.data, purchasesQ.data]);
+  }, [allCampaigns, indentsQ.data, plansQ.data, purchasesQ.data]);
 
   const activeCount = allTripGroups.filter((g) => g.bucket === "active").length;
   const historyCount = allTripGroups.filter((g) => g.bucket === "history").length;
@@ -174,90 +168,98 @@ export default function ReachHomeScreen({
   useEffect(() => {
     if (groups.length === 0) {
       setSelectedId(null);
-      setDeckIndex(0);
       return;
     }
     if (!selectedId || !groups.some((g) => g.primary.id === selectedId)) {
       setSelectedId(groups[0].primary.id);
-      setDeckIndex(0);
     }
   }, [groups, selectedId]);
 
   const selectedGroup = groups.find((g) => g.primary.id === selectedId) ?? groups[0] ?? null;
   const selected = selectedGroup?.primary ?? null;
-  const pagePadH = isDesktop ? 24 : Layout.screenPaddingHorizontal;
 
-  const onDeckScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const x = e.nativeEvent.contentOffset.x;
-    const idx = Math.round(x / (CARD_WIDTH + CARD_GAP));
-    if (idx !== deckIndex && groups[idx]) {
-      setDeckIndex(idx);
-      setSelectedId(groups[idx].primary.id);
-    }
+  const goBoost = () => setCreateOpen(true);
+  const openSelectedStory = () => {
+    if (!selected?.post_id || !selected.org_id) return;
+    router.push({
+      pathname: "/(modals)/story-detail",
+      params: {
+        postId: selected.post_id,
+        orgId: selected.org_id,
+        storyType: classifyStoredPostType(selected.snapshot_post_type, selected.snapshot_content),
+      },
+    });
   };
 
-  const goBoost = () => router.push(ROUTES.TABS.NETWORK as never);
-  const goCredits = () => router.push(ROUTES.REACH.EARN_CREDITS as never);
-  const goDetail = (id: string) => router.push(ROUTES.REACH.campaignDetail(id) as never);
-
-  const onTab = (tab: StudioTab) => {
-    setStudioTab(tab);
-    if (tab === "credits") goCredits();
-    if (tab === "insights") {
-      // stay on page — insights panel is always visible on desktop
-    }
-  };
+  const kpiCards = (
+    <View style={styles.kpiStrip}>
+      {(
+        [
+          {
+            label: "Balance",
+            value: (summary?.walletBalance ?? 0).toLocaleString(),
+            unit: "credits",
+          },
+          { label: "Active", value: String(activeCount) },
+          {
+            label: "Impressions",
+            value: (summary?.metrics.impressions ?? 0).toLocaleString(),
+          },
+          {
+            label: "Bids",
+            value: (summary?.metrics.bids ?? 0).toLocaleString(),
+          },
+        ] as const
+      ).map((card, index) => (
+        <View
+          key={card.label}
+          style={[styles.kpiCell, index > 0 && styles.kpiCellBorder]}
+        >
+          <Text style={styles.kpiLabel}>{card.label}</Text>
+          <Text style={styles.kpiValue} numberOfLines={1}>
+            {card.value}
+            {"unit" in card && card.unit ? (
+              <Text style={styles.kpiUnit}> {card.unit}</Text>
+            ) : null}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
 
   return (
-    <View style={[m.pageCanvas, { paddingTop: insets.top }]}>
-      <ReachLiveTicker />
-
-      <View style={[m.headerBleed, { paddingHorizontal: pagePadH }]}>
-        <View style={[m.headerInner, isDesktop && m.headerMax]}>
-          <View style={styles.headerLeft}>
-            <Pressable onPress={() => router.back()} style={m.backBtn} hitSlop={8}>
-              <ArrowLeft size={15} color={REACH_M.subtle} />
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={[hubMobileChromeStyles.shell, styles.hubHeader]}>
+        <View style={hubMobileChromeStyles.screenHeaderRow}>
+          <Pressable
+            onPress={goBack}
+            style={styles.backBtn}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+          >
+            <ArrowLeft size={20} color={Theme.textPrimaryDark} />
+          </Pressable>
+          <View style={styles.titleBlock}>
+            <Text style={hubMobileChromeStyles.screenTitle} numberOfLines={1}>
+              Pulse Boost
+            </Text>
+            <Pressable
+              onPress={() => setAboutOpen(true)}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="What is Pulse Boost"
+            >
+              <Text style={styles.whatIsLink}>What is Pulse Boost?</Text>
             </Pressable>
-            <View style={styles.brandText}>
-              <Text style={m.brandTitle}>Pulse Reach</Text>
-              <Text style={m.brandSub}>Campaign Manager</Text>
-            </View>
           </View>
-
-          {isDesktop ? (
-            <View style={styles.centerTabs}>
-              {(
-                [
-                  { key: "campaigns" as const, label: "Campaigns" },
-                  { key: "insights" as const, label: "Insights" },
-                  { key: "credits" as const, label: "Billing" },
-                ] as const
-              ).map((t) => (
-                <Pressable
-                  key={t.key}
-                  onPress={() => onTab(t.key)}
-                  style={[m.centerTab, studioTab === t.key && m.centerTabActive]}
-                >
-                  <Text
-                    style={[
-                      m.centerTabText,
-                      studioTab === t.key && m.centerTabTextActive,
-                    ]}
-                  >
-                    {t.label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
-
           <View style={styles.headerRight}>
             <Pressable
               style={styles.inboxHeaderBtn}
               onPress={() => router.push(ROUTES.REACH.INBOX as never)}
               accessibilityLabel="Opportunities — recommended by drivers"
             >
-              <InboxIcon size={14} color={REACH_M.subtle} />
+              <InboxIcon size={16} color={Theme.textPrimaryDark} />
               {pendingRecommendations > 0 ? (
                 <View style={styles.inboxBadge}>
                   <Text style={styles.inboxBadgeText}>
@@ -266,297 +268,220 @@ export default function ReachHomeScreen({
                 </View>
               ) : null}
             </Pressable>
-            <Pressable style={styles.creditsPill} onPress={goCredits}>
-              <Coins size={12} color={REACH_M.primary} />
-              <Text style={styles.creditsValue}>
-                {(summary?.walletBalance ?? 0).toLocaleString()}
-              </Text>
-              <Text style={styles.creditsLabel}>credits</Text>
-            </Pressable>
-            {isDesktop ? (
-              <Pressable style={m.primaryBtn} onPress={goBoost}>
-                <Plus size={13} color={Theme.textOnPrimary} />
-                <Text style={m.primaryBtnText}>Create campaign</Text>
-              </Pressable>
-            ) : null}
           </View>
+        </View>
+        <View style={hubMobileChromeStyles.tabHeaderRow}>
+          {(
+            [
+              { key: "campaigns" as const, label: "Campaigns" },
+              { key: "credits" as const, label: "Billing" },
+            ] as const
+          ).map((t) => (
+            <HubMobileUnderlineTab
+              key={t.key}
+              label={t.label}
+              isActive={studioTab === t.key}
+              onPress={() => setStudioTab(t.key)}
+            />
+          ))}
         </View>
       </View>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[
-          styles.page,
-          { paddingHorizontal: pagePadH, paddingBottom: 32 + insets.bottom },
-          isDesktop && styles.pageDesktop,
+      <View
+        style={[
+          styles.body,
+          { paddingBottom: insets.bottom + 12 },
+          isDesktop && styles.bodyDesktop,
         ]}
       >
-        {/* Account overview KPIs */}
-        {summaryQ.isLoading ? (
-          <View style={styles.loadingWrap}>
-            <ActivityIndicator color={Theme.primary} />
+        {studioTab !== "credits" ? (
+          summaryQ.isLoading ? (
+            <View style={styles.loadingWrap}>
+              <ActivityIndicator color={Theme.primary} />
+            </View>
+          ) : (
+            kpiCards
+          )
+        ) : null}
+
+        {studioTab === "credits" ? (
+          <View style={styles.workspace}>
+            <ReachBillingPanel
+              walletBalance={summary?.walletBalance ?? 0}
+              purchases={purchasesQ.data ?? []}
+              campaigns={allCampaigns}
+              plans={plansQ.data ?? []}
+              purchasesLoading={purchasesQ.isLoading}
+            />
           </View>
-        ) : (
-          <View style={[styles.kpiRow, isDesktop && styles.kpiRowDesktop]}>
-            <View style={[m.kpiCard, isDesktop && styles.kpiCardDesktop]}>
-              <View style={styles.kpiCardTop}>
-                <Text style={m.kpiLabel}>Account balance</Text>
-                <MetronicKpiIcon id="balance" />
-              </View>
-              <View style={styles.kpiValueRow}>
-                <Text style={m.kpiValue}>
-                  {(summary?.walletBalance ?? 0).toLocaleString()}
-                </Text>
-                <Text style={styles.kpiUnit}>credits</Text>
-              </View>
-              <Pressable style={styles.topUpBtn} onPress={goCredits}>
-                <Text style={styles.topUpText}>Top up</Text>
-              </Pressable>
-            </View>
+        ) : null}
 
-            <View style={[m.kpiCard, isDesktop && styles.kpiCardDesktop]}>
-              <View style={styles.kpiCardTop}>
-                <Text style={m.kpiLabel}>Active campaigns</Text>
-                <MetronicKpiIcon id="active" />
-              </View>
-              <View style={styles.kpiValueRow}>
-                <Text style={m.kpiValue}>{activeCount}</Text>
-                {summary && summary.campaigns.total > 0 ? (
-                  <View style={styles.kpiAside}>
-                    <TrendingUp size={11} color={REACH_M.successText} />
-                    <Text style={styles.kpiAsideText}>
-                      {Math.round((activeCount / summary.campaigns.total) * 100)}% live
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-            </View>
-
-            <View style={[m.kpiCard, isDesktop && styles.kpiCardDesktop]}>
-              <View style={styles.kpiCardTop}>
-                <Text style={m.kpiLabel}>Impressions</Text>
-                <MetronicKpiIcon id="impressions" />
-              </View>
-              <View style={styles.kpiValueRow}>
-                <Text style={m.kpiValue}>
-                  {(summary?.metrics.impressions ?? 0).toLocaleString()}
-                </Text>
-              </View>
-            </View>
-
-            <View style={[m.kpiCard, isDesktop && styles.kpiCardDesktop]}>
-              <View style={styles.kpiCardTop}>
-                <Text style={m.kpiLabel}>Results (bids)</Text>
-                <MetronicKpiIcon id="results" />
-              </View>
-              <View style={styles.kpiValueRow}>
-                <Text style={m.kpiValue}>
-                  {(summary?.metrics.bids ?? 0).toLocaleString()}
-                </Text>
-              </View>
-            </View>
-          </View>
-        )}
-
-        {/* Main split */}
-        <View style={[styles.mainSplit, isDesktop && styles.mainSplitDesktop]}>
-          <View style={[styles.leftCol, isDesktop && styles.leftColDesktop]}>
-            <View style={styles.campaignPanel}>
-              <View style={styles.reelToolbar}>
-                <View style={styles.filterPills}>
-                  <Pressable
-                    onPress={() => setReelFilter("active")}
-                    style={[styles.filterPill, reelFilter === "active" && styles.filterPillActive]}
-                  >
-                    <Text
-                      style={[
-                        styles.filterPillText,
-                        reelFilter === "active" && styles.filterPillTextActive,
-                      ]}
-                    >
-                      Active ({activeCount})
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => setReelFilter("history")}
-                    style={[styles.filterPill, reelFilter === "history" && styles.filterPillActive]}
-                  >
-                    <Text
-                      style={[
-                        styles.filterPillText,
-                        reelFilter === "history" && styles.filterPillTextActive,
-                      ]}
-                    >
-                      History ({historyCount})
-                    </Text>
-                  </Pressable>
+        {studioTab === "campaigns" ? (
+          <View style={[styles.workspace, isDesktop && styles.workspaceDesktop]}>
+            <View style={[styles.listPanel, !isDesktop && styles.listPanelMobile]}>
+              <View style={styles.listToolbar}>
+                <View style={styles.filterTagRow} accessibilityRole="tablist">
+                  {(
+                    [
+                      { id: "active" as const, label: `Active ${activeCount}` },
+                      { id: "history" as const, label: `History ${historyCount}` },
+                    ] as const
+                  ).map((option) => {
+                    const on = reelFilter === option.id;
+                    const tone = storyFilterTone(option.id);
+                    return (
+                      <Pressable
+                        key={option.id}
+                        accessibilityRole="tab"
+                        accessibilityState={{ selected: on }}
+                        onPress={() => setReelFilter(option.id)}
+                        style={[
+                          styles.filterTag,
+                          {
+                            backgroundColor: on ? tone.selectedBg : tone.bg,
+                            borderColor: on ? tone.selectedBorder : tone.border,
+                          },
+                        ]}
+                      >
+                        <View
+                          style={[
+                            styles.filterTagDot,
+                            { backgroundColor: on ? tone.selectedDot : tone.dot },
+                          ]}
+                        />
+                        <Text
+                          style={[
+                            styles.filterTagText,
+                            { color: on ? tone.selectedText : tone.text },
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
                 </View>
-
-                <View style={styles.searchBox}>
-                  <Search size={13} color={Theme.textMuted} />
-                  <TextInput
+                <View style={styles.searchGrow}>
+                  <HubMobileSearchRow
                     value={search}
-                    onChangeText={setSearch}
+                    onChange={setSearch}
                     placeholder="Search campaigns, lanes, IDs…"
-                    placeholderTextColor={Theme.textMuted}
-                    style={styles.searchInput}
+                    accessibilityLabel="Search campaigns"
                   />
                 </View>
-              </View>
-
-              {campaignsQ.isLoading ? (
-                <View style={styles.loadingWrap}>
-                  <ActivityIndicator color={Theme.primary} />
-                </View>
-              ) : groups.length === 0 ? (
-                <View style={styles.emptyReel}>
-                  <Rocket size={22} color={Theme.textMuted} />
-                  <Text style={styles.emptyTitle}>No campaigns in this view</Text>
-                  <Text style={styles.emptyBody}>
-                    Create a campaign from Network to start reaching drivers.
-                  </Text>
-                  <Pressable style={m.primaryBtn} onPress={goBoost}>
-                    <Plus size={13} color={Theme.textOnPrimary} />
-                    <Text style={m.primaryBtnText}>Create campaign</Text>
-                  </Pressable>
-                </View>
-              ) : useManagerList ? (
-                <View style={styles.tableWrap}>
-                  <View style={styles.tableHead}>
-                    <Text style={[styles.th, styles.thName]}>Campaign</Text>
-                    <Text style={[styles.th, styles.thCol]}>Delivery</Text>
-                    <Text style={[styles.th, styles.thCol]}>Reach</Text>
-                    <Text style={[styles.th, styles.thCol]}>Results</Text>
-                    <Text style={[styles.th, styles.thCol]}>Spend</Text>
-                    <Text style={[styles.th, styles.thWide]}>Details</Text>
-                    <Text style={[styles.th, styles.thActions]}>Actions</Text>
-                  </View>
-                  {groups.map(({ primary: c, campaignIds, boostCount, planTimeline }) => (
-                    <ReachCampaignReelCard
-                      key={c.id}
-                      variant="manager"
-                      campaign={c}
-                      tripCampaignIds={campaignIds}
-                      plan={planById.get(c.plan_id)}
-                      boostCount={boostCount}
-                      planTimeline={planTimeline}
-                      selected={c.id === selected?.id}
-                      onSelect={() => setSelectedId(c.id)}
-                      onOpenDetail={() => goDetail(c.id)}
-                      onBoost={() => {
-                        if (c.post_id) goBoost();
-                        else goDetail(c.id);
-                      }}
-                    />
-                  ))}
-                </View>
-              ) : (
-                <ScrollView
-                  ref={deckRef}
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  snapToInterval={CARD_WIDTH + CARD_GAP}
-                  decelerationRate="fast"
-                  contentContainerStyle={styles.deckContent}
-                  onMomentumScrollEnd={onDeckScroll}
-                  onScrollEndDrag={onDeckScroll}
+                <Pressable
+                  style={styles.createBtn}
+                  onPress={goBoost}
+                  accessibilityRole="button"
+                  accessibilityLabel="Create campaign"
                 >
-                  {groups.map(({ primary: c, campaignIds, boostCount, planTimeline }) => (
-                    <ReachCampaignReelCard
-                      key={c.id}
-                      variant="deck"
-                      campaign={c}
-                      tripCampaignIds={campaignIds}
-                      plan={planById.get(c.plan_id)}
-                      boostCount={boostCount}
-                      planTimeline={planTimeline}
-                      selected={c.id === selected?.id}
-                      onSelect={() => setSelectedId(c.id)}
-                      onOpenDetail={() => goDetail(c.id)}
-                      onBoost={() => {
-                        if (c.post_id) goBoost();
-                        else goDetail(c.id);
-                      }}
-                    />
-                  ))}
-                </ScrollView>
-              )}
-            </View>
-
-            <View style={styles.launchBar}>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.launchTitle}>Create a new campaign</Text>
-                <Text style={styles.launchSub}>
-                  Boost an available load to driver feeds and start collecting bids.
-                </Text>
+                  <Plus size={13} color={Theme.textOnPrimary} strokeWidth={2.4} />
+                  <Text style={styles.createBtnText}>Create</Text>
+                </Pressable>
               </View>
-              <Pressable style={m.primaryBtn} onPress={goBoost}>
-                <Plus size={13} color={Theme.textOnPrimary} />
-                <Text style={m.primaryBtnText}>Create campaign</Text>
-              </Pressable>
-            </View>
-          </View>
 
-          <View style={[styles.rightCol, isDesktop && styles.rightColDesktop]}>
-            <View style={styles.previewStack}>
-              <ReachStoryPostPreview
-                campaign={selected}
-                plan={selected ? planById.get(selected.plan_id) : undefined}
-                orgName={organization?.name ?? "Your org"}
-                onOpenCampaign={selected ? () => goDetail(selected.id) : undefined}
-              />
-              <ReachMarketingInsights campaigns={allCampaigns} />
+              <ScrollView
+                style={styles.listScroll}
+                contentContainerStyle={styles.listScrollContent}
+                showsVerticalScrollIndicator={false}
+              >
+                {campaignsQ.isLoading ? (
+                  <View style={styles.loadingWrap}>
+                    <ActivityIndicator color={Theme.primary} />
+                  </View>
+                ) : groups.length === 0 ? (
+                  <View style={styles.emptyPick}>
+                    <Rocket size={36} color={Theme.textMuted} />
+                    <Text style={styles.emptyTitle}>No campaigns yet</Text>
+                    <Text style={styles.emptyBody}>
+                      Boost a live load from Network. It will appear here with reach, bids, and
+                      spend.
+                    </Text>
+                    <Pressable style={styles.emptyCta} onPress={goBoost}>
+                      <Plus size={15} color={Theme.textOnPrimary} />
+                      <Text style={styles.emptyCtaText}>Create campaign</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <HubMobileListCanvas style={styles.listStack}>
+                    {groups.map(({ primary: c, campaignIds, indentCount }) => (
+                      <ReachCampaignHubCard
+                        key={c.id}
+                        campaign={c}
+                        plan={planById.get(c.plan_id)}
+                        tripCampaignIds={campaignIds}
+                        indentCount={indentCount}
+                        selected={c.id === selected?.id}
+                        onPress={() => setSelectedId(c.id)}
+                      />
+                    ))}
+                  </HubMobileListCanvas>
+                )}
+              </ScrollView>
             </View>
+
+            {isDesktop ? (
+              <View style={styles.previewPane}>
+                <ReachCampaignDetailPanel
+                  campaign={selected}
+                  plan={selected ? planById.get(selected.plan_id) : undefined}
+                  orgName={organization?.name ?? "Your org"}
+                  tripCampaignIds={selectedGroup?.campaignIds}
+                  onViewStory={selected?.post_id ? openSelectedStory : undefined}
+                />
+              </View>
+            ) : null}
           </View>
-        </View>
-      </ScrollView>
+        ) : null}
+      </View>
+      <ReachAboutPulseBoost visible={aboutOpen} onClose={() => setAboutOpen(false)} />
+      <ReachCreateCampaignSheet
+        visible={createOpen}
+        orgId={orgId}
+        campaigns={allCampaigns}
+        onClose={() => setCreateOpen(false)}
+        onCreated={(campaignId) => {
+          setStudioTab("campaigns");
+          setSelectedId(campaignId);
+        }}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: { flex: 1 },
-  page: { gap: 14, width: "100%", paddingTop: 18 },
-  pageDesktop: { maxWidth: PAGE_MAX_WIDTH, alignSelf: "center", width: "100%", gap: 16 },
-
-  headerLeft: { flexDirection: "row", alignItems: "center", gap: 10, minWidth: 0, flexShrink: 1 },
-  headerRight: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 0 },
-  brandText: { gap: 0 },
-  centerTabs: {
-    flexDirection: "row",
-    alignItems: "stretch",
-    gap: 2,
-    alignSelf: "stretch",
+  container: { flex: 1, minHeight: 0, backgroundColor: Theme.screenBackground },
+  hubHeader: {
+    paddingBottom: 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.borderLight,
   },
-  creditsPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 8,
-    backgroundColor: REACH_M.quote,
-    borderWidth: 1,
-    borderColor: REACH_M.border,
-  },
-  creditsValue: {
+  titleBlock: { flex: 1, minWidth: 0, gap: 2 },
+  whatIsLink: {
     fontSize: 12,
     fontWeight: "700",
-    color: REACH_M.text,
-    fontVariant: ["tabular-nums"],
+    color: Theme.primary,
   },
-  creditsLabel: {
-    fontSize: 11,
-    fontWeight: "500",
-    color: REACH_M.muted,
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: Theme.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    zIndex: 2,
+    ...Platform.select({
+      web: { cursor: "pointer" } as object,
+      default: {},
+    }),
   },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 0 },
   inboxHeaderBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 8,
-    backgroundColor: REACH_M.card,
-    borderWidth: 1,
-    borderColor: REACH_M.borderStrong,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: Theme.surface,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -573,157 +498,174 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   inboxBadgeText: { fontSize: 8, fontWeight: "800", color: Theme.textOnPrimary },
-
-  loadingWrap: { alignItems: "center", paddingVertical: 28 },
-
-  kpiRow: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
-  kpiRowDesktop: { flexWrap: "nowrap" },
-  kpiCardDesktop: { flex: 1, minWidth: 0, flexBasis: 0 },
-  kpiCardTop: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  kpiUnit: { fontSize: 12, fontWeight: "500", color: REACH_M.muted },
-  kpiValueRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
-  kpiAside: { flexDirection: "row", alignItems: "center", gap: 3 },
-  kpiAsideText: { fontSize: 11, fontWeight: "600", color: REACH_M.successText },
-  topUpBtn: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 6,
-    backgroundColor: REACH_M.card,
-    borderWidth: 1,
-    borderColor: REACH_M.borderStrong,
-  },
-  topUpText: { fontSize: 11, fontWeight: "700", color: REACH_M.primary },
-
-  mainSplit: { gap: 12 },
-  mainSplitDesktop: { flexDirection: "row", alignItems: "flex-start", gap: 16 },
-  leftCol: { gap: 12, flex: 1, minWidth: 0 },
-  leftColDesktop: { flex: 7, minWidth: 0 },
-  rightCol: { gap: 12, flex: 1, minWidth: 0, width: "100%" },
-  rightColDesktop: { flex: 4, maxWidth: 380, minWidth: 300 },
-  previewStack: { gap: 12, width: "100%" },
-
-  campaignPanel: {
-    backgroundColor: REACH_M.card,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: REACH_M.border,
-    overflow: "hidden",
-    ...Platform.select({
-      web: { boxShadow: REACH_M.shadow } as object,
-      default: {},
-    }),
-  },
-  reelToolbar: {
+  createBtn: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 5,
+    backgroundColor: Theme.primary,
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: REACH_M.border,
-    backgroundColor: REACH_M.card,
+    minHeight: 36,
+    borderRadius: 999,
+    flexShrink: 0,
   },
-  filterPills: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 0,
-  },
-  filterPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderBottomWidth: 2,
-    borderBottomColor: "transparent",
-  },
-  filterPillActive: { borderBottomColor: REACH_M.primary },
-  filterPillText: { fontSize: 13, fontWeight: "600", color: REACH_M.muted },
-  filterPillTextActive: { color: REACH_M.text, fontWeight: "700" },
-  searchBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: REACH_M.quote,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: REACH_M.border,
-    paddingHorizontal: 10,
-    paddingVertical: Platform.OS === "web" ? 7 : 2,
-    minWidth: 180,
-    flexGrow: 1,
-    maxWidth: 320,
-  },
-  searchInput: {
+  createBtnText: { fontSize: 12, fontWeight: "800", color: Theme.textOnPrimary },
+  body: {
     flex: 1,
-    fontSize: 12,
-    fontWeight: "500",
-    color: REACH_M.text,
-    paddingVertical: 4,
-    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : null),
+    minHeight: 0,
+    paddingTop: 12,
+    paddingHorizontal: Layout.screenPaddingHorizontal,
+    gap: 12,
   },
-
-  tableWrap: { width: "100%" },
-  tableHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: REACH_M.quote,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: REACH_M.border,
-  },
-  th: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: REACH_M.muted,
-    textTransform: "uppercase",
-    letterSpacing: 0.45,
-  },
-  thName: { flex: 1.4, minWidth: 160 },
-  thCol: { width: 72 },
-  thWide: { width: 120 },
-  thActions: { width: 132, textAlign: "right" },
-
-  deckContent: { gap: CARD_GAP, padding: 12 },
-
-  emptyReel: {
-    alignItems: "center",
-    paddingVertical: 48,
-    gap: 6,
+  bodyDesktop: {
+    maxWidth: Layout.desktopHubMaxWidth,
+    width: "100%",
+    alignSelf: "center",
     paddingHorizontal: 24,
   },
-  emptyTitle: { fontSize: 14, fontWeight: "700", color: REACH_M.text },
-  emptyBody: {
-    fontSize: 12,
-    color: REACH_M.muted,
-    textAlign: "center",
-    lineHeight: 18,
-    maxWidth: 320,
-  },
-
-  launchBar: {
-    backgroundColor: REACH_M.card,
+  kpiStrip: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    backgroundColor: Theme.cardWhite,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: REACH_M.border,
+    borderColor: Theme.borderLight,
+    overflow: "hidden",
+  },
+  kpiCell: {
+    flex: 1,
+    minWidth: 0,
     paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 10,
+    paddingVertical: 12,
+    gap: 4,
+  },
+  kpiCellBorder: {
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: Theme.borderLight,
+  },
+  kpiLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+  },
+  kpiValue: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: Theme.textPrimaryDark,
+    letterSpacing: -0.3,
+    fontVariant: ["tabular-nums"],
+  },
+  kpiUnit: { fontSize: 11, fontWeight: "600", color: Theme.textMuted },
+  workspace: { flex: 1, minHeight: 0, gap: 10 },
+  workspaceDesktop: { flexDirection: "row", alignItems: "stretch" },
+  listPanel: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: "42%",
+    minWidth: 320,
+    maxWidth: 560,
+    minHeight: 0,
+    backgroundColor: Theme.screenBackground,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
+    overflow: "hidden",
+  },
+  listPanelMobile: {
+    flex: 1,
+    flexBasis: "auto",
+    maxWidth: "100%",
+    minWidth: 0,
+  },
+  listToolbar: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "nowrap",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.borderLight,
+  },
+  searchGrow: { flex: 1, minWidth: 0 },
+  filterTagRow: {
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
-    ...Platform.select({
-      web: { boxShadow: REACH_M.shadow } as object,
-      default: {},
-    }),
+    gap: 4,
   },
-  launchTitle: { fontSize: 14, fontWeight: "700", color: REACH_M.text },
-  launchSub: { fontSize: 12, fontWeight: "500", color: REACH_M.muted, marginTop: 2 },
+  filterTag: {
+    minHeight: 26,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  filterTagDot: { width: 6, height: 6, borderRadius: 3 },
+  filterTagText: { fontSize: 11, fontWeight: "700" },
+  listScroll: { flex: 1, minHeight: 0 },
+  listScrollContent: { flexGrow: 1, padding: 8, gap: 8 },
+  listStack: { gap: 8 },
+  previewPane: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 0,
+  },
+  detailModal: {
+    flex: 1,
+    backgroundColor: Theme.screenBackground,
+    paddingHorizontal: Layout.screenPaddingHorizontal,
+    gap: 12,
+  },
+  detailModalHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  detailModalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: Theme.textPrimaryDark,
+  },
+  detailModalClose: { fontSize: 14, fontWeight: "700", color: Theme.primary },
+  tabScroll: { flex: 1, minHeight: 0 },
+  billingWrap: {
+    maxWidth: 640,
+    width: "100%",
+    alignSelf: "center",
+    paddingBottom: 16,
+  },
+  loadingWrap: { alignItems: "center", paddingVertical: 28 },
+  emptyPick: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 48,
+    paddingHorizontal: 24,
+    gap: 8,
+  },
+  emptyTitle: { fontSize: 16, fontWeight: "800", color: Theme.textPrimaryDark, marginTop: 4 },
+  emptyBody: {
+    fontSize: 13,
+    color: Theme.textRouteCard,
+    textAlign: "center",
+    lineHeight: 19,
+    maxWidth: 360,
+  },
+  emptyCta: {
+    marginTop: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: Theme.textPrimaryDark,
+    borderRadius: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 11,
+  },
+  emptyCtaText: { fontSize: 13, fontWeight: "800", color: Theme.textOnPrimary },
 });

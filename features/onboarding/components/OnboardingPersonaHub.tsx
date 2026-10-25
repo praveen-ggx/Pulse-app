@@ -16,8 +16,7 @@ import {
   DESKTOP_SIGNUP_SPLIT_FLOW_MAX,
   DESKTOP_SIGNUP_SPLIT_PAD,
 } from '@/features/auth/signup/signUpConstants';
-import { createPulseSignUpTextStyles, PULSE_SIGNUP_TYPO, PULSE_SIGNUP_TYPO_MOBILE } from '@/features/auth/signup/signUpTypography';
-import { PULSE_SIGNUP } from '@/features/auth/signup/signUpPulseTheme';
+import { PULSE_SIGNUP_TYPO, PULSE_SIGNUP_TYPO_MOBILE } from '@/features/auth/signup/signUpTypography';
 import {
   PULSE_PRODUCTS,
   PULSE_PRODUCTS_COMING_SOON,
@@ -28,14 +27,11 @@ import { ROUTES } from '@/lib/routes';
 import { useIsDesktopWebInput } from '@/lib/useIsDesktopWebInput';
 import { WEB_APP_VIEWPORT_STYLE } from '@/lib/webViewportHeight';
 
-import { ONBOARDING_BRAND } from './onboardingPersonaAssets';
 import { PulseAccessOption } from './PulseAccessOption';
 import { PulseComingSoonProduct } from './PulseComingSoonProduct';
 import { PulseProductOption } from './PulseProductOption';
 import { PulseBrandMarkLink } from './PulseSplitBrandLogo';
 import { WorkspaceSetupHeroPanel } from './WorkspaceSetupHeroPanel';
-
-const signupText = createPulseSignUpTextStyles(PULSE_SIGNUP);
 
 export function OnboardingPersonaHub() {
   const router = useRouter();
@@ -66,25 +62,41 @@ export function OnboardingPersonaHub() {
     [router],
   );
 
+  const goToSignIn = useCallback(() => {
+    router.push(ROUTES.SIGN_IN as never);
+  }, [router]);
+
+  const renderSignInChip = () => (
+    <Pressable
+      onPress={goToSignIn}
+      style={({ pressed }) => [styles.signInChip, pressed && styles.signInChipPressed]}
+      accessibilityRole="button"
+      accessibilityLabel={WORKSPACE_SETUP_COPY.signInLink}
+    >
+      <Text style={styles.signInChipText}>{WORKSPACE_SETUP_COPY.signInLink}</Text>
+    </Pressable>
+  );
+
   const renderProductHubMain = () => (
     <View style={styles.hub}>
       <View style={styles.hubHeader}>
-        <Text style={[styles.hubTitle, isDesktop ? styles.hubTitleDesktop : styles.hubTitleMobile]}>
-          {WORKSPACE_SETUP_COPY.personaTitle}
-        </Text>
-        <Text
-          style={[
-            styles.hubSubtitle,
-            isDesktop ? styles.hubSubtitleDesktop : styles.hubSubtitleMobile,
-          ]}
-        >
-          {WORKSPACE_SETUP_COPY.personaSubtitle}
-        </Text>
+        <View style={styles.hubHeaderCopy}>
+          <Text style={[styles.hubTitle, !isDesktop && styles.hubTitleMobile, isDesktop && styles.hubTitleDesktop]}>
+            {WORKSPACE_SETUP_COPY.personaTitle}
+          </Text>
+          <Text style={[styles.hubSubtitle, !isDesktop && styles.hubSubtitleMobile, isDesktop && styles.hubSubtitleDesktop]}>
+            {WORKSPACE_SETUP_COPY.personaSubtitle}
+          </Text>
+        </View>
+        {isDesktop ? renderSignInChip() : null}
       </View>
 
       <View style={styles.section}>
         <Text style={[styles.sectionLabel, !isDesktop && styles.sectionLabelMobile, isDesktop && styles.sectionLabelDesktop]}>
           {WORKSPACE_SETUP_COPY.sectionProducts}
+        </Text>
+        <Text style={[styles.invitedEyebrow, !isDesktop && styles.invitedEyebrowMobile, isDesktop && styles.invitedEyebrowDesktop]}>
+          {WORKSPACE_SETUP_COPY.invitedEyebrow}
         </Text>
         <View style={styles.productList}>
           {PULSE_PRODUCTS.map((product) => (
@@ -98,12 +110,7 @@ export function OnboardingPersonaHub() {
         </View>
       </View>
 
-      <View style={styles.divider} />
-
-      <View style={styles.section}>
-        <Text style={[styles.invitedEyebrow, !isDesktop && styles.invitedEyebrowMobile, isDesktop && styles.invitedEyebrowDesktop]}>
-          {WORKSPACE_SETUP_COPY.invitedEyebrow}
-        </Text>
+      <View style={styles.inviteBlock}>
         <Text style={[styles.sectionLabel, !isDesktop && styles.sectionLabelMobile, isDesktop && styles.sectionLabelDesktop]}>
           {WORKSPACE_SETUP_COPY.sectionWorkspaceAccess}
         </Text>
@@ -112,63 +119,24 @@ export function OnboardingPersonaHub() {
             <View key={action.id} style={styles.accessOptionCell}>
               <PulseAccessOption
                 action={action}
-                compact={false}
+                compact
                 onPress={() => navigateAccess(action.route, action.params)}
               />
             </View>
           ))}
         </View>
       </View>
-    </View>
-  );
 
-  const renderSignInFooter = () => (
-    <Pressable
-      onPress={() => router.push(ROUTES.SIGN_IN)}
-      style={({ pressed }) => [styles.signInBtn, pressed && { opacity: 0.75 }]}
-      accessibilityRole="button"
-    >
-      <Text style={[styles.signInMuted, !isDesktop && styles.signInMutedMobile]}>
-        {WORKSPACE_SETUP_COPY.signInPrompt}
-      </Text>
-      <Text style={[styles.signInLink, !isDesktop && styles.signInLinkMobile]}>
-        {' '}
-        {WORKSPACE_SETUP_COPY.signInLink}
-      </Text>
-    </Pressable>
-  );
-
-  const renderComingSoonStrip = () => {
-    if (PULSE_PRODUCTS_COMING_SOON.length === 0) return null;
-    return (
-      <View style={styles.comingSoonStrip}>
-      <View style={styles.comingSoonHeader}>
-        <Text style={[styles.sectionLabel, !isDesktop && styles.sectionLabelMobile]}>
-          {WORKSPACE_SETUP_COPY.sectionMoreProducts}
-        </Text>
-        <View style={styles.comingSoonPill}>
-          <Text style={styles.comingSoonPillText}>{WORKSPACE_SETUP_COPY.sectionComingSoon}</Text>
+      {PULSE_PRODUCTS_COMING_SOON.length > 0 ? (
+        <View style={styles.comingSoonStrip}>
+          <Text style={styles.comingSoonCaption}>{WORKSPACE_SETUP_COPY.sectionComingSoon}</Text>
+          <View style={styles.comingSoonChips}>
+            {PULSE_PRODUCTS_COMING_SOON.map((product) => (
+              <PulseComingSoonProduct key={product.id} product={product} variant="chip" />
+            ))}
+          </View>
         </View>
-      </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.comingSoonScroll}
-        keyboardShouldPersistTaps="handled"
-      >
-        {PULSE_PRODUCTS_COMING_SOON.map((product) => (
-          <PulseComingSoonProduct key={product.id} product={product} variant="chip" />
-        ))}
-      </ScrollView>
-    </View>
-    );
-  };
-
-  const renderHubFooter = (bottomInset = 0) => (
-    <View style={[styles.hubFooter, { paddingBottom: Math.max(bottomInset, 12) }]}>
-      {renderSignInFooter()}
-      <View style={styles.footerDivider} />
-      {renderComingSoonStrip()}
+      ) : null}
     </View>
   );
 
@@ -187,10 +155,14 @@ export function OnboardingPersonaHub() {
         <View style={styles.panelDivider} />
 
         <View style={[styles.desktopCol, styles.rightPanel]}>
-          <View style={styles.rightFlowPane}>
+          <ScrollView
+            style={styles.rightScroll}
+            contentContainerStyle={styles.rightScrollContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
             <View style={styles.panelInner}>{renderProductHubMain()}</View>
-          </View>
-          <View style={styles.panelInnerFooter}>{renderHubFooter()}</View>
+          </ScrollView>
         </View>
       </View>
     );
@@ -203,19 +175,21 @@ export function OnboardingPersonaHub() {
     >
       <ScrollView
         style={styles.mobileScroll}
-        contentContainerStyle={styles.mobileScrollContent}
+        contentContainerStyle={[styles.mobileScrollContent, { paddingBottom: Math.max(insets.bottom, 24) }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <PulseBrandMarkLink
-          onPress={() => router.push(ROUTES.TERMINAL_WEBSITE)}
-          accessibilityLabel={WORKSPACE_SETUP_COPY.pulseWebsiteLink}
-          size="lg"
-          linkStyle={styles.mobileBrandAnchor}
-        />
+        <View style={styles.mobileTopBar}>
+          <PulseBrandMarkLink
+            onPress={() => router.push(ROUTES.TERMINAL_WEBSITE)}
+            accessibilityLabel={WORKSPACE_SETUP_COPY.pulseWebsiteLink}
+            size="lg"
+            linkStyle={styles.mobileBrandAnchor}
+          />
+          {renderSignInChip()}
+        </View>
         {renderProductHubMain()}
       </ScrollView>
-      <View style={styles.mobileHubFooter}>{renderHubFooter(insets.bottom)}</View>
     </KeyboardAvoidingView>
   );
 }
@@ -248,14 +222,7 @@ const styles = StyleSheet.create({
     maxWidth: DESKTOP_SIGNUP_SPLIT_FLOW_MAX,
     alignSelf: 'center',
     paddingHorizontal: DESKTOP_SIGNUP_SPLIT_PAD,
-    paddingVertical: 20,
-  },
-
-  panelInnerFooter: {
-    width: '100%',
-    maxWidth: DESKTOP_SIGNUP_SPLIT_FLOW_MAX,
-    alignSelf: 'center',
-    paddingHorizontal: DESKTOP_SIGNUP_SPLIT_PAD,
+    paddingVertical: 28,
   },
 
   panelDivider: {
@@ -270,24 +237,33 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
   },
-  rightFlowPane: {
+  rightScroll: {
     flex: 1,
     minHeight: 0,
     width: '100%',
+  },
+  rightScrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
-    alignItems: 'center',
   },
 
   hub: {
-    gap: 18,
+    gap: 22,
     width: '100%',
   },
   hubHeader: {
-    gap: 8,
-    marginBottom: 6,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  hubHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
   },
   hubTitle: {
-    color: ONBOARDING_BRAND.ink,
+    color: Theme.brandBlueInk,
     fontWeight: '600',
   },
   hubTitleDesktop: {
@@ -310,6 +286,31 @@ const styles = StyleSheet.create({
   },
   hubSubtitleMobile: {
     ...PULSE_SIGNUP_TYPO_MOBILE.subtitle,
+  },
+  signInChip: {
+    flexShrink: 0,
+    minHeight: 32,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Theme.brandBlueInk,
+    backgroundColor: Theme.cardWhite,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Platform.select({
+      web: { cursor: 'pointer' } as object,
+      default: {},
+    }),
+  },
+  signInChipPressed: {
+    backgroundColor: Theme.brandBlueSoft,
+  },
+  signInChipText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    color: Theme.brandBlueInk,
   },
 
   section: {
@@ -342,11 +343,6 @@ const styles = StyleSheet.create({
     color: Theme.textSecondary,
     marginBottom: -2,
   },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: 'rgba(77, 54, 54, 0.1)',
-    alignSelf: 'stretch',
-  },
 
   productList: {
     flexDirection: 'row',
@@ -362,81 +358,25 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-
-  hubFooter: {
-    gap: 0,
-    paddingTop: 2,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(77, 54, 54, 0.1)',
-    backgroundColor: Theme.screenBackground,
-  },
-  footerDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: 'rgba(77, 54, 54, 0.08)',
-    marginVertical: 8,
+  inviteBlock: {
+    gap: 8,
   },
   comingSoonStrip: {
-    gap: 6,
-    paddingBottom: 2,
-  },
-  comingSoonHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     gap: 8,
+    paddingTop: 4,
   },
-  comingSoonPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: 'rgba(77, 54, 54, 0.1)',
-    backgroundColor: Theme.analyticsCanvas,
-  },
-  comingSoonPillText: {
-    fontSize: 9,
-    lineHeight: 12,
-    fontWeight: '500',
+  comingSoonCaption: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '600',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
     color: Theme.textMuted,
   },
-  comingSoonScroll: {
+  comingSoonChips: {
     flexDirection: 'row',
-    alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 8,
-    paddingRight: 8,
-  },
-
-  signInBtn: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 6,
-  },
-  signInMuted: {
-    ...signupText.linkSmall,
-    fontSize: 13,
-    lineHeight: 18,
-    color: Theme.textMuted,
-  },
-  signInMutedMobile: {
-    ...signupText.linkSmallMobile,
-    fontSize: 14,
-    lineHeight: 20,
-    color: Theme.textMuted,
-  },
-  signInLink: {
-    ...signupText.linkSmall,
-    fontSize: 13,
-    lineHeight: 18,
-    color: ONBOARDING_BRAND.ink,
-    fontWeight: '600',
-  },
-  signInLinkMobile: {
-    ...signupText.linkSmallMobile,
-    fontSize: 14,
-    lineHeight: 20,
-    color: ONBOARDING_BRAND.ink,
-    fontWeight: '600',
   },
 
   mobileRoot: {
@@ -455,14 +395,13 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 16,
   },
-  mobileBrandAnchor: {
-    marginBottom: 12,
-    alignSelf: 'flex-start',
+  mobileTopBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
   },
-  mobileHubFooter: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(77, 54, 54, 0.1)',
-    backgroundColor: Theme.screenBackground,
-    paddingHorizontal: 20,
+  mobileBrandAnchor: {
+    alignSelf: 'flex-start',
   },
 });

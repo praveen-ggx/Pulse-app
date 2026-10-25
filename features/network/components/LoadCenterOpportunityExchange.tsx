@@ -34,6 +34,9 @@ import {
 } from "@/features/network/utils/storyDisplay";
 import { shouldHideLoadStoryFromAuthor } from "@/features/network/utils/storyLoadVisibility.util";
 import { isSponsoredReachPost } from "@/features/network/utils/sponsoredReach.util";
+import { mergeStoryStripSources } from "@/features/network/utils/storyStrip.util";
+import { useNetworkStoryStrip } from "@/features/network/hooks/useNetworkStoryStrip";
+import { useRecordSponsoredImpressions } from "@/features/reach/hooks/useRecordSponsoredImpressions";
 import { formatINR } from "@/lib/format";
 import { useMyDirectQuotesQuery } from "@/lib/queries";
 import { useNetworkFeedQuery } from "@/lib/queries/usePostsQuery";
@@ -76,7 +79,7 @@ type LoadCenterOpportunityExchangeProps = {
   columnStack?: boolean;
   /**
    * Left Give Load rail: header + vertical idle-capacity cards
-   * (replaces Story / Pulse Reach promo banners).
+   * (replaces Story / Pulse Boost promo banners).
    */
   sidebarStack?: boolean;
   /**
@@ -127,6 +130,7 @@ function filterOpportunityPosts(
 
     if (mode === "give" && isFleetOwnerCapacityPost(p)) return true;
 
+    // Advertiser never sees their own Boost here — preview is Pulse Boost / Mine.
     if (p.organization_id != null && p.organization_id === orgId) return false;
 
     if (p.is_sponsored) return true;
@@ -498,19 +502,25 @@ export function useLoadCenterOpportunityPosts(
   orgProfileMap: Record<string, LinkedOrgDisplay>;
 } {
   const feedQ = useNetworkFeedQuery(orgId, { enabled: !!orgId });
-  const posts = useMemo(
-    () =>
-      orgId
-        ? filterOpportunityPosts(
-            feedQ.data ?? [],
-            orgId,
-            mode,
-            supplierOrgIds,
-            clientOrgIds,
-          )
-        : [],
-    [feedQ.data, orgId, mode, supplierOrgIds, clientOrgIds],
-  );
+  const strip = useNetworkStoryStrip(orgId, { enabled: !!orgId });
+  const posts = useMemo(() => {
+    if (!orgId) return [];
+    const merged = mergeStoryStripSources(feedQ.data ?? [], strip.posts);
+    return filterOpportunityPosts(
+      merged,
+      orgId,
+      mode,
+      supplierOrgIds,
+      clientOrgIds,
+    );
+  }, [
+    clientOrgIds,
+    feedQ.data,
+    mode,
+    orgId,
+    strip.posts,
+    supplierOrgIds,
+  ]);
 
   const creatorOrgIds = useMemo(() => {
     const set = new Set<string>();
@@ -592,7 +602,7 @@ export function useLoadCenterOpportunityPosts(
 
   return {
     posts,
-    isLoading: feedQ.isLoading,
+    isLoading: feedQ.isLoading && strip.isLoading,
     viewerBidByPostId,
     orgProfileMap,
   };
@@ -646,6 +656,7 @@ export function LoadCenterOpportunityExchange({
     : 0;
   const networkCount = displayPosts.length - sponsoredCount;
   const liveOpenCount = Math.max(0, networkCount - biddedCount);
+  useRecordSponsoredImpressions(displayPosts, orgId);
   const title = isGet ? "Sponsored loads" : "Idle capacity nearby";
   const subtitle = isGet
     ? "Sponsored Reach loads — bid on each load"

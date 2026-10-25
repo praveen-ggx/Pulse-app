@@ -43,8 +43,8 @@ import {
     tripNeedsPodReverification,
     tripStillInPodReceived,
     useComplianceChangeSync,
-    useComplianceStageFilter,
-    useComplianceTripsQuery,
+  useComplianceStageFilter,
+  useComplianceTripsQuery,
     type ComplianceQueueFilter,
     type ComplianceStageCounts,
 } from "@/features/tripCompliance/hooks/useComplianceTripsQuery";
@@ -59,14 +59,14 @@ import {
     prepareAdvanceProcessedReport,
 } from "@/features/tripCompliance/services/complianceExportReport.service";
 import {
-    declineTripCompliance,
+  declineTripCompliance,
     markTripFinanceVerified,
     unmarkTripFinanceVerified,
-    markTripComplianceVerified,
+  markTripComplianceVerified,
     postCompliancePayment,
     rejectTripCompliance,
     resubmitTripCompliance,
-    type ComplianceLedgerCategory,
+  type ComplianceLedgerCategory,
 } from "@/features/tripCompliance/services/tripComplianceWrite.service";
 import { COMPLIANCE_STAGE_FILTER_LABEL, type ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
 import {
@@ -206,9 +206,9 @@ function StageChip({
             ]}
           >
             <View style={styles.chipCopy}>
-              <Text style={[styles.chipText, active && styles.chipTextActive]} numberOfLines={1}>
-                {label}
-              </Text>
+      <Text style={[styles.chipText, active && styles.chipTextActive]} numberOfLines={1}>
+        {label}
+      </Text>
               {caption ? (
                 <Text
                   style={[
@@ -222,23 +222,23 @@ function StageChip({
                 </Text>
               ) : null}
             </View>
-            {count > 0 ? (
-              <View
-                style={[
-                  styles.chipCountBadge,
+      {count > 0 ? (
+        <View
+          style={[
+            styles.chipCountBadge,
                   { backgroundColor: active ? Theme.accentGold : countColor },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.chipCount,
-                    { color: active ? Theme.buttonDark : Theme.buttonDarkText },
-                  ]}
-                >
-                  {count}
-                </Text>
-              </View>
-            ) : null}
+          ]}
+        >
+          <Text
+            style={[
+              styles.chipCount,
+              { color: active ? Theme.buttonDark : Theme.buttonDarkText },
+            ]}
+          >
+            {count}
+          </Text>
+        </View>
+      ) : null}
           </View>
         );
       }}
@@ -1989,13 +1989,13 @@ export default function ComplianceScreen() {
         ) : null}
         <View style={[styles.filtersRow, stackToolbar && styles.filtersRowStacked]}>
           <View style={styles.stageTrack}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.chipScroll}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.chipScroll}
               contentContainerStyle={styles.stageDeptWrap}
-              keyboardShouldPersistTaps="handled"
-            >
+            keyboardShouldPersistTaps="handled"
+          >
               <StageFilterRail
                 stage={stage}
                 counts={counts}
@@ -2003,9 +2003,9 @@ export default function ComplianceScreen() {
                 onSelectStage={selectStage}
                 visibleStages={visibleStages}
               />
-            </ScrollView>
-          </View>
+          </ScrollView>
         </View>
+      </View>
       </View>
       {showToolbarSubFilter ? (
         <View style={styles.tableSubFilterBar}>{renderQueueSubFilter(true)}</View>
@@ -2065,7 +2065,7 @@ export default function ComplianceScreen() {
                                   ? "No trips in Balance Pending."
                                   : stage === "balance_pending" && settlementSlice === "settled"
                                     ? "No settled trips."
-                                    : "No trips in this stage."
+                  : "No trips in this stage."
                 : "No Loading→Completed trips in the Compliance queue yet."}
           </Text>
         </View>

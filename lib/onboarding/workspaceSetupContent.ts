@@ -1,5 +1,5 @@
 export const WORKSPACE_SETUP_COPY = {
-  tag: 'Workspace setup',
+  tag: 'gogopulse',
   headline: 'One workspace for your entire transport business.',
   outcomes: [
     'Plan trips.',
@@ -10,16 +10,16 @@ export const WORKSPACE_SETUP_COPY = {
   closing: 'Everything stays connected.',
   trust:
     'Trusted by transport companies, fleet owners and logistics teams across every stage of growth.',
-  personaTitle: 'Welcome to Pulse',
-  personaSubtitle: 'Choose your product',
+  personaTitle: 'Welcome to pulse.',
+  personaSubtitle: 'Choose how you want to work.',
   sectionProducts: 'Products',
-  sectionWorkspaceAccess: 'Workspace access',
+  sectionWorkspaceAccess: 'Already invited?',
   sectionMoreProducts: 'More products',
   sectionComingSoon: 'Coming soon',
-  invitedEyebrow: 'Already invited?',
+  invitedEyebrow: 'Create a workspace, or start as a driver.',
   signInPrompt: 'Already have an account?',
   signInLink: 'Sign in',
-  pulseWebsiteLink: 'Pulse website',
+  pulseWebsiteLink: 'pulse.',
 } as const;
 
 /** First step inside business signup — sets expectations before phone verification. */

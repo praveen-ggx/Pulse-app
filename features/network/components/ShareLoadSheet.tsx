@@ -232,7 +232,7 @@ function SuccessView({
         <Text style={styles.successTitle}>Story live</Text>
         <Text style={styles.successSub}>
           Partners in your network can bid and message until it expires. Boost
-          with Pulse Reach to amplify visibility.
+          with Pulse Boost to amplify visibility.
         </Text>
       </View>
 
@@ -244,10 +244,10 @@ function SuccessView({
           ]}
           onPress={onBoostReach}
           accessibilityRole="button"
-          accessibilityLabel="Boost with Pulse Reach"
+          accessibilityLabel="Boost with Pulse Boost"
         >
           <TrendingUp size={16} color={Theme.accentBrown} strokeWidth={2.4} />
-          <Text style={styles.boostBtnText}>Boost with Pulse Reach</Text>
+          <Text style={styles.boostBtnText}>Boost with Pulse Boost</Text>
         </Pressable>
       ) : null}
 
@@ -316,7 +316,7 @@ interface ShareLoadSheetProps {
   orgId: string;
   onClose: () => void;
   onSuccess?: (type: "feed" | "story") => void;
-  /** After story broadcast — open Pulse Reach boost for this post. */
+  /** After story broadcast — open Pulse Boost boost for this post. */
   onBoostAfterBroadcast?: (postId: string) => void;
 }
 

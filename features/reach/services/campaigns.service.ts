@@ -1,10 +1,14 @@
 /**
- * Pulse Reach — boost flow. A campaign always wraps an existing post
+ * Pulse Boost — boost flow. A campaign always wraps an existing post
  * (public.posts) — see 20261224040000_reach_campaigns_core.sql for why there
  * is no separate story/media table for v1.
  */
 import { supabase } from '@/lib/supabase';
 import { getIndentOperationalDisplayCode } from '@/features/operations/display/operationalDisplay';
+import {
+  hasFullPulseBoostDistribution,
+  PULSE_BOOST_DISTRIBUTION_CHANNELS,
+} from '@/features/reach/utils/reachDistribution.util';
 
 export type ReachPlanCode = 'basic' | 'boost' | 'max';
 /** draft: not yet published. active: running, real expires_at. completed:
@@ -154,10 +158,10 @@ export async function publishReachCampaign(
     p_post_id: postId,
     p_plan_id: planId,
     p_payment_method: paymentMethod,
+    p_distribution_channels: [...PULSE_BOOST_DISTRIBUTION_CHANNELS],
+    p_driver_reward_enabled: rewardConfig?.driverRewardEnabled ?? false,
     ...(rewardConfig
       ? {
-          p_distribution_channels: rewardConfig.distributionChannels,
-          p_driver_reward_enabled: rewardConfig.driverRewardEnabled,
           p_reward_type: 'flat',
           p_reward_amount: rewardConfig.rewardAmount,
           p_reward_budget: rewardConfig.rewardBudget,
@@ -180,8 +184,36 @@ export async function getReachCampaignsForOrg(
 
   if (error) return { error: new Error(error.message), campaigns: [] };
   const campaigns = (data ?? []) as ReachCampaignRow[];
+  await ensureActiveBoostDistribution(campaigns);
   await enrichCampaignsWithLoadIdentity(campaigns);
   return { error: null, campaigns };
+}
+
+/** Live campaigns must keep the plan surfaces: Network, Pulse, Pilot/DCO. */
+async function ensureActiveBoostDistribution(
+  campaigns: ReachCampaignRow[],
+): Promise<void> {
+  const stale = campaigns.filter(
+    (c) => c.status === 'active' && !hasFullPulseBoostDistribution(c.distribution_channels),
+  );
+  if (stale.length === 0) return;
+  await Promise.all(
+    stale.map(async (campaign) => {
+      const { error } = await supabase()
+        .from('reach_campaigns')
+        .update({ distribution_channels: [...PULSE_BOOST_DISTRIBUTION_CHANNELS] })
+        .eq('id', campaign.id)
+        .eq('org_id', campaign.org_id)
+        .eq('status', 'active');
+      if (error) {
+        if (__DEV__) {
+          console.warn('[reach] could not expand boost channels:', error.message);
+        }
+        return;
+      }
+      campaign.distribution_channels = [...PULSE_BOOST_DISTRIBUTION_CHANNELS];
+    }),
+  );
 }
 
 /**
@@ -250,9 +282,14 @@ async function enrichCampaignsWithLoadIdentity(campaigns: ReachCampaignRow[]): P
 }
 
 export interface ReachCampaignPurchaseRow {
+  id?: string;
   campaign_id: string;
   plan_id: string;
   created_at: string;
+  payment_method?: 'credits' | 'money' | 'mixed' | string;
+  credits_charged?: number;
+  amount_inr_charged?: number;
+  status?: 'pending' | 'paid' | 'failed' | 'refunded' | string;
 }
 
 /**
@@ -268,7 +305,9 @@ export async function getReachCampaignPurchasesForOrg(
 ): Promise<{ error: Error | null; purchases: ReachCampaignPurchaseRow[] }> {
   const { data, error } = await supabase()
     .from('reach_campaign_purchases')
-    .select('campaign_id, plan_id, created_at, reach_campaigns!inner(org_id)')
+    .select(
+      'id, campaign_id, plan_id, created_at, payment_method, credits_charged, amount_inr_charged, status, reach_campaigns!inner(org_id)',
+    )
     .eq('reach_campaigns.org_id', orgId)
     .order('created_at', { ascending: true });
 
@@ -276,9 +315,14 @@ export async function getReachCampaignPurchasesForOrg(
   return {
     error: null,
     purchases: (data ?? []).map((r) => ({
+      id: r.id,
       campaign_id: r.campaign_id,
       plan_id: r.plan_id,
       created_at: r.created_at,
+      payment_method: r.payment_method,
+      credits_charged: r.credits_charged ?? 0,
+      amount_inr_charged: Number(r.amount_inr_charged ?? 0),
+      status: r.status,
     })) as ReachCampaignPurchaseRow[],
   };
 }

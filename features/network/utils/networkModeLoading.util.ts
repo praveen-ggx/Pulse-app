@@ -36,10 +36,11 @@ export function isNetworkOrgHubMode(input: {
   return tab != null && HUB_TAB_VALUES.has(tab);
 }
 
-/** Classic Stories only: after secondary defer, never in org hub. */
+/** Classic Stories: load immediately. Hub never mounts the strip. */
 export function shouldLoadNetworkFeed(input: {
   secondaryNetworkReady: boolean;
   showDesktopHub: boolean;
 }): boolean {
-  return input.secondaryNetworkReady && !input.showDesktopHub;
+  void input.secondaryNetworkReady;
+  return !input.showDesktopHub;
 }

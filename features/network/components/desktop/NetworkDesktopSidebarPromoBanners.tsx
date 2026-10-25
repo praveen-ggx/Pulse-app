@@ -1,5 +1,5 @@
 /**
- * Network sidebar promo banners — Pulse Reach, Give loads, Get loads.
+ * Network sidebar promo banners — Pulse Boost, Give loads, Get loads.
  * Compact cards matching the Sales Grow suggestion widget chrome.
  */
 import Theme from "@/constants/Theme";
@@ -42,7 +42,7 @@ const PROMOS: PromoDef[] = [
   {
     id: "reach",
     chip: "Growth",
-    title: "Pulse Reach",
+    title: "Pulse Boost",
     sub: "Boost loads, earn credits, win more bids",
     accent: Theme.accentBrown,
     wash: "rgba(107, 79, 58, 0.08)",

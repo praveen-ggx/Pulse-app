@@ -1,5 +1,5 @@
 /**
- * Give / Get loads + Pulse Reach + Pulse Assist — Network home quick actions.
+ * Give / Get loads + Pulse Boost + Pulse Assist — Network home quick actions.
  * Metronic SVG illustration cards (character art) in one shared chrome / rail.
  */
 import Theme from "@/constants/Theme";
@@ -377,7 +377,7 @@ export function NetworkLoadsQuickCards({
             action.locked
               ? "Pulse Assist — feature locked"
               : action.id === "reach"
-                ? "Open Pulse Reach"
+                ? "Open Pulse Boost"
                 : `${action.label} — open Load Center`
           }
         >

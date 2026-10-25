@@ -238,13 +238,96 @@ export async function getPostById(
 ): Promise<{ error: Error | null; post: PostRow | null }> {
   const { data, error } = await supabase()
     .from('posts')
-    .select('*, organizations(name)')
+    .select('*, organizations(name, logo_url, avatar_seed)')
     .eq('id', postId)
     .single();
   if (error) return { error: new Error(error.message), post: null };
-  const raw = data as (PostRow & { organizations?: { name: string } | null });
-  const row: PostRow = { ...raw, org_name: raw.org_name ?? raw.organizations?.name ?? '' };
+  const raw = data as (PostRow & {
+    organizations?: { name: string; logo_url?: string | null; avatar_seed?: string | null } | null;
+  });
+  const row: PostRow = {
+    ...raw,
+    org_name: raw.org_name ?? raw.organizations?.name ?? '',
+    org_avatar_url: raw.org_avatar_url ?? raw.organizations?.logo_url ?? null,
+    org_avatar_seed: raw.org_avatar_seed ?? raw.organizations?.avatar_seed ?? null,
+  };
   return { error: null, post: normalizeFeedPost(row) };
+}
+
+export type OrganizationStoryBrand = {
+  name: string;
+  logoUrl: string | null;
+  avatarSeed: string | null;
+};
+
+/**
+ * Org mark + company name for a story. Direct `organizations` SELECT is
+ * member-only RLS, so another company's name never comes back that way —
+ * that is what painted the "Organization" fallback. Use the definer
+ * partner-display RPC (and story preview) instead.
+ */
+export async function getOrganizationStoryBrand(
+  orgId: string,
+  postId?: string | null,
+): Promise<{ error: Error | null; brand: OrganizationStoryBrand | null }> {
+  const id = orgId.trim();
+  if (!id) return { error: null, brand: null };
+
+  const { getLinkedOrgProfilesBatch } = await import(
+    '@/features/clients/services/clients.service'
+  );
+  const profiles = await getLinkedOrgProfilesBatch([id]);
+  const profile = profiles[id];
+  const fromRpc: OrganizationStoryBrand = {
+    name: (profile?.organizationName ?? '').trim(),
+    logoUrl:
+      (profile?.logoUrl ?? profile?.avatarUrl ?? '').trim() || null,
+    avatarSeed:
+      (profile?.avatarSeed ?? profile?.orgAvatarSeed ?? '').trim() || null,
+  };
+  if (fromRpc.name) return { error: null, brand: fromRpc };
+
+  const previewId = (postId ?? '').trim();
+  if (previewId) {
+    const { preview } = await getStoryPreview(previewId);
+    const previewName = (preview?.org_name ?? '').trim();
+    if (previewName) {
+      return {
+        error: null,
+        brand: {
+          name: previewName,
+          logoUrl: fromRpc.logoUrl,
+          avatarSeed: fromRpc.avatarSeed,
+        },
+      };
+    }
+  }
+
+  const { data, error } = await supabase()
+    .from('organizations')
+    .select('name, logo_url, avatar_seed')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) {
+    return {
+      error: new Error(error.message),
+      brand: fromRpc.name || fromRpc.logoUrl ? fromRpc : null,
+    };
+  }
+  if (!data) {
+    return {
+      error: null,
+      brand: fromRpc.name || fromRpc.logoUrl ? fromRpc : null,
+    };
+  }
+  return {
+    error: null,
+    brand: {
+      name: (data.name ?? '').trim() || fromRpc.name,
+      logoUrl: (data.logo_url ?? '').trim() || fromRpc.logoUrl,
+      avatarSeed: (data.avatar_seed ?? '').trim() || fromRpc.avatarSeed,
+    },
+  };
 }
 
 export async function deactivatePost(
@@ -288,6 +371,43 @@ export async function getStoryPreview(
   if (error) return { error: new Error(error.message), preview: null };
   const rows = (data ?? []) as StoryPreviewRow[];
   return { error: null, preview: rows[0] ?? null };
+}
+
+async function hasLinkedClientRelationship(
+  viewerOrgId: string,
+  authorOrgId: string,
+): Promise<boolean> {
+  const { data, error } = await supabase()
+    .from('clients')
+    .select('id')
+    .eq('organization_id', viewerOrgId)
+    .eq('linked_organization_id', authorOrgId)
+    .is('deleted_at', null)
+    .limit(1);
+  return !error && (data?.length ?? 0) > 0;
+}
+
+/**
+ * Story preview gate. `are_orgs_connected` only sees approved
+ * connection_requests. Your connections also lists linked clients (Godrej),
+ * so those workspace links must open the story viewer too.
+ */
+export async function checkOrgsConnectedForStoryPreview(
+  viewerOrgId: string,
+  authorOrgId: string,
+  postId?: string | null,
+): Promise<{ error: Error | null; connected: boolean }> {
+  const rpc = await checkOrgsConnected(viewerOrgId, authorOrgId, postId);
+  if (rpc.connected) return rpc;
+  try {
+    const linked = await hasLinkedClientRelationship(viewerOrgId, authorOrgId);
+    return { error: rpc.error, connected: linked };
+  } catch (e) {
+    return {
+      error: e instanceof Error ? e : rpc.error,
+      connected: false,
+    };
+  }
 }
 
 export async function checkOrgsConnected(

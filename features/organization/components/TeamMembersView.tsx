@@ -4,7 +4,6 @@
  */
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import Theme from "@/constants/Theme";
-import Typography from "@/constants/Typography";
 import { PartyAvatar } from "@/components/PartyAvatar";
 import { DomainJoinRequestsPanel } from "@/features/organization/components/DomainJoinRequestsPanel";
 import { useOrgMembersQuery, useInvalidateOrgMembers } from "@/lib/queries/useOrgMembersQuery";
@@ -16,21 +15,23 @@ import type { OrgMember, PendingPhoneTeamInvite } from "@/types/organization";
 import {
   buildTeamInvitePermissions,
   memberDisplayRoleLabel,
-  platformRoleFromMember,
   TEAM_INVITE_ROLE_OPTIONS,
   type PlatformTeamRole,
 } from "@/features/organization/utils/teamInviteRoles.util";
 import { useOrgCapabilities } from "@/lib/useCapabilities";
+import { LinearGradient } from "expo-linear-gradient";
 import {
   Check,
   CheckSquare,
+  Clock,
+  Mail,
   Pencil,
+  Phone,
   Search,
   Shield,
   Square,
   Trash2,
   UserCheck,
-  UserMinus,
   UserPlus2,
   Users,
   X,
@@ -56,14 +57,6 @@ function roleLabel(member: OrgMember): string {
   return memberDisplayRoleLabel(member);
 }
 
-function roleBadgeColor(member: OrgMember): string {
-  const platform = platformRoleFromMember(member);
-  if (member.role === "owner") return Theme.primary;
-  if (platform === "admin" || member.role === "admin") return Theme.darkGreen;
-  if (platform === "planner" || member.role === "dispatcher") return Theme.pulseIndigo;
-  return Theme.textSecondary;
-}
-
 function formatRelative(iso: string): string {
   const t = new Date(iso).getTime();
   const now = Date.now();
@@ -76,36 +69,12 @@ function formatRelative(iso: string): string {
   return `${Math.max(1, m)}m ago`;
 }
 
-const COVER_HEIGHT = 40;
-const AVATAR_SIZE = 52;
-const AVATAR_RING = 56;
+const COVER_HEIGHT = 34;
+const AVATAR_SIZE = 46;
+const AVATAR_RING = 50;
 /** How far the avatar hangs below the cover into the body. */
-const AVATAR_HANG = 28;
-const FOOTER_HEIGHT = 40;
-
-function RolePill({
-  label,
-  color,
-}: {
-  label: string;
-  color: string;
-}) {
-  return (
-    <View
-      style={[
-        cardStyles.pill,
-        cardStyles.rolePill,
-        { borderColor: color },
-      ]}
-      accessibilityLabel={`Role ${label}`}
-    >
-      <Shield size={9} color={color} strokeWidth={2.4} />
-      <Text style={[cardStyles.pillText, { color }]} numberOfLines={1}>
-        {label}
-      </Text>
-    </View>
-  );
-}
+const AVATAR_HANG = 24;
+const FOOTER_HEIGHT = 36;
 
 function StatusPill({
   tone,
@@ -143,6 +112,30 @@ function StatusPill({
   );
 }
 
+function ContactLine({
+  icon: Icon,
+  value,
+  muted = false,
+}: {
+  icon: typeof Phone;
+  value: string;
+  muted?: boolean;
+}) {
+  return (
+    <View style={cardStyles.contactLine}>
+      <View style={cardStyles.contactIcon}>
+        <Icon size={11} color={Theme.textMuted} strokeWidth={2.1} />
+      </View>
+      <Text
+        style={[cardStyles.contactText, muted && cardStyles.emailMuted]}
+        numberOfLines={1}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
 function TeamRosterCardShell({
   selected = false,
   checkbox,
@@ -153,6 +146,7 @@ function TeamRosterCardShell({
   avatarUrl,
   children,
   footer,
+  onPress,
 }: {
   selected?: boolean;
   checkbox?: React.ReactNode;
@@ -163,18 +157,24 @@ function TeamRosterCardShell({
   avatarUrl?: string | null;
   children: React.ReactNode;
   footer?: React.ReactNode | null;
+  onPress?: () => void;
 }) {
-  return (
-    <View style={[cardStyles.card, selected && cardStyles.cardSelected]}>
+  const inner = (
+    <>
       {checkbox}
-      <View style={cardStyles.cardCover}>
+      <LinearGradient
+        colors={[Theme.brandBlue, Theme.brandBlueSoft]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={cardStyles.cardCover}
+      >
+        <View style={cardStyles.coverOrb} pointerEvents="none" />
         <View style={cardStyles.badgeRow}>
           <View style={cardStyles.badgeCluster}>{leftBadges}</View>
           <View style={cardStyles.badgeClusterEnd}>{rightBadge}</View>
         </View>
-      </View>
+      </LinearGradient>
 
-      {/* Absolute, full-width centering — avoids flex/web off-center avatars. */}
       <View style={cardStyles.avatarAnchor} pointerEvents="none">
         <View style={cardStyles.avatarRing}>
           <PartyAvatar
@@ -190,10 +190,30 @@ function TeamRosterCardShell({
 
       <View style={cardStyles.cardBody}>{children}</View>
 
-      {/* Always reserve footer height so paired cards match. */}
       <View style={cardStyles.footerSlot}>
         {footer ?? <View style={cardStyles.footerPlaceholder} />}
       </View>
+    </>
+  );
+
+  if (onPress) {
+    return (
+      <Pressable
+        onPress={onPress}
+        style={({ pressed }) => [
+          cardStyles.card,
+          selected && cardStyles.cardSelected,
+          pressed && cardStyles.cardPressed,
+        ]}
+      >
+        {inner}
+      </Pressable>
+    );
+  }
+
+  return (
+    <View style={[cardStyles.card, selected && cardStyles.cardSelected]}>
+      {inner}
     </View>
   );
 }
@@ -228,6 +248,7 @@ function MemberCard({
   return (
     <TeamRosterCardShell
       selected={selected}
+      onPress={canEdit && !selectable ? () => onEdit(member) : undefined}
       avatarName={displayName}
       avatarSeed={member.id}
       avatarUrl={member.avatar_url}
@@ -250,14 +271,13 @@ function MemberCard({
         ) : null
       }
       leftBadges={
-        <>
-          <RolePill label={roleLabel(member)} color={roleBadgeColor(member)} />
-          {isCurrentUser ? (
-            <View style={[cardStyles.pill, cardStyles.youPill]}>
-              <Text style={[cardStyles.pillText, cardStyles.youPillText]}>YOU</Text>
-            </View>
-          ) : null}
-        </>
+        isCurrentUser ? (
+          <View style={[cardStyles.pill, cardStyles.youPill]}>
+            <Text style={[cardStyles.pillText, cardStyles.youPillText]}>YOU</Text>
+          </View>
+        ) : (
+          <View />
+        )
       }
       rightBadge={
         isPending ? (
@@ -281,7 +301,7 @@ function MemberCard({
             onPress={() => onEdit(member)}
             style={({ pressed }) => [cardStyles.footerBtn, pressed && { opacity: 0.82 }]}
           >
-            <Pencil size={13} color={Theme.accentBrownDeep} strokeWidth={2.2} />
+            <Pencil size={11} color={Theme.brandBlueInk} strokeWidth={2.2} />
             <Text style={cardStyles.footerBtnText}>Edit</Text>
           </Pressable>
         ) : null
@@ -291,17 +311,13 @@ function MemberCard({
         <Text style={cardStyles.name} numberOfLines={1}>
           {displayName}
         </Text>
-        <Text style={cardStyles.phone} numberOfLines={1}>
-          {member.phone?.trim() || "—"}
+        <Text style={cardStyles.roleLine} numberOfLines={1}>
+          {roleLabel(member)}
         </Text>
-        <Text
-          style={[cardStyles.email, !member.email?.trim() && cardStyles.emailMuted]}
-          numberOfLines={1}
-        >
-          {member.email?.trim() || "No email"}
-        </Text>
-        <View style={cardStyles.metaPill}>
-          <Text style={cardStyles.metaPillText}>{formatRelative(member.joined_at)}</Text>
+        <View style={cardStyles.contactBlock}>
+          <ContactLine icon={Phone} value={member.phone?.trim() || "No phone"} muted={!member.phone?.trim()} />
+          <ContactLine icon={Mail} value={member.email?.trim() || "No email"} muted={!member.email?.trim()} />
+          <ContactLine icon={Clock} value={`Joined ${formatRelative(member.joined_at)}`} />
         </View>
       </View>
     </TeamRosterCardShell>
@@ -332,7 +348,7 @@ function PendingPhoneInviteCard({
     <TeamRosterCardShell
       avatarName={invite.invitee_name}
       avatarSeed={invite.id}
-      leftBadges={<RolePill label={roleText} color={Theme.accentBrown} />}
+      leftBadges={<View />}
       rightBadge={
         <StatusPill
           tone={invite.email_conflict ? "warning" : "pending"}
@@ -364,22 +380,17 @@ function PendingPhoneInviteCard({
         <Text style={cardStyles.name} numberOfLines={1}>
           {invite.invitee_name}
         </Text>
-        <Text style={cardStyles.phone} numberOfLines={1}>
-          {invite.invitee_phone}
+        <Text style={cardStyles.roleLine} numberOfLines={1}>
+          {roleText}
         </Text>
-        <Text
-          style={[
-            cardStyles.email,
-            !invite.invitee_email?.trim() && cardStyles.emailMuted,
-          ]}
-          numberOfLines={1}
-        >
-          {invite.invitee_email?.trim() || "No email on invite"}
-        </Text>
-        <View style={cardStyles.metaPill}>
-          <Text style={cardStyles.metaPillText}>
-            Invited {formatRelative(invite.created_at)}
-          </Text>
+        <View style={cardStyles.contactBlock}>
+          <ContactLine icon={Phone} value={invite.invitee_phone} />
+          <ContactLine
+            icon={Mail}
+            value={invite.invitee_email?.trim() || "No email on invite"}
+            muted={!invite.invitee_email?.trim()}
+          />
+          <ContactLine icon={Clock} value={`Invited ${formatRelative(invite.created_at)}`} />
         </View>
         {invite.email_conflict ? (
           <View style={cardStyles.conflictBox}>
@@ -407,18 +418,22 @@ const cardStyles = StyleSheet.create({
     flexDirection: "column",
     position: "relative",
     backgroundColor: Theme.cardWhite,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
-    borderRadius: 16,
-    shadowColor: Theme.shadow,
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: Theme.surfaceBorder,
+    borderRadius: 20,
+    shadowColor: Theme.brandBlueInk,
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
     overflow: "hidden",
   },
+  cardPressed: {
+    opacity: 0.96,
+    transform: [{ scale: 0.992 }],
+  },
   cardSelected: {
-    borderColor: Theme.accentBrown,
+    borderColor: Theme.accentGold,
     borderWidth: 1.5,
   },
   checkboxWrap: {
@@ -437,10 +452,18 @@ const cardStyles = StyleSheet.create({
   },
   cardCover: {
     height: COVER_HEIGHT,
-    backgroundColor: Theme.accentBrownWash,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Theme.accentBrownBorder,
+    overflow: "hidden",
     zIndex: 1,
+  },
+  coverOrb: {
+    position: "absolute",
+    top: -22,
+    right: -18,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: Theme.screenBackground,
+    opacity: 0.28,
   },
   badgeRow: {
     flex: 1,
@@ -448,7 +471,8 @@ const cardStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 6,
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
+    paddingBottom: 10,
   },
   badgeCluster: {
     flexDirection: "row",
@@ -463,15 +487,15 @@ const cardStyles = StyleSheet.create({
     alignItems: "flex-end",
   },
   pill: {
-    height: 22,
+    height: 18,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 3,
-    paddingHorizontal: 7,
+    paddingHorizontal: 6,
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
+    borderColor: Theme.screenBackground,
     backgroundColor: Theme.cardWhite,
   },
   rolePill: {
@@ -483,11 +507,11 @@ const cardStyles = StyleSheet.create({
     flexShrink: 0,
   },
   pillText: {
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: "700",
-    letterSpacing: 0.3,
+    letterSpacing: 0.25,
     textTransform: "uppercase",
-    lineHeight: 11,
+    lineHeight: 10,
     flexShrink: 1,
   },
   statusActive: {
@@ -535,10 +559,14 @@ const cardStyles = StyleSheet.create({
     borderRadius: AVATAR_RING / 2,
     borderWidth: 3,
     borderColor: Theme.cardWhite,
-    backgroundColor: Theme.surfaceGray,
+    backgroundColor: Theme.brandBlueSoft,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
+    shadowColor: Theme.brandBlueInk,
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
   },
   avatarInner: {
     borderWidth: 0,
@@ -546,45 +574,61 @@ const cardStyles = StyleSheet.create({
   cardBody: {
     flexGrow: 1,
     flexShrink: 1,
-    paddingHorizontal: 12,
-    paddingTop: AVATAR_HANG + 10,
-    paddingBottom: 12,
+    paddingHorizontal: 14,
+    paddingTop: AVATAR_HANG + 8,
+    paddingBottom: 10,
     alignItems: "center",
     justifyContent: "flex-start",
   },
   identityBlock: {
     width: "100%",
     alignItems: "center",
-    gap: 5,
+    gap: 3,
   },
   name: {
     width: "100%",
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "700",
     color: Theme.textPrimaryDark,
     letterSpacing: -0.2,
     textAlign: "center",
-    lineHeight: 18,
-    minHeight: 18,
+    lineHeight: 17,
+    minHeight: 17,
   },
-  phone: {
+  roleLine: {
     width: "100%",
-    fontSize: 12,
-    fontWeight: "600",
-    color: Theme.textPrimaryDark,
-    textAlign: "center",
-    lineHeight: 16,
-    minHeight: 16,
-  },
-  email: {
-    width: "100%",
-    fontSize: 11,
-    fontWeight: "400",
+    fontSize: 9,
+    fontWeight: "700",
     color: Theme.textSecondary,
     textAlign: "center",
-    lineHeight: 15,
-    minHeight: 15,
+    letterSpacing: 0.35,
+    textTransform: "uppercase",
+    lineHeight: 12,
+  },
+  contactBlock: {
+    width: "100%",
+    marginTop: 6,
+    gap: 4,
     paddingHorizontal: 2,
+  },
+  contactLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    minHeight: 15,
+  },
+  contactIcon: {
+    width: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  contactText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 11,
+    fontWeight: "500",
+    color: Theme.textPrimaryDark,
+    lineHeight: 15,
   },
   emailMuted: {
     fontStyle: "italic",
@@ -624,29 +668,13 @@ const cardStyles = StyleSheet.create({
     paddingHorizontal: 2,
     minHeight: 26,
   },
-  metaPill: {
-    marginTop: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
-    backgroundColor: Theme.surfaceGray,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  metaPillText: {
-    fontSize: 10,
-    fontWeight: "600",
-    color: Theme.textMuted,
-  },
   footerSlot: {
     flexShrink: 0,
     height: FOOTER_HEIGHT,
     width: "100%",
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Theme.borderLight,
-    backgroundColor: Theme.surfaceGray,
+    borderTopColor: Theme.surfaceBorder,
+    backgroundColor: Theme.brandBlueSoft,
   },
   footerPlaceholder: {
     flex: 1,
@@ -665,9 +693,9 @@ const cardStyles = StyleSheet.create({
     backgroundColor: "rgba(232, 33, 39, 0.04)",
   },
   footerBtnText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
-    color: Theme.accentBrownDeep,
+    color: Theme.brandBlueInk,
     letterSpacing: -0.1,
   },
   footerBtnTextDanger: {
@@ -680,9 +708,11 @@ const cardStyles = StyleSheet.create({
 function EmptyMembers({ onInvite }: { onInvite?: () => void }) {
   return (
     <View style={styles.emptyWrap}>
-      <Users size={32} color={Theme.textSection} strokeWidth={1.5} />
-      <Text style={styles.emptyTitle}>No team members yet</Text>
-      <Text style={styles.emptySub}>Invite colleagues to collaborate on your org.</Text>
+      <View style={styles.emptyIcon}>
+        <Users size={26} color={Theme.brandBlueInk} strokeWidth={1.8} />
+      </View>
+      <Text style={styles.emptyTitle}>No people in this workspace yet</Text>
+      <Text style={styles.emptySub}>Invite colleagues to share trips, finance, and operations.</Text>
       {onInvite && (
         <Pressable
           onPress={onInvite}
@@ -699,8 +729,10 @@ function EmptyMembers({ onInvite }: { onInvite?: () => void }) {
 function EmptyPending({ onInvite }: { onInvite?: () => void }) {
   return (
     <View style={styles.emptyWrap}>
-      <UserCheck size={32} color={Theme.textSection} strokeWidth={1.5} />
-      <Text style={styles.emptyTitle}>No pending invites</Text>
+      <View style={styles.emptyIcon}>
+        <UserCheck size={26} color={Theme.brandBlueInk} strokeWidth={1.8} />
+      </View>
+      <Text style={styles.emptyTitle}>Inbox is clear</Text>
       <Text style={styles.emptySub}>
         Sent invitations appear here. New employees without a Pulse account show as
         awaiting signup until they register with the invited phone number.
@@ -922,47 +954,61 @@ export function TeamMembersView({
     <>
       <DomainJoinRequestsPanel orgId={orgId} canManage={canManage} />
 
+      <LinearGradient
+        colors={[Theme.brandBlueSoft, Theme.cardWhite]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[styles.hero, embedded && styles.heroEmbedded]}
+      >
+        <View style={styles.heroCopy}>
+          <Text style={styles.heroKicker}>Directory</Text>
+          <Text style={styles.heroTitle}>People in this workspace</Text>
+          <Text style={styles.heroSub}>
+            Roles, access, and invites — one place to manage who can operate.
+          </Text>
+        </View>
+        <View style={styles.heroStats}>
+          <View style={styles.heroStat}>
+            <Text style={styles.heroStatValue}>{activeMembers.length}</Text>
+            <Text style={styles.heroStatLabel}>Active</Text>
+          </View>
+          <View style={styles.heroStatDivider} />
+          <View style={styles.heroStat}>
+            <Text style={styles.heroStatValue}>{pendingCount}</Text>
+            <Text style={styles.heroStatLabel}>Pending</Text>
+          </View>
+        </View>
+      </LinearGradient>
+
       <View
         style={[
-          styles.tabRow,
+          styles.segRow,
           desktopMetronic && styles.tabRowMetronic,
           embedded && styles.tabRowEmbedded,
         ]}
       >
-        {(["members", "pending"] as const).map((k) => {
-          const on = tab === k;
-          const count = k === "members" ? activeMembers.length : pendingCount;
-          return (
-            <Pressable
-              key={k}
-              onPress={() => setTab(k)}
-              style={[
-                styles.tab,
-                desktopMetronic && styles.tabMetronic,
-                on && styles.tabOn,
-                on && desktopMetronic && styles.tabOnMetronic,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.tabText,
-                  desktopMetronic && styles.tabTextMetronic,
-                  on && styles.tabTextOn,
-                  on && desktopMetronic && styles.tabTextOnMetronic,
-                ]}
+        <View style={styles.segTrack}>
+          {(["members", "pending"] as const).map((k) => {
+            const on = tab === k;
+            const count = k === "members" ? activeMembers.length : pendingCount;
+            return (
+              <Pressable
+                key={k}
+                onPress={() => setTab(k)}
+                style={[styles.segTab, on && styles.segTabOn]}
               >
-                {k === "members" ? "Members" : "Pending"}
-              </Text>
-              {count > 0 ? (
+                <Text style={[styles.segTabText, on && styles.segTabTextOn]}>
+                  {k === "members" ? "People" : "Invites"}
+                </Text>
                 <View style={[styles.tabBadge, on && styles.tabBadgeOn]}>
                   <Text style={[styles.tabBadgeText, on && styles.tabBadgeTextOn]}>
                     {count}
                   </Text>
                 </View>
-              ) : null}
-            </Pressable>
-          );
-        })}
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
 
       <View
@@ -975,17 +1021,14 @@ export function TeamMembersView({
         <Search size={15} color={Theme.textSecondary} strokeWidth={2} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search by name or phone…"
+          placeholder="Search name, phone, or email…"
           placeholderTextColor={Theme.textMuted}
           value={search}
           onChangeText={setSearch}
           returnKeyType="search"
           autoCorrect={false}
         />
-      </View>
-
-      {canManage && tab === "members" && activeMembers.length > 1 ? (
-        <View style={[styles.bulkToggleRow, embedded && styles.bulkToggleRowEmbedded]}>
+        {canManage && tab === "members" && activeMembers.length > 1 ? (
           <Pressable
             onPress={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
             style={({ pressed }) => [
@@ -1010,8 +1053,8 @@ export function TeamMembersView({
               {selectMode ? "Done" : "Select"}
             </Text>
           </Pressable>
-        </View>
-      ) : null}
+        ) : null}
+      </View>
 
       {tab === "members" ? (
         displayList.length === 0 ? (
@@ -1089,22 +1132,6 @@ export function TeamMembersView({
         </View>
       )}
 
-      {all.length > 0 || pendingPhoneInvites.length > 0 ? (
-        <View style={[styles.statsRow, embedded && styles.statsRowEmbedded]}>
-          <View style={styles.statChip}>
-            <UserCheck size={11} color={Theme.darkGreen} strokeWidth={2.2} />
-            <Text style={styles.statText}>{activeMembers.length} active</Text>
-          </View>
-          {pendingCount > 0 ? (
-            <View style={styles.statChip}>
-              <UserMinus size={11} color={Theme.warning} strokeWidth={2.2} />
-              <Text style={[styles.statText, { color: Theme.warning }]}>
-                {pendingCount} pending
-              </Text>
-            </View>
-          ) : null}
-        </View>
-      ) : null}
     </>
   );
 
@@ -1210,27 +1237,119 @@ const styles = StyleSheet.create({
   content: { paddingBottom: 40 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 60 },
 
-  tabRow: {
+  hero: {
+    marginHorizontal: 16,
+    marginBottom: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: Theme.brandBlue,
     flexDirection: "row",
-    gap: 20,
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: 16,
+  },
+  heroEmbedded: {
+    marginHorizontal: 20,
+  },
+  heroCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  heroKicker: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    color: Theme.brandBlueInk,
+  },
+  heroTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    letterSpacing: -0.4,
+    color: Theme.textPrimaryDark,
+  },
+  heroSub: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: Theme.textSecondary,
+    fontWeight: "500",
+  },
+  heroStats: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 0,
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Theme.brandBlue,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 12,
+  },
+  heroStat: {
+    alignItems: "center",
+    minWidth: 44,
+  },
+  heroStatValue: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: Theme.brandBlueInk,
+    letterSpacing: -0.6,
+    lineHeight: 24,
+  },
+  heroStatLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: Theme.textSecondary,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  heroStatDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: Theme.brandBlue,
+  },
+  segRow: {
     paddingHorizontal: 16,
-    paddingTop: 4,
-    paddingBottom: 2,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Theme.borderLight,
     marginBottom: 12,
   },
-  tab: {
+  segTrack: {
+    flexDirection: "row",
+    alignSelf: "flex-start",
+    backgroundColor: Theme.surfaceGray,
+    borderRadius: 14,
+    padding: 4,
+    gap: 4,
+  },
+  segTab: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingVertical: 10,
-    borderBottomWidth: 3,
-    borderBottomColor: "transparent",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 11,
   },
-  tabOn: { borderBottomColor: Theme.accentGold },
-  tabText: { ...Typography.subTabLabel, color: Theme.textSection },
-  tabTextOn: { color: Theme.textPrimaryDark },
+  segTabOn: {
+    backgroundColor: Theme.cardWhite,
+    shadowColor: Theme.brandBlueInk,
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  segTabText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: Theme.textSecondary,
+  },
+  segTabTextOn: {
+    color: Theme.textPrimaryDark,
+    fontWeight: "800",
+  },
   tabBadge: {
     minWidth: 18,
     height: 18,
@@ -1249,11 +1368,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     marginHorizontal: 16,
-    marginBottom: 14,
+    marginBottom: 16,
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 20,
-    backgroundColor: Theme.surfaceGray,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.surfaceBorder,
   },
   searchInput: {
     flex: 1,
@@ -1262,7 +1383,7 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
 
-  grid: { paddingHorizontal: 14, gap: 12 },
+  grid: { paddingHorizontal: 14, gap: 10 },
   gridRow: {
     flexDirection: "row",
     alignItems: "stretch",
@@ -1289,6 +1410,16 @@ const styles = StyleSheet.create({
     borderColor: Theme.borderLight,
   },
 
+  emptyIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Theme.brandBlueSoft,
+    borderWidth: 1,
+    borderColor: Theme.brandBlue,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   emptyWrap: {
     alignItems: "center",
     paddingVertical: 40,

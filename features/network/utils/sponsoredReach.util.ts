@@ -39,6 +39,82 @@ export function sponsoredReachIndentIds(
   return ids;
 }
 
+/** Own live Pulse Boost — feed/strip often omit the advertiser's row. */
+export function sponsoredPostFromReachCampaign(campaign: {
+  id: string;
+  org_id: string;
+  post_id: string | null;
+  status: string;
+  published_at: string | null;
+  created_at: string;
+  expires_at: string | null;
+  snapshot_post_type?: string | null;
+  snapshot_origin?: string | null;
+  snapshot_destination?: string | null;
+  snapshot_vehicle_type?: string | null;
+  snapshot_material?: string | null;
+  snapshot_content?: string | null;
+  snapshot_source_indent_id?: string | null;
+  load_pickup_date?: string | null;
+  load_weight?: number | null;
+  load_rate?: number | null;
+}): {
+  id: string;
+  organization_id: string;
+  org_name: string;
+  org_avatar_seed: null;
+  org_avatar_url: null;
+  author_user_id: string;
+  type: "LOAD";
+  content: string | null;
+  origin: string | null;
+  destination: string | null;
+  load_date: string | null;
+  vehicle_type: string | null;
+  weight_tonnes: number | null;
+  rate_offer: number | null;
+  material: string | null;
+  expires_at: string | null;
+  is_active: true;
+  view_count: number;
+  bid_count: number;
+  created_at: string;
+  source_indent_id: string | null;
+  is_sponsored: true;
+  reach_campaign_id: string;
+} | null {
+  if (campaign.status !== "active") return null;
+  const postId = (campaign.post_id ?? "").trim();
+  if (!postId) return null;
+  const type = (campaign.snapshot_post_type ?? "LOAD").toUpperCase();
+  if (type !== "LOAD") return null;
+  return {
+    id: postId,
+    organization_id: campaign.org_id,
+    org_name: "",
+    org_avatar_seed: null,
+    org_avatar_url: null,
+    author_user_id: "",
+    type: "LOAD",
+    content: campaign.snapshot_content ?? null,
+    origin: campaign.snapshot_origin ?? null,
+    destination: campaign.snapshot_destination ?? null,
+    load_date: campaign.load_pickup_date ?? null,
+    vehicle_type: campaign.snapshot_vehicle_type ?? null,
+    weight_tonnes: campaign.load_weight ?? null,
+    rate_offer: campaign.load_rate ?? null,
+    material: campaign.snapshot_material ?? null,
+    expires_at: campaign.expires_at,
+    is_active: true,
+    view_count: 0,
+    bid_count: 0,
+    created_at: campaign.published_at ?? campaign.created_at,
+    source_indent_id: campaign.snapshot_source_indent_id ?? null,
+    is_sponsored: true,
+    reach_campaign_id: campaign.id,
+  };
+}
+
 export function isSponsoredReachLoad(
   load: SponsoredLoadFields,
   sponsoredIndentIds?: ReadonlySet<string>,

@@ -135,7 +135,7 @@ export const Theme = {
   /** Spinners and pull-to-refresh on light/dark surfaces. */
   loaderAccent: "#FFCE44",
 
-  /** Warm brown — Pulse Reach / growth surfaces (aligned with brand ink). */
+  /** Warm brown — Pulse Boost / growth surfaces (aligned with brand ink). */
   accentBrown: "#6B4F3A",
   accentBrownDeep: "#4D3636",
   /** Lightest step of the brown ramp — entry tier / least emphasis. */

@@ -119,6 +119,22 @@ export async function getDirectQuotesByIndentId(
  * Get quote counts per indent in one query (O(n) over results). For Hire Partner list badges.
  * Returns Record<indent_id, count>. Indent IDs not present have count 0 (omitted from record).
  */
+export async function getDirectQuotesByIndentIds(
+  indentIds: string[],
+): Promise<{ error: Error | null; quotes: DirectQuoteRow[] }> {
+  const ids = [...new Set(indentIds.filter(Boolean))];
+  const quotes: DirectQuoteRow[] = [];
+  for (const indentId of ids) {
+    const { error, quotes: rows } = await getDirectQuotesByIndentId(indentId);
+    if (error) return { error, quotes: [] };
+    quotes.push(...rows);
+  }
+  quotes.sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+  );
+  return { error: null, quotes };
+}
+
 export async function getDirectQuoteCountsByIndentIds(
   indentIds: string[]
 ): Promise<{ error: Error | null; counts: Record<string, number> }> {

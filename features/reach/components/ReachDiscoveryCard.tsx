@@ -1,5 +1,5 @@
 /**
- * @deprecated Pulse Reach is a tile inside `NetworkLoadsQuickCards`
+ * @deprecated Pulse Boost is a tile inside `NetworkLoadsQuickCards`
  * (same size/chrome as Give / Get / Assist). Kept as a no-op export so
  * older imports do not break.
  */

@@ -1,10 +1,9 @@
 /**
- * Campaign row/card for Pulse Reach studio.
+ * Campaign row/card for Pulse Boost studio.
  * `manager` = Ads Manager–style dense list row (desktop).
  * `deck` = compact card for mobile horizontal browse.
  */
 import Theme from "@/constants/Theme";
-import { REACH_M } from "@/features/reach/styles/reachMetronic";
 import type { ReachCampaignRow, ReachPlanRow } from "@/features/reach/services/campaigns.service";
 import { getCampaignIdentity } from "@/features/reach/utils/campaignIdentity";
 import { formatINR } from "@/lib/format";

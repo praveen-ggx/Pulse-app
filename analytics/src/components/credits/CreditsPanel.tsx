@@ -391,7 +391,7 @@ export function CreditsPanel() {
                   emphasis
                   label="Current Balance"
                   value={`${formatCredits(wallet?.balance ?? 0)} cr`}
-                  sub="Available to spend on Reach"
+                  sub="Available to spend on Pulse Boost"
                   icon={<Coins className="size-3" />}
                 />
                 <StatCard

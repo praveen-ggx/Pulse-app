@@ -1,10 +1,6 @@
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { ChatPartyAvatar } from "@/features/chat/components/ChatPartyAvatar";
-import {
-  isSelfNetworkStory,
-  shouldHideLoadStoryFromAuthor,
-} from "@/features/network/utils/storyLoadVisibility.util";
-import { isIndentStoryLive } from "@/features/network/utils/indentStoryWindow.util";
+import { useNetworkStoryStrip } from "@/features/network/hooks/useNetworkStoryStrip";
 import {
   isDriverSwapPreviewMessage,
   resolveDriverSwapAvatars,
@@ -1631,50 +1627,12 @@ export function ChatScreen() {
       });
   }, [netChats]);
   const shouldLoadStoryFeed =
-    Boolean(currentOrgId) && isMobileChatUi && (activeTab === "network" || showStoriesSheet);
-  const { data: networkFeedPosts = [], isLoading: storiesLoading } = useNetworkFeedQuery(
-    shouldLoadStoryFeed ? currentOrgId : null,
-  );
-  const integratedNetworkStories = useMemo(() => {
-    if (!shouldLoadStoryFeed || networkFeedPosts.length === 0) return [];
-    const partnerOrgIds = new Set<string>(
-      sortedNetChats.map((row) => row.partnerId).filter(Boolean),
-    );
-    const supplierOrgIds = new Set<string>();
-    const clientOrgIds = new Set<string>();
-    for (const partner of netPartners) {
-      if (partner.party_type === "supplier") supplierOrgIds.add(partner.org_id);
-      if (partner.party_type === "client") clientOrgIds.add(partner.org_id);
-    }
-    return networkFeedPosts.filter((post) => {
-      if (post.type !== "LOAD" && post.type !== "VEHICLE_AVAILABILITY") return false;
-      if (isSelfNetworkStory(post, currentOrgId)) return false;
-      if (post.is_sponsored) return true;
-      if (!post.organization_id || !partnerOrgIds.has(post.organization_id)) {
-        return false;
-      }
-      if (post.type === "LOAD" && !isIndentStoryLive(post)) {
-        return false;
-      }
-      if (
-        post.type === "LOAD" &&
-        shouldHideLoadStoryFromAuthor({
-          authorOrgId: post.organization_id,
-          supplierOrgIds,
-          clientOrgIds,
-        })
-      ) {
-        return false;
-      }
-      return true;
-    });
-  }, [
-    currentOrgId,
-    networkFeedPosts,
-    shouldLoadStoryFeed,
-    sortedNetChats,
-    netPartners,
-  ]);
+    Boolean(currentOrgId) && (activeTab === "network" || showStoriesSheet);
+  const {
+    posts: networkStoryPosts,
+    indentCountByPostId: networkStoryIndentCounts,
+    isLoading: storiesLoading,
+  } = useNetworkStoryStrip(shouldLoadStoryFeed ? currentOrgId : null);
   const chatNetworkPartnerOrgIds = useMemo(() => {
     const ids = new Set<string>();
     for (const partner of netPartners) {
@@ -3085,15 +3043,15 @@ export function ChatScreen() {
         networkStoryStrip={
           activeTab === "network" ? (
             <View style={s.chatStoryInlineWrap}>
-              <StoryReel
-                posts={integratedNetworkStories}
+                posts={networkStoryPosts}
                 orgId={currentOrgId || undefined}
                 orgName={currentOrganization?.name ?? undefined}
                 onCreatePost={() => router.push("/(modals)/create-post")}
                 networkPartnerOrgIds={chatNetworkPartnerOrgIds}
-                fetchLiveOwnLoads={false}
+                indentCountByPostId={networkStoryIndentCounts}
+                embedded
               />
-              {storiesLoading && integratedNetworkStories.length === 0 ? (
+              {storiesLoading && networkStoryPosts.length === 0 ? (
                 <View style={s.chatStoryLoadingRow}>
                   <LoadingIndicator size="small" color={CHAT_ACCENT} />
                   <Text style={s.chatStoryLoadingText}>Syncing stories…</Text>
@@ -3999,6 +3957,25 @@ export function ChatScreen() {
               showsVerticalScrollIndicator={false}
             >
               {desktopPeopleStrip}
+              {activeTab === "network" ? (
+                <View style={s.chatStoryInlineWrap}>
+                  <StoryReel
+                    posts={networkStoryPosts}
+                    orgId={currentOrgId || undefined}
+                    orgName={currentOrganization?.name ?? undefined}
+                    onCreatePost={() => router.push("/(modals)/create-post")}
+                    networkPartnerOrgIds={chatNetworkPartnerOrgIds}
+                    indentCountByPostId={networkStoryIndentCounts}
+                    embedded
+                  />
+                  {storiesLoading && networkStoryPosts.length === 0 ? (
+                    <View style={s.chatStoryLoadingRow}>
+                      <LoadingIndicator size="small" color={CHAT_ACCENT} />
+                      <Text style={s.chatStoryLoadingText}>Syncing stories…</Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
               <View style={deskSt.sidebarCategoryWrap}>
                 <TouchableOpacity
                   style={deskSt.sidebarCategoryHeader}
@@ -4309,7 +4286,6 @@ export function ChatScreen() {
   }
 
   function StoriesModal() {
-    if (!isMobileChatUi) return null;
     return (
       <Modal
         visible={showStoriesSheet}
@@ -4322,30 +4298,31 @@ export function ChatScreen() {
             <View style={cm.header}>
               <View>
                 <Text style={cm.title}>Stories</Text>
-                <Text style={cm.subtitle}>Integrated network updates</Text>
+                <Text style={cm.subtitle}>Network and Pulse Boost stories</Text>
               </View>
               <TouchableOpacity onPress={() => setShowStoriesSheet(false)} hitSlop={8} style={cm.closeBtn}>
                 <X size={20} color="#94a3b8" />
               </TouchableOpacity>
             </View>
-            {storiesLoading && integratedNetworkStories.length === 0 ? (
+            {storiesLoading && networkStoryPosts.length === 0 ? (
               <View style={s.chatStoriesModalLoading}>
                 <LoadingIndicator color={CHAT_ACCENT} />
                 <Text style={s.chatStoriesModalLoadingText}>Syncing stories…</Text>
               </View>
-            ) : integratedNetworkStories.length === 0 ? (
+            ) : networkStoryPosts.length === 0 ? (
               <View style={s.chatStoriesModalLoading}>
                 <Text style={s.chatStoriesModalLoadingText}>
-                  No active stories from integrated network yet.
+                  No active stories from your network yet.
                 </Text>
               </View>
             ) : (
               <StoryReel
-                posts={integratedNetworkStories}
+                posts={networkStoryPosts}
                 orgId={currentOrgId || undefined}
                 orgName={currentOrganization?.name ?? undefined}
                 onCreatePost={() => router.push("/(modals)/create-post")}
                 networkPartnerOrgIds={chatNetworkPartnerOrgIds}
+                indentCountByPostId={networkStoryIndentCounts}
                 fetchLiveOwnLoads={false}
               />
             )}

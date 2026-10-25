@@ -125,8 +125,8 @@ export function getPermissionDescription(permission: AdminPermission): string {
     'users.suspend': 'Suspend or unsuspend user accounts',
     'marketplace_fees.manage': 'Adjust marketplace fee rules',
     'dco.review': 'Review, approve, reject, or suspend DCO status requests',
-    'reach.manage': 'Create and edit Reach campaigns',
-    'reach.approve': 'Approve Reach campaigns for publishing',
+    'reach.manage': 'Create and edit Pulse Boost campaigns',
+    'reach.approve': 'Approve Pulse Boost campaigns for publishing',
     'analytics.view': 'View internal analytics dashboards',
     'platform_admin.manage': 'Invite, update roles, and manage admin users',
   };

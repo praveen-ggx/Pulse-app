@@ -260,7 +260,7 @@ export default function PostDetailScreen() {
       ? await confirmDialog({
           title: 'Delete story?',
           message:
-            'This story has an active Pulse Reach campaign.\n\nThe story will be removed, but your paid campaign continues:\n' +
+            'This story has an active Pulse Boost campaign.\n\nThe story will be removed, but your paid campaign continues:\n' +
             '• Delivery keeps running from the campaign snapshot\n' +
             '• Analytics and campaign history stay intact\n' +
             '• The campaign ends on its normal schedule\n\n' +

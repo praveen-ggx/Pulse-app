@@ -79,7 +79,8 @@ export function useReachCampaignMetricsQuery(campaignId: string | null) {
       return res.metrics;
     },
     enabled: !!campaignId,
-    staleTime: STALE.frequent,
+    staleTime: 10_000,
+    refetchInterval: 15_000,
   });
 }
 
@@ -100,7 +101,8 @@ export function useReachTripMetricsQuery(campaignIds: string[]) {
         if (res.error) throw res.error;
         return res.metrics;
       },
-      staleTime: STALE.frequent,
+      staleTime: 10_000,
+      refetchInterval: 15_000,
     })),
   });
 
@@ -245,6 +247,9 @@ export function usePublishReachCampaignMutation() {
       queryClient.invalidateQueries({ queryKey: queryKeys.reach.campaignsForOrg(variables.orgId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.reach.campaignPurchasesForOrg(variables.orgId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.reach.wallet(variables.orgId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.reach.orgSummary(variables.orgId) });
+      queryClient.invalidateQueries({ queryKey: ["q", "reach", "metrics"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.posts.all(variables.orgId) });
     },
   });
 }
@@ -346,6 +351,8 @@ export function useUpgradeReachCampaignMutation() {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.reach.campaignsForOrg(variables.orgId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.reach.campaignPurchasesForOrg(variables.orgId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.reach.wallet(variables.orgId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.reach.orgSummary(variables.orgId) });
     },
   });
 }

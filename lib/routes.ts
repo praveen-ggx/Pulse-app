@@ -409,9 +409,7 @@ export const ROUTES = {
     /** Product home — Credits Balance, Reach Delivered, Active Campaigns,
      * Quick Actions, Recent Campaigns. The discovery entry point (Phase 2.2). */
     HOME: '/reach' as const,
-    /** Org's Reach campaigns with Impressions/Views/Bids/Credits Used — not
-     * load-only long-term (RFQs, hiring, fleet requirements can all become
-     * Reach campaigns later), hence "Reach" not "Boost" in the screen name. */
+    /** Org's Pulse Boost campaigns with Impressions/Views/Bids/Credits Used. */
     HISTORY: '/reach/history' as const,
     /** Placeholder only (Phase 2.2) — no referral/verification backend yet;
      * every card reads "Coming Soon". Educational, not functional. */

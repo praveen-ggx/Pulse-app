@@ -12,7 +12,12 @@ import {
 import type { ReachPlanRow } from "@/features/reach/services/campaigns.service";
 import { findOrgDraftOrActiveCampaign } from "@/features/reach/utils/orgActiveBoost";
 import { formatINR } from "@/lib/format";
-import { usePublishReachCampaignMutation, useReachCampaignsQuery, useReachPlansQuery } from "@/lib/queries/useReachCampaignsQuery";
+import {
+  useCancelReachCampaignMutation,
+  usePublishReachCampaignMutation,
+  useReachCampaignsQuery,
+  useReachPlansQuery,
+} from "@/lib/queries/useReachCampaignsQuery";
 import { useReachWalletQuery } from "@/lib/queries/useReachWalletQuery";
 import { describeReachPlan, getReachPlanDisplay } from "@/lib/reachPlanRegistry";
 import { ROUTES } from "@/lib/routes";
@@ -64,6 +69,7 @@ export function BoostSheet({ visible, onClose, orgId, postId, onBoosted, onViewC
   const campaignsQ = useReachCampaignsQuery(visible ? orgId : null);
   const walletQ = useReachWalletQuery(visible ? orgId : null);
   const publishMutation = usePublishReachCampaignMutation();
+  const cancelMutation = useCancelReachCampaignMutation();
   const bottomPad = sheetBottomPad ?? insets.bottom + 14;
 
   const orgActiveBoost = useMemo(
@@ -75,7 +81,7 @@ export function BoostSheet({ visible, onClose, orgId, postId, onBoosted, onViewC
   const [paymentMethod, setPaymentMethod] = useState<"credits" | "money">("credits");
   const [justBoosted, setJustBoosted] = useState<{ plan: ReachPlanRow; pending: boolean } | null>(null);
   // Boost V2 — driver distribution + referral escrow
-  const [driverChannel, setDriverChannel] = useState(false);
+  const [driverChannel, setDriverChannel] = useState(true);
   const [rewardEnabled, setRewardEnabled] = useState(false);
   const [rewardAmount, setRewardAmount] = useState<number>(500);
   const [rewardBudgetText, setRewardBudgetText] = useState(DEFAULT_REWARD_BUDGET);
@@ -88,7 +94,7 @@ export function BoostSheet({ visible, onClose, orgId, postId, onBoosted, onViewC
       setSelectedPlanId(null);
       setPaymentMethod("credits");
       setJustBoosted(null);
-      setDriverChannel(false);
+      setDriverChannel(true);
       setRewardEnabled(false);
       setRewardAmount(500);
       setRewardBudgetText(DEFAULT_REWARD_BUDGET);
@@ -114,7 +120,7 @@ export function BoostSheet({ visible, onClose, orgId, postId, onBoosted, onViewC
       return;
     }
     if (orgActiveBoost?.id) {
-      router.push(ROUTES.REACH.campaignDetail(orgActiveBoost.id) as never);
+      router.push(ROUTES.REACH.HOME as never);
       return;
     }
     router.push(ROUTES.REACH.HISTORY as never);
@@ -122,11 +128,11 @@ export function BoostSheet({ visible, onClose, orgId, postId, onBoosted, onViewC
 
   const handleConfirm = async () => {
     if (!selectedPlan || !rewardConfigValid) return;
-    // UI convenience — RPC still enforces active_boost_exists.
-    if (findOrgDraftOrActiveCampaign(campaignsQ.data)) {
+    const live = findOrgDraftOrActiveCampaign(campaignsQ.data);
+    if (live && live.post_id === postId) {
       Alert.alert(
         "Boost Active",
-        "Your organization already has an active Boost. Open it instead of purchasing another.",
+        "This story is already boosted. Open it to upgrade the plan.",
         [
           { text: "View Boost", onPress: openExistingBoost },
           { text: "Cancel", style: "cancel" },
@@ -134,13 +140,24 @@ export function BoostSheet({ visible, onClose, orgId, postId, onBoosted, onViewC
       );
       return;
     }
+    if (live) {
+      const cancelled = await cancelMutation.mutateAsync({
+        campaignId: live.id,
+        reason: "moved_to_another_story",
+        orgId,
+      });
+      if (cancelled.error) {
+        Alert.alert("Couldn't move boost", cancelled.error.message);
+        return;
+      }
+    }
     const { error, result } = await publishMutation.mutateAsync({
       orgId,
       postId,
       planId: selectedPlan.id,
       paymentMethod,
       rewardConfig: {
-        distributionChannels: driverChannel ? ["fleet", "driver"] : ["fleet"],
+        distributionChannels: ["fleet", "driver"],
         driverRewardEnabled: driverRewardOn,
         rewardAmount: driverRewardOn ? rewardAmount : 0,
         rewardBudget,
@@ -166,7 +183,9 @@ export function BoostSheet({ visible, onClose, orgId, postId, onBoosted, onViewC
     setJustBoosted({ plan: selectedPlan, pending: result.purchase_status === "pending" });
   };
 
-  const showActiveBlock = Boolean(visible && orgActiveBoost && !justBoosted);
+  const showActiveBlock = Boolean(
+    visible && orgActiveBoost && orgActiveBoost.post_id === postId && !justBoosted,
+  );
 
   return (
     <StoryFlowSheetPortal

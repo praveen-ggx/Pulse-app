@@ -14,7 +14,10 @@ import { FinanceCustomersTab } from './finance-tabs/FinanceCustomersTab';
 import { FinanceDriversTab } from './finance-tabs/FinanceDriversTab';
 import { FinanceGarageTab } from './finance-tabs/FinanceGarageTab';
 import { FinanceSuppliersTab } from './finance-tabs/FinanceSuppliersTab';
-import { isFinancePartyTabBlocking } from '@/features/finance/utils/financePartyTabLoading.util';
+import {
+  isFinancePartyTabBlocking,
+  shouldShowFinancePartyCatalogLoading,
+} from '@/features/finance/utils/financePartyTabLoading.util';
 import type { FinanceTabBodyProps } from './FinanceTabBody.types';
 
 export type { FinanceTabBodyProps } from './FinanceTabBody.types';
@@ -48,8 +51,14 @@ export function FinanceTabBody(props: FinanceTabBodyProps) {
   if (
     isFinancePartyTabBlocking({
       activeTab,
-      clientsLoading: props.clientsLoading ?? props.entitiesLoading,
-      suppliersLoading: props.suppliersLoading ?? props.entitiesLoading,
+      clientsLoading: shouldShowFinancePartyCatalogLoading({
+        hasRows: (props.clientRows?.length ?? 0) > 0,
+        catalogPending: props.clientsLoading ?? props.entitiesLoading,
+      }),
+      suppliersLoading: shouldShowFinancePartyCatalogLoading({
+        hasRows: (props.supplierRows?.length ?? 0) > 0,
+        catalogPending: props.suppliersLoading ?? props.entitiesLoading,
+      }),
       entitiesLoading: props.entitiesLoading,
     })
   ) {

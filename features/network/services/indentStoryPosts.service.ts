@@ -65,6 +65,7 @@ type LinkedStoryRow = {
   is_active: boolean;
   expires_at: string | null;
   created_at: string;
+  source_indent_id?: string | null;
 };
 
 function storyRateOffer(indent: IndentStorySource): number | undefined {
@@ -88,7 +89,7 @@ async function listLinkedLoadStories(
   }
   const { data, error } = await supabase()
     .from('posts')
-    .select('id, is_active, expires_at, created_at')
+    .select('id, is_active, expires_at, created_at, source_indent_id')
     .eq('source_indent_id', indentId)
     .eq('type', 'LOAD')
     .order('created_at', { ascending: false });
@@ -190,9 +191,8 @@ export async function listLiveOwnLoadStories(
   if (!orgId) return { error: null, posts: [] };
   if (!(await getAccessToken())) return { error: null, posts: [] };
 
-  const nowIso = new Date().toISOString();
-  // Bound the scan: active LOAD stories only, still within the reel window
-  // (null expires_at = legacy live). Avoid pulling every historical LOAD row.
+  // Indent-linked stories stay on the reel until the indent expires or is
+  // cancelled — not the 24h `expires_at` clock (P0.1).
   const { data, error } = await supabase()
     .from('posts')
     .select(
@@ -201,14 +201,12 @@ export async function listLiveOwnLoadStories(
     .eq('organization_id', orgId)
     .eq('type', 'LOAD')
     .not('source_indent_id', 'is', null)
-    .eq('is_active', true)
-    .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
     .order('created_at', { ascending: false })
-    .limit(40);
+    .limit(80);
 
   if (error) return { error: new Error(error.message), posts: [] };
 
-  const liveRows = (data ?? []).filter((raw) => isIndentStoryLive(raw));
+  const liveRows = data ?? [];
   const indentIds = [
     ...new Set(
       liveRows

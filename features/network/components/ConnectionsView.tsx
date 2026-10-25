@@ -1192,6 +1192,7 @@ export function ConnectionsView({
             isMobileHub && styles.connectionsPhotoWatermarkCompact,
           ]}
           resizeMode="contain"
+          pointerEvents="none"
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
         />

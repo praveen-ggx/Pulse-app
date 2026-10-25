@@ -91,6 +91,7 @@ export function WorkspaceTeamPanel({ onBack }: Props) {
       subtitle={subtitle}
       onBack={handleChromeBack}
       fillBody
+      contentMaxWidth={1080}
       rightSlot={
         view === "invite" || !canManage ? (
           <View style={styles.invitePlaceholder} />

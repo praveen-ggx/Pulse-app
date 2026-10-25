@@ -19,7 +19,7 @@ export function useNetworkFeedQuery(
   return useQuery({
     queryKey: queryKeys.posts.feed(orgId ?? ''),
     queryFn: async () => {
-      const res = await getNetworkFeed(orgId!, 30, 0);
+      const res = await getNetworkFeed(orgId!, 50, 0);
       if (res.error) throw res.error;
       return res.posts;
     },

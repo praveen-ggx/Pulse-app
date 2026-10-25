@@ -203,6 +203,11 @@ export async function withdrawNetworkQuotes(
     return { error: null, withdrawn };
   }
 
+  const rpcMissing =
+    /could not find the function|schema cache|withdraw_network_quotes|not found|pgrst202|404/i.test(
+      [rpcError.code, rpcError.message].filter(Boolean).join(" "),
+    );
+
   const { data, error } = await supabase()
     .from("direct_quotes")
     .delete()
@@ -213,7 +218,14 @@ export async function withdrawNetworkQuotes(
   if (!error) {
     const withdrawn = (data ?? []).length;
     if (withdrawn === 0) {
-      return { error: new Error("No pending bid to cancel."), withdrawn: 0 };
+      return {
+        error: new Error(
+          rpcMissing
+            ? "Could not cancel bid. Withdraw is not available on the server yet."
+            : "No pending bid to cancel.",
+        ),
+        withdrawn: 0,
+      };
     }
     return { error: null, withdrawn };
   }

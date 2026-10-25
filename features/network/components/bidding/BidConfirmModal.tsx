@@ -15,6 +15,7 @@ import {
   MapPin,
   MessageSquare,
   Sparkles,
+  TicketX,
   Truck,
   X,
 } from "lucide-react-native";
@@ -63,13 +64,21 @@ function ticketClipPath(width: number, height: number, holeY: number): string {
 }
 
 const PARTICLE_COUNT = 24;
-const PARTICLE_COLORS = [
+const SUBMIT_PARTICLE_COLORS = [
   Theme.driverEmerald,
   Theme.driverPrimary,
   Theme.accentGold,
   Theme.brandBlueSoft,
   Theme.positiveMuted,
   Theme.warningMuted,
+];
+const WITHDRAW_PARTICLE_COLORS = [
+  Theme.warning,
+  Theme.textMuted,
+  Theme.negative,
+  Theme.borderLight,
+  Theme.warningMuted,
+  Theme.textSecondary,
 ];
 
 export type BidConfirmPhase = "review" | "success";
@@ -192,11 +201,14 @@ export const BidConfirmModal = memo(function BidConfirmModal({
   const ringScale = useRef(new Animated.Value(0.6)).current;
   const ringOpacity = useRef(new Animated.Value(0)).current;
 
+  const stampTilt = useRef(new Animated.Value(18)).current;
   const particles = useMemo(
     () =>
       Array.from({ length: PARTICLE_COUNT }, (_, i) => ({
         id: i,
-        color: PARTICLE_COLORS[i % PARTICLE_COLORS.length],
+        color: (isWithdraw ? WITHDRAW_PARTICLE_COLORS : SUBMIT_PARTICLE_COLORS)[
+          i % (isWithdraw ? WITHDRAW_PARTICLE_COLORS : SUBMIT_PARTICLE_COLORS).length
+        ],
         x: (Math.random() - 0.5) * 300,
         delay: Math.random() * 160,
         size: 5 + Math.random() * 7,
@@ -204,7 +216,7 @@ export const BidConfirmModal = memo(function BidConfirmModal({
         fall: 220 + Math.random() * 140,
       })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [visible, isSuccess],
+    [visible, isSuccess, isWithdraw],
   );
   const particleAnims = useRef(
     Array.from({ length: PARTICLE_COUNT }, () => ({
@@ -219,10 +231,17 @@ export const BidConfirmModal = memo(function BidConfirmModal({
       checkOpacity.setValue(0);
       ringScale.setValue(0.6);
       ringOpacity.setValue(0);
+      stampTilt.setValue(18);
       return;
     }
 
     Animated.parallel([
+      Animated.spring(stampTilt, {
+        toValue: -8,
+        friction: 6,
+        tension: 140,
+        useNativeDriver: true,
+      }),
       Animated.spring(checkScale, {
         toValue: 1,
         friction: 5,
@@ -289,6 +308,7 @@ export const BidConfirmModal = memo(function BidConfirmModal({
     checkOpacity,
     ringScale,
     ringOpacity,
+    stampTilt,
     particleAnims,
     particles,
   ]);
@@ -470,17 +490,23 @@ export const BidConfirmModal = memo(function BidConfirmModal({
           transition={{ type: "timing", duration: 300, easing: SHEET_EASE }}
           onLayout={(event) => {
             const { width, height } = event.nativeEvent.layout;
-            setTicketBox((prev) =>
-              prev.width === width && prev.height === height
-                ? prev
-                : { ...prev, width, height },
-            );
+            setTicketBox((prev) => {
+              const holeY = prev.holeY > 0 ? prev.holeY : height * 0.56;
+              if (
+                prev.width === width &&
+                prev.height === height &&
+                Math.abs(prev.holeY - holeY) < 0.5
+              ) {
+                return prev;
+              }
+              return { width, height, holeY };
+            });
           }}
           style={[
             styles.card,
             isSuccess && styles.cardSuccess,
-            !isSuccess &&
-              ticketBox.width > 0 &&
+            isSuccess && isWithdraw && styles.cardSuccessWithdraw,
+            ticketBox.width > 0 &&
               ticketBox.holeY > 0 &&
               Platform.OS === "web"
               ? {
@@ -493,10 +519,27 @@ export const BidConfirmModal = memo(function BidConfirmModal({
         >
           {isSuccess ? (
             <View style={styles.successBody}>
+              <View
+                style={[
+                  styles.successRibbon,
+                  isWithdraw && styles.successRibbonWithdraw,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.successRibbonText,
+                    isWithdraw && styles.successRibbonTextWithdraw,
+                  ]}
+                >
+                  {isWithdraw ? "Offer withdrawn" : isEditMode ? "Revision live" : "Offer on the lane"}
+                </Text>
+              </View>
+
               <View style={styles.checkStage}>
                 <Animated.View
                   style={[
                     styles.checkPulseRing,
+                    isWithdraw && styles.checkPulseRingWithdraw,
                     {
                       opacity: ringOpacity,
                       transform: [{ scale: ringScale }],
@@ -506,61 +549,129 @@ export const BidConfirmModal = memo(function BidConfirmModal({
                 <Animated.View
                   style={[
                     styles.checkBadge,
+                    isWithdraw && styles.checkBadgeWithdraw,
                     {
                       opacity: checkOpacity,
                       transform: [{ scale: checkScale }],
                     },
                   ]}
                 >
-                  <View style={styles.checkBadgeInner}>
-                    <Check size={36} color="#ffffff" strokeWidth={3} />
+                  <View
+                    style={[
+                      styles.checkBadgeInner,
+                      isWithdraw && styles.checkBadgeInnerWithdraw,
+                    ]}
+                  >
+                    {isWithdraw ? (
+                      <TicketX size={32} color={Theme.cardWhite} strokeWidth={2.4} />
+                    ) : (
+                      <Check size={36} color={Theme.cardWhite} strokeWidth={3} />
+                    )}
                   </View>
+                </Animated.View>
+                <Animated.View
+                  pointerEvents="none"
+                  style={[
+                    styles.successStamp,
+                    isWithdraw && styles.successStampWithdraw,
+                    {
+                      opacity: checkOpacity,
+                      transform: [
+                        { rotate: stampTilt.interpolate({
+                          inputRange: [-20, 20],
+                          outputRange: ["-20deg", "20deg"],
+                        }) },
+                      ],
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.successStampText,
+                      isWithdraw && styles.successStampTextWithdraw,
+                    ]}
+                  >
+                    {isWithdraw ? "VOID" : "LIVE"}
+                  </Text>
                 </Animated.View>
               </View>
 
               <View style={styles.successTitleRow}>
-                <Sparkles size={16} color={Theme.accentGold} strokeWidth={2.2} />
+                {isWithdraw ? (
+                  <TicketX size={16} color={Theme.warning} strokeWidth={2.2} />
+                ) : (
+                  <Sparkles size={16} color={Theme.accentGold} strokeWidth={2.2} />
+                )}
                 <Text style={styles.successTitle}>{successTitle}</Text>
-                <Sparkles size={16} color={Theme.accentGold} strokeWidth={2.2} />
+                {isWithdraw ? (
+                  <TicketX size={16} color={Theme.warning} strokeWidth={2.2} />
+                ) : (
+                  <Sparkles size={16} color={Theme.accentGold} strokeWidth={2.2} />
+                )}
               </View>
               <Text style={styles.successSubtitle}>{successSubtitle}</Text>
 
-              <View style={styles.successAmountCard}>
+              <View
+                style={[
+                  styles.successTicket,
+                  isWithdraw && styles.successTicketWithdraw,
+                ]}
+              >
+                <View style={styles.successTicketNotchLeft} />
+                <View style={styles.successTicketNotchRight} />
                 <Text style={styles.successAmountLabel}>
                   {isWithdraw ? "Cancelled offer" : "Your offer"}
                 </Text>
                 <Text
                   style={[
                     styles.successAmount,
-                    amountVsTarget?.tone === "over" && styles.successAmountOver,
-                    amountVsTarget?.tone === "under" && styles.successAmountUnder,
+                    isWithdraw && styles.successAmountVoid,
+                    !isWithdraw && amountVsTarget?.tone === "over" && styles.successAmountOver,
+                    !isWithdraw && amountVsTarget?.tone === "under" && styles.successAmountUnder,
                   ]}
                 >
                   {formatINR(amount)}
                 </Text>
-                {amountVsTarget ? (
+                {amountVsTarget && !isWithdraw ? (
                   <BidVsTargetHint
                     caption={amountVsTarget.caption}
                     tone={amountVsTarget.tone}
                   />
                 ) : null}
                 {routeLine ? (
-                  <Text style={styles.successRoute} numberOfLines={1}>
-                    {routeLine}
+                  <View style={styles.successLane}>
+                    <MapPin size={12} color={Theme.textMuted} strokeWidth={2} />
+                    <Text style={styles.successRoute} numberOfLines={1}>
+                      {routeLine}
+                    </Text>
+                  </View>
+                ) : null}
+                {specs ? (
+                  <Text style={styles.successSpecs} numberOfLines={1}>
+                    {specs}
                   </Text>
                 ) : null}
+                <View style={styles.successPerf} />
+                <Text style={styles.successStub}>
+                  {isWithdraw
+                    ? "Ticket closed · you can quote again"
+                    : "Boarding the shipper review queue"}
+                </Text>
               </View>
 
               <Pressable
                 onPress={onSuccessDone}
                 style={({ pressed }) => [
                   styles.btnDone,
+                  isWithdraw && styles.btnDoneWithdraw,
                   pressed && styles.btnPressed,
                 ]}
                 accessibilityRole="button"
                 accessibilityLabel="Done"
               >
-                <Text style={styles.btnDoneText}>Done</Text>
+                <Text style={styles.btnDoneText}>
+                  {isWithdraw ? "Back to bids" : "Done"}
+                </Text>
               </Pressable>
             </View>
           ) : (
@@ -853,6 +964,108 @@ export const BidConfirmModal = memo(function BidConfirmModal({
   );
 });
 
+export function BidOutcomeToast({
+  message,
+}: {
+  message: string;
+}) {
+  const withdrawn = /cancel|withdraw|void/i.test(message);
+  return (
+    <View
+      style={[toastStyles.card, withdrawn && toastStyles.cardWithdraw]}
+      accessibilityRole="text"
+      accessibilityLabel={message}
+    >
+      <View style={[toastStyles.notch, toastStyles.notchLeft]} />
+      <View style={[toastStyles.notch, toastStyles.notchRight]} />
+      <View style={[toastStyles.stamp, withdrawn && toastStyles.stampWithdraw]}>
+        <Text style={[toastStyles.stampText, withdrawn && toastStyles.stampTextWithdraw]}>
+          {withdrawn ? "VOID" : "LIVE"}
+        </Text>
+      </View>
+      <Text style={toastStyles.kicker}>
+        {withdrawn ? "Bid withdrawn" : "Bid confirmed"}
+      </Text>
+      <Text style={toastStyles.title} numberOfLines={2}>
+        {message}
+      </Text>
+    </View>
+  );
+}
+
+const toastStyles = StyleSheet.create({
+  card: {
+    minWidth: 196,
+    maxWidth: 280,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: Theme.driverEmeraldDark,
+    borderStyle: "dashed",
+    alignItems: "center",
+    overflow: "hidden",
+    ...platformShadow("0 16px 32px rgba(15, 23, 42, 0.16)", {
+      color: Theme.shadow,
+      opacity: 0.14,
+      radius: 18,
+      offsetY: 10,
+      elevation: 8,
+    }),
+  },
+  cardWithdraw: {
+    borderColor: Theme.warning,
+    backgroundColor: Theme.warningMuted,
+  },
+  notch: {
+    position: "absolute",
+    top: "42%",
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: Theme.overlayBackdrop,
+  },
+  notchLeft: { left: -7 },
+  notchRight: { right: -7 },
+  stamp: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderWidth: 1.5,
+    borderColor: Theme.driverEmeraldDark,
+    borderRadius: 4,
+    marginBottom: 8,
+    transform: [{ rotate: "-8deg" }],
+  },
+  stampWithdraw: {
+    borderColor: Theme.negative,
+  },
+  stampText: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1.8,
+    color: Theme.driverEmeraldDark,
+  },
+  stampTextWithdraw: {
+    color: Theme.negative,
+  },
+  kicker: {
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+    marginBottom: 2,
+  },
+  title: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+    textAlign: "center",
+    letterSpacing: -0.2,
+  },
+});
+
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
@@ -891,6 +1104,9 @@ const styles = StyleSheet.create({
   cardSuccess: {
     maxWidth: 420,
     borderColor: Theme.driverEmeraldBorderSoft,
+  },
+  cardSuccessWithdraw: {
+    borderColor: Theme.warning,
   },
   heroWash: {
     backgroundColor: Theme.brandBlueSoft,
@@ -1266,11 +1482,33 @@ const styles = StyleSheet.create({
     opacity: 0.55,
   },
   successBody: {
-    paddingHorizontal: 24,
-    paddingTop: 28,
-    paddingBottom: 22,
+    paddingHorizontal: 20,
+    paddingTop: 0,
+    paddingBottom: 20,
     alignItems: "center",
     gap: 10,
+  },
+  successRibbon: {
+    alignSelf: "stretch",
+    marginHorizontal: -20,
+    marginBottom: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: Theme.driverEmeraldDark,
+    alignItems: "center",
+  },
+  successRibbonWithdraw: {
+    backgroundColor: Theme.textPrimaryDark,
+  },
+  successRibbonText: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1.4,
+    textTransform: "uppercase",
+    color: Theme.cardWhite,
+  },
+  successRibbonTextWithdraw: {
+    color: Theme.accentGold,
   },
   checkStage: {
     width: 120,
@@ -1287,6 +1525,9 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: Theme.driverEmerald,
   },
+  checkPulseRingWithdraw: {
+    borderColor: Theme.warning,
+  },
   checkBadge: {
     width: 88,
     height: 88,
@@ -1295,6 +1536,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: Theme.driverEmeraldMuted,
   },
+  checkBadgeWithdraw: {
+    backgroundColor: Theme.warningMuted,
+  },
   checkBadgeInner: {
     width: 68,
     height: 68,
@@ -1302,6 +1546,33 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: Theme.driverEmeraldDark,
+  },
+  checkBadgeInnerWithdraw: {
+    backgroundColor: Theme.textPrimaryDark,
+  },
+  successStamp: {
+    position: "absolute",
+    right: -8,
+    bottom: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 2,
+    borderColor: Theme.driverEmeraldDark,
+    borderRadius: 4,
+    backgroundColor: Theme.cardWhite,
+    transform: [{ rotate: "-8deg" }],
+  },
+  successStampWithdraw: {
+    borderColor: Theme.negative,
+  },
+  successStampText: {
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1.6,
+    color: Theme.driverEmeraldDark,
+  },
+  successStampTextWithdraw: {
+    color: Theme.negative,
   },
   successTitleRow: {
     flexDirection: "row",
@@ -1325,18 +1596,75 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     marginBottom: 4,
   },
-  successAmountCard: {
+  successTicket: {
     width: "100%",
     marginTop: 6,
     marginBottom: 8,
-    paddingVertical: 18,
+    paddingVertical: 16,
     paddingHorizontal: 16,
-    borderRadius: 18,
+    borderRadius: 16,
     backgroundColor: Theme.brandBlueSoft,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1.5,
     borderColor: Theme.brandBlue,
+    borderStyle: "dashed",
     alignItems: "center",
     gap: 4,
+    overflow: "hidden",
+    position: "relative",
+  },
+  successTicketWithdraw: {
+    backgroundColor: Theme.warningMuted,
+    borderColor: Theme.warning,
+  },
+  successTicketNotchLeft: {
+    position: "absolute",
+    left: -8,
+    top: "46%",
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: Theme.cardWhite,
+  },
+  successTicketNotchRight: {
+    position: "absolute",
+    right: -8,
+    top: "46%",
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: Theme.cardWhite,
+  },
+  successLane: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 4,
+    maxWidth: "100%",
+  },
+  successSpecs: {
+    fontSize: 11,
+    fontWeight: "500",
+    color: Theme.textMuted,
+  },
+  successPerf: {
+    alignSelf: "stretch",
+    height: 1,
+    marginVertical: 8,
+    borderTopWidth: 1,
+    borderStyle: "dashed",
+    borderColor: Theme.borderLight,
+  },
+  successStub: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+    textAlign: "center",
+  },
+  successAmountVoid: {
+    textDecorationLine: "line-through",
+    color: Theme.textMuted,
   },
   successAmountLabel: {
     fontSize: 10,
@@ -1371,6 +1699,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: Theme.driverEmeraldDark,
     marginTop: 4,
+  },
+  btnDoneWithdraw: {
+    backgroundColor: Theme.textPrimaryDark,
   },
   btnDoneText: {
     fontSize: 14,

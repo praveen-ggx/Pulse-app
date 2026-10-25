@@ -243,10 +243,18 @@ export function NetworkPoolQuoteModal({
 
   const withdrawPoolBid = useCallback(async (): Promise<boolean> => {
     if (!orgId || !pool) return false;
-    const pendingIds = (shown?.org_quotes ?? [])
+    const fromQuotes = (shown?.org_quotes ?? [])
       .filter((quote) => (quote.status ?? "").trim().toLowerCase() === "pending")
-      .map((quote) => quote.indent_id)
-      .filter(Boolean);
+      .map((quote) => quote.indent_id);
+    const pendingIds = [
+      ...new Set(
+        [
+          ...fromQuotes,
+          ...(shown?.members ?? []).map((member) => member.id),
+          ...pool.members.map((member) => member.id),
+        ].filter(Boolean),
+      ),
+    ];
     if (pendingIds.length === 0) {
       setEntryError("No pending bid to cancel.");
       return false;

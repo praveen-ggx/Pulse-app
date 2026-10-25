@@ -2572,6 +2572,7 @@ export type Database = {
           id: string
           indent_id: string
           notes: string | null
+          pool_commit_id: string | null
           status: string
           updated_at: string | null
           vehicle_id: string | null
@@ -2585,6 +2586,7 @@ export type Database = {
           id?: string
           indent_id: string
           notes?: string | null
+          pool_commit_id?: string | null
           status?: string
           updated_at?: string | null
           vehicle_id?: string | null
@@ -2598,6 +2600,7 @@ export type Database = {
           id?: string
           indent_id?: string
           notes?: string | null
+          pool_commit_id?: string | null
           status?: string
           updated_at?: string | null
           vehicle_id?: string | null

@@ -1,0 +1,4 @@
+# Bidder-owned withdraw of pending Network / Reach quotes.
+# Do not include 20271025183000 (pool commit table) in this apply.
+# sha256 3fefa98543c80d30efc36c0f641c7919fff31b7257ee36d596ad7320cc9dc723  20271025211500_withdraw_network_quotes.sql
+20271025211500

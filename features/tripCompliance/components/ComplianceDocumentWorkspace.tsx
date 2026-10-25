@@ -115,6 +115,24 @@ import { ewayValidTillEnd } from "@/features/trips/services/ewayBillFields.util"
 
 /** Stages whose bank card stays as it was (no beneficiary / branch, no live refresh). */
 const PRE_VERIFIED_STAGES: ReadonlySet<ComplianceStage> = new Set(["pending_for_docs", "compliance_pending"]);
+const supplierBankProofCache = new Map<
+  string,
+  {
+    previewPath: string | null;
+    detailLine: string | null;
+    kycDocId: string | null;
+    supplierId: string | null;
+    status: string | null;
+    fileName: string | null;
+    createdAt: string | null;
+    accountNumber: string | null;
+    ifsc: string | null;
+    bankName: string | null;
+    beneficiaryName: string | null;
+    branchName: string | null;
+    onFile: boolean;
+  }
+>();
 
 import { PodClientValidationPanel } from "@/features/debit-control/components/PodClientValidationPanel";
 import {
@@ -1419,7 +1437,13 @@ function OriginalDocumentPreview({
       if (!node) return null;
       const top = document.elementFromPoint(event.clientX, event.clientY);
       if (!top || !node.contains(top)) return null;
-      if ((top as HTMLElement).closest?.("[data-testid='compliance-preview-scroll-rail']")) return null;
+      if (
+        (top as HTMLElement).closest?.(
+          "[data-testid='compliance-preview-scroll-rail'], [data-testid='compliance-doc-side-nav']",
+        )
+      ) {
+        return null;
+      }
       const rect = node.getBoundingClientRect();
       return {
         x: event.clientX - rect.left - rect.width / 2,
@@ -1526,49 +1550,52 @@ function OriginalDocumentPreview({
           ? `${label}. Scroll or click to zoom. When zoomed, drag or scroll to move; Ctrl+scroll to zoom.`
           : `${label}. Scroll or click to zoom. When zoomed, drag or scroll to move; Ctrl+scroll to zoom.`
       }
-      onStartShouldSetResponder={() => true}
-      onMoveShouldSetResponder={() => true}
-      onResponderGrant={(event) => {
-        dragMoved.current = false;
-        setDragging(true);
-        drag.current = {
-          x: event.nativeEvent.pageX,
-          y: event.nativeEvent.pageY,
-          panX: viewRef.current.panX,
-          panY: viewRef.current.panY,
-        };
-      }}
-      onResponderMove={(event) => {
-        if (!drag.current) return;
-        if (
-          Math.hypot(event.nativeEvent.pageX - drag.current.x, event.nativeEvent.pageY - drag.current.y) > 4
-        ) {
-          dragMoved.current = true;
-        }
-        const next = clampLocalPan(
-          drag.current.panX + event.nativeEvent.pageX - drag.current.x,
-          drag.current.panY + event.nativeEvent.pageY - drag.current.y,
-        );
-        viewRef.current.panX = next.x;
-        viewRef.current.panY = next.y;
-        if (Platform.OS === "web") {
-          const el = mediaRef.current as unknown as HTMLElement | null;
-          const frame = frameRef.current;
-          if (el?.style) {
-            el.style.transform = cssPreviewTransform(next, viewRef.current.zoom, frame.rotation, frame.box);
-          }
-        }
-        setPan(next);
-      }}
-      onResponderRelease={() => {
-        drag.current = null;
-        setDragging(false);
-      }}
-      onResponderTerminate={() => {
-        drag.current = null;
-        setDragging(false);
-      }}
     >
+      <View
+        style={styles.previewPanSurface}
+        onStartShouldSetResponder={() => true}
+        onMoveShouldSetResponder={() => true}
+        onResponderGrant={(event) => {
+          dragMoved.current = false;
+          setDragging(true);
+          drag.current = {
+            x: event.nativeEvent.pageX,
+            y: event.nativeEvent.pageY,
+            panX: viewRef.current.panX,
+            panY: viewRef.current.panY,
+          };
+        }}
+        onResponderMove={(event) => {
+          if (!drag.current) return;
+          if (
+            Math.hypot(event.nativeEvent.pageX - drag.current.x, event.nativeEvent.pageY - drag.current.y) > 4
+          ) {
+            dragMoved.current = true;
+          }
+          const next = clampLocalPan(
+            drag.current.panX + event.nativeEvent.pageX - drag.current.x,
+            drag.current.panY + event.nativeEvent.pageY - drag.current.y,
+          );
+          viewRef.current.panX = next.x;
+          viewRef.current.panY = next.y;
+          if (Platform.OS === "web") {
+            const el = mediaRef.current as unknown as HTMLElement | null;
+            const frame = frameRef.current;
+            if (el?.style) {
+              el.style.transform = cssPreviewTransform(next, viewRef.current.zoom, frame.rotation, frame.box);
+            }
+          }
+          setPan(next);
+        }}
+        onResponderRelease={() => {
+          drag.current = null;
+          setDragging(false);
+        }}
+        onResponderTerminate={() => {
+          drag.current = null;
+          setDragging(false);
+        }}
+      >
       {imageLoading && !isPdf ? (
         <View style={styles.previewLoadingOverlay} pointerEvents="none">
           <ActivityIndicator color={Theme.textPrimaryDark} />
@@ -1609,7 +1636,11 @@ function OriginalDocumentPreview({
           </View>
         </View>
       ) : null}
+      </View>
       <PreviewScrollRail axis="y" value={pan.y} max={limits.maxY} onChange={moveY} />
+      <View style={styles.previewScrollXDock} pointerEvents="box-none">
+        <PreviewScrollRail axis="x" value={pan.x} max={limits.maxX} onChange={moveX} />
+      </View>
     </View>
   );
 }
@@ -1657,6 +1688,7 @@ function DocSideNavButton({
       : Theme.textPrimaryDark;
   return (
     <Pressable
+      testID="compliance-doc-side-nav"
       style={[
         styles.docSideNavBtn,
         tone === "dark" && styles.docSideNavBtnDark,
@@ -2772,14 +2804,22 @@ export function ComplianceDocumentWorkspace({
       setSupplierBankLoading(false);
       return;
     }
-    setSupplierBankLoading(true);
+    const cacheKey = `${orgId}:${supplierId}`;
+    const cached = supplierBankProofCache.get(cacheKey);
+    if (cached) {
+      setSupplierBankProof(cached);
+      setSupplierBankLoading(false);
+    } else {
+      setSupplierBankLoading(true);
+    }
+    const stage = summary.stage;
     void fetchSupplierBankProofBundle(orgId, supplierId)
       .then(async (bundle) => {
-        const branchName = PRE_VERIFIED_STAGES.has(summary.stage)
+        const branchName = PRE_VERIFIED_STAGES.has(stage)
           ? ""
           : await resolveBankBranch(bundle.account?.branch_name, bundle.account?.ifsc_code);
         if (cancelled) return;
-        setSupplierBankProof({
+        const next = {
           beneficiaryName: bundle.account?.beneficiary_name?.trim() || null,
           branchName: branchName || null,
           previewPath: bundle.previewPath,
@@ -2793,7 +2833,9 @@ export function ComplianceDocumentWorkspace({
           ifsc: bundle.account?.ifsc_code?.trim() ?? null,
           bankName: bundle.account?.bank_name?.trim() ?? null,
           onFile: bundle.onFile,
-        });
+        };
+        supplierBankProofCache.set(cacheKey, next);
+        setSupplierBankProof(next);
       })
       .finally(() => {
         if (!cancelled) setSupplierBankLoading(false);
@@ -2805,8 +2847,8 @@ export function ComplianceDocumentWorkspace({
     summary?.trip.id,
     summary?.trip.organization_id,
     summary?.trip.supplier_id,
+    summary?.stage,
     organizationId,
-    summary,
     checklistPreviewMode,
     supplierBankRevision,
   ]);
@@ -2865,6 +2907,33 @@ export function ComplianceDocumentWorkspace({
       ),
     [listRows, localDecisionByKey, reviewScope],
   );
+
+  useEffect(() => {
+    if (!organizationId || !canViewDocuments) return;
+    for (const row of displayListRows.filter(hasFile).slice(0, 8)) {
+      const path = row.doc?.storage_path ?? row.entityDoc?.storage_path ?? null;
+      if (!path) continue;
+      void signCompliancePreviewUrl({
+        storagePath: path,
+        source: compliancePreviewSourceForRow(row),
+        sourceEntityDocumentId: row.doc?.source_entity_document_id,
+        organizationId,
+        entityId:
+          row.entityDoc?.entity_id ??
+          (reviewScope === "vehicle" ? summary?.trip.vehicle_id : summary?.trip.driver_id) ??
+          summary?.trip.id,
+        docType: row.type,
+      });
+    }
+  }, [
+    canViewDocuments,
+    displayListRows,
+    organizationId,
+    reviewScope,
+    summary?.trip.driver_id,
+    summary?.trip.id,
+    summary?.trip.vehicle_id,
+  ]);
   /** Each tab (Finance, Trip, Vehicle, Driver) uses the same group Approve. */
   const showGroupedReview = !showEntityUnassigned && !showAllDocs;
   const requiredGroupState = useMemo<ComplianceGroupReviewState | null>(
@@ -4346,17 +4415,17 @@ export function ComplianceDocumentWorkspace({
                 start={
                   mobileExclusive && mobileDocPane === "preview" ? null : (
                         <ScrollView
-                          scrollEnabled={mobileExclusive}
+                          scrollEnabled
                           style={[
                   styles.checklistListPane,
                   splitEnabled && styles.checklistListPaneSplit,
                   stacked && styles.checklistListPaneStacked,
                   mobileExclusive && styles.checklistListPaneMobile,
                 ]}
-                          contentContainerStyle={mobileExclusive ? styles.checklistPageScroll : undefined}
+                          contentContainerStyle={styles.checklistPageScroll}
                           keyboardShouldPersistTaps="handled"
-                          showsVerticalScrollIndicator={mobileExclusive}
-                          nestedScrollEnabled={!mobileExclusive}
+                          showsVerticalScrollIndicator
+                          nestedScrollEnabled
               >
                 <View style={[styles.checklistPanelToolbar, mobileExclusive && styles.checklistPanelToolbarMobile]}>
                   {mobileExclusive ? (
@@ -4560,8 +4629,12 @@ export function ComplianceDocumentWorkspace({
                         </Text>
                       </View>
                     ) : null}
-                {mobileExclusive ? (
-                  <View style={[styles.checklistDocsContent, styles.checklistDocsContentMobile]}>
+                <View
+                  style={[
+                    styles.checklistDocsContent,
+                    styles.checklistDocsContentMobile,
+                  ]}
+                >
                     {showGroupedReview
                       ? (["required", "optional"] as const).map((group) => {
                           const requiredTypes = new Set(
@@ -4583,38 +4656,7 @@ export function ComplianceDocumentWorkspace({
                           );
                         })
                       : firstRowPerType(listRows).map(renderChecklistRow)}
-                  </View>
-                ) : (
-                <ScrollView
-                      style={styles.checklistDocs}
-                      contentContainerStyle={styles.checklistDocsContent}
-                      nestedScrollEnabled
-                      showsVerticalScrollIndicator
-                      keyboardShouldPersistTaps="handled"
-                    >
-                      {showGroupedReview
-                        ? (["required", "optional"] as const).map((group) => {
-                            const requiredTypes = new Set(
-                              listRows.filter((row) => row.required).map((row) => row.type),
-                            );
-                            const groupRows = listRows.filter((row) => {
-                              const withRequiredType = requiredTypes.has(row.type);
-                              return group === "required" ? withRequiredType : !withRequiredType;
-                            });
-                            if (groupRows.length === 0) return null;
-                    return (
-                      <View
-                                key={group}
-                                style={[styles.reviewGroup, group === "optional" && styles.reviewGroupSpaced]}
-                              >
-                                {renderReviewGroupHeader(group, groupRows.length)}
-                                {firstRowPerType(groupRows).map(renderChecklistRow)}
-                              </View>
-                            );
-                          })
-                        : firstRowPerType(listRows).map(renderChecklistRow)}
-                    </ScrollView>
-                )}
+                </View>
                     <View
                       style={[
                         styles.checklistPreviewActionsSection,
@@ -7876,18 +7918,20 @@ const styles = StyleSheet.create({
   docSideNavOverlayLeft: {
     position: "absolute",
     left: 10,
-    top: 0,
-    bottom: 0,
-    justifyContent: "center",
+    top: "50%",
+    width: 44,
+    height: 44,
+    marginTop: -22,
     zIndex: 40,
     elevation: 40,
   },
   docSideNavOverlayRight: {
     position: "absolute",
     right: 10,
-    top: 0,
-    bottom: 0,
-    justifyContent: "center",
+    top: "50%",
+    width: 44,
+    height: 44,
+    marginTop: -22,
     zIndex: 40,
     elevation: 40,
   },
@@ -7997,7 +8041,7 @@ const styles = StyleSheet.create({
   },
   checklistPageScroll: {
     flexGrow: 1,
-    paddingBottom: 28,
+    paddingBottom: 48,
     paddingHorizontal: 0,
     gap: 10,
     backgroundColor: "#F5F5F5",
@@ -8048,10 +8092,10 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
   previewNavTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "700",
-    color: "#212121",
-    letterSpacing: -0.2,
+    color: Theme.textPrimaryDark,
+    letterSpacing: 0,
   },
   previewNavMeta: {
     marginTop: 1,
@@ -9027,6 +9071,19 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderRadius: 8,
   },
+  previewPanSurface: {
+    flex: 1,
+    minHeight: 0,
+    width: "100%",
+  },
+  previewScrollXDock: {
+    position: "absolute",
+    left: 12,
+    right: 30,
+    bottom: 6,
+    height: 22,
+    zIndex: 8,
+  },
   previewCanvasHovered: {
     backgroundColor: Theme.compliancePageBg,
   },
@@ -9196,13 +9253,13 @@ const styles = StyleSheet.create({
   previewScrollRowY: {
     position: "absolute",
     top: 10,
-    bottom: 10,
+    bottom: 36,
     right: 4,
     width: 22,
     alignItems: "center",
     justifyContent: "center",
     gap: 4,
-    zIndex: 6,
+    zIndex: 8,
   },
   previewScrollRowYActive: {
     gap: 6,

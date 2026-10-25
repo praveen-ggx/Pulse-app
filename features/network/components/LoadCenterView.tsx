@@ -91,6 +91,7 @@ import { useLoadCenterFilters } from "@/features/network/hooks/useLoadCenterFilt
 import { useSuccessToast } from "@/features/network/hooks/useSuccessToast";
 import { useTripDeployment } from "@/features/network/hooks/useTripDeployment";
 import { AwardModal } from "@/features/network/components/AwardModal";
+import { BidOutcomeToast } from "@/features/network/components/bidding/BidConfirmModal";
 import { BidModal } from "@/features/network/components/bidding/BidModal";
 import { directQuoteCounterState } from "@/features/indents/utils/bidding/directQuoteCounter.util";
 import { NetworkPoolQuoteModal } from "@/features/network/components/bidding/NetworkPoolQuoteModal";
@@ -2766,14 +2767,8 @@ export function LoadCenterView({
 
       {/* Success overlay */}
       {showSuccess && (
-        <View style={styles.successOverlay}>
-          <View style={styles.successCard}>
-            <View style={styles.successIconWrap}>
-              <FontAwesome name="check" size={16} color={Theme.buttonPrimaryText} />
-            </View>
-            <Text style={styles.successTag}>Success</Text>
-            <Text style={styles.successTitle}>{successMsg || "Success"}</Text>
-          </View>
+        <View pointerEvents="none" style={styles.successOverlay}>
+          <BidOutcomeToast message={successMsg || "Success"} />
         </View>
       )}
 

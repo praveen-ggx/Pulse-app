@@ -94,7 +94,9 @@ export function AdjustableSplitLayout({
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => true,
+        onStartShouldSetPanResponderCapture: () => true,
         onMoveShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponderCapture: () => true,
         onPanResponderTerminationRequest: () => false,
         onPanResponderGrant: () => {
           startSizeRef.current = sizeRef.current;
@@ -152,6 +154,29 @@ export function AdjustableSplitLayout({
       <View
         style={[styles.handle, dragging && styles.handleOn]}
         {...pan.panHandlers}
+        {...(Platform.OS === "web"
+          ? {
+              onPointerDown: (event: { nativeEvent?: { pageX?: number }; preventDefault?: () => void }) => {
+                event.preventDefault?.();
+                const originX = event.nativeEvent?.pageX ?? 0;
+                startSizeRef.current = sizeRef.current;
+                setDragging(true);
+                setWebDragCursor(true);
+                const onMove = (move: PointerEvent) => {
+                  const delta = sizedPane === "start" ? move.pageX - originX : originX - move.pageX;
+                  persist(startSizeRef.current + delta);
+                };
+                const onUp = () => {
+                  window.removeEventListener("pointermove", onMove);
+                  window.removeEventListener("pointerup", onUp);
+                  setDragging(false);
+                  setWebDragCursor(false);
+                };
+                window.addEventListener("pointermove", onMove);
+                window.addEventListener("pointerup", onUp);
+              },
+            }
+          : null)}
         accessibilityRole="adjustable"
         accessibilityLabel="Resize side pane"
       >
@@ -174,7 +199,9 @@ const styles = StyleSheet.create({
     zIndex: 8,
     alignItems: "center",
     justifyContent: "center",
-    ...(Platform.OS === "web" ? ({ cursor: "col-resize" } as object) : null),
+    ...(Platform.OS === "web"
+      ? ({ cursor: "col-resize", touchAction: "none", userSelect: "none" } as object)
+      : null),
   },
   handleOn: {
     backgroundColor: Theme.complianceSelectedWash,

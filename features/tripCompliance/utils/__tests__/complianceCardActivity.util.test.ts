@@ -1,4 +1,5 @@
 import {
+  backfillMilestoneActors,
   complianceCardMilestones,
   milestoneFromDocumentAudit,
   milestoneFromWorkflowEvent,
@@ -79,6 +80,20 @@ describe("complianceCardMilestones", () => {
 });
 
 describe("milestoneFromWorkflowEvent", () => {
+  it("reads actor ids from payload aliases when the column is empty", () => {
+    expect(
+      milestoneFromWorkflowEvent({
+        id: "e0",
+        event_type: "compliance.advance_document_cost",
+        created_at: "2026-10-25T13:17:00.000Z",
+        payload: { created_by: "user-from-payload" },
+      }),
+    ).toMatchObject({
+      title: "logged advance document cost",
+      actorUserId: "user-from-payload",
+    });
+  });
+
   it("prefers the event actor_id column for avatars", () => {
     const item = milestoneFromWorkflowEvent({
       id: "e1",
@@ -145,5 +160,33 @@ describe("milestoneFromDocumentAudit", () => {
         created_at: "2026-10-24T12:00:00.000Z",
       }),
     ).toBeNull();
+  });
+});
+
+describe("backfillMilestoneActors", () => {
+  it("copies a nearby named actor onto an unnamed upload", () => {
+    const filled = backfillMilestoneActors(
+      [
+        {
+          id: "pod",
+          at: "2026-10-25T14:25:00.000Z",
+          title: "logged hard copy POD",
+          actorUserId: "user-priya",
+          detail: "Hard copy dispatched by courier",
+          contextLabel: "Awaiting POD",
+          lane: "activity",
+        },
+        {
+          id: "file",
+          at: "2026-10-25T14:25:20.000Z",
+          title: "uploaded POD",
+          detail: "pulse.hard-copy.jpeg",
+          contextLabel: "Document Upload",
+          lane: "document",
+        },
+      ],
+      [{ at: "2026-10-25T13:17:00.000Z", userId: "user-cost" }],
+    );
+    expect(filled[1]?.actorUserId).toBe("user-priya");
   });
 });

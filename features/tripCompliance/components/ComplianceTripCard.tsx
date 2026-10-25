@@ -365,8 +365,18 @@ export function ComplianceTripCard({
         accessibilityRole="button"
         accessibilityLabel={`${tripId} ${clientName}, ${asLabel(origin)} to ${asLabel(dest)}`}
       >
+        {onOpenActivityLog ? (
+          <View style={styles.logCorner}>
+            <ComplianceActivityLogButton
+              compact
+              onPress={() => {
+                onOpenActivityLog();
+              }}
+            />
+          </View>
+        ) : null}
         <View style={[styles.body, compact && styles.bodyCompact]}>
-          <View style={styles.head}>
+          <View style={[styles.head, onOpenActivityLog && styles.headWithLog]}>
             <View style={styles.headLeft}>
               <PartyAvatar
                 name={clientName}
@@ -385,14 +395,6 @@ export function ComplianceTripCard({
             </View>
             <View style={styles.headMetaCol}>
               <View style={styles.headStatusRow}>
-                {onOpenActivityLog ? (
-                  <ComplianceActivityLogButton
-                    compact
-                    onPress={() => {
-                      onOpenActivityLog();
-                    }}
-                  />
-                ) : null}
                 <View
                   style={[
                     styles.headStatusPill,
@@ -404,7 +406,7 @@ export function ComplianceTripCard({
                       styles.headStatusPillText,
                       { color: showPaymentPill ? payment.tone.fg : verification.tone.fg },
                     ]}
-                    numberOfLines={2}
+                    numberOfLines={1}
                   >
                     {headStatusUpper}
                   </Text>
@@ -513,7 +515,7 @@ export function ComplianceTripCard({
               styles.blockerBox,
               compact && styles.blockerBoxCompact,
               readiness.paymentReady ? styles.blockerBoxReady : styles.blockerBoxBlocked,
-              (showVerifyDocsAction || showPayAction) && styles.blockerBoxWithAction,
+              styles.blockerBoxWithAction,
             ]}
           >
             <View style={styles.blockerCopy}>
@@ -526,24 +528,13 @@ export function ComplianceTripCard({
                 numberOfLines={1}
               >
                 {payLabel.label}
+                {nextLine ? ` · Next: ${nextLine}` : ""}
               </Text>
-              {fullyVerified ? (
+              {fullyVerified && !nextLine ? (
                 <Text style={styles.blockerLine} numberOfLines={1}>
                   Compliance Verified ✓
                 </Text>
               ) : null}
-              {nextLine ? (
-                <Text style={styles.nextLine} numberOfLines={1}>
-                  Next: {nextLine}
-                </Text>
-              ) : null}
-              {compact
-                ? null
-                : blockerLines.map((line) => (
-                    <Text key={line} style={styles.blockerLine} numberOfLines={1}>
-                      {line}
-                    </Text>
-                  ))}
             </View>
             {showVerifyDocsAction || showPayAction ? (
               <View style={styles.blockerActions}>
@@ -666,6 +657,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Theme.borderLight,
     overflow: "hidden",
+    position: "relative",
     ...Platform.select({
       web: { boxShadow: "0 2px 8px rgba(15, 23, 42, 0.05)" } as ViewStyle,
       default: {
@@ -687,30 +679,39 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 14,
   },
+  headWithLog: {
+    paddingRight: 28,
+  },
+  logCorner: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    zIndex: 4,
+  },
   bodyPressed: { opacity: 0.98 },
   head: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
-    marginBottom: 14,
+    gap: 8,
+    marginBottom: 12,
   },
   headLeft: {
-    flex: 1.4,
+    flex: 1,
     minWidth: 0,
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
+    alignItems: "center",
+    gap: 8,
   },
   headText: {
     flex: 1,
     minWidth: 0,
-    justifyContent: "flex-start",
-    gap: 2,
+    justifyContent: "center",
+    gap: 1,
   },
   brand: {
-    fontSize: 13,
-    lineHeight: 17,
+    fontSize: 12,
+    lineHeight: 15,
     letterSpacing: -0.1,
     fontWeight: "600",
     fontStyle: "normal",
@@ -718,8 +719,8 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   brandCompact: {
-    fontSize: 13,
-    lineHeight: 17,
+    fontSize: 12,
+    lineHeight: 15,
     fontWeight: "600",
     fontStyle: "normal",
     letterSpacing: -0.1,
@@ -727,35 +728,36 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   tripIdLink: {
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 10,
+    lineHeight: 13,
     fontWeight: "600",
     color: REF.inkMid,
-    letterSpacing: 0.2,
+    letterSpacing: 0.15,
     fontVariant: ["tabular-nums"],
   },
   tripIdLinkCompact: {
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 10,
+    lineHeight: 13,
     fontWeight: "600",
     color: REF.inkMid,
-    letterSpacing: 0.2,
+    letterSpacing: 0.15,
     fontVariant: ["tabular-nums"],
   },
   headMetaCol: {
     flexShrink: 1,
     flexGrow: 0,
-    maxWidth: "46%",
+    maxWidth: "42%",
     minWidth: 0,
     alignItems: "flex-end",
-    gap: 4,
+    justifyContent: "center",
+    gap: 3,
   },
   headStatusRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
     flexWrap: "nowrap",
-    gap: 6,
+    gap: 5,
     maxWidth: "100%",
     minWidth: 0,
   },
@@ -768,7 +770,10 @@ const styles = StyleSheet.create({
   blockerCopy: {
     flex: 1,
     minWidth: 0,
-    gap: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "nowrap",
+    gap: 8,
   },
   blockerActions: {
     flexShrink: 0,
@@ -799,26 +804,25 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     minWidth: 0,
     maxWidth: "100%",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
     borderRadius: 999,
   },
   headStatusPillText: {
-    fontSize: 9,
-    lineHeight: 11,
+    fontSize: 8,
+    lineHeight: 10,
     fontWeight: "700",
     textAlign: "right",
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
     textTransform: "uppercase",
   },
   headMetaMuted: {
-    fontSize: 10,
-    lineHeight: 13,
+    fontSize: 9,
+    lineHeight: 11,
     fontWeight: "500",
     color: REF.muted,
     textAlign: "right",
-    textTransform: "uppercase",
-    letterSpacing: 0.25,
+    letterSpacing: 0.15,
   },
   route: {
     flexDirection: "row",
@@ -1064,9 +1068,10 @@ const styles = StyleSheet.create({
     borderLeftColor: Theme.complianceGroupSuccessDot,
   },
   payLabel: {
-    fontSize: 12,
+    flexShrink: 0,
+    fontSize: 11,
     fontWeight: "700",
-    lineHeight: 16,
+    lineHeight: 14,
   },
   payLabelCompact: {
     fontSize: 10,
@@ -1076,6 +1081,8 @@ const styles = StyleSheet.create({
   payReady: { color: Theme.complianceStageSuccessFg },
   payBlocked: { color: Theme.complianceStageDocsFg },
   nextLine: {
+    flex: 1,
+    minWidth: 0,
     fontSize: 10,
     fontWeight: "500",
     color: REF.inkMid,

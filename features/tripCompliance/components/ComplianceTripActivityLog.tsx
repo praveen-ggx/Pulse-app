@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toLedgerRow, type LedgerRow } from "@/features/finance/services/finance.service";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
 import {
+  backfillMilestoneActors,
   complianceCardMilestones,
   milestoneFromDocumentAudit,
   milestoneFromWorkflowEvent,
@@ -147,8 +148,14 @@ export function ComplianceTripActivityLog({
     for (const item of card ? complianceCardMilestones(card) : []) add(item);
     for (const item of documentAuditMiles) add(item);
     for (const item of workflowMiles) add(item);
-    return Array.from(merged.values());
-  }, [card, documentAuditMiles, workflowMiles]);
+    return backfillMilestoneActors(
+      Array.from(merged.values()),
+      ledger.map((row) => ({
+        at: row.created_at ?? row.transaction_date ?? "",
+        userId: row.created_by,
+      })),
+    );
+  }, [card, documentAuditMiles, ledger, workflowMiles]);
 
   if (!activeTrip) return null;
 

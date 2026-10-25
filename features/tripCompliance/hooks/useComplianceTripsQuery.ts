@@ -50,7 +50,7 @@ import {
 import { getTripById, type TripRow } from "@/features/trips/services/trips.service";
 import { useComplianceTripCatalogQuery } from "@/lib/queries/useTripsQuery";
 import { queryKeys } from "@/lib/queryKeys";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export type { ComplianceChange } from "@/features/tripCompliance/services/compliancePipelineSync.service";
@@ -192,6 +192,7 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
     },
     enabled: !!orgId && tripsQuery.isSuccess,
     staleTime: 15_000,
+    placeholderData: keepPreviousData,
     refetchOnWindowFocus: true,
     select: selectSummaries,
   });

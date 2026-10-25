@@ -5,6 +5,7 @@ import { RegistryWebDrawer } from "@/components/RegistryWebDrawer";
 import { useAuth } from "@/contexts/AuthContext";
 import { TripAuditLogContent } from "@/features/trips/components/trip-detail/TripAuditLogContent";
 import { getProfile } from "@/features/auth/services/auth.service";
+import { resolveComplianceActorDetails } from "@/features/tripCompliance/services/complianceDocumentView.service";
 import type { LedgerRow } from "@/features/finance/services/finance.service";
 import { getOrganizationMembers } from "@/features/organization/services/members.service";
 import type { DriverActivityTimelineRow } from "@/features/trips/components/trip-detail/hooks/useTripDetail";
@@ -193,12 +194,31 @@ export function TripAuditLogPanel({
         }
       }
 
-      const unresolved = activityUserIds.filter((id) => {
+      const missingName = (id: string) => {
         const existing = profileMap[id];
-        return !existing?.avatar_url?.trim() && !existing?.avatar_seed?.trim();
-      });
+        return !(
+          existing?.full_name?.trim() ||
+          existing?.phone?.trim() ||
+          existing?.email?.trim()
+        );
+      };
+      const unresolved = activityUserIds.filter(missingName);
+      if (unresolved.length > 0) {
+        const details = await resolveComplianceActorDetails(unresolved, orgId);
+        for (const [id, detail] of Object.entries(details)) {
+          if (detail.name && detail.name !== "Unknown") {
+            rememberProfile(id, {
+              full_name: detail.name,
+              email: null,
+              phone: null,
+              avatar_url: profileMap[id]?.avatar_url ?? null,
+              avatar_seed: profileMap[id]?.avatar_seed ?? null,
+            });
+          }
+        }
+      }
       await Promise.all(
-        unresolved.map(async (id) => {
+        activityUserIds.filter(missingName).map(async (id) => {
           const profile = await getProfile(id);
           if (!profile) return;
           rememberProfile(id, {

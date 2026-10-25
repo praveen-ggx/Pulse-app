@@ -81,7 +81,54 @@ async function paintCompliancePreviewUrl(
   return painted.url ?? signed;
 }
 
+const SIGNED_URL_TTL_MS = 50 * 60_000;
+const signedUrlCache = new Map<string, { url: string; exp: number }>();
+const signedUrlInflight = new Map<string, Promise<string | null>>();
+
+function signedUrlCacheKey(input: {
+  storagePath: string | null | undefined;
+  source?: ComplianceViewSource;
+  sourceEntityDocumentId?: string | null;
+  organizationId?: string | null;
+  entityId?: string | null;
+  docType?: string | null;
+}): string {
+  return [
+    (input.storagePath ?? "").trim(),
+    input.source ?? "trip",
+    input.sourceEntityDocumentId ?? "",
+    input.organizationId ?? "",
+    input.entityId ?? "",
+    input.docType ?? "",
+  ].join("\u0000");
+}
+
 export async function signCompliancePreviewUrl(input: {
+  storagePath: string | null | undefined;
+  source?: ComplianceViewSource;
+  sourceEntityDocumentId?: string | null;
+  organizationId?: string | null;
+  entityId?: string | null;
+  docType?: string | null;
+}): Promise<string | null> {
+  const key = signedUrlCacheKey(input);
+  const hit = signedUrlCache.get(key);
+  if (hit && hit.exp > Date.now()) return hit.url;
+  const pending = signedUrlInflight.get(key);
+  if (pending) return pending;
+  const work = signCompliancePreviewUrlUncached(input)
+    .then((url) => {
+      if (url) signedUrlCache.set(key, { url, exp: Date.now() + SIGNED_URL_TTL_MS });
+      return url;
+    })
+    .finally(() => {
+      signedUrlInflight.delete(key);
+    });
+  signedUrlInflight.set(key, work);
+  return work;
+}
+
+async function signCompliancePreviewUrlUncached(input: {
   storagePath: string | null | undefined;
   source?: ComplianceViewSource;
   sourceEntityDocumentId?: string | null;

@@ -417,7 +417,6 @@ export default function ComplianceScreen() {
     isLoading,
     isError,
     error,
-    isFetching,
     refetch,
   } = useComplianceTripsQuery();
   // Ground Ops / TripOps fix holds but can't verify: their held trips show in
@@ -2012,10 +2011,6 @@ export default function ComplianceScreen() {
       {isMobile && !mobileReviewing && (isLoading || isError) && summaries.length === 0
         ? mobileQueueChrome
         : null}
-      {isFetching && summaries.length > 0 ? (
-        <Text style={styles.stale}>Updating queue…</Text>
-      ) : null}
-
       {isLoading && summaries.length === 0 ? (
         <View style={styles.emptyFill}>
           <Text style={styles.message}>Loading required trip, document, and payment data…</Text>

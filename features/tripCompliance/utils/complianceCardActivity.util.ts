@@ -193,11 +193,17 @@ function workflowPayload(payload: unknown): {
   if (typeof payload !== "object") return {};
   const row = payload as {
     actor_id?: string | null;
+    actorId?: string | null;
+    user_id?: string | null;
+    created_by?: string | null;
+    performed_by?: string | null;
     reason?: string | null;
     action?: string | null;
   };
+  const actor =
+    row.actor_id ?? row.actorId ?? row.user_id ?? row.created_by ?? row.performed_by ?? null;
   return {
-    actor_id: row.actor_id ?? null,
+    actor_id: typeof actor === "string" && actor.trim() ? actor.trim() : null,
     reason: row.reason ?? null,
     action: row.action ?? null,
   };
@@ -241,6 +247,11 @@ const WORKFLOW_COPY: Record<
     title: "validated POD",
     contextLabel: "POD Verification",
     fallbackDetail: "POD verification completed",
+  },
+  "compliance.advance_document_cost": {
+    title: "logged advance document cost",
+    contextLabel: "Compliance",
+    fallbackDetail: "Advance document cost posted",
   },
 };
 
@@ -292,6 +303,54 @@ export function milestoneFromWorkflowEvent(row: {
     };
   }
   return null;
+}
+
+const ACTOR_NEARBY_MS = 3 * 60_000;
+const ACTOR_LEDGER_MS = 20 * 60_000;
+
+/** Copy a nearby event's user onto rows that stored the action but not who did it. */
+export function backfillMilestoneActors(
+  items: readonly ComplianceCardMilestone[],
+  extras: readonly { at: string; userId: string | null | undefined }[] = [],
+): ComplianceCardMilestone[] {
+  const fromItems: { at: number; userId: string }[] = [];
+  const fromExtras: { at: number; userId: string }[] = [];
+  const remember = (
+    into: { at: number; userId: string }[],
+    at: string | null | undefined,
+    userId: string | null | undefined,
+  ) => {
+    const id = String(userId ?? "").trim();
+    const time = Date.parse(String(at ?? ""));
+    if (!id || !Number.isFinite(time)) return;
+    into.push({ at: time, userId: id });
+  };
+  for (const item of items) remember(fromItems, item.at, item.actorUserId);
+  for (const extra of extras) remember(fromExtras, extra.at, extra.userId);
+
+  const nearest = (
+    at: string,
+    pool: readonly { at: number; userId: string }[],
+    windowMs: number,
+  ): string | null => {
+    const time = Date.parse(at);
+    if (!Number.isFinite(time) || pool.length === 0) return null;
+    let best: { userId: string; delta: number } | null = null;
+    for (const row of pool) {
+      const delta = Math.abs(row.at - time);
+      if (delta > windowMs) continue;
+      if (!best || delta < best.delta) best = { userId: row.userId, delta };
+    }
+    return best?.userId ?? null;
+  };
+
+  return items.map((item) => {
+    if (item.actorUserId) return item;
+    const userId =
+      nearest(item.at, fromItems, ACTOR_NEARBY_MS) ??
+      nearest(item.at, fromExtras, ACTOR_LEDGER_MS);
+    return userId ? { ...item, actorUserId: userId } : item;
+  });
 }
 
 export type DocumentAuditMilestoneRow = {

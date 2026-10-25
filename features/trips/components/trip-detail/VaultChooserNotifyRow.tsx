@@ -6,8 +6,6 @@ import Theme from "@/constants/Theme";
 import { signCompliancePreviewUrl } from "@/features/tripCompliance/services/complianceDocumentView.service";
 import { isPdfTripDoc } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { VaultDocThumb } from "@/features/trips/components/trip-detail/VaultDocThumb";
-import { getDocumentViewUrls } from "@/features/trips/services/tripDocuments.service";
-import { getVehicleDocumentViewUrl } from "@/features/vehicles/services/vehicleDocuments.service";
 import type { PartyEntityType } from "@/lib/partyAvatarDisplay";
 import { FileText } from "lucide-react-native";
 import { useEffect, useState } from "react";
@@ -73,32 +71,21 @@ function ChooserQuoteDoc({
       return;
     }
     let cancelled = false;
-    void (async () => {
-      const tripUrls = await getDocumentViewUrls([path]);
-      if (cancelled) return;
-      if (tripUrls[path]) {
-        setUri(tripUrls[path]);
-        return;
-      }
-      if (preview.source === "vehicle") {
-        try {
-          const vehicleUrl = await getVehicleDocumentViewUrl(path);
-          if (!cancelled && vehicleUrl) {
-            setUri(vehicleUrl);
-            return;
-          }
-        } catch {
-          /* try compliance */
-        }
-      }
-      const signed = await signCompliancePreviewUrl({
-        storagePath: path,
-        source: preview.source === "supplier-kyc" ? "supplier-kyc" : "compliance",
-        organizationId: preview.organizationId,
-        entityId: preview.entityId,
-      });
+    void signCompliancePreviewUrl({
+      storagePath: path,
+      source:
+        preview.source === "vehicle"
+          ? "vehicle-vault"
+          : preview.source === "supplier-kyc"
+            ? "supplier-kyc"
+            : preview.source === "compliance"
+              ? "compliance"
+              : "trip",
+      organizationId: preview.organizationId,
+      entityId: preview.entityId,
+    }).then((signed) => {
       if (!cancelled) setUri(signed);
-    })();
+    });
     return () => {
       cancelled = true;
     };
@@ -163,7 +150,7 @@ export function VaultChooserNotifyRow({
         </View>
         <View style={styles.headerCopy}>
           <View style={styles.titleRow}>
-            <Text style={styles.title} numberOfLines={1}>
+            <Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">
               {label}
             </Text>
             {required === true ? (
@@ -183,12 +170,12 @@ export function VaultChooserNotifyRow({
             </View>
           </View>
           {numberLine ? (
-            <Text style={styles.number} numberOfLines={2} selectable>
+            <Text style={styles.number} numberOfLines={1} ellipsizeMode="tail" selectable>
               {numberLine}
             </Text>
           ) : null}
           {caption ? (
-            <Text style={styles.caption} numberOfLines={2}>
+            <Text style={styles.caption} numberOfLines={1} ellipsizeMode="tail">
               {caption}
             </Text>
           ) : null}
@@ -222,7 +209,7 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 10,
     minWidth: 0,
   },
@@ -242,18 +229,19 @@ const styles = StyleSheet.create({
   },
   titleRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
     alignItems: "center",
     gap: 6,
     minWidth: 0,
   },
   title: {
+    flex: 1,
     flexShrink: 1,
     minWidth: 0,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "700",
-    letterSpacing: 0.4,
+    letterSpacing: 0,
     color: Theme.textPrimaryDark,
   },
   chip: {

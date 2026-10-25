@@ -39,12 +39,12 @@ const WEBSITE_HTML = `<!doctype html>
       text-rendering: geometricPrecision;
     }
     .page-pad {
-      padding-left: max(28px, env(safe-area-inset-left), 4vw);
-      padding-right: max(28px, env(safe-area-inset-right), 4vw);
+      padding-left: max(32px, env(safe-area-inset-left), 3vw);
+      padding-right: max(32px, env(safe-area-inset-right), 3vw);
     }
     .wide-shell {
       width: 100%;
-      max-width: 1480px;
+      max-width: 1680px;
       margin-left: auto;
       margin-right: auto;
     }
@@ -63,50 +63,163 @@ const WEBSITE_HTML = `<!doctype html>
     .brand-dot { color: var(--gold); }
     .dot-gold { color: var(--gold); }
     .glass-nav {
-      background: var(--white);
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
       border-bottom: 1px solid var(--line);
+      transition: box-shadow 280ms ease;
     }
-    .hero-title { font-size: clamp(40px, 6vw, 80px); line-height: 0.88; letter-spacing: -0.05em; }
-    .final-title { font-size: clamp(34px, 5.6vw, 72px); line-height: 0.88; letter-spacing: -0.045em; }
-    .headline-lg { font-size: clamp(1.6rem, 2.8vw, 2.35rem) !important; line-height: 1.06 !important; letter-spacing: -0.034em !important; }
+    .glass-nav.is-scrolled { box-shadow: 0 10px 28px -20px var(--shadow); }
+    .site-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      align-items: center;
+      min-height: 56px;
+      gap: 20px;
+    }
+    .brand-mark { transition: opacity 200ms ease; justify-self: start; }
+    .brand-mark:hover { opacity: 0.7; }
+    .nav-desktop {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      gap: 32px;
+    }
+    .header-cta { justify-self: end; }
+    .hero-title {
+      font-size: clamp(40px, 6vw, 80px);
+      line-height: 0.94;
+      letter-spacing: -0.028em;
+      word-spacing: 0.08em;
+      max-width: 9.4em;
+    }
+    .final-title { font-size: clamp(34px, 5.6vw, 72px); line-height: 0.94; letter-spacing: -0.028em; word-spacing: 0.08em; }
+    .headline-lg { font-size: clamp(1.6rem, 2.8vw, 2.5rem) !important; line-height: 1.12 !important; letter-spacing: -0.02em !important; word-spacing: 0.06em; }
     .support-copy { font-size: clamp(0.9375rem, 1.05vw, 1.0625rem); line-height: 1.55; }
     .section-copy { font-size: 0.95rem; line-height: 1.5; }
-    .nav-link { font-size: 11px; letter-spacing: 0.14em; }
+    .nav-link {
+      display: inline-flex;
+      align-items: center;
+      font-size: 11px;
+      line-height: 1;
+      letter-spacing: 0.08em;
+      padding: 8px 0;
+      position: relative;
+      text-decoration: none;
+      white-space: nowrap;
+      transition: opacity 200ms ease;
+    }
+    .nav-link::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 2px;
+      height: 1.5px;
+      background: var(--ink);
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: transform 240ms ease;
+    }
+    .nav-link:hover { opacity: 1; }
+    .nav-link:hover::after { transform: scaleX(1); }
     .tight-btn { letter-spacing: 0.12em; font-size: 12px; }
     .section-lead { font-size: 0.95rem !important; line-height: 1.55 !important; }
+    .cta-primary, .cta-ghost, .cta-ink {
+      display: inline-block;
+      transition: background 200ms ease, border-color 200ms ease, transform 200ms ease, box-shadow 200ms ease;
+    }
     .cta-primary {
       background: var(--blue);
       color: var(--ink);
       border: 1.5px solid var(--ink);
       border-radius: 999px;
     }
-    .cta-primary:hover { background: var(--blue-pressed); }
+    .cta-primary:hover {
+      background: var(--blue-pressed);
+      transform: translateY(-1px);
+      box-shadow: 0 8px 18px -14px var(--shadow);
+    }
     .cta-ghost {
       background: var(--white);
       color: var(--ink);
       border: 1.5px solid var(--line);
       border-radius: 999px;
     }
-    .cta-ghost:hover { border-color: var(--ink); background: var(--blue-soft); }
+    .cta-ghost:hover {
+      border-color: var(--ink);
+      background: var(--blue-soft);
+      transform: translateY(-1px);
+    }
     .cta-ink {
       background: var(--ink);
       color: var(--white);
       border: 1.5px solid var(--ink);
       border-radius: 999px;
     }
-    .cta-ink:hover { background: #3d2a2a; }
-    .reveal { opacity: 0; transform: translateY(16px); transition: opacity 600ms ease, transform 600ms ease; }
+    .cta-ink:hover { background: #3d2a2a; transform: translateY(-1px); }
+    .cta-primary:active, .cta-ghost:active, .cta-ink:active { transform: translateY(0); }
+    .reveal {
+      opacity: 0;
+      transform: translateY(12px);
+      transition: opacity 520ms cubic-bezier(0.22, 1, 0.36, 1), transform 520ms cubic-bezier(0.22, 1, 0.36, 1);
+      transition-delay: var(--reveal-delay, 0ms);
+    }
     .reveal.in { opacity: 1; transform: translateY(0); }
-    .hover-float { transition: transform 350ms ease, box-shadow 350ms ease; }
-    .hover-float:hover { transform: translateY(-3px); box-shadow: 0 18px 40px -24px var(--shadow); }
+    .hover-tile {
+      transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease, background 220ms ease;
+    }
+    .hover-tile:hover {
+      transform: translateY(-2px);
+      border-color: rgba(77, 54, 54, 0.22);
+      box-shadow: 0 14px 28px -22px var(--shadow);
+    }
+    .hover-tile-dark {
+      transition: transform 220ms ease, background 220ms ease, border-color 220ms ease;
+    }
+    .hover-tile-dark:hover {
+      transform: translateY(-2px);
+      background: rgba(255,255,255,0.09);
+      border-color: rgba(255,255,255,0.16);
+    }
+    .icon-chip { transition: transform 220ms ease; }
+    .hover-tile:hover .icon-chip,
+    .hover-tile-dark:hover .icon-chip { transform: scale(1.05); }
     .type-cursor { display: inline-block; border-right: 2px solid var(--gold); margin-left: 4px; animation: blink 1s steps(1) infinite; }
     @keyframes blink { 50% { border-color: transparent; } }
-    @keyframes pulseSoft { 0%,100% { opacity: .18; transform: scale(1); } 50% { opacity: .32; transform: scale(1.03); } }
-    @keyframes floatCard { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
-    @keyframes liveGlow { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
-    .bg-glow { animation: pulseSoft 7s ease-in-out infinite; background: var(--blue); }
-    .float-card { animation: floatCard 8s ease-in-out infinite; }
+    @keyframes pulseSoft { 0%,100% { opacity: .16; transform: scale(1); } 50% { opacity: .28; transform: scale(1.02); } }
+    @keyframes floatCard { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+    @keyframes liveGlow { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+    @keyframes quotePulse { 0%,100% { opacity: 0.28; } 50% { opacity: 0.7; } }
+    .bg-glow { animation: pulseSoft 8s ease-in-out infinite; background: var(--blue); }
+    .float-card { animation: floatCard 10s ease-in-out infinite; }
+    .float-card:hover { animation-play-state: paused; }
     .live-dot { animation: liveGlow 2.6s ease-in-out infinite; }
+    .quote-live { position: relative; }
+    .quote-live::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      pointer-events: none;
+      box-shadow: 0 0 0 1px rgba(255,206,68,0.2);
+      animation: quotePulse 3.6s ease-in-out infinite;
+    }
+    .chart-bar {
+      transform-origin: bottom;
+      transform: scaleY(0.4);
+      opacity: 0.6;
+      transition: transform 720ms cubic-bezier(0.22, 1, 0.36, 1), opacity 480ms ease;
+    }
+    .reveal.in .chart-bar { transform: scaleY(1); opacity: 1; }
+    .chart-bar:nth-child(2) { transition-delay: 70ms; }
+    .chart-bar:nth-child(3) { transition-delay: 140ms; }
+    .chart-bar:nth-child(4) { transition-delay: 210ms; }
+    .progress-fill {
+      width: 0;
+      transition: width 860ms cubic-bezier(0.22, 1, 0.36, 1) 160ms;
+    }
+    .reveal.in .progress-fill { width: 66%; }
     .site-dark-tail { background: var(--ink); }
     .final-cta { border-radius: 2.5rem 2.5rem 0 0; }
     section[id], div[id] { scroll-margin-top: 76px; }
@@ -130,12 +243,16 @@ const WEBSITE_HTML = `<!doctype html>
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 12px;
     }
+    @media (min-width: 1025px) {
+      .nav-desktop { display: flex; }
+    }
     @media (max-width: 1024px) {
       html { scroll-padding-top: 68px; }
       section[id], div[id] { scroll-margin-top: 68px; }
       .hero-title { font-size: clamp(30px, 8vw, 46px); }
       .final-title { font-size: clamp(28px, 7.5vw, 42px); }
       .headline-lg { font-size: clamp(1.4rem, 5.6vw, 1.85rem) !important; }
+      .site-header { min-height: 52px; gap: 12px; }
       #trips, .product-dark { border-radius: 1.5rem !important; }
       .final-cta { border-radius: 1.5rem 1.5rem 0 0 !important; }
       body { padding-bottom: 88px; }
@@ -172,8 +289,17 @@ const WEBSITE_HTML = `<!doctype html>
       }
     }
     @media (prefers-reduced-motion: reduce) {
-      .reveal, .hover-float, .float-card, .bg-glow, .live-dot, .type-cursor { animation: none !important; transition: none !important; }
+      .reveal, .hover-tile, .hover-tile-dark, .float-card, .bg-glow, .live-dot, .type-cursor,
+      .cta-primary, .cta-ghost, .cta-ink, .nav-link::after, .chart-bar, .progress-fill,
+      .quote-live::after, .icon-chip, .glass-nav {
+        animation: none !important;
+        transition: none !important;
+      }
       .reveal { opacity: 1; transform: none; }
+      .chart-bar { transform: none; opacity: 1; }
+      .progress-fill { width: 66%; }
+      .cta-primary:hover, .cta-ghost:hover, .cta-ink:hover,
+      .hover-tile:hover, .hover-tile-dark:hover { transform: none; }
     }
     @media (max-width: 767px) {
       .hero-section { padding-top: 96px !important; padding-bottom: 48px !important; }
@@ -181,41 +307,42 @@ const WEBSITE_HTML = `<!doctype html>
       .stat-grid, .trip-feature-grid, .steps-grid, .ledger-grid, .product-grid { grid-template-columns: minmax(0, 1fr) !important; }
       .driver-feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
       .section-stack { padding-top: 48px !important; padding-bottom: 48px !important; }
-      .hero-title { max-width: 12ch !important; }
+      .hero-title { max-width: 8.6em !important; }
       .nav-desktop { display: none !important; }
+      .site-header { grid-template-columns: minmax(0, 1fr) auto; }
     }
   </style>
 </head>
 <body id="top" class="min-h-screen bg-white font-sans overflow-x-hidden">
-  <nav class="fixed top-0 left-0 right-0 z-[100] glass-nav page-pad py-3.5">
-    <div class="wide-shell flex items-center justify-between gap-4 min-w-0">
+  <nav class="fixed top-0 left-0 right-0 z-[100] glass-nav page-pad">
+    <div class="wide-shell site-header min-w-0">
       <a href="#top" class="brand-mark">pulse<span class="brand-dot">.</span></a>
-      <div class="nav-desktop hidden lg:flex items-center gap-7">
-        <a href="#exchange" class="nav-link font-black uppercase hover:opacity-70" style="color:var(--ink)">Exchange</a>
-        <a href="#network" class="nav-link font-black uppercase hover:opacity-70" style="color:var(--ink)">Network</a>
-        <a href="#boost" class="nav-link font-black uppercase hover:opacity-70" style="color:var(--ink)">Boost</a>
-        <a href="#ledger" class="nav-link font-black uppercase hover:opacity-70" style="color:var(--ink)">Ledger</a>
-        <a href="#analytics" class="nav-link font-black uppercase hover:opacity-70" style="color:var(--ink)">Analytics</a>
+      <div class="nav-desktop">
+        <a href="#exchange" class="nav-link font-black uppercase" style="color:var(--ink)">Exchange</a>
+        <a href="#network" class="nav-link font-black uppercase" style="color:var(--ink)">Network</a>
+        <a href="#boost" class="nav-link font-black uppercase" style="color:var(--ink)">Boost</a>
+        <a href="#ledger" class="nav-link font-black uppercase" style="color:var(--ink)">Ledger</a>
+        <a href="#analytics" class="nav-link font-black uppercase" style="color:var(--ink)">Analytics</a>
       </div>
-      <a href="/onboarding" target="_top" class="cta-ink px-5 py-2.5 text-[10px] font-black uppercase tracking-widest shrink-0">Enter OS</a>
+      <a href="/onboarding" target="_top" class="cta-ink header-cta px-5 py-2.5 text-[10px] font-black uppercase tracking-widest shrink-0">Enter OS</a>
     </div>
   </nav>
 
   <section class="hero-section relative pt-28 pb-20 page-pad overflow-hidden" style="background:var(--canvas)">
     <div class="wide-shell grid lg:grid-cols-2 gap-12 xl:gap-16 items-center">
       <div class="relative z-10 reveal min-w-0">
-        <h1 class="hero-title font-black italic mb-7 uppercase max-w-[12ch]" style="color:var(--ink)">
+        <h1 class="hero-title font-black italic mb-7 uppercase" style="color:var(--ink)">
           <span id="typewriter" data-text="MOVE BUSINESS FASTER"></span><span class="dot-gold">.</span><span class="type-cursor"></span>
         </h1>
-        <p class="support-copy font-medium max-w-xl mb-8" style="color:var(--muted)">
+        <p class="support-copy font-medium max-w-2xl mb-8" style="color:var(--muted)">
           Run loads, bidding, sponsored reach, ledger, and analytics on one workspace — from first quote to settlement.
         </p>
         <div class="hero-actions flex flex-col sm:flex-row gap-3">
-          <a href="/onboarding" target="_top" class="cta-primary px-8 py-3.5 font-black uppercase tight-btn text-center hover-float">Get Started</a>
-          <a href="#exchange" class="cta-ghost px-8 py-3.5 font-black uppercase tight-btn text-center hover-float">See Features</a>
+          <a href="/onboarding" target="_top" class="cta-primary px-8 py-3.5 font-black uppercase tight-btn text-center">Get Started</a>
+          <a href="#exchange" class="cta-ghost px-8 py-3.5 font-black uppercase tight-btn text-center">See Features</a>
         </div>
       </div>
-      <div class="relative reveal w-full lg:justify-self-end min-w-0">
+      <div class="relative reveal w-full lg:justify-self-end min-w-0" style="--reveal-delay:90ms">
         <div class="relative z-10 float-card rounded-[28px] p-6 md:p-8" style="background:var(--ink);box-shadow:0 32px 64px -20px var(--shadow)">
           <div class="flex justify-between items-center mb-6">
             <div class="flex gap-1.5">
@@ -248,29 +375,29 @@ const WEBSITE_HTML = `<!doctype html>
     <div class="wide-shell grid lg:grid-cols-[1fr_1.05fr] gap-10 xl:gap-14 items-center">
       <div class="reveal min-w-0">
         <p class="text-[10px] font-black uppercase tracking-[0.2em] mb-3" style="color:var(--muted)">Exchange</p>
-        <h2 class="headline-lg font-black tracking-tighter uppercase italic leading-none mb-4">The marketplace for live loads<span class="dot-gold">.</span></h2>
-        <p class="section-copy font-semibold max-w-lg mb-7" style="color:var(--muted)">
+        <h2 class="headline-lg font-black uppercase italic mb-4">The marketplace for live loads<span class="dot-gold">.</span></h2>
+        <p class="section-copy font-semibold max-w-2xl mb-7" style="color:var(--muted)">
           Post a load to your connected network. Partners bid in the same thread. Award once — trip, ledger, and POD stay linked.
         </p>
         <div class="space-y-3">
-          <div class="feature-row p-4 rounded-2xl" style="background:var(--canvas);border:1px solid var(--line)">
-            <div class="w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--white);color:var(--ink)"><i data-lucide="store" class="w-5 h-5"></i></div>
+          <div class="feature-row hover-tile p-4 rounded-2xl" style="background:var(--canvas);border:1px solid var(--line)">
+            <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--white);color:var(--ink)"><i data-lucide="store" class="w-5 h-5"></i></div>
             <div class="min-w-0"><h4 class="font-black uppercase text-sm tracking-tight">Give &amp; get loads</h4><p class="text-sm font-medium" style="color:var(--muted)">Broadcast to connections from Load Center.</p></div>
           </div>
-          <div class="feature-row p-4 rounded-2xl" style="background:var(--canvas);border:1px solid var(--line)">
-            <div class="w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--white);color:var(--ink)"><i data-lucide="gavel" class="w-5 h-5"></i></div>
+          <div class="feature-row hover-tile p-4 rounded-2xl" style="background:var(--canvas);border:1px solid var(--line)">
+            <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--white);color:var(--ink)"><i data-lucide="gavel" class="w-5 h-5"></i></div>
             <div class="min-w-0"><h4 class="font-black uppercase text-sm tracking-tight">Live bidding</h4><p class="text-sm font-medium" style="color:var(--muted)">Quotes land on the story. Award the best rate.</p></div>
           </div>
-          <div class="feature-row p-4 rounded-2xl" style="background:var(--canvas);border:1px solid var(--line)">
-            <div class="w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--white);color:var(--ink)"><i data-lucide="badge-check" class="w-5 h-5"></i></div>
+          <div class="feature-row hover-tile p-4 rounded-2xl" style="background:var(--canvas);border:1px solid var(--line)">
+            <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--white);color:var(--ink)"><i data-lucide="badge-check" class="w-5 h-5"></i></div>
             <div class="min-w-0"><h4 class="font-black uppercase text-sm tracking-tight">Connected network</h4><p class="text-sm font-medium" style="color:var(--muted)">Only verified partners in your circle see the load.</p></div>
           </div>
         </div>
       </div>
-      <div class="reveal min-w-0">
+      <div class="reveal min-w-0" style="--reveal-delay:80ms">
         <div class="product-dark rounded-[28px] p-5 md:p-6 relative overflow-hidden" style="background:var(--ink)">
           <div class="relative z-10 space-y-3">
-            <div class="p-5 rounded-2xl" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08)">
+            <div class="hover-tile-dark quote-live p-5 rounded-2xl" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08)">
               <div class="flex justify-between items-center gap-3 mb-3">
                 <span class="text-[9px] font-black uppercase tracking-widest" style="color:var(--gold)">@gogovan · Exchange</span>
                 <span class="text-[9px] font-bold italic" style="color:rgba(255,255,255,0.35)">12m ago</span>
@@ -281,7 +408,7 @@ const WEBSITE_HTML = `<!doctype html>
                 <a href="/onboarding" target="_top" class="cta-primary px-4 py-2 text-[10px] font-black uppercase">Submit quote</a>
               </div>
             </div>
-            <div class="p-5 rounded-2xl opacity-70" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06)">
+            <div class="hover-tile-dark p-5 rounded-2xl opacity-70" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06)">
               <div class="flex justify-between items-center gap-3 mb-3">
                 <span class="text-[9px] font-black uppercase tracking-widest" style="color:var(--blue)">@vendhan · Open truck</span>
                 <span class="text-[9px] font-bold italic" style="color:rgba(255,255,255,0.35)">45m ago</span>
@@ -302,22 +429,22 @@ const WEBSITE_HTML = `<!doctype html>
     <div class="wide-shell">
       <div class="reveal max-w-2xl mb-10">
         <p class="text-[10px] font-black uppercase tracking-[0.2em] mb-3" style="color:var(--muted)">Connected network</p>
-        <h2 class="headline-lg font-black tracking-tighter uppercase italic leading-none mb-4">Your circle. Your loads<span class="dot-gold">.</span></h2>
+        <h2 class="headline-lg font-black uppercase italic mb-4">Your circle. Your loads<span class="dot-gold">.</span></h2>
         <p class="section-lead font-semibold" style="color:var(--muted)">Pulse Story posts stay inside the connections you trust. Bid from the reel, award from the same indent.</p>
       </div>
       <div class="product-grid grid md:grid-cols-3 gap-4">
-        <div class="p-6 rounded-[22px] hover-float" style="background:var(--white);border:1px solid var(--line)">
-          <div class="w-11 h-11 rounded-xl mb-4 flex items-center justify-center" style="background:var(--blue)"><i data-lucide="users" class="w-5 h-5" style="color:var(--ink)"></i></div>
+        <div class="reveal hover-tile p-6 rounded-[22px]" style="background:var(--white);border:1px solid var(--line);--reveal-delay:40ms">
+          <div class="icon-chip w-11 h-11 rounded-xl mb-4 flex items-center justify-center" style="background:var(--blue)"><i data-lucide="users" class="w-5 h-5" style="color:var(--ink)"></i></div>
           <h4 class="font-black uppercase text-sm mb-2">Invite partners</h4>
           <p class="text-sm font-medium" style="color:var(--muted)">Add suppliers and customers. They only see what you share.</p>
         </div>
-        <div class="p-6 rounded-[22px] hover-float" style="background:var(--white);border:1px solid var(--line)">
-          <div class="w-11 h-11 rounded-xl mb-4 flex items-center justify-center" style="background:var(--blue)"><i data-lucide="radio" class="w-5 h-5" style="color:var(--ink)"></i></div>
+        <div class="reveal hover-tile p-6 rounded-[22px]" style="background:var(--white);border:1px solid var(--line);--reveal-delay:110ms">
+          <div class="icon-chip w-11 h-11 rounded-xl mb-4 flex items-center justify-center" style="background:var(--blue)"><i data-lucide="radio" class="w-5 h-5" style="color:var(--ink)"></i></div>
           <h4 class="font-black uppercase text-sm mb-2">Story broadcast</h4>
           <p class="text-sm font-medium" style="color:var(--muted)">A load becomes a story bubble — route, vehicle, and bid count.</p>
         </div>
-        <div class="p-6 rounded-[22px] hover-float" style="background:var(--white);border:1px solid var(--line)">
-          <div class="w-11 h-11 rounded-xl mb-4 flex items-center justify-center" style="background:var(--blue)"><i data-lucide="handshake" class="w-5 h-5" style="color:var(--ink)"></i></div>
+        <div class="reveal hover-tile p-6 rounded-[22px]" style="background:var(--white);border:1px solid var(--line);--reveal-delay:180ms">
+          <div class="icon-chip w-11 h-11 rounded-xl mb-4 flex items-center justify-center" style="background:var(--blue)"><i data-lucide="handshake" class="w-5 h-5" style="color:var(--ink)"></i></div>
           <h4 class="font-black uppercase text-sm mb-2">Award once</h4>
           <p class="text-sm font-medium" style="color:var(--muted)">Accept a bid and the trip is created with both parties attached.</p>
         </div>
@@ -328,7 +455,7 @@ const WEBSITE_HTML = `<!doctype html>
   <section id="boost" class="section-stack py-20 page-pad">
     <div class="wide-shell grid lg:grid-cols-2 gap-10 items-center">
       <div class="reveal min-w-0 order-2 lg:order-1">
-        <div class="rounded-[28px] p-6" style="background:var(--blue-soft);border:1px solid var(--blue)">
+        <div class="hover-tile rounded-[28px] p-6" style="background:var(--blue-soft);border:1px solid var(--blue)">
           <div class="flex items-center justify-between gap-3 mb-5">
             <span class="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full" style="background:var(--gold);color:var(--ink)">Ad</span>
             <span class="text-[10px] font-bold" style="color:var(--muted)">Sponsored reach</span>
@@ -344,17 +471,17 @@ const WEBSITE_HTML = `<!doctype html>
       </div>
       <div class="reveal min-w-0 order-1 lg:order-2">
         <p class="text-[10px] font-black uppercase tracking-[0.2em] mb-3" style="color:var(--muted)">Boost</p>
-        <h2 class="headline-lg font-black tracking-tighter uppercase italic leading-none mb-4">Sponsored loads, not noise<span class="dot-gold">.</span></h2>
+        <h2 class="headline-lg font-black uppercase italic mb-4">Sponsored loads, not noise<span class="dot-gold">.</span></h2>
         <p class="section-copy font-semibold mb-6" style="color:var(--muted)">
           Put a load in front of the right operators when your own network is thin. You never see your own ad in Get Load — Boost is for other orgs.
         </p>
         <div class="space-y-3">
-          <div class="feature-row p-4 rounded-2xl" style="background:var(--canvas);border:1px solid var(--line)">
-            <div class="w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--gold)"><i data-lucide="megaphone" class="w-5 h-5"></i></div>
+          <div class="feature-row hover-tile p-4 rounded-2xl" style="background:var(--canvas);border:1px solid var(--line)">
+            <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--gold)"><i data-lucide="megaphone" class="w-5 h-5"></i></div>
             <div class="min-w-0"><h4 class="font-black uppercase text-sm tracking-tight">Targeted release</h4><p class="text-sm font-medium" style="color:var(--muted)">Credits push the indent to selected workspaces.</p></div>
           </div>
-          <div class="feature-row p-4 rounded-2xl" style="background:var(--canvas);border:1px solid var(--line)">
-            <div class="w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--gold)"><i data-lucide="eye" class="w-5 h-5"></i></div>
+          <div class="feature-row hover-tile p-4 rounded-2xl" style="background:var(--canvas);border:1px solid var(--line)">
+            <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--gold)"><i data-lucide="eye" class="w-5 h-5"></i></div>
             <div class="min-w-0"><h4 class="font-black uppercase text-sm tracking-tight">Real impressions</h4><p class="text-sm font-medium" style="color:var(--muted)">Counted when another org views the sponsored card.</p></div>
           </div>
         </div>
@@ -364,21 +491,21 @@ const WEBSITE_HTML = `<!doctype html>
 
   <section id="trips" class="section-stack py-20 page-pad text-white reveal" style="background:var(--ink)">
     <div class="wide-shell">
-      <h2 class="headline-lg font-black tracking-tighter uppercase italic leading-none mb-4 text-center">End-to-end trip control<span class="dot-gold">.</span></h2>
+      <h2 class="headline-lg font-black uppercase italic mb-4 text-center">End-to-end trip control<span class="dot-gold">.</span></h2>
       <p class="section-lead font-semibold max-w-2xl leading-relaxed mb-10 mx-auto text-center" style="color:rgba(255,255,255,0.62)">Assign drivers, track the lane, and settle into the ledger when the POD lands.</p>
       <div class="trip-feature-grid grid md:grid-cols-3 gap-4">
-        <div class="p-6 rounded-2xl text-center" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08)">
-          <div class="w-11 h-11 rounded-xl flex items-center justify-center mx-auto mb-4" style="background:var(--blue)"><i data-lucide="mouse-pointer-2" class="w-5 h-5" style="color:var(--ink)"></i></div>
+        <div class="hover-tile-dark p-6 rounded-2xl text-center" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08)">
+          <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center mx-auto mb-4" style="background:var(--blue)"><i data-lucide="mouse-pointer-2" class="w-5 h-5" style="color:var(--ink)"></i></div>
           <h4 class="font-black uppercase text-sm mb-2 italic">Instant assign</h4>
           <p class="text-sm leading-relaxed font-medium" style="color:rgba(255,255,255,0.62)">Push the job to the driver app in one tap.</p>
         </div>
-        <div class="p-6 rounded-2xl text-center" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08)">
-          <div class="w-11 h-11 rounded-xl flex items-center justify-center mx-auto mb-4" style="background:var(--blue)"><i data-lucide="map-pinned" class="w-5 h-5" style="color:var(--ink)"></i></div>
+        <div class="hover-tile-dark p-6 rounded-2xl text-center" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08)">
+          <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center mx-auto mb-4" style="background:var(--blue)"><i data-lucide="map-pinned" class="w-5 h-5" style="color:var(--ink)"></i></div>
           <h4 class="font-black uppercase text-sm mb-2 italic">Live route</h4>
           <p class="text-sm leading-relaxed font-medium" style="color:rgba(255,255,255,0.62)">GPS and status stay on the same trip card.</p>
         </div>
-        <div class="p-6 rounded-2xl text-center" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08)">
-          <div class="w-11 h-11 rounded-xl flex items-center justify-center mx-auto mb-4" style="background:var(--blue)"><i data-lucide="check-circle-2" class="w-5 h-5" style="color:var(--ink)"></i></div>
+        <div class="hover-tile-dark p-6 rounded-2xl text-center" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08)">
+          <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center mx-auto mb-4" style="background:var(--blue)"><i data-lucide="check-circle-2" class="w-5 h-5" style="color:var(--ink)"></i></div>
           <h4 class="font-black uppercase text-sm mb-2 italic">Auto-settlement</h4>
           <p class="text-sm leading-relaxed font-medium" style="color:rgba(255,255,255,0.62)">Completion writes the ledger lines — no re-keying.</p>
         </div>
@@ -388,10 +515,10 @@ const WEBSITE_HTML = `<!doctype html>
 
   <section id="ledger" class="section-stack py-20 page-pad">
     <div class="wide-shell">
-      <h2 class="headline-lg font-black tracking-tighter uppercase italic leading-none mb-4 reveal">Know exactly who paid what<span class="dot-gold">.</span></h2>
-      <p class="section-lead font-semibold max-w-lg mb-8 reveal" style="color:var(--muted)">A shared ledger between you and your partners. Receivables, payables, and trip cash in one book.</p>
+      <h2 class="headline-lg font-black uppercase italic mb-4 reveal">Know exactly who paid what<span class="dot-gold">.</span></h2>
+      <p class="section-lead font-semibold max-w-2xl mb-8 reveal" style="color:var(--muted)">A shared ledger between you and your partners. Receivables, payables, and trip cash in one book.</p>
       <div class="ledger-grid grid lg:grid-cols-2 gap-5">
-        <div class="p-7 rounded-[28px] reveal hover-float" style="background:var(--white);border:1px solid var(--line);box-shadow:0 18px 40px -24px var(--shadow)">
+        <div class="p-7 rounded-[28px] reveal hover-tile" style="background:var(--white);border:1px solid var(--line);box-shadow:0 18px 40px -24px var(--shadow)">
           <div class="flex justify-between items-center p-4 rounded-2xl mb-3" style="background:var(--canvas)">
             <span class="font-black uppercase text-[10px] tracking-widest" style="color:var(--muted)">My ledger</span>
             <span class="font-black text-2xl italic">₹5,839.00</span>
@@ -401,7 +528,7 @@ const WEBSITE_HTML = `<!doctype html>
             <span class="font-black text-2xl italic" style="color:var(--ink)">₹5,839.00</span>
           </div>
         </div>
-        <div class="p-7 rounded-[28px] reveal hover-float flex flex-col justify-between" style="background:var(--ink);color:var(--white)">
+        <div class="p-7 rounded-[28px] reveal hover-tile-dark flex flex-col justify-between" style="background:var(--ink);color:var(--white);--reveal-delay:80ms">
           <div>
             <h4 class="text-2xl font-black italic uppercase mb-3 leading-tight">No payment confusion<span class="dot-gold">.</span></h4>
             <p class="text-sm font-medium leading-relaxed" style="color:rgba(255,255,255,0.7)">Price is locked before the manifest moves. Finance stays double-entry.</p>
@@ -416,23 +543,23 @@ const WEBSITE_HTML = `<!doctype html>
     <div class="wide-shell grid lg:grid-cols-2 gap-10 items-center">
       <div class="reveal min-w-0">
         <p class="text-[10px] font-black uppercase tracking-[0.2em] mb-3" style="color:var(--muted)">Analytics</p>
-        <h2 class="headline-lg font-black tracking-tighter uppercase italic leading-none mb-4">See the business, not just the trip<span class="dot-gold">.</span></h2>
+        <h2 class="headline-lg font-black uppercase italic mb-4">See the business, not just the trip<span class="dot-gold">.</span></h2>
         <p class="section-copy font-semibold mb-6" style="color:var(--muted)">
           Workspace analytics for lanes, collections, Boost spend, and team activity — the same numbers your ops and finance teams already work from.
         </p>
         <div class="space-y-3">
-          <div class="feature-row p-4 rounded-2xl" style="background:var(--white);border:1px solid var(--line)">
-            <div class="w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--blue)"><i data-lucide="chart-column" class="w-5 h-5"></i></div>
+          <div class="feature-row hover-tile p-4 rounded-2xl" style="background:var(--white);border:1px solid var(--line)">
+            <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--blue)"><i data-lucide="chart-column" class="w-5 h-5"></i></div>
             <div class="min-w-0"><h4 class="font-black uppercase text-sm tracking-tight">Lane &amp; revenue</h4><p class="text-sm font-medium" style="color:var(--muted)">Volume and settlement by corridor.</p></div>
           </div>
-          <div class="feature-row p-4 rounded-2xl" style="background:var(--white);border:1px solid var(--line)">
-            <div class="w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--blue)"><i data-lucide="coins" class="w-5 h-5"></i></div>
+          <div class="feature-row hover-tile p-4 rounded-2xl" style="background:var(--white);border:1px solid var(--line)">
+            <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--blue)"><i data-lucide="coins" class="w-5 h-5"></i></div>
             <div class="min-w-0"><h4 class="font-black uppercase text-sm tracking-tight">Credits &amp; Boost</h4><p class="text-sm font-medium" style="color:var(--muted)">Campaign spend next to impressions.</p></div>
           </div>
         </div>
       </div>
       <div class="reveal min-w-0">
-        <div class="rounded-[28px] p-6" style="background:var(--white);border:1px solid var(--line)">
+        <div class="hover-tile rounded-[28px] p-6" style="background:var(--white);border:1px solid var(--line)">
           <div class="flex justify-between items-end mb-6 gap-3">
             <div>
               <p class="text-[10px] font-black uppercase tracking-widest" style="color:var(--muted)">This week</p>
@@ -441,10 +568,10 @@ const WEBSITE_HTML = `<!doctype html>
             <span class="text-[11px] font-black px-2.5 py-1 rounded-full" style="background:var(--blue);color:var(--ink)">+18%</span>
           </div>
           <div class="grid grid-cols-4 gap-2 items-end h-28 mb-2">
-            <div class="rounded-t-lg" style="height:46%;background:var(--blue)"></div>
-            <div class="rounded-t-lg" style="height:70%;background:var(--blue-pressed)"></div>
-            <div class="rounded-t-lg" style="height:58%;background:var(--blue)"></div>
-            <div class="rounded-t-lg" style="height:92%;background:var(--gold)"></div>
+            <div class="chart-bar rounded-t-lg" style="height:46%;background:var(--blue)"></div>
+            <div class="chart-bar rounded-t-lg" style="height:70%;background:var(--blue-pressed)"></div>
+            <div class="chart-bar rounded-t-lg" style="height:58%;background:var(--blue)"></div>
+            <div class="chart-bar rounded-t-lg" style="height:92%;background:var(--gold)"></div>
           </div>
           <div class="grid grid-cols-4 text-[10px] font-bold uppercase tracking-wider" style="color:var(--muted)">
             <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span>
@@ -457,13 +584,13 @@ const WEBSITE_HTML = `<!doctype html>
   <section id="drivers" class="section-stack py-20 page-pad">
     <div class="wide-shell grid lg:grid-cols-2 gap-10 items-center">
       <div class="reveal min-w-0">
-        <h2 class="headline-lg font-black tracking-tighter uppercase italic leading-none mb-4">Built for drivers too<span class="dot-gold">.</span></h2>
+        <h2 class="headline-lg font-black uppercase italic mb-4">Built for drivers too<span class="dot-gold">.</span></h2>
         <p class="section-lead font-semibold max-w-md mb-8" style="color:var(--muted)">Trip updates, digital POD, and expenses on the same phone the office already tracks.</p>
         <div class="driver-feature-grid grid grid-cols-2 gap-3">
-          <div class="p-4 rounded-xl flex flex-col items-center text-center gap-2" style="background:var(--canvas);border:1px solid var(--line)"><i data-lucide="smartphone" class="w-5 h-5"></i><span class="font-black uppercase text-[10px] tracking-widest">Pilot app</span></div>
-          <div class="p-4 rounded-xl flex flex-col items-center text-center gap-2" style="background:var(--canvas);border:1px solid var(--line)"><i data-lucide="camera" class="w-5 h-5"></i><span class="font-black uppercase text-[10px] tracking-widest">Instant POD</span></div>
-          <div class="p-4 rounded-xl flex flex-col items-center text-center gap-2" style="background:var(--canvas);border:1px solid var(--line)"><i data-lucide="fuel" class="w-5 h-5"></i><span class="font-black uppercase text-[10px] tracking-widest">Expense logs</span></div>
-          <div class="p-4 rounded-xl flex flex-col items-center text-center gap-2" style="background:var(--canvas);border:1px solid var(--line)"><i data-lucide="wallet" class="w-5 h-5"></i><span class="font-black uppercase text-[10px] tracking-widest">Pay status</span></div>
+          <div class="hover-tile p-4 rounded-xl flex flex-col items-center text-center gap-2" style="background:var(--canvas);border:1px solid var(--line)"><i data-lucide="smartphone" class="w-5 h-5"></i><span class="font-black uppercase text-[10px] tracking-widest">Pilot app</span></div>
+          <div class="hover-tile p-4 rounded-xl flex flex-col items-center text-center gap-2" style="background:var(--canvas);border:1px solid var(--line)"><i data-lucide="camera" class="w-5 h-5"></i><span class="font-black uppercase text-[10px] tracking-widest">Instant POD</span></div>
+          <div class="hover-tile p-4 rounded-xl flex flex-col items-center text-center gap-2" style="background:var(--canvas);border:1px solid var(--line)"><i data-lucide="fuel" class="w-5 h-5"></i><span class="font-black uppercase text-[10px] tracking-widest">Expense logs</span></div>
+          <div class="hover-tile p-4 rounded-xl flex flex-col items-center text-center gap-2" style="background:var(--canvas);border:1px solid var(--line)"><i data-lucide="wallet" class="w-5 h-5"></i><span class="font-black uppercase text-[10px] tracking-widest">Pay status</span></div>
         </div>
       </div>
       <div class="reveal flex justify-center">
@@ -472,7 +599,7 @@ const WEBSITE_HTML = `<!doctype html>
           <div class="mt-8 space-y-5">
             <div class="flex items-center gap-2"><div class="w-2 h-2 rounded-full" style="background:var(--gold)"></div><span class="text-[9px] font-black uppercase tracking-widest" style="color:rgba(255,255,255,0.4)">Active_Trip</span></div>
             <h5 class="text-xl font-black tracking-tighter text-white italic uppercase leading-none">VARANASI HUB</h5>
-            <div class="h-1.5 w-full rounded-full overflow-hidden" style="background:rgba(255,255,255,0.08)"><div class="h-full w-2/3" style="background:var(--gold)"></div></div>
+            <div class="h-1.5 w-full rounded-full overflow-hidden" style="background:rgba(255,255,255,0.08)"><div class="progress-fill h-full" style="background:var(--gold)"></div></div>
             <div class="p-4 rounded-xl" style="background:rgba(255,255,255,0.06)">
               <p class="text-[8px] font-black uppercase mb-1" style="color:rgba(255,255,255,0.4)">Assigned manifest</p>
               <p class="text-[11px] font-bold text-white uppercase italic">20ft_Cont_TRP092</p>
@@ -490,15 +617,15 @@ const WEBSITE_HTML = `<!doctype html>
       <div class="steps-grid grid sm:grid-cols-3 gap-8 relative">
         <div class="absolute top-8 left-[12%] right-[12%] h-px hidden sm:block" style="background:var(--line)"></div>
         <div class="relative z-10 space-y-4">
-          <div class="w-14 h-14 rounded-full flex items-center justify-center mx-auto text-lg font-black italic" style="background:var(--ink);color:var(--gold);border:3px solid var(--white)">01</div>
+          <div class="hover-tile w-14 h-14 rounded-full flex items-center justify-center mx-auto text-lg font-black italic" style="background:var(--ink);color:var(--gold);border:3px solid var(--white)">01</div>
           <div><h4 class="font-black uppercase text-sm">Connect your network</h4><p class="font-bold uppercase text-[10px] tracking-widest mt-1" style="color:var(--muted)">Invite partners.</p></div>
         </div>
         <div class="relative z-10 space-y-4">
-          <div class="w-14 h-14 rounded-full flex items-center justify-center mx-auto text-lg font-black italic" style="background:var(--ink);color:var(--gold);border:3px solid var(--white)">02</div>
+          <div class="hover-tile w-14 h-14 rounded-full flex items-center justify-center mx-auto text-lg font-black italic" style="background:var(--ink);color:var(--gold);border:3px solid var(--white)">02</div>
           <div><h4 class="font-black uppercase text-sm">Post &amp; bid</h4><p class="font-bold uppercase text-[10px] tracking-widest mt-1" style="color:var(--muted)">Exchange + Boost.</p></div>
         </div>
         <div class="relative z-10 space-y-4">
-          <div class="w-14 h-14 rounded-full flex items-center justify-center mx-auto text-lg font-black italic" style="background:var(--ink);color:var(--gold);border:3px solid var(--white)">03</div>
+          <div class="hover-tile w-14 h-14 rounded-full flex items-center justify-center mx-auto text-lg font-black italic" style="background:var(--ink);color:var(--gold);border:3px solid var(--white)">03</div>
           <div><h4 class="font-black uppercase text-sm">Settle &amp; see</h4><p class="font-bold uppercase text-[10px] tracking-widest mt-1" style="color:var(--muted)">Ledger + analytics.</p></div>
         </div>
       </div>
@@ -511,7 +638,7 @@ const WEBSITE_HTML = `<!doctype html>
         <h2 class="final-title font-black italic mb-8 uppercase">
           <span id="final-typewriter" data-text="CONNECT YOUR BUSINESS"></span><span class="dot-gold">.</span>
         </h2>
-        <a href="/onboarding" target="_top" class="cta-primary inline-block px-10 py-4 font-black text-sm uppercase tracking-[0.16em] hover-float">Initialize Now</a>
+        <a href="/onboarding" target="_top" class="cta-primary inline-block px-10 py-4 font-black text-sm uppercase tracking-[0.16em]">Initialize Now</a>
       </div>
     </section>
     <footer class="py-10 page-pad text-center">
@@ -527,6 +654,10 @@ const WEBSITE_HTML = `<!doctype html>
   </div>
   <script>
     lucide.createIcons();
+    const navEl = document.querySelector('.glass-nav');
+    const syncNav = () => { if (navEl) navEl.classList.toggle('is-scrolled', window.scrollY > 8); };
+    syncNav();
+    window.addEventListener('scroll', syncNav, { passive: true });
     const typeEl = document.getElementById('typewriter');
     if (typeEl) {
       const text = typeEl.getAttribute('data-text') || '';

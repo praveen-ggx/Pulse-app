@@ -34,37 +34,57 @@ type Field = "pickup" | "drop" | "vehicle";
 const FIELD_META: Record<
   Field,
   {
+    step: string;
     label: string;
     listTitle: string;
     placeholder: string;
     search: string;
     noun: string;
     a11y: string;
+    iconBg: string;
+    iconOn: string;
+    chipOn: string;
+    borderOn: string;
   }
 > = {
   pickup: {
+    step: "01",
     label: "Pickup",
     listTitle: "Pickup locations",
-    placeholder: "Select pickup",
+    placeholder: "Where it starts",
     search: "Search pickup",
     noun: "Pickup",
     a11y: "Pickup city",
+    iconBg: Theme.brandBlueSoft,
+    iconOn: Theme.primaryLight,
+    chipOn: Theme.brandBlueWashSubtle,
+    borderOn: Theme.primary,
   },
   drop: {
+    step: "02",
     label: "Drop",
     listTitle: "Drop locations",
-    placeholder: "Select drop",
+    placeholder: "Where it ends",
     search: "Search drop",
     noun: "Drop",
     a11y: "Drop city",
+    iconBg: Theme.positiveMuted,
+    iconOn: Theme.positiveMuted,
+    chipOn: Theme.positiveMuted,
+    borderOn: Theme.positive,
   },
   vehicle: {
+    step: "03",
     label: "Vehicle",
     listTitle: "Vehicle types",
-    placeholder: "Select vehicle",
+    placeholder: "What can haul it",
     search: "Search vehicle",
     noun: "Vehicle",
     a11y: "Vehicle type",
+    iconBg: Theme.surfaceGray,
+    iconOn: Theme.brandBlueSoft,
+    chipOn: Theme.brandBlueWashSubtle,
+    borderOn: Theme.primary,
   },
 };
 
@@ -168,6 +188,7 @@ export function MarketplaceLaneFilters({
         onOpen={() => open("pickup", pickupLocked)}
         onClear={() => clearField("pickup")}
       />
+      {!stacked ? <LaneRail filled={Boolean(draft.pickup)} /> : null}
       <FilterChip
         field="drop"
         value={draft.drop}
@@ -178,6 +199,7 @@ export function MarketplaceLaneFilters({
         onOpen={() => open("drop", dropLocked)}
         onClear={() => clearField("drop")}
       />
+      {!stacked ? <LaneRail filled={Boolean(draft.drop)} /> : null}
       <FilterChip
         field="vehicle"
         value={draft.vehicleType}
@@ -211,7 +233,12 @@ export function MarketplaceLaneFilters({
             ]}
           >
             <View style={styles.sheetHead}>
-              <Text style={styles.sheetTitle}>{copy?.listTitle}</Text>
+              <View style={styles.sheetHeadCopy}>
+                {openField ? (
+                  <Text style={styles.sheetStep}>Step {FIELD_META[openField].step}</Text>
+                ) : null}
+                <Text style={styles.sheetTitle}>{copy?.listTitle}</Text>
+              </View>
               <Pressable
                 onPress={() => setOpenField(null)}
                 style={styles.sheetClose}
@@ -264,15 +291,18 @@ export function MarketplaceLaneFilters({
                       accessibilityRole="button"
                       accessibilityLabel={`${copy?.noun} ${option.label}, ${option.count} available`}
                     >
-                      <Text
-                        style={[
-                          styles.optionLabel,
-                          selected && styles.optionLabelActive,
-                        ]}
-                        numberOfLines={2}
-                      >
-                        {option.label}
-                      </Text>
+                      <View style={styles.optionLead}>
+                        {openField ? <FieldIcon field={openField} /> : null}
+                        <Text
+                          style={[
+                            styles.optionLabel,
+                            selected && styles.optionLabelActive,
+                          ]}
+                          numberOfLines={2}
+                        >
+                          {option.label}
+                        </Text>
+                      </View>
                       <View style={styles.optionMeta}>
                         <View style={styles.countPill}>
                           <Text style={styles.optionCount}>
@@ -300,11 +330,22 @@ export function MarketplaceLaneFilters({
   );
 }
 
-function FieldIcon({ field }: { field: Field }) {
-  const color = Theme.primary;
-  if (field === "pickup") return <MapPin size={14} color={color} strokeWidth={2.3} />;
-  if (field === "drop") return <Flag size={14} color={color} strokeWidth={2.3} />;
-  return <Truck size={14} color={color} strokeWidth={2.3} />;
+function FieldIcon({ field, size = 14 }: { field: Field; size?: number }) {
+  const color =
+    field === "drop" ? Theme.positive : field === "vehicle" ? Theme.textPrimaryDark : Theme.primary;
+  if (field === "pickup") return <MapPin size={size} color={color} strokeWidth={2.3} />;
+  if (field === "drop") return <Flag size={size} color={color} strokeWidth={2.3} />;
+  return <Truck size={size} color={color} strokeWidth={2.3} />;
+}
+
+function LaneRail({ filled }: { filled: boolean }) {
+  return (
+    <View style={styles.rail} importantForAccessibility="no-hide-descendants">
+      <View style={[styles.railDot, filled && styles.railDotOn]} />
+      <View style={[styles.railLine, filled && styles.railLineOn]} />
+      <View style={[styles.railDot, filled && styles.railDotOn]} />
+    </View>
+  );
 }
 
 function FilterChip({
@@ -327,13 +368,15 @@ function FilterChip({
   onClear: () => void;
 }) {
   const meta = FIELD_META[field];
+  const filled = Boolean(value) && !locked;
   return (
     <View
       style={[
         styles.chip,
         stacked && styles.chipStacked,
         compact && styles.chipCompact,
-        open && styles.chipOpen,
+        filled && { backgroundColor: meta.chipOn, borderColor: Theme.borderLight },
+        open && { borderColor: meta.borderOn, backgroundColor: meta.chipOn },
         locked && styles.chipLocked,
       ]}
     >
@@ -345,20 +388,29 @@ function FilterChip({
         accessibilityLabel={meta.a11y}
         accessibilityState={{ disabled: locked, expanded: open }}
       >
-        <View style={[styles.chipIcon, compact && styles.chipIconCompact]}>
-          <FieldIcon field={field} />
+        <View
+          style={[
+            styles.chipIcon,
+            compact && styles.chipIconCompact,
+            { backgroundColor: filled || open ? meta.iconOn : meta.iconBg },
+          ]}
+        >
+          <FieldIcon field={field} size={compact ? 13 : 15} />
         </View>
-        <View style={[styles.chipCopy, compact && styles.chipCopyCompact]}>
-          <Text style={[styles.chipLabel, compact && styles.chipLabelCompact]}>
-            {meta.label}
-          </Text>
+        <View style={styles.chipCopy}>
+          <View style={styles.chipLabelRow}>
+            <Text style={[styles.chipStep, compact && styles.chipStepCompact]}>{meta.step}</Text>
+            <Text style={[styles.chipLabel, compact && styles.chipLabelCompact]}>
+              {meta.label}
+            </Text>
+          </View>
           <Text
             style={[
               styles.chipValue,
               compact && styles.chipValueCompact,
               !value && styles.chipPlaceholder,
             ]}
-            numberOfLines={compact ? 1 : stacked ? 2 : 1}
+            numberOfLines={stacked && !compact ? 2 : 1}
           >
             {locked
               ? field === "drop"
@@ -387,7 +439,7 @@ function FilterChip({
 const styles = StyleSheet.create({
   bar: {
     flexDirection: "row",
-    flexWrap: Platform.OS === "web" ? "nowrap" : "wrap",
+    flexWrap: "wrap",
     alignItems: "stretch",
     gap: 10,
     width: "100%",
@@ -402,15 +454,37 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     flexBasis: Platform.OS === "web" ? 0 : 200,
     minWidth: Platform.OS === "web" ? 0 : 180,
-    minHeight: 68,
-    borderRadius: 14,
+    minHeight: 72,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: Theme.borderLight,
-    backgroundColor: Theme.cardWhite,
+    backgroundColor: Theme.surface,
     flexDirection: "row",
     alignItems: "center",
     paddingRight: 6,
   },
+  rail: {
+    width: 18,
+    alignSelf: "center",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+    flexShrink: 0,
+  },
+  railLine: {
+    width: 14,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: Theme.borderInput,
+  },
+  railLineOn: { backgroundColor: Theme.primary },
+  railDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: Theme.borderInput,
+  },
+  railDotOn: { backgroundColor: Theme.primary },
   chipStacked: {
     flexGrow: 0,
     flexShrink: 0,
@@ -434,9 +508,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   chipIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 12,
     backgroundColor: Theme.brandBlueSoft,
     alignItems: "center",
     justifyContent: "center",
@@ -449,6 +523,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 2,
   },
+  chipLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  chipStep: {
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    color: Theme.primary,
+  },
+  chipStepCompact: { fontSize: 8.5 },
   chipLabel: {
     fontSize: 10,
     fontWeight: "800",
@@ -466,18 +552,12 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: Theme.textMuted,
   },
-  barCompact: { gap: 6 },
-  chipCompact: { minHeight: 44, borderRadius: 10 },
-  chipMainCompact: { minHeight: 42, paddingHorizontal: 8, gap: 8 },
-  chipIconCompact: { width: 24, height: 24, borderRadius: 7 },
-  chipCopyCompact: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-start",
-    gap: 8,
-  },
-  chipLabelCompact: { fontSize: 9.5, width: 50 },
-  chipValueCompact: { flex: 1, minWidth: 0, fontSize: 12, lineHeight: 16 },
+  barCompact: { gap: 4 },
+  chipCompact: { minHeight: 58, borderRadius: 14 },
+  chipMainCompact: { minHeight: 54, paddingHorizontal: 8, gap: 8 },
+  chipIconCompact: { width: 30, height: 30, borderRadius: 10 },
+  chipLabelCompact: { fontSize: 9.5 },
+  chipValueCompact: { fontSize: 12.5, lineHeight: 16 },
   chipClear: {
     width: 28,
     height: 28,
@@ -522,6 +602,14 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 8,
   },
+  sheetHeadCopy: { flex: 1, minWidth: 0, gap: 2 },
+  sheetStep: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    color: Theme.primary,
+  },
   sheetTitle: {
     fontSize: 16,
     fontWeight: "800",
@@ -561,6 +649,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 10,
+  },
+  optionLead: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 10,
   },
   optionActive: { backgroundColor: Theme.brandBlueSoft },

@@ -73,7 +73,10 @@ function Harness({
   allocated?: IndentRow[];
   canView?: boolean;
   canSelect?: boolean;
-  snapshots?: Record<string, { count: number; lowestAmount: number | null; latestAt: string | null }>;
+  snapshots?: Record<
+    string,
+    { count: number; lowestAmount: number | null; highestAmount?: number | null; latestAt: string | null }
+  >;
 }) {
   const state = useShipperPoolIndentView<IndentRow>({
     poolIndents: indents,
@@ -163,6 +166,47 @@ describe("IndentStageViews — Network Indent Pool", () => {
     expect(screen.getAllByText("Waiting for bid").length).toBeGreaterThan(0);
   });
 
+  it("filters pools to one client from the finder header", () => {
+    render(
+      <Harness
+        indents={[
+          indent("a", "Pune", "Mumbai", "32 FT", { client_name: "Tata Steel" }),
+          indent("z", "Chennai", "Delhi", "20 FT", { client_name: "Paperkraft" }),
+        ]}
+      />,
+    );
+    openIndentPool();
+    expect(screen.getByLabelText("Open indent pool Pune → Mumbai, 32 FT, 1 indent")).toBeTruthy();
+    expect(screen.getByLabelText("Open indent pool Chennai → Delhi, 20 FT, 1 indent")).toBeTruthy();
+    fireEvent.press(screen.getByLabelText("Client"));
+    fireEvent.press(screen.getByLabelText("Paperkraft, 1 available"));
+    expect(screen.queryByLabelText("Open indent pool Pune → Mumbai, 32 FT, 1 indent")).toBeNull();
+    expect(screen.getByLabelText("Open indent pool Chennai → Delhi, 20 FT, 1 indent")).toBeTruthy();
+    expect(screen.getByText("Paperkraft")).toBeTruthy();
+  });
+
+  it("returns to the pool list from an opened pool", () => {
+    render(<Harness />);
+    openIndentPool();
+    openPuneMumbai();
+    expect(screen.getByTestId("indent-pool-count")).toBeTruthy();
+    fireEvent.press(screen.getByLabelText("Back to all pools"));
+    expect(screen.getByTestId("indent-pool-summary-table")).toBeTruthy();
+    expect(screen.queryByTestId("indent-pool-count")).toBeNull();
+  });
+
+  it("sorts opened pool indents by pickup date", () => {
+    render(<Harness />);
+    openIndentPool();
+    openPuneMumbai();
+    fireEvent.press(screen.getByLabelText("Sort by Pickup"));
+    expect(screen.getByLabelText("Sort by Pickup, ascending")).toBeTruthy();
+    fireEvent.press(screen.getByLabelText("Sort by Pickup, ascending"));
+    expect(screen.getByLabelText("Sort by Pickup, descending")).toBeTruthy();
+    fireEvent.press(screen.getByLabelText("Sort by Bid status"));
+    expect(screen.getByLabelText("Sort by Bid status, descending")).toBeTruthy();
+  });
+
   it("summarises the pool: waiting, bids received, awarded and on a trip", () => {
     render(
       <Harness
@@ -182,6 +226,31 @@ describe("IndentStageViews — Network Indent Pool", () => {
     expect(screen.getByLabelText("Bids received: 1")).toBeTruthy();
     expect(screen.getByLabelText("Awarded: 1")).toBeTruthy();
     expect(screen.getByLabelText("On a trip: 1")).toBeTruthy();
+  });
+
+  it("filters the opened pool list when a stage chip is pressed", () => {
+    render(
+      <Harness
+        indents={[
+          ...FIXTURE,
+          indent("w", "Pune", "Mumbai", "32 FT", { status: "awarded" }),
+        ]}
+        allocated={[indent("t1", "PUNE", "mumbai", "32 FT")]}
+      />,
+    );
+    openIndentPool();
+    openPuneMumbai(4);
+    fireEvent.press(screen.getByLabelText("Waiting for bid: 2"));
+    expect(screen.getByTestId("indent-pool-row-b")).toBeTruthy();
+    expect(screen.getByTestId("indent-pool-row-f")).toBeTruthy();
+    expect(screen.queryByTestId("indent-pool-row-a")).toBeNull();
+    expect(screen.queryByTestId("indent-pool-row-w")).toBeNull();
+    fireEvent.press(screen.getByLabelText("Waiting for bid: 2"));
+    expect(screen.getByTestId("indent-pool-row-a")).toBeTruthy();
+    fireEvent.press(screen.getByLabelText("On a trip: 1"));
+    expect(screen.getByTestId("indent-pool-row-t1")).toBeTruthy();
+    expect(screen.getAllByText("On trip").length).toBeGreaterThan(0);
+    expect(screen.queryByTestId("indent-pool-row-a")).toBeNull();
   });
 
   it("selection is operational only, with a live count", () => {
@@ -246,13 +315,17 @@ describe("IndentStageViews — Network Indent Pool", () => {
     openIndentPool();
     openPuneMumbai(55);
     expect(textOf("indent-pool-shown")).toBe(
-      "Showing 50 of 55 · Select all only adds the rows shown",
+      "Top 10 of 55 · Select all only adds the rows shown",
     );
-    fireEvent.press(screen.getByLabelText("Select all 50 shown indents"));
-    expect(selectedCount()).toBe("50 selected for bulk actions");
-    fireEvent.press(screen.getByLabelText("Show more indents in this pool"));
+    fireEvent.press(screen.getByLabelText("Select all 10 shown indents"));
+    expect(selectedCount()).toBe("10 selected for bulk actions");
+    fireEvent.press(screen.getByLabelText("Show all 55 indents"));
     expect(textOf("indent-pool-shown")).toBe("Showing 55 of 55");
-    expect(selectedCount()).toBe("50 selected for bulk actions");
+    expect(selectedCount()).toBe("10 selected for bulk actions");
+    fireEvent.press(screen.getByLabelText("Show first 10 indents only"));
+    expect(textOf("indent-pool-shown")).toBe(
+      "Top 10 of 55 · Select all only adds the rows shown",
+    );
   });
 
   it("pickup picker counts canonical pool membership, not raw strings", () => {
@@ -293,9 +366,18 @@ describe("IndentStageViews — Network Indent Pool", () => {
   it("summarises every pool by stage before one is opened", () => {
     render(
       <Harness
-        indents={[...FIXTURE, indent("w", "Pune", "Mumbai", "32 FT", { status: "awarded" })]}
+        indents={[
+          ...FIXTURE,
+          indent("w", "Pune", "Mumbai", "32 FT", {
+            status: "awarded",
+            assigned_supplier_rate: 34000,
+            awarded_amount: 36000,
+          }),
+        ]}
         allocated={[indent("t1", "PUNE", "mumbai", "32 FT")]}
-        snapshots={{ a: { count: 2, lowestAmount: 41000, latestAt: "2026-10-08T12:30:00Z" } }}
+        snapshots={{
+          a: { count: 2, lowestAmount: 41000, highestAmount: 45000, latestAt: "2026-10-08T12:30:00Z" },
+        }}
       />,
     );
     openIndentPool();
@@ -309,20 +391,87 @@ describe("IndentStageViews — Network Indent Pool", () => {
       "2 waiting, 1 with bids, 1 awarded, 1 on trip",
     );
     expect(screen.getByText("₹ 41,000")).toBeTruthy();
+    expect(screen.getByText("to ₹ 45,000")).toBeTruthy();
+    expect(screen.getByText("₹ 34,000")).toBeTruthy();
+    expect(screen.getByLabelText("Awarded average ₹ 34,000")).toBeTruthy();
+  });
+
+  it("shows a single awarded price in bid range when there are no live bids", () => {
+    render(
+      <Harness
+        indents={[
+          indent("x", "Chennai", "Delhi", "20 FT", {
+            status: "awarded",
+            assigned_supplier_rate: 5250,
+          }),
+        ]}
+      />,
+    );
+    openIndentPool();
+    expect(screen.getAllByText("₹ 5,250").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("shows awarded price on each opened-pool indent like Home", () => {
+    render(
+      <Harness
+        indents={[
+          indent("x", "Chennai", "Delhi", "20 FT", {
+            status: "awarded",
+            assigned_supplier_rate: 5250,
+            client_price: 6000,
+          }),
+        ]}
+      />,
+    );
+    openIndentPool();
+    openPool("Chennai → Delhi", "20 FT", 1);
+    expect(screen.getByText("Awarded ₹ 5,250")).toBeTruthy();
+    expect(screen.getByText("Client ₹ 6,000")).toBeTruthy();
+    expect(screen.getByLabelText("Awarded, Awarded ₹ 5,250")).toBeTruthy();
+  });
+
+  it("shows target rate on a waiting indent when there are no live bids", () => {
+    render(
+      <Harness
+        indents={[
+          indent("y", "Chennai", "Delhi", "20 FT", {
+            supplier_target: 4800,
+          }),
+        ]}
+      />,
+    );
+    openIndentPool();
+    openPool("Chennai → Delhi", "20 FT", 1);
+    expect(screen.getByText("Target ₹ 4,800")).toBeTruthy();
+  });
+
+  it("sorts the pool table when a column header is pressed", () => {
+    render(
+      <Harness
+        indents={[...FIXTURE, indent("w", "Pune", "Mumbai", "32 FT", { status: "awarded" })]}
+      />,
+    );
+    openIndentPool();
+    fireEvent.press(screen.getByLabelText("Sort by Awarded"));
+    expect(screen.getByLabelText("Sort by Awarded, descending")).toBeTruthy();
+    fireEvent.press(screen.getByLabelText("Sort by Awarded, descending"));
+    expect(screen.getByLabelText("Sort by Awarded, ascending")).toBeTruthy();
   });
 
   it("shows each indent's bid status: count, lowest offer and last bid time", () => {
     render(
       <Harness
-        snapshots={{ a: { count: 2, lowestAmount: 41000, latestAt: "2026-10-08T12:30:00Z" } }}
+        snapshots={{
+          a: { count: 2, lowestAmount: 41000, highestAmount: 45000, latestAt: "2026-10-08T12:30:00Z" },
+        }}
       />,
     );
     openIndentPool();
     openPuneMumbai();
     expect(screen.getByText("2 bids")).toBeTruthy();
-    expect(screen.getByText("Lowest ₹ 41,000")).toBeTruthy();
+    expect(screen.getByText("₹ 41,000–₹ 45,000")).toBeTruthy();
     expect(screen.getByText("Last bid · 2026-10-08 12:30")).toBeTruthy();
-    expect(textOf("indent-pool-lowest")).toBe("Lowest bid in pool · ₹ 41,000");
+    expect(textOf("indent-pool-lowest")).toBe("Bids in pool · ₹ 41,000–₹ 45,000");
     expect(screen.getAllByLabelText("Stage Bids").length).toBe(1);
     expect(screen.getAllByLabelText("Stage Posted").length).toBe(2);
   });

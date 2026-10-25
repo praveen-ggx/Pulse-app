@@ -14,6 +14,8 @@ export interface NumericEntryPartyPreview {
   /** Specs under the hero (vehicle, counter, target) — quieter than heroLine. */
   detailLine?: string;
   entityType?: "client" | "supplier" | "driver";
+  /** Network pool indent — stacked-lane mark instead of initials. */
+  mark?: "pool";
   avatarUrl?: string | null;
   avatarSeed?: string | null;
   organizationImageUrl?: string | null;

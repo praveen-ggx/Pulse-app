@@ -222,6 +222,7 @@ function BentoMetricCard({
             <Text
               style={[
                 styles.label,
+                item.title.includes(" ") && styles.labelPlain,
                 active ? styles.labelActive : styles.labelIdle,
               ]}
               numberOfLines={2}
@@ -680,8 +681,8 @@ const styles = StyleSheet.create({
   flexSmall: {
     flexGrow: 1,
     flexShrink: 1,
-    flexBasis: 132,
-    minWidth: 132,
+    flexBasis: 156,
+    minWidth: 148,
   },
   cardPressable: {
     minHeight: 76,
@@ -788,8 +789,14 @@ const styles = StyleSheet.create({
     fontSize: FS_CAPTION,
     fontWeight: "600",
     textTransform: "uppercase",
-    letterSpacing: 0.35,
-    lineHeight: FS_CAPTION + 3,
+    letterSpacing: 0,
+    lineHeight: FS_CAPTION + 4,
+  },
+  labelPlain: {
+    textTransform: "none",
+    fontWeight: "700",
+    fontSize: 11,
+    lineHeight: 14,
   },
   labelIdle: {
     color: Theme.textMuted,
@@ -800,7 +807,7 @@ const styles = StyleSheet.create({
   sub: {
     fontSize: FS_AMOUNT_LABEL,
     fontWeight: "500",
-    letterSpacing: 0.1,
+    letterSpacing: 0,
     lineHeight: FS_AMOUNT_LABEL + 4,
   },
   subIdle: {

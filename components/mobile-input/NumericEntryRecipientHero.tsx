@@ -4,6 +4,7 @@ import { ChevronRight } from "lucide-react-native";
 import Theme from "@/constants/Theme";
 import { PartyAvatar } from "@/components/PartyAvatar";
 import type { NumericEntryPartyPreview } from "./NumericEntryPartyBanner";
+import { PoolIndentMark } from "./PoolIndentMark";
 
 export interface NumericEntryRecipientHeroProps {
   party: NumericEntryPartyPreview;
@@ -78,16 +79,20 @@ export const NumericEntryRecipientHero = memo(function NumericEntryRecipientHero
         dense && styles.rootDense,
       ]}
     >
-      <PartyAvatar
-        name={party.name}
-        avatarUrl={party.avatarUrl ?? null}
-        avatarSeed={party.avatarSeed ?? null}
-        organizationImageUrl={party.organizationImageUrl ?? null}
-        organizationAvatarSeed={party.organizationAvatarSeed ?? null}
-        entityType={party.entityType ?? "client"}
-        size={avatarSize}
-        shape="circle"
-      />
+      {party.mark === "pool" ? (
+        <PoolIndentMark size={avatarSize} />
+      ) : (
+        <PartyAvatar
+          name={party.name}
+          avatarUrl={party.avatarUrl ?? null}
+          avatarSeed={party.avatarSeed ?? null}
+          organizationImageUrl={party.organizationImageUrl ?? null}
+          organizationAvatarSeed={party.organizationAvatarSeed ?? null}
+          entityType={party.entityType ?? "client"}
+          size={avatarSize}
+          shape="circle"
+        />
+      )}
       {caption && !nameInline ? (
         <Text
           style={[
@@ -128,14 +133,18 @@ export const NumericEntryRecipientHero = memo(function NumericEntryRecipientHero
           ]}
           numberOfLines={2}
           adjustsFontSizeToFit
-          minimumFontScale={0.72}
+          minimumFontScale={0.85}
         >
           {hero}
         </Text>
       ) : null}
       {detail ? (
         <Text
-          style={[styles.detailLine, dense && styles.detailLineDense]}
+          style={[
+            styles.detailLine,
+            compact && styles.detailLineCompact,
+            dense && styles.detailLineDense,
+          ]}
           numberOfLines={2}
         >
           {detail}
@@ -247,31 +256,41 @@ const styles = StyleSheet.create({
     lineHeight: 28,
   },
   heroLineCompact: {
-    fontSize: 14,
-    fontWeight: "600",
-    lineHeight: 18,
-    letterSpacing: -0.15,
-    color: Theme.textSecondary,
+    fontSize: 20,
+    fontWeight: "800",
+    lineHeight: 24,
+    letterSpacing: 0,
+    color: Theme.textPrimaryDark,
   },
   heroLineDense: {
-    fontSize: 15,
-    lineHeight: 20,
-    letterSpacing: -0.3,
-    maxWidth: 280,
+    fontSize: 18,
+    fontWeight: "800",
+    lineHeight: 22,
+    letterSpacing: 0,
+    maxWidth: 320,
+    color: Theme.textPrimaryDark,
   },
   detailLine: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: Theme.textMuted,
+    fontSize: 13,
+    fontWeight: "600",
+    color: Theme.textSecondary,
     textAlign: "center",
-    lineHeight: 16,
-    letterSpacing: 0.1,
+    lineHeight: 18,
+    letterSpacing: 0,
     maxWidth: 320,
     paddingHorizontal: 8,
   },
+  detailLineCompact: {
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 17,
+    color: Theme.textPrimaryDark,
+  },
   detailLineDense: {
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 16,
     maxWidth: 280,
+    color: Theme.textPrimaryDark,
   },
 });

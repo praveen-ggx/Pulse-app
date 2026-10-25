@@ -101,7 +101,7 @@ const memberCard = (load: IndentRow) => (
 
 const IDENTITY = /SpaceXLogistics|Acme Steel/;
 const NET_POOL_CARD =
-  "Network pool bid, Origin to DestNet, 20ft, 2 loads, 1 countered · 1 pending";
+  "Network pool bid, Origin to DestNet, 20ft, 2 loads, 1 pending";
 const bidPoolLabels = () =>
   screen
     .getAllByLabelText(/^Network pool bid, /)
@@ -110,7 +110,6 @@ const bidPoolLabels = () =>
 function renderList(
   extra: {
     shownLoads?: IndentRow[];
-    onViewPool?: jest.Mock;
     onRevisePool?: jest.Mock;
   } = {},
 ) {
@@ -122,7 +121,6 @@ function renderList(
       isPoolable={isPoolable}
       renderIndividualCard={individualCard}
       renderPoolMemberCard={memberCard}
-      onViewPool={extra.onViewPool}
       onRevisePool={extra.onRevisePool}
     />,
   );
@@ -172,7 +170,7 @@ describe("My Bids: pooled Network quotes render as pools", () => {
 
   it("member statuses are shown per state, never as one status for every load", () => {
     renderList({ shownLoads: [NET_1] });
-    expect(screen.getByText("1 countered · 1 pending")).toBeTruthy();
+    expect(screen.getByText("1 pending")).toBeTruthy();
     expect(screen.getByText("MIXED")).toBeTruthy();
     expect(screen.queryByText("PENDING")).toBeNull();
     expect(screen.getByText("₹ 19,500")).toBeTruthy();
@@ -197,15 +195,11 @@ describe("My Bids: pooled Network quotes render as pools", () => {
     ]);
   });
 
-  it("the pool card opens that pool inline without an indent summary", () => {
+  it("the pool card does not open a detail view — only Revise bid is tappable", () => {
     renderList();
     fireEvent.press(screen.getByLabelText(NET_POOL_CARD));
+    expect(screen.queryByLabelText("Back to my bids")).toBeNull();
     expect(screen.queryByText("Indents in this pool")).toBeNull();
-    expect(screen.queryByLabelText("Member IND-n1")).toBeNull();
-    expect(screen.queryByLabelText("Member IND-n2")).toBeNull();
-    expect(screen.queryByLabelText(/^Individual /)).toBeNull();
-    expect(screen.getByText("2 LOADS")).toBeTruthy();
-    fireEvent.press(screen.getByLabelText("Back to my bids"));
     expect(bidPoolLabels()).toContain(NET_POOL_CARD);
   });
 
@@ -217,13 +211,11 @@ describe("My Bids: pooled Network quotes render as pools", () => {
     expect(onRevisePool.mock.calls[0][0].id).toBe(NET_POOL_ID);
   });
 
-  it("with onViewPool (desktop board), the pool card hands over the canonical pool", () => {
-    const onViewPool = jest.fn();
-    renderList({ onViewPool });
+  it("pressing the pool card does not hand the pool to a detail view", () => {
+    const onRevisePool = jest.fn();
+    renderList({ onRevisePool });
     fireEvent.press(screen.getByLabelText(NET_POOL_CARD));
-    const pool = onViewPool.mock.calls[0][0];
-    expect(pool.id).toBe(NET_POOL_ID);
-    expect(pool.members.map((m: IndentRow) => m.id)).toEqual(["n1", "n2"]);
+    expect(onRevisePool).not.toHaveBeenCalled();
     expect(screen.queryByText("Indents in this pool")).toBeNull();
   });
 });
@@ -284,25 +276,12 @@ describe("My Bids column view", () => {
     expect(screen.getAllByText(IDENTITY)).toHaveLength(1);
   });
 
-  it("the pool card opens the pool context without indent cards", () => {
+  it("the pool card stays on the list — no pool detail view", () => {
     renderModal();
     fireEvent.press(screen.getByLabelText(NET_POOL_CARD));
-    expect(screen.getByText("2 loads in this pool · your pooled bid")).toBeTruthy();
-    expect(screen.queryByText("Indents in this pool")).toBeNull();
-    expect(screen.queryByLabelText("Member IND-n1")).toBeNull();
-    expect(screen.queryByLabelText("Member IND-n2")).toBeNull();
-    expect(screen.queryByLabelText(/^Update bid/)).toBeNull();
-    expect(screen.queryByText(IDENTITY)).toBeNull();
-    fireEvent.press(screen.getByLabelText("Back to my bids"));
+    expect(screen.queryByText(/in this pool · your pooled bid/)).toBeNull();
+    expect(screen.queryByLabelText("Back to my bids")).toBeNull();
     expect(bidPoolLabels()).toHaveLength(3);
-  });
-
-  it("opens straight into the pool handed over by the board preview", () => {
-    renderModal({ initialOpenPoolId: NET_POOL_ID });
-    expect(screen.queryByText("Indents in this pool")).toBeNull();
-    expect(screen.getByText("2 loads in this pool · your pooled bid")).toBeTruthy();
-    expect(screen.queryByLabelText("Member IND-n1")).toBeNull();
-    expect(screen.queryByLabelText("Member IND-b1")).toBeNull();
   });
 
   it("a board search that narrowed the column cannot shrink a pool", () => {
@@ -312,7 +291,7 @@ describe("My Bids column view", () => {
     ]);
     expect(screen.queryByText("1 LOAD")).toBeNull();
     fireEvent.press(screen.getByLabelText(NET_POOL_CARD));
-    expect(screen.getByText("2 loads in this pool · your pooled bid")).toBeTruthy();
+    expect(screen.queryByText(/in this pool · your pooled bid/)).toBeNull();
     expect(screen.getByText("2 LOADS")).toBeTruthy();
   });
 
@@ -338,8 +317,7 @@ describe("My Bids column view", () => {
 });
 
 describe("desktop board My Bids preview", () => {
-  it("shows pools in the My Bids column and hands the pool card to the column view", () => {
-    const onViewPool = jest.fn();
+  it("shows pools in the My Bids column without opening a pool detail", () => {
     render(
       <LoadCenterKanbanBoard
         title="Market opportunities by stage"
@@ -354,7 +332,6 @@ describe("desktop board My Bids preview", () => {
               isPoolable={isPoolable}
               renderIndividualCard={individualCard}
               renderPoolMemberCard={memberCard}
-              onViewPool={onViewPool}
             />
           ) : null
         }
@@ -363,7 +340,7 @@ describe("desktop board My Bids preview", () => {
     expect(bidPoolLabels()).toHaveLength(3);
     expect(screen.queryByLabelText("Individual IND-n1")).toBeNull();
     fireEvent.press(screen.getByLabelText(NET_POOL_CARD));
-    expect(onViewPool.mock.calls[0][0].id).toBe(NET_POOL_ID);
+    expect(screen.queryByLabelText("Back to my bids")).toBeNull();
   });
 });
 
@@ -384,7 +361,7 @@ describe("an accepted counter is shown as agreed, not countered", () => {
         renderPoolMemberCard={memberCard}
       />,
     );
-    expect(screen.getByText("1 counter accepted · 1 pending")).toBeTruthy();
+    expect(screen.getByText("1 pending")).toBeTruthy();
     expect(screen.queryByText(/countered/)).toBeNull();
   });
 
@@ -442,8 +419,6 @@ describe("opened My Bids pool revises the pooled bid", () => {
         onRevisePool={onRevisePool}
       />,
     );
-    fireEvent.press(screen.getByLabelText(NET_POOL_CARD));
-    expect(screen.queryByText(IDENTITY)).toBeNull();
     expect(screen.queryByText("Indents in this pool")).toBeNull();
     expect(screen.queryByLabelText("Revise bid IND-n1")).toBeNull();
     fireEvent.press(screen.getByLabelText("Revise bid, 2 loads"));

@@ -110,6 +110,7 @@ import {
 import {
   INDENT_CANCEL_REASONS,
   indentCancelReasonId,
+  isIndentFailedStatus,
   type IndentCancelReasonId,
 } from "@/features/indents/utils/indentCancelReason.util";
 import {
@@ -497,9 +498,11 @@ export default function TripsScreen() {
       hubIndents.filter(
         (i) =>
           (i.organization_id ?? "") === (orgId ?? "") &&
-          isIndentUnallocated(i, indentIdsWithTrip),
+          isIndentUnallocated(i, indentIdsWithTrip) &&
+          !isIndentFailedStatus(i.status) &&
+          !failedIndentsRemote.some((failed) => failed.id === i.id),
       ),
-    [hubIndents, orgId, indentIdsWithTrip],
+    [failedIndentsRemote, hubIndents, orgId, indentIdsWithTrip],
   );
   const dateFilteredUnallocatedIndents = useMemo(
     () =>

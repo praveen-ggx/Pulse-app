@@ -37,7 +37,10 @@ import {
 } from "@/features/indents/components/IndentReviewHubSplitLayout";
 import { IndentSupplierPartySummary } from "@/features/indents/components/IndentSupplierPartySummary";
 import type { SupplierQuoteActionHint } from "@/features/indents/components/IndentSupplierQuoteCard";
-import { submitNetworkQuote } from "@/features/network/services/networkPools.service";
+import {
+  submitNetworkQuote,
+  withdrawNetworkQuotes,
+} from "@/features/network/services/networkPools.service";
 import {
     acceptDirectQuoteCounter,
     type DirectQuoteRow,
@@ -1054,6 +1057,34 @@ export function IndentDetailScreen({
       quoteModalVisible,
     ],
   );
+
+  const withdrawQuoteAmount = useCallback(async (): Promise<boolean> => {
+    if (!indent || !orgId || submittingQuote) return false;
+    const { error } = await withdrawNetworkQuotes(orgId, [indent.id]);
+    if (error) {
+      setQuoteEntryError(formatMarketplaceTransactionError(error.message));
+      return false;
+    }
+    queryClient.invalidateQueries({
+      queryKey: ["indents", indent.id, "direct-quotes"],
+    });
+    queryClient.invalidateQueries({
+      queryKey: ["indents", "quote-counts"],
+    });
+    queryClient.invalidateQueries({
+      queryKey: [...queryKeys.indents.finite(orgId), "my-direct-quotes"],
+    });
+    await Promise.allSettled([refetchMyQuotes(), refetchQuotes(), load("refresh")]);
+    return true;
+  }, [
+    indent,
+    orgId,
+    submittingQuote,
+    queryClient,
+    refetchMyQuotes,
+    refetchQuotes,
+    load,
+  ]);
 
   const myQuoteStatus = normalizeStatus(myQuote?.status);
   const supplierQuoteAlert = useMemo(
@@ -2184,6 +2215,8 @@ export function IndentDetailScreen({
               : null
         }
         isUpdate={hasMyPendingQuote}
+        onWithdraw={hasMyPendingQuote ? withdrawQuoteAmount : undefined}
+        onWithdrawSuccessDone={() => setQuoteEntryError(undefined)}
         validationError={quoteEntryError}
         onClearValidationError={() => setQuoteEntryError(undefined)}
         onInvalidAmount={() =>

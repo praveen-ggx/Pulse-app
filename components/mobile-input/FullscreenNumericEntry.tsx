@@ -25,6 +25,7 @@ import { PulsePillButton } from '@/components/PulsePillButton';
 import { formatINR } from '@/lib/format';
 import { DecimalKeypad, PAY_KEYPAD_CELL_PAD, PAY_KEYPAD_INSET } from './DecimalKeypad';
 import { BidVsTargetHint } from './BidVsTargetHint';
+import { MatchTargetLink } from './MatchTargetLink';
 import { resolveBidVsTarget } from './bidVsTarget';
 import { NumericDisplay } from './NumericDisplay';
 import type { NumericEntryPartyPreview } from './NumericEntryPartyBanner';
@@ -73,12 +74,14 @@ export interface FullscreenNumericEntryProps {
    */
   targetRate?: number | null;
   /**
-   * Tiny one-tap fill (e.g. "Match counter · ₹36,000") under the amount.
-   * Sets the keypad value to `amount` without submitting.
+   * Optional override above the keypad (e.g. "Match counter").
+   * When omitted, a target rate shows “Match target”. Tap fills and submits.
    */
   quickFill?: { label: string; amount: number } | null;
   /** Drawn above the keypad inside this modal (e.g. confirm sheet). Avoids a second RN Modal. */
   overlay?: ReactNode;
+  /** Text chip under the load card (e.g. Cancel bid), not a filled CTA. */
+  footerLink?: ReactNode;
 }
 
 export function FullscreenNumericEntry({
@@ -100,10 +103,9 @@ export function FullscreenNumericEntry({
   targetRate = null,
   quickFill = null,
   overlay = null,
+  footerLink = null,
 }: FullscreenNumericEntryProps) {
   const [raw, setRaw] = useState(initialValue);
-  /** Value before quick-fill; second tap restores it. */
-  const [preQuickFillRaw, setPreQuickFillRaw] = useState<string | null>(null);
   const platform = useInputPlatform();
   const insets = useSafeAreaInsets();
   const isDesktop = platform === 'desktop';
@@ -133,12 +135,10 @@ export function FullscreenNumericEntry({
   useEffect(() => {
     if (visible) {
       setRaw(initialValue);
-      setPreQuickFillRaw(null);
     }
   }, [visible, initialValue]);
 
   const handleKey = useCallback((key: KeypadKey) => {
-    setPreQuickFillRaw(null);
     setRaw((prev) => applyKeypadPress(prev, key, keypadOpts));
   }, [keypadOpts]);
 
@@ -148,32 +148,31 @@ export function FullscreenNumericEntry({
     onSubmit(rawToSubmitValue(raw));
   }, [raw, onSubmit]);
 
-  const quickFillAmount =
-    quickFill != null &&
-    Number.isFinite(quickFill.amount) &&
-    quickFill.amount > 0
-      ? Math.round(quickFill.amount)
-      : null;
-
-  const quickFillAlreadyMatched =
-    quickFillAmount != null &&
-    parseRawToNumber(raw) === quickFillAmount;
-
-  const canRevokeQuickFill =
-    quickFillAlreadyMatched && preQuickFillRaw != null;
-
-  const handleQuickFill = useCallback(() => {
-    if (quickFillAmount == null) return;
-    triggerFeedback('keyPress');
-    if (quickFillAlreadyMatched) {
-      if (preQuickFillRaw == null) return;
-      setRaw(preQuickFillRaw);
-      setPreQuickFillRaw(null);
-      return;
+  const matchOffer = useMemo(() => {
+    if (type !== 'currency') return null;
+    if (
+      quickFill != null &&
+      Number.isFinite(quickFill.amount) &&
+      quickFill.amount > 0
+    ) {
+      return {
+        label: quickFill.label.trim() || 'Match target',
+        amount: Math.round(quickFill.amount),
+      };
     }
-    setPreQuickFillRaw(raw);
-    setRaw(toRawString(quickFillAmount));
-  }, [quickFillAmount, quickFillAlreadyMatched, preQuickFillRaw, raw]);
+    if (targetRate != null && Number.isFinite(targetRate) && targetRate > 0) {
+      return { label: 'Match target', amount: Math.round(targetRate) };
+    }
+    return null;
+  }, [quickFill, targetRate, type]);
+
+  const handleMatchTarget = useCallback(() => {
+    if (matchOffer == null) return;
+    const next = toRawString(matchOffer.amount);
+    setRaw(next);
+    triggerFeedback('apply');
+    onSubmit(rawToSubmitValue(next));
+  }, [matchOffer, onSubmit]);
 
   usePhysicalKeypadInput({
     enabled: visible && (isDesktop || isTablet),
@@ -211,41 +210,16 @@ export function FullscreenNumericEntry({
       ) : targetRate != null && targetRate > 0 && type === 'currency' ? (
         <Text style={styles.targetFallback}>Target {formatINR(targetRate)}</Text>
       ) : null}
-      {quickFillAmount != null ? (
-        <TouchableOpacity
-          style={[
-            styles.quickFillChip,
-            quickFillAlreadyMatched && styles.quickFillChipMatched,
-          ]}
-          onPress={handleQuickFill}
-          disabled={quickFillAlreadyMatched && !canRevokeQuickFill}
-          activeOpacity={0.85}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel={
-            canRevokeQuickFill
-              ? 'Undo match, restore previous amount'
-              : `${quickFill!.label} ${formatINR(quickFillAmount)}`
-          }
-          accessibilityState={{
-            disabled: quickFillAlreadyMatched && !canRevokeQuickFill,
-          }}
-        >
-          <Text
-            style={[
-              styles.quickFillChipText,
-              quickFillAlreadyMatched && styles.quickFillChipTextMatched,
-            ]}
-            numberOfLines={1}
-          >
-            {quickFillAlreadyMatched
-              ? `Matched · ${formatINR(quickFillAmount)}`
-              : `${quickFill!.label} · ${formatINR(quickFillAmount)}`}
-          </Text>
-        </TouchableOpacity>
-      ) : null}
     </View>
   );
+
+  const matchTargetLink = matchOffer ? (
+    <MatchTargetLink
+      amount={matchOffer.amount}
+      label={matchOffer.label}
+      onPress={handleMatchTarget}
+    />
+  ) : null;
 
   const validationBlock = validationError ? (
     <Text
@@ -279,6 +253,7 @@ export function FullscreenNumericEntry({
         >
           <Text style={styles.payCloseText}>✕</Text>
         </TouchableOpacity>
+        {footerLink ? <View style={styles.headerTrailing}>{footerLink}</View> : null}
       </View>
 
       <View style={styles.payBody}>
@@ -316,6 +291,7 @@ export function FullscreenNumericEntry({
       </View>
 
       <View style={styles.payBottom}>
+        {matchTargetLink}
         <View style={styles.payFabRow}>
           <View style={styles.payFabCell} />
           <View style={styles.payFabCell} />
@@ -366,13 +342,16 @@ export function FullscreenNumericEntry({
           </Text>
         </View>
 
-        <PulsePillButton
-          label={submitLabel}
-          size="compact"
-          onPress={handleSubmit}
-          disabled={!hasValue}
-          accessibilityLabel={submitLabel}
-        />
+        <View style={styles.headerTrailing}>
+          {footerLink}
+          <PulsePillButton
+            label={submitLabel}
+            size="compact"
+            onPress={handleSubmit}
+            disabled={!hasValue}
+            accessibilityLabel={submitLabel}
+          />
+        </View>
       </View>
 
       {partyPreview ? (
@@ -406,6 +385,7 @@ export function FullscreenNumericEntry({
           { paddingBottom: isDesktop || isTablet ? 20 : Math.max(insets.bottom, 16) },
         ]}
       >
+        {matchTargetLink}
         <DecimalKeypad onKey={handleKey} showDecimal={allowDecimal} />
       </View>
       {overlay ? <View style={styles.entryOverlay}>{overlay}</View> : null}
@@ -522,6 +502,7 @@ const styles = StyleSheet.create({
   payTopBar: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 8,
     paddingBottom: 4,
     minHeight: 48,
@@ -691,6 +672,13 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     minWidth: 0,
+  },
+  headerTrailing: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 8,
+    flexShrink: 0,
   },
   headerLabel: {
     fontSize: 16,

@@ -16,6 +16,8 @@ import type { NumericEntryPartyPreview } from '@/components/mobile-input/Numeric
 import { NumericDisplay } from '@/components/mobile-input/NumericDisplay';
 import { NumericEntryRecipientHero } from '@/components/mobile-input/NumericEntryRecipientHero';
 import { BidVsTargetHint } from '@/components/mobile-input/BidVsTargetHint';
+import { CancelBidChip } from '@/components/mobile-input/CancelBidChip';
+import { MatchTargetLink } from '@/components/mobile-input/MatchTargetLink';
 import { resolveBidVsTarget } from '@/components/mobile-input/bidVsTarget';
 import { parseRawToNumber, toRawString } from '@/components/mobile-input';
 import { useInputPlatform } from '@/components/mobile-input/useInputPlatform';
@@ -30,7 +32,7 @@ import {
 } from '@/features/indents/services/indents.service';
 import { resolveCommercialOpportunity } from '@/features/marketplace/domain';
 import { BidConfirmModal, type BidConfirmPhase } from '@/features/network/components/bidding/BidConfirmModal';
-import { type BidRow } from '@/features/network/services/bids.service';
+import { withdrawBid, type BidRow } from '@/features/network/services/bids.service';
 import { type PostRow } from '@/features/network/services/posts.service';
 import { formatINR } from '@/lib/format';
 import { useSubmitBidMutation } from '@/lib/queries/useBidsQuery';
@@ -112,6 +114,9 @@ export function BidSheet({
   const [confirmPhase, setConfirmPhase] = useState<BidConfirmPhase>('review');
   /** Freeze edit vs place for the confirm/success card while celebration runs. */
   const [confirmIsEditMode, setConfirmIsEditMode] = useState(false);
+  const [confirmIntent, setConfirmIntent] = useState<'submit' | 'withdraw'>(
+    'submit',
+  );
   const pendingQuoteInvalidateRef = useRef<string | null>(null);
   /**
    * Blocks form reseed while review/success is showing. A ref (not only
@@ -209,6 +214,7 @@ export function BidSheet({
       setConfirmOpen(false);
       setConfirmPhase('review');
       setConfirmIsEditMode(false);
+      setConfirmIntent('submit');
       setSubmitting(false);
       return;
     }
@@ -333,10 +339,30 @@ export function BidSheet({
     }
     setValidationError(undefined);
     celebrationLockRef.current = true;
+    setConfirmIntent('submit');
     setConfirmIsEditMode(isEditMode);
     setConfirmPhase('review');
     setConfirmOpen(true);
   }, [post, canSubmit, amountRaw, isEditMode]);
+
+  const matchTargetAndSubmit = useCallback(() => {
+    if (targetRate == null || targetRate <= 0 || !post || submitting) return;
+    setAmountRaw(toRawString(Math.round(targetRate)));
+    setActiveField('amount');
+    setValidationError(undefined);
+    if (!post.source_indent_id) {
+      Alert.alert(
+        'Cannot place bid',
+        'This story is not linked to a load indent. Use Get Load to quote, or ask the publisher to broadcast from an indent.',
+      );
+      return;
+    }
+    celebrationLockRef.current = true;
+    setConfirmIntent('submit');
+    setConfirmIsEditMode(isEditMode);
+    setConfirmPhase('review');
+    setConfirmOpen(true);
+  }, [isEditMode, post, submitting, targetRate]);
 
   const finishAfterSuccess = useCallback(() => {
     const indentToInvalidate = pendingQuoteInvalidateRef.current;
@@ -345,6 +371,7 @@ export function BidSheet({
     setConfirmOpen(false);
     setConfirmPhase('review');
     setConfirmIsEditMode(false);
+    setConfirmIntent('submit');
     triggerFeedback('apply');
     if (indentToInvalidate) {
       void invalidateQuoteCaches(indentToInvalidate);
@@ -418,6 +445,34 @@ export function BidSheet({
     submitMutation,
     currentOrganization?.name,
   ]);
+
+  const requestWithdraw = useCallback(() => {
+    if (!existingBid || submitting) return;
+    celebrationLockRef.current = true;
+    setConfirmIntent('withdraw');
+    setConfirmIsEditMode(true);
+    setConfirmPhase('review');
+    setConfirmOpen(true);
+  }, [existingBid, submitting]);
+
+  const handleWithdraw = useCallback(async () => {
+    if (!existingBid || submitting) return;
+    setSubmitting(true);
+    setValidationError(undefined);
+    const { error } = await withdrawBid(existingBid.id);
+    setSubmitting(false);
+    if (error) {
+      celebrationLockRef.current = false;
+      setConfirmOpen(false);
+      setConfirmPhase('review');
+      setConfirmIntent('submit');
+      setValidationError(error.message);
+      return;
+    }
+    celebrationLockRef.current = true;
+    pendingQuoteInvalidateRef.current = post?.source_indent_id ?? null;
+    setConfirmPhase('success');
+  }, [existingBid, submitting, post?.source_indent_id]);
 
   usePhysicalKeypadInput({
     enabled: visible && activeField === 'amount' && !confirmOpen,
@@ -498,6 +553,7 @@ export function BidSheet({
     <BidConfirmModal
       visible={confirmOpen}
       phase={confirmPhase}
+      intent={confirmIntent}
       isEditMode={confirmIsEditMode}
       amount={confirmAmount > 0 ? confirmAmount : 0}
       ownerName={(post.org_name ?? '').trim() || 'Load owner'}
@@ -515,9 +571,14 @@ export function BidSheet({
           setConfirmOpen(false);
           setConfirmPhase('review');
           setConfirmIsEditMode(false);
+          setConfirmIntent('submit');
         }
       }}
       onConfirm={() => {
+        if (confirmIntent === 'withdraw') {
+          void handleWithdraw();
+          return;
+        }
         void handleSubmit();
       }}
       onSuccessDone={finishAfterSuccess}
@@ -679,10 +740,22 @@ export function BidSheet({
 
       <View style={styles.bodyPay}>
         {partyBlock}
+        {isEditMode ? (
+          <View style={styles.cancelChipWrap}>
+            <CancelBidChip onPress={requestWithdraw} disabled={submitting} />
+          </View>
+        ) : null}
         {valueStage}
       </View>
 
       <View style={styles.bottom}>
+        {activeField === 'amount' && targetRate != null && targetRate > 0 ? (
+          <MatchTargetLink
+            amount={Math.round(targetRate)}
+            onPress={matchTargetAndSubmit}
+            disabled={submitting}
+          />
+        ) : null}
         <View style={styles.fabRow}>
           <View style={styles.fabCell} />
           <View style={styles.fabCell} />
@@ -768,6 +841,11 @@ export function BidSheet({
             compact
           />
         ) : null}
+        {isEditMode ? (
+          <View style={styles.cancelChipWrap}>
+            <CancelBidChip onPress={requestWithdraw} disabled={submitting} />
+          </View>
+        ) : null}
         {valueStage}
       </View>
 
@@ -807,6 +885,13 @@ export function BidSheet({
             </>
           )}
         </TouchableOpacity>
+        {activeField === 'amount' && targetRate != null && targetRate > 0 ? (
+          <MatchTargetLink
+            amount={Math.round(targetRate)}
+            onPress={matchTargetAndSubmit}
+            disabled={submitting}
+          />
+        ) : null}
         <View style={styles.keypadElevated}>{keypadBlock}</View>
       </View>
     </View>
@@ -924,6 +1009,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 20,
     gap: 12,
+  },
+  cancelChipWrap: {
+    alignItems: 'center',
+    paddingTop: 4,
   },
   fallbackTitle: {
     fontSize: 15,

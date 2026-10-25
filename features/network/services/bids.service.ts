@@ -10,6 +10,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { isSupabaseCircuitOpen } from '@/lib/supabaseHttp.util';
 import { runWithConcurrencyLimit } from '@/features/trips/services/tripDocumentLrPod.service';
+import { shipperCanSeePendingPoolQuote } from '@/features/network/utils/networkPoolBidCommit.util';
 
 const DRIVER_AVAILABILITY_CONCURRENCY = 3;
 
@@ -581,19 +582,51 @@ async function collectPendingOwnerIndentBids(
   };
 
   for (const chunk of indentChunks) {
-    const { data, error: qErr } = await supabase()
+    const { data, error: fallbackErr } = await supabase()
       .from('direct_quotes')
       .select('indent_id, bidder_organization_id, amount, created_at')
       .in('indent_id', chunk)
       .eq('status', 'pending');
 
-    if (qErr) return { error: new Error(qErr.message), bids: [] };
-    for (const row of (data ?? []) as Array<{
+    if (fallbackErr) return { error: new Error(fallbackErr.message), bids: [] };
+    const rows = (data ?? []) as Array<{
       indent_id: string;
       bidder_organization_id: string;
       amount: number | null;
       created_at: string | null;
-    }>) {
+      pool_commit_id?: string | null;
+    }>;
+    const commitIds = rows
+      .map((row) => row.pool_commit_id)
+      .filter((id): id is string => Boolean(id));
+    let commits: Record<
+      string,
+      { status: string; awarded_count: number; vehicle_limit: number; valid_until: string }
+    > = {};
+    if (commitIds.length > 0) {
+      const { data: commitRows } = await supabase()
+        .from('network_pool_bid_commits')
+        .select('id, status, awarded_count, vehicle_limit, valid_until')
+        .in('id', [...new Set(commitIds)]);
+      for (const commit of (commitRows ?? []) as Array<{
+        id: string;
+        status: string;
+        awarded_count: number;
+        vehicle_limit: number;
+        valid_until: string;
+      }>) {
+        commits[commit.id] = commit;
+      }
+    }
+    for (const row of rows) {
+      if (
+        !shipperCanSeePendingPoolQuote(
+          { status: 'pending', pool_commit_id: row.pool_commit_id ?? null },
+          row.pool_commit_id ? commits[row.pool_commit_id] : null,
+        )
+      ) {
+        continue;
+      }
       track(row.indent_id, row.bidder_organization_id, row.amount, row.created_at);
     }
   }

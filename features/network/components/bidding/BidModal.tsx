@@ -15,7 +15,10 @@ import {
   openCounterAmount,
   routeDirectQuoteSubmit,
 } from "@/features/indents/utils/bidding/directQuoteCounter.util";
-import { submitNetworkQuote } from "@/features/network/services/networkPools.service";
+import {
+  submitNetworkQuote,
+  withdrawNetworkQuotes,
+} from "@/features/network/services/networkPools.service";
 import { useInvalidateIndents } from "@/lib/queries";
 import { queryKeys } from "@/lib/queryKeys";
 import { type QueryClient } from "@tanstack/react-query";
@@ -161,6 +164,38 @@ export function BidModal({
     ],
   );
 
+  const withdrawQuote = useCallback(async (): Promise<boolean> => {
+    if (!orgId || !load || submittingQuote) return false;
+    const { error } = await withdrawNetworkQuotes(orgId, [load.id]);
+    if (error) {
+      setEntryError(formatMarketplaceTransactionError(error.message));
+      return false;
+    }
+    invalidateIndents(orgId);
+    await Promise.allSettled([
+      queryClient.invalidateQueries({
+        queryKey: [...queryKeys.indents.finite(orgId), "my-direct-quotes"],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["indents", load.id, "direct-quotes"],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["indents", "quote-counts"],
+      }),
+      refetchMyQuotes(),
+      refetchMarketIndents(),
+    ]);
+    return true;
+  }, [
+    orgId,
+    load,
+    submittingQuote,
+    invalidateIndents,
+    queryClient,
+    refetchMyQuotes,
+    refetchMarketIndents,
+  ]);
+
   if (!load) return null;
 
   const targetRate = Number(load.supplier_target ?? load.client_price ?? 0);
@@ -195,6 +230,10 @@ export function BidModal({
         (activeBidQuote?.amount != null ? Number(activeBidQuote.amount) : null)
       }
       isUpdate={hasExistingQuote && isPendingQuote}
+      onWithdraw={
+        hasExistingQuote && isPendingQuote ? withdrawQuote : undefined
+      }
+      onWithdrawSuccessDone={() => onSuccess("Bid cancelled")}
       validationError={entryError}
       onClearValidationError={() => setEntryError(undefined)}
       onInvalidAmount={() =>

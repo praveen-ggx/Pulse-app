@@ -6,12 +6,31 @@
  * accept_direct_quote_counter, never a table upsert.
  */
 import { shouldFallbackDirectQuotesToTable } from '@/features/indents/utils/bidding/indentReviewHubOffers.util';
+import { getNetworkPoolBidCommitsByIds } from '@/features/network/services/networkPools.service';
+import { shipperCanSeePendingPoolQuote } from '@/features/network/utils/networkPoolBidCommit.util';
 import { indentAwardBlockedBecauseInactive } from '@/features/indents/utils/indentCancelReason.util';
 import { FINITE_LIST_CAP } from '@/lib/pagination';
 import { supabase } from '@/lib/supabase';
 
 const MY_DIRECT_QUOTES_SELECT =
   'id, indent_id, bidder_organization_id, amount, notes, status, created_at, updated_at, driver_id, vehicle_id, counter_amount' as const;
+
+/** Do not select `pool_commit_id` until that migration is on this database. */
+const OWNER_QUOTES_SELECT = MY_DIRECT_QUOTES_SELECT;
+
+async function filterLivePoolQuotes(quotes: DirectQuoteRow[]): Promise<DirectQuoteRow[]> {
+  const ids = quotes
+    .map((quote) => quote.pool_commit_id)
+    .filter((id): id is string => Boolean(id));
+  if (ids.length === 0) return quotes;
+  const { commits } = await getNetworkPoolBidCommitsByIds(ids);
+  return quotes.filter((quote) =>
+    shipperCanSeePendingPoolQuote(
+      quote,
+      quote.pool_commit_id ? commits[quote.pool_commit_id] : null,
+    ),
+  );
+}
 
 export interface DirectQuoteRow {
   id: string;
@@ -38,6 +57,7 @@ export interface DirectQuoteRow {
   bidder_avatar_seed?: string | null;
   /** Driver user id for Pilot / FO bids — used to check live availability. */
   bidder_user_id?: string | null;
+  pool_commit_id?: string | null;
   /**
    * True when this offer cannot be awarded: bidder was picked on another load
    * (`superseded`) or `is_driver_available()` is currently false.
@@ -75,21 +95,24 @@ export async function getDirectQuotesByIndentId(
 
   if (!shouldFallbackDirectQuotesToTable(error, data)) {
     const rows = (data ?? []) as (DirectQuoteRow & { bidder_organization_name?: string })[];
-    return { error: null, quotes: rows };
+    return { error: null, quotes: await filterLivePoolQuotes(rows) };
   }
 
-  const { data: tableRows, error: tableError } = await supabase()
+  const tableRows = await supabase()
     .from('direct_quotes')
-    .select(MY_DIRECT_QUOTES_SELECT)
+    .select(OWNER_QUOTES_SELECT)
     .eq('indent_id', indentId)
     .order('created_at', { ascending: false });
-  if (tableError) {
+  if (tableRows.error) {
     return {
-      error: new Error(error?.message ?? tableError.message),
+      error: new Error(error?.message ?? tableRows.error.message),
       quotes: [],
     };
   }
-  return { error: null, quotes: (tableRows ?? []) as DirectQuoteRow[] };
+  return {
+    error: null,
+    quotes: await filterLivePoolQuotes((tableRows.data ?? []) as DirectQuoteRow[]),
+  };
 }
 
 /**

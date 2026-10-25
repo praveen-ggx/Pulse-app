@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  CancelBidChip,
   FullscreenNumericEntry,
   parseRawToNumber,
   toRawString,
@@ -24,6 +25,12 @@ export interface IndentBidAmountEntryProps {
    * Do not close the entry yourself; celebration Done calls onClose.
    */
   onSubmitAmount: (amountInr: number) => Promise<boolean>;
+  /**
+   * When set, Review does not persist — caller opens the next full-page step
+   * (pool vehicle commit). onSubmitAmount is still used by tests / callers
+   * that write immediately.
+   */
+  onContinueAfterReview?: (amountInr: number) => void;
   /** Optional toast / refresh after success celebration dismisses. */
   onSuccessDone?: () => void;
   indentDisplayNumber: string;
@@ -43,10 +50,15 @@ export interface IndentBidAmountEntryProps {
   validationError?: string;
   onClearValidationError?: () => void;
   onInvalidAmount?: () => void;
+  /** Network pool keypad — stacked-lane mark instead of “NP” initials. */
+  partyMark?: "pool";
   /** Line under the title, e.g. what the amount applies to. */
   contextLine?: string;
   submitLabel?: string;
   confirmCopy?: BidConfirmCopy;
+  /** When set on an update, show a Cancel bid chip and persist the withdraw. */
+  onWithdraw?: () => Promise<boolean>;
+  onWithdrawSuccessDone?: () => void;
 }
 
 function routeSubtitle(
@@ -71,6 +83,7 @@ export function IndentBidAmountEntry({
   visible,
   onClose,
   onSubmitAmount,
+  onContinueAfterReview,
   onSuccessDone,
   indentDisplayNumber,
   origin,
@@ -85,14 +98,20 @@ export function IndentBidAmountEntry({
   validationError,
   onClearValidationError,
   onInvalidAmount,
+  partyMark,
   contextLine,
   submitLabel,
   confirmCopy,
+  onWithdraw,
+  onWithdrawSuccessDone,
 }: IndentBidAmountEntryProps) {
   const title = isUpdate ? "Update your bid" : "Place your bid";
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmPhase, setConfirmPhase] = useState<BidConfirmPhase>("review");
+  const [confirmIntent, setConfirmIntent] = useState<"submit" | "withdraw">(
+    "submit",
+  );
   const [pendingAmount, setPendingAmount] = useState(0);
   const [confirmSubmitting, setConfirmSubmitting] = useState(false);
   const celebrationLockRef = useRef(false);
@@ -102,6 +121,7 @@ export function IndentBidAmountEntry({
     celebrationLockRef.current = false;
     setConfirmOpen(false);
     setConfirmPhase("review");
+    setConfirmIntent("submit");
     setConfirmSubmitting(false);
     setPendingAmount(0);
   }, [visible]);
@@ -128,8 +148,10 @@ export function IndentBidAmountEntry({
       detailLine: specParts.length > 0 ? specParts.join(" · ") : undefined,
       subtitle: route,
       entityType: "client",
+      mark: partyMark,
     };
   }, [
+    partyMark,
     indentDisplayNumber,
     origin,
     destination,
@@ -158,14 +180,58 @@ export function IndentBidAmountEntry({
       }
       celebrationLockRef.current = true;
       setPendingAmount(amount);
+      setConfirmIntent("submit");
       setConfirmPhase("review");
       setConfirmOpen(true);
     },
     [onClearValidationError, onInvalidAmount],
   );
 
+  const requestWithdraw = useCallback(() => {
+    if (!onWithdraw || confirmSubmitting) return;
+    const amount =
+      pendingAmount > 0
+        ? pendingAmount
+        : initialAmount != null && Number(initialAmount) > 0
+          ? Number(initialAmount)
+          : 0;
+    celebrationLockRef.current = true;
+    setPendingAmount(amount);
+    setConfirmIntent("withdraw");
+    setConfirmPhase("review");
+    setConfirmOpen(true);
+  }, [onWithdraw, confirmSubmitting, pendingAmount, initialAmount]);
+
   const handleConfirm = useCallback(async () => {
-    if (confirmSubmitting || pendingAmount <= 0) return;
+    if (confirmSubmitting) return;
+    if (confirmIntent === "withdraw") {
+      if (!onWithdraw) return;
+      setConfirmSubmitting(true);
+      onClearValidationError?.();
+      try {
+        const ok = await onWithdraw();
+        if (!ok) {
+          celebrationLockRef.current = false;
+          setConfirmOpen(false);
+          setConfirmPhase("review");
+          setConfirmIntent("submit");
+          return;
+        }
+        celebrationLockRef.current = true;
+        setConfirmPhase("success");
+      } finally {
+        setConfirmSubmitting(false);
+      }
+      return;
+    }
+    if (pendingAmount <= 0) return;
+    if (onContinueAfterReview) {
+      celebrationLockRef.current = false;
+      setConfirmOpen(false);
+      setConfirmPhase("review");
+      onContinueAfterReview(pendingAmount);
+      return;
+    }
     setConfirmSubmitting(true);
     onClearValidationError?.();
     try {
@@ -183,9 +249,12 @@ export function IndentBidAmountEntry({
     }
   }, [
     confirmSubmitting,
+    confirmIntent,
     pendingAmount,
     onClearValidationError,
     onSubmitAmount,
+    onContinueAfterReview,
+    onWithdraw,
   ]);
 
   const finishAfterSuccess = useCallback(() => {
@@ -193,15 +262,21 @@ export function IndentBidAmountEntry({
     setConfirmOpen(false);
     setConfirmPhase("review");
     setPendingAmount(0);
-    onSuccessDone?.();
+    if (confirmIntent === "withdraw" && onWithdrawSuccessDone) {
+      onWithdrawSuccessDone();
+    } else {
+      onSuccessDone?.();
+    }
+    setConfirmIntent("submit");
     onClose();
-  }, [onSuccessDone, onClose]);
+  }, [confirmIntent, onSuccessDone, onWithdrawSuccessDone, onClose]);
 
   const handleCancelConfirm = useCallback(() => {
     if (confirmSubmitting || confirmPhase !== "review") return;
     celebrationLockRef.current = false;
     setConfirmOpen(false);
     setConfirmPhase("review");
+    setConfirmIntent("submit");
   }, [confirmSubmitting, confirmPhase]);
 
   const handleCloseEntry = useCallback(() => {
@@ -227,19 +302,30 @@ export function IndentBidAmountEntry({
         submitLabel={submitLabel ?? (isUpdate ? "Update bid" : "Submit bid")}
         validationError={
           confirmSubmitting
-            ? isUpdate
-              ? "Updating…"
-              : "Submitting…"
+            ? confirmIntent === "withdraw"
+              ? "Cancelling…"
+              : isUpdate
+                ? "Updating…"
+                : "Submitting…"
             : validationError
         }
         targetRate={
           targetRateInr != null && targetRateInr > 0 ? targetRateInr : null
+        }
+        footerLink={
+          isUpdate && onWithdraw ? (
+            <CancelBidChip
+              onPress={requestWithdraw}
+              disabled={confirmSubmitting}
+            />
+          ) : null
         }
       />
 
       <BidConfirmModal
         visible={confirmOpen}
         phase={confirmPhase}
+        intent={confirmIntent}
         isEditMode={isUpdate}
         amount={pendingAmount}
         ownerName={owner}

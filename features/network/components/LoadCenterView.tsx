@@ -2605,9 +2605,6 @@ export function LoadCenterView({
                             isPoolable={isPoolableOpenLoad}
                             renderIndividualCard={renderGetLoadGridCard}
                             renderPoolMemberCard={renderGetLoadBidPoolMemberCard}
-                            onViewPool={(pool) =>
-                              openKanbanColumn("get", col, pool.id)
-                            }
                             onRevisePool={setQuotePool}
                             viaStopsByIndentId={viaStopsByIndentId}
                           />

@@ -21,6 +21,9 @@ export { DecimalKeypad, PAY_KEYPAD_CELL_PAD, PAY_KEYPAD_INSET } from './DecimalK
 export { NumericDisplay } from './NumericDisplay';
 export type { DisplayType } from './NumericDisplay';
 export { BidVsTargetHint } from './BidVsTargetHint';
+export { MatchTargetLink } from './MatchTargetLink';
+export { CancelBidChip } from './CancelBidChip';
+export { PoolIndentMark } from './PoolIndentMark';
 export { resolveBidVsTarget } from './bidVsTarget';
 export type { BidVsTargetDelta, BidVsTargetTone } from './bidVsTarget';
 

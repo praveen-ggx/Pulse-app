@@ -30,7 +30,7 @@ import {
 import { NoDocumentPreviewEmpty, NoTripsFoundEmpty } from "@/features/tripCompliance/components/ComplianceEmptyState";
 import { ComplianceActivityLogButton } from "@/features/tripCompliance/components/ComplianceTripActivityLog";
 import { ComplianceTripCard } from "@/features/tripCompliance/components/ComplianceTripCard";
-import { hubMobileListCanvasStyles } from "@/components/hub";
+import { hubMobileListCanvasStyles, HUB_MOBILE_LIST_CANVAS_BG } from "@/components/hub";
 import { ComplianceInputModal } from "@/features/tripCompliance/components/ComplianceInputModal";
 import {
   CompliancePaymentConfirmModal,
@@ -166,7 +166,7 @@ import { SIGNED_URL_CACHE_TTL_MS, SIGNED_URL_EXPIRY_SEC } from "@/lib/storageSig
 import { Image as ExpoImage } from "expo-image";
 import { useRouter, type Href } from "expo-router";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { Banknote, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleCheck, ClipboardList, Clock, Eye, FileText, Landmark, Maximize2, Minus, NotebookText, Plus, RefreshCw, RotateCwSquare, Truck, Users, X } from "lucide-react-native";
+import { Banknote, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleCheck, ClipboardList, Clock, Eye, FileText, Landmark, Maximize2, Minus, NotebookText, Plus, RotateCwSquare, Truck, Users, X } from "lucide-react-native";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -3987,9 +3987,14 @@ export function ComplianceDocumentWorkspace({
       .filter((part): part is string => Boolean(part))
       .join(" · ");
   return (
-      <View
+      <Pressable
         key={displayRow.key}
-        style={[styles.checklistVaultRow, selected && styles.checklistVaultRowSelected]}
+        style={(state: HoverPressState) => [
+          styles.checklistVaultRow,
+          WEB_TRANSITION,
+          selected && styles.checklistVaultRowSelected,
+          isHovered(state) && styles.checklistVaultRowHover,
+        ]}
       >
         <VaultChooserNotifyRow
           label={rowLabel}
@@ -4029,7 +4034,7 @@ export function ComplianceDocumentWorkspace({
           }}
           onAdd={() => void uploadVaultDocument(row)}
         />
-      </View>
+      </Pressable>
     );
   };
 
@@ -4205,48 +4210,29 @@ export function ComplianceDocumentWorkspace({
                   : undefined
               }
             >
-              {mobileExclusive ? (
-                <View style={hubMobileListCanvasStyles.cardWrap}>
-                  <ComplianceTripCard
-                    summary={item}
-                    compact
-                    onReviewDocuments={(group) => {
-                      selectListTrip(item.trip.id);
-                      onReviewTripDocs?.(item.trip.id, null, group);
-                    }}
-                    onViewTrip={() => selectListTrip(item.trip.id)}
-                    onOpenDetails={() => selectListTrip(item.trip.id)}
-                    onPay={onPay ? () => onPay(item) : undefined}
-                    onMarkComplianceVerified={
-                      onMarkComplianceVerified
-                        ? () => onMarkComplianceVerified(item.trip.id)
-                        : undefined
-                    }
-                    canManageFinance={canManageFinance}
-                    onOpenActivityLog={
-                      onOpenActivityLog ? () => onOpenActivityLog(item) : undefined
-                    }
-                  />
-                </View>
-              ) : (
-              <TripListRow
-                summary={item}
-                selected={item.trip.id === summary?.trip.id}
-                  organizationId={organizationId}
-                truckType={
-                  item.trip.vehicle_id
-                    ? truckTypeByVehicleId[item.trip.vehicle_id] ?? null
-                    : null
-                }
-                supplierName={supplierNameByTripId[item.trip.id] ?? null}
-                  partyAvatar={partyAvatarByTripId[item.trip.id] ?? null}
-                  onSelect={selectListTrip}
-                  podOnly={hideDocumentPanes}
+              <View style={hubMobileListCanvasStyles.cardWrap}>
+                <ComplianceTripCard
+                  summary={item}
+                  compact
+                  selected={!mobileExclusive && item.trip.id === summary?.trip.id}
+                  onReviewDocuments={(group) => {
+                    selectListTrip(item.trip.id);
+                    onReviewTripDocs?.(item.trip.id, null, group);
+                  }}
+                  onViewTrip={() => selectListTrip(item.trip.id)}
+                  onOpenDetails={() => selectListTrip(item.trip.id)}
+                  onPay={onPay ? () => onPay(item) : undefined}
+                  onMarkComplianceVerified={
+                    onMarkComplianceVerified
+                      ? () => onMarkComplianceVerified(item.trip.id)
+                      : undefined
+                  }
+                  canManageFinance={canManageFinance}
                   onOpenActivityLog={
                     onOpenActivityLog ? () => onOpenActivityLog(item) : undefined
                   }
                 />
-              )}
+              </View>
             </View>
           ))}
           {listLoadingMore ? (
@@ -4427,8 +4413,7 @@ export function ComplianceDocumentWorkspace({
                           showsVerticalScrollIndicator
                           nestedScrollEnabled
               >
-                <View style={[styles.checklistPanelToolbar, mobileExclusive && styles.checklistPanelToolbarMobile]}>
-                  {mobileExclusive ? (
+                <View style={[styles.checklistPanelToolbar, styles.checklistPanelToolbarMobile]}>
                     <View style={styles.docScopeTabRow} accessibilityRole="tablist">
                       {(
                         [
@@ -4444,7 +4429,12 @@ export function ComplianceDocumentWorkspace({
                           <Pressable
                             key={item.key}
                             onPress={() => applyDocFilter(item.key)}
-                            style={[styles.docScopeTab, active && styles.docScopeTabActive]}
+                            style={(state: HoverPressState) => [
+                              styles.docScopeTab,
+                              active && styles.docScopeTabActive,
+                              WEB_POINTER,
+                              isHovered(state) && !active && styles.docScopeTabHover,
+                            ]}
                             accessibilityRole="tab"
                             accessibilityState={{ selected: active }}
                             accessibilityLabel={`Show ${item.label} documents`}
@@ -4459,115 +4449,21 @@ export function ComplianceDocumentWorkspace({
                         );
                       })}
                     </View>
-                  ) : (
-                    <>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    style={styles.checklistPanelTabsScroll}
-                    contentContainerStyle={styles.checklistPanelTabs}
-                    keyboardShouldPersistTaps="handled"
-                  >
-                    {(
-                      [
-                        { key: "all" as const, label: "All" },
-                        ...(showFinanceTab && !compliancePendingView
-                          ? [{ key: "finance" as const, label: "Finance" }]
-                          : []),
-                        ...TABS,
-                      ] as const
-                    ).map((item) => {
-                      const active = docFilter === item.key;
-                      const missingCount =
-                        item.key === "all"
-                          ? tabMissingCounts.all
-                          : item.key === "finance"
-                            ? tabMissingCounts.finance
-                            : tabMissingCounts[item.key];
-                      const approved =
-                        item.key !== "all" &&
-                        item.key !== "finance" &&
-                        isCompliancePendingStage &&
-                        tabMarkedApproved[item.key];
-                      return (
-                        <Pressable
-                          key={item.key}
-                          onPress={() => applyDocFilter(item.key)}
-                          style={(state: HoverPressState) => [
-                            styles.tab,
-                            styles.checklistPanelTab,
-                            WEB_POINTER,
-                            WEB_TRANSITION,
-                            isHovered(state) && !active && styles.tabHover,
-                            active && styles.tabActive,
-                            isHovered(state) && active && styles.tabActiveHover,
-                          ]}
-                          accessibilityRole="tab"
-                          accessibilityState={{ selected: active }}
-                          accessibilityLabel={
-                            item.key === "all"
-                              ? "Show all documents"
-                              : `Show ${item.label} documents${active ? ", tap again for all" : ""}`
-                          }
-                        >
-                          <Text
-                            style={[
-                              styles.tabText,
-                              styles.checklistPanelTabText,
-                              active && styles.tabTextActive,
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {item.label}
-                          </Text>
-                          {approved ? (
-                            <View style={[styles.tabBadge, styles.checklistPanelTabBadge, styles.tabApprovedBadge]}>
-                              <Text style={[styles.tabBadgeText, styles.checklistPanelTabBadgeText, styles.tabApprovedBadgeText]}>
-                                Approved
-                              </Text>
-                            </View>
-                          ) : missingCount > 0 ? (
-                            <View
-                              style={[
-                                styles.tabBadge,
-                                styles.checklistPanelTabBadge,
-                                active && styles.tabBadgeActive,
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  styles.tabBadgeText,
-                                  styles.checklistPanelTabBadgeText,
-                                  active && styles.tabBadgeTextActive,
-                                ]}
-                              >
-                                {missingCount}
-                              </Text>
-                            </View>
-                          ) : null}
-                        </Pressable>
-                      );
-                    })}
-                  </ScrollView>
-                  <View style={styles.checklistToolbarActions}>
                     {summary && onOpenActivityLog ? (
-                      <ComplianceActivityLogButton compact onPress={() => onOpenActivityLog(summary)} />
+                      <ComplianceActivityLogButton hub onPress={() => onOpenActivityLog(summary)} />
                     ) : null}
-                  </View>
-                    </>
-                  )}
                 </View>
                 {showEntityUnassigned ? (
-                  <View style={[styles.missingHeader, mobileExclusive && styles.missingHeaderMobile]}>
+                  <View style={[styles.missingHeader, styles.missingHeaderMobile]}>
                     <Text style={styles.missingTitle}>{vaultCopy.unassignedTitle}</Text>
-                    <Text style={[styles.missingHint, mobileExclusive && styles.missingHintMobile]}>
+                    <Text style={[styles.missingHint, styles.missingHintMobile]}>
                       {vaultCopy.unassignedHint}
                     </Text>
                   </View>
                 ) : (
                   <>
-                    <View style={[styles.missingHeader, mobileExclusive && styles.missingHeaderMobile]}>
-                      <View style={[styles.missingTitleRow, mobileExclusive && styles.missingTitleRowMobile]}>
+                    <View style={[styles.missingHeader, styles.missingHeaderMobile]}>
+                      <View style={[styles.missingTitleRow, styles.missingTitleRowMobile]}>
                         <Text style={styles.missingTitle}>
                           {isFinanceMode ? "Trip details" : "Documents to upload"}
                         </Text>
@@ -4603,7 +4499,7 @@ export function ComplianceDocumentWorkspace({
                     {missingHeadline}
                   </Text>
                   <Text
-                    style={[styles.missingHint, mobileExclusive && styles.missingHintMobile]}
+                    style={[styles.missingHint, styles.missingHintMobile]}
                     numberOfLines={2}
                   >
                     {missingSubline}
@@ -4932,16 +4828,20 @@ export function ComplianceDocumentWorkspace({
                     (Boolean(previewUrl) || Boolean(typedLines) || loadingPreview);
                   return (
                     <>
-                {previewingDocument && mobileExclusive ? (
+                {previewingDocument ? (
                   <View style={styles.previewNav}>
-                    <TouchableOpacity
-                      onPress={() => setMobileDocPane("list")}
-                      style={styles.previewNavBack}
-                      accessibilityRole="button"
-                      accessibilityLabel="Back to documents"
-                    >
-                      <FontAwesome name="chevron-left" size={16} color="#212121" />
-                    </TouchableOpacity>
+                    {mobileExclusive ? (
+                      <TouchableOpacity
+                        onPress={() => setMobileDocPane("list")}
+                        style={styles.previewNavBack}
+                        accessibilityRole="button"
+                        accessibilityLabel="Back to documents"
+                      >
+                        <FontAwesome name="chevron-left" size={16} color="#212121" />
+                      </TouchableOpacity>
+                    ) : (
+                      <View style={styles.previewNavBack} />
+                    )}
                     <View style={styles.previewNavCopy}>
                       <Text style={styles.previewNavTitle} numberOfLines={1}>
                         {docTitle}
@@ -4995,92 +4895,8 @@ export function ComplianceDocumentWorkspace({
                       </Pressable>
                     </View>
                   </View>
-                ) : previewingDocument ? (
-                  <View style={styles.previewToolbar}>
-                    <Text style={styles.previewToolbarTitle} numberOfLines={1}>
-                      {docTitle}
-                    </Text>
-                    <View style={styles.previewToolbarActions}>
-                      <Pressable
-                      style={[
-                          styles.previewRotateBtn,
-                          toolLabel === "rotate" && styles.previewToolBtnNamed,
-                          !toolsEnabled && styles.previewToolBtnDisabled,
-                        ]}
-                        onPress={() => {
-                          setRotation((value) => (value + 90) % 360);
-                          setZoom(1);
-                          setToolLabel("rotate");
-                        }}
-                        disabled={!toolsEnabled}
-                      accessibilityRole="button"
-                        accessibilityLabel="Rotate"
-                        accessibilityState={{ disabled: !toolsEnabled }}
-                        {...(Platform.OS === "web" ? { title: "Rotate" } : {})}
-                      >
-                        <RotateCwSquare size={12} color={toolColor} strokeWidth={2.1} />
-                        {toolLabel === "rotate" ? (
-                          <Text style={styles.previewToolName}>Rotate</Text>
-                        ) : null}
-                      </Pressable>
-                      <View style={[styles.previewZoomCluster, !toolsEnabled && styles.previewToolBtnDisabled]}>
-                        <Pressable
-                          style={styles.previewZoomBtn}
-                          onPress={() => setZoom((value) => clampPreviewZoom(value - 0.25))}
-                          disabled={!toolsEnabled}
-                          accessibilityRole="button"
-                          accessibilityLabel="Zoom out"
-                          accessibilityState={{ disabled: !toolsEnabled }}
-                        >
-                          <Minus size={12} color={toolColor} />
-                        </Pressable>
-                        <Text style={[styles.previewZoomLabel, !toolsEnabled && styles.previewZoomLabelDisabled]}>
-                          {Math.round(zoom * 100)}%
-                        </Text>
-                        <Pressable
-                          style={styles.previewZoomBtn}
-                          onPress={() => setZoom((value) => clampPreviewZoom(value + 0.25))}
-                          disabled={!toolsEnabled}
-                          accessibilityRole="button"
-                          accessibilityLabel="Zoom in"
-                          accessibilityState={{ disabled: !toolsEnabled }}
-                        >
-                          <Plus size={12} color={toolColor} />
-                        </Pressable>
-                      </View>
-                      <Pressable
-                        style={[
-                          styles.previewToolBtn,
-                          toolLabel === "refresh" && styles.previewToolBtnNamed,
-                          !toolsEnabled && styles.previewToolBtnDisabled,
-                        ]}
-                        onPress={resetPreviewView}
-                        disabled={!toolsEnabled}
-                        accessibilityRole="button"
-                        accessibilityLabel="Refresh"
-                        accessibilityState={{ disabled: !toolsEnabled }}
-                        {...(Platform.OS === "web" ? { title: "Refresh" } : {})}
-                      >
-                        <RefreshCw size={12} color={toolColor} strokeWidth={2.2} />
-                        {toolLabel === "refresh" ? (
-                          <Text style={styles.previewToolName}>Refresh</Text>
-                        ) : null}
-                      </Pressable>
-                      <Pressable
-                        style={[styles.previewToolBtn, !canExpand && styles.previewToolBtnDisabled]}
-                        onPress={() => setScreenOpen(true)}
-                        disabled={!canExpand}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Open ${docTitle} full screen`}
-                        accessibilityState={{ disabled: !canExpand }}
-                        {...(Platform.OS === "web" ? { title: "Full screen" } : {})}
-                      >
-                        <Maximize2 size={12} color={expandColor} />
-                      </Pressable>
-                  </View>
-                </View>
                 ) : null}
-                <View style={[styles.checklistPreviewBody, mobileExclusive && styles.checklistPreviewBodyMobile]}>
+                <View style={[styles.checklistPreviewBody, styles.checklistPreviewBodyMobile]}>
                   {checklistPreviewMode === "trip" && summary ? (
                     <ScrollView
                       style={styles.tripDetailsScroll}
@@ -5284,15 +5100,6 @@ export function ComplianceDocumentWorkspace({
             </View>
                   )}
             </View>
-                {previewingDocument && !mobileExclusive ? (
-                  <PreviewPanFooter
-                    label={
-                      previewable.length > 0
-                        ? `${previewOrdinal} of ${previewable.length}`
-                        : "No file on this row"
-                    }
-                  />
-                ) : null}
                     </>
                   );
                 })()}
@@ -7046,20 +6853,19 @@ const TripListRow = React.memo(function TripListRow({
 });
 
 const styles = StyleSheet.create({
-  workspace: { flex: 1, minHeight: 0, flexDirection: "row", alignItems: "stretch", gap: 16, overflow: "hidden" },
+  workspace: { flex: 1, minHeight: 0, flexDirection: "row", alignItems: "stretch", gap: 12, overflow: "hidden", backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
   workspaceStacked: { flexDirection: "column", gap: 16 },
-  workspaceMobile: { gap: 0, backgroundColor: Theme.surface, overflow: "visible" },
+  workspaceMobile: { gap: 0, backgroundColor: HUB_MOBILE_LIST_CANVAS_BG, overflow: "visible" },
   listPane: {
     width: 420,
     maxWidth: "42%",
     flexShrink: 0,
     minHeight: 0,
     alignSelf: "stretch",
-    backgroundColor: Theme.cardWhite,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Theme.complianceCardBorder,
-    overflow: "hidden",
+    backgroundColor: HUB_MOBILE_LIST_CANVAS_BG,
+    borderRadius: 0,
+    borderWidth: 0,
+    overflow: "visible",
   },
   listPaneFill: { height: "100%" },
   listPaneStacked: { width: "100%", maxWidth: "100%", height: "42%", maxHeight: "42%" },
@@ -7085,7 +6891,7 @@ const styles = StyleSheet.create({
   },
   listEmptyMobileContent: {
     flexGrow: 1,
-    backgroundColor: Theme.surface,
+    backgroundColor: HUB_MOBILE_LIST_CANVAS_BG,
   },
   listEmptyMobileBody: {
     flexGrow: 1,
@@ -7095,13 +6901,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 32,
   },
-  listScroll: { flex: 1, minHeight: 0 },
-  listContent: { padding: 0, gap: 0 },
+  listScroll: { flex: 1, minHeight: 0, backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
+  listContent: { paddingTop: 10, paddingBottom: 16, paddingHorizontal: 12, gap: 0, backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
   listContentMobile: {
     flexGrow: 0,
     paddingTop: 10,
     paddingBottom: 28,
     paddingHorizontal: Layout.screenPaddingHorizontal,
+    backgroundColor: HUB_MOBILE_LIST_CANVAS_BG,
   },
   listLoadMore: {
     paddingVertical: 12,
@@ -7464,13 +7271,12 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     minHeight: 0,
-    backgroundColor: Theme.cardWhite,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Theme.complianceCardBorder,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    gap: 6,
+    backgroundColor: "#F5F5F5",
+    borderRadius: 0,
+    borderWidth: 0,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    gap: 0,
   },
   tabRow: { flexShrink: 0, height: 22, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   tabGroup: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1, minWidth: 0 },
@@ -8123,10 +7929,9 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
     minHeight: 0,
     flexDirection: "column",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: Theme.complianceTripCardBorder,
-    backgroundColor: Theme.complianceTripCardBg,
+    borderRadius: 0,
+    borderWidth: 0,
+    backgroundColor: "#F5F5F5",
     overflow: "hidden",
   },
   checklistListPaneSplit: { width: "100%", maxWidth: "100%", flex: 1 },
@@ -8178,6 +7983,9 @@ const styles = StyleSheet.create({
   },
   docScopeTabActive: {
     borderBottomColor: "#212121",
+  },
+  docScopeTabHover: {
+    opacity: 0.72,
   },
   docScopeTabText: {
     fontSize: 12,
@@ -8283,6 +8091,9 @@ const styles = StyleSheet.create({
   checklistVaultRow: {
     borderRadius: 12,
     overflow: "hidden",
+  },
+  checklistVaultRowHover: {
+    backgroundColor: Theme.complianceSelectedWash,
   },
   checklistVaultRowSelected: {
     borderRadius: 12,
@@ -9654,10 +9465,9 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     minHeight: 0,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Theme.complianceTripCardBorder,
-    backgroundColor: Theme.cardWhite,
+    borderRadius: 0,
+    borderWidth: 0,
+    backgroundColor: "#F5F5F5",
     overflow: "hidden",
   },
   checklistPreviewPaneSplit: { width: "100%", maxWidth: "100%" },

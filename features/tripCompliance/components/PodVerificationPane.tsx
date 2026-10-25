@@ -3068,11 +3068,10 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 12, fontWeight: "400", color: Theme.textMuted },
   chipTextSelected: { fontWeight: "500", color: Theme.textPrimaryDark },
   logCard: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Theme.complianceTripCardBorder,
-    backgroundColor: Theme.cardWhite,
-    overflow: "hidden",
+    borderRadius: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    overflow: "visible",
   },
   logCardMobile: {
     borderRadius: 0,

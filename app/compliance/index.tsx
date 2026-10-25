@@ -29,7 +29,7 @@ import {
 } from "@/features/tripCompliance/components/ComplianceMobileChrome";
 import { ComplianceSegmentedFilter } from "@/features/tripCompliance/components/ComplianceSegmentedFilter";
 import { isComplianceMobileViewport } from "@/features/tripCompliance/utils/complianceMobileLayout.util";
-import { HubMobileUnderlineTab, hubMobileChromeStyles as hubChrome } from "@/components/hub";
+import { HubMobileUnderlineTab, HUB_MOBILE_LIST_CANVAS_BG, hubMobileChromeStyles as hubChrome } from "@/components/hub";
 import { ComplianceTripsTable } from "@/features/tripCompliance/components/ComplianceTripsTable";
 import { DebitControlTripsTable } from "@/features/tripCompliance/components/DebitControlTripsTable";
 import {
@@ -1136,7 +1136,7 @@ export default function ComplianceScreen() {
    */
   const renderQueueSubFilter = (embedded: boolean) => {
     const cardDense = !embedded;
-    const hubUnderline = isMobile && !embedded;
+    const hubUnderline = !embedded;
     if (stage === "pending_for_docs") {
       const outcomeFilter = (
         <ComplianceSegmentedFilter
@@ -2551,11 +2551,11 @@ export default function ComplianceScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, minHeight: 0, overflow: "hidden", backgroundColor: Theme.compliancePageBg },
-  screenMobile: { backgroundColor: Theme.surface },
-  chrome: { flexShrink: 0, paddingTop: 8 },
+  screen: { flex: 1, minHeight: 0, overflow: "hidden", backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
+  screenMobile: { backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
+  chrome: { flexShrink: 0, paddingTop: 8, backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
   chromeMobile: { paddingTop: 2 },
-  queueBody: { flex: 1, minHeight: 0, marginTop: 8, gap: 4 },
+  queueBody: { flex: 1, minHeight: 0, marginTop: 8, gap: 4, backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
   queueBodyMobile: { marginTop: 2 },
   queueScroll: { flex: 1, width: "100%", minWidth: 0 },
   queueScrollContent: { paddingBottom: 8, width: "100%", minWidth: 0 },
@@ -2865,7 +2865,7 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
     height: 40,
     marginTop: 10,
-    marginHorizontal: 10,
+    marginHorizontal: 12,
     marginBottom: 2,
     flexDirection: "row",
     alignItems: "center",

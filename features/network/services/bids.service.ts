@@ -708,10 +708,11 @@ export async function getIndentOfferCountsForOwnerIndents(
   return { error: null, counts };
 }
 
-/** Bid status of one indent: distinct bidders, lowest offer, latest offer time. */
+/** Bid status of one indent: distinct bidders, lowest/highest offer, latest offer time. */
 export type IndentBidSnapshot = {
   count: number;
   lowestAmount: number | null;
+  highestAmount: number | null;
   latestAt: string | null;
 };
 
@@ -726,10 +727,18 @@ export function indentBidSnapshotsFromBids(
   }
   const out: Record<string, IndentBidSnapshot> = {};
   for (const bid of latestByBidder.values()) {
-    const snap = (out[bid.indentId] ??= { count: 0, lowestAmount: null, latestAt: null });
+    const snap = (out[bid.indentId] ??= {
+      count: 0,
+      lowestAmount: null,
+      highestAmount: null,
+      latestAt: null,
+    });
     snap.count += 1;
     if (bid.amount > 0 && (snap.lowestAmount == null || bid.amount < snap.lowestAmount)) {
       snap.lowestAmount = bid.amount;
+    }
+    if (bid.amount > 0 && (snap.highestAmount == null || bid.amount > snap.highestAmount)) {
+      snap.highestAmount = bid.amount;
     }
     if (bid.at && (!snap.latestAt || bid.at > snap.latestAt)) snap.latestAt = bid.at;
   }

@@ -29,7 +29,7 @@ import {
 } from "@/features/tripCompliance/components/ComplianceMobileChrome";
 import { ComplianceSegmentedFilter } from "@/features/tripCompliance/components/ComplianceSegmentedFilter";
 import { isComplianceMobileViewport } from "@/features/tripCompliance/utils/complianceMobileLayout.util";
-import { HUB_MOBILE_LIST_CANVAS_BG } from "@/components/hub";
+import { HubMobileUnderlineTab, hubMobileChromeStyles as hubChrome } from "@/components/hub";
 import { ComplianceTripsTable } from "@/features/tripCompliance/components/ComplianceTripsTable";
 import { DebitControlTripsTable } from "@/features/tripCompliance/components/DebitControlTripsTable";
 import {
@@ -1136,12 +1136,14 @@ export default function ComplianceScreen() {
    */
   const renderQueueSubFilter = (embedded: boolean) => {
     const cardDense = !embedded;
+    const hubUnderline = isMobile && !embedded;
     if (stage === "pending_for_docs") {
       const outcomeFilter = (
         <ComplianceSegmentedFilter
           embedded
           compact
           cardDense={cardDense}
+          hubUnderline={hubUnderline}
           value={
             pendingSlice === "finance_declined"
               ? "all"
@@ -1177,6 +1179,7 @@ export default function ComplianceScreen() {
           embedded
           compact
           cardDense={cardDense}
+          hubUnderline={hubUnderline}
           value={pendingTransitSlice}
           counts={pendingDocsTransitCounts}
           options={[
@@ -1217,6 +1220,7 @@ export default function ComplianceScreen() {
           embedded={embedded}
           compact
           cardDense={cardDense}
+          hubUnderline={hubUnderline}
           wrap
           value={pendingSlice === "rejected" ? "all" : pendingSlice}
           counts={{
@@ -1265,6 +1269,7 @@ export default function ComplianceScreen() {
               embedded
               compact
               cardDense={cardDense}
+          hubUnderline={hubUnderline}
               narrow={!embedded}
               value={verifiedSlice}
               counts={verifiedCounts}
@@ -1284,6 +1289,7 @@ export default function ComplianceScreen() {
           embedded={embedded}
           compact
           cardDense={cardDense}
+          hubUnderline={hubUnderline}
           value={advancePaySlice}
           counts={{ pending: filtered.length, paid: advancePaidPool.length }}
           options={[
@@ -1306,6 +1312,7 @@ export default function ComplianceScreen() {
           embedded={embedded}
           compact
           cardDense={cardDense}
+          hubUnderline={hubUnderline}
           value={podSlice}
           counts={softCounts}
           options={[
@@ -1333,6 +1340,7 @@ export default function ComplianceScreen() {
           embedded={embedded}
           compact
           cardDense={cardDense}
+          hubUnderline={hubUnderline}
           value={podReceivedSubview}
           counts={{
             all: podReceivedCounts.all,
@@ -1792,7 +1800,26 @@ export default function ComplianceScreen() {
 
   const awaitingFiltersOnDetail = viewMode === "card" && !debitControlOnly && (!isMobile || mobileReviewing);
   const renderAwaitingPodFilters = (onDetail: boolean) =>
-    awaitingPodCounts ? (
+    awaitingPodCounts && isMobile && !onDetail ? (
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        style={hubChrome.metricTabsScroll}
+        contentContainerStyle={hubChrome.metricTabsContent}
+        accessibilityRole="tablist"
+      >
+        {AWAITING_POD_SUBVIEWS.map((subview) => (
+          <HubMobileUnderlineTab
+            key={subview}
+            compact
+            label={`${AWAITING_POD_SUBVIEW_LABEL[subview]} (${awaitingPodCounts[subview]})`}
+            isActive={awaitingPodSubview === subview}
+            onPress={() => setAwaitingPodSubview(subview)}
+          />
+        ))}
+      </ScrollView>
+    ) : awaitingPodCounts ? (
       <View style={onDetail ? styles.detailFilterRow : styles.subchipRow}>
         <ScrollView
           horizontal
@@ -1888,6 +1915,31 @@ export default function ComplianceScreen() {
     else if (isAdvancePaymentStage) openAdvancePaymentExport();
     else if (isAdvanceProcessedStage) openAdvanceProcessedExport();
   };
+  const mobileQueueChrome = (
+    <ComplianceMobileChrome
+      search={search}
+      onSearchChange={setSearch}
+      stages={mobileStageItems}
+      stage={stage}
+      onSelectStage={selectStage}
+      subFilter={hasQueueSubFilter ? renderQueueSubFilter(false) : null}
+      extraFilters={
+        awaitingPodCounts && !awaitingFiltersOnDetail
+          ? renderAwaitingPodFilters(false)
+          : null
+      }
+      canBulkPay={showLogBulkPod || canManageFinance}
+      bulkLabel={showLogBulkPod ? "Log Bulk POD" : "Bulk Payment"}
+      onBulkPay={() =>
+        showLogBulkPod
+          ? setBulkPodOpen(true)
+          : router.push(ROUTES.COMPLIANCE_BULK_PAYMENT as Parameters<typeof router.push>[0])
+      }
+      canExport={mobileCanExport}
+      onExport={onMobileExport}
+      exportLabel="Export Report"
+    />
+  );
 
   return (
     <View
@@ -1897,52 +1949,13 @@ export default function ComplianceScreen() {
         {
           paddingTop: contentTopInset,
           paddingBottom: layout.scrollBottomPadding(4),
-          paddingHorizontal: isMobile ? Layout.screenPaddingHorizontal : pagePad,
+          paddingHorizontal: isMobile ? 0 : pagePad,
           maxHeight: windowHeight,
         },
       ]}
     >
-      <View style={[styles.chrome, isMobile && styles.chromeMobile]}>
-      {isMobile && mobileReviewing ? (
-        <ComplianceMobileReviewHeader
-          title={
-            mobileReviewSummary
-              ? getTripDisplayNumber(mobileReviewSummary.trip, currentOrganization?.id ?? null)
-              : "Trip"
-          }
-          subtitle={mobileReviewSummary?.trip.client_name?.trim() || undefined}
-          onBack={() => setMobileReviewing(false)}
-          trailing={
-            mobileReviewSummary ? (
-              <ComplianceActivityLogButton onPress={() => setActivityLogSummary(mobileReviewSummary)} />
-            ) : null
-          }
-        />
-      ) : isMobile ? (
-        <ComplianceMobileChrome
-          search={search}
-          onSearchChange={setSearch}
-          stages={mobileStageItems}
-          stage={stage}
-          onSelectStage={selectStage}
-          subFilter={hasQueueSubFilter ? renderQueueSubFilter(false) : null}
-          extraFilters={
-            <>
-              {awaitingPodCounts && !awaitingFiltersOnDetail ? renderAwaitingPodFilters(false) : null}
-            </>
-          }
-          canBulkPay={showLogBulkPod || canManageFinance}
-          bulkLabel={showLogBulkPod ? "Log Bulk POD" : "Bulk Payment"}
-          onBulkPay={() =>
-            showLogBulkPod
-              ? setBulkPodOpen(true)
-              : router.push(ROUTES.COMPLIANCE_BULK_PAYMENT as Parameters<typeof router.push>[0])
-          }
-          canExport={mobileCanExport}
-          onExport={onMobileExport}
-          exportLabel="Export Report"
-        />
-      ) : (
+      {isMobile ? null : (
+      <View style={styles.chrome}>
       <View>
       <View style={[styles.toolbarRow, stackToolbar && styles.toolbarStack]}>
         {viewMode !== "card" ? (
@@ -1992,10 +2005,13 @@ export default function ComplianceScreen() {
       ) : null}
       {awaitingPodCounts && !awaitingFiltersOnDetail ? renderAwaitingPodFilters(false) : null}
       </View>
-      )}
       </View>
+      )}
 
       <View style={[styles.queueBody, isMobile && styles.queueBodyMobile]}>
+      {isMobile && !mobileReviewing && (isLoading || isError) && summaries.length === 0
+        ? mobileQueueChrome
+        : null}
       {isFetching && summaries.length > 0 ? (
         <Text style={styles.stale}>Updating queue…</Text>
       ) : null}
@@ -2220,7 +2236,28 @@ export default function ComplianceScreen() {
           }}
           focusTab={cardFocus?.tab ?? null}
           focusToken={cardFocus?.token ?? 0}
-          listHeader={cardsListHeader}
+          listHeader={isMobile && !mobileReviewing ? mobileQueueChrome : cardsListHeader}
+          pageHeader={
+            isMobile && mobileReviewing ? (
+              <ComplianceMobileReviewHeader
+                title="Compliance"
+                subtitle={
+                  mobileReviewSummary
+                    ? getTripDisplayNumber(mobileReviewSummary.trip, currentOrganization?.id ?? null)
+                    : undefined
+                }
+                onBack={() => setMobileReviewing(false)}
+                trailing={
+                  mobileReviewSummary ? (
+                    <ComplianceActivityLogButton
+                      hub
+                      onPress={() => setActivityLogSummary(mobileReviewSummary)}
+                    />
+                  ) : null
+                }
+              />
+            ) : null
+          }
           detailHeader={awaitingFiltersOnDetail ? renderAwaitingPodFilters(true) : null}
           stacked={isNarrow || isMobile}
           mobileExclusive={isMobile}
@@ -2515,7 +2552,7 @@ export default function ComplianceScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, minHeight: 0, overflow: "hidden", backgroundColor: Theme.compliancePageBg },
-  screenMobile: { backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
+  screenMobile: { backgroundColor: Theme.surface },
   chrome: { flexShrink: 0, paddingTop: 8 },
   chromeMobile: { paddingTop: 2 },
   queueBody: { flex: 1, minHeight: 0, marginTop: 8, gap: 4 },

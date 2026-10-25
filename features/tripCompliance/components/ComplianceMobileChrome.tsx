@@ -7,7 +7,8 @@ import {
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import type { ComplianceQueueFilter } from "@/features/tripCompliance/hooks/useComplianceTripsQuery";
-import { ChevronLeft, Download, Package, Wallet } from "lucide-react-native";
+import FontAwesome from "@expo/vector-icons/FontAwesome";
+import { Download, Package, Wallet } from "lucide-react-native";
 import React, { type ReactNode } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
@@ -61,7 +62,7 @@ export function ComplianceMobileChrome({
                 accessibilityLabel={exportLabel}
                 hitSlop={Layout.touchTargetHitSlop}
               >
-                <Download size={18} color={Theme.textPrimaryDark} strokeWidth={2.1} />
+                <Download size={16} color={Theme.textPrimaryDark} strokeWidth={2.1} />
               </TouchableOpacity>
             ) : null}
             {canBulkPay && onBulkPay ? (
@@ -73,16 +74,16 @@ export function ComplianceMobileChrome({
                 hitSlop={Layout.touchTargetHitSlop}
               >
                 {bulkLabel === "Log Bulk POD" ? (
-                  <Package size={17} color={Theme.buttonDarkText} strokeWidth={2.1} />
+                  <Package size={16} color={Theme.buttonDarkText} strokeWidth={2.1} />
                 ) : (
-                  <Wallet size={17} color={Theme.buttonDarkText} strokeWidth={2.1} />
+                  <Wallet size={16} color={Theme.buttonDarkText} strokeWidth={2.1} />
                 )}
               </TouchableOpacity>
             ) : null}
           </View>
         }
       />
-      <View style={hubChrome.tabHeaderRow}>
+      <View style={[hubChrome.tabHeaderRow, styles.tabRow]}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -94,7 +95,7 @@ export function ComplianceMobileChrome({
           {stages.map((item) => (
             <HubMobileUnderlineTab
               key={item.id}
-              label={item.count > 0 ? `${item.label} ${item.count}` : item.label}
+              label={`${item.label} (${item.count})`}
               isActive={stage === item.id}
               onPress={() => onSelectStage(item.id)}
               accessibilityLabel={
@@ -139,7 +140,7 @@ export function ComplianceMobileReviewHeader({
         accessibilityLabel="Back to compliance queue"
         hitSlop={Layout.touchTargetHitSlop}
       >
-        <ChevronLeft size={22} color={Theme.textPrimaryDark} strokeWidth={2.2} />
+        <FontAwesome name="chevron-left" size={16} color="#212121" />
       </TouchableOpacity>
       <View style={styles.reviewCopy}>
         <Text style={styles.reviewTitle} numberOfLines={1}>
@@ -159,9 +160,13 @@ export function ComplianceMobileReviewHeader({
 const styles = StyleSheet.create({
   chrome: {
     ...hubChrome.shell,
-    paddingHorizontal: 0,
+    paddingHorizontal: Layout.screenPaddingHorizontal,
     paddingTop: 2,
     paddingBottom: 4,
+    backgroundColor: Theme.screenBackground,
+  },
+  tabRow: {
+    alignItems: "center",
   },
   headerActions: {
     flexDirection: "row",
@@ -169,9 +174,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   headerAction: {
-    width: Layout.minTouchTargetSize,
-    height: Layout.minTouchTargetSize,
-    borderRadius: 12,
+    width: 34,
+    height: 34,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: Theme.surface,
@@ -180,40 +185,45 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.actionBtnInk,
   },
   subFilter: {
-    marginTop: 4,
+    marginTop: 2,
   },
   extraFilters: {
-    marginTop: 4,
+    marginTop: 2,
   },
   reviewBar: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    minHeight: Layout.minTouchTargetSize,
-    paddingBottom: 8,
+    gap: 0,
+    minHeight: 52,
+    paddingHorizontal: 14,
+    paddingTop: 6,
+    paddingBottom: 6,
+    backgroundColor: Theme.screenBackground,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.borderLight,
   },
   backBtn: {
-    width: Layout.minTouchTargetSize,
-    height: Layout.minTouchTargetSize,
-    alignItems: "center",
+    width: 36,
+    height: 40,
+    alignItems: "flex-start",
     justifyContent: "center",
-    marginLeft: -8,
   },
   reviewCopy: {
     flex: 1,
     minWidth: 0,
     justifyContent: "center",
+    marginLeft: 2,
   },
   reviewTitle: {
-    fontSize: 17,
-    fontWeight: "800",
-    letterSpacing: -0.3,
-    color: Theme.textPrimaryDark,
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#212121",
+    letterSpacing: -0.2,
   },
   reviewSubtitle: {
     marginTop: 1,
     fontSize: 12,
     fontWeight: "500",
-    color: Theme.textSecondary,
+    color: "#9E9E9E",
   },
 });

@@ -2498,20 +2498,7 @@ export default function TripsScreen() {
               {isMobileViewport ? (
                 <>
                   <HubMobileScreenHeader title={tr("myTrips")} />
-                  <View style={hubChrome.tabHeaderRow}>
-                    <TouchableOpacity
-                      style={hubChrome.filterBtn}
-                      onPress={() => setShowSortModal(true)}
-                      activeOpacity={0.7}
-                      accessibilityRole="button"
-                      accessibilityLabel={tr("sortBy")}
-                    >
-                      <FontAwesome
-                        name="sliders"
-                        size={15}
-                        color={Theme.textPrimaryDark}
-                      />
-                    </TouchableOpacity>
+                  <View style={[hubChrome.tabHeaderRow, styles.tripsMobileTabRow]}>
                     <ScrollView
                       horizontal
                       showsHorizontalScrollIndicator={false}
@@ -3986,9 +3973,15 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     gap: 4,
   },
+  tripsMobileTabRow: {
+    alignItems: "center",
+    minHeight: 36,
+  },
   tripsAddButtonOnChrome: {
-    marginLeft: 4,
+    marginLeft: 8,
+    marginBottom: 6,
     flexShrink: 0,
+    alignSelf: "center",
   },
   tripsFilterHeaderCompact: {
     flexDirection: "column",

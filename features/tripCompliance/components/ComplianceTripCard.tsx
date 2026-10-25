@@ -3,6 +3,7 @@
  * route, party chips, docs checklist). Same summary data and callbacks.
  */
 import { PartyAvatar } from "@/components/PartyAvatar";
+import { HUB_CARD_HEAD_AVATAR, HUB_CARD_PARTY_CHIP_AVATAR } from "@/components/hub/hubGridCardLayout";
 import { HUB_MOBILE_TICKET_REF } from "@/components/hub/hubMobileTicketTokens";
 import Theme from "@/constants/Theme";
 import {
@@ -60,6 +61,8 @@ export type ComplianceTripCardProps = {
   /** Details screen renders its own full decline section. */
   hideDeclineNotice?: boolean;
   onOpenActivityLog?: () => void;
+  /** Trips-hub ticket density (mobile list). */
+  compact?: boolean;
 };
 
 function asLabel(value: unknown): string {
@@ -122,21 +125,31 @@ function PartyChip({
   avatarSeed,
   alignEnd,
   showAvatar = true,
+  compact = false,
 }: {
   name: string;
   entityType: "vehicle" | "driver";
   avatarSeed: string;
   alignEnd?: boolean;
   showAvatar?: boolean;
+  compact?: boolean;
 }) {
   const label = formatPartyName(name);
   return (
     <View style={[styles.chip, alignEnd && styles.chipEnd]}>
       {showAvatar ? (
-        <PartyAvatar name={label} initialsColorSeed={avatarSeed} entityType={entityType} size={CHIP_AVATAR} />
+        <PartyAvatar
+          name={label}
+          initialsColorSeed={avatarSeed}
+          entityType={entityType}
+          size={compact ? HUB_CARD_PARTY_CHIP_AVATAR : CHIP_AVATAR}
+        />
       ) : null}
       <View style={[styles.chipCopy, alignEnd && styles.chipCopyEnd]}>
-        <Text style={[styles.chipName, alignEnd && styles.chipNameEnd]} numberOfLines={1}>
+        <Text
+          style={[styles.chipName, compact && styles.chipNameCompact, alignEnd && styles.chipNameEnd]}
+          numberOfLines={1}
+        >
           {label}
         </Text>
       </View>
@@ -148,10 +161,12 @@ function ChecklistGroupTile({
   group,
   countLabel,
   onPress,
+  compact = false,
 }: {
   group: ComplianceChecklistGroup;
   countLabel: string;
   onPress?: () => void;
+  compact?: boolean;
 }) {
   const tone = groupToneVisual(group.tone);
   const requiredComplete = group.tone === "success";
@@ -180,13 +195,28 @@ function ChecklistGroupTile({
     </>
   );
 
-  const tileStyle = [
-    styles.groupTile,
-    requiredComplete && { backgroundColor: tone.bg, borderColor: tone.fg },
-  ];
+  const tileStyle = compact
+    ? [styles.groupMetric]
+    : [
+        styles.groupTile,
+        requiredComplete && { backgroundColor: tone.bg, borderColor: tone.fg },
+      ];
+  const compactContent = (
+    <View style={styles.groupMetricInner}>
+      <Text style={styles.groupMetricLabel} numberOfLines={1}>
+        {group.label}
+      </Text>
+      <Text
+        style={[styles.groupMetricCount, requiredComplete && { color: tone.fg }]}
+        numberOfLines={1}
+      >
+        {countLabel}
+      </Text>
+    </View>
+  );
 
   if (!onPress) {
-    return <View style={tileStyle}>{content}</View>;
+    return <View style={tileStyle}>{compact ? compactContent : content}</View>;
   }
 
   return (
@@ -196,7 +226,7 @@ function ChecklistGroupTile({
       accessibilityLabel={`${group.label} documents, ${countLabel}`}
       style={tileStyle}
     >
-      {content}
+      {compact ? compactContent : content}
     </TouchableOpacity>
   );
 }
@@ -211,6 +241,7 @@ export function ComplianceTripCard({
   canManageFinance = false,
   hideDeclineNotice = false,
   onOpenActivityLog,
+  compact = false,
 }: ComplianceTripCardProps) {
   const trip = summary.trip;
   const checklist = ensureComplianceChecklist(summary);
@@ -281,11 +312,11 @@ export function ComplianceTripCard({
     .slice(0, 2);
 
   return (
-    <View style={styles.cardWrap}>
-      <View style={styles.card}>
+    <View style={compact ? styles.cardWrapCompact : styles.cardWrap}>
+      <View style={compact ? styles.cardCompact : styles.card}>
         <Pressable
           onPress={openDetails}
-          style={({ pressed }) => [styles.body, pressed && styles.bodyPressed]}
+          style={({ pressed }) => [styles.body, compact && styles.bodyCompact, pressed && styles.bodyPressed]}
           accessibilityRole="button"
           accessibilityLabel={`${tripId} ${clientName}, ${asLabel(origin)} to ${asLabel(dest)}`}
         >
@@ -295,13 +326,13 @@ export function ComplianceTripCard({
                 name={clientName}
                 initialsColorSeed={clientFb}
                 entityType="client"
-                size={HEAD_AVATAR}
+                size={compact ? HUB_CARD_HEAD_AVATAR : HEAD_AVATAR}
               />
               <View style={styles.headText}>
-                <Text style={styles.brand} numberOfLines={1}>
+                <Text style={[styles.brand, compact && styles.brandCompact]} numberOfLines={1}>
                   {formatPartyName(clientName)}
                 </Text>
-                <Text style={styles.tripIdLink} numberOfLines={1}>
+                <Text style={[styles.tripIdLink, compact && styles.tripIdLinkCompact]} numberOfLines={1}>
                   {tripId}
                 </Text>
               </View>
@@ -382,21 +413,39 @@ export function ComplianceTripCard({
 
           <View style={styles.divider} />
 
-          <View style={styles.partyRow}>
-            <PartyChip name={vehicleLabel} entityType="vehicle" avatarSeed={vehicleFb} />
-            <PartyChip name={driverLabel} entityType="driver" avatarSeed={driverFb} alignEnd showAvatar={false} />
+          <View style={[styles.partyRow, compact && styles.partyRowCompact]}>
+            <PartyChip
+              name={vehicleLabel}
+              entityType="vehicle"
+              avatarSeed={vehicleFb}
+              showAvatar
+              compact={compact}
+            />
+            <PartyChip
+              name={driverLabel}
+              entityType="driver"
+              avatarSeed={driverFb}
+              alignEnd
+              showAvatar={false}
+              compact={compact}
+            />
           </View>
         </Pressable>
 
-        <View style={styles.complianceBody}>
-          <View style={styles.groupRow}>
+        <View style={[styles.complianceBody, compact && styles.complianceBodyCompact]}>
+          <View style={[styles.groupRow, compact && styles.groupRowCompact]}>
             {checklist.groups.map((group) => {
               const onFile = complianceGroupOnFileCount(group, summary.documents);
               return (
                 <ChecklistGroupTile
                   key={group.key}
                   group={group}
-                  countLabel={`${onFile.onFile}/${onFile.total} On file`}
+                  compact={compact}
+                  countLabel={
+                    compact
+                      ? `${onFile.onFile}/${onFile.total}`
+                      : `${onFile.onFile}/${onFile.total} On file`
+                  }
                   onPress={() => onReviewDocuments(group.key)}
                 />
               );
@@ -446,12 +495,14 @@ export function ComplianceTripCard({
           <View
             style={[
               styles.blockerBox,
+              compact && styles.blockerBoxCompact,
               readiness.paymentReady ? styles.blockerBoxReady : styles.blockerBoxBlocked,
             ]}
           >
             <Text
               style={[
                 styles.payLabel,
+                compact && styles.payLabelCompact,
                 readiness.paymentReady ? styles.payReady : styles.payBlocked,
               ]}
               numberOfLines={1}
@@ -468,15 +519,17 @@ export function ComplianceTripCard({
                 Next: {nextLine}
               </Text>
             ) : null}
-            {blockerLines.map((line) => (
-              <Text key={line} style={styles.blockerLine} numberOfLines={1}>
-                {line}
-              </Text>
-            ))}
+            {compact
+              ? null
+              : blockerLines.map((line) => (
+                  <Text key={line} style={styles.blockerLine} numberOfLines={1}>
+                    {line}
+                  </Text>
+                ))}
           </View>
         </View>
 
-        {showCardFooter ? (
+        {showCardFooter && !compact ? (
           <View style={styles.cardFooter}>
             <View style={styles.pillRow}>
               <View
@@ -518,6 +571,7 @@ export function ComplianceTripCard({
 
 const styles = StyleSheet.create({
   cardWrap: { width: "100%", height: "100%", minWidth: 0 },
+  cardWrapCompact: { width: "100%", minWidth: 0 },
   card: {
     flex: 1,
     width: "100%",
@@ -540,9 +594,34 @@ const styles = StyleSheet.create({
       },
     }),
   },
+  cardCompact: {
+    width: "100%",
+    minWidth: 0,
+    flexDirection: "column",
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    overflow: "hidden",
+    ...Platform.select({
+      web: { boxShadow: "0 2px 8px rgba(15, 23, 42, 0.05)" } as ViewStyle,
+      default: {
+        shadowColor: "#0f172a",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 6,
+        elevation: 1,
+      },
+    }),
+  },
   body: {
     paddingHorizontal: 14,
     paddingTop: 12,
+    paddingBottom: 10,
+  },
+  bodyCompact: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
     paddingBottom: 10,
   },
   bodyPressed: { opacity: 0.98 },
@@ -573,11 +652,24 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Theme.textPrimary,
   },
+  brandCompact: {
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "500",
+    letterSpacing: -0.1,
+    color: REF.ink,
+  },
   tripIdLink: {
     fontSize: 12,
     lineHeight: 15,
     fontWeight: "600",
     color: Theme.complianceBulk,
+  },
+  tripIdLinkCompact: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+    color: REF.inkMid,
   },
   headMetaCol: {
     flexShrink: 0,
@@ -709,6 +801,11 @@ const styles = StyleSheet.create({
     gap: 10,
     minHeight: CHIP_AVATAR,
   },
+  partyRowCompact: {
+    alignItems: "flex-start",
+    minHeight: HUB_CARD_PARTY_CHIP_AVATAR,
+    marginTop: 6,
+  },
   chip: {
     flex: 1,
     minWidth: 0,
@@ -726,6 +823,12 @@ const styles = StyleSheet.create({
     color: Theme.textPrimary,
     letterSpacing: -0.1,
   },
+  chipNameCompact: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "500",
+    color: REF.ink,
+  },
   chipNameEnd: { textAlign: "right" },
   complianceBody: {
     flexGrow: 1,
@@ -733,11 +836,53 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     gap: 12,
   },
+  complianceBodyCompact: {
+    flexGrow: 0,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 8,
+  },
   groupRow: {
     flexDirection: "row",
     alignItems: "stretch",
     flexWrap: "nowrap",
     gap: 8,
+  },
+  groupRowCompact: {
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    paddingTop: 2,
+    minHeight: 22,
+  },
+  groupMetric: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  groupMetricInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    minHeight: 22,
+    minWidth: 0,
+  },
+  groupMetricLabel: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "500",
+    color: REF.muted,
+    flexShrink: 1,
+  },
+  groupMetricCount: {
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "600",
+    color: REF.ink,
+    fontVariant: ["tabular-nums"],
   },
   groupTile: {
     flexGrow: 1,
@@ -793,6 +938,13 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderLeftWidth: 3,
   },
+  blockerBoxCompact: {
+    gap: 2,
+    paddingTop: 8,
+    paddingHorizontal: 10,
+    paddingBottom: 8,
+    borderRadius: 8,
+  },
   blockerBoxBlocked: {
     backgroundColor: Theme.complianceStageDocsBg,
     borderColor: Theme.complianceStageDocsBg,
@@ -807,6 +959,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     lineHeight: 16,
+  },
+  payLabelCompact: {
+    fontSize: 11,
+    lineHeight: 14,
   },
   payReady: { color: Theme.complianceStageSuccessFg },
   payBlocked: { color: Theme.complianceStageDocsFg },

@@ -176,10 +176,12 @@ export function ComplianceTripActivityLog({
 export function ComplianceActivityLogButton({
   onPress,
   compact = false,
+  hub = false,
   label,
 }: {
   onPress: () => void;
   compact?: boolean;
+  hub?: boolean;
   label?: string;
 }) {
   return (
@@ -188,12 +190,17 @@ export function ComplianceActivityLogButton({
         event?.stopPropagation?.();
         onPress();
       }}
-      style={({ pressed }) => [styles.btn, compact && styles.btnCompact, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.btn,
+        compact && styles.btnCompact,
+        hub && styles.btnHub,
+        pressed && styles.pressed,
+      ]}
       accessibilityRole="button"
       accessibilityLabel={label ?? "View activity log"}
       hitSlop={6}
     >
-      <Feather name="clock" size={compact ? 14 : 16} color={Theme.actionBtnInk} />
+      <Feather name="clock" size={hub ? 15 : compact ? 14 : 16} color={Theme.actionBtnInk} />
     </Pressable>
   );
 }
@@ -213,6 +220,13 @@ const styles = StyleSheet.create({
     height: 28,
     minWidth: 28,
     borderRadius: 8,
+  },
+  btnHub: {
+    width: 34,
+    height: 34,
+    minWidth: 34,
+    borderRadius: 10,
+    backgroundColor: "transparent",
   },
   pressed: { opacity: 0.8 },
 });

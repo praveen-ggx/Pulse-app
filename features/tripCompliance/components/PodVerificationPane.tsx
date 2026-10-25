@@ -858,7 +858,7 @@ export function PodVerificationPane({
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.pageHead}>
-          <Text style={styles.kicker}>
+          <Text style={[styles.kicker, mobileExclusive && styles.kickerMobile]}>
             {finalSettlement
               ? "Final Settlement"
               : settlementMode
@@ -868,7 +868,7 @@ export function PodVerificationPane({
                   : "POD files"}
           </Text>
           <View style={styles.pageHeadRow}>
-            <Text style={[styles.title, styles.pageHeadTitle]}>
+            <Text style={[styles.title, styles.pageHeadTitle, mobileExclusive && styles.titleMobile]}>
               {finalSettlement
                 ? "Payable after POD"
                 : settlementMode
@@ -881,7 +881,7 @@ export function PodVerificationPane({
               <ComplianceActivityLogButton compact onPress={onOpenActivityLog} />
             ) : null}
           </View>
-          <Text style={styles.meta}>
+          <Text style={[styles.meta, mobileExclusive && styles.metaMobile]}>
             {mobileExclusive
               ? "Tap a document to preview it full page. Back returns to this trip."
               : finalSettlement
@@ -898,9 +898,9 @@ export function PodVerificationPane({
         {settlementMode ? filePicker : null}
 
         {settlementMode ? null : (
-        <View style={styles.logCard}>
+        <View style={[styles.logCard, mobileExclusive && styles.logCardMobile]}>
           {mobileExclusive ? (
-            <View style={styles.fileCardInLog}>{filePicker}</View>
+            <View style={styles.fileCardInLogMobile}>{filePicker}</View>
           ) : files.length > 0 ? (
             filePicker
           ) : null}
@@ -960,7 +960,7 @@ export function PodVerificationPane({
                 .join(" · ")}
             />
           ) : (
-            <View style={styles.logEmpty}>
+            <View style={[styles.logEmpty, mobileExclusive && styles.logEmptyMobile]}>
               <Text style={styles.logEmptyText}>
                 {files.length > 0
                   ? "A scan is on file. Log the hard-copy receipt to record who received it."
@@ -974,6 +974,7 @@ export function PodVerificationPane({
         {previewOnly ? null : settlementMode ? (
           <SettlementChargeNotesCard
             stacked={compactSettlement}
+            mobileExclusive={mobileExclusive}
             drafts={noteDrafts}
             created={createdNotes}
             pending={pendingNotes}
@@ -1060,6 +1061,7 @@ export function PodVerificationPane({
             <PodExceptionLogCard
               key={summary.trip.id}
               stacked={workLayout}
+              mobileExclusive={mobileExclusive}
               plannedDelivery={summary.trip.completed_at ?? null}
               value={exceptionLog}
               onChange={setExceptionLog}
@@ -1641,6 +1643,7 @@ function PodDocumentPreview({
 
 function SettlementChargeNotesCard({
   stacked = false,
+  mobileExclusive = false,
   drafts,
   created,
   pending,
@@ -1686,6 +1689,7 @@ function SettlementChargeNotesCard({
   revalidating,
 }: {
   stacked?: boolean;
+  mobileExclusive?: boolean;
   drafts: PodCnDnDraft[];
   created: PodCnDnDraft[];
   pending: PodCnDnDraft[];
@@ -1739,7 +1743,7 @@ function SettlementChargeNotesCard({
   const showFinalActions = finalSettlement && (canRevalidate || canPayBalance || Boolean(onPayBalance));
 
   return (
-    <View style={styles.logCard}>
+    <View style={[styles.logCard, mobileExclusive && styles.logCardMobile]}>
       <View style={styles.logHead}>
         <View style={styles.logHeadCopy}>
           <Text style={styles.kicker}>{finalSettlement ? "Settled from POD" : "Updated from POD"}</Text>
@@ -2463,6 +2467,7 @@ function exceptionPreviewRows(value: PodExceptionLogDraft): { label: string; det
 
 function PodExceptionLogCard({
   stacked = false,
+  mobileExclusive = false,
   plannedDelivery,
   value,
   onChange,
@@ -2475,6 +2480,7 @@ function PodExceptionLogCard({
   onCancelEdit,
 }: {
   stacked?: boolean;
+  mobileExclusive?: boolean;
   plannedDelivery: string | null;
   value: PodExceptionLogDraft;
   onChange: (next: PodExceptionLogDraft) => void;
@@ -2515,7 +2521,7 @@ function PodExceptionLogCard({
   };
 
   return (
-    <View style={[styles.logCard, menuOpen && styles.logCardMenuOpen]}>
+    <View style={[styles.logCard, mobileExclusive && styles.logCardMobile, menuOpen && styles.logCardMenuOpen]}>
       <View style={styles.logHead}>
         <View style={styles.logHeadCopy}>
           <Text style={styles.kicker}>{submitted ? "Updated from POD" : "Log entry"}</Text>
@@ -2764,9 +2770,10 @@ const styles = StyleSheet.create({
   previewCol: { flex: 1, minWidth: 0, minHeight: 0 },
   previewContent: { padding: 12, gap: 12, paddingBottom: 20 },
   previewContentStacked: { paddingBottom: 28 },
-  previewContentMobile: { paddingHorizontal: 0, paddingTop: 4, gap: 14, paddingBottom: 32 },
+  previewContentMobile: { paddingHorizontal: 0, paddingTop: 12, gap: 12, paddingBottom: 32 },
   fileCardList: { gap: 10 },
   fileCardInLog: { paddingHorizontal: 10, paddingTop: 10 },
+  fileCardInLogMobile: { paddingHorizontal: 0, paddingTop: 0 },
   fileCardEmpty: {
     paddingHorizontal: 12,
     paddingVertical: 14,
@@ -3020,8 +3027,21 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
+  kickerMobile: {
+    fontSize: 8,
+    lineHeight: 11,
+    fontWeight: "700",
+    letterSpacing: 1.2,
+  },
   title: { fontSize: 14, lineHeight: 20, fontWeight: "600", color: Theme.textPrimaryDark },
+  titleMobile: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+  },
   meta: { fontSize: 12, lineHeight: 18, fontWeight: "400", color: Theme.textMuted },
+  metaMobile: { fontSize: 13, lineHeight: 18, fontWeight: "500" },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   logChipRow: {
     flexDirection: "row",
@@ -3053,6 +3073,12 @@ const styles = StyleSheet.create({
     borderColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.cardWhite,
     overflow: "hidden",
+  },
+  logCardMobile: {
+    borderRadius: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    overflow: "visible",
   },
   logCardMenuOpen: { zIndex: 6 },
   logMenu: {
@@ -3126,6 +3152,14 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 8,
     backgroundColor: Theme.compliancePageBg,
+  },
+  logEmptyMobile: {
+    marginHorizontal: 0,
+    marginBottom: 0,
+    paddingHorizontal: 0,
+    paddingVertical: 4,
+    borderRadius: 0,
+    backgroundColor: "transparent",
   },
   logEmptyText: {
     fontSize: 12,

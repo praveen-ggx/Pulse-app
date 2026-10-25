@@ -1,3 +1,4 @@
+import { HubMobileUnderlineTab, hubMobileChromeStyles as hubChrome } from "@/components/hub";
 import Theme from "@/constants/Theme";
 import React from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -30,6 +31,7 @@ export function ComplianceSegmentedFilter<T extends string>({
   cardDense = false,
   narrow = false,
   wrap = false,
+  hubUnderline = false,
 }: {
   value: T;
   counts: Record<T, number>;
@@ -48,7 +50,36 @@ export function ComplianceSegmentedFilter<T extends string>({
    * Leave false for table view.
    */
   cardDense?: boolean;
+  /** Trips / Loads metric-tab row (mobile hub). */
+  hubUnderline?: boolean;
 }) {
+  if (hubUnderline) {
+    return (
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled
+        style={hubChrome.metricTabsScroll}
+        contentContainerStyle={hubChrome.metricTabsContent}
+        accessibilityRole="tablist"
+      >
+        {options.map((option) => {
+          const count = counts[option.id] ?? 0;
+          return (
+            <HubMobileUnderlineTab
+              key={option.id}
+              compact
+              label={`${option.label} (${count})`}
+              isActive={option.id === value}
+              onPress={() => onChange(option.id)}
+              accessibilityLabel={`${option.a11yLabel ?? option.label}, ${count} trips`}
+            />
+          );
+        })}
+      </ScrollView>
+    );
+  }
   const track = (
       <View
         style={[

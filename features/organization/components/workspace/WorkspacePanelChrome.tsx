@@ -15,6 +15,8 @@ type Props = {
   subtitle?: string;
   onBack: () => void;
   rightSlot?: React.ReactNode;
+  /** When false, skip status-bar inset (parent already applied it). */
+  includeSafeArea?: boolean;
 };
 
 export function WorkspacePanelChrome({
@@ -22,11 +24,12 @@ export function WorkspacePanelChrome({
   subtitle,
   onBack,
   rightSlot,
+  includeSafeArea = true,
 }: Props) {
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.wrap, { paddingTop: insets.top + 10 }]}>
+    <View style={[styles.wrap, { paddingTop: (includeSafeArea ? insets.top : 0) + 10 }]}>
       <View style={styles.bar}>
         <Pressable
           onPress={onBack}

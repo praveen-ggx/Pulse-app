@@ -1617,7 +1617,7 @@ export function ChatScreen() {
 
   const sortedNetChats = useMemo(() => {
     return [...netChats]
-      .filter((c) => c.messages.length > 0)
+      .filter((c) => c.messages.length > 0 || (c.unreadCount ?? 0) > 0 || Boolean(c.lastActivity))
       .sort((a, b) => {
       const unreadDiff = (b.unreadCount ?? 0) - (a.unreadCount ?? 0);
       if (unreadDiff !== 0) return unreadDiff;
@@ -2623,10 +2623,15 @@ export function ChatScreen() {
         seen.add(chat.partnerId);
         const shortName =
           chat.partnerName.trim().split(/\s+/)[0] ?? chat.partnerName;
+        const partner = netPartners.find((p) => p.org_id === chat.partnerId);
         items.push({
           id: chat.partnerId,
           name: shortName,
-          identity: resolveNetworkPartnerAvatar(chat),
+          identity: resolveNetworkPartnerAvatar({
+            ...chat,
+            partnerLogoUrl: chat.partnerLogoUrl ?? partner?.logo_url ?? null,
+            partnerAvatarSeed: chat.partnerAvatarSeed ?? partner?.avatar_seed ?? null,
+          }),
           unread: chat.unreadCount,
           online: chat.unreadCount > 0,
           onPress: () => {
@@ -2645,10 +2650,12 @@ export function ChatScreen() {
         items.push({
           id: partner.org_id,
           name: shortName,
-          identity: {
-            displayName: partner.name,
-            entityType: "client",
-          },
+          identity: resolveNetworkPartnerAvatar({
+            partnerId: partner.org_id,
+            partnerName: partner.name,
+            partnerLogoUrl: partner.logo_url ?? null,
+            partnerAvatarSeed: partner.avatar_seed ?? null,
+          }),
           onPress: () => {
             const existing = netChats.find((c) => c.partnerId === partner.org_id);
             if (existing) {
@@ -3043,6 +3050,7 @@ export function ChatScreen() {
         networkStoryStrip={
           activeTab === "network" ? (
             <View style={s.chatStoryInlineWrap}>
+              <StoryReel
                 posts={networkStoryPosts}
                 orgId={currentOrgId || undefined}
                 orgName={currentOrganization?.name ?? undefined}
@@ -3370,12 +3378,14 @@ export function ChatScreen() {
         )}
 
         {isTripStreamTab(activeTab) &&
-          (isLoading && !bootstrapDone ? (
-            // First-ever bootstrap in progress: full-area spinner.
-            // After bootstrap has run once, the list is always rendered from
-            // in-memory Zustand state — no spinner on subsequent refreshes.
-            <View style={{ paddingTop: 40, alignItems: "center" }}>
-              <LoadingIndicator color={CHAT_ACCENT} />
+          (isLoading && !bootstrapDone && tripStreamConversations.length === 0 ? (
+            // First-ever bootstrap in progress: keep the people strip visible
+            // and only spin the conversation list.
+            <View>
+              {isMobileChatUi ? tripStreamMobileHeader : null}
+              <View style={{ paddingTop: 40, alignItems: "center" }}>
+                <LoadingIndicator color={CHAT_ACCENT} />
+              </View>
             </View>
           ) : isMobileChatUi ? (
             <FlatList
@@ -3944,9 +3954,12 @@ export function ChatScreen() {
           ))}
 
         {activeTab === "network" &&
-          (netLoading && netChats.length === 0 ? (
-            <View style={{ paddingTop: 40, alignItems: "center" }}>
-              <LoadingIndicator color={CHAT_ACCENT} />
+          (netLoading && netChats.length === 0 && netPartners.length === 0 ? (
+            <View>
+              {isMobileChatUi ? slackInboxToolbar : desktopPeopleStrip}
+              <View style={{ paddingTop: 40, alignItems: "center" }}>
+                <LoadingIndicator color={CHAT_ACCENT} />
+              </View>
             </View>
           ) : isDesktop ? (
             <ScrollView

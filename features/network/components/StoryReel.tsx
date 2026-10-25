@@ -11,7 +11,6 @@ import { type PostRow } from "@/features/network/services/posts.service";
 import { isIndentStoryLive } from "@/features/network/utils/indentStoryWindow.util";
 import {
   collapseStoriesByLane,
-  groupStoriesByLane,
 } from "@/features/network/utils/storyLaneGroup.util";
 import { splitLocationParts } from "@/features/network/utils/storyDisplay";
 import {
@@ -24,11 +23,10 @@ import { useLiveOwnLoadStoriesQuery } from "@/lib/queries/usePostsQuery";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { Package, Plus, Truck } from "lucide-react-native";
+import { Plus } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
-  Easing,
   Platform,
   Pressable,
   ScrollView,
@@ -76,26 +74,26 @@ type StoryMetrics = {
   plusSize: number;
 };
 
-/** Mobile / stacked layout — compact story bubbles. */
+/** Mobile / stacked layout — compact Instagram-style bubbles. */
 const STORY_METRICS_DEFAULT: StoryMetrics = {
-  avatar: 66,
-  ring: 70,
-  itemWidth: 76,
+  avatar: 52,
+  ring: 60,
+  itemWidth: 66,
+  labelSize: 10,
+  labelLineHeight: 13,
+  addBadge: 20,
+  plusSize: 12,
+};
+
+/** Desktop / chat strip — same compact original size. */
+const STORY_METRICS_EMBEDDED: StoryMetrics = {
+  avatar: 56,
+  ring: 64,
+  itemWidth: 72,
   labelSize: 10,
   labelLineHeight: 13,
   addBadge: 22,
   plusSize: 13,
-};
-
-/** Desktop story strip — slightly larger avatars and labels. */
-const STORY_METRICS_EMBEDDED: StoryMetrics = {
-  avatar: 86,
-  ring: 90,
-  itemWidth: 96,
-  labelSize: 12,
-  labelLineHeight: 15,
-  addBadge: 24,
-  plusSize: 14,
 };
 
 function storyMetricsFor(embedded: boolean): StoryMetrics {
@@ -119,6 +117,34 @@ function storySeenKey(post: PostRow): string {
 
 function storyBubbleKey(post: PostRow): string {
   return `${post.id}:${storyLane(post)}`;
+}
+
+function isDisplayedActiveStory(post: PostRow): boolean {
+  if (post.type === "LOAD") {
+    return isIndentStoryLive(post);
+  }
+  if (post.type === "VEHICLE_AVAILABILITY") {
+    return post.is_active !== false;
+  }
+  return false;
+}
+
+function matchesStoryBubble(post: PostRow, bubble: PostRow): boolean {
+  return (
+    sameOrgId(post.organization_id, bubble.organization_id) &&
+    post.type === bubble.type &&
+    !!post.is_sponsored === !!bubble.is_sponsored
+  );
+}
+
+function activeStoryCountForBubble(posts: readonly PostRow[], bubble: PostRow): number {
+  const ids = new Set<string>();
+  for (const post of posts) {
+    if (!matchesStoryBubble(post, bubble) || !isDisplayedActiveStory(post)) continue;
+    const id = (post.id ?? "").trim();
+    if (id) ids.add(id);
+  }
+  return ids.size;
 }
 
 /**
@@ -161,157 +187,6 @@ function StoryAvatar({
       style={styles.avatarPlain}
       borderStyle={styles.avatarPlain}
     />
-  );
-}
-
-function shortCity(city: string, max = 8): string {
-  const first = (city.split(/[\s,]+/)[0] ?? city).trim();
-  if (!first) return "—";
-  return first.length > max ? `${first.slice(0, max - 1)}…` : first;
-}
-
-/** Lane poster inside the story ring — icon, vehicle, live route rail. */
-function StoryLoadPreview({
-  post,
-  size,
-  live = false,
-}: {
-  post: PostRow;
-  size: number;
-  live?: boolean;
-}) {
-  const isLoad = post.type === "LOAD";
-  const Icon = isLoad ? Package : Truck;
-  const vehicleRaw = post.vehicle_type?.trim() || (isLoad ? "Load" : "Fleet");
-  const vehicle =
-    vehicleRaw.length > 11 ? `${vehicleRaw.slice(0, 10)}…` : vehicleRaw;
-  const origin = shortCity(splitLocationParts(post.origin).city, 7);
-  const drop = shortCity(
-    isLoad
-      ? splitLocationParts(post.destination).city
-      : splitLocationParts(post.destination).city || "Open",
-    7,
-  );
-  const pad = Math.max(7, Math.round(size * 0.1));
-  const iconWrap = size >= 76 ? 22 : 18;
-  const iconSize = size >= 76 ? 12 : 10;
-  const vehicleSize = size >= 76 ? 7 : 6;
-  const citySize = size >= 76 ? 8 : 7;
-  const railW = Math.round(size * 0.42);
-  const wash = post.is_sponsored
-    ? ([Theme.accentGoldMuted, Theme.surface] as const)
-    : ([Theme.brandBlue, Theme.brandBlueSoft] as const);
-
-  const travel = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (!live) {
-      travel.setValue(0);
-      return;
-    }
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(travel, {
-          toValue: 1,
-          duration: 1600,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(travel, {
-          toValue: 0,
-          duration: 1600,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [live, travel]);
-
-  return (
-    <LinearGradient
-      colors={[wash[0], wash[1]]}
-      start={{ x: 0.1, y: 0 }}
-      end={{ x: 0.95, y: 1 }}
-      style={[
-        styles.loadPreview,
-        {
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          paddingHorizontal: pad,
-        },
-      ]}
-    >
-      <View
-        style={[
-          styles.loadPreviewGlow,
-          { width: size * 0.55, height: size * 0.55, borderRadius: size * 0.28 },
-        ]}
-        pointerEvents="none"
-      />
-      <View
-        style={[
-          styles.loadPreviewIconWrap,
-          { width: iconWrap, height: iconWrap, borderRadius: iconWrap / 2 },
-        ]}
-      >
-        <Icon size={iconSize} color={Theme.primary} strokeWidth={2.2} />
-      </View>
-      <Text
-        style={[
-          styles.loadPreviewVehicle,
-          { fontSize: vehicleSize, lineHeight: vehicleSize + 2 },
-        ]}
-        numberOfLines={1}
-      >
-        {vehicle}
-      </Text>
-      <View style={styles.loadPreviewRail}>
-        <View style={styles.loadPreviewDot} />
-        <View style={[styles.loadPreviewLine, { width: railW }]}>
-          {live ? (
-            <Animated.View
-              style={[
-                styles.loadPreviewTraveler,
-                {
-                  transform: [
-                    {
-                      translateX: travel.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0, Math.max(8, railW - 6)],
-                      }),
-                    },
-                  ],
-                },
-              ]}
-            />
-          ) : null}
-        </View>
-        <View style={[styles.loadPreviewDot, styles.loadPreviewDotEnd]} />
-      </View>
-      <View style={styles.loadPreviewCities}>
-        <Text
-          style={[
-            styles.loadPreviewCity,
-            { fontSize: citySize, lineHeight: citySize + 1 },
-          ]}
-          numberOfLines={1}
-        >
-          {origin}
-        </Text>
-        <Text
-          style={[
-            styles.loadPreviewCity,
-            styles.loadPreviewCityEnd,
-            { fontSize: citySize, lineHeight: citySize + 1 },
-          ]}
-          numberOfLines={1}
-        >
-          {drop}
-        </Text>
-      </View>
-    </LinearGradient>
   );
 }
 
@@ -382,7 +257,7 @@ function StoryBubble({
   caption?: string;
   accessibilityLabel?: string;
 }) {
-  const gapSize = metrics.ring - 3;
+  const gapSize = metrics.avatar + 3;
   return (
     <Pressable
       onPress={onPress}
@@ -424,7 +299,7 @@ function StoryBubble({
           { fontSize: metrics.labelSize, lineHeight: metrics.labelLineHeight },
           caption ? styles.storyNameWithCaption : null,
         ]}
-        numberOfLines={2}
+        numberOfLines={1}
       >
         {label}
       </Text>
@@ -442,13 +317,13 @@ function BroadcastStory({
   seen,
   onPress,
   metrics,
-  indentCount = 1,
+  storyCount = 1,
 }: {
   post: PostRow;
   seen: boolean;
   onPress: () => void;
   metrics: StoryMetrics;
-  indentCount?: number;
+  storyCount?: number;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const isSponsored = !!post.is_sponsored;
@@ -466,9 +341,7 @@ function BroadcastStory({
     Animated.spring(scale, { toValue: 1, tension: 80, friction: 6, useNativeDriver: true }).start();
 
   const orgLabel = storyOrgPreviewLabel(post);
-  const orgBadge = metrics.addBadge;
-  const count = Math.max(1, indentCount);
-  const showCount = post.type === "LOAD";
+  const shortName = orgLabel.trim().split(/\s+/)[0] || orgLabel;
   const origin = splitLocationParts(post.origin).city;
   const drop =
     post.type === "LOAD"
@@ -477,13 +350,14 @@ function BroadcastStory({
   const a11yDetail = [
     post.vehicle_type?.trim(),
     origin && drop ? `${origin} to ${drop}` : null,
+    storyCount > 1 ? `${storyCount} stories` : null,
   ]
     .filter(Boolean)
     .join(", ");
 
   return (
     <StoryBubble
-      label={orgLabel}
+      label={shortName}
       ringColors={ringColors}
       metrics={metrics}
       onPress={onPress}
@@ -492,39 +366,17 @@ function BroadcastStory({
       scale={scale}
       accessibilityLabel={
         isSponsored
-          ? `${orgLabel}, sponsored ad${a11yDetail ? `, ${a11yDetail}` : ""}`
-          : `${orgLabel}${a11yDetail ? `, ${a11yDetail}` : ""}`
+          ? `${shortName}, sponsored ad${a11yDetail ? `, ${a11yDetail}` : ""}`
+          : `${shortName}${a11yDetail ? `, ${a11yDetail}` : ""}`
       }
       caption={isSponsored ? "Ad" : undefined}
       badge={
         <>
-          {showCount ? (
+          {storyCount > 1 ? (
             <View style={styles.countChip} pointerEvents="none">
-              <Text style={styles.countChipText}>{count}</Text>
+              <Text style={styles.countChipText}>{storyCount}</Text>
             </View>
           ) : null}
-          <View
-            style={[
-              styles.orgBadge,
-              {
-                width: orgBadge,
-                height: orgBadge,
-                borderRadius: orgBadge / 2,
-              },
-            ]}
-            pointerEvents="none"
-          >
-            <PartyAvatar
-              name={orgLabel || post.org_name || "Org"}
-              organizationImageUrl={post.org_avatar_url}
-              organizationAvatarSeed={post.org_avatar_seed}
-              initialsColorSeed={post.organization_id}
-              entityType="supplier"
-              size={orgBadge - 4}
-              style={styles.avatarPlain}
-              borderStyle={styles.avatarPlain}
-            />
-          </View>
           {isSponsored ? (
             <View style={styles.adsBadge} pointerEvents="none">
               <View style={styles.adsBadgeInner}>
@@ -535,7 +387,14 @@ function BroadcastStory({
         </>
       }
     >
-      <StoryLoadPreview post={post} size={metrics.ring - 5} live={!seen} />
+      <StoryAvatar
+        name={orgLabel || post.org_name || "Org"}
+        organizationImageUrl={post.org_avatar_url}
+        organizationAvatarSeed={post.org_avatar_seed}
+        initialsColorSeed={post.organization_id}
+        entityType="supplier"
+        size={metrics.avatar}
+      />
     </StoryBubble>
   );
 }
@@ -548,7 +407,6 @@ export function StoryReel({
   embedded = false,
   canCreatePost = true,
   fetchLiveOwnLoads = true,
-  indentCountByPostId,
 }: StoryReelProps) {
   const router = useRouter();
   const { profile } = useAuth();
@@ -602,15 +460,15 @@ export function StoryReel({
         new Date(a.created_at ?? 0).getTime(),
     );
   const stories = selectNetworkAndSponsoredStoryPosts(businessOnly, orgId);
-  const laneIndentCounts = useMemo(() => {
-    const map: Record<string, number> = { ...(indentCountByPostId ?? {}) };
-    for (const group of groupStoriesByLane(businessOnly)) {
-      const id = (group.post.id ?? "").trim();
+  const storyCountByPostId = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const post of stories) {
+      const id = (post.id ?? "").trim();
       if (!id) continue;
-      map[id] = Math.max(map[id] ?? 0, group.indentCount, 1);
+      map[id] = activeStoryCountForBubble(businessOnly, post);
     }
     return map;
-  }, [businessOnly, indentCountByPostId]);
+  }, [businessOnly, stories]);
   const ownStories: PostRow[] = [];
   for (const p of businessOnly) {
     if (!sameOrgId(p.organization_id, orgId)) continue;
@@ -651,8 +509,21 @@ export function StoryReel({
     );
   }, [liveOwnLoadsQ.data, ownStories]);
   const latestOwnStory = ownStoryQueueResolved[0];
-  const storyQueueIds = stories.map((s) => s.id).join(",");
-  const ownStoryQueueIds = ownStoryQueueResolved.map((s) => s.id).join(",");
+  const mineActiveStoryCount = useMemo(() => {
+    const ids = new Set<string>();
+    for (const p of liveOwnLoadsQ.data ?? []) {
+      if (isDisplayedActiveStory(p) && p.id) ids.add(p.id);
+    }
+    const liveQueryReady = (liveOwnLoadsQ.data?.length ?? 0) > 0;
+    for (const p of ownStories) {
+      if (p.type === "LOAD" && p.source_indent_id && liveQueryReady) continue;
+      if (isDisplayedActiveStory(p) && p.id) ids.add(p.id);
+    }
+    return ids.size;
+  }, [liveOwnLoadsQ.data, ownStories]);
+  const reelQueueIds = [...ownStoryQueueResolved.map((s) => s.id), ...stories.map((s) => s.id)]
+    .filter(Boolean)
+    .join(",");
   const hasOwnStories = ownStoryQueueResolved.length > 0;
 
   /** Mine bubble is the org brand (logo), not the signed-in user's personal avatar. */
@@ -734,12 +605,18 @@ export function StoryReel({
                 postId: latestOwnStory.id,
                 orgId: latestOwnStory.organization_id,
                 storyType: latestOwnStory.type,
-                queue: ownStoryQueueIds,
+                queue: reelQueueIds,
               },
             });
           }}
           badge={
-            canCreatePost ? (
+            <>
+              {mineActiveStoryCount > 1 ? (
+                <View style={styles.countChip} pointerEvents="none">
+                  <Text style={styles.countChipText}>{mineActiveStoryCount}</Text>
+                </View>
+              ) : null}
+            {canCreatePost ? (
             <View
               style={[
                 styles.addBadge,
@@ -768,7 +645,8 @@ export function StoryReel({
             >
               <Plus size={metrics.plusSize} color={Theme.brandBlueInk} strokeWidth={2.8} />
             </View>
-            ) : undefined
+            ) : null}
+            </>
           }
         >
           <View
@@ -816,7 +694,7 @@ export function StoryReel({
             key={storyBubbleKey(post)}
             post={post}
             metrics={metrics}
-            indentCount={laneIndentCounts[post.id] ?? 1}
+            storyCount={storyCountByPostId[post.id] ?? 1}
             seen={!!seenKeys[storySeenKey(post)]}
             onPress={() => {
               markStorySeen(post);
@@ -826,7 +704,7 @@ export function StoryReel({
                   postId: post.id,
                   orgId: post.organization_id,
                   storyType: post.type,
-                  queue: storyQueueIds,
+                  queue: reelQueueIds,
                 },
               });
             }}
@@ -1032,25 +910,25 @@ const styles = StyleSheet.create({
   },
   countChip: {
     position: "absolute",
-    left: 1,
-    bottom: 1,
-    minWidth: 16,
-    height: 16,
-    paddingHorizontal: 4,
+    left: 0,
+    top: 0,
+    minWidth: 13,
+    height: 13,
+    paddingHorizontal: 3,
     borderRadius: 999,
-    backgroundColor: Theme.accentGoldMuted,
-    borderWidth: 1,
-    borderColor: Theme.accentGoldBorder,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.surfaceBorder,
     alignItems: "center",
     justifyContent: "center",
     zIndex: 5,
   },
   countChipText: {
     fontSize: 8,
-    lineHeight: 10,
-    fontWeight: "600",
-    color: Theme.primary,
-    letterSpacing: 0.2,
+    lineHeight: 9,
+    fontWeight: "500",
+    color: Theme.textSecondary,
+    letterSpacing: 0,
   },
   orgBadge: {
     position: "absolute",

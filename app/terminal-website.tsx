@@ -62,6 +62,16 @@ const WEBSITE_HTML = `<!doctype html>
     }
     .brand-dot { color: var(--gold); }
     .dot-gold { color: var(--gold); }
+    .hero-dot {
+      display: inline-block;
+      color: var(--gold);
+      transform-origin: center bottom;
+      animation: heroDotPulse 1.8s ease-in-out infinite;
+    }
+    @keyframes heroDotPulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.45; transform: scale(0.86); }
+    }
     .glass-nav {
       background: rgba(255,255,255,0.92);
       backdrop-filter: blur(16px);
@@ -185,8 +195,6 @@ const WEBSITE_HTML = `<!doctype html>
     .icon-chip { transition: transform 220ms ease; }
     .hover-tile:hover .icon-chip,
     .hover-tile-dark:hover .icon-chip { transform: scale(1.05); }
-    .type-cursor { display: inline-block; border-right: 2px solid var(--gold); margin-left: 4px; animation: blink 1s steps(1) infinite; }
-    @keyframes blink { 50% { border-color: transparent; } }
     @keyframes pulseSoft { 0%,100% { opacity: .16; transform: scale(1); } 50% { opacity: .28; transform: scale(1.02); } }
     @keyframes floatCard { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
     @keyframes liveGlow { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
@@ -289,7 +297,7 @@ const WEBSITE_HTML = `<!doctype html>
       }
     }
     @media (prefers-reduced-motion: reduce) {
-      .reveal, .hover-tile, .hover-tile-dark, .float-card, .bg-glow, .live-dot, .type-cursor,
+      .reveal, .hover-tile, .hover-tile-dark, .float-card, .bg-glow, .live-dot, .hero-dot,
       .cta-primary, .cta-ghost, .cta-ink, .nav-link::after, .chart-bar, .progress-fill,
       .quote-live::after, .icon-chip, .glass-nav {
         animation: none !important;
@@ -332,7 +340,7 @@ const WEBSITE_HTML = `<!doctype html>
     <div class="wide-shell grid lg:grid-cols-2 gap-12 xl:gap-16 items-center">
       <div class="relative z-10 reveal min-w-0">
         <h1 class="hero-title font-black italic mb-7 uppercase" style="color:var(--ink)">
-          <span id="typewriter" data-text="MOVE BUSINESS FASTER"></span><span class="dot-gold">.</span><span class="type-cursor"></span>
+          MOVE BUSINESS FASTER<span class="hero-dot">.</span>
         </h1>
         <p class="support-copy font-medium max-w-2xl mb-8" style="color:var(--muted)">
           Run loads, bidding, sponsored reach, ledger, and analytics on one workspace — from first quote to settlement.
@@ -636,7 +644,7 @@ const WEBSITE_HTML = `<!doctype html>
     <section class="final-cta py-20 page-pad text-white text-center relative overflow-hidden">
       <div class="wide-shell relative z-10 reveal max-w-4xl">
         <h2 class="final-title font-black italic mb-8 uppercase">
-          <span id="final-typewriter" data-text="CONNECT YOUR BUSINESS"></span><span class="dot-gold">.</span>
+          CONNECT YOUR BUSINESS<span class="dot-gold">.</span>
         </h2>
         <a href="/onboarding" target="_top" class="cta-primary inline-block px-10 py-4 font-black text-sm uppercase tracking-[0.16em]">Initialize Now</a>
       </div>
@@ -658,52 +666,12 @@ const WEBSITE_HTML = `<!doctype html>
     const syncNav = () => { if (navEl) navEl.classList.toggle('is-scrolled', window.scrollY > 8); };
     syncNav();
     window.addEventListener('scroll', syncNav, { passive: true });
-    const typeEl = document.getElementById('typewriter');
-    if (typeEl) {
-      const text = typeEl.getAttribute('data-text') || '';
-      const TYPE_SPEED_MS = 90;
-      const REPLAY_EVERY_MS = 5 * 60 * 1000;
-      const runTypewriter = () => {
-        let idx = 0;
-        typeEl.textContent = '';
-        const t = setInterval(() => {
-          idx += 1;
-          typeEl.textContent = text.slice(0, idx);
-          if (idx >= text.length) clearInterval(t);
-        }, TYPE_SPEED_MS);
-      };
-      runTypewriter();
-      setInterval(runTypewriter, REPLAY_EVERY_MS);
-    }
     const observer = new IntersectionObserver((entries) => {
       entries.forEach((entry) => {
         if (entry.isIntersecting) entry.target.classList.add('in');
       });
     }, { threshold: 0.12 });
     document.querySelectorAll('.reveal').forEach((el) => observer.observe(el));
-
-    const finalTypeEl = document.getElementById('final-typewriter');
-    if (finalTypeEl) {
-      const finalText = finalTypeEl.getAttribute('data-text') || '';
-      let finalAnimated = false;
-      const runFinalTypewriter = () => {
-        if (finalAnimated) return;
-        finalAnimated = true;
-        let idx = 0;
-        finalTypeEl.textContent = '';
-        const t = setInterval(() => {
-          idx += 1;
-          finalTypeEl.textContent = finalText.slice(0, idx);
-          if (idx >= finalText.length) clearInterval(t);
-        }, 80);
-      };
-      const finalObserver = new IntersectionObserver((entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) runFinalTypewriter();
-        });
-      }, { threshold: 0.35 });
-      finalObserver.observe(finalTypeEl);
-    }
 
     const HEADER_OFFSET = 76;
     document.querySelectorAll('a[href^="#"]').forEach((anchor) => {

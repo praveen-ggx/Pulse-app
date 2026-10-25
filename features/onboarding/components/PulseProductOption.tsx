@@ -21,8 +21,8 @@ export const PulseProductOption = memo(function PulseProductOption({
   compact = false,
 }: PulseProductOptionProps) {
   const visual = PULSE_PRODUCT_VISUALS[product.id] as PulseProductVisual;
-  const artHeight = compact ? 72 : 112;
-  const bannerHeight = compact ? 72 : 104;
+  const artHeight = compact ? 52 : 80;
+  const bannerHeight = compact ? 52 : 76;
   const svgAspect = visual.type === 'svg' ? visual.aspect ?? 1 : 1;
   const svgWidth = Math.round(artHeight * svgAspect);
   const imageAspect = visual.type === 'image' ? visual.aspect ?? 1 : 1;
@@ -106,7 +106,7 @@ const styles = StyleSheet.create({
     borderColor: Theme.brandBlueInk,
   },
   stage: {
-    height: 132,
+    height: 100,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: Theme.brandBlueSoft,
@@ -114,14 +114,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   stageCompact: {
-    height: 88,
+    height: 68,
   },
   stageGlow: {
     position: 'absolute',
-    bottom: -20,
-    width: 140,
-    height: 80,
-    borderRadius: 70,
+    bottom: -16,
+    width: 108,
+    height: 60,
+    borderRadius: 54,
     backgroundColor: Theme.brandBlue,
     opacity: 0.55,
   },

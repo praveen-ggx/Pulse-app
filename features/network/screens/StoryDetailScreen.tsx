@@ -54,6 +54,8 @@ import {
     indentCountForStory,
     laneMembersForPost,
 } from "@/features/network/utils/storyLaneGroup.util";
+import { isIndentStoryLive } from "@/features/network/utils/indentStoryWindow.util";
+import { sameOrgId } from "@/features/network/utils/storyLoadVisibility.util";
 import { positiveMoneyOrNull } from "@/lib/format";
 import {
     buildStoryOwnerViewRows,
@@ -238,7 +240,7 @@ export default function StoryDetailScreen() {
   const viewingOwnLoads =
     viewingOwnOrg &&
     (params.storyType === "LOAD" || params.storyType === "UPDATE" || !params.storyType);
-  const liveOwnLoadsQ = useLiveOwnLoadStoriesQuery(viewingOwnLoads ? myOrgId : null);
+  const liveOwnLoadsQ = useLiveOwnLoadStoriesQuery(myOrgId || null);
 
   const queueIds = useMemo(
     () => (params.queue ?? "").split(",").map((s) => s.trim()).filter(Boolean),
@@ -267,16 +269,46 @@ export default function StoryDetailScreen() {
     () => collapseStoriesByLane(liveOwnLoads),
     [liveOwnLoads],
   );
-  const storyList: PostRow[] =
-    viewingOwnLoads && ownLaneStories.length > 0
-      ? ownLaneStories
-      : storiesFromQueue.length > 0
-        ? collapseStoriesByLane(storiesFromQueue)
-        : storiesByOrgType.length > 0
-          ? collapseStoriesByLane(storiesByOrgType)
-          : seedPost
-            ? [seedPost]
-            : [];
+  const storyList: PostRow[] = useMemo(() => {
+    const isLiveStory = (p: PostRow) =>
+      p.type === "LOAD" ? isIndentStoryLive(p) : p.is_active !== false;
+    const storiesForSeed = (seed: PostRow): PostRow[] => {
+      if (sameOrgId(seed.organization_id, myOrgId) && ownLaneStories.length > 0) {
+        return ownLaneStories;
+      }
+      const matched = allPosts.filter(
+        (p) =>
+          isBusinessPost(p) &&
+          isLiveStory(p) &&
+          sameOrgId(p.organization_id, seed.organization_id) &&
+          p.type === seed.type &&
+          !!p.is_sponsored === !!seed.is_sponsored,
+      );
+      return collapseStoriesByLane(matched);
+    };
+    const seeds = storiesFromQueue.length > 0 ? storiesFromQueue : seedPost ? [seedPost] : [];
+    const seen = new Set<string>();
+    const reel: PostRow[] = [];
+    for (const seed of seeds) {
+      for (const post of storiesForSeed(seed)) {
+        if (!post.id || seen.has(post.id)) continue;
+        seen.add(post.id);
+        reel.push(post);
+      }
+    }
+    if (reel.length > 0) return reel;
+    if (viewingOwnLoads && ownLaneStories.length > 0) return ownLaneStories;
+    if (storiesByOrgType.length > 0) return collapseStoriesByLane(storiesByOrgType);
+    return seedPost ? [seedPost] : [];
+  }, [
+    allPosts,
+    myOrgId,
+    ownLaneStories,
+    seedPost,
+    storiesByOrgType,
+    storiesFromQueue,
+    viewingOwnLoads,
+  ]);
 
   // Direct fetch by postId when feed cache is empty (e.g. opened via shared URL).
   const directPostQ = useQuery({
@@ -355,6 +387,19 @@ export default function StoryDetailScreen() {
   useEffect(() => { setCurrent(initialStoryIndex); progress.setValue(0); }, [initialStoryIndex, progress]);
 
   const rawPost = resolvedStoryList[current];
+  const currentPartyStories = useMemo(() => {
+    if (!rawPost) return resolvedStoryList;
+    return resolvedStoryList.filter(
+      (p) =>
+        sameOrgId(p.organization_id, rawPost.organization_id) &&
+        p.type === rawPost.type &&
+        !!p.is_sponsored === !!rawPost.is_sponsored,
+    );
+  }, [rawPost, resolvedStoryList]);
+  const currentPartyIndex = Math.max(
+    0,
+    currentPartyStories.findIndex((p) => p.id === rawPost?.id),
+  );
   const storyOrgId = (rawPost?.organization_id ?? params.orgId ?? "").trim();
   const orgBrandQ = useQuery({
     queryKey: queryKeys.posts.orgStoryBrand(storyOrgId),
@@ -740,8 +785,13 @@ export default function StoryDetailScreen() {
     <View style={styles.container}>
       {isLoad ? <View style={styles.ambientGlow} pointerEvents="none" /> : null}
       <View style={[styles.progressRow, { paddingTop: (phonePopup ? 12 : insets.top) + 8 }]}>
-        {resolvedStoryList.map((_, i) => (
-          <ProgressSegment key={i} index={i} current={current} progress={progress} />
+        {currentPartyStories.map((partyStory, i) => (
+          <ProgressSegment
+            key={partyStory.id ?? i}
+            index={i}
+            current={currentPartyIndex}
+            progress={progress}
+          />
         ))}
       </View>
 

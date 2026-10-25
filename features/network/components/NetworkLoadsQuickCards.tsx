@@ -17,7 +17,7 @@ import {
 import { ROUTES } from "@/lib/routes";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import { ArrowUpRight, Lock, Zap } from "lucide-react-native";
+import { ArrowUpRight, Lock } from "lucide-react-native";
 import { useState } from "react";
 import {
     Platform,
@@ -284,34 +284,6 @@ function MarketplaceCard({
   );
 }
 
-function SectionHeader({ sidebar, isMobile }: { sidebar?: boolean; isMobile?: boolean }) {
-  return (
-    <View
-      style={[
-        sidebar ? styles.headSidebar : styles.head,
-        isMobile && styles.headMobile,
-      ]}
-    >
-      <View style={styles.headPill}>
-        <View style={styles.headIconOrb}>
-          <Zap size={sidebar ? 10 : 11} color={Theme.primary} strokeWidth={2} />
-        </View>
-        <Text
-          style={sidebar ? styles.headTitleSidebar : styles.headTitle}
-          numberOfLines={1}
-        >
-          Load marketplace
-        </Text>
-      </View>
-      {!sidebar ? (
-        <Text style={styles.headHint}>
-          {isMobile ? "Post or bid on freight" : "Tap to open Load Center"}
-        </Text>
-      ) : null}
-    </View>
-  );
-}
-
 export function NetworkLoadsQuickCards({
   compact = false,
   layout = "default",
@@ -410,7 +382,6 @@ export function NetworkLoadsQuickCards({
 
   return (
     <View style={[styles.wrap, compact && styles.wrapCompact]}>
-      <SectionHeader isMobile={isMobile} />
       <View
         style={[
           styles.rail,

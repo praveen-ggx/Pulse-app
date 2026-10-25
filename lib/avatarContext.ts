@@ -17,6 +17,7 @@ import { getAvatarUriForSeed, ALL_PRESET_AVATARS, getPresetImageSourceForSeed } 
 import { getUser2DAvatarUriForSeed, getUser2DPresetImageSourceForSeed, USER_2D_AVATARS } from '@/constants/UserAvatars';
 import {
   getSignedAvatarUrl,
+  peekSignedAvatarUrl,
   AVATAR_BUCKET,
   LEGACY_AVATAR_BUCKET,
   extractPathFromStorageUrl,
@@ -448,11 +449,17 @@ export function useAvatarUri(
       context,
     ],
   );
-  const [uri, setUri] = useState(resolution.syncUri);
+  const cachedSigned = resolution.storagePath
+    ? peekSignedAvatarUrl(resolution.storagePath)
+    : null;
+  const [uri, setUri] = useState(cachedSigned ?? resolution.syncUri);
 
   useEffect(() => {
     let cancelled = false;
-    setUri(resolution.syncUri);
+    setUri(
+      (resolution.storagePath ? peekSignedAvatarUrl(resolution.storagePath) : null) ??
+        resolution.syncUri,
+    );
 
     if (resolution.storagePath) {
       getSignedAvatarUrl(resolution.storagePath)

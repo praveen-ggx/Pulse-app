@@ -8,6 +8,7 @@ import { useClientsQuery } from "@/lib/queries/useClientsQuery";
 import { useSuppliersQuery } from "@/lib/queries/useSuppliersQuery";
 import { useLinkedOrgProfileMap, type LinkedOrgDisplay } from "@/lib/useLinkedOrgProfileMap";
 import { useMemberAccess } from "@/lib/useMemberAccess";
+import { AdjustableSplitLayout } from "@/components/layout/AdjustableSplitLayout";
 import { ThemedAlertModal } from "@/components/ThemedAlertModal";
 import Theme from "@/constants/Theme";
 import { rejectDocument, verifyDocument } from "@/features/compliance/services/documents.service";
@@ -26,10 +27,10 @@ import {
   type ComplianceDocTypeFile,
 } from "@/features/tripCompliance/components/ComplianceDocTypeFilesModal";
 import { NoDocumentPreviewEmpty, NoTripsFoundEmpty } from "@/features/tripCompliance/components/ComplianceEmptyState";
+import { ComplianceActivityLogButton } from "@/features/tripCompliance/components/ComplianceTripActivityLog";
 import { ComplianceTripCard } from "@/features/tripCompliance/components/ComplianceTripCard";
 import { hubMobileListCanvasStyles } from "@/components/hub";
 import { ComplianceInputModal } from "@/features/tripCompliance/components/ComplianceInputModal";
-import { ComplianceNumberStack } from "@/features/tripCompliance/components/ComplianceNumberStack";
 import {
   CompliancePaymentConfirmModal,
   type CompliancePaymentConfirmValues,
@@ -63,6 +64,7 @@ import {
   formatComplianceTimestamp,
   isComplianceVerifiedRejected,
   tripOpsStatusBadge,
+  podDebitStatusVisual,
   verificationStatusVisual,
 } from "@/features/tripCompliance/utils/complianceCardVisual.util";
 import {
@@ -74,7 +76,6 @@ import {
   labelForDocType,
   labelForFinanceDocType,
   mergeFinanceBankDocsFromSupplier,
-  requirementScopeLabel,
   type ComplianceDocRow,
 } from "@/features/tripCompliance/utils/complianceDocumentRows.util";
 import { compliancePreviewSourceForRow } from "@/features/tripCompliance/utils/compliancePreviewSource.util";
@@ -109,6 +110,7 @@ import {
 } from "@/features/tripCompliance/utils/complianceDeclineReason.util";
 import { fetchSupplierBankProofBundle } from "@/features/tripCompliance/utils/supplierBankProof.util";
 import { classifyTripDocument, readTypedDetails } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
+import { ewayValidTillEnd } from "@/features/trips/services/ewayBillFields.util";
 
 /** Stages whose bank card stays as it was (no beneficiary / branch, no live refresh). */
 const PRE_VERIFIED_STAGES: ReadonlySet<ComplianceStage> = new Set(["pending_for_docs", "compliance_pending"]);
@@ -127,6 +129,7 @@ import {
 } from "@/features/trips/services/tripDocuments.service";
 import { type HardCopyPodLrOption } from "@/features/trips/components/trip-detail/LogHardCopyPodModal";
 import { ComplianceHardCopyPodSheet } from "@/features/tripCompliance/components/ComplianceHardCopyPodSheet";
+import { PodVerificationPane } from "@/features/tripCompliance/components/PodVerificationPane";
 import {
   formatInvoiceVaultNumberLabel,
   formatLrVaultNumberLabel,
@@ -402,6 +405,20 @@ function primaryTypedLine(lines: TypedDetailLineView[]): TypedDetailLineView | n
   );
 }
 
+function typedValidityStatus(
+  lines: TypedDetailLineView[],
+): { label: string; tone: "ok" | "soon" | "expired" | "neutral" } | null {
+  const line = lines.find((item) => /valid/i.test(item.label));
+  const raw = String(line?.value ?? "").trim();
+  if (!raw || raw === "—") return null;
+  const end = ewayValidTillEnd(raw);
+  if (!end) return { label: "Dated", tone: "neutral" };
+  const hours = (end.getTime() - Date.now()) / 3_600_000;
+  if (hours <= 0) return { label: "Expired", tone: "expired" };
+  if (hours <= 48) return { label: "Expiring", tone: "soon" };
+  return { label: "Active", tone: "ok" };
+}
+
 /** Group numbered lines (e.g. "Eway no 1") into entry cards — values unchanged. */
 function groupTypedDetailLines(lines: TypedDetailLineView[]): {
   key: string;
@@ -597,21 +614,27 @@ function TypedDetailsPreview({
     >
       <View style={styles.typedPreviewHeader}>
         <View style={styles.typedPreviewHeaderIcon}>
-          <ClipboardList size={14} color={Theme.buttonDarkText} strokeWidth={2.1} />
+          <ClipboardList size={15} color={Theme.buttonDarkText} strokeWidth={2.1} />
         </View>
         <View style={styles.typedPreviewHeaderCopy}>
           <Text style={styles.typedPreviewKicker}>Entered details</Text>
           <Text style={styles.typedPreviewTitle} numberOfLines={1}>
             {title}
           </Text>
-          <Text style={styles.typedPreviewMeta} numberOfLines={1}>
-            {entryCount > 1
-              ? `${entryCount} entries`
-              : lines.length > 0
-                ? `${lines.length} fields`
-                : "No details"}
-            {" · No file attached"}
-          </Text>
+        </View>
+        <View style={styles.typedPreviewChips}>
+          <View style={styles.typedChip}>
+            <Text style={styles.typedChipText}>
+              {entryCount > 1
+                ? `${entryCount} bills`
+                : lines.length > 0
+                  ? `${lines.length} fields`
+                  : "Empty"}
+            </Text>
+          </View>
+          <View style={[styles.typedChip, styles.typedChipMuted]}>
+            <Text style={styles.typedChipText}>No file</Text>
+          </View>
         </View>
       </View>
       <View ref={stageRef} style={styles.typedPreviewScrollStage}>
@@ -662,8 +685,20 @@ function TypedDetailsPreview({
                 const bodyLines = primary
                   ? group.lines.filter((line) => line !== primary)
                   : group.lines;
+                const validity = typedValidityStatus(group.lines);
                 return (
                 <View key={group.key} style={styles.typedEntryCard}>
+                  <View
+                    style={[
+                      styles.typedEntryAccent,
+                      validity?.tone === "expired"
+                        ? styles.typedEntryAccentExpired
+                        : validity?.tone === "soon"
+                          ? styles.typedEntryAccentSoon
+                          : styles.typedEntryAccentOk,
+                    ]}
+                  />
+                  <View style={styles.typedEntryInner}>
                   {group.heading ? (
                     <View style={styles.typedEntryHeadingRow}>
                       <View style={styles.typedEntryIndex}>
@@ -675,28 +710,62 @@ function TypedDetailsPreview({
                         <Text style={styles.typedEntryKicker} numberOfLines={1}>
                           {primary?.label ?? group.heading}
                         </Text>
-                        <Text style={styles.typedEntryHeading} numberOfLines={1} selectable>
+                        <Text style={styles.typedEntryHeading} numberOfLines={2} selectable>
                           {primary?.value ?? group.heading}
                         </Text>
                       </View>
+                      {validity ? (
+                        <View
+                          style={[
+                            styles.typedStatusPill,
+                            validity.tone === "expired"
+                              ? styles.typedStatusExpired
+                              : validity.tone === "soon"
+                                ? styles.typedStatusSoon
+                                : validity.tone === "ok"
+                                  ? styles.typedStatusOk
+                                  : styles.typedStatusNeutral,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.typedStatusText,
+                              validity.tone === "expired"
+                                ? styles.typedStatusTextExpired
+                                : validity.tone === "soon"
+                                  ? styles.typedStatusTextSoon
+                                  : validity.tone === "ok"
+                                    ? styles.typedStatusTextOk
+                                    : styles.typedStatusTextNeutral,
+                            ]}
+                          >
+                            {validity.label}
+                          </Text>
+                        </View>
+                      ) : null}
                     </View>
                   ) : null}
-                  {bodyLines.map((line, index) => (
+                  <View style={styles.typedFactGrid}>
+                    {bodyLines.map((line, index) => (
                       <View
                         key={`${group.key}-${line.label}-${index}`}
                         style={[
-                          styles.typedFieldRow,
-                          index < bodyLines.length - 1 && styles.typedFieldRowDivider,
+                          styles.typedFact,
+                          bodyLines.length % 2 === 1 && index === bodyLines.length - 1
+                            ? styles.typedFactWide
+                            : null,
                         ]}
                       >
-                        <Text style={styles.typedFieldLabel} numberOfLines={1}>
+                        <Text style={styles.typedFactLabel} numberOfLines={1}>
                           {line.label}
                         </Text>
-                        <Text style={styles.typedFieldValue} numberOfLines={1} selectable>
+                        <Text style={styles.typedFactValue} numberOfLines={2} selectable>
                           {line.value}
                         </Text>
                       </View>
-                  ))}
+                    ))}
+                  </View>
+                  </View>
                 </View>
                 );
               })}
@@ -2352,8 +2421,15 @@ export function ComplianceDocumentWorkspace({
   showHardCopyPodLog = false,
   compliancePendingQueue = false,
   showPodClientValidation = false,
+  podVerificationLayout = false,
+  settlementLayout = false,
+  finalSettlement = false,
   chargesReview = false,
   onChargesSaved,
+  onRevalidated,
+  onProceededToSettlement,
+  onPayBalance,
+  onPodNotFound,
   showHardcopyPodButton = false,
   logHardCopyPodRequest = 0,
   courierLrOptions = [],
@@ -2382,6 +2458,7 @@ export function ComplianceDocumentWorkspace({
   onReviewTripDocs,
   listHeader = null,
   detailHeader = null,
+  onOpenActivityLog,
 }: {
   summaries: ComplianceTripSummary[];
   /** Resolved by the page for the full queue — one lookup pass, not one per view. */
@@ -2418,10 +2495,20 @@ export function ComplianceDocumentWorkspace({
   compliancePendingQueue?: boolean;
   /** True only while the Compliance queue filter is POD Received. */
   showPodClientValidation?: boolean;
+  /** POD Verification: preview soft/hard POD + log + notify-style plan. */
+  podVerificationLayout?: boolean;
+  /** Settlement Verification: POD charges preview + CN/DN, no log form. */
+  settlementLayout?: boolean;
+  /** Final Settlement: same layout, payable summary, no create / revalidate. */
+  finalSettlement?: boolean;
   /** Charges stay as text until Edit. */
   chargesReview?: boolean;
   /** POD Received save: parent moves the trip to the next stage. */
   onChargesSaved?: (tripId: string) => void;
+  onRevalidated?: (tripId: string) => void;
+  onProceededToSettlement?: (tripId: string) => void;
+  onPayBalance?: (summary: ComplianceTripSummary, amount: number) => void;
+  onPodNotFound?: (tripId: string) => void;
   /**
    * PREVIEW-row Hardcopy POD control — Awaiting POD / POD Received /
    * Balance Pending / Settled only (not Verified → Payment Pending).
@@ -2491,6 +2578,7 @@ export function ComplianceDocumentWorkspace({
     documentKey: string | null,
     scope?: "trip" | "vehicle" | "driver",
   ) => void;
+  onOpenActivityLog?: (summary: ComplianceTripSummary) => void;
 }) {
   const listRef = useRef<ScrollView>(null);
   const listViewportH = useRef(0);
@@ -3773,7 +3861,6 @@ export function ComplianceDocumentWorkspace({
     const rowHasFile = hasFile(displayRow);
     // Grey and inert unless the file exists AND this person may view documents.
     const canOpenRowFiles = rowHasFile && canViewDocuments;
-    const statusMeta = COMPLIANCE_STATUS_META[displayRow.status];
     const selected =
       checklistPreviewMode === "document" &&
       checklistKey === displayRow.key;
@@ -3786,24 +3873,11 @@ export function ComplianceDocumentWorkspace({
     const typeFiles = listRows
       .filter((item) => item.type === displayRow.type && hasFile(item))
       .map((item) => applyOptimisticDecision(item, localDecisionByKey[optimisticKey(reviewScope, item.key)]));
-    const typeStatusSummary =
-      typeFiles.length > 1
-        ? (["verified", "pending", "rejected", "expired"] as const)
-            .map((status) => {
-              const count = typeFiles.filter((item) => item.status === status).length;
-              return count > 0 ? `${count} ${COMPLIANCE_STATUS_META[status].label.toLowerCase()}` : null;
-            })
-            .filter(Boolean)
-            .join(" · ")
-        : null;
     // Single-file rows only; a multi-file type shows each reason in its files dialog.
     const declineReason =
       typeFiles.length > 1
         ? null
         : complianceRowDeclineReason(row, localDecisionByKey[optimisticKey(reviewScope, row.key)]);
-    // Entity docs keep the decline reason in `notes`; don't show it twice.
-    const fileName =
-      displayRow.doc?.file_name?.trim() || (declineReason ? "" : displayRow.entityDoc?.notes?.trim()) || "";
     const vaultDetail = isFinanceMode ? financeVaultDetailLine(displayRow) : null;
     const isBankDocs = isFinanceMode && displayRow.type === "bank_docs";
     const bankFromSupplier =
@@ -3812,22 +3886,16 @@ export function ComplianceDocumentWorkspace({
         displayRow.entityDoc?.source === "supplier-kyc" || supplierBankProof?.onFile,
       );
     const vaultNumbers =
-      isCompliancePendingStage && reviewScope === "trip"
+      reviewScope === "trip"
         ? complianceVaultDocNumbers(summary?.documents ?? [], displayRow.type)
         : [];
-    const statusLabel = typeStatusSummary
-      ? typeStatusSummary
-      : displayRow.status === "missing"
-        ? isBankDocs && supplierBankLoading
-          ? "Fetching supplier Banking…"
-          : "Not uploaded"
-        : vaultDetail
-          ? vaultDetail
-          : rowHasFile
-            ? fileName && !/fields\.json$/i.test(fileName)
-              ? `${statusMeta.label} · ${fileName}`
-              : `${statusMeta.label} · ready to preview`
-            : statusMeta.label;
+    const previewPath = (() => {
+      const tripDoc = displayRow.doc;
+      if (tripDoc && classifyTripDocument(tripDoc).hasBinary) {
+        return tripDoc.storage_path?.trim() || null;
+      }
+      return displayRow.entityDoc?.storage_path?.trim() || null;
+    })();
     const entityType =
       displayRow.type === "license" || displayRow.type === "aadhaar"
         ? "driver"
@@ -3837,11 +3905,10 @@ export function ComplianceDocumentWorkspace({
           ? "vehicle"
           : "client";
     const meta = [
-      requirementScopeLabel(displayRow.required),
-      statusLabel,
       declineReason ? `Reason: ${declineReason}` : null,
-      bankFromSupplier && displayRow.status !== "missing" ? "From supplier Banking" : null,
-      vaultNumbers.length > 0 ? vaultNumbers.join(" · ") : null,
+      isBankDocs && supplierBankLoading ? "Fetching supplier Banking…" : null,
+      bankFromSupplier && displayRow.status !== "missing" ? "Synced from supplier Banking" : null,
+      vaultDetail && vaultNumbers.length === 0 ? vaultDetail : null,
     ]
       .filter((part): part is string => Boolean(part))
       .join(" · ");
@@ -3856,7 +3923,32 @@ export function ComplianceDocumentWorkspace({
           onFile={rowHasFile}
           canUpload={canEditFiles && !uploadingFinanceType}
           entityType={entityType}
-          preview={null}
+          required={displayRow.required}
+          actionText={
+            vaultNumbers.length > 0
+              ? vaultNumbers.join(" · ")
+              : undefined
+          }
+          preview={
+            rowHasFile && previewPath
+              ? {
+                  storagePath: previewPath,
+                  fileName: displayRow.doc?.file_name ?? rowLabel,
+                  mimeHint: displayRow.doc?.mime_type,
+                  source:
+                    displayRow.entityDoc?.source === "supplier-kyc"
+                      ? "supplier-kyc"
+                      : displayRow.entityDoc
+                        ? "compliance"
+                        : "trip",
+                  organizationId: organizationId,
+                  entityId:
+                    displayRow.entityDoc?.entity_id ??
+                    summary?.trip.id ??
+                    null,
+                }
+              : null
+          }
           onPreview={() => {
             if (!canOpenRowFiles) return;
             previewChecklistRow(displayRow);
@@ -3963,6 +4055,7 @@ export function ComplianceDocumentWorkspace({
 
   const mobileListOnly = mobileExclusive && !mobileReviewing;
   const mobileDetailOnly = mobileExclusive && mobileReviewing;
+  const splitEnabled = !stacked && !mobileExclusive;
 
   return (
     <View
@@ -4038,6 +4131,9 @@ export function ComplianceDocumentWorkspace({
                         : undefined
                     }
                     canManageFinance={canManageFinance}
+                    onOpenActivityLog={
+                      onOpenActivityLog ? () => onOpenActivityLog(item) : undefined
+                    }
                   />
                 </View>
               ) : (
@@ -4054,6 +4150,9 @@ export function ComplianceDocumentWorkspace({
                   partyAvatar={partyAvatarByTripId[item.trip.id] ?? null}
                   onSelect={selectListTrip}
                   podOnly={hideDocumentPanes}
+                  onOpenActivityLog={
+                    onOpenActivityLog ? () => onOpenActivityLog(item) : undefined
+                  }
                 />
               )}
             </View>
@@ -4079,7 +4178,57 @@ export function ComplianceDocumentWorkspace({
       </View>
       )}
 
-      {mobileListOnly ? null : showValidationPane ? (
+      {mobileListOnly ? null : podVerificationLayout && summary ? (
+        <View style={[styles.previewPane, styles.podLogPane]}>
+          <PodVerificationPane
+            summary={summary}
+            organizationId={organizationId}
+            actorId={actorId}
+            canManage={canManagePod}
+            tripFacts={tripFacts}
+            courierLrOptions={courierLrOptions}
+            stacked={stacked}
+            chargesReview={chargesReview}
+            onChanged={(tripId) => void onChanged({ type: "hardCopyPod", tripId })}
+            onChargesSaved={onChargesSaved}
+            onPodNotFound={(tripId) => {
+              void onChanged({ type: "podNotFound", tripId });
+              void onChanged({ type: "hardCopyPod", tripId });
+              onPodNotFound?.(tripId);
+            }}
+            onOpenActivityLog={onOpenActivityLog ? () => onOpenActivityLog(summary) : undefined}
+          />
+        </View>
+      ) : settlementLayout && summary ? (
+        <View style={[styles.previewPane, styles.podLogPane]}>
+          <PodVerificationPane
+            summary={summary}
+            organizationId={organizationId}
+            actorId={actorId}
+            canManage={canManageFinance || canManagePod}
+            tripFacts={tripFacts}
+            courierLrOptions={courierLrOptions}
+            stacked={stacked}
+            settlementMode
+            finalSettlement={finalSettlement}
+            onOpenActivityLog={onOpenActivityLog ? () => onOpenActivityLog(summary) : undefined}
+            onChanged={(tripId) => void onChanged({ type: "hardCopyPod", tripId })}
+            onRevalidated={(tripId) => {
+              void onChanged({ type: "podRevalidate", tripId });
+              void onChanged({ type: "hardCopyPod", tripId });
+              onRevalidated?.(tripId);
+            }}
+            onProceededToSettlement={(tripId) => {
+              void onChanged({ type: "settlementReleased", tripId });
+              void onChanged({ type: "hardCopyPod", tripId });
+              onProceededToSettlement?.(tripId);
+            }}
+            onPayBalance={(amount) => onPayBalance?.(summary, amount)}
+            canPayBalance={canManageFinance && !summary.balance}
+            payingBalance={paymentSubmitting}
+          />
+        </View>
+      ) : showValidationPane ? (
         <View style={[styles.previewPane, styles.podLogPane]}>
           {summary ? (
             <PodClientValidationPanel
@@ -4124,19 +4273,18 @@ export function ComplianceDocumentWorkspace({
           {detailHeader}
           <View style={[styles.previewPane, styles.podLogPane, styles.detailPaneFill]}>
           {summary && showLogHardCopyPod ? (
-            <ComplianceHardCopyPodSheet
-              key={`${summary.trip.id}:${podLogRound}`}
-              inline
-              visible
-              onClose={() => setPodLogRound((round) => round + 1)}
+            <PodVerificationPane
+              key={summary.trip.id}
               summary={summary}
-              organizationId={organizationId || null}
-              canManage={canManagePod || showLogHardCopyPod}
-              lrOptions={courierLrOptions}
+              organizationId={organizationId}
+              actorId={actorId}
+              canManage={canManagePod}
               tripFacts={tripFacts}
-              onChanged={async (ids) => {
-                await Promise.all(ids.map((tripId) => onChanged({ type: "tripFlags", tripId })));
-              }}
+              courierLrOptions={courierLrOptions}
+              stacked={stacked}
+              previewOnly
+              onChanged={(tripId) => void onChanged({ type: "hardCopyPod", tripId })}
+              onOpenActivityLog={onOpenActivityLog ? () => onOpenActivityLog(summary) : undefined}
             />
           ) : (
             <View style={styles.emptyStage}>
@@ -4160,19 +4308,30 @@ export function ComplianceDocumentWorkspace({
                 mobileExclusive && styles.checklistStageMobile,
               ]}
             >
-              {mobileExclusive && mobileDocPane === "preview" ? null : (
+              <AdjustableSplitLayout
+                storageKey="compliance.documentCards"
+                enabled={splitEnabled}
+                stacked={stacked || mobileExclusive}
+                sizedPane="start"
+                defaultSize={420}
+                defaultRatio={0.5}
+                minSize={280}
+                maxSize={720}
+                start={
+                  mobileExclusive && mobileDocPane === "preview" ? null : (
               <View
                 style={[
                   styles.checklistListPane,
+                  splitEnabled && styles.checklistListPaneSplit,
                   stacked && styles.checklistListPaneStacked,
                   mobileExclusive && styles.checklistListPaneMobile,
                 ]}
               >
-                <View style={styles.checklistPanelToolbar}>
+                <View style={[styles.checklistPanelToolbar, mobileExclusive && styles.checklistPanelToolbarMobile]}>
                   <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
-                    style={styles.checklistPanelTabsScroll}
+                    style={[styles.checklistPanelTabsScroll, mobileExclusive && styles.checklistPanelTabsScrollMobile]}
                     contentContainerStyle={styles.checklistPanelTabs}
                     keyboardShouldPersistTaps="handled"
                   >
@@ -4257,16 +4416,10 @@ export function ComplianceDocumentWorkspace({
                       );
                     })}
                   </ScrollView>
-                  <View style={styles.checklistToolbarActions}>
-                    <View style={[styles.missingNavPill, styles.checklistUploadPill]}>
-                      <Text style={[styles.missingNavLabel, styles.checklistUploadPillText]} numberOfLines={1}>
-                        {showEntityUnassigned
-                          ? "Unassigned"
-                          : listMissingRows.length > 0
-                            ? `${listMissingRows.length} to upload`
-                            : `${uploadedCount} on file`}
-                      </Text>
-                    </View>
+                  <View style={[styles.checklistToolbarActions, mobileExclusive && styles.checklistToolbarActionsMobile]}>
+                    {summary && onOpenActivityLog ? (
+                      <ComplianceActivityLogButton compact onPress={() => onOpenActivityLog(summary)} />
+                    ) : null}
                   </View>
                 </View>
                 {showEntityUnassigned ? (
@@ -4277,16 +4430,38 @@ export function ComplianceDocumentWorkspace({
                 ) : (
                   <>
                     <View style={styles.missingHeader}>
-                      <Text style={styles.missingTitle}>
-                        {isFinanceMode ? "TRIP DETAILS" : "DOCUMENTS TO UPLOAD"}
-                      </Text>
+                      <View style={[styles.missingTitleRow, mobileExclusive && styles.missingTitleRowMobile]}>
+                        <Text style={styles.missingTitle}>
+                          {isFinanceMode ? "Trip details" : "Documents to upload"}
+                        </Text>
+                        <View
+                          style={[
+                            styles.missingCountChip,
+                            documentsMissing && styles.missingCountChipNeed,
+                            documentsOnFile && styles.missingCountChipReady,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.missingCountChipText,
+                              documentsMissing && styles.missingCountChipTextNeed,
+                              documentsOnFile && styles.missingCountChipTextReady,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {listMissingRows.length > 0
+                              ? `${listMissingRows.length} to upload`
+                              : `${uploadedCount} on file`}
+                          </Text>
+                        </View>
+                      </View>
                       <Text
                         style={[
                           styles.missingSubtitle,
                           documentsOnFile && styles.missingSubtitleReady,
                           documentsMissing && styles.missingSubtitleMissing,
                         ]}
-                        numberOfLines={1}
+                        numberOfLines={2}
                       >
                         {missingHeadline}
                       </Text>
@@ -4574,12 +4749,14 @@ export function ComplianceDocumentWorkspace({
                   </>
                 )}
               </View>
-              )}
-
-              {mobileExclusive && mobileDocPane === "list" ? null : (
+                  )
+                }
+                end={
+                  mobileExclusive && mobileDocPane === "list" ? null : (
               <View
                 style={[
                   styles.checklistPreviewPane,
+                  splitEnabled && styles.checklistPreviewPaneSplit,
                   stacked && styles.checklistPreviewPaneStacked,
                   mobileExclusive && styles.checklistPreviewPaneMobile,
                 ]}
@@ -4913,7 +5090,9 @@ export function ComplianceDocumentWorkspace({
                   );
                 })()}
               </View>
-              )}
+                  )
+                }
+              />
             </View>
           ) : (
             <View style={styles.emptyStage}>
@@ -5195,8 +5374,13 @@ export function ComplianceDocumentWorkspace({
           canManage={canManagePod || showLogHardCopyPod}
           lrOptions={courierLrOptions}
           tripFacts={tripFacts}
+          headerEnd={
+            onOpenActivityLog ? (
+              <ComplianceActivityLogButton compact onPress={() => onOpenActivityLog(summary)} />
+            ) : null
+          }
           onChanged={async (ids) => {
-            await Promise.all(ids.map((tripId) => onChanged({ type: "tripFlags", tripId })));
+            await Promise.all(ids.map((tripId) => onChanged({ type: "hardCopyPod", tripId })));
           }}
         />
       ) : null}
@@ -6274,6 +6458,7 @@ const TripListRow = React.memo(function TripListRow({
   partyAvatar,
   onSelect,
   podOnly = false,
+  onOpenActivityLog,
 }: {
   summary: ComplianceTripSummary;
   selected: boolean;
@@ -6284,12 +6469,13 @@ const TripListRow = React.memo(function TripListRow({
   onSelect: (tripId: string) => void;
   /** Debit control: POD facts only — no compliance / finance badges, holds or flags. */
   podOnly?: boolean;
+  onOpenActivityLog?: () => void;
 }) {
   const router = useRouter();
   const trip = summary.trip;
   const verification = verificationStatusVisual(summary);
-  const tripStatus =
-    summary.stage === "compliance_pending" ? tripOpsStatusBadge(trip.status) : null;
+  const tripStatus = tripOpsStatusBadge(trip.status, trip);
+  const debitStatus = podDebitStatusVisual(summary);
   const isRejected =
     !podOnly && (isFinanceDeclinedTrip(summary) || isComplianceDeclineActive(summary));
   // Finance reject fixed by Ground Ops and back with Finance: tag it until the advance posts.
@@ -6488,6 +6674,17 @@ const TripListRow = React.memo(function TripListRow({
                 </Text>
               </Text>
             </View>
+            {onOpenActivityLog ? (
+              <View {...webStopBubble}>
+                <ComplianceActivityLogButton
+                  compact
+                  onPress={() => {
+                    suppressCardSelect();
+                    onOpenActivityLog();
+                  }}
+                />
+              </View>
+            ) : null}
           </View>
           {metaParts.length > 0 ? (
             <Text style={[styles.rowMetaLine, selected && styles.tripIdSelected]} numberOfLines={1}>
@@ -6570,18 +6767,28 @@ const TripListRow = React.memo(function TripListRow({
             ) : null}
             <View style={styles.rowFooter}>
               <View style={styles.rowFooterPills}>
+                {tripStatus ? (
+                  <View
+                    style={[styles.statusPill, { backgroundColor: tripStatus.tone.bg }]}
+                    accessibilityLabel={`Trip status ${tripStatus.label}`}
+                  >
+                    <Text style={[styles.statusText, { color: tripStatus.tone.fg }]} numberOfLines={1}>
+                      {tripStatus.label}
+                    </Text>
+                  </View>
+                ) : null}
+                {debitStatus ? (
+                  <View
+                    style={[styles.statusPill, { backgroundColor: debitStatus.tone.bg }]}
+                    accessibilityLabel={debitStatus.label}
+                  >
+                    <Text style={[styles.statusText, { color: debitStatus.tone.fg }]} numberOfLines={1}>
+                      {debitStatus.label}
+                    </Text>
+                  </View>
+                ) : null}
                 {podOnly ? null : (
                   <>
-                    {tripStatus ? (
-                      <View
-                        style={[styles.statusPill, { backgroundColor: tripStatus.tone.bg }]}
-                        accessibilityLabel={`Trip status ${tripStatus.label}`}
-                      >
-                        <Text style={[styles.statusText, { color: tripStatus.tone.fg }]} numberOfLines={1}>
-                          {tripStatus.label}
-                        </Text>
-                      </View>
-                    ) : null}
                     {resubmittedToFinance ? (
                       <View
                         style={[styles.statusPill, { backgroundColor: Theme.complianceStagePendingBg }]}
@@ -6633,7 +6840,7 @@ const TripListRow = React.memo(function TripListRow({
 
 const styles = StyleSheet.create({
   workspace: { flex: 1, minHeight: 0, flexDirection: "row", alignItems: "stretch", gap: 16, overflow: "hidden" },
-  workspaceStacked: { flexDirection: "column" },
+  workspaceStacked: { flexDirection: "column", gap: 16 },
   workspaceMobile: { gap: 0 },
   listPane: {
     width: 420,
@@ -7195,32 +7402,32 @@ const styles = StyleSheet.create({
     minHeight: 0,
     width: "100%",
     backgroundColor: Theme.compliancePreviewCanvas,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    gap: 12,
   },
   typedPreviewScrollDark: {
     backgroundColor: Theme.darkSurface,
   },
   typedPreviewContentWithNav: {
-    paddingHorizontal: 58,
+    paddingHorizontal: 56,
   },
   typedPreviewHeader: {
     flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
     backgroundColor: Theme.cardWhite,
-    borderRadius: 8,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   typedPreviewHeaderIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: Theme.buttonDark,
@@ -7228,26 +7435,49 @@ const styles = StyleSheet.create({
   typedPreviewHeaderCopy: {
     flex: 1,
     minWidth: 0,
-    gap: 1,
+    gap: 2,
   },
   typedPreviewKicker: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: "700",
-    letterSpacing: 0.55,
+    letterSpacing: 0.6,
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
   typedPreviewTitle: {
-    fontSize: 13,
-    lineHeight: 16,
+    fontSize: 16,
+    lineHeight: 20,
     fontWeight: "700",
     color: Theme.textPrimaryDark,
   },
   typedPreviewMeta: {
-    fontSize: 10,
-    lineHeight: 13,
+    fontSize: 11,
+    lineHeight: 14,
     fontWeight: "500",
     color: Theme.textMuted,
+  },
+  typedPreviewChips: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 0,
+  },
+  typedChip: {
+    minHeight: 24,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.complianceStageBalanceBg,
+  },
+  typedChipMuted: {
+    backgroundColor: Theme.complianceStagePendingBg,
+  },
+  typedChipText: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
   },
   typedPreviewScrollStage: {
     flex: 1,
@@ -7263,8 +7493,8 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   typedPreviewScrollContent: {
-    gap: 8,
-    paddingBottom: 12,
+    gap: 12,
+    paddingBottom: 16,
     paddingRight: 18,
     flexGrow: 0,
   },
@@ -7275,16 +7505,40 @@ const styles = StyleSheet.create({
   typedPreviewRowGrid: {
     flexDirection: "row",
     alignItems: "stretch",
-    gap: 8,
+    gap: 12,
   },
   typedEntryCard: {
     flex: 1,
     minWidth: 0,
+    minHeight: 168,
+    flexDirection: "row",
     backgroundColor: Theme.cardWhite,
-    borderRadius: 8,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
     overflow: "hidden",
+    ...Platform.select({
+      web: { boxShadow: "0 8px 20px rgba(15, 23, 42, 0.06)" } as ViewStyle,
+      default: {
+        shadowColor: Theme.textPrimaryDark,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.06,
+        shadowRadius: 10,
+        elevation: 2,
+      },
+    }),
+  },
+  typedEntryAccent: {
+    width: 4,
+    alignSelf: "stretch",
+    backgroundColor: Theme.complianceStageBalanceFg,
+  },
+  typedEntryAccentOk: { backgroundColor: Theme.complianceStageSuccessFg },
+  typedEntryAccentSoon: { backgroundColor: Theme.complianceStagePendingFg },
+  typedEntryAccentExpired: { backgroundColor: Theme.complianceStageDocsFg },
+  typedEntryInner: {
+    flex: 1,
+    minWidth: 0,
   },
   typedEntryCardSpacer: {
     flex: 1,
@@ -7292,45 +7546,105 @@ const styles = StyleSheet.create({
   },
   typedEntryHeadingRow: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    alignItems: "flex-start",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.complianceCardBorder,
-    backgroundColor: Theme.surface,
+    backgroundColor: Theme.compliancePageBg,
   },
   typedEntryIndex: {
-    width: 18,
-    height: 18,
-    borderRadius: 4,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: Theme.buttonDark,
+    marginTop: 2,
   },
   typedEntryIndexText: {
-    fontSize: 9,
-    lineHeight: 11,
+    fontSize: 10,
+    lineHeight: 12,
     fontWeight: "700",
     color: Theme.buttonDarkText,
   },
   typedEntryHeadingCopy: {
     flex: 1,
     minWidth: 0,
-    gap: 1,
+    gap: 3,
   },
   typedEntryKicker: {
-    fontSize: 9,
-    lineHeight: 11,
+    fontSize: 10,
+    lineHeight: 12,
     fontWeight: "700",
-    letterSpacing: 0.4,
+    letterSpacing: 0.45,
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
   typedEntryHeading: {
-    fontSize: 13,
-    lineHeight: 16,
+    fontSize: 18,
+    lineHeight: 22,
     fontWeight: "700",
+    color: Theme.textPrimaryDark,
+    fontVariant: ["tabular-nums"],
+    letterSpacing: 0.2,
+  },
+  typedStatusPill: {
+    minHeight: 22,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  typedStatusOk: { backgroundColor: Theme.complianceStageSuccessBg },
+  typedStatusSoon: { backgroundColor: Theme.complianceStagePendingBg },
+  typedStatusExpired: { backgroundColor: Theme.complianceStageDocsBg },
+  typedStatusNeutral: { backgroundColor: Theme.complianceStageBalanceBg },
+  typedStatusText: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+  },
+  typedStatusTextOk: { color: Theme.complianceStageSuccessFg },
+  typedStatusTextSoon: { color: Theme.complianceStagePendingFg },
+  typedStatusTextExpired: { color: Theme.complianceStageDocsFg },
+  typedStatusTextNeutral: { color: Theme.complianceStageBalanceFg },
+  typedFactGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  typedFact: {
+    width: "47%",
+    flexGrow: 1,
+    minWidth: 108,
+    paddingHorizontal: 6,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: Theme.compliancePageBg,
+    gap: 3,
+  },
+  typedFactWide: {
+    width: "100%",
+  },
+  typedFactLabel: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+  },
+  typedFactValue: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "600",
     color: Theme.textPrimaryDark,
     fontVariant: ["tabular-nums"],
   },
@@ -7468,13 +7782,14 @@ const styles = StyleSheet.create({
     minHeight: 0,
     flexDirection: "row",
     alignItems: "stretch",
-    gap: 12,
+    gap: 0,
     paddingHorizontal: 6,
     paddingBottom: 6,
     paddingTop: 2,
   },
   checklistStageStacked: {
     flexDirection: "column",
+    gap: 12,
   },
   checklistStageMobile: {
     paddingHorizontal: 0,
@@ -7489,6 +7804,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   checklistPreviewPaneMobile: {
+    width: "100%",
+    maxWidth: "100%",
     minHeight: 0,
     flex: 1,
     borderRadius: 12,
@@ -7507,9 +7824,10 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
   },
   checklistListPane: {
-    width: 360,
-    maxWidth: "46%",
-    flexShrink: 0,
+    flex: 1,
+    minWidth: 0,
+    width: "auto",
+    maxWidth: "100%",
     alignSelf: "stretch",
     minHeight: 0,
     flexDirection: "column",
@@ -7519,6 +7837,7 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.complianceTripCardBg,
     overflow: "hidden",
   },
+  checklistListPaneSplit: { width: "100%", maxWidth: "100%", flex: 1 },
   checklistListPaneStacked: {
     width: "100%",
     maxWidth: "100%",
@@ -7537,6 +7856,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.complianceTripCardBg,
+  },
+  checklistPanelToolbarMobile: {
+    flexWrap: "wrap",
+    rowGap: 8,
+  },
+  checklistPanelTabsScrollMobile: {
+    flexBasis: "100%",
+    width: "100%",
   },
   checklistPanelTabsScroll: {
     flex: 1,
@@ -7599,18 +7926,8 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     gap: 6,
   },
-  checklistUploadPill: {
-    flexShrink: 0,
-    height: 32,
-    minHeight: 32,
-    maxHeight: 32,
-    paddingHorizontal: 10,
-    backgroundColor: Theme.cardWhite,
-  },
-  checklistUploadPillText: {
-    fontSize: 10,
-    lineHeight: 12,
-    fontWeight: "700",
+  checklistToolbarActionsMobile: {
+    marginLeft: "auto",
   },
   /** Document rows only. Scrolls so the last row and preview actions stay reachable. */
   checklistDocs: {
@@ -7620,17 +7937,19 @@ const styles = StyleSheet.create({
   },
   checklistDocsContent: {
     flexGrow: 1,
-    paddingBottom: 4,
-    gap: 8,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 8,
+    gap: 10,
   },
   checklistVaultRow: {
     borderRadius: 12,
     overflow: "hidden",
-    borderLeftWidth: 3,
-    borderLeftColor: "transparent",
   },
   checklistVaultRowSelected: {
-    borderLeftColor: Theme.complianceTripCardSelectedBorder,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardSelectedBorder,
     backgroundColor: Theme.complianceSelectedWash,
   },
   /** Compact illustration slot — sized to the preview card, not clipped. */
@@ -8803,21 +9122,57 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   missingHeader: {
-    gap: 1,
-    paddingHorizontal: 10,
-    paddingTop: 8,
-    paddingBottom: 8,
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.complianceTripCardBorder,
-    borderLeftWidth: 3,
-    borderLeftColor: Theme.buttonDark,
+  },
+  missingTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    minWidth: 0,
+  },
+  missingTitleRowMobile: {
+    flexWrap: "wrap",
+    alignItems: "flex-start",
   },
   missingTitle: {
-    fontSize: 11,
-    lineHeight: 14,
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: "700",
-    letterSpacing: 0.35,
+    letterSpacing: 0.2,
     color: Theme.buttonDark,
+  },
+  missingCountChip: {
+    flexShrink: 0,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: Theme.complianceStageInfoBg,
+  },
+  missingCountChipNeed: {
+    backgroundColor: Theme.complianceStageDocsBg,
+  },
+  missingCountChipReady: {
+    backgroundColor: Theme.complianceStageSuccessBg,
+  },
+  missingCountChipText: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "700",
+    color: Theme.complianceStageInfoFg,
+  },
+  missingCountChipTextNeed: {
+    color: Theme.complianceStageDocsFg,
+  },
+  missingCountChipTextReady: {
+    color: Theme.complianceStageSuccessFg,
   },
   missingSubtitle: {
     fontSize: 10,
@@ -8885,7 +9240,6 @@ const styles = StyleSheet.create({
     gap: 8,
     flexShrink: 0,
   },
-  missingTitleRow: { flexDirection: "row", alignItems: "center", gap: 5, minWidth: 0 },
   missingDocName: {
     flexShrink: 1,
     fontSize: 11,
@@ -8932,7 +9286,10 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
     overflow: "hidden",
   },
+  checklistPreviewPaneSplit: { width: "100%", maxWidth: "100%" },
   checklistPreviewPaneStacked: {
+    width: "100%",
+    maxWidth: "100%",
     minHeight: 220,
     flex: 1,
   },
@@ -9020,25 +9377,6 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: Theme.textMuted,
     textAlign: "center",
-  },
-  missingNavPill: {
-    flexShrink: 0,
-    height: 32,
-    minHeight: 32,
-    maxHeight: 32,
-    paddingHorizontal: 10,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: Theme.complianceStageDocsFg,
-    backgroundColor: Theme.complianceStageDocsBg,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  missingNavLabel: {
-    fontSize: 9,
-    fontWeight: "600",
-    lineHeight: 11,
-    color: Theme.complianceStageDocsFg,
   },
   missingFooterMeta: { flex: 1, minWidth: 0, paddingRight: 8 },
   missingFooterText: { fontSize: 9, fontWeight: "400", color: Theme.textMuted },

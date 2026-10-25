@@ -50,6 +50,7 @@ import {
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { lrReceiptForTrip } from "@/features/trips/utils/lrReceiptStatus.util";
 import { formatIndianVehicleNumber } from "@/lib/format";
+import { ComplianceActivityLogButton } from "@/features/tripCompliance/components/ComplianceTripActivityLog";
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight } from "lucide-react-native";
 import React, { useMemo, useRef, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -80,6 +81,7 @@ export type ComplianceTripsTableProps = {
   dateSortEnabled?: boolean;
   /** POD Received stage only: IBond column. */
   showIbondColumn?: boolean;
+  onOpenActivityLog?: (summary: ComplianceTripSummary) => void;
 };
 
 type RequiredDateSort = "asc" | "desc";
@@ -217,6 +219,7 @@ function TripRowContent({
   canManageFinance = false,
   compliancePendingLayout = false,
   showIbondColumn = false,
+  onOpenActivityLog,
 }: {
   summary: ComplianceTripSummary;
   onOpenTrip: (tripId: string) => void;
@@ -229,6 +232,7 @@ function TripRowContent({
   canManageFinance?: boolean;
   compliancePendingLayout?: boolean;
   showIbondColumn?: boolean;
+  onOpenActivityLog?: (summary: ComplianceTripSummary) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [markingTrip, setMarkingTrip] = useState(false);
@@ -249,7 +253,7 @@ function TripRowContent({
   const readiness = useMemo(() => deriveComplianceQueueReadiness(summary), [summary]);
   const payLabel = paymentReadinessLabel(readiness);
   const verification = verificationStatusVisual(summary);
-  const tripStatus = compliancePendingLayout ? tripOpsStatusBadge(summary.trip.status) : null;
+  const tripStatus = tripOpsStatusBadge(summary.trip.status, summary.trip);
   const payment = paymentStatusVisual(summary);
   const showPaymentPill = shouldShowPaymentStatusPill(summary);
   const tripIdLabel = getTripDisplayNumber(summary.trip);
@@ -447,6 +451,9 @@ function TripRowContent({
           </Text>
         ) : null}
         <View style={styles.colAction}>
+          {onOpenActivityLog ? (
+            <ComplianceActivityLogButton compact onPress={() => onOpenActivityLog(summary)} />
+          ) : null}
           {isVerified ? (
             <Text style={[styles.actionLink, styles.successText]} numberOfLines={1}>
               Verified
@@ -560,6 +567,7 @@ export function ComplianceTripsTable({
   onDateSortChange,
   dateSortEnabled = true,
   showIbondColumn = false,
+  onOpenActivityLog,
 }: ComplianceTripsTableProps) {
   const [internalDateSort, setInternalDateSort] = useState<RequiredDateSort>("desc");
   const requiredDateSort = dateSort ?? internalDateSort;
@@ -669,6 +677,7 @@ export function ComplianceTripsTable({
             canManageFinance={canManageFinance}
             compliancePendingLayout={compliancePendingLayout}
             showIbondColumn={showIbondColumn}
+            onOpenActivityLog={onOpenActivityLog}
           />
         ))}
       </View>

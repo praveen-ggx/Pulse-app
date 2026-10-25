@@ -2,7 +2,7 @@
  * Vehicles service — Supabase only (mobile). Same DB as pulse-unified-base.
  */
 import { supabase } from '@/lib/supabase';
-import { formatIndianVehicleNumber } from '@/lib/format';
+import { formatIndianVehicleNumber, normalizeVehicleNumberForMatch } from '@/lib/format';
 import { DEFAULT_PAGE_SIZE, type PageOpts } from '@/lib/pagination';
 import { syncDomainRows } from '@/lib/cache/domainSync';
 import { mergeDeltaRows } from '@/lib/cache/mergeDelta';
@@ -163,6 +163,24 @@ export async function findVehicleByPlate(
       .maybeSingle();
     if (error) return { error: new Error(error.message), vehicle: null };
     if (data) return { error: null, vehicle: data as VehicleRow };
+  }
+  const compactKey = normalizeVehicleNumberForMatch(plate);
+  const tail = compactKey.slice(-4);
+  if (compactKey.length >= 4 && tail) {
+    const { data: rows, error: listError } = await supabase()
+      .from("vehicles")
+      .select("id, organization_id, vehicle_number, vehicle_type, documents, status, type, created_at, updated_at")
+      .eq("organization_id", orgId)
+      .ilike("vehicle_number", `%${tail}%`)
+      .limit(40);
+    if (listError) return { error: new Error(listError.message), vehicle: null };
+    const match = (rows ?? []).find(
+      (row) =>
+        normalizeVehicleNumberForMatch(
+          (row as { vehicle_number?: string | null }).vehicle_number,
+        ) === compactKey,
+    );
+    if (match) return { error: null, vehicle: match as VehicleRow };
   }
   return { error: null, vehicle: null };
 }

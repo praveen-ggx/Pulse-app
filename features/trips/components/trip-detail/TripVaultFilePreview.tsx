@@ -1,6 +1,7 @@
 import { PdfViewer } from "@/components/PdfViewer";
 import {
   Image,
+  Platform,
   View,
   type ImageStyle,
   type StyleProp,
@@ -15,7 +16,7 @@ type Props = {
   showToolbar?: boolean;
   /** 1 renders the file at its own pixel size. */
   zoom?: number;
-  sizing?: "original" | "fit";
+  sizing?: "original" | "fit" | "cover";
   /** 1-based PDF page. Ignored for images. */
   page?: number;
   /** Pass-through to PdfViewer — false when a parent owns drag-pan. */
@@ -71,11 +72,15 @@ export function TripVaultFilePreview({
     );
   }
 
+  const resize = sizing === "cover" ? "cover" : "contain";
   return (
     <Image
       source={{ uri }}
-      style={style as StyleProp<ImageStyle>}
-      resizeMode="contain"
+      style={[
+        style as StyleProp<ImageStyle>,
+        Platform.OS === "web" ? ({ objectFit: resize } as ImageStyle) : null,
+      ]}
+      resizeMode={resize}
       accessibilityLabel={accessibilityLabel}
     />
   );

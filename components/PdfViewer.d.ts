@@ -15,7 +15,7 @@ declare module "@/components/PdfViewer" {
     onRetrySign?: () => void;
     /** 1 = 100% of the file. */
     zoom?: number;
-    sizing?: "original" | "fit";
+    sizing?: "original" | "fit" | "cover";
     page?: number;
     /** False lets a parent own drag-pan (e.g. after CSS rotate). Default true. */
     interactive?: boolean;

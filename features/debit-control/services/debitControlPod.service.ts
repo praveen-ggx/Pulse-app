@@ -23,14 +23,27 @@ import {
 } from "@/features/debit-control/utils/podChargeTotals.util";
 import {
   ADVANCE_DOCUMENT_COST_EVENT,
+  POD_CHARGES_DRAFT_EVENT,
+  POD_NOT_FOUND_EVENT,
+  POD_REVALIDATE_EVENT,
+  POD_SETTLEMENT_RELEASED_EVENT,
   POD_VALIDATED_EVENT,
+  podChargesDraftIdempotencyKey,
+  podNotFoundIdempotencyKey,
+  podRevalidateIdempotencyKey,
+  podSettlementReleasedIdempotencyKey,
   podValidationIdempotencyKey,
   type DebitControlPendingTrip,
   type DebitControlReceivedTrip,
   type PodChargeLines,
 } from "@/features/debit-control/utils/debitControlPod.model";
 import { podAgingEndDate, podReceivingAging, todayIsoDate } from "@/features/debit-control/utils/podAging.util";
+import { podDebitIdentified } from "@/features/debit-control/utils/podExceptionDebit.util";
 import { canMarkPodInward, type PodInwardDraft } from "@/features/debit-control/utils/podInwardForm.util";
+import {
+  resolvePodChargeWorkflow,
+  workflowEventPostedMs,
+} from "@/features/debit-control/utils/podChargeWorkflow.util";
 import { supabase } from "@/lib/supabase";
 
 const TRIP_SELECT =
@@ -69,6 +82,8 @@ export type ValidatePodTripInput = {
   tripStartDate?: string | null;
   deliveryDate?: string | null;
   dispatchDate?: string | null;
+  /** True when the POD has no exception debit — CN/DN are not required. */
+  noDebit?: boolean;
 };
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -93,24 +108,107 @@ function hubLabel(regions: string[] | null | undefined, warehouseZone: string | 
   return list.length > 0 ? list.join(", ") : "—";
 }
 
-async function loadValidationByTripId(
+type WorkflowEventRow = {
+  createdAt: string;
+  updatedAt?: string | null;
+  payload: unknown;
+};
+
+async function loadWorkflowPayloadByTripId(
   tripIds: string[],
-): Promise<Map<string, { createdAt: string; payload: unknown }>> {
-  const found = new Map<string, { createdAt: string; payload: unknown }>();
+  eventType: string,
+): Promise<Map<string, WorkflowEventRow>> {
+  const found = new Map<string, WorkflowEventRow>();
   for (const ids of chunk(tripIds, 40)) {
     const { data, error } = await supabase()
       .from("trip_workflow_events")
       .select("trip_id, payload, created_at")
       .in("trip_id", ids)
-      .eq("event_type", POD_VALIDATED_EVENT);
+      .eq("event_type", eventType);
     if (error) throw new Error(error.message);
     for (const row of data ?? []) {
       const tripId = text(row.trip_id);
       if (!tripId || found.has(tripId)) continue;
-      found.set(tripId, { createdAt: row.created_at, payload: row.payload });
+      found.set(tripId, {
+        createdAt: row.created_at,
+        payload: row.payload,
+      });
     }
   }
   return found;
+}
+
+async function loadValidationByTripId(
+  tripIds: string[],
+): Promise<Map<string, WorkflowEventRow>> {
+  return loadWorkflowPayloadByTripId(tripIds, POD_VALIDATED_EVENT);
+}
+
+async function loadRevalidateByTripId(
+  tripIds: string[],
+): Promise<Map<string, WorkflowEventRow>> {
+  return loadWorkflowPayloadByTripId(tripIds, POD_REVALIDATE_EVENT);
+}
+
+async function loadDraftByTripId(
+  tripIds: string[],
+): Promise<Map<string, WorkflowEventRow>> {
+  return loadWorkflowPayloadByTripId(tripIds, POD_CHARGES_DRAFT_EVENT);
+}
+
+function validationEventPayload(trip: ValidatePodTripInput) {
+  const aging = podReceivingAging(
+    trip.deliveryDate,
+    podAgingEndDate(trip.dispatchDate, todayIsoDate()),
+    true,
+  );
+  return {
+    v: 1,
+    posted_at: new Date().toISOString(),
+    remarks: text(trip.remarks) || (trip.noDebit ? "No debit" : null),
+    no_debit: trip.noDebit === true,
+    client_invoice_number: text(trip.clientInvoiceNumber) || null,
+    client: trip.client,
+    vendor: trip.vendor,
+    total_client_value: netChargeTotal(trip.client),
+    total_vendor_value: netChargeTotal(trip.vendor),
+    trip_start_date: text(trip.tripStartDate).slice(0, 10) || null,
+    delivery_date: text(trip.deliveryDate).slice(0, 10) || null,
+    dispatch_date: text(trip.dispatchDate).slice(0, 10) || null,
+    aging_days: aging?.days ?? null,
+    pod_penalty_amount: aging?.penalty ?? null,
+  };
+}
+
+async function upsertWorkflowValidationEvent(input: {
+  orgId: string;
+  actorId: string | null;
+  tripId: string;
+  eventType: string;
+  idempotencyKey: string;
+  payload: Record<string, unknown>;
+}): Promise<{ ok: boolean; message?: string }> {
+  const { error } = await supabase()
+    .from("trip_workflow_events")
+    .insert({
+      trip_id: input.tripId,
+      org_id: input.orgId,
+      actor_id: input.actorId,
+      event_type: input.eventType,
+      idempotency_key: input.idempotencyKey,
+      payload: input.payload,
+    });
+  if (!error) return { ok: true };
+  const code = String((error as { code?: string }).code ?? "");
+  if (code !== "23505") return { ok: false, message: error.message };
+  const { error: updateError } = await supabase()
+    .from("trip_workflow_events")
+    .update({ actor_id: input.actorId, payload: input.payload })
+    .eq("trip_id", input.tripId)
+    .eq("event_type", input.eventType)
+    .eq("idempotency_key", input.idempotencyKey);
+  if (updateError) return { ok: false, message: updateError.message };
+  return { ok: true };
 }
 
 async function loadInvoiceNumberByTripId(
@@ -249,6 +347,8 @@ export async function fetchTripPodClientValidation(
   error: Error | null;
   invoiceNumber: string | null;
   validatedAt: string | null;
+  draftedAt: string | null;
+  noDebit: boolean;
   clientCharges: PodChargeLines | null;
   vendorCharges: PodChargeLines | null;
   tripStartDate: string | null;
@@ -265,6 +365,8 @@ export async function fetchTripPodClientValidation(
   const empty = {
     invoiceNumber: null,
     validatedAt: null,
+    draftedAt: null,
+    noDebit: false,
     clientCharges: null,
     vendorCharges: null,
     tripStartDate: null,
@@ -277,18 +379,42 @@ export async function fetchTripPodClientValidation(
     ibondVendorCostAfter: null,
   };
   try {
-    const [invoices, validation, pod, documentCost] = await Promise.all([
+    const [invoices, validation, draft, revalidate, pod, documentCost] = await Promise.all([
       loadInvoiceNumberByTripId(orgId, [tripId]),
       loadValidationByTripId([tripId]),
+      loadDraftByTripId([tripId]),
+      loadRevalidateByTripId([tripId]),
       fetchTripHardCopyPodState(tripId),
       loadVendorDocumentCost(tripId),
     ]);
-    const saved = validation.get(tripId);
+    const saved = validation.get(tripId) ?? draft.get(tripId) ?? null;
     const parsed = saved ? readPodValidationPayload(saved.payload) : null;
+    const validated = validation.get(tripId);
+    const revalidateRow = revalidate.get(tripId);
+    const workflow = resolvePodChargeWorkflow({
+      validatedAtMs: validated
+        ? workflowEventPostedMs({
+            createdAt: validated.createdAt,
+            updatedAt: validated.updatedAt,
+            payload: validated.payload,
+          })
+        : null,
+      revalidateAtMs: revalidateRow
+        ? workflowEventPostedMs({
+            createdAt: revalidateRow.createdAt,
+            updatedAt: revalidateRow.updatedAt,
+            payload: revalidateRow.payload,
+          })
+        : null,
+    });
     return {
       error: null,
       invoiceNumber: invoices.get(tripId) ?? parsed?.clientInvoiceNumber ?? null,
-      validatedAt: saved?.createdAt ?? null,
+      validatedAt: workflow.chargesSaved ? validated?.createdAt ?? null : null,
+      draftedAt: draft.get(tripId)?.createdAt ?? null,
+      noDebit:
+        parsed?.noDebit === true ||
+        (Boolean(parsed) && !podDebitIdentified(parsed.clientCharges, parsed.vendorCharges)),
       clientCharges: parsed?.clientCharges ?? null,
       vendorCharges: parsed?.vendorCharges
         ? { ...parsed.vendorCharges, documentCost }
@@ -517,51 +643,16 @@ export async function validateDebitControlPods(input: {
 
   const results = await runWithConcurrencyLimit(trips, WRITE_CONCURRENCY, async (trip) => {
     const tripId = text(trip.tripId);
-    const totalClient = netChargeTotal(trip.client);
-    const totalVendor = netChargeTotal(trip.vendor);
-    const aging = podReceivingAging(
-      trip.deliveryDate,
-      podAgingEndDate(trip.dispatchDate, todayIsoDate()),
-      true,
-    );
-    const payload = {
-      v: 1,
-      remarks: text(trip.remarks) || null,
-      client_invoice_number: text(trip.clientInvoiceNumber) || null,
-      client: trip.client,
-      vendor: trip.vendor,
-      total_client_value: totalClient,
-      total_vendor_value: totalVendor,
-      trip_start_date: text(trip.tripStartDate).slice(0, 10) || null,
-      delivery_date: text(trip.deliveryDate).slice(0, 10) || null,
-      dispatch_date: text(trip.dispatchDate).slice(0, 10) || null,
-      aging_days: aging?.days ?? null,
-      pod_penalty_amount: aging?.penalty ?? null,
-    };
-    const idempotencyKey = podValidationIdempotencyKey(tripId);
-    const { error } = await supabase()
-      .from("trip_workflow_events")
-      .insert({
-        trip_id: tripId,
-        org_id: orgId,
-        actor_id: input.actorId,
-        event_type: POD_VALIDATED_EVENT,
-        idempotency_key: idempotencyKey,
-        payload,
-      });
-    if (!error) return { tripId, ok: true as const };
-    const code = String((error as { code?: string }).code ?? "");
-    if (code === "23505") {
-      const { error: updateError } = await supabase()
-        .from("trip_workflow_events")
-        .update({ actor_id: input.actorId, payload })
-        .eq("trip_id", tripId)
-        .eq("event_type", POD_VALIDATED_EVENT)
-        .eq("idempotency_key", idempotencyKey);
-      if (updateError) return { tripId, ok: false as const, message: updateError.message };
-      return { tripId, ok: true as const, already: true };
-    }
-    return { tripId, ok: false as const, message: error.message };
+    const written = await upsertWorkflowValidationEvent({
+      orgId,
+      actorId: input.actorId,
+      tripId,
+      eventType: POD_VALIDATED_EVENT,
+      idempotencyKey: podValidationIdempotencyKey(tripId),
+      payload: validationEventPayload(trip),
+    });
+    if (written.ok) return { tripId, ok: true as const };
+    return { tripId, ok: false as const, message: written.message };
   });
 
   const updatedIds = results.filter((row) => row.ok).map((row) => row.tripId);
@@ -571,4 +662,144 @@ export async function validateDebitControlPods(input: {
     updatedIds,
     failedIds: failed.map((row) => row.tripId),
   };
+}
+
+/** Persist POD charge lines without completing validation / leaving POD Verification. */
+export async function savePodValidationDraft(input: {
+  orgId: string;
+  actorId: string | null;
+  trips: ValidatePodTripInput[];
+}): Promise<{ error: Error | null; updatedIds: string[]; failedIds: string[] }> {
+  const orgId = text(input.orgId);
+  if (!orgId) return { error: new Error("Organization is missing."), updatedIds: [], failedIds: [] };
+  const trips = input.trips.filter((trip) => text(trip.tripId));
+  if (trips.length === 0) {
+    return { error: new Error("Select at least one trip."), updatedIds: [], failedIds: [] };
+  }
+
+  const results = await runWithConcurrencyLimit(trips, WRITE_CONCURRENCY, async (trip) => {
+    const tripId = text(trip.tripId);
+    const written = await upsertWorkflowValidationEvent({
+      orgId,
+      actorId: input.actorId,
+      tripId,
+      eventType: POD_CHARGES_DRAFT_EVENT,
+      idempotencyKey: podChargesDraftIdempotencyKey(tripId),
+      payload: validationEventPayload(trip),
+    });
+    if (written.ok) return { tripId, ok: true as const };
+    return { tripId, ok: false as const, message: written.message };
+  });
+
+  const updatedIds = results.filter((row) => row.ok).map((row) => row.tripId);
+  const failed = results.filter((row) => !row.ok);
+  return {
+    error: failed[0] && "message" in failed[0] ? new Error(failed[0].message) : null,
+    updatedIds,
+    failedIds: failed.map((row) => row.tripId),
+  };
+}
+
+export async function requestPodRevalidation(input: {
+  tripId: string;
+  organizationId: string;
+  actorId: string | null;
+  reason: string;
+}): Promise<{ error: Error | null }> {
+  const orgId = text(input.organizationId);
+  const tripId = text(input.tripId);
+  const reason = text(input.reason);
+  if (!orgId) return { error: new Error("Organization is missing.") };
+  if (!tripId) return { error: new Error("Trip is missing.") };
+  if (reason.length < 3) return { error: new Error("Enter why this POD must be revalidated.") };
+  const written = await upsertWorkflowValidationEvent({
+    orgId,
+    actorId: input.actorId,
+    tripId,
+    eventType: POD_REVALIDATE_EVENT,
+    idempotencyKey: podRevalidateIdempotencyKey(tripId),
+    payload: {
+      v: 1,
+      posted_at: new Date().toISOString(),
+      reason,
+    },
+  });
+  if (!written.ok) return { error: new Error(written.message ?? "Could not request revalidation.") };
+  return { error: null };
+}
+
+export async function releasePodSettlement(input: {
+  tripId: string;
+  organizationId: string;
+  actorId: string | null;
+  pendingNotes?: string[];
+}): Promise<{ error: Error | null }> {
+  const orgId = text(input.organizationId);
+  const tripId = text(input.tripId);
+  if (!orgId) return { error: new Error("Organization is missing.") };
+  if (!tripId) return { error: new Error("Trip is missing.") };
+  const written = await upsertWorkflowValidationEvent({
+    orgId,
+    actorId: input.actorId,
+    tripId,
+    eventType: POD_SETTLEMENT_RELEASED_EVENT,
+    idempotencyKey: podSettlementReleasedIdempotencyKey(tripId),
+    payload: {
+      v: 1,
+      posted_at: new Date().toISOString(),
+      pending_notes: input.pendingNotes ?? [],
+    },
+  });
+  if (!written.ok) return { error: new Error(written.message ?? "Could not proceed to settlement.") };
+  return { error: null };
+}
+
+function isMissingRpc(error: { code?: string; message?: string }): boolean {
+  const code = String(error.code ?? "");
+  const message = String(error.message ?? "").toLowerCase();
+  return code === "42883" || message.includes("does not exist") || message.includes("could not find the function");
+}
+
+/** Clear an incorrect hard-copy receipt and return the trip to Awaiting POD. */
+export async function reportPodNotFound(input: {
+  tripId: string;
+  organizationId: string;
+  actorId: string | null;
+  reason: string;
+}): Promise<{ error: Error | null }> {
+  const orgId = text(input.organizationId);
+  const tripId = text(input.tripId);
+  const reason = text(input.reason);
+  if (!orgId) return { error: new Error("Organization is missing.") };
+  if (!tripId) return { error: new Error("Trip is missing.") };
+  if (reason.length < 3) return { error: new Error("Enter why this POD was not received.") };
+
+  const { error: rpcError } = await supabase().rpc("report_trip_hard_copy_pod_not_found", {
+    p_trip_id: tripId,
+    p_reason: reason,
+  });
+  if (!rpcError) return { error: null };
+  if (!isMissingRpc(rpcError)) {
+    return { error: new Error(rpcError.message) };
+  }
+
+  const written = await upsertWorkflowValidationEvent({
+    orgId,
+    actorId: input.actorId,
+    tripId,
+    eventType: POD_NOT_FOUND_EVENT,
+    idempotencyKey: podNotFoundIdempotencyKey(tripId),
+    payload: {
+      v: 1,
+      posted_at: new Date().toISOString(),
+      reason,
+    },
+  });
+  if (!written.ok) return { error: new Error(written.message ?? "Could not record POD not found.") };
+  const { error: updateError } = await supabase()
+    .from("trips")
+    .update({ pod_received_at: null })
+    .eq("id", tripId);
+  if (updateError) return { error: new Error(updateError.message) };
+  return { error: null };
 }

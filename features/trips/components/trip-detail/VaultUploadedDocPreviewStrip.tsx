@@ -1,20 +1,12 @@
 import { Theme } from "@/constants/Theme";
-import { TripVaultFilePreview } from "@/features/trips/components/trip-detail/TripVaultFilePreview";
 import {
   isPdfTripDoc,
   type TripDocFile,
 } from "@/features/trips/components/trip-detail/tripDocTypes";
+import { VaultDocThumb } from "@/features/trips/components/trip-detail/VaultDocThumb";
 import { getDocumentViewUrls } from "@/features/trips/services/tripDocuments.service";
-import Feather from "@expo/vector-icons/Feather";
 import { useEffect, useMemo, useState } from "react";
-import {
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 
 type Props = {
   files: TripDocFile[];
@@ -99,48 +91,25 @@ export function VaultUploadedDocPreviewStrip({ files, compact = false }: Props) 
               accessibilityLabel={`Preview ${fileLabel(file)}`}
               accessibilityState={{ selected }}
             >
-              {uri && !pdf ? (
-                <Image
-                  source={{ uri }}
-                  style={styles.thumbFill}
-                  resizeMode="cover"
-                  accessibilityLabel={fileLabel(file)}
-                />
-              ) : (
-                <View style={styles.pdfTile}>
-                  <View style={styles.pdfTileBar} />
-                  <Feather name="file-text" size={compact ? 14 : 16} color={Theme.textSecondary} />
-                  <Text style={styles.pdfTileCaption} numberOfLines={1}>
-                    PDF
-                  </Text>
-                </View>
-              )}
+              <VaultDocThumb
+                uri={uri}
+                isPdf={pdf}
+                fileName={fileLabel(file)}
+                sizing="cover"
+                style={styles.thumbFill}
+              />
             </Pressable>
           );
         })}
       </ScrollView>
       <View style={[styles.side, { width: sideW, height: sideH }]}>
-        {selectedUri && !selectedIsPdf ? (
-          <TripVaultFilePreview
-            uri={selectedUri}
-            isPdf={false}
-            showToolbar={false}
-            sizing="fit"
-            style={styles.sideFill}
-            accessibilityLabel={selectedFile?.fileName || "Selected document"}
-          />
-        ) : selectedFile ? (
-          <View style={styles.sidePdf}>
-            <View style={styles.sidePdfBar} />
-            <Feather name="file-text" size={22} color={Theme.textSecondary} />
-            <Text style={styles.sidePdfTitle} numberOfLines={2}>
-              {fileLabel(selectedFile)}
-            </Text>
-            <Text style={styles.sidePdfMeta}>Page 1 · PDF</Text>
-          </View>
-        ) : (
-          <View style={styles.sideFill} />
-        )}
+        <VaultDocThumb
+          uri={selectedUri}
+          isPdf={selectedIsPdf}
+          fileName={selectedFile ? fileLabel(selectedFile) : "Selected document"}
+          sizing="cover"
+          style={styles.sideFill}
+        />
       </View>
     </View>
   );
@@ -183,28 +152,6 @@ const styles = StyleSheet.create({
     height: "100%",
     backgroundColor: Theme.surface,
   },
-  pdfTile: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    backgroundColor: Theme.surface,
-    paddingHorizontal: 4,
-  },
-  pdfTileBar: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 6,
-    backgroundColor: Theme.brandBlueInk,
-  },
-  pdfTileCaption: {
-    fontSize: 8,
-    fontWeight: "800",
-    letterSpacing: 0.6,
-    color: Theme.textMuted,
-  },
   side: {
     flexShrink: 0,
     borderRadius: 10,
@@ -218,33 +165,5 @@ const styles = StyleSheet.create({
     height: "100%",
     minHeight: 0,
     backgroundColor: Theme.surface,
-  },
-  sidePdf: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    backgroundColor: Theme.surface,
-  },
-  sidePdfBar: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 8,
-    backgroundColor: Theme.brandBlueInk,
-  },
-  sidePdfTitle: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: Theme.textPrimaryDark,
-    textAlign: "center",
-    lineHeight: 14,
-  },
-  sidePdfMeta: {
-    fontSize: 10,
-    fontWeight: "600",
-    color: Theme.textMuted,
   },
 });

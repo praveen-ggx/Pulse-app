@@ -362,10 +362,13 @@ export { evaluateCompliancePaymentGuard } from "@/features/tripCompliance/utils/
 export async function checkCompliancePaymentAllowed(params: {
   tripId: string;
   category: ComplianceLedgerCategory;
+  podReceived?: boolean;
 }): Promise<{ ok: boolean; reason?: string }> {
   const byTrip = await fetchComplianceTransactions([params.tripId]);
   const bucket = byTrip.get(params.tripId) ?? { advance: [], balance: [] };
-  return evaluateCompliancePaymentGuard(params.category, bucket);
+  return evaluateCompliancePaymentGuard(params.category, bucket, {
+    podReceived: params.podReceived,
+  });
 }
 
 /**
@@ -508,11 +511,14 @@ export async function postCompliancePayment(params: {
   /** Org bank account (entity_bank_accounts) the money was paid from. */
   paidFromAccountId?: string | null;
 }): Promise<{ error: Error | null }> {
-  const guard = await checkCompliancePaymentAllowed({ tripId: params.trip.id, category: params.category });
-  if (!guard.ok) return { error: new Error(guard.reason) };
-
   const liveFlags = await readComplianceLedgerFlags(params.trip);
   if (!liveFlags) return { error: new Error("Couldn't confirm compliance status — please retry.") };
+  const guard = await checkCompliancePaymentAllowed({
+    tripId: params.trip.id,
+    category: params.category,
+    podReceived: Boolean(liveFlags.pod_received_at),
+  });
+  if (!guard.ok) return { error: new Error(guard.reason) };
   const prerequisite = checkComplianceLedgerPrerequisite(params.category, liveFlags);
   if (!prerequisite.ok) return { error: new Error(prerequisite.reason) };
 

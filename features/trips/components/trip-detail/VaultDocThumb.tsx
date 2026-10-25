@@ -15,6 +15,8 @@ type Props = {
   documentVersion?: string | null;
   lazy?: boolean;
   priority?: number;
+  /** Card thumbs fill the frame. Use `fit` only for full-page reading. */
+  sizing?: "fit" | "cover";
   onRetrySign?: () => void;
 };
 
@@ -27,6 +29,7 @@ export function VaultDocThumb({
   documentVersion,
   lazy = false,
   priority = 0,
+  sizing = "cover",
   onRetrySign,
 }: Props) {
   if (uri && isPdf) {
@@ -39,7 +42,7 @@ export function VaultDocThumb({
           showToolbar={false}
           interactive={false}
           scrollbar={false}
-          sizing="fit"
+          sizing={sizing}
           previewTier="thumb"
           documentKey={documentKey}
           documentVersion={documentVersion}
@@ -57,6 +60,7 @@ export function VaultDocThumb({
       <TripVaultFilePreview
         uri={uri}
         isPdf={false}
+        sizing={sizing}
         style={[styles.frame, style]}
         accessibilityLabel={fileName || "Document"}
       />

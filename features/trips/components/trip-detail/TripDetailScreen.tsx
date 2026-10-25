@@ -9,6 +9,7 @@ import { EntityAvatar as PartyAvatar } from '@/components/EntityAvatar';
 import { ThemedAlertModal } from "@/components/ThemedAlertModal";
 import { useAssignmentPaint } from "@/features/trips/hooks/useAssignmentPaint";
 import { dismissAssignmentConfirm } from "@/features/trips/utils/assignmentPaint.util";
+import { assignedVehiclePlate as visibleAssignedVehiclePlate } from "@/features/trips/utils/tripAssignmentVehicle.util";
 import { Theme } from "@/constants/Theme";
 import {
   shouldAutoRunHistoricalLrOcr,
@@ -361,31 +362,6 @@ function tripExtraVehicleNumber(
   trip: { vehicle_number?: string | null } | null | undefined,
 ): string | null {
   return trip?.vehicle_number ?? null;
-}
-
-/** Same plate the manifest vehicle card shows. Pending / Unassigned are not a vehicle. */
-function visibleAssignedVehiclePlate(input: {
-  displayVehicleFromInput?: string | null;
-  vehicleLabel?: string | null;
-  vehicleDisplayNumber?: string | null;
-  vehicleNumber?: string | null;
-}): string {
-  const raw =
-    input.displayVehicleFromInput?.trim() ||
-    input.vehicleLabel?.trim() ||
-    input.vehicleDisplayNumber?.trim() ||
-    input.vehicleNumber?.trim() ||
-    "";
-  const head = raw.split(/[·•]/)[0]?.trim() ?? "";
-  if (
-    !head ||
-    head === "—" ||
-    /^pending$/i.test(head) ||
-    /^unassigned$/i.test(head)
-  ) {
-    return "";
-  }
-  return head;
 }
 
 type TripWebExtra = {
@@ -1753,9 +1729,19 @@ export default function TripDetailScreen({
         // Trips linked by owner vehicle or plate only have no vehicle_id.
         const target = await detail.resolveVaultVehicle();
         if (!target) {
+          const plate = visibleAssignedVehiclePlate({
+            displayVehicleFromInput: detail.displayVehicleFromInput,
+            vehicleLabel: detail.vehicleLabel,
+            vehicleDisplayNumber: detail.trip?.vehicle_display_number,
+            vehicleNumber: tripExtraVehicleNumber(
+              detail.trip as { vehicle_number?: string | null } | null,
+            ),
+          });
           notifyVaultFailure(
-            "Assign a vehicle",
-            "Assign a vehicle on this trip before uploading RC, Fitness, Insurance, or PUC.",
+            plate ? "Couldn't attach this vehicle" : "Assign a vehicle",
+            plate
+              ? `${plate} is assigned. Open Change, confirm the truck, then add RC, Fitness, Insurance, or PUC again.`
+              : "Assign a vehicle on this trip before uploading RC, Fitness, Insurance, or PUC.",
           );
           return;
         }

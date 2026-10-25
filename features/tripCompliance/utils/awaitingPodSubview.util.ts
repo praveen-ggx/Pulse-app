@@ -1,6 +1,31 @@
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
+import { isSoftPodDocumentType } from "@/features/trips/services/tripDocumentLrPod.service";
 import { lrReceiptForTrip } from "@/features/trips/utils/lrReceiptStatus.util";
 import Theme from "@/constants/Theme";
+
+export type AwaitingPodSoftSlice = "all" | "soft_received" | "not_received";
+
+export function tripHasSoftCopyPodOnFile(summary: {
+  documents: { document_type?: string | null; storage_path?: string | null }[];
+}): boolean {
+  return summary.documents.some(
+    (doc) => isSoftPodDocumentType(doc.document_type) && Boolean(doc.storage_path?.trim()),
+  );
+}
+
+export function countAwaitingPodSoftCopy(
+  summaries: readonly { documents: { document_type?: string | null; storage_path?: string | null }[] }[],
+): Record<AwaitingPodSoftSlice, number> {
+  let softReceived = 0;
+  for (const summary of summaries) {
+    if (tripHasSoftCopyPodOnFile(summary)) softReceived += 1;
+  }
+  return {
+    all: summaries.length,
+    soft_received: softReceived,
+    not_received: summaries.length - softReceived,
+  };
+}
 
 /** India business calendar for “days since the trip was completed”. */
 const COMPLETION_TIME_ZONE = "Asia/Kolkata";

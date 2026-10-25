@@ -7,7 +7,7 @@ import {
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import type { ComplianceQueueFilter } from "@/features/tripCompliance/hooks/useComplianceTripsQuery";
-import { ChevronLeft, Download, Wallet } from "lucide-react-native";
+import { ChevronLeft, Download, Package, Wallet } from "lucide-react-native";
 import React, { type ReactNode } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
@@ -27,6 +27,7 @@ export function ComplianceMobileChrome({
   subFilter,
   extraFilters,
   canBulkPay,
+  bulkLabel = "Bulk Payment",
   onBulkPay,
   canExport,
   onExport,
@@ -40,6 +41,7 @@ export function ComplianceMobileChrome({
   subFilter?: ReactNode;
   extraFilters?: ReactNode;
   canBulkPay?: boolean;
+  bulkLabel?: string;
   onBulkPay?: () => void;
   canExport?: boolean;
   onExport?: () => void;
@@ -67,10 +69,14 @@ export function ComplianceMobileChrome({
                 onPress={onBulkPay}
                 style={[styles.headerAction, styles.headerActionPrimary]}
                 accessibilityRole="button"
-                accessibilityLabel="Bulk Payment"
+                accessibilityLabel={bulkLabel}
                 hitSlop={Layout.touchTargetHitSlop}
               >
-                <Wallet size={17} color={Theme.buttonDarkText} strokeWidth={2.1} />
+                {bulkLabel === "Log Bulk POD" ? (
+                  <Package size={17} color={Theme.buttonDarkText} strokeWidth={2.1} />
+                ) : (
+                  <Wallet size={17} color={Theme.buttonDarkText} strokeWidth={2.1} />
+                )}
               </TouchableOpacity>
             ) : null}
           </View>
@@ -117,10 +123,12 @@ export function ComplianceMobileReviewHeader({
   title,
   subtitle,
   onBack,
+  trailing,
 }: {
   title: string;
   subtitle?: string;
   onBack: () => void;
+  trailing?: ReactNode;
 }) {
   return (
     <View style={styles.reviewBar} accessibilityRole="header">
@@ -143,6 +151,7 @@ export function ComplianceMobileReviewHeader({
           </Text>
         ) : null}
       </View>
+      {trailing}
     </View>
   );
 }

@@ -1,8 +1,19 @@
 import type { RegistryNotificationAvatar } from "@/lib/alertRegistry/registryNotificationAvatar.util";
 
-export type TripAuditLogCategory = "payment" | "trip" | "assignment" | "status";
+export type TripAuditLogCategory =
+  | "payment"
+  | "trip"
+  | "assignment"
+  | "status"
+  | "document";
 
-export type TripAuditFilterTab = "all" | "updates" | "assignment" | "payment";
+export type TripAuditFilterTab =
+  | "all"
+  | "updates"
+  | "assignment"
+  | "payment"
+  | "documents"
+  | "activity";
 
 export type TripAuditLogPerson = {
   name: string;

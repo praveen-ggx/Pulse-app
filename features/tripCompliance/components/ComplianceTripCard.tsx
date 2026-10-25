@@ -16,6 +16,7 @@ import {
   groupToneVisual,
   paymentStatusVisual,
   shouldShowPaymentStatusPill,
+  podDebitStatusVisual,
   verificationStatusVisual,
 } from "@/features/tripCompliance/utils/complianceCardVisual.util";
 import {
@@ -28,6 +29,7 @@ import {
 } from "@/features/tripCompliance/utils/complianceReadiness.util";
 import { splitHubRouteLocationDisplay } from "@/features/trips/utils/tripLocationDisplay.util";
 import { formatIndianVehicleNumber } from "@/lib/format";
+import { ComplianceActivityLogButton } from "@/features/tripCompliance/components/ComplianceTripActivityLog";
 import { Check, Eye } from "lucide-react-native";
 import React, { useMemo, useState } from "react";
 import {
@@ -57,6 +59,7 @@ export type ComplianceTripCardProps = {
   canManageFinance?: boolean;
   /** Details screen renders its own full decline section. */
   hideDeclineNotice?: boolean;
+  onOpenActivityLog?: () => void;
 };
 
 function asLabel(value: unknown): string {
@@ -207,12 +210,14 @@ export function ComplianceTripCard({
   onMarkComplianceVerified,
   canManageFinance = false,
   hideDeclineNotice = false,
+  onOpenActivityLog,
 }: ComplianceTripCardProps) {
   const trip = summary.trip;
   const checklist = ensureComplianceChecklist(summary);
   const readiness = useMemo(() => deriveComplianceQueueReadiness(summary), [summary]);
   const verification = verificationStatusVisual(summary);
   const payment = paymentStatusVisual(summary);
+  const debitStatus = podDebitStatusVisual(summary);
   const showPaymentPill = shouldShowPaymentStatusPill(summary);
   const fullyVerified = Boolean(summary.complianceVerifiedAt);
   /** Pending-docs cards already show status in the header — no Verify Docs action. */
@@ -303,6 +308,14 @@ export function ComplianceTripCard({
             </View>
             <View style={styles.headMetaCol}>
               <View style={styles.headStatusRow}>
+                {onOpenActivityLog ? (
+                  <ComplianceActivityLogButton
+                    compact
+                    onPress={() => {
+                      onOpenActivityLog();
+                    }}
+                  />
+                ) : null}
                 <View
                   style={[
                     styles.headStatusPill,
@@ -482,6 +495,19 @@ export function ComplianceTripCard({
                   {payment.label}
                 </Text>
               </View>
+              {debitStatus ? (
+                <View
+                  style={[styles.stagePill, { backgroundColor: debitStatus.tone.bg }]}
+                  accessibilityLabel={debitStatus.label}
+                >
+                  <Text
+                    style={[styles.stagePillText, { color: debitStatus.tone.fg }]}
+                    numberOfLines={1}
+                  >
+                    {debitStatus.label}
+                  </Text>
+                </View>
+              ) : null}
             </View>
           </View>
         ) : null}

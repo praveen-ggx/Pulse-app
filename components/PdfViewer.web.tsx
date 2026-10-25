@@ -26,9 +26,10 @@ interface PdfViewerProps {
   zoom?: number;
   /**
    * `original` opens the PDF at that zoom (100% of the page).
-   * `fit` scales the page to the frame, which is what the browser does by default.
+   * `fit` letterboxes the page in the frame.
+   * `cover` fills the frame (card thumbs).
    */
-  sizing?: "original" | "fit";
+  sizing?: "original" | "fit" | "cover";
   /** 1-based page. Omitted leaves the viewer on its default first page. */
   page?: number;
   /**
@@ -50,7 +51,7 @@ function withPdfViewerHash(
   uri: string,
   showToolbar: boolean,
   zoom: number,
-  sizing: "original" | "fit",
+  sizing: "original" | "fit" | "cover",
   page?: number,
   scrollbar?: boolean,
 ): string {
@@ -69,6 +70,7 @@ function PdfEmbedPage({
   uri,
   page = 1,
   style,
+  sizing = "fit",
   documentKey,
   documentVersion,
   previewTier,
@@ -79,6 +81,7 @@ function PdfEmbedPage({
   uri: string;
   page?: number;
   style?: StyleProp<ViewStyle>;
+  sizing?: "fit" | "cover";
   documentKey?: string | null;
   documentVersion?: string | null;
   previewTier?: PreviewTier;
@@ -187,7 +190,14 @@ function PdfEmbedPage({
       accessibilityLabel="PDF page preview"
     >
       {bitmap ? (
-        <Image source={{ uri: bitmap }} style={styles.bitmap} resizeMode="contain" />
+        <Image
+          source={{ uri: bitmap }}
+          style={[
+            styles.bitmap,
+            { objectFit: sizing === "cover" ? "cover" : "contain" } as never,
+          ]}
+          resizeMode={sizing === "cover" ? "cover" : "contain"}
+        />
       ) : (
         <View style={styles.skeleton} accessibilityLabel="Loading document preview">
           <ActivityIndicator color={Theme.textMuted} size="small" />
@@ -227,6 +237,7 @@ export function PdfViewer({
         uri={pdfUri}
         page={page ?? 1}
         style={style}
+        sizing={sizing === "cover" ? "cover" : "fit"}
         documentKey={documentKey}
         documentVersion={documentVersion}
         previewTier={previewTier}

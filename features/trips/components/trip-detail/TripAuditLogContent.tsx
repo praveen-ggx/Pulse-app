@@ -44,6 +44,8 @@ const METRONIC = {
 
 const TABS: { id: TripAuditFilterTab; label: string }[] = [
   { id: "all", label: "All" },
+  { id: "documents", label: "Documents" },
+  { id: "activity", label: "Activity" },
   { id: "payment", label: "Payment" },
   { id: "updates", label: "Updates" },
   { id: "assignment", label: "Assignment" },
@@ -73,6 +75,11 @@ const CATEGORY_TONE: Record<
     text: "#4f46e5",
     border: "rgba(99,102,241,0.22)",
   },
+  document: {
+    bg: "rgba(14,165,233,0.1)",
+    text: "#0369a1",
+    border: "rgba(14,165,233,0.22)",
+  },
 };
 
 export type TripAuditLogContentProps = {
@@ -83,6 +90,8 @@ export type TripAuditLogContentProps = {
   loading?: boolean;
   onClose: () => void;
   shellStyle?: ViewStyle;
+  tabs?: TripAuditFilterTab[];
+  emptyBody?: string;
 };
 
 type TimelineRow =
@@ -401,11 +410,20 @@ export function TripAuditLogContent({
   loading = false,
   onClose,
   shellStyle,
+  tabs,
+  emptyBody,
 }: TripAuditLogContentProps) {
   const { width } = useWindowDimensions();
   const scrollRef = useRef<ScrollView>(null);
+  const visibleTabs = useMemo(
+    () => (tabs?.length ? TABS.filter((tab) => tabs.includes(tab.id)) : TABS),
+    [tabs],
+  );
   const [filterTab, setFilterTab] = useState<TripAuditFilterTab>("all");
   const [activeYear, setActiveYear] = useState<number | null>(null);
+  useEffect(() => {
+    if (!visibleTabs.some((tab) => tab.id === filterTab)) setFilterTab("all");
+  }, [filterTab, visibleTabs]);
 
   const tabbedEntries = useMemo(
     () => entries.filter((entry) => matchesTab(entry, filterTab)),
@@ -465,7 +483,7 @@ export function TripAuditLogContent({
           contentContainerStyle={styles.tabScrollContent}
           style={styles.tabScroll}
         >
-          {TABS.map((tab) => {
+          {visibleTabs.map((tab) => {
             const selected = filterTab === tab.id;
             return (
               <Pressable
@@ -576,8 +594,8 @@ export function TripAuditLogContent({
               </View>
               <Text style={styles.emptyTitle}>No activity yet</Text>
               <Text style={styles.emptyBody}>
-                Payments, assignments, and trip updates by your team will appear
-                on this journey timeline.
+                {emptyBody ??
+                  "Payments, assignments, and trip updates by your team will appear on this journey timeline."}
               </Text>
             </View>
           ) : null}

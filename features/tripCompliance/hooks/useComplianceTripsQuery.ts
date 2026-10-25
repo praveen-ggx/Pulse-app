@@ -266,14 +266,96 @@ export type ComplianceQueueFilter = ComplianceStage | "all" | "pod_received";
 
 /** Hard copy is in, and the charge form has not been saved yet. */
 export function tripStillInPodReceived(summary: ComplianceTripSummary): boolean {
-  return Boolean(summary.hardCopyPod?.received) && summary.hardCopyPod?.chargesSaved !== true;
+  return (
+    Boolean(summary.hardCopyPod?.received) &&
+    summary.hardCopyPod?.chargesSaved !== true &&
+    summary.hardCopyPod?.revalidateRequested !== true
+  );
+}
+
+/** Settlement sent this trip back so Debit Control can rework POD charges. */
+export function tripNeedsPodReverification(summary: ComplianceTripSummary): boolean {
+  return (
+    Boolean(summary.hardCopyPod?.received) &&
+    summary.hardCopyPod?.revalidateRequested === true &&
+    summary.hardCopyPod?.chargesSaved !== true
+  );
 }
 
 /** Saved charges belong on Balance Pending, including trips already derived there. */
 export function tripAppearsInBalancePending(summary: ComplianceTripSummary): boolean {
-  if (summary.stage === "payment_settled") return false;
+  if (summary.stage === "payment_settled" || summary.balance) return false;
+  if (summary.hardCopyPod?.settlementReleased === true) return false;
+  if (summary.hardCopyPod?.revalidateRequested === true) return false;
   if (summary.hardCopyPod?.chargesSaved === true) return true;
   return summary.stage === "balance_pending";
+}
+
+/** Final Settlement: exclusive settled stage, posted balance, or CN/DN release. */
+export function tripAppearsInFinalSettlement(
+  summary: Pick<ComplianceTripSummary, "stage" | "balance"> & {
+    hardCopyPod?: { settlementReleased?: boolean };
+  },
+): boolean {
+  return (
+    summary.stage === "payment_settled" ||
+    Boolean(summary.balance) ||
+    summary.hardCopyPod?.settlementReleased === true
+  );
+}
+
+/** Chip totals. Final Settlement is exclusive — do not add it again as an overlay. */
+export function tallyComplianceStageCounts(
+  summaries: ComplianceTripSummary[] | undefined,
+): ComplianceStageCounts {
+  const next: ComplianceStageCounts = {
+    all: summaries?.length ?? 0,
+    pending_for_docs: 0,
+    compliance_pending: 0,
+    compliance_verified: 0,
+    finance_verified: 0,
+    advance_payment_processed: 0,
+    hard_copy_pod_received: 0,
+    balance_pending: 0,
+    payment_settled: 0,
+  };
+  for (const summary of summaries ?? []) {
+    // Active rejects and holds are Ground Ops work; a resubmitted finance
+    // reject is back with Finance. Each trip counts on one queue.
+    if (isActiveFinanceReject(summary)) {
+      next.pending_for_docs += 1;
+    } else if (summary.stage === "compliance_pending" && isComplianceHoldAwaitingResubmit(summary)) {
+      next.pending_for_docs += 1;
+    } else if (tripAppearsInFinalSettlement(summary)) {
+      next.payment_settled += 1;
+    } else if (summary.stage in next) {
+      next[summary.stage] += 1;
+    }
+    if (summary.stage !== "compliance_verified" && isComplianceVerifiedQueue(summary)) {
+      next.compliance_verified += 1;
+    } else if (
+      !summary.financeVerifiedAt &&
+      isCompliancePaymentPending(summary) &&
+      summary.stage !== "compliance_verified" &&
+      !isComplianceVerifiedQueue(summary)
+    ) {
+      next.compliance_verified += 1;
+    }
+    if (
+      summary.stage !== "hard_copy_pod_received" &&
+      (tripAppearsInAwaitingPod(summary) || tripStillInPodReceived(summary))
+    ) {
+      next.hard_copy_pod_received += 1;
+    }
+    if (summary.stage !== "balance_pending" && tripAppearsInBalancePending(summary)) {
+      next.balance_pending += 1;
+    }
+  }
+  // Same rule as the Finance Verified list, so the chip count always matches it.
+  next.finance_verified = (summaries ?? []).filter(isFinanceVerifiedQueue).length;
+  // Awaiting POD also lists paid trips still running (their exclusive stage is Advance Processed).
+  next.hard_copy_pod_received += next.advance_payment_processed;
+  return next;
 }
 
 export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | undefined) {
@@ -281,10 +363,17 @@ export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | un
   const filtered = useMemo(() => {
     if (!summaries) return [];
     if (stage === "all") return summaries;
-    if (stage === "pod_received") return summaries.filter(tripStillInPodReceived);
+    if (stage === "pod_received") {
+      return summaries.filter(
+        (summary) => tripStillInPodReceived(summary) || tripNeedsPodReverification(summary),
+      );
+    }
     if (stage === "balance_pending") {
       // Settlement Verification. Settled trips have their own Final Settlement tab.
       return summaries.filter(tripAppearsInBalancePending);
+    }
+    if (stage === "payment_settled") {
+      return summaries.filter(tripAppearsInFinalSettlement);
     }
     if (stage === "compliance_verified") {
       // Advance still owed stays on Verified. Payment Pending is not its own chip.
@@ -327,57 +416,13 @@ export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | un
     return summaries.filter((s) => s.stage === stage);
   }, [summaries, stage]);
 
-  const counts = useMemo((): ComplianceStageCounts => {
-    const next: ComplianceStageCounts = {
-      all: summaries?.length ?? 0,
-      pending_for_docs: 0,
-      compliance_pending: 0,
-      compliance_verified: 0,
-      finance_verified: 0,
-      advance_payment_processed: 0,
-      hard_copy_pod_received: 0,
-      balance_pending: 0,
-      payment_settled: 0,
-    };
-    for (const summary of summaries ?? []) {
-      // Active rejects and holds are Ground Ops work; a resubmitted finance
-      // reject is back with Finance. Each trip counts on one queue.
-      if (isActiveFinanceReject(summary)) {
-        next.pending_for_docs += 1;
-      } else if (summary.stage === "compliance_pending" && isComplianceHoldAwaitingResubmit(summary)) {
-        next.pending_for_docs += 1;
-      } else if (summary.stage in next) {
-        next[summary.stage] += 1;
-      }
-      if (summary.stage !== "compliance_verified" && isComplianceVerifiedQueue(summary)) {
-        next.compliance_verified += 1;
-      } else if (
-        !summary.financeVerifiedAt &&
-        isCompliancePaymentPending(summary) &&
-        summary.stage !== "compliance_verified" &&
-        !isComplianceVerifiedQueue(summary)
-      ) {
-        next.compliance_verified += 1;
-      }
-      if (
-        summary.stage !== "hard_copy_pod_received" &&
-        (tripAppearsInAwaitingPod(summary) || tripStillInPodReceived(summary))
-      ) {
-        next.hard_copy_pod_received += 1;
-      }
-      if (summary.stage !== "balance_pending" && tripAppearsInBalancePending(summary)) {
-        next.balance_pending += 1;
-      }
-    }
-    // Same rule as the Finance Verified list, so the chip count always matches it.
-    next.finance_verified = (summaries ?? []).filter(isFinanceVerifiedQueue).length;
-    // Awaiting POD also lists paid trips still running (their exclusive stage is Advance Processed).
-    next.hard_copy_pod_received += next.advance_payment_processed;
-    return next;
-  }, [summaries]);
+  const counts = useMemo(() => tallyComplianceStageCounts(summaries), [summaries]);
 
   const podReceivedCount = useMemo(
-    () => (summaries ?? []).filter(tripStillInPodReceived).length,
+    () =>
+      (summaries ?? []).filter(
+        (summary) => tripStillInPodReceived(summary) || tripNeedsPodReverification(summary),
+      ).length,
     [summaries],
   );
 

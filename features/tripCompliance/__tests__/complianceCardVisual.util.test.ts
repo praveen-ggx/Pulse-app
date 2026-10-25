@@ -7,6 +7,7 @@ import {
   formatComplianceTimestamp,
   matchesComplianceTripSearch,
   tripOpsStatusBadge,
+  podDebitStatusVisual,
   verificationStatusVisual,
   shouldShowPaymentStatusPill,
 } from "@/features/tripCompliance/utils/complianceCardVisual.util";
@@ -42,10 +43,26 @@ describe("complianceCardVisual", () => {
     expect(splitPlace("Warangal, Telangana")).toEqual({ city: "Warangal", region: "Telangana" });
   });
 
-  it("labels the trip operations status for the Compliance Pending badge", () => {
-    expect(tripOpsStatusBadge("in_transit")?.label).toBe("In Transit");
-    expect(tripOpsStatusBadge("completed")?.label).toBe("Completed");
-    expect(tripOpsStatusBadge("")).toBeNull();
+  it("tags a validated POD as No debit or Debit", () => {
+    expect(podDebitStatusVisual(summary())).toBeNull();
+    expect(
+      podDebitStatusVisual(
+        summary({ hardCopyPod: { ...summary().hardCopyPod, noDebit: true, chargesSaved: true } }),
+      )?.label,
+    ).toBe("No debit");
+    expect(
+      podDebitStatusVisual(
+        summary({ hardCopyPod: { ...summary().hardCopyPod, hasDebit: true, chargesSaved: true } }),
+      )?.label,
+    ).toBe("Debit");
+  });
+
+  it("labels the trip operations status for every compliance card", () => {
+    expect(tripOpsStatusBadge("in_transit", { driver_id: "d1" })?.label).toBe("In Transit");
+    expect(tripOpsStatusBadge("completed", { driver_id: "d1" })?.label).toBe("Delivered");
+    expect(tripOpsStatusBadge("unloading", { driver_id: "d1" })?.label).toBe("Unloading");
+    expect(tripOpsStatusBadge("assigned", { driver_id: "d1" })?.label).toBe("Assigned");
+    expect(tripOpsStatusBadge("", { driver_id: null })?.label).toBe("Unassigned");
   });
 
   it("maps payment labels from existing payment/stage fields", () => {

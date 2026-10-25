@@ -48,6 +48,7 @@ import { validatePhone } from "@/lib/phoneValidation";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { Check, ChevronRight, Circle, Plus, Star } from "lucide-react-native";
 import { patchAssignmentCaches } from "@/features/trips/utils/assignmentCachePatch.util";
+import { tripAssignmentVehicleWrite } from "@/features/trips/utils/tripAssignmentVehicle.util";
 import { publishAssignmentPaint } from "@/features/trips/utils/assignmentPaint.util";
 import { setInitialTripForDetail } from "@/features/trips/initialTripForDetail";
 import { useQueryClient } from "@tanstack/react-query";
@@ -358,11 +359,19 @@ export function TripAssignmentBlock({
     const trimmed = cardVehicleInput.trim();
     if (!trimmed) return;
     const vehicleId = resolveVehicleIdFromInput(trimmed, vehicles);
-    if (vehicleId === (trip.vehicle_id ?? null)) return;
+    if (
+      vehicleId === (trip.vehicle_id ?? null) &&
+      trimmed === (trip.vehicle_display_number ?? "").trim()
+    ) {
+      return;
+    }
     setCardVehicleSaving(true);
     const { error } = await updateTripAssignment(
       trip.id,
-      { vehicle_id: vehicleId },
+      tripAssignmentVehicleWrite({
+        resolvedVehicleId: vehicleId,
+        plate: trimmed,
+      }),
       currentUserId != null
         ? {
             changedBy: currentUserId,
@@ -699,10 +708,9 @@ export function TripAssignmentBlock({
       } else if (effectiveVehicleInput.trim()) {
         const { error: vehicleErr } = await updateTripAssignment(
           trip.id,
-          {
-            vehicle_id: null,
-            vehicle_display_number: effectiveVehicleInput.trim(),
-          },
+          tripAssignmentVehicleWrite({
+            plate: effectiveVehicleInput.trim(),
+          }),
           auditOpts,
         );
         if (vehicleErr)
@@ -1409,14 +1417,12 @@ export function TripAssignmentBlock({
           {
             ...(driverId !== trip.driver_id ? { driver_id: driverId } : {}),
             ...(vehicleIdChanged ? { vehicle_id: vehicleId } : {}),
-            ...(extras?.vehiclePlate && !vehicleId
-              ? { vehicle_id: null }
-              : {}),
+            ...tripAssignmentVehicleWrite({
+              resolvedVehicleId: vehicleIdChanged ? vehicleId : null,
+              plate: persistVehiclePlate,
+            }),
             ...(persistDriverName
               ? { driver_display_name: persistDriverName }
-              : {}),
-            ...(persistVehiclePlate
-              ? { vehicle_display_number: persistVehiclePlate }
               : {}),
           },
           currentUserId != null

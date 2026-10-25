@@ -240,10 +240,11 @@ const SCREEN_CSS = `
     top: 42%;
     left: 50%;
     transform: translate(-50%, -50%) rotate(-14deg);
-    font-size: 28px;
+    font-size: 32px;
     font-weight: 800;
-    color: rgba(190, 18, 60, 0.25);
-    border: 3px solid rgba(190, 18, 60, 0.3);
+    letter-spacing: 0.12em;
+    color: rgba(190, 18, 60, 0.38);
+    border: 3px solid rgba(190, 18, 60, 0.42);
     padding: 6px 14px;
     z-index: 2;
     pointer-events: none;
@@ -302,10 +303,11 @@ const PRINT_CSS = `
     top: 40%;
     left: 50%;
     transform: translate(-50%, -50%) rotate(-14deg);
-    font-size: 26px;
+    font-size: 30px;
     font-weight: 800;
-    color: rgba(190, 18, 60, 0.22);
-    border: 3px solid rgba(190, 18, 60, 0.28);
+    letter-spacing: 0.12em;
+    color: rgba(190, 18, 60, 0.36);
+    border: 3px solid rgba(190, 18, 60, 0.4);
     padding: 5px 12px;
     z-index: 2;
     pointer-events: none;
@@ -328,7 +330,7 @@ function wrapDocument(
 ): string {
   const safeTitle = escapeHtml(title);
   const voidStamp = voided
-    ? `<div class="void-stamp" aria-hidden="true">VOIDED</div>`
+    ? `<div class="void-stamp" aria-hidden="true">CANCELLED</div>`
     : "";
   return `<!DOCTYPE html>
 <html lang="en">

@@ -1,3 +1,4 @@
+import { ThemedConfirmModal } from "@/components/ThemedConfirmModal";
 import Theme from "@/constants/Theme";
 import { HardCopyPodDateField } from "@/features/trips/components/trip-detail/HardCopyPodDateField";
 import {
@@ -7,8 +8,10 @@ import {
 import {
   CHARGE_FIELDS,
   IBOND_DEDUCTIBLE_COST,
+  POD_EXCEPTION_CHARGE_KEYS,
   type ChargeDraft,
   type ChargeFieldKey,
+  type PodExceptionLogDraft,
 } from "@/features/debit-control/utils/debitControlPod.model";
 import {
   formatPodReceivingAging,
@@ -24,7 +27,7 @@ import {
   formatInr,
   netChargeTotal,
 } from "@/features/debit-control/utils/podChargeTotals.util";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -70,6 +73,12 @@ export function PodClientValidationPanel({
   tripOrganizationId = null,
   ibond = false,
   reviewMode = false,
+  notifyLayout = false,
+  hideTripIdentity = false,
+  onlyEntered = false,
+  logEntry = null,
+  exceptionLog = null,
+  onExceptionLogChange,
   onSaved,
 }: {
   organizationId: string;
@@ -91,6 +100,17 @@ export function PodClientValidationPanel({
   ibond?: boolean;
   /** Charges stay as text until Edit. Save on POD Received moves the trip on. */
   reviewMode?: boolean;
+  /** Notification-card grouping used on POD Verification. */
+  notifyLayout?: boolean;
+  /** Hide trip id / client / route — already on the left card. */
+  hideTripIdentity?: boolean;
+  /** Hide empty charge rows, empty groups, and blank invoice. */
+  onlyEntered?: boolean;
+  /** Logged POD fields (no trip card) above the charge groups. */
+  logEntry?: ReactNode;
+  /** Exception log from the POD Verification left card. */
+  exceptionLog?: PodExceptionLogDraft | null;
+  onExceptionLogChange?: (next: PodExceptionLogDraft) => void;
   /** Called after charges are stored. */
   onSaved?: () => void;
 }) {
@@ -111,6 +131,7 @@ export function PodClientValidationPanel({
   const [delivery, setDelivery] = useState("");
   const [dispatchDate, setDispatchDate] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [confirmProceed, setConfirmProceed] = useState(false);
   const [saved, setSaved] = useState(false);
   const [editing, setEditing] = useState(false);
   const [clientBaseline, setClientBaseline] = useState<ChargeDraft | null>(null);
@@ -147,12 +168,32 @@ export function PodClientValidationPanel({
     setVendorDraft(vendorSeed);
     setInvoiceNumber(loaded.data.invoiceNumber?.trim() || "");
     setTripStart(isoDate(loaded.data.tripStartDate) || isoDate(startDate));
-    setDelivery(isoDate(loaded.data.deliveryDate) || isoDate(deliveryDate));
+    const nextDelivery = isoDate(loaded.data.deliveryDate) || isoDate(deliveryDate);
+    setDelivery(nextDelivery);
     setDispatchDate(isoDate(loaded.data.dispatchDate));
     setSeededFor(tripId);
     setError(null);
     setSaved(false);
-  }, [loaded.data, tripId, clientPrice, supplierRate, startDate, deliveryDate, seededFor, ibond]);
+    onExceptionLogChange?.(
+      exceptionFromDrafts(chargeDraftFromLines(lines), vendorSeed, nextDelivery),
+    );
+  }, [loaded.data, tripId, clientPrice, supplierRate, startDate, deliveryDate, seededFor, ibond, onExceptionLogChange]);
+
+  useEffect(() => {
+    if (!exceptionLog) return;
+    setDelivery((current) =>
+      current === exceptionLog.actualDeliveryDate ? current : exceptionLog.actualDeliveryDate,
+    );
+    setDraft((current) => applyExceptionLog(current, exceptionLog));
+    setVendorDraft((current) => applyExceptionLog(current, exceptionLog));
+  }, [exceptionLog]);
+
+  const patchException = (key: ChargeFieldKey, value: string) => {
+    if (!onExceptionLogChange) return;
+    if (!(POD_EXCEPTION_CHARGE_KEYS as readonly string[]).includes(key)) return;
+    const base = exceptionLog ?? exceptionFromDrafts(draft, vendorDraft, delivery);
+    onExceptionLogChange({ ...base, [key]: value });
+  };
 
   const aging = podReceivingAging(delivery, podAgingEndDate(dispatchDate, todayIsoDate()), true);
   const showIbond = ibond || loaded.data?.ibond === true;
@@ -223,14 +264,46 @@ export function PodClientValidationPanel({
     <View style={styles.root}>
     <ScrollView
       style={styles.scroll}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, notifyLayout && styles.contentNotify]}
       keyboardShouldPersistTaps="handled"
     >
-      <View style={styles.header}>
+      {logEntry ? <View style={styles.logEntry}>{logEntry}</View> : null}
+      {hideTripIdentity ? (
+        reviewMode && !editing ? (
+          <View style={styles.chargesEditRow}>
+            <Text style={styles.notifySection}>Entered charges</Text>
+            <Pressable
+              style={styles.editBtn}
+              onPress={() => {
+                setClientBaseline(draft);
+                setVendorBaseline(vendorDraft);
+                setEditing(true);
+                setError(null);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Edit charges"
+            >
+              <Text style={styles.editBtnText}>Edit</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Text style={styles.notifySection}>Entered charges</Text>
+        )
+      ) : (
+      <View style={[styles.header, notifyLayout && styles.headerNotify]}>
         <View style={styles.titleRow}>
           <View style={styles.titleBlock}>
-            <Text style={styles.title}>POD Validation</Text>
-            <Text style={styles.tripId} numberOfLines={1}>{displayId}</Text>
+            <Text style={notifyLayout ? styles.notifyKicker : styles.title}>
+              {notifyLayout ? "POD plan" : "POD Validation"}
+            </Text>
+            <Text style={notifyLayout ? styles.notifyTitle : styles.tripId} numberOfLines={1}>
+              {displayId}
+            </Text>
+            {notifyLayout ? (
+              <Text style={styles.notifyMeta} numberOfLines={2}>
+                {[clientName, routeLabel].filter(Boolean).join(" · ") || "Client and vendor values from this trip"}
+              </Text>
+            ) : null}
           </View>
           {reviewMode && !editing ? (
             <Pressable
@@ -248,40 +321,58 @@ export function PodClientValidationPanel({
             </Pressable>
           ) : null}
         </View>
-        {[clientName, routeLabel].filter(Boolean).length > 0 ? (
+        {notifyLayout || [clientName, routeLabel].filter(Boolean).length === 0 ? null : (
           <Text style={styles.sub} numberOfLines={2}>
             {[clientName, routeLabel].filter(Boolean).join(" · ")}
           </Text>
-        ) : null}
+        )}
       </View>
-      <View style={styles.dateCard}>
-        <View style={styles.dateCol}>
-          <HardCopyPodDateField
-            compact
-            label="Trip start date"
-            value={tripStart}
-            onChange={setTripStart}
-            disabled={locked}
-          />
-        </View>
-        <View style={styles.dateCol}>
-          <HardCopyPodDateField
-            compact
-            label="Delivery date"
-            value={delivery}
-            onChange={setDelivery}
-            disabled={locked}
-          />
-        </View>
-        <View style={styles.dateCol}>
-          <HardCopyPodDateField
-            compact
-            label="Dispatch date"
-            value={dispatchDate}
-            onChange={setDispatchDate}
-            disabled={locked}
-          />
-        </View>
+      )}
+      {onlyEntered && !dispatchDate && !showIbond && !(shownAging && shownAging.penalty > 0) ? null : (
+      <View style={[styles.dateCard, notifyLayout && styles.notifyQuote]}>
+        {onlyEntered ? null : (
+          <>
+            <View style={styles.dateCol}>
+              <HardCopyPodDateField
+                compact
+                quiet={notifyLayout}
+                label="Trip start date"
+                value={tripStart}
+                onChange={setTripStart}
+                disabled={locked}
+              />
+            </View>
+            <View style={styles.dateCol}>
+                <HardCopyPodDateField
+                  compact
+                  quiet={notifyLayout}
+                  label="Delivery date"
+                  value={delivery}
+                  onChange={(iso) => {
+                    setDelivery(iso);
+                    if (onExceptionLogChange) {
+                      const base = exceptionLog ?? exceptionFromDrafts(draft, vendorDraft, iso);
+                      onExceptionLogChange({ ...base, actualDeliveryDate: iso });
+                    }
+                  }}
+                  disabled={locked}
+                />
+            </View>
+          </>
+        )}
+        {!onlyEntered || dispatchDate ? (
+          <View style={styles.dateCol}>
+            <HardCopyPodDateField
+              compact
+              quiet={notifyLayout}
+              label="Dispatch date"
+              value={dispatchDate}
+              onChange={setDispatchDate}
+              disabled={locked}
+            />
+          </View>
+        ) : null}
+        {!onlyEntered || showIbond || (shownAging && shownAging.penalty > 0) ? (
         <View style={styles.agingCol}>
           <Text style={styles.agingLabel}>Aging</Text>
           <View
@@ -302,7 +393,9 @@ export function PodClientValidationPanel({
             </Text>
           </View>
         </View>
+        ) : null}
       </View>
+      )}
 
       {loaded.isLoading ? <ActivityIndicator color={Theme.textPrimaryDark} style={styles.spinner} /> : null}
       {loaded.isError ? (
@@ -311,20 +404,32 @@ export function PodClientValidationPanel({
         </Text>
       ) : null}
 
-      <Text style={styles.sectionTitle}>Client Details</Text>
+      {!onlyEntered || chargeDraftHasEntry(draft, "Client") ? (
+        <Text style={notifyLayout ? styles.notifySection : styles.sectionTitle}>Client details</Text>
+      ) : null}
       <ChargeCards
         side="Client"
-        showTitles={false}
+        showTitles={notifyLayout}
+        notify={notifyLayout}
+        onlyEntered={onlyEntered}
         labels={CLIENT_LABEL}
         draft={draft}
         invalid={invalid}
         locked={locked}
-        onChange={(key, value) => setDraft((current) => ({ ...current, [key]: value }))}
+        onChange={(key, value) => {
+          setDraft((current) => ({ ...current, [key]: value }));
+          patchException(key, value);
+        }}
       />
+      {onlyEntered && !invoiceNumber.trim() && locked ? null : (
       <View style={styles.grid}>
-        <View style={[styles.card, styles.invoice]}>
-          <Text style={styles.cardTitle}>Sales Invoice Number</Text>
-          <Text style={styles.cardHint}>Fetched from Trips Ops. You can edit it before confirming.</Text>
+        <View style={[styles.card, styles.invoice, notifyLayout && styles.notifyQuote]}>
+          <Text style={notifyLayout ? styles.notifyQuoteTitle : styles.cardTitle}>Sales invoice</Text>
+          {onlyEntered ? null : (
+          <Text style={notifyLayout ? styles.notifyMeta : styles.cardHint}>
+            Fetched from Trips Ops. You can edit it before confirming.
+          </Text>
+          )}
           <TextInput
             value={invoiceNumber}
             editable={!locked}
@@ -339,10 +444,16 @@ export function PodClientValidationPanel({
           ) : null}
         </View>
       </View>
+      )}
 
-      <Text style={styles.sectionTitle}>Vendor Details</Text>
+      {!onlyEntered || chargeDraftHasEntry(vendorDraft, "Vendor") ? (
+        <Text style={notifyLayout ? styles.notifySection : styles.sectionTitle}>Vendor details</Text>
+      ) : null}
       <ChargeCards
         side="Vendor"
+        showTitles={notifyLayout}
+        notify={notifyLayout}
+        onlyEntered={onlyEntered}
         labels={VENDOR_LABEL}
         draft={vendorDraft}
         invalid={vendorInvalid}
@@ -351,6 +462,7 @@ export function PodClientValidationPanel({
         onChange={(key, value) => {
           if (key === "documentCost") return;
           setVendorDraft((current) => ({ ...current, [key]: value }));
+          patchException(key, value);
         }}
       />
     </ScrollView>
@@ -387,7 +499,7 @@ export function PodClientValidationPanel({
               <Pressable
                 style={[styles.confirm, !ready && styles.confirmDisabled]}
                 disabled={!ready}
-                onPress={() => void confirm()}
+                onPress={() => setConfirmProceed(true)}
                 accessibilityRole="button"
                 accessibilityState={{ disabled: !ready }}
                 accessibilityLabel={reviewMode || previouslyValidated ? "Save" : "Confirm Validation"}
@@ -404,8 +516,39 @@ export function PodClientValidationPanel({
           )}
         </View>
       </View>
+      <ThemedConfirmModal
+        visible={confirmProceed}
+        title={reviewMode || previouslyValidated ? "Save POD charges?" : "Validate this POD?"}
+        message={
+          reviewMode || previouslyValidated
+            ? "Save these charges and move this trip to Settlement Verification. Proceed?"
+            : "This completes POD validation and moves the trip to the next step. Proceed?"
+        }
+        confirmText="Proceed"
+        cancelText="Cancel"
+        variant="positive"
+        onCancel={() => setConfirmProceed(false)}
+        onConfirm={() => {
+          setConfirmProceed(false);
+          void confirm();
+        }}
+      />
     </View>
   );
+}
+
+function chargeValueEntered(value: string | null | undefined): boolean {
+  const raw = String(value ?? "").trim();
+  if (!raw) return false;
+  const amount = Number(raw);
+  return Number.isFinite(amount) ? amount !== 0 : true;
+}
+
+function chargeDraftHasEntry(draft: ChargeDraft, side: "Client" | "Vendor"): boolean {
+  return CHARGE_FIELDS.some((field) => {
+    if (side === "Client" && field.vendorOnly) return false;
+    return chargeValueEntered(draft[field.key]);
+  });
 }
 
 function isoDate(value: string | null | undefined): string {
@@ -413,9 +556,37 @@ function isoDate(value: string | null | undefined): string {
   return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : "";
 }
 
+function applyExceptionLog(draft: ChargeDraft, log: PodExceptionLogDraft): ChargeDraft {
+  return {
+    ...draft,
+    loading: log.loading,
+    unloading: log.unloading,
+    damage: log.damage,
+    productMissing: log.productMissing,
+    delay: log.delay,
+  };
+}
+
+function exceptionFromDrafts(
+  client: ChargeDraft,
+  vendor: ChargeDraft,
+  delivery: string,
+): PodExceptionLogDraft {
+  return {
+    loading: client.loading || vendor.loading,
+    unloading: client.unloading || vendor.unloading,
+    damage: client.damage || vendor.damage,
+    productMissing: client.productMissing || vendor.productMissing,
+    delay: client.delay || vendor.delay,
+    actualDeliveryDate: delivery,
+  };
+}
+
 function ChargeCards({
   side,
   showTitles = false,
+  notify = false,
+  onlyEntered = false,
   labels,
   draft,
   invalid,
@@ -425,6 +596,8 @@ function ChargeCards({
 }: {
   side: "Client" | "Vendor";
   showTitles?: boolean;
+  notify?: boolean;
+  onlyEntered?: boolean;
   labels: Map<ChargeFieldKey, string>;
   draft: ChargeDraft;
   invalid: Set<ChargeFieldKey>;
@@ -433,27 +606,46 @@ function ChargeCards({
   readOnlyKeys?: readonly ChargeFieldKey[];
   onChange: (key: ChargeFieldKey, value: string) => void;
 }) {
+  const visibleGroups = GROUP_KEYS.map((group) => {
+    const keys = group.keys.filter((key) => {
+      if (side === "Client" && CHARGE_FIELDS.find((field) => field.key === key)?.vendorOnly) {
+        return false;
+      }
+      if (!onlyEntered) return true;
+      const groupHasEntry = group.keys.some((item) => chargeValueEntered(draft[item]));
+      if (!groupHasEntry) return false;
+      if (locked) return chargeValueEntered(draft[key]);
+      return true;
+    });
+    return { group, keys };
+  }).filter((item) => item.keys.length > 0);
+
+  if (visibleGroups.length === 0) return null;
+
   return (
     <View style={styles.grid}>
-      {GROUP_KEYS.map((group) => (
-        <View key={group.tone} style={[styles.card, styles[group.tone]]}>
-          {showTitles ? (
-            <Text style={styles.cardTitle}>
-              {side} {group.title}
+      {visibleGroups.map(({ group, keys }) => (
+        <View
+          key={group.tone}
+          style={[styles.card, styles[group.tone], notify && styles.notifyQuote]}
+        >
+          {showTitles || notify ? (
+            <Text style={notify ? styles.notifyQuoteTitle : styles.cardTitle}>
+              {side} {group.title.toLowerCase()}
             </Text>
           ) : null}
-          <Text style={styles.cardHint}>
+          <Text style={notify ? styles.notifyMeta : styles.cardHint}>
             {group.included
-              ? `Included in Total ${side} Value`
-              : `Deducted from Total ${side} Value`}
+              ? `Included in total ${side.toLowerCase()} value`
+              : `Deducted from total ${side.toLowerCase()} value`}
           </Text>
+          {onlyEntered ? null : (
           <View style={styles.tableHead}>
             <Text style={styles.headLabel}>Field</Text>
             <Text style={styles.headAmount}>Amount (₹)</Text>
           </View>
-          {group.keys
-            .filter((key) => side === "Vendor" || !CHARGE_FIELDS.find((field) => field.key === key)?.vendorOnly)
-            .map((key) => (
+          )}
+          {keys.map((key) => (
             <View key={key} style={styles.row}>
               <Text style={styles.fieldLabel}>{labels.get(key)}</Text>
               {locked || readOnlyKeys?.includes(key) ? (
@@ -484,6 +676,14 @@ const styles = StyleSheet.create({
   root: { flex: 1, minHeight: 0, backgroundColor: Theme.cardWhite },
   scroll: { flex: 1 },
   content: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 16, gap: 10 },
+  contentNotify: { paddingHorizontal: 12, paddingTop: 10, gap: 8 },
+  logEntry: { minHeight: 0 },
+  chargesEditRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
   header: {
     gap: 4,
     paddingBottom: 10,
@@ -524,6 +724,38 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 16, fontWeight: "800", color: Theme.primaryText },
   tripId: { fontSize: 12, fontWeight: "700", color: Theme.textSecondary },
+  headerNotify: { borderBottomWidth: 0, paddingBottom: 2 },
+  notifyKicker: { fontSize: 11, fontWeight: "400", color: Theme.textMuted },
+  notifyTitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "500",
+    color: Theme.textPrimaryDark,
+  },
+  notifyMeta: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "400",
+    color: Theme.textMuted,
+  },
+  notifySection: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: Theme.textPrimaryDark,
+    marginTop: 4,
+  },
+  notifyQuote: {
+    backgroundColor: Theme.compliancePageBg,
+    borderColor: Theme.complianceTripCardBorder,
+    borderRadius: 6,
+    gap: 6,
+  },
+  notifyQuoteTitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "500",
+    color: Theme.textPrimaryDark,
+  },
   dateCard: {
     flexDirection: "row",
     flexWrap: "wrap",

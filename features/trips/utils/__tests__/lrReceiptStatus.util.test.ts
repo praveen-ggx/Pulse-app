@@ -2,6 +2,7 @@ import {
   courierLrReceiptPlan,
   decodeCourierLrRemarks,
   encodeCourierLrRemarks,
+  formatCourierLrRemarks,
   lrReceiptForTrip,
 } from "@/features/trips/utils/lrReceiptStatus.util";
 import type { HardCopyPodLrOption } from "@/features/trips/utils/hardCopyPodLrSelection.util";
@@ -59,5 +60,13 @@ describe("lr receipt status", () => {
       text: "plain note",
       receivedLrs: [],
     });
+  });
+
+  it("formats courier remarks for activity without showing JSON", () => {
+    const encoded = encodeCourierLrRemarks({ text: null, receivedLrs: ["A10222"] });
+    expect(formatCourierLrRemarks(encoded)).toBe("Received LR A10222");
+    expect(formatCourierLrRemarks(encoded)).not.toContain("{");
+    expect(formatCourierLrRemarks('{"v":1,"kind":"other"}')).toBeNull();
+    expect(formatCourierLrRemarks("left at gate")).toBe("left at gate");
   });
 });

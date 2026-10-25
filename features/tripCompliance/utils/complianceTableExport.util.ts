@@ -142,7 +142,7 @@ export function buildComplianceTableSheetRows(
     base.Vehicle = groupLabel(deriveComplianceGroupStatus(vehicleRows));
     base.Driver = groupLabel(deriveComplianceGroupStatus(driverRows));
     if (compliancePendingLayout) {
-      base["Trip Status"] = tripOpsStatusBadge(summary.trip.status)?.label ?? "";
+      base["Trip Status"] = tripOpsStatusBadge(summary.trip.status, summary.trip)?.label ?? "";
     }
     base.Stage = verificationStatusVisual(summary).label;
     if (!compliancePendingLayout) {

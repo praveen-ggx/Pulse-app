@@ -380,6 +380,7 @@ export function CompliancePaymentConfirmModal({
   onFinanceVerify,
   financeVerifySubmitting = false,
   onPreviewMemo,
+  suggestedAmount = null,
 }: {
   visible: boolean;
   summary: ComplianceTripSummary | null;
@@ -402,6 +403,8 @@ export function CompliancePaymentConfirmModal({
   financeVerifySubmitting?: boolean;
   /** Opens the memo in the workspace viewer (zoom / rotate) instead of a new tab. */
   onPreviewMemo?: () => void;
+  /** Final Settlement remaining payable after CN / DN. Used for balance only. */
+  suggestedAmount?: number | null;
 }) {
   const { height, width: windowWidth } = useWindowDimensions();
   const isInline = presentation === "inline";
@@ -464,6 +467,9 @@ export function CompliancePaymentConfirmModal({
   );
   const advancePercent = Number(advancePercentText);
   const computedAmount = useMemo(() => {
+    if (!isAdvance && suggestedAmount != null && Number.isFinite(suggestedAmount) && suggestedAmount > 0) {
+      return Math.round(suggestedAmount * 100) / 100;
+    }
     if (baseFreight == null) return 0;
     return computeCompliancePaymentAmount({
       baseFreight,
@@ -471,7 +477,7 @@ export function CompliancePaymentConfirmModal({
       documentationCharges,
       tdsAmount,
     });
-  }, [baseFreight, advancePercent, documentationCharges, tdsAmount]);
+  }, [isAdvance, suggestedAmount, baseFreight, advancePercent, documentationCharges, tdsAmount]);
   const tripLabel = trip
     ? getTripDisplayNumber(trip, trip.organization_id ?? null)
     : "—";

@@ -27,6 +27,8 @@ export type ComplianceViewSource =
   | "vehicle-vault"
   | "driver-kyc"
   | "entity"
+  /** Driver License / Aadhaar and other entity_documents files. Same bucket as `entity`. */
+  | "compliance"
   | "supplier-kyc"
   | "trip"
   | null
@@ -62,7 +64,9 @@ async function lookupEntityDocumentStoragePath(input: {
 function bucketForPreviewSource(source: ComplianceViewSource): string {
   if (source === "vehicle-vault") return "vehicle-documents";
   if (source === "driver-kyc") return "driver-documents";
-  if (source === "entity" || source === "supplier-kyc") return "compliance-documents";
+  if (source === "entity" || source === "compliance" || source === "supplier-kyc") {
+    return "compliance-documents";
+  }
   return "trip-documents";
 }
 
@@ -131,7 +135,7 @@ export async function signCompliancePreviewUrl(input: {
           return paintCompliancePreviewUrl(objectPath, url ? "entity" : "vehicle-vault", signed);
         }
       }
-    } else if (source === "entity" || source === "supplier-kyc") {
+    } else if (source === "entity" || source === "compliance" || source === "supplier-kyc") {
       const { url } = await getComplianceDocumentSignedUrl(path);
       signed = url ?? (await getVehicleDocumentViewUrl(path));
     } else if (source === "driver-kyc") {

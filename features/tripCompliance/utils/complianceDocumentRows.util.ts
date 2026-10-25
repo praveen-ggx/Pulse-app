@@ -319,12 +319,15 @@ export function deriveComplianceDocumentRows(documents: ComplianceDocumentRow[])
 }
 
 /**
- * Trip vault tab in Compliance review: LR / E-way Bill / Invoice only.
- * Memo is reviewed under Finance and POD through the hardcopy POD flow.
+ * Trip vault tab: required LR / E-way Bill / Invoice, plus a logged POD when
+ * one is on file so later stages can preview the same scan.
  */
 export function deriveTripVaultReviewRows(documents: ComplianceDocumentRow[]): ComplianceDocRow[] {
   const requiredTypes = new Set(REQUIRED_COMPLIANCE_DOCUMENT_TYPES);
-  return deriveComplianceDocumentRows(documents).filter((row) => requiredTypes.has(row.type));
+  const rows = deriveComplianceDocumentRows(documents);
+  const required = rows.filter((row) => requiredTypes.has(row.type));
+  const loggedPods = rows.filter((row) => row.type === "pod" && row.doc != null);
+  return [...required, ...loggedPods];
 }
 
 /**

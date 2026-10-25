@@ -188,6 +188,14 @@ export type ComplianceTripSummary = {
     ibond?: boolean;
     /** POD charges were saved. The trip then leaves the POD Received list. */
     chargesSaved?: boolean;
+    /** Settlement sent the trip back to POD Verification to rework charges. */
+    revalidateRequested?: boolean;
+    /** Settlement Verification released this trip to Final Settlement. */
+    settlementReleased?: boolean;
+    /** Validated POD with no exception debit — CN/DN are not required. */
+    noDebit?: boolean;
+    /** Validated POD captured a debit that needs CN/DN. */
+    hasDebit?: boolean;
     /** Every LR number on this trip. */
     lrNumbers?: string[];
     /** Subset of `lrNumbers` whose hard copy has been received. */
@@ -222,6 +230,12 @@ export type ComplianceTripFlags = {
   pod_ibond?: boolean;
   /** Set when POD client/vendor charges have been saved. */
   pod_charges_saved?: boolean;
+  /** Set when Settlement asked Debit Control to rework POD validation. */
+  pod_revalidate_requested?: boolean;
+  /** Set when Settlement Verification sent the trip to Final Settlement. */
+  pod_settlement_released?: boolean;
+  pod_no_debit?: boolean;
+  pod_has_debit?: boolean;
   /**
    * LR numbers already logged as hard-copy received.
    * Read from the courier workflow event, not a trips column.

@@ -1,13 +1,25 @@
+import { ThemedConfirmModal } from "@/components/ThemedConfirmModal";
+import { HubPromoHeroLottie } from "@/components/hub/HubPromoLottie";
 import { Theme } from "@/constants/Theme";
+import { EMPTY_STATE_LOTTIE } from "@/lib/emptyStateLottieAssets";
 import { useAuth } from "@/contexts/AuthContext";
+import { PodCopyWatermark } from "@/features/tripCompliance/components/PodCopyWatermark";
 import {
-  HARD_COPY_POD_PHOTO_TYPES,
+  COMPLIANCE_TRIP_DOC_PICKER_TYPES,
+  complianceTripDocFormatHint,
+} from "@/features/tripCompliance/utils/complianceTripDocumentFormat.util";
+import {
+  isPulseHardCopyFileName,
+  pulseHardCopyFileName,
+} from "@/features/tripCompliance/utils/podVerificationDocuments.util";
+import {
   hardCopyPodPhotoRejectionMessage,
   isHardCopyPodPhoto,
   shortHardCopyPodPhotoName,
 } from "@/features/trips/components/trip-detail/hardCopyPodPhotos.util";
 import { adjacentZoom, clampZoom, panForZoom } from "@/features/trips/components/trip-detail/podPreviewZoom.util";
 import { VAULT_DOC_MAX_BYTES, VAULT_DOC_MAX_MB } from "@/features/trips/components/trip-detail/tripDocTypes";
+import { captureOrPickImage } from "@/lib/media/captureImage.util";
 import {
   deleteTripDocument,
   getDocumentsByTripId,
@@ -16,7 +28,7 @@ import {
   type TripDocumentRow,
 } from "@/features/trips/services/tripDocuments.service";
 import { PdfViewer } from "@/components/PdfViewer";
-import { Maximize2, Minimize2, Minus, Plus, RotateCcw, Upload, X } from "lucide-react-native";
+import { Camera, Maximize2, Minimize2, Minus, Plus, RotateCcw, Upload, X } from "lucide-react-native";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
@@ -63,6 +75,9 @@ function fileIsPdf(name: string, mimeType?: string | null): boolean {
 }
 
 function isPodPreviewDocument(doc: TripDocumentRow): boolean {
+  const type = String(doc.document_type ?? "").trim().toLowerCase();
+  if (type === "hard_copy_pod" || type === "hard_pod" || type === "pod_hard") return true;
+  if (isPulseHardCopyFileName(doc.file_name)) return true;
   if (doc.document_type !== "pod") return false;
   if (fileIsPdf(doc.file_name, doc.mime_type)) return true;
   return isHardCopyPodPhoto({ name: doc.file_name, mimeType: doc.mime_type });
@@ -72,16 +87,19 @@ export function HardCopyPodPhotoUpload({
   tripId,
   canEdit,
   variant = "embed",
+  onUploadedChange,
 }: {
   tripId: string;
   canEdit: boolean;
   variant?: "embed" | "pane";
+  onUploadedChange?: (uploaded: boolean) => void;
 }) {
   const { user } = useAuth();
   const [photos, setPhotos] = useState<PodPhotoItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const [preview, setPreview] = useState<PodPhotoItem | null>(null);
+  const [pendingRemove, setPendingRemove] = useState<PodPhotoItem | null>(null);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const droppedRef = useRef(new Set<string>());
 
@@ -118,6 +136,10 @@ export function HardCopyPodPhotoUpload({
     };
   }, [tripId]);
 
+  useEffect(() => {
+    onUploadedChange?.(photos.some((item) => Boolean(item.document) && !item.uploading));
+  }, [photos, onUploadedChange]);
+
   const uploadOne = useCallback(
     async (key: string, uri: string, fileName: string, mimeType: string) => {
       const uploaderId = user?.uid;
@@ -143,7 +165,7 @@ export function HardCopyPodPhotoUpload({
         const { doc, error } = await uploadTripDocument(
           tripId,
           uploaderId,
-          { arrayBuffer, fileName, mimeType },
+          { arrayBuffer, fileName: pulseHardCopyFileName(fileName), mimeType },
           "pod",
         );
         if (droppedRef.current.has(key)) {
@@ -180,49 +202,104 @@ export function HardCopyPodPhotoUpload({
     [tripId, user?.uid],
   );
 
-  const pickPhotos = useCallback(async () => {
-    if (!canEdit) return;
-    setValidationMessage(null);
+  const enqueueAssets = useCallback(
+    (
+      assets: {
+        uri: string;
+        name?: string | null;
+        mimeType?: string | null;
+        size?: number | null;
+      }[],
+    ) => {
+      const rejection = hardCopyPodPhotoRejectionMessage(assets);
+      const accepted = assets.filter(
+        (asset) =>
+          isHardCopyPodPhoto(asset) &&
+          !(typeof asset.size === "number" && asset.size > VAULT_DOC_MAX_BYTES),
+      );
+      if (rejection) setValidationMessage(rejection);
+      if (accepted.length === 0) return;
+
+      const batch = accepted.map((asset, index) => ({
+        key: `local-${Date.now()}-${index}-${asset.name ?? "pod"}`,
+        fileName: asset.name?.trim() || `pod-${index + 1}.jpg`,
+        previewUri: asset.uri,
+        mimeType: asset.mimeType || "image/jpeg",
+        uri: asset.uri,
+      }));
+
+      setActiveKey(batch[0]?.key ?? null);
+      setPhotos((current) => [
+        ...current,
+        ...batch.map((item) => ({
+          key: item.key,
+          fileName: item.fileName,
+          previewUri: item.previewUri,
+          document: null,
+          uploading: true,
+        })),
+      ]);
+
+      for (const item of batch) {
+        void uploadOne(item.key, item.uri, item.fileName, item.mimeType);
+      }
+    },
+    [uploadOne],
+  );
+
+  const pickFromDocuments = useCallback(async () => {
     const res = await DocumentPicker.getDocumentAsync({
       multiple: true,
       copyToCacheDirectory: true,
-      type: [...HARD_COPY_POD_PHOTO_TYPES],
+      type: [...COMPLIANCE_TRIP_DOC_PICKER_TYPES],
     });
     if (res.canceled || !res.assets?.length) return;
+    enqueueAssets(res.assets);
+  }, [enqueueAssets]);
 
-    const rejection = hardCopyPodPhotoRejectionMessage(res.assets);
-    const accepted = res.assets.filter(
-      (asset) =>
-        isHardCopyPodPhoto(asset) &&
-        !(typeof asset.size === "number" && asset.size > VAULT_DOC_MAX_BYTES),
-    );
-    if (rejection) setValidationMessage(rejection);
-    if (accepted.length === 0) return;
-
-    const batch = accepted.map((asset, index) => ({
-      key: `local-${Date.now()}-${index}-${asset.name ?? "pod"}`,
-      fileName: asset.name?.trim() || `pod-${index + 1}.jpg`,
-      previewUri: asset.uri,
-      mimeType: asset.mimeType || "image/jpeg",
-      uri: asset.uri,
-    }));
-
-    setActiveKey(batch[0]?.key ?? null);
-    setPhotos((current) => [
-      ...current,
-      ...batch.map((item) => ({
-        key: item.key,
-        fileName: item.fileName,
-        previewUri: item.previewUri,
-        document: null,
-        uploading: true,
-      })),
+  const pickFromCamera = useCallback(async () => {
+    const captured = await captureOrPickImage({
+      preferCamera: true,
+      permissionTitle: "Camera required",
+      permissionMessage: "Allow camera to photograph the hard-copy POD.",
+    });
+    if (!captured?.uri) return;
+    enqueueAssets([
+      {
+        uri: captured.uri,
+        name: `pod-${Date.now()}.jpg`,
+        mimeType: "image/jpeg",
+      },
     ]);
+  }, [enqueueAssets]);
 
-    for (const item of batch) {
-      void uploadOne(item.key, item.uri, item.fileName, item.mimeType);
+  const pickPhotos = useCallback(async () => {
+    if (!canEdit) return;
+    setValidationMessage(null);
+    if (Platform.OS === "web") {
+      await pickFromDocuments();
+      return;
     }
-  }, [canEdit, uploadOne]);
+    Alert.alert("Hard copy POD", "Capture the physical POD.", [
+      {
+        text: "Take photo",
+        onPress: () => {
+          void pickFromCamera();
+        },
+      },
+      {
+        text: "Upload file",
+        onPress: () => {
+          void pickFromDocuments();
+        },
+      },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  }, [canEdit, pickFromCamera, pickFromDocuments]);
+
+  const requestRemovePhoto = useCallback((item: PodPhotoItem) => {
+    setPendingRemove(item);
+  }, []);
 
   const removePhoto = useCallback(async (item: PodPhotoItem) => {
     droppedRef.current.add(item.key);
@@ -246,16 +323,35 @@ export function HardCopyPodPhotoUpload({
       <View style={styles.pane}>
         <Text style={styles.label}>Uploaded POD</Text>
         {canEdit ? (
-          <Pressable
-            style={styles.paneUpload}
-            onPress={() => void pickPhotos()}
-            accessibilityRole="button"
-            accessibilityLabel="Upload POD"
-          >
-            <Upload size={14} color={Theme.textPrimaryDark} />
-            <Text style={styles.paneUploadText}>Upload POD</Text>
-          </Pressable>
+          <View style={styles.paneUploadRow}>
+            {Platform.OS !== "web" ? (
+              <Pressable
+                style={[styles.paneUpload, styles.paneUploadPrimary]}
+                onPress={() => {
+                  setValidationMessage(null);
+                  void pickFromCamera();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Take POD photo"
+              >
+                <Camera size={14} color={Theme.buttonDarkText} />
+                <Text style={styles.paneUploadPrimaryText}>Take photo</Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              style={styles.paneUpload}
+              onPress={() => void pickFromDocuments()}
+              accessibilityRole="button"
+              accessibilityLabel="Upload POD"
+            >
+              <Upload size={14} color={Theme.textPrimaryDark} />
+              <Text style={styles.paneUploadText}>
+                {Platform.OS === "web" ? "Upload POD" : "Upload file"}
+              </Text>
+            </Pressable>
+          </View>
         ) : null}
+        <Text style={styles.paneHint}>{complianceTripDocFormatHint()}</Text>
         <View style={styles.paneStage}>
           {!loaded && photos.length === 0 ? (
             <ActivityIndicator color={Theme.analyticsHeroBg} />
@@ -266,7 +362,13 @@ export function HardCopyPodPhotoUpload({
               accessibilityRole="imagebutton"
               accessibilityLabel={`Preview ${active.fileName}`}
             >
-              <PdfViewer pdfUri={active.previewUri} showToolbar={false} style={styles.paneFile} />
+              <PdfViewer
+                pdfUri={active.previewUri}
+                showToolbar={false}
+                sizing="cover"
+                style={styles.paneFile}
+              />
+              <PodCopyWatermark kind="hard" />
             </Pressable>
           ) : active?.previewUri ? (
             <Pressable
@@ -278,12 +380,20 @@ export function HardCopyPodPhotoUpload({
               <Image
                 source={{ uri: active.previewUri }}
                 style={styles.paneImage}
-                resizeMode="contain"
+                resizeMode="cover"
                 accessibilityLabel={active.fileName}
               />
+              <PodCopyWatermark kind="hard" />
             </Pressable>
           ) : (
-            <Text style={styles.paneEmpty}>Uploaded POD image will show here</Text>
+            <View style={styles.paneEmptyWrap} accessibilityLabel="Uploaded POD image will show here">
+              <HubPromoHeroLottie
+                source={EMPTY_STATE_LOTTIE.podUpload}
+                width={72}
+                height={72}
+              />
+              <Text style={styles.paneEmpty}>Upload a POD photo to preview it here</Text>
+            </View>
           )}
           {active?.uploading ? (
             <View style={styles.paneBusy}>
@@ -293,7 +403,7 @@ export function HardCopyPodPhotoUpload({
           {canEdit && active && !active.uploading ? (
             <Pressable
               style={styles.paneRemove}
-              onPress={() => void removePhoto(active)}
+              onPress={() => requestRemovePhoto(active)}
               hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel={`Remove ${active.fileName}`}
@@ -331,6 +441,15 @@ export function HardCopyPodPhotoUpload({
         ) : null}
         {validationMessage ? <Text style={styles.validation}>{validationMessage}</Text> : null}
         <PodFilePreview item={preview} onClose={() => setPreview(null)} />
+        <DeletePodConfirm
+          item={pendingRemove}
+          onCancel={() => setPendingRemove(null)}
+          onConfirm={() => {
+            const item = pendingRemove;
+            setPendingRemove(null);
+            if (item) void removePhoto(item);
+          }}
+        />
       </View>
     );
   }
@@ -356,7 +475,7 @@ export function HardCopyPodPhotoUpload({
           </Text>
         </Pressable>
       ) : null}
-      <Text style={styles.helper}>Upload one or more photos of the physical POD</Text>
+      <Text style={styles.helper}>{complianceTripDocFormatHint()}</Text>
 
       {photos.length > 0 ? (
         <View style={styles.uploadedBlock}>
@@ -390,7 +509,7 @@ export function HardCopyPodPhotoUpload({
                 {canEdit ? (
                   <Pressable
                     style={styles.removeBtn}
-                    onPress={() => void removePhoto(item)}
+                    onPress={() => requestRemovePhoto(item)}
                     hitSlop={8}
                     accessibilityRole="button"
                     accessibilityLabel={`Remove ${item.fileName}`}
@@ -424,13 +543,51 @@ export function HardCopyPodPhotoUpload({
         item={preview}
         onClose={() => setPreview(null)}
       />
+      <DeletePodConfirm
+        item={pendingRemove}
+        onCancel={() => setPendingRemove(null)}
+        onConfirm={() => {
+          const item = pendingRemove;
+          setPendingRemove(null);
+          if (item) void removePhoto(item);
+        }}
+      />
     </View>
+  );
+}
+
+function DeletePodConfirm({
+  item,
+  onCancel,
+  onConfirm,
+}: {
+  item: PodPhotoItem | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <ThemedConfirmModal
+      visible={item != null}
+      title="Delete this POD?"
+      message={`${shortHardCopyPodPhotoName(item?.fileName ?? "this file")} will be deleted and cannot be used until you upload it again.`}
+      cancelText="Keep"
+      confirmText="Delete"
+      variant="warning"
+      confirmVariant="destructive"
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+    />
   );
 }
 
 const styles = StyleSheet.create({
   wrap: { flex: 1, minWidth: 0, gap: 6 },
   pane: { flex: 1, minWidth: 0, minHeight: 0, gap: 6 },
+  paneUploadRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
   paneUpload: {
     minHeight: 32,
     flexDirection: "row",
@@ -442,11 +599,27 @@ const styles = StyleSheet.create({
     borderColor: Theme.borderMedium,
     backgroundColor: Theme.cardWhite,
     paddingHorizontal: 10,
+    flexGrow: 1,
+  },
+  paneUploadPrimary: {
+    backgroundColor: Theme.buttonDark,
+    borderColor: Theme.buttonDark,
   },
   paneUploadText: {
     fontSize: 12,
     fontWeight: "700",
     color: Theme.textPrimaryDark,
+  },
+  paneUploadPrimaryText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Theme.buttonDarkText,
+  },
+  paneHint: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "400",
+    color: Theme.textMuted,
   },
   paneStage: {
     flex: 1,
@@ -459,14 +632,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Theme.complianceTripCardBorder,
   },
-  paneFile: { flex: 1, width: "100%", height: "100%" },
+  paneFile: { flex: 1, width: "100%", height: "100%", position: "relative" },
   paneImage: { width: "100%", height: "100%" },
+  paneEmptyWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 16,
+  },
   paneEmpty: {
     fontSize: 12,
     fontWeight: "600",
     color: Theme.textMuted,
     textAlign: "center",
-    paddingHorizontal: 16,
   },
   paneBusy: {
     position: "absolute",

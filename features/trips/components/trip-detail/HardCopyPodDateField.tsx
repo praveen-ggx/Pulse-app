@@ -1,11 +1,12 @@
 /**
- * Compact date field for hard-copy POD forms — native calendar on web,
+ * Hard-copy POD date field — same picker as profile / vault:
+ * Pressable + calendar icon, in-app calendar overlay on web,
  * DateTimePicker on iOS/Android. Stores ISO YYYY-MM-DD.
  */
 import Theme from "@/constants/Theme";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { Calendar } from "lucide-react-native";
-import { createElement, useId, useState } from "react";
+import { Calendar as CalendarIcon } from "lucide-react-native";
+import { useId, useState } from "react";
 import {
   Modal,
   Platform,
@@ -14,6 +15,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { Calendar } from "react-native-calendars";
 
 function toISODate(d: Date): string {
   const y = d.getFullYear();
@@ -46,6 +48,7 @@ export function HardCopyPodDateField({
   error,
   disabled = false,
   compact = false,
+  quiet = false,
 }: {
   label: string;
   value: string;
@@ -55,128 +58,161 @@ export function HardCopyPodDateField({
   disabled?: boolean;
   /** Shorter shell for dense forms. Behavior is unchanged. */
   compact?: boolean;
+  /** Notification-scale type: sentence-case 12px label, 13px value. */
+  quiet?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const fieldId = useId();
   const isoValue = /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
   const hasError = Boolean(error?.trim());
+  const dense = compact || quiet;
+
+  const close = () => setOpen(false);
 
   return (
-    <View style={[styles.field, compact && styles.fieldCompact]}>
-      <Text style={[styles.label, compact && styles.labelCompact]} nativeID={`${fieldId}-label`}>
+    <View style={[styles.field, dense && styles.fieldCompact]}>
+      <Text
+        style={[styles.label, compact && styles.labelCompact, quiet && styles.labelQuiet]}
+        nativeID={`${fieldId}-label`}
+      >
         {label}
         {required ? <Text style={styles.req}> *</Text> : null}
       </Text>
-      {Platform.OS === "web" ? (
-        <View
+      <Pressable
+        onPress={() => {
+          if (!disabled) setOpen(true);
+        }}
+        disabled={disabled}
+        style={({ pressed }) => [
+          styles.shell,
+          dense && styles.shellCompact,
+          hasError ? styles.shellError : null,
+          isoValue ? styles.shellFilled : null,
+          open && styles.shellOpen,
+          pressed && { opacity: 0.9 },
+        ]}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityHint={required ? "Required" : undefined}
+        accessibilityState={{ expanded: open, disabled }}
+      >
+        <Text
           style={[
-            styles.shell,
-            compact && styles.shellCompact,
-            hasError ? styles.shellError : null,
-            isoValue ? styles.shellFilled : null,
+            styles.valueText,
+            dense && styles.valueTextCompact,
+            quiet && styles.valueTextQuiet,
+            !isoValue && styles.placeholder,
           ]}
         >
-          {createElement("input", {
-            id: fieldId,
-            type: "date",
-            value: isoValue,
-            disabled,
-            required: Boolean(required),
-            "aria-label": label,
-            "aria-required": required ? true : undefined,
-            "aria-invalid": hasError ? true : undefined,
-            "aria-describedby": hasError ? `${fieldId}-error` : undefined,
-            onChange: (e: { target?: { value?: string } }) => {
-              onChange(String(e?.target?.value ?? ""));
-            },
-            style: {
-              width: "100%",
-              boxSizing: "border-box",
-              border: "none",
-              outline: "none",
-              background: "transparent",
-              fontSize: compact ? 13 : 14,
-              fontWeight: 600,
-              lineHeight: compact ? "18px" : "20px",
-              color: Theme.textPrimaryDark,
-              fontFamily:
-                'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-              padding: 0,
-              margin: 0,
-              minHeight: 22,
-              cursor: "pointer",
-            },
-          })}
-        </View>
-      ) : (
-        <>
-          <Pressable
-            onPress={() => {
-              if (!disabled) setOpen(true);
-            }}
-            disabled={disabled}
-            style={({ pressed }) => [
-              styles.shell,
-              compact && styles.shellCompact,
-              hasError ? styles.shellError : null,
-              isoValue ? styles.shellFilled : null,
-              pressed && { opacity: 0.9 },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={label}
-            accessibilityHint={required ? "Required" : undefined}
-          >
-            <Text style={[styles.valueText, compact && styles.valueTextCompact, !isoValue && styles.placeholder]}>
-              {isoValue ? formatDisplay(isoValue) : "dd/mm/yyyy"}
-            </Text>
-            <Calendar size={compact ? 14 : 16} color={Theme.textMuted} strokeWidth={2} />
-          </Pressable>
-          {open && Platform.OS === "android" ? (
-            <DateTimePicker
-              value={parseISO(isoValue)}
-              mode="date"
-              display="default"
-              onChange={(e, date) => {
-                setOpen(false);
-                if (e.type === "set" && date) onChange(toISODate(date));
-              }}
-            />
-          ) : null}
-          {Platform.OS === "ios" ? (
-            <Modal visible={open} transparent animationType="slide">
-              <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
-                <View style={styles.sheet} onStartShouldSetResponder={() => true}>
-                  <View style={styles.sheetHeader}>
-                    <Pressable
-                      onPress={() => {
-                        onChange("");
-                        setOpen(false);
-                      }}
-                      hitSlop={10}
-                    >
-                      <Text style={styles.clearText}>Clear</Text>
-                    </Pressable>
-                    <Text style={styles.sheetTitle}>{label}</Text>
-                    <Pressable onPress={() => setOpen(false)} hitSlop={10}>
-                      <Text style={styles.doneText}>Done</Text>
-                    </Pressable>
-                  </View>
-                  <DateTimePicker
-                    value={parseISO(isoValue)}
-                    mode="date"
-                    display="spinner"
-                    onChange={(_, date) => date && onChange(toISODate(date))}
-                  />
-                </View>
-              </Pressable>
-            </Modal>
-          ) : null}
-        </>
-      )}
+          {isoValue ? formatDisplay(isoValue) : "dd/mm/yyyy"}
+        </Text>
+        <CalendarIcon size={dense ? 14 : 16} color={Theme.textMuted} strokeWidth={2} />
+      </Pressable>
       {hasError ? (
         <Text style={styles.errorText} nativeID={`${fieldId}-error`}>
           {error}
         </Text>
+      ) : null}
+
+      {Platform.OS === "web" ? (
+        <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
+          <View style={styles.overlay}>
+            <Pressable style={styles.dismiss} onPress={close} accessibilityLabel="Close date picker" />
+            <View style={styles.popover} accessibilityRole="none">
+              <View style={styles.popoverHead}>
+                <Text style={styles.popoverKicker}>Date</Text>
+                <Text style={styles.popoverTitle}>{label}</Text>
+              </View>
+              <Calendar
+                current={isoValue || undefined}
+                onDayPress={(day: { dateString: string }) => {
+                  onChange(day.dateString);
+                  close();
+                }}
+                markedDates={
+                  isoValue
+                    ? {
+                        [isoValue]: {
+                          selected: true,
+                          selectedColor: Theme.primary,
+                          selectedTextColor: Theme.textOnPrimary,
+                        },
+                      }
+                    : undefined
+                }
+                theme={{
+                  backgroundColor: Theme.cardWhite,
+                  calendarBackground: Theme.cardWhite,
+                  textSectionTitleColor: Theme.textMuted,
+                  monthTextColor: Theme.textPrimaryDark,
+                  dayTextColor: Theme.textPrimaryDark,
+                  todayTextColor: Theme.primary,
+                  arrowColor: Theme.primary,
+                  selectedDayBackgroundColor: Theme.primary,
+                  selectedDayTextColor: Theme.textOnPrimary,
+                  textDayFontWeight: "500",
+                  textMonthFontWeight: "600",
+                  textDayHeaderFontWeight: "500",
+                  textDayFontSize: 13,
+                  textMonthFontSize: 13,
+                  textDayHeaderFontSize: 11,
+                }}
+              />
+              <Pressable
+                onPress={() => {
+                  onChange("");
+                  close();
+                }}
+                hitSlop={8}
+                style={styles.clearRow}
+              >
+                <Text style={styles.clearText}>Clear</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
+      ) : null}
+
+      {open && Platform.OS === "android" ? (
+        <DateTimePicker
+          value={parseISO(isoValue)}
+          mode="date"
+          display="default"
+          onChange={(e, date) => {
+            setOpen(false);
+            if (e.type === "set" && date) onChange(toISODate(date));
+          }}
+        />
+      ) : null}
+
+      {Platform.OS === "ios" ? (
+        <Modal visible={open} transparent animationType="slide" onRequestClose={close}>
+          <Pressable style={styles.sheetBackdrop} onPress={close}>
+            <View style={styles.sheet} onStartShouldSetResponder={() => true}>
+              <View style={styles.sheetHeader}>
+                <Pressable
+                  onPress={() => {
+                    onChange("");
+                    close();
+                  }}
+                  hitSlop={10}
+                >
+                  <Text style={styles.clearText}>Clear</Text>
+                </Pressable>
+                <Text style={styles.sheetTitle}>{label}</Text>
+                <Pressable onPress={close} hitSlop={10}>
+                  <Text style={styles.doneText}>Done</Text>
+                </Pressable>
+              </View>
+              <DateTimePicker
+                value={parseISO(isoValue)}
+                mode="date"
+                display="spinner"
+                onChange={(_, date) => date && onChange(toISODate(date))}
+              />
+            </View>
+          </Pressable>
+        </Modal>
       ) : null}
     </View>
   );
@@ -186,6 +222,13 @@ const styles = StyleSheet.create({
   field: { gap: 6, width: "100%", alignSelf: "stretch" },
   fieldCompact: { gap: 4 },
   labelCompact: { fontSize: 10, letterSpacing: 0.4 },
+  labelQuiet: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "400",
+    letterSpacing: 0,
+    textTransform: "none",
+  },
   label: {
     fontSize: 11,
     fontWeight: "700",
@@ -206,12 +249,15 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   shellCompact: {
-    minHeight: 32,
-    borderRadius: 8,
+    minHeight: 36,
+    borderRadius: 6,
     paddingHorizontal: 10,
   },
   shellFilled: {
-    borderColor: Theme.borderInput,
+    borderColor: Theme.borderLight,
+  },
+  shellOpen: {
+    borderColor: Theme.analyticsHeroBg,
   },
   shellError: {
     borderColor: Theme.destructive,
@@ -224,16 +270,70 @@ const styles = StyleSheet.create({
     color: Theme.textPrimaryDark,
   },
   valueTextCompact: { fontSize: 13 },
+  valueTextQuiet: { fontWeight: "400" },
   placeholder: {
     color: Theme.textMuted,
-    fontWeight: "500",
+    fontWeight: "400",
   },
   errorText: {
     fontSize: 11,
     color: Theme.destructive,
     fontWeight: "600",
   },
-  backdrop: {
+  overlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  dismiss: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(15, 23, 42, 0.32)",
+  },
+  popover: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.cardWhite,
+    overflow: "hidden",
+    ...Platform.select({
+      web: { boxShadow: "0 12px 32px rgba(15,23,42,0.16)" } as object,
+      default: {
+        shadowColor: Theme.shadow,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.16,
+        shadowRadius: 16,
+        elevation: 8,
+      },
+    }),
+  },
+  popoverHead: {
+    gap: 1,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.complianceTripCardBorder,
+  },
+  popoverKicker: {
+    fontSize: 11,
+    fontWeight: "400",
+    color: Theme.textMuted,
+  },
+  popoverTitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "500",
+    color: Theme.textPrimaryDark,
+  },
+  clearRow: {
+    paddingHorizontal: 12,
+    paddingBottom: 10,
+    paddingTop: 2,
+  },
+  sheetBackdrop: {
     flex: 1,
     justifyContent: "flex-end",
     backgroundColor: "rgba(15,23,42,0.35)",
@@ -258,6 +358,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Theme.textPrimaryDark,
   },
-  clearText: { fontSize: 14, color: Theme.textMuted, fontWeight: "600" },
-  doneText: { fontSize: 14, color: Theme.analyticsHeroBg, fontWeight: "700" },
+  clearText: { fontSize: 12, color: Theme.textMuted, fontWeight: "500" },
+  doneText: { fontSize: 13, color: Theme.analyticsHeroBg, fontWeight: "600" },
 });

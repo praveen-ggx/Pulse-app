@@ -10,6 +10,19 @@ import { ThemedAlertModal } from "@/components/ThemedAlertModal";
 import { VaultDraftPreviewBlock } from "@/features/trips/components/trip-detail/VaultDraftPreviewBlock";
 import type { VaultCategoryPreviewFile } from "@/features/trips/components/trip-detail/vaultCategoryPreview.types";
 import { getDocumentViewUrls } from "@/features/trips/services/tripDocuments.service";
+
+/** A trip-bucket miss must not erase a URL already signed from another bucket. */
+export function mergeCategoryPreviewUrls(
+  prev: Record<string, string | null>,
+  next: Record<string, string | null>,
+): Record<string, string | null> {
+  const merged = { ...prev };
+  for (const [key, value] of Object.entries(next)) {
+    if (value) merged[key] = value;
+    else if (!merged[key]) merged[key] = value;
+  }
+  return merged;
+}
 import Feather from "@expo/vector-icons/Feather";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -77,7 +90,7 @@ export function VaultCategoryPreviewModal({
     let cancelled = false;
     void getDocumentViewUrls(paths).then((next) => {
       if (cancelled) return;
-      setUrls(next);
+      setUrls((prev) => mergeCategoryPreviewUrls(prev, next));
     });
     return () => {
       cancelled = true;

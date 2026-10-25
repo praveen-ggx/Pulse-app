@@ -6,4 +6,6 @@ export const EMPTY_STATE_LOTTIE = {
   auction: require("@/assets/Animated folder/auction.json"),
   /** Document checklist gap filler — delivery truck (same family as compliance / trips empty states). */
   documents: require("@/assets/Animated folder/delivery-truckcargo-truck.json"),
+  /** Hard-copy POD preview slot before a photo is uploaded. */
+  podUpload: require("@/assets/Animated folder/recipt check.json"),
 } as const;

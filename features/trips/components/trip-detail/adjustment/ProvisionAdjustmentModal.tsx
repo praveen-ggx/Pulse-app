@@ -7,6 +7,7 @@ import {
   ProvisionRevisedPartiesCard,
   type ProvisionCostBreakdownLine,
 } from "@/features/trips/components/trip-detail/adjustment/ProvisionRevisedPartiesCard";
+import { ProvisionDesktopWizard } from "@/features/trips/components/trip-detail/adjustment/ProvisionDesktopWizard";
 import { TripAdjustmentMobileWizard } from "@/features/trips/components/trip-detail/adjustment/TripAdjustmentMobileWizard";
 import { TripAdjustmentSuccessView } from "@/features/trips/components/trip-detail/adjustment/TripAdjustmentSuccessView";
 import {
@@ -32,7 +33,7 @@ import {
   type TripAdjustmentType,
 } from "@/features/trips/services/tripAdjustments";
 import Feather from "@expo/vector-icons/Feather";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Modal,
@@ -138,6 +139,7 @@ export const ProvisionAdjustmentModal = memo(function ProvisionAdjustmentModal(
   const [reason, setReason] = useState("");
   const [otherReason, setOtherReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const seededEntryRef = useRef(false);
   const [successPayload, setSuccessPayload] = useState<{
     type: TripAdjustmentType;
     impact: TripAdjustmentImpact;
@@ -171,6 +173,7 @@ export const ProvisionAdjustmentModal = memo(function ProvisionAdjustmentModal(
       setSuccessPayload(null);
       setAmountStr("");
       setSubmitting(false);
+      seededEntryRef.current = false;
     }
   }, [props.visible]);
 
@@ -196,15 +199,18 @@ export const ProvisionAdjustmentModal = memo(function ProvisionAdjustmentModal(
     if (!props.visible) return;
     if (props.launchPreset) return;
     if (props.editTarget) return;
+    // Consuming launchPreset must not drop a wizard that already has seeded CN/DN details.
+    if (phase === "wizard" || phase === "success") return;
     setPhase("hub");
     setWizardPreset(null);
     setSuccessPayload(null);
     setAmountStr("");
-  }, [props.side, props.visible, props.launchPreset, props.editTarget]);
+  }, [props.side, props.visible, props.launchPreset, props.editTarget, phase]);
 
   useEffect(() => {
     if (!props.visible || !props.editTarget || props.launchPreset) return;
     setSuccessPayload(null);
+    seededEntryRef.current = true;
     beginWizard({
       type: props.editTarget.type,
       impact: props.editTarget.impact,
@@ -216,6 +222,7 @@ export const ProvisionAdjustmentModal = memo(function ProvisionAdjustmentModal(
   useEffect(() => {
     if (!props.visible || !props.launchPreset) return;
     setSuccessPayload(null);
+    seededEntryRef.current = true;
     beginWizard(props.launchPreset);
     props.onLaunchPresetConsumed?.();
   }, [
@@ -227,13 +234,13 @@ export const ProvisionAdjustmentModal = memo(function ProvisionAdjustmentModal(
   ]);
 
   const handleWizardBack = useCallback(() => {
-    if (props.editTarget) {
+    if (seededEntryRef.current) {
       props.onClose();
       return;
     }
     setPhase("hub");
     setWizardPreset(null);
-  }, [props.editTarget, props.onClose]);
+  }, [props.onClose]);
 
   const isClient = side === "client";
   const isAssetDriverCost = Boolean(props.isAssetExecution && side && !isClient);
@@ -314,32 +321,42 @@ export const ProvisionAdjustmentModal = memo(function ProvisionAdjustmentModal(
   const focusAccent = isClient ? Theme.primary : "#0f766e";
 
   if (phase === "success" && successPayload) {
+    const successView = (
+      <TripAdjustmentSuccessView
+        type={successPayload.type}
+        impact={successPayload.impact}
+        amount={successPayload.amount}
+        reason={successPayload.reason}
+        tripCode={props.tripCode}
+        isAssetDriverCost={isAssetDriverCost}
+        deductionActionLabel={
+          successPassThrough
+            ? `Deduct ₹${successPassThrough.amount.toLocaleString("en-IN")} from ${successPassThrough.targetLabel}`
+            : null
+        }
+        onApplyDeduction={
+          successPassThrough && props.onRequestDeduction
+            ? handleSuccessDeduction
+            : undefined
+        }
+        onDone={handleSuccessDone}
+      />
+    );
     return (
       <Modal
         visible
-        animationType="slide"
-        presentationStyle={compact ? "fullScreen" : "pageSheet"}
+        animationType={compact ? "slide" : "fade"}
+        presentationStyle={compact ? "fullScreen" : "overFullScreen"}
+        transparent={!compact}
         onRequestClose={handleSuccessDone}
       >
-        <TripAdjustmentSuccessView
-          type={successPayload.type}
-          impact={successPayload.impact}
-          amount={successPayload.amount}
-          reason={successPayload.reason}
-          tripCode={props.tripCode}
-          isAssetDriverCost={isAssetDriverCost}
-          deductionActionLabel={
-            successPassThrough
-              ? `Deduct ₹${successPassThrough.amount.toLocaleString("en-IN")} from ${successPassThrough.targetLabel}`
-              : null
-          }
-          onApplyDeduction={
-            successPassThrough && props.onRequestDeduction
-              ? handleSuccessDeduction
-              : undefined
-          }
-          onDone={handleSuccessDone}
-        />
+        {compact ? (
+          successView
+        ) : (
+          <View style={styles.desktopBackdrop}>
+            <View style={styles.successCard}>{successView}</View>
+          </View>
+        )}
       </Modal>
     );
   }
@@ -348,38 +365,80 @@ export const ProvisionAdjustmentModal = memo(function ProvisionAdjustmentModal(
     return (
       <Modal
         visible
-        animationType="slide"
-        presentationStyle={compact ? "fullScreen" : "pageSheet"}
+        animationType={compact ? "slide" : "fade"}
+        presentationStyle={compact ? "fullScreen" : "overFullScreen"}
+        transparent={!compact}
         onRequestClose={handleWizardBack}
       >
-        <TripAdjustmentMobileWizard
-          entryContextLabel={entryContextLabel}
-          tripCode={props.tripCode}
-          type={type}
-          onTypeChange={setType}
-          laneLocked={laneLocked || Boolean(props.editTarget)}
-          impact={impact}
-          onImpactChange={setImpact}
-          impactLocked={impactLocked || Boolean(props.editTarget)}
-          amountStr={amountStr}
-          onAmountChange={setAmountStr}
-          reason={reason}
-          onReasonChange={setReason}
-          otherReason={otherReason}
-          onOtherReasonChange={setOtherReason}
-          reasonLocked={reasonLocked}
-          reasonBeforeAmount={reasonBeforeAmount}
-          isAssetDriverCost={isAssetDriverCost}
-          showProtocolShortcuts={!reasonLocked && !reasonBeforeAmount && !props.editTarget}
-          canSubmit={canSubmit}
-          submitting={submitting}
-          onSubmit={() => void handleSubmit()}
-          onClose={handleWizardBack}
-          flowSessionKey={flowSessionKey}
-          reviewBaseAmount={reviewBaseAmount}
-          reviewRevisedAmount={reviewRevisedAmount}
-          isEditing={Boolean(props.editTarget)}
-        />
+        {compact ? (
+          <TripAdjustmentMobileWizard
+            entryContextLabel={entryContextLabel}
+            tripCode={props.tripCode}
+            type={type}
+            onTypeChange={setType}
+            laneLocked={laneLocked || Boolean(props.editTarget)}
+            impact={impact}
+            onImpactChange={setImpact}
+            impactLocked={impactLocked || Boolean(props.editTarget)}
+            amountStr={amountStr}
+            onAmountChange={setAmountStr}
+            reason={reason}
+            onReasonChange={setReason}
+            otherReason={otherReason}
+            onOtherReasonChange={setOtherReason}
+            reasonLocked={reasonLocked}
+            reasonBeforeAmount={reasonBeforeAmount}
+            isAssetDriverCost={isAssetDriverCost}
+            showProtocolShortcuts={!reasonLocked && !reasonBeforeAmount && !props.editTarget}
+            canSubmit={canSubmit}
+            submitting={submitting}
+            onSubmit={() => void handleSubmit()}
+            onClose={handleWizardBack}
+            flowSessionKey={flowSessionKey}
+            reviewBaseAmount={reviewBaseAmount}
+            reviewRevisedAmount={reviewRevisedAmount}
+            isEditing={Boolean(props.editTarget)}
+          />
+        ) : (
+          <View style={styles.desktopBackdrop}>
+            <ProvisionDesktopWizard
+              side={side}
+              tripCode={props.tripCode}
+              partyLabel={props.partyLabel}
+              clientName={props.clientName}
+              supplierName={props.supplierName}
+              clientAvatarUrl={props.clientAvatarUrl}
+              clientAvatarSeed={props.clientAvatarSeed}
+              supplierAvatarUrl={props.supplierAvatarUrl}
+              supplierAvatarSeed={props.supplierAvatarSeed}
+              sales={props.sales}
+              adjSales={props.adjSales}
+              cost={props.cost}
+              adjCost={props.adjCost}
+              revenueSideDelta={props.revenueSideDelta}
+              costSideDelta={props.costSideDelta}
+              costLaneLabel={props.costLaneLabel}
+              costBreakdownLines={props.costBreakdownLines}
+              isAssetExecution={props.isAssetExecution}
+              type={type}
+              impact={impact}
+              amountStr={amountStr}
+              onAmountChange={setAmountStr}
+              reason={reason}
+              onReasonChange={setReason}
+              otherReason={otherReason}
+              onOtherReasonChange={setOtherReason}
+              reasonLocked={reasonLocked}
+              canSubmit={canSubmit}
+              submitting={submitting}
+              isEditing={Boolean(props.editTarget)}
+              reviewBaseAmount={reviewBaseAmount}
+              reviewRevisedAmount={reviewRevisedAmount}
+              onClose={handleWizardBack}
+              onSubmit={() => void handleSubmit()}
+            />
+          </View>
+        )}
       </Modal>
     );
   }
@@ -589,6 +648,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: 24,
+  },
+  successCard: {
+    width: "100%",
+    maxWidth: 480,
+    maxHeight: "92%",
+    backgroundColor: "#fff",
+    borderRadius: 24,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
   },
   hubCard: {
     width: "100%",

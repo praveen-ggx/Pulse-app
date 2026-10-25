@@ -70,6 +70,8 @@ export type AlertRegistrySignalCardProps = {
   variant?: "feed" | "tile";
   /** Tighter padding and typography for hub tile grids. */
   compact?: boolean;
+  /** Replaces the initials avatar (e.g. method icons). */
+  avatarSlot?: React.ReactNode;
 };
 
 function NotificationAvatar({
@@ -78,12 +80,14 @@ function NotificationAvatar({
   mode,
   size = AVATAR_SIZE,
   compact = false,
+  avatarSlot,
 }: {
   avatar: RegistryNotificationAvatar;
   isUnread?: boolean;
   mode: RegistryCardMode;
   size?: number;
   compact?: boolean;
+  avatarSlot?: React.ReactNode;
 }) {
   const showUnread = mode === "active" && isUnread;
   const dotSize = compact ? 7 : 8;
@@ -91,17 +95,19 @@ function NotificationAvatar({
   return (
     <View style={[styles.avatarWrap, { width: slot, height: slot }]}>
       <View style={[styles.avatarCore, { width: size, height: size }]}>
-        <PartyAvatar
-          name={avatar.name}
-          entityType={avatar.entityType ?? "client"}
-          avatarUrl={avatar.avatarUrl}
-          avatarSeed={avatar.avatarSeed}
-          organizationImageUrl={avatar.organizationImageUrl}
-          organizationAvatarSeed={avatar.organizationAvatarSeed}
-          initialsColorSeed={avatar.initialsColorSeed}
-          size={size}
-          shape="circle"
-        />
+        {avatarSlot ?? (
+          <PartyAvatar
+            name={avatar.name}
+            entityType={avatar.entityType ?? "client"}
+            avatarUrl={avatar.avatarUrl}
+            avatarSeed={avatar.avatarSeed}
+            organizationImageUrl={avatar.organizationImageUrl}
+            organizationAvatarSeed={avatar.organizationAvatarSeed}
+            initialsColorSeed={avatar.initialsColorSeed}
+            size={size}
+            shape="circle"
+          />
+        )}
       </View>
       <View
         style={[
@@ -181,6 +187,7 @@ export function AlertRegistrySignalCard({
   headerEnd,
   variant = "feed",
   compact = false,
+  avatarSlot,
 }: AlertRegistrySignalCardProps) {
   const showDetailCard = Boolean(detailTitle || detailSubtitle || detail || detailMedia);
   const avatarSize = compact && variant === "tile" ? COMPACT_AVATAR_SIZE : AVATAR_SIZE;
@@ -200,6 +207,7 @@ export function AlertRegistrySignalCard({
         mode={mode}
         size={avatarSize}
         compact={compact && variant === "tile"}
+        avatarSlot={avatarSlot}
       />
 
       <View style={[styles.body, compact && variant === "tile" && styles.bodyCompact]}>

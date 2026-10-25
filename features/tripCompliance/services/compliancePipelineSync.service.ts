@@ -21,7 +21,7 @@ import { fetchHardCopyIbondTripIds } from "@/features/trips/services/tripDocumen
 import {
   fetchComplianceTripFlags,
   fetchHardCopyReceivedLrNumbers,
-  fetchPodChargeValidatedTripIds,
+  fetchPodChargeWorkflowFlags,
   fetchComplianceTripInputs,
   fetchDriverDocumentsForTrips,
   fetchTripDocumentsForTrips,
@@ -41,6 +41,9 @@ import {
   applyVehicleDocuments,
   reconcilePipelineTrips,
   applyPodChargesSaved,
+  applyPodNotFound,
+  applyPodRevalidateRequested,
+  applySettlementReleased,
   replaceTripDocuments,
   replaceTripFlags,
   tripsUsingDriver,
@@ -63,7 +66,11 @@ export type ComplianceChange =
     }
   | { type: "tripDocuments"; tripId: string }
   | { type: "tripFlags"; tripId: string }
+  | { type: "hardCopyPod"; tripId: string }
   | { type: "podChargesSaved"; tripId: string }
+  | { type: "podRevalidate"; tripId: string }
+  | { type: "podNotFound"; tripId: string }
+  | { type: "settlementReleased"; tripId: string }
   | { type: "complianceVerified"; tripId: string; actorId: string }
   | { type: "complianceDeclined"; tripId: string; actorId: string; reason: string }
   | { type: "complianceRejected"; tripId: string; actorId: string; reason: string }
@@ -98,29 +105,52 @@ export async function patchForComplianceChange(
       const documents = docs.get(change.tripId) ?? [];
       return (cur) => replaceTripDocuments(cur, change.tripId, documents);
     }
+    case "hardCopyPod": {
+      const docs = await fetchTripDocumentsForTrips([change.tripId]);
+      const documents = docs.get(change.tripId) ?? [];
+      const flagsPatch = await patchForComplianceChange(
+        current,
+        { type: "tripFlags", tripId: change.tripId },
+        viewerOrgId,
+        now,
+      );
+      return (cur) => flagsPatch(replaceTripDocuments(cur, change.tripId, documents));
+    }
     case "tripFlags": {
       const [flags, received, ibondIds] = await Promise.all([
         fetchComplianceTripFlags([change.tripId]),
         fetchHardCopyReceivedLrNumbers([change.tripId]),
         fetchHardCopyIbondTripIds([change.tripId]),
       ]);
-      const validatedIds = await fetchPodChargeValidatedTripIds([change.tripId]);
+      const workflowByTrip = await fetchPodChargeWorkflowFlags([change.tripId]);
       const tripFlags = flags.get(change.tripId) ?? null;
       const numbers = received.get(change.tripId) ?? [];
       let merged = tripFlags && numbers.length > 0 ? { ...tripFlags, received_lr_numbers: numbers } : tripFlags;
       if (merged && ibondIds.has(change.tripId)) merged = { ...merged, pod_ibond: true };
-      if (merged && validatedIds.has(change.tripId)) merged = { ...merged, pod_charges_saved: true };
-      return (cur) => {
-        const row = cur.find((item) => item.trip.id === change.tripId);
-        const keepSaved =
-          validatedIds.has(change.tripId) || row?.flags?.pod_charges_saved === true;
-        const base = merged ?? row?.flags ?? null;
-        const flags = base && keepSaved ? { ...base, pod_charges_saved: true } : base;
-        return replaceTripFlags(cur, change.tripId, flags);
-      };
+      const workflow = workflowByTrip.get(change.tripId);
+      if (merged) {
+        merged = {
+          ...merged,
+          pod_charges_saved: workflow?.chargesSaved === true,
+          pod_revalidate_requested: workflow?.revalidateRequested === true,
+          pod_settlement_released: workflow?.settlementReleased === true,
+          pod_no_debit: workflow?.noDebit === true,
+          pod_has_debit: workflow?.hasDebit === true,
+        };
+      }
+      return (cur) => replaceTripFlags(cur, change.tripId, merged ?? cur.find((item) => item.trip.id === change.tripId)?.flags ?? null);
     }
     case "podChargesSaved": {
       return (cur) => applyPodChargesSaved(cur, change.tripId);
+    }
+    case "podRevalidate": {
+      return (cur) => applyPodRevalidateRequested(cur, change.tripId);
+    }
+    case "podNotFound": {
+      return (cur) => applyPodNotFound(cur, change.tripId);
+    }
+    case "settlementReleased": {
+      return (cur) => applySettlementReleased(cur, change.tripId);
     }
     case "complianceVerified": {
       const at = now();

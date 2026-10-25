@@ -18,7 +18,10 @@ import {
   inferTripStaffUserId,
   matchesTripAuditTab,
   type TripActivityUserProfile,
+  type TripAuditLogScope,
+  type TripAuditMilestone,
 } from "@/lib/trips/buildTripAuditLog.util";
+import type { TripAuditFilterTab } from "@/lib/trips/tripAuditLog.types";
 import { useEffect, useMemo, useState } from "react";
 import {
   Modal,
@@ -45,12 +48,15 @@ export type TripAuditLogPanelProps = {
   driverDisplayName?: string | null;
   hardCopyPod?: TripHardCopyPodState | null;
   loading?: boolean;
+  scope?: TripAuditLogScope;
+  milestones?: TripAuditMilestone[];
 };
 
 function collectActivityUserIds(
   trip: TripRow,
   assignmentAuditRows: TripAssignmentAuditRow[],
   transactions: LedgerRow[],
+  milestones: TripAuditMilestone[] = [],
 ): string[] {
   const ids = new Set<string>();
   const add = (id: string | null | undefined) => {
@@ -67,6 +73,7 @@ function collectActivityUserIds(
     add(tx.created_by);
     add(inferTripStaffUserId(trip, tx.created_by));
   }
+  for (const mile of milestones) add(mile.actorUserId);
   return Array.from(ids);
 }
 
@@ -84,6 +91,8 @@ export function TripAuditLogPanel({
   driverDisplayName,
   hardCopyPod = null,
   loading = false,
+  scope = "all",
+  milestones = [],
 }: TripAuditLogPanelProps) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
@@ -98,8 +107,8 @@ export function TripAuditLogPanel({
   const route = [trip.pickup_area, trip.drop_location].filter(Boolean).join(" → ");
 
   const activityUserIds = useMemo(
-    () => collectActivityUserIds(trip, assignmentAuditRows, tripLedgerEntries),
-    [trip, assignmentAuditRows, tripLedgerEntries],
+    () => collectActivityUserIds(trip, assignmentAuditRows, tripLedgerEntries, milestones),
+    [trip, assignmentAuditRows, tripLedgerEntries, milestones],
   );
   // Stable primitive key: the effect below must only re-run when the actual set
   // of ids changes, not when the parent hands us a new array reference each
@@ -202,6 +211,8 @@ export function TripAuditLogPanel({
         userProfileById,
         driverDisplayName: driverDisplayName ?? trip.driver_display_name,
         hardCopyPod,
+        scope,
+        milestones,
       }),
     [
       trip,
@@ -216,8 +227,15 @@ export function TripAuditLogPanel({
       userProfileById,
       driverDisplayName,
       hardCopyPod,
+      scope,
+      milestones,
     ],
   );
+
+  const tabs: TripAuditFilterTab[] =
+    scope === "compliance"
+      ? ["all", "documents", "activity"]
+      : ["all", "payment", "updates", "assignment"];
 
   const panel = (
     <TripAuditLogContent
@@ -228,6 +246,12 @@ export function TripAuditLogPanel({
       loading={loading || resolvingUsers}
       onClose={onClose}
       shellStyle={styles.panelFullBleed}
+      tabs={tabs}
+      emptyBody={
+        scope === "compliance"
+          ? "Document uploads, deletions, and compliance activity for this trip will appear here."
+          : undefined
+      }
     />
   );
 

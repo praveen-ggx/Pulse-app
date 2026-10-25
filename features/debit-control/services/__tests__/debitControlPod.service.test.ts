@@ -20,7 +20,10 @@ jest.mock("@/features/trips/services/tripDocumentLrPod.service", () => {
   };
 });
 
-import { validateDebitControlPods } from "@/features/debit-control/services/debitControlPod.service";
+import {
+  savePodValidationDraft,
+  validateDebitControlPods,
+} from "@/features/debit-control/services/debitControlPod.service";
 import { EMPTY_CHARGE_LINES } from "@/features/debit-control/utils/debitControlPod.model";
 
 describe("validateDebitControlPods", () => {
@@ -63,5 +66,27 @@ describe("validateDebitControlPods", () => {
     expect(first.payload.total_client_value).toBe(970);
     expect(first.payload.total_vendor_value).toBe(680);
     expect(first.payload.remarks).toBe("Checked docket");
+  });
+
+  it("saves charge drafts without marking the trip validated", async () => {
+    const result = await savePodValidationDraft({
+      orgId: "org-1",
+      actorId: "user-1",
+      trips: [
+        {
+          tripId: "trip-a",
+          remarks: "",
+          clientInvoiceNumber: null,
+          client: { ...EMPTY_CHARGE_LINES, loading: 40 },
+          vendor: { ...EMPTY_CHARGE_LINES, loading: 40 },
+        },
+      ],
+    });
+
+    expect(result.error).toBeNull();
+    expect(result.updatedIds).toEqual(["trip-a"]);
+    const row = mockInsert.mock.calls.at(-1)?.[0] as { event_type: string; idempotency_key: string };
+    expect(row.event_type).toBe("pod.debit_control_draft");
+    expect(row.idempotency_key).toBe("trip-a:pod.debit_control_draft");
   });
 });

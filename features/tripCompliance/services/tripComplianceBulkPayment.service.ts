@@ -191,14 +191,16 @@ export async function validateComplianceBulkPayments(params: {
   const alreadyPaid: ComplianceBulkRowValidation[] = [];
   for (const item of valid) {
     const bucket = buckets.get(item.row.tripId) ?? { advance: [], balance: [] };
-    const gate = evaluateCompliancePaymentGuard(params.category, bucket);
+    const trip = tripsById.get(item.row.tripId);
+    const gate = evaluateCompliancePaymentGuard(params.category, bucket, {
+      podReceived: Boolean(trip?.pod_received_at),
+    });
     if (!gate.ok) {
       const gated = { ...item, gateReason: gate.reason };
       if (gate.kind === "already_paid") alreadyPaid.push(gated);
       else blocked.push(gated);
       continue;
     }
-    const trip = tripsById.get(item.row.tripId);
     const required = summarizeRequiredTripDocuments(documentsByTrip.get(item.row.tripId) ?? []);
     const requirementReason = bulkRequirementBlockReason(params.category, trip, required);
     if (requirementReason) {

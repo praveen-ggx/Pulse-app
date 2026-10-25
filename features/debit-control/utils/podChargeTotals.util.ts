@@ -150,6 +150,7 @@ export function tripMatchesReceivedSearch(
 type ValidationPayload = {
   v?: number;
   remarks?: string | null;
+  no_debit?: boolean;
   client_invoice_number?: string | null;
   total_client_value?: number | null;
   total_vendor_value?: number | null;
@@ -172,6 +173,7 @@ function readLines(raw: Partial<PodChargeLines> | null | undefined): PodChargeLi
 
 export function readPodValidationPayload(payload: unknown): {
   remarks: string | null;
+  noDebit: boolean;
   clientInvoiceNumber: string | null;
   totalClientValue: number;
   totalVendorValue: number;
@@ -188,6 +190,7 @@ export function readPodValidationPayload(payload: unknown): {
   if (!clientCharges || !vendorCharges) return null;
   return {
     remarks: String(row.remarks ?? "").trim() || null,
+    noDebit: row.no_debit === true,
     clientInvoiceNumber: String(row.client_invoice_number ?? "").trim() || null,
     totalClientValue: netChargeTotal(clientCharges),
     totalVendorValue: netChargeTotal(vendorCharges),

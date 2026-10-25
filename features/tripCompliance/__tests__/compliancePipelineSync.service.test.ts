@@ -246,12 +246,38 @@ describe("mark verified / POD", () => {
     expect(summarizeComplianceTrip(patch(loaded)[0]).stage).toBe("compliance_verified");
   });
 
+  it("POD not found: 0 reads, received is cleared for Awaiting POD", async () => {
+    const withReceived = [
+      {
+        ...loaded[0],
+        flags: { ...loaded[0].flags, pod_received_at: "2026-10-25T00:00:00.000Z", pod_charges_saved: true },
+      },
+      loaded[1],
+    ];
+    const patch = await patchForComplianceChange(withReceived, { type: "podNotFound", tripId: "t1" });
+    expect(reads()).toBe(0);
+    const next = patch(withReceived);
+    expect(next[0].flags?.pod_received_at).toBeNull();
+    expect(next[0].flags?.pod_charges_saved).toBe(false);
+    expect(summarizeComplianceTrip(next[0]).hardCopyPod.received).toBe(false);
+    expect(next[1]).toBe(withReceived[1]);
+  });
+
   it("charge save: 0 reads, trip is marked saved for Balance Pending", async () => {
     const patch = await patchForComplianceChange(loaded, { type: "podChargesSaved", tripId: "t1" });
     expect(reads()).toBe(0);
     const next = patch(loaded);
     expect(next[0].flags?.pod_charges_saved).toBe(true);
     expect(summarizeComplianceTrip(next[0]).hardCopyPod.chargesSaved).toBe(true);
+    expect(next[1]).toBe(loaded[1]);
+  });
+
+  it("settlement release: 0 reads, trip is marked for Final Settlement", async () => {
+    const patch = await patchForComplianceChange(loaded, { type: "settlementReleased", tripId: "t1" });
+    expect(reads()).toBe(0);
+    const next = patch(loaded);
+    expect(next[0].flags?.pod_settlement_released).toBe(true);
+    expect(summarizeComplianceTrip(next[0]).hardCopyPod.settlementReleased).toBe(true);
     expect(next[1]).toBe(loaded[1]);
   });
 
@@ -272,7 +298,7 @@ describe("mark verified / POD", () => {
       {
         kind: "from",
         name: "trip_workflow_events",
-        filters: ["event_type=pod.debit_control_validated", "trip_id in 1"],
+        filters: ["event_type in 4", "trip_id in 1"],
       },
     ]);
   });

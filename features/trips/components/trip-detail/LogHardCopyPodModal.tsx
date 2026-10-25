@@ -3,9 +3,17 @@
  * Reuses trips.pod_* columns + record_trip_hard_copy_pod /
  * log_trip_hard_copy_pod_courier RPCs. Does not create duplicate POD rows.
  */
+import { AlertRegistrySignalCard } from "@/components/AlertRegistrySignalCard";
+import {
+  RegistryCardActions,
+  RegistryGhostButton,
+  RegistryPrimaryButton,
+} from "@/components/AlertRegistryCardActions";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { HardCopyPodDateField } from "@/features/trips/components/trip-detail/HardCopyPodDateField";
+import { HardCopyPodTimeField } from "@/features/trips/components/trip-detail/HardCopyPodTimeField";
+import { ThemedConfirmModal } from "@/components/ThemedConfirmModal";
 import { HardCopyPodPhotoUpload } from "@/features/trips/components/trip-detail/HardCopyPodPhotoUpload";
 import {
   encodeHardCopyPodComment,
@@ -37,7 +45,7 @@ import {
 } from "@/features/trips/utils/lrReceiptStatus.util";
 import Feather from "@expo/vector-icons/Feather";
 import { useQueryClient } from "@tanstack/react-query";
-import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -97,6 +105,7 @@ export type HardCopyPodManifestSummary = {
 };
 
 type Mode = "create" | "view" | "mark_received";
+type CreateStep = "pod" | "method" | "details";
 
 function statusLabel(status: HardCopyPodStatus): string {
   if (status === "IN_TRANSIT") return "IN TRANSIT";
@@ -133,8 +142,10 @@ export function LogHardCopyPodModal({
   initialMode = "create",
   onUpdated,
   lrOptions = [],
+  tripScoped = false,
   inline = false,
   fullScreen = false,
+  headerEnd,
 }: {
   visible: boolean;
   /** Fill the window (form + POD upload side by side) instead of the side drawer. */
@@ -154,6 +165,11 @@ export function LogHardCopyPodModal({
    * The opened trip's own LRs are merged in when this list omits them.
    */
   lrOptions?: HardCopyPodLrOption[];
+  /**
+   * Compliance card / trip-level log: only this trip's LRs, no queue picker.
+   */
+  tripScoped?: boolean;
+  headerEnd?: ReactNode;
 }) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -169,6 +185,9 @@ export function LogHardCopyPodModal({
   const [receivedBy, setReceivedBy] = useState("");
   const [receivedDate, setReceivedDate] = useState(todayIsoDate);
   const [receivedTime, setReceivedTime] = useState("");
+  const [proceedConfirm, setProceedConfirm] = useState<"save" | "received" | null>(null);
+  const [podUploaded, setPodUploaded] = useState(false);
+  const [createStep, setCreateStep] = useState<CreateStep>("pod");
   const [courierName, setCourierName] = useState("");
   const [awbNumber, setAwbNumber] = useState("");
   const [dispatchDate, setDispatchDate] = useState("");
@@ -202,6 +221,7 @@ export function LogHardCopyPodModal({
       return;
     }
     setMode(initialMode);
+    setCreateStep("pod");
     setErrors({});
     void refreshState().then((state) => {
       if (!state) return;
@@ -213,7 +233,8 @@ export function LogHardCopyPodModal({
         setMethod(next);
       };
       if (state.status === "RECEIVED" || (state.status === "IN_TRANSIT" && initialMode !== "create")) {
-        setMode(initialMode === "mark_received" ? "mark_received" : "view");
+        const stayOnForm = initialMode === "create" || initialMode === "mark_received";
+        setMode(initialMode === "mark_received" ? "mark_received" : stayOnForm ? "create" : "view");
         applyMethod(state.receiptMethod);
         setReceivedBy(state.receivedBy ?? "");
         setReceivedDate(state.receivedDate ?? "");
@@ -285,10 +306,12 @@ export function LogHardCopyPodModal({
     // Passed-in document rows already name the upload trip. The opened-trip
     // index is only a fallback for callers that do not pass those rows.
     const source = lrOptions.length > 0 ? lrOptions : loadedLrOptions;
+    const opened = tripId.trim();
     for (const option of source) {
       const trip = option.tripId.trim();
       const lr = option.lrNumber.trim();
       if (!trip || !lr || lr === "—") continue;
+      if (tripScoped && opened && trip !== opened) continue;
       const row = {
         lrNumber: lr,
         tripId: trip,
@@ -298,7 +321,7 @@ export function LogHardCopyPodModal({
       byKey.set(hardCopyPodLrKey(row), row);
     }
     return Array.from(byKey.values());
-  }, [loadedLrOptions, lrOptions]);
+  }, [loadedLrOptions, lrOptions, tripId, tripScoped]);
 
   useEffect(() => {
     if (!visible) {
@@ -390,7 +413,7 @@ export function LogHardCopyPodModal({
       if (!receivedBy.trim()) next.receivedBy = "Person name is required.";
       if (!receivedDate.trim()) next.receivedDate = "Received date is required.";
     } else {
-      if (lrChoices.length > 0 && selectedLrRows.length === 0) {
+      if (!tripScoped && lrChoices.length > 0 && selectedLrRows.length === 0) {
         next.lrSelection = "Select at least one LR number.";
       }
       if (!courierName.trim()) next.courierName = "Courier name is required.";
@@ -413,6 +436,7 @@ export function LogHardCopyPodModal({
     receivedBy,
     receivedDate,
     selectedLrRows.length,
+    tripScoped,
   ]);
 
   const validateMarkReceived = useCallback((): boolean => {
@@ -423,13 +447,62 @@ export function LogHardCopyPodModal({
     return Object.keys(next).length === 0;
   }, [receivedBy, receivedDate]);
 
-  const handleSaveCreate = useCallback(async () => {
+  const logReady = useMemo(() => {
+    if (!method) return false;
+    if (method === "person") return Boolean(receivedBy.trim() && receivedDate.trim());
+    if (!tripScoped && lrChoices.length > 0 && selectedLrRows.length === 0) return false;
+    if (!courierName.trim() || !awbNumber.trim()) return false;
+    if (courierDispatchDateError(dispatchDate)) return false;
+    return Boolean(expectedDeliveryDate.trim());
+  }, [
+    awbNumber,
+    courierName,
+    dispatchDate,
+    expectedDeliveryDate,
+    lrChoices.length,
+    method,
+    receivedBy,
+    receivedDate,
+    selectedLrRows.length,
+    tripScoped,
+  ]);
+  const canSubmitHardCopy = canManage && logReady && podUploaded && !saving;
+
+  const requestSaveCreate = useCallback(() => {
     if (!canManage || saving) return;
+    if (!podUploaded) {
+      setCreateStep("pod");
+      Alert.alert("Hard Copy POD", "Upload the hard-copy POD first.");
+      return;
+    }
     if (!validateCreate() || !method) {
       Alert.alert(
         "Hard Copy POD",
         method === "courier"
-          ? "Select the LR numbers, then enter courier name, docket number, dispatch date, and received date."
+          ? tripScoped
+            ? "Enter courier name, docket number, dispatch date, and received date for this trip."
+            : "Select the LR numbers, then enter courier name, docket number, dispatch date, and received date."
+          : "Enter who received the POD and the received date.",
+      );
+      return;
+    }
+    setProceedConfirm("save");
+  }, [canManage, method, podUploaded, saving, tripScoped, validateCreate]);
+
+  const handleSaveCreate = useCallback(async () => {
+    if (!canManage || saving) return;
+    if (!podUploaded) {
+      setCreateStep("pod");
+      Alert.alert("Hard Copy POD", "Upload the hard-copy POD first.");
+      return;
+    }
+    if (!validateCreate() || !method) {
+      Alert.alert(
+        "Hard Copy POD",
+        method === "courier"
+          ? tripScoped
+            ? "Enter courier name, docket number, dispatch date, and received date for this trip."
+            : "Select the LR numbers, then enter courier name, docket number, dispatch date, and received date."
           : "Enter who received the POD and the received date.",
       );
       return;
@@ -463,7 +536,9 @@ export function LogHardCopyPodModal({
         dispatchDate,
         expectedDeliveryDate,
       });
-      const tripIds = selectedHardCopyPodTripIds(lrChoices, new Set(selectedLrKeys));
+      const tripIds = tripScoped
+        ? [tripId]
+        : selectedHardCopyPodTripIds(lrChoices, new Set(selectedLrKeys));
       const targets = tripIds.length > 0 ? tripIds : [tripId];
       const selectedKeys = new Set(selectedLrKeys);
       const saved: string[] = [];
@@ -554,8 +629,15 @@ export function LogHardCopyPodModal({
     selectedLrKeys,
     storedReceivedLrs,
     tripId,
+    tripScoped,
+    podUploaded,
     validateCreate,
   ]);
+
+  const requestConfirmReceived = useCallback(() => {
+    if (!canManage || saving || !validateMarkReceived()) return;
+    setProceedConfirm("received");
+  }, [canManage, saving, validateMarkReceived]);
 
   const handleConfirmReceived = useCallback(async () => {
     if (!canManage || saving || !validateMarkReceived()) return;
@@ -614,7 +696,17 @@ export function LogHardCopyPodModal({
   const subtitle =
     mode === "mark_received"
       ? "Confirm physical receipt of the courier POD."
-      : "Record the physical POD receipt for this manifest.";
+      : mode === "create" && createStep === "pod"
+        ? "Upload the hard-copy POD first. On a phone, photograph it with the camera."
+        : mode === "create" && createStep === "method"
+          ? "How was this hard-copy POD received?"
+          : mode === "create" && createStep === "details"
+            ? method === "person"
+              ? "Who took the hard-copy POD and when."
+              : "Courier, tracking, and dates for this trip."
+        : tripScoped
+          ? "Record the physical POD for this trip only."
+          : "Record the physical POD receipt for this manifest.";
 
   const readOnly = mode === "view";
   const showCreateForm = mode === "create";
@@ -633,6 +725,7 @@ export function LogHardCopyPodModal({
           {subtitle}
         </Text>
       </View>
+      {headerEnd ? <View style={styles.headerEnd}>{headerEnd}</View> : null}
       {inline ? null : (
         <Pressable
           onPress={onClose}
@@ -646,29 +739,45 @@ export function LogHardCopyPodModal({
       )}
     </View>
   );
+  const pendingLr = openedLrReceipt.pending.join(", ");
+  const receivedLr = openedLrReceipt.received.join(", ");
   const summaryEl = (
-    <View style={[styles.summaryCard, compact && styles.summaryCardCompact, fs && styles.fsSummary]}>
-      <SummaryRow grid={fs} label="Manifest ID" value={summary.manifestId} />
-      <SummaryRow grid={fs} label="LR Number" value={cardLrNumber} />
-      {openedLrReceipt.received.length + openedLrReceipt.pending.length > 0 ? (
-        <>
-          <SummaryRow
-            label="Received LRs"
-            value={openedLrReceipt.received.join(", ") || "—"}
-          />
-          <SummaryRow
-            label="Pending LRs"
-            value={openedLrReceipt.pending.join(", ") || "—"}
-          />
-        </>
-      ) : null}
-      <SummaryRow grid={fs} label="Client" value={summary.clientName} />
-      <SummaryRow grid={fs} label="Pickup" value={summary.pickup} />
-      <SummaryRow grid={fs} label="Delivery" value={summary.delivery} />
-      <SummaryRow grid={fs} label="Driver" value={summary.driverName} />
-      <SummaryRow grid={fs} label="Vehicle" value={summary.vehicleLabel} />
-      <SummaryRow grid={fs} label="Vehicle Type" value={summary.vehicleType?.trim() || "—"} />
-      <SummaryRow grid={fs} label="Vendor Name" value={summary.vendorName?.trim() || "—"} />
+    <View style={styles.notifyCard}>
+      <AlertRegistrySignalCard
+        variant="feed"
+        isUnread={openedLrReceipt.pending.length > 0}
+        avatar={{
+          name: summary.vendorName?.trim() || summary.clientName,
+          entityType: "supplier",
+          initialsColorSeed: summary.vendorName || summary.manifestId,
+        }}
+        actorName={summary.vendorName?.trim() || "Vendor"}
+        actionText="needs a hard-copy POD for"
+        highlightText={summary.clientName}
+        trailingText={`· ${summary.manifestId}`}
+        detailTitle={`${summary.pickup} → ${summary.delivery}`}
+        detailSubtitle={[
+          cardLrNumber !== "—" ? `LR ${cardLrNumber}` : null,
+          summary.vehicleLabel,
+          summary.vehicleType?.trim(),
+          summary.driverName,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+        timeLabel="Awaiting POD"
+        contextLabel="Hard copy"
+        tags={
+          pendingLr
+            ? [{ label: `Pending ${pendingLr}`, variant: "warning" }]
+            : receivedLr
+              ? [{ label: `Received ${receivedLr}`, variant: "success" }]
+              : undefined
+        }
+        statusPill={{
+          label: method === "courier" ? "Courier" : method === "person" ? "Person" : "Log POD",
+          tone: method ? "success" : "warning",
+        }}
+      />
     </View>
   );
   const formBodyEl = (
@@ -754,8 +863,24 @@ export function LogHardCopyPodModal({
             ) : null}
           </>
         ) : null}
-        {podState.remarks ? (
-          <DetailRow label="Remarks" value={podState.remarks} />
+        {decodeCourierLrRemarks(podState.remarks).text ? (
+          <DetailRow label="Remarks" value={decodeCourierLrRemarks(podState.remarks).text ?? "—"} />
+        ) : null}
+
+        {canManage ? (
+          <Pressable
+            style={styles.secondaryBtn}
+            onPress={() => {
+              setMode("create");
+              setMethod(podState.receiptMethod ?? method);
+              setRemarks(decodeCourierLrRemarks(podState.remarks).text ?? "");
+              setErrors({});
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Edit hard copy POD"
+          >
+            <Text style={styles.secondaryBtnText}>Edit</Text>
+          </Pressable>
         ) : null}
 
         {compact ? null : (
@@ -779,115 +904,105 @@ export function LogHardCopyPodModal({
           </Pressable>
         ) : null}
 
-        {canManage && podState.status === "IN_TRANSIT" ? (
-          <Pressable
-            style={styles.secondaryBtn}
-            onPress={() => {
-              setMode("create");
-              setMethod("courier");
-              setErrors({});
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Edit courier POD"
-          >
-            <Text style={styles.secondaryBtnText}>Edit</Text>
-          </Pressable>
-        ) : null}
       </View>
     ) : null}
 
-    {showCreateForm ? (
-      <View style={[styles.section, compact && styles.sectionCompact]}>
-        <Text style={[styles.sectionTitle, compact && styles.sectionTitleCompact]}>
-          How was the hard copy POD received?
+    {showCreateForm && createStep === "pod" ? (
+      <View style={[styles.section, compact && styles.sectionCompact, styles.notifyForm]}>
+        <Text style={styles.notifyFeedTitle}>Upload the hard-copy POD</Text>
+        <Text style={styles.notifyQuoteMeta}>
+          {Platform.OS === "web"
+            ? "Attach the scan or photo, then continue to receipt details."
+            : "Photograph the physical POD, then continue to receipt details."}
         </Text>
+        <View style={styles.wizardPodStage}>
+          <HardCopyPodPhotoUpload
+            tripId={tripId}
+            canEdit={canManage}
+            variant="pane"
+            onUploadedChange={setPodUploaded}
+          />
+        </View>
+      </View>
+    ) : null}
+
+    {showCreateForm && createStep === "method" ? (
+      <View style={[styles.section, compact && styles.sectionCompact, styles.notifyForm]}>
+        <Text style={styles.notifyFeedTitle}>How was the hard copy POD received?</Text>
         {errors.method ? (
           <Text style={styles.errorText}>{errors.method}</Text>
         ) : null}
-        <View style={[styles.segmentRow, fs && styles.fsSegmentRow]}>
-          <Pressable
-            style={[
-              styles.segmentCard,
-              compact && styles.segmentCardCompact,
-              method === "person" && styles.segmentCardActive,
-            ]}
+        <View style={styles.notifyFeed}>
+          <AlertRegistrySignalCard
+            variant="feed"
+            isUnread={method === "person"}
+            avatar={{
+              name: "Person",
+              entityType: "driver",
+              initialsColorSeed: "hard-copy-person",
+            }}
+            avatarSlot={
+              <ReceiptMethodIcon name="user" selected={method === "person"} />
+            }
+            actorName="Received by Person"
+            actionText="handed over in person"
+            timeLabel="Desk"
+            contextLabel="Hard copy"
+            statusPill={{
+              label: method === "person" ? "Selected" : "Option",
+              tone: method === "person" ? "success" : "neutral",
+            }}
             onPress={() => {
               setMethod("person");
+              setCreateStep("details");
               setErrors((e) => {
                 const { method: _m, ...rest } = e;
                 return rest;
               });
             }}
-            accessibilityRole="radio"
-            accessibilityState={{ selected: method === "person" }}
-          >
-            <View
-              style={[
-                styles.radioOuter,
-                method === "person" && styles.radioOuterActive,
-              ]}
-            >
-              {method === "person" ? <View style={styles.radioInner} /> : null}
-            </View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text
-                style={[
-                  styles.segmentTitle,
-                  compact && styles.segmentTitleCompact,
-                  method === "person" && styles.segmentTitleActive,
-                ]}
-              >
-                Received by Person
-              </Text>
-              <Text style={[styles.segmentHint, compact && styles.segmentHintCompact]}>
-                Handed over in person
-              </Text>
-            </View>
-          </Pressable>
-          <Pressable
-            style={[
-              styles.segmentCard,
-              compact && styles.segmentCardCompact,
-              method === "courier" && styles.segmentCardActive,
-            ]}
+          />
+          <AlertRegistrySignalCard
+            variant="feed"
+            isUnread={method === "courier"}
+            avatar={{
+              name: "Courier",
+              entityType: "supplier",
+              initialsColorSeed: "hard-copy-courier",
+            }}
+            avatarSlot={
+              <ReceiptMethodIcon name="package" selected={method === "courier"} />
+            }
+            actorName="Received by Courier"
+            actionText="dispatched via courier"
+            timeLabel="Courier"
+            contextLabel="Hard copy"
+            statusPill={{
+              label: method === "courier" ? "Selected" : "Option",
+              tone: method === "courier" ? "success" : "neutral",
+            }}
             onPress={() => {
               setMethod("courier");
+              setCreateStep("details");
               setErrors((e) => {
                 const { method: _m, ...rest } = e;
                 return rest;
               });
             }}
-            accessibilityRole="radio"
-            accessibilityState={{ selected: method === "courier" }}
-          >
-            <View
-              style={[
-                styles.radioOuter,
-                method === "courier" && styles.radioOuterActive,
-              ]}
-            >
-              {method === "courier" ? <View style={styles.radioInner} /> : null}
-            </View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text
-                style={[
-                  styles.segmentTitle,
-                  compact && styles.segmentTitleCompact,
-                  method === "courier" && styles.segmentTitleActive,
-                ]}
-              >
-                Received by Courier
-              </Text>
-              <Text style={[styles.segmentHint, compact && styles.segmentHintCompact]}>
-                Dispatched via courier
-              </Text>
-            </View>
-          </Pressable>
+          />
         </View>
+      </View>
+    ) : null}
 
-        {method === "person" ? (
-          <View style={[styles.fields, compact && styles.fieldsCompact]}>
+    {showCreateForm && createStep === "details" && method === "person" ? (
+          <View style={[styles.fields, compact && styles.fieldsCompact, styles.notifyQuote]}>
+            <View style={styles.notifyQuoteHead}>
+              <Text style={styles.notifyQuoteKicker}>This trip</Text>
+              <Text style={styles.notifyQuoteTitle}>Received at the desk</Text>
+              <Text style={styles.notifyQuoteMeta}>Who took the hard-copy POD and when</Text>
+            </View>
+            <View style={styles.notifyQuoteBody}>
             <Field
+              quiet
               label="Received by"
               required
               value={receivedBy}
@@ -898,6 +1013,7 @@ export function LogHardCopyPodModal({
             <View style={styles.dateTimeRow}>
               <View style={styles.dateTimeCol}>
                 <HardCopyPodDateField
+                  quiet
                   label="Received date"
                   required
                   value={receivedDate}
@@ -906,89 +1022,128 @@ export function LogHardCopyPodModal({
                 />
               </View>
               <View style={styles.dateTimeCol}>
-                <Field
+                <HardCopyPodTimeField
+                  quiet
                   label="Received time"
                   value={receivedTime}
-                  onChangeText={setReceivedTime}
+                  onChange={setReceivedTime}
                   placeholder="HH:MM"
                 />
               </View>
             </View>
-            <View style={styles.dateTimeRow}>
-              <View style={styles.dateTimeCol}>
-                <Field
-                  label="Remarks"
-                  value={remarks}
-                  onChangeText={setRemarks}
-                  placeholder="Optional remarks"
-                  multiline
-                />
-              </View>
-              {compact ? null : (
-                <View style={styles.dateTimeCol}>
-                  <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} />
-                </View>
-              )}
+            <Field
+              quiet
+              label="Remarks"
+              value={remarks}
+              onChangeText={setRemarks}
+              placeholder="Optional remarks"
+              multiline
+            />
             </View>
           </View>
         ) : null}
 
-        {method === "courier" ? (
-          <View style={[styles.fields, compact && styles.fieldsCompact]}>
-            <CourierLrPicker
-              options={lrChoices}
-              selectedKeys={selectedLrKeys}
-              receivedKeys={receivedLrKeys}
-              query={lrQuery}
-              onQueryChange={setLrQuery}
-              error={errors.lrSelection}
-              onToggle={(key) => {
-                lrSelectionTouched.current = true;
-                setSelectedLrKeys((current) =>
-                  current.includes(key)
-                    ? current.filter((item) => item !== key)
-                    : [...current, key],
-                );
-                setErrors((current) => {
-                  if (!current.lrSelection) return current;
-                  const { lrSelection: _removed, ...rest } = current;
-                  return rest;
-                });
-              }}
-            />
-            <CourierLrMap
-              rows={selectedLrRows}
-              docket={awbNumber.trim() || "—"}
-              dispatchDate={formatDisplayDate(dispatchDate)}
-              receivedDate={formatDisplayDate(expectedDeliveryDate)}
-            />
-            <Text style={styles.sharedDocketHint}>
-              Docket number, dispatch date, and received date stay the same for every selected LR.
-            </Text>
-            <CourierNameField
-              value={courierName}
-              error={errors.courierName}
-              onChange={(name) => {
-                setCourierName(name);
-                setErrors((current) => {
-                  const { courierName: _removed, ...rest } = current;
-                  return rest;
-                });
-              }}
-            />
-            <Field
-              label="Tracking / AWB Number"
-              required
-              value={awbNumber}
-              onChangeText={setAwbNumber}
-              placeholder="Primary courier reference"
-              error={errors.awbNumber}
-              emphasize
-            />
+    {showCreateForm && createStep === "details" && method === "courier" ? (
+          <View style={[styles.fields, compact && styles.fieldsCompact, styles.notifyQuote]}>
+            <View style={styles.notifyQuoteHeadRow}>
+              <View style={styles.notifyQuoteHead}>
+                <Text style={styles.notifyQuoteKicker}>This trip</Text>
+                <Text style={styles.notifyQuoteTitle} numberOfLines={1}>
+                  Courier dispatch
+                </Text>
+                <Text style={styles.notifyQuoteMeta} numberOfLines={2}>
+                  Courier, tracking, and dates for this trip only
+                </Text>
+              </View>
+              {tripScoped ? (
+                <View style={styles.tripLrChips}>
+                  {lrChoices.length === 0 ? (
+                    <Text style={styles.tripLrEmpty}>No LR yet</Text>
+                  ) : (
+                    lrChoices.map((option) => (
+                      <View
+                        key={hardCopyPodLrKey(option)}
+                        style={[
+                          styles.tripLrChip,
+                          receivedLrKeys.has(hardCopyPodLrKey(option)) && styles.tripLrChipReceived,
+                        ]}
+                      >
+                        <Text style={styles.tripLrChipText} numberOfLines={1}>
+                          {option.lrNumber}
+                        </Text>
+                      </View>
+                    ))
+                  )}
+                </View>
+              ) : null}
+            </View>
+            {tripScoped ? null : (
+              <>
+                <CourierLrPicker
+                  options={lrChoices}
+                  selectedKeys={selectedLrKeys}
+                  receivedKeys={receivedLrKeys}
+                  query={lrQuery}
+                  onQueryChange={setLrQuery}
+                  error={errors.lrSelection}
+                  onToggle={(key) => {
+                    lrSelectionTouched.current = true;
+                    setSelectedLrKeys((current) =>
+                      current.includes(key)
+                        ? current.filter((item) => item !== key)
+                        : [...current, key],
+                    );
+                    setErrors((current) => {
+                      if (!current.lrSelection) return current;
+                      const { lrSelection: _removed, ...rest } = current;
+                      return rest;
+                    });
+                  }}
+                />
+                <CourierLrMap
+                  rows={selectedLrRows}
+                  docket={awbNumber.trim() || "—"}
+                  dispatchDate={formatDisplayDate(dispatchDate)}
+                  receivedDate={formatDisplayDate(expectedDeliveryDate)}
+                />
+                <Text style={styles.sharedDocketHint}>
+                  Docket number, dispatch date, and received date stay the same for every selected LR.
+                </Text>
+              </>
+            )}
+            <View style={styles.notifyQuoteBody}>
+            <View style={styles.dateTimeRow}>
+              <View style={styles.dateTimeCol}>
+                <CourierNameField
+                  quiet
+                  value={courierName}
+                  error={errors.courierName}
+                  onChange={(name) => {
+                    setCourierName(name);
+                    setErrors((current) => {
+                      const { courierName: _removed, ...rest } = current;
+                      return rest;
+                    });
+                  }}
+                />
+              </View>
+              <View style={styles.dateTimeCol}>
+                <Field
+                  quiet
+                  label="Tracking / AWB"
+                  required
+                  value={awbNumber}
+                  onChangeText={setAwbNumber}
+                  placeholder="Primary courier reference"
+                  error={errors.awbNumber}
+                />
+              </View>
+            </View>
             <View style={styles.dateTimeRow}>
               <View style={styles.dateTimeCol}>
                 <HardCopyPodDateField
-                  label="Dispatch Date"
+                  quiet
+                  label="Dispatch date"
                   required
                   value={dispatchDate}
                   onChange={setDispatchDate}
@@ -997,7 +1152,8 @@ export function LogHardCopyPodModal({
               </View>
               <View style={styles.dateTimeCol}>
                 <HardCopyPodDateField
-                  label="Received Delivery Date"
+                  quiet
+                  label="Received date"
                   required
                   value={expectedDeliveryDate}
                   onChange={(iso) => {
@@ -1012,26 +1168,17 @@ export function LogHardCopyPodModal({
                 />
               </View>
             </View>
-            <View style={styles.dateTimeRow}>
-              <View style={styles.dateTimeCol}>
-                <Field
-                  label="Remarks"
-                  value={remarks}
-                  onChangeText={setRemarks}
-                  placeholder="Optional remarks"
-                  multiline
-                />
-              </View>
-              {compact ? null : (
-                <View style={styles.dateTimeCol}>
-                  <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} />
-                </View>
-              )}
+            <Field
+              quiet
+              label="Remarks"
+              value={remarks}
+              onChangeText={setRemarks}
+              placeholder="Optional remarks"
+              multiline
+            />
             </View>
           </View>
         ) : null}
-      </View>
-    ) : null}
 
     {showMarkReceived ? (
       <View style={styles.section}>
@@ -1085,67 +1232,54 @@ export function LogHardCopyPodModal({
   const footerEl = (
     <View style={[styles.footer, compact && styles.footerCompact, fs && styles.fsFooterInner]}>
       {showCreateForm && canManage ? (
-        <>
-          <Pressable
-            style={[styles.secondaryBtn, compact && styles.btnCompact]}
-            onPress={onClose}
-            disabled={saving}
-          >
-            <Text style={styles.secondaryBtnText}>Cancel</Text>
-          </Pressable>
-          <Pressable
-            style={[
-              styles.primaryBtn,
-              styles.footerPrimary,
-              compact && styles.btnCompact,
-              (!method || saving) && styles.btnDisabled,
-            ]}
-            onPress={() => void handleSaveCreate()}
-            disabled={!method || saving}
-            accessibilityRole="button"
-            accessibilityLabel="Save hard copy POD"
-          >
-            {saving ? (
-              <ActivityIndicator size="small" color={Theme.buttonPrimaryText} />
-            ) : (
-              <Text style={styles.primaryBtnText}>Save</Text>
-            )}
-          </Pressable>
-        </>
+        <RegistryCardActions>
+          {createStep === "pod" ? (
+            <RegistryGhostButton label="Cancel" onPress={onClose} disabled={saving} style={styles.notifyFooterBtn} />
+          ) : (
+            <RegistryGhostButton
+              label="Back"
+              onPress={() => setCreateStep(createStep === "details" ? "method" : "pod")}
+              disabled={saving}
+              style={styles.notifyFooterBtn}
+            />
+          )}
+          {createStep === "details" ? (
+            <RegistryPrimaryButton
+              label={saving ? "Saving…" : "Save"}
+              onPress={requestSaveCreate}
+              disabled={!method || saving}
+              style={styles.notifyFooterBtn}
+            />
+          ) : (
+            <RegistryPrimaryButton
+              label="Next"
+              onPress={() => setCreateStep(createStep === "pod" ? "method" : "details")}
+              disabled={createStep === "pod" ? !podUploaded : !method}
+              style={styles.notifyFooterBtn}
+            />
+          )}
+        </RegistryCardActions>
       ) : null}
       {showMarkReceived && canManage ? (
-        <>
-          <Pressable
-            style={[styles.secondaryBtn, compact && styles.btnCompact]}
+        <RegistryCardActions>
+          <RegistryGhostButton
+            label="Cancel"
             onPress={() => setMode("view")}
             disabled={saving}
-          >
-            <Text style={styles.secondaryBtnText}>Cancel</Text>
-          </Pressable>
-          <Pressable
-            style={[
-              styles.primaryBtn,
-              styles.footerPrimary,
-              compact && styles.btnCompact,
-              saving && styles.btnDisabled,
-            ]}
-            onPress={() => void handleConfirmReceived()}
+            style={styles.notifyFooterBtn}
+          />
+          <RegistryPrimaryButton
+            label={saving ? "Saving…" : "Confirm"}
+            onPress={requestConfirmReceived}
             disabled={saving}
-            accessibilityRole="button"
-            accessibilityLabel="Confirm Received"
-          >
-            {saving ? (
-              <ActivityIndicator size="small" color={Theme.buttonPrimaryText} />
-            ) : (
-              <Text style={styles.primaryBtnText}>Confirm Received</Text>
-            )}
-          </Pressable>
-        </>
+            style={styles.notifyFooterBtn}
+          />
+        </RegistryCardActions>
       ) : null}
       {readOnly ? (
-        <Pressable style={[styles.secondaryBtn, { flex: 1 }]} onPress={onClose}>
-          <Text style={styles.secondaryBtnText}>Close</Text>
-        </Pressable>
+        <RegistryCardActions>
+          <RegistryGhostButton label="Close" onPress={onClose} style={styles.notifyFooterBtn} />
+        </RegistryCardActions>
       ) : null}
     </View>
   );
@@ -1160,7 +1294,7 @@ export function LogHardCopyPodModal({
       {headerEl}
       {summaryEl}
       <View style={styles.fsBody}>
-        <View style={styles.fsForm}>
+        <View style={[styles.fsForm, showCreateForm && styles.fsFormWide]}>
           <ScrollView
             style={{ flex: 1 }}
             contentContainerStyle={styles.fsFormBody}
@@ -1169,9 +1303,16 @@ export function LogHardCopyPodModal({
             {formBodyEl}
           </ScrollView>
         </View>
+        {showCreateForm ? null : (
         <View style={styles.fsPreview}>
-          <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} variant="pane" />
+          <HardCopyPodPhotoUpload
+            tripId={tripId}
+            canEdit={canManage}
+            variant="pane"
+            onUploadedChange={setPodUploaded}
+          />
         </View>
+        )}
       </View>
       <View style={styles.fsFooterBar}>
         <View style={styles.fsFooterActions}>{footerEl}</View>
@@ -1227,28 +1368,64 @@ export function LogHardCopyPodModal({
 
           {footerEl}
           </View>
-          {compact ? (
+          {compact && !showCreateForm ? (
             <View style={[styles.splitPreview, isNarrow && styles.splitPreviewStacked]}>
-              <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} variant="pane" />
+              <HardCopyPodPhotoUpload
+                tripId={tripId}
+                canEdit={canManage}
+                variant="pane"
+                onUploadedChange={setPodUploaded}
+              />
             </View>
           ) : null}
         </View>
   );
 
-  if (inline) return panel;
+  const confirmEl = (
+    <ThemedConfirmModal
+      visible={proceedConfirm != null}
+      title={proceedConfirm === "received" ? "Mark POD received?" : "Save hard-copy POD?"}
+      message={
+        proceedConfirm === "received"
+          ? "This records physical receipt and can move the trip to the next compliance step. Proceed?"
+          : "Save this hard-copy POD log? Confirm to proceed."
+      }
+      confirmText="Proceed"
+      cancelText="Cancel"
+      onCancel={() => setProceedConfirm(null)}
+      onConfirm={() => {
+        const next = proceedConfirm;
+        setProceedConfirm(null);
+        if (next === "received") void handleConfirmReceived();
+        else if (next === "save") void handleSaveCreate();
+      }}
+    />
+  );
+
+  if (inline) {
+    return (
+      <>
+        {panel}
+        {confirmEl}
+      </>
+    );
+  }
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType={isNarrow ? "slide" : "fade"}
-      onRequestClose={onClose}
-    >
-      <View style={styles.overlay}>
-        <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
-        {panel}
-      </View>
-    </Modal>
+    <>
+      <Modal
+        visible={visible}
+        transparent
+        animationType={isNarrow ? "slide" : "fade"}
+        onRequestClose={onClose}
+      >
+        <View style={styles.overlay}>
+          <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
+          {panel}
+        </View>
+      </Modal>
+      {confirmEl}
+    </>
   );
 }
 
@@ -1289,10 +1466,12 @@ function CourierNameField({
   value,
   onChange,
   error,
+  quiet = false,
 }: {
   value: string;
   onChange: (name: string) => void;
   error?: string;
+  quiet?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const options = courierNameOptions(value);
@@ -1304,106 +1483,101 @@ function CourierNameField({
   };
 
   return (
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>
-        Courier Name
+    <View style={[styles.field, quiet && styles.fieldQuiet]}>
+      <Text style={quiet ? styles.fieldLabelQuiet : styles.fieldLabel}>
+        Courier name
         <Text style={styles.req}> *</Text>
       </Text>
-      {Platform.OS === "web" ? (
-        <View style={[styles.input, styles.courierSelect, error ? styles.inputError : null]}>
-          {createElement(
-            "select",
-            {
-              value: selected,
-              "aria-label": "Courier Name",
-              "aria-required": true,
-              "aria-invalid": Boolean(error),
-              onChange: (event: { target: { value: string } }) => {
-                choose(event.target.value);
-              },
-              style: {
-                flex: 1,
-                minWidth: 0,
-                width: "100%",
-                border: "none",
-                outline: "none",
-                background: "transparent",
-                fontSize: 14,
-                fontWeight: "500",
-                color: selected ? Theme.textPrimaryDark : Theme.textMuted,
-                fontFamily: "inherit",
-                padding: 0,
-                margin: 0,
-                cursor: "pointer",
-                appearance: "none",
-                WebkitAppearance: "none",
-              },
-            },
-            createElement("option", { value: "", disabled: true }, "Select courier"),
-            ...options.map((name) =>
-              createElement("option", { key: name, value: name }, name),
-            ),
-          )}
-          <View pointerEvents="none">
-            <Feather name="chevron-down" size={16} color={Theme.textMuted} />
+      <Pressable
+        onPress={() => setOpen(true)}
+        style={[
+          styles.input,
+          quiet && styles.inputQuiet,
+          styles.courierSelect,
+          open && styles.courierSelectOpen,
+          error ? styles.inputError : null,
+        ]}
+        accessibilityRole="button"
+        accessibilityLabel="Courier Name"
+        accessibilityHint="Opens the courier list"
+        accessibilityState={{ expanded: open }}
+      >
+        <Feather
+          name="package"
+          size={quiet ? 13 : 14}
+          color={selected ? Theme.textPrimaryDark : Theme.textMuted}
+        />
+        <Text
+          style={[
+            styles.courierValue,
+            quiet && styles.courierValueQuiet,
+            !selected && styles.courierPlaceholder,
+          ]}
+          numberOfLines={1}
+        >
+          {selected || "Select courier"}
+        </Text>
+        <Feather name="chevron-down" size={quiet ? 14 : 16} color={Theme.textMuted} />
+      </Pressable>
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      <Modal
+        visible={open}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setOpen(false)}
+      >
+        <View style={styles.courierOverlay}>
+          <Pressable style={styles.courierBackdrop} onPress={() => setOpen(false)} />
+          <View style={styles.courierPopover} accessibilityRole="menu">
+            <View style={styles.courierPopoverHead}>
+              <Text style={styles.courierPopoverKicker}>Dispatch</Text>
+              <Text style={styles.courierPopoverTitle}>Select courier</Text>
+            </View>
+            <ScrollView
+              style={styles.courierPopoverList}
+              keyboardShouldPersistTaps="handled"
+            >
+              {options.map((name) => {
+                const active = name === selected;
+                return (
+                  <Pressable
+                    key={name}
+                    onPress={() => choose(name)}
+                    style={[styles.courierOption, active && styles.courierOptionActive]}
+                    accessibilityRole="menuitem"
+                    accessibilityState={{ selected: active }}
+                  >
+                    <View
+                      style={[
+                        styles.courierOptionIcon,
+                        active && styles.courierOptionIconActive,
+                      ]}
+                    >
+                      <Feather
+                        name="package"
+                        size={12}
+                        color={active ? Theme.textPrimaryDark : Theme.textMuted}
+                      />
+                    </View>
+                    <Text
+                      style={[
+                        styles.courierOptionText,
+                        active && styles.courierOptionTextActive,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {name}
+                    </Text>
+                    {active ? (
+                      <Feather name="check" size={14} color={Theme.textPrimaryDark} />
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
           </View>
         </View>
-      ) : (
-        <Pressable
-          onPress={() => setOpen(true)}
-          style={[styles.input, styles.courierSelect, error ? styles.inputError : null]}
-          accessibilityRole="button"
-          accessibilityLabel="Courier Name"
-          accessibilityHint="Opens the courier list"
-          accessibilityState={{ expanded: open }}
-        >
-          <Text
-            style={[styles.courierValue, !selected && styles.courierPlaceholder]}
-            numberOfLines={1}
-          >
-            {selected || "Select courier"}
-          </Text>
-          <Feather name="chevron-down" size={16} color={Theme.textMuted} />
-        </Pressable>
-      )}
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
-      {Platform.OS === "web" ? null : (
-        <Modal
-          visible={open}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setOpen(false)}
-        >
-          <Pressable style={styles.courierBackdrop} onPress={() => setOpen(false)}>
-            <View style={styles.courierSheet} onStartShouldSetResponder={() => true}>
-              <Text style={styles.courierSheetTitle}>Courier Name</Text>
-              <ScrollView keyboardShouldPersistTaps="handled">
-                {options.map((name) => {
-                  const active = name === selected;
-                  return (
-                    <Pressable
-                      key={name}
-                      onPress={() => choose(name)}
-                      style={[styles.courierOption, active && styles.courierOptionActive]}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: active }}
-                    >
-                      <Text
-                        style={[
-                          styles.courierOptionText,
-                          active && styles.courierOptionTextActive,
-                        ]}
-                      >
-                        {name}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            </View>
-          </Pressable>
-        </Modal>
-      )}
+      </Modal>
     </View>
   );
 }
@@ -1556,6 +1730,29 @@ function CourierLrMap({
   );
 }
 
+function ReceiptMethodIcon({
+  name,
+  selected,
+}: {
+  name: "user" | "package";
+  selected: boolean;
+}) {
+  return (
+    <View
+      style={[
+        styles.notifyMethodIcon,
+        selected ? styles.notifyMethodIconSelected : styles.notifyMethodIconIdle,
+      ]}
+    >
+      <Feather
+        name={name}
+        size={16}
+        color={selected ? Theme.textPrimaryDark : Theme.textMuted}
+      />
+    </View>
+  );
+}
+
 function Field({
   label,
   value,
@@ -1565,6 +1762,7 @@ function Field({
   multiline,
   error,
   emphasize,
+  quiet,
 }: {
   label: string;
   value: string;
@@ -1574,17 +1772,20 @@ function Field({
   multiline?: boolean;
   error?: string;
   emphasize?: boolean;
+  quiet?: boolean;
 }) {
   return (
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>
+    <View style={[styles.field, quiet && styles.fieldQuiet]}>
+      <Text style={quiet ? styles.fieldLabelQuiet : styles.fieldLabel}>
         {label}
         {required ? <Text style={styles.req}> *</Text> : null}
       </Text>
       <TextInput
         style={[
           styles.input,
+          quiet && styles.inputQuiet,
           multiline && styles.inputMultiline,
+          multiline && quiet && styles.inputMultilineQuiet,
           emphasize && styles.inputEmphasize,
           error ? styles.inputError : null,
         ]}
@@ -1667,6 +1868,9 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
     overflow: "hidden",
   },
+  fsFormWide: {
+    maxWidth: "100%",
+  },
   fsFormBody: { padding: 20, gap: 20 },
   fsSegmentRow: { flexDirection: "row" },
   fsSegmentCard: { flex: 1 },
@@ -1680,6 +1884,16 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
     padding: 12,
     overflow: "hidden",
+    gap: 10,
+  },
+  previewSubmit: {
+    gap: 8,
+    paddingTop: 4,
+  },
+  previewSubmitHint: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: Theme.textMuted,
   },
   fsFooterBar: {
     flexDirection: "row",
@@ -1737,6 +1951,7 @@ const styles = StyleSheet.create({
   },
   headerRowCompact: { paddingHorizontal: 10, marginBottom: 4, alignItems: "center" },
   headerCopy: { flex: 1, minWidth: 0, overflow: "hidden" },
+  headerEnd: { flexShrink: 0, alignSelf: "center" },
   title: {
     fontSize: 18,
     fontWeight: "800",
@@ -1771,6 +1986,107 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   scrollBodyCompact: { paddingHorizontal: 10, paddingBottom: 8, gap: 8 },
+  notifyCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.cardWhite,
+    overflow: "hidden",
+  },
+  notifyForm: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.cardWhite,
+    padding: 0,
+    overflow: "hidden",
+    gap: 0,
+  },
+  wizardPodStage: {
+    minHeight: 360,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+  },
+  notifyMethodIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  notifyMethodIconSelected: {
+    backgroundColor: Theme.primaryLight,
+  },
+  notifyMethodIconIdle: {
+    backgroundColor: Theme.surfaceGray,
+  },
+  notifyFeedTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  notifyFeed: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Theme.complianceTripCardBorder,
+  },
+  notifyQuote: {
+    marginHorizontal: 12,
+    marginBottom: 12,
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderRadius: 6,
+    backgroundColor: Theme.compliancePageBg,
+    gap: 8,
+  },
+  notifyQuoteHeadRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  notifyQuoteHead: { flex: 1, minWidth: 0, gap: 1 },
+  notifyQuoteBody: {
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  notifyQuoteKicker: {
+    fontSize: 11,
+    fontWeight: "400",
+    color: Theme.textMuted,
+  },
+  notifyQuoteTitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "500",
+    color: Theme.textPrimaryDark,
+  },
+  notifyQuoteMeta: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "400",
+    color: Theme.textMuted,
+  },
+  notifySectionTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+    marginBottom: 4,
+  },
+  notifyFooterBtn: {
+    minHeight: 44,
+    minWidth: 88,
+    borderRadius: 10,
+    paddingHorizontal: 16,
+  },
   summaryCard: {
     borderRadius: 12,
     borderWidth: 1,
@@ -1827,7 +2143,12 @@ const styles = StyleSheet.create({
   },
   statusDot: { width: 7, height: 7, borderRadius: 4 },
   statusPillText: { fontSize: 11, fontWeight: "800", letterSpacing: 0.4 },
-  segmentRow: { gap: 10 },
+  segmentRow: {
+    gap: 10,
+    flexDirection: "column",
+    position: "relative",
+    zIndex: 2,
+  },
   segmentCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -1884,6 +2205,37 @@ const styles = StyleSheet.create({
   dateTimeCol: {
     flex: 1,
     minWidth: 0,
+  },
+  tripLrBlock: { gap: 6 },
+  tripLrChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  tripLrChip: {
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+    paddingHorizontal: 7,
+    justifyContent: "center",
+    backgroundColor: Theme.cardWhite,
+  },
+  tripLrChipReceived: {
+    backgroundColor: Theme.complianceStageSuccessBg,
+    borderColor: Theme.complianceStageSuccessBg,
+  },
+  tripLrChipText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "500",
+    color: Theme.textPrimaryDark,
+  },
+  tripLrEmpty: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "400",
+    color: Theme.textMuted,
   },
   sharedDocketHint: {
     fontSize: 12,
@@ -1990,11 +2342,20 @@ const styles = StyleSheet.create({
     color: Theme.textPrimaryDark,
   },
   field: { gap: 6 },
+  fieldQuiet: { gap: 4 },
   fieldLabel: {
     fontSize: 11,
     fontWeight: "700",
     letterSpacing: 0.4,
     textTransform: "uppercase",
+    color: Theme.textMuted,
+  },
+  fieldLabelQuiet: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "400",
+    letterSpacing: 0,
+    textTransform: "none",
     color: Theme.textMuted,
   },
   req: { color: Theme.warning },
@@ -2009,9 +2370,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Theme.textPrimaryDark,
   },
+  inputQuiet: {
+    minHeight: 36,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "400",
+  },
   inputMultiline: {
     minHeight: 80,
     textAlignVertical: "top",
+  },
+  inputMultilineQuiet: {
+    minHeight: 64,
   },
   inputEmphasize: {
     borderColor: Theme.analyticsHeroBg,
@@ -2024,6 +2399,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+    overflow: "hidden",
+  },
+  courierSelectOpen: {
+    borderColor: Theme.analyticsHeroBg,
   },
   courierValue: {
     flex: 1,
@@ -2032,46 +2411,98 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: Theme.textPrimaryDark,
   },
+  courierValueQuiet: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "400",
+  },
   courierPlaceholder: {
     color: Theme.textMuted,
   },
-  courierBackdrop: {
+  courierOverlay: {
     flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(15, 23, 42, 0.35)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
   },
-  courierSheet: {
-    maxHeight: "70%",
+  courierBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(15, 23, 42, 0.32)",
+  },
+  courierPopover: {
+    width: "100%",
+    maxWidth: 360,
+    maxHeight: 360,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.cardWhite,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingTop: 12,
-    paddingBottom: 24,
+    overflow: "hidden",
+    ...Platform.select({
+      web: { boxShadow: "0 12px 32px rgba(15,23,42,0.16)" } as object,
+      default: {
+        shadowColor: Theme.shadow,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.16,
+        shadowRadius: 16,
+        elevation: 8,
+      },
+    }),
   },
-  courierSheetTitle: {
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 0.4,
-    textTransform: "uppercase",
-    color: Theme.textMuted,
-    paddingHorizontal: 16,
+  courierPopoverHead: {
+    gap: 1,
+    paddingHorizontal: 12,
+    paddingTop: 10,
     paddingBottom: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.complianceTripCardBorder,
+  },
+  courierPopoverKicker: {
+    fontSize: 11,
+    fontWeight: "400",
+    color: Theme.textMuted,
+  },
+  courierPopoverTitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "500",
+    color: Theme.textPrimaryDark,
+  },
+  courierPopoverList: {
+    maxHeight: 260,
   },
   courierOption: {
-    minHeight: 48,
-    justifyContent: "center",
-    paddingHorizontal: 16,
+    minHeight: 36,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   courierOptionActive: {
+    backgroundColor: Theme.compliancePageBg,
+  },
+  courierOptionIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: Theme.surfaceGray,
   },
+  courierOptionIconActive: {
+    backgroundColor: Theme.primaryLight,
+  },
   courierOptionText: {
-    fontSize: 15,
-    fontWeight: "600",
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "400",
     color: Theme.textPrimaryDark,
   },
   courierOptionTextActive: {
-    color: Theme.analyticsHeroBg,
+    fontWeight: "500",
   },
   errorText: {
     fontSize: 11,

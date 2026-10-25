@@ -5,17 +5,18 @@ import {
 } from "../hardCopyPodPhotos.util";
 
 describe("hard copy POD photos", () => {
-  it("accepts jpg, jpeg, png, and webp", () => {
+  it("accepts the global Compliance trip document formats", () => {
     expect(isHardCopyPodPhoto({ name: "pod.jpg", mimeType: "image/jpeg" })).toBe(true);
     expect(isHardCopyPodPhoto({ name: "pod.jpeg" })).toBe(true);
     expect(isHardCopyPodPhoto({ name: "pod.png", mimeType: "image/png" })).toBe(true);
     expect(isHardCopyPodPhoto({ name: "pod.webp", mimeType: "image/webp" })).toBe(true);
+    expect(isHardCopyPodPhoto({ name: "notes.pdf", mimeType: "application/pdf" })).toBe(true);
   });
 
   it("rejects unsupported types", () => {
-    expect(isHardCopyPodPhoto({ name: "notes.pdf", mimeType: "application/pdf" })).toBe(false);
+    expect(isHardCopyPodPhoto({ name: "notes.docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" })).toBe(false);
     expect(
-      hardCopyPodPhotoRejectionMessage([{ name: "notes.pdf", mimeType: "application/pdf" }]),
+      hardCopyPodPhotoRejectionMessage([{ name: "notes.docx", mimeType: "application/msword" }]),
     ).toMatch(/not supported/);
   });
 

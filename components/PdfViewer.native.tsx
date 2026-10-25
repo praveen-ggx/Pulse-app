@@ -15,7 +15,7 @@ interface PdfViewerProps {
   style?: StyleProp<ViewStyle>;
   showToolbar?: boolean;
   zoom?: number;
-  sizing?: "original" | "fit";
+  sizing?: "original" | "fit" | "cover";
   page?: number;
   interactive?: boolean;
   scrollbar?: boolean;

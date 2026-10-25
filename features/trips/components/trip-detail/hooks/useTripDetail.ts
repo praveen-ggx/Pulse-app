@@ -40,6 +40,7 @@ import {
 import { getVehicleDocumentViewUrl, getVehicleDocumentViewUrls, mergeEntityDocumentsIntoVehicleVault } from "@/features/vehicles/services/vehicleDocuments.service";
 import { resolveTripDocumentPreviewUrl } from "@/features/tripCompliance/services/vehicleDocumentReuse.service";
 import { getVehicleById, getVehicleForTripViewer, findVehicleByPlate, createVehicle } from "@/features/vehicles/services/vehicles.service";
+import { assignedVehiclePlate } from "@/features/trips/utils/tripAssignmentVehicle.util";
 import type { VehicleDocuments } from "@/features/vehicles/utils/vehicleDocuments.util";
 import {
     DOCUMENT_LABELS,
@@ -2295,12 +2296,12 @@ export function useTripDetail({
   /** One vehicle row so the vault can show RC/insurance. Plate-only market vehicles are a point lookup, not a fleet scan. Does not create a row. */
   const ensureVehicleDocs = useCallback(() => {
     const vehicleId = trip?.vehicle_id?.trim() || trip?.owner_vehicle_id?.trim() || "";
-    const fromLabel = (vehicleLabel ?? "").split(/[·•]/)[0]?.trim() ?? "";
-    const typedPlate = displayVehicleFromInput.trim();
-    const plateSource =
-      (typedPlate && !/^pending$/i.test(typedPlate) ? typedPlate : "") ||
-      (trip?.vehicle_display_number ?? "").trim() ||
-      (fromLabel && fromLabel !== "—" && !/^pending$/i.test(fromLabel) ? fromLabel : "");
+    const plateSource = assignedVehiclePlate({
+      displayVehicleFromInput,
+      vehicleLabel,
+      vehicleDisplayNumber: trip?.vehicle_display_number,
+      vehicleNumber: (trip as { vehicle_number?: string | null } | null)?.vehicle_number,
+    });
     const plate =
       formatIndianVehicleNumber(plateSource).trim() || plateSource.trim();
     const orgId = (trip?.organization_id ?? currentOrganization?.id)?.trim() ?? "";
@@ -2398,12 +2399,12 @@ export function useTripDetail({
       return { vehicleId: vaultVehicleId, orgId: vehicleOwnerOrgId };
     }
 
-    const fromLabel = (vehicleLabel ?? "").split(/[·•]/)[0]?.trim() ?? "";
-    const typedPlate = displayVehicleFromInput.trim();
-    const plateSource =
-      (typedPlate && !/^pending$/i.test(typedPlate) ? typedPlate : "") ||
-      (trip?.vehicle_display_number ?? "").trim() ||
-      (fromLabel && fromLabel !== "—" && !/^pending$/i.test(fromLabel) ? fromLabel : "");
+    const plateSource = assignedVehiclePlate({
+      displayVehicleFromInput,
+      vehicleLabel,
+      vehicleDisplayNumber: trip?.vehicle_display_number,
+      vehicleNumber: (trip as { vehicle_number?: string | null } | null)?.vehicle_number,
+    });
     const plate =
       formatIndianVehicleNumber(plateSource).trim() || plateSource.trim();
     if (!plate) return null;
@@ -2782,7 +2783,7 @@ export function useTripDetail({
       });
       await addTripAdjustment(
         trip.id,
-        params,
+        { ...params, created_by: currentUserId },
         orgId
           ? { organizationId: orgId, missionKey: missionRaw === "—" ? null : missionRaw }
           : undefined,
@@ -2792,7 +2793,7 @@ export function useTripDetail({
         queryKey: [...queryKeys.tripFinanceAdjustmentsRoot],
       });
     },
-    [trip, currentOrganization?.id, loadAdjustments, queryClient],
+    [trip, currentOrganization?.id, currentUserId, loadAdjustments, queryClient],
   );
 
   const handleVoidAdjustment = useCallback(

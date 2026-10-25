@@ -90,6 +90,21 @@ function asLabel(value: unknown): string {
   return s || "—";
 }
 
+/** Trip ops status for the route-arrow caption (In Transit, Loading, …). */
+function tripOpsStatusLabel(status: string | null | undefined): string {
+  const s = (status ?? "").trim().toLowerCase();
+  if (!s) return "";
+  if (s === "in_progress") return "Loading";
+  if (s === "in_transit" || s === "in transit") return "In Transit";
+  if (s === "at_destination" || s === "at_drop") return "At Destination";
+  if (s === "completed" || s === "delivered" || s === "done") return "Completed";
+  return s
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
 function formatPartyName(value: string): string {
   return asLabel(value).toUpperCase();
 }
@@ -319,6 +334,7 @@ export function ComplianceTripCard({
   ).toUpperCase();
   const origin = trip.pickup_area ?? "";
   const dest = trip.drop_location ?? "";
+  const tripStatusLabel = tripOpsStatusLabel(trip.status);
   const openDetails = onOpenDetails ?? onViewTrip;
 
   const pressVerifyDocs = () => {
@@ -365,18 +381,8 @@ export function ComplianceTripCard({
         accessibilityRole="button"
         accessibilityLabel={`${tripId} ${clientName}, ${asLabel(origin)} to ${asLabel(dest)}`}
       >
-        {onOpenActivityLog ? (
-          <View style={styles.logCorner}>
-            <ComplianceActivityLogButton
-              compact
-              onPress={() => {
-                onOpenActivityLog();
-              }}
-            />
-          </View>
-        ) : null}
         <View style={[styles.body, compact && styles.bodyCompact]}>
-          <View style={[styles.head, onOpenActivityLog && styles.headWithLog]}>
+          <View style={styles.head}>
             <View style={styles.headLeft}>
               <PartyAvatar
                 name={clientName}
@@ -411,6 +417,15 @@ export function ComplianceTripCard({
                     {headStatusUpper}
                   </Text>
                 </View>
+                {onOpenActivityLog ? (
+                  <ComplianceActivityLogButton
+                    inline
+                    compact
+                    onPress={() => {
+                      onOpenActivityLog();
+                    }}
+                  />
+                ) : null}
               </View>
               <Text style={styles.headMetaMuted} numberOfLines={1}>
                 {when}
@@ -420,8 +435,13 @@ export function ComplianceTripCard({
 
           <View style={styles.route}>
             <RouteLeg location={origin} variant="origin" align="left" />
-            <View style={styles.routeMid}>
+            <View style={[styles.routeMid, tripStatusLabel ? styles.routeMidWithStatus : null]}>
               <Text style={styles.routeArrow}>→</Text>
+              {tripStatusLabel ? (
+                <Text style={styles.routeTripStatus} numberOfLines={2}>
+                  {tripStatusLabel}
+                </Text>
+              ) : null}
             </View>
             <RouteLeg location={dest} variant="dest" align="right" />
           </View>
@@ -679,15 +699,6 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 14,
   },
-  headWithLog: {
-    paddingRight: 28,
-  },
-  logCorner: {
-    position: "absolute",
-    top: 6,
-    right: 6,
-    zIndex: 4,
-  },
   bodyPressed: { opacity: 0.98 },
   head: {
     flexDirection: "row",
@@ -757,7 +768,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "flex-end",
     flexWrap: "nowrap",
-    gap: 5,
+    gap: 6,
     maxWidth: "100%",
     minWidth: 0,
   },
@@ -887,11 +898,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexShrink: 0,
   },
+  routeMidWithStatus: {
+    width: 64,
+    paddingTop: 0,
+  },
   routeArrow: {
     fontSize: 16,
     fontWeight: "300",
     color: REF.muted,
     lineHeight: 18,
+  },
+  routeTripStatus: {
+    marginTop: 1,
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: "600",
+    color: REF.muted,
+    letterSpacing: 0.15,
+    textAlign: "center",
+    textTransform: "uppercase",
   },
   divider: {
     height: StyleSheet.hairlineWidth,

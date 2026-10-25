@@ -184,11 +184,14 @@ export function ComplianceActivityLogButton({
   onPress,
   compact = false,
   hub = false,
+  inline = false,
   label,
 }: {
   onPress: () => void;
   compact?: boolean;
   hub?: boolean;
+  /** Sit on the status-tag row (same height as the pill). */
+  inline?: boolean;
   label?: string;
 }) {
   return (
@@ -201,13 +204,18 @@ export function ComplianceActivityLogButton({
         styles.btn,
         compact && styles.btnCompact,
         hub && styles.btnHub,
+        inline && styles.btnInline,
         pressed && styles.pressed,
       ]}
       accessibilityRole="button"
       accessibilityLabel={label ?? "View activity log"}
       hitSlop={6}
     >
-      <Feather name="clock" size={hub ? 15 : compact ? 14 : 16} color={Theme.actionBtnInk} />
+      <Feather
+        name="clock"
+        size={hub ? 15 : inline ? 12 : compact ? 14 : 16}
+        color={Theme.actionBtnInk}
+      />
     </Pressable>
   );
 }
@@ -234,6 +242,13 @@ const styles = StyleSheet.create({
     minWidth: 34,
     borderRadius: 10,
     backgroundColor: "transparent",
+  },
+  btnInline: {
+    width: 18,
+    height: 18,
+    minWidth: 18,
+    borderRadius: 9,
+    backgroundColor: Theme.complianceIconWash,
   },
   pressed: { opacity: 0.8 },
 });

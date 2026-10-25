@@ -36,6 +36,7 @@ export interface OrgMember {
   phone?: string | null;
   email?: string | null;
   avatar_url?: string | null;
+  avatar_seed?: string | null;
   company_name?: string | null;
 }
 

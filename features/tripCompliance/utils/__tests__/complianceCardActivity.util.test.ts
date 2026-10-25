@@ -93,6 +93,22 @@ describe("milestoneFromWorkflowEvent", () => {
       lane: "activity",
     });
   });
+
+  it("maps later charge edits and removals to activity titles", () => {
+    expect(
+      milestoneFromWorkflowEvent({
+        id: "e2",
+        event_type: "pod.debit_control_charges_changed",
+        created_at: "2026-10-25T11:00:00.000Z",
+        actor_id: "user-staff",
+        payload: { action: "removed", reason: "Removed Late delivery — no debit." },
+      }),
+    ).toMatchObject({
+      title: "removed POD charges",
+      actorUserId: "user-staff",
+      detail: "Removed Late delivery — no debit.",
+    });
+  });
 });
 
 describe("milestoneFromDocumentAudit", () => {

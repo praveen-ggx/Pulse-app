@@ -29,6 +29,8 @@ import {
   getRatingsReceivedAsLinkedOrganization,
 } from "@/features/ratings/services/ratings.service";
 import { getSignedAvatarUrl, pickAndUploadOrgLogo, updateOrganizationLogo } from "@/lib/avatarUpload";
+import { showAppAlert } from "@/lib/appAlert";
+import { syncBrandingFromOrg } from "@/features/invoicing/services/invoiceBranding.service";
 import { PartyAvatar } from "@/components/PartyAvatar";
 import { canAccessPartyKind } from "@/lib/capabilities";
 import { useCapabilities } from "@/lib/useCapabilities";
@@ -60,7 +62,6 @@ import {
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    Alert,
     Image,
     Pressable,
     RefreshControl,
@@ -392,7 +393,7 @@ export default function ProfileScreen({
   const { currentOrganization, refreshOrganization } = useOrganization();
   const orgId = currentOrganization?.id ?? null;
   const { user, profile, refreshSession } = useAuth();
-  const { role } = useOrgRole();
+  const { role, canEdit } = useOrgRole();
   const { can: canSurface } = useMemberAccess();
 
   const { data: trips = [], isLoading: tripsLoading } = useTripsQuery(orgId);
@@ -707,21 +708,30 @@ export default function ProfileScreen({
 
   const handleUploadOrgLogo = async () => {
     if (!orgId || orgLogoUploading) return;
+    if (!canEdit) {
+      showAppAlert(
+        "Workspace logo",
+        "Only workspace owners and admins can update the organisation logo.",
+      );
+      return;
+    }
     setOrgLogoUploading(true);
     try {
       const result = await pickAndUploadOrgLogo(orgId);
       if (result.error) {
-        Alert.alert("Upload failed", result.error.message);
+        showAppAlert("Upload failed", result.error.message);
         return;
       }
       if (!result.path) return;
       const { error } = await updateOrganizationLogo(orgId, result.path);
       if (error) {
-        Alert.alert("Save failed", error.message);
+        showAppAlert("Save failed", error.message);
         return;
       }
       if (result.previewUri) setOrgLogoUri(result.previewUri);
       await refreshOrganization();
+      await syncBrandingFromOrg(orgId, currentOrganization?.name?.trim() || displayName, result.path);
+      showAppAlert("Profile picture updated", undefined, { tone: "success" });
     } finally {
       setOrgLogoUploading(false);
     }

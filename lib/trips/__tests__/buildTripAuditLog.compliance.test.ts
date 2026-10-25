@@ -54,4 +54,39 @@ describe("buildTripAuditLog compliance scope", () => {
     expect(matchesTripAuditTab(entries[0], "documents")).toBe(true);
     expect(matchesTripAuditTab(entries[0], "activity")).toBe(false);
   });
+
+  it("attaches the actor user profile image to compliance milestones", () => {
+    const entries = buildTripAuditLog({
+      trip,
+      tripRef: "SAT1",
+      assignmentAuditRows: [],
+      assignmentDriverNames: {},
+      assignmentVehicleLabels: {},
+      timelineRows: [],
+      transactions: [],
+      currentUserId: "u2",
+      userProfileById: {
+        u2: {
+          full_name: "Youval",
+          avatar_url: "users/u2/me.jpg",
+          avatar_seed: "user-3",
+        },
+      },
+      scope: "compliance",
+      milestones: [
+        {
+          id: "pod-1",
+          at: "2026-10-22T09:00:00.000Z",
+          title: "validated POD",
+          detail: "POD verification completed",
+          contextLabel: "POD Verification",
+          lane: "activity",
+          actorUserId: "u2",
+        },
+      ],
+    });
+    expect(entries[0].recordedBy).toBe("You");
+    expect(entries[0].actorAvatar.avatarUrl).toBe("users/u2/me.jpg");
+    expect(entries[0].actorAvatar.avatarSeed).toBe("user-3");
+  });
 });

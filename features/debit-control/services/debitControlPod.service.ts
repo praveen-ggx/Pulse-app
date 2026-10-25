@@ -23,11 +23,13 @@ import {
 } from "@/features/debit-control/utils/podChargeTotals.util";
 import {
   ADVANCE_DOCUMENT_COST_EVENT,
+  POD_CHARGES_CHANGED_EVENT,
   POD_CHARGES_DRAFT_EVENT,
   POD_NOT_FOUND_EVENT,
   POD_REVALIDATE_EVENT,
   POD_SETTLEMENT_RELEASED_EVENT,
   POD_VALIDATED_EVENT,
+  podChargesChangedIdempotencyKey,
   podChargesDraftIdempotencyKey,
   podNotFoundIdempotencyKey,
   podRevalidateIdempotencyKey,
@@ -38,6 +40,7 @@ import {
   type PodChargeLines,
 } from "@/features/debit-control/utils/debitControlPod.model";
 import { podAgingEndDate, podReceivingAging, todayIsoDate } from "@/features/debit-control/utils/podAging.util";
+import { describePodChargeChange } from "@/features/debit-control/utils/podChargeChangeLog.util";
 import { podDebitIdentified } from "@/features/debit-control/utils/podExceptionDebit.util";
 import { canMarkPodInward, type PodInwardDraft } from "@/features/debit-control/utils/podInwardForm.util";
 import {
@@ -677,18 +680,54 @@ export async function savePodValidationDraft(input: {
     return { error: new Error("Select at least one trip."), updatedIds: [], failedIds: [] };
   }
 
+  const previousByTrip = await loadDraftByTripId(trips.map((trip) => text(trip.tripId)));
   const results = await runWithConcurrencyLimit(trips, WRITE_CONCURRENCY, async (trip) => {
     const tripId = text(trip.tripId);
+    const payload = validationEventPayload(trip);
+    const previous = readPodValidationPayload(previousByTrip.get(tripId)?.payload);
+    const change = describePodChargeChange({
+      previous: previous
+        ? {
+            client: previous.clientCharges,
+            vendor: previous.vendorCharges,
+            noDebit: previous.noDebit,
+          }
+        : null,
+      next: {
+        client: trip.client,
+        vendor: trip.vendor,
+        noDebit: trip.noDebit === true,
+      },
+    });
     const written = await upsertWorkflowValidationEvent({
       orgId,
       actorId: input.actorId,
       tripId,
       eventType: POD_CHARGES_DRAFT_EVENT,
       idempotencyKey: podChargesDraftIdempotencyKey(tripId),
-      payload: validationEventPayload(trip),
+      payload,
     });
-    if (written.ok) return { tripId, ok: true as const };
-    return { tripId, ok: false as const, message: written.message };
+    if (!written.ok) return { tripId, ok: false as const, message: written.message };
+    if (change.changed && previous) {
+      const postedAt = String(payload.posted_at);
+      const logged = await upsertWorkflowValidationEvent({
+        orgId,
+        actorId: input.actorId,
+        tripId,
+        eventType: POD_CHARGES_CHANGED_EVENT,
+        idempotencyKey: podChargesChangedIdempotencyKey(tripId, postedAt),
+        payload: {
+          v: 1,
+          posted_at: postedAt,
+          action: change.action,
+          reason: change.detail,
+          actor_id: input.actorId,
+          no_debit: trip.noDebit === true,
+        },
+      });
+      if (!logged.ok) return { tripId, ok: false as const, message: logged.message };
+    }
+    return { tripId, ok: true as const };
   });
 
   const updatedIds = results.filter((row) => row.ok).map((row) => row.tripId);

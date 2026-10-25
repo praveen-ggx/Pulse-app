@@ -10,6 +10,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useDriverAvatar } from '@/contexts/DriverAvatarContext';
 import { supabase } from '@/lib/supabase';
 import { File } from 'expo-file-system';
+import * as DocumentPicker from 'expo-document-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -263,34 +264,45 @@ export async function pickAndUploadAvatar(userId: string): Promise<PickAndUpload
 }
 
 /**
- * Pick and upload an organization logo. Stores at orgs/{orgId}/logo-{timestamp}.jpg.
- * Returns storage path; caller should call updateOrganizationLogo(orgId, path).
+ * Pick and upload an organization logo.
+ * Stores at {userId}/org-logo-{orgId}-{timestamp}.jpg so the existing
+ * userprofiles avatar INSERT policy (`folder[1] = auth.uid()`) applies.
  */
 export async function pickAndUploadOrgLogo(orgId: string): Promise<PickAndUploadAvatarResult> {
   try {
-    if (Platform.OS !== 'web') {
+    let uri = '';
+    let sourceBase64: string | null = null;
+
+    if (Platform.OS === 'web') {
+      const picked = await DocumentPicker.getDocumentAsync({
+        type: 'image/*',
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (picked.canceled || !picked.assets?.[0]) {
+        return { path: null, previewUri: null, error: null };
+      }
+      uri = picked.assets[0].uri;
+    } else {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
         return { path: null, previewUri: null, error: new Error('Permission to access photos is required') };
       }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 1,
+        base64: true,
+      });
+      if (result.canceled || !result.assets?.[0]) {
+        return { path: null, previewUri: null, error: null };
+      }
+      const asset = result.assets[0];
+      uri = asset.uri;
+      sourceBase64 = typeof asset.base64 === 'string' ? asset.base64.trim() : null;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 1,
-      base64: true,
-    });
-    if (result.canceled || !result.assets?.[0]) {
-      return { path: null, previewUri: null, error: null };
-    }
-    const asset = result.assets[0];
-    let uri = asset.uri;
 
-    // Resize + re-encode to JPEG so we always have a consistent format.
-    // After manipulation the uri may be a data: or blob: URL on web —
-    // extract its base64 payload so uploadBytes is always from the
-    // final manipulated image (not the stale asset.base64 from the picker).
     let manipulatedBase64: string | null = null;
     try {
       const manipulated = await ImageManipulator.manipulateAsync(
@@ -304,47 +316,50 @@ export async function pickAndUploadOrgLogo(orgId: string): Promise<PickAndUpload
       // keep original if resize fails
     }
 
-    // Resolve upload bytes: prefer manipulated base64, then original picker base64
     let uploadBytes: Uint8Array | null = null;
-    const base64Source = manipulatedBase64 ?? (typeof asset.base64 === 'string' ? asset.base64.trim() : '');
+    const base64Source = manipulatedBase64 ?? sourceBase64 ?? '';
     if (base64Source) {
       uploadBytes = base64ToUint8Array(base64Source);
     } else if (uri.startsWith('data:')) {
-      // data URI fallback — extract base64 after the comma
       const comma = uri.indexOf(',');
       if (comma !== -1) uploadBytes = base64ToUint8Array(uri.slice(comma + 1));
+    } else {
+      const fromFile = await readUploadBytes(uri, null);
+      if (fromFile) {
+        uploadBytes = fromFile instanceof Uint8Array ? fromFile : new Uint8Array(fromFile);
+      }
     }
     if (!uploadBytes || uploadBytes.byteLength === 0) {
       return { path: null, previewUri: null, error: new Error('Could not read image data') };
     }
 
-    // Resolve current user — org logo is stored in the owner's folder so the
-    // existing "Users can upload avatar to own folder" RLS policy covers it
-    // without requiring any extra migration.
-    const { data: { session } } = await supabase().auth.getSession();
-    const userId = session?.user?.id;
-    if (!userId) {
+    const {
+      data: { session },
+    } = await supabase().auth.getSession();
+    if (!session?.user?.id) {
       return { path: null, previewUri: null, error: new Error('Not signed in') };
     }
 
-    // Org logos go to the PUBLIC `org-assets` bucket under `org-logos/<orgId>/`,
-    // so reads are plain static files (no createSignedUrl, no Storage->Postgres
-    // connection). Write access is gated by the "Org admins can ... org-assets"
-    // storage policies, which key off the <orgId> folder segment.
-    const path = `${PUBLIC_ORG_LOGO_PREFIX}${orgId}/org-logo-${orgId}-${Date.now()}.jpg`;
-
-    const { error } = await supabase()
-      .storage
-      .from(PUBLIC_ORG_ASSET_BUCKET)
-      .upload(path, uploadBytes, {
-        contentType: 'image/jpeg',
-        upsert: true,
-      });
+    const path = `${session.user.id}/org-logo-${orgId}-${Date.now()}.jpg`;
+    const { error } = await supabase().storage.from(AVATAR_BUCKET).upload(path, uploadBytes, {
+      contentType: 'image/jpeg',
+      upsert: false,
+    });
     if (error) {
       const msg = error.message || 'Upload failed';
-      console.log('[Org Logo Upload Error]', msg, 'bucket:', PUBLIC_ORG_ASSET_BUCKET, 'path:', path);
-      return { path: null, previewUri: null, error: new Error(msg) };
+      const isRls = /row-level security|policy|rls/i.test(msg);
+      console.log('[Org Logo Upload Error]', msg, 'bucket:', AVATAR_BUCKET, 'path:', path);
+      return {
+        path: null,
+        previewUri: null,
+        error: new Error(
+          isRls
+            ? `Storage permissions blocked for bucket "${AVATAR_BUCKET}". ${msg}`
+            : msg,
+        ),
+      };
     }
+    invalidateSignedAvatarCache(path);
     return { path, previewUri: uri, error: null };
   } catch (e) {
     return { path: null, previewUri: null, error: e instanceof Error ? e : new Error('Failed to upload org logo') };

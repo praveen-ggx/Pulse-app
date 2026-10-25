@@ -1,8 +1,10 @@
 import {
+  POD_CHARGES_CHANGED_EVENT,
   POD_NOT_FOUND_EVENT,
   POD_REVALIDATE_EVENT,
   POD_VALIDATED_EVENT,
 } from "@/features/debit-control/utils/debitControlPod.model";
+import { podChargeChangeTitle } from "@/features/debit-control/utils/podChargeChangeLog.util";
 import type {
   ComplianceEntityDocument,
   ComplianceTripSummary,
@@ -161,16 +163,6 @@ export function complianceCardMilestones(summary: ComplianceTripSummary): Compli
       lane: "activity",
     });
   }
-  if (summary.hardCopyPod.chargesSaved && summary.hardCopyPod.receivedAt) {
-    push(items, {
-      id: "pod-charges-saved",
-      at: summary.hardCopyPod.receivedAt,
-      title: "saved POD charges",
-      detail: "Exception charges saved from POD",
-      contextLabel: "POD Verification",
-      lane: "activity",
-    });
-  }
   if (summary.hardCopyPod.revalidateRequested && summary.hardCopyPod.receivedAt) {
     push(items, {
       id: "pod-revalidate",
@@ -188,6 +180,7 @@ export function complianceCardMilestones(summary: ComplianceTripSummary): Compli
 function workflowPayload(payload: unknown): {
   actor_id?: string | null;
   reason?: string | null;
+  action?: string | null;
 } {
   if (!payload) return {};
   if (typeof payload === "string") {
@@ -198,10 +191,15 @@ function workflowPayload(payload: unknown): {
     }
   }
   if (typeof payload !== "object") return {};
-  const row = payload as { actor_id?: string | null; reason?: string | null };
+  const row = payload as {
+    actor_id?: string | null;
+    reason?: string | null;
+    action?: string | null;
+  };
   return {
     actor_id: row.actor_id ?? null,
     reason: row.reason ?? null,
+    action: row.action ?? null,
   };
 }
 
@@ -259,6 +257,17 @@ export function milestoneFromWorkflowEvent(row: {
   const payload = workflowPayload(row.payload);
   const actorUserId = row.actor_id ?? payload.actor_id ?? null;
   const reason = payload.reason?.trim() || null;
+  if (type === POD_CHARGES_CHANGED_EVENT) {
+    return {
+      id: `wf-${row.id ?? type}-${at}`,
+      at,
+      title: podChargeChangeTitle(payload.action),
+      actorUserId,
+      detail: reason || "POD charges were changed",
+      contextLabel: "POD Verification",
+      lane: "activity",
+    };
+  }
   const known = WORKFLOW_COPY[type];
   if (known) {
     return {

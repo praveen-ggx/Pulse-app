@@ -131,16 +131,23 @@ export function ComplianceTripActivityLog({
   ]);
 
   const milestones = useMemo(() => {
-    const fromCard = card ? complianceCardMilestones(card) : [];
-    const seen = new Set(fromCard.map((item) => `${item.title}|${item.at.slice(0, 16)}`));
-    const extras = [...documentAuditMiles, ...workflowMiles].filter((item) => {
-      if (!item) return false;
+    const merged = new Map<string, NonNullable<(typeof documentAuditMiles)[number]>>();
+    const add = (item: (typeof documentAuditMiles)[number] | null | undefined) => {
+      if (!item?.at) return;
       const key = `${item.title}|${item.at.slice(0, 16)}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-    return [...fromCard, ...extras];
+      const prev = merged.get(key);
+      if (!prev) {
+        merged.set(key, item);
+        return;
+      }
+      if (!prev.actorUserId && item.actorUserId) {
+        merged.set(key, { ...prev, actorUserId: item.actorUserId });
+      }
+    };
+    for (const item of card ? complianceCardMilestones(card) : []) add(item);
+    for (const item of documentAuditMiles) add(item);
+    for (const item of workflowMiles) add(item);
+    return Array.from(merged.values());
   }, [card, documentAuditMiles, workflowMiles]);
 
   if (!activeTrip) return null;

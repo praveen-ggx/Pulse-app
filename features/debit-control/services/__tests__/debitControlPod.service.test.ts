@@ -1,4 +1,5 @@
 const mockInsert = jest.fn();
+let mockDraftSelectData: Array<{ trip_id: string; payload: unknown; created_at: string }> = [];
 
 jest.mock("@/lib/supabase", () => ({
   supabase: () => ({
@@ -7,6 +8,18 @@ jest.mock("@/lib/supabase", () => ({
         mockInsert(row);
         return Promise.resolve({ error: null });
       },
+      select: () => ({
+        in: () => ({
+          eq: () => Promise.resolve({ data: mockDraftSelectData, error: null }),
+        }),
+      }),
+      update: () => ({
+        eq: () => ({
+          eq: () => ({
+            eq: () => Promise.resolve({ error: null }),
+          }),
+        }),
+      }),
     }),
     rpc: jest.fn(async () => ({ error: null })),
   }),
@@ -24,11 +37,15 @@ import {
   savePodValidationDraft,
   validateDebitControlPods,
 } from "@/features/debit-control/services/debitControlPod.service";
-import { EMPTY_CHARGE_LINES } from "@/features/debit-control/utils/debitControlPod.model";
+import {
+  EMPTY_CHARGE_LINES,
+  POD_CHARGES_CHANGED_EVENT,
+} from "@/features/debit-control/utils/debitControlPod.model";
 
 describe("validateDebitControlPods", () => {
   beforeEach(() => {
     mockInsert.mockClear();
+    mockDraftSelectData = [];
   });
 
   it("stores the same validation event once per trip, deducting vendor exceptions from the vendor total", async () => {
@@ -88,5 +105,38 @@ describe("validateDebitControlPods", () => {
     const row = mockInsert.mock.calls.at(-1)?.[0] as { event_type: string; idempotency_key: string };
     expect(row.event_type).toBe("pod.debit_control_draft");
     expect(row.idempotency_key).toBe("trip-a:pod.debit_control_draft");
+  });
+
+  it("appends a charge-change event when later saves clear or update charges", async () => {
+    mockDraftSelectData = [
+      {
+        trip_id: "trip-a",
+        created_at: "2026-10-25T10:00:00.000Z",
+        payload: {
+          client: { ...EMPTY_CHARGE_LINES, delay: 200 },
+          vendor: { ...EMPTY_CHARGE_LINES },
+          no_debit: false,
+        },
+      },
+    ];
+    const result = await savePodValidationDraft({
+      orgId: "org-1",
+      actorId: "user-2",
+      trips: [
+        {
+          tripId: "trip-a",
+          remarks: "No debit",
+          clientInvoiceNumber: null,
+          noDebit: true,
+          client: EMPTY_CHARGE_LINES,
+          vendor: EMPTY_CHARGE_LINES,
+        },
+      ],
+    });
+    expect(result.error).toBeNull();
+    const changed = mockInsert.mock.calls
+      .map((call) => call[0] as { event_type: string; payload?: { action?: string } })
+      .find((row) => row.event_type === POD_CHARGES_CHANGED_EVENT);
+    expect(changed?.payload?.action).toBe("removed");
   });
 });

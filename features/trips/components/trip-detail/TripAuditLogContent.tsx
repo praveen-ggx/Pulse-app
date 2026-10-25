@@ -1,6 +1,7 @@
 /**
  * Trip activity — Metronic journey timeline (who did what, when, with people).
  */
+import { DriverAvatar, UserAvatar } from "@/components/Avatar";
 import { PartyAvatar } from "@/components/PartyAvatar";
 import { TinyEmptyLottie } from "@/components/TinyEmptyLottie";
 import Theme from "@/constants/Theme";
@@ -163,21 +164,56 @@ function JourneyHero({
   );
 }
 
+function ActivityUserAvatar({
+  avatar,
+  size,
+}: {
+  avatar: TripAuditLogEntry["actorAvatar"];
+  size: number;
+}) {
+  if (avatar.entityType === "driver") {
+    return (
+      <DriverAvatar
+        name={avatar.name}
+        avatarUrl={avatar.avatarUrl}
+        avatarSeed={avatar.avatarSeed}
+        size={size}
+        showBorder={false}
+      />
+    );
+  }
+  if (avatar.entityType === "vehicle") {
+    return (
+      <PartyAvatar
+        name={avatar.name}
+        entityType="vehicle"
+        avatarUrl={avatar.avatarUrl}
+        avatarSeed={avatar.avatarSeed}
+        initialsColorSeed={avatar.initialsColorSeed}
+        size={size}
+        shape="circle"
+      />
+    );
+  }
+  return (
+    <UserAvatar
+      name={avatar.name}
+      avatarUrl={avatar.avatarUrl}
+      avatarSeed={avatar.avatarSeed}
+      context="personal"
+      size={size}
+      showBorder={false}
+    />
+  );
+}
+
 function PeopleRow({ people }: { people: TripAuditLogPerson[] }) {
   if (people.length === 0) return null;
   const person = people[0];
 
   return (
     <View style={styles.peopleRow}>
-      <PartyAvatar
-        name={person.avatar.name}
-        entityType={person.avatar.entityType ?? "client"}
-        avatarUrl={person.avatar.avatarUrl}
-        avatarSeed={person.avatar.avatarSeed}
-        initialsColorSeed={person.avatar.initialsColorSeed}
-        size={18}
-        shape="circle"
-      />
+      <ActivityUserAvatar avatar={person.avatar} size={18} />
       <Text style={styles.peopleLabel} numberOfLines={1}>
         {person.role ? (
           <Text style={styles.peopleRole}>{person.role}: </Text>
@@ -265,15 +301,7 @@ function ActivityActorHeadline({ entry }: { entry: TripAuditLogEntry }) {
 
   return (
     <View style={styles.headlineRow}>
-      <PartyAvatar
-        name={entry.actorAvatar.name}
-        entityType={entry.actorAvatar.entityType ?? "client"}
-        avatarUrl={entry.actorAvatar.avatarUrl ?? undefined}
-        avatarSeed={entry.actorAvatar.avatarSeed ?? undefined}
-        initialsColorSeed={entry.actorAvatar.initialsColorSeed ?? undefined}
-        size={22}
-        shape="circle"
-      />
+      <ActivityUserAvatar avatar={entry.actorAvatar} size={22} />
       <Text style={styles.headline} numberOfLines={4}>
         <Text style={styles.actorName}>{entry.recordedBy}</Text>
         <Text style={styles.actionText}> {phrase}</Text>

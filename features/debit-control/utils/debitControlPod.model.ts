@@ -2,6 +2,8 @@
 
 export const POD_VALIDATED_EVENT = "pod.debit_control_validated";
 export const POD_CHARGES_DRAFT_EVENT = "pod.debit_control_draft";
+/** Append-only: each later save / clear of POD exception charges. */
+export const POD_CHARGES_CHANGED_EVENT = "pod.debit_control_charges_changed";
 export const POD_REVALIDATE_EVENT = "pod.debit_control_revalidate";
 /** Hard copy was logged but not actually received — return to Awaiting POD. */
 export const POD_NOT_FOUND_EVENT = "pod.hard_copy_not_found";
@@ -192,6 +194,10 @@ export function podValidationIdempotencyKey(tripId: string): string {
 
 export function podChargesDraftIdempotencyKey(tripId: string): string {
   return `${tripId}:${POD_CHARGES_DRAFT_EVENT}`;
+}
+
+export function podChargesChangedIdempotencyKey(tripId: string, postedAt: string): string {
+  return `${tripId}:${POD_CHARGES_CHANGED_EVENT}:${postedAt}`;
 }
 
 export function podRevalidateIdempotencyKey(tripId: string): string {

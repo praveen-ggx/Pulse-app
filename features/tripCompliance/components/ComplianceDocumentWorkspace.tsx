@@ -4179,7 +4179,7 @@ export function ComplianceDocumentWorkspace({
       )}
 
       {mobileListOnly ? null : podVerificationLayout && summary ? (
-        <View style={[styles.previewPane, styles.podLogPane]}>
+        <View style={[styles.previewPane, styles.podLogPane, mobileExclusive && styles.podLogPaneMobile]}>
           <PodVerificationPane
             summary={summary}
             organizationId={organizationId}
@@ -4188,6 +4188,7 @@ export function ComplianceDocumentWorkspace({
             tripFacts={tripFacts}
             courierLrOptions={courierLrOptions}
             stacked={stacked}
+            mobileExclusive={mobileExclusive}
             chargesReview={chargesReview}
             onChanged={(tripId) => void onChanged({ type: "hardCopyPod", tripId })}
             onChargesSaved={onChargesSaved}
@@ -4200,7 +4201,7 @@ export function ComplianceDocumentWorkspace({
           />
         </View>
       ) : settlementLayout && summary ? (
-        <View style={[styles.previewPane, styles.podLogPane]}>
+        <View style={[styles.previewPane, styles.podLogPane, mobileExclusive && styles.podLogPaneMobile]}>
           <PodVerificationPane
             summary={summary}
             organizationId={organizationId}
@@ -4209,6 +4210,7 @@ export function ComplianceDocumentWorkspace({
             tripFacts={tripFacts}
             courierLrOptions={courierLrOptions}
             stacked={stacked}
+            mobileExclusive={mobileExclusive}
             settlementMode
             finalSettlement={finalSettlement}
             onOpenActivityLog={onOpenActivityLog ? () => onOpenActivityLog(summary) : undefined}
@@ -4229,7 +4231,7 @@ export function ComplianceDocumentWorkspace({
           />
         </View>
       ) : showValidationPane ? (
-        <View style={[styles.previewPane, styles.podLogPane]}>
+        <View style={[styles.previewPane, styles.podLogPane, mobileExclusive && styles.podLogPaneMobile]}>
           {summary ? (
             <PodClientValidationPanel
               organizationId={organizationId}
@@ -4271,7 +4273,7 @@ export function ComplianceDocumentWorkspace({
       ) : showHardCopyPodLog && !hideDocumentPanes ? (
         <View style={[styles.detailColumn, stacked && styles.detailColumnStacked]}>
           {detailHeader}
-          <View style={[styles.previewPane, styles.podLogPane, styles.detailPaneFill]}>
+          <View style={[styles.previewPane, styles.podLogPane, styles.detailPaneFill, mobileExclusive && styles.podLogPaneMobile]}>
           {summary && showLogHardCopyPod ? (
             <PodVerificationPane
               key={summary.trip.id}
@@ -4282,6 +4284,7 @@ export function ComplianceDocumentWorkspace({
               tripFacts={tripFacts}
               courierLrOptions={courierLrOptions}
               stacked={stacked}
+              mobileExclusive={mobileExclusive}
               previewOnly
               onChanged={(tripId) => void onChanged({ type: "hardCopyPod", tripId })}
               onOpenActivityLog={onOpenActivityLog ? () => onOpenActivityLog(summary) : undefined}
@@ -7229,6 +7232,13 @@ const styles = StyleSheet.create({
   detailColumnStacked: { width: "100%", flex: 1 },
   detailPaneFill: { flex: 1 },
   podLogPane: { paddingHorizontal: 0, paddingVertical: 0, overflow: "hidden" },
+  podLogPaneMobile: {
+    borderWidth: 0,
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+  },
   previewPane: {
     flex: 1,
     minWidth: 0,

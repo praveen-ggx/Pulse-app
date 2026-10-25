@@ -78,6 +78,7 @@ import {
 } from "@/features/trips/services/tripAdjustments";
 import { queryKeys } from "@/lib/queryKeys";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { VaultChooserNotifyRow } from "@/features/trips/components/trip-detail/VaultChooserNotifyRow";
 import { HardCopyPodDateField } from "@/features/trips/components/trip-detail/HardCopyPodDateField";
 import { fetchComplianceAdvanceFinanceBreakdown } from "@/features/tripCompliance/services/complianceAdvanceFinanceBreakdown.service";
 import { fetchTripCostLedgerPaid } from "@/features/tripCompliance/services/tripComplianceRead.service";
@@ -155,6 +156,7 @@ export function PodVerificationPane({
   tripFacts,
   courierLrOptions,
   stacked = false,
+  mobileExclusive = false,
   settlementMode = false,
   finalSettlement = false,
   previewOnly = false,
@@ -175,6 +177,8 @@ export function PodVerificationPane({
   tripFacts: Pick<ComplianceListTripFacts, "truckTypeByVehicleId" | "supplierNameByTripId">;
   courierLrOptions: HardCopyPodLrOption[];
   stacked?: boolean;
+  /** Phone: work first, then a full-page document preview — same as document upload. */
+  mobileExclusive?: boolean;
   chargesReview?: boolean;
   /** Settlement Verification: charges + preview only; create CN/DN for the parties. */
   settlementMode?: boolean;
@@ -230,6 +234,7 @@ export function PodVerificationPane({
   }, [summary.trip.id]);
 
   const [activeId, setActiveId] = useState<string | null>(files[0]?.id ?? null);
+  const [mobilePane, setMobilePane] = useState<"work" | "preview">("work");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
@@ -254,6 +259,11 @@ export function PodVerificationPane({
   const [provisionEdit, setProvisionEdit] = useState<TripAdjustment | null>(null);
   const [notePdf, setNotePdf] = useState<ProvisionNotePdfContext | null>(null);
   const [selectedNote, setSelectedNote] = useState<TripAdjustment | null>(null);
+
+  useEffect(() => {
+    setMobilePane("work");
+    setSelectedNote(null);
+  }, [summary.trip.id]);
   const [provisionDraft, setProvisionDraft] = useState<PodCnDnDraft | null>(null);
   const [provisionPreset, setProvisionPreset] = useState<{
     type?: TripAdjustmentType;
@@ -412,7 +422,8 @@ export function PodVerificationPane({
   const drafted = Boolean(loaded.data?.draftedAt || savedLocal);
   const submitted = previouslyValidated || (drafted && !editingSaved);
   const canViewDocument = Boolean(active?.storage_path?.trim());
-  const compactSettlement = stacked;
+  const compactSettlement = stacked || mobileExclusive;
+  const workLayout = stacked || mobileExclusive;
   const isAssetExecution = isAssetExecutionTrip(summary.trip);
   const noteDrafts = useMemo(
     () =>
@@ -757,20 +768,93 @@ export function PodVerificationPane({
     }
   };
 
-  return (
-    <View style={[styles.root, stacked && styles.rootStacked]}>
-      <AdjustableSplitLayout
-        storageKey="compliance.podPreview"
-        enabled={!stacked}
-        stacked={stacked}
-        sizedPane="end"
-        defaultSize={420}
-        minSize={260}
-        maxSize={720}
-        start={
+  const pickFile = (id: string) => {
+    setActiveId(id);
+    setSelectedNote(null);
+    if (mobileExclusive) setMobilePane("preview");
+  };
+
+  const pickNote = (next: TripAdjustment | null) => {
+    setSelectedNote(next);
+    if (mobileExclusive && next) setMobilePane("preview");
+  };
+
+  const filePicker = mobileExclusive ? (
+    <View style={styles.fileCardList}>
+      {files.length === 0 ? (
+        <View style={styles.fileCardEmpty}>
+          <Text style={styles.logEmptyText}>
+            No POD is on file yet. Log a hard copy or upload a soft copy, then preview it here.
+          </Text>
+        </View>
+      ) : (
+        files.map((file) => {
+          const kind = podVerificationKind(file);
+          const path = file.storage_path?.trim() || null;
+          return (
+            <VaultChooserNotifyRow
+              key={file.id}
+              label={podVerificationLabel(file)}
+              meta={kind === "hard" ? "Hard copy" : "Soft copy"}
+              actionText={file.file_name?.trim() || undefined}
+              onFile={Boolean(path)}
+              canUpload={false}
+              entityType={kind === "hard" ? "supplier" : "client"}
+              preview={
+                path
+                  ? {
+                      storagePath: path,
+                      fileName: file.file_name,
+                      mimeHint: file.mime_type,
+                      source: "trip",
+                      organizationId,
+                      entityId: summary.trip.id,
+                    }
+                  : null
+              }
+              onPreview={() => pickFile(file.id)}
+              onAdd={() => pickFile(file.id)}
+            />
+          );
+        })
+      )}
+    </View>
+  ) : (
+    <View style={settlementMode ? styles.chipRow : styles.logChipRow}>
+      {files.map((file) => {
+        const selected = file.id === (active?.id ?? "");
+        const kind = podVerificationKind(file);
+        return (
+          <Pressable
+            key={file.id}
+            onPress={() => pickFile(file.id)}
+            style={[styles.chip, selected && styles.chipSelected]}
+            accessibilityRole="button"
+            accessibilityState={{ selected }}
+            accessibilityLabel={`${podVerificationLabel(file)} ${file.file_name ?? ""}`}
+          >
+            <Feather
+              name={kind === "hard" ? "package" : "file-text"}
+              size={12}
+              color={selected ? Theme.textPrimaryDark : Theme.textMuted}
+            />
+            <Text style={[styles.chipText, selected && styles.chipTextSelected]} numberOfLines={1}>
+              {podVerificationLabel(file)}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+
+  const workPane = (
       <ScrollView
         style={styles.previewCol}
-        contentContainerStyle={[styles.previewContent, stacked && styles.previewContentStacked]}
+        contentContainerStyle={[
+          styles.previewContent,
+          workLayout && styles.previewContentStacked,
+          mobileExclusive && styles.previewContentMobile,
+        ]}
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.pageHead}>
@@ -793,85 +877,45 @@ export function PodVerificationPane({
                     ? "Logged hard copy"
                     : "Soft copy and hard copy"}
             </Text>
-            {onOpenActivityLog ? <ComplianceActivityLogButton compact onPress={onOpenActivityLog} /> : null}
+            {onOpenActivityLog && !mobileExclusive ? (
+              <ComplianceActivityLogButton compact onPress={onOpenActivityLog} />
+            ) : null}
           </View>
           <Text style={styles.meta}>
-            {finalSettlement
-              ? "Revised sale and cost after CN / DN, plus POD charges that are still not adjusted."
-              : settlementMode
-                ? isAssetExecution
-                  ? "Post client sale (revenue) and driver pay CN / DN. Own-fleet trips have no vendor payable."
-                  : "Post client sale (revenue) and vendor cost CN / DN with the same provision adjust flow as trip finance."
-                : previewOnly
-                  ? "Preview the hard-copy scan from Log Bulk POD or Log POD."
-                  : "Only POD uploaded as soft copy or from Log Hard Copy POD"}
+            {mobileExclusive
+              ? "Tap a document to preview it full page. Back returns to this trip."
+              : finalSettlement
+                ? "Revised sale and cost after CN / DN, plus POD charges that are still not adjusted."
+                : settlementMode
+                  ? isAssetExecution
+                    ? "Post client sale (revenue) and driver pay CN / DN. Own-fleet trips have no vendor payable."
+                    : "Post client sale (revenue) and vendor cost CN / DN with the same provision adjust flow as trip finance."
+                  : previewOnly
+                    ? "Preview the hard-copy scan from Log Bulk POD or Log POD."
+                    : "Only POD uploaded as soft copy or from Log Hard Copy POD"}
           </Text>
         </View>
-        {settlementMode && files.length > 0 ? (
-          <View style={styles.chipRow}>
-            {files.map((file) => {
-              const selected = file.id === (active?.id ?? "");
-              const kind = podVerificationKind(file);
-              return (
-                <Pressable
-                  key={file.id}
-                  onPress={() => setActiveId(file.id)}
-                  style={[styles.chip, selected && styles.chipSelected]}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                  accessibilityLabel={`${podVerificationLabel(file)} ${file.file_name ?? ""}`}
-                >
-                  <Feather
-                    name={kind === "hard" ? "package" : "file-text"}
-                    size={12}
-                    color={selected ? Theme.textPrimaryDark : Theme.textMuted}
-                  />
-                  <Text style={[styles.chipText, selected && styles.chipTextSelected]} numberOfLines={1}>
-                    {podVerificationLabel(file)}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        ) : null}
+        {settlementMode ? filePicker : null}
 
         {settlementMode ? null : (
         <View style={styles.logCard}>
-          {files.length > 0 ? (
-            <View style={styles.logChipRow}>
-              {files.map((file) => {
-                const selected = file.id === (active?.id ?? "");
-                const kind = podVerificationKind(file);
-                return (
-                  <Pressable
-                    key={file.id}
-                    onPress={() => setActiveId(file.id)}
-                    style={[styles.chip, selected && styles.chipSelected]}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected }}
-                    accessibilityLabel={`${podVerificationLabel(file)} ${file.file_name ?? ""}`}
-                  >
-                    <Feather
-                      name={kind === "hard" ? "package" : "file-text"}
-                      size={12}
-                      color={selected ? Theme.textPrimaryDark : Theme.textMuted}
-                    />
-                    <Text style={[styles.chipText, selected && styles.chipTextSelected]} numberOfLines={1}>
-                      {podVerificationLabel(file)}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+          {mobileExclusive ? (
+            <View style={styles.fileCardInLog}>{filePicker}</View>
+          ) : files.length > 0 ? (
+            filePicker
           ) : null}
-          <View style={[styles.logHead, stacked && styles.logHeadStacked]}>
+          <View style={[styles.logHead, workLayout && styles.logHeadStacked, mobileExclusive && styles.logHeadMobile]}>
             <View style={styles.logHeadCopy}>
               <Text style={styles.kicker}>Logged POD</Text>
               <Text style={styles.title}>Receipt from Awaiting POD</Text>
             </View>
             {canManage ? (
-              <View style={styles.logHeadActions}>
-                <RegistryGhostButton label={logged ? "Edit" : "Log POD"} onPress={() => setLogOpen(true)} />
+              <View style={[styles.logHeadActions, mobileExclusive && styles.logHeadActionsMobile]}>
+                <RegistryGhostButton
+                  label={logged ? "Edit" : "Log POD"}
+                  onPress={() => setLogOpen(true)}
+                  style={mobileExclusive ? styles.validateBtnStacked : undefined}
+                />
               </View>
             ) : null}
           </View>
@@ -977,7 +1021,7 @@ export function PodVerificationPane({
             }}
             onCreateDraft={openProvisionDraft}
             onViewNotePdf={openNotePdf}
-            onSelectedAdjustmentChange={setSelectedNote}
+            onSelectedAdjustmentChange={pickNote}
             onEditAdjustment={canManage ? openPostedNote : undefined}
             onEdit={(draft) => {
               const posted = podCnDnAdjustmentFor(adjustments, draft.missionKey);
@@ -1015,7 +1059,7 @@ export function PodVerificationPane({
             ) : null}
             <PodExceptionLogCard
               key={summary.trip.id}
-              stacked={stacked}
+              stacked={workLayout}
               plannedDelivery={summary.trip.completed_at ?? null}
               value={exceptionLog}
               onChange={setExceptionLog}
@@ -1042,8 +1086,8 @@ export function PodVerificationPane({
                 <Text style={styles.meta}>
                   Save charges when a debit is identified. If there is no debit, mark No debit and Validated still moves this trip to Settlement Verification. POD not found returns it to Awaiting POD if the hard copy was logged by mistake.
                 </Text>
-                <View style={[styles.validateActions, stacked && styles.validateActionsStacked]}>
-                  <View style={[styles.validateAction, stacked && styles.validateActionStacked]}>
+                <View style={[styles.validateActions, workLayout && styles.validateActionsStacked]}>
+                  <View style={[styles.validateAction, workLayout && styles.validateActionStacked]}>
                     <RegistryGhostButton
                       label={notFound.isPending ? "Returning…" : "POD not found"}
                       onPress={() => {
@@ -1051,15 +1095,15 @@ export function PodVerificationPane({
                         setConfirmNotFound(true);
                       }}
                       disabled={busy}
-                      style={stacked ? styles.validateBtnStacked : undefined}
+                      style={workLayout ? styles.validateBtnStacked : undefined}
                     />
                   </View>
-                  <View style={[styles.validateAction, stacked && styles.validateActionStacked]}>
+                  <View style={[styles.validateAction, workLayout && styles.validateActionStacked]}>
                     <RegistryPrimaryButton
                       label={validate.isPending ? "Validating…" : "Validated"}
                       onPress={() => setConfirmValidated(true)}
                       disabled={!canValidatePod}
-                      style={stacked ? styles.validateBtnStacked : undefined}
+                      style={workLayout ? styles.validateBtnStacked : undefined}
                     />
                   </View>
                 </View>
@@ -1068,9 +1112,17 @@ export function PodVerificationPane({
           </>
         )}
       </ScrollView>
-        }
-        end={
-      <View style={[styles.previewPane, stacked && styles.previewPaneStacked, !stacked && styles.previewPaneSplit]}>
+  );
+
+  const previewPane = (
+      <View
+        style={[
+          styles.previewPane,
+          stacked && !mobileExclusive && styles.previewPaneStacked,
+          !stacked && styles.previewPaneSplit,
+          mobileExclusive && styles.previewPaneMobile,
+        ]}
+      >
         {selectedNote ? (
           <CnDnNotePreview
             context={noteContextFor(selectedNote)}
@@ -1113,8 +1165,46 @@ export function PodVerificationPane({
         />
         )}
       </View>
-        }
+  );
+
+  return (
+    <View style={[styles.root, workLayout && styles.rootStacked, mobileExclusive && styles.rootMobile]}>
+      {mobileExclusive && mobilePane === "preview" ? (
+        <View style={styles.mobilePreviewFill}>
+          <Pressable
+            onPress={() => setMobilePane("work")}
+            style={styles.mobilePreviewBack}
+            accessibilityRole="button"
+            accessibilityLabel="Back to trip"
+          >
+            <ChevronLeft size={20} color={Theme.textPrimaryDark} strokeWidth={2.2} />
+            <Text style={styles.mobilePreviewBackText}>
+              {finalSettlement
+                ? "Final Settlement"
+                : settlementMode
+                  ? "Settlement"
+                  : previewOnly
+                    ? "Awaiting POD"
+                    : "POD files"}
+            </Text>
+          </Pressable>
+          {previewPane}
+        </View>
+      ) : mobileExclusive ? (
+        workPane
+      ) : (
+      <AdjustableSplitLayout
+        storageKey="compliance.podPreview"
+        enabled={!stacked}
+        stacked={stacked}
+        sizedPane="end"
+        defaultSize={420}
+        minSize={260}
+        maxSize={720}
+        start={workPane}
+        end={previewPane}
       />
+      )}
 
       {screenOpen && previewUrl && canViewDocument ? (
         <Modal visible transparent animationType="fade" onRequestClose={() => setScreenOpen(false)}>
@@ -2670,9 +2760,33 @@ function PodExceptionLogCard({
 const styles = StyleSheet.create({
   root: { flex: 1, minHeight: 0, flexDirection: "row" },
   rootStacked: { flexDirection: "column" },
+  rootMobile: { backgroundColor: "transparent" },
   previewCol: { flex: 1, minWidth: 0, minHeight: 0 },
   previewContent: { padding: 12, gap: 12, paddingBottom: 20 },
   previewContentStacked: { paddingBottom: 28 },
+  previewContentMobile: { paddingHorizontal: 0, paddingTop: 4, gap: 14, paddingBottom: 32 },
+  fileCardList: { gap: 10 },
+  fileCardInLog: { paddingHorizontal: 10, paddingTop: 10 },
+  fileCardEmpty: {
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    borderRadius: 10,
+    backgroundColor: Theme.compliancePageBg,
+  },
+  mobilePreviewFill: { flex: 1, minHeight: 0, gap: 0 },
+  mobilePreviewBack: {
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: 44,
+    paddingHorizontal: 4,
+    gap: 2,
+  },
+  mobilePreviewBackText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+    letterSpacing: -0.2,
+  },
   pageHead: { gap: 6, paddingHorizontal: 2, paddingBottom: 2 },
   pageHeadRow: {
     flexDirection: "row",
@@ -2741,6 +2855,14 @@ const styles = StyleSheet.create({
     marginVertical: 0,
     marginRight: 0,
     flex: 1,
+  },
+  previewPaneMobile: {
+    flex: 1,
+    minHeight: 0,
+    marginVertical: 0,
+    marginRight: 0,
+    marginLeft: 0,
+    borderRadius: 12,
   },
   docToolbar: {
     flexShrink: 0,
@@ -2988,6 +3110,13 @@ const styles = StyleSheet.create({
   },
   logHeadStacked: {
     flexWrap: "wrap",
+  },
+  logHeadMobile: {
+    flexDirection: "column",
+    alignItems: "stretch",
+  },
+  logHeadActionsMobile: {
+    width: "100%",
   },
   logHeadCopy: { flex: 1, minWidth: 0, gap: 2 },
   logEmpty: {

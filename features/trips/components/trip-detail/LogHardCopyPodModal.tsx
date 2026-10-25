@@ -1368,7 +1368,7 @@ export function LogHardCopyPodModal({
 
           {footerEl}
           </View>
-          {compact && !showCreateForm ? (
+          {compact && !showCreateForm && !isNarrow ? (
             <View style={[styles.splitPreview, isNarrow && styles.splitPreviewStacked]}>
               <HardCopyPodPhotoUpload
                 tripId={tripId}

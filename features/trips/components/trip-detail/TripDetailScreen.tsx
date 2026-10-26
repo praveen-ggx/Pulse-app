@@ -2276,12 +2276,12 @@ export default function TripDetailScreen({
       } else if (target.kind === "asset_entity") {
         if (!target.documentId) {
           showAppAlert("Delete failed", "Could not find that document.");
-          return;
+          return false;
         }
         const { error } = await deleteComplianceDocument(target.documentId, target.storagePath);
         if (error) {
           showAppAlert("Delete failed", error.message);
-          return;
+          return false;
         }
         detail.reloadAssetExtras();
       } else if (target.kind === "driver_identity") {

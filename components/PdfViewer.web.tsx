@@ -266,7 +266,7 @@ export function PdfViewer({
     <View style={[styles.container, style]}>
       <iframe
         src={withPdfViewerHash(pdfUri, showToolbar, zoom, sizing, page, scrollbar ?? true)}
-        key={`${page ?? 0}-${Math.round(zoom * 100)}-${showToolbar ? "chrome" : "read"}`}
+        key={`${page ?? 0}-${Math.round(zoom * 100)}-${showToolbar ? "chrome" : "read"}-${documentVersion ?? ""}`}
         style={{
           position: "absolute",
           top: 0,

@@ -238,7 +238,7 @@ export const PRODUCT_REGISTRY: Record<ProductId, ProductDefinition> = {
 
   pulse_reach: {
     id: 'pulse_reach',
-    name: 'Pulse Reach',
+    name: 'Pulse Boost',
     tagline: 'Turn your Story into a paid campaign',
     description: 'Boost any Story into a targeted campaign with CTAs, scheduling, and full engagement analytics — pay with cash or Pulse Credits, reach verified fleet owners across the network.',
     icon: 'Megaphone',
@@ -256,7 +256,7 @@ export const PRODUCT_REGISTRY: Record<ProductId, ProductDefinition> = {
       { name: 'Campaign Studio',      description: 'Turn a Story into a scheduled, CTA-driven campaign', icon: 'Megaphone' },
       { name: 'Audience Builder',     description: 'Target by role, geography, org type, or device',      icon: 'Users' },
       { name: 'Engagement Analytics', description: 'Reach, completion rate, CTA CTR, replies, shares',     icon: 'BarChart3' },
-      { name: 'Pulse Credits',        description: 'Earn credits via referral or verification, spend on Reach', icon: 'Coins' },
+      { name: 'Pulse Credits',        description: 'Earn credits via referral or verification, spend on Pulse Boost', icon: 'Coins' },
     ],
     vision: 'Every Story can become a campaign — verified reach, real analytics, paid in cash or credits you already earned.',
     upgradeFrom: 'pulse_network',

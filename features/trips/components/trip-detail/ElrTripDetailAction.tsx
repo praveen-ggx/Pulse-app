@@ -47,28 +47,66 @@ import {
   elrVehicleChangedSinceSnapshot,
   isElrAfterLoadingStage,
   isElrEligible,
+  readStoredElrSnapshot,
   type ElrSnapshot,
   type ElrTripSource,
+  type StoredElrDocument,
 } from "@/features/trips/services/elrSnapshot.util";
+
+export type ElrKnownDocument = {
+  id?: string | null;
+  storage_path?: string | null;
+  document_number?: string | null;
+  document_type?: string | null;
+};
+
+function storedElrFromKnownDocuments(
+  rows: ElrKnownDocument[] | null | undefined,
+): StoredElrDocument | null {
+  for (const row of rows ?? []) {
+    if (String(row.document_type ?? "").trim().toLowerCase() !== "lr") continue;
+    const snapshot = readStoredElrSnapshot(row.document_number);
+    const storagePath = (row.storage_path ?? "").trim();
+    const id = (row.id ?? "").trim();
+    if (!snapshot || !storagePath || !id) continue;
+    return { id, storagePath, snapshot };
+  }
+  return null;
+}
 
 export type ElrTripDetailActionProps = {
   source: ElrTripSource;
   uploadedBy: string | null;
   onSaved?: () => void;
+  /** Documents already loaded for this trip, so View E-LR does not wait on a second read. */
+  knownDocuments?: ElrKnownDocument[] | null;
+  /**
+   * When the detail list failed, fall back to the stored-E-LR read.
+   * A successful list already includes document_number, so the fallback stays off.
+   */
+  storedElrLookupEnabled?: boolean;
 };
 
 export function ElrTripDetailAction({
   source,
   uploadedBy,
   onSaved,
+  knownDocuments,
+  storedElrLookupEnabled = true,
 }: ElrTripDetailActionProps) {
   const queryClient = useQueryClient();
   const tripId = source.tripId.trim();
+  const afterLoading = isElrAfterLoadingStage(source.tripStatus);
+  const seededStored = storedElrFromKnownDocuments(knownDocuments);
   const existingQuery = useQuery({
     queryKey: ["q", "trips", "elr", tripId],
     queryFn: () => findStoredElr(tripId),
-    enabled: tripId.length > 0,
-    staleTime: 30_000,
+    enabled:
+      tripId.length > 0 &&
+      afterLoading &&
+      storedElrLookupEnabled &&
+      seededStored == null,
+    staleTime: 60_000,
   });
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<ElrSnapshot | null>(null);
@@ -78,18 +116,17 @@ export function ElrTripDetailAction({
   const [draftSaved, setDraftSaved] = useState(false);
   const pdfBytesRef = useRef<{ lrNumber: string; bytes: ArrayBuffer } | null>(null);
   const insets = useSafeAreaInsets();
-  const storedSnapshot = existingQuery.data?.snapshot ?? null;
+  const storedSnapshot = existingQuery.data?.snapshot ?? seededStored?.snapshot ?? null;
   const storedIsComplete = storedSnapshot != null && isCompleteElrSnapshot(storedSnapshot);
   const incompleteStored = storedSnapshot != null && !storedIsComplete;
   const hasExisting = storedIsComplete;
   const draftQuery = useQuery({
     queryKey: ["q", "trips", "elr-draft", tripId],
     queryFn: () => readElrDraft(tripId),
-    enabled: tripId.length > 0,
+    enabled: tripId.length > 0 && afterLoading,
     staleTime: 30_000,
   });
   const hasDraft = draftQuery.data != null || incompleteStored;
-  const afterLoading = isElrAfterLoadingStage(source.tripStatus);
   const vehicleAssigned = isElrEligible({
     vehicleId: source.vehicleId,
     vehicleRegistration: source.vehicleRegistration,
@@ -116,15 +153,9 @@ export function ElrTripDetailAction({
     afterLoading: afterLoading || hasExisting,
   });
   const vehicleChanged =
-    existingQuery.data != null &&
-    elrVehicleChangedSinceSnapshot(
-      existingQuery.data.snapshot,
-      source.vehicleId,
-    );
-  const status = elrTripStatusCopy(
-    phase,
-    existingQuery.data?.snapshot.lrNumber,
-  );
+    storedSnapshot != null &&
+    elrVehicleChangedSinceSnapshot(storedSnapshot, source.vehicleId);
+  const status = elrTripStatusCopy(phase, storedSnapshot?.lrNumber);
   const label = status.action ?? "E-LR";
   const plate = (source.vehicleRegistration ?? "").trim();
 
@@ -263,7 +294,7 @@ export function ElrTripDetailAction({
           source,
           uploadedBy,
           completion: draft,
-          existing: existingQuery.isFetched ? existingQuery.data ?? null : undefined,
+          existing: seededStored ?? (existingQuery.isFetched ? existingQuery.data ?? null : undefined),
           pdfBytes:
             preview &&
             pdfBytesRef.current?.lrNumber === preview.lrNumber
@@ -315,8 +346,21 @@ export function ElrTripDetailAction({
         }
       }
       const url = URL.createObjectURL(blob);
+      const revoke = () => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {
+          /* already revoked */
+        }
+      };
       if (mode === "open") {
-        window.open(url, "_blank", "noopener,noreferrer");
+        // noopener makes window.open return null, so the load event cannot
+        // be observed. Keep a window handle, detach opener, and revoke on
+        // load or after 60s — whichever comes first.
+        const opened = window.open(url, "_blank");
+        if (opened) opened.opener = null;
+        if (opened) opened.addEventListener("load", revoke);
+        window.setTimeout(revoke, 60_000);
         return;
       }
       const anchor = document.createElement("a");

@@ -189,6 +189,7 @@ const styles = StyleSheet.create({
   },
   routeStack: {
     width: "100%",
+    minHeight: 34,
     flexDirection: "column",
     alignItems: "flex-start",
     gap: 1,
@@ -216,7 +217,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "500",
     color: Theme.textMuted,
-    letterSpacing: 0.2,
+    letterSpacing: 0,
     textTransform: "uppercase",
     marginBottom: 4,
     lineHeight: 13,

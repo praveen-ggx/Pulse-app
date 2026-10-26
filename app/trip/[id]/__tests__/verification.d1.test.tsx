@@ -37,6 +37,9 @@ jest.mock("@/components/CenteredLoadingView", () => ({
     return <Text>{message ?? "loading"}</Text>;
   },
 }));
+jest.mock("@/features/driver/components/DriverTripHistoryDetailScreen", () => ({
+  peekMountedDriverDetailTrip: jest.fn(() => null),
+}));
 jest.mock("@/features/driver/services/driverOwnedTrip.service", () => ({
   getDriverOwnedTrip: jest.fn(),
 }));

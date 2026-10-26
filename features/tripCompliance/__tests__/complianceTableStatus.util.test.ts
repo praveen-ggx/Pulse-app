@@ -19,6 +19,7 @@ import {
   isComplianceAwaitingResubmit,
   isFinanceFlagged,
   missingOrRejectedRequiredTripDocs,
+  missingRequiredResubmitFiles,
   isFinanceDeclinedTrip,
   isResubmittedFinanceReject,
   isPendingDocsComplianceHold,
@@ -484,6 +485,50 @@ describe("finance reject queue routing", () => {
       ],
     });
     expect(missingOrRejectedRequiredTripDocs(gaps).sort()).toEqual(["eway_bill", "invoice"]);
+  });
+
+  it("lets Resubmit proceed on a remapped hold once required files are on, ignoring optional Aadhaar", () => {
+    const entity = (doc_type: string, entity_type: "vehicle" | "driver" = "vehicle") => ({
+      id: doc_type,
+      entity_type,
+      entity_id: "e1",
+      doc_type,
+      status: "pending" as const,
+      storage_path: `vault/${doc_type}.pdf`,
+      expiry_date: "2027-12-29",
+      verified_at: null,
+      notes: null,
+      created_at: "2026-10-01",
+    });
+    const holdOnUpload = summary({
+      stage: "pending_for_docs",
+      complianceDeclinedAt: "2026-10-12T07:00:00Z",
+      documents: [
+        doc({ document_type: "lr", status: "pending" }),
+        doc({ document_type: "eway_bill", status: "pending" }),
+        doc({ document_type: "invoice", status: "pending" }),
+      ],
+      vehicleDocuments: [entity("rc"), entity("insurance"), entity("fitness")],
+      driverDocuments: [entity("license", "driver")],
+    });
+    expect(isComplianceHoldAwaitingResubmit(holdOnUpload)).toBe(true);
+    expect(missingRequiredResubmitFiles(holdOnUpload)).toEqual([]);
+  });
+
+  it("does not treat optional Aadhaar or empty vehicle/driver slots as a Resubmit blocker", () => {
+    const files = missingRequiredResubmitFiles(
+      summary({
+        documents: [
+          doc({ document_type: "lr" }),
+          doc({ document_type: "eway_bill" }),
+          doc({ document_type: "invoice" }),
+        ],
+        vehicleDocuments: [],
+        driverDocuments: [],
+      }),
+    );
+    expect(files).toEqual([]);
+    expect(files).not.toContain("aadhaar");
   });
 
   it("marks a pre-verify hold on Document Upload and on Compliance Verification", () => {

@@ -107,6 +107,7 @@ import { AggregateTrackingMobileStep } from "./AggregateTrackingMobileStep";
 import { DriverPhoneRecommendations } from "./DriverPhoneRecommendations";
 import { lookupDriversByPhoneVariants, enrichDriverMatchesWithFleetAvatars } from "@/features/trips/utils/driverPhoneLookup.util";
 import { LocationSearchField } from "./LocationSearchField";
+import { coordsOrUnset } from "@/lib/placeSearch.util";
 import { TripClientPickerSection } from "./TripClientPickerSection";
 import { TripCommodityFields } from "./TripCommodityFields";
 import type { AddTripFormState, AddTripSourceIndent } from "./types";
@@ -1299,9 +1300,10 @@ export function AddTripFormFields({
                     placeholder="Search or pick pickup location"
                     value={state.pickupArea}
                     onChangeText={setters.setPickupArea}
-                    onSelectPlace={(_name, coords) =>
-                      setters.setPickupCoords(coords.lat, coords.lon)
-                    }
+                    onSelectPlace={(_name, coords) => {
+                      const { lat, lon } = coordsOrUnset(coords);
+                      setters.setPickupCoords(lat, lon);
+                    }}
                     leadingIcon={<MapPin size={13} color={Theme.iconMuted} />}
                     inputStyle={[...fieldInputStyle, outlineErr("pickup")]}
                     labelStyle={fieldLabelStyle}
@@ -1321,9 +1323,10 @@ export function AddTripFormFields({
                     placeholder="Search or pick drop location"
                     value={state.dropLocation}
                     onChangeText={setters.setDropLocation}
-                    onSelectPlace={(_name, coords) =>
-                      setters.setDropCoords(coords.lat, coords.lon)
-                    }
+                    onSelectPlace={(_name, coords) => {
+                      const { lat, lon } = coordsOrUnset(coords);
+                      setters.setDropCoords(lat, lon);
+                    }}
                     leadingIcon={<Navigation size={13} color={Theme.iconMuted} />}
                     inputStyle={[...fieldInputStyle, outlineErr("drop")]}
                     labelStyle={fieldLabelStyle}
@@ -1527,9 +1530,10 @@ export function AddTripFormFields({
                       placeholder="Search or pick pickup location"
                       value={state.pickupArea}
                       onChangeText={setters.setPickupArea}
-                      onSelectPlace={(_name, coords) =>
-                        setters.setPickupCoords(coords.lat, coords.lon)
-                      }
+                      onSelectPlace={(_name, coords) => {
+                        const { lat, lon } = coordsOrUnset(coords);
+                        setters.setPickupCoords(lat, lon);
+                      }}
                       leadingIcon={<MapPin size={isDenseForm ? 13 : 14} color={Theme.iconMuted} />}
                       inputStyle={[...fieldInputStyle, outlineErr("pickup")]}
                       labelStyle={fieldLabelStyle}
@@ -1543,9 +1547,10 @@ export function AddTripFormFields({
                       placeholder="Search or pick drop location"
                       value={state.dropLocation}
                       onChangeText={setters.setDropLocation}
-                      onSelectPlace={(_name, coords) =>
-                        setters.setDropCoords(coords.lat, coords.lon)
-                      }
+                      onSelectPlace={(_name, coords) => {
+                        const { lat, lon } = coordsOrUnset(coords);
+                        setters.setDropCoords(lat, lon);
+                      }}
                       leadingIcon={<Navigation size={isDenseForm ? 13 : 14} color={Theme.iconMuted} />}
                       inputStyle={[...fieldInputStyle, outlineErr("drop")]}
                       labelStyle={fieldLabelStyle}

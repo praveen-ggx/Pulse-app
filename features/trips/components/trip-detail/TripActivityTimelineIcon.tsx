@@ -68,6 +68,39 @@ function iconForEntry(
     };
   }
 
+  if (category === "document") {
+    if (lower.includes("delet")) {
+      return {
+        name: "trash-2",
+        color: "#b91c1c",
+        bg: "rgba(239,68,68,0.1)",
+        border: "rgba(239,68,68,0.22)",
+      };
+    }
+    if (lower.includes("reject") || lower.includes("declin")) {
+      return {
+        name: "x-circle",
+        color: "#b45309",
+        bg: "rgba(245,158,11,0.12)",
+        border: "rgba(245,158,11,0.24)",
+      };
+    }
+    if (lower.includes("verif")) {
+      return {
+        name: "check-circle",
+        color: "#047857",
+        bg: "rgba(16,185,129,0.12)",
+        border: "rgba(16,185,129,0.24)",
+      };
+    }
+    return {
+      name: "file-text",
+      color: "#0369a1",
+      bg: "rgba(14,165,233,0.1)",
+      border: "rgba(14,165,233,0.22)",
+    };
+  }
+
   if (lower.includes("accept")) {
     return {
       name: "check-circle",

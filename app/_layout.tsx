@@ -106,6 +106,7 @@ import { AuthProvider, useAuth, useOptionalAuth } from '@/contexts/AuthContext';
 import { KeyboardAccessoryProvider } from '@/contexts/KeyboardAccessoryContext';
 import { LanguageProvider, tGlobal } from '@/contexts/LanguageContext';
 import { NetworkProvider } from '@/contexts/NetworkContext';
+import { ChangeDriverPopupProvider } from '@/contexts/ChangeDriverPopupContext';
 import { OrganizationProvider, useOptionalOrganization } from '@/contexts/OrganizationContext';
 import { PendingOnboardingProvider } from '@/contexts/PendingOnboardingContext';
 import { WalletProvider } from '@/contexts/WalletContext';
@@ -478,11 +479,13 @@ function AuthenticatedDataPlane() {
           <WalletProvider>
             <KeyboardAccessoryProvider>
               <GlobalSyncProvider>
-                <AppBootGate>
-                  <OrgVerificationReminderProvider>
-                    <RootLayoutNav />
-                  </OrgVerificationReminderProvider>
-                </AppBootGate>
+                <ChangeDriverPopupProvider>
+                  <AppBootGate>
+                    <OrgVerificationReminderProvider>
+                      <RootLayoutNav />
+                    </OrgVerificationReminderProvider>
+                  </AppBootGate>
+                </ChangeDriverPopupProvider>
               </GlobalSyncProvider>
             </KeyboardAccessoryProvider>
           </WalletProvider>
@@ -656,7 +659,10 @@ function RootLayoutNav() {
               <Stack.Screen name="+not-found" options={{ headerShown: false }} />
             </Stack>
             <NavigationLoadingOverlay />
-            {shouldMountRootOverlayTabBar(Boolean(auth?.sessionAttached)) ? (
+            {shouldMountRootOverlayTabBar(
+              Boolean(auth?.sessionAttached),
+              isPublicAuthRoute(pathname),
+            ) ? (
               <RootOverlayTabBar />
             ) : null}
           </View>

@@ -8,7 +8,38 @@
 import { isOriginDownError as isOriginDownErrorShared } from '@/lib/supabaseHttp.util';
 
 const INFRA_PATTERN =
-  /522|521|520|500|502|503|504|429|timeout|timed out|network|fetch failed|gateway|connection|schema cache/i;
+  /522|521|520|500|502|503|504|429|timeout|timed out|network|fetch failed|gateway|connection/i;
+
+const SCHEMA_CACHE_UNAVAILABLE =
+  /Could not query the database for the schema cache/i;
+
+function errorCode(error: unknown): string {
+  if (!error || typeof error !== "object") return "";
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" ? code : "";
+}
+
+/**
+ * Permanent Postgres / PostgREST failures. Retrying them doubles 42703 / 42501
+ * traffic without changing the schema or the RLS decision.
+ */
+export function isPermanentSchemaOrRlsError(error: unknown): boolean {
+  const code = errorCode(error);
+  if (code === "42703" || code === "42501" || code === "PGRST204") return true;
+  const message = errorMessage(error);
+  if (/\b42703\b|\b42501\b|\bPGRST204\b/i.test(message)) return true;
+  if (/column .* does not exist/i.test(message)) return true;
+  if (/could not find the .+ column of .+ in the schema cache/i.test(message)) {
+    return true;
+  }
+  if (/permission denied for (table|relation|schema) storage\.objects/i.test(message)) {
+    return true;
+  }
+  if (/row-level security/i.test(message) && /storage\.objects/i.test(message)) {
+    return true;
+  }
+  return false;
+}
 
 function errorMessage(error: unknown): string {
   if (!error) return '';
@@ -19,7 +50,9 @@ function errorMessage(error: unknown): string {
 
 export function isInfrastructureError(error: unknown): boolean {
   if (!error) return false;
-  return INFRA_PATTERN.test(errorMessage(error));
+  if (isPermanentSchemaOrRlsError(error)) return false;
+  const message = errorMessage(error);
+  return INFRA_PATTERN.test(message) || SCHEMA_CACHE_UNAVAILABLE.test(message);
 }
 
 export function isOriginDownError(error: unknown): boolean {
@@ -42,6 +75,7 @@ function isTimeoutErrorMessage(message: string): boolean {
 export function infrastructureShouldRetry(failureCount: number, error: unknown): boolean {
   const name = (error as { name?: string } | null)?.name;
   if (name === 'TimeoutError' || name === 'AbortError') return false;
+  if (isPermanentSchemaOrRlsError(error)) return false;
   if (isTimeoutErrorMessage(errorMessage(error))) return false;
   if (isOriginDownError(error)) return false;
   return failureCount < 1 && isInfrastructureError(error);

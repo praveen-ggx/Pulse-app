@@ -2,8 +2,10 @@
  * Trip activity drawer / sheet — user-level actions on a trip.
  */
 import { RegistryWebDrawer } from "@/components/RegistryWebDrawer";
+import { useAuth } from "@/contexts/AuthContext";
 import { TripAuditLogContent } from "@/features/trips/components/trip-detail/TripAuditLogContent";
 import { getProfile } from "@/features/auth/services/auth.service";
+import { resolveComplianceActorDetails } from "@/features/tripCompliance/services/complianceDocumentView.service";
 import type { LedgerRow } from "@/features/finance/services/finance.service";
 import { getOrganizationMembers } from "@/features/organization/services/members.service";
 import type { DriverActivityTimelineRow } from "@/features/trips/components/trip-detail/hooks/useTripDetail";
@@ -18,7 +20,10 @@ import {
   inferTripStaffUserId,
   matchesTripAuditTab,
   type TripActivityUserProfile,
+  type TripAuditLogScope,
+  type TripAuditMilestone,
 } from "@/lib/trips/buildTripAuditLog.util";
+import type { TripAuditFilterTab } from "@/lib/trips/tripAuditLog.types";
 import { useEffect, useMemo, useState } from "react";
 import {
   Modal,
@@ -45,18 +50,23 @@ export type TripAuditLogPanelProps = {
   driverDisplayName?: string | null;
   hardCopyPod?: TripHardCopyPodState | null;
   loading?: boolean;
+  scope?: TripAuditLogScope;
+  milestones?: TripAuditMilestone[];
 };
 
 function collectActivityUserIds(
   trip: TripRow,
   assignmentAuditRows: TripAssignmentAuditRow[],
   transactions: LedgerRow[],
+  milestones: TripAuditMilestone[] = [],
+  currentUserId?: string | null,
 ): string[] {
   const ids = new Set<string>();
   const add = (id: string | null | undefined) => {
     const v = String(id ?? "").trim();
     if (v) ids.add(v);
   };
+  add(currentUserId);
   add(trip.created_by_user_id);
   add(trip.created_by);
   add(trip.owner_user_id);
@@ -67,6 +77,7 @@ function collectActivityUserIds(
     add(tx.created_by);
     add(inferTripStaffUserId(trip, tx.created_by));
   }
+  for (const mile of milestones) add(mile.actorUserId);
   return Array.from(ids);
 }
 
@@ -84,10 +95,14 @@ export function TripAuditLogPanel({
   driverDisplayName,
   hardCopyPod = null,
   loading = false,
+  scope = "all",
+  milestones = [],
 }: TripAuditLogPanelProps) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const isCompact = width < 768;
+  const { profile: sessionProfile, user: sessionUser } = useAuth();
+  const sessionUserId = currentUserId ?? sessionUser?.uid ?? null;
   const [userDisplayById, setUserDisplayById] = useState<Record<string, string>>({});
   const [userProfileById, setUserProfileById] = useState<
     Record<string, TripActivityUserProfile>
@@ -98,8 +113,15 @@ export function TripAuditLogPanel({
   const route = [trip.pickup_area, trip.drop_location].filter(Boolean).join(" → ");
 
   const activityUserIds = useMemo(
-    () => collectActivityUserIds(trip, assignmentAuditRows, tripLedgerEntries),
-    [trip, assignmentAuditRows, tripLedgerEntries],
+    () =>
+      collectActivityUserIds(
+        trip,
+        assignmentAuditRows,
+        tripLedgerEntries,
+        milestones,
+        sessionUserId,
+      ),
+    [trip, assignmentAuditRows, tripLedgerEntries, milestones, sessionUserId],
   );
   // Stable primitive key: the effect below must only re-run when the actual set
   // of ids changes, not when the parent hands us a new array reference each
@@ -126,14 +148,32 @@ export function TripAuditLogPanel({
         uid: string,
         profile: TripActivityUserProfile,
       ) => {
-        profileMap[uid] = profile;
+        const prev = profileMap[uid];
+        const next: TripActivityUserProfile = {
+          full_name: profile.full_name?.trim() || prev?.full_name || null,
+          email: profile.email?.trim() || prev?.email || null,
+          phone: profile.phone?.trim() || prev?.phone || null,
+          avatar_url: profile.avatar_url?.trim() || prev?.avatar_url || null,
+          avatar_seed: profile.avatar_seed?.trim() || prev?.avatar_seed || null,
+        };
+        profileMap[uid] = next;
         const name =
-          profile.full_name?.trim() ||
-          profile.phone?.trim() ||
-          profile.email?.trim() ||
+          next.full_name?.trim() ||
+          next.phone?.trim() ||
+          next.email?.trim() ||
           "";
         if (name) displayMap[uid] = name;
       };
+
+      if (sessionUserId && sessionProfile) {
+        rememberProfile(sessionUserId, {
+          full_name: sessionProfile.full_name ?? sessionProfile.displayName ?? null,
+          email: sessionProfile.email ?? null,
+          phone: sessionProfile.phone ?? null,
+          avatar_url: sessionProfile.avatar_url ?? null,
+          avatar_seed: sessionProfile.avatar_seed ?? null,
+        });
+      }
 
       if (orgId) {
         const { members } = await getOrganizationMembers(orgId);
@@ -149,14 +189,36 @@ export function TripAuditLogPanel({
             email: member.email?.trim() || null,
             phone: member.phone?.trim() || null,
             avatar_url: member.avatar_url ?? null,
-            avatar_seed: null,
+            avatar_seed: member.avatar_seed ?? null,
           });
         }
       }
 
-      const unresolved = activityUserIds.filter((id) => !profileMap[id]);
+      const missingName = (id: string) => {
+        const existing = profileMap[id];
+        return !(
+          existing?.full_name?.trim() ||
+          existing?.phone?.trim() ||
+          existing?.email?.trim()
+        );
+      };
+      const unresolved = activityUserIds.filter(missingName);
+      if (unresolved.length > 0) {
+        const details = await resolveComplianceActorDetails(unresolved, orgId);
+        for (const [id, detail] of Object.entries(details)) {
+          if (detail.name && detail.name !== "Unknown") {
+            rememberProfile(id, {
+              full_name: detail.name,
+              email: null,
+              phone: null,
+              avatar_url: profileMap[id]?.avatar_url ?? null,
+              avatar_seed: profileMap[id]?.avatar_seed ?? null,
+            });
+          }
+        }
+      }
       await Promise.all(
-        unresolved.map(async (id) => {
+        activityUserIds.filter(missingName).map(async (id) => {
           const profile = await getProfile(id);
           if (!profile) return;
           rememberProfile(id, {
@@ -185,7 +247,15 @@ export function TripAuditLogPanel({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, organizationId, trip.organization_id, activityUserIdsKey]);
+  }, [
+    visible,
+    organizationId,
+    trip.organization_id,
+    activityUserIdsKey,
+    sessionUserId,
+    sessionProfile?.avatar_url,
+    sessionProfile?.avatar_seed,
+  ]);
 
   const entries = useMemo(
     () =>
@@ -197,11 +267,13 @@ export function TripAuditLogPanel({
         assignmentVehicleLabels,
         timelineRows,
         transactions: tripLedgerEntries,
-        currentUserId,
+        currentUserId: sessionUserId,
         userDisplayById,
         userProfileById,
         driverDisplayName: driverDisplayName ?? trip.driver_display_name,
         hardCopyPod,
+        scope,
+        milestones,
       }),
     [
       trip,
@@ -211,13 +283,20 @@ export function TripAuditLogPanel({
       assignmentVehicleLabels,
       timelineRows,
       tripLedgerEntries,
-      currentUserId,
+      sessionUserId,
       userDisplayById,
       userProfileById,
       driverDisplayName,
       hardCopyPod,
+      scope,
+      milestones,
     ],
   );
+
+  const tabs: TripAuditFilterTab[] =
+    scope === "compliance"
+      ? ["all", "documents", "activity"]
+      : ["all", "updates", "assignment", "payment"];
 
   const panel = (
     <TripAuditLogContent
@@ -228,6 +307,12 @@ export function TripAuditLogPanel({
       loading={loading || resolvingUsers}
       onClose={onClose}
       shellStyle={styles.panelFullBleed}
+      tabs={tabs}
+      emptyBody={
+        scope === "compliance"
+          ? "Document uploads, deletions, and compliance activity for this trip will appear here."
+          : undefined
+      }
     />
   );
 

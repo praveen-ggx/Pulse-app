@@ -4,6 +4,21 @@
  * Fallback: cached places (AsyncStorage, selected only, max 500) + popular list.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  MAPBOX_FORWARD_SEARCH_TYPES,
+  NOMINATIM_SEARCH_URL,
+  NOMINATIM_USER_AGENT,
+  buildNominatimReverseUrl,
+  isUsablePlaceCoordinate,
+  shouldCachePlaceSearchResults,
+} from '@/lib/placeSearch.util';
+
+export {
+  MAPBOX_FORWARD_SEARCH_TYPES,
+  NOMINATIM_REVERSE_URL,
+  buildNominatimReverseUrl,
+  isUsablePlaceCoordinate,
+} from '@/lib/placeSearch.util';
 
 export interface PlaceResult {
   placeId: string;
@@ -122,8 +137,8 @@ function normalizeKey(displayName: string): string {
   return displayName.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-const NOMINATIM_BASE = 'https://nominatim.openstreetmap.org/search';
-const USER_AGENT = 'Pulse-Logistics/1.0 (India places; contact@example.com)';
+const NOMINATIM_BASE = NOMINATIM_SEARCH_URL;
+const USER_AGENT = NOMINATIM_USER_AGENT;
 
 const MAPBOX_GEOCODING_BASE = 'https://api.mapbox.com/geocoding/v5/mapbox.places';
 
@@ -189,6 +204,23 @@ function blockMapboxTemporarily() {
   mapboxBlockedUntil = Date.now() + MAPBOX_CIRCUIT_BREAKER_MS;
 }
 
+/** Test-only: clear per-provider cooldowns so a retry can hit the network. */
+export function resetPlacesProviderCooldownsForTests() {
+  lastProviderCallAt.mapbox = 0;
+  lastProviderCallAt.google = 0;
+  lastProviderCallAt.nominatim = 0;
+}
+
+/** Test-only: clear TTL cache, inflight dedupe, and provider budgets. */
+export function resetPlacesSearchMemoryForTests() {
+  memoryCache.clear();
+  inflight.clear();
+  resetPlacesProviderCooldownsForTests();
+  mapboxBucket.tokens = MAPBOX_HARD_CAP.capacity;
+  mapboxBucket.lastRefillAt = Date.now();
+  mapboxBlockedUntil = 0;
+}
+
 function cacheGet(key: string): PlaceResult[] | null {
   const hit = memoryCache.get(key);
   if (!hit) return null;
@@ -200,6 +232,8 @@ function cacheGet(key: string): PlaceResult[] | null {
 }
 
 function cacheSet(key: string, results: PlaceResult[]) {
+  // Empty / error-shaped lists must not pin "no such place" for the TTL.
+  if (!shouldCachePlaceSearchResults(results)) return;
   memoryCache.set(key, { ts: Date.now(), results });
   if (memoryCache.size > MEMORY_CACHE_MAX) {
     // drop oldest entries to cap memory
@@ -234,7 +268,7 @@ async function searchMapbox(query: string, opts?: SearchOpts): Promise<PlaceResu
     access_token: token,
     country: 'IN',
     limit: '8',
-    types: 'address,place,locality,neighborhood,postcode',
+    types: MAPBOX_FORWARD_SEARCH_TYPES,
   });
   const url = `${MAPBOX_GEOCODING_BASE}/${encodeURIComponent(trimmed)}.json?${params.toString()}`;
 
@@ -520,6 +554,7 @@ export async function getCachedPlaces(query?: string): Promise<PlaceResult[]> {
 /** Add a place to the cache (e.g. when user selects it). Dedupes by displayName; keeps recent first; cap at PLACES_CACHE_MAX. */
 export async function addToPlacesCache(place: PlaceResult): Promise<void> {
   if (!place?.displayName?.trim()) return;
+  if (!isUsablePlaceCoordinate(place.lat, place.lon)) return;
   try {
     const raw = await AsyncStorage.getItem(PLACES_CACHE_KEY);
     const list: PlaceResult[] = raw ? JSON.parse(raw) : [];
@@ -716,16 +751,8 @@ async function reverseMapbox(lat: number, lon: number): Promise<ReverseGeocodeIn
 }
 
 async function reverseNominatim(lat: number, lon: number): Promise<ReverseGeocodeIndiaResult> {
-  const params = new URLSearchParams({
-    lat: String(lat),
-    lon: String(lon),
-    format: 'json',
-    addressdetails: '1',
-    zoom: '16',
-  });
-
   try {
-    const res = await fetch(`${NOMINATIM_BASE}/reverse?${params.toString()}`, {
+    const res = await fetch(buildNominatimReverseUrl(lat, lon, { zoom: '16' }), {
       headers: {
         Accept: 'application/json',
         'User-Agent': USER_AGENT,

@@ -1,8 +1,12 @@
 import { memo } from "react";
-import { Text, TouchableOpacity, View } from "react-native";
-
+import { Platform, Pressable, Text, View, type ViewStyle } from "react-native";
 
 import { HUB_MOBILE_ACCENT, hubMobileChromeStyles as styles } from "./hubMobileChrome";
+
+type HoverPressState = { pressed: boolean; hovered?: boolean };
+
+const WEB_POINTER: ViewStyle | null =
+  Platform.OS === "web" ? ({ cursor: "pointer" } as ViewStyle) : null;
 
 export interface HubMobileUnderlineTabProps {
   label: string;
@@ -26,10 +30,14 @@ export const HubMobileUnderlineTab = memo(function HubMobileUnderlineTab({
   const activeColor = accentColor || HUB_MOBILE_ACCENT;
 
   return (
-    <TouchableOpacity
-      style={[styles.tabItem, compact && styles.tabItemCompact]}
+    <Pressable
+      style={(state: HoverPressState) => [
+        styles.tabItem,
+        compact && styles.tabItemCompact,
+        WEB_POINTER,
+        !isActive && (state.hovered || state.pressed) ? { opacity: 0.72 } : null,
+      ]}
       onPress={onPress}
-      activeOpacity={0.7}
       accessibilityRole="tab"
       accessibilityState={{ selected: isActive }}
       accessibilityLabel={accessibilityLabel ?? label}
@@ -54,6 +62,6 @@ export const HubMobileUnderlineTab = memo(function HubMobileUnderlineTab({
           ]}
         />
       ) : null}
-    </TouchableOpacity>
+    </Pressable>
   );
 });

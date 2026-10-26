@@ -140,3 +140,20 @@ export function decodeCourierLrRemarks(raw: string | null | undefined): {
     return { text: trimmed, receivedLrs: [] };
   }
 }
+
+function looksLikeJsonBlob(value: string): boolean {
+  const raw = value.trim();
+  return raw.startsWith("{") && raw.endsWith("}");
+}
+
+/** Human line for activity / audit — never dump the stored JSON payload. */
+export function formatCourierLrRemarks(raw: string | null | undefined): string | null {
+  const decoded = decodeCourierLrRemarks(raw);
+  const lrLine =
+    decoded.receivedLrs.length > 0
+      ? `Received LR${decoded.receivedLrs.length === 1 ? "" : "s"} ${decoded.receivedLrs.join(", ")}`
+      : null;
+  const text = decoded.text && !looksLikeJsonBlob(decoded.text) ? decoded.text : null;
+  const line = [lrLine, text].filter(Boolean).join(" · ");
+  return line || null;
+}

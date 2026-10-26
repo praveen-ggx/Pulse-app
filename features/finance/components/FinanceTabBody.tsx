@@ -14,6 +14,10 @@ import { FinanceCustomersTab } from './finance-tabs/FinanceCustomersTab';
 import { FinanceDriversTab } from './finance-tabs/FinanceDriversTab';
 import { FinanceGarageTab } from './finance-tabs/FinanceGarageTab';
 import { FinanceSuppliersTab } from './finance-tabs/FinanceSuppliersTab';
+import {
+  isFinancePartyTabBlocking,
+  shouldShowFinancePartyCatalogLoading,
+} from '@/features/finance/utils/financePartyTabLoading.util';
 import type { FinanceTabBodyProps } from './FinanceTabBody.types';
 
 export type { FinanceTabBodyProps } from './FinanceTabBody.types';
@@ -44,7 +48,20 @@ export function FinanceTabBody(props: FinanceTabBodyProps) {
     });
   }, [activeTab]);
 
-  if (props.entitiesLoading && activeTab !== 'cash') {
+  if (
+    isFinancePartyTabBlocking({
+      activeTab,
+      clientsLoading: shouldShowFinancePartyCatalogLoading({
+        hasRows: (props.clientRows?.length ?? 0) > 0,
+        catalogPending: props.clientsLoading ?? props.entitiesLoading,
+      }),
+      suppliersLoading: shouldShowFinancePartyCatalogLoading({
+        hasRows: (props.supplierRows?.length ?? 0) > 0,
+        catalogPending: props.suppliersLoading ?? props.entitiesLoading,
+      }),
+      entitiesLoading: props.entitiesLoading,
+    })
+  ) {
     return <LazySuspenseInlineFallback message="Loading parties…" />;
   }
 

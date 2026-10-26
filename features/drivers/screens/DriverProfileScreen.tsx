@@ -21,14 +21,13 @@ import {
 import { MilestoneHowToModal } from '@/features/experience/components/MilestoneHowToModal';
 import {
   averageScore,
-  getRatingsForDriver,
+  getRatingsForDrivers,
 } from '@/features/ratings/services/ratings.service';
 import type { RatingRow } from '@/features/ratings/types';
 import { ROUTES } from '@/lib/routes';
 import { supabase } from '@/lib/supabase';
 import { subscribeSharedPostgresChanges } from '@/lib/realtimeRegistry';
 import * as driversService from '@/features/drivers/services/drivers.service';
-import * as tripsService from '@/features/trips/services/trips.service';
 import { getVehicleById } from '@/features/vehicles/services/vehicles.service';
 import { useDcoStatusQuery } from '@/lib/queries/useDcoStatusQuery';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -57,8 +56,19 @@ import {
   UserPlus,
   Wrench
 } from 'lucide-react-native';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Image, Pressable, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Image,
+  Platform,
+  Pressable,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  type ViewStyle,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 
@@ -82,6 +92,36 @@ const AMBER_400 = '#fbbf24';
 const AMBER_500 = '#f59e0b';
 
 type ProfileView = 'main' | 'vehicle' | 'levels';
+
+/** Same completion rule as trip history: status or a stamped completed_at. */
+const COMPLETED_TRIP_FILTER =
+  'status.in.(completed,delivered,done),completed_at.not.is.null';
+
+const webPress: ViewStyle | null =
+  Platform.OS === 'web' ? ({ cursor: 'pointer' } as ViewStyle) : null;
+
+async function countCompletedTrips(driverIds: string[]): Promise<number> {
+  const { count, error } = await supabase()
+    .from('trips')
+    .select('id', { count: 'exact', head: true })
+    .in('driver_id', driverIds)
+    .or(COMPLETED_TRIP_FILTER);
+  if (error) throw new Error(error.message);
+  return count ?? 0;
+}
+
+async function lookupTripVehicleNumber(driverIds: string[]): Promise<string | null> {
+  const { data, error } = await supabase()
+    .from('trips')
+    .select('vehicle_display_number')
+    .in('driver_id', driverIds)
+    .not('vehicle_display_number', 'is', null)
+    .limit(1);
+  if (error) return null;
+  const row = (data ?? [])[0] as { vehicle_display_number?: string | null } | undefined;
+  const num = (row?.vehicle_display_number ?? '').trim();
+  return num.length > 0 ? num : null;
+}
 
 function formatShortDate(iso?: string | null) {
   if (!iso) return '—';
@@ -109,8 +149,10 @@ export default function DriverProfileScreen() {
   const [guideLevel, setGuideLevel] = useState<ExperienceLevelConfig | null>(null);
   const [drivers, setDrivers] = useState<driversService.DriverRow[]>([]);
   const [driverIds, setDriverIds] = useState<string[]>([]);
-  const [trips, setTrips] = useState<tripsService.TripRow[]>([]);
+  const [completedTripCount, setCompletedTripCount] = useState(0);
   const [loadingTrips, setLoadingTrips] = useState(true);
+  const [tripsLoaded, setTripsLoaded] = useState(false);
+  const [tripVehicleLabel, setTripVehicleLabel] = useState<string | null>(null);
   const [driverRatings, setDriverRatings] = useState<RatingRow[]>([]);
   const [loadingDriverRatings, setLoadingDriverRatings] = useState(false);
   const [kycUploadedCount, setKycUploadedCount] = useState(0);
@@ -148,39 +190,51 @@ export default function DriverProfileScreen() {
       : profile?.avatar_seed?.trim() || avatarSeed,
   });
 
+  const tripLoadGen = useRef(0);
   const loadTrips = useCallback(() => {
+    const gen = ++tripLoadGen.current;
     if (!profile?.uid) {
       setLoadingTrips(false);
+      setTripsLoaded(true);
+      setCompletedTripCount(0);
+      setTripVehicleLabel(null);
       return;
     }
     setLoadingTrips(true);
     driversService
       .getLinkedDriversForCurrentUser(profile.uid)
-      .then((res) => {
+      .then(async (res) => {
+        if (gen !== tripLoadGen.current) return;
         // All driver rows (including left fleets) — experience is cumulative.
         const allRows = res.drivers ?? [];
-        setDrivers(allRows.filter((d) => !d.left_at)); // UI fleet display: active only
-        // Same id set the trips query below uses — drives the realtime subscription filter.
-        setDriverIds(allRows.map((d) => d.id));
-        if (allRows.length === 0) {
-          setTrips([]);
-          setLoadingTrips(false);
+        const ids = allRows.map((d) => d.id);
+        // UI fleet display: active fleet links only. tracking_only rows are trip-assignment
+        // identities (e.g. the shipper that awarded a Marketplace bid), not a fleet.
+        setDrivers(allRows.filter((d) => !d.left_at && d.tracking_only !== true));
+        // Same id set the count below uses — drives the realtime subscription filter.
+        setDriverIds(ids);
+        if (ids.length === 0) {
+          setCompletedTripCount(0);
+          setTripVehicleLabel(null);
+          setTripsLoaded(true);
           return;
         }
-        return tripsService.getDriverUiTripsByDriverIds(allRows.map((d) => d.id)).then((tRes) => {
-          if (tRes.error) {
-            console.warn('[profile] getDriverUiTripsByDriverIds:', tRes.error.message);
-          }
-          setTrips(tRes.trips ?? []);
-        });
+        const [count, plate] = await Promise.all([
+          countCompletedTrips(ids),
+          lookupTripVehicleNumber(ids),
+        ]);
+        if (gen !== tripLoadGen.current) return;
+        setCompletedTripCount(count);
+        setTripVehicleLabel(plate);
+        setTripsLoaded(true);
       })
-      .catch(() => {
-        setTrips([]);
-        setDrivers([]);
-        setDriverIds([]);
+      .catch((err: unknown) => {
+        if (gen !== tripLoadGen.current) return;
+        console.warn('[profile] trip summary:', err instanceof Error ? err.message : err);
+        setTripsLoaded(true);
       })
       .finally(() => {
-        setLoadingTrips(false);
+        if (gen === tripLoadGen.current) setLoadingTrips(false);
       });
   }, [profile?.uid]);
 
@@ -268,7 +322,6 @@ export default function DriverProfileScreen() {
   }, [loadKycSummary]);
 
   const primaryDriver = drivers[0] ?? null;
-  const primaryDriverId = primaryDriver?.id ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -299,31 +352,25 @@ export default function DriverProfileScreen() {
     };
   }, [primaryDriver?.organization_id, primaryDriver?.assigned_vehicle_id]);
 
-  const tripsCount = useMemo(
-    () => trips.filter((t) => tripsService.isTripCompleted(t)).length,
-    [trips],
-  );
-
-  const tripVehicleLabel = useMemo(() => {
-    for (const t of trips) {
-      const num = (t.vehicle_display_number ?? '').trim();
-      if (num) return num;
-    }
-    return null;
-  }, [trips]);
+  const tripsCount = completedTripCount;
 
   useEffect(() => {
-    if (!primaryDriverId) {
+    if (driverIds.length === 0) {
       setDriverRatings([]);
       setLoadingDriverRatings(false);
       return;
     }
     let cancelled = false;
     setLoadingDriverRatings(true);
-    void getRatingsForDriver(primaryDriverId)
+    void getRatingsForDrivers(driverIds)
       .then((res) => {
         if (cancelled) return;
-        setDriverRatings(res.error ? [] : (res.ratings ?? []));
+        if (res.error) {
+          setDriverRatings([]);
+          return;
+        }
+        const rows = Object.values(res.byDriverId ?? {}).flat();
+        setDriverRatings(rows);
       })
       .catch(() => {
         if (!cancelled) setDriverRatings([]);
@@ -334,7 +381,9 @@ export default function DriverProfileScreen() {
     return () => {
       cancelled = true;
     };
-  }, [primaryDriverId]);
+    // driverIdsKey is the stable dep for driverIds
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driverIdsKey]);
 
   const driverRatingAvg = useMemo(() => averageScore(driverRatings), [driverRatings]);
   const driverRatingCount = driverRatings.length;
@@ -431,9 +480,15 @@ export default function DriverProfileScreen() {
     }).catch(() => {});
   };
 
-  const handleSignOut = async () => {
-    await signOut();
-    router.replace(ROUTES.SIGN_IN_DIRECT);
+  const handleSignOut = () => {
+    void Promise.race([
+      signOut(),
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, 4000);
+      }),
+    ]).finally(() => {
+      router.replace(ROUTES.SIGN_IN_DIRECT);
+    });
   };
 
   const pageBg = isDark ? colors.background : SLATE_50;
@@ -672,6 +727,7 @@ export default function DriverProfileScreen() {
           paddingBottom: scrollBottomPad,
           paddingHorizontal: SCREEN_PAD,
         }}
+        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
         <>
@@ -761,7 +817,7 @@ export default function DriverProfileScreen() {
                 </View>
 
                 <TouchableOpacity
-                  style={[styles.rowCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}
+                  style={[styles.rowCard, webPress, { backgroundColor: colors.surface, borderColor: cardBorder }]}
                   onPress={() =>
                     router.push(ROUTES.driverDcoStatus() as Parameters<typeof router.push>[0])
                   }
@@ -801,7 +857,7 @@ export default function DriverProfileScreen() {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.rowCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}
+                  style={[styles.rowCard, webPress, { backgroundColor: colors.surface, borderColor: cardBorder }]}
                   onPress={() =>
                     router.push(ROUTES.driverDcoStatus() as Parameters<typeof router.push>[0])
                   }
@@ -840,7 +896,7 @@ export default function DriverProfileScreen() {
                   </View>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={[styles.rowCard, { backgroundColor: colors.surface, borderColor: cardBorder }]} onPress={() => setProfileView('vehicle')} activeOpacity={0.88}>
+                <TouchableOpacity style={[styles.rowCard, webPress, { backgroundColor: colors.surface, borderColor: cardBorder }]} onPress={() => setProfileView('vehicle')} activeOpacity={0.88}>
                   <View style={styles.rowCardLeft}>
                     <View style={styles.blueIcon}>
                       <Truck size={20} color="#3b82f6" />
@@ -855,10 +911,15 @@ export default function DriverProfileScreen() {
                   </View>
                 </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={[styles.rowCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.rowCard,
+                    webPress,
+                    { backgroundColor: colors.surface, borderColor: cardBorder, opacity: pressed ? 0.88 : 1 },
+                  ]}
                   onPress={() => router.push('/(driver)/documents')}
-                  activeOpacity={0.88}
+                  accessibilityRole="button"
+                  accessibilityLabel="Upload and verify documents"
                 >
                   <View style={styles.rowCardLeft}>
                     <View style={styles.darkIcon}>
@@ -900,16 +961,19 @@ export default function DriverProfileScreen() {
                   <View style={[styles.chevPill, { backgroundColor: isDark ? colors.surfaceElevated : '#f1f5f9' }]}>
                     <ChevronRight size={18} color={muted} />
                   </View>
-                </TouchableOpacity>
+                </Pressable>
 
-                <TouchableOpacity
-                  style={[styles.rowCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.rowCard,
+                    webPress,
+                    { backgroundColor: colors.surface, borderColor: cardBorder, opacity: pressed ? 0.88 : 1 },
+                  ]}
                   onPress={() =>
                     router.push(
                       ROUTES.MODALS.LANGUAGE_SETTINGS as Parameters<typeof router.push>[0],
                     )
                   }
-                  activeOpacity={0.88}
                   accessibilityRole="button"
                   accessibilityLabel="Language settings"
                 >
@@ -928,7 +992,7 @@ export default function DriverProfileScreen() {
                   <View style={[styles.chevPill, { backgroundColor: isDark ? colors.surfaceElevated : '#f1f5f9' }]}>
                     <ChevronRight size={18} color={muted} />
                   </View>
-                </TouchableOpacity>
+                </Pressable>
 
                 <View style={styles.statsRow}>
                   <View style={[styles.statBox, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
@@ -936,25 +1000,26 @@ export default function DriverProfileScreen() {
                       <Star size={18} color="#d97706" fill="#d97706" />
                     </View>
                     <Text style={[styles.statNum, { color: colors.text }]}>
-                      {primaryDriverId
-                        ? loadingDriverRatings
-                          ? '–'
-                          : driverRatingAvg != null
-                            ? driverRatingAvg.toFixed(1)
-                            : '—'
-                        : '—'}
+                      {loadingDriverRatings && driverRatings.length === 0
+                        ? '–'
+                        : driverRatingAvg != null
+                          ? driverRatingAvg.toFixed(1)
+                          : '—'}
                     </Text>
                     <Text style={[styles.statLbl, { color: muted }]}>AVG RATING</Text>
-                    {primaryDriverId && !loadingDriverRatings && driverRatingCount > 0 ? (
+                    {!loadingDriverRatings && driverRatingCount > 0 ? (
                       <Text style={[styles.statHint, { color: muted }]} numberOfLines={1}>
                         {driverRatingCount} {driverRatingCount === 1 ? 'review' : 'reviews'}
                       </Text>
                     ) : null}
                   </View>
-                  <TouchableOpacity
-                    style={[styles.statBox, { backgroundColor: colors.surface, borderColor: cardBorder }]}
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.statBox,
+                      webPress,
+                      { backgroundColor: colors.surface, borderColor: cardBorder, opacity: pressed ? 0.88 : 1 },
+                    ]}
                     onPress={() => router.push('/(driver)/trip-history')}
-                    activeOpacity={0.88}
                     accessibilityRole="button"
                     accessibilityLabel="Open trip history"
                   >
@@ -962,16 +1027,25 @@ export default function DriverProfileScreen() {
                       <History size={18} color="#3b82f6" />
                     </View>
                     <Text style={[styles.statNum, { color: colors.text }]}>
-                      {loadingTrips ? '–' : tripsCount}
+                      {!tripsLoaded && loadingTrips ? '–' : tripsCount}
                     </Text>
                     <Text style={[styles.statLbl, { color: muted }]}>TRIPS</Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 </View>
 
-                <TouchableOpacity style={[styles.signOutCard, { backgroundColor: colors.surface, borderColor: cardBorder }]} onPress={handleSignOut} activeOpacity={0.85}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.signOutCard,
+                    webPress,
+                    { backgroundColor: colors.surface, borderColor: cardBorder, opacity: pressed ? 0.85 : 1 },
+                  ]}
+                  onPress={handleSignOut}
+                  accessibilityRole="button"
+                  accessibilityLabel="Sign out"
+                >
                   <LogOut size={18} color="#f43f5e" />
                   <Text style={styles.signOutLbl}>Sign out</Text>
-                </TouchableOpacity>
+                </Pressable>
               </View>
             )}
             {profileView === 'levels' && <LevelView />}
@@ -1170,6 +1244,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 14,
     paddingVertical: 12,
+    minHeight: 44,
     borderRadius: 16,
     borderWidth: 1,
     gap: 10,
@@ -1211,6 +1286,7 @@ const styles = StyleSheet.create({
   statBox: {
     flex: 1,
     padding: 14,
+    minHeight: 44,
     borderRadius: 16,
     borderWidth: 1,
     alignItems: 'center',
@@ -1241,6 +1317,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     padding: 14,
+    minHeight: 44,
     borderRadius: 16,
     borderWidth: 1,
   },

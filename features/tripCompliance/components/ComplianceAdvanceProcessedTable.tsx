@@ -24,6 +24,7 @@ import {
   validateComplianceUtr,
 } from "@/features/tripCompliance/utils/compliancePaymentReference.util";
 import { latestDocNumber } from "@/features/tripCompliance/utils/complianceVerifiedExport.util";
+import { ComplianceActivityLogButton } from "@/features/tripCompliance/components/ComplianceTripActivityLog";
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { formatIndianVehicleNumber } from "@/lib/format";
 import { useQueryClient } from "@tanstack/react-query";
@@ -477,13 +478,17 @@ export function ComplianceAdvanceProcessedTable({
   summaries,
   organizationId,
   onOpenTrip,
+  onOpenSupplier,
   onUtrSaved,
+  onOpenActivityLog,
 }: {
   summaries: ComplianceTripSummary[];
   organizationId: string;
   onOpenTrip: (tripId: string) => void;
+  onOpenSupplier?: (supplierId: string) => void;
   /** After a UTR / Request ID is saved — refresh that trip's payment inputs. */
   onUtrSaved?: (tripId: string) => void;
+  onOpenActivityLog?: (summary: ComplianceTripSummary) => void;
 }) {
   const queryClient = useQueryClient();
   const rows = useMemo(() => summaries.filter((s) => s.advance), [summaries]);
@@ -689,11 +694,16 @@ export function ComplianceAdvanceProcessedTable({
               <Checkbox checked={isSelected} onPress={() => toggle(trip.id)} label={`Select trip ${tripNumber}`} />
             </View>
             <View style={[styles.cell, COL.trip]}>
-              <TouchableOpacity onPress={() => onOpenTrip(trip.id)} hitSlop={{ top: 8, bottom: 8 }} accessibilityRole="link">
-                <Text style={[styles.cellText, styles.tripLink]} numberOfLines={2}>
-                  {tripNumber}
-                </Text>
-              </TouchableOpacity>
+              <View style={styles.tripIdRow}>
+                <TouchableOpacity onPress={() => onOpenTrip(trip.id)} hitSlop={{ top: 8, bottom: 8 }} accessibilityRole="link" style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[styles.cellText, styles.tripLink]} numberOfLines={2}>
+                    {tripNumber}
+                  </Text>
+                </TouchableOpacity>
+                {onOpenActivityLog ? (
+                  <ComplianceActivityLogButton compact onPress={() => onOpenActivityLog(summary)} />
+                ) : null}
+              </View>
               {trip.client_name ? (
                 <Text style={styles.cellSub} numberOfLines={1}>
                   {trip.client_name}
@@ -707,7 +717,23 @@ export function ComplianceAdvanceProcessedTable({
               strong
             />
             <Cell style={COL.payType} value="Advance" />
-            <Cell style={COL.supplier} value={supplier} loading={loading} />
+            <View style={[styles.cell, COL.supplier]}>
+              {onOpenSupplier && trip.supplier_id && supplier ? (
+                <TouchableOpacity
+                  onPress={() => onOpenSupplier(trip.supplier_id!)}
+                  accessibilityRole="link"
+                  accessibilityLabel={`Open supplier ${supplier}`}
+                >
+                  <Text style={[styles.cellText, styles.tripLink]} numberOfLines={2}>
+                    {loading ? "…" : supplier}
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <Text style={[styles.cellText, !supplier && styles.cellEmpty]} numberOfLines={2} selectable>
+                  {loading && !supplier ? "…" : supplier || "—"}
+                </Text>
+              )}
+            </View>
             <Cell style={COL.approved} value={info?.approvedBy ?? ""} loading={loading} />
             <Cell style={COL.beneficiary} value={beneficiary} loading={loading} />
             <Cell style={COL.bank} value={info?.bankName ?? ""} loading={loading} />
@@ -742,6 +768,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: "hidden",
     backgroundColor: Theme.cardWhite,
+  },
+  tripIdRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minWidth: 0,
   },
   titleBar: {
     flexDirection: "row",

@@ -1,6 +1,8 @@
 import Theme from '@/constants/Theme';
 import { StyleSheet, Text, View } from 'react-native';
 
+type Badge = { kind: 'pickup' | 'drop' | 'other'; index: number };
+
 type Props = {
   kind: 'pickup' | 'drop' | 'other';
   index: number;
@@ -10,12 +12,16 @@ type Props = {
   /** Pickup/drop numbers stacked under this pin. Not drawn yet. */
   badges?: ReadonlyArray<{ kind: 'pickup' | 'drop' | 'other'; index: number }>;
   emphasized?: boolean;
+  /** Extra pins that share this coordinate, drawn beside the lead pin. */
+  badges?: readonly Badge[];
+  nextLabel?: string | null;
 };
 
-export function RoutePlanMapPin({ kind, index, caption, emphasized }: Props) {
+export function RoutePlanMapPin({ kind, index, caption, emphasized, badges, nextLabel }: Props) {
   const drop = kind === 'drop';
   const n = Number.isFinite(index) && index > 0 ? Math.min(99, Math.floor(index)) : 1;
   const label = caption ?? (drop ? `Drop ${n}` : kind === 'pickup' ? `Pickup ${n}` : `Stop ${n}`);
+  const icons = badges && badges.length > 1 ? badges : [{ kind, index: n }];
 
   return (
     <View style={styles.wrap} pointerEvents="none">
@@ -33,22 +39,34 @@ export function RoutePlanMapPin({ kind, index, caption, emphasized }: Props) {
           {label}
         </Text>
       </View>
-      <View style={styles.pin}>
-        <View
-          style={[
-            styles.head,
-            { backgroundColor: drop ? Theme.driverGold : Theme.driverEmerald },
-            emphasized && styles.headActive,
-          ]}
-        >
-          <Text style={styles.num}>{n}</Text>
-        </View>
-        <View
-          style={[
-            styles.tail,
-            { borderTopColor: drop ? Theme.driverGold : Theme.driverEmerald },
-          ]}
-        />
+      {nextLabel ? (
+        <Text style={styles.next} numberOfLines={1}>
+          {nextLabel}
+        </Text>
+      ) : null}
+      <View style={styles.iconRow}>
+        {icons.map((badge) => {
+          const badgeDrop = badge.kind === 'drop';
+          const badgeN = Number.isFinite(badge.index) && badge.index > 0 ? Math.floor(badge.index) : 1;
+          return (
+            <View key={`${badge.kind}-${badgeN}`} style={styles.pin}>
+              <View
+                style={[
+                  styles.head,
+                  { backgroundColor: badgeDrop ? Theme.driverGold : Theme.driverEmerald },
+                ]}
+              >
+                <Text style={styles.num}>{badgeN}</Text>
+              </View>
+              <View
+                style={[
+                  styles.tail,
+                  { borderTopColor: badgeDrop ? Theme.driverGold : Theme.driverEmerald },
+                ]}
+              />
+            </View>
+          );
+        })}
       </View>
     </View>
   );
@@ -57,12 +75,12 @@ export function RoutePlanMapPin({ kind, index, caption, emphasized }: Props) {
 const styles = StyleSheet.create({
   wrap: {
     alignItems: 'center',
-    gap: 4,
+    gap: 3,
   },
   chip: {
-    maxWidth: 108,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    maxWidth: 148,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
     backgroundColor: Theme.surfaceLight,
@@ -82,7 +100,7 @@ const styles = StyleSheet.create({
   chipText: {
     fontSize: 10,
     fontWeight: '700',
-    letterSpacing: 0.2,
+    letterSpacing: 0.1,
   },
   chipTextPickup: {
     color: Theme.driverEmerald,
@@ -93,23 +111,34 @@ const styles = StyleSheet.create({
   pin: {
     alignItems: 'center',
   },
+  iconRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 6,
+  },
+  next: {
+    maxWidth: 148,
+    fontSize: 9,
+    fontWeight: '700',
+    color: Theme.textMuted,
+    backgroundColor: Theme.screenBackground,
+    borderRadius: 999,
+    overflow: 'hidden',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
   head: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     borderWidth: 2,
     borderColor: Theme.screenBackground,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headActive: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-  },
   num: {
     color: Theme.screenBackground,
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '800',
   },
   tail: {

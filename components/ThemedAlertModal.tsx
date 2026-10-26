@@ -12,6 +12,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
 
@@ -51,6 +52,8 @@ export function ThemedAlertModal({
   lottieSize = 108,
 }: ThemedAlertModalProps) {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const stackActions = Boolean(secondaryText && onSecondary) && windowWidth < 420;
   const backdrop = useRef(new Animated.Value(0)).current;
   const cardScale = useRef(new Animated.Value(0.92)).current;
   const cardOpacity = useRef(new Animated.Value(0)).current;
@@ -181,25 +184,45 @@ export function ThemedAlertModal({
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.message}>{message}</Text>
 
-          <TouchableOpacity
-            onPress={onOk}
-            style={[styles.okButtonBase, okButtonStyle, styles.okButtonStretch]}
-            activeOpacity={0.85}
-            accessibilityRole="button"
+          <View
+            style={[
+              styles.actions,
+              stackActions ? styles.actionsStack : styles.actionsRow,
+            ]}
           >
-            <Text style={[styles.okTextBase, okTextStyle]}>{okText}</Text>
-          </TouchableOpacity>
-
-          {secondaryText && onSecondary ? (
+            {secondaryText && onSecondary ? (
+              <TouchableOpacity
+                onPress={onSecondary}
+                style={[
+                  styles.okButtonBase,
+                  styles.secondaryButton,
+                  stackActions ? styles.actionGrow : styles.actionFlex,
+                ]}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel={secondaryText}
+              >
+                <Text style={styles.secondaryText}>{secondaryText}</Text>
+              </TouchableOpacity>
+            ) : null}
             <TouchableOpacity
-              onPress={onSecondary}
-              style={styles.secondaryButton}
+              onPress={onOk}
+              style={[
+                styles.okButtonBase,
+                okButtonStyle,
+                secondaryText && onSecondary
+                  ? stackActions
+                    ? styles.actionGrow
+                    : styles.actionFlex
+                  : styles.okButtonStretch,
+              ]}
               activeOpacity={0.85}
               accessibilityRole="button"
+              accessibilityLabel={okText}
             >
-              <Text style={styles.secondaryText}>{secondaryText}</Text>
+              <Text style={[styles.okTextBase, okTextStyle]}>{okText}</Text>
             </TouchableOpacity>
-          ) : null}
+          </View>
         </Animated.View>
       </View>
     </Modal>
@@ -284,8 +307,32 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 24,
   },
+  actions: {
+    alignSelf: "stretch",
+    width: "100%",
+    gap: 10,
+  },
+  actionsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "stretch",
+  },
+  actionsStack: {
+    flexDirection: "column",
+  },
+  actionFlex: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 132,
+    minWidth: 132,
+  },
+  actionGrow: {
+    alignSelf: "stretch",
+    width: "100%",
+  },
   okButtonStretch: {
     alignSelf: "stretch",
+    width: "100%",
   },
   okButtonPrimary: {
     backgroundColor: Theme.textPrimaryDark,
@@ -306,15 +353,14 @@ const styles = StyleSheet.create({
     color: Theme.textPrimaryDark,
   },
   secondaryButton: {
-    marginTop: 10,
-    minHeight: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 12,
+    minHeight: Layout.minTouchTargetSize,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
   },
   secondaryText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: Theme.textMuted,
+    fontSize: 15,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
   },
 });

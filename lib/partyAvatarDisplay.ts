@@ -38,6 +38,16 @@ function publicOrgLogoUrl(path: string): string {
 
 export type PartyEntityType = "client" | "supplier" | "driver" | "vehicle";
 
+/** Deterministic driver cartoon (`driver-1`…`driver-10`) from driver UUID — chat, alerts, hub. */
+export function driverAvatarSeedFromId(driverId: string): string {
+  const value = (driverId ?? "").trim() || "driver";
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) {
+    hash = (hash + value.charCodeAt(i)) % 10;
+  }
+  return `driver-${hash + 1}`;
+}
+
 /**
  * Http(s) URLs safe to pass to `Image` without signing. Supabase object URLs for
  * avatar buckets are omitted here so `resolvePartyPhotoUriAsync` supplies a signed URL.

@@ -308,10 +308,10 @@ export function useIndentBidSnapshotsQuery(ownerOrgId: string | null, indentIds:
   });
 }
 
-/** Cancelled / expired indents for the Trips hub Failed tag. Invalidated with `indents.all`. */
+/** Cancelled/expired indents with no trip. Not the capped finite org list. */
 export function useFailedIndentsQuery(orgId: string | null) {
   return useQuery({
-    queryKey: queryKeys.indents.failed(orgId ?? ''),
+    queryKey: queryKeys.indents.failed(orgId ?? ""),
     queryFn: async () => {
       const { getFailedIndentsByOrganization } = await loadIndentsService();
       const res = await getFailedIndentsByOrganization(orgId!);
@@ -320,6 +320,7 @@ export function useFailedIndentsQuery(orgId: string | null) {
     },
     enabled: !!orgId,
     staleTime: STALE.moderate,
+    refetchOnMount: refetchOnMountIfEntityListEmpty<IndentRow[]>(),
   });
 }
 
@@ -352,6 +353,7 @@ export function useInvalidateIndents() {
 
     qc.invalidateQueries({ queryKey: queryKeys.indents.all(orgId) });
     qc.invalidateQueries({ queryKey: queryKeys.indents.finite(orgId) });
+    qc.invalidateQueries({ queryKey: queryKeys.indents.failed(orgId) });
     qc.invalidateQueries({ queryKey: ['q', 'indents', orgId, 'infinite'] });
     qc.invalidateQueries({ queryKey: queryKeys.indents.market(orgId) });
     qc.invalidateQueries({ queryKey: ['q', 'indents', orgId, 'visible'] });

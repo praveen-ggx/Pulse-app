@@ -65,12 +65,18 @@ import {
 } from "@/features/trips/services/trips.service";
 import { isLoadBasedTrip } from "@/features/trips/visibility/tripVisibility";
 import { queryClientPageBootstrap } from "@/features/clients/services/clientPageBootstrap.service";
+import { useClientPageBootstrapQuery } from "@/features/clients/hooks/useClientPageBootstrapQuery";
 import { useFinanceAlignedClientLedger } from "@/features/finance/hooks/useFinanceAlignedPartyTrips";
 import { computeClientPaidSeed } from "@/features/clients/utils/clientPaidSeed.util";
 import {
   ledgerClientTripRows,
   viewerOwnedClientTrips,
 } from "@/features/clients/utils/viewerClientTrips.util";
+import {
+  emptyClientPagePartyState,
+  shouldAcceptClientPageWrite,
+} from "@/features/clients/utils/clientDetailIsolation.util";
+import { formatCustomerLedgerFigure } from "@/features/finance/utils/customerLedgerContract.util";
 import {
   clearInitialClientForDetail,
   getInitialClientForDetail,
@@ -252,14 +258,33 @@ export default function ClientDetailScreen({
     peekClientFirstPaint(clientId),
   );
   const clientName = client?.name || client?.contact_person || t("client");
-  const [trips, setTrips] = useState<TripRow[]>([]);
+  const [trips, setTrips] = useState<TripRow[]>(() => {
+    const seed = peekClientFirstPaint(clientId);
+    const orgId = currentOrganization?.id;
+    if (!seed || !orgId) return [];
+    const catalog =
+      queryClient.getQueryData<TripRow[]>(queryKeys.trips.finite(orgId)) ?? [];
+    return viewerOwnedClientTrips(catalog, orgId, seed);
+  });
   const [loading, setLoading] = useState(() => peekClientFirstPaint(clientId) == null);
+  const bootstrapQuery = useClientPageBootstrapQuery(
+    orgLoading ? null : currentOrganization?.id ?? null,
+    clientId,
+  );
+  const cachedOrgTripCatalog = useMemo(() => {
+    const orgId = currentOrganization?.id;
+    if (!orgId) return [] as TripRow[];
+    return queryClient.getQueryData<TripRow[]>(queryKeys.trips.finite(orgId)) ?? [];
+  }, [currentOrganization?.id, queryClient, clientId, bootstrapQuery.dataUpdatedAt]);
+  const financeAlignedCatalog =
+    trips.length > 0 ? trips : cachedOrgTripCatalog;
   const financeAligned = useFinanceAlignedClientLedger(
     currentOrganization?.id ?? null,
     clientId,
-    trips,
-    trips.length > 0 || !loading,
+    financeAlignedCatalog,
   );
+  const financeAlignedReadyRef = useRef(false);
+  financeAlignedReadyRef.current = financeAligned.ready;
   const tripIdsForFinanceAdj = useMemo(
     () => trips.map((t) => String(t.id)).filter(Boolean),
     [trips],
@@ -350,26 +375,36 @@ export default function ClientDetailScreen({
   const hasSeedDataRef = useRef(peekClientFirstPaint(clientId) != null);
   /** Guards a resolving `load()` from writing state after the user has already switched to a different client. */
   const activeClientIdRef = useRef(clientId);
+  const activeOrgIdRef = useRef(currentOrganization?.id ?? null);
   /** clientId of an in-flight `load()` call, or null — makes concurrent triggers (mount effect + focus effect) idempotent. */
   const loadInFlightRef = useRef<string | null>(null);
   const heroDecorProgress = useRef(new Animated.Value(0)).current;
 
   const mountRef = useRef(true);
   useEffect(() => {
+    activeOrgIdRef.current = currentOrganization?.id ?? null;
+  }, [currentOrganization?.id]);
+  useEffect(() => {
     activeClientIdRef.current = clientId;
+    activeOrgIdRef.current = currentOrganization?.id ?? null;
+    if (mountRef.current) {
+      mountRef.current = false;
+      return;
+    }
     setIsLinked(false);
     setClientRatingAvg(null);
     initialLoadDoneRef.current = false;
     setError(null);
-    if (mountRef.current) {
-      // Initial mount already seeded `client`/`loading` via useState initializers above —
-      // re-seeding here too would be redundant but harmless; skip to avoid a wasted render.
-      mountRef.current = false;
-      return;
-    }
-    // Switching to a different client on an already-mounted screen instance
-    // (e.g. web SPA route reuse): reset first so stale Client A data never
-    // shows under Client B's id, then seed from the registry if available.
+    const cleared = emptyClientPagePartyState();
+    setTrips(cleared.trips);
+    setTransactions(cleared.transactions);
+    setAllOrgTransactions(cleared.allOrgTransactions);
+    setSuppliers(cleared.suppliers);
+    setDrivers(cleared.drivers);
+    setOrganizationClients(cleared.organizationClients);
+    setTripSubcontractByTripId({});
+    setPartnerOrgNamesByOrgId({});
+    setPartnerOrgBrandingByOrgId({});
     const seed = peekClientFirstPaint(clientId);
     hasSeedDataRef.current = seed != null;
     setClient(seed);
@@ -437,7 +472,7 @@ export default function ClientDetailScreen({
       return;
     }
     if (orgLoading) {
-      setLoading(true);
+      if (!hasSeedDataRef.current) setLoading(true);
       return;
     }
     if (!currentOrganization?.id) {
@@ -467,14 +502,23 @@ export default function ClientDetailScreen({
       drivers: DriverRow[];
       clients: ClientRow[];
     }) => {
-      if (activeClientIdRef.current !== requestClientId) return;
+      if (
+        !shouldAcceptClientPageWrite(
+          { orgId: activeOrgIdRef.current, clientId: activeClientIdRef.current },
+          { orgId, clientId: requestClientId },
+        )
+      ) {
+        return;
+      }
       setClient(bundle.client);
       setProfileWarehouses(bundle.warehouses ?? []);
       setProfileContracts(bundle.contracts ?? []);
       setOrgTrips(bundle.trips);
       setOrganizationClients(bundle.clients);
       setAllOrgTransactions(bundle.transactions);
-      setTrips(viewerOwnedClientTrips(bundle.trips, orgId, bundle.client));
+      if (!financeAlignedReadyRef.current) {
+        setTrips(viewerOwnedClientTrips(bundle.trips, orgId, bundle.client));
+      }
       setSuppliers(bundle.suppliers);
       setDrivers(bundle.drivers);
       setClientRatingAvg(averageScore(bundle.ratings ?? []));
@@ -515,7 +559,14 @@ export default function ClientDetailScreen({
         staleTime: 60_000,
       })
       .then((bundle) => {
-        if (activeClientIdRef.current !== requestClientId) return;
+        if (
+          !shouldAcceptClientPageWrite(
+            { orgId: activeOrgIdRef.current, clientId: activeClientIdRef.current },
+            { orgId, clientId: requestClientId },
+          )
+        ) {
+          return;
+        }
         if (bundle?.client) {
           applyClientPage(bundle);
           finishLoad();
@@ -525,11 +576,60 @@ export default function ClientDetailScreen({
         finishLoad();
       })
       .catch((err: unknown) => {
-        if (activeClientIdRef.current !== requestClientId) return;
+        if (
+          !shouldAcceptClientPageWrite(
+            { orgId: activeOrgIdRef.current, clientId: activeClientIdRef.current },
+            { orgId, clientId: requestClientId },
+          )
+        ) {
+          return;
+        }
         setError(err instanceof Error ? err.message : "Failed to load client data");
         finishLoad();
       });
   }, [clientId, currentOrganization?.id, orgLoading, queryClient]);
+
+  useEffect(() => {
+    const bundle = bootstrapQuery.data;
+    const orgId = currentOrganization?.id;
+    if (!bundle?.client || !orgId) return;
+    if (
+      !shouldAcceptClientPageWrite(
+        { orgId: activeOrgIdRef.current, clientId: activeClientIdRef.current },
+        { orgId, clientId },
+      )
+    ) {
+      return;
+    }
+    setClient(bundle.client);
+    setProfileWarehouses(bundle.warehouses ?? []);
+    setProfileContracts(bundle.contracts ?? []);
+    setOrgTrips(bundle.trips);
+    setOrganizationClients(bundle.clients);
+    setAllOrgTransactions(bundle.transactions);
+    if (!financeAlignedReadyRef.current) {
+      setTrips(viewerOwnedClientTrips(bundle.trips, orgId, bundle.client));
+    }
+    setSuppliers(bundle.suppliers);
+    setDrivers(bundle.drivers);
+    setClientRatingAvg(averageScore(bundle.ratings ?? []));
+    setTransactions(bundle.transactions);
+    setLoading(false);
+    initialLoadDoneRef.current = true;
+  }, [bootstrapQuery.data, clientId, currentOrganization?.id]);
+
+  useEffect(() => {
+    if (!financeAligned.ready || financeAligned.trips.length === 0) return;
+    setTrips((prev) => {
+      if (
+        prev.length === financeAligned.trips.length &&
+        prev.every((trip, index) => trip.id === financeAligned.trips[index]?.id)
+      ) {
+        return prev;
+      }
+      return financeAligned.trips;
+    });
+  }, [financeAligned.ready, financeAligned.trips]);
 
   useEffect(() => {
     fetchedPartnerOrgIdsRef.current = new Set();
@@ -1078,8 +1178,8 @@ export default function ClientDetailScreen({
 
   // TRANSACTION LEDGER — Aggressive consolidation & tally, O(n). Must run before any early return (Rules of Hooks).
   const {
-    totalBilledConsolidated,
-    totalPendingConsolidated,
+    totalBilledConsolidated: _totalBilledConsolidated,
+    totalPendingConsolidated: _totalPendingConsolidated,
     tripIdToDue,
     paidByTripId,
   } = useMemo(() => {
@@ -1603,18 +1703,13 @@ export default function ClientDetailScreen({
     );
   }
 
-  const sales = financeAligned.ready
-    ? financeAligned.billed
-    : totalBilledConsolidated;
-  const paid = financeAligned.ready
-    ? financeAligned.received
-    : sales - totalPendingConsolidated;
-  const due = financeAligned.ready
-    ? financeAligned.pending
-    : totalPendingConsolidated;
+  const sales = financeAligned.ready ? financeAligned.billed : undefined;
+  const paid = financeAligned.ready ? financeAligned.received : undefined;
+  const due = financeAligned.ready ? financeAligned.pending : undefined;
   const tripsHandled = financeAligned.ready
     ? financeAligned.tripCount
-    : missionRows.length;
+    : undefined;
+  const detailLedgerState = financeAligned.loadState;
   const isIntegrated = Boolean(
     client.is_integrated || client.linked_organization_id,
   );
@@ -1763,6 +1858,21 @@ export default function ClientDetailScreen({
           />
         }
       >
+        {detailLedgerState === "error" ? (
+          <View style={styles.ledgerErrorRow}>
+            <Text style={styles.ledgerErrorText}>
+              Customer ledger is unavailable. Amounts are not confirmed.
+            </Text>
+            <Pressable
+              onPress={() => {
+                void financeAligned.refetch();
+              }}
+              style={styles.ledgerRetryBtn}
+            >
+              <Text style={styles.ledgerRetryText}>Retry ledger</Text>
+            </Pressable>
+          </View>
+        ) : null}
         {/* Scorecard — same metrics row as Trips / Cash Flow (above tab content). */}
         <View style={isWebDesktop ? styles.heroCardsRow : undefined}>
           <LinearGradient
@@ -1802,7 +1912,7 @@ export default function ClientDetailScreen({
                     isWebDesktop && styles.scorecardAmountWebDesktop,
                   ]}
                 >
-                  {formatINR(sales)}
+                  {formatCustomerLedgerFigure(sales, detailLedgerState)}
                 </Text>
               </View>
             </View>
@@ -1820,7 +1930,7 @@ export default function ClientDetailScreen({
                     isWebDesktop && styles.scorecardGridPaidWebDesktop,
                   ]}
                 >
-                  {formatINR(paid)}
+                  {formatCustomerLedgerFigure(paid, detailLedgerState)}
                 </Text>
               </View>
               <View
@@ -1836,7 +1946,7 @@ export default function ClientDetailScreen({
                     isWebDesktop && styles.scorecardGridDueWebDesktop,
                   ]}
                 >
-                  {formatINR(due)}
+                  {formatCustomerLedgerFigure(due, detailLedgerState)}
                 </Text>
               </View>
             </View>
@@ -1850,7 +1960,7 @@ export default function ClientDetailScreen({
                       style={styles.profilePreviewTopActionText}
                       numberOfLines={1}
                     >
-                      {tripsHandled}
+                      {detailLedgerState === "success" ? tripsHandled : "—"}
                     </Text>
                   </View>
                   <View style={styles.profilePreviewRatingRow}>
@@ -2783,7 +2893,7 @@ export default function ClientDetailScreen({
             gstNumber={client?.gstin}
             panNumber={client?.pan_number}
             billingAddress={client?.address}
-            gridVolumeLabel={formatINR(sales)}
+            gridVolumeLabel={formatCustomerLedgerFigure(sales, detailLedgerState)}
             networkTrustLabel="94.2%"
             isIntegrated={Boolean(
               client?.is_integrated ||
@@ -2874,6 +2984,31 @@ export default function ClientDetailScreen({
 const styles = StyleSheet.create({
   errorText: { fontSize: 15, color: Theme.textSecondary },
   errorWrap: { padding: 16 },
+  ledgerErrorRow: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    backgroundColor: Theme.surface,
+    gap: 8,
+  },
+  ledgerErrorText: {
+    fontSize: 13,
+    color: Theme.textSecondary,
+  },
+  ledgerRetryBtn: {
+    alignSelf: "flex-start",
+    minHeight: 44,
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  ledgerRetryText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: Theme.primary,
+  },
   wrap: {
     flex: 1,
     backgroundColor: Theme.screenBackground,

@@ -7,7 +7,7 @@ import Theme from "@/constants/Theme";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { Feather } from "@expo/vector-icons";
 import { Home, Navigation, Package } from "lucide-react-native";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Alert,
   Linking,
@@ -33,6 +33,14 @@ import {
   formatHubPingTimeLabel,
 } from "@/features/trips/utils/driverLastPingDisplay.util";
 import { formatTrackingDateTime } from "@/features/trips/utils/formatTrackingTimestamp.util";
+import { getProfile } from "@/features/auth/services/auth.service";
+import { getOrganizationMembers } from "@/features/organization/services/members.service";
+import {
+  collectActivityTimelineActorIds,
+  fallbackActorForStatusContext,
+  formatActivityTimelineActorLabel,
+  isActivityActorUserId,
+} from "@/features/trips/utils/activityTimelineActor.util";
 import type { LiveTrackingPresentation } from "@/features/trips/utils/liveTrackingPresentation.util";
 import type { DriverActivityTimelineRow } from "../hooks/useTripDetail";
 import type { TrackingState } from "@/features/tracking/hooks/useTrackingState";
@@ -125,6 +133,56 @@ export function LiveTrackingModal({
   const wideLayout = windowWidth >= Layout.webDesktopMinWidth;
   const hangCardWidth = Math.min(420, Math.max(340, Math.round(windowWidth * 0.32)));
   const [activityOpen, setActivityOpen] = useState(true);
+  const [actorDisplayById, setActorDisplayById] = useState<Record<string, string>>(
+    {},
+  );
+  const timelineActorIds = useMemo(
+    () => collectActivityTimelineActorIds(driverActivityTimelineRows),
+    [driverActivityTimelineRows],
+  );
+  const timelineActorIdsKey = timelineActorIds.join(",");
+
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    const orgId = String(trip.organization_id ?? "").trim();
+    void (async () => {
+      const next: Record<string, string> = {};
+      if (orgId) {
+        const { members } = await getOrganizationMembers(orgId);
+        for (const member of members) {
+          const uid = String(member.user_id ?? "").trim();
+          const name =
+            member.full_name?.trim() ||
+            member.phone?.trim() ||
+            member.email?.trim() ||
+            "";
+          if (uid && name) next[uid] = name;
+        }
+      }
+      const unresolved = timelineActorIds.filter((id) => !next[id]);
+      await Promise.all(
+        unresolved.map(async (id) => {
+          if (!isActivityActorUserId(id)) {
+            next[id] = id;
+            return;
+          }
+          const profile = await getProfile(id);
+          const name =
+            profile?.full_name?.trim() ||
+            profile?.displayName?.trim() ||
+            profile?.phone?.trim() ||
+            profile?.email?.trim() ||
+            "";
+          if (name) next[id] = name;
+        }),
+      );
+      if (!cancelled) setActorDisplayById(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, timelineActorIdsKey, timelineActorIds, trip.organization_id]);
   const handleClose = useCallback(() => {
     onClose();
   }, [onClose]);
@@ -253,17 +311,30 @@ export function LiveTrackingModal({
             const isLast = idx === driverActivityTimelineRows.length - 1;
 
             if (item.kind === "status") {
+              const actorLabel = formatActivityTimelineActorLabel({
+                actorUserId: item.actorUserId,
+                currentUserId,
+                displayById: actorDisplayById,
+                fallback:
+                  item.status_context === "accepted"
+                    ? driverName?.trim() || "Driver"
+                    : fallbackActorForStatusContext(item.status_context),
+              });
+              const contextLabel =
+                item.status_context === "completed"
+                  ? "Delivery completed"
+                  : item.status_context === "in_transit"
+                    ? "Movement update"
+                    : item.status_context === "assigned"
+                      ? "Assignment"
+                      : item.status_context === "created"
+                        ? "Trip created"
+                        : "Driver status change";
               return (
                 <TimelineItem
                   key={item.id}
                   label={item.status_label}
-                  sublabel={
-                    item.status_context === "completed"
-                      ? "Delivery completed"
-                      : item.status_context === "in_transit"
-                        ? "Movement update"
-                        : "Driver status change"
-                  }
+                  sublabel={`${contextLabel} · ${actorLabel}`}
                   date={formatAssignmentDate(item.changed_at)}
                   isFirst={isFirst}
                   isLast={isLast}
@@ -274,6 +345,7 @@ export function LiveTrackingModal({
                       lines={[
                         ["Event", item.status_label],
                         ["Context", item.detail_line],
+                        ["Updated by", actorLabel],
                         [
                           "Recorded at",
                           formatAssignmentDate(item.changed_at),
@@ -289,12 +361,13 @@ export function LiveTrackingModal({
             const eventLabel =
               row.event_type === "reassignment" ? "Reassignment" : "Assignment";
             const dateStr = formatAssignmentDate(row.changed_at);
-            const byLabel =
-              row.changed_by != null
-                ? row.changed_by === currentUserId
-                  ? " · BY YOU"
-                  : " · BY DISPATCHER"
-                : "";
+            const actorLabel = formatActivityTimelineActorLabel({
+              actorUserId: row.changed_by,
+              currentUserId,
+              displayById: actorDisplayById,
+              fallback: "Dispatcher",
+            });
+            const byLabel = row.changed_by != null ? ` · ${actorLabel}` : "";
             const isFallback = row.id === "fallback";
             const driverPrev =
               !isFallback && row.driver_id_prev
@@ -358,7 +431,7 @@ export function LiveTrackingModal({
                       ],
                       [
                         "Updated by",
-                        byLabel ? byLabel.replace(" · ", "") : "System",
+                        row.changed_by != null ? actorLabel : "System",
                       ],
                       ["Recorded at", dateStr],
                     ]}
@@ -1759,13 +1832,16 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Theme.textPrimary,
     textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 0,
     marginBottom: 4,
+    ...(Platform.OS === "web" ? ({ whiteSpace: "pre-wrap" } as object) : {}),
   },
   expandedLine: {
     fontSize: 10,
     fontWeight: "400",
     color: Theme.textPrimaryDark,
     lineHeight: 15,
+    letterSpacing: 0,
+    ...(Platform.OS === "web" ? ({ whiteSpace: "pre-wrap" } as object) : {}),
   },
 });

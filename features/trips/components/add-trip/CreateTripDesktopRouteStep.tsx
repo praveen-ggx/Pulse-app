@@ -12,6 +12,7 @@ import {
 } from "react-native";
 
 import Theme from "@/constants/Theme";
+import { coordsOrUnset } from "@/lib/placeSearch.util";
 import { TypewriterText } from "@/components/TypewriterText";
 import type { AddTripIssueField } from "@/features/trips/components/add-trip/useAddTripForm";
 import type { RouteExtraStopDraft } from "@/features/trips/utils/routeExtraStops.util";
@@ -58,8 +59,8 @@ export type CreateTripRouteState = {
 export type CreateTripRouteSetters = {
   setPickupArea: (value: string) => void;
   setDropLocation: (value: string) => void;
-  setPickupCoords: (lat: number, lon: number) => void;
-  setDropCoords: (lat: number, lon: number) => void;
+  setPickupCoords: (lat: number | null, lon: number | null) => void;
+  setDropCoords: (lat: number | null, lon: number | null) => void;
   setTripStartDate: (value: string) => void;
 };
 
@@ -393,9 +394,10 @@ export const CreateTripDesktopRouteStep = memo(function CreateTripDesktopRouteSt
           }
           value={state.pickupArea}
           onChangeText={setters.setPickupArea}
-          onSelectPlace={(_name, coords) =>
-            setters.setPickupCoords(coords.lat, coords.lon)
-          }
+          onSelectPlace={(_name, coords) => {
+            const { lat, lon } = coordsOrUnset(coords);
+            setters.setPickupCoords(lat, lon);
+          }}
           leadingIcon={
             <MapPin size={16} color={Theme.textRouteCard} strokeWidth={2} />
           }
@@ -430,9 +432,10 @@ export const CreateTripDesktopRouteStep = memo(function CreateTripDesktopRouteSt
           placeholder="Search or pick drop location"
           value={state.dropLocation}
           onChangeText={setters.setDropLocation}
-          onSelectPlace={(_name, coords) =>
-            setters.setDropCoords(coords.lat, coords.lon)
-          }
+          onSelectPlace={(_name, coords) => {
+            const { lat, lon } = coordsOrUnset(coords);
+            setters.setDropCoords(lat, lon);
+          }}
           leadingIcon={
             <ChevronRight size={16} color={Theme.textRouteCard} strokeWidth={2.5} />
           }

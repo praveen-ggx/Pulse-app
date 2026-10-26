@@ -87,6 +87,8 @@ import { computeTripSettlementDues } from "@/features/finance/utils/tripSettleme
 import type { TripAdjustment } from "@/features/trips/services/tripAdjustments";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { HubTripLrUpdateModal } from "@/features/trips/components/HubTripLrUpdateModal";
+import { VaultCategoryPreviewModal } from "@/features/trips/components/trip-detail/VaultCategoryPreviewModal";
+import type { VaultCategoryPreviewFile } from "@/features/trips/components/trip-detail/vaultCategoryPreview.types";
 import type { ElrTripSource } from "@/features/trips/services/elrSnapshot.util";
 import {
   loadHubTripDocumentLabelsByTripIds,
@@ -139,6 +141,7 @@ import {
 } from "@/features/trips/hooks/useTripHubInTransitPings";
 import { buildTripHubPartyMetaByTripId } from "@/features/trips/utils/tripHubPartyMeta";
 import { tripNonSupplierOutflowTotal } from "@/features/trips/utils/tripManifestFreightCost";
+import { tripMatchesHubSearch } from "@/features/trips/utils/tripHubSearch.util";
 import { canAccessTrips } from "@/lib/capabilities";
 import { useOptionalAuth } from "@/contexts/AuthContext";
 import { useMemberAccess } from "@/lib/useMemberAccess";
@@ -492,6 +495,11 @@ export default function TripsScreen() {
   const [hubLrPreviewByTripId, setHubLrPreviewByTripId] = useState<
     Record<string, string>
   >({});
+  const [hubLrDocPreview, setHubLrDocPreview] = useState<{
+    files: VaultCategoryPreviewFile[];
+    index: number;
+    tripId: string;
+  } | null>(null);
   const groundOpsWarehouseGap = useGroundOpsWarehouseGap();
   // Org model decides whether trips exist at all; the surface decides whether
   // this member may open them. Gating on member-filtered capabilities too would
@@ -575,6 +583,9 @@ export default function TripsScreen() {
         : allIndents,
     [allIndents, indentCodeSearchHits, indentCodeSearchQuery],
   );
+  const { data: failedIndentsRemote = [] } = useFailedIndentsQuery(
+    activeMetricTab === "indent" ? orgId : null,
+  );
   const indentCodesByIndentId = useMemo(() => {
     const byId = new Map<string, string>();
     for (const i of hubIndents) {
@@ -594,9 +605,11 @@ export default function TripsScreen() {
       hubIndents.filter(
         (i) =>
           (i.organization_id ?? "") === (orgId ?? "") &&
-          isIndentUnallocated(i, indentIdsWithTrip),
+          isIndentUnallocated(i, indentIdsWithTrip) &&
+          !isIndentFailedStatus(i.status) &&
+          !failedIndentsRemote.some((failed) => failed.id === i.id),
       ),
-    [hubIndents, orgId, indentIdsWithTrip],
+    [failedIndentsRemote, hubIndents, orgId, indentIdsWithTrip],
   );
   const dateFilteredUnallocatedIndents = useMemo(
     () =>
@@ -634,18 +647,16 @@ export default function TripsScreen() {
     return byIndent;
   }, [extraStopRows]);
   // The full list is capped (newest FINITE_LIST_CAP), so older failures come
-  // from their own query. Per id, keep whichever copy was updated last.
-  const { data: failedIndents = [] } = useFailedIndentsQuery(orgId);
+  // from their own query (failedIndentsRemote, Indent tab only). Per id, keep
+  // whichever copy was updated last.
   const failedCandidateIndents = useMemo(
-    () => mergeIndentsByLatestUpdate(failedIndents, allIndents),
-    [failedIndents, allIndents],
+    () => mergeIndentsByLatestUpdate(failedIndentsRemote, allIndents),
+    [failedIndentsRemote, allIndents],
   );
   const failedStageIndents = useMemo(() => {
     if (!orgId) return [];
     return failedCandidateIndents.filter((indent) => {
       if ((indent.organization_id ?? "") !== orgId) return false;
-      if (indentIdsWithTrip.has(indent.id)) return false;
-      if (!isIndentFailedStatus(indent.status)) return false;
       if (
         !indentMatchesHubDateFilter(indent, dateRangeFilter, {
           customFrom: customDateFrom,
@@ -659,7 +670,6 @@ export default function TripsScreen() {
   }, [
     failedCandidateIndents,
     orgId,
-    indentIdsWithTrip,
     dateRangeFilter,
     customDateFrom,
     customDateTo,
@@ -1314,12 +1324,25 @@ export default function TripsScreen() {
       );
     }
 
-    const q = searchQuery.trim().toLowerCase();
+    const q = searchQuery.trim();
     if (q) {
       const qDigits = hubSearchPhoneDigits(q);
       list = list.filter((t) => {
         // Server search already matched it (LR, driver phone, client master, …).
         if (hubSearchHitIds.has(t.id)) return true;
+        if (
+          tripMatchesHubSearch(t, q, {
+            organizationId: orgId,
+            clientName:
+              shipperNameByTripId[t.id] ??
+              (t.organization_id !== orgId ? "" : t.client_name ?? ""),
+            supplierName: t.supplier_name,
+            lrLabel: hubLrLabelFor(t.id),
+            elrLabel: hubElrLabelFor(t.id),
+          })
+        ) {
+          return true;
+        }
         const displayName = (
           shipperNameByTripId[t.id] ??
           (t.organization_id !== orgId ? "" : t.client_name ?? "")
@@ -1431,6 +1454,8 @@ export default function TripsScreen() {
     lrNumbersByTripId,
     ewayNumbersByTripId,
     shipperNameByTripId,
+    hubLrLabelFor,
+    hubElrLabelFor,
     showCompletedList,
     sortBy,
     paymentFilter,
@@ -2798,11 +2823,47 @@ export default function TripsScreen() {
             : null
         }
         onClose={() => setHubLrEdit(null)}
-        onSubmitted={(lrNumber) => {
+        onSubmitted={(lrNumber, previewFiles) => {
           const id = (hubLrEdit?.tripId ?? "").trim().toLowerCase();
-          if (!id) return;
-          setHubLrPreviewByTripId((current) => ({ ...current, [id]: lrNumber }));
+          const tripId = hubLrEdit?.tripId ?? "";
+          if (id) {
+            setHubLrPreviewByTripId((current) => ({ ...current, [id]: lrNumber }));
+          }
+          if (previewFiles.length > 0) {
+            setHubLrDocPreview({
+              files: previewFiles,
+              index: Math.max(0, previewFiles.length - 1),
+              tripId,
+            });
+          }
         }}
+      />
+
+      <VaultCategoryPreviewModal
+        visible={Boolean(hubLrDocPreview)}
+        files={hubLrDocPreview?.files ?? []}
+        index={hubLrDocPreview?.index ?? 0}
+        onIndexChange={(index) =>
+          setHubLrDocPreview((current) => (current ? { ...current, index } : current))
+        }
+        onClose={() => setHubLrDocPreview(null)}
+        onAdd={
+          hubLrDocPreview
+            ? () => {
+                const tripId = hubLrDocPreview.tripId;
+                const label =
+                  hubLrPreviewByTripId[tripId.trim().toLowerCase()] ??
+                  hubLrEdit?.label ??
+                  "";
+                setHubLrDocPreview(null);
+                setHubLrEdit({
+                  tripId,
+                  label,
+                  organizationId: hubLrEdit?.organizationId ?? orgId ?? null,
+                });
+              }
+            : undefined
+        }
       />
 
       <DateRangePickerModal
@@ -2879,20 +2940,7 @@ export default function TripsScreen() {
               {isMobileViewport ? (
                 <>
                   <HubMobileScreenHeader title={tr("myTrips")} />
-                  <View style={hubChrome.tabHeaderRow}>
-                    <TouchableOpacity
-                      style={hubChrome.filterBtn}
-                      onPress={() => setShowSortModal(true)}
-                      activeOpacity={0.7}
-                      accessibilityRole="button"
-                      accessibilityLabel={tr("sortBy")}
-                    >
-                      <FontAwesome
-                        name="sliders"
-                        size={15}
-                        color={Theme.textPrimaryDark}
-                      />
-                    </TouchableOpacity>
+                  <View style={[hubChrome.tabHeaderRow, styles.tripsMobileTabRow]}>
                     <ScrollView
                       horizontal
                       showsHorizontalScrollIndicator={false}
@@ -3270,6 +3318,8 @@ export default function TripsScreen() {
               ]}
               searchQuery={searchQuery}
               onSearchQueryChange={setSearchQuery}
+              lrLabelByTripId={{ ...hubLrLabels, ...hubLrPreviewByTripId }}
+              elrLabelByTripId={hubElrLabels}
               pagination={showIndentPoolView ? undefined : tripsListPagination}
               onDisplayedTripsLengthChange={undefined}
               currentOrganizationId={currentOrganization?.id ?? null}
@@ -3330,6 +3380,8 @@ export default function TripsScreen() {
                   searchQuery={searchQuery}
                   onSearchQueryChange={setSearchQuery}
                   indentSearchTextByIndentId={indentCodesByIndentId}
+                  lrLabelByTripId={{ ...hubLrLabels, ...hubLrPreviewByTripId }}
+                  elrLabelByTripId={hubElrLabels}
                   toolbarCountLabel={
                     activeMetricTab === "all" ? allToolbarCountLabel : undefined
                   }
@@ -3395,6 +3447,8 @@ export default function TripsScreen() {
                 searchQuery={searchQuery}
                 onSearchQueryChange={setSearchQuery}
                 indentSearchTextByIndentId={indentCodesByIndentId}
+                lrLabelByTripId={{ ...hubLrLabels, ...hubLrPreviewByTripId }}
+                elrLabelByTripId={hubElrLabels}
                 toolbarCountLabel={
                   activeMetricTab === "all" ? allToolbarCountLabel : undefined
                 }
@@ -4377,9 +4431,15 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     gap: 4,
   },
+  tripsMobileTabRow: {
+    alignItems: "center",
+    minHeight: 36,
+  },
   tripsAddButtonOnChrome: {
-    marginLeft: 4,
+    marginLeft: 8,
+    marginBottom: 6,
     flexShrink: 0,
+    alignSelf: "center",
   },
   tripsFilterHeaderCompact: {
     flexDirection: "column",

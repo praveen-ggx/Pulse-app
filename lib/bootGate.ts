@@ -91,11 +91,18 @@ export function isPublicAuthRoute(pathname: string): boolean {
  * Pathname is not enough: PublicAuthTree also covers signed-out `/` and
  * expired sessions on non-public routes.
  */
-export function shouldMountRootOverlayTabBar(sessionAttached: boolean): boolean {
-  return sessionAttached;
+export function shouldMountRootOverlayTabBar(
+  sessionAttached: boolean,
+  publicRoute = false,
+): boolean {
+  return sessionAttached && !publicRoute;
 }
 
-/** Authenticated org/GlobalSync/nav data plane — only after JS client session attach. */
+/**
+ * Authenticated org/GlobalSync/nav data plane — only after JS client session
+ * attach. Expo still mounts `(tabs)` while the URL is a public screen, so this
+ * must not depend on pathname. Overlay chrome can stay off on public routes.
+ */
 export function shouldMountAuthenticatedDataPlane(sessionAttached: boolean): boolean {
   return sessionAttached;
 }

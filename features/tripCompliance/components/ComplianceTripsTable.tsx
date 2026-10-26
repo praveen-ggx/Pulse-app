@@ -50,6 +50,7 @@ import {
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { lrReceiptForTrip } from "@/features/trips/utils/lrReceiptStatus.util";
 import { formatIndianVehicleNumber } from "@/lib/format";
+import { ComplianceActivityLogButton } from "@/features/tripCompliance/components/ComplianceTripActivityLog";
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight } from "lucide-react-native";
 import React, { useMemo, useRef, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -57,6 +58,7 @@ import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 export type ComplianceTripsTableProps = {
   summaries: ComplianceTripSummary[];
   onOpenTrip: (tripId: string) => void;
+  onOpenSupplier?: (supplierId: string) => void;
   onOpenDetails?: (tripId: string) => void;
   /** Opens the review sheet; documentKey null opens straight to the document list. */
   onReview: (tripId: string, documentKey: string | null, scope?: "trip" | "vehicle" | "driver") => void;
@@ -80,6 +82,7 @@ export type ComplianceTripsTableProps = {
   dateSortEnabled?: boolean;
   /** POD Received stage only: IBond column. */
   showIbondColumn?: boolean;
+  onOpenActivityLog?: (summary: ComplianceTripSummary) => void;
 };
 
 type RequiredDateSort = "asc" | "desc";
@@ -208,6 +211,7 @@ function SortHeader({
 function TripRowContent({
   summary,
   onOpenTrip,
+  onOpenSupplier,
   onOpenDetails,
   onReview,
   onMarkComplianceVerified,
@@ -217,9 +221,11 @@ function TripRowContent({
   canManageFinance = false,
   compliancePendingLayout = false,
   showIbondColumn = false,
+  onOpenActivityLog,
 }: {
   summary: ComplianceTripSummary;
   onOpenTrip: (tripId: string) => void;
+  onOpenSupplier?: (supplierId: string) => void;
   onOpenDetails?: (tripId: string) => void;
   onReview: (tripId: string, documentKey: string | null, scope?: "trip" | "vehicle" | "driver") => void;
   onMarkComplianceVerified?: (tripId: string) => Promise<boolean | void>;
@@ -229,6 +235,7 @@ function TripRowContent({
   canManageFinance?: boolean;
   compliancePendingLayout?: boolean;
   showIbondColumn?: boolean;
+  onOpenActivityLog?: (summary: ComplianceTripSummary) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [markingTrip, setMarkingTrip] = useState(false);
@@ -249,7 +256,7 @@ function TripRowContent({
   const readiness = useMemo(() => deriveComplianceQueueReadiness(summary), [summary]);
   const payLabel = paymentReadinessLabel(readiness);
   const verification = verificationStatusVisual(summary);
-  const tripStatus = compliancePendingLayout ? tripOpsStatusBadge(summary.trip.status) : null;
+  const tripStatus = tripOpsStatusBadge(summary.trip.status, summary.trip);
   const payment = paymentStatusVisual(summary);
   const showPaymentPill = shouldShowPaymentStatusPill(summary);
   const tripIdLabel = getTripDisplayNumber(summary.trip);
@@ -303,7 +310,7 @@ function TripRowContent({
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.colTripId}
-          onPress={() => (onOpenDetails ?? onOpenTrip)(summary.trip.id)}
+          onPress={() => onOpenTrip(summary.trip.id)}
         >
           <Text style={styles.cell} selectable numberOfLines={1}>
             {tripIdLabel}
@@ -311,6 +318,20 @@ function TripRowContent({
           <Text style={[styles.cell, styles.muted]} numberOfLines={1}>
             {summary.trip.client_name || "—"}
           </Text>
+          {summary.trip.supplier_name ? (
+            <TouchableOpacity
+              disabled={!onOpenSupplier || !summary.trip.supplier_id}
+              onPress={() => {
+                if (summary.trip.supplier_id) onOpenSupplier?.(summary.trip.supplier_id);
+              }}
+              accessibilityRole="link"
+              accessibilityLabel={`Open supplier ${summary.trip.supplier_name}`}
+            >
+              <Text style={[styles.cell, styles.muted, styles.supplierLink]} numberOfLines={2}>
+                {summary.trip.supplier_name}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
           {showLrReceipt ? (
             <>
               <Text style={[styles.cell, styles.lrReceipt]} numberOfLines={1}>
@@ -447,6 +468,9 @@ function TripRowContent({
           </Text>
         ) : null}
         <View style={styles.colAction}>
+          {onOpenActivityLog ? (
+            <ComplianceActivityLogButton compact onPress={() => onOpenActivityLog(summary)} />
+          ) : null}
           {isVerified ? (
             <Text style={[styles.actionLink, styles.successText]} numberOfLines={1}>
               Verified
@@ -548,6 +572,7 @@ function TripRowContent({
 export function ComplianceTripsTable({
   summaries,
   onOpenTrip,
+  onOpenSupplier,
   onOpenDetails,
   onReview,
   onMarkComplianceVerified,
@@ -560,6 +585,7 @@ export function ComplianceTripsTable({
   onDateSortChange,
   dateSortEnabled = true,
   showIbondColumn = false,
+  onOpenActivityLog,
 }: ComplianceTripsTableProps) {
   const [internalDateSort, setInternalDateSort] = useState<RequiredDateSort>("desc");
   const requiredDateSort = dateSort ?? internalDateSort;
@@ -660,6 +686,7 @@ export function ComplianceTripsTable({
             key={s.trip.id}
             summary={s}
             onOpenTrip={onOpenTrip}
+            onOpenSupplier={onOpenSupplier}
             onOpenDetails={onOpenDetails}
             onReview={onReview}
             onMarkComplianceVerified={onMarkComplianceVerified}
@@ -669,6 +696,7 @@ export function ComplianceTripsTable({
             canManageFinance={canManageFinance}
             compliancePendingLayout={compliancePendingLayout}
             showIbondColumn={showIbondColumn}
+            onOpenActivityLog={onOpenActivityLog}
           />
         ))}
       </View>
@@ -713,6 +741,7 @@ const styles = StyleSheet.create({
   expandToggle: { width: 16, alignItems: "center", justifyContent: "center" },
   cell: { fontSize: 11, lineHeight: 14, color: Theme.textPrimary, fontWeight: "500" },
   muted: { color: Theme.textMuted, fontSize: 9, lineHeight: 11 },
+  supplierLink: { color: Theme.brandBlueInk, textDecorationLine: "underline" },
   lrReceipt: { color: Theme.textPrimaryDark, fontSize: 9, lineHeight: 11, fontWeight: "600" },
   colTripId: { width: 138, maxWidth: 138, flexGrow: 0, flexShrink: 1, minWidth: 0 },
   colDate: { flex: 0.72, minWidth: 68 },

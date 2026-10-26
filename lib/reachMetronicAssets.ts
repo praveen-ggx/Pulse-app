@@ -1,5 +1,5 @@
 /**
- * Metronic KeenThemes icon pack — Pulse Reach Campaign Manager widgets.
+ * Metronic KeenThemes icon pack — Pulse Boost Campaign Manager widgets.
  * Sources: assets/business-3451 + assets/finance-1096 (SVG).
  */
 import type { ComponentType } from "react";
@@ -52,4 +52,8 @@ export const REACH_METRONIC_KPI_ICONS: Record<
 /** Campaign Manager primary fill — Metronic brown ink (screenshot CTAs). */
 export const REACH_METRONIC_PRIMARY = "#4D3636";
 
-export { REACH_M } from "@/features/reach/styles/reachMetronic";
+export {
+  REACH_M,
+  REACH_PAGE,
+  REACH_PAGE_MAX,
+} from "@/features/reach/styles/reachMetronic";

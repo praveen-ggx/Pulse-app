@@ -10,10 +10,14 @@ import {
   ScrollView,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Check, ChevronLeft, ChevronRight, X } from "lucide-react-native";
+
+/** Same cutoff as Network public profile (`isMobileLayout`). */
+const NETWORK_MOBILE_MAX_WIDTH = 820;
 
 import Theme from "@/constants/Theme";
 import { AwardedIndentDeployModalPage } from "@/features/indents/components/AwardedIndentDeployModalPage";
@@ -51,6 +55,10 @@ export const AwardedIndentDeployModal = memo(function AwardedIndentDeployModal({
   onViewLoad,
 }: AwardedIndentDeployModalProps) {
   const insets = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
+  const isMobileLayout = screenWidth < NETWORK_MOBILE_MAX_WIDTH;
+  const isWebDesktop = Platform.OS === "web" && !isMobileLayout;
+  const isNativePage = Platform.OS !== "web";
   const pagerRef = useRef<ScrollView>(null);
   const [pageWidth, setPageWidth] = useState(0);
   const isScrollingRef = useRef(false);
@@ -223,32 +231,48 @@ export const AwardedIndentDeployModal = memo(function AwardedIndentDeployModal({
   return (
     <Modal
       visible={shellVisible}
-      transparent
-      animationType="none"
+      transparent={!isNativePage}
+      animationType={isNativePage ? "slide" : "fade"}
+      presentationStyle={isNativePage ? "fullScreen" : "overFullScreen"}
       onRequestClose={finishMinimize}
-      statusBarTranslucent
+      statusBarTranslucent={!isNativePage}
     >
-      <View style={[styles.backdrop, Platform.OS === "web" ? styles.backdropWeb : null]}>
+      <View
+        style={[
+          isNativePage ? styles.pageNative : styles.backdrop,
+          !isNativePage && (isWebDesktop ? styles.backdropWebDesktop : styles.backdropWebMobile),
+          isNativePage && { paddingTop: insets.top },
+        ]}
+      >
+        {isNativePage ? null : (
         <Pressable
           style={styles.backdropTap}
           onPress={finishMinimize}
           accessibilityRole="button"
           accessibilityLabel="Minimize deploy card"
         />
+        )}
         <Animated.View
           style={[
             styles.sheet,
-            { paddingBottom: Math.max(insets.bottom, 12) + 4 },
-            { transform: [{ translateY: sheetTranslate }] },
+            isNativePage
+              ? styles.sheetNativePage
+              : isWebDesktop
+                ? styles.sheetWebDesktop
+                : styles.sheetMobile,
+            { paddingBottom: Math.max(insets.bottom, 10) },
+            !isNativePage && !isWebDesktop && { transform: [{ translateY: sheetTranslate }] },
             isDragging && styles.sheetDragging,
           ]}
         >
+          {isNativePage ? null : (
           <View
             style={styles.sheetDragCapture}
             {...panResponder.panHandlers}
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
           />
+          )}
           <Pressable
             onPress={finishMinimize}
             style={styles.closeBtn}
@@ -260,7 +284,7 @@ export const AwardedIndentDeployModal = memo(function AwardedIndentDeployModal({
           </Pressable>
 
           <View
-            style={styles.pagerMeasure}
+            style={[styles.pagerMeasure, isNativePage && styles.pagerMeasureFill]}
             onLayout={(event) => handlePagerLayout(event.nativeEvent.layout.width)}
           >
             {showPager ? (
@@ -357,7 +381,9 @@ export const AwardedIndentDeployModal = memo(function AwardedIndentDeployModal({
                 accessibilityLabel="Later"
                 accessibilityHint="Hides all pending award alerts for now"
               >
-                <Text style={styles.laterBtnOutlineText}>Later</Text>
+                <Text style={styles.laterBtnOutlineText} numberOfLines={1}>
+                  Later
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -367,22 +393,28 @@ export const AwardedIndentDeployModal = memo(function AwardedIndentDeployModal({
                 accessibilityRole="button"
                 accessibilityLabel="Assign vehicle"
               >
-                <Check size={14} color={Theme.buttonMatteBlackText} strokeWidth={3} />
-                <Text style={styles.assignText}>Assign vehicle</Text>
+                <Check size={14} color={Theme.actionBtnInk} strokeWidth={2.4} />
+                <Text style={styles.assignText} numberOfLines={1}>
+                  Assign vehicle
+                </Text>
               </TouchableOpacity>
-            </View>
 
-            {onViewLoad ? (
-              <TouchableOpacity
-                onPress={onViewLoad}
-                style={styles.viewLoadBtn}
-                activeOpacity={0.7}
-                accessibilityRole="button"
-                accessibilityLabel="View load details"
-              >
-                <Text style={styles.viewLoadText}>View load</Text>
-              </TouchableOpacity>
-            ) : null}
+              {onViewLoad ? (
+                <TouchableOpacity
+                  onPress={onViewLoad}
+                  style={styles.viewLoadBtn}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel="View load details"
+                >
+                  <Text style={styles.viewLoadText} numberOfLines={1}>
+                    View load
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.viewLoadBtn} />
+              )}
+            </View>
           </View>
         </Animated.View>
       </View>

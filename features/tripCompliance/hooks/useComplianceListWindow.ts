@@ -17,12 +17,14 @@ export function useComplianceListWindow<T>(
   const [visibleCount, setVisibleCount] = useState(() => Math.min(pageSize, total));
   const [loadingMore, setLoadingMore] = useState(false);
   const lock = useRef(false);
+  const totalRef = useRef(total);
+  totalRef.current = total;
 
   useEffect(() => {
     lock.current = false;
     setLoadingMore(false);
-    setVisibleCount(Math.min(pageSize, total));
-  }, [pageSize, resetKey, total]);
+    setVisibleCount(Math.min(pageSize, totalRef.current));
+  }, [pageSize, resetKey]);
 
   useEffect(() => {
     setVisibleCount((n) => {

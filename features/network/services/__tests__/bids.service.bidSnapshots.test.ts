@@ -25,11 +25,13 @@ describe('indentBidSnapshotsFromBids', () => {
     expect(snapshots.i1).toEqual({
       count: 3,
       lowestAmount: 47000,
+      highestAmount: 48000,
       latestAt: '2026-10-02T10:00:00Z',
     });
     expect(snapshots.i2).toEqual({
       count: 1,
       lowestAmount: 30000,
+      highestAmount: 30000,
       latestAt: '2026-10-03T09:00:00Z',
     });
   });

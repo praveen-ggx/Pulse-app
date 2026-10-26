@@ -6,13 +6,18 @@ export function indentStoryExpiresAt(fromMs: number = Date.now()): string {
 }
 
 /**
- * Story-reel window only — not Get Load / bid visibility (indent lifecycle owns that).
- * Legacy posts with no `expires_at` stay live until `is_active` is cleared.
+ * Story-reel window.
+ * Indent-linked LOAD: indent expire/cancel owns visibility (`expires_at` is
+ * only a reboost clock). Other posts still use the 24h `expires_at` clock.
  */
 export function isIndentStoryLive(row: {
   is_active?: boolean | null;
   expires_at?: string | null;
+  source_indent_id?: string | null;
 }): boolean {
+  if (row.source_indent_id) {
+    return row.is_active !== false;
+  }
   if (row.is_active !== true) return false;
   if (!row.expires_at) return true;
   const expires = new Date(row.expires_at).getTime();

@@ -6,6 +6,7 @@
  * document_type discriminates business concepts: 'pod' | 'manifest' | 'invoice' | 'eway_bill' | 'loading_slip'.
  * Fallback when DB is unavailable: list storage prefix {tripId}/ and infer type from path segment.
  */
+import { previewPrivateObject } from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import { supabase } from "@/lib/supabase";
 import { getPlatformEventBus } from "@/lib/platform/events/InProcessEventBus";
 import { recordTripWorkflowEvent } from "@/features/trips/services/tripWorkflow.service";
@@ -13,7 +14,11 @@ import { createStorageSignedUrlCache } from "@/lib/storageSignedUrlCache";
 import { listOcrJobsForTripDocuments } from "@/features/ocr/services/ocrJob.service";
 import { runWithConcurrencyLimit } from "@/features/trips/services/tripDocumentLrPod.service";
 import { parseLrFieldsFromOcrJob, parseLrFieldValues, preferredLrDocumentNumber, serializeLrFieldValues, LR_FIELDS_FILE_NAME, lrFieldsStoragePath, isLrFieldsMetaPath } from "@/features/trips/services/lrDocumentOcr.util";
-import { findOrgDuplicateLrNumberForTrip } from "@/features/trips/services/orgLrDuplicate.service";
+import {
+  findOrgDuplicateLrNumberForTrip,
+  findOrgDuplicateLrNumbersForTrip,
+  invalidateOrgLrIndexForTrip,
+} from "@/features/trips/services/orgLrDuplicate.service";
 import {
   lrNumberFromStoredDocumentNumber,
   ORG_LR_DUPLICATE_MESSAGE,
@@ -256,22 +261,45 @@ export async function getDocumentViewUrl(storagePath: string): Promise<string> {
 export async function tryGetDocumentViewUrl(
   storagePath: string,
 ): Promise<string | null> {
-  if (isVehicleDocumentReferenceStoragePath(storagePath)) {
+  if (/^(blob:|data:|file:|content:)/i.test(storagePath.trim())) {
+    return storagePath.trim();
+  }
+  if (isVehicleDocumentReferenceStoragePath(storagePath) || isDetailsMarkerPath(storagePath)) {
     return null;
   }
-  return tripDocSignedUrls.getUrl(storagePath);
+  const signed = await tripDocSignedUrls.getUrl(storagePath);
+  const preview = await previewPrivateObject(BUCKET, storagePath, signed);
+  return preview.url;
 }
 
 /** One storage round-trip for all uncached paths. Cached / in-flight paths are reused. */
+function isDetailsMarkerPath(path: string): boolean {
+  const base = path.trim().split("?")[0]?.split("/").pop()?.toLowerCase() ?? "";
+  return base === "fields.json" || base.endsWith("-fields.json");
+}
+
 export async function getDocumentViewUrls(
   storagePaths: string[],
 ): Promise<Record<string, string | null>> {
-  const physical = storagePaths.filter((path) => !isVehicleDocumentReferenceStoragePath(path));
+  const physical = storagePaths.filter(
+    (path) => !isVehicleDocumentReferenceStoragePath(path) && !isDetailsMarkerPath(path),
+  );
   const signed = physical.length > 0 ? await tripDocSignedUrls.getUrls(physical) : {};
   const byPath: Record<string, string | null> = {};
-  for (const path of storagePaths) {
-    byPath[path] = isVehicleDocumentReferenceStoragePath(path) ? null : (signed[path] ?? null);
-  }
+  await Promise.all(
+    storagePaths.map(async (path) => {
+      if (/^(blob:|data:|file:|content:)/i.test(path.trim())) {
+        byPath[path] = path.trim();
+        return;
+      }
+      if (isVehicleDocumentReferenceStoragePath(path) || isDetailsMarkerPath(path)) {
+        byPath[path] = null;
+        return;
+      }
+      const preview = await previewPrivateObject(BUCKET, path, signed[path] ?? null);
+      byPath[path] = preview.url;
+    }),
+  );
   return byPath;
 }
 
@@ -573,6 +601,14 @@ async function recordTripDocumentReplacedAudit(params: {
   }
 }
 
+type UploadTripDocumentOptions = {
+  stopId?: string | null;
+  replaceExistingOfType?: boolean;
+  /** Replace this exact row in place (same rules as replaceExistingOfType). */
+  replaceDocumentId?: string | null;
+  organizationId?: string | null;
+};
+
 /**
  * Upload a trip document. Pass documentType to correctly classify the file.
  * Storage path: {tripId}/{documentType}/{uuid}.{ext}
@@ -583,13 +619,22 @@ export async function uploadTripDocument(
   file: { arrayBuffer?: ArrayBuffer; blob?: Blob; fileName: string; mimeType: string },
   documentType: TripDocumentType = 'pod',
   documentNumber?: string,
-  options?: {
-    stopId?: string | null;
-    replaceExistingOfType?: boolean;
-    /** Replace this exact row in place (same rules as replaceExistingOfType). */
-    replaceDocumentId?: string | null;
-    organizationId?: string | null;
-  },
+  options?: UploadTripDocumentOptions,
+): Promise<UploadTripDocumentResult> {
+  try {
+    return await uploadTripDocumentRow(tripId, uploadedBy, file, documentType, documentNumber, options);
+  } finally {
+    if (documentType === "lr") invalidateOrgLrIndexForTrip(tripId);
+  }
+}
+
+async function uploadTripDocumentRow(
+  tripId: string,
+  uploadedBy: string,
+  file: { arrayBuffer?: ArrayBuffer; blob?: Blob; fileName: string; mimeType: string },
+  documentType: TripDocumentType,
+  documentNumber: string | undefined,
+  options: UploadTripDocumentOptions | undefined,
 ): Promise<UploadTripDocumentResult> {
   const byteLength = file.blob?.size ?? file.arrayBuffer?.byteLength ?? 0;
   const body = file.blob ?? file.arrayBuffer;
@@ -835,19 +880,28 @@ export async function deleteTripDocument(doc: TripDocumentRow): Promise<{ error:
       .delete()
       .eq("id", doc.id)
       .select("id");
-    // REST 404 / PGRST205: relation missing from API — the storage remove below still clears the file.
-    if (dbErr && !isTripDocumentsRestEndpointMissing(dbErr)) {
+    if (dbErr) {
+      // REST 404 / PGRST205: relation missing from API — storage remove still clears the file.
+      if (isTripDocumentsRestEndpointMissing(dbErr)) {
+        const { error: storageErr } = await supabase().storage.from(BUCKET).remove([doc.storage_path]);
+        if (storageErr) return { error: new Error(storageErr.message) };
+        tripDocSignedUrls.invalidate(doc.storage_path);
+        return { error: null };
+      }
       return { error: new Error(dbErr.message) };
     }
-    // Row access rules skip a delete silently (no error, no row): keep the file.
-    if (!dbErr && (deleted ?? []).length === 0) {
+    if ((deleted ?? []).length === 0) {
       return { error: new Error("This document could not be deleted. Refresh and try again.") };
     }
   }
 
   const { error: storageErr } = await supabase().storage.from(BUCKET).remove([doc.storage_path]);
   if (storageErr) {
-    return { error: new Error(storageErr.message) };
+    return {
+      error: new Error(
+        `The document record was removed, but the file may still be in storage. ${storageErr.message}`,
+      ),
+    };
   }
   tripDocSignedUrls.invalidate(doc.storage_path);
   return { error: null };
@@ -890,6 +944,7 @@ export async function updateTripDocumentNumber(
   const trimmed = documentNumber.trim();
   if (!trimmed || documentId.startsWith("storage-")) return null;
   const lrNumber = lrNumberFromStoredDocumentNumber(trimmed);
+  let lrTripId = "";
   if (lrNumber) {
     const { data: row } = await supabase()
       .from("trip_documents")
@@ -899,6 +954,7 @@ export async function updateTripDocumentNumber(
     const tripId = String((row as { trip_id?: string } | null)?.trip_id ?? "").trim();
     const docType = String((row as { document_type?: string } | null)?.document_type ?? "");
     if (tripId && docType === "lr") {
+      lrTripId = tripId;
       const duplicate = await findOrgDuplicateLrNumberForTrip({
         tripId,
         lrNumber,
@@ -910,6 +966,7 @@ export async function updateTripDocumentNumber(
     .from("trip_documents")
     .update({ document_number: trimmed })
     .eq("id", documentId);
+  if (lrNumber && lrTripId) invalidateOrgLrIndexForTrip(lrTripId);
   return error ? new Error(error.message) : null;
 }
 
@@ -955,7 +1012,15 @@ export async function upsertEwayBillFields(input: {
     );
 
   if (target) {
-    return { error: await updateTripDocumentNumber(target.id, serialized) };
+    const { error: updateError } = await supabase()
+      .from("trip_documents")
+      .update({
+        document_number: serialized,
+        uploaded_by: input.uploadedBy,
+        uploaded_at: new Date().toISOString(),
+      })
+      .eq("id", target.id);
+    return { error: updateError ? new Error(updateError.message) : null };
   }
 
   const path = ewayBillFieldsStoragePath(input.tripId);
@@ -976,7 +1041,11 @@ export async function upsertEwayBillFields(input: {
   if (insertError.code === "23505") {
     const { error: updateError } = await supabase()
       .from("trip_documents")
-      .update({ document_number: serialized })
+      .update({
+        document_number: serialized,
+        uploaded_by: input.uploadedBy,
+        uploaded_at: new Date().toISOString(),
+      })
       .eq("storage_path", path);
     return { error: updateError ? new Error(updateError.message) : null };
   }
@@ -1002,15 +1071,26 @@ export async function upsertTripLrNumbers(input: {
   uploadedBy: string;
   lrInput: string;
 }): Promise<{ error: Error | null; lrNumbers: string[] }> {
+  try {
+    return await writeTripLrNumbers(input);
+  } finally {
+    invalidateOrgLrIndexForTrip(input.tripId);
+  }
+}
+
+async function writeTripLrNumbers(input: {
+  tripId: string;
+  uploadedBy: string;
+  lrInput: string;
+}): Promise<{ error: Error | null; lrNumbers: string[] }> {
   const lrNumbers = uniqueExpandedLrNumbers(input.lrInput);
-  for (const lrNumber of lrNumbers) {
-    const duplicate = await findOrgDuplicateLrNumberForTrip({
-      tripId: input.tripId,
-      lrNumber,
-    });
-    if (duplicate) {
-      return { error: new Error(ORG_LR_DUPLICATE_MESSAGE), lrNumbers: [] };
-    }
+  // One org index for the whole range — a range like 100-150 used to run 51 full sweeps.
+  const duplicate = await findOrgDuplicateLrNumbersForTrip({
+    tripId: input.tripId,
+    lrNumbers,
+  });
+  if (duplicate) {
+    return { error: new Error(ORG_LR_DUPLICATE_MESSAGE), lrNumbers: [] };
   }
   const { data, error: listError } = await supabase()
     .from("trip_documents")

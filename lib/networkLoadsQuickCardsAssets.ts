@@ -37,7 +37,7 @@ export const NETWORK_LOADS_QUICK_ACTIONS: NetworkLoadsQuickAction[] = [
   },
   {
     id: "reach",
-    label: "Pulse Reach",
+    label: "Pulse Boost",
     sub: "Boost loads, earn credits",
     chip: "Growth",
     illustration: Illustration20,

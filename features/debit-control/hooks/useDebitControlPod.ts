@@ -3,6 +3,10 @@ import {
   fetchDebitControlBoard,
   fetchTripPodClientValidation,
   markPodInward,
+  reportPodNotFound,
+  releasePodSettlement,
+  requestPodRevalidation,
+  savePodValidationDraft,
   validateDebitControlPods,
   type AdvanceDocumentCostSource,
   type ValidatePodTripInput,
@@ -69,6 +73,85 @@ export function useMarkPodInwardMutation(orgId: string | null) {
           organizationId: orgId,
         });
       }
+    },
+  });
+}
+
+export function useSavePodValidationDraftMutation(orgId: string | null, actorId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (trips: ValidatePodTripInput[]) =>
+      savePodValidationDraft({ orgId: orgId ?? "", actorId, trips }),
+    onSuccess: async (result) => {
+      if (!orgId) return;
+      await Promise.all(
+        result.updatedIds.map((tripId) =>
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.debitControl.clientValidation(orgId, tripId),
+          }),
+        ),
+      );
+    },
+  });
+}
+
+export function useRequestPodRevalidationMutation(orgId: string | null, actorId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { tripId: string; reason: string }) =>
+      requestPodRevalidation({
+        tripId: input.tripId,
+        organizationId: orgId ?? "",
+        actorId,
+        reason: input.reason,
+      }),
+    onSuccess: async (result, input) => {
+      if (!orgId || result.error) return;
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.debitControl.clientValidation(orgId, input.tripId),
+      });
+    },
+  });
+}
+
+export function useReleasePodSettlementMutation(orgId: string | null, actorId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { tripId: string; pendingNotes?: string[] }) =>
+      releasePodSettlement({
+        tripId: input.tripId,
+        organizationId: orgId ?? "",
+        actorId,
+        pendingNotes: input.pendingNotes,
+      }),
+    onSuccess: async (result, input) => {
+      if (!orgId || result.error) return;
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.debitControl.clientValidation(orgId, input.tripId),
+      });
+    },
+  });
+}
+
+export function useReportPodNotFoundMutation(orgId: string | null, actorId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { tripId: string; reason: string }) =>
+      reportPodNotFound({
+        tripId: input.tripId,
+        organizationId: orgId ?? "",
+        actorId,
+        reason: input.reason,
+      }),
+    onSuccess: async (result, input) => {
+      if (!orgId || result.error) return;
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.debitControl.clientValidation(orgId, input.tripId),
+      });
+      invalidateHardCopyPodCachesForTrips(queryClient, {
+        tripIds: [input.tripId],
+        organizationId: orgId,
+      });
     },
   });
 }

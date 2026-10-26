@@ -43,6 +43,10 @@ it('routes table reads, RPC, writes and edge-function invokes through the Modera
   const sb = makeModeratedClient(seen);
 
   await sb.from('trips').select('id').eq('organization_id', 'org-1').limit(10);
+  await sb.from('posts').select('id').eq('is_active', true).limit(80);
+  await sb.rpc('get_connection_partner_display_batch', {
+    p_linked_organization_ids: ['org-1'],
+  });
   await sb.rpc('get_trips_for_org', { p_org_id: 'org-1' });
   await sb.from('transactions').insert({ id: 'tx-1' });
   await sb.from('trips').update({ status: 'x' }).eq('id', 't1');
@@ -50,8 +54,18 @@ it('routes table reads, RPC, writes and edge-function invokes through the Modera
   await sb.functions.invoke('penny-drop', { body: {} });
 
   // Every single call must have been moderated; none may have slipped past.
-  expect(seen).toHaveLength(6);
+  expect(seen).toHaveLength(8);
   expect(seen.every((s) => s.startsWith('MODERATED'))).toBe(true);
+  expect(seen.some((s) => s.startsWith('MODERATED(background)') && s.includes('/rest/v1/posts'))).toBe(
+    true,
+  );
+  expect(
+    seen.some(
+      (s) =>
+        s.startsWith('MODERATED(background)') &&
+        s.includes('/rest/v1/rpc/get_connection_partner_display_batch'),
+    ),
+  ).toBe(true);
 
   // Spot-check the actual URLs so a future refactor that changes routing is visible.
   expect(seen.some((s) => s.includes('/rest/v1/trips?select=id'))).toBe(true);

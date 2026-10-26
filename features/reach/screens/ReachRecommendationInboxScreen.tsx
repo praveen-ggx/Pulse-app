@@ -8,6 +8,7 @@
  * Employed drivers recommend; independent drivers bid directly and never
  * appear here.
  */
+import { HubMobileUnderlineTab, hubMobileChromeStyles } from "@/components/hub";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { useOrganization } from "@/contexts/OrganizationContext";
@@ -257,21 +258,37 @@ export default function ReachRecommendationInboxScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <View style={styles.headerInner}>
-          <Pressable style={styles.backBtn} onPress={() => router.back()} hitSlop={8}>
-            <ArrowLeft size={16} color={Theme.textPrimaryDark} strokeWidth={2.25} />
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={[hubMobileChromeStyles.shell, styles.hubHeader]}>
+        <View style={hubMobileChromeStyles.screenHeaderRow}>
+          <Pressable
+            style={styles.hubBackBtn}
+            onPress={() => router.back()}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+          >
+            <ArrowLeft size={20} color={Theme.textPrimaryDark} />
           </Pressable>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.headerTitle}>Opportunities</Text>
-            <Text style={styles.headerSub}>Recommended by Drivers</Text>
-          </View>
+          <Text style={hubMobileChromeStyles.screenTitle} numberOfLines={1}>
+            Opportunities
+          </Text>
           <View style={styles.headerBadge}>
             <Inbox size={12} color={Theme.textSecondary} />
             <Text style={styles.headerBadgeText}>{pending.length} pending</Text>
           </View>
+        </View>
+        <View style={hubMobileChromeStyles.tabHeaderRow}>
+          <HubMobileUnderlineTab
+            label={`Pending ${pending.length}`}
+            isActive={tab === "pending"}
+            onPress={() => setTab("pending")}
+          />
+          <HubMobileUnderlineTab
+            label={`Decided ${decided.length}`}
+            isActive={tab === "decided"}
+            onPress={() => setTab("decided")}
+          />
         </View>
       </View>
 
@@ -284,25 +301,6 @@ export default function ReachRecommendationInboxScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Tabs */}
-        <View style={styles.tabsRow}>
-          {(["pending", "decided"] as const).map((t) => {
-            const active = tab === t;
-            const count = t === "pending" ? pending.length : decided.length;
-            return (
-              <Pressable
-                key={t}
-                style={[styles.tabBtn, active && styles.tabBtnActive]}
-                onPress={() => setTab(t)}
-              >
-                <Text style={[styles.tabText, active && styles.tabTextActive]}>
-                  {t === "pending" ? "Pending" : "Decided"} · {count}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
         {inboxQ.isLoading ? (
           <View style={styles.emptyWrap}>
             <ActivityIndicator color={Theme.primary} />
@@ -335,7 +333,7 @@ export default function ReachRecommendationInboxScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Theme.networkPageBackground },
+  container: { flex: 1, backgroundColor: Theme.screenBackground },
   header: {
     backgroundColor: Theme.networkGlassSurface,
     borderBottomWidth: 1,
@@ -363,6 +361,20 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 15, fontWeight: "900", color: Theme.textPrimaryDark },
   headerSub: { fontSize: 10, fontWeight: "600", color: Theme.textMuted, marginTop: 1 },
+  hubHeader: {
+    paddingBottom: 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.borderLight,
+  },
+  hubBackBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: Theme.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
   headerBadge: {
     flexDirection: "row",
     alignItems: "center",

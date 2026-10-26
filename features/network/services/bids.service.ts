@@ -10,6 +10,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { isSupabaseCircuitOpen } from '@/lib/supabaseHttp.util';
 import { runWithConcurrencyLimit } from '@/features/trips/services/tripDocumentLrPod.service';
+import { shipperCanSeePendingPoolQuote } from '@/features/network/utils/networkPoolBidCommit.util';
 
 const DRIVER_AVAILABILITY_CONCURRENCY = 3;
 
@@ -274,6 +275,82 @@ export async function getBidsForPost(
   return { error: null, bids: enriched };
 }
 
+export async function getBidsForPosts(
+  postIds: string[],
+): Promise<{ error: Error | null; bids: BidRow[] }> {
+  const ids = [...new Set(postIds.filter(Boolean))];
+  if (ids.length === 0) return { error: null, bids: [] };
+  const { data, error } = await supabase()
+    .from('bids')
+    .select(`
+      id,
+      post_id,
+      bidder_organization_id,
+      bidder_user_id,
+      amount,
+      note,
+      status,
+      created_at,
+      updated_at,
+      organizations:bidder_organization_id ( name, logo_url, avatar_seed, owner_id )
+    `)
+    .in('post_id', ids)
+    .order('created_at', { ascending: false });
+
+  if (error) return { error: new Error(error.message), bids: [] };
+
+  type BidJoinRow = {
+    id: string;
+    post_id: string;
+    bidder_organization_id: string;
+    bidder_user_id: string;
+    amount: number;
+    note: string | null;
+    status: string;
+    created_at: string;
+    updated_at: string;
+    organizations: unknown;
+  };
+  const bids = ((data ?? []) as unknown as BidJoinRow[]).map((row) => {
+    const org = row.organizations as {
+      name?: string;
+      logo_url?: string | null;
+      avatar_seed?: string | null;
+    } | null;
+    return {
+      id: row.id,
+      post_id: row.post_id,
+      bidder_organization_id: row.bidder_organization_id,
+      bidder_org_name: org?.name ?? null,
+      bidder_org_logo_url: org?.logo_url ?? null,
+      bidder_org_avatar_seed: org?.avatar_seed ?? null,
+      bidder_user_id: row.bidder_user_id,
+      amount: row.amount,
+      note: row.note,
+      status: row.status as BidStatus,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  });
+  return { error: null, bids: await enrichBidderOrgNames(bids) };
+}
+
+export async function getDriverDirectBidsForPosts(
+  postIds: string[],
+): Promise<{ error: Error | null; bids: DriverDirectBidRow[] }> {
+  const ids = [...new Set(postIds.filter(Boolean))];
+  const merged: DriverDirectBidRow[] = [];
+  for (const postId of ids) {
+    const { error, bids } = await getDriverDirectBidsForPost(postId);
+    if (error) return { error, bids: [] };
+    merged.push(...bids);
+  }
+  merged.sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+  );
+  return { error: null, bids: merged };
+}
+
 export async function submitBid(input: {
   postId: string;
   bidderOrganizationId: string;
@@ -307,8 +384,9 @@ export async function submitBid(input: {
 }
 
 /**
- * Pulse / story bid: single RPC inserts bid + upserts direct_quotes for posts.source_indent_id.
- * Replaces client-side fuzzy indent matching.
+ * Pulse / story bid: one shipper indent only (`posts.source_indent_id`).
+ * Never submit_network_pool_quote — that would quote every Network pool member
+ * on the lane, including other shippers.
  */
 export async function submitPulseBidWithDirectQuote(input: {
   postId: string;
@@ -581,19 +659,51 @@ async function collectPendingOwnerIndentBids(
   };
 
   for (const chunk of indentChunks) {
-    const { data, error: qErr } = await supabase()
+    const { data, error: fallbackErr } = await supabase()
       .from('direct_quotes')
       .select('indent_id, bidder_organization_id, amount, created_at')
       .in('indent_id', chunk)
       .eq('status', 'pending');
 
-    if (qErr) return { error: new Error(qErr.message), bids: [] };
-    for (const row of (data ?? []) as Array<{
+    if (fallbackErr) return { error: new Error(fallbackErr.message), bids: [] };
+    const rows = (data ?? []) as Array<{
       indent_id: string;
       bidder_organization_id: string;
       amount: number | null;
       created_at: string | null;
-    }>) {
+      pool_commit_id?: string | null;
+    }>;
+    const commitIds = rows
+      .map((row) => row.pool_commit_id)
+      .filter((id): id is string => Boolean(id));
+    let commits: Record<
+      string,
+      { status: string; awarded_count: number; vehicle_limit: number; valid_until: string }
+    > = {};
+    if (commitIds.length > 0) {
+      const { data: commitRows } = await supabase()
+        .from('network_pool_bid_commits')
+        .select('id, status, awarded_count, vehicle_limit, valid_until')
+        .in('id', [...new Set(commitIds)]);
+      for (const commit of (commitRows ?? []) as Array<{
+        id: string;
+        status: string;
+        awarded_count: number;
+        vehicle_limit: number;
+        valid_until: string;
+      }>) {
+        commits[commit.id] = commit;
+      }
+    }
+    for (const row of rows) {
+      if (
+        !shipperCanSeePendingPoolQuote(
+          { status: 'pending', pool_commit_id: row.pool_commit_id ?? null },
+          row.pool_commit_id ? commits[row.pool_commit_id] : null,
+        )
+      ) {
+        continue;
+      }
       track(row.indent_id, row.bidder_organization_id, row.amount, row.created_at);
     }
   }
@@ -675,10 +785,11 @@ export async function getIndentOfferCountsForOwnerIndents(
   return { error: null, counts };
 }
 
-/** Bid status of one indent: distinct bidders, lowest offer, latest offer time. */
+/** Bid status of one indent: distinct bidders, lowest/highest offer, latest offer time. */
 export type IndentBidSnapshot = {
   count: number;
   lowestAmount: number | null;
+  highestAmount: number | null;
   latestAt: string | null;
 };
 
@@ -693,10 +804,18 @@ export function indentBidSnapshotsFromBids(
   }
   const out: Record<string, IndentBidSnapshot> = {};
   for (const bid of latestByBidder.values()) {
-    const snap = (out[bid.indentId] ??= { count: 0, lowestAmount: null, latestAt: null });
+    const snap = (out[bid.indentId] ??= {
+      count: 0,
+      lowestAmount: null,
+      highestAmount: null,
+      latestAt: null,
+    });
     snap.count += 1;
     if (bid.amount > 0 && (snap.lowestAmount == null || bid.amount < snap.lowestAmount)) {
       snap.lowestAmount = bid.amount;
+    }
+    if (bid.amount > 0 && (snap.highestAmount == null || bid.amount > snap.highestAmount)) {
+      snap.highestAmount = bid.amount;
     }
     if (bid.at && (!snap.latestAt || bid.at > snap.latestAt)) snap.latestAt = bid.at;
   }

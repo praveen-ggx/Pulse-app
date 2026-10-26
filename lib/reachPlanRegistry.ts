@@ -1,5 +1,5 @@
 /**
- * Pulse Reach — plan display metadata.
+ * Pulse Boost — plan display metadata.
  *
  * Price, name, and estimated reach are DB-driven (`reach_plans` table,
  * editable from Control Tower) — never hardcoded here. This file only holds
@@ -19,7 +19,7 @@ export interface ReachPlanDisplayMeta {
 
 /**
  * Tiers read as one warm-brown ramp (light → deep) rather than three unrelated
- * hues, so a campaign surface stays on the Pulse Reach accent while still
+ * hues, so a campaign surface stays on the Pulse Boost accent while still
  * signalling which plan is running.
  */
 export const REACH_PLAN_DISPLAY: Record<ReachPlanCode, ReachPlanDisplayMeta> = {

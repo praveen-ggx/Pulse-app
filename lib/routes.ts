@@ -81,6 +81,8 @@ export const ROUTES = {
   driverGeneralExpense: () => '/(driver)/general-expense' as const,
   /** Become a DCO (driver-come-owner / owner-operator) — the single owner-operator onboarding path. */
   driverDcoStatus: () => '/(driver)/dco-status' as const,
+  /** Driver wallet, Self tab (DCO self ledger + linked fleets to disconnect). */
+  driverWalletSelf: () => '/(driver)/wallet?tab=self' as const,
   /** My Fleet list (DCO personal owner vehicles). */
   driverMyFleet: () => '/(driver)/my-fleet' as const,
   driverMyFleetAdd: () => '/(driver)/my-fleet/add' as const,
@@ -407,9 +409,7 @@ export const ROUTES = {
     /** Product home — Credits Balance, Reach Delivered, Active Campaigns,
      * Quick Actions, Recent Campaigns. The discovery entry point (Phase 2.2). */
     HOME: '/reach' as const,
-    /** Org's Reach campaigns with Impressions/Views/Bids/Credits Used — not
-     * load-only long-term (RFQs, hiring, fleet requirements can all become
-     * Reach campaigns later), hence "Reach" not "Boost" in the screen name. */
+    /** Org's Pulse Boost campaigns with Impressions/Views/Bids/Credits Used. */
     HISTORY: '/reach/history' as const,
     /** Placeholder only (Phase 2.2) — no referral/verification backend yet;
      * every card reads "Coming Soon". Educational, not functional. */

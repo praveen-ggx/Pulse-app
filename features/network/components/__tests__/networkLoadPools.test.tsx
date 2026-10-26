@@ -31,6 +31,14 @@ const mockGetOrgNetworkPool = jest.fn();
 jest.mock("@/features/network/services/networkPools.service", () => ({
   submitNetworkQuote: (...args: unknown[]) => mockSubmitNetworkQuote(...args),
   getOrgNetworkPool: (...args: unknown[]) => mockGetOrgNetworkPool(...args),
+  submitNetworkPoolQuote: jest.fn().mockResolvedValue({
+    error: new Error("Could not find the function public.submit_network_pool_quote"),
+    result: null,
+  }),
+  getNetworkPoolBidCommitsByIds: jest.fn().mockResolvedValue({ error: null, commits: {} }),
+}));
+jest.mock("@/features/vehicles/services/vehicles.service", () => ({
+  getVehiclesByOrganization: jest.fn().mockResolvedValue({ error: null, vehicles: [] }),
 }));
 let mockServerPoolIds: ReadonlySet<string> | null = null;
 jest.mock("@/features/network/hooks/useNetworkPoolLanesQuery", () => ({

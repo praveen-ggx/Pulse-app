@@ -3,7 +3,9 @@
  * route, party chips, docs checklist). Same summary data and callbacks.
  */
 import { PartyAvatar } from "@/components/PartyAvatar";
+import { HUB_CARD_HEAD_AVATAR, HUB_CARD_PARTY_CHIP_AVATAR } from "@/components/hub/hubGridCardLayout";
 import { HUB_MOBILE_TICKET_REF } from "@/components/hub/hubMobileTicketTokens";
+import { FinanceTxnTypography } from "@/constants/FinanceTxnTypography";
 import Theme from "@/constants/Theme";
 import {
   type ComplianceChecklistGroup,
@@ -16,6 +18,7 @@ import {
   groupToneVisual,
   paymentStatusVisual,
   shouldShowPaymentStatusPill,
+  podDebitStatusVisual,
   verificationStatusVisual,
 } from "@/features/tripCompliance/utils/complianceCardVisual.util";
 import {
@@ -28,6 +31,7 @@ import {
 } from "@/features/tripCompliance/utils/complianceReadiness.util";
 import { splitHubRouteLocationDisplay } from "@/features/trips/utils/tripLocationDisplay.util";
 import { formatIndianVehicleNumber } from "@/lib/format";
+import { ComplianceActivityLogButton } from "@/features/tripCompliance/components/ComplianceTripActivityLog";
 import { Check, Eye } from "lucide-react-native";
 import React, { useMemo, useState } from "react";
 import {
@@ -36,7 +40,6 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
   type ViewStyle,
 } from "react-native";
@@ -45,6 +48,24 @@ const REF = HUB_MOBILE_TICKET_REF;
 const ROUTE_PIN_SIZE = 6;
 const HEAD_AVATAR = 34;
 const CHIP_AVATAR = 22;
+
+type HoverPressState = { pressed: boolean; hovered?: boolean };
+
+const WEB_POINTER: ViewStyle | null =
+  Platform.OS === "web" ? ({ cursor: "pointer" } as ViewStyle) : null;
+
+const WEB_TRANSITION: ViewStyle | null =
+  Platform.OS === "web"
+    ? ({
+        transitionDuration: "140ms",
+        transitionProperty: "background-color, border-color, box-shadow, transform",
+        transitionTimingFunction: "ease",
+      } as ViewStyle)
+    : null;
+
+function isHovered(state: HoverPressState): boolean {
+  return Boolean(state.hovered) || state.pressed;
+}
 
 export type ComplianceTripCardProps = {
   summary: ComplianceTripSummary;
@@ -57,12 +78,31 @@ export type ComplianceTripCardProps = {
   canManageFinance?: boolean;
   /** Details screen renders its own full decline section. */
   hideDeclineNotice?: boolean;
+  onOpenActivityLog?: () => void;
+  /** Trips-hub ticket density (mobile list). */
+  compact?: boolean;
+  selected?: boolean;
 };
 
 function asLabel(value: unknown): string {
   if (value == null) return "—";
   const s = String(value).trim();
   return s || "—";
+}
+
+/** Trip ops status for the route-arrow caption (In Transit, Loading, …). */
+function tripOpsStatusLabel(status: string | null | undefined): string {
+  const s = (status ?? "").trim().toLowerCase();
+  if (!s) return "";
+  if (s === "in_progress") return "Loading";
+  if (s === "in_transit" || s === "in transit") return "In Transit";
+  if (s === "at_destination" || s === "at_drop") return "At Destination";
+  if (s === "completed" || s === "delivered" || s === "done") return "Completed";
+  return s
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 function formatPartyName(value: string): string {
@@ -119,21 +159,31 @@ function PartyChip({
   avatarSeed,
   alignEnd,
   showAvatar = true,
+  compact = false,
 }: {
   name: string;
   entityType: "vehicle" | "driver";
   avatarSeed: string;
   alignEnd?: boolean;
   showAvatar?: boolean;
+  compact?: boolean;
 }) {
   const label = formatPartyName(name);
   return (
     <View style={[styles.chip, alignEnd && styles.chipEnd]}>
       {showAvatar ? (
-        <PartyAvatar name={label} initialsColorSeed={avatarSeed} entityType={entityType} size={CHIP_AVATAR} />
+        <PartyAvatar
+          name={label}
+          initialsColorSeed={avatarSeed}
+          entityType={entityType}
+          size={compact ? HUB_CARD_PARTY_CHIP_AVATAR : CHIP_AVATAR}
+        />
       ) : null}
       <View style={[styles.chipCopy, alignEnd && styles.chipCopyEnd]}>
-        <Text style={[styles.chipName, alignEnd && styles.chipNameEnd]} numberOfLines={1}>
+        <Text
+          style={[styles.chipName, compact && styles.chipNameCompact, alignEnd && styles.chipNameEnd]}
+          numberOfLines={1}
+        >
           {label}
         </Text>
       </View>
@@ -145,10 +195,14 @@ function ChecklistGroupTile({
   group,
   countLabel,
   onPress,
+  compact = false,
+  align = "center",
 }: {
   group: ComplianceChecklistGroup;
   countLabel: string;
   onPress?: () => void;
+  compact?: boolean;
+  align?: "start" | "center" | "end";
 }) {
   const tone = groupToneVisual(group.tone);
   const requiredComplete = group.tone === "success";
@@ -177,24 +231,48 @@ function ChecklistGroupTile({
     </>
   );
 
-  const tileStyle = [
-    styles.groupTile,
-    requiredComplete && { backgroundColor: tone.bg, borderColor: tone.fg },
-  ];
+  const tileStyle = compact
+    ? [
+        styles.groupMetric,
+        align === "start" && styles.groupMetricStart,
+        align === "end" && styles.groupMetricEnd,
+      ]
+    : [
+        styles.groupTile,
+        requiredComplete && { backgroundColor: tone.bg, borderColor: tone.fg },
+      ];
+  const compactContent = (
+    <View style={styles.groupMetricInner}>
+      <Text style={styles.groupMetricLabel} numberOfLines={1}>
+        {group.label}
+      </Text>
+      <Text
+        style={[styles.groupMetricCount, requiredComplete && { color: tone.fg }]}
+        numberOfLines={1}
+      >
+        {countLabel}
+      </Text>
+    </View>
+  );
 
   if (!onPress) {
-    return <View style={tileStyle}>{content}</View>;
+    return <View style={tileStyle}>{compact ? compactContent : content}</View>;
   }
 
   return (
-    <TouchableOpacity
+    <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`${group.label} documents, ${countLabel}`}
-      style={tileStyle}
+      style={(state: HoverPressState) => [
+        tileStyle,
+        WEB_POINTER,
+        WEB_TRANSITION,
+        isHovered(state) && styles.groupTileHover,
+      ]}
     >
-      {content}
-    </TouchableOpacity>
+      {compact ? compactContent : content}
+    </Pressable>
   );
 }
 
@@ -207,12 +285,17 @@ export function ComplianceTripCard({
   onMarkComplianceVerified,
   canManageFinance = false,
   hideDeclineNotice = false,
+  onOpenActivityLog,
+  compact = false,
+  selected = false,
 }: ComplianceTripCardProps) {
+  const [hovered, setHovered] = useState(false);
   const trip = summary.trip;
   const checklist = ensureComplianceChecklist(summary);
   const readiness = useMemo(() => deriveComplianceQueueReadiness(summary), [summary]);
   const verification = verificationStatusVisual(summary);
   const payment = paymentStatusVisual(summary);
+  const debitStatus = podDebitStatusVisual(summary);
   const showPaymentPill = shouldShowPaymentStatusPill(summary);
   const fullyVerified = Boolean(summary.complianceVerifiedAt);
   /** Pending-docs cards already show status in the header — no Verify Docs action. */
@@ -251,6 +334,7 @@ export function ComplianceTripCard({
   ).toUpperCase();
   const origin = trip.pickup_area ?? "";
   const dest = trip.drop_location ?? "";
+  const tripStatusLabel = tripOpsStatusLabel(trip.status);
   const openDetails = onOpenDetails ?? onViewTrip;
 
   const pressVerifyDocs = () => {
@@ -275,28 +359,42 @@ export function ComplianceTripCard({
     })
     .slice(0, 2);
 
+  const webHover =
+    Platform.OS === "web"
+      ? {
+          onMouseEnter: () => setHovered(true),
+          onMouseLeave: () => setHovered(false),
+        }
+      : null;
+
   return (
-    <View style={styles.cardWrap}>
-      <View style={styles.card}>
-        <Pressable
-          onPress={openDetails}
-          style={({ pressed }) => [styles.body, pressed && styles.bodyPressed]}
-          accessibilityRole="button"
-          accessibilityLabel={`${tripId} ${clientName}, ${asLabel(origin)} to ${asLabel(dest)}`}
-        >
+    <View style={styles.cardWrapCompact} {...webHover}>
+      <Pressable
+        onPress={openDetails}
+        style={(state: HoverPressState) => [
+          styles.cardCompact,
+          WEB_TRANSITION,
+          WEB_POINTER,
+          (hovered || selected || isHovered(state)) && styles.cardHover,
+          selected && styles.cardSelected,
+        ]}
+        accessibilityRole="none"
+        accessibilityLabel={`${tripId} ${clientName}, ${asLabel(origin)} to ${asLabel(dest)}`}
+      >
+        <View style={[styles.body, compact && styles.bodyCompact]}>
           <View style={styles.head}>
             <View style={styles.headLeft}>
               <PartyAvatar
                 name={clientName}
                 initialsColorSeed={clientFb}
                 entityType="client"
-                size={HEAD_AVATAR}
+                size={compact ? HUB_CARD_HEAD_AVATAR : HEAD_AVATAR}
               />
               <View style={styles.headText}>
-                <Text style={styles.brand} numberOfLines={1}>
+                <Text style={[styles.brand, compact && styles.brandCompact]} numberOfLines={2}>
                   {formatPartyName(clientName)}
                 </Text>
-                <Text style={styles.tripIdLink} numberOfLines={1}>
+                <Text style={[styles.tripIdLink, compact && styles.tripIdLinkCompact]} numberOfLines={1}>
                   {tripId}
                 </Text>
               </View>
@@ -319,38 +417,14 @@ export function ComplianceTripCard({
                     {headStatusUpper}
                   </Text>
                 </View>
-                {showVerifyDocsAction ? (
-                  <Pressable
-                    style={styles.payBtn}
-                    onPress={(event) => {
-                      event.stopPropagation();
-                      pressVerifyDocs();
+                {onOpenActivityLog ? (
+                  <ComplianceActivityLogButton
+                    inline
+                    compact
+                    onPress={() => {
+                      onOpenActivityLog();
                     }}
-                    disabled={markingTrip}
-                    hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
-                    accessibilityRole="button"
-                    accessibilityLabel="Verify documents"
-                  >
-                    {markingTrip ? (
-                      <ActivityIndicator size="small" color={Theme.buttonPrimaryText} />
-                    ) : (
-                      <Text style={styles.payBtnText}>Verify Docs</Text>
-                    )}
-                  </Pressable>
-                ) : null}
-                {showPayAction ? (
-                  <Pressable
-                    style={styles.payBtn}
-                    onPress={(event) => {
-                      event.stopPropagation();
-                      onPay?.();
-                    }}
-                    hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
-                    accessibilityRole="button"
-                    accessibilityLabel="Pay"
-                  >
-                    <Text style={styles.payBtnText}>Pay</Text>
-                  </Pressable>
+                  />
                 ) : null}
               </View>
               <Text style={styles.headMetaMuted} numberOfLines={1}>
@@ -361,29 +435,55 @@ export function ComplianceTripCard({
 
           <View style={styles.route}>
             <RouteLeg location={origin} variant="origin" align="left" />
-            <View style={styles.routeMid}>
+            <View style={[styles.routeMid, tripStatusLabel ? styles.routeMidWithStatus : null]}>
               <Text style={styles.routeArrow}>→</Text>
+              {tripStatusLabel ? (
+                <Text style={styles.routeTripStatus} numberOfLines={2}>
+                  {tripStatusLabel}
+                </Text>
+              ) : null}
             </View>
             <RouteLeg location={dest} variant="dest" align="right" />
           </View>
 
           <View style={styles.divider} />
 
-          <View style={styles.partyRow}>
-            <PartyChip name={vehicleLabel} entityType="vehicle" avatarSeed={vehicleFb} />
-            <PartyChip name={driverLabel} entityType="driver" avatarSeed={driverFb} alignEnd showAvatar={false} />
+          <View style={[styles.partyRow, compact && styles.partyRowCompact]}>
+            <PartyChip
+              name={vehicleLabel}
+              entityType="vehicle"
+              avatarSeed={vehicleFb}
+              showAvatar
+              compact={compact}
+            />
+            <PartyChip
+              name={driverLabel}
+              entityType="driver"
+              avatarSeed={driverFb}
+              alignEnd
+              showAvatar={false}
+              compact={compact}
+            />
           </View>
-        </Pressable>
+        </View>
 
-        <View style={styles.complianceBody}>
-          <View style={styles.groupRow}>
-            {checklist.groups.map((group) => {
+        <View style={[styles.complianceBody, compact && styles.complianceBodyCompact]}>
+          <View style={[styles.groupRow, styles.groupRowCompact]}>
+            {checklist.groups.map((group, index) => {
               const onFile = complianceGroupOnFileCount(group, summary.documents);
               return (
                 <ChecklistGroupTile
                   key={group.key}
                   group={group}
-                  countLabel={`${onFile.onFile}/${onFile.total} On file`}
+                  compact
+                  align={
+                    index === 0
+                      ? "start"
+                      : index === checklist.groups.length - 1
+                        ? "end"
+                        : "center"
+                  }
+                  countLabel={`${onFile.onFile}/${onFile.total}`}
                   onPress={() => onReviewDocuments(group.key)}
                 />
               );
@@ -433,37 +533,70 @@ export function ComplianceTripCard({
           <View
             style={[
               styles.blockerBox,
+              compact && styles.blockerBoxCompact,
               readiness.paymentReady ? styles.blockerBoxReady : styles.blockerBoxBlocked,
+              styles.blockerBoxWithAction,
             ]}
           >
-            <Text
-              style={[
-                styles.payLabel,
-                readiness.paymentReady ? styles.payReady : styles.payBlocked,
-              ]}
-              numberOfLines={1}
-            >
-              {payLabel.label}
-            </Text>
-            {fullyVerified ? (
-              <Text style={styles.blockerLine} numberOfLines={1}>
-                Compliance Verified ✓
+            <View style={styles.blockerCopy}>
+              <Text
+                style={[
+                  styles.payLabel,
+                  compact && styles.payLabelCompact,
+                  readiness.paymentReady ? styles.payReady : styles.payBlocked,
+                ]}
+                numberOfLines={1}
+              >
+                {payLabel.label}
+                {nextLine ? ` · Next: ${nextLine}` : ""}
               </Text>
+              {fullyVerified && !nextLine ? (
+                <Text style={styles.blockerLine} numberOfLines={1}>
+                  Compliance Verified ✓
+                </Text>
+              ) : null}
+            </View>
+            {showVerifyDocsAction || showPayAction ? (
+              <View style={styles.blockerActions}>
+                {showVerifyDocsAction ? (
+                  <Pressable
+                    style={styles.payBtn}
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      pressVerifyDocs();
+                    }}
+                    disabled={markingTrip}
+                    hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Verify documents"
+                  >
+                    {markingTrip ? (
+                      <ActivityIndicator size="small" color={Theme.buttonPrimaryText} />
+                    ) : (
+                      <Text style={styles.payBtnText}>Verify Docs</Text>
+                    )}
+                  </Pressable>
+                ) : null}
+                {showPayAction ? (
+                  <Pressable
+                    style={styles.payBtn}
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      onPay?.();
+                    }}
+                    hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Pay"
+                  >
+                    <Text style={styles.payBtnText}>Pay</Text>
+                  </Pressable>
+                ) : null}
+              </View>
             ) : null}
-            {nextLine ? (
-              <Text style={styles.nextLine} numberOfLines={1}>
-                Next: {nextLine}
-              </Text>
-            ) : null}
-            {blockerLines.map((line) => (
-              <Text key={line} style={styles.blockerLine} numberOfLines={1}>
-                {line}
-              </Text>
-            ))}
           </View>
         </View>
 
-        {showCardFooter ? (
+        {false && showCardFooter ? (
           <View style={styles.cardFooter}>
             <View style={styles.pillRow}>
               <View
@@ -482,16 +615,30 @@ export function ComplianceTripCard({
                   {payment.label}
                 </Text>
               </View>
+              {debitStatus ? (
+                <View
+                  style={[styles.stagePill, { backgroundColor: debitStatus.tone.bg }]}
+                  accessibilityLabel={debitStatus.label}
+                >
+                  <Text
+                    style={[styles.stagePillText, { color: debitStatus.tone.fg }]}
+                    numberOfLines={1}
+                  >
+                    {debitStatus.label}
+                  </Text>
+                </View>
+              ) : null}
             </View>
           </View>
         ) : null}
-      </View>
+      </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   cardWrap: { width: "100%", height: "100%", minWidth: 0 },
+  cardWrapCompact: { width: "100%", minWidth: 0 },
   card: {
     flex: 1,
     width: "100%",
@@ -514,53 +661,136 @@ const styles = StyleSheet.create({
       },
     }),
   },
+  cardHover: {
+    backgroundColor: Theme.complianceSelectedWash,
+    borderColor: Theme.complianceHoverBorder,
+  },
+  cardSelected: {
+    borderColor: Theme.actionBtnInk,
+  },
+  cardCompact: {
+    width: "100%",
+    minWidth: 0,
+    flexDirection: "column",
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    overflow: "hidden",
+    position: "relative",
+    ...Platform.select({
+      web: { boxShadow: "0 2px 8px rgba(15, 23, 42, 0.05)" } as ViewStyle,
+      default: {
+        shadowColor: "#0f172a",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 6,
+        elevation: 1,
+      },
+    }),
+  },
   body: {
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 10,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 16,
+  },
+  bodyCompact: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 14,
   },
   bodyPressed: { opacity: 0.98 },
   head: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
-    marginBottom: 10,
+    gap: 8,
+    marginBottom: 12,
   },
   headLeft: {
     flex: 1,
     minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
   },
   headText: {
     flex: 1,
     minWidth: 0,
     justifyContent: "center",
-    gap: 2,
+    gap: 1,
   },
   brand: {
-    fontSize: 13,
-    lineHeight: 16,
+    fontSize: 12,
+    lineHeight: 15,
     letterSpacing: -0.1,
-    fontWeight: "700",
-    color: Theme.textPrimary,
+    fontWeight: "600",
+    fontStyle: "normal",
+    color: REF.ink,
+    textTransform: "uppercase",
   },
-  tripIdLink: {
+  brandCompact: {
     fontSize: 12,
     lineHeight: 15,
     fontWeight: "600",
-    color: Theme.complianceBulk,
+    fontStyle: "normal",
+    letterSpacing: -0.1,
+    color: REF.ink,
+    textTransform: "uppercase",
+  },
+  tripIdLink: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "600",
+    color: REF.inkMid,
+    letterSpacing: 0.15,
+    fontVariant: ["tabular-nums"],
+  },
+  tripIdLinkCompact: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "600",
+    color: REF.inkMid,
+    letterSpacing: 0.15,
+    fontVariant: ["tabular-nums"],
   },
   headMetaCol: {
-    flexShrink: 0,
+    flexShrink: 1,
+    flexGrow: 0,
+    maxWidth: "42%",
+    minWidth: 0,
     alignItems: "flex-end",
-    gap: 4,
+    justifyContent: "center",
+    gap: 3,
   },
   headStatusRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "flex-end",
+    flexWrap: "nowrap",
+    gap: 6,
+    maxWidth: "100%",
+    minWidth: 0,
+  },
+  blockerBoxWithAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  blockerCopy: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "nowrap",
+    gap: 8,
+  },
+  blockerActions: {
+    flexShrink: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
     gap: 6,
   },
   payBtn: {
@@ -582,24 +812,28 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   headStatusPill: {
+    flexShrink: 1,
+    minWidth: 0,
     maxWidth: "100%",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
     borderRadius: 999,
   },
   headStatusPillText: {
-    fontSize: 10,
-    lineHeight: 12,
+    fontSize: 8,
+    lineHeight: 10,
     fontWeight: "700",
     textAlign: "right",
     letterSpacing: 0.2,
+    textTransform: "uppercase",
   },
   headMetaMuted: {
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: "400",
-    color: Theme.textRouteCard,
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: "500",
+    color: REF.muted,
     textAlign: "right",
+    letterSpacing: 0.15,
   },
   route: {
     flexDirection: "row",
@@ -634,15 +868,15 @@ const styles = StyleSheet.create({
     width: ROUTE_PIN_SIZE,
     height: ROUTE_PIN_SIZE,
     borderRadius: ROUTE_PIN_SIZE / 2,
-    marginTop: 4,
+    marginTop: 2,
     flexShrink: 0,
   },
   routePinOrigin: { backgroundColor: REF.accent },
   routePinDest: { backgroundColor: Theme.positive },
   legCity: {
     fontSize: 12,
-    fontWeight: "700",
-    color: Theme.textPrimary,
+    fontWeight: "600",
+    color: REF.ink,
     letterSpacing: -0.1,
     lineHeight: 15,
     textTransform: "uppercase",
@@ -650,30 +884,44 @@ const styles = StyleSheet.create({
   },
   legState: {
     marginTop: 1,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "400",
-    color: Theme.textRouteCard,
-    lineHeight: 13,
+    color: REF.muted,
+    lineHeight: 12,
     width: "100%",
   },
   legStatePlaceholder: { opacity: 0 },
   textEnd: { textAlign: "right" },
   routeMid: {
-    width: 18,
+    width: 24,
     paddingTop: 2,
     alignItems: "center",
     flexShrink: 0,
   },
+  routeMidWithStatus: {
+    width: 64,
+    paddingTop: 0,
+  },
   routeArrow: {
-    fontSize: 13,
-    fontWeight: "400",
-    color: Theme.textRouteCard,
-    lineHeight: 15,
+    fontSize: 16,
+    fontWeight: "300",
+    color: REF.muted,
+    lineHeight: 18,
+  },
+  routeTripStatus: {
+    marginTop: 1,
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: "600",
+    color: REF.muted,
+    letterSpacing: 0.15,
+    textAlign: "center",
+    textTransform: "uppercase",
   },
   divider: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: Theme.complianceCardBorder,
-    marginTop: 10,
+    backgroundColor: REF.hairline,
+    marginTop: 12,
     marginBottom: 10,
   },
   partyRow: {
@@ -683,22 +931,35 @@ const styles = StyleSheet.create({
     gap: 10,
     minHeight: CHIP_AVATAR,
   },
+  partyRowCompact: {
+    alignItems: "flex-start",
+    minHeight: HUB_CARD_PARTY_CHIP_AVATAR,
+    marginTop: 6,
+  },
   chip: {
     flex: 1,
     minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    gap: 6,
   },
   chipEnd: { justifyContent: "flex-end" },
   chipCopy: { flex: 1, minWidth: 0, justifyContent: "center" },
   chipCopyEnd: { alignItems: "flex-end" },
   chipName: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "600",
-    color: Theme.textPrimary,
+    ...FinanceTxnTypography.partyTitle,
+    minWidth: 0,
+    fontSize: 10,
+    lineHeight: 13,
     letterSpacing: -0.1,
+    fontWeight: "500",
+  },
+  chipNameCompact: {
+    ...FinanceTxnTypography.partyTitle,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "500",
+    color: REF.ink,
   },
   chipNameEnd: { textAlign: "right" },
   complianceBody: {
@@ -707,11 +968,58 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     gap: 12,
   },
+  complianceBodyCompact: {
+    flexGrow: 0,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 8,
+  },
   groupRow: {
     flexDirection: "row",
     alignItems: "stretch",
     flexWrap: "nowrap",
     gap: 8,
+  },
+  groupRowCompact: {
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    paddingTop: 2,
+    minHeight: 22,
+  },
+  groupMetric: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  groupMetricStart: { justifyContent: "flex-start" },
+  groupMetricEnd: { justifyContent: "flex-end" },
+  groupTileHover: {
+    opacity: 0.72,
+  },
+  groupMetricInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    minHeight: 22,
+    minWidth: 0,
+  },
+  groupMetricLabel: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "400",
+    color: REF.muted,
+    flexShrink: 1,
+  },
+  groupMetricCount: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+    color: REF.inkMid,
+    fontVariant: ["tabular-nums"],
   },
   groupTile: {
     flexGrow: 1,
@@ -767,6 +1075,13 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderLeftWidth: 3,
   },
+  blockerBoxCompact: {
+    gap: 2,
+    paddingTop: 8,
+    paddingHorizontal: 10,
+    paddingBottom: 8,
+    borderRadius: 8,
+  },
   blockerBoxBlocked: {
     backgroundColor: Theme.complianceStageDocsBg,
     borderColor: Theme.complianceStageDocsBg,
@@ -778,22 +1093,30 @@ const styles = StyleSheet.create({
     borderLeftColor: Theme.complianceGroupSuccessDot,
   },
   payLabel: {
-    fontSize: 12,
+    flexShrink: 0,
+    fontSize: 11,
     fontWeight: "700",
-    lineHeight: 16,
+    lineHeight: 14,
+  },
+  payLabelCompact: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "600",
   },
   payReady: { color: Theme.complianceStageSuccessFg },
   payBlocked: { color: Theme.complianceStageDocsFg },
   nextLine: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: Theme.complianceBulk,
-    lineHeight: 15,
+    flex: 1,
+    minWidth: 0,
+    fontSize: 10,
+    fontWeight: "500",
+    color: REF.inkMid,
+    lineHeight: 13,
   },
   blockerLine: {
-    fontSize: 11,
-    color: Theme.textRouteCard,
-    lineHeight: 15,
+    fontSize: 10,
+    color: REF.muted,
+    lineHeight: 13,
   },
   cardFooter: {
     flexDirection: "row",

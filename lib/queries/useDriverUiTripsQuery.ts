@@ -2,6 +2,7 @@
  * Shared driver-app trip list (getDriverUiTripsByDriverIds).
  * Home and DriverTripOpsProvider must use this key so identical inputs share one request.
  */
+import { driverDashboardOpenTripQuery } from '@/features/trips/domain/driverDashboardTripList';
 import type { TripRow } from '@/features/trips/services/trips.service';
 import * as tripsService from '@/features/trips/services/trips.service';
 import { useDriverHomeDriversQuery } from '@/lib/queries/useDriverHomeDriversQuery';
@@ -31,9 +32,22 @@ export function useDriverUiTripsQuery(userId: string | null, enabled = true) {
 
   const query = useQuery({
     queryKey: driverUiTripsQueryKey(uid, linked.driverIdsKey),
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (driverIds.length === 0) return [] as TripRow[];
-      const res = await tripsService.getDriverUiTripsByDriverIds(driverIds);
+      const knownOrganizationIds = linked.activeLinkedDrivers.every((driver) =>
+        String(driver.organization_id ?? '').trim(),
+      )
+        ? linked.activeLinkedDrivers.map((driver) => driver.organization_id)
+        : undefined;
+      const res = await tripsService.getDriverUiTripsByDriverIds(driverIds, {
+        ...driverDashboardOpenTripQuery(knownOrganizationIds),
+        signal,
+      });
+      if (signal.aborted) {
+        const aborted = new Error('Aborted');
+        aborted.name = 'AbortError';
+        throw aborted;
+      }
       if (res.error) throw res.error;
       return res.trips ?? [];
     },

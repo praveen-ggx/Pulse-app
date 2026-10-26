@@ -9,7 +9,8 @@ import Theme from "@/constants/Theme";
 import { useEffect, useState, type ReactNode, type RefObject } from "react";
 
 import { createPortal } from "react-dom";
-import { Platform, Pressable, StyleSheet, View, type ViewStyle } from "react-native";
+import { Platform, Pressable, StyleSheet, View, useWindowDimensions, type ViewStyle } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const DEFAULT_DRAWER_WIDTH = 480;
 /** Inset from viewport edges — floating panel, not flush to the corner. */
@@ -45,6 +46,9 @@ export function RegistryWebDrawer({
   insetBottom = DEFAULT_DRAWER_INSET_BOTTOM,
 }: Props) {
   const [portalReady, setPortalReady] = useState(false);
+  const { width: viewportWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const compact = viewportWidth < 768;
 
   useEffect(() => {
     if (Platform.OS === "web") setPortalReady(true);
@@ -74,13 +78,22 @@ export function RegistryWebDrawer({
         style={[
           styles.drawer,
           webFixed,
-          {
-            zIndex: DRAWER_Z,
-            top: insetTop,
-            right: insetRight,
-            bottom: insetBottom,
-            width,
-          },
+          compact ? styles.drawerCompact : null,
+          compact
+            ? {
+                zIndex: DRAWER_Z,
+                top: Math.max(insets.top, 8) + 4,
+                left: 10,
+                right: 10,
+                bottom: Math.max(insets.bottom, 8) + 4,
+              }
+            : {
+                zIndex: DRAWER_Z,
+                top: insetTop,
+                right: insetRight,
+                bottom: insetBottom,
+                width,
+              },
         ]}
         accessibilityViewIsModal
       >
@@ -105,6 +118,10 @@ const styles = StyleSheet.create({
         WebkitBackdropFilter: "blur(16px) saturate(130%)",
       } as unknown as ViewStyle,
     }),
+  },
+  drawerCompact: {
+    maxWidth: "100%",
+    borderRadius: 16,
   },
   drawer: {
     maxWidth: "96vw" as unknown as number,

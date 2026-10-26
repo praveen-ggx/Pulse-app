@@ -34,12 +34,6 @@ async function loadGallerySlideUri(
   slide: ChatGallerySlide,
   pass: GalleryLoadPass,
 ): Promise<string | null> {
-  if (pass === "blob") {
-    const path = String(slide.storagePath ?? "").trim();
-    if (!path) return null;
-    const blob = await tryChatDocumentBlobObjectUrl(path);
-    return blob?.url ?? null;
-  }
   return resolveChatGallerySlideUrl(slide, { signedOnly: pass === "signed" });
 }
 
@@ -63,6 +57,7 @@ function GallerySlidePage({
     null,
   );
   const loadPassRef = useRef<GalleryLoadPass>("default");
+  const blobRevokeRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -123,6 +118,15 @@ function GallerySlidePage({
         if (blobUrl) {
           loadPassRef.current = "blob";
           setUri(blobUrl);
+          setLoading(false);
+          return;
+        }
+        const blob = await tryChatDocumentBlobObjectUrl(path);
+        if (blob?.url) {
+          blobRevokeRef.current?.();
+          blobRevokeRef.current = blob.revoke;
+          loadPassRef.current = "blob";
+          setUri(blob.url);
           setLoading(false);
           return;
         }

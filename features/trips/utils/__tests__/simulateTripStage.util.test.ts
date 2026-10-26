@@ -9,6 +9,7 @@ import {
   toSimCompletionPickerValue,
   resolveSimulateStageCoordinate,
   simulateStageStopTarget,
+  unrevokedBisimEntries,
 } from "@/features/trips/utils/simulateTripStage.util";
 
 const trip = {
@@ -22,6 +23,17 @@ const trip = {
 };
 
 describe("simulateTripStage", () => {
+  it("lets revoke walk back more than one simulated step", () => {
+    const notes = [
+      "[BISIM|in_progress|2026-10-26T10:00:00.000Z|1|2|Ops|assigned|Pickup]",
+      "[BISIM|in_transit|2026-10-26T11:00:00.000Z|1|2|Ops|in_progress|Route]",
+      "[BISIM_REVOKE|in_transit|in_progress|2026-10-26T12:00:00.000Z|1|2|Ops]",
+    ].join("\n");
+    expect(unrevokedBisimEntries(notes).map((row) => row.status)).toEqual([
+      "in_progress",
+    ]);
+  });
+
   it("uses drop coords for arrival and completion", () => {
     expect(simulateStageStopTarget("at_drop")).toBe("drop");
     expect(simulateStageStopTarget("completed")).toBe("drop");

@@ -3,8 +3,8 @@ import { updateOrganizationLogo } from "@/features/organization/services/organiz
 import { syncBrandingFromOrg } from "@/features/invoicing/services/invoiceBranding.service";
 import { useOrgRole } from "@/lib/hooks/useOrgRole";
 import { getSignedAvatarUrl, pickAndUploadOrgLogo } from "@/lib/avatarUpload";
+import { showAppAlert } from "@/lib/appAlert";
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Platform } from "react-native";
 
 /** Workspace org logo — signed URL resolution + upload (same flow as Workspace Settings). */
 export function useWorkspaceOrgLogo() {
@@ -41,13 +41,13 @@ export function useWorkspaceOrgLogo() {
     try {
       const result = await pickAndUploadOrgLogo(orgId);
       if (result.error) {
-        Alert.alert("Upload failed", result.error.message);
+        showAppAlert("Upload failed", result.error.message);
         return;
       }
       if (!result.path) return;
       const { error } = await updateOrganizationLogo(orgId, result.path);
       if (error) {
-        Alert.alert("Save failed", error.message);
+        showAppAlert("Save failed", error.message);
         return;
       }
       if (result.previewUri) setLogoUri(result.previewUri);
@@ -59,8 +59,7 @@ export function useWorkspaceOrgLogo() {
   }, [canEdit, orgId, orgName, refreshOrganization, uploading]);
 
   const alertReadonly = useCallback(() => {
-    if (Platform.OS === "web") return;
-    Alert.alert(
+    showAppAlert(
       "Workspace logo",
       "Only workspace owners and admins can update the organisation logo.",
     );

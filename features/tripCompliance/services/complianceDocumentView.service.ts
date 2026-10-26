@@ -9,6 +9,10 @@
  * look up entity_documents when the primary sign fails.
  */
 import { getComplianceDocumentSignedUrl } from "@/features/compliance/services/documents.service";
+import {
+  isInlinePreviewUri,
+  previewPrivateObject,
+} from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import { tryGetDocumentViewUrl } from "@/features/trips/services/tripDocuments.service";
 import { parseComplianceStorageRef } from "@/features/tripCompliance/utils/complianceVaultDocuments.util";
 import { getVehicleDocumentViewUrl } from "@/features/vehicles/services/vehicleDocuments.service";
@@ -17,16 +21,19 @@ import {
   isVehicleDocumentReferencePath,
   resolveTripDocumentPreviewUrl,
 } from "@/features/tripCompliance/services/vehicleDocumentReuse.service";
-import { previewPrivateObject } from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import {
   composeComplianceActorDetail,
   type ComplianceActorDetail,
 } from "@/features/tripCompliance/utils/complianceDocumentActivity.util";
+import { isTypedDetailsMarker } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
+import { Platform } from "react-native";
 
 export type ComplianceViewSource =
   | "vehicle-vault"
   | "driver-kyc"
   | "entity"
+  /** Driver License / Aadhaar and other entity_documents files. Same bucket as `entity`. */
+  | "compliance"
   | "supplier-kyc"
   | "trip"
   | null
@@ -62,7 +69,9 @@ async function lookupEntityDocumentStoragePath(input: {
 function bucketForPreviewSource(source: ComplianceViewSource): string {
   if (source === "vehicle-vault") return "vehicle-documents";
   if (source === "driver-kyc") return "driver-documents";
-  if (source === "entity" || source === "supplier-kyc") return "compliance-documents";
+  if (source === "entity" || source === "compliance" || source === "supplier-kyc") {
+    return "compliance-documents";
+  }
   return "trip-documents";
 }
 
@@ -71,10 +80,45 @@ async function paintCompliancePreviewUrl(
   source: ComplianceViewSource,
   signed: string | null,
 ): Promise<string | null> {
-  if (/^https?:\/\//i.test(path)) return path;
+  if (isInlinePreviewUri(path)) return path;
+  if (/^https?:\/\//i.test(path)) {
+    const parsed = parseComplianceStorageRef(path);
+    if (parsed.kind === "url") return parsed.value;
+    const paintedRemote = await previewPrivateObject(
+      bucketForPreviewSource(source),
+      parsed.value,
+      path,
+    );
+    if (paintedRemote.url) return paintedRemote.url;
+    return Platform.OS === "web" ? null : signed ?? path;
+  }
   if (!path) return signed;
   const painted = await previewPrivateObject(bucketForPreviewSource(source), path, signed);
-  return painted.url ?? signed;
+  if (painted.url) return painted.url;
+  // Web <img> cannot paint a Storage signed URL (CORS / 400). Native viewers can.
+  return Platform.OS === "web" ? null : signed;
+}
+
+const SIGNED_URL_TTL_MS = 50 * 60_000;
+const signedUrlCache = new Map<string, { url: string; exp: number }>();
+const signedUrlInflight = new Map<string, Promise<string | null>>();
+
+function signedUrlCacheKey(input: {
+  storagePath: string | null | undefined;
+  source?: ComplianceViewSource;
+  sourceEntityDocumentId?: string | null;
+  organizationId?: string | null;
+  entityId?: string | null;
+  docType?: string | null;
+}): string {
+  return [
+    (input.storagePath ?? "").trim(),
+    input.source ?? "trip",
+    input.sourceEntityDocumentId ?? "",
+    input.organizationId ?? "",
+    input.entityId ?? "",
+    input.docType ?? "",
+  ].join("\u0000");
 }
 
 export async function signCompliancePreviewUrl(input: {
@@ -85,8 +129,38 @@ export async function signCompliancePreviewUrl(input: {
   entityId?: string | null;
   docType?: string | null;
 }): Promise<string | null> {
+  const key = signedUrlCacheKey(input);
+  const hit = signedUrlCache.get(key);
+  if (hit && hit.exp > Date.now()) return hit.url;
+  const pending = signedUrlInflight.get(key);
+  if (pending) return pending;
+  const work = signCompliancePreviewUrlUncached(input)
+    .then((url) => {
+      if (url) signedUrlCache.set(key, { url, exp: Date.now() + SIGNED_URL_TTL_MS });
+      return url;
+    })
+    .finally(() => {
+      signedUrlInflight.delete(key);
+    });
+  signedUrlInflight.set(key, work);
+  return work;
+}
+
+async function signCompliancePreviewUrlUncached(input: {
+  storagePath: string | null | undefined;
+  source?: ComplianceViewSource;
+  sourceEntityDocumentId?: string | null;
+  organizationId?: string | null;
+  entityId?: string | null;
+  docType?: string | null;
+}): Promise<string | null> {
   const raw = (input.storagePath ?? "").trim();
   const source = input.source ?? "trip";
+  if (!raw) return null;
+  if (isInlinePreviewUri(raw)) return raw;
+  if (isTypedDetailsMarker({ storage_path: raw, file_name: raw })) {
+    return null;
+  }
   if (input.sourceEntityDocumentId || isVehicleDocumentReferencePath(raw)) {
     const signed = await resolveTripDocumentPreviewUrl({
       storagePath: raw,
@@ -131,7 +205,7 @@ export async function signCompliancePreviewUrl(input: {
           return paintCompliancePreviewUrl(objectPath, url ? "entity" : "vehicle-vault", signed);
         }
       }
-    } else if (source === "entity" || source === "supplier-kyc") {
+    } else if (source === "entity" || source === "compliance" || source === "supplier-kyc") {
       const { url } = await getComplianceDocumentSignedUrl(path);
       signed = url ?? (await getVehicleDocumentViewUrl(path));
     } else if (source === "driver-kyc") {

@@ -1,17 +1,7 @@
 /**
- * One pooled Network bid in Get Load → My Bids: the lane this org quoted one
- * rate on, with its rate and how each member quote stands. Like the Network
- * Loads pool card it carries no party identity — no shipper name, avatar,
- * indent number or facepile. Pressing the card opens the pool. Revising is
- * one pooled action on this card — not a per-indent summary.
+ * One pooled Network bid in Get Load → My Bids. Same card chrome as
+ * NetworkLoadPoolCard (size, gap, facts, rate row, footer CTA).
  */
-import {
-  WEB_POINTER,
-  WEB_TRANSITION,
-  hoverRowWash,
-  isHovered,
-  type HoverPressState,
-} from "@/constants/hoverSelection";
 import Theme from "@/constants/Theme";
 import {
   MarketplaceRouteGrid,
@@ -25,12 +15,15 @@ import {
   vehicleTonnage,
 } from "@/features/network/components/pooled/NetworkLoadPoolCard";
 import {
-  describeNetworkBidStates,
   NETWORK_BID_STATE_LABEL,
   type NetworkBidMemberState,
   type NetworkBidPool,
 } from "@/features/network/utils/networkBidPools.util";
 import type { NetworkPoolLoad } from "@/features/network/utils/networkLoadPools.util";
+import {
+  describePoolCommitPending,
+  usePoolCommitPreview,
+} from "@/features/network/utils/networkPoolCommitPreview.util";
 import { Layers } from "lucide-react-native";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -45,14 +38,10 @@ const STATE_TONE: Record<NetworkBidMemberState, { bg: string; fg: string }> = {
 
 export function NetworkBidPoolCard({
   pool,
-  showViewAction = true,
-  onViewPool,
   onReviseBid,
   viaStops = [],
 }: {
   pool: NetworkBidPool<NetworkPoolLoad>;
-  showViewAction?: boolean;
-  onViewPool?: () => void;
   onReviseBid?: () => void;
   viaStops?: readonly string[];
 }) {
@@ -62,7 +51,6 @@ export function NetworkBidPoolCard({
   const rate = rateRange(pool.rateMin, pool.rateMax);
   const window = pickupWindow(pool.earliestPickup, pool.latestPickup);
   const weight = vehicleTonnage(pool.weightKgMin, pool.weightKgMax);
-  const states = describeNetworkBidStates(pool.stateCounts);
   const tone = pool.uniformState ? STATE_TONE[pool.uniformState] : null;
   const pillText = pool.uniformState
     ? NETWORK_BID_STATE_LABEL[pool.uniformState]
@@ -72,12 +60,19 @@ export function NetworkBidPoolCard({
     { label: "Tonnage", value: weight ?? "—" },
     { label: "Pickup", value: window ?? "—" },
   ];
+  const commit = usePoolCommitPreview(pool.id);
+  const pendingLine = describePoolCommitPending(
+    commit,
+    pool.stateCounts.pending ?? 0,
+  );
+  const label = `Network pool bid, ${pool.key.pickup} to ${pool.key.drop}, ${vehicle}, ${loadsLabel}, ${pendingLine}`;
 
-  const label = `Network pool bid, ${pool.key.pickup} to ${pool.key.drop}, ${vehicle}, ${loadsLabel}, ${states}`;
-  const opensDetail = showViewAction && onViewPool != null;
-
-  const summary = (
-    <>
+  return (
+    <View
+      style={styles.card}
+      testID={`network-bid-pool-${pool.id}`}
+      accessibilityLabel={label}
+    >
       <View style={styles.top}>
         <View style={styles.tag}>
           <Layers size={12} color={Theme.primary} strokeWidth={2.4} />
@@ -133,36 +128,21 @@ export function NetworkBidPoolCard({
           {rate ?? "—"}
         </Text>
       </View>
-    </>
-  );
 
-  return (
-    <View
-      style={styles.card}
-      testID={`network-bid-pool-${pool.id}`}
-      accessibilityLabel={opensDetail ? undefined : label}
-    >
-      {opensDetail && onViewPool ? (
-        <Pressable
-          onPress={onViewPool}
-          accessibilityRole="button"
-          accessibilityLabel={label}
-          style={(state: HoverPressState) => [
-            WEB_TRANSITION,
-            WEB_POINTER,
-            isHovered(state) && hoverRowWash,
-            state.pressed && bidStyles.pressed,
-          ]}
-        >
-          {summary}
-        </Pressable>
-      ) : (
-        summary
-      )}
       <View style={styles.footer}>
-        <Text style={bidStyles.states} numberOfLines={2}>
-          {states}
-        </Text>
+        <View style={styles.footerLeft}>
+          <Text
+            style={bidStyles.states}
+            numberOfLines={1}
+            accessibilityLabel={
+              commit
+                ? `${pendingLine}, until ${commit.validUntilDate}`
+                : pendingLine
+            }
+          >
+            {pendingLine}
+          </Text>
+        </View>
         {onReviseBid ? (
           <Pressable
             onPress={onReviseBid}
@@ -180,18 +160,17 @@ export function NetworkBidPoolCard({
 
 const bidStyles = StyleSheet.create({
   statePill: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 999,
     flexShrink: 0,
+    justifyContent: "center",
   },
-  statePillText: { fontSize: 9, fontWeight: "700", letterSpacing: 0.3 },
+  statePillText: { fontSize: 8, fontWeight: "600", letterSpacing: 0, lineHeight: 11 },
   states: {
-    flex: 1,
-    minWidth: 0,
     fontSize: 11,
     fontWeight: "500",
+    letterSpacing: 0,
     color: Theme.textSecondary,
   },
-  pressed: { opacity: 0.92 },
 });

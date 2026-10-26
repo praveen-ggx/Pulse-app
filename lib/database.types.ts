@@ -2572,6 +2572,7 @@ export type Database = {
           id: string
           indent_id: string
           notes: string | null
+          pool_commit_id: string | null
           status: string
           updated_at: string | null
           vehicle_id: string | null
@@ -2585,6 +2586,7 @@ export type Database = {
           id?: string
           indent_id: string
           notes?: string | null
+          pool_commit_id?: string | null
           status?: string
           updated_at?: string | null
           vehicle_id?: string | null
@@ -2598,6 +2600,7 @@ export type Database = {
           id?: string
           indent_id?: string
           notes?: string | null
+          pool_commit_id?: string | null
           status?: string
           updated_at?: string | null
           vehicle_id?: string | null
@@ -3939,6 +3942,8 @@ export type Database = {
           account_number: string | null
           account_type: string | null
           bank_name: string | null
+          beneficiary_name: string | null
+          branch_name: string | null
           cancelled_cheque_url: string | null
           created_at: string
           created_by: string | null
@@ -3958,6 +3963,8 @@ export type Database = {
           account_number?: string | null
           account_type?: string | null
           bank_name?: string | null
+          beneficiary_name?: string | null
+          branch_name?: string | null
           cancelled_cheque_url?: string | null
           created_at?: string
           created_by?: string | null
@@ -3977,6 +3984,8 @@ export type Database = {
           account_number?: string | null
           account_type?: string | null
           bank_name?: string | null
+          beneficiary_name?: string | null
+          branch_name?: string | null
           cancelled_cheque_url?: string | null
           created_at?: string
           created_by?: string | null
@@ -9829,6 +9838,7 @@ export type Database = {
           pan_number?: string | null
           primary_region?: string | null
           phone?: string | null
+          primary_region?: string | null
           secondary_phone?: string | null
           status_changed_at?: string | null
           vendor_status?: string
@@ -9872,6 +9882,7 @@ export type Database = {
           pan_number?: string | null
           primary_region?: string | null
           phone?: string | null
+          primary_region?: string | null
           secondary_phone?: string | null
           status_changed_at?: string | null
           vendor_status?: string

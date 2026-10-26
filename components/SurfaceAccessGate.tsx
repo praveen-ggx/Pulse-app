@@ -9,8 +9,8 @@
  * (an edit button, an approve control), call `useMemberAccess().can(id)`
  * directly instead of nesting a gate.
  *
- * Holds a blank frame while surfaces hydrate — deciding before they land
- * bounces legitimately-permitted members (same rule as ModelAccessGate).
+ * Renders the screen while surfaces hydrate so first paint is not blank.
+ * Only deny after access has resolved (same rule as ModelAccessGate).
  */
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
@@ -31,12 +31,7 @@ export function SurfaceAccessGate({ surface, children, message }: Props) {
   const { can, isLoading } = useMemberAccess();
   const { t } = useOptionalLanguage();
 
-  if (isLoading) {
-    // Inert placeholder — a gate only needs to hold a frame until access resolves.
-    return <View style={{ flex: 1 }} />;
-  }
-
-  if (can(surface)) return <>{children}</>;
+  if (isLoading || can(surface)) return <>{children}</>;
 
   return (
     <View style={styles.noticeWrap}>

@@ -1,13 +1,10 @@
-import { updateDriver } from '@/features/drivers/services/drivers.service';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   assignAggregateTripDriverByPhone,
   assignTripDriverByPhone,
   getActiveDriverAssignments,
   getActiveVehicleAssignments,
-  getDriverOngoingTrip,
   getTripUpdatedAt,
-  getVehicleOngoingTrip,
   updateTripAssignment,
   type ActiveDriverAssignmentMap,
   type TripRow,
@@ -23,6 +20,7 @@ export type ReassignPayload = {
   driverId: string;
   vehicleId: string | null;
   vehicleDisplayNumber?: string | null;
+  driverDisplayName?: string | null;
 };
 
 export type ReassignByPhonePayload = {
@@ -66,6 +64,7 @@ export function useReassignTrip({
 }: Options) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const savingRef = useRef(false);
   const invalidateDrivers = useInvalidateDrivers();
   const invalidateVehicles = useInvalidateVehicles();
 
@@ -94,55 +93,20 @@ export function useReassignTrip({
     return null;
   }, [expectedUpdatedAt, trip.id]);
 
-  const validateConflicts = useCallback(
-    async (driverId: string, vehicleId: string | null) => {
-      if (driverId && driverId !== trip.driver_id) {
-        const { error: dErr, trip: ongoing } = await getDriverOngoingTrip(
-          driverId,
-          trip.id,
-        );
-        if (dErr) return dErr.message;
-        if (ongoing) {
-          const label = ongoing.trip_number ?? 'another trip';
-          return `Driver is already assigned to ${label}. Complete or unassign that trip first.`;
-        }
-      }
-      if (vehicleId && vehicleId !== trip.vehicle_id) {
-        const { error: vErr, trip: busy } = await getVehicleOngoingTrip(
-          vehicleId,
-          trip.id,
-        );
-        if (vErr) return vErr.message;
-        if (busy) {
-          const label = busy.trip_number ?? 'another trip';
-          return `Vehicle is already assigned to ${label}. Complete or unassign that trip first.`;
-        }
-      }
-      return null;
-    },
-    [trip.driver_id, trip.id, trip.vehicle_id],
-  );
-
   const reassignCombined = useCallback(
     async (payload: ReassignPayload): Promise<{ ok: boolean; trip: TripRow | null; staleConflict?: boolean }> => {
+      if (savingRef.current) return { ok: false, trip: null };
+      savingRef.current = true;
       setSaving(true);
       setError(null);
       try {
-        const stale = await assertTripNotStale();
-        if (stale) {
-          setError(stale);
-          return { ok: false, trip: null, staleConflict: isTripReassignStaleError(stale) };
-        }
-        const conflict = await validateConflicts(payload.driverId, payload.vehicleId);
-        if (conflict) {
-          setError(conflict);
-          return { ok: false, trip: null };
-        }
-
         const update: Parameters<typeof updateTripAssignment>[1] = {
           driver_id: payload.driverId,
           vehicle_id: payload.vehicleId,
         };
+        if (payload.driverDisplayName !== undefined) {
+          update.driver_display_name = payload.driverDisplayName;
+        }
         if (payload.vehicleId == null && payload.vehicleDisplayNumber) {
           update.vehicle_id = null;
           update.vehicle_display_number = payload.vehicleDisplayNumber;
@@ -165,17 +129,16 @@ export function useReassignTrip({
         invalidateVehicles(organizationId);
         return { ok: true, trip: updated };
       } finally {
+        savingRef.current = false;
         setSaving(false);
       }
     },
     [
-      assertTripNotStale,
       auditOptions,
       invalidateDrivers,
       invalidateVehicles,
       organizationId,
       trip.id,
-      validateConflicts,
     ],
   );
 
@@ -186,19 +149,6 @@ export function useReassignTrip({
     ): Promise<{ ok: boolean; trip: TripRow | null; vehicleError?: string; staleConflict?: boolean }> => {
       if (updated.vehicle_id === vehicleId) {
         return { ok: true, trip: updated };
-      }
-      const stale = await assertTripNotStale();
-      if (stale) {
-        return { ok: false, trip: updated, vehicleError: stale, staleConflict: true };
-      }
-      const conflict = await validateConflicts(updated.driver_id ?? '', vehicleId);
-      if (conflict) {
-        setError(conflict);
-        return {
-          ok: false,
-          trip: updated,
-          vehicleError: conflict,
-        };
       }
       const { error: vErr, trip: withVehicle } = await updateTripAssignment(
         trip.id,
@@ -215,21 +165,13 @@ export function useReassignTrip({
       }
       return { ok: true, trip: withVehicle ?? updated };
     },
-    [assertTripNotStale, auditOptions, trip.id, validateConflicts],
-  );
-
-  const applyPhoneDriverDisplayName = useCallback(
-    async (driverId: string | null | undefined, displayName: string) => {
-      const customName = displayName.trim();
-      if (!driverId || customName.length < 2) return;
-      const orgForDriver = (driverAssignOrgId ?? organizationId).trim() || organizationId;
-      await updateDriver(orgForDriver, driverId, { name: customName });
-    },
-    [driverAssignOrgId, organizationId],
+    [auditOptions, trip.id],
   );
 
   const reassignByPhone = useCallback(
     async (payload: ReassignByPhonePayload): Promise<ReassignByPhoneResult> => {
+      if (savingRef.current) return { ok: false, trip: null };
+      savingRef.current = true;
       setSaving(true);
       setError(null);
       try {
@@ -239,14 +181,13 @@ export function useReassignTrip({
           return { ok: false, trip: null };
         }
 
-        const stale = await assertTripNotStale();
-        if (stale) {
-          setError(stale);
-          return { ok: false, trip: null, staleConflict: true };
-        }
-
         const orgForDriver = (driverAssignOrgId ?? organizationId).trim() || organizationId;
         if (isAggregate) {
+          const stale = await assertTripNotStale();
+          if (stale) {
+            setError(stale);
+            return { ok: false, trip: null, staleConflict: true };
+          }
           const { error: rpcErr, trip: updated } = await assignAggregateTripDriverByPhone(
             trip.id,
             orgForDriver,
@@ -289,7 +230,6 @@ export function useReassignTrip({
             finalTrip = vehicleStep.trip ?? updated;
           }
 
-          await applyPhoneDriverDisplayName(finalTrip.driver_id, nameTrimmed);
           invalidateDrivers(organizationId);
           invalidateVehicles(organizationId);
           return { ok: true, trip: finalTrip };
@@ -332,16 +272,15 @@ export function useReassignTrip({
           }
           finalTrip = vehicleStep.trip ?? updated;
         }
-        await applyPhoneDriverDisplayName(finalTrip.driver_id, nameTrimmed);
         invalidateDrivers(organizationId);
         invalidateVehicles(organizationId);
         return { ok: true, trip: finalTrip, otpCode: otp?.code ?? null };
       } finally {
+        savingRef.current = false;
         setSaving(false);
       }
     },
     [
-      applyPhoneDriverDisplayName,
       applyFleetVehicleAfterPhone,
       assertTripNotStale,
       auditOptions,
@@ -355,19 +294,11 @@ export function useReassignTrip({
 
   const retryVehicleOnly = useCallback(
     async (vehicleId: string): Promise<{ ok: boolean; trip: TripRow | null; staleConflict?: boolean }> => {
+      if (savingRef.current) return { ok: false, trip: null };
+      savingRef.current = true;
       setSaving(true);
       setError(null);
       try {
-        const stale = await assertTripNotStale();
-        if (stale) {
-          setError(stale);
-          return { ok: false, trip: null, staleConflict: true };
-        }
-        const conflict = await validateConflicts(trip.driver_id ?? '', vehicleId);
-        if (conflict) {
-          setError(conflict);
-          return { ok: false, trip: null };
-        }
         const { error: vErr, trip: updated } = await updateTripAssignment(
           trip.id,
           { vehicle_id: vehicleId },
@@ -384,17 +315,15 @@ export function useReassignTrip({
         invalidateVehicles(organizationId);
         return { ok: true, trip: updated };
       } finally {
+        savingRef.current = false;
         setSaving(false);
       }
     },
     [
-      assertTripNotStale,
       auditOptions,
       invalidateVehicles,
       organizationId,
-      trip.driver_id,
       trip.id,
-      validateConflicts,
     ],
   );
 

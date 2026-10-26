@@ -30,6 +30,33 @@ import {
     DRIVER_TRIPS_PAGE_SIZE,
     type PageOpts,
 } from "@/lib/pagination";
+
+export {
+    DRIVER_DASHBOARD_CLOSED_STATUSES,
+    DRIVER_DASHBOARD_OPEN_TRIP_LIMIT,
+} from "@/features/trips/domain/driverDashboardTripList";
+
+export type DriverTripListOpts = PageOpts & {
+  /** Omit these statuses in SQL so a dashboard read does not download history. */
+  excludeStatuses?: readonly string[];
+  /**
+   * Organization ids already known for these driver rows.
+   * When set, the extra `drivers` read used only for awarded-load dedupe is skipped.
+   */
+  knownOrganizationIds?: readonly string[];
+  /**
+   * Ask the database for at most `limit` rows.
+   * History pages still request one extra row so `hasMore` stays accurate.
+   */
+  exactLimit?: boolean;
+  /**
+   * Dashboard only. Started trips sort ahead of not-yet-started open trips
+   * so the live mission stays inside the 80-row cap. History keeps created_at order.
+   */
+  preferStarted?: boolean;
+  /** Cancels the in-flight view read when the caller leaves the screen. */
+  signal?: AbortSignal;
+};
 import { getPlatformEventBus } from "@/lib/platform/events/InProcessEventBus";
 import { getAccessToken, supabase } from "@/lib/supabase";
 import { uuidv7 } from "@/lib/uuidv7";
@@ -887,22 +914,87 @@ const DRIVER_TRIP_FALLBACK_COLUMNS = [
   // null and the wallet falls back to a generic label.
 ].join(",");
 
+function driverTripListRange(
+  offset: number,
+  limit: number,
+  exactLimit: boolean,
+): [number, number] {
+  if (limit <= 0) return [offset, offset];
+  // PostgREST range is inclusive. History asks for limit+1 rows to detect another page.
+  return [offset, exactLimit ? offset + limit - 1 : offset + limit];
+}
+
+function orderDriverTripList<Q extends {
+  order: (
+    column: string,
+    options?: { ascending?: boolean; nullsFirst?: boolean },
+  ) => Q;
+}>(query: Q, preferStarted: boolean): Q {
+  if (!preferStarted) return query.order("created_at", { ascending: false });
+  return query
+    .order("started_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false });
+}
+
+function closedStatusOrFilter(excludeStatuses: readonly string[] | undefined): string | null {
+  const excluded = (excludeStatuses ?? [])
+    .map((status) => status.trim().toLowerCase())
+    .filter((status) => status.length > 0);
+  if (excluded.length === 0) return null;
+  // Keep null-status rows. PostgREST `not.in` drops nulls, and a started trip
+  // with a missing status is still an active mission on the dashboard.
+  return `status.is.null,status.not.in.(${excluded.join(",")})`;
+}
+
+async function loadDriverOrganizationIds(
+  driverIds: string[],
+  knownOrganizationIds?: readonly string[],
+): Promise<Set<string>> {
+  if (knownOrganizationIds != null) {
+    return new Set(
+      knownOrganizationIds
+        .map((id) => String(id ?? "").trim())
+        .filter((id) => id.length > 0),
+    );
+  }
+  const driverOrgIds = new Set<string>();
+  try {
+    const { data: driverRows } = await supabase()
+      .from("drivers")
+      .select("organization_id")
+      .in("id", driverIds);
+    for (const row of (driverRows ?? []) as { organization_id?: string | null }[]) {
+      const org = String(row.organization_id ?? "").trim();
+      if (org !== "") driverOrgIds.add(org);
+    }
+  } catch {
+    // leave driverOrgIds empty — dedupe then keeps every row
+  }
+  return driverOrgIds;
+}
+
 async function getTripsByDriverIdsFromTripsTable(
   driverIds: string[],
-  opts?: PageOpts,
+  opts?: DriverTripListOpts,
   driverOrgIds?: Set<string>,
 ): Promise<{ error: Error | null; trips: DriverTripRow[]; hasMore?: boolean }> {
   const orgIds = driverOrgIds ?? new Set<string>();
-  const base = () =>
-    supabase()
+  const statusFilter = closedStatusOrFilter(opts?.excludeStatuses);
+  const base = () => {
+    let query = supabase()
       .from("trips")
       .select(DRIVER_TRIP_FALLBACK_COLUMNS)
-      .in("driver_id", driverIds)
-      .order("created_at", { ascending: false });
-  if (opts != null) {
-    const limit = opts.limit ?? DRIVER_TRIPS_PAGE_SIZE;
-    const offset = opts.offset ?? 0;
-    const { data, error } = await base().range(offset, offset + limit);
+      .in("driver_id", driverIds);
+    if (statusFilter) query = query.or(statusFilter);
+    return orderDriverTripList(query, opts?.preferStarted === true);
+  };
+  const paginate = opts?.limit != null || opts?.offset != null;
+  if (paginate) {
+    const limit = opts?.limit ?? DRIVER_TRIPS_PAGE_SIZE;
+    const offset = opts?.offset ?? 0;
+    const [from, to] = driverTripListRange(offset, limit, opts?.exactLimit === true);
+    const { data, error } = await base().range(from, to);
     if (error) return { error: new Error(error.message), trips: [] };
     const raw = ((data ?? []) as unknown as TripRow[]).map(tripRowToDriverTripRow);
     const hasMore = raw.length > limit;
@@ -988,64 +1080,99 @@ function dedupeDriverTripsForDriverOrgs<
   return rows.filter((r) => kept.has(r));
 }
 
+function attachTripListAbort<T extends { abortSignal: (signal: AbortSignal) => T }>(
+  query: T,
+  signal?: AbortSignal,
+): T {
+  return signal ? query.abortSignal(signal) : query;
+}
+
+function tripListWasAborted(
+  signal: AbortSignal | undefined,
+  error: { message?: string } | null,
+): boolean {
+  if (signal?.aborted) return true;
+  return /abort/i.test(String(error?.message ?? ""));
+}
+
 /** Trips assigned to any of the given driver ids (driver app: user may have multiple driver rows across orgs). */
 export async function getTripsByDriverIds(
   driverIds: string[],
-  opts?: PageOpts,
+  opts?: DriverTripListOpts,
 ): Promise<{ error: Error | null; trips: DriverTripRow[]; hasMore?: boolean }> {
   if (driverIds.length === 0) return { error: null, trips: [] };
-  // Orgs these driver rows belong to — used to drop other orgs' copies of the
-  // same load (see dedupeDriverTripsForDriverOrgs). Best-effort: if this read
-  // fails the set stays empty and no org filtering is applied, which is the
-  // pre-existing behavior.
-  const driverOrgIds = new Set<string>();
-  try {
-    const { data: driverRows } = await supabase()
-      .from("drivers")
-      .select("organization_id")
-      .in("id", driverIds);
-    for (const r of (driverRows ?? []) as { organization_id?: string | null }[]) {
-      const org = String(r.organization_id ?? "").trim();
-      if (org !== "") driverOrgIds.add(org);
-    }
-  } catch {
-    // leave driverOrgIds empty
-  }
-  const base = () =>
-    supabase()
+  if (opts?.signal?.aborted) return { error: null, trips: [] };
+  // Org ids are only used after the trip read (awarded-load dedupe). Start that
+  // lookup together with the view so the dashboard does not wait on it.
+  const driverOrgIdsPromise = loadDriverOrganizationIds(
+    driverIds,
+    opts?.knownOrganizationIds,
+  );
+  const statusFilter = closedStatusOrFilter(opts?.excludeStatuses);
+  const statusFiltered = statusFilter != null;
+  const base = () => {
+    let query = supabase()
       .from("trips_driver_view")
       .select("*")
-      .in("driver_id", driverIds)
-      .order("created_at", { ascending: false });
-  if (opts != null) {
-    const limit = opts.limit ?? DRIVER_TRIPS_PAGE_SIZE;
-    const offset = opts.offset ?? 0;
-    const { data, error } = await base().range(offset, offset + limit);
+      .in("driver_id", driverIds);
+    if (statusFilter) query = query.or(statusFilter);
+    return orderDriverTripList(query, opts?.preferStarted === true);
+  };
+  const paginate = opts?.limit != null || opts?.offset != null;
+  if (paginate) {
+    const limit = opts?.limit ?? DRIVER_TRIPS_PAGE_SIZE;
+    const offset = opts?.offset ?? 0;
+    const [from, to] = driverTripListRange(offset, limit, opts?.exactLimit === true);
+    const [driverOrgIds, viewRes] = await Promise.all([
+      driverOrgIdsPromise,
+      attachTripListAbort(base().range(from, to), opts?.signal),
+    ]);
+    const { data, error } = viewRes;
+    if (tripListWasAborted(opts?.signal, error)) return { error: null, trips: [] };
     if (error) {
-      const fallback = await getTripsByDriverIdsFromTripsTable(driverIds, opts);
+      const fallback = await getTripsByDriverIdsFromTripsTable(
+        driverIds,
+        opts,
+        driverOrgIds,
+      );
       return fallback.error ? { error: new Error(error.message), trips: [] } : fallback;
     }
     const raw = (data ?? []) as DriverTripRow[];
+    // An empty filtered page means "no open trips", not "the view is missing".
+    // Falling back here would download history for every idle driver.
     if (raw.length === 0) {
+      if (statusFiltered) return { error: null, trips: [] };
       return getTripsByDriverIdsFromTripsTable(driverIds, opts, driverOrgIds);
     }
     // hasMore is computed from the RAW page (what the server had) so paging still
     // advances correctly when dedupe removes rows from this page.
-    const hasMore = raw.length > limit;
-    const page = hasMore ? raw.slice(0, limit) : raw;
+    // Dashboard exactLimit already asked the database for `limit` rows; slice
+    // is only a deterministic ceiling if the response is longer than requested.
+    const hasMore = opts?.exactLimit === true ? false : raw.length > limit;
+    const page = raw.length > limit ? raw.slice(0, limit) : raw;
     return {
       error: null,
       trips: dedupeDriverTripsForDriverOrgs(page, driverOrgIds),
       hasMore,
     };
   }
-  const { data, error } = await base();
+  const [driverOrgIds, viewRes] = await Promise.all([
+    driverOrgIdsPromise,
+    attachTripListAbort(base(), opts?.signal),
+  ]);
+  const { data, error } = viewRes;
+  if (tripListWasAborted(opts?.signal, error)) return { error: null, trips: [] };
   if (error) {
-    const fallback = await getTripsByDriverIdsFromTripsTable(driverIds, opts, driverOrgIds);
+    const fallback = await getTripsByDriverIdsFromTripsTable(
+      driverIds,
+      opts,
+      driverOrgIds,
+    );
     return fallback.error ? { error: new Error(error.message), trips: [] } : fallback;
   }
   const raw = (data ?? []) as DriverTripRow[];
   if (raw.length === 0) {
+    if (statusFiltered) return { error: null, trips: [] };
     return getTripsByDriverIdsFromTripsTable(driverIds, opts, driverOrgIds);
   }
   return { error: null, trips: dedupeDriverTripsForDriverOrgs(raw, driverOrgIds) };
@@ -1056,7 +1183,7 @@ export async function getTripsByDriverIds(
  * Do not SELECT indents here — driver RLS blocks that read. */
 export async function getDriverUiTripsByDriverIds(
   driverIds: string[],
-  opts?: PageOpts,
+  opts?: DriverTripListOpts,
 ): Promise<{ error: Error | null; trips: TripRow[]; hasMore?: boolean }> {
   const res = await getTripsByDriverIds(driverIds, opts);
   if (res.error) return { error: res.error, trips: [] };
@@ -1520,28 +1647,12 @@ export async function getDriverAvailabilityByPhoneGlobal(
       trip_label?: string | null;
     };
     if (obj.is_busy === true) {
-      const busyTripId = obj.trip_id ?? null;
-      if (
-        busyTripId &&
-        opts?.excludeTripId &&
-        busyTripId === opts.excludeTripId
-      ) {
-        return {
-          error: null,
-          result: {
-            isBusy: false,
-            driverId: null,
-            ongoingTripId: null,
-            ongoingTripLabel: null,
-          },
-        };
-      }
       return {
         error: null,
         result: {
           isBusy: true,
           driverId: null,
-          ongoingTripId: busyTripId,
+          ongoingTripId: obj.trip_id ?? null,
           ongoingTripLabel: obj.trip_label ?? "another active trip",
         },
       };
@@ -2280,6 +2391,8 @@ export interface UpdateTripAssignmentData {
   vehicle_id?: string | null;
   /** Ad-hoc vehicle number when vehicle_id is null (e.g. aggregate trip). */
   vehicle_display_number?: string | null;
+  /** Cached label. Used when driver_id is unchanged (edit) or trigger is missing. */
+  driver_display_name?: string | null;
 }
 
 export interface UpdateTripSupplierData {
@@ -2318,11 +2431,27 @@ export async function updateTripAssignment(
   data: UpdateTripAssignmentData,
   options?: UpdateTripAssignmentOptions,
 ): Promise<{ error: Error | null; trip: TripRow | null }> {
-  const { data: tripGate, error: tripGateError } = await supabase()
+  const tripGatePromise = supabase()
     .from("trips")
     .select("id, status, completed_at, started_at")
     .eq("id", tripId)
     .maybeSingle();
+  const driverConflictPromise =
+    data.driver_id != null
+      ? getDriverOngoingTrip(data.driver_id, tripId)
+      : Promise.resolve(null);
+  const vehicleConflictPromise =
+    data.vehicle_id != null
+      ? getVehicleOngoingTrip(data.vehicle_id, tripId)
+      : Promise.resolve(null);
+
+  const [tripGateResult, driverConflict, vehicleConflict] = await Promise.all([
+    tripGatePromise,
+    driverConflictPromise,
+    vehicleConflictPromise,
+  ]);
+  const tripGate = tripGateResult.data;
+  const tripGateError = tripGateResult.error;
   if (tripGateError) return { error: new Error(tripGateError.message), trip: null };
   if (!tripGate) return { error: new Error("Trip not found"), trip: null };
   if (isTripCompleted(tripGate as Pick<TripRow, "status" | "completed_at">)) {
@@ -2332,28 +2461,24 @@ export async function updateTripAssignment(
     };
   }
 
-  if (data.driver_id != null) {
-    const { error: conflictCheckError, trip: ongoingTrip } =
-      await getDriverOngoingTrip(data.driver_id, tripId);
-    if (conflictCheckError) return { error: conflictCheckError, trip: null };
-    if (ongoingTrip != null) {
+  if (driverConflict) {
+    if (driverConflict.error) return { error: driverConflict.error, trip: null };
+    if (driverConflict.trip != null) {
       return {
         error: new Error(
-          `Driver is already assigned to ${getTripIdentifierLabel(ongoingTrip)}. Complete or unassign that trip first.`,
+          `Driver is already assigned to ${getTripIdentifierLabel(driverConflict.trip)}. Complete or unassign that trip first.`,
         ),
         trip: null,
       };
     }
   }
 
-  if (data.vehicle_id != null) {
-    const { error: vehicleConflictError, trip: vehicleBusyTrip } =
-      await getVehicleOngoingTrip(data.vehicle_id, tripId);
-    if (vehicleConflictError) return { error: vehicleConflictError, trip: null };
-    if (vehicleBusyTrip != null) {
+  if (vehicleConflict) {
+    if (vehicleConflict.error) return { error: vehicleConflict.error, trip: null };
+    if (vehicleConflict.trip != null) {
       return {
         error: new Error(
-          `Vehicle is already assigned to ${getTripIdentifierLabel(vehicleBusyTrip)}. Complete or unassign that trip first.`,
+          `Vehicle is already assigned to ${getTripIdentifierLabel(vehicleConflict.trip)}. Complete or unassign that trip first.`,
         ),
         trip: null,
       };
@@ -2367,6 +2492,8 @@ export async function updateTripAssignment(
   if (data.vehicle_id !== undefined) updates.vehicle_id = data.vehicle_id;
   if (data.vehicle_display_number !== undefined)
     updates.vehicle_display_number = data.vehicle_display_number;
+  if (data.driver_display_name !== undefined)
+    updates.driver_display_name = data.driver_display_name?.trim() || null;
   // Reassign preserves trip stage — only driver_id and vehicle_id change.
   // Only push status → 'assigned' on first assign before the trip has started.
   if (
@@ -2391,7 +2518,41 @@ export async function updateTripAssignment(
     return { error: new Error(TRIP_REASSIGN_STALE_ERROR), trip: null };
   }
 
-  const updatedTrip = row as TripRow | null;
+  let updatedTrip = row as TripRow | null;
+  const wantedDisplay = data.driver_display_name?.trim() || null;
+  const wantedPlate = data.vehicle_display_number?.trim() || null;
+  if (
+    updatedTrip &&
+    data.driver_display_name !== undefined &&
+    (updatedTrip.driver_display_name ?? null) !== wantedDisplay
+  ) {
+    const { data: patched } = await supabase()
+      .from("trips")
+      .update({
+        driver_display_name: wantedDisplay,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", tripId)
+      .select()
+      .maybeSingle();
+    if (patched) updatedTrip = patched as TripRow;
+  }
+  if (
+    updatedTrip &&
+    data.vehicle_display_number !== undefined &&
+    (updatedTrip.vehicle_display_number ?? "").trim() !== (wantedPlate ?? "")
+  ) {
+    const { data: patchedPlate } = await supabase()
+      .from("trips")
+      .update({
+        vehicle_display_number: wantedPlate,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", tripId)
+      .select()
+      .maybeSingle();
+    if (patchedPlate) updatedTrip = patchedPlate as TripRow;
+  }
 
   // TripAssigned (docs/architecture/10-platform-event-catalog.md) — the single point where a
   // driver assignment on this trip becomes authoritative. Fires once per successful commit;
@@ -2418,32 +2579,34 @@ export async function updateTripAssignment(
 
   if (options?.changedBy != null && updatedTrip) {
     const changedBy = options.changedBy;
-    const { insertTripAssignmentAudit } =
-      await import("./trip-assignment-audit.service");
-    const hadPrev =
-      (options?.driverIdPrev != null && options.driverIdPrev !== "") ||
-      (options?.vehicleIdPrev != null && options.vehicleIdPrev !== "");
-    const { error: auditError, row: auditRow } = await insertTripAssignmentAudit({
-      trip_id: tripId,
-      event_type: hadPrev ? "reassignment" : "assignment",
-      driver_id_prev: options?.driverIdPrev ?? null,
-      driver_id_new: updatedTrip.driver_id ?? null,
-      vehicle_id_prev: options?.vehicleIdPrev ?? null,
-      vehicle_id_new: updatedTrip.vehicle_id ?? null,
-      changed_by: changedBy,
-    });
-    if (auditError && __DEV__) {
-      console.warn(
-        "[trips] Assignment change log not recorded:",
-        auditError.message,
-      );
-    }
-    if (auditRow) {
+    const auditTrip = updatedTrip;
+    void (async () => {
+      const { insertTripAssignmentAudit } =
+        await import("./trip-assignment-audit.service");
+      const hadPrev =
+        (options?.driverIdPrev != null && options.driverIdPrev !== "") ||
+        (options?.vehicleIdPrev != null && options.vehicleIdPrev !== "");
+      const { error: auditError, row: auditRow } = await insertTripAssignmentAudit({
+        trip_id: tripId,
+        event_type: hadPrev ? "reassignment" : "assignment",
+        driver_id_prev: options?.driverIdPrev ?? null,
+        driver_id_new: auditTrip.driver_id ?? null,
+        vehicle_id_prev: options?.vehicleIdPrev ?? null,
+        vehicle_id_new: auditTrip.vehicle_id ?? null,
+        changed_by: changedBy,
+      });
+      if (auditError && __DEV__) {
+        console.warn(
+          "[trips] Assignment change log not recorded:",
+          auditError.message,
+        );
+      }
+      if (!auditRow) return;
       const { postAssignmentUpdateAfterTripSave } = await import(
         "@/features/chat/services/chatAssignmentBridge.service"
       );
-      void postAssignmentUpdateAfterTripSave({
-        trip: updatedTrip,
+      await postAssignmentUpdateAfterTripSave({
+        trip: auditTrip,
         updateData: data,
         auditRow,
       }).catch((e) => {
@@ -2451,7 +2614,7 @@ export async function updateTripAssignment(
           console.warn("[trips] Assignment chat broadcast failed:", e);
         }
       });
-    }
+    })();
   }
 
   return { error: null, trip: updatedTrip };
@@ -2684,7 +2847,7 @@ export async function assignAggregateTripDriverByPhone(
   vehicleDisplayNumber?: string | null,
   vehicleId?: string | null,
   previousDriverId?: string | null,
-  /** Dispatcher-entered name — stored on drivers.name so hub does not show UNASSIGNED. */
+  /** Dispatcher-entered trip label. Sent as optional p_driver_name; persisted on trips.driver_display_name. */
   driverName?: string | null,
   /** Explicit own-asset vs third-party choice (Issue B). Omitted/undefined = NULL, preserving legacy AGGREGATE-default behavior. */
   executionType?: "ASSET" | "AGGREGATE" | null,
@@ -2836,9 +2999,20 @@ export async function assignAggregateTripDriverByPhone(
     };
   }
   const driverLinked = obj.driver_linked === true;
-  const resultTrip = (obj.trip ?? null) as TripRow | null;
+  let resultTrip = (obj.trip ?? null) as TripRow | null;
   if (resultTrip && usableDriverName) {
     resultTrip.driver_display_name = usableDriverName;
+    const { error: labelErr, trip: labeled } = await updateTripAssignment(tripId, {
+      driver_display_name: usableDriverName,
+    });
+    if (labelErr) {
+      console.warn(
+        "[trips] trip-local driver name was not saved after assignment:",
+        labelErr.message,
+      );
+    } else if (labeled) {
+      resultTrip = labeled;
+    }
   }
   if (resultTrip) {
     const { postAggregateAssignmentMessage } = await import(
@@ -3613,8 +3787,11 @@ export async function getActiveDriverAssignments(
 }
 
 /** @deprecated Use {@link getActiveDriverAssignments} for trip-label context. */
-export async function getActiveDriverIds(orgId: string): Promise<Set<string>> {
-  const { map } = await getActiveDriverAssignments(orgId);
+export async function getActiveDriverIds(
+  orgId: string,
+  excludeTripId?: string,
+): Promise<Set<string>> {
+  const { map } = await getActiveDriverAssignments(orgId, excludeTripId);
   return map.busyDriverIds;
 }
 

@@ -1,8 +1,10 @@
 import {
   canAddMoreTripDocs,
   canMutateTripVaultDoc,
+  viewerCanUploadTripDocuments,
   formatLrVaultDateLabel,
   formatLrVaultNumberLabel,
+  formatSelectedVaultFileMeta,
   formatInvoiceVaultNumberLabel,
   formatVaultDocDate,
   isDriverPodVaultDoc,
@@ -38,6 +40,16 @@ describe("isPdfTripDoc", () => {
         storagePath: "trip-1/lr/abc.pdf?token=1",
       }),
     ).toBe(true);
+  });
+
+  it("does not treat an image cheque as a PDF when the slot type is PDF", () => {
+    expect(
+      isPdfTripDoc({
+        type: "PDF",
+        fileName: "cancelled-cheque.jpg",
+        storagePath: "org/kyc/cheque.jpg",
+      }),
+    ).toBe(false);
   });
 
   it("does not treat images as PDFs", () => {
@@ -91,6 +103,30 @@ describe("canMutateTripVaultDoc", () => {
     expect(isDriverPodVaultDoc({ id: "manifest", category: "trip" })).toBe(
       false,
     );
+  });
+
+  it("uses the same party rule for cancelled and pre-assignment trips", () => {
+    // The helper has no trip-status argument. Completion is not a lock, and
+    // no product rule names a stage where an authorized party must be refused.
+    const clientOnCancelledOrPreAssignment = {
+      viewerOrganizationId: "client-org",
+      tripOrganizationId: "trip-org",
+      clientOrganizationId: "client-org",
+    };
+    expect(viewerCanUploadTripDocuments(clientOnCancelledOrPreAssignment)).toBe(true);
+    expect(
+      viewerCanUploadTripDocuments({
+        ...clientOnCancelledOrPreAssignment,
+        viewerOrganizationId: "other-org",
+      }),
+    ).toBe(false);
+    expect(
+      canMutateTripVaultDoc({
+        doc: { id: "lr", category: "lr" },
+        canUploadTripDocs: true,
+        tripCompleted: true,
+      }),
+    ).toBe(true);
   });
 });
 
@@ -208,6 +244,41 @@ describe("formatInvoiceVaultNumberLabel", () => {
     expect(formatInvoiceVaultNumberLabel("123456/897654/345678")).toBe(
       "Invoice No. 123456/897654/345678",
     );
+  });
+});
+
+describe("formatSelectedVaultFileMeta", () => {
+  it("shows the trip LR number when the selected file has none", () => {
+    expect(
+      formatSelectedVaultFileMeta(
+        {
+          id: "bank-1",
+          label: "Bank Docs",
+          type: "JPG",
+          storagePath: "org/kyc/cheque.jpg",
+          slotType: "bank_docs",
+        },
+        "Uploaded",
+        { documentNumber: "AI3583" },
+      ),
+    ).toBe("LR No. AI3583");
+  });
+
+  it("shows the selected file LR when present", () => {
+    expect(
+      formatSelectedVaultFileMeta(
+        {
+          id: "lr-1",
+          label: "LR",
+          type: "PDF",
+          storagePath: "trip/lr/a.pdf",
+          slotType: "lr",
+          documentNumber: "B12",
+        },
+        "Uploaded",
+        { documentNumber: "AI3583" },
+      ),
+    ).toBe("LR No. B12");
   });
 });
 

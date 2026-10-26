@@ -111,7 +111,9 @@ export function deriveComplianceQueueReadiness(summary: ComplianceTripSummary): 
     balance: summary.balance ? [summary.balance] : [],
   };
   const advanceGuard = evaluateCompliancePaymentGuard("compliance_advance", bucket);
-  const balanceGuard = evaluateCompliancePaymentGuard("compliance_balance", bucket);
+  const balanceGuard = evaluateCompliancePaymentGuard("compliance_balance", bucket, {
+    podReceived: summary.hardCopyPod.received,
+  });
 
   let advance: CompliancePaymentLane;
   if (summary.advance) {

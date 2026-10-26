@@ -14,15 +14,32 @@ import {
   logTripHardCopyPodCourier,
 } from "@/features/trips/services/tripDocumentLrPod.service";
 
-jest.mock("@/features/trips/components/trip-detail/HardCopyPodPhotoUpload", () => ({
-  HardCopyPodPhotoUpload: () => null,
-}));
+jest.mock("@/features/trips/components/trip-detail/HardCopyPodPhotoUpload", () => {
+  const { useEffect } = require("react");
+  return {
+    HardCopyPodPhotoUpload: ({
+      onUploadedChange,
+    }: {
+      onUploadedChange?: (uploaded: boolean) => void;
+    }) => {
+      useEffect(() => {
+        onUploadedChange?.(true);
+      }, [onUploadedChange]);
+      return null;
+    },
+  };
+});
 
 jest.mock("lucide-react-native", () => ({
   Calendar: () => null,
+  Clock: () => null,
 }));
 
 jest.mock("@react-native-community/datetimepicker", () => "DateTimePicker");
+
+jest.mock("react-native-calendars", () => ({
+  Calendar: () => null,
+}));
 
 jest.mock("@/features/trips/services/tripDocumentLrPod.service", () => {
   const actual = jest.requireActual("@/features/trips/services/tripDocumentLrPod.service");
@@ -97,8 +114,11 @@ describe("LogHardCopyPodModal dispatch date", () => {
 
   it("blocks save when the dispatch date is absent", async () => {
     const screen = renderModal();
+    await screen.findByText("Upload the hard-copy POD");
+    fireEvent.press(screen.getByText("Next"));
+    fireEvent.press(screen.getByText("Next"));
     await screen.findByText("DHL");
-    fireEvent.press(screen.getByLabelText("Save hard copy POD"));
+    fireEvent.press(screen.getByText("Save"));
     expect(await screen.findByText("Dispatch date is required.")).toBeTruthy();
     expect(logCourier).not.toHaveBeenCalled();
   });

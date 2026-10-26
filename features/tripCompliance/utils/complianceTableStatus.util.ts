@@ -311,6 +311,16 @@ export function missingOrRejectedRequiredTripDocs(summary: ComplianceTripSummary
   );
 }
 
+/**
+ * Optional slots (Aadhaar, permit, tax, pollution) never belong here.
+ * Resubmit is a rework of the required trip files Compliance asked for —
+ * do not treat a remapped Document Upload stage or empty vehicle/driver
+ * slots as a client-side lock.
+ */
+export function missingRequiredResubmitFiles(summary: ComplianceTripSummary): string[] {
+  return missingOrRejectedRequiredTripDocs(summary);
+}
+
 /** Active finance reject. Shown on Document Upload → Declined by finance. */
 export function isFinanceDeclinedForPendingDocs(summary: ComplianceTripSummary): boolean {
   return isActiveFinanceReject(summary);

@@ -9,13 +9,18 @@ import {
   useStoryPhoneFrameMetrics,
 } from "@/features/network/components/StoryMobilePopupShell";
 import type { StoryOwnerBidRow } from "@/features/network/utils/bidding/storyOwnerBids.util";
-import { storyOwnerBidsLabel } from "@/features/network/utils/bidding/storyOwnerBids.util";
+import {
+  formatStoryBidSubmittedAt,
+  storyOwnerBidsLabel,
+} from "@/features/network/utils/bidding/storyOwnerBids.util";
 import { formatINR } from "@/lib/format";
 import Feather from "@expo/vector-icons/Feather";
-import { Gavel, Truck, X, Zap } from "lucide-react-native";
-import { useMemo, useState } from "react";
+import { Clock3, Gavel, Radio, Truck, X, Zap } from "lucide-react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   Platform,
   Pressable,
   ScrollView,
@@ -76,51 +81,102 @@ function statusTone(status: string): { bg: string; text: string; label: string }
 
 function ChannelIcon({ channel }: { channel: StoryOwnerBidRow["channel"] }) {
   if (channel === "pulse_story") {
-    return <Zap size={9} color={INK} strokeWidth={2.25} />;
+    return <Zap size={11} color={INK} strokeWidth={2.25} />;
   }
   if (channel === "fleet_owner") {
-    return <Gavel size={9} color={INK} strokeWidth={2.25} />;
+    return <Gavel size={11} color={INK} strokeWidth={2.25} />;
   }
-  return <Truck size={9} color={INK} strokeWidth={2.25} />;
+  return <Truck size={11} color={INK} strokeWidth={2.25} />;
 }
 
-function BidRowCard({ row }: { row: StoryOwnerBidRow }) {
+function LiveDot() {
+  const pulse = useRef(new Animated.Value(0.45)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 700,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0.4,
+          duration: 700,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+  return (
+    <View style={styles.liveDotWrap}>
+      <Animated.View style={[styles.liveDotRing, { opacity: pulse, transform: [{ scale: pulse }] }]} />
+      <View style={styles.liveDotCore} />
+    </View>
+  );
+}
+
+function BidRowCard({
+  row,
+  latest,
+}: {
+  row: StoryOwnerBidRow;
+  latest?: boolean;
+}) {
   const tone = statusTone(row.status);
   const isFleetOwnerBid = row.channel === "fleet_owner";
+  const submittedAt = formatStoryBidSubmittedAt(row.createdAt);
+  const pending = tone.label === "Pending";
 
   return (
-    <View style={styles.bidCard}>
+    <View style={[styles.bidCard, latest && styles.bidCardLatest]}>
       <PartyAvatar
         name={row.bidderName}
         avatarUrl={row.bidderAvatarUrl}
         avatarSeed={row.bidderAvatarSeed}
         initialsColorSeed={row.bidderOrgId}
         entityType={isFleetOwnerBid ? "driver" : "supplier"}
-        size={32}
+        size={40}
+        shape="circle"
       />
       <View style={styles.bidMain}>
         <View style={styles.bidTopRow}>
-          <Text style={styles.bidderName} numberOfLines={2}>
+          <Text style={styles.bidderName} numberOfLines={1}>
             {row.bidderName}
           </Text>
-          <Text style={styles.bidAmount}>{formatINR(row.amount)}</Text>
+          <View style={[styles.statusPill, { backgroundColor: tone.bg }]}>
+            {pending ? <LiveDot /> : null}
+            <Text style={[styles.statusText, { color: tone.text }]}>{tone.label}</Text>
+          </View>
         </View>
+        <Text style={styles.bidAmount}>{formatINR(row.amount)}</Text>
         <View style={styles.bidMetaRow}>
           <View style={styles.channelPill}>
             <ChannelIcon channel={row.channel} />
             <Text style={styles.channelText}>{row.channelLabel}</Text>
           </View>
+          {latest ? (
+            <View style={styles.latestPill}>
+              <Radio size={10} color={Theme.positive} strokeWidth={2.4} />
+              <Text style={styles.latestTag}>Latest</Text>
+            </View>
+          ) : null}
+        </View>
+        <View style={styles.bidTimeRow}>
+          <Clock3 size={10} color={MUTED} strokeWidth={2.2} />
+          <Text style={styles.bidTime} numberOfLines={1}>
+            {submittedAt || timeAgo(row.createdAt)}
+          </Text>
           <Text style={styles.bidIdText}>{row.identifier}</Text>
-          <Text style={styles.bidTime}>{timeAgo(row.createdAt)}</Text>
         </View>
         {row.note?.trim() ? (
           <Text style={styles.bidNote} numberOfLines={2}>
             {row.note.trim()}
           </Text>
         ) : null}
-      </View>
-      <View style={[styles.statusPill, { backgroundColor: tone.bg }]}>
-        <Text style={[styles.statusText, { color: tone.text }]}>{tone.label}</Text>
       </View>
     </View>
   );
@@ -132,6 +188,7 @@ export type StoryOwnerBidsSheetProps = {
   loading: boolean;
   indentId: string | null;
   indentLabel?: string | null;
+  latestBidKey?: string | null;
   onClose: () => void;
   onOpenReviewHub?: () => void;
 };
@@ -142,6 +199,7 @@ export function StoryOwnerBidsSheet({
   loading,
   indentId,
   indentLabel,
+  latestBidKey,
   onClose,
   onOpenReviewHub,
 }: StoryOwnerBidsSheetProps) {
@@ -158,7 +216,9 @@ export function StoryOwnerBidsSheet({
   const storyCount = bids.filter((b) => b.channel === "pulse_story").length;
   const loadCount = bids.filter((b) => b.channel === "load_center").length;
   const fleetCount = bids.filter((b) => b.channel === "fleet_owner").length;
-  const listMaxHeight = Math.min(Math.max(filtered.length, 1) * 74 + 10, windowHeight * 0.42);
+  const pendingCount = bids.filter((b) => statusTone(b.status).label === "Pending").length;
+  const highest = bids.reduce<number>((max, row) => Math.max(max, row.amount || 0), 0);
+  const listMaxHeight = Math.min(Math.max(filtered.length, 1) * 118 + 10, windowHeight * 0.46);
   const bottomPad = sheetBottomPad ?? insets.bottom + 14;
 
   return (
@@ -173,9 +233,15 @@ export function StoryOwnerBidsSheet({
           <View style={styles.header}>
             <View style={styles.headerLeading}>
               <View style={styles.headerIcon}>
-                <Gavel size={12} color={INK} strokeWidth={2.25} />
+                <Gavel size={16} color={INK} strokeWidth={2.25} />
               </View>
               <View style={styles.headerCopy}>
+                <View style={styles.liveRow}>
+                  {pendingCount > 0 ? <LiveDot /> : null}
+                  <Text style={styles.liveKicker}>
+                    {pendingCount > 0 ? "Live auction" : "Bid desk"}
+                  </Text>
+                </View>
                 <Text style={styles.title}>{storyOwnerBidsLabel(bids.length, loading)}</Text>
                 {indentLabel ? (
                   <Text style={styles.subtitle} numberOfLines={1}>
@@ -191,28 +257,49 @@ export function StoryOwnerBidsSheet({
               accessibilityRole="button"
               accessibilityLabel="Close"
             >
-              <X size={13} color={MUTED} strokeWidth={2.25} />
+              <X size={16} color={INK} strokeWidth={2.25} />
             </Pressable>
           </View>
+
+          {!loading && bids.length > 0 ? (
+            <View style={styles.ticker}>
+              <View style={styles.tickerCell}>
+                <Text style={styles.tickerLabel}>Highest</Text>
+                <Text style={styles.tickerValue}>{formatINR(highest)}</Text>
+              </View>
+              <View style={styles.tickerRule} />
+              <View style={styles.tickerCell}>
+                <Text style={styles.tickerLabel}>Pending</Text>
+                <Text style={styles.tickerValue}>{pendingCount}</Text>
+              </View>
+              <View style={styles.tickerRule} />
+              <View style={styles.tickerCell}>
+                <Text style={styles.tickerLabel}>Story</Text>
+                <Text style={styles.tickerValue}>{storyCount}</Text>
+              </View>
+            </View>
+          ) : null}
 
           <View style={styles.filterRow}>
             {(
               [
-                { id: "all" as const, label: `All (${bids.length})` },
-                { id: "pulse_story" as const, label: `Story (${storyCount})` },
-                { id: "load_center" as const, label: `Load (${loadCount})` },
-                { id: "fleet_owner" as const, label: `Fleet (${fleetCount})` },
+                { id: "all" as const, label: "All", count: bids.length, Icon: Radio },
+                { id: "pulse_story" as const, label: "Story", count: storyCount, Icon: Zap },
+                { id: "load_center" as const, label: "Load", count: loadCount, Icon: Truck },
+                { id: "fleet_owner" as const, label: "Fleet", count: fleetCount, Icon: Gavel },
               ] as const
             ).map((chip) => {
               const active = filter === chip.id;
+              const Icon = chip.Icon;
               return (
                 <Pressable
                   key={chip.id}
                   onPress={() => setFilter(chip.id)}
                   style={[styles.filterChip, active && styles.filterChipActive]}
                 >
+                  <Icon size={11} color={active ? INK : MUTED} strokeWidth={2.3} />
                   <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
-                    {chip.label}
+                    {chip.label} {chip.count}
                   </Text>
                 </Pressable>
               );
@@ -240,7 +327,11 @@ export function StoryOwnerBidsSheet({
               keyboardShouldPersistTaps="handled"
             >
               {filtered.map((row) => (
-                <BidRowCard key={row.key} row={row} />
+                <BidRowCard
+                  key={row.key}
+                  row={row}
+                  latest={latestBidKey != null && row.key === latestBidKey}
+                />
               ))}
             </ScrollView>
           )}
@@ -267,9 +358,9 @@ export function StoryOwnerBidsSheet({
 const styles = StyleSheet.create({
   sheet: {
     backgroundColor: Theme.cardWhite,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingTop: 8,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingTop: 10,
     paddingHorizontal: Layout.screenPaddingHorizontal,
     maxHeight: "88%",
     ...Platform.select({
@@ -282,30 +373,30 @@ const styles = StyleSheet.create({
   },
   handle: {
     alignSelf: "center",
-    width: 28,
-    height: 3,
+    width: 36,
+    height: 4,
     borderRadius: 2,
     backgroundColor: Theme.borderMedium,
-    marginBottom: 8,
+    marginBottom: 12,
   },
   header: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
-    marginBottom: 8,
-    gap: 8,
+    marginBottom: 12,
+    gap: 10,
   },
   headerLeading: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+    alignItems: "flex-start",
+    gap: 10,
     flex: 1,
     minWidth: 0,
   },
   headerIcon: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: SKY,
     alignItems: "center",
     justifyContent: "center",
@@ -313,99 +404,185 @@ const styles = StyleSheet.create({
   headerCopy: {
     flex: 1,
     minWidth: 0,
-    gap: 1,
+    gap: 2,
+  },
+  liveRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  liveKicker: {
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    color: Theme.positive,
+  },
+  liveDotWrap: {
+    width: 12,
+    height: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  liveDotRing: {
+    position: "absolute",
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: Theme.positiveMuted,
+  },
+  liveDotCore: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: Theme.positive,
   },
   title: {
-    fontSize: 13,
+    fontSize: 20,
     fontWeight: "800",
     color: INK,
-    letterSpacing: -0.2,
+    letterSpacing: -0.4,
   },
   subtitle: {
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: "600",
     color: MUTED,
-    letterSpacing: 0.2,
-    textTransform: "uppercase",
+    letterSpacing: 0.15,
   },
   closeBtn: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: Theme.surfaceLight,
+    ...Platform.select({
+      web: { cursor: "pointer" } as object,
+      default: {},
+    }),
   },
   closeBtnPressed: {
     opacity: 0.85,
   },
+  ticker: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Theme.screenBackground,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+  },
+  tickerCell: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  tickerLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    color: MUTED,
+  },
+  tickerValue: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: INK,
+    letterSpacing: -0.3,
+    fontVariant: ["tabular-nums"],
+  },
+  tickerRule: {
+    width: StyleSheet.hairlineWidth,
+    height: 28,
+    backgroundColor: Theme.borderMedium,
+    marginHorizontal: 8,
+  },
   filterRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 5,
-    marginBottom: 8,
+    gap: 6,
+    marginBottom: 10,
   },
   filterChip: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    minHeight: 32,
     borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
     backgroundColor: Theme.screenBackground,
+    ...Platform.select({
+      web: { cursor: "pointer" } as object,
+      default: {},
+    }),
   },
   filterChipActive: {
     backgroundColor: SKY,
     borderColor: Theme.loadStatusTabBorderSoft,
   },
   filterChipText: {
-    fontSize: 9.5,
+    fontSize: 12,
     fontWeight: "700",
     color: MUTED,
-    letterSpacing: 0.15,
+    letterSpacing: 0.1,
   },
   filterChipTextActive: {
     color: INK,
   },
   loadingWrap: {
-    paddingVertical: 20,
+    paddingVertical: 28,
     alignItems: "center",
   },
   emptyWrap: {
-    paddingVertical: 14,
-    paddingHorizontal: 8,
-    gap: 4,
+    paddingVertical: 20,
+    paddingHorizontal: 10,
+    gap: 6,
   },
   emptyTitle: {
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: "800",
     color: INK,
     textAlign: "center",
   },
   emptyBody: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: "500",
     color: MUTED,
-    lineHeight: 14,
+    lineHeight: 17,
     textAlign: "center",
   },
   listContent: {
-    gap: 6,
-    paddingBottom: 2,
+    gap: 8,
+    paddingBottom: 4,
   },
   bidCard: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 8,
-    padding: 8,
-    borderRadius: 11,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
+    gap: 12,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
+    backgroundColor: Theme.cardWhite,
+    ...Platform.select({
+      web: { boxShadow: "0 4px 16px rgba(77, 54, 54, 0.06)" } as object,
+      default: {},
+    }),
+  },
+  bidCardLatest: {
+    borderColor: Theme.positive,
     backgroundColor: Theme.screenBackground,
   },
   bidMain: {
     flex: 1,
     minWidth: 0,
-    gap: 3,
+    gap: 4,
   },
   bidTopRow: {
     flexDirection: "row",
@@ -415,92 +592,116 @@ const styles = StyleSheet.create({
   },
   bidderName: {
     flex: 1,
-    fontSize: 11.5,
+    fontSize: 14,
     fontWeight: "800",
     color: Theme.textPrimaryDark,
-    letterSpacing: -0.15,
+    letterSpacing: -0.2,
   },
   bidAmount: {
-    fontSize: 11.5,
+    fontSize: 22,
     fontWeight: "800",
     color: INK,
+    letterSpacing: -0.5,
     fontVariant: ["tabular-nums"],
   },
   bidMetaRow: {
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
-    gap: 5,
+    gap: 6,
   },
   channelPill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: 999,
     backgroundColor: Theme.loadStatusTabTrayBg,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     borderColor: Theme.loadStatusTabBorderSoft,
   },
   channelText: {
-    fontSize: 8,
+    fontSize: 10,
     fontWeight: "800",
     color: INK,
     letterSpacing: 0.2,
     textTransform: "uppercase",
   },
+  latestPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
   bidIdText: {
-    fontSize: 8,
-    fontWeight: "700",
+    fontSize: 11,
+    fontWeight: "600",
     color: MUTED,
-    letterSpacing: 0.35,
+    letterSpacing: 0.2,
     fontVariant: ["tabular-nums"],
   },
+  bidTimeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
   bidTime: {
-    fontSize: 8,
+    flexShrink: 1,
+    fontSize: 11,
     fontWeight: "600",
     color: Theme.textMuted,
   },
+  latestTag: {
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+    color: Theme.positive,
+  },
   bidNote: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: "500",
     color: MUTED,
-    lineHeight: 14,
+    lineHeight: 16,
   },
   statusPill: {
-    paddingHorizontal: 5,
-    paddingVertical: 3,
-    borderRadius: 7,
-    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 999,
   },
   statusText: {
-    fontSize: 7.5,
+    fontSize: 10,
     fontWeight: "800",
-    letterSpacing: 0.25,
+    letterSpacing: 0.3,
     textTransform: "uppercase",
   },
   reviewBtn: {
-    marginTop: 9,
-    minHeight: 36,
-    borderRadius: 11,
+    marginTop: 12,
+    minHeight: 46,
+    borderRadius: 14,
     backgroundColor: Theme.buttonPrimary,
     borderWidth: Theme.buttonPrimaryBorderWidth,
     borderColor: Theme.buttonPrimaryBorder,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: 8,
+    ...Platform.select({
+      web: { cursor: "pointer" } as object,
+      default: {},
+    }),
   },
   reviewBtnPressed: {
     opacity: 0.92,
     transform: [{ scale: 0.99 }],
   },
   reviewBtnText: {
-    fontSize: 10.5,
+    fontSize: 14,
     fontWeight: "800",
     color: Theme.buttonPrimaryText,
-    letterSpacing: 0.4,
-    textTransform: "uppercase",
+    letterSpacing: -0.2,
   },
 });

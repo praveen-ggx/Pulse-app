@@ -123,21 +123,44 @@ function formatLoadingDate(iso: string | null | undefined): string {
   return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
 }
 
-export function latestDocNumber(
-  documents: ComplianceTripSummary["documents"],
+function matchesExportDocType(documentType: string | null | undefined, type: "lr" | "invoice"): boolean {
+  const raw = (documentType ?? "").toLowerCase().replace(/[\s-]+/g, "_");
+  if (type === "lr") return raw === "lr" || raw === "lorry" || raw === "lorry_receipt";
+  return raw === "invoice" || raw === "sales_invoice" || raw === "client_invoice";
+}
+
+function numberFromDocument(
+  documents: ComplianceTripSummary["documents"][number],
   type: "lr" | "invoice",
 ): string {
-  const matches = documents.filter((doc) => (doc.document_type ?? "").toLowerCase() === type);
-  if (matches.length === 0) return "";
-  const latest = [...matches].sort((a, b) =>
-    (b.uploaded_at ?? "").localeCompare(a.uploaded_at ?? ""),
-  )[0];
-  const raw = (latest?.document_number ?? "").trim();
+  const raw = (documents.document_number ?? "").trim();
   if (!raw) return "";
   if (type === "lr") {
     return parseLrFieldValues(raw).lrNumber?.trim() || raw.replace(/^lr\s*no\.?\s*/i, "").trim();
   }
   return readStoredInvoiceNumber(raw) || raw.replace(/^invoice\s*no\.?\s*/i, "").trim();
+}
+
+export function latestDocNumber(
+  documents: ComplianceTripSummary["documents"],
+  type: "lr" | "invoice",
+): string {
+  const matches = documents.filter((doc) => matchesExportDocType(doc.document_type, type));
+  if (matches.length === 0) return "";
+  const withNumber = matches
+    .map((doc) => ({
+      at: doc.uploaded_at ?? "",
+      number: numberFromDocument(doc, type),
+    }))
+    .filter((row) => row.number.length > 0)
+    .sort((a, b) => b.at.localeCompare(a.at));
+  return withNumber[0]?.number ?? "";
+}
+
+export function exportLrNumber(summary: ComplianceTripSummary): string {
+  const fromDocs = latestDocNumber(summary.documents, "lr");
+  if (fromDocs) return fromDocs;
+  return (summary.hardCopyPod.lrNumbers ?? []).map((value) => value.trim()).find(Boolean) ?? "";
 }
 
 function supplierCostTotal(trip: CommercialTrip): number | null {

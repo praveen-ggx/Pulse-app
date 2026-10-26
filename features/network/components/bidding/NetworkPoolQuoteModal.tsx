@@ -7,11 +7,24 @@
  */
 import { IndentBidAmountEntry } from "@/features/indents/components/bidding/IndentBidAmountEntry";
 import type { IndentRow } from "@/features/indents";
+import { PoolBidCommitSheet } from "@/features/network/components/bidding/PoolBidCommitSheet";
+import { loadMtLabel } from "@/features/network/components/pooled/NetworkLoadPoolCard";
 import {
   getOrgNetworkPool,
+  submitNetworkPoolQuote,
   submitNetworkQuote,
+  withdrawNetworkQuotes,
   type NetworkPoolManifest,
 } from "@/features/network/services/networkPools.service";
+import { getVehiclesByOrganization } from "@/features/vehicles/services/vehicles.service";
+import {
+  clampPoolVehicleCommit,
+  endOfLocalDayIso,
+} from "@/features/network/utils/networkPoolBidCommit.util";
+import {
+  forgetPoolCommitPreview,
+  rememberPoolCommitPreview,
+} from "@/features/network/utils/networkPoolCommitPreview.util";
 import {
   existingNetworkPoolQuoteAmount,
   type NetworkBidPool,
@@ -87,6 +100,11 @@ export function NetworkPoolQuoteModal({
 }) {
   const [entryError, setEntryError] = useState<string | undefined>();
   const [succeededCount, setSucceededCount] = useState(0);
+  const [draftAmount, setDraftAmount] = useState<number | null>(null);
+  const [commitOpen, setCommitOpen] = useState(false);
+  const [commitSubmitting, setCommitSubmitting] = useState(false);
+  const [commitError, setCommitError] = useState<string | undefined>();
+  const [fleetCount, setFleetCount] = useState<number | null>(null);
 
   const manifestKey = queryKeys.networkPools.manifest(orgId ?? "", pool?.id ?? "");
   const manifestQ = useQuery({
@@ -99,11 +117,27 @@ export function NetworkPoolQuoteModal({
 
   const handleClose = useCallback(() => {
     setEntryError(undefined);
+    setCommitOpen(false);
+    setDraftAmount(null);
+    setCommitError(undefined);
     onClose();
   }, [onClose]);
 
+  const fleetQ = useQuery({
+    queryKey: ["network-pool-fleet-count", orgId ?? ""],
+    queryFn: async () => {
+      const { vehicles } = await getVehiclesByOrganization(orgId as string);
+      return vehicles.filter((v) => (v.status || "").toLowerCase() !== "inactive").length;
+    },
+    enabled: !!orgId && !!pool,
+    staleTime: 60_000,
+  });
+
   const submitPoolQuote = useCallback(
-    async (amount: number): Promise<boolean> => {
+    async (
+      amount: number,
+      commit?: { vehicleLimit: number; validUntilIso: string },
+    ): Promise<boolean> => {
       if (!orgId || !pool) return false;
       if (!shown) {
         setEntryError("This pool is still being prepared. Try again in a moment.");
@@ -124,6 +158,34 @@ export function NetworkPoolQuoteModal({
       if (fresh.fingerprint !== shown.fingerprint) {
         setEntryError(NETWORK_POOL_CHANGED_MESSAGE);
         return false;
+      }
+
+      if (commit) {
+        const rpc = await submitNetworkPoolQuote(orgId, pool.key, amount, commit);
+        if (!rpc.error && rpc.result) {
+          invalidateIndents(orgId);
+          await Promise.allSettled([
+            queryClient.invalidateQueries({
+              queryKey: [...queryKeys.indents.finite(orgId), "my-direct-quotes"],
+            }),
+            queryClient.invalidateQueries({ queryKey: ["indents", "quote-counts"] }),
+            queryClient.invalidateQueries({ queryKey: manifestKey }),
+            queryClient.invalidateQueries({ queryKey: queryKeys.networkPools.lanes(orgId) }),
+            refetchMyQuotes(),
+            refetchMarketIndents(),
+          ]);
+          setSucceededCount(rpc.result.quoted);
+          return rpc.result.failed === 0;
+        }
+        const rpcMsg = rpc.error?.message ?? "";
+        const rpcMissing =
+          /could not find the function|schema cache|submit_network_pool_quote|not found|pgrst202|404/i.test(
+            rpcMsg,
+          ) || rpcMsg.trim() === "";
+        if (!rpcMissing) {
+          setEntryError(rpcMsg || "Could not send this pool bid.");
+          return false;
+        }
       }
 
       const result = await runPoolBidSubmission({
@@ -179,6 +241,60 @@ export function NetworkPoolQuoteModal({
     ],
   );
 
+  const withdrawPoolBid = useCallback(async (): Promise<boolean> => {
+    if (!orgId || !pool) return false;
+    const fromQuotes = (shown?.org_quotes ?? [])
+      .filter((quote) => (quote.status ?? "").trim().toLowerCase() === "pending")
+      .map((quote) => quote.indent_id);
+    const pendingIds = [
+      ...new Set(
+        [
+          ...fromQuotes,
+          ...(shown?.members ?? []).map((member) => member.id),
+          ...pool.members.map((member) => member.id),
+        ].filter(Boolean),
+      ),
+    ];
+    if (pendingIds.length === 0) {
+      setEntryError("No pending bid to cancel.");
+      return false;
+    }
+    const { error } = await withdrawNetworkQuotes(orgId, pendingIds);
+    if (error) {
+      setEntryError(error.message);
+      return false;
+    }
+    forgetPoolCommitPreview(pool.id);
+    invalidateIndents(orgId);
+    await Promise.allSettled([
+      queryClient.invalidateQueries({ queryKey: manifestKey }),
+      queryClient.invalidateQueries({
+        queryKey: [...queryKeys.indents.finite(orgId), "my-direct-quotes"],
+      }),
+      queryClient.invalidateQueries({ queryKey: ["indents", "quote-counts"] }),
+      refetchMyQuotes(),
+      refetchMarketIndents(),
+    ]);
+    return true;
+  }, [
+    orgId,
+    pool,
+    shown,
+    manifestKey,
+    invalidateIndents,
+    queryClient,
+    refetchMyQuotes,
+    refetchMarketIndents,
+  ]);
+
+  const openCommit = useCallback((amount: number) => {
+    setEntryError(undefined);
+    setCommitError(undefined);
+    setDraftAmount(amount);
+    setCommitOpen(true);
+    setFleetCount(fleetQ.data ?? null);
+  }, [fleetQ.data]);
+
   if (!pool) return null;
 
   const initialAmount =
@@ -193,7 +309,7 @@ export function NetworkPoolQuoteModal({
         ? "too many loads"
         : "preparing";
   const target =
-    pool.targetRateMin != null && pool.targetRateMin === pool.targetRateMax
+    pool.targetRateMin != null && pool.targetRateMin > 0
       ? pool.targetRateMin
       : undefined;
   const contextLine =
@@ -206,10 +322,12 @@ export function NetworkPoolQuoteModal({
           : "Preparing pool…";
 
   return (
+    <>
     <IndentBidAmountEntry
-      visible
+      visible={!commitOpen}
       onClose={handleClose}
       onSubmitAmount={submitPoolQuote}
+      onContinueAfterReview={openCommit}
       onSuccessDone={() =>
         onSuccess(`Quote sent for ${plural(succeededCount, "load")}`)
       }
@@ -217,7 +335,9 @@ export function NetworkPoolQuoteModal({
       origin={pool.key.pickup}
       destination={pool.key.drop}
       vehicleType={pool.key.vehicleType}
+      weightLabel={loadMtLabel(pool.weightKgMin, pool.weightKgMax)}
       ownerName="Network pool"
+      partyMark="pool"
       targetRateInr={target}
       initialAmount={initialAmount}
       isUpdate={isUpdate}
@@ -227,10 +347,59 @@ export function NetworkPoolQuoteModal({
         scopeNote: `Your rate will be quoted on all ${loadsLabel} in this pool. Each shipper reviews, counters and awards its own load.`,
         successTitle: "Pool quoted",
         successSubtitle: `Your rate has been quoted on all ${plural(succeededCount, "load")}.`,
+        withdrawScopeNote: `This removes your pending offers on all ${loadsLabel} in this pool. You can quote again if the loads are still open.`,
       }}
+      onWithdraw={isUpdate ? withdrawPoolBid : undefined}
+      onWithdrawSuccessDone={() => onSuccess("Bid cancelled")}
       validationError={entryError}
       onClearValidationError={() => setEntryError(undefined)}
       onInvalidAmount={() => setEntryError("Enter an amount greater than 0.")}
     />
+    <PoolBidCommitSheet
+      visible={commitOpen}
+      onClose={() => {
+        if (commitSubmitting) return;
+        setCommitOpen(false);
+        setDraftAmount(null);
+      }}
+      amount={draftAmount ?? 0}
+      poolSize={count ?? pool.members.length}
+      fleetVehicleCount={fleetCount ?? fleetQ.data ?? null}
+      routeLabel={`${pool.key.pickup} → ${pool.key.drop}`}
+      submitting={commitSubmitting}
+      error={commitError}
+      onSubmit={({ vehicleLimit, validUntilDate }) => {
+        if (draftAmount == null) return;
+        const validUntilIso = endOfLocalDayIso(validUntilDate);
+        if (!validUntilIso) {
+          setCommitError("Choose a valid-until date.");
+          return;
+        }
+        const limit = clampPoolVehicleCommit(vehicleLimit);
+        setCommitSubmitting(true);
+        setCommitError(undefined);
+        void submitPoolQuote(draftAmount, {
+          vehicleLimit: limit,
+          validUntilIso,
+        }).then((ok) => {
+          setCommitSubmitting(false);
+          if (!ok) {
+            setCommitError(entryError ?? "Could not send this pool bid.");
+            return;
+          }
+          rememberPoolCommitPreview(pool.id, {
+            vehicleLimit: limit,
+            awardedCount: 0,
+            validUntilDate,
+          });
+          setCommitOpen(false);
+          onSuccess(
+            `Quote sent · ${limit} vehicle${limit === 1 ? "" : "s"} committed until ${validUntilDate}`,
+          );
+          handleClose();
+        });
+      }}
+    />
+    </>
   );
 }

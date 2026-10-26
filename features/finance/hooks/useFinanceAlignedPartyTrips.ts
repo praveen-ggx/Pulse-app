@@ -1,29 +1,34 @@
 import { useMemo } from "react";
-import { aggregateCustomersFromRpc } from "@/features/finance/aggregation/aggregateCustomersFromRpc";
-import { allocateAmountsToLargestDueTrips } from "@/features/finance/utils/allocateToLargestDue";
-import { useCustomerLedgerInputsQuery, useSupplierLedgerAggregationQuery } from "@/lib/queries/useLedgerAggregationQuery";
+import {
+  customerLedgerLoadState,
+  deriveCustomerPartyLedger,
+} from "@/features/finance/utils/customerLedgerContract.util";
+import { useFinanceCustomerLedgerInputs, useSupplierLedgerAggregationQuery } from "@/lib/queries/useLedgerAggregationQuery";
 import type { TripRow } from "@/features/trips/services/trips.service";
 
 /**
- * Finance-aligned client totals. Trip rows come from the scoped party-page
- * catalog — never `useTripsQuery` (full org). The org-wide ledger RPC is
- * deferred until that catalog is hydrated so it does not starve first paint.
+ * Finance-aligned client totals from the same org-wide customer ledger
+ * query as the Customers list. Opening detail reuses the cached query key
+ * and does not start a second contract.
  */
 export function useFinanceAlignedClientLedger(
   orgId: string | null,
   clientId: string | null,
   catalogTrips: readonly TripRow[] = [],
-  catalogReady = catalogTrips.length > 0,
+  _catalogReady?: boolean,
 ) {
-  const { data: inputs, isSuccess } = useCustomerLedgerInputsQuery(
-    orgId && clientId && catalogReady ? orgId : null,
-    true,
+  const query = useFinanceCustomerLedgerInputs(
+    orgId && clientId ? orgId : null,
   );
+  const { data: inputs, isSuccess, refetch } = query;
+  const loadState = customerLedgerLoadState(query);
 
   return useMemo(() => {
     if (!isSuccess || !inputs || !clientId) {
       return {
         ready: false as const,
+        loadState,
+        refetch,
         trips: [] as TripRow[],
         tripIds: [] as string[],
         tripCount: 0,
@@ -34,63 +39,35 @@ export function useFinanceAlignedClientLedger(
         paidByTripId: {} as Record<string, number>,
       };
     }
-    const clientKey = clientId.trim().toLowerCase();
-    const tripInputs = inputs.trip_inputs.filter(
-      (row) => row.client_id.trim().toLowerCase() === clientKey,
-    );
-    const unlinked = inputs.unlinked_payments.filter(
-      (row) => row.client_id.trim().toLowerCase() === clientKey,
-    );
-    const { rows } = aggregateCustomersFromRpc(
-      [{ id: clientId, name: "" }],
-      {
-        ...inputs,
-        trip_inputs: tripInputs,
-        unlinked_payments: unlinked,
-        ledger_only_parties: [],
-      },
-    );
-    const summary = rows[0];
-    const byId = new Map(catalogTrips.map((trip) => [trip.id, trip]));
-    const trips = tripInputs
-      .map((row) => byId.get(row.trip_id))
-      .filter((trip): trip is TripRow => Boolean(trip));
-    const allocated = allocateAmountsToLargestDueTrips(
-      tripInputs.map((row) => ({
-        tripId: row.trip_id,
-        sales: row.sales,
-        paid: row.initial_paid,
-      })),
-      unlinked.map((row) => row.amount_in),
-    );
-    const salesByTripId: Record<string, number> = {};
-    for (const row of tripInputs) salesByTripId[row.trip_id] = row.sales;
+    const derived = deriveCustomerPartyLedger(clientId, inputs, catalogTrips);
     return {
       ready: true as const,
-      trips,
-      tripIds: tripInputs.map((row) => row.trip_id),
-      tripCount: summary?.trips ?? tripInputs.length,
-      billed: summary?.billed ?? 0,
-      received: summary?.received ?? 0,
-      pending: summary?.pending ?? 0,
-      salesByTripId,
-      paidByTripId: allocated,
+      loadState,
+      refetch,
+      trips: derived.trips as TripRow[],
+      tripIds: derived.tripIds,
+      tripCount: derived.tripCount,
+      billed: derived.billed,
+      received: derived.received,
+      pending: derived.pending,
+      salesByTripId: derived.salesByTripId,
+      paidByTripId: derived.paidByTripId,
     };
-  }, [isSuccess, inputs, catalogTrips, clientId]);
+  }, [isSuccess, inputs, catalogTrips, clientId, loadState, refetch]);
 }
 
 /**
- * Finance-aligned supplier totals. Same rule: scoped catalog only, no
- * org-wide trip / as-client / supplier list fetches on the party page.
+ * Finance-aligned supplier totals. Scoped catalog only; org-wide supplier
+ * RPC stays on the Finance suppliers tab, not the party page.
  */
 export function useFinanceAlignedSupplierLedger(
   orgId: string | null,
   supplierId: string | null,
   catalogTrips: readonly TripRow[] = [],
-  catalogReady = catalogTrips.length > 0,
+  _catalogReady?: boolean,
 ) {
   const { data: rpcRows = [], isSuccess } = useSupplierLedgerAggregationQuery(
-    orgId && supplierId && catalogReady ? orgId : null,
+    null,
     true,
   );
 

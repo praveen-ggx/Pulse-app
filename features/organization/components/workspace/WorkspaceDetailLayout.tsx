@@ -13,6 +13,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  useWindowDimensions,
   View,
   type ScrollViewProps,
 } from "react-native";
@@ -51,7 +52,10 @@ export function WorkspaceDetailLayout({
   contentMaxWidth = CONTENT_MAX_WIDTH,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const isMobile = width < Layout.workspaceSplitMinWidth;
   const hasFooter = !!footerSlot;
+  const pageScroll = isMobile && !fillBody;
 
   const body = fillBody ? (
     <View
@@ -83,6 +87,51 @@ export function WorkspaceDetailLayout({
     </ScrollView>
   );
 
+  const footer = hasFooter ? (
+    <View style={[styles.footer, { paddingBottom: insets.bottom + 14 }]}>
+      <View style={[styles.footerInner, { maxWidth: contentMaxWidth }]}>
+        {footerSlot}
+      </View>
+    </View>
+  ) : null;
+
+  if (pageScroll) {
+    return (
+      <View style={styles.root}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={{
+            flexGrow: 1,
+            paddingBottom: hasFooter
+              ? 24
+              : insets.bottom + Layout.sectionSpacing + 8,
+          }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps={scrollProps?.keyboardShouldPersistTaps ?? "handled"}
+        >
+          <WorkspacePanelChrome
+            title={title}
+            subtitle={subtitle}
+            onBack={onBack}
+            rightSlot={rightSlot}
+          />
+          <View
+            style={[
+              styles.scrollContent,
+              styles.pageScrollBody,
+              flushBody && styles.pageScrollFlush,
+            ]}
+          >
+            <View style={[styles.contentColumn, { maxWidth: contentMaxWidth }]}>
+              {children}
+            </View>
+          </View>
+        </ScrollView>
+        {footer}
+      </View>
+    );
+  }
+
   return (
     <View style={styles.root}>
       <WorkspacePanelChrome
@@ -97,13 +146,7 @@ export function WorkspaceDetailLayout({
       >
         {body}
       </KeyboardAvoidingView>
-      {hasFooter ? (
-        <View style={[styles.footer, { paddingBottom: insets.bottom + 14 }]}>
-          <View style={[styles.footerInner, { maxWidth: contentMaxWidth }]}>
-            {footerSlot}
-          </View>
-        </View>
-      ) : null}
+      {footer}
     </View>
   );
 }
@@ -121,6 +164,13 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingHorizontal: Layout.screenPaddingHorizontal,
     alignItems: "stretch",
+  },
+  pageScrollBody: {
+    paddingTop: 12,
+  },
+  pageScrollFlush: {
+    paddingHorizontal: 0,
+    paddingTop: 0,
   },
   contentColumn: {
     width: "100%",

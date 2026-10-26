@@ -17,7 +17,12 @@ import {
 } from "@/lib/alertRegistry/registryAlertPresentation.util";
 import type { RegistryNotificationAvatar } from "@/lib/alertRegistry/registryNotificationAvatar.types";
 import { createStyles, text, view, webView } from "@/lib/styles/createStyles";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+
+const WEB_COPY =
+  Platform.OS === "web"
+    ? ({ whiteSpace: "pre-wrap", letterSpacing: 0 } as const)
+    : ({ letterSpacing: 0 } as const);
 
 /** Metronic demo2 tokens — notifications dropdown + privacy-settings buttons. */
 const METRONIC = {
@@ -51,6 +56,8 @@ export type AlertRegistrySignalCardProps = {
   detailTitle?: string;
   /** Secondary line in the detail card — e.g. category or note. */
   detailSubtitle?: string;
+  /** Optional media inside the gray quote card (uploaded document thumb). */
+  detailMedia?: React.ReactNode;
   timeLabel: string;
   contextLabel?: string;
   tags?: RegistryTag[];
@@ -68,6 +75,8 @@ export type AlertRegistrySignalCardProps = {
   variant?: "feed" | "tile";
   /** Tighter padding and typography for hub tile grids. */
   compact?: boolean;
+  /** Replaces the initials avatar (e.g. method icons). */
+  avatarSlot?: React.ReactNode;
 };
 
 function NotificationAvatar({
@@ -76,12 +85,14 @@ function NotificationAvatar({
   mode,
   size = AVATAR_SIZE,
   compact = false,
+  avatarSlot,
 }: {
   avatar: RegistryNotificationAvatar;
   isUnread?: boolean;
   mode: RegistryCardMode;
   size?: number;
   compact?: boolean;
+  avatarSlot?: React.ReactNode;
 }) {
   const showUnread = mode === "active" && isUnread;
   const dotSize = compact ? 7 : 8;
@@ -89,17 +100,19 @@ function NotificationAvatar({
   return (
     <View style={[styles.avatarWrap, { width: slot, height: slot }]}>
       <View style={[styles.avatarCore, { width: size, height: size }]}>
-        <PartyAvatar
-          name={avatar.name}
-          entityType={avatar.entityType ?? "client"}
-          avatarUrl={avatar.avatarUrl}
-          avatarSeed={avatar.avatarSeed}
-          organizationImageUrl={avatar.organizationImageUrl}
-          organizationAvatarSeed={avatar.organizationAvatarSeed}
-          initialsColorSeed={avatar.initialsColorSeed}
-          size={size}
-          shape="circle"
-        />
+        {avatarSlot ?? (
+          <PartyAvatar
+            name={avatar.name}
+            entityType={avatar.entityType ?? "client"}
+            avatarUrl={avatar.avatarUrl}
+            avatarSeed={avatar.avatarSeed}
+            organizationImageUrl={avatar.organizationImageUrl}
+            organizationAvatarSeed={avatar.organizationAvatarSeed}
+            initialsColorSeed={avatar.initialsColorSeed}
+            size={size}
+            shape="circle"
+          />
+        )}
       </View>
       <View
         style={[
@@ -167,6 +180,7 @@ export function AlertRegistrySignalCard({
   detail,
   detailTitle,
   detailSubtitle,
+  detailMedia,
   timeLabel,
   contextLabel,
   tags,
@@ -178,8 +192,9 @@ export function AlertRegistrySignalCard({
   headerEnd,
   variant = "feed",
   compact = false,
+  avatarSlot,
 }: AlertRegistrySignalCardProps) {
-  const showDetailCard = Boolean(detailTitle || detailSubtitle || detail);
+  const showDetailCard = Boolean(detailTitle || detailSubtitle || detail || detailMedia);
   const avatarSize = compact && variant === "tile" ? COMPACT_AVATAR_SIZE : AVATAR_SIZE;
 
   const content = (
@@ -197,6 +212,7 @@ export function AlertRegistrySignalCard({
         mode={mode}
         size={avatarSize}
         compact={compact && variant === "tile"}
+        avatarSlot={avatarSlot}
       />
 
       <View style={[styles.body, compact && variant === "tile" && styles.bodyCompact]}>
@@ -205,12 +221,13 @@ export function AlertRegistrySignalCard({
             <Text
               style={[
                 styles.headline,
+                WEB_COPY,
                 compact && variant === "tile" && styles.headlineCompact,
               ]}
               numberOfLines={compact ? 2 : 4}
             >
-              <Text style={styles.actorName}>{actorName}</Text>
-              <Text style={styles.actionText}> {actionText}</Text>
+              <Text style={[styles.actorName, WEB_COPY]}>{actorName}</Text>
+              <Text style={[styles.actionText, WEB_COPY]}> {actionText}</Text>
               {highlightText ? (
                 <Text style={styles.highlightText}> {highlightText}</Text>
               ) : null}
@@ -227,7 +244,7 @@ export function AlertRegistrySignalCard({
         </View>
 
         <Text
-          style={[styles.metaLine, compact && variant === "tile" && styles.metaLineCompact]}
+          style={[styles.metaLine, WEB_COPY, compact && variant === "tile" && styles.metaLineCompact]}
           numberOfLines={1}
         >
           {timeLabel}
@@ -241,10 +258,12 @@ export function AlertRegistrySignalCard({
               compact && variant === "tile" && styles.detailCardCompact,
             ]}
           >
+            {detailMedia ? <View style={styles.detailMedia}>{detailMedia}</View> : null}
             {detailTitle ? (
               <Text
                 style={[
                   styles.detailTitle,
+                  WEB_COPY,
                   compact && variant === "tile" && styles.detailTitleCompact,
                 ]}
                 numberOfLines={2}
@@ -256,6 +275,7 @@ export function AlertRegistrySignalCard({
               <Text
                 style={[
                   styles.detailSubtitle,
+                  WEB_COPY,
                   compact && variant === "tile" && styles.detailSubtitleCompact,
                 ]}
                 numberOfLines={2}
@@ -302,24 +322,29 @@ export function AlertRegistrySignalCard({
     </View>
   );
 
-  if (onPress) {
-    return (
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => [styles.pressable, pressed && styles.pressablePressed]}
-        accessibilityRole={footer ? "none" : "button"}
-      >
-        {content}
-      </Pressable>
-    );
-  }
-
-  return content;
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={!onPress}
+      style={({ pressed, hovered }) => [
+        styles.pressable,
+        hovered && styles.pressableHover,
+        pressed && onPress ? styles.pressablePressed : null,
+      ]}
+      accessibilityRole={onPress && !footer ? "button" : "none"}
+    >
+      {content}
+    </Pressable>
+  );
 }
 
 const stylesDef = {
   pressable: view({
     width: "100%",
+    backgroundColor: Theme.cardWhite,
+  }),
+  pressableHover: view({
+    backgroundColor: Theme.tableRowHover,
   }),
   pressablePressed: view({
     opacity: 0.92,
@@ -332,7 +357,7 @@ const stylesDef = {
     paddingHorizontal: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: METRONIC.border,
-    backgroundColor: Theme.cardWhite,
+    backgroundColor: "transparent",
   }),
   rowCompleted: view({
     backgroundColor: "#FCFCFD",
@@ -452,6 +477,13 @@ const stylesDef = {
     paddingVertical: 6,
     gap: 1,
   }),
+  detailMedia: view({
+    width: "100%",
+    minHeight: 0,
+    borderRadius: 6,
+    overflow: "hidden",
+    marginBottom: 4,
+  }),
   detailTitle: text({
     fontSize: 12,
     lineHeight: 17,
@@ -494,6 +526,7 @@ const stylesDef = {
   }),
   metaBlock: view({
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "flex-end",
     justifyContent: "space-between",
     gap: 8,
@@ -516,9 +549,11 @@ const stylesDef = {
   }),
   metaActions: view({
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "flex-end",
-    flexShrink: 0,
+    flexShrink: 1,
+    minWidth: 0,
     marginLeft: "auto",
   }),
   metaActionsCompact: webView({

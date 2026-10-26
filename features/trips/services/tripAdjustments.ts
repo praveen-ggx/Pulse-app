@@ -7,9 +7,9 @@ import { supabase } from "@/lib/supabase";
 import { isSupabaseCircuitOpen } from "@/lib/supabaseHttp.util";
 
 const ADJ_SELECT_FULL =
-  "id, trip_id, organization_id, type, impact, amount, reason, mission_key, created_at, voided_at, void_reason";
+  "id, trip_id, organization_id, type, impact, amount, reason, mission_key, created_at, created_by, voided_at, void_reason";
 const ADJ_SELECT_LEGACY =
-  "id, trip_id, organization_id, type, impact, amount, reason, created_at";
+  "id, trip_id, organization_id, type, impact, amount, reason, created_at, created_by";
 
 function isMissingAdjustmentColumnError(err: { message?: string; code?: string } | null): boolean {
   if (!err?.message) return false;
@@ -33,6 +33,9 @@ export interface TripAdjustment {
   amount: number;
   reason: string;
   created_at?: string;
+  created_by?: string | null;
+  /** Display-only; resolved from the actor profile / org roster. */
+  created_by_name?: string | null;
   /** Owning org — used to split You vs They in Shared Ledger */
   organization_id?: string;
   mission_key?: string | null;
@@ -124,9 +127,34 @@ type TripFinanceAdjustmentRowDb = {
   reason: string;
   mission_key?: string | null;
   created_at?: string;
+  created_by?: string | null;
   voided_at?: string | null;
   void_reason?: string | null;
 };
+
+export async function resolveAdjustmentActor(
+  preferredId?: string | null,
+): Promise<{ id: string | null; name: string | null }> {
+  let id = String(preferredId ?? "").trim() || null;
+  let name: string | null = null;
+  try {
+    const { data } = await supabase().auth.getUser();
+    const user = data.user ?? (await supabase().auth.getSession()).data.session?.user ?? null;
+    if (!id) id = user?.id ?? null;
+    if (user && (!id || id === user.id)) {
+      const meta = (user.user_metadata ?? {}) as { full_name?: string; name?: string };
+      name =
+        String(meta.full_name ?? "").trim() ||
+        String(meta.name ?? "").trim() ||
+        String(user.email ?? "").trim() ||
+        null;
+      if (!id) id = user.id;
+    }
+  } catch {
+    /* session missing */
+  }
+  return { id, name };
+}
 
 export function isAdjustmentVoided(a: TripAdjustment): boolean {
   const t = String(a.voided_at ?? "").trim();
@@ -143,6 +171,7 @@ function rowFromRemote(row: TripFinanceAdjustmentRowDb): TripAdjustment {
     amount: Number(row.amount ?? 0),
     reason: row.reason ?? "",
     created_at: row.created_at,
+    created_by: row.created_by ?? null,
     mission_key: row.mission_key ?? null,
     voided_at: row.voided_at ?? null,
     void_reason: row.void_reason ?? null,
@@ -231,10 +260,12 @@ export async function addTripAdjustment(
   ctx?: TripAdjustmentPersistContext,
 ): Promise<TripAdjustment> {
   const created_at = new Date().toISOString();
+  const actor = await resolveAdjustmentActor(adjustment.created_by);
 
   if (ctx?.organizationId) {
     try {
       const mission_key = normalizeMissionKey(ctx.missionKey);
+      const created_by = actor.id;
       const payload = {
         trip_id: tripId,
         organization_id: ctx.organizationId,
@@ -243,11 +274,12 @@ export async function addTripAdjustment(
         amount: adjustment.amount,
         reason: adjustment.reason,
         mission_key,
+        created_by,
       };
       const selectFull =
-        "id, trip_id, organization_id, type, impact, amount, reason, mission_key, created_at, voided_at, void_reason";
+        "id, trip_id, organization_id, type, impact, amount, reason, mission_key, created_at, created_by, voided_at, void_reason";
       const selectLegacy =
-        "id, trip_id, organization_id, type, impact, amount, reason, mission_key, created_at";
+        "id, trip_id, organization_id, type, impact, amount, reason, mission_key, created_at, created_by";
       let { data, error } = await supabase()
         .from("trip_finance_adjustments")
         .insert(payload)
@@ -261,7 +293,12 @@ export async function addTripAdjustment(
           .single());
       }
       if (!error && data) {
-        return rowFromRemote(data as TripFinanceAdjustmentRowDb);
+        const saved = rowFromRemote(data as TripFinanceAdjustmentRowDb);
+        return {
+          ...saved,
+          created_by: saved.created_by ?? actor.id,
+          created_by_name: actor.name,
+        };
       }
       /**
        * A rejected write must not look like a success. Falling through to the
@@ -307,6 +344,8 @@ export async function addTripAdjustment(
     id,
     trip_id: tripId,
     created_at,
+    created_by: actor.id,
+    created_by_name: actor.name,
     mission_key: ctx?.missionKey != null ? normalizeMissionKey(ctx.missionKey) : undefined,
     organization_id: ctx?.organizationId,
   };
@@ -454,7 +493,7 @@ export async function fetchTripFinanceAdjustmentsByTripIds(
       const { data, error } = await supabase()
         .from("trip_finance_adjustments")
         .select(
-          "id, trip_id, organization_id, type, impact, amount, reason, mission_key, created_at, voided_at, void_reason",
+          "id, trip_id, organization_id, type, impact, amount, reason, mission_key, created_at, created_by, voided_at, void_reason",
         )
         .in("trip_id", chunk)
         .order("created_at", { ascending: true });

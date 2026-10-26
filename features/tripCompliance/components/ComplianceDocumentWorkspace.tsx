@@ -8,8 +8,12 @@ import { useClientsQuery } from "@/lib/queries/useClientsQuery";
 import { useSuppliersQuery } from "@/lib/queries/useSuppliersQuery";
 import { useLinkedOrgProfileMap, type LinkedOrgDisplay } from "@/lib/useLinkedOrgProfileMap";
 import { useMemberAccess } from "@/lib/useMemberAccess";
+import { AdjustableSplitLayout } from "@/components/layout/AdjustableSplitLayout";
+import { ThemedAlertModal } from "@/components/ThemedAlertModal";
+import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import {
+  deleteComplianceDocument,
   rejectDocument,
   updateEntityDocumentExpiry,
   verifyDocument,
@@ -23,14 +27,13 @@ import {
   type AdvanceUtrTarget,
 } from "@/features/tripCompliance/components/ComplianceAdvancePaidDetails";
 import { ComplianceAdvancePaymentArt } from "@/features/tripCompliance/components/ComplianceAdvancePaymentArt";
-import { ComplianceChecklistGapArt } from "@/features/tripCompliance/components/ComplianceChecklistGapArt";
 import { ComplianceDeclineModal } from "@/features/tripCompliance/components/ComplianceDeclineModal";
-import {
-  ComplianceDocTypeFilesModal,
-  type ComplianceDocTypeFile,
-} from "@/features/tripCompliance/components/ComplianceDocTypeFilesModal";
 import { NoDocumentPreviewEmpty, NoTripsFoundEmpty } from "@/features/tripCompliance/components/ComplianceEmptyState";
+import { ComplianceActivityLogButton } from "@/features/tripCompliance/components/ComplianceTripActivityLog";
+import { ComplianceTripCard } from "@/features/tripCompliance/components/ComplianceTripCard";
+import { hubMobileListCanvasStyles, HUB_MOBILE_LIST_CANVAS_BG } from "@/components/hub";
 import { ComplianceNumberStack } from "@/features/tripCompliance/components/ComplianceNumberStack";
+import { ComplianceExpiryDateModal } from "@/features/tripCompliance/components/ComplianceExpiryDateModal";
 import {
   CompliancePaymentConfirmModal,
   type CompliancePaymentConfirmValues,
@@ -67,6 +70,7 @@ import {
   formatComplianceTimestamp,
   isComplianceVerifiedRejected,
   tripOpsStatusBadge,
+  podDebitStatusVisual,
   verificationStatusVisual,
 } from "@/features/tripCompliance/utils/complianceCardVisual.util";
 import {
@@ -78,7 +82,6 @@ import {
   labelForDocType,
   labelForFinanceDocType,
   mergeFinanceBankDocsFromSupplier,
-  requirementScopeLabel,
   type ComplianceDocRow,
 } from "@/features/tripCompliance/utils/complianceDocumentRows.util";
 import { compliancePreviewSourceForRow } from "@/features/tripCompliance/utils/compliancePreviewSource.util";
@@ -99,12 +102,11 @@ import {
   isComplianceAwaitingResubmit,
   isComplianceDeclineActive,
   isComplianceHoldAwaitingResubmit,
-  missingOrRejectedRequiredTripDocs,
   isFinanceDeclinedTrip,
   isResubmittedFinanceReject,
+  missingOrRejectedRequiredTripDocs,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
 import { groundOpsTransitDocLabel } from "@/features/tripCompliance/utils/groundOpsTransitGate.util";
-import { ExpiryDatePickerModal } from "@/components/ExpiryDatePicker";
 import { HubTripLrUpdateModal } from "@/features/trips/components/HubTripLrUpdateModal";
 import { parseLrFieldValues } from "@/features/trips/services/lrDocumentOcr.util";
 import {
@@ -122,9 +124,28 @@ import {
 } from "@/features/tripCompliance/utils/complianceDeclineReason.util";
 import { fetchSupplierBankProofBundle } from "@/features/tripCompliance/utils/supplierBankProof.util";
 import { classifyTripDocument, readTypedDetails } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
+import { ewayValidTillEnd } from "@/features/trips/services/ewayBillFields.util";
 
 /** Stages whose bank card stays as it was (no beneficiary / branch, no live refresh). */
 const PRE_VERIFIED_STAGES: ReadonlySet<ComplianceStage> = new Set(["pending_for_docs", "compliance_pending"]);
+const supplierBankProofCache = new Map<
+  string,
+  {
+    previewPath: string | null;
+    detailLine: string | null;
+    kycDocId: string | null;
+    supplierId: string | null;
+    status: string | null;
+    fileName: string | null;
+    createdAt: string | null;
+    accountNumber: string | null;
+    ifsc: string | null;
+    bankName: string | null;
+    beneficiaryName: string | null;
+    branchName: string | null;
+    onFile: boolean;
+  }
+>();
 
 import { PodClientValidationPanel } from "@/features/debit-control/components/PodClientValidationPanel";
 import {
@@ -140,28 +161,37 @@ import {
 } from "@/features/trips/services/tripDocuments.service";
 import { type HardCopyPodLrOption } from "@/features/trips/components/trip-detail/LogHardCopyPodModal";
 import { ComplianceHardCopyPodSheet } from "@/features/tripCompliance/components/ComplianceHardCopyPodSheet";
+import { PodVerificationPane } from "@/features/tripCompliance/components/PodVerificationPane";
 import {
+  formatDocumentHeaderFacts,
   formatInvoiceVaultNumberLabel,
   formatLrVaultNumberLabel,
 } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { TripVaultFilePreview } from "@/features/trips/components/trip-detail/TripVaultFilePreview";
+import { VaultCategoryPreviewModal } from "@/features/trips/components/trip-detail/VaultCategoryPreviewModal";
+import type { VaultCategoryPreviewFile } from "@/features/trips/components/trip-detail/vaultCategoryPreview.types";
+import {
+  VaultChooserNotifyRow,
+  type VaultChooserPreview,
+} from "@/features/trips/components/trip-detail/VaultChooserNotifyRow";
 import { getTripExecutionModel } from "@/features/trips/domain/tripExecutionModel";
 import { isEwayBillMetaPath } from "@/features/trips/services/ewayBillFields.util";
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { lrReceiptForTrip } from "@/features/trips/utils/lrReceiptStatus.util";
 import { splitHubRouteLocationDisplay } from "@/features/trips/utils/tripLocationDisplay.util";
 import { markVehicleDocumentVerified } from "@/features/vehicles/services/vehicleDocuments.service";
+import { isVehicleComplianceDocType } from "@/features/vehicles/utils/vehicleDocuments.util";
 import { formatIndianVehicleNumber } from "@/lib/format";
 import { ROUTES } from "@/lib/routes";
 import { SIGNED_URL_CACHE_TTL_MS, SIGNED_URL_EXPIRY_SEC } from "@/lib/storageSignedUrlCache";
 import { Image as ExpoImage } from "expo-image";
 import { useRouter, type Href } from "expo-router";
-import { Banknote, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleCheck, ClipboardList, Clock, Eye, FileText, Landmark, Maximize2, Minus, NotebookText, Plus, RefreshCw, RotateCwSquare, Truck, Users, X } from "lucide-react-native";
+import FontAwesome from "@expo/vector-icons/FontAwesome";
+import { Banknote, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleCheck, ClipboardList, Clock, Eye, FileText, Landmark, Maximize2, Minus, NotebookText, Plus, RotateCwSquare, Truck, Users, X } from "lucide-react-native";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
-  BackHandler,
   Easing,
   Image,
   Modal,
@@ -392,6 +422,100 @@ function firstRowPerType(rows: ComplianceDocRow[]): ComplianceDocRow[] {
   return rows.filter((row) => byType.get(row.type) === row);
 }
 
+function vaultPreviewPath(row: ComplianceDocRow): string | null {
+  const tripDoc = row.doc;
+  if (tripDoc) {
+    const kind = classifyTripDocument(tripDoc);
+    const path = tripDoc.storage_path?.trim() || "";
+    if (
+      (kind.kind === "file" || kind.kind === "url") &&
+      kind.hasBinary &&
+      path &&
+      !path.startsWith("ref:")
+    ) {
+      return path;
+    }
+  }
+  const entityPath = row.entityDoc?.storage_path?.trim() || "";
+  if (!entityPath || entityPath.startsWith("ref:") || /fields\.json$/i.test(entityPath)) {
+    return null;
+  }
+  return entityPath;
+}
+
+function vaultPreviewForRow(
+  row: ComplianceDocRow,
+  organizationId: string,
+  tripId: string | null,
+  fallbackName: string,
+): VaultChooserPreview | null {
+  const storagePath = vaultPreviewPath(row);
+  if (!storagePath) return null;
+  return {
+    storagePath,
+    fileName: row.doc?.file_name ?? fallbackName,
+    mimeHint: row.doc?.mime_type,
+    source:
+      row.entityDoc?.source === "supplier-kyc"
+        ? "supplier-kyc"
+        : row.entityDoc
+          ? "compliance"
+          : "trip",
+    organizationId,
+    entityId: row.entityDoc?.entity_id ?? tripId,
+  };
+}
+
+function localVaultFilePreviewUri(file: { uri?: string; arrayBuffer: ArrayBuffer; mimeType: string }): string | null {
+  if (file.uri?.trim()) return file.uri.trim();
+  if (typeof Blob === "undefined" || typeof URL === "undefined") return null;
+  try {
+    return URL.createObjectURL(
+      new Blob([file.arrayBuffer], { type: file.mimeType || "application/octet-stream" }),
+    );
+  } catch {
+    return null;
+  }
+}
+
+function compliancePreviewFileFromRow(
+  row: ComplianceDocRow,
+  label: string,
+  canDelete: boolean,
+): VaultCategoryPreviewFile {
+  const isTripFile = Boolean(row.doc);
+  const entityDoc = row.entityDoc;
+  const driverKind =
+    row.type === "license" || row.type === "aadhaar" ? row.type : undefined;
+  const complianceType = isVehicleComplianceDocType(row.type) ? row.type : undefined;
+  const approved = row.status === "verified";
+  const supplierLocked =
+    Boolean(entityDoc) &&
+    !isTripFile &&
+    (entityDoc.entity_type === "supplier" || entityDoc.source === "supplier-kyc");
+  return {
+    id: row.key,
+    fileName: row.doc?.file_name?.trim() || entityDoc?.notes?.trim() || label,
+    categoryLabel: label,
+    storagePath: vaultPreviewPath(row),
+    documentId: row.doc?.id ?? entityDoc?.id,
+    category: row.type,
+    deleteKind:
+      canDelete && !approved && !supplierLocked
+        ? isTripFile
+          ? "trip"
+          : complianceType
+            ? "vehicle_compliance"
+            : driverKind
+              ? "driver_identity"
+              : undefined
+        : undefined,
+    complianceType,
+    driverKind,
+    expiryDate: entityDoc?.expiry_date ?? null,
+  };
+}
+
 function hasFile(row: ComplianceDocRow): boolean {
   if (row.doc) return classifyTripDocument(row.doc).present;
   if (row.entityDoc?.storage_path) return true;
@@ -414,6 +538,20 @@ function primaryTypedLine(lines: TypedDetailLineView[]): TypedDetailLineView | n
     lines.find((line) => /eway|e-way|e way|invoice|lr\b|doc no|document/i.test(line.label)) ??
     null
   );
+}
+
+function typedValidityStatus(
+  lines: TypedDetailLineView[],
+): { label: string; tone: "ok" | "soon" | "expired" | "neutral" } | null {
+  const line = lines.find((item) => /valid/i.test(item.label));
+  const raw = String(line?.value ?? "").trim();
+  if (!raw || raw === "—") return null;
+  const end = ewayValidTillEnd(raw);
+  if (!end) return { label: "Dated", tone: "neutral" };
+  const hours = (end.getTime() - Date.now()) / 3_600_000;
+  if (hours <= 0) return { label: "Expired", tone: "expired" };
+  if (hours <= 48) return { label: "Expiring", tone: "soon" };
+  return { label: "Active", tone: "ok" };
 }
 
 /** Group numbered lines (e.g. "Eway no 1") into entry cards — values unchanged. */
@@ -634,21 +772,27 @@ function TypedDetailsPreview({
       <View style={styles.typedPreviewColumn}>
       <View style={styles.typedPreviewHeader}>
         <View style={styles.typedPreviewHeaderIcon}>
-          <ClipboardList size={14} color={Theme.buttonDarkText} strokeWidth={2.1} />
+          <ClipboardList size={15} color={Theme.buttonDarkText} strokeWidth={2.1} />
         </View>
         <View style={styles.typedPreviewHeaderCopy}>
           <Text style={styles.typedPreviewKicker}>Entered details</Text>
           <Text style={styles.typedPreviewTitle} numberOfLines={1}>
             {title}
           </Text>
-          <Text style={styles.typedPreviewMeta} numberOfLines={1}>
-            {entryCount > 1
-              ? `${entryCount} entries`
-              : lines.length > 0
-                ? `${lines.length} fields`
-                : "No details"}
-            {" · No file attached"}
-          </Text>
+        </View>
+        <View style={styles.typedPreviewChips}>
+          <View style={styles.typedChip}>
+            <Text style={styles.typedChipText}>
+              {entryCount > 1
+                ? `${entryCount} bills`
+                : lines.length > 0
+                  ? `${lines.length} fields`
+                  : "Empty"}
+            </Text>
+          </View>
+          <View style={[styles.typedChip, styles.typedChipMuted]}>
+            <Text style={styles.typedChipText}>No file</Text>
+          </View>
         </View>
       </View>
       <View ref={stageRef} style={styles.typedPreviewScrollStage}>
@@ -699,8 +843,20 @@ function TypedDetailsPreview({
                 const bodyLines = primary
                   ? group.lines.filter((line) => line !== primary)
                   : group.lines;
+                const validity = typedValidityStatus(group.lines);
                 return (
                 <View key={group.key} style={styles.typedEntryCard}>
+                  <View
+                    style={[
+                      styles.typedEntryAccent,
+                      validity?.tone === "expired"
+                        ? styles.typedEntryAccentExpired
+                        : validity?.tone === "soon"
+                          ? styles.typedEntryAccentSoon
+                          : styles.typedEntryAccentOk,
+                    ]}
+                  />
+                  <View style={styles.typedEntryInner}>
                   {group.heading ? (
                     <View style={styles.typedEntryHeadingRow}>
                       <View style={styles.typedEntryIndex}>
@@ -714,34 +870,68 @@ function TypedDetailsPreview({
                         </Text>
                         <Text
                           style={[styles.typedEntryHeading, typedValueStyle(primary?.value ?? "")]}
-                          numberOfLines={1}
+                          numberOfLines={2}
                           selectable={TYPED_VALUE_SELECTABLE}
                         >
                           {primary?.value ?? group.heading}
                         </Text>
                       </View>
+                      {validity ? (
+                        <View
+                          style={[
+                            styles.typedStatusPill,
+                            validity.tone === "expired"
+                              ? styles.typedStatusExpired
+                              : validity.tone === "soon"
+                                ? styles.typedStatusSoon
+                                : validity.tone === "ok"
+                                  ? styles.typedStatusOk
+                                  : styles.typedStatusNeutral,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.typedStatusText,
+                              validity.tone === "expired"
+                                ? styles.typedStatusTextExpired
+                                : validity.tone === "soon"
+                                  ? styles.typedStatusTextSoon
+                                  : validity.tone === "ok"
+                                    ? styles.typedStatusTextOk
+                                    : styles.typedStatusTextNeutral,
+                            ]}
+                          >
+                            {validity.label}
+                          </Text>
+                        </View>
+                      ) : null}
                     </View>
                   ) : null}
-                  {bodyLines.map((line, index) => (
+                  <View style={styles.typedFactGrid}>
+                    {bodyLines.map((line, index) => (
                       <View
                         key={`${group.key}-${line.label}-${index}`}
                         style={[
-                          styles.typedFieldRow,
-                          index < bodyLines.length - 1 && styles.typedFieldRowDivider,
+                          styles.typedFact,
+                          bodyLines.length % 2 === 1 && index === bodyLines.length - 1
+                            ? styles.typedFactWide
+                            : null,
                         ]}
                       >
-                        <Text style={styles.typedFieldLabel} numberOfLines={1}>
+                        <Text style={styles.typedFactLabel} numberOfLines={1}>
                           {typedLineLabel(line.label)}
                         </Text>
                         <Text
-                          style={[styles.typedFieldValue, typedValueStyle(line.value)]}
-                          numberOfLines={1}
+                          style={[styles.typedFactValue, typedValueStyle(line.value)]}
+                          numberOfLines={2}
                           selectable={TYPED_VALUE_SELECTABLE}
                         >
                           {line.value}
                         </Text>
                       </View>
-                  ))}
+                    ))}
+                  </View>
+                  </View>
                 </View>
                 );
               })}
@@ -1394,7 +1584,13 @@ function OriginalDocumentPreview({
       if (!node) return null;
       const top = document.elementFromPoint(event.clientX, event.clientY);
       if (!top || !node.contains(top)) return null;
-      if ((top as HTMLElement).closest?.("[data-testid='compliance-preview-scroll-rail']")) return null;
+      if (
+        (top as HTMLElement).closest?.(
+          "[data-testid='compliance-preview-scroll-rail'], [data-testid='compliance-doc-side-nav']",
+        )
+      ) {
+        return null;
+      }
       const rect = node.getBoundingClientRect();
       return {
         x: event.clientX - rect.left - rect.width / 2,
@@ -1501,49 +1697,52 @@ function OriginalDocumentPreview({
           ? `${label}. Scroll or click to zoom. When zoomed, drag or scroll to move; Ctrl+scroll to zoom.`
           : `${label}. Scroll or click to zoom. When zoomed, drag or scroll to move; Ctrl+scroll to zoom.`
       }
-      onStartShouldSetResponder={() => true}
-      onMoveShouldSetResponder={() => true}
-      onResponderGrant={(event) => {
-        dragMoved.current = false;
-        setDragging(true);
-        drag.current = {
-          x: event.nativeEvent.pageX,
-          y: event.nativeEvent.pageY,
-          panX: viewRef.current.panX,
-          panY: viewRef.current.panY,
-        };
-      }}
-      onResponderMove={(event) => {
-        if (!drag.current) return;
-        if (
-          Math.hypot(event.nativeEvent.pageX - drag.current.x, event.nativeEvent.pageY - drag.current.y) > 4
-        ) {
-          dragMoved.current = true;
-        }
-        const next = clampLocalPan(
-          drag.current.panX + event.nativeEvent.pageX - drag.current.x,
-          drag.current.panY + event.nativeEvent.pageY - drag.current.y,
-        );
-        viewRef.current.panX = next.x;
-        viewRef.current.panY = next.y;
-        if (Platform.OS === "web") {
-          const el = mediaRef.current as unknown as HTMLElement | null;
-          const frame = frameRef.current;
-          if (el?.style) {
-            el.style.transform = cssPreviewTransform(next, viewRef.current.zoom, frame.rotation, frame.box);
-          }
-        }
-        setPan(next);
-      }}
-      onResponderRelease={() => {
-        drag.current = null;
-        setDragging(false);
-      }}
-      onResponderTerminate={() => {
-        drag.current = null;
-        setDragging(false);
-      }}
     >
+      <View
+        style={styles.previewPanSurface}
+        onStartShouldSetResponder={() => true}
+        onMoveShouldSetResponder={() => true}
+        onResponderGrant={(event) => {
+          dragMoved.current = false;
+          setDragging(true);
+          drag.current = {
+            x: event.nativeEvent.pageX,
+            y: event.nativeEvent.pageY,
+            panX: viewRef.current.panX,
+            panY: viewRef.current.panY,
+          };
+        }}
+        onResponderMove={(event) => {
+          if (!drag.current) return;
+          if (
+            Math.hypot(event.nativeEvent.pageX - drag.current.x, event.nativeEvent.pageY - drag.current.y) > 4
+          ) {
+            dragMoved.current = true;
+          }
+          const next = clampLocalPan(
+            drag.current.panX + event.nativeEvent.pageX - drag.current.x,
+            drag.current.panY + event.nativeEvent.pageY - drag.current.y,
+          );
+          viewRef.current.panX = next.x;
+          viewRef.current.panY = next.y;
+          if (Platform.OS === "web") {
+            const el = mediaRef.current as unknown as HTMLElement | null;
+            const frame = frameRef.current;
+            if (el?.style) {
+              el.style.transform = cssPreviewTransform(next, viewRef.current.zoom, frame.rotation, frame.box);
+            }
+          }
+          setPan(next);
+        }}
+        onResponderRelease={() => {
+          drag.current = null;
+          setDragging(false);
+        }}
+        onResponderTerminate={() => {
+          drag.current = null;
+          setDragging(false);
+        }}
+      >
       {imageLoading && !isPdf ? (
         <View style={styles.previewLoadingOverlay} pointerEvents="none">
           <ActivityIndicator color={Theme.textPrimaryDark} />
@@ -1562,29 +1761,33 @@ function OriginalDocumentPreview({
               },
             ]}
           >
-            {isPdf ? (
-              <TripVaultFilePreview
-                uri={uri}
-                isPdf
+          {isPdf ? (
+            <TripVaultFilePreview
+              uri={uri}
+              isPdf
                 showToolbar={false}
                 zoom={1}
                 sizing="fit"
                 interactive={false}
                 style={StyleSheet.absoluteFillObject}
-                accessibilityLabel={label}
-              />
-            ) : (
+              accessibilityLabel={label}
+            />
+          ) : (
               <ExpoImage
-                source={{ uri }}
+              source={{ uri }}
                 style={StyleSheet.absoluteFillObject}
                 contentFit="contain"
-                accessibilityLabel={label}
+              accessibilityLabel={label}
               />
             )}
           </View>
         </View>
       ) : null}
+      </View>
       <PreviewScrollRail axis="y" value={pan.y} max={limits.maxY} onChange={moveY} />
+      <View style={styles.previewScrollXDock} pointerEvents="box-none">
+        <PreviewScrollRail axis="x" value={pan.x} max={limits.maxX} onChange={moveX} />
+      </View>
     </View>
   );
 }
@@ -1632,6 +1835,7 @@ function DocSideNavButton({
       : Theme.textPrimaryDark;
   return (
     <Pressable
+      testID="compliance-doc-side-nav"
       style={[
         styles.docSideNavBtn,
         tone === "dark" && styles.docSideNavBtnDark,
@@ -1660,6 +1864,7 @@ export function DocumentScreen({
   onPrev,
   onNext,
   navLabel = null,
+  headerFacts = null,
   canNavigate = false,
   typedLines = null,
   resolving = false,
@@ -1674,6 +1879,8 @@ export function DocumentScreen({
   onPrev?: () => void;
   onNext?: () => void;
   navLabel?: string | null;
+  /** LR / invoice / Valid till — same facts as the document card. */
+  headerFacts?: string | null;
   canNavigate?: boolean;
   /** Details-only docs (e.g. typed E-way) — no binary file. */
   typedLines?: { label: string; value: string }[] | null;
@@ -1744,7 +1951,7 @@ export function DocumentScreen({
 
   const applyView = useCallback(
     (nextScale: number, nextPan: { x: number; y: number }, size = frame, rot = rotation) => {
-      const zoom = clampPreviewZoom(nextScale);
+    const zoom = clampPreviewZoom(nextScale);
       const box = mediaLayoutForRotation(size.width, size.height, rot);
       const panNext = clampScreenPan(
         nextPan.x,
@@ -2069,7 +2276,7 @@ export function DocumentScreen({
         accessibilityViewIsModal
       >
         {!fullPage ? (
-          <Pressable style={styles.screenBackdrop} onPress={onClose} accessibilityLabel="Close document preview" />
+        <Pressable style={styles.screenBackdrop} onPress={onClose} accessibilityLabel="Close document preview" />
         ) : null}
         <View
           style={[
@@ -2084,46 +2291,53 @@ export function DocumentScreen({
           ]}
         >
           <View style={[styles.screenBar, compact && styles.screenBarCompact]}>
+            <View style={styles.screenTitleBlock}>
             <Text style={styles.screenTitle} numberOfLines={1}>{title}</Text>
+              {headerFacts ? (
+                <Text style={styles.screenSubtitle} numberOfLines={1}>
+                  {headerFacts}
+                </Text>
+              ) : null}
+            </View>
             <View style={styles.screenTools}>
               {showPdfPageTools ? (
                 <View style={[styles.previewZoomCluster, styles.previewPageCluster]}>
-                  <Pressable
+                <Pressable
                     style={[styles.previewZoomBtn, atFirstPage && styles.previewToolBtnDisabled]}
-                    onPress={() => {
-                      setPage((value) => Math.max(1, value - 1));
-                      setPan({ x: 0, y: 0 });
-                    }}
-                    disabled={atFirstPage}
-                    accessibilityRole="button"
-                    accessibilityLabel="Previous page"
-                    accessibilityState={{ disabled: atFirstPage }}
-                    {...(Platform.OS === "web" ? { title: "Previous page" } : {})}
-                  >
+                  onPress={() => {
+                    setPage((value) => Math.max(1, value - 1));
+                    setPan({ x: 0, y: 0 });
+                  }}
+                  disabled={atFirstPage}
+                  accessibilityRole="button"
+                  accessibilityLabel="Previous page"
+                  accessibilityState={{ disabled: atFirstPage }}
+                  {...(Platform.OS === "web" ? { title: "Previous page" } : {})}
+                >
                     <ChevronLeft size={14} color={atFirstPage ? Theme.textMuted : Theme.textPrimaryDark} />
-                  </Pressable>
+                </Pressable>
                   <Text style={[styles.previewZoomLabel, styles.previewPageLabel]} accessibilityLabel={pageCount ? `Page ${page} of ${pageCount}` : `Page ${page}`}>
                     {pageCount ? `${page} / ${pageCount}` : `Page ${page}`}
-                  </Text>
-                  <Pressable
+                </Text>
+                <Pressable
                     style={[styles.previewZoomBtn, atLastPage && styles.previewToolBtnDisabled]}
-                    onPress={() => {
-                      setPage((value) => Math.min(pageLimit, value + 1));
-                      setPan({ x: 0, y: 0 });
-                    }}
-                    disabled={atLastPage}
-                    accessibilityRole="button"
-                    accessibilityLabel="Next page"
-                    accessibilityState={{ disabled: atLastPage }}
-                    {...(Platform.OS === "web" ? { title: "Next page" } : {})}
-                  >
+                  onPress={() => {
+                    setPage((value) => Math.min(pageLimit, value + 1));
+                    setPan({ x: 0, y: 0 });
+                  }}
+                  disabled={atLastPage}
+                  accessibilityRole="button"
+                  accessibilityLabel="Next page"
+                  accessibilityState={{ disabled: atLastPage }}
+                  {...(Platform.OS === "web" ? { title: "Next page" } : {})}
+                >
                     <ChevronRight size={14} color={atLastPage ? Theme.textMuted : Theme.textPrimaryDark} />
-                  </Pressable>
-                </View>
-              ) : null}
+                </Pressable>
+              </View>
+            ) : null}
               {showImage || showPdf ? (
                 <>
-                  <Pressable
+              <Pressable
                     style={[styles.previewRotateBtn, styles.previewToolBtnNamed]}
                     onPress={() => {
                       const next = (rotation + 90) % 360;
@@ -2142,25 +2356,25 @@ export function DocumentScreen({
                   <View style={styles.previewZoomCluster}>
                     <Pressable
                       style={styles.previewZoomBtn}
-                      onPress={() => applyView(scale - 0.25, pan)}
-                      accessibilityRole="button"
-                      accessibilityLabel="Zoom out"
-                      {...(Platform.OS === "web" ? { title: "Zoom out" } : {})}
-                    >
+                onPress={() => applyView(scale - 0.25, pan)}
+                accessibilityRole="button"
+                accessibilityLabel="Zoom out"
+                {...(Platform.OS === "web" ? { title: "Zoom out" } : {})}
+              >
                       <Minus size={14} color={Theme.textPrimaryDark} />
-                    </Pressable>
+              </Pressable>
                     <Text style={styles.previewZoomLabel} accessibilityLabel={`Zoom ${Math.round(scale * 100)} percent`}>
-                      {Math.round(scale * 100)}%
-                    </Text>
-                    <Pressable
+                {Math.round(scale * 100)}%
+              </Text>
+              <Pressable
                       style={styles.previewZoomBtn}
-                      onPress={() => applyView(scale + 0.25, pan)}
-                      accessibilityRole="button"
-                      accessibilityLabel="Zoom in"
-                      {...(Platform.OS === "web" ? { title: "Zoom in" } : {})}
-                    >
+                onPress={() => applyView(scale + 0.25, pan)}
+                accessibilityRole="button"
+                accessibilityLabel="Zoom in"
+                {...(Platform.OS === "web" ? { title: "Zoom in" } : {})}
+              >
                       <Plus size={14} color={Theme.textPrimaryDark} />
-                    </Pressable>
+              </Pressable>
                   </View>
                 </>
               ) : null}
@@ -2177,8 +2391,8 @@ export function DocumentScreen({
             </View>
           </View>
           <View style={[styles.screenStageRow, fullPage && styles.screenStageRowPage]}>
-            <View
-              ref={stageRef}
+          <View
+            ref={stageRef}
               style={[
                 styles.screenStage,
                 fullPage && styles.screenStagePage,
@@ -2201,10 +2415,10 @@ export function DocumentScreen({
                       ? "Rotated image. Scroll or drag to pan. Use side arrows for the next document."
                       : "Image preview. Scroll to zoom. Drag to pan when zoomed or rotated."
               }
-              onLayout={(event) => {
-                const { width, height } = event.nativeEvent.layout;
-                setFrame((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
-              }}
+            onLayout={(event) => {
+              const { width, height } = event.nativeEvent.layout;
+              setFrame((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
+            }}
               // Native: keep responders. Web pan uses pointer events above (more reliable when rotated).
               {...(Platform.OS !== "web"
                 ? {
@@ -2227,19 +2441,19 @@ export function DocumentScreen({
                       if (!showImage && !pdfViewOwned) return;
                       schedulePan(
                         clampScreenPan(
-                          drag.current.panX + event.nativeEvent.pageX - drag.current.x,
-                          drag.current.panY + event.nativeEvent.pageY - drag.current.y,
-                          viewRef.current.scale,
-                          frame.width,
-                          frame.height,
+                drag.current.panX + event.nativeEvent.pageX - drag.current.x,
+                drag.current.panY + event.nativeEvent.pageY - drag.current.y,
+                viewRef.current.scale,
+                frame.width,
+                frame.height,
                           mediaBox.width,
                           mediaBox.height,
                           viewRef.current.rotation,
                         ),
-                      );
+              );
                     },
                     onResponderRelease: () => {
-                      drag.current = null;
+              drag.current = null;
                     },
                   }
                 : null)}
@@ -2252,7 +2466,7 @@ export function DocumentScreen({
                   darkCanvas={fullPage}
                 />
               ) : showPdf && uri ? (
-                <View
+            <View
                   ref={screenMediaRef}
                   style={[
                     mediaBox.width > 0
@@ -2270,20 +2484,20 @@ export function DocumentScreen({
                   // Rotated: stage owns wheel/drag. Upright: iframe keeps native scroll.
                   pointerEvents={pdfViewOwned ? "box-none" : "auto"}
                 >
-                  <TripVaultFilePreview
-                    uri={uri}
-                    isPdf
+                <TripVaultFilePreview
+                  uri={uri}
+                  isPdf
                     // Hide Chrome PDF chrome — its built-in rotate breaks smooth scroll.
                     // Use the header Rotate control instead.
-                    showToolbar={false}
-                    sizing="fit"
+                  showToolbar={false}
+                  sizing="fit"
                     zoom={pdfViewOwned ? 1 : scale}
                     page={showPdfPageTools ? page : undefined}
                     scrollbar={!pdfViewOwned}
                     interactive={!pdfViewOwned}
-                    style={styles.screenFile}
-                    accessibilityLabel={title}
-                  />
+                  style={styles.screenFile}
+                  accessibilityLabel={title}
+                />
                 </View>
               ) : showImage && uri ? (
                 <>
@@ -2336,13 +2550,13 @@ export function DocumentScreen({
                 <View style={styles.screenLoading}>
                   <ActivityIndicator size="large" color={Theme.textOnDark} />
                   <Text style={styles.screenLoadingText}>Loading document…</Text>
-                </View>
+            </View>
               ) : (
                 <View style={styles.screenLoading}>
                   <Text style={styles.screenLoadingText}>No preview available for this document.</Text>
-                </View>
+          </View>
               )}
-            </View>
+        </View>
             {/* Inside the stage row so arrows stay above the rotated media hit-target. */}
             {sideNavEnabled ? (
               <>
@@ -2352,17 +2566,17 @@ export function DocumentScreen({
                     onPress={() => onPrev?.()}
                     tone={fullPage ? "dark" : "light"}
                   />
-                </View>
+      </View>
                 <View style={[styles.docSideNavOverlayRight, styles.docSideNavOverlayScreen]} pointerEvents="box-none">
                   <DocSideNavButton
                     direction="next"
                     onPress={() => onNext?.()}
                     tone={fullPage ? "dark" : "light"}
                   />
-                </View>
+        </View>
               </>
             ) : null}
-          </View>
+      </View>
           {showTyped ? (
             <PreviewPanFooter label={navLabel ?? "Entered details"} />
           ) : navLabel ? (
@@ -2378,64 +2592,6 @@ export function DocumentScreen({
   );
 }
 
-/**
- * Phone document pane (`phoneFlow`): back bar to the trip list + one vertical
- * scroll for tabs, rows and preview. Inactive → children render as before.
- */
-function PhoneDetailFrame({
-  active,
-  title,
-  subtitle,
-  onBack,
-  children,
-}: {
-  active: boolean;
-  title: string;
-  subtitle: string | null;
-  onBack: () => void;
-  children: React.ReactNode;
-}) {
-  if (!active) return <>{children}</>;
-  return (
-    <View style={styles.phoneDetail}>
-      <View style={styles.phoneBackBar}>
-        <Pressable
-          onPress={onBack}
-          style={(state: HoverPressState) => [
-            styles.phoneBackBtn,
-            WEB_POINTER,
-            state.pressed && styles.phoneBackBtnPressed,
-          ]}
-          hitSlop={6}
-          accessibilityRole="button"
-          accessibilityLabel="Back to trips"
-        >
-          <ChevronLeft size={18} color={Theme.textPrimary} strokeWidth={2.2} />
-          <Text style={styles.phoneBackText}>Trips</Text>
-        </Pressable>
-        <View style={styles.phoneBackTitleWrap}>
-          <Text style={styles.phoneBackTitle} numberOfLines={1}>
-            {title}
-          </Text>
-          {subtitle ? (
-            <Text style={styles.phoneBackSubtitle} numberOfLines={1}>
-              {subtitle}
-            </Text>
-          ) : null}
-        </View>
-      </View>
-      <ScrollView
-        style={styles.phoneDetailScroll}
-        contentContainerStyle={styles.phoneDetailContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        {children}
-      </ScrollView>
-    </View>
-  );
-}
-
 export function ComplianceDocumentWorkspace({
   summaries,
   tripFacts,
@@ -2445,7 +2601,8 @@ export function ComplianceDocumentWorkspace({
   canViewDocuments,
   onChanged,
   stacked = false,
-  phoneFlow = false,
+  mobileExclusive = false,
+  mobileReviewing = false,
   style,
   canManageFinance = false,
   hideCommercials = false,
@@ -2457,8 +2614,15 @@ export function ComplianceDocumentWorkspace({
   showHardCopyPodLog = false,
   compliancePendingQueue = false,
   showPodClientValidation = false,
+  podVerificationLayout = false,
+  settlementLayout = false,
+  finalSettlement = false,
   chargesReview = false,
   onChargesSaved,
+  onRevalidated,
+  onProceededToSettlement,
+  onPayBalance,
+  onPodNotFound,
   showHardcopyPodButton = false,
   logHardCopyPodRequest = 0,
   courierLrOptions = [],
@@ -2487,12 +2651,18 @@ export function ComplianceDocumentWorkspace({
   onReviewTripDocs,
   listHeader = null,
   detailHeader = null,
+  pageHeader = null,
+  onOpenActivityLog,
+  onOpenTrip,
+  onOpenSupplier,
 }: {
   summaries: ComplianceTripSummary[];
   /** Resolved by the page for the full queue — one lookup pass, not one per view. */
   tripFacts: ComplianceListTripFacts;
   /** Pinned above the trip cards (e.g. Verified-stage outcome filter). */
   listHeader?: React.ReactNode;
+  /** Phone page chrome that scrolls with the list or document review. */
+  pageHeader?: React.ReactNode;
   /** Pinned above the right-hand body (Awaiting POD age filters). */
   detailHeader?: React.ReactNode;
   organizationId: string;
@@ -2502,11 +2672,10 @@ export function ComplianceDocumentWorkspace({
   /** Exactly what changed, so the pipeline patches only the affected inputs. */
   onChanged: (change: ComplianceChange) => void;
   stacked?: boolean;
-  /**
-   * Phone (Ground Ops): full-height trip list, tapping a trip opens its documents
-   * full-height with a back bar, instead of squeezing both into one screen.
-   */
-  phoneFlow?: boolean;
+  /** Phone layout: list and review are exclusive full-screen panes. */
+  mobileExclusive?: boolean;
+  /** Phone layout: trip review is open (list is hidden). */
+  mobileReviewing?: boolean;
   style?: StyleProp<ViewStyle>;
   canManageFinance?: boolean;
   /** Ground Ops: no rates, profit, supplier bank details or Advance Payment preview. */
@@ -2528,10 +2697,20 @@ export function ComplianceDocumentWorkspace({
   compliancePendingQueue?: boolean;
   /** True only while the Compliance queue filter is POD Received. */
   showPodClientValidation?: boolean;
+  /** POD Verification: preview soft/hard POD + log + notify-style plan. */
+  podVerificationLayout?: boolean;
+  /** Settlement Verification: POD charges preview + CN/DN, no log form. */
+  settlementLayout?: boolean;
+  /** Final Settlement: same layout, payable summary, no create / revalidate. */
+  finalSettlement?: boolean;
   /** Charges stay as text until Edit. */
   chargesReview?: boolean;
   /** POD Received save: parent moves the trip to the next stage. */
   onChargesSaved?: (tripId: string) => void;
+  onRevalidated?: (tripId: string) => void;
+  onProceededToSettlement?: (tripId: string) => void;
+  onPayBalance?: (summary: ComplianceTripSummary, amount: number) => void;
+  onPodNotFound?: (tripId: string) => void;
   /**
    * PREVIEW-row Hardcopy POD control — Awaiting POD / POD Received /
    * Balance Pending / Settled only (not Verified → Payment Pending).
@@ -2601,6 +2780,11 @@ export function ComplianceDocumentWorkspace({
     documentKey: string | null,
     scope?: "trip" | "vehicle" | "driver",
   ) => void;
+  onOpenActivityLog?: (summary: ComplianceTripSummary) => void;
+  /** Open the trip page from Trip ID. */
+  onOpenTrip?: (tripId: string) => void;
+  /** Open the supplier page from the supplier name. */
+  onOpenSupplier?: (supplierId: string) => void;
 }) {
   const listRef = useRef<ScrollView>(null);
   const listViewportH = useRef(0);
@@ -2651,11 +2835,10 @@ export function ComplianceDocumentWorkspace({
     suppliersQuery.data,
   ]);
   const [selectedId, setSelectedId] = useState<string | null>(selectedTripId ?? summaries[0]?.trip.id ?? null);
-  /** `phoneFlow` only: which of the two full-height panes is showing. */
-  const [phonePane, setPhonePane] = useState<"list" | "detail">("list");
   const [docFilter, setDocFilter] = useState<DocFilter>("all");
   const [docIndex, setDocIndex] = useState(0);
   const [checklistKey, setChecklistKey] = useState<string | null>(null);
+  const [mobileDocPane, setMobileDocPane] = useState<"list" | "preview">("list");
   const [checklistPreviewMode, setChecklistPreviewMode] = useState<ChecklistPreviewMode>("document");
   const financeList = docFilter === "finance";
   const showAllDocs = docFilter === "all";
@@ -2675,8 +2858,9 @@ export function ComplianceDocumentWorkspace({
       setChecklistPreviewMode("document");
       resetPreviewView();
       setScreenOpen(false);
+      if (mobileExclusive) setMobileDocPane("list");
     },
-    [resetPreviewView],
+    [mobileExclusive, resetPreviewView],
   );
   useEffect(() => {
     setToolLabel(null);
@@ -2689,10 +2873,16 @@ export function ComplianceDocumentWorkspace({
   const [uploadingFinanceType, setUploadingFinanceType] = useState<string | null>(null);
   /** Document type whose files dialog is open (eye on a grouped row). */
   const [filesModalType, setFilesModalType] = useState<string | null>(null);
+  const [categoryPreview, setCategoryPreview] = useState<{
+    files: VaultCategoryPreviewFile[];
+    index: number;
+    type: string;
+  } | null>(null);
   const [fileActionKey, setFileActionKey] = useState<string | null>(null);
   /** Files dialog to reopen when the full-screen viewer opened from it closes. */
   const filesModalReturnRef = useRef<string | null>(null);
   const [declineOpen, setDeclineOpen] = useState(false);
+  const [approveConfirm, setApproveConfirm] = useState<ComplianceReviewGroup | null>(null);
   const [tripDeclineOpen, setTripDeclineOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [resubmitting, setResubmitting] = useState(false);
@@ -2747,24 +2937,6 @@ export function ComplianceDocumentWorkspace({
       (tab === "driver" && !summary?.trip.driver_id));
   /** Same dual-pane shell (tabs + upload pill + list | preview) on every tab and stage. */
   const showDocumentShell = Boolean(summary);
-  /** Phone: the selected trip's documents fill the screen (list hidden). */
-  const phoneDetail =
-    phoneFlow &&
-    phonePane === "detail" &&
-    !hideDocumentPanes &&
-    summary != null &&
-    summary.trip.id === selectedId;
-  /** Phone: the trip list fills the screen (documents hidden). */
-  const phoneList = phoneFlow && !hideDocumentPanes && !phoneDetail;
-
-  useEffect(() => {
-    if (!phoneDetail) return;
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-      setPhonePane("list");
-      return true;
-    });
-    return () => sub.remove();
-  }, [phoneDetail]);
   const showEntityUnassigned = Boolean(summary && entityUnassigned);
   /** Trip/Vehicle/Driver list always uses vault rows inside the shared shell. */
   const checklistRows = useMemo(() => {
@@ -2806,14 +2978,22 @@ export function ComplianceDocumentWorkspace({
       setSupplierBankLoading(false);
       return;
     }
-    setSupplierBankLoading(true);
+    const cacheKey = `${orgId}:${supplierId}`;
+    const cached = supplierBankProofCache.get(cacheKey);
+    if (cached) {
+      setSupplierBankProof(cached);
+      setSupplierBankLoading(false);
+    } else {
+      setSupplierBankLoading(true);
+    }
+    const stage = summary.stage;
     void fetchSupplierBankProofBundle(orgId, supplierId)
       .then(async (bundle) => {
-        const branchName = PRE_VERIFIED_STAGES.has(summary.stage)
+        const branchName = PRE_VERIFIED_STAGES.has(stage)
           ? ""
           : await resolveBankBranch(bundle.account?.branch_name, bundle.account?.ifsc_code);
         if (cancelled) return;
-        setSupplierBankProof({
+        const next = {
           beneficiaryName: bundle.account?.beneficiary_name?.trim() || null,
           branchName: branchName || null,
           previewPath: bundle.previewPath,
@@ -2827,7 +3007,9 @@ export function ComplianceDocumentWorkspace({
           ifsc: bundle.account?.ifsc_code?.trim() ?? null,
           bankName: bundle.account?.bank_name?.trim() ?? null,
           onFile: bundle.onFile,
-        });
+        };
+        supplierBankProofCache.set(cacheKey, next);
+        setSupplierBankProof(next);
       })
       .finally(() => {
         if (!cancelled) setSupplierBankLoading(false);
@@ -2839,8 +3021,8 @@ export function ComplianceDocumentWorkspace({
     summary?.trip.id,
     summary?.trip.organization_id,
     summary?.trip.supplier_id,
+    summary?.stage,
     organizationId,
-    summary,
     checklistPreviewMode,
     supplierBankRevision,
     hideCommercials,
@@ -2900,6 +3082,34 @@ export function ComplianceDocumentWorkspace({
       ),
     [listRows, localDecisionByKey, reviewScope],
   );
+
+  useEffect(() => {
+    if (!organizationId || !canViewDocuments) return;
+    for (const row of displayListRows.filter(hasFile).slice(0, 8)) {
+      if (row.doc && !classifyTripDocument(row.doc).hasBinary) continue;
+      const path = vaultPreviewPath(row);
+      if (!path) continue;
+      void signCompliancePreviewUrl({
+        storagePath: path,
+        source: compliancePreviewSourceForRow(row),
+        sourceEntityDocumentId: row.doc?.source_entity_document_id,
+        organizationId,
+        entityId:
+          row.entityDoc?.entity_id ??
+          (reviewScope === "vehicle" ? summary?.trip.vehicle_id : summary?.trip.driver_id) ??
+          summary?.trip.id,
+        docType: row.type,
+      });
+    }
+  }, [
+    canViewDocuments,
+    displayListRows,
+    organizationId,
+    reviewScope,
+    summary?.trip.driver_id,
+    summary?.trip.id,
+    summary?.trip.vehicle_id,
+  ]);
   /** Each tab (Finance, Trip, Vehicle, Driver) uses the same group Approve. */
   const showGroupedReview = !showEntityUnassigned && !showAllDocs;
   const requiredGroupState = useMemo<ComplianceGroupReviewState | null>(
@@ -2933,7 +3143,7 @@ export function ComplianceDocumentWorkspace({
   const activeRow = !showDocumentShell || showEntityUnassigned
     ? null
     : checklistSelectedRow && hasFile(checklistSelectedRow)
-      ? checklistSelectedRow
+        ? checklistSelectedRow
       : null;
   useEffect(() => {
     if (!chargeFocusToken || !chargeFocusTripId) return;
@@ -2995,11 +3205,10 @@ export function ComplianceDocumentWorkspace({
       onSelectedTripChange?.(tripId);
       setDocFilter("all");
       setChecklistPreviewMode(defaultPreview);
-      setDocIndex(0);
+    setDocIndex(0);
       resetPreviewView();
       // Debit control: no side pane — tapping a trip opens Log hard copy POD.
       if (hideDocumentPanes && showHardCopyPodLog) setPodOpen(true);
-      if (phoneFlow) setPhonePane("detail");
     },
     [
       defaultPreview,
@@ -3007,7 +3216,6 @@ export function ComplianceDocumentWorkspace({
       hideDocumentPanes,
       showHardCopyPodLog,
       onSelectedTripChange,
-      phoneFlow,
     ],
   );
 
@@ -3018,21 +3226,16 @@ export function ComplianceDocumentWorkspace({
     setChecklistPreviewMode("document");
     resetPreviewView();
     setScreenOpen(false);
-    // Opened for one trip's documents (e.g. from trip detail): show them, not the list.
-    if (phoneFlow) setPhonePane("detail");
-  }, [focusTab, focusToken, resetPreviewView, phoneFlow]);
-
-  // The open trip left this queue (e.g. moved stage): back to the list rather
-  // than silently showing whichever trip is now first.
-  useEffect(() => {
-    if (phonePane === "detail" && !summaries.some((item) => item.trip.id === selectedId)) {
-      setPhonePane("list");
-    }
-  }, [phonePane, selectedId, summaries]);
+  }, [focusTab, focusToken, resetPreviewView]);
 
   useEffect(() => {
     setLocalDecisionByKey({});
+    setMobileDocPane("list");
   }, [summary?.trip.id]);
+
+  useEffect(() => {
+    if (!mobileReviewing) setMobileDocPane("list");
+  }, [mobileReviewing]);
 
   useEffect(() => {
     if (compliancePendingQueue) {
@@ -3248,20 +3451,20 @@ export function ComplianceDocumentWorkspace({
     const tripId = summary.trip.id;
 
     if (reviewScope === "trip") {
-      if (!row.doc) {
-        alertMessage("Couldn't approve document", "This trip document has no uploaded file.");
+        if (!row.doc) {
+          alertMessage("Couldn't approve document", "This trip document has no uploaded file.");
         return false;
-      }
-      const { error } = await setTripDocumentVerification({
-        document: row.doc,
-        organizationId,
-        actorId,
-        status: "verified",
-      });
-      if (error) {
-        alertMessage("Couldn't approve document", error.message);
+        }
+        const { error } = await setTripDocumentVerification({
+          document: row.doc,
+          organizationId,
+          actorId,
+          status: "verified",
+        });
+        if (error) {
+          alertMessage("Couldn't approve document", error.message);
         return false;
-      }
+        }
       if (sync) {
         onChanged({ type: "tripDocumentDecision", tripId, documentId: row.doc.id, status: "verified", actorId });
       }
@@ -3269,9 +3472,9 @@ export function ComplianceDocumentWorkspace({
     }
     if (row.entityDoc?.source === "vehicle-vault" && summary.trip.vehicle_id) {
       const vehicleId = summary.trip.vehicle_id;
-      const marked = await markVehicleDocumentVerified(organizationId, vehicleId, row.type);
-      if (marked.error) {
-        alertMessage("Couldn't approve document", marked.error.message);
+        const marked = await markVehicleDocumentVerified(organizationId, vehicleId, row.type);
+        if (marked.error) {
+          alertMessage("Couldn't approve document", marked.error.message);
         return false;
       }
       if (sync) onChanged({ type: "vehicleDocuments", vehicleId });
@@ -3282,9 +3485,9 @@ export function ComplianceDocumentWorkspace({
       row.entityDoc.source !== "driver-kyc" &&
       (row.entityDoc.entity_type === "vehicle" || row.entityDoc.entity_type === "driver")
     ) {
-      const { error } = await verifyDocument(row.entityDoc.id, actorId);
-      if (error) {
-        alertMessage("Couldn't approve document", error.message);
+        const { error } = await verifyDocument(row.entityDoc.id, actorId);
+        if (error) {
+          alertMessage("Couldn't approve document", error.message);
         return false;
       }
       if (sync) onChanged(entityDocumentChange(row.entityDoc));
@@ -3299,36 +3502,36 @@ export function ComplianceDocumentWorkspace({
     if (!summary || !actorId) return false;
     const tripId = summary.trip.id;
     if (reviewScope === "trip") {
-      if (!row.doc) {
-        alertMessage("Couldn't decline document", "This trip document has no uploaded file.");
+        if (!row.doc) {
+          alertMessage("Couldn't decline document", "This trip document has no uploaded file.");
         return false;
-      }
-      const { error } = await setTripDocumentVerification({
-        document: row.doc,
-        organizationId,
-        actorId,
-        status: "rejected",
-        rejectionReason: note,
-      });
-      if (error) {
-        alertMessage("Couldn't decline document", error.message);
+        }
+        const { error } = await setTripDocumentVerification({
+          document: row.doc,
+          organizationId,
+          actorId,
+          status: "rejected",
+          rejectionReason: note,
+        });
+        if (error) {
+          alertMessage("Couldn't decline document", error.message);
         return false;
-      }
-      onChanged({
-        type: "tripDocumentDecision",
-        tripId,
-        documentId: row.doc.id,
-        status: "rejected",
-        actorId,
-        rejectionReason: note,
-      });
+        }
+        onChanged({
+          type: "tripDocumentDecision",
+          tripId,
+          documentId: row.doc.id,
+          status: "rejected",
+          actorId,
+          rejectionReason: note,
+        });
       return true;
     }
     if (row.entityDoc?.source === "vehicle-vault") {
-      alertMessage(
-        "Couldn't decline document",
-        "Replace this file from the vehicle vault, or upload a new copy.",
-      );
+        alertMessage(
+          "Couldn't decline document",
+          "Replace this file from the vehicle vault, or upload a new copy.",
+        );
       return false;
     }
     if (
@@ -3336,15 +3539,15 @@ export function ComplianceDocumentWorkspace({
       row.entityDoc.source !== "driver-kyc" &&
       (row.entityDoc.entity_type === "vehicle" || row.entityDoc.entity_type === "driver")
     ) {
-      const { error } = await rejectDocument(row.entityDoc.id, note);
-      if (error) {
-        alertMessage("Couldn't decline document", error.message);
+        const { error } = await rejectDocument(row.entityDoc.id, note);
+        if (error) {
+          alertMessage("Couldn't decline document", error.message);
         return false;
-      }
-      onChanged(entityDocumentChange(row.entityDoc));
+        }
+        onChanged(entityDocumentChange(row.entityDoc));
       return true;
     }
-    alertMessage("Couldn't decline document", "This document can't be declined from this preview.");
+        alertMessage("Couldn't decline document", "This document can't be declined from this preview.");
     return false;
   };
 
@@ -3466,8 +3669,8 @@ export function ComplianceDocumentWorkspace({
     const note = reason.trim();
     if (!note) {
       alertMessage("Can't decline", "A rejection reason is required.");
-      return;
-    }
+        return;
+      }
 
     const targets = groupActionableRows(target).filter(
       (row) =>
@@ -3510,6 +3713,23 @@ export function ComplianceDocumentWorkspace({
   const isPdf = (previewMime ?? "").includes("pdf");
   const readiness = summary ? deriveComplianceQueueReadiness(summary) : null;
   const typedLines = typedDetailsLines(activeRow);
+  const vaultHeaderNumbers = activeRow
+    ? complianceVaultDocNumbers(summary?.documents ?? [], activeRow.type)
+    : [];
+  const typedPrimary = typedLines ? primaryTypedLine(typedLines)?.value : undefined;
+  const previewHeaderFacts = formatDocumentHeaderFacts({
+    numbers:
+      vaultHeaderNumbers.length > 0
+        ? vaultHeaderNumbers
+        : typedPrimary
+          ? [typedPrimary]
+          : [],
+    category: activeRow?.type,
+    expiryDate:
+      activeRow?.entityDoc?.expiry_date ??
+      typedLines?.find((line) => /valid/i.test(line.label))?.value ??
+      null,
+  });
   const financeBankSelected =
     isFinanceMode && checklistSelectedRow?.type === "bank_docs";
   const showBankPayeeDetails = Boolean(summary && !PRE_VERIFIED_STAGES.has(summary.stage));
@@ -3701,10 +3921,11 @@ export function ComplianceDocumentWorkspace({
   const missingRequiredCount = listMissingRows.filter((row) => row.required).length;
   const missingOptionalCount = listMissingRows.length - missingRequiredCount;
   const uploadedCount = listRows.filter(hasFile).length;
+  const onFilePreviewHint = mobileExclusive ? " — tap to preview" : " — preview below";
   const missingHeadline = isFinanceMode
     ? listMissingRows.length === 0
       ? uploadedCount > 0
-        ? `${uploadedCount} document${uploadedCount === 1 ? "" : "s"} on file — preview below`
+        ? `${uploadedCount} document${uploadedCount === 1 ? "" : "s"} on file${onFilePreviewHint}`
         : supplierBankLoading
           ? "Loading supplier Banking…"
           : "No Trip Details documents yet"
@@ -3713,7 +3934,7 @@ export function ComplianceDocumentWorkspace({
         : `${listMissingRows.length} document${listMissingRows.length === 1 ? "" : "s"} not uploaded`
     : listMissingRows.length === 0
       ? uploadedCount > 0
-        ? `${uploadedCount} document${uploadedCount === 1 ? "" : "s"} on file — preview below`
+        ? `${uploadedCount} document${uploadedCount === 1 ? "" : "s"} on file${onFilePreviewHint}`
         : "No documents in this vault yet"
       : missingRequiredCount > 0
         ? `${missingRequiredCount} required document${missingRequiredCount === 1 ? "" : "s"} not uploaded`
@@ -3757,6 +3978,30 @@ export function ComplianceDocumentWorkspace({
       try {
         const files = await pickComplianceVaultFiles(row.type);
         if (files.length === 0) return;
+        const rowLabel = isFinanceMode
+          ? labelForFinanceDocType(row.type)
+          : labelForDocType(row.type);
+        const existingPreview = listRows
+          .filter((item) => item.type === row.type && hasFile(item))
+          .map((item) =>
+            compliancePreviewFileFromRow(item, rowLabel, canEditFiles && !uploadingFinanceType),
+          );
+        const drafts: VaultCategoryPreviewFile[] = files.map((file, index) => ({
+          id: `draft-${Date.now()}-${index}`,
+          fileName: file.fileName,
+          categoryLabel: rowLabel,
+          previewUri: localVaultFilePreviewUri(file),
+          mimeHint: file.mimeType,
+          deleteKind: "trip",
+        }));
+        setCategoryPreview({
+          files: [...existingPreview, ...drafts],
+          index: existingPreview.length,
+          type: row.type,
+        });
+        setFilesModalType(null);
+        if (mobileExclusive) setMobileDocPane("list");
+        setScreenOpen(false);
 
         let expiryDate: string | null = null;
         if (scope !== "trip") {
@@ -3792,6 +4037,8 @@ export function ComplianceDocumentWorkspace({
         }
         focusUploadTypeRef.current = row.type;
         resetPreviewView();
+        if (mobileExclusive) setMobileDocPane("list");
+        setScreenOpen(false);
         onChanged(
           scope === "vehicle" && entityId
             ? { type: "vehicleDocuments", vehicleId: entityId }
@@ -3808,7 +4055,10 @@ export function ComplianceDocumentWorkspace({
     },
     [
       actorId,
+      canEditFiles,
       isFinanceMode,
+      listRows,
+      mobileExclusive,
       onChanged,
       organizationId,
       promptExpiryDate,
@@ -3869,8 +4119,40 @@ export function ComplianceDocumentWorkspace({
   // The files dialog belongs to one trip and tab.
   useEffect(() => {
     setFilesModalType(null);
+    setCategoryPreview(null);
     filesModalReturnRef.current = null;
   }, [summary?.trip.id, tab, financeList]);
+
+  const categoryPreviewType = categoryPreview?.type ?? null;
+  useEffect(() => {
+    if (!categoryPreviewType) return;
+    const label = isFinanceMode
+      ? labelForFinanceDocType(categoryPreviewType)
+      : labelForDocType(categoryPreviewType);
+    const next = listRows
+      .filter((item) => item.type === categoryPreviewType && hasFile(item))
+      .map((item) => compliancePreviewFileFromRow(item, label, canEditFiles));
+    setCategoryPreview((current) => {
+      if (!current || current.type !== categoryPreviewType) return current;
+      const drafts = current.files.filter((file) => String(file.id).startsWith("draft-"));
+      const files = uploadingFinanceType ? [...next, ...drafts] : next.length > 0 ? next : current.files;
+      if (
+        files.length === current.files.length &&
+        files.every(
+          (file, index) =>
+            file.id === current.files[index]?.id &&
+            file.storagePath === current.files[index]?.storagePath,
+        )
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        files,
+        index: Math.min(current.index, Math.max(0, files.length - 1)),
+      };
+    });
+  }, [canEditFiles, categoryPreviewType, isFinanceMode, listRows, uploadingFinanceType]);
 
   /** Trip-scope file as the delete helper's row shape. */
   const tripDocumentForDelete = (row: ComplianceDocRow): TripDocumentRow | null =>
@@ -3936,12 +4218,36 @@ export function ComplianceDocumentWorkspace({
     }
   };
 
+  const removeEntityFile = async (row: ComplianceDocRow, label: string) => {
+    const doc = row.entityDoc;
+    if (!summary || !doc || doc.entity_type === "supplier") return;
+    const place = doc.entity_type === "driver" ? "driver" : "vehicle";
+    const ok = await confirmAction(
+      "Remove file?",
+      `${label} will be deleted from this ${place} profile.`,
+      "Remove",
+    );
+    if (!ok) return;
+    setFileActionKey(row.key);
+    try {
+      const { error } = await deleteComplianceDocument(doc.id, doc.storage_path);
+      if (error) {
+        alertMessage("Couldn't remove file", error.message);
+        return;
+      }
+      onChanged(entityDocumentChange(doc));
+    } finally {
+      setFileActionKey(null);
+    }
+  };
+
   const previewChecklistRow = useCallback((row: ComplianceDocRow) => {
     setChecklistPreviewMode("document");
     setChecklistKey(row.key);
     if (!hasFile(row)) return;
     resetPreviewView();
-  }, [resetPreviewView]);
+    if (mobileExclusive) setMobileDocPane("preview");
+  }, [mobileExclusive, resetPreviewView]);
   const financeMemoRow = useMemo(
     () => financeRows.find((row) => row.type === "memo" && hasFile(row)) ?? null,
     [financeRows],
@@ -3979,14 +4285,14 @@ export function ComplianceDocumentWorkspace({
     const finance = financeRowsFor(summary, hideCommercials);
     const trip = deriveTripVaultReviewRows(summary.documents).filter((row) => row.status === "missing").length;
     const vehicle = summary.trip.vehicle_id
-      ? deriveEntityComplianceRows(COMPLIANCE_VEHICLE_DOCUMENT_TYPES, summary.vehicleDocuments).filter(
-          (row) => row.status === "missing",
-        ).length
+        ? deriveEntityComplianceRows(COMPLIANCE_VEHICLE_DOCUMENT_TYPES, summary.vehicleDocuments).filter(
+            (row) => row.status === "missing",
+          ).length
       : 0;
     const driver = summary.trip.driver_id
-      ? deriveEntityComplianceRows(COMPLIANCE_DRIVER_DOCUMENT_TYPES, summary.driverDocuments).filter(
-          (row) => row.status === "missing",
-        ).length
+        ? deriveEntityComplianceRows(COMPLIANCE_DRIVER_DOCUMENT_TYPES, summary.driverDocuments).filter(
+            (row) => row.status === "missing",
+          ).length
       : 0;
     const financeMissing = finance.filter((row) => row.status === "missing").length;
     return {
@@ -3998,16 +4304,14 @@ export function ComplianceDocumentWorkspace({
     };
   }, [summary, hideCommercials]);
 
-  const renderChecklistRow = (row: ComplianceDocRow, index: number) => {
+  const renderChecklistRow = (row: ComplianceDocRow) => {
     const displayRow = applyOptimisticDecision(row, localDecisionByKey[optimisticKey(reviewScope, row.key)]);
     const rowHasFile = hasFile(displayRow);
     // Grey and inert unless the file exists AND this person may view documents.
     const canOpenRowFiles = rowHasFile && canViewDocuments;
-    const statusMeta = COMPLIANCE_STATUS_META[displayRow.status];
     const selected =
       checklistPreviewMode === "document" &&
       checklistKey === displayRow.key;
-    const uploadLabel = displayRow.status === "missing" ? "Upload" : "Add";
     const rowLabel =
       isFinanceMode ||
       (COMPLIANCE_FINANCE_DOCUMENT_TYPES as readonly string[]).includes(displayRow.type)
@@ -4017,224 +4321,128 @@ export function ComplianceDocumentWorkspace({
     const typeFiles = listRows
       .filter((item) => item.type === displayRow.type && hasFile(item))
       .map((item) => applyOptimisticDecision(item, localDecisionByKey[optimisticKey(reviewScope, item.key)]));
-    const rowTitle =
-      typeFiles.length > 1 ? `${rowLabel.toUpperCase()} · ${typeFiles.length} files` : rowLabel.toUpperCase();
-    const typeStatusSummary =
-      typeFiles.length > 1
-        ? (["verified", "pending", "rejected", "expired"] as const)
-            .map((status) => {
-              const count = typeFiles.filter((item) => item.status === status).length;
-              return count > 0 ? `${count} ${COMPLIANCE_STATUS_META[status].label.toLowerCase()}` : null;
-            })
-            .filter(Boolean)
-            .join(" · ")
-        : null;
-    const typeStatusColor =
-      typeFiles.length > 1
-        ? COMPLIANCE_STATUS_META[
-            typeFiles.some((item) => item.status === "rejected")
-              ? "rejected"
-              : typeFiles.some((item) => item.status === "pending")
-                ? "pending"
-                : displayRow.status
-          ].color
-        : null;
     // Single-file rows only; a multi-file type shows each reason in its files dialog.
     const declineReason =
       typeFiles.length > 1
         ? null
         : complianceRowDeclineReason(row, localDecisionByKey[optimisticKey(reviewScope, row.key)]);
-    // Entity docs keep the decline reason in `notes`; don't show it twice.
-    const fileName =
-      displayRow.doc?.file_name?.trim() || (declineReason ? "" : displayRow.entityDoc?.notes?.trim()) || "";
     const vaultDetail = isFinanceMode ? financeVaultDetailLine(displayRow) : null;
     const isBankDocs = isFinanceMode && displayRow.type === "bank_docs";
-    const bankVerified =
-      isBankDocs &&
-      (displayRow.status === "verified" ||
-        (supplierBankProof?.status ?? "").toLowerCase() === "verified");
     const bankFromSupplier =
       isBankDocs &&
       Boolean(
         displayRow.entityDoc?.source === "supplier-kyc" || supplierBankProof?.onFile,
       );
     const vaultNumbers =
-      isCompliancePendingStage && reviewScope === "trip"
+      reviewScope === "trip"
         ? complianceVaultDocNumbers(summary?.documents ?? [], displayRow.type)
         : [];
-    const statusLabel = typeStatusSummary
-      ? typeStatusSummary
-      : displayRow.status === "missing"
-        ? isBankDocs && supplierBankLoading
-          ? "Fetching supplier Banking…"
-          : "Not uploaded"
-        : vaultDetail
-          ? vaultDetail
-          : rowHasFile
-            ? fileName && !/fields\.json$/i.test(fileName)
-              ? `${statusMeta.label} · ${fileName}`
-              : `${statusMeta.label} · ready to preview`
-            : statusMeta.label;
+    const typePreviews = typeFiles
+      .map((item) => vaultPreviewForRow(item, organizationId, summary?.trip.id ?? null, rowLabel))
+      .filter((item): item is VaultChooserPreview => Boolean(item));
+    const entityType =
+      displayRow.type === "license" || displayRow.type === "aadhaar"
+        ? "driver"
+        : ["rc", "insurance", "fitness", "permit", "pollution", "road_tax"].includes(
+              displayRow.type,
+            )
+          ? "vehicle"
+          : "client";
+    // Insurance / FC / licence rows without an expiry date (release 2026-10-23).
     const needsExpiry = !isFinanceMode && entityRowNeedsExpiry(displayRow);
-    const rowStatusLabel = needsExpiry ? `${statusLabel} · Expiry date missing` : statusLabel;
-    return (
-      <Pressable
+    const expiryIso =
+      typeFiles
+        .map((item) => item.entityDoc?.expiry_date?.trim() ?? "")
+        .find((value) => Boolean(value)) ||
+      displayRow.entityDoc?.expiry_date?.trim() ||
+      null;
+    const meta = [
+      declineReason ? `Reason: ${declineReason}` : null,
+      isBankDocs && supplierBankLoading ? "Fetching supplier Banking…" : null,
+      bankFromSupplier && displayRow.status !== "missing" ? "Synced from supplier Banking" : null,
+      vaultDetail && vaultNumbers.length === 0 ? vaultDetail : null,
+    ]
+      .filter((part): part is string => Boolean(part))
+      .join(" · ");
+  return (
+      <View
         key={displayRow.key}
-        onPress={() => previewChecklistRow(displayRow)}
-        accessibilityRole="button"
-        accessibilityState={{ selected }}
-        accessibilityLabel={`${rowLabel} details`}
-        style={(state: HoverPressState) => [
-          styles.missingRow,
-          WEB_POINTER,
-          WEB_TRANSITION,
-          denseChecklist && styles.missingRowDense,
-          index > 0 && styles.missingRowBorder,
-          isHovered(state) && !selected && styles.missingRowHover,
-          selected && styles.missingRowSelected,
-          isHovered(state) && selected && styles.missingRowSelectedHover,
+        style={[
+          styles.checklistVaultRow,
+          selected && styles.checklistVaultRowSelected,
         ]}
       >
-        <View style={styles.missingRowCopy}>
-          <View style={styles.missingTitleRow}>
-            <Text style={styles.missingDocName} numberOfLines={1}>
-              {rowTitle}
-            </Text>
-            {!showGroupedReview ? (
-              <View
-                style={[
-                  styles.missingScopeTag,
-                  displayRow.required
-                    ? styles.missingScopeRequired
-                    : styles.missingScopeOptional,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.missingScopeText,
-                    displayRow.required
-                      ? styles.missingScopeTextRequired
-                      : styles.missingScopeTextOptional,
-                  ]}
-                >
-                  {requirementScopeLabel(displayRow.required)}
-                </Text>
-              </View>
-            ) : null}
-            {bankVerified ? (
-              <View style={styles.bankVerifiedChip}>
-                <Text style={styles.bankVerifiedChipText}>Verified</Text>
-              </View>
-            ) : null}
-          </View>
-          <ComplianceNumberStack numbers={vaultNumbers} variant="card" />
-          {!(bankFromSupplier && displayRow.status !== "missing") ? (
-            <Text
-              style={[
-                styles.missingStatus,
-                displayRow.status === "missing"
-                  ? null
-                  : {
-                      color: needsExpiry
-                        ? COMPLIANCE_STATUS_META.rejected.color
-                        : (typeStatusColor ?? statusMeta.color),
-                    },
-              ]}
-              numberOfLines={1}
-            >
-              {rowStatusLabel}
-            </Text>
-          ) : null}
-          {declineReason ? (
-            <Text
-              style={[styles.missingStatus, { color: COMPLIANCE_STATUS_META.rejected.color }]}
-              numberOfLines={2}
-            >
-              {`Reason: ${declineReason}`}
-            </Text>
-          ) : null}
-          {bankFromSupplier && displayRow.status !== "missing" ? (
-            <Text style={styles.bankSourceHint} numberOfLines={1}>
-              Synced from supplier Banking
-            </Text>
-          ) : null}
-        </View>
-        <View style={[styles.missingRowActions, complianceActionButtonStyles.row]}>
+        <VaultChooserNotifyRow
+          label={rowLabel}
+          meta={meta}
+          onFile={rowHasFile}
+          canUpload={canEditFiles && !uploadingFinanceType}
+          entityType={entityType}
+          required={displayRow.required}
+          actionText={
+            vaultNumbers.length > 0
+              ? vaultNumbers.join(" · ")
+              : undefined
+          }
+          expiryDate={expiryIso}
+          needsExpiry={documentRequiresExpiry(displayRow.type)}
+          preview={typePreviews[0] ?? null}
+          previews={typePreviews}
+          onPreview={() => {
+            if (!canOpenRowFiles) return;
+            previewChecklistRow(typeFiles[0] ?? displayRow);
+            setScreenOpen(false);
+          }}
+          onPreviewAt={(index) => {
+            if (!canOpenRowFiles) return;
+            previewChecklistRow(typeFiles[index] ?? displayRow);
+            setScreenOpen(false);
+          }}
+          onEdit={() => {
+            if (!canOpenRowFiles) return;
+            setCategoryPreview({
+              files: typeFiles.map((item) =>
+                compliancePreviewFileFromRow(item, rowLabel, canEditFiles),
+              ),
+              index: 0,
+              type: displayRow.type,
+            });
+            setFilesModalType(null);
+            setScreenOpen(false);
+            if (mobileExclusive) setMobileDocPane("list");
+          }}
+          onAdd={() => void uploadVaultDocument(row)}
+          onOpenFull={(index) => {
+            const target = typeFiles[index] ?? displayRow;
+            previewChecklistRow(target);
+            setScreenOpen(true);
+          }}
+        />
+        {canEditFiles && needsExpiry && canSetEntityExpiry(displayRow) ? (
           <Pressable
             style={(state: HoverPressState) => [
-              styles.missingEyeBtn,
+              styles.missingUploadBtn,
+              styles.checklistExpiryBtn,
               WEB_POINTER,
               WEB_TRANSITION,
-              !canOpenRowFiles && styles.missingEyeBtnDisabled,
-              isHovered(state) && canOpenRowFiles && styles.missingEyeBtnHover,
+              savingExpiryKey === displayRow.key && styles.btnDisabled,
+              isHovered(state) && !savingExpiryKey && styles.missingUploadBtnHover,
             ]}
-            disabled={!canOpenRowFiles}
-            onPress={() => setFilesModalType(displayRow.type)}
+            disabled={Boolean(savingExpiryKey)}
+            onPress={() => void addEntityExpiry(displayRow)}
             accessibilityRole="button"
-            accessibilityLabel={
-              rowHasFile && !canViewDocuments
-                ? `${rowLabel} files (no permission to view documents)`
-                : `${rowLabel} files`
-            }
-            accessibilityState={{ disabled: !canOpenRowFiles }}
-            {...(Platform.OS === "web" && rowHasFile && !canViewDocuments
-              ? { title: "You don't have permission to view compliance documents" }
-              : {})}
+            accessibilityLabel={`Add expiry date for ${rowLabel}`}
+            accessibilityState={{ busy: savingExpiryKey === displayRow.key }}
           >
-            <Eye
-              size={12}
-              color={canOpenRowFiles ? Theme.actionBtnInk : Theme.textMuted}
-              strokeWidth={2.2}
-            />
+            {savingExpiryKey === displayRow.key ? (
+              <ActivityIndicator size="small" color={Theme.buttonDarkText} />
+            ) : null}
+            <Text style={styles.missingUploadBtnText}>
+              {savingExpiryKey === displayRow.key ? "Saving…" : "Add expiry"}
+            </Text>
           </Pressable>
-          {canEditFiles && needsExpiry && canSetEntityExpiry(displayRow) ? (
-            <Pressable
-              style={(state: HoverPressState) => [
-                styles.missingUploadBtn,
-                WEB_POINTER,
-                WEB_TRANSITION,
-                savingExpiryKey === displayRow.key && styles.btnDisabled,
-                isHovered(state) && !savingExpiryKey && styles.missingUploadBtnHover,
-              ]}
-              disabled={Boolean(savingExpiryKey)}
-              onPress={() => void addEntityExpiry(displayRow)}
-              accessibilityRole="button"
-              accessibilityLabel={`Add expiry date for ${rowLabel}`}
-              accessibilityState={{ busy: savingExpiryKey === displayRow.key }}
-            >
-              {savingExpiryKey === displayRow.key ? (
-                <ActivityIndicator size="small" color={Theme.buttonDarkText} />
-              ) : null}
-              <Text style={styles.missingUploadBtnText}>
-                {savingExpiryKey === displayRow.key ? "Saving…" : "Add expiry"}
-              </Text>
-            </Pressable>
-          ) : null}
-          {canEditFiles && displayRow.status === "missing" ? (
-            <Pressable
-              style={(state: HoverPressState) => [
-                styles.missingUploadBtn,
-                WEB_POINTER,
-                WEB_TRANSITION,
-                uploadingFinanceType === displayRow.key && styles.btnDisabled,
-                isHovered(state) && !uploadingFinanceType && styles.missingUploadBtnHover,
-              ]}
-              disabled={Boolean(uploadingFinanceType)}
-              onPress={() => void uploadVaultDocument(row)}
-              accessibilityRole="button"
-              accessibilityLabel={`${uploadLabel} ${rowLabel}`}
-              accessibilityState={{ busy: uploadingFinanceType === displayRow.key }}
-            >
-              {uploadingFinanceType === displayRow.key ? (
-                <ActivityIndicator size="small" color={Theme.buttonDarkText} />
-              ) : null}
-              <Text style={styles.missingUploadBtnText}>
-                {uploadingFinanceType === displayRow.key ? "Uploading…" : uploadLabel}
-              </Text>
-            </Pressable>
-          ) : null}
-        </View>
-      </Pressable>
+        ) : null}
+      </View>
     );
   };
 
@@ -4314,7 +4522,7 @@ export function ComplianceDocumentWorkspace({
               style={[styles.reviewGroupApprove, (!state.canApprove || busy) && styles.btnDisabled]}
               activeOpacity={0.85}
               disabled={busy || !state.canApprove}
-              onPress={() => void approveGroup(group)}
+              onPress={() => setApproveConfirm(group)}
               hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
               accessibilityRole="button"
               accessibilityLabel={`Approve all ${groupLabel} documents`}
@@ -4332,133 +4540,119 @@ export function ComplianceDocumentWorkspace({
     );
   };
 
-  const renderChecklistPanelTabs = () =>
-    (
-      [
-        { key: "all" as const, label: "All" },
-        ...(showFinanceTab && !compliancePendingView
-          ? [{ key: "finance" as const, label: "Finance" }]
-          : []),
-        ...TABS,
-      ] as const
-    ).map((item) => {
-      const active = docFilter === item.key;
-      const missingCount =
-        item.key === "all"
-          ? tabMissingCounts.all
-          : item.key === "finance"
-            ? tabMissingCounts.finance
-            : tabMissingCounts[item.key];
-      const approved =
-        item.key !== "all" &&
-        item.key !== "finance" &&
-        isCompliancePendingStage &&
-        tabMarkedApproved[item.key];
-      return (
-        <Pressable
-          key={item.key}
-          onPress={() => applyDocFilter(item.key)}
-          style={(state: HoverPressState) => [
-            styles.tab,
-            styles.checklistPanelTab,
-            WEB_POINTER,
-            WEB_TRANSITION,
-            isHovered(state) && !active && styles.tabHover,
-            active && styles.tabActive,
-            isHovered(state) && active && styles.tabActiveHover,
-          ]}
-          accessibilityRole="tab"
-          accessibilityState={{ selected: active }}
-          accessibilityLabel={
-            item.key === "all"
-              ? "Show all documents"
-              : `Show ${item.label} documents${active ? ", tap again for all" : ""}`
-          }
-        >
-          <Text
-            style={[
-              styles.tabText,
-              styles.checklistPanelTabText,
-              active && styles.tabTextActive,
-            ]}
-            numberOfLines={1}
-          >
-            {item.label}
-          </Text>
-          {approved ? (
-            <View style={[styles.tabBadge, styles.checklistPanelTabBadge, styles.tabApprovedBadge]}>
-              <Text style={[styles.tabBadgeText, styles.checklistPanelTabBadgeText, styles.tabApprovedBadgeText]}>
-                Approved
-              </Text>
-            </View>
-          ) : missingCount > 0 ? (
-            <View
-              style={[
-                styles.tabBadge,
-                styles.checklistPanelTabBadge,
-                active && styles.tabBadgeActive,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.tabBadgeText,
-                  styles.checklistPanelTabBadgeText,
-                  active && styles.tabBadgeTextActive,
-                ]}
-              >
-                {missingCount}
-              </Text>
-            </View>
-          ) : null}
-        </Pressable>
-      );
-    });
+  /** Trip / Ground Ops lock for one file: same rules as the former files dialog (the database enforces them too). */
+  const complianceFileLockReason = (row: ComplianceDocRow): string | null => {
+    const isTripFile = Boolean(row.doc);
+    const entityDoc = row.entityDoc;
+    const isOwnedEntityFile =
+      Boolean(entityDoc) &&
+      !isTripFile &&
+      entityDoc?.entity_type !== "supplier" &&
+      entityDoc?.source !== "supplier-kyc";
+    if (!isTripFile && !isOwnedEntityFile) return null;
+    if (row.status === "verified") return "Approved files are locked";
+    const groundOpsLock =
+      groundOpsDocumentLock && summary && isTripFile
+        ? groundOpsDocumentLockReason({
+            trip: {
+              status: summary.trip.status,
+              compliance_verified_at: summary.complianceVerifiedAt,
+              compliance_declined_at: summary.complianceDeclinedAt,
+              compliance_resubmitted_at: summary.complianceResubmittedAt ?? null,
+              finance_verified_at: summary.financeVerifiedAt ?? null,
+            },
+            documentStatus: row.doc?.status,
+            advancePosted: Boolean(summary.advance || summary.advanceBeforeVerification),
+            ownRecentUpload: isOwnRecentUpload(row.doc, actorId),
+          })
+        : null;
+    if (groundOpsLock) return groundOpsDocumentLockLabel(groundOpsLock);
+    const verifiedLock = Boolean(
+      summary?.complianceVerifiedAt &&
+        !isComplianceAwaitingResubmit(summary) &&
+        REQUIRED_COMPLIANCE_DOCUMENT_TYPES.includes(row.type),
+    );
+    return verifiedLock ? "Locked after the trip is verified" : null;
+  };
 
-  /** Document rows of the checklist pane (scrolls itself on desktop, with the page on phones). */
-  const checklistDocRows = showGroupedReview
-    ? (["required", "optional"] as const).map((group) => {
-        const requiredTypes = new Set(
-          listRows.filter((row) => row.required).map((row) => row.type),
-        );
-        const groupRows = listRows.filter((row) => {
-          const withRequiredType = requiredTypes.has(row.type);
-          return group === "required" ? withRequiredType : !withRequiredType;
-        });
-        if (groupRows.length === 0) return null;
-        return (
-          <View
-            key={group}
-            style={[styles.reviewGroup, group === "optional" && styles.reviewGroupSpaced]}
-          >
-            {renderReviewGroupHeader(group, groupRows.length)}
-            {firstRowPerType(groupRows).map(renderChecklistRow)}
-          </View>
-        );
-      })
-    : firstRowPerType(listRows).map(renderChecklistRow);
+  /**
+   * Ground Ops may not add another file over a locked type; a rejected file or a
+   * trip back for resubmit reopens it (only a file that is neither rejected nor
+   * this user's own recent upload blocks adding).
+   */
+  const complianceTypeAddLockReason = (type: string): string | null => {
+    if (!groundOpsDocumentLock || !summary) return null;
+    const blocking = listRows.filter(
+      (row) =>
+        row.type === type &&
+        row.doc &&
+        row.doc.status !== "rejected" &&
+        !isOwnRecentUpload(row.doc, actorId),
+    );
+    if (blocking.length === 0) return null;
+    const lock = groundOpsDocumentLockReason({
+      trip: {
+        status: summary.trip.status,
+        compliance_verified_at: summary.complianceVerifiedAt,
+        compliance_declined_at: summary.complianceDeclinedAt,
+        compliance_resubmitted_at: summary.complianceResubmittedAt ?? null,
+        finance_verified_at: summary.financeVerifiedAt ?? null,
+      },
+      advancePosted: Boolean(summary.advance || summary.advanceBeforeVerification),
+    });
+    return lock ? groundOpsDocumentLockLabel(lock) : null;
+  };
+
+  const mobileListOnly = mobileExclusive && !mobileReviewing;
+  const mobileDetailOnly = mobileExclusive && mobileReviewing;
+  const splitEnabled = !stacked && !mobileExclusive;
 
   return (
-    <View style={[styles.workspace, stacked && styles.workspaceStacked, style]}>
-      {phoneDetail ? null : (
+    <View
+      style={[
+        styles.workspace,
+        stacked && styles.workspaceStacked,
+        mobileExclusive && styles.workspaceMobile,
+        style,
+      ]}
+    >
+      {mobileDetailOnly && mobileDocPane !== "preview" ? pageHeader : null}
+      {mobileDetailOnly ? null : (
       <View
         style={[
           styles.listPane,
-          stacked && styles.listPaneStacked,
-          ((hideDocumentPanes && !showValidationPane) || phoneList) && styles.listPaneFull,
+          !mobileExclusive && styles.listPaneFill,
+          stacked && !mobileExclusive && styles.listPaneStacked,
+          mobileExclusive && styles.listPaneMobile,
+          hideDocumentPanes && !showValidationPane && styles.listPaneFull,
         ]}
       >
-        {listHeader}
+        {mobileExclusive ? null : listHeader}
         {summaries.length === 0 ? (
+          mobileExclusive ? (
+            <ScrollView
+              style={styles.listScroll}
+              contentContainerStyle={styles.listEmptyMobileContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {listHeader}
+              <View style={styles.listEmptyMobileBody}>
+                <NoTripsFoundEmpty compact={false} />
+              </View>
+            </ScrollView>
+          ) : (
           <View style={styles.listEmpty}>
             <NoTripsFoundEmpty compact={stacked} />
           </View>
+          )
         ) : (
         <ScrollView
           ref={listRef}
           style={styles.listScroll}
           nestedScrollEnabled
           showsVerticalScrollIndicator
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, mobileExclusive && styles.listContentMobile]}
           scrollEventThrottle={16}
           onScroll={onListScroll}
           onLayout={(event) => {
@@ -4470,11 +4664,12 @@ export function ComplianceDocumentWorkspace({
             fillListIfShort();
           }}
         >
+          {mobileExclusive ? listHeader : null}
           {listWindowItems.map((item) => (
             <View
               key={item.trip.id}
               onLayout={
-                item.trip.id === selectedTripId
+                !mobileExclusive && item.trip.id === selectedTripId
                   ? (event) => {
                       if (scrolledTripId.current === selectedTripId) return;
                       scrolledTripId.current = selectedTripId;
@@ -4486,20 +4681,29 @@ export function ComplianceDocumentWorkspace({
                   : undefined
               }
             >
-              <TripListRow
+              <View style={hubMobileListCanvasStyles.cardWrap}>
+                <ComplianceTripCard
                 summary={item}
-                selected={item.trip.id === summary?.trip.id}
-                organizationId={organizationId}
-                truckType={
-                  item.trip.vehicle_id
-                    ? truckTypeByVehicleId[item.trip.vehicle_id] ?? null
-                    : null
-                }
-                supplierName={supplierNameByTripId[item.trip.id] ?? null}
-                partyAvatar={partyAvatarByTripId[item.trip.id] ?? null}
-                onSelect={selectListTrip}
-                podOnly={hideDocumentPanes}
-              />
+                  compact
+                  selected={!mobileExclusive && item.trip.id === summary?.trip.id}
+                  onReviewDocuments={(group) => {
+                    selectListTrip(item.trip.id);
+                    onReviewTripDocs?.(item.trip.id, null, group);
+                  }}
+                  onViewTrip={() => selectListTrip(item.trip.id)}
+                  onOpenDetails={() => selectListTrip(item.trip.id)}
+                  onPay={onPay ? () => onPay(item) : undefined}
+                  onMarkComplianceVerified={
+                    onMarkComplianceVerified
+                      ? () => onMarkComplianceVerified(item.trip.id)
+                      : undefined
+                  }
+                  canManageFinance={canManageFinance}
+                  onOpenActivityLog={
+                    onOpenActivityLog ? () => onOpenActivityLog(item) : undefined
+                  }
+                />
+              </View>
             </View>
           ))}
           {listLoadingMore ? (
@@ -4523,15 +4727,60 @@ export function ComplianceDocumentWorkspace({
       </View>
       )}
 
-      {phoneList ? null : (
-      <PhoneDetailFrame
-        active={phoneDetail}
-        title={summary ? getTripDisplayNumber(summary.trip, organizationId || null) : ""}
-        subtitle={summary?.trip.client_name?.trim() || null}
-        onBack={() => setPhonePane("list")}
-      >
-      {showValidationPane ? (
-        <View style={[styles.previewPane, styles.podLogPane]}>
+      {mobileListOnly ? null : podVerificationLayout && summary ? (
+        <View style={[styles.previewPane, styles.podLogPane, mobileExclusive && styles.podLogPaneMobile]}>
+          <PodVerificationPane
+            summary={summary}
+            organizationId={organizationId}
+            actorId={actorId}
+            canManage={canManagePod}
+            tripFacts={tripFacts}
+            courierLrOptions={courierLrOptions}
+            stacked={stacked}
+            mobileExclusive={mobileExclusive}
+            chargesReview={chargesReview}
+            onChanged={(tripId) => void onChanged({ type: "hardCopyPod", tripId })}
+            onChargesSaved={onChargesSaved}
+            onPodNotFound={(tripId) => {
+              void onChanged({ type: "podNotFound", tripId });
+              void onChanged({ type: "hardCopyPod", tripId });
+              onPodNotFound?.(tripId);
+            }}
+            onOpenActivityLog={onOpenActivityLog ? () => onOpenActivityLog(summary) : undefined}
+          />
+                    </View>
+      ) : settlementLayout && summary ? (
+        <View style={[styles.previewPane, styles.podLogPane, mobileExclusive && styles.podLogPaneMobile]}>
+          <PodVerificationPane
+            summary={summary}
+            organizationId={organizationId}
+            actorId={actorId}
+            canManage={canManageFinance || canManagePod}
+            tripFacts={tripFacts}
+            courierLrOptions={courierLrOptions}
+            stacked={stacked}
+            mobileExclusive={mobileExclusive}
+            settlementMode
+            finalSettlement={finalSettlement}
+            onOpenActivityLog={onOpenActivityLog ? () => onOpenActivityLog(summary) : undefined}
+            onChanged={(tripId) => void onChanged({ type: "hardCopyPod", tripId })}
+            onRevalidated={(tripId) => {
+              void onChanged({ type: "podRevalidate", tripId });
+              void onChanged({ type: "hardCopyPod", tripId });
+              onRevalidated?.(tripId);
+            }}
+            onProceededToSettlement={(tripId) => {
+              void onChanged({ type: "settlementReleased", tripId });
+              void onChanged({ type: "hardCopyPod", tripId });
+              onProceededToSettlement?.(tripId);
+            }}
+            onPayBalance={(amount) => onPayBalance?.(summary, amount)}
+            canPayBalance={canManageFinance && !summary.balance}
+            payingBalance={paymentSubmitting}
+          />
+          </View>
+      ) : showValidationPane ? (
+        <View style={[styles.previewPane, styles.podLogPane, mobileExclusive && styles.podLogPaneMobile]}>
           {summary ? (
             <PodClientValidationPanel
               organizationId={organizationId}
@@ -4567,27 +4816,27 @@ export function ComplianceDocumentWorkspace({
                 title="No trip selected"
                 hint="Select a trip to review its charges."
               />
-            </View>
-          )}
-        </View>
+                </View>
+            )}
+          </View>
       ) : showHardCopyPodLog && !hideDocumentPanes ? (
         <View style={[styles.detailColumn, stacked && styles.detailColumnStacked]}>
           {detailHeader}
-          <View style={[styles.previewPane, styles.podLogPane, styles.detailPaneFill]}>
+          <View style={[styles.previewPane, styles.podLogPane, styles.detailPaneFill, mobileExclusive && styles.podLogPaneMobile]}>
           {summary && showLogHardCopyPod ? (
-            <ComplianceHardCopyPodSheet
-              key={`${summary.trip.id}:${podLogRound}`}
-              inline
-              visible
-              onClose={() => setPodLogRound((round) => round + 1)}
+            <PodVerificationPane
+              key={summary.trip.id}
               summary={summary}
-              organizationId={organizationId || null}
-              canManage={canManagePod || showLogHardCopyPod}
-              lrOptions={courierLrOptions}
+              organizationId={organizationId}
+              actorId={actorId}
+              canManage={canManagePod}
               tripFacts={tripFacts}
-              onChanged={async (ids) => {
-                await Promise.all(ids.map((tripId) => onChanged({ type: "tripFlags", tripId })));
-              }}
+              courierLrOptions={courierLrOptions}
+              stacked={stacked}
+              mobileExclusive={mobileExclusive}
+              previewOnly
+              onChanged={(tripId) => void onChanged({ type: "hardCopyPod", tripId })}
+              onOpenActivityLog={onOpenActivityLog ? () => onOpenActivityLog(summary) : undefined}
             />
           ) : (
             <View style={styles.emptyStage}>
@@ -4596,85 +4845,140 @@ export function ComplianceDocumentWorkspace({
                 title="No trip selected"
                 hint="Select an Awaiting POD trip to log its hard copy POD."
               />
-            </View>
+              </View>
           )}
-          </View>
+            </View>
         </View>
       ) : hideDocumentPanes ? null : (
-      <View style={[styles.previewPane, phoneDetail && styles.phoneNatural]}>
-        <View style={[styles.stage, phoneDetail && styles.phoneNatural]}>
+      <View style={[styles.previewPane, mobileExclusive && styles.podLogPaneMobile]}>
+        <View style={styles.stage}>
           {showDocumentShell ? (
             <View
-              style={[
+                      style={[
                 styles.checklistStage,
                 stacked && styles.checklistStageStacked,
-                phoneDetail && styles.phoneNatural,
+                mobileExclusive && styles.checklistStageMobile,
               ]}
             >
-              <View
-                style={[
+              <AdjustableSplitLayout
+                storageKey="compliance.documentCards"
+                enabled={splitEnabled}
+                stacked={stacked || mobileExclusive}
+                sizedPane="start"
+                defaultSize={420}
+                defaultRatio={0.5}
+                minSize={280}
+                maxSize={720}
+                start={
+                  mobileExclusive && mobileDocPane === "preview" ? null : (
+                        <ScrollView
+                          scrollEnabled
+                          style={[
                   styles.checklistListPane,
-                  stacked && (phoneDetail ? styles.checklistListPanePhone : styles.checklistListPaneStacked),
+                  splitEnabled && styles.checklistListPaneSplit,
+                  stacked && styles.checklistListPaneStacked,
+                  mobileExclusive && styles.checklistListPaneMobile,
                 ]}
+                          contentContainerStyle={styles.checklistPageScroll}
+                          keyboardShouldPersistTaps="handled"
+                          showsVerticalScrollIndicator
+                          nestedScrollEnabled
               >
-                <View style={styles.checklistPanelToolbar}>
-                  {/* Phone: tabs wrap so Driver is not hidden past the edge of a side scroll. */}
-                  {phoneDetail ? (
-                    <View style={styles.checklistPanelTabsWrapPhone}>{renderChecklistPanelTabs()}</View>
-                  ) : (
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    style={styles.checklistPanelTabsScroll}
-                    contentContainerStyle={styles.checklistPanelTabs}
-                    keyboardShouldPersistTaps="handled"
-                  >
-                    {renderChecklistPanelTabs()}
-                  </ScrollView>
-                  )}
-                  {/* Phone: the headline below already says what's missing; tabs get the width. */}
-                  {phoneDetail ? null : (
-                  <View style={styles.checklistToolbarActions}>
-                    <View style={[styles.missingNavPill, styles.checklistUploadPill]}>
-                      <Text style={[styles.missingNavLabel, styles.checklistUploadPillText]} numberOfLines={1}>
-                        {showEntityUnassigned
-                          ? "Unassigned"
-                          : listMissingRows.length > 0
-                            ? `${listMissingRows.length} to upload`
-                            : `${uploadedCount} on file`}
+                <View style={[styles.checklistPanelToolbar, styles.checklistPanelToolbarMobile]}>
+                    <View style={styles.docScopeTabRow} accessibilityRole="tablist">
+                      {(
+                        [
+                          { key: "all" as const, label: "All" },
+                          ...(showFinanceTab && !compliancePendingView
+                            ? [{ key: "finance" as const, label: "Finance" }]
+                            : []),
+                          ...TABS,
+                        ] as const
+                      ).map((item) => {
+                        const active = docFilter === item.key;
+              return (
+                <Pressable
+                  key={item.key}
+                            onPress={() => applyDocFilter(item.key)}
+                            style={(state: HoverPressState) => [
+                              styles.docScopeTab,
+                              active && styles.docScopeTabActive,
+                              WEB_POINTER,
+                              isHovered(state) && !active && styles.docScopeTabHover,
+                            ]}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active }}
+                            accessibilityLabel={`Show ${item.label} documents`}
+                          >
+                            <Text
+                              style={[styles.docScopeTabText, active && styles.docScopeTabTextActive]}
+                              numberOfLines={1}
+                            >
+                              {item.label}
                       </Text>
-                    </View>
-                  </View>
-                  )}
+                </Pressable>
+              );
+            })}
+          </View>
+                    {summary && onOpenActivityLog ? (
+                      <ComplianceActivityLogButton hub onPress={() => onOpenActivityLog(summary)} />
+            ) : null}
                 </View>
-                {showEntityUnassigned ? (
-                  <View style={styles.missingHeader}>
+            {showEntityUnassigned ? (
+                  <View style={[styles.missingHeader, styles.missingHeaderMobile]}>
                     <Text style={styles.missingTitle}>{vaultCopy.unassignedTitle}</Text>
-                    <Text style={styles.missingHint}>{vaultCopy.unassignedHint}</Text>
-                  </View>
-                ) : (
-                  <>
-                    <View style={styles.missingHeader}>
-                      <Text style={styles.missingTitle}>
-                        {isFinanceMode ? "TRIP DETAILS" : "DOCUMENTS TO UPLOAD"}
-                      </Text>
+                    <Text style={[styles.missingHint, styles.missingHintMobile]}>
+                      {vaultCopy.unassignedHint}
+                </Text>
+              </View>
+            ) : (
+              <>
+                    <View style={[styles.missingHeader, styles.missingHeaderMobile]}>
+                      <View style={[styles.missingTitleRow, styles.missingTitleRowMobile]}>
+                        <Text style={styles.missingTitle}>
+                          {isFinanceMode ? "Trip details" : "Documents to upload"}
+                        </Text>
+                        <View
+                      style={[
+                            styles.missingCountChip,
+                            documentsMissing && styles.missingCountChipNeed,
+                            documentsOnFile && styles.missingCountChipReady,
+                          ]}
+                    >
                       <Text
                         style={[
+                              styles.missingCountChipText,
+                              documentsMissing && styles.missingCountChipTextNeed,
+                              documentsOnFile && styles.missingCountChipTextReady,
+                        ]}
+                        numberOfLines={1}
+                      >
+                            {listMissingRows.length > 0
+                              ? `${listMissingRows.length} to upload`
+                        : `${uploadedCount} on file`}
+                      </Text>
+                  </View>
+                </View>
+                      <Text
+                          style={[
                           styles.missingSubtitle,
                           documentsOnFile && styles.missingSubtitleReady,
                           documentsMissing && styles.missingSubtitleMissing,
                         ]}
-                        numberOfLines={1}
+                        numberOfLines={2}
                       >
-                        {missingHeadline}
-                      </Text>
-                      <Text style={styles.missingHint} numberOfLines={2}>
-                        {missingSubline}
-                      </Text>
-                    </View>
+                    {missingHeadline}
+                  </Text>
+                          <Text
+                    style={[styles.missingHint, styles.missingHintMobile]}
+                    numberOfLines={2}
+                  >
+                    {missingSubline}
+                  </Text>
+                </View>
                     {verifyNotice ? (
                       <View
-                        style={[
+                            style={[
                           styles.verifyNotice,
                           verifyNotice.tone === "success" && styles.verifyNoticeSuccess,
                         ]}
@@ -4689,42 +4993,76 @@ export function ComplianceDocumentWorkspace({
                         )}
                         <Text style={styles.verifyNoticeText} numberOfLines={2}>
                           {verifyNotice.text}
-                        </Text>
-                      </View>
-                    ) : null}
-                    {/* Phone: the whole pane already scrolls (PhoneDetailFrame). A
-                        scrollEnabled={false} ScrollView gets touch-action: none on web,
-                        so swipes starting on a long list (All tab) never scrolled. */}
-                    {phoneDetail ? (
-                      <View style={[styles.checklistDocsContent, styles.phoneNatural]}>
-                        {checklistDocRows}
-                      </View>
-                    ) : (
-                    <ScrollView
-                      style={styles.checklistDocs}
-                      contentContainerStyle={styles.checklistDocsContent}
-                      nestedScrollEnabled
-                      showsVerticalScrollIndicator
-                      keyboardShouldPersistTaps="handled"
-                    >
-                      {checklistDocRows}
-                    </ScrollView>
-                    )}
-                    {phoneDetail ? null : (
+                          </Text>
+                        </View>
+                      ) : null}
+                <View
+                  style={[
+                    styles.checklistDocsContent,
+                    styles.checklistDocsContentMobile,
+                  ]}
+                >
+                    {showGroupedReview
+                      ? (["required", "optional"] as const).map((group) => {
+                          const requiredTypes = new Set(
+                            listRows.filter((row) => row.required).map((row) => row.type),
+                          );
+                          const groupRows = listRows.filter((row) => {
+                            const withRequiredType = requiredTypes.has(row.type);
+                            return group === "required" ? withRequiredType : !withRequiredType;
+                          });
+                          if (groupRows.length === 0) return null;
+                      return (
+                            <View
+                              key={group}
+                              style={[styles.reviewGroup, group === "optional" && styles.reviewGroupSpaced]}
+                            >
+                              {renderReviewGroupHeader(group, groupRows.length)}
+                              {firstRowPerType(groupRows).map(renderChecklistRow)}
+                            </View>
+                          );
+                        })
+                      : firstRowPerType(listRows).map(renderChecklistRow)}
+                </View>
                     <View
-                      style={styles.checklistListGapArt}
-                      pointerEvents="none"
-                      accessibilityElementsHidden
-                      importantForAccessibility="no-hide-descendants"
+                      style={[
+                        styles.checklistPreviewActionsSection,
+                        mobileExclusive && styles.checklistPreviewActionsSectionMobile,
+                      ]}
                     >
-                      <ComplianceChecklistGapArt />
-                    </View>
-                    )}
-                    <View style={styles.checklistPreviewActionsSection}>
-                      <View style={styles.checklistPreviewActionsHeader}>
-                        <Text style={styles.checklistPreviewActionsLabel}>PREVIEW</Text>
-                      </View>
                       <View style={styles.checklistPreviewActionsGrid}>
+                        <Pressable
+                          style={(state: HoverPressState) => {
+                            const active = checklistPreviewMode === "document";
+                            return [
+                              styles.checklistModeBtn,
+                              WEB_POINTER,
+                              WEB_TRANSITION,
+                              isHovered(state) && !active && styles.checklistModeBtnHover,
+                              active && styles.checklistModeBtnSelected,
+                            ];
+                          }}
+                          onPress={() => {
+                            setChecklistPreviewMode("document");
+                            if (!checklistKey && previewable[0]) {
+                              setChecklistKey(previewable[0].key);
+                            }
+                            if (mobileExclusive) setMobileDocPane("preview");
+                          }}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: checklistPreviewMode === "document" }}
+                          accessibilityLabel="Preview documents"
+                        >
+                          <Text
+                            style={[
+                              styles.checklistModeBtnText,
+                              checklistPreviewMode === "document" && styles.checklistModeBtnTextSelected,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            Preview
+                          </Text>
+                        </Pressable>
                         <Pressable
                           style={(state: HoverPressState) => {
                             const active = checklistPreviewMode === "trip";
@@ -4736,20 +5074,23 @@ export function ComplianceDocumentWorkspace({
                               active && styles.checklistModeBtnSelected,
                             ];
                           }}
-                          onPress={() => setChecklistPreviewMode("trip")}
+                          onPress={() => {
+                            setChecklistPreviewMode("trip");
+                            if (mobileExclusive) setMobileDocPane("preview");
+                          }}
                           accessibilityRole="button"
                           accessibilityState={{ selected: checklistPreviewMode === "trip" }}
                           accessibilityLabel="Show trip details"
-                        >
-                          <Text
-                            style={[
+                            >
+                              <Text
+                                style={[
                               styles.checklistModeBtnText,
                               checklistPreviewMode === "trip" && styles.checklistModeBtnTextSelected,
-                            ]}
+                                ]}
                             numberOfLines={1}
-                          >
+                              >
                             Trip Detail
-                          </Text>
+                              </Text>
                         </Pressable>
                         {showFinanceTab && !compliancePendingView && !hideCommercials ? (
                           <Pressable
@@ -4763,27 +5104,30 @@ export function ComplianceDocumentWorkspace({
                                 active && styles.checklistModeBtnSelected,
                               ];
                             }}
-                            onPress={() => setChecklistPreviewMode("advance")}
+                            onPress={() => {
+                              setChecklistPreviewMode("advance");
+                              if (mobileExclusive) setMobileDocPane("preview");
+                            }}
                             accessibilityRole="button"
                             accessibilityState={{ selected: checklistPreviewMode === "advance" }}
                             accessibilityLabel="Show advance payment details"
-                          >
-                            <Text
-                              style={[
+                            >
+                              <Text
+                        style={[
                                 styles.checklistModeBtnText,
                                 checklistPreviewMode === "advance" && styles.checklistModeBtnTextSelected,
                               ]}
                               numberOfLines={1}
                             >
                               Advance Payment
-                            </Text>
+                              </Text>
                           </Pressable>
                         ) : null}
                         {canManagePod &&
                         showHardcopyPodButton &&
                         !isPendingDocsTrip &&
                         !compliancePendingView ? (
-                          <Pressable
+                        <Pressable
                             style={(state: HoverPressState) => [
                               styles.checklistModeBtn,
                               WEB_POINTER,
@@ -4792,9 +5136,9 @@ export function ComplianceDocumentWorkspace({
                             ]}
                             disabled={!summary}
                             onPress={() => setPodOpen(true)}
-                            accessibilityRole="button"
+                          accessibilityRole="button"
                             accessibilityLabel="Log hardcopy POD"
-                          >
+                        >
                             <Text style={styles.checklistModeBtnText} numberOfLines={1}>
                               Hardcopy POD
                             </Text>
@@ -4818,14 +5162,14 @@ export function ComplianceDocumentWorkspace({
                             }}
                             accessibilityRole="button"
                             accessibilityLabel="Mark compliance verified"
-                          >
-                            <Text
-                              style={[styles.checklistModeBtnText, styles.checklistModeBtnTextActive]}
-                              numberOfLines={1}
                             >
+                              <Text
+                              style={[styles.checklistModeBtnText, styles.checklistModeBtnTextActive]}
+                            numberOfLines={1}
+                          >
                               {markingVerified ? "Verifying…" : "Mark verified"}
-                            </Text>
-                          </Pressable>
+                          </Text>
+                        </Pressable>
                         ) : null}
                       </View>
                       {(showPendingTripActions || showFinanceDeclineReVerify) &&
@@ -4891,11 +5235,11 @@ export function ComplianceDocumentWorkspace({
                             {`Finance flag: ${summary.financeFlagNote?.trim() || "no note"}`}
                           </Text>
                           {onRejectCompliance ? (
-                            <TouchableOpacity
+                    <TouchableOpacity
                               style={styles.declineTripBtn}
                               activeOpacity={0.85}
                               onPress={() => setRejectOpen(true)}
-                              accessibilityRole="button"
+                      accessibilityRole="button"
                               accessibilityLabel="Reject trip compliance"
                             >
                               <Text style={styles.declineTripBtnText}>Reject</Text>
@@ -4910,14 +5254,14 @@ export function ComplianceDocumentWorkspace({
                               accessibilityLabel="Clear finance flag"
                             >
                               <Text style={styles.verifyTripBtnText}>Clear flag</Text>
-                            </TouchableOpacity>
+                    </TouchableOpacity>
                           ) : null}
-                        </View>
+                      </View>
                       ) : null}
                       {showResubmit && summary && onResubmitCompliance ? (
                         <View style={styles.checklistPreviewTripActions}>
-                          <TouchableOpacity
-                            style={[
+                    <TouchableOpacity
+                      style={[
                               styles.verifyTripBtn,
                               (resubmitting || resubmitBlockedByMissingDocs) && styles.btnDisabled,
                             ]}
@@ -4935,7 +5279,7 @@ export function ComplianceDocumentWorkspace({
                               }
                               setResubmitOpen(true);
                             }}
-                            accessibilityRole="button"
+                      accessibilityRole="button"
                             accessibilityLabel="Resubmit trip for review"
                           >
                             {resubmitting ? (
@@ -4949,14 +5293,31 @@ export function ComplianceDocumentWorkspace({
                     </View>
                   </>
                 )}
-              </View>
-
+              </ScrollView>
+                  )
+                }
+                end={
+                  mobileExclusive && mobileDocPane === "list" ? null : (
               <View
-                style={[
+                        style={[
                   styles.checklistPreviewPane,
-                  stacked && (phoneDetail ? styles.checklistPreviewPanePhone : styles.checklistPreviewPaneStacked),
+                  splitEnabled && styles.checklistPreviewPaneSplit,
+                  stacked && styles.checklistPreviewPaneStacked,
+                  mobileExclusive && styles.checklistPreviewPaneMobile,
                 ]}
               >
+                {mobileExclusive && mobileDocPane === "preview" && checklistPreviewMode !== "document" ? (
+                    <TouchableOpacity
+                    onPress={() => setMobileDocPane("list")}
+                    style={styles.mobilePreviewBack}
+                    accessibilityRole="button"
+                    accessibilityLabel="Back to documents"
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <FontAwesome name="chevron-left" size={16} color="#212121" />
+                    <Text style={styles.mobilePreviewBackText}>Documents</Text>
+                    </TouchableOpacity>
+                ) : null}
                 {(() => {
                   const previewingDocument =
                     checklistPreviewMode === "document";
@@ -4967,23 +5328,41 @@ export function ComplianceDocumentWorkspace({
                   const previewPos = previewable.findIndex((row) => row.key === checklistKey);
                   const previewOrdinal = previewPos >= 0 ? previewPos + 1 : previewable.length > 0 ? 1 : 0;
                   const showSideNav =
-                    previewingDocument &&
-                    previewable.length > 1 &&
-                    (Boolean(previewUrl) || Boolean(typedLines) || loadingPreview);
+                    previewingDocument && previewable.length > 1;
                   return (
                     <>
                 {previewingDocument ? (
-                  <View style={styles.previewToolbar}>
-                    <Text style={styles.previewToolbarTitle} numberOfLines={1}>
-                      {docTitle}
-                    </Text>
-                    <View style={styles.previewToolbarActions}>
+                  <View style={styles.previewNav}>
+                    {mobileExclusive ? (
+                      <TouchableOpacity
+                        onPress={() => setMobileDocPane("list")}
+                        style={styles.previewNavBack}
+                        accessibilityRole="button"
+                        accessibilityLabel="Back to documents"
+                      >
+                        <FontAwesome name="chevron-left" size={16} color="#212121" />
+                      </TouchableOpacity>
+                    ) : (
+                      <View style={styles.previewNavBack} />
+                    )}
+                    <View style={styles.previewNavCopy}>
+                      <Text style={styles.previewNavTitle} numberOfLines={1}>
+                        {docTitle}
+                  </Text>
+                      {previewHeaderFacts ? (
+                        <Text style={styles.previewNavMeta} numberOfLines={1}>
+                          {previewHeaderFacts}
+                        </Text>
+                      ) : null}
+                      {previewable.length > 0 ? (
+                        <Text style={styles.previewNavMeta} numberOfLines={1}>
+                          {previewOrdinal} of {previewable.length}
+                        </Text>
+                      ) : null}
+                </View>
+                    <View style={styles.previewNavTools}>
                       <Pressable
-                        style={[
-                          styles.previewRotateBtn,
-                          toolLabel === "rotate" && styles.previewToolBtnNamed,
-                          !toolsEnabled && styles.previewToolBtnDisabled,
-                        ]}
+                        style={[styles.previewNavTool, !toolsEnabled && styles.previewToolBtnDisabled]}
                         onPress={() => {
                           setRotation((value) => (value + 90) % 360);
                           setZoom(1);
@@ -4992,91 +5371,67 @@ export function ComplianceDocumentWorkspace({
                         disabled={!toolsEnabled}
                         accessibilityRole="button"
                         accessibilityLabel="Rotate"
-                        accessibilityState={{ disabled: !toolsEnabled }}
-                        {...(Platform.OS === "web" ? { title: "Rotate" } : {})}
                       >
-                        <RotateCwSquare size={12} color={toolColor} strokeWidth={2.1} />
-                        {toolLabel === "rotate" ? (
-                          <Text style={styles.previewToolName}>Rotate</Text>
-                        ) : null}
+                        <RotateCwSquare size={16} color={toolColor} strokeWidth={2.1} />
                       </Pressable>
-                      <View style={[styles.previewZoomCluster, !toolsEnabled && styles.previewToolBtnDisabled]}>
-                        <Pressable
-                          style={styles.previewZoomBtn}
-                          onPress={() => setZoom((value) => clampPreviewZoom(value - 0.25))}
-                          disabled={!toolsEnabled}
-                          accessibilityRole="button"
-                          accessibilityLabel="Zoom out"
-                          accessibilityState={{ disabled: !toolsEnabled }}
-                        >
-                          <Minus size={12} color={toolColor} />
-                        </Pressable>
-                        <Text style={[styles.previewZoomLabel, !toolsEnabled && styles.previewZoomLabelDisabled]}>
-                          {Math.round(zoom * 100)}%
-                        </Text>
-                        <Pressable
-                          style={styles.previewZoomBtn}
-                          onPress={() => setZoom((value) => clampPreviewZoom(value + 0.25))}
-                          disabled={!toolsEnabled}
-                          accessibilityRole="button"
-                          accessibilityLabel="Zoom in"
-                          accessibilityState={{ disabled: !toolsEnabled }}
-                        >
-                          <Plus size={12} color={toolColor} />
-                        </Pressable>
-                      </View>
                       <Pressable
-                        style={[
-                          styles.previewToolBtn,
-                          toolLabel === "refresh" && styles.previewToolBtnNamed,
-                          !toolsEnabled && styles.previewToolBtnDisabled,
-                        ]}
-                        onPress={resetPreviewView}
+                        style={[styles.previewNavTool, !toolsEnabled && styles.previewToolBtnDisabled]}
+                        onPress={() => setZoom((value) => clampPreviewZoom(value - 0.25))}
                         disabled={!toolsEnabled}
                         accessibilityRole="button"
-                        accessibilityLabel="Refresh"
-                        accessibilityState={{ disabled: !toolsEnabled }}
-                        {...(Platform.OS === "web" ? { title: "Refresh" } : {})}
+                        accessibilityLabel="Zoom out"
                       >
-                        <RefreshCw size={12} color={toolColor} strokeWidth={2.2} />
-                        {toolLabel === "refresh" ? (
-                          <Text style={styles.previewToolName}>Refresh</Text>
-                        ) : null}
+                        <Minus size={16} color={toolColor} />
                       </Pressable>
                       <Pressable
-                        style={[styles.previewToolBtn, !canExpand && styles.previewToolBtnDisabled]}
+                        style={[styles.previewNavTool, !toolsEnabled && styles.previewToolBtnDisabled]}
+                        onPress={() => setZoom((value) => clampPreviewZoom(value + 0.25))}
+                        disabled={!toolsEnabled}
+                        accessibilityRole="button"
+                        accessibilityLabel="Zoom in"
+                      >
+                        <Plus size={16} color={toolColor} />
+                      </Pressable>
+                      <Pressable
+                        style={[styles.previewNavTool, !canExpand && styles.previewToolBtnDisabled]}
                         onPress={() => setScreenOpen(true)}
                         disabled={!canExpand}
                         accessibilityRole="button"
                         accessibilityLabel={`Open ${docTitle} full screen`}
-                        accessibilityState={{ disabled: !canExpand }}
-                        {...(Platform.OS === "web" ? { title: "Full screen" } : {})}
                       >
-                        <Maximize2 size={12} color={expandColor} />
+                        <Maximize2 size={16} color={expandColor} />
                       </Pressable>
-                    </View>
+              </View>
                   </View>
                 ) : null}
-                <View style={styles.checklistPreviewBody}>
+                <View style={[styles.checklistPreviewBody, styles.checklistPreviewBodyMobile]}>
                   {checklistPreviewMode === "trip" && summary ? (
                     <ScrollView
                       style={styles.tripDetailsScroll}
                       contentContainerStyle={styles.tripDetailsScrollContent}
                       keyboardShouldPersistTaps="handled"
                     >
-                      <ChecklistTripDetailsPanel
-                        summary={summary}
-                        truckType={
-                          summary.trip.vehicle_id
-                            ? truckTypeByVehicleId[summary.trip.vehicle_id] ?? null
-                            : null
-                        }
-                        supplierName={supplierNameByTripId[summary.trip.id] ?? null}
+                    <ChecklistTripDetailsPanel
+                      summary={summary}
+                      truckType={
+                        summary.trip.vehicle_id
+                          ? truckTypeByVehicleId[summary.trip.vehicle_id] ?? null
+                          : null
+                      }
+                      supplierName={supplierNameByTripId[summary.trip.id] ?? null}
                         onOpenDocumentUpload={openDocumentUploadFromDetails}
-                        hideCommercials={hideCommercials}
-                      />
+                      hideCommercials={hideCommercials}
+                        onOpenTrip={onOpenTrip}
+                        onOpenSupplier={onOpenSupplier}
+                    />
                     </ScrollView>
                   ) : checklistPreviewMode === "advance" && summary && !compliancePendingView && !hideCommercials ? (
+                    <ScrollView
+                      style={styles.tripDetailsScroll}
+                      contentContainerStyle={styles.advancePaymentScrollContent}
+                      keyboardShouldPersistTaps="handled"
+                      showsVerticalScrollIndicator
+                    >
                     <ChecklistAdvancePaymentPanel
                       summary={summary}
                       supplierName={supplierNameByTripId[summary.trip.id] ?? null}
@@ -5132,6 +5487,7 @@ export function ComplianceDocumentWorkspace({
                           : undefined
                       }
                     />
+                    </ScrollView>
                   ) : showEntityUnassigned ? (
                     <View style={styles.checklistPreviewEmpty}>
                       <Text style={styles.checklistPreviewEmptyTitle}>{vaultCopy.unassignedTitle}</Text>
@@ -5140,11 +5496,11 @@ export function ComplianceDocumentWorkspace({
                   ) : (
                     <View style={styles.previewStageRow}>
                       {loadingPreview ? (
-                        <View style={styles.checklistPreviewEmpty}>
-                          <ActivityIndicator color={Theme.textPrimaryDark} />
+                    <View style={styles.checklistPreviewEmpty}>
+                      <ActivityIndicator color={Theme.textPrimaryDark} />
                           <Text style={styles.checklistPreviewLoadingText}>Loading document…</Text>
-                        </View>
-                      ) : typedLines && canViewDocuments ? (
+                    </View>
+                  ) : typedLines && canViewDocuments ? (
                         <TypedDetailsPreview
                           title={docTitle}
                           lines={typedLines}
@@ -5166,15 +5522,15 @@ export function ComplianceDocumentWorkspace({
                             </View>
                           ) : null}
                           {showSupplierBankPanel ? (
-                            <ScrollView
+                    <ScrollView
                               style={
                                 previewUrl
                                   ? styles.checklistBankDetailsScroll
                                   : styles.checklistBankDetailsScrollSolo
                               }
                               contentContainerStyle={styles.checklistBankDetailsContent}
-                              showsVerticalScrollIndicator={false}
-                            >
+                      showsVerticalScrollIndicator={false}
+                    >
                               <View style={styles.bankCardHeader}>
                                 <View style={styles.bankCardHeaderCopy}>
                                   <Text style={styles.checklistBankDetailsTitle}>Bank account</Text>
@@ -5198,8 +5554,8 @@ export function ComplianceDocumentWorkspace({
                                       <Text style={styles.bankFieldValue} numberOfLines={1}>
                                         {row.value}
                                       </Text>
-                                    </View>
-                                  ))}
+                        </View>
+                      ))}
                                   {supplierBankAccountRows.length === 0 ? (
                                     <Text style={styles.checklistBankDetailsHint}>
                                       No payout account on file yet. Save bank details on the supplier profile.
@@ -5230,51 +5586,45 @@ export function ComplianceDocumentWorkspace({
                                   </Text>
                                 </View>
                               </View>
-                            </ScrollView>
+                    </ScrollView>
                           ) : null}
                         </View>
-                      ) : (
-                        <View style={styles.checklistPreviewEmpty}>
-                          <Text style={styles.checklistPreviewEmptyTitle}>
-                            {checklistSelectedRow
+                  ) : (
+                    <View style={styles.checklistPreviewEmpty}>
+                      <Text style={styles.checklistPreviewEmptyTitle}>
+                        {checklistSelectedRow
                               ? `${
                                   isFinanceMode
                                     ? labelForFinanceDocType(checklistSelectedRow.type)
                                     : labelForDocType(checklistSelectedRow.type)
                                 } has no file to preview`
-                              : "Select a document to preview"}
-                          </Text>
-                          <Text style={styles.checklistPreviewEmptyHint}>
+                          : "Select a document to preview"}
+                      </Text>
+                      <Text style={styles.checklistPreviewEmptyHint}>
                             Tap the eye icon on an uploaded document, or use Trip Detail / Advance Payment.
-                          </Text>
-                        </View>
-                      )}
+                      </Text>
+                    </View>
+                  )}
                       {showSideNav ? (
                         <>
                           <View style={styles.docSideNavOverlayLeft} pointerEvents="box-none">
                             <DocSideNavButton direction="prev" onPress={goPrev} tone="light" />
-                          </View>
+                </View>
                           <View style={styles.docSideNavOverlayRight} pointerEvents="box-none">
                             <DocSideNavButton direction="next" onPress={goNext} tone="light" />
-                          </View>
+              </View>
                         </>
                       ) : null}
-                    </View>
+            </View>
                   )}
-                </View>
-                {previewingDocument ? (
-                  <PreviewPanFooter
-                    label={
-                      previewable.length > 0
-                        ? `${previewOrdinal} of ${previewable.length}`
-                        : "No file on this row"
-                    }
-                  />
-                ) : null}
+            </View>
                     </>
                   );
                 })()}
-              </View>
+                  </View>
+                  )
+                }
+              />
             </View>
           ) : (
             <View style={styles.emptyStage}>
@@ -5295,28 +5645,26 @@ export function ComplianceDocumentWorkspace({
               </Text>
             </View>
           </View>
-        ) : null}
-      </View>
-      )}
-      </PhoneDetailFrame>
-      )}
-      <DocumentScreen
-        visible={screenOpen}
-        uri={previewUrl}
-        isPdf={isPdf}
-        title={docTitle}
+            ) : null}
+        </View>
+        )}
+        <DocumentScreen
+          visible={screenOpen}
+          uri={previewUrl}
+          isPdf={isPdf}
+          title={docTitle}
         presentation="page"
         onClose={() => {
           setScreenOpen(false);
-          const returnType = filesModalReturnRef.current;
           filesModalReturnRef.current = null;
-          if (returnType) setFilesModalType(returnType);
+          if (mobileExclusive) setMobileDocPane("list");
         }}
         onPrev={goPrev}
         onNext={goNext}
         canNavigate={previewable.length > 1}
         typedLines={typedLines}
         resolving={loadingPreview}
+        headerFacts={previewHeaderFacts || null}
         navLabel={
           previewable.length > 0
             ? `${Math.max(
@@ -5325,6 +5673,29 @@ export function ComplianceDocumentWorkspace({
               )} of ${previewable.length}`
             : null
         }
+      />
+      <ThemedAlertModal
+        visible={approveConfirm != null}
+        title={
+          approveConfirm === "optional"
+            ? "Approve optional documents?"
+            : "Approve required documents?"
+        }
+        message={
+          approveConfirm === "optional"
+            ? `Mark every optional ${isFinanceMode ? "Trip Details" : TABS.find((item) => item.key === tab)?.label ?? "Trip"} document on this tab as verified.`
+            : `Mark every required ${isFinanceMode ? "Trip Details" : TABS.find((item) => item.key === tab)?.label ?? "Trip"} document on this tab as verified.`
+        }
+        okText="Approve"
+        okVariant="primary"
+        secondaryText="Cancel"
+        onSecondary={() => setApproveConfirm(null)}
+        onRequestClose={() => setApproveConfirm(null)}
+        onOk={() => {
+          const group = approveConfirm;
+          setApproveConfirm(null);
+          if (group) void approveGroup(group);
+        }}
       />
       <ComplianceDeclineModal
         visible={declineOpen}
@@ -5341,129 +5712,113 @@ export function ComplianceDocumentWorkspace({
           await declineWithReason(reason);
         }}
       />
-      {(() => {
-        if (!filesModalType) return null;
-        const typeRows = listRows.filter((row) => row.type === filesModalType);
-        const fileRows = typeRows.filter(hasFile).map((row) => {
-          const local = localDecisionByKey[optimisticKey(reviewScope, row.key)];
-          return { ...applyOptimisticDecision(row, local), declineReason: complianceRowDeclineReason(row, local) };
-        });
-        const label = isFinanceMode ? labelForFinanceDocType(filesModalType) : labelForDocType(filesModalType);
-        const canUploadHere = canEditFiles;
-        // Required trip files are locked once the trip is verified (unless it is
-        // back with Ground Ops after a hold / reject). The database enforces it too.
-        const verifiedLock = Boolean(
-          summary?.complianceVerifiedAt &&
-            !isComplianceAwaitingResubmit(summary) &&
-            REQUIRED_COMPLIANCE_DOCUMENT_TYPES.includes(filesModalType),
-        );
-        const files: ComplianceDocTypeFile[] = fileRows.map((row, index) => {
-          const isTripFile = Boolean(row.doc);
-          const groundOpsLock =
-            groundOpsDocumentLock && summary && isTripFile
-              ? groundOpsDocumentLockReason({
-                  trip: {
-                    status: summary.trip.status,
-                    compliance_verified_at: summary.complianceVerifiedAt,
-                    compliance_declined_at: summary.complianceDeclinedAt,
-                    compliance_resubmitted_at: summary.complianceResubmittedAt ?? null,
-                    finance_verified_at: summary.financeVerifiedAt ?? null,
-                  },
-                  documentStatus: row.doc?.status,
-                  advancePosted: Boolean(summary.advance || summary.advanceBeforeVerification),
-                  ownRecentUpload: isOwnRecentUpload(row.doc, actorId),
-                })
-              : null;
-          const approved = row.status === "verified" || verifiedLock || groundOpsLock != null;
-          return {
-            key: row.key,
-            label: fileRows.length > 1 ? `${label} · ${index + 1}` : label,
-            // Typed e-way details are stored as eway-fields.json; show what it is, not the file.
-            fileName: isEwayBillMetaPath(row.doc?.storage_path, row.doc?.file_name)
-              ? "Entered details"
-              : row.doc?.file_name?.trim() || (row.declineReason ? "" : row.entityDoc?.notes?.trim()) || "",
-            statusLabel: row.declineReason
-              ? `${COMPLIANCE_STATUS_META[row.status].label}: ${row.declineReason}`
-              : COMPLIANCE_STATUS_META[row.status].label,
-            statusColor: COMPLIANCE_STATUS_META[row.status].color,
-            canPreview: canViewDocuments,
-            canReplace: canUploadHere && isTripFile && !approved,
-            canRemove: canUploadHere && isTripFile && !approved,
-            lockedReason:
-              approved && isTripFile && canUploadHere
-                ? row.status === "verified"
-                  ? "Approved files are locked"
-                  : groundOpsLock
-                    ? groundOpsDocumentLockLabel(groundOpsLock)
-                    : "Locked after the trip is verified"
-                : null,
-          };
-        });
-        const addRow = typeRows[0];
-        // Ground Ops may not add a second file over a locked type either; a rejected
-        // file or a trip back for resubmit reopens it (groundOpsDocumentLock.util).
-        // Same as the database: only a file that is neither rejected nor this
-        // user's own recent upload blocks adding another of the type.
-        const blockingTypeFiles = fileRows.filter(
-          (row) =>
-            row.doc &&
-            row.doc.status !== "rejected" &&
-            !isOwnRecentUpload(row.doc, actorId),
-        );
-        const typeLock =
-          groundOpsDocumentLock && summary && blockingTypeFiles.length > 0
-            ? groundOpsDocumentLockReason({
-                trip: {
-                  status: summary.trip.status,
-                  compliance_verified_at: summary.complianceVerifiedAt,
-                  compliance_declined_at: summary.complianceDeclinedAt,
-                  compliance_resubmitted_at: summary.complianceResubmittedAt ?? null,
-                  finance_verified_at: summary.financeVerifiedAt ?? null,
-                },
-                advancePosted: Boolean(summary.advance || summary.advanceBeforeVerification),
-              })
-            : null;
-        return (
-          <ComplianceDocTypeFilesModal
-            visible
-            title={`${label} · ${fileRows.length} file${fileRows.length === 1 ? "" : "s"}`}
-            files={files}
-            busyKey={fileActionKey}
-            adding={Boolean(addRow && uploadingFinanceType === addRow.key)}
-            canAdd={canUploadHere && Boolean(addRow) && !typeLock}
-            footnote={
-              typeLock
-                ? groundOpsDocumentLockLabel(typeLock)
-                : fileRows.some((row) => !row.doc)
-                  ? "Vehicle and driver files are shared with other trips. Replace or remove them from the vehicle or driver profile."
-                  : null
-            }
-            onPreview={(key) => {
-              const row = fileRows.find((item) => item.key === key);
-              setFilesModalType(null);
-              if (!row) return;
-              // Select the file, open the full-screen viewer, and come back here on close.
-              filesModalReturnRef.current = row.type;
-              previewChecklistRow(row);
-              setScreenOpen(true);
-            }}
-            onReplace={(key) => {
-              const row = fileRows.find((item) => item.key === key);
-              if (row) void replaceTripFile(row);
-            }}
-            onRemove={(key) => {
-              const index = fileRows.findIndex((item) => item.key === key);
-              if (index >= 0) {
-                void removeTripFile(fileRows[index], fileRows.length > 1 ? `${label} · ${index + 1}` : label);
+      <VaultCategoryPreviewModal
+        visible={Boolean(categoryPreview)}
+        files={categoryPreview?.files ?? []}
+        index={categoryPreview?.index ?? 0}
+        onIndexChange={(index) =>
+          setCategoryPreview((current) => (current ? { ...current, index } : current))
+        }
+        onClose={() => {
+          setCategoryPreview(null);
+          setScreenOpen(false);
+          if (mobileExclusive) setMobileDocPane("list");
+        }}
+        onAdd={
+          canEditFiles && categoryPreview
+            ? () => {
+                const addLock = complianceTypeAddLockReason(categoryPreview.type);
+                if (addLock) {
+                  alertMessage("Document locked", addLock);
+                  return;
+                }
+                const row =
+                  listRows.find((item) => item.type === categoryPreview.type) ??
+                  displayListRows.find((item) => item.type === categoryPreview.type);
+                if (row) void uploadVaultDocument(row);
               }
-            }}
-            onAdd={() => {
-              if (addRow) void uploadVaultDocument(addRow);
-            }}
-            onClose={() => setFilesModalType(null)}
-          />
-        );
-      })()}
+            : undefined
+        }
+        onDelete={
+          canEditFiles
+            ? (file) => {
+                if (String(file.id).startsWith("draft-")) {
+                  setCategoryPreview((current) => {
+                    if (!current) return current;
+                    const next = current.files.filter((item) => item.id !== file.id);
+                    if (next.length === 0) return null;
+                    return {
+                      ...current,
+                      files: next,
+                      index: Math.min(current.index, next.length - 1),
+                    };
+                  });
+                  return;
+                }
+                const row = listRows.find((item) => item.key === file.id);
+                if (!row) return;
+                const fileLock = complianceFileLockReason(row);
+                if (fileLock) {
+                  alertMessage("Document locked", fileLock);
+                  return;
+                }
+                const label = file.fileName || file.categoryLabel;
+                if (row.doc) {
+                  void removeTripFile(row, label);
+                  return;
+                }
+                void removeEntityFile(row, label);
+              }
+            : undefined
+        }
+        onResolveUrl={async (file) => {
+          if (file.previewUri?.trim()) return file.previewUri.trim();
+          const path = file.storagePath?.trim();
+          if (!path) return null;
+          if (/^https?:\/\//i.test(path) || path.startsWith("blob:") || path.startsWith("data:")) {
+            return path;
+          }
+          return signCompliancePreviewUrl({
+            storagePath: path,
+            source: file.category === "bank_docs" ? "supplier-kyc" : "compliance",
+            organizationId,
+            entityId:
+              file.driverKind
+                ? summary?.trip.driver_id ?? null
+                : file.complianceType
+                  ? summary?.trip.vehicle_id ?? null
+                  : summary?.trip.id ?? null,
+            docType: file.category,
+          });
+        }}
+        onSaveExpiry={async (file, isoDate) => {
+          if (!file.documentId) return;
+          const { error } = await updateEntityDocumentExpiry(file.documentId, isoDate);
+          if (error) {
+            alertMessage("Could not save date", error.message);
+            return;
+          }
+          setCategoryPreview((current) =>
+            current
+              ? {
+                  ...current,
+                  files: current.files.map((item) =>
+                    item.id === file.id ? { ...item, expiryDate: isoDate } : item,
+                  ),
+                }
+              : current,
+          );
+          if (summary) {
+            onChanged(
+              file.driverKind && summary.trip.driver_id
+                ? { type: "driverDocuments", driverId: summary.trip.driver_id }
+                : file.complianceType && summary.trip.vehicle_id
+                  ? { type: "vehicleDocuments", vehicleId: summary.trip.vehicle_id }
+                  : { type: "tripDocuments", tripId: summary.trip.id },
+            );
+          }
+        }}
+      />
       <ComplianceDeclineModal
         visible={flagOpen}
         title="Flag to Compliance"
@@ -5570,16 +5925,15 @@ export function ComplianceDocumentWorkspace({
           }}
         />
       ) : null}
-      <ExpiryDatePickerModal
+      <ComplianceExpiryDateModal
         visible={expiryPrompt != null}
-        title={`Expiry date — ${expiryPrompt ? labelForDocType(expiryPrompt.docType) : "Document"}`}
-        confirmLabel="Continue"
+        docLabel={expiryPrompt ? labelForDocType(expiryPrompt.docType) : "Document"}
         onCancel={() => {
           expiryPrompt?.resolve(null);
           setExpiryPrompt(null);
         }}
-        onConfirm={(iso) => {
-          expiryPrompt?.resolve(iso);
+        onSubmit={(isoDate) => {
+          expiryPrompt?.resolve(isoDate);
           setExpiryPrompt(null);
         }}
       />
@@ -5592,8 +5946,13 @@ export function ComplianceDocumentWorkspace({
           canManage={canManagePod || showLogHardCopyPod}
           lrOptions={courierLrOptions}
           tripFacts={tripFacts}
+          headerEnd={
+            onOpenActivityLog ? (
+              <ComplianceActivityLogButton compact onPress={() => onOpenActivityLog(summary)} />
+            ) : null
+          }
           onChanged={async (ids) => {
-            await Promise.all(ids.map((tripId) => onChanged({ type: "tripFlags", tripId })));
+            await Promise.all(ids.map((tripId) => onChanged({ type: "hardCopyPod", tripId })));
           }}
         />
       ) : null}
@@ -5609,6 +5968,7 @@ function TripDetailFact({
   columns = 2,
   layout = "grid",
   last = false,
+  onPress,
 }: {
   label: string;
   value: string;
@@ -5617,41 +5977,45 @@ function TripDetailFact({
   columns?: 2 | 3;
   layout?: "grid" | "list";
   last?: boolean;
+  onPress?: () => void;
 }) {
+  const ValueText = (
+        <Text
+          style={[
+            layout === "list" ? styles.tripFactRowValue : styles.tripFactValue,
+            emphasize && styles.tripFactValueEmphasize,
+            onPress ? styles.tripFactValueLink : null,
+          ]}
+          selectable={!onPress}
+          onPress={onPress}
+        >
+        {value}
+      </Text>
+  );
   if (layout === "list") {
-    return (
+  return (
       <View style={[styles.tripFactRow, last && styles.tripFactRowLast]}>
         <Text style={styles.tripFactRowLabel} numberOfLines={1}>
           {label}
         </Text>
-        <Text
-          style={[styles.tripFactRowValue, emphasize && styles.tripFactValueEmphasize]}
-          numberOfLines={1}
-        >
-          {value}
-        </Text>
-      </View>
-    );
-  }
+        {ValueText}
+    </View>
+  );
+}
 
-  return (
-    <View
-      style={[
+            return (
+                    <View
+                      style={[
         styles.tripFactCell,
         columns === 3 ? styles.tripFactCellThird : styles.tripFactCellHalf,
         wide && styles.tripFactCellWide,
-      ]}
-    >
+                      ]}
+                    >
       <Text style={styles.tripFactLabel} numberOfLines={1}>
         {label}
-      </Text>
-      <Text
-        style={[styles.tripFactValue, emphasize && styles.tripFactValueEmphasize]}
-        numberOfLines={wide ? 2 : 1}
-      >
-        {value}
-      </Text>
-    </View>
+                      </Text>
+      {ValueText}
+                    </View>
   );
 }
 
@@ -5712,12 +6076,12 @@ function TripDetailSection({
             <TripDetailAnimatedIcon>
               <Icon size={13} color={iconColor} strokeWidth={2.1} />
             </TripDetailAnimatedIcon>
-          </View>
+                  </View>
         ) : null}
         <Text style={styles.tripDetailSectionTitle} numberOfLines={1}>
           {title}
-        </Text>
-      </View>
+                  </Text>
+                </View>
       <View style={factLayout === "list" ? styles.tripFactList : styles.tripFactGrid}>
         {items.map((child, index) => {
           if (!React.isValidElement(child)) return child;
@@ -5943,6 +6307,8 @@ function ChecklistTripDetailsPanel({
   supplierName,
   onOpenDocumentUpload,
   hideCommercials = false,
+  onOpenTrip,
+  onOpenSupplier,
 }: {
   summary: ComplianceTripSummary;
   truckType: string | null;
@@ -5950,6 +6316,8 @@ function ChecklistTripDetailsPanel({
   onOpenDocumentUpload?: (target: { vault: string; type?: string }) => void;
   /** Ground Ops: drop the Rates and Banking cards (and never fetch the supplier bank account). */
   hideCommercials?: boolean;
+  onOpenTrip?: (tripId: string) => void;
+  onOpenSupplier?: (supplierId: string) => void;
 }) {
   const trip = summary.trip;
   const commercial = trip as typeof trip & TripCommercialFacts;
@@ -6086,7 +6454,11 @@ function ChecklistTripDetailsPanel({
         columns={tripColumns}
         style={styles.tripDetailSectionLead}
       >
-        <TripDetailFact label="Trip ID" value={tripId} />
+        <TripDetailFact
+          label="Trip ID"
+          value={tripId}
+          onPress={onOpenTrip ? () => onOpenTrip(trip.id) : undefined}
+        />
         <TripDetailFact label="Vehicle" value={vehicle} />
         {tripColumns === 3 ? <TripDetailFact label="Truck type" value={truckLabel} /> : null}
         <TripDetailFact label="Route" value={routeLine} wide />
@@ -6107,7 +6479,15 @@ function ChecklistTripDetailsPanel({
           style={[styles.tripDetailSectionPair, !pairCards && styles.tripDetailSectionPairFull]}
         >
           <TripDetailFact label="Customer" value={customerName} />
-          <TripDetailFact label="Supplier" value={supplierLabel} />
+          <TripDetailFact
+            label="Supplier"
+            value={supplierLabel}
+            onPress={
+              onOpenSupplier && trip.supplier_id
+                ? () => onOpenSupplier(trip.supplier_id!)
+                : undefined
+            }
+          />
         </TripDetailSection>
         <TripDetailSection
           title="Documents"
@@ -6311,9 +6691,9 @@ function ChecklistTripDetailsPanel({
                       );
                     })}
                   </View>
-                </View>
-              ))}
-            </View>
+          </View>
+        ))}
+      </View>
           ) : (
             <Text style={styles.tripDetailMissingEmpty}>{selectedDocEmpty}</Text>
           )}
@@ -6452,7 +6832,7 @@ function ChecklistAdvancePaymentPanel({
   return (
     <View style={[styles.checklistAdvancePanel, advance && styles.checklistAdvancePanelPosted]}>
       <View style={styles.checklistAdvanceLead}>
-        <Text style={styles.checklistInfoTitle}>Advance payment</Text>
+      <Text style={styles.checklistInfoTitle}>Advance payment</Text>
         <Text style={styles.checklistInfoHint} numberOfLines={2}>
           {showInlineForm
             ? "Review the calculation and confirm to post through Finance"
@@ -6495,9 +6875,9 @@ function ChecklistAdvancePaymentPanel({
                 {statusLabel}
               </Text>
             </View>
-          </View>
+            </View>
         ) : null}
-      </View>
+            </View>
 
       {advance ? (
         <ComplianceAdvancePaidDetails
@@ -6547,7 +6927,7 @@ function ChecklistAdvancePaymentPanel({
             onFlag={onFlag}
             onPreviewMemo={onPreviewMemo}
           />
-        </View>
+            </View>
       ) : null}
 
       {flagged ? (
@@ -6568,7 +6948,7 @@ function ChecklistAdvancePaymentPanel({
               <Text style={styles.checklistPayBtnText}>Clear flag</Text>
             </TouchableOpacity>
           ) : null}
-        </View>
+            </View>
       ) : null}
 
       {showReviewForm ? (
@@ -6586,14 +6966,14 @@ function ChecklistAdvancePaymentPanel({
             onFinanceVerify={onFinanceVerify}
             financeVerifySubmitting={financeVerifySubmitting}
             onPreviewMemo={onPreviewMemo}
-          />
-        </View>
+              />
+            </View>
       ) : null}
 
       {!showInlineForm && !showReviewForm && (showPayFallback || onReject || showFinanceVerify) ? (
         <View style={styles.checklistAdvanceActionsRow}>
           {onReject ? (
-            <TouchableOpacity
+        <TouchableOpacity
               style={styles.checklistAdvanceRejectBtn}
               activeOpacity={0.8}
               onPress={onReject}
@@ -6606,7 +6986,7 @@ function ChecklistAdvancePaymentPanel({
           {showFinanceVerify ? (
             <TouchableOpacity
               style={[styles.checklistPayBtn, styles.checklistAdvancePayFallback]}
-              activeOpacity={0.85}
+          activeOpacity={0.85}
               onPress={onFinanceVerify}
               disabled={financeVerifySubmitting}
               accessibilityRole="button"
@@ -6623,12 +7003,12 @@ function ChecklistAdvancePaymentPanel({
               style={[styles.checklistPayBtn, styles.checklistAdvancePayFallback]}
               activeOpacity={0.85}
               onPress={() => onOpenPayModal?.(summary)}
-              accessibilityRole="button"
-              accessibilityLabel="Pay advance"
-            >
-              <Text style={styles.checklistPayBtnText}>Pay advance</Text>
-            </TouchableOpacity>
-          ) : null}
+          accessibilityRole="button"
+          accessibilityLabel="Pay advance"
+        >
+          <Text style={styles.checklistPayBtnText}>Pay advance</Text>
+        </TouchableOpacity>
+      ) : null}
         </View>
       ) : null}
 
@@ -6682,6 +7062,7 @@ const TripListRow = React.memo(function TripListRow({
   partyAvatar,
   onSelect,
   podOnly = false,
+  onOpenActivityLog,
 }: {
   summary: ComplianceTripSummary;
   selected: boolean;
@@ -6692,12 +7073,13 @@ const TripListRow = React.memo(function TripListRow({
   onSelect: (tripId: string) => void;
   /** Debit control: POD facts only — no compliance / finance badges, holds or flags. */
   podOnly?: boolean;
+  onOpenActivityLog?: () => void;
 }) {
   const router = useRouter();
   const trip = summary.trip;
   const verification = verificationStatusVisual(summary);
-  const tripStatus =
-    summary.stage === "compliance_pending" ? tripOpsStatusBadge(trip.status) : null;
+  const tripStatus = tripOpsStatusBadge(trip.status, trip);
+  const debitStatus = podDebitStatusVisual(summary);
   const isRejected =
     !podOnly && (isFinanceDeclinedTrip(summary) || isComplianceDeclineActive(summary));
   // Finance reject fixed by Ground Ops and back with Finance: tag it until the advance posts.
@@ -6857,13 +7239,13 @@ const TripListRow = React.memo(function TripListRow({
         >
           <View style={styles.avatarWrap}>
             <View style={styles.avatarCore}>
-              <PartyAvatar
-                name={headerName}
+        <PartyAvatar
+          name={headerName}
                 entityType={partyEntityType}
                 size={LIST_CARD_AVATAR}
                 shape="circle"
                 isIntegrated={partyIntegrated}
-                initialsColorSeed={headerSeed}
+          initialsColorSeed={headerSeed}
                 avatarUrl={partyAvatarUrl}
                 avatarSeed={partyAvatarSeed}
                 organizationImageUrl={partyOrgImageUrl}
@@ -6894,9 +7276,20 @@ const TripListRow = React.memo(function TripListRow({
                 <Text style={styles.headlineAction}>
                   {`  ${isAsset ? "Asset trip" : "Aggregate trip"}`}
                 </Text>
-              </Text>
-            </View>
+            </Text>
           </View>
+            {onOpenActivityLog ? (
+              <View {...webStopBubble}>
+                <ComplianceActivityLogButton
+                  compact
+                  onPress={() => {
+                    suppressCardSelect();
+                    onOpenActivityLog();
+                  }}
+                />
+        </View>
+            ) : null}
+      </View>
           {metaParts.length > 0 ? (
             <Text style={[styles.rowMetaLine, selected && styles.tripIdSelected]} numberOfLines={1}>
               {metaParts.join(" · ")}
@@ -6906,21 +7299,21 @@ const TripListRow = React.memo(function TripListRow({
           {declineRemark ? (
             <Text style={styles.rejectReasonLine} numberOfLines={2}>
               {declineRemark}
-            </Text>
+          </Text>
           ) : null}
           {resubmitNote ? (
             <Text style={styles.resubmitNoteLine} numberOfLines={2}>
               {`Resubmitted: ${resubmitNote}`}
-            </Text>
+          </Text>
           ) : waitingNote ? (
             <Text style={styles.resubmitNoteLine} numberOfLines={1}>
               Waiting for Ground Ops to resubmit
-            </Text>
+          </Text>
           ) : null}
           {summary.financeFlaggedAt && !podOnly ? (
             <Text style={styles.rejectReasonLine} numberOfLines={2}>
               {`Finance flag: ${summary.financeFlagNote?.trim() || "no note"}`}
-            </Text>
+          </Text>
           ) : null}
         </View>
       </View>
@@ -6933,25 +7326,25 @@ const TripListRow = React.memo(function TripListRow({
               style={styles.route}
             />
             <View style={styles.facts}>
-              <View style={styles.factCell}>
-                <Text style={[styles.factLabel, selected && styles.factLabelSelected]}>Customer</Text>
-                <Text style={[styles.factValue, selected && styles.factValueSelected]} numberOfLines={1}>
-                  {customerName}
-                </Text>
-              </View>
-              <View style={[styles.factCell, styles.factCellEnd]}>
+        <View style={styles.factCell}>
+          <Text style={[styles.factLabel, selected && styles.factLabelSelected]}>Customer</Text>
+          <Text style={[styles.factValue, selected && styles.factValueSelected]} numberOfLines={1}>
+            {customerName}
+          </Text>
+        </View>
+        <View style={[styles.factCell, styles.factCellEnd]}>
                 <Text style={[styles.factLabel, selected && styles.factLabelSelected]}>Vehicle</Text>
                 <Text style={[styles.factValue, styles.alignEnd, selected && styles.factValueSelected]} numberOfLines={1}>
-                  {vehicle}
-                </Text>
-              </View>
+            {vehicle}
+          </Text>
+        </View>
               {truckLabel !== "—" ? (
                 <View style={styles.factCellWide}>
                   <Text style={[styles.factLabel, selected && styles.factLabelSelected]}>Truck</Text>
                   <Text style={[styles.factValue, selected && styles.factValueSelected]} numberOfLines={1}>
-                    {truckLabel}
-                  </Text>
-                </View>
+            {truckLabel}
+          </Text>
+        </View>
               ) : null}
             </View>
             {showLrReceipt ? (
@@ -6973,23 +7366,33 @@ const TripListRow = React.memo(function TripListRow({
                     Pending LRs{" "}
                   </Text>
                   {lrReceipt.pending.join(", ") || "—"}
-                </Text>
-              </View>
+          </Text>
+        </View>
             ) : null}
             <View style={styles.rowFooter}>
               <View style={styles.rowFooterPills}>
+                {tripStatus ? (
+                  <View
+                    style={[styles.statusPill, { backgroundColor: tripStatus.tone.bg }]}
+                    accessibilityLabel={`Trip status ${tripStatus.label}`}
+                  >
+                    <Text style={[styles.statusText, { color: tripStatus.tone.fg }]} numberOfLines={1}>
+                      {tripStatus.label}
+                    </Text>
+                  </View>
+                ) : null}
+                {debitStatus ? (
+                  <View
+                    style={[styles.statusPill, { backgroundColor: debitStatus.tone.bg }]}
+                    accessibilityLabel={debitStatus.label}
+                  >
+                    <Text style={[styles.statusText, { color: debitStatus.tone.fg }]} numberOfLines={1}>
+                      {debitStatus.label}
+                    </Text>
+                  </View>
+                ) : null}
                 {podOnly ? null : (
                   <>
-                    {tripStatus ? (
-                      <View
-                        style={[styles.statusPill, { backgroundColor: tripStatus.tone.bg }]}
-                        accessibilityLabel={`Trip status ${tripStatus.label}`}
-                      >
-                        <Text style={[styles.statusText, { color: tripStatus.tone.fg }]} numberOfLines={1}>
-                          {tripStatus.label}
-                        </Text>
-                      </View>
-                    ) : null}
                     {resubmittedToFinance ? (
                       <View
                         style={[styles.statusPill, { backgroundColor: Theme.complianceStagePendingBg }]}
@@ -7034,64 +7437,39 @@ const TripListRow = React.memo(function TripListRow({
                 </Text>
               </Pressable>
             </View>
-          </View>
+      </View>
     </Pressable>
   );
 });
 
 const styles = StyleSheet.create({
-  workspace: { flex: 1, minHeight: 0, flexDirection: "row", alignItems: "stretch", gap: 16, overflow: "hidden" },
-  workspaceStacked: { flexDirection: "column" },
+  workspace: { flex: 1, minHeight: 0, flexDirection: "row", alignItems: "stretch", gap: 12, overflow: "hidden", backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
+  workspaceStacked: { flexDirection: "column", gap: 16 },
+  workspaceMobile: { gap: 0, backgroundColor: HUB_MOBILE_LIST_CANVAS_BG, overflow: "visible" },
   listPane: {
     width: 420,
     maxWidth: "42%",
     flexShrink: 0,
     minHeight: 0,
-    height: "100%",
     alignSelf: "stretch",
-    backgroundColor: Theme.cardWhite,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Theme.complianceCardBorder,
-    overflow: "hidden",
+    backgroundColor: HUB_MOBILE_LIST_CANVAS_BG,
+    borderRadius: 0,
+    borderWidth: 0,
+    overflow: "visible",
   },
+  listPaneFill: { height: "100%" },
   listPaneStacked: { width: "100%", maxWidth: "100%", height: "42%", maxHeight: "42%" },
+  listPaneMobile: {
+    width: "100%",
+    maxWidth: "100%",
+    flex: 1,
+    minHeight: 0,
+    backgroundColor: "transparent",
+    borderWidth: 0,
+    borderRadius: 0,
+    overflow: "visible",
+  },
 
-  /** Phone (`phoneFlow`) document pane: back bar + one scroll, panes at natural height. */
-  phoneDetail: { flex: 1, minHeight: 0, width: "100%", gap: 8 },
-  phoneBackBar: {
-    flexShrink: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    minHeight: 48,
-    paddingLeft: 4,
-    paddingRight: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Theme.complianceCardBorder,
-    backgroundColor: Theme.cardWhite,
-  },
-  phoneBackBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-    minHeight: 44,
-    minWidth: 44,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-  },
-  phoneBackBtnPressed: { opacity: 0.7 },
-  phoneBackText: { fontSize: 14, fontWeight: "600", color: Theme.textPrimary },
-  phoneBackTitleWrap: { flex: 1, minWidth: 0, alignItems: "flex-end" },
-  phoneBackTitle: { fontSize: 14, fontWeight: "700", color: Theme.textPrimary },
-  phoneBackSubtitle: { fontSize: 12, color: Theme.textSecondary },
-  phoneDetailScroll: { flex: 1, minHeight: 0 },
-  phoneDetailContent: { paddingBottom: 12 },
-  /** Size to content inside the phone scroll (overrides `flex: 1` panes). */
-  phoneNatural: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: "auto" },
-  checklistListPanePhone: { width: "100%", maxWidth: "100%", flexShrink: 0 },
-  checklistPreviewPanePhone: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: "auto", height: 460 },
 
   /** Debit control: no checklist / preview, the trip list takes the row. */
   listPaneFull: { flex: 1, width: "auto", maxWidth: "100%", height: "100%", maxHeight: "100%" },
@@ -7102,8 +7480,27 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 24,
   },
-  listScroll: { flex: 1 },
-  listContent: { padding: 0, gap: 0 },
+  listEmptyMobileContent: {
+    flexGrow: 1,
+    backgroundColor: HUB_MOBILE_LIST_CANVAS_BG,
+  },
+  listEmptyMobileBody: {
+    flexGrow: 1,
+    minHeight: 280,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 32,
+  },
+  listScroll: { flex: 1, minHeight: 0, backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
+  listContent: { paddingTop: 10, paddingBottom: 16, paddingHorizontal: 12, gap: 0, backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
+  listContentMobile: {
+    flexGrow: 0,
+    paddingTop: 10,
+    paddingBottom: 28,
+    paddingHorizontal: Layout.screenPaddingHorizontal,
+    backgroundColor: HUB_MOBILE_LIST_CANVAS_BG,
+  },
   listLoadMore: {
     paddingVertical: 12,
     alignItems: "center",
@@ -7454,17 +7851,23 @@ const styles = StyleSheet.create({
   detailColumnStacked: { width: "100%", flex: 1 },
   detailPaneFill: { flex: 1 },
   podLogPane: { paddingHorizontal: 0, paddingVertical: 0, overflow: "hidden" },
+  podLogPaneMobile: {
+    borderWidth: 0,
+    borderRadius: 0,
+    backgroundColor: "#F5F5F5",
+    paddingHorizontal: 14,
+    paddingVertical: 0,
+  },
   previewPane: {
     flex: 1,
     minWidth: 0,
     minHeight: 0,
-    backgroundColor: Theme.cardWhite,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Theme.complianceCardBorder,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    gap: 6,
+    backgroundColor: "#F5F5F5",
+    borderRadius: 0,
+    borderWidth: 0,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    gap: 0,
   },
   tabRow: { flexShrink: 0, height: 22, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   tabGroup: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1, minWidth: 0 },
@@ -7569,7 +7972,9 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     paddingVertical: 8,
   },
-  screenTitle: { flex: 1, minWidth: 80, fontSize: 13, fontWeight: "600", color: Theme.textPrimaryDark },
+  screenTitleBlock: { flex: 1, minWidth: 80, gap: 1 },
+  screenTitle: { fontSize: 13, fontWeight: "600", color: Theme.textPrimaryDark },
+  screenSubtitle: { fontSize: 11, fontWeight: "500", color: Theme.textSecondary },
   screenTools: {
     flexDirection: "row",
     flexWrap: "nowrap",
@@ -7627,9 +8032,9 @@ const styles = StyleSheet.create({
     minHeight: 0,
     width: "100%",
     backgroundColor: Theme.compliancePreviewCanvas,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    gap: 12,
   },
   /** Header + entries share one centred column; wide web screens stop stretching the cards. */
   typedPreviewColumn: {
@@ -7644,7 +8049,7 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.darkSurface,
   },
   typedPreviewContentWithNav: {
-    paddingHorizontal: 58,
+    paddingHorizontal: 56,
   },
   typedPreviewHeader: {
     flexShrink: 0,
@@ -7652,18 +8057,18 @@ const styles = StyleSheet.create({
     marginRight: 18,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
     backgroundColor: Theme.cardWhite,
-    borderRadius: 8,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   typedPreviewHeaderIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: Theme.buttonDark,
@@ -7671,26 +8076,49 @@ const styles = StyleSheet.create({
   typedPreviewHeaderCopy: {
     flex: 1,
     minWidth: 0,
-    gap: 1,
+    gap: 2,
   },
   typedPreviewKicker: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: "700",
-    letterSpacing: 0.55,
+    letterSpacing: 0.6,
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
   typedPreviewTitle: {
-    fontSize: 13,
-    lineHeight: 16,
+    fontSize: 16,
+    lineHeight: 20,
     fontWeight: "700",
     color: Theme.textPrimaryDark,
   },
   typedPreviewMeta: {
-    fontSize: 10,
-    lineHeight: 13,
+    fontSize: 11,
+    lineHeight: 14,
     fontWeight: "500",
     color: Theme.textMuted,
+  },
+  typedPreviewChips: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 0,
+  },
+  typedChip: {
+    minHeight: 24,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.complianceStageBalanceBg,
+  },
+  typedChipMuted: {
+    backgroundColor: Theme.complianceStagePendingBg,
+  },
+  typedChipText: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
   },
   typedPreviewScrollStage: {
     flex: 1,
@@ -7706,8 +8134,8 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   typedPreviewScrollContent: {
-    gap: 8,
-    paddingBottom: 12,
+    gap: 12,
+    paddingBottom: 16,
     paddingRight: 18,
     flexGrow: 0,
   },
@@ -7720,16 +8148,40 @@ const styles = StyleSheet.create({
   typedPreviewRowGrid: {
     flexDirection: "row",
     alignItems: "stretch",
-    gap: 8,
+    gap: 12,
   },
   typedEntryCard: {
     flex: 1,
     minWidth: 0,
+    minHeight: 168,
+    flexDirection: "row",
     backgroundColor: Theme.cardWhite,
-    borderRadius: 8,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
     overflow: "hidden",
+    ...Platform.select({
+      web: { boxShadow: "0 8px 20px rgba(15, 23, 42, 0.06)" } as ViewStyle,
+      default: {
+        shadowColor: Theme.textPrimaryDark,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.06,
+        shadowRadius: 10,
+        elevation: 2,
+      },
+    }),
+  },
+  typedEntryAccent: {
+    width: 4,
+    alignSelf: "stretch",
+    backgroundColor: Theme.complianceStageBalanceFg,
+  },
+  typedEntryAccentOk: { backgroundColor: Theme.complianceStageSuccessFg },
+  typedEntryAccentSoon: { backgroundColor: Theme.complianceStagePendingFg },
+  typedEntryAccentExpired: { backgroundColor: Theme.complianceStageDocsFg },
+  typedEntryInner: {
+    flex: 1,
+    minWidth: 0,
   },
   typedEntryCardSpacer: {
     flex: 1,
@@ -7737,45 +8189,104 @@ const styles = StyleSheet.create({
   },
   typedEntryHeadingRow: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    alignItems: "flex-start",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.complianceCardBorder,
-    backgroundColor: Theme.surface,
+    backgroundColor: Theme.compliancePageBg,
   },
   typedEntryIndex: {
-    width: 18,
-    height: 18,
-    borderRadius: 4,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: Theme.buttonDark,
+    marginTop: 2,
   },
   typedEntryIndexText: {
-    fontSize: 9,
-    lineHeight: 11,
+    fontSize: 10,
+    lineHeight: 12,
     fontWeight: "700",
     color: Theme.buttonDarkText,
   },
   typedEntryHeadingCopy: {
     flex: 1,
     minWidth: 0,
-    gap: 1,
+    gap: 3,
   },
   typedEntryKicker: {
-    fontSize: 9,
-    lineHeight: 11,
+    fontSize: 10,
+    lineHeight: 12,
     fontWeight: "700",
-    letterSpacing: 0.4,
+    letterSpacing: 0.45,
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
   typedEntryHeading: {
-    fontSize: 13,
-    lineHeight: 16,
+    fontSize: 18,
+    lineHeight: 22,
     fontWeight: "700",
+    color: Theme.textPrimaryDark,
+    letterSpacing: 0.2,
+  },
+  typedStatusPill: {
+    minHeight: 22,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  typedStatusOk: { backgroundColor: Theme.complianceStageSuccessBg },
+  typedStatusSoon: { backgroundColor: Theme.complianceStagePendingBg },
+  typedStatusExpired: { backgroundColor: Theme.complianceStageDocsBg },
+  typedStatusNeutral: { backgroundColor: Theme.complianceStageBalanceBg },
+  typedStatusText: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+  },
+  typedStatusTextOk: { color: Theme.complianceStageSuccessFg },
+  typedStatusTextSoon: { color: Theme.complianceStagePendingFg },
+  typedStatusTextExpired: { color: Theme.complianceStageDocsFg },
+  typedStatusTextNeutral: { color: Theme.complianceStageBalanceFg },
+  typedFactGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  typedFact: {
+    width: "47%",
+    flexGrow: 1,
+    minWidth: 108,
+    paddingHorizontal: 6,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: Theme.compliancePageBg,
+    gap: 3,
+  },
+  typedFactWide: {
+    width: "100%",
+  },
+  typedFactLabel: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+  },
+  typedFactValue: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "600",
     color: Theme.textPrimaryDark,
   },
   typedFieldRow: {
@@ -7817,18 +8328,20 @@ const styles = StyleSheet.create({
   docSideNavOverlayLeft: {
     position: "absolute",
     left: 10,
-    top: 0,
-    bottom: 0,
-    justifyContent: "center",
+    top: "50%",
+    width: 44,
+    height: 44,
+    marginTop: -22,
     zIndex: 40,
     elevation: 40,
   },
   docSideNavOverlayRight: {
     position: "absolute",
     right: 10,
-    top: 0,
-    bottom: 0,
-    justifyContent: "center",
+    top: "50%",
+    width: 44,
+    height: 44,
+    marginTop: -22,
     zIndex: 40,
     elevation: 40,
   },
@@ -7912,27 +8425,120 @@ const styles = StyleSheet.create({
     minHeight: 0,
     flexDirection: "row",
     alignItems: "stretch",
-    gap: 12,
+    gap: 0,
     paddingHorizontal: 6,
     paddingBottom: 6,
     paddingTop: 2,
   },
   checklistStageStacked: {
     flexDirection: "column",
+    gap: 12,
+  },
+  checklistStageMobile: {
+    paddingHorizontal: 0,
+    paddingBottom: 0,
+    gap: 0,
+  },
+  checklistListPaneMobile: {
+    width: "100%",
+    maxWidth: "100%",
+    maxHeight: "100%",
+    flex: 1,
+    borderRadius: 0,
+    borderWidth: 0,
+    backgroundColor: "#F5F5F5",
+    overflow: "visible",
+  },
+  checklistPageScroll: {
+    flexGrow: 1,
+    paddingBottom: 48,
+    paddingHorizontal: 0,
+    gap: 10,
+    backgroundColor: "#F5F5F5",
+  },
+  checklistPreviewPaneMobile: {
+    width: "100%",
+    maxWidth: "100%",
+    minHeight: 0,
+    flex: 1,
+    borderRadius: 0,
+    borderWidth: 0,
+    backgroundColor: "#F5F5F5",
+  },
+  mobilePreviewBack: {
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: 44,
+    paddingHorizontal: 14,
+    gap: 4,
+    backgroundColor: Theme.screenBackground,
+  },
+  mobilePreviewBackText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#212121",
+    letterSpacing: -0.2,
+  },
+  previewNav: {
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: 52,
+    paddingHorizontal: 14,
+    paddingTop: 6,
+    paddingBottom: 6,
+    backgroundColor: Theme.screenBackground,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.borderLight,
+  },
+  previewNavBack: {
+    width: 36,
+    height: 40,
+    alignItems: "flex-start",
+    justifyContent: "center",
+  },
+  previewNavCopy: {
+    flex: 1,
+    minWidth: 0,
+    marginLeft: 2,
+  },
+  previewNavTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+    letterSpacing: 0,
+  },
+  previewNavMeta: {
+    marginTop: 1,
+    fontSize: 12,
+    fontWeight: "500",
+    color: "#9E9E9E",
+  },
+  previewNavTools: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 0,
+    gap: 2,
+  },
+  previewNavTool: {
+    width: 36,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
   },
   checklistListPane: {
-    width: 360,
-    maxWidth: "46%",
-    flexShrink: 0,
+    flex: 1,
+    minWidth: 0,
+    width: "auto",
+    maxWidth: "100%",
     alignSelf: "stretch",
     minHeight: 0,
     flexDirection: "column",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: Theme.complianceTripCardBorder,
-    backgroundColor: Theme.complianceTripCardBg,
+    borderRadius: 0,
+    borderWidth: 0,
+    backgroundColor: "#F5F5F5",
     overflow: "hidden",
   },
+  checklistListPaneSplit: { width: "100%", maxWidth: "100%", flex: 1 },
   checklistListPaneStacked: {
     width: "100%",
     maxWidth: "100%",
@@ -7952,6 +8558,55 @@ const styles = StyleSheet.create({
     borderBottomColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.complianceTripCardBg,
   },
+  checklistPanelToolbarMobile: {
+    flexWrap: "nowrap",
+    alignItems: "stretch",
+    gap: 0,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    borderBottomWidth: 0,
+    backgroundColor: Theme.screenBackground,
+  },
+  docScopeTabRow: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "stretch",
+    paddingHorizontal: 14,
+    backgroundColor: Theme.screenBackground,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#EEEEEE",
+  },
+  docScopeTab: {
+    flex: 1,
+    paddingVertical: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
+    minHeight: 40,
+  },
+  docScopeTabActive: {
+    borderBottomColor: "#212121",
+  },
+  docScopeTabHover: {
+    opacity: 0.72,
+  },
+  docScopeTabText: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: "#9E9E9E",
+  },
+  docScopeTabTextActive: {
+    fontWeight: "600",
+    color: "#212121",
+  },
+  checklistPanelTabsScrollMobile: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    width: "auto",
+  },
   checklistPanelTabsScroll: {
     flex: 1,
     minWidth: 0,
@@ -7960,15 +8615,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
     backgroundColor: Theme.cardWhite,
-  },
-  /** Phone document pane: tabs wrap onto a second row instead of a side scroll. */
-  checklistPanelTabsWrapPhone: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: 6,
   },
   checklistPanelTabs: {
     flexDirection: "row",
@@ -8022,18 +8668,11 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     gap: 6,
   },
-  checklistUploadPill: {
-    flexShrink: 0,
+  checklistToolbarActionsMobile: {
+    marginLeft: 0,
+    alignSelf: "center",
     height: 32,
-    minHeight: 32,
-    maxHeight: 32,
-    paddingHorizontal: 10,
-    backgroundColor: Theme.cardWhite,
-  },
-  checklistUploadPillText: {
-    fontSize: 10,
-    lineHeight: 12,
-    fontWeight: "700",
+    justifyContent: "center",
   },
   /** Document rows only. Scrolls so the last row and preview actions stay reachable. */
   checklistDocs: {
@@ -8043,7 +8682,33 @@ const styles = StyleSheet.create({
   },
   checklistDocsContent: {
     flexGrow: 1,
-    paddingBottom: 4,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 8,
+    gap: 10,
+  },
+  checklistDocsContentMobile: {
+    paddingHorizontal: 14,
+    paddingTop: 4,
+    backgroundColor: "transparent",
+  },
+  checklistVaultRow: {
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  checklistExpiryBtn: {
+    alignSelf: "flex-start",
+    marginLeft: 12,
+    marginBottom: 8,
+  },
+  checklistVaultRowHover: {
+    backgroundColor: Theme.complianceSelectedWash,
+  },
+  checklistVaultRowSelected: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardSelectedBorder,
+    backgroundColor: Theme.complianceSelectedWash,
   },
   /** Compact illustration slot — sized to the preview card, not clipped. */
   checklistListGapArt: {
@@ -8068,6 +8733,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.cardWhite,
+  },
+  checklistPreviewActionsSectionMobile: {
+    marginHorizontal: 0,
+    marginBottom: 4,
+    paddingHorizontal: 0,
+    paddingTop: 10,
+    paddingBottom: 4,
+    borderRadius: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
   },
   checklistPreviewActionsHeader: {
     flexDirection: "row",
@@ -8166,9 +8841,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   checklistAdvancePanel: {
-    flex: 1,
     minHeight: 0,
-    overflow: "hidden",
+    overflow: "visible",
     paddingHorizontal: 8,
     paddingVertical: 6,
     gap: 6,
@@ -8196,7 +8870,8 @@ const styles = StyleSheet.create({
   },
   // Scrolls inside tripDetailsScroll instead of clipping on smaller screens.
   tripDetailsScroll: { flex: 1, minHeight: 0 },
-  tripDetailsScrollContent: { flexGrow: 1 },
+  tripDetailsScrollContent: { flexGrow: 1, paddingBottom: 24 },
+  advancePaymentScrollContent: { flexGrow: 1, paddingBottom: 32 },
   tripDetailsPanel: {
     flexGrow: 1,
     paddingHorizontal: 8,
@@ -8573,12 +9248,13 @@ const styles = StyleSheet.create({
   tripFactRow: {
     flexGrow: 0,
     flexShrink: 0,
-    height: 26,
+    minHeight: 26,
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
     gap: 10,
     paddingHorizontal: 12,
+    paddingVertical: 5,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.borderLight,
   },
@@ -8638,6 +9314,10 @@ const styles = StyleSheet.create({
     color: Theme.textPrimaryDark,
     lineHeight: 14,
     fontVariant: ["tabular-nums"],
+  },
+  tripFactValueLink: {
+    color: Theme.brandBlueInk,
+    textDecorationLine: "underline",
   },
   tripFactValueEmphasize: {
     fontWeight: "700",
@@ -8816,6 +9496,19 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderRadius: 8,
   },
+  previewPanSurface: {
+    flex: 1,
+    minHeight: 0,
+    width: "100%",
+  },
+  previewScrollXDock: {
+    position: "absolute",
+    left: 12,
+    right: 30,
+    bottom: 6,
+    height: 22,
+    zIndex: 8,
+  },
   previewCanvasHovered: {
     backgroundColor: Theme.compliancePageBg,
   },
@@ -8985,13 +9678,13 @@ const styles = StyleSheet.create({
   previewScrollRowY: {
     position: "absolute",
     top: 10,
-    bottom: 10,
+    bottom: 36,
     right: 4,
     width: 22,
     alignItems: "center",
     justifyContent: "center",
     gap: 4,
-    zIndex: 6,
+    zIndex: 8,
   },
   previewScrollRowYActive: {
     gap: 6,
@@ -9215,21 +9908,64 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   missingHeader: {
-    gap: 1,
-    paddingHorizontal: 10,
-    paddingTop: 8,
-    paddingBottom: 8,
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.complianceTripCardBorder,
-    borderLeftWidth: 3,
-    borderLeftColor: Theme.buttonDark,
+  },
+  missingHeaderMobile: {
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 8,
+    borderBottomWidth: 0,
+    backgroundColor: "transparent",
+  },
+  missingTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    minWidth: 0,
+  },
+  missingTitleRowMobile: {
+    flexWrap: "wrap",
+    alignItems: "flex-start",
   },
   missingTitle: {
-    fontSize: 11,
-    lineHeight: 14,
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: "700",
-    letterSpacing: 0.35,
+    letterSpacing: 0.2,
     color: Theme.buttonDark,
+  },
+  missingCountChip: {
+    flexShrink: 0,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: Theme.complianceStageInfoBg,
+  },
+  missingCountChipNeed: {
+    backgroundColor: Theme.complianceStageDocsBg,
+  },
+  missingCountChipReady: {
+    backgroundColor: Theme.complianceStageSuccessBg,
+  },
+  missingCountChipText: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "700",
+    color: Theme.complianceStageInfoFg,
+  },
+  missingCountChipTextNeed: {
+    color: Theme.complianceStageDocsFg,
+  },
+  missingCountChipTextReady: {
+    color: Theme.complianceStageSuccessFg,
   },
   missingSubtitle: {
     fontSize: 10,
@@ -9250,6 +9986,12 @@ const styles = StyleSheet.create({
     lineHeight: 12,
     marginTop: 1,
     color: Theme.textMuted,
+  },
+  missingHintMobile: {
+    fontSize: 13,
+    fontWeight: "500",
+    lineHeight: 18,
+    marginTop: 2,
   },
   missingCard: {
     width: "100%",
@@ -9297,7 +10039,6 @@ const styles = StyleSheet.create({
     gap: 8,
     flexShrink: 0,
   },
-  missingTitleRow: { flexDirection: "row", alignItems: "center", gap: 5, minWidth: 0 },
   missingDocName: {
     flexShrink: 1,
     fontSize: 11,
@@ -9338,13 +10079,15 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     minHeight: 0,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Theme.complianceTripCardBorder,
-    backgroundColor: Theme.cardWhite,
+    borderRadius: 0,
+    borderWidth: 0,
+    backgroundColor: "#F5F5F5",
     overflow: "hidden",
   },
+  checklistPreviewPaneSplit: { width: "100%", maxWidth: "100%" },
   checklistPreviewPaneStacked: {
+    width: "100%",
+    maxWidth: "100%",
     minHeight: 220,
     flex: 1,
   },
@@ -9353,6 +10096,11 @@ const styles = StyleSheet.create({
     minHeight: 0,
     overflow: "hidden",
     backgroundColor: Theme.compliancePreviewCanvas,
+  },
+  checklistPreviewBodyMobile: {
+    backgroundColor: "#F5F5F5",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   checklistDecisionBar: {
     flexShrink: 0,
@@ -9432,25 +10180,6 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: Theme.textMuted,
     textAlign: "center",
-  },
-  missingNavPill: {
-    flexShrink: 0,
-    height: 32,
-    minHeight: 32,
-    maxHeight: 32,
-    paddingHorizontal: 10,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: Theme.complianceStageDocsFg,
-    backgroundColor: Theme.complianceStageDocsBg,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  missingNavLabel: {
-    fontSize: 9,
-    fontWeight: "600",
-    lineHeight: 11,
-    color: Theme.complianceStageDocsFg,
   },
   missingFooterMeta: { flex: 1, minWidth: 0, paddingRight: 8 },
   missingFooterText: { fontSize: 9, fontWeight: "400", color: Theme.textMuted },

@@ -154,7 +154,7 @@ export function ComplianceDocumentPreviewModal({
             </View>
           ) : url && previewKind === "pdf" ? (
             <View style={styles.previewFrame}>
-              <PdfViewer pdfUri={url} />
+              <PdfViewer pdfUri={url} showToolbar />
             </View>
           ) : url && previewKind === "image" ? (
             <View style={styles.previewFrame}>

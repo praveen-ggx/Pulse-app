@@ -28,6 +28,12 @@ export type EwayBillStripRow = {
   validTill: string;
   docNo: string;
   canView: boolean;
+  updatedAt?: string | null;
+  updatedById?: string | null;
+  previewPath?: string | null;
+  previewUri?: string | null;
+  previewFileName?: string | null;
+  previewMime?: string | null;
 };
 
 export const EMPTY_EWAY_FIELD_VALUES: EwayFieldValues = {
@@ -45,6 +51,12 @@ const EMPTY_STRIP_ROW: EwayBillStripRow = {
   validTill: "—",
   docNo: "—",
   canView: false,
+  updatedAt: null,
+  updatedById: null,
+  previewPath: null,
+  previewUri: null,
+  previewFileName: null,
+  previewMime: null,
 };
 
 export function ewayBillFieldsStoragePath(tripId: string): string {
@@ -261,11 +273,23 @@ export function buildEwayBillStripRows(params: {
     !isEwayBillMetaPath(ewayDoc.storagePath);
   const baseId = ewayDoc?.documentId ?? ewayDoc?.id ?? "eway";
 
+  const latestLog = {
+    updatedAt: ewayDoc?.uploadedAt ?? null,
+    updatedById: ewayDoc?.uploadedBy ?? null,
+  };
   const toRow = (
     fields: EwayFieldValues,
     index: number,
     id: string,
     canView: boolean,
+    fileLog?: {
+      uploadedAt?: string | null;
+      uploadedBy?: string | null;
+      storagePath?: string | null;
+      previewUri?: string | null;
+      fileName?: string | null;
+      type?: string | null;
+    },
   ): EwayBillStripRow => ({
     id,
     entryIndex: index,
@@ -274,6 +298,14 @@ export function buildEwayBillStripRows(params: {
     validTill: displayDate(fields.validTill),
     docNo: dash(fields.docNo),
     canView,
+    updatedAt: fileLog?.uploadedAt ?? latestLog.updatedAt,
+    updatedById: fileLog?.uploadedBy ?? latestLog.updatedById,
+    previewPath:
+      fileLog?.storagePath?.trim() ||
+      (slotPreviewable ? ewayDoc?.storagePath ?? null : null),
+    previewUri: fileLog?.previewUri ?? null,
+    previewFileName: fileLog?.fileName ?? null,
+    previewMime: fileLog?.type ?? null,
   });
 
   if (entries.length > 0) {
@@ -283,6 +315,7 @@ export function buildEwayBillStripRows(params: {
         index,
         files[index]?.id ?? `${baseId}-entry-${index}`,
         !!files[index] || slotPreviewable,
+        files[index],
       ),
     );
   }
@@ -292,6 +325,8 @@ export function buildEwayBillStripRows(params: {
       {
         ...EMPTY_STRIP_ROW,
         id: ewayDoc ? `${baseId}-entry-0` : EMPTY_STRIP_ROW.id,
+        updatedAt: latestLog.updatedAt,
+        updatedById: latestLog.updatedById,
       },
     ];
   }
@@ -305,6 +340,7 @@ export function buildEwayBillStripRows(params: {
       index,
       file.id,
       true,
+      file,
     );
   });
 }

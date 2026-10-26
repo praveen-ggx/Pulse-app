@@ -1,8 +1,11 @@
 import type { AnimationObject } from 'lottie-react-native';
+import type { ComponentType } from 'react';
 import type { ImageSourcePropType } from 'react-native';
+import type { SvgProps } from 'react-native-svg';
 
 import Theme from '@/constants/Theme';
 import type { OnboardingPersonaId } from '@/lib/onboarding/constants';
+import type { PulseMascotIllustrationId } from '@/lib/pulseMascotIllustrations';
 
 export type OnboardingLottieAsset = {
   source: AnimationObject;
@@ -95,25 +98,21 @@ export const ONBOARDING_HERO_LOTTIE: OnboardingLottieAsset = {
 
 export type PulseProductVisual =
   | { type: 'lottie'; asset: OnboardingLottieAsset }
-  | { type: 'image'; source: ImageSourcePropType };
+  | { type: 'image'; source: ImageSourcePropType; aspect?: number }
+  | { type: 'svg'; Art: ComponentType<SvgProps>; aspect?: number }
+  | { type: 'mascot'; id: PulseMascotIllustrationId };
 
 /** Hub product tiles — Pulse Core & Pulse Pilot. */
 export const PULSE_PRODUCT_VISUALS = {
   core: {
-    type: 'lottie',
-    asset: {
-      source: require('@/assets/Animated folder/business-startup.json'),
-      glyphScale: 1.12,
-    },
+    type: 'image',
+    source: require('@/assets/illustrations/pulse_mascot_cutout.png'),
+    aspect: 691 / 877,
   },
   pilot: {
-    type: 'lottie',
-    asset: {
-      source: require('@/assets/Animated folder/person-driving-car.json'),
-      // Wide 1920×1080 canvas with more padding than Core — scale up to match visual mass.
-      glyphScale: 2.2,
-      speed: 0.9,
-    },
+    type: 'image',
+    source: require('@/assets/illustrations/otp_delivery_truck_mascot_cutout.png'),
+    aspect: 1359 / 645,
   },
   commerce: {
     type: 'lottie',

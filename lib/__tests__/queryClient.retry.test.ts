@@ -110,6 +110,35 @@ describe("shouldRetryQuery", () => {
     expect(shouldRetryQuery(0, new Error("JSON could not be generated (544)"))).toBe(false);
   });
 
+  it("does not retry a missing suppliers.primary_region column (42703)", () => {
+    expect(
+      shouldRetryQuery(0, {
+        code: "42703",
+        message: 'column "primary_region" of relation "suppliers" does not exist',
+      }),
+    ).toBe(false);
+    expect(
+      shouldRetryQuery(0, {
+        code: "PGRST204",
+        message: "Could not find the 'beneficiary_name' column of 'entity_bank_accounts' in the schema cache",
+      }),
+    ).toBe(false);
+  });
+
+  it("does not retry storage.objects RLS denial (42501)", () => {
+    expect(
+      shouldRetryQuery(0, {
+        code: "42501",
+        message: "permission denied for table storage.objects",
+      }),
+    ).toBe(false);
+    expect(
+      shouldRetryQuery(0, {
+        message: "new row violates row-level security policy for table \"storage.objects\"",
+      }),
+    ).toBe(false);
+  });
+
   it("does not retry any error while the origin-down circuit is open", () => {
     noteSupabaseOriginDown();
     expect(shouldRetryQuery(0, new Error("network blip"))).toBe(false);

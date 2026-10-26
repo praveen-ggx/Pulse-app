@@ -29,6 +29,9 @@ const STORAGE_BUCKET_PREFIX_RE =
 export function parseComplianceStorageRef(raw: string): { kind: "url" | "path"; value: string } {
   const trimmed = raw.trim();
   if (!trimmed) return { kind: "path", value: "" };
+  if (/^(blob:|data:|file:|content:)/i.test(trimmed)) {
+    return { kind: "url", value: trimmed };
+  }
   if (/^https?:\/\//i.test(trimmed)) {
     const fromStorage = trimmed.match(STORAGE_OBJECT_RE);
     if (fromStorage?.[1]) return { kind: "path", value: decodeURIComponent(fromStorage[1]) };
@@ -87,12 +90,20 @@ function vaultApprovalStatus(verifiedAt: string | null | undefined): "verified" 
   return verifiedAt?.trim() ? "verified" : "pending";
 }
 
-function extraDocType(fileName: string | undefined): string | null {
-  const name = (fileName ?? "").toLowerCase();
+function extraDocType(
+  extra: { docType?: string | null; fileName?: string },
+): string | null {
+  const tagged = extra.docType?.trim().toLowerCase() ?? "";
+  if (tagged && COMPLIANCE_VEHICLE_DOCUMENT_TYPES.includes(tagged)) return tagged;
+  const name = (extra.fileName ?? "").toLowerCase();
   if (name.includes("permit")) return "permit";
   if (name.includes("road_tax") || name.includes("road tax") || name.includes("tax token") || /\btax\b/.test(name)) {
     return "road_tax";
   }
+  if (name.includes("insurance")) return "insurance";
+  if (name.includes("fitness") || /\bfc\b/.test(name)) return "fitness";
+  if (name.includes("pollution") || name.includes("puc")) return "pollution";
+  if (name.includes("registration") || /\brc\b/.test(name)) return "rc";
   return null;
 }
 
@@ -124,11 +135,11 @@ export function vehicleVaultDocumentsToEntityDocs(
 
   for (const extra of documents.extras ?? []) {
     const path = extra.url?.trim();
-    const docType = extraDocType(extra.fileName);
+    const docType = extraDocType(extra);
     if (!path || !docType || !COMPLIANCE_VEHICLE_DOCUMENT_TYPES.includes(docType)) continue;
-    if (rows.some((row) => row.doc_type === docType)) continue;
+    if (rows.some((row) => row.storage_path === path)) continue;
     rows.push({
-      id: extra.id || `${vehicleId}-${docType}`,
+      id: extra.id || `${vehicleId}-${docType}-${path}`,
       entity_type: "vehicle",
       entity_id: vehicleId,
       doc_type: docType,
@@ -145,27 +156,31 @@ export function vehicleVaultDocumentsToEntityDocs(
   return rows;
 }
 
+function entityDocKey(doc: ComplianceEntityDocument): string {
+  const path = doc.storage_path?.trim();
+  if (path) return `path:${path}`;
+  return `id:${doc.id}`;
+}
+
 export function mergeComplianceEntityDocs(
   preferred: ComplianceEntityDocument[],
   fallback: ComplianceEntityDocument[],
 ): ComplianceEntityDocument[] {
-  const byType = new Map<string, ComplianceEntityDocument>();
-  for (const doc of fallback) byType.set(doc.doc_type, doc);
+  const byKey = new Map<string, ComplianceEntityDocument>();
+  for (const doc of fallback) byKey.set(entityDocKey(doc), doc);
   for (const doc of preferred) {
-    const existing = byType.get(doc.doc_type);
+    const key = entityDocKey(doc);
+    const existing = byKey.get(key);
     if (!existing) {
-      byType.set(doc.doc_type, doc);
+      byKey.set(key, doc);
       continue;
     }
-    // Keep the preferred file/source, but inherit expiry from the other side
-    // when preferred has none (common: vault upload with empty expiryDate +
-    // entity_documents row that already has the date).
     const preferredExpiry = doc.expiry_date?.trim() || null;
     const fallbackExpiry = existing.expiry_date?.trim() || null;
-    byType.set(doc.doc_type, {
+    byKey.set(key, {
       ...doc,
       expiry_date: preferredExpiry ?? fallbackExpiry,
     });
   }
-  return Array.from(byType.values());
+  return Array.from(byKey.values());
 }

@@ -6,6 +6,7 @@ import Theme from "@/constants/Theme";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOptionalOrganization } from "@/contexts/OrganizationContext";
 import { CompliancePaymentConfirmModal } from "@/features/tripCompliance/components/CompliancePaymentConfirmModal";
+import { ComplianceTripActivityLog } from "@/features/tripCompliance/components/ComplianceTripActivityLog";
 import { ComplianceTripCard } from "@/features/tripCompliance/components/ComplianceTripCard";
 import { useComplianceProductEnabled } from "@/features/tripCompliance/hooks/useComplianceProductEnabled";
 import {
@@ -60,6 +61,7 @@ export function ComplianceDetailsScreen({ tripId }: { tripId: string }) {
     void refetch();
   }, [canMarkVerified, invalidate, refetch, tripId, user?.uid]);
   const [pay, setPay] = useState<{ summary: ComplianceTripSummary; category: ComplianceLedgerCategory } | null>(null);
+  const [activityLogOpen, setActivityLogOpen] = useState(false);
   const [paying, setPaying] = useState(false);
   const contentTopInset = layout.isDesktopWeb ? Layout.desktopTopNavOffset : layout.top;
 
@@ -122,6 +124,7 @@ export function ComplianceDetailsScreen({ tripId }: { tripId: string }) {
         onMarkComplianceVerified={markTripVerified}
         canManageFinance={canManageFinance}
         hideDeclineNotice
+        onOpenActivityLog={() => setActivityLogOpen(true)}
       />
 
       {declinedAt ? (
@@ -201,6 +204,12 @@ export function ComplianceDetailsScreen({ tripId }: { tripId: string }) {
           }
           void refetch();
         }}
+      />
+      <ComplianceTripActivityLog
+        visible={activityLogOpen}
+        summary={summary}
+        organizationId={currentOrganization?.id ?? trip.organization_id}
+        onClose={() => setActivityLogOpen(false)}
       />
     </ScrollView>
   );

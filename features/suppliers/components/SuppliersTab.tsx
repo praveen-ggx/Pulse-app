@@ -128,12 +128,12 @@ export function SuppliersTab({
   const tripsQuery = useTripsQuery(isControlled ? null : organizationId);
   const suppliers = isControlled ? (suppliersProp ?? []) : (suppliersQuery.data ?? []);
   const applyAdjustments = tripFinanceAdjustmentsByTripId !== undefined;
-  const { data: supplierLedgerRpcRows = [], isPending: supplierLedgerLoading } =
+  const { data: supplierLedgerRpcRows = [] } =
     useSupplierLedgerAggregationQuery(organizationId, applyAdjustments);
-  const showLoading =
-    parentLoading ||
-    (!isControlled && (suppliersQuery.isLoading || tripsQuery.isLoading)) ||
-    supplierLedgerLoading;
+  const catalogPending = isControlled
+    ? parentLoading
+    : suppliersQuery.isLoading;
+  const showLoading = catalogPending && suppliers.length === 0;
 
   const supplierAvatarById = useMemo(
     () => new Map(suppliers.map((s) => [s.id, { avatar_url: s.avatar_url, avatar_seed: s.avatar_seed }])),

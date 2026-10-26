@@ -99,4 +99,54 @@ describe('lane selection', () => {
     });
     expect(c.lane).toBe('interactive');
   });
+
+  it('backgrounds newer Network / Reach table reads', () => {
+    expect(classifyRequest(`${REST}/posts?select=id&limit=80`).lane).toBe('background');
+    expect(classifyRequest(`${REST}/connection_requests?select=id&limit=50`).lane).toBe(
+      'background',
+    );
+    expect(classifyRequest(`${REST}/reach_campaigns?select=id&limit=20`).lane).toBe(
+      'background',
+    );
+  });
+
+  it('keeps trip and network-conversation reads interactive', () => {
+    expect(classifyRequest(`${REST}/trips?select=id&limit=20`).lane).toBe('interactive');
+    expect(
+      classifyRequest(`${REST}/network_conversations?select=id&limit=100`).lane,
+    ).toBe('interactive');
+  });
+
+  it('backgrounds and coalesces read-only feature RPCs even though supabase-js POSTs them', () => {
+    const init = {
+      method: 'POST',
+      headers: { Authorization: 'Bearer user-a' },
+      body: '{"p_linked_organization_ids":["org-1"]}',
+    };
+    const a = classifyRequest(`${REST}/rpc/get_connection_partner_display_batch`, init);
+    const b = classifyRequest(`${REST}/rpc/get_connection_partner_display_batch`, init);
+    expect(a.lane).toBe('background');
+    expect(a.coalesceKey).toBeDefined();
+    expect(a.coalesceKey).toBe(b.coalesceKey);
+  });
+
+  it('does not coalesce two different partner-display batches', () => {
+    const a = classifyRequest(`${REST}/rpc/get_connection_partner_display_batch`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer user-a' },
+      body: '{"p_linked_organization_ids":["org-1"]}',
+    });
+    const b = classifyRequest(`${REST}/rpc/get_connection_partner_display_batch`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer user-a' },
+      body: '{"p_linked_organization_ids":["org-2"]}',
+    });
+    expect(a.coalesceKey).not.toBe(b.coalesceKey);
+  });
+
+  it('still treats mutating feature RPCs as writes', () => {
+    const c = classifyRequest(`${REST}/rpc/record_reach_event`, { method: 'POST' });
+    expect(c.lane).toBe('interactive');
+    expect(c.coalesceKey).toBeUndefined();
+  });
 });

@@ -49,6 +49,7 @@ import {
 import {
   driverStoryCta,
   resolveDriverParticipation,
+  type DriverMembershipLike,
   type DriverParticipation,
 } from '@/features/reach/utils/driverParticipation';
 import {
@@ -305,7 +306,7 @@ export function StoriesContent({
   const { user } = useAuth();
   const userId = user?.uid ?? null;
   const { avatarUri } = useDriverAvatarUri();
-  const { isDco } = useDriverOperatingModeQuery(userId);
+  const { isDco, marketplaceAllowed, operatingMode } = useDriverOperatingModeQuery(userId);
   const capacityQ = useMyCapacityStoriesQuery(userId);
   const vehiclesQ = useOwnerVehiclesQuery(userId);
 
@@ -314,7 +315,11 @@ export function StoriesContent({
   const recommendMutation = useRecommendReachCampaignMutation();
   const bidMutation = useSubmitDriverDirectBidMutation();
 
-  const [participation, setParticipation] = useState<DriverParticipation>({ mode: 'independent' });
+  const [memberships, setMemberships] = useState<DriverMembershipLike[]>([]);
+  const participation = useMemo<DriverParticipation>(
+    () => resolveDriverParticipation(memberships, { marketplaceDco: marketplaceAllowed }),
+    [memberships, marketplaceAllowed],
+  );
   const [recommendTarget, setRecommendTarget] = useState<DriverReachStoryRow | null>(null);
   const [reason, setReason] = useState<ReachReferralReason>('truck_available');
   const [suggestedRateText, setSuggestedRateText] = useState('');
@@ -350,13 +355,13 @@ export function StoriesContent({
 
   useEffect(() => {
     let cancelled = false;
-    void getDriverFleetMemberships().then(({ memberships }) => {
-      if (!cancelled) setParticipation(resolveDriverParticipation(memberships));
+    void getDriverFleetMemberships().then(({ memberships: rows }) => {
+      if (!cancelled) setMemberships(rows);
     });
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, [userId, operatingMode.mode]);
 
   const impressionsLogged = useRef<Set<string>>(new Set());
   useEffect(() => {

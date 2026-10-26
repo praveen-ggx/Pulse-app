@@ -125,6 +125,7 @@ import {
     VALIDATION,
 } from "@/lib/validation";
 import { getOptimalRoute } from "@/lib/routingService";
+import { coordsOrUnset } from "@/lib/placeSearch.util";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
@@ -1571,11 +1572,11 @@ export default function CreateIndentScreen() {
         setDropLat(null);
         setDropLon(null);
       },
-      setPickupCoords: (lat: number, lon: number) => {
+      setPickupCoords: (lat: number | null, lon: number | null) => {
         setPickupLat(lat);
         setPickupLon(lon);
       },
-      setDropCoords: (lat: number, lon: number) => {
+      setDropCoords: (lat: number | null, lon: number | null) => {
         setDropLat(lat);
         setDropLon(lon);
       },
@@ -1971,8 +1972,9 @@ export default function CreateIndentScreen() {
                         update({
                           pickup_area: compactLocationLabel(_name),
                         });
-                        setPickupLat(coords.lat);
-                        setPickupLon(coords.lon);
+                        const { lat, lon } = coordsOrUnset(coords);
+                        setPickupLat(lat);
+                        setPickupLon(lon);
                       }}
                       leadingIcon={<MapPin size={14} color={Theme.iconMuted} />}
                       inputStyle={[
@@ -2004,8 +2006,9 @@ export default function CreateIndentScreen() {
                         update({
                           drop_location: compactLocationLabel(_name),
                         });
-                        setDropLat(coords.lat);
-                        setDropLon(coords.lon);
+                        const { lat, lon } = coordsOrUnset(coords);
+                        setDropLat(lat);
+                        setDropLon(lon);
                       }}
                       leadingIcon={
                         <Navigation size={14} color={Theme.iconMuted} />

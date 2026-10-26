@@ -40,13 +40,13 @@ describe("isNetworkOrgHubMode", () => {
 });
 
 describe("shouldLoadNetworkFeed", () => {
-  it("loads feed only after secondary ready on classic Network", () => {
+  it("loads feed on classic Network without waiting for secondary", () => {
     expect(
       shouldLoadNetworkFeed({
         secondaryNetworkReady: false,
         showDesktopHub: false,
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldLoadNetworkFeed({
         secondaryNetworkReady: true,

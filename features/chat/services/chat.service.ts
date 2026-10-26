@@ -859,7 +859,7 @@ export async function getMessagesByConversation(
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function enrichNetworkConversationsWithPartnerBranding(
+export async function enrichNetworkConversationsWithPartnerBranding(
   conversations: NetworkConversation[],
 ): Promise<NetworkConversation[]> {
   const partnerIds = Array.from(
@@ -893,31 +893,42 @@ export async function getNetworkConversationsByOrg(
   if (!UUID_RE.test(orgId)) return [];
   const { data, error } = await supabase()
     .from("network_conversations")
-    .select(`*, network_messages(id, conversation_id, content, sender_org_id, sender_name, sender_user_id, created_at, is_read_by_other, read_at, metadata)`)
+    .select(
+      "id, org_a_id, org_b_id, org_a_name, org_b_name, last_message_at, last_message_preview, unread_count_a, unread_count_b, created_at, updated_at",
+    )
     .or(`org_a_id.eq.${orgId},org_b_id.eq.${orgId}`)
     .order("last_message_at", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false, referencedTable: "network_messages" })
-    .limit(100)
-    .limit(50, { referencedTable: "network_messages" });
+    .limit(100);
 
   if (error) throw error;
 
-  const mapped = ((data ?? []) as unknown[]).map((rawRow) => {
+  return ((data ?? []) as unknown[]).map((rawRow) => {
     const row = rawRow as Record<string, unknown>;
     const isA = row.org_a_id === orgId;
+    const preview = String(row.last_message_preview ?? "").trim();
+    const previewAt = String(row.last_message_at ?? row.updated_at ?? "");
     return {
       ...row,
       partner_org_id: isA ? row.org_b_id : row.org_a_id,
       partner_name: isA ? row.org_b_name : row.org_a_name,
       unread_count: isA ? row.unread_count_a : row.unread_count_b,
-      messages: ((row.network_messages ?? []) as NetworkMessageRow[]).sort(
-        (a, b) =>
-          new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-      ),
+      messages: preview
+        ? [
+            {
+              id: `preview-${String(row.id)}`,
+              conversation_id: String(row.id),
+              sender_org_id: "",
+              sender_user_id: null,
+              sender_name: "",
+              content: preview,
+              is_read_by_other: true,
+              read_at: null,
+              created_at: previewAt,
+            },
+          ]
+        : [],
     };
   }) as unknown as NetworkConversation[];
-
-  return enrichNetworkConversationsWithPartnerBranding(mapped);
 }
 
 export async function getNetworkConversationsDelta(

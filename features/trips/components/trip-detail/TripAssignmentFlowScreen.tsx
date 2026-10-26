@@ -49,7 +49,7 @@ export function TripAssignmentFlowScreen({
     setFlowNonce((n) => n + 1);
   }, []);
 
-  if (detail.loading) {
+  if (detail.loading && !trip) {
     return <CenteredLoadingView message="Loading trip…" />;
   }
 
@@ -109,9 +109,9 @@ export function TripAssignmentFlowScreen({
         fullPageFlow
         autoOpenPhoneWizard={isAggregate && detail.showAssignByPhone}
         autoOpenPhoneWizardNonce={flowNonce}
-        autoOpenPickerMode={!isAggregate ? fleetStep : null}
+        autoOpenPickerMode={fleetStep}
         autoOpenPickerNonce={flowNonce}
-        advanceToVehicleAfterDriverSave={!isAggregate}
+        advanceToVehicleAfterDriverSave={false}
         onFleetDriverSaved={handleFleetDriverSaved}
         onFlowDismiss={onBack}
         onFlowComplete={onBack}

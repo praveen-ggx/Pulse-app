@@ -98,7 +98,7 @@ async function main() {
     log(`wrote ${file}`);
 
     const texts = await page
-      .getByText(/^(Give loads|Get loads|Pulse Reach|Pulse Assist)$/)
+      .getByText(/^(Give loads|Get loads|Pulse Boost|Pulse Assist)$/)
       .allInnerTexts()
       .catch(() => []);
     log(`${width}px visible titles: ${JSON.stringify(texts)}`);

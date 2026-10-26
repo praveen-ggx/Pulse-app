@@ -11,6 +11,14 @@
 #
 # Without --dry-run this applies SQL on the linked database. Apply stays
 # behind MIGRATION_APPLY_CONFIRM so a dry-run command cannot be reused as an apply.
+#
+# Auth: resolve the supabase executable once and reuse that absolute path.
+# Re-entering `npx supabase@…` for the apply step can unpack a different
+# binary. On macOS the login token lives in the keychain ACL for the binary
+# that ran `supabase login`, so a later extract prints
+# "Access token not provided" even though list/dry-run just succeeded.
+# Set SUPABASE_CLI to the pinned binary (e.g. 2.95.4 from the user npm cache).
+# This script never prints token values.
 
 set -euo pipefail
 
@@ -19,6 +27,37 @@ cd "$ROOT"
 
 # shellcheck source=lib/migration-release-set.sh
 source "$ROOT/scripts/lib/migration-release-set.sh"
+
+resolve_supabase_bin() {
+  local bin=""
+  if [[ -n "${SUPABASE_CLI:-}" ]]; then
+    bin="$SUPABASE_CLI"
+  else
+    bin="$(command -v supabase || true)"
+  fi
+  if [[ -z "$bin" || ! -x "$bin" ]]; then
+    echo "ERROR: supabase CLI not found. Set SUPABASE_CLI to an absolute executable." >&2
+    exit 1
+  fi
+  python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$bin"
+}
+
+require_supabase_auth() {
+  local bin="$1"
+  local probe="" rc=0
+  probe="$("$bin" projects list 2>&1)" || rc=$?
+  if printf '%s\n' "$probe" | grep -Fq 'Access token not provided'; then
+    echo "ERROR: $bin has no access token (login/keychain mismatch)." >&2
+    echo "Run: npx supabase@2.95.4 login" >&2
+    echo "Then: SUPABASE_CLI=\$(npx --yes --package supabase@2.95.4 -c 'command -v supabase')" >&2
+    exit 1
+  fi
+  if [[ "$rc" -ne 0 ]]; then
+    printf '%s\n' "$probe" >&2
+    echo "ERROR: supabase projects list failed for $bin." >&2
+    exit 1
+  fi
+}
 
 usage() {
   echo "Usage: npm run db:push-set -- <set-name> [--dry-run]" >&2
@@ -56,8 +95,15 @@ frozen="$SETS/FROZEN.versions"
 [[ -f "$allowlist" ]] || { echo "ERROR: missing $allowlist" >&2; exit 1; }
 [[ -f "$frozen" ]] || { echo "ERROR: missing $frozen" >&2; exit 1; }
 
+SUPABASE_BIN="$(resolve_supabase_bin)"
+echo "── Supabase CLI ──"
+echo "bin $SUPABASE_BIN"
+"$SUPABASE_BIN" --version | head -n 1
+require_supabase_auth "$SUPABASE_BIN"
+echo
+
 echo "── Linked migration list (canonical tree) ──"
-list_out="$(supabase migration list --linked 2>&1)" || {
+list_out="$("$SUPABASE_BIN" migration list --linked 2>&1)" || {
   printf '%s\n' "$list_out" >&2
   echo "ERROR: could not list linked migrations." >&2
   exit 1
@@ -101,7 +147,14 @@ if [[ "$mode" == "prepare" ]]; then
 fi
 
 echo "── Snapshot migration list ──"
-snap_list="$(supabase --workdir "$apply_root" migration list --linked 2>&1)" || {
+# Do not pass --workdir. CLI 2.95.4 remaps credential lookup to that
+# directory; the ephemeral snapshot has no login, so apply printed
+# "Access token not provided" after a successful list from the real tree.
+# cd keeps project files (config.toml / .temp) without changing HOME/keychain.
+snap_list="$(
+  cd "$apply_root" || exit 1
+  "$SUPABASE_BIN" migration list --linked 2>&1
+)" || {
   printf '%s\n' "$snap_list" >&2
   echo "ERROR: could not list migrations for the snapshot." >&2
   exit 1
@@ -125,7 +178,10 @@ echo "Snapshot linked Local-only versions match $set_name."
 echo
 
 echo "── Dry-run ──"
-dry_out="$(supabase --workdir "$apply_root" db push --linked --include-all --dry-run --yes 2>&1)" || dry_rc=$?
+dry_out="$(
+  cd "$apply_root" || exit 1
+  "$SUPABASE_BIN" db push --linked --include-all --dry-run --yes 2>&1
+)" || dry_rc=$?
 dry_rc="${dry_rc:-0}"
 printf '%s\n' "$dry_out"
 echo
@@ -163,4 +219,8 @@ if [[ "${MIGRATION_APPLY_CONFIRM:-}" != "$set_name" ]]; then
 fi
 
 echo "── Apply set $set_name ──"
-supabase --workdir "$apply_root" db push --linked --include-all --yes
+require_supabase_auth "$SUPABASE_BIN"
+(
+  cd "$apply_root" || exit 1
+  "$SUPABASE_BIN" db push --linked --include-all --yes
+)

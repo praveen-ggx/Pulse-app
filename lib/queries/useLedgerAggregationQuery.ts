@@ -12,6 +12,9 @@ import {
 import { queryKeys } from '@/lib/queryKeys';
 import { STALE } from '@/lib/queryClient';
 
+/** Matches get_customer_ledger_inputs default. Header, table, and detail share it. */
+export const CUSTOMER_LEDGER_APPLY_ADJUSTMENTS = true;
+
 export function useDriverLedgerAggregationQuery(orgId: string | null) {
   return useQuery({
     queryKey: queryKeys.financeAggregation.driver(orgId ?? ''),
@@ -52,4 +55,9 @@ export function useCustomerLedgerInputsQuery(
     enabled: !!orgId,
     staleTime: STALE.realtime,
   });
+}
+
+/** Single Finance Customers contract — header, table, and client detail share this key. */
+export function useFinanceCustomerLedgerInputs(orgId: string | null) {
+  return useCustomerLedgerInputsQuery(orgId, CUSTOMER_LEDGER_APPLY_ADJUSTMENTS);
 }

@@ -2,6 +2,7 @@ import { getDoubleEntryDisplayLabel } from "@/features/finance/accounting/accoun
 import type { LedgerRow } from "@/features/finance/services/finance.service";
 import type { TripAssignmentAuditRow } from "@/features/trips/services/trip-assignment-audit.service";
 import type { TripHardCopyPodState } from "@/features/trips/services/tripDocumentLrPod.service";
+import { formatCourierLrRemarks } from "@/features/trips/utils/lrReceiptStatus.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import type { DriverActivityTimelineRow } from "@/features/trips/components/trip-detail/hooks/useTripDetail";
 import type { RegistryNotificationAvatar } from "@/lib/alertRegistry/registryNotificationAvatar.util";
@@ -122,6 +123,8 @@ function categoryLabel(category: TripAuditLogCategory): string {
       return "Update";
     case "trip":
       return "Update";
+    case "document":
+      return "Document";
     default:
       return "Update";
   }
@@ -129,12 +132,15 @@ function categoryLabel(category: TripAuditLogCategory): string {
 
 type StatusActivityContext =
   | "started"
+  | "pickup"
   | "in_transit"
+  | "at_drop"
   | "completed"
   | "created"
   | "accepted"
   | "assigned"
-  | "pod_received";
+  | "pod_received"
+  | "sim_revoked";
 
 function statusActivityTitle(
   context: StatusActivityContext,
@@ -145,13 +151,21 @@ function statusActivityTitle(
       return "created trip";
     case "accepted":
       return "accepted assignment";
+    case "assigned":
+      return "assigned this trip";
+    case "pickup":
     case "started":
+      return "arrived at pickup";
     case "in_transit":
       return "marked in transit";
+    case "at_drop":
+      return "arrived at drop-off";
     case "completed":
-      return "marked complete";
+      return "marked delivered";
     case "pod_received":
       return "recorded hard copy POD";
+    case "sim_revoked":
+      return "revoked a simulated stage";
     default:
       return fallbackLabel.charAt(0).toLowerCase() + fallbackLabel.slice(1);
   }
@@ -166,6 +180,18 @@ function resolveStatusActor(
   userProfileById: Record<string, TripActivityUserProfile>,
 ): string {
   const context = item.status_context;
+  if (item.actorUserId) {
+    if (context === "accepted") {
+      return driverDisplayName?.trim() || "Driver";
+    }
+    return resolveTripActivityUserLabel(
+      item.actorUserId,
+      currentUserId,
+      userDisplayById,
+      context === "assigned" ? "Dispatcher" : "Staff",
+      userProfileById,
+    );
+  }
   if (context === "created") {
     const creatorId =
       trip.created_by_user_id ?? trip.created_by ?? trip.owner_user_id ?? null;
@@ -225,8 +251,28 @@ export function matchesTripAuditTab(
   if (tab === "updates") {
     return entry.category === "trip" || entry.category === "status";
   }
+  if (tab === "documents") return entry.category === "document";
+  if (tab === "activity") {
+    return (
+      entry.category === "status" ||
+      entry.category === "trip" ||
+      entry.category === "payment"
+    );
+  }
   return true;
 }
+
+export type TripAuditLogScope = "all" | "compliance";
+
+export type TripAuditMilestone = {
+  id: string;
+  at: string;
+  title: string;
+  actorUserId?: string | null;
+  detail: string;
+  contextLabel?: string;
+  lane?: "document" | "activity";
+};
 
 export function buildTripAuditLog(params: {
   trip: TripRow;
@@ -242,6 +288,9 @@ export function buildTripAuditLog(params: {
   driverDisplayName?: string | null;
   /** Current hard-copy POD record. Activity renders this; it is not a second copy. */
   hardCopyPod?: TripHardCopyPodState | null;
+  /** Compliance card: skip trip lifecycle / assignment; keep payments + POD + milestones. */
+  scope?: TripAuditLogScope;
+  milestones?: TripAuditMilestone[];
 }): TripAuditLogEntry[] {
   const {
     trip,
@@ -256,11 +305,14 @@ export function buildTripAuditLog(params: {
     userProfileById = {},
     driverDisplayName,
     hardCopyPod,
+    scope = "all",
+    milestones = [],
   } = params;
+  const complianceOnly = scope === "compliance";
 
   const entries: TripAuditLogEntry[] = [];
 
-  for (const row of assignmentAuditRows) {
+  for (const row of complianceOnly ? [] : assignmentAuditRows) {
     const driver =
       row.driver_name_new?.trim() ||
       (row.driver_id_new
@@ -404,8 +456,16 @@ export function buildTripAuditLog(params: {
 
   for (const item of timelineRows) {
     if (item.kind !== "status") continue;
-    if (item.status_context === "assigned") continue;
+    if (item.status_context === "assigned" && assignmentAuditRows.length > 0) {
+      continue;
+    }
     if (item.status_context === "pod_received" && hardCopyPod) continue;
+    if (
+      complianceOnly &&
+      item.status_context !== "pod_received"
+    ) {
+      continue;
+    }
 
     const actor = resolveStatusActor(
       item,
@@ -449,9 +509,19 @@ export function buildTripAuditLog(params: {
       contextLabel:
         item.status_context === "created"
           ? "Trip created"
-          : item.status_context === "completed"
-            ? "Completed"
-            : "Status update",
+          : item.status_context === "accepted"
+            ? "Driver accepted"
+            : item.status_context === "pickup"
+              ? "Pickup"
+              : item.status_context === "in_transit"
+                ? "In-transit"
+                : item.status_context === "at_drop"
+                  ? "Drop-off"
+                  : item.status_context === "completed"
+                    ? "Delivered"
+                    : item.status_context === "sim_revoked"
+                      ? "Simulation"
+                      : "Status update",
       detail: statusDetailLine(item, tripRef, actor),
       people:
         statusEntityType === "driver" && driverDisplayName
@@ -549,8 +619,38 @@ export function buildTripAuditLog(params: {
     });
   }
 
+  for (const mile of milestones) {
+    if (!mile.at) continue;
+    const actor = resolveTripActivityUserLabel(
+      mile.actorUserId,
+      currentUserId,
+      userDisplayById,
+      "Staff",
+      userProfileById,
+    );
+    const category: TripAuditLogCategory =
+      mile.lane === "document" ? "document" : "status";
+    entries.push({
+      id: mile.id,
+      at: mile.at,
+      category,
+      categoryLabel: categoryLabel(category),
+      title: mile.title,
+      recordedAtLabel: formatAuditTimestamp(mile.at),
+      recordedBy: actor,
+      actorAvatar: resolveActivityActorAvatar(
+        actor,
+        mile.actorUserId,
+        userProfileById,
+        "client",
+      ),
+      contextLabel: mile.contextLabel ?? "Compliance",
+      detail: mile.detail,
+    });
+  }
+
   const hasCreated = entries.some((e) => e.id === "status-created" || e.title.toLowerCase().includes("created trip"));
-  if (!hasCreated && trip.created_at) {
+  if (!complianceOnly && !hasCreated && trip.created_at) {
     const creatorId =
       trip.created_by_user_id ?? trip.created_by ?? trip.owner_user_id ?? null;
     const creator = resolveTripActivityUserLabel(
@@ -607,7 +707,7 @@ export function buildTripAuditLog(params: {
       hardCopyPod.courier ? `Courier ${hardCopyPod.courier}` : null,
       hardCopyPod.receivedDate,
       hardCopyPod.receivedTime,
-      hardCopyPod.remarks,
+      formatCourierLrRemarks(hardCopyPod.remarks),
     ]
       .filter(Boolean)
       .join(" · ");

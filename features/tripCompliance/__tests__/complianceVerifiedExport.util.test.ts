@@ -1,7 +1,9 @@
 import {
   buildVerifiedExportCsvRow,
   buildVerifiedExportWorkbook,
+  exportLrNumber,
   formatExportPhone,
+  latestDocNumber,
   verifiedExportRowsToCsv,
   VERIFIED_EXPORT_CSV_HEADERS,
   verifiedAdvanceColumnLabel,
@@ -233,6 +235,44 @@ describe("complianceVerifiedExport.util", () => {
     expect(lines[0].startsWith("TRIP ID,Verification status,Loading date")).toBe(true);
     expect(lines[1]).toContain('"Acme, Logistics"');
     expect(lines[1]).toContain('"Durgapur, West Bengal"');
+  });
+});
+
+describe("latestDocNumber / exportLrNumber", () => {
+  it("keeps the LR number when a later file has no number", () => {
+    const docs = [
+      {
+        id: "old",
+        trip_id: "trip-1",
+        document_type: "lr",
+        document_number: "AH1387",
+        uploaded_at: "2026-10-01T00:00:00Z",
+      },
+      {
+        id: "new",
+        trip_id: "trip-1",
+        document_type: "lr",
+        document_number: "",
+        uploaded_at: "2026-10-20T00:00:00Z",
+      },
+    ] as ComplianceTripSummary["documents"];
+    expect(latestDocNumber(docs, "lr")).toBe("AH1387");
+  });
+
+  it("reads lorry_receipt types and POD snapshot when vault has no number", () => {
+    const docs = [
+      {
+        id: "lr1",
+        trip_id: "trip-1",
+        document_type: "lorry_receipt",
+        document_number: "BHD-4026",
+        uploaded_at: "2026-10-01T00:00:00Z",
+      },
+    ] as ComplianceTripSummary["documents"];
+    expect(latestDocNumber(docs, "lr")).toBe("BHD-4026");
+    const empty = summary({ documents: [] });
+    (empty as { hardCopyPod: { lrNumbers: string[] } }).hardCopyPod = { lrNumbers: ["  LR-99  "] };
+    expect(exportLrNumber(empty)).toBe("LR-99");
   });
 });
 

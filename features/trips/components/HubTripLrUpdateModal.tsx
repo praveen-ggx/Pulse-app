@@ -5,25 +5,29 @@
  */
 import Theme from "@/constants/Theme";
 import { pickComplianceVaultFiles } from "@/features/tripCompliance/services/complianceVaultUpload.service";
-import { VAULT_DOC_LIMIT_HINT } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { ElrTripDetailAction } from "@/features/trips/components/trip-detail/ElrTripDetailAction";
-import { serializeLrFieldValues } from "@/features/trips/services/lrDocumentOcr.util";
+import {
+  VaultDraftPreviewBlock,
+  type VaultDraftPreviewItem,
+} from "@/features/trips/components/trip-detail/VaultDraftPreviewBlock";
+import { parseLrFieldValues, serializeLrFieldValues } from "@/features/trips/services/lrDocumentOcr.util";
 import * as tripDocumentsService from "@/features/trips/services/tripDocuments.service";
-import { findOrgDuplicateLrNumberForTrip } from "@/features/trips/services/orgLrDuplicate.service";
+import {
+  findOrgDuplicateLrNumbersForTrip,
+  invalidateOrgLrIndexForTrip,
+} from "@/features/trips/services/orgLrDuplicate.service";
 import { ORG_LR_DUPLICATE_MESSAGE } from "@/features/trips/services/orgLrNumber.util";
 import type { ElrTripSource } from "@/features/trips/services/elrSnapshot.util";
+import type { VaultCategoryPreviewFile } from "@/features/trips/components/trip-detail/vaultCategoryPreview.types";
 import { showAppAlert } from "@/lib/appAlert";
 import { queryKeys } from "@/lib/queryKeys";
-import Feather from "@expo/vector-icons/Feather";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Image,
   Modal,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -43,15 +47,22 @@ type DraftFile = {
   previewUri: string | null;
 };
 
+type ExistingLrMeta = {
+  documentId: string;
+  date: string;
+  invoice: string;
+};
+
 function isImageMime(mimeType: string): boolean {
   return mimeType.toLowerCase().startsWith("image/");
 }
 
 function previewUriFor(file: { arrayBuffer: ArrayBuffer; mimeType: string }): string | null {
   if (typeof URL === "undefined" || typeof Blob === "undefined") return null;
-  if (!isImageMime(file.mimeType)) return null;
+  const mime = file.mimeType.toLowerCase();
+  if (!isImageMime(file.mimeType) && !mime.includes("pdf")) return null;
   try {
-    return URL.createObjectURL(new Blob([file.arrayBuffer], { type: file.mimeType }));
+    return URL.createObjectURL(new Blob([file.arrayBuffer], { type: file.mimeType || "application/pdf" }));
   } catch {
     return null;
   }
@@ -81,14 +92,16 @@ export function HubTripLrUpdateModal({
   existingLabel: string;
   elrSource?: ElrTripSource | null;
   onClose: () => void;
-  onSubmitted?: (lrNumber: string) => void;
+  onSubmitted?: (lrNumber: string, previewFiles: VaultCategoryPreviewFile[]) => void;
 }) {
   const queryClient = useQueryClient();
-  const [lrNumber, setLrNumber] = useState(existingLabel);
   const [files, setFiles] = useState<DraftFile[]>([]);
+  const [existingItems, setExistingItems] = useState<VaultDraftPreviewItem[]>([]);
+  const [numberById, setNumberById] = useState<Record<string, string>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const filesRef = useRef<DraftFile[]>([]);
+  const existingMetaRef = useRef<Record<string, ExistingLrMeta>>({});
   filesRef.current = files;
 
   const clearFiles = useCallback(() => {
@@ -100,18 +113,78 @@ export function HubTripLrUpdateModal({
 
   useEffect(() => {
     if (!visible) return;
-    setLrNumber(existingLabel);
     clearFiles();
+    setExistingItems([]);
+    setNumberById({});
+    existingMetaRef.current = {};
     setBusy(false);
-  }, [clearFiles, existingLabel, visible]);
+    if (!tripId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { documents } = await tripDocumentsService.getDocumentsByTripId(tripId, {
+          includeOcr: false,
+          includeStorageFallback: false,
+        });
+        const lrDocs = (documents ?? []).filter(
+          (doc) =>
+            doc.document_type === "lr" &&
+            !String(doc.id).startsWith("storage-") &&
+            Boolean(doc.storage_path?.trim()),
+        );
+        if (lrDocs.length === 0 || cancelled) return;
+        const urls = await tripDocumentsService.getDocumentViewUrls(
+          lrDocs.map((doc) => doc.storage_path),
+        );
+        if (cancelled) return;
+        const nextNumbers: Record<string, string> = {};
+        const nextMeta: Record<string, ExistingLrMeta> = {};
+        const items: VaultDraftPreviewItem[] = lrDocs.map((doc) => {
+          const path = doc.storage_path;
+          const name = doc.file_name?.trim() || "LR copy";
+          const id = `vault-${doc.id}`;
+          const fields = parseLrFieldValues(doc.document_number);
+          nextNumbers[id] = fields.lrNumber;
+          nextMeta[id] = {
+            documentId: doc.id,
+            date: fields.date,
+            invoice: fields.invoice,
+          };
+          return {
+            id,
+            fileName: name,
+            previewUri: urls[path] ?? null,
+            storagePath: path,
+            locked: true,
+          };
+        });
+        existingMetaRef.current = nextMeta;
+        setNumberById((current) => ({ ...nextNumbers, ...current }));
+        setExistingItems(items);
+        setSelectedId((current) => current ?? items[0]?.id ?? null);
+      } catch {
+        if (!cancelled) setExistingItems([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [clearFiles, tripId, visible]);
 
   useEffect(() => () => {
     for (const file of filesRef.current) revokePreview(file.previewUri);
   }, []);
 
-  const selected = useMemo(
-    () => files.find((file) => file.id === selectedId) ?? files[0] ?? null,
-    [files, selectedId],
+  const previewItems = useMemo<VaultDraftPreviewItem[]>(
+    () => [
+      ...existingItems,
+      ...files.map((file) => ({
+        id: file.id,
+        fileName: file.fileName,
+        previewUri: file.previewUri,
+      })),
+    ],
+    [existingItems, files],
   );
 
   const addFiles = useCallback(async () => {
@@ -125,9 +198,14 @@ export function HubTripLrUpdateModal({
         mimeType: item.mimeType,
         previewUri: previewUriFor(item),
       }));
+      setNumberById((current) => {
+        const nextNumbers = { ...current };
+        for (const file of next) nextNumbers[file.id] = "";
+        return nextNumbers;
+      });
       setFiles((current) => {
         const merged = [...current, ...next];
-        setSelectedId((currentId) => currentId ?? merged[0]?.id ?? null);
+        setSelectedId(next[0]?.id ?? merged[0]?.id ?? null);
         return merged;
       });
     } catch (error) {
@@ -143,81 +221,126 @@ export function HubTripLrUpdateModal({
       const target = current.find((file) => file.id === id);
       revokePreview(target?.previewUri ?? null);
       const next = current.filter((file) => file.id !== id);
+      setNumberById((numbers) => {
+        const { [id]: _removed, ...rest } = numbers;
+        return rest;
+      });
       setSelectedId((currentId) => {
         if (currentId && currentId !== id) return currentId;
-        return next[0]?.id ?? null;
+        return next[0]?.id ?? existingItems[0]?.id ?? null;
       });
       return next;
     });
-  }, []);
+  }, [existingItems]);
+
+  const selectedCopy = useMemo(() => {
+    if (!selectedId) return null;
+    return (
+      existingItems.find((item) => item.id === selectedId) ??
+      files.find((file) => file.id === selectedId) ??
+      null
+    );
+  }, [existingItems, files, selectedId]);
+
+  const selectedLrNumber = selectedId ? (numberById[selectedId] ?? "") : "";
 
   const save = useCallback(async () => {
-    const number = lrNumber.trim();
-    if (!number) {
-      showAppAlert("LR number required", "Enter the LR number before submitting.");
-      return;
-    }
     if (!tripId || !actorId) {
       showAppAlert("Upload failed", "Sign in again, then submit the LR.");
       return;
     }
+    if (existingItems.length === 0 && files.length === 0) {
+      showAppAlert(
+        "LR copy required",
+        "Upload an LR copy so it can be saved to the trip vault, the same way trip detail and the driver app do.",
+      );
+      return;
+    }
+    const copies: { id: string; label: string }[] = [
+      ...existingItems.map((item) => ({ id: item.id, label: item.fileName })),
+      ...files.map((file) => ({ id: file.id, label: file.fileName })),
+    ];
+    const missing = copies.find((copy) => !numberById[copy.id]?.trim());
+    if (missing) {
+      setSelectedId(missing.id);
+      showAppAlert(
+        "LR number required",
+        `Enter an LR number for ${missing.label} before submitting.`,
+      );
+      return;
+    }
+    const lrNumbers = copies.map((copy) => numberById[copy.id].trim());
     setBusy(true);
     try {
-      // Same org-wide rule as trip detail: one LR number per trip.
-      const duplicate = await findOrgDuplicateLrNumberForTrip({ tripId, lrNumber: number });
+      const duplicate = await findOrgDuplicateLrNumbersForTrip({
+        tripId,
+        lrNumbers,
+      });
       if (duplicate) {
-        showAppAlert("LR already exists", ORG_LR_DUPLICATE_MESSAGE);
+        showAppAlert("Duplicate LR number", ORG_LR_DUPLICATE_MESSAGE);
         return;
       }
       const vaultOrgId = (tripOrganizationId || organizationId || "").trim() || null;
-      const storedNumber = serializeLrFieldValues({
-        lrNumber: number,
-        date: "",
-        invoice: "",
-      });
 
-      if (files.length === 0) {
-        const { documents, error: listError } =
-          await tripDocumentsService.getDocumentsByTripId(tripId, {
-            includeOcr: false,
-            includeStorageFallback: false,
-          });
-        if (listError) throw listError;
-        const existing = (documents ?? []).find(
-          (doc) => doc.document_type === "lr" && !String(doc.id).startsWith("storage-"),
-        );
-        if (!existing) {
-          showAppAlert(
-            "LR copy required",
-            "Upload an LR copy so it can be saved to the trip vault, the same way trip detail and the driver app do.",
-          );
-          return;
-        }
+      for (const item of existingItems) {
+        const meta = existingMetaRef.current[item.id];
+        if (!meta?.documentId) continue;
+        const storedNumber = serializeLrFieldValues({
+          lrNumber: numberById[item.id].trim(),
+          date: meta.date,
+          invoice: meta.invoice,
+        });
         const updateError = await tripDocumentsService.updateTripDocumentNumber(
-          existing.id,
+          meta.documentId,
           storedNumber,
         );
         if (updateError) throw updateError;
-      } else {
-        for (const file of files) {
-          const { doc, error } = await tripDocumentsService.uploadTripDocument(
-            tripId,
-            actorId,
-            {
-              arrayBuffer: file.arrayBuffer,
-              fileName: file.fileName,
-              mimeType: file.mimeType,
-            },
-            "lr",
-            storedNumber,
-            { organizationId: vaultOrgId },
-          );
-          if (error) throw error;
-          if (doc && storedNumber && !doc.document_number?.trim()) {
-            await tripDocumentsService.updateTripDocumentNumber(doc.id, storedNumber);
-          }
+      }
+
+      const uploadedPreview: VaultCategoryPreviewFile[] = [];
+      for (const file of files) {
+        const storedNumber = serializeLrFieldValues({
+          lrNumber: numberById[file.id].trim(),
+          date: "",
+          invoice: "",
+        });
+        const { doc, error } = await tripDocumentsService.uploadTripDocument(
+          tripId,
+          actorId,
+          {
+            arrayBuffer: file.arrayBuffer,
+            fileName: file.fileName,
+            mimeType: file.mimeType,
+          },
+          "lr",
+          storedNumber,
+          { organizationId: vaultOrgId },
+        );
+        if (error) throw error;
+        if (doc && storedNumber && !doc.document_number?.trim()) {
+          await tripDocumentsService.updateTripDocumentNumber(doc.id, storedNumber);
+        }
+        if (doc?.storage_path) {
+          uploadedPreview.push({
+            id: doc.id,
+            fileName: file.fileName,
+            categoryLabel: "LR Document",
+            storagePath: doc.storage_path,
+            mimeHint: file.mimeType,
+          });
         }
       }
+      const previewFiles: VaultCategoryPreviewFile[] = [
+        ...existingItems.map((item) => ({
+          id: item.id,
+          fileName: item.fileName,
+          categoryLabel: "LR Document",
+          storagePath: item.storagePath,
+          previewUri: item.previewUri,
+        })),
+        ...uploadedPreview,
+      ];
+      invalidateOrgLrIndexForTrip(tripId);
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: ["q", "trips", "hub", organizationId, "lr-labels"],
@@ -225,7 +348,8 @@ export function HubTripLrUpdateModal({
         queryClient.invalidateQueries({ queryKey: queryKeys.trips.detail(tripId) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.trips.bundle(tripId) }),
       ]);
-      onSubmitted?.(number);
+      const submittedLabel = Array.from(new Set(lrNumbers)).join(" / ");
+      onSubmitted?.(submittedLabel, previewFiles);
       clearFiles();
       onClose();
     } catch (error) {
@@ -239,8 +363,9 @@ export function HubTripLrUpdateModal({
   }, [
     actorId,
     clearFiles,
+    existingItems,
     files,
-    lrNumber,
+    numberById,
     onClose,
     onSubmitted,
     organizationId,
@@ -264,7 +389,7 @@ export function HubTripLrUpdateModal({
                 {existingLabel ? "Update LR" : "Add LR"}
               </Text>
               <Text style={styles.hint}>
-                Saves to the trip vault. Same LR document Compliance and trip detail use.
+                A trip can have several LR copies. Select a file and set its LR number.
               </Text>
             </View>
             {elrSource ? (
@@ -284,108 +409,40 @@ export function HubTripLrUpdateModal({
               </View>
             ) : null}
           </View>
-          <Text style={styles.label}>LR number</Text>
-          <TextInput
-            value={lrNumber}
-            onChangeText={setLrNumber}
-            placeholder="Enter LR number"
-            placeholderTextColor={Theme.textMuted}
-            autoCapitalize="characters"
-            editable={!busy}
-            style={styles.input}
+          <Text style={styles.label}>LR copies</Text>
+          <VaultDraftPreviewBlock
+            items={previewItems}
+            selectedId={selectedId}
+            busy={busy}
+            emptyLabel="Upload LR copy"
+            onSelect={setSelectedId}
+            onRemove={removeFile}
+            onAdd={() => void addFiles()}
           />
 
-          <Text style={styles.label}>LR copies</Text>
-          {files.length === 0 ? (
-            <Pressable
-              onPress={() => void addFiles()}
-              disabled={busy}
-              style={({ pressed }) => [styles.dropzone, pressed && styles.pressed]}
-            >
-              <Feather name="upload" size={16} color={Theme.textMuted} />
-              <Text style={styles.dropzoneText}>Upload LR copy</Text>
-            </Pressable>
+          {selectedCopy ? (
+            <>
+              <Text style={styles.label}>
+                LR number for {selectedCopy.fileName}
+              </Text>
+              <TextInput
+                value={selectedLrNumber}
+                onChangeText={(value) => {
+                  if (!selectedId) return;
+                  setNumberById((current) => ({ ...current, [selectedId]: value }));
+                }}
+                placeholder="Enter LR number for this copy"
+                placeholderTextColor={Theme.textMuted}
+                autoCapitalize="characters"
+                editable={!busy}
+                style={styles.input}
+              />
+            </>
           ) : (
-            <View style={styles.previewBlock}>
-              <View style={styles.hero}>
-                {selected?.previewUri ? (
-                  <Image
-                    source={{ uri: selected.previewUri }}
-                    style={styles.heroImage}
-                    resizeMode="contain"
-                    accessibilityLabel={selected.fileName}
-                  />
-                ) : (
-                  <View style={styles.heroPdf}>
-                    <Feather name="file-text" size={22} color={Theme.textSecondary} />
-                    <Text style={styles.heroPdfName} numberOfLines={2}>
-                      {selected?.fileName || "PDF"}
-                    </Text>
-                  </View>
-                )}
-              </View>
-              <ScrollView
-                horizontal
-                nestedScrollEnabled
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.thumbs}
-              >
-                {files.map((file) => {
-                  const active = file.id === selected?.id;
-                  return (
-                    <View key={file.id} style={styles.thumbWrap}>
-                      <Pressable
-                        onPress={() => setSelectedId(file.id)}
-                        style={[styles.thumb, active && styles.thumbActive]}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Preview ${file.fileName}`}
-                        accessibilityState={{ selected: active }}
-                      >
-                        {file.previewUri ? (
-                          <Image
-                            source={{ uri: file.previewUri }}
-                            style={styles.thumbFill}
-                            resizeMode="cover"
-                          />
-                        ) : (
-                          <View style={styles.thumbPdf}>
-                            <Feather name="file-text" size={14} color={Theme.textSecondary} />
-                            <Text style={styles.thumbPdfLabel}>PDF</Text>
-                          </View>
-                        )}
-                      </Pressable>
-                      <Pressable
-                        onPress={() => removeFile(file.id)}
-                        disabled={busy}
-                        style={styles.thumbRemove}
-                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Remove ${file.fileName}`}
-                      >
-                        <Feather name="x" size={11} color={Theme.buttonDarkText} />
-                      </Pressable>
-                    </View>
-                  );
-                })}
-                <Pressable
-                  onPress={() => void addFiles()}
-                  disabled={busy}
-                  style={({ pressed }) => [styles.addThumb, pressed && styles.pressed]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Add more LR copies"
-                >
-                  <Feather name="plus" size={16} color={Theme.actionBtnInk} />
-                  <Text style={styles.addThumbText}>Add</Text>
-                </Pressable>
-              </ScrollView>
-              {selected ? (
-                <Text style={styles.fileName} numberOfLines={1}>
-                  {selected.fileName}
-                </Text>
-              ) : null}
-            </View>
+            <Text style={styles.hint}>
+              Select a copy to edit its LR number, or add a new file.
+            </Text>
           )}
-          <Text style={styles.fileHint}>{VAULT_DOC_LIMIT_HINT}</Text>
 
           <View style={styles.actions}>
             <Pressable

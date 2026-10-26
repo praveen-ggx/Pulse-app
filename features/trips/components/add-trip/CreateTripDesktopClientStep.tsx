@@ -182,10 +182,22 @@ export const CreateTripDesktopClientStep = memo(
      */
     const saleLockedToLane = Boolean(selectedLaneId) && Boolean(saleDisplay);
 
+    const onLaneGateActiveChangeRef = useRef(onLaneGateActiveChange);
+    onLaneGateActiveChangeRef.current = onLaneGateActiveChange;
+    const lastLaneGate = useRef<boolean | null>(null);
     useEffect(() => {
-      onLaneGateActiveChange?.(showLaneGate);
-      return () => onLaneGateActiveChange?.(false);
-    }, [showLaneGate, onLaneGateActiveChange]);
+      if (lastLaneGate.current === showLaneGate) return;
+      lastLaneGate.current = showLaneGate;
+      onLaneGateActiveChangeRef.current?.(showLaneGate);
+    }, [showLaneGate]);
+    useEffect(() => {
+      return () => {
+        if (lastLaneGate.current) {
+          lastLaneGate.current = false;
+          onLaneGateActiveChangeRef.current?.(false);
+        }
+      };
+    }, []);
 
     useEffect(() => {
       if (compact || !showPricing || saleLockedToLane || !clientId) return;

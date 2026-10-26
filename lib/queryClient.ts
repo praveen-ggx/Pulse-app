@@ -25,6 +25,7 @@ import {
   isServiceUnavailableError,
   isSupabaseCircuitOpen,
 } from '@/lib/supabaseHttp.util';
+import { isPermanentSchemaOrRlsError } from '@/lib/queryRetry';
 
 /** Shared stale-time constants — import in query hooks to apply per-query tiers. */
 export const STALE = {
@@ -254,6 +255,7 @@ export function shouldRetryQuery(failureCount: number, error: unknown): boolean 
   if (isAbortError(error)) return false;
   if (isTimeoutError(error)) return false;
   if (isQueryOriginDownError(error)) return false;
+  if (isPermanentSchemaOrRlsError(error)) return false;
   return true;
 }
 

@@ -1,6 +1,14 @@
 /** Debit Control POD Received row and the charge lines captured at validation. */
 
 export const POD_VALIDATED_EVENT = "pod.debit_control_validated";
+export const POD_CHARGES_DRAFT_EVENT = "pod.debit_control_draft";
+/** Append-only: each later save / clear of POD exception charges. */
+export const POD_CHARGES_CHANGED_EVENT = "pod.debit_control_charges_changed";
+export const POD_REVALIDATE_EVENT = "pod.debit_control_revalidate";
+/** Hard copy was logged but not actually received — return to Awaiting POD. */
+export const POD_NOT_FOUND_EVENT = "pod.hard_copy_not_found";
+/** Settlement Verification released the trip to Final Settlement after CN / DN. */
+export const POD_SETTLEMENT_RELEASED_EVENT = "pod.settlement_released";
 
 /** Document charge taken off when the compliance advance was posted. */
 export const ADVANCE_DOCUMENT_COST_EVENT = "compliance.advance_document_cost";
@@ -25,6 +33,33 @@ export type PodChargeLines = {
 };
 
 export type ChargeDraft = Record<keyof PodChargeLines, string>;
+
+/** Exception / extra-charge log on POD Verification. */
+export type PodExceptionLogDraft = {
+  loading: string;
+  unloading: string;
+  damage: string;
+  productMissing: string;
+  delay: string;
+  actualDeliveryDate: string;
+};
+
+export const EMPTY_POD_EXCEPTION_LOG: PodExceptionLogDraft = {
+  loading: "",
+  unloading: "",
+  damage: "",
+  productMissing: "",
+  delay: "",
+  actualDeliveryDate: "",
+};
+
+export const POD_EXCEPTION_CHARGE_KEYS = [
+  "loading",
+  "unloading",
+  "damage",
+  "productMissing",
+  "delay",
+] as const satisfies readonly (keyof PodExceptionLogDraft)[];
 
 export const EMPTY_CHARGE_LINES: PodChargeLines = {
   cost: 0,
@@ -155,4 +190,24 @@ export type DebitControlReceivedTrip = {
 
 export function podValidationIdempotencyKey(tripId: string): string {
   return `${tripId}:${POD_VALIDATED_EVENT}`;
+}
+
+export function podChargesDraftIdempotencyKey(tripId: string): string {
+  return `${tripId}:${POD_CHARGES_DRAFT_EVENT}`;
+}
+
+export function podChargesChangedIdempotencyKey(tripId: string, postedAt: string): string {
+  return `${tripId}:${POD_CHARGES_CHANGED_EVENT}:${postedAt}`;
+}
+
+export function podRevalidateIdempotencyKey(tripId: string): string {
+  return `${tripId}:${POD_REVALIDATE_EVENT}`;
+}
+
+export function podNotFoundIdempotencyKey(tripId: string): string {
+  return `${tripId}:${POD_NOT_FOUND_EVENT}`;
+}
+
+export function podSettlementReleasedIdempotencyKey(tripId: string): string {
+  return `${tripId}:${POD_SETTLEMENT_RELEASED_EVENT}`;
 }

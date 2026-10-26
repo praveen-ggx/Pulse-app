@@ -36,7 +36,7 @@ export function buildProvisionNoteWhatsAppMessage(ctx: ProvisionNotePdfContext):
   const adj = ctx.adjustment;
   const kind = noteKind(ctx);
   const signed = adj.impact === "plus" ? "+" : "−";
-  const voided = isAdjustmentVoided(adj) ? "\nStatus: VOIDED" : "";
+  const voided = isAdjustmentVoided(adj) ? "\nStatus: CANCELLED" : "";
   const reason = (adj.reason ?? "").trim() || "—";
 
   return (

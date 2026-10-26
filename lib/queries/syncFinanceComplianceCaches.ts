@@ -23,6 +23,24 @@ export function invalidateFinanceLedgerCaches(
   scheduleInvalidation(queryClient, ["q", "transactions", organizationId, "infinite"]);
   scheduleInvalidation(queryClient, ["q", "transactions", organizationId, "contact"]);
   scheduleInvalidation(queryClient, ["q", "finance-pro"]);
+  scheduleInvalidation(
+    queryClient,
+    queryKeys.financeAggregation.customer(organizationId, true),
+  );
+  scheduleInvalidation(queryClient, [
+    "q",
+    "finance-aggregation",
+    "customer",
+    organizationId,
+  ]);
+  scheduleInvalidation(queryClient, [
+    "q",
+    "finance-aggregation",
+    "supplier",
+    organizationId,
+  ]);
+  scheduleInvalidation(queryClient, queryKeys.financeAggregation.driver(organizationId));
+  scheduleInvalidation(queryClient, queryKeys.financeAggregation.dco(organizationId));
 }
 
 /**

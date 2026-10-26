@@ -190,7 +190,59 @@ export function applyPodChargesSaved(
 ): ComplianceTripInputs[] {
   return mapWhere(inputs, (row) => row.trip.id === tripId, (row) => ({
     ...row,
-    flags: { ...(row.flags ?? EMPTY_FLAGS), pod_charges_saved: true },
+    flags: {
+      ...(row.flags ?? EMPTY_FLAGS),
+      pod_charges_saved: true,
+      pod_revalidate_requested: false,
+    },
+  }));
+}
+
+export function applySettlementReleased(
+  inputs: ComplianceTripInputs[],
+  tripId: string,
+): ComplianceTripInputs[] {
+  return mapWhere(inputs, (row) => row.trip.id === tripId, (row) => ({
+    ...row,
+    flags: {
+      ...(row.flags ?? EMPTY_FLAGS),
+      pod_settlement_released: true,
+    },
+  }));
+}
+
+export function applyPodRevalidateRequested(
+  inputs: ComplianceTripInputs[],
+  tripId: string,
+): ComplianceTripInputs[] {
+  return mapWhere(inputs, (row) => row.trip.id === tripId, (row) => ({
+    ...row,
+    flags: {
+      ...(row.flags ?? EMPTY_FLAGS),
+      pod_charges_saved: false,
+      pod_revalidate_requested: true,
+      pod_settlement_released: false,
+      pod_no_debit: false,
+      pod_has_debit: false,
+    },
+  }));
+}
+
+/** Incorrect receipt: clear received so the trip returns to Awaiting POD. */
+export function applyPodNotFound(
+  inputs: ComplianceTripInputs[],
+  tripId: string,
+): ComplianceTripInputs[] {
+  return mapWhere(inputs, (row) => row.trip.id === tripId, (row) => ({
+    ...row,
+    trip: { ...row.trip, pod_received_at: null },
+    flags: {
+      ...(row.flags ?? EMPTY_FLAGS),
+      pod_received_at: null,
+      pod_charges_saved: false,
+      pod_revalidate_requested: false,
+      pod_settlement_released: false,
+    },
   }));
 }
 

@@ -3,12 +3,11 @@ import {
   getDriverAvailabilityByPhone,
   getDriverAvailabilityByPhoneGlobal,
 } from "@/features/trips/services/trips.service";
-import { isBusyOnExcludedTrip } from "@/features/trips/utils/assignmentLookupGate.util";
 import {
   lookupDriversByPhoneVariants,
   normalizeIndianMobileLast10,
 } from "@/features/trips/utils/driverPhoneLookup.util";
-import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
+import { isSameDriverPhone } from "@/features/trips/utils/reassignChangeDetection.util";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export type AggregateDriverPhoneLookupOptions = {
@@ -16,6 +15,8 @@ export type AggregateDriverPhoneLookupOptions = {
   tripId: string;
   organizationId: string;
   driverAssignOrgId: string | null;
+  /** When set, this trip's current driver is never treated as "already on a trip". */
+  currentDriverPhone?: string | null;
   enabled?: boolean;
 };
 
@@ -24,9 +25,11 @@ export function useAggregateDriverPhoneLookup({
   tripId,
   organizationId,
   driverAssignOrgId,
+  currentDriverPhone = null,
   enabled = true,
 }: AggregateDriverPhoneLookupOptions) {
-  const debouncedPhone = useDebouncedValue(phone, 400);
+  const last10 = normalizeIndianMobileLast10(phone);
+  const phoneComplete = last10.length >= 10;
   const [matches, setMatches] = useState<ExistingDriverMatch[]>([]);
   const [loading, setLoading] = useState(false);
   const [inTrip, setInTrip] = useState(false);
@@ -34,12 +37,19 @@ export function useAggregateDriverPhoneLookup({
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const requestRef = useRef(0);
+  const fetchedKeyRef = useRef<string | null>(null);
+  const busyRef = useRef<{ isBusy: boolean; label: string | null }>({
+    isBusy: false,
+    label: null,
+  });
 
-  const phoneLast10 = normalizeIndianMobileLast10(debouncedPhone);
-  const phoneComplete = phoneLast10.length >= 10;
+  const lookupKey = phoneComplete
+    ? `${last10}|${tripId}|${organizationId}|${driverAssignOrgId ?? ""}`
+    : "";
 
   useEffect(() => {
-    if (!enabled) {
+    if (!enabled || !phoneComplete) {
+      fetchedKeyRef.current = null;
       setMatches([]);
       setLoading(false);
       setInTrip(false);
@@ -49,64 +59,66 @@ export function useAggregateDriverPhoneLookup({
       return;
     }
 
-    if (!phoneComplete) {
-      setMatches([]);
-      setLoading(false);
-      setInTrip(false);
-      setBusyTripLabel(null);
-      setSelectedUserId(null);
-      setLookupError(null);
+    if (fetchedKeyRef.current === lookupKey) {
       return;
     }
 
     const requestId = ++requestRef.current;
     setLoading(true);
     setLookupError(null);
+    setSelectedUserId(null);
 
     void (async () => {
       try {
-        const normalized = debouncedPhone.trim().replace(/\s+/g, "");
         const orgForDriver =
           (driverAssignOrgId ?? organizationId).trim() || organizationId;
-        const [foundResult, availability] = await Promise.all([
-          lookupDriversByPhoneVariants(debouncedPhone),
+        const [lookupResult, availability] = await Promise.all([
+          lookupDriversByPhoneVariants(last10),
           driverAssignOrgId
-            ? getDriverAvailabilityByPhoneGlobal(normalized, {
+            ? getDriverAvailabilityByPhoneGlobal(last10, {
                 excludeTripId: tripId,
                 anyOpenTripBlocks: true,
                 requireAuthoritativeRpc: true,
               })
-            : getDriverAvailabilityByPhone(orgForDriver, normalized, {
+            : getDriverAvailabilityByPhone(orgForDriver, last10, {
                 excludeTripId: tripId,
               }),
         ]);
         if (requestId !== requestRef.current) return;
 
-        const found = foundResult.matches;
+        if (lookupResult.error && lookupResult.matches.length === 0) {
+          setLookupError(lookupResult.error.message);
+        }
+
+        const found = lookupResult.matches;
         setMatches(found);
-        setSelectedUserId(found.length === 1 ? (found[0]?.user_id ?? null) : null);
+        const autoId = found.length === 1 ? (found[0]?.user_id ?? null) : null;
+        setSelectedUserId(autoId);
 
-        if (availability.error) {
-          setLookupError(availability.error.message);
+        const { error: availabilityError, result } = availability;
+        if (availabilityError) {
+          setLookupError(availabilityError.message);
+          busyRef.current = { isBusy: false, label: null };
           setInTrip(false);
           setBusyTripLabel(null);
+          fetchedKeyRef.current = lookupKey;
           return;
         }
 
-        const result = availability.result;
-        if (isBusyOnExcludedTrip(result.ongoingTripId, tripId)) {
-          setInTrip(false);
-          setBusyTripLabel(null);
-          return;
-        }
-
-        setInTrip(result.isBusy);
-        setBusyTripLabel(result.ongoingTripLabel ?? null);
+        busyRef.current = {
+          isBusy: Boolean(result.isBusy),
+          label: result.ongoingTripLabel ?? null,
+        };
+        const editingCurrent = isSameDriverPhone(last10, currentDriverPhone);
+        setInTrip(Boolean(result.isBusy) && !editingCurrent);
+        setBusyTripLabel(editingCurrent ? null : result.ongoingTripLabel ?? null);
+        fetchedKeyRef.current = lookupKey;
       } catch (err) {
         if (requestId !== requestRef.current) return;
         setLookupError(
           err instanceof Error ? err.message : "Could not verify driver availability.",
         );
+        busyRef.current = { isBusy: false, label: null };
         setInTrip(false);
         setBusyTripLabel(null);
       } finally {
@@ -120,13 +132,21 @@ export function useAggregateDriverPhoneLookup({
       requestRef.current += 1;
     };
   }, [
-    debouncedPhone,
-    phoneComplete,
-    tripId,
-    organizationId,
     driverAssignOrgId,
     enabled,
+    last10,
+    lookupKey,
+    organizationId,
+    phoneComplete,
+    tripId,
   ]);
+
+  useEffect(() => {
+    if (!enabled || !phoneComplete) return;
+    const editingCurrent = isSameDriverPhone(last10, currentDriverPhone);
+    setInTrip(busyRef.current.isBusy && !editingCurrent);
+    setBusyTripLabel(editingCurrent ? null : busyRef.current.label);
+  }, [currentDriverPhone, enabled, last10, phoneComplete]);
 
   const applyMatch = useCallback((match: ExistingDriverMatch) => {
     setSelectedUserId(match.user_id ?? null);
@@ -145,7 +165,7 @@ export function useAggregateDriverPhoneLookup({
     setSelectedUserId,
     applyMatch,
     phoneComplete,
-    phoneLast10,
+    phoneLast10: last10,
     suggestedName,
   };
 }

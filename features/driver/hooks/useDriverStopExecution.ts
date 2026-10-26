@@ -69,6 +69,10 @@ export function useDriverStopExecution(tripId: string | null | undefined): Drive
     setHydrated(false);
 
     let cancelled = false;
+    const giveUp = setTimeout(() => {
+      if (cancelled || isStaleDriverStopHydration(activeTripId, tripIdRef.current)) return;
+      setHydrated(true);
+    }, 4000);
     void fetchDriverStopExecution(activeTripId).then((result) => {
       if (cancelled || isStaleDriverStopHydration(activeTripId, tripIdRef.current)) return;
       if (!result.ok) {
@@ -86,6 +90,7 @@ export function useDriverStopExecution(tripId: string | null | undefined): Drive
 
     return () => {
       cancelled = true;
+      clearTimeout(giveUp);
     };
   }, [tripId]);
 

@@ -344,25 +344,6 @@ export async function getIndentsByOrganization(
 }
 
 /**
- * Cancelled / expired indents only. The Trips hub Failed tag reads this instead
- * of the capped full list, so older failures are not cut off by FINITE_LIST_CAP.
- */
-export async function getFailedIndentsByOrganization(
-  orgId: string,
-): Promise<{ error: Error | null; indents: IndentRow[] }> {
-  const { data, error } = await supabase()
-    .from("indents")
-    .select("*")
-    .eq("organization_id", orgId)
-    .in("status", ["cancelled", "expired"])
-    .order("created_at", { ascending: false })
-    .limit(FINITE_LIST_CAP);
-  if (error) return { error: new Error(error.message), indents: [] };
-  const indents = await attachActiveTripRefs((data ?? []) as IndentRow[]);
-  return { error: null, indents };
-}
-
-/**
  * How many older code matches the Trips toolbar may merge in.
  * Ordered oldest-first so this fills the tail cut off by FINITE_LIST_CAP,
  * instead of repeating the newest rows the hub already has.
@@ -408,6 +389,40 @@ export async function searchIndentsByCodeForTrips(
   if (error) return { error: new Error(error.message), indents: [] };
   const indents = await attachActiveTripRefs((data ?? []) as IndentRow[]);
   return { error: null, indents };
+}
+
+const FAILED_INDENT_PAGE_SIZE = 200;
+const FAILED_INDENT_STATUSES = ["cancelled", "expired"] as const;
+
+/**
+ * Failed hub tab: cancelled/expired org indents that never converted to a trip.
+ * Must not reuse `getIndentsByOrganization` — that list is newest-500 and drops
+ * older expired rows (e.g. SAT812GOGIND001680) in orgs with more than 500 indents.
+ */
+export async function getFailedIndentsByOrganization(
+  orgId: string,
+): Promise<{ error: Error | null; indents: IndentRow[] }> {
+  const pages: IndentRow[] = [];
+  let offset = 0;
+  for (;;) {
+    const { data, error } = await supabase()
+      .from("indents")
+      .select("*")
+      .eq("organization_id", orgId)
+      .in("status", [...FAILED_INDENT_STATUSES])
+      .order("created_at", { ascending: false })
+      .range(offset, offset + FAILED_INDENT_PAGE_SIZE - 1);
+    if (error) return { error: new Error(error.message), indents: [] };
+    const page = (data ?? []) as IndentRow[];
+    pages.push(...page);
+    if (page.length < FAILED_INDENT_PAGE_SIZE) break;
+    offset += FAILED_INDENT_PAGE_SIZE;
+  }
+  const withTripRefs = await attachActiveTripRefs(pages);
+  return {
+    error: null,
+    indents: withTripRefs.filter((row) => (row.active_trip?.length ?? 0) === 0),
+  };
 }
 
 export async function getIndentsDelta(
@@ -1020,14 +1035,13 @@ async function insertIndentRow(
       if (recovered) {
         const indent = recovered;
         if (action === "share") {
-          void ensureIndentStory(orgId, indent).then(({ error: storyErr }) => {
-            if (storyErr && __DEV__) {
-              console.warn(
-                "[indents] createIndent: default 24h story failed:",
-                storyErr.message,
-              );
-            }
-          });
+          const { error: storyErr } = await ensureIndentStory(orgId, indent);
+          if (storyErr && __DEV__) {
+            console.warn(
+              "[indents] createIndent: default 24h story failed:",
+              storyErr.message,
+            );
+          }
         }
         return { error: null, indent };
       }
@@ -1039,14 +1053,13 @@ async function insertIndentRow(
   }
   const indent = row as IndentRow;
   if (action === "share") {
-    void ensureIndentStory(orgId, indent).then(({ error: storyErr }) => {
-      if (storyErr && __DEV__) {
-        console.warn(
-          "[indents] createIndent: default 24h story failed:",
-          storyErr.message,
-        );
-      }
-    });
+    const { error: storyErr } = await ensureIndentStory(orgId, indent);
+    if (storyErr && __DEV__) {
+      console.warn(
+        "[indents] createIndent: default 24h story failed:",
+        storyErr.message,
+      );
+    }
   }
   return { error: null, indent };
 }
@@ -1356,16 +1369,16 @@ export async function shareDraftIndent(
         .maybeSingle();
       if (existing && (existing as IndentRow).status === "broadcast") {
         const indent = existing as IndentRow;
-        void ensureIndentStory(indent.organization_id, indent).then(
-          ({ error: storyErr }) => {
-            if (storyErr && __DEV__) {
-              console.warn(
-                "[indents] shareDraftIndent: default 24h story failed:",
-                storyErr.message,
-              );
-            }
-          },
+        const { error: storyErr } = await ensureIndentStory(
+          indent.organization_id,
+          indent,
         );
+        if (storyErr && __DEV__) {
+          console.warn(
+            "[indents] shareDraftIndent: default 24h story failed:",
+            storyErr.message,
+          );
+        }
         return { error: null, indent };
       }
     }
@@ -1377,16 +1390,16 @@ export async function shareDraftIndent(
       indent: null,
     };
   const indent = data as IndentRow;
-  void ensureIndentStory(indent.organization_id, indent).then(
-    ({ error: storyErr }) => {
-      if (storyErr && __DEV__) {
-        console.warn(
-          "[indents] shareDraftIndent: default 24h story failed:",
-          storyErr.message,
-        );
-      }
-    },
+  const { error: storyErr } = await ensureIndentStory(
+    indent.organization_id,
+    indent,
   );
+  if (storyErr && __DEV__) {
+    console.warn(
+      "[indents] shareDraftIndent: default 24h story failed:",
+      storyErr.message,
+    );
+  }
   return { error: null, indent };
 }
 

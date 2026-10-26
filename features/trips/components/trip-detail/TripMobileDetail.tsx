@@ -12,12 +12,14 @@
  * Money breakup lives on Finance (View Breakup).
  */
 import { EntityAvatar } from "@/components/EntityAvatar";
+import { Feather } from "@expo/vector-icons";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
-import { formatINR } from "@/lib/format";
+import { getManifestCurrentStepIndex } from "@/features/trips/utils/manifestJourneyLog.util";
+import { formatIndianVehicleNumber, formatINR } from "@/lib/format";
 import { formatPhoneForDisplay } from "@/lib/phoneLookup";
 import type { PartyEntityType } from "@/lib/partyAvatarDisplay";
-import { memo, useMemo, type ReactNode } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 import {
   Alert,
   Platform,
@@ -26,6 +28,11 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
+const WEB_COPY = Platform.select({
+  web: { whiteSpace: "pre-wrap" as const, letterSpacing: 0 },
+  default: {},
+});
 
 import * as Clipboard from "expo-clipboard";
 
@@ -101,7 +108,17 @@ export type TripMobileDetailProps = {
   onOpenFinance?: () => void;
   /** Trip stage buttons (simulate / Ground Ops Reached pickup · Start trip / undo). */
   stageActions?: readonly TripMobileStageAction[];
+  /** One log per timeline stage — who, when, and a one-line note. */
+  stageLogs?: Array<StageLog | null | undefined>;
   children?: ReactNode;
+};
+
+export type StageLog = {
+  actor?: string;
+  time?: string;
+  detail?: string;
+  location?: string;
+  simulated?: boolean;
 };
 
 type Step = {
@@ -109,7 +126,12 @@ type Step = {
   label: string;
   date?: string;
   done: boolean;
+  log?: StageLog | null;
 };
+
+function readableLabel(label: string): string {
+  return label.replace(/ /g, "\u00A0");
+}
 
 function norm(v: string): string {
   return v.trim().toLowerCase();
@@ -170,30 +192,18 @@ function shortDateTime(iso: string | null | undefined): string | undefined {
   }
 }
 
-function tripStageIndex(status: string, completed: boolean): number {
-  if (completed) return 4;
-  const s = norm(status);
-  if (s.includes("complet") || s.includes("deliver") || s === "done") return 4;
-  if (
-    s.includes("arriv") ||
-    s.includes("destination") ||
-    s === "at_drop" ||
-    s === "at_destination"
-  ) {
-    return 3;
-  }
-  if (s.includes("transit") || s.includes("in_progress") || s === "dispatched") {
-    return 2;
-  }
-  if (
-    s.includes("pickup") ||
-    s === "picked_up" ||
-    s === "driver_accepted" ||
-    s === "accepted"
-  ) {
-    return 1;
-  }
-  return 0;
+function tripStageIndex(
+  status: string,
+  completed: boolean,
+  startedAtIso: string | null | undefined,
+  completedAtIso: string | null | undefined,
+): number {
+  return getManifestCurrentStepIndex({
+    status,
+    started_at: startedAtIso ?? null,
+    completed_at: completed || completedAtIso ? completedAtIso ?? null : null,
+    updated_at: null,
+  });
 }
 
 function tripHeadline(
@@ -233,9 +243,9 @@ function tripHeadline(
         overdue: true,
       };
     }
-    return { text: "Out for delivery", overdue: false };
+    return { text: "Arrived at drop-off", overdue: false };
   }
-  if (s.includes("transit") || s.includes("in_progress") || s === "dispatched") {
+  if (s.includes("transit") || s === "dispatched") {
     if (pickupOverdue && pickupLabel) {
       return {
         text: `Arrival deadline exceeded · ${pickupLabel}`,
@@ -243,14 +253,14 @@ function tripHeadline(
       };
     }
     if (etaLabel?.trim()) {
-      return { text: `Arriving by ${etaLabel.trim()}`, overdue: false };
+      return { text: `In-transit · ${etaLabel.trim()}`, overdue: false };
     }
     return {
-      text: pickupLabel ? `Arriving by ${pickupLabel}` : "In transit",
+      text: pickupLabel ? `In-transit · due ${pickupLabel}` : "In-transit",
       overdue: false,
     };
   }
-  if (s.includes("pickup") || s === "picked_up") {
+  if (s.includes("in_progress") || s.includes("pickup") || s === "picked_up") {
     if (pickupOverdue && pickupLabel) {
       return {
         text: `In transit — pickup was due ${pickupLabel}`,
@@ -288,6 +298,7 @@ function buildTripSteps(args: {
   pickupDateIso: string | null;
   startedAtIso: string | null | undefined;
   completedAtIso: string | null | undefined;
+  stageLogs?: Array<StageLog | null | undefined>;
 }): Step[] {
   const {
     status,
@@ -315,42 +326,46 @@ function buildTripSteps(args: {
     ];
   }
 
-  const idx = tripStageIndex(status, completed);
+  const idx = tripStageIndex(status, completed, startedAtIso, completedAtIso);
   const placed = shortDate(createdAtIso);
-  const started = shortDate(startedAtIso ?? pickupDateIso);
-  const pickup = shortDate(pickupDateIso);
+  const started = shortDate(startedAtIso);
   const delivered = shortDate(completedAtIso);
 
   const labels = [
-    "Confirmed",
-    "Picked up",
-    "Dispatched",
-    "Out for delivery",
-    completed || idx >= 4
-      ? "Delivered"
-      : pickup && isDeadlineExceeded(pickupDateIso)
-        ? `Delivery overdue · ${pickup}`
-        : pickup
-          ? `Delivery by ${pickup}`
-          : "Delivery by",
+    "Assigned",
+    "Driver accepted",
+    "Pickup",
+    "In-transit",
+    "Arrived at drop-off",
+    "Delivered",
   ];
   const dates = [
     placed,
     idx >= 1 ? started ?? placed : undefined,
     idx >= 2 ? started ?? placed : undefined,
-    idx >= 3 ? started ?? pickup : undefined,
-    idx >= 4 ? delivered ?? pickup ?? placed : pickup,
+    idx >= 3 ? started : undefined,
+    idx >= 4 ? started : undefined,
+    idx >= 5 ? delivered : undefined,
   ];
+  const logs = args.stageLogs ?? [];
 
   return labels.map((label, i) => ({
     key: `t${i}`,
     label,
     date: dates[i],
     done: i <= idx,
+    log: logs[i] ?? null,
   }));
 }
 
-function Timeline({ steps }: { steps: Step[] }) {
+function Timeline({
+  steps,
+  endSlot,
+}: {
+  steps: Step[];
+  endSlot?: ReactNode;
+}) {
+  const [openKey, setOpenKey] = useState<string | null>(null);
   const currentIdx = (() => {
     let last = -1;
     steps.forEach((st, i) => {
@@ -366,15 +381,34 @@ function Timeline({ steps }: { steps: Step[] }) {
         const next = steps[i + 1];
         const segComplete = step.done && !!next?.done;
         const isCurrent = i === currentIdx && step.done;
+        const open = openKey === step.key;
+        const log = step.log;
+        const canOpen = step.done || Boolean(log?.actor || log?.time || log?.detail);
         return (
           <View key={step.key} style={styles.tlRow}>
             <View style={styles.tlRail}>
-              <View
+              <TouchableOpacity
+                onPress={() => {
+                  if (!canOpen) return;
+                  setOpenKey((current) => (current === step.key ? null : step.key));
+                }}
+                disabled={!canOpen}
+                hitSlop={Layout.touchTargetHitSlop}
+                accessibilityRole="button"
+                accessibilityLabel={`${step.label} log`}
                 style={[
-                  styles.tlDot,
-                  step.done ? styles.tlDotOn : styles.tlDotOff,
+                  styles.tlDotHit,
+                  open && styles.tlDotHitOpen,
                 ]}
-              />
+              >
+                <View
+                  style={[
+                    styles.tlDot,
+                    step.done ? styles.tlDotOn : styles.tlDotOff,
+                    open && styles.tlDotOpen,
+                  ]}
+                />
+              </TouchableOpacity>
               {!isLast ? (
                 segComplete ? (
                   <View style={styles.tlStemOn} />
@@ -387,22 +421,80 @@ function Timeline({ steps }: { steps: Step[] }) {
                 )
               ) : null}
             </View>
-            <View style={styles.tlBody}>
-              <Text
-                style={[
-                  styles.tlLabel,
-                  !step.done && styles.tlLabelOff,
-                  step.done && !isCurrent && styles.tlLabelOn,
-                  isCurrent && styles.tlLabelCurrent,
-                ]}
-                numberOfLines={1}
-              >
-                {step.label}
-              </Text>
-              {step.date ? (
-                <Text style={styles.tlDate} numberOfLines={1}>
-                  {step.date}
-                </Text>
+            <View style={styles.tlBodyCol}>
+              <View style={styles.tlBody}>
+                <TouchableOpacity
+                  style={styles.tlLabelHit}
+                  onPress={() => {
+                    if (!canOpen) return;
+                    setOpenKey((current) => (current === step.key ? null : step.key));
+                  }}
+                  disabled={!canOpen}
+                  activeOpacity={0.75}
+                >
+                  <Text
+                    style={[
+                      styles.tlLabel,
+                      WEB_COPY,
+                      !step.done && styles.tlLabelOff,
+                      step.done && !isCurrent && styles.tlLabelOn,
+                      isCurrent && styles.tlLabelCurrent,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {readableLabel(step.label)}
+                  </Text>
+                </TouchableOpacity>
+                <View style={styles.tlRight}>
+                  {i === currentIdx && endSlot ? endSlot : null}
+                  {step.date ? (
+                    <Text style={[styles.tlDate, WEB_COPY]} numberOfLines={1}>
+                      {step.date}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+              {open ? (
+                <View style={styles.tlLog}>
+                  <View style={styles.tlLogAccent} />
+                  <View style={styles.tlLogInner}>
+                    <Text style={[styles.tlLogEyebrow, WEB_COPY]}>
+                      {log?.simulated ? "SIMULATION" : "STAGE LOG"}
+                    </Text>
+                    <View style={styles.tlLogWhoRow}>
+                      <Feather
+                        name={log?.simulated ? "zap" : "user"}
+                        size={10}
+                        color={log?.simulated ? Theme.warning : TEAL}
+                      />
+                      <Text style={[styles.tlLogWho, WEB_COPY]} numberOfLines={1}>
+                        {log?.actor
+                          ? `${log.simulated ? "Simulated by" : "Updated by"} ${log.actor}`
+                          : step.done
+                            ? "Recorded on this trip"
+                            : "Not recorded yet"}
+                      </Text>
+                    </View>
+                    {log?.time ? (
+                      <View style={styles.tlLogWhoRow}>
+                        <Feather name="clock" size={10} color={TEAL} />
+                        <Text style={[styles.tlLogTime, WEB_COPY]} numberOfLines={1}>
+                          {log.time}
+                        </Text>
+                      </View>
+                    ) : null}
+                    {log?.location ? (
+                      <Text style={[styles.tlLogMeta, WEB_COPY]} numberOfLines={2}>
+                        {log.location}
+                      </Text>
+                    ) : null}
+                    {log?.detail ? (
+                      <Text style={[styles.tlLogMeta, WEB_COPY]} numberOfLines={2}>
+                        {log.detail}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
               ) : null}
             </View>
           </View>
@@ -446,6 +538,7 @@ export const TripMobileDetail = memo(function TripMobileDetail({
   onChangeAssets,
   onOpenFinance,
   stageActions,
+  stageLogs,
   children,
 }: TripMobileDetailProps) {
   const completed =
@@ -465,6 +558,7 @@ export const TripMobileDetail = memo(function TripMobileDetail({
         pickupDateIso,
         startedAtIso,
         completedAtIso,
+        stageLogs,
       }),
     [
       status,
@@ -473,6 +567,7 @@ export const TripMobileDetail = memo(function TripMobileDetail({
       pickupDateIso,
       startedAtIso,
       completedAtIso,
+      stageLogs,
     ],
   );
 
@@ -481,6 +576,12 @@ export const TripMobileDetail = memo(function TripMobileDetail({
       ? adjustedSaleInr
       : saleInr;
 
+  const driverVehiclePlate = (() => {
+    const raw = vehicleLabel?.trim() ?? "";
+    if (!raw || raw === "—" || raw === "Pending") return "";
+    const plate = raw.split(/[·•]/)[0]?.trim() ?? raw;
+    return formatIndianVehicleNumber(plate).trim() || plate;
+  })();
   const specLine = [vehicleType || vehicleLabel, loadTonsLabel, distanceLabel]
     .filter((v) => v && v !== "—" && String(v).trim())
     .join(" · ");
@@ -612,6 +713,11 @@ export const TripMobileDetail = memo(function TripMobileDetail({
                 <Text style={styles.partyName} numberOfLines={2}>
                   {costFace.name}
                 </Text>
+                {costFace.entityType === "driver" && driverVehiclePlate ? (
+                  <Text style={styles.partyVehicle} numberOfLines={1}>
+                    {driverVehiclePlate}
+                  </Text>
+                ) : null}
               </View>
             ) : (
               <View style={styles.partyColSpacer} />
@@ -675,7 +781,37 @@ export const TripMobileDetail = memo(function TripMobileDetail({
       {/* ── B. Progress → actions (reference tracking page) ─────────────── */}
       <View style={styles.blockGap}>
         <View style={styles.block}>
-          <Timeline steps={steps} />
+          <Timeline
+            steps={steps}
+            endSlot={
+              stageActions && stageActions.length > 0 ? (
+                <View style={styles.simRow}>
+                  {stageActions.map((action) => {
+                    const ghost = action.key === "revoke";
+                    return (
+                      <TouchableOpacity
+                        key={action.key}
+                        style={[styles.simBtn, ghost ? styles.simBtnGhost : styles.simBtnFill]}
+                        onPress={action.onPress}
+                        disabled={action.disabled}
+                        activeOpacity={0.88}
+                        hitSlop={Layout.touchTargetHitSlop}
+                        accessibilityRole="button"
+                        accessibilityLabel={action.label}
+                      >
+                        <Text
+                          style={[styles.simBtnText, ghost ? styles.simBtnGhostText : styles.simBtnFillText, WEB_COPY]}
+                          numberOfLines={1}
+                        >
+                          {action.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ) : null
+            }
+          />
 
           <View style={styles.metaGrid}>
             <View style={styles.metaCol}>
@@ -736,25 +872,6 @@ export const TripMobileDetail = memo(function TripMobileDetail({
             </View>
           ) : null}
 
-          {stageActions && stageActions.length > 0 ? (
-            <View style={styles.actionRow}>
-              {stageActions.map((action) => (
-                <TouchableOpacity
-                  key={action.key}
-                  style={[styles.secondaryBtn, styles.actionBtnFlex]}
-                  onPress={action.onPress}
-                  disabled={action.disabled}
-                  activeOpacity={0.88}
-                  accessibilityRole="button"
-                  accessibilityLabel={action.label}
-                >
-                  <Text style={styles.secondaryBtnText} numberOfLines={1}>
-                    {action.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          ) : null}
 
           <View style={styles.footRow}>
             <Text style={styles.footMuted} numberOfLines={2}>
@@ -926,6 +1043,16 @@ const styles = StyleSheet.create({
     width: "100%",
     lineHeight: 14,
   },
+  partyVehicle: {
+    marginTop: 2,
+    fontSize: 9,
+    fontWeight: "600",
+    letterSpacing: 0.3,
+    color: MUTED,
+    textAlign: "center",
+    width: "100%",
+    lineHeight: 12,
+  },
   itemBrand: {
     fontSize: 13,
     fontWeight: "600",
@@ -1003,18 +1130,65 @@ const styles = StyleSheet.create({
   },
   tlRow: {
     flexDirection: "row",
-    minHeight: ROW,
+    alignItems: "flex-start",
+  },
+  simRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    flexWrap: "wrap",
+    gap: 4,
+  },
+  simBtn: {
+    minHeight: 22,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  simBtnGhost: {
+    borderWidth: 1,
+    borderColor: Theme.warning,
+    backgroundColor: "transparent",
+  },
+  simBtnFill: {
+    backgroundColor: Theme.actionBtnInk,
+  },
+  simBtnText: {
+    fontSize: 10,
+    fontWeight: "600",
+    lineHeight: 12,
+  },
+  simBtnGhostText: {
+    color: Theme.warning,
+  },
+  simBtnFillText: {
+    color: Theme.buttonDarkText,
+  },
+  tlRight: {
+    alignItems: "flex-end",
+    gap: 4,
+    flexShrink: 0,
   },
   tlRail: {
-    width: RAIL,
+    width: 28,
     alignItems: "center",
+  },
+  tlDotHit: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 1,
+  },
+  tlDotHitOpen: {
+    borderRadius: 14,
+    backgroundColor: "rgba(16,185,129,0.10)",
   },
   tlDot: {
     width: DOT,
     height: DOT,
     borderRadius: DOT / 2,
-    marginTop: 2,
-    zIndex: 1,
   },
   tlDotOn: {
     backgroundColor: Theme.positive,
@@ -1023,6 +1197,9 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
     borderWidth: 1.5,
     borderColor: "#BDBDBD",
+  },
+  tlDotOpen: {
+    transform: [{ scale: 1.15 }],
   },
   tlStemOn: {
     width: 2,
@@ -1044,19 +1221,83 @@ const styles = StyleSheet.create({
     borderRadius: 1,
     backgroundColor: "#BDBDBD",
   },
-  tlBody: {
+  tlBodyCol: {
     flex: 1,
     minWidth: 0,
+    paddingBottom: 10,
+  },
+  tlBody: {
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    paddingLeft: 10,
-    paddingBottom: 14,
+    paddingLeft: 6,
+    paddingTop: 4,
     gap: 8,
+  },
+  tlLabelHit: {
+    flex: 1,
+    minWidth: 0,
+  },
+  tlLog: {
+    marginTop: 6,
+    marginLeft: 6,
+    marginRight: 2,
+    borderRadius: 8,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderLight,
+    overflow: "hidden",
+    flexDirection: "row",
+  },
+  tlLogAccent: {
+    width: 3,
+    backgroundColor: TEAL,
+  },
+  tlLogInner: {
+    flex: 1,
+    minWidth: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 3,
+  },
+  tlLogEyebrow: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: Theme.textMutedDemo,
+    letterSpacing: 0.6,
+  },
+  tlLogWhoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  tlLogWho: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 11,
+    fontWeight: "600",
+    color: INK,
+    letterSpacing: 0,
+  },
+  tlLogTime: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 10,
+    fontWeight: "500",
+    color: TEAL,
+    letterSpacing: 0,
+  },
+  tlLogMeta: {
+    fontSize: 10,
+    fontWeight: "400",
+    color: BODY,
+    lineHeight: 14,
+    letterSpacing: 0,
   },
   tlLabel: {
     fontSize: 13,
     flex: 1,
+    letterSpacing: 0,
   },
   tlLabelOn: {
     fontWeight: "400",
@@ -1077,6 +1318,7 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     textAlign: "right",
     minWidth: 84,
+    letterSpacing: 0,
   },
 
   metaGrid: {

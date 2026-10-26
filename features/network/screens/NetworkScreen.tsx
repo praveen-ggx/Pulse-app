@@ -62,6 +62,8 @@ import {
 import { ContentErrorState } from "@/components/ContentErrorState";
 import { NetworkTabErrorBoundary } from "@/components/network/NetworkTabErrorBoundary";
 import { StoryReel } from "@/features/network/components/StoryReel";
+import { useNetworkStoryStrip } from "@/features/network/hooks/useNetworkStoryStrip";
+import { collectApprovedNetworkOrgIds } from "@/features/network/utils/storyStrip.util";
 import {
   ENABLE_UNLINKED_COUNTERPARTIES,
   UnlinkedCounterpartiesSection,
@@ -147,15 +149,9 @@ import { useProfileHubCompact } from "@/features/party/hooks/useProfileHubCompac
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQueryClient } from "@tanstack/react-query";
 
-function isStoryPost(p: PostRow): boolean {
-  return p.type === "LOAD" || p.type === "VEHICLE_AVAILABILITY";
-}
-
 function NetworkStoryStrip({
   orgId,
   orgName,
-  feedPosts,
-  feedLoading,
   onCreatePost,
   headerActions,
   embedded,
@@ -164,16 +160,15 @@ function NetworkStoryStrip({
 }: {
   orgId: string;
   orgName: string;
-  feedPosts: PostRow[];
-  feedLoading: boolean;
   onCreatePost: () => void;
   headerActions?: React.ReactNode;
   embedded?: boolean;
   canCreatePost?: boolean;
   networkPartnerOrgIds?: ReadonlySet<string>;
 }) {
-  const storyPosts = useMemo(() => feedPosts.filter(isStoryPost), [feedPosts]);
-  if (feedLoading && storyPosts.length === 0) {
+  const { posts: storyPosts, indentCountByPostId, isLoading } =
+    useNetworkStoryStrip(orgId);
+  if (isLoading && storyPosts.length === 0) {
     return (
       <View style={styles.storyLoading}>
         <LoadingIndicator color={Theme.loaderAccent} />
@@ -191,6 +186,7 @@ function NetworkStoryStrip({
       embedded={embedded}
       canCreatePost={canCreatePost}
       networkPartnerOrgIds={networkPartnerOrgIds}
+      indentCountByPostId={indentCountByPostId}
     />
   );
 }
@@ -449,6 +445,15 @@ function NetworkScreenInner() {
     for (const id of integratedSupplierOrgIds) ids.add(id);
     return ids;
   }, [integratedClientOrgIds, integratedSupplierOrgIds]);
+  const networkConnectionOrgIds = useMemo(
+    () =>
+      collectApprovedNetworkOrgIds(orgId, [
+        ...(receivedQ.data ?? []),
+        ...(sentQ.data ?? []),
+      ]),
+    [orgId, receivedQ.data, sentQ.data],
+  );
+  const networkConnectionsReady = !receivedQ.isPending && !sentQ.isPending;
   /**
    * The clients/suppliers books back every relationship rule in the feed
    * filter. They resolve independently of the feed itself, so until both have
@@ -478,6 +483,7 @@ function NetworkScreenInner() {
           supplierOrgIds: integratedSupplierOrgIds,
           clientOrgIds: integratedClientOrgIds,
           partnerOrgIds: integratedPartnerOrgIds,
+          networkOrgIds: networkConnectionOrgIds,
         });
       }),
     [
@@ -488,6 +494,7 @@ function NetworkScreenInner() {
       integratedPartnerOrgIds,
       integratedSupplierOrgIds,
       integratedClientOrgIds,
+      networkConnectionOrgIds,
     ],
   );
 
@@ -1101,8 +1108,6 @@ function NetworkScreenInner() {
                 <NetworkStoryStrip
                   orgId={orgId}
                   orgName={organization?.name ?? ""}
-                  feedPosts={feedPosts}
-                  feedLoading={feedQ.isLoading}
                   onCreatePost={onCreatePost}
                   canCreatePost={canPostLoads}
                   networkPartnerOrgIds={integratedClientOrgIds}
@@ -1146,7 +1151,7 @@ function NetworkScreenInner() {
                 style={styles.connectionsHubCard}
                 onLayout={(e) => {
                   const next = Math.round(e.nativeEvent.layout.height);
-                  if (next > 0 && next !== connectionsCardHeight) {
+                  if (next > 0 && Math.abs(next - connectionsCardHeight) > 2) {
                     setConnectionsCardHeight(next);
                   }
                 }}

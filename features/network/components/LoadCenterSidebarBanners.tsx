@@ -1,5 +1,5 @@
 /**
- * Load Center desktop sidebar — Pulse story share + Pulse Reach boost banners.
+ * Load Center desktop sidebar — Pulse story share + Pulse Boost boost banners.
  */
 import { PulseMascotBanner } from "@/components/PulseMascotBanner";
 import Theme from "@/constants/Theme";
@@ -86,13 +86,13 @@ export function LoadCenterSidebarBanners({
           pressed && local.pressed,
         ]}
         accessibilityRole="button"
-        accessibilityLabel="Open Pulse Reach — boost your indent story"
+        accessibilityLabel="Open Pulse Boost — boost your indent story"
       >
         <View style={local.reachCopy}>
           <View style={local.reachChipRow}>
             <Rocket size={11} color={Theme.accentBrown} strokeWidth={2.3} />
             <Text style={[local.chip, { color: Theme.accentBrown }]}>
-              Pulse Reach
+              Pulse Boost
             </Text>
           </View>
           <Text style={local.reachTitle}>Boost your indent story</Text>
@@ -103,7 +103,7 @@ export function LoadCenterSidebarBanners({
         </View>
         <PulseMascotBanner id="loadsPileUp" maxHeight={84} />
         <View style={local.reachCta}>
-          <Text style={local.reachCtaText}>Open Pulse Reach</Text>
+          <Text style={local.reachCtaText}>Open Pulse Boost</Text>
         </View>
       </Pressable>
     </View>

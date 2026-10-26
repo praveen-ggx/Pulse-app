@@ -250,7 +250,9 @@ export function FindLoadsContent({ uid, filters }: { uid: string; filters: Share
             router.push(
               (gate.target === 'my-fleet'
                 ? ROUTES.driverMyFleet()
-                : ROUTES.driverDcoStatus()) as Parameters<typeof router.push>[0],
+                : gate.target === 'wallet-self'
+                  ? ROUTES.driverWalletSelf()
+                  : ROUTES.driverDcoStatus()) as Parameters<typeof router.push>[0],
             )
           }
           style={({ pressed }) => [
@@ -393,7 +395,7 @@ function PoolCard({
 function marketplaceGate(mode: DriverOperatingModeKind): {
   body: string;
   cta: string;
-  target: 'dco-status' | 'my-fleet';
+  target: 'dco-status' | 'my-fleet' | 'wallet-self';
 } {
   switch (mode) {
     case 'DCO_VEHICLE_REQUIRED':
@@ -411,8 +413,8 @@ function marketplaceGate(mode: DriverOperatingModeKind): {
     case 'DCO_EMPLOYMENT_CONFLICT':
       return {
         body: 'You are still linked to a business as an employee driver. Leave that fleet to operate independently as a DCO.',
-        cta: 'View DCO status',
-        target: 'dco-status',
+        cta: 'View linked fleets',
+        target: 'wallet-self',
       };
     default:
       return {

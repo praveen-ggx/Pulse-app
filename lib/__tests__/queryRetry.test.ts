@@ -3,6 +3,7 @@ import {
   infrastructureShouldRetry,
   isInfrastructureError,
   isOriginDownError,
+  isPermanentSchemaOrRlsError,
 } from "@/lib/queryRetry";
 
 import { resetSupabaseCircuit } from "@/lib/supabaseHttp.util";
@@ -55,5 +56,21 @@ describe("queryRetry infrastructure policy", () => {
     const abort = new Error("aborted");
     abort.name = "AbortError";
     expect(infrastructureShouldRetry(0, abort)).toBe(false);
+  });
+
+  it("does not treat a missing column schema-cache error as infrastructure", () => {
+    const err = {
+      code: "PGRST204",
+      message: "Could not find the 'primary_region' column of 'suppliers' in the schema cache",
+    };
+    expect(isPermanentSchemaOrRlsError(err)).toBe(true);
+    expect(isInfrastructureError(err)).toBe(false);
+    expect(infrastructureShouldRetry(0, err)).toBe(false);
+  });
+
+  it("does not retry storage.objects 42501", () => {
+    const err = { code: "42501", message: "permission denied for table storage.objects" };
+    expect(isPermanentSchemaOrRlsError(err)).toBe(true);
+    expect(infrastructureShouldRetry(0, err)).toBe(false);
   });
 });

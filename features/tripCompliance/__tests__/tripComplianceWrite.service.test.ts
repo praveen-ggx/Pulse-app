@@ -130,6 +130,15 @@ describe("checkCompliancePaymentAllowed — duplicate payment / already-settled 
     const result = await checkCompliancePaymentAllowed({ tripId: "trip-1", category: "compliance_balance" });
     expect(result.ok).toBe(true);
   });
+
+  it("allows a balance payment after POD when no advance was posted", async () => {
+    const result = await checkCompliancePaymentAllowed({
+      tripId: "trip-1",
+      category: "compliance_balance",
+      podReceived: true,
+    });
+    expect(result.ok).toBe(true);
+  });
 });
 
 describe("validateCompliancePaymentAmount — sanity ceiling against trip value", () => {

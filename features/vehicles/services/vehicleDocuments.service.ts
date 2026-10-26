@@ -187,6 +187,10 @@ export async function getVehicleDocumentViewUrl(storagePath: string): Promise<st
 
   const looksLikeComplianceEntityPath = /\/(vehicle|driver|trip)\//i.test(path);
 
+  const { previewPrivateObject } = await import(
+    "@/features/trips/utils/storagePreviewObjectUrl.util"
+  );
+
   if (looksLikeComplianceEntityPath) {
     try {
       const { getComplianceDocumentSignedUrl } = await import(
@@ -200,7 +204,10 @@ export async function getVehicleDocumentViewUrl(storagePath: string): Promise<st
   }
 
   const fromVehicleBucket = await vehicleDocSignedUrls.getUrl(path);
-  if (fromVehicleBucket) return fromVehicleBucket;
+  if (fromVehicleBucket) {
+    const preview = await previewPrivateObject(BUCKET, path, fromVehicleBucket);
+    return preview.url;
+  }
 
   try {
     const { getComplianceDocumentSignedUrl } = await import(
@@ -253,32 +260,38 @@ export async function mergeEntityDocumentsIntoVehicleVault(
   if (error || !data?.length) return base;
 
   const merged: VehicleDocuments = { ...(base ?? {}) };
-  const filled = new Set<string>();
+  const usedPaths = new Set(
+    [
+      ...VAULT_SLOT_TYPES.map((type) => merged[type]?.url?.trim() ?? ""),
+      ...(merged.extras ?? []).map((extra) => extra.url?.trim() ?? ""),
+    ].filter(Boolean),
+  );
+  const extraAdds: VehicleExtraDocument[] = [];
   for (const row of data) {
-    const type = row.doc_type as VehicleComplianceDocType;
-    if (
-      type !== "rc" &&
-      type !== "insurance" &&
-      type !== "fitness" &&
-      type !== "pollution" &&
-      type !== "permit" &&
-      type !== "road_tax"
-    ) {
+    const type = String(row.doc_type ?? "").trim();
+    const path = row.storage_path?.trim();
+    if (!path || usedPaths.has(path)) continue;
+    if (isVaultSlotType(type) && !merged[type]?.url?.trim()) {
+      merged[type] = {
+        url: path,
+        expiryDate: row.expiry_date ?? "",
+        uploadedAt: row.created_at ?? undefined,
+      };
+      usedPaths.add(path);
       continue;
     }
-    if (filled.has(type)) continue;
-    if (!row.storage_path) continue;
-    // Prefer entity_documents when vault slot is empty (cross-org Save to vault fallback).
-    if (merged[type]?.url?.trim()) {
-      filled.add(type);
-      continue;
-    }
-    filled.add(type);
-    merged[type] = {
-      url: row.storage_path,
+    extraAdds.push({
+      id: extraDocumentId(),
+      url: path,
       expiryDate: row.expiry_date ?? "",
       uploadedAt: row.created_at ?? undefined,
-    };
+      fileName: type,
+      docType: isVaultSlotType(type) ? type : undefined,
+    });
+    usedPaths.add(path);
+  }
+  if (extraAdds.length > 0) {
+    merged.extras = [...(merged.extras ?? []), ...extraAdds];
   }
   return Object.keys(merged).length > 0 || (base && Object.keys(base).length > 0)
     ? merged
@@ -612,13 +625,107 @@ export async function uploadAndSaveVehicleDocumentForTrip(
 }
 
 /**
+ * Extra pages from Trip Detail. Same ownership rule as
+ * `uploadAndSaveVehicleDocumentForTrip`: write the viewer's vault when we own
+ * the truck; otherwise save under the viewer org in entity_documents.
+ */
+export async function uploadAndSaveVehicleExtraDocumentsForTrip(
+  viewerOrgId: string,
+  vehicleId: string,
+  files: {
+    arrayBuffer?: ArrayBuffer;
+    blob?: Blob;
+    fileName: string;
+    mimeType: string;
+    docType?: VehicleComplianceDocType;
+  }[],
+  existingDocuments: VehicleDocuments | null,
+  preferredOrgIds: Array<string | null | undefined> = [],
+): Promise<{ documents: VehicleDocuments | null; error: Error | null }> {
+  const preferred = [viewerOrgId, ...preferredOrgIds]
+    .map((id) => (id ?? "").trim())
+    .filter(Boolean);
+  const resolved = await resolveVehicleDocumentsWriteTarget(vehicleId, preferred);
+  if (resolved && preferred.includes(resolved.orgId)) {
+    const owned = await uploadAndSaveVehicleExtraDocuments(
+      resolved.orgId,
+      vehicleId,
+      files,
+      resolved.documents ?? existingDocuments,
+    );
+    if (!owned.error) return owned;
+  }
+
+  try {
+    const { data: authData } = await supabase().auth.getUser();
+    const actorId = authData.user?.id;
+    if (!actorId) {
+      return {
+        documents: null,
+        error: new Error("Could not save vehicle document. Sign in again and retry."),
+      };
+    }
+    const extras: VehicleExtraDocument[] = [];
+    for (const file of files) {
+      const { document, error: entityError } = await uploadComplianceDocument({
+        orgId: viewerOrgId,
+        entityType: "vehicle",
+        entityId: vehicleId,
+        docType: file.docType ?? "extra",
+        file: {
+          arrayBuffer: file.arrayBuffer ?? new ArrayBuffer(0),
+          mimeType: file.mimeType,
+          fileName: file.fileName,
+        },
+        uploadedBy: actorId,
+        expiryDate: null,
+      });
+      if (entityError || !document) {
+        return {
+          documents: null,
+          error: entityError ?? new Error("Could not save vehicle document."),
+        };
+      }
+      extras.push({
+        id: document.id ?? extraDocumentId(),
+        url: document.storage_path,
+        expiryDate: document.expiry_date ?? "",
+        uploadedAt: document.created_at,
+        fileName: file.fileName,
+        docType: file.docType,
+      });
+    }
+    return {
+      documents: {
+        ...(existingDocuments ?? {}),
+        extras: [...(existingDocuments?.extras ?? []), ...extras],
+      },
+      error: null,
+    };
+  } catch (fallbackErr) {
+    return {
+      documents: null,
+      error: new Error(
+        fallbackErr instanceof Error ? fallbackErr.message : "Could not save vehicle document.",
+      ),
+    };
+  }
+}
+
+/**
  * Upload extra vehicle files from the trip vault (does not replace RC / insurance / fitness / PUC).
  * Path: {orgId}/{vehicleId}/extras/{id}.{ext}
  */
 export async function uploadAndSaveVehicleExtraDocuments(
   orgId: string,
   vehicleId: string,
-  files: { arrayBuffer?: ArrayBuffer; blob?: Blob; fileName: string; mimeType: string }[],
+  files: {
+    arrayBuffer?: ArrayBuffer;
+    blob?: Blob;
+    fileName: string;
+    mimeType: string;
+    docType?: VehicleComplianceDocType;
+  }[],
   existingDocuments: VehicleDocuments | null,
 ): Promise<{ documents: VehicleDocuments | null; error: Error | null }> {
   if (files.length === 0) {
@@ -661,6 +768,7 @@ export async function uploadAndSaveVehicleExtraDocuments(
       expiryDate: '',
       uploadedAt: new Date().toISOString(),
       fileName: file.fileName,
+      docType: file.docType,
     });
   }
 

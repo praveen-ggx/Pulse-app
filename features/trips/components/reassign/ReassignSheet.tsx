@@ -23,7 +23,11 @@ import { useReassignMigrationGate } from '@/features/trips/hooks/useReassignMigr
 import { getTripOtpForDisplay } from '@/features/trips/services/tripOtp.service';
 import type { TripRow } from '@/features/trips/services/trips.service';
 import type { ReassignCompletedMeta } from '@/features/trips/components/reassign/reassign.types';
-import { hasReassignChanges, phoneLast10 } from '@/features/trips/utils/reassignChangeDetection.util';
+import {
+  hasReassignChanges,
+  phoneLast10,
+  shouldInviteDriverByPhone,
+} from '@/features/trips/utils/reassignChangeDetection.util';
 import {
   isTripReassignStaleError,
   tripReassignStaleUserMessage,
@@ -37,8 +41,10 @@ import {
   ActivityIndicator,
   Modal,
   Platform,
+  Pressable,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -104,6 +110,8 @@ export function ReassignSheet({
   onVehicleDisplayChange,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const mobileFullPage = windowWidth < 768;
   const useMobileWizard = false;
   const { drivers, isLoading: driversLoading, refetch: refetchDrivers } =
     useDriverMaster(organizationId);
@@ -122,6 +130,8 @@ export function ReassignSheet({
   );
   const [driverMode, setDriverMode] = useState<DriverReassignMode>('existing');
   const [vehicleMode, setVehicleMode] = useState<VehicleReassignMode>('existing');
+  const [driverAction, setDriverAction] = useState<AssignmentPanelAction>('PREVIEW');
+  const [vehicleAction, setVehicleAction] = useState<AssignmentPanelAction>('PREVIEW');
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(
     trip.driver_id ?? null,
   );
@@ -161,22 +171,18 @@ export function ReassignSheet({
     pendingVehicleId: string | null;
   } | null>(null);
   const [otpSuccess, setOtpSuccess] = useState<OtpSuccess | null>(null);
+  const [savedConfirm, setSavedConfirm] = useState<{
+    driver: string;
+    vehicle: string;
+  } | null>(null);
   const [wizardStep, setWizardStep] = useState<ReassignWizardStep>(
     isAggregate ? 'driverPhone' : 'driver',
   );
-  const [_driverNameManual, setDriverNameManual] = useState(false);
+  const [driverNameManual, setDriverNameManual] = useState(false);
   const otpDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [changeReason, setChangeReason] = useState<ChangeReasonCode>('AD_HOC_SUBSTITUTION');
   const [changeRemarks, setChangeRemarks] = useState('');
   const [workspaceToast, setWorkspaceToast] = useState<string | null>(null);
-
-  const aggregatePhoneLookup = useAggregateDriverPhoneLookup({
-    phone,
-    tripId: trip.id,
-    organizationId,
-    driverAssignOrgId,
-    enabled: visible && isAggregate,
-  });
 
   const currentDriverPhone = useMemo(() => {
     const fromProp = (currentDriverPhoneProp ?? "").trim();
@@ -185,7 +191,28 @@ export function ReassignSheet({
     return d?.phone ?? null;
   }, [currentDriverPhoneProp, drivers, trip.driver_id]);
 
+  const aggregatePhoneLookup = useAggregateDriverPhoneLookup({
+    phone,
+    tripId: trip.id,
+    organizationId,
+    driverAssignOrgId,
+    currentDriverPhone,
+    enabled: visible && driverMode === "phone",
+  });
+
   const sheetOpenGenRef = useRef(0);
+
+  useEffect(() => {
+    if (!visible) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      window.addEventListener("keydown", onKey);
+      return () => window.removeEventListener("keydown", onKey);
+    }
+    return undefined;
+  }, [visible, onClose]);
 
   useEffect(() => {
     if (!visible) return;
@@ -193,6 +220,8 @@ export function ReassignSheet({
     const openGen = ++sheetOpenGenRef.current;
     setDriverMode(isAggregate ? 'phone' : 'existing');
     setVehicleMode('existing');
+    setDriverAction('PREVIEW');
+    setVehicleAction('PREVIEW');
     setSelectedDriverId(trip.driver_id ?? null);
     setSelectedVehicleId(trip.vehicle_id ?? null);
     const prefillPhone = (currentDriverPhoneProp ?? "").trim();
@@ -232,13 +261,12 @@ export function ReassignSheet({
     setPhone(formatMobileNumber(fallback));
   }, [visible, drivers, trip.driver_id, currentDriverPhoneProp, phone]);
 
-  /** Sync snapshot/selection when parent reloads trip after partial save — no fleet refetch storm. */
+  /** Keep the optimistic-lock snapshot. Do not reset the picker's selection
+   *  when a background trip refetch updates `updated_at` / driver_id. */
   useEffect(() => {
     if (!visible) return;
     setTripUpdatedAtSnapshot(trip.updated_at ?? null);
-    setSelectedDriverId(trip.driver_id ?? null);
-    setSelectedVehicleId(trip.vehicle_id ?? null);
-  }, [visible, trip.id, trip.updated_at, trip.driver_id, trip.vehicle_id]);
+  }, [visible, trip.id, trip.updated_at]);
 
   useEffect(() => {
     return () => {
@@ -347,8 +375,15 @@ export function ReassignSheet({
   ]);
 
   const canConfirm = useMemo(() => {
-    const phoneBlocked =
-      isAggregate && driverModeIsPhone
+    const savingCurrentDriver =
+      !shouldInviteDriverByPhone({
+        phone,
+        currentDriverPhone,
+        rosterPhones: drivers.map((d) => d.phone),
+      });
+    const phoneBlocked = savingCurrentDriver
+      ? false
+      : isAggregate && driverModeIsPhone
         ? aggregatePhoneLookup.inTrip
         : phoneBusy;
     const lookupPending =
@@ -356,11 +391,14 @@ export function ReassignSheet({
     if (!canAssign || saving || phoneBlocked || lookupPending || otpSuccess) return false;
     if (isAggregate && migrationBlocked) return false;
     if (isAggregate && migrationChecking) return false;
-    return hasChanges && meetsValidation;
+    return (hasChanges || savingCurrentDriver) && meetsValidation;
   }, [
     canAssign,
     saving,
     phoneBusy,
+    phone,
+    currentDriverPhone,
+    drivers,
     aggregatePhoneLookup.inTrip,
     aggregatePhoneLookup.loading,
     driverModeIsPhone,
@@ -405,6 +443,32 @@ export function ReassignSheet({
     }, 3000);
   }, [onClose]);
 
+  const summaryDriver = useMemo(() => {
+    if (driverModeIsPhone) {
+      const name = driverNameInput.trim();
+      const ph = phone.trim();
+      if (name && ph) return `${name} · ${ph}`;
+      return name || ph || '—';
+    }
+    const d = drivers.find((x) => x.id === selectedDriverId);
+    return d?.name ?? currentDriverName ?? '—';
+  }, [
+    driverModeIsPhone,
+    driverNameInput,
+    phone,
+    drivers,
+    selectedDriverId,
+    currentDriverName,
+  ]);
+
+  const summaryVehicle = useMemo(() => {
+    const v = vehicles.find((x) => x.id === selectedVehicleId);
+    if (v) return formatIndianVehicleNumber(v.vehicle_number ?? '') || '—';
+    const plate = formatIndianVehicleNumber(adHocPlate).trim();
+    if (plate) return plate;
+    return currentVehicleLabel ?? '—';
+  }, [vehicles, selectedVehicleId, adHocPlate, currentVehicleLabel]);
+
   const finishWithOtpReveal = useCallback(
     async (showOtpForAggregatePhone: boolean) => {
       await onCompleted(buildCompletedMeta());
@@ -416,37 +480,52 @@ export function ReassignSheet({
           return;
         }
       }
-      onClose();
+      setSavedConfirm({
+        driver: summaryDriver,
+        vehicle: summaryVehicle,
+      });
     },
     [
       onCompleted,
       isAggregate,
       driverModeIsPhone,
       trip.id,
-      onClose,
       scheduleOtpDismiss,
       buildCompletedMeta,
+      summaryDriver,
+      summaryVehicle,
     ],
   );
 
-  const handleConfirm = useCallback(async () => {
-    if (!canConfirm) return;
+  const handleConfirm = useCallback(async (): Promise<boolean> => {
+    if (!canConfirm || saving) return false;
     setError(null);
     setPartialVehicleFailure(null);
     setStaleConflict(false);
 
-    if (driverModeIsPhone) {
-      const trimmedPhone = phone.trim();
-      const plate = formatIndianVehicleNumber(adHocPlate).trim();
+    const plate = formatIndianVehicleNumber(adHocPlate).trim();
+    const nextName = driverNameInput.trim();
+    const rosterMatch = drivers.find(
+      (d) => phoneLast10(d.phone ?? "") === phoneLast10(phone),
+    );
+    const reuseExistingDriver =
+      driverModeIsPhone &&
+      !shouldInviteDriverByPhone({
+        phone,
+        currentDriverPhone,
+        rosterPhones: drivers.map((d) => d.phone),
+      });
+
+    if (driverModeIsPhone && !reuseExistingDriver) {
       const result = await reassignByPhone({
-        phone: trimmedPhone,
-        driverName: driverNameInput.trim(),
+        phone: phone.trim(),
+        driverName: nextName,
         vehicleId: selectedVehicleId,
         vehicleDisplayNumber: plate || null,
       });
       if (result.staleConflict) {
         setStaleConflict(true);
-        return;
+        return false;
       }
       if (result.driverUpdatedVehicleFailed) {
         await onCompleted(buildCompletedMeta());
@@ -454,43 +533,49 @@ export function ReassignSheet({
           vehicleError: result.vehicleError ?? 'Vehicle update failed.',
           pendingVehicleId: selectedVehicleId,
         });
-        return;
+        return false;
       }
       if (!result.ok) {
         if (result.staleConflict) setStaleConflict(true);
-        return;
+        return false;
       }
       if (plate) onVehicleDisplayChange?.(plate);
       await finishWithOtpReveal(true);
-      return;
+      return true;
     }
 
-    if (selectedDriverId) {
-      const plate =
-        isAggregate && !selectedVehicleId
-          ? formatIndianVehicleNumber(adHocPlate).trim()
-          : '';
-      const { ok, staleConflict: stale } = await reassignCombined({
-        driverId: selectedDriverId,
-        vehicleId: selectedVehicleId,
-        vehicleDisplayNumber: plate || undefined,
-      });
-      if (stale) {
-        setStaleConflict(true);
-        return;
-      }
-      if (!ok) return;
-      if (plate) onVehicleDisplayChange?.(plate);
-      await finishWithOtpReveal(false);
+    const driverId =
+      (reuseExistingDriver
+        ? rosterMatch?.id ?? trip.driver_id
+        : selectedDriverId) ?? null;
+    if (!driverId) return false;
+    const { ok, staleConflict: stale } = await reassignCombined({
+      driverId,
+      vehicleId: selectedVehicleId,
+      vehicleDisplayNumber:
+        isAggregate && !selectedVehicleId ? plate || undefined : undefined,
+      driverDisplayName: nextName || undefined,
+    });
+    if (stale) {
+      setStaleConflict(true);
+      return false;
     }
+    if (!ok) return false;
+    if (plate) onVehicleDisplayChange?.(plate);
+    await finishWithOtpReveal(false);
+    return true;
   }, [
     canConfirm,
+    saving,
     driverModeIsPhone,
     driverNameInput,
     phone,
     adHocPlate,
     selectedVehicleId,
     selectedDriverId,
+    drivers,
+    currentDriverPhone,
+    trip.driver_id,
     reassignByPhone,
     reassignCombined,
     isAggregate,
@@ -528,32 +613,6 @@ export function ReassignSheet({
     driverModeIsPhone,
     setError,
   ]);
-
-  const summaryDriver = useMemo(() => {
-    if (driverModeIsPhone) {
-      const name = driverNameInput.trim();
-      const ph = phone.trim();
-      if (name && ph) return `${name} · ${ph}`;
-      return name || ph || '—';
-    }
-    const d = drivers.find((x) => x.id === selectedDriverId);
-    return d?.name ?? currentDriverName ?? '—';
-  }, [
-    driverModeIsPhone,
-    driverNameInput,
-    phone,
-    drivers,
-    selectedDriverId,
-    currentDriverName,
-  ]);
-
-  const summaryVehicle = useMemo(() => {
-    const v = vehicles.find((x) => x.id === selectedVehicleId);
-    if (v) return formatIndianVehicleNumber(v.vehicle_number ?? '') || '—';
-    const plate = formatIndianVehicleNumber(adHocPlate).trim();
-    if (plate) return plate;
-    return currentVehicleLabel ?? '—';
-  }, [vehicles, selectedVehicleId, adHocPlate, currentVehicleLabel]);
 
   const aggregateStepState = useMemo(
     () => ({
@@ -708,8 +767,15 @@ export function ReassignSheet({
     if (aggregatePhoneLookup.loading && isAggregate && driverModeIsPhone) {
       return 'Checking driver availability…';
     }
-    if (aggregatePhoneLookup.inTrip) {
-      return `This driver is on ${aggregatePhoneLookup.busyTripLabel ?? 'another active trip'} — use another number.`;
+    if (
+      aggregatePhoneLookup.inTrip &&
+      shouldInviteDriverByPhone({
+        phone,
+        currentDriverPhone,
+        rosterPhones: drivers.map((d) => d.phone),
+      })
+    ) {
+      return `This number is on ${aggregatePhoneLookup.busyTripLabel ?? 'another trip'}. Finish that trip or pick someone else.`;
     }
     if (aggregatePhoneLookup.lookupError) return aggregatePhoneLookup.lookupError;
     if (
@@ -720,8 +786,8 @@ export function ReassignSheet({
     ) {
       return 'Multiple driver profiles found — select one to continue.';
     }
-    if (!hasChanges && meetsValidation) {
-      return 'Change driver, vehicle, or phone to confirm reassignment.';
+    if (!hasChanges && meetsValidation && driverModeIsPhone === false) {
+      return 'Change driver or vehicle to save.';
     }
     if (error) return error;
     return null;
@@ -737,6 +803,9 @@ export function ReassignSheet({
     hasChanges,
     meetsValidation,
     error,
+    phone,
+    currentDriverPhone,
+    drivers,
   ]);
 
   const wizardPrimaryLabel = useMemo(() => {
@@ -781,10 +850,27 @@ export function ReassignSheet({
     ],
   );
 
-  const handleAggregatePhoneChange = useCallback(
-    (value: string) => setPhone(formatMobileNumber(value)),
-    [],
-  );
+  const handleAggregatePhoneChange = useCallback((value: string) => {
+    const next = formatMobileNumber(value);
+    const prevLast10 = phone.replace(/\D/g, "").slice(-10);
+    const nextLast10 = next.replace(/\D/g, "").slice(-10);
+    if (prevLast10 !== nextLast10) {
+      setDriverNameManual(false);
+    }
+    setPhone(next);
+  }, [phone]);
+
+  useEffect(() => {
+    if (driverNameManual) return;
+    const suggested = aggregatePhoneLookup.suggestedName?.trim();
+    if (!suggested) return;
+    if (driverNameInput.trim() === suggested) return;
+    setDriverNameInput(suggested);
+  }, [
+    aggregatePhoneLookup.suggestedName,
+    driverNameInput,
+    driverNameManual,
+  ]);
 
   const handleAggregateDriverNameChange = useCallback((value: string) => {
     setDriverNameManual(true);
@@ -878,11 +964,17 @@ export function ReassignSheet({
         selectedDriverId={selectedDriverId}
         onSelectDriverId={setSelectedDriverId}
         phone={phone}
-        onPhoneChange={setPhone}
+        onPhoneChange={handleAggregatePhoneChange}
         driverName={driverNameInput}
-        onDriverNameChange={setDriverNameInput}
+        onDriverNameChange={handleAggregateDriverNameChange}
         phoneBusy={phoneBusy}
         onPhoneBusyChange={setPhoneBusy}
+        phoneLookup={{
+          suggestedName: aggregatePhoneLookup.suggestedName,
+          inTrip: aggregatePhoneLookup.inTrip,
+          busyTripLabel: aggregatePhoneLookup.busyTripLabel,
+          loading: aggregatePhoneLookup.loading,
+        }}
       />
     </View>
   );
@@ -909,13 +1001,11 @@ export function ReassignSheet({
   );
 
   const fulfillmentMode: AssignmentFulfillmentMode = isAggregate ? 'MARKET' : 'ASSET';
-  const driverAction: AssignmentPanelAction =
-    !isAggregate && driverMode === 'existing' ? 'SWAP' : 'EDIT';
-  const vehicleAction: AssignmentPanelAction =
-    !isAggregate && vehicleMode === 'existing' ? 'SWAP' : 'EDIT';
 
   const handleWorkspaceDriverAction = useCallback(
     (action: AssignmentPanelAction) => {
+      setDriverAction(action);
+      if (action === 'PREVIEW') return;
       if (action === 'SWAP') {
         setDriverMode(isAggregate ? 'phone' : 'existing');
       } else {
@@ -931,6 +1021,8 @@ export function ReassignSheet({
 
   const handleWorkspaceVehicleAction = useCallback(
     (action: AssignmentPanelAction) => {
+      setVehicleAction(action);
+      if (action === 'PREVIEW') return;
       if (action === 'SWAP') {
         setVehicleMode(isAggregate ? 'add' : 'existing');
       } else {
@@ -957,11 +1049,17 @@ export function ReassignSheet({
       selectedDriverId={selectedDriverId}
       onSelectDriverId={setSelectedDriverId}
       phone={phone}
-      onPhoneChange={setPhone}
+      onPhoneChange={handleAggregatePhoneChange}
       driverName={driverNameInput}
-      onDriverNameChange={setDriverNameInput}
+      onDriverNameChange={handleAggregateDriverNameChange}
       phoneBusy={phoneBusy}
       onPhoneBusyChange={setPhoneBusy}
+      phoneLookup={{
+        suggestedName: aggregatePhoneLookup.suggestedName,
+        inTrip: aggregatePhoneLookup.inTrip,
+        busyTripLabel: aggregatePhoneLookup.busyTripLabel,
+        loading: aggregatePhoneLookup.loading,
+      }}
       embedded
     />
   );
@@ -1047,13 +1145,56 @@ export function ReassignSheet({
   return (
     <Modal
       visible={visible}
-      animationType={Platform.OS === 'web' ? 'fade' : 'slide'}
-      presentationStyle={Platform.OS === 'web' ? 'overFullScreen' : 'pageSheet'}
-      transparent={Platform.OS === 'web'}
+      animationType="fade"
+      presentationStyle="overFullScreen"
+      transparent
       onRequestClose={onClose}
     >
-      <View style={assignmentShellStyles.webModalBackdrop}>
-        {otpSuccess ? (
+      <View
+        style={
+          mobileFullPage
+            ? assignmentShellStyles.webModalBackdropFullPage
+            : assignmentShellStyles.webModalBackdrop
+        }
+      >
+        {mobileFullPage ? null : (
+        <Pressable
+          style={assignmentShellStyles.webModalBackdropTap}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss change driver"
+        />
+        )}
+        {savedConfirm ? (
+          <View
+            style={
+              mobileFullPage
+                ? assignmentShellStyles.assignModalWrapFullPage
+                : assignmentShellStyles.assignModalWrapPopup
+            }
+          >
+            <View style={{ padding: 24, alignItems: "center", gap: 10 }}>
+              <FontAwesome
+                name="check-circle"
+                size={36}
+                color={Theme.networkHubListCardOnlineDot}
+              />
+              <Text style={s.otpSuccessTitle}>Assignment updated</Text>
+              <Text style={s.otpSuccessHint}>
+                {savedConfirm.driver} · {savedConfirm.vehicle}
+              </Text>
+              <TouchableOpacity
+                style={s.otpDismissBtn}
+                onPress={onClose}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Done"
+              >
+                <Text style={s.otpDismissText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : otpSuccess ? (
           <View
             style={[
               assignmentShellStyles.assignModalWrapSlate,
@@ -1089,21 +1230,14 @@ export function ReassignSheet({
           </View>
         ) : !useMobileWizard ? (
           <View
-            style={[
-              assignmentShellStyles.assignModalWrapSlate,
-              {
-                flex: 1,
-                maxWidth: Platform.OS === 'web' ? 1280 : '100%',
-                width: Platform.OS === 'web' ? '96%' : '100%',
-                maxHeight: Platform.OS === 'web' ? '94%' : '100%',
-                padding: 0,
-                overflow: 'hidden',
-                alignSelf: 'stretch',
-                minWidth: 0,
-              },
-            ]}
+            style={
+              mobileFullPage
+                ? assignmentShellStyles.assignModalWrapFullPage
+                : assignmentShellStyles.assignModalWrapPopup
+            }
           >
             <TripAssignmentWorkspace
+              layout={mobileFullPage ? "page" : "popup"}
               trip={trip}
               organizationId={organizationId}
               driverDisplayName={summaryDriver}
@@ -1135,13 +1269,7 @@ export function ReassignSheet({
               changeRemarks={changeRemarks}
               onChangeRemarksChange={setChangeRemarks}
               onConfirm={() => {
-                void (async () => {
-                  await handleConfirm();
-                  setWorkspaceToast(
-                    'Manifest updated — changes logged to dispatch audit trail.',
-                  );
-                  setTimeout(() => setWorkspaceToast(null), 3500);
-                })();
+                void handleConfirm();
               }}
               confirmDisabled={!canConfirm}
               confirmLoading={saving}

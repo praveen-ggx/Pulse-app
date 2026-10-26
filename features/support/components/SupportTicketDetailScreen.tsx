@@ -1,12 +1,8 @@
 /**
- * Support ticket detail + reply.
- *
- * Mobile: stacked — compact doc chips (thumb ~30% / meta ~70%), then discussion.
- * Desktop/tablet (≥768): ~1/3 Documents rail (portrait preview fills height)
- * + remaining width for discussion (no max-width cap).
+ * Support ticket detail + reply — same chrome as Contact Support.
  */
 import { CenteredLoadingView } from '@/components/CenteredLoadingView';
-import Layout from '@/constants/Layout';
+import { DetailPageLayout } from '@/components/DetailPageLayout';
 import Theme from '@/constants/Theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDocumentPreview } from '@/features/chat/components/DocumentPreviewModal';
@@ -25,35 +21,32 @@ import {
 import { showAppAlert } from '@/lib/appAlert';
 import { useSupportTicketDetailQuery } from '@/lib/queries/useSupportTicketDetailQuery';
 import { queryKeys } from '@/lib/queryKeys';
-import FontAwesome from '@expo/vector-icons/FontAwesome';
+import { ROUTES } from '@/lib/routes';
+import { FileText, Send } from 'lucide-react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import { FileText, Send } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  useWindowDimensions,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const SPLIT_MIN_WIDTH = 768;
-const MOBILE_THUMB = 56;
+const WEB_COPY = Platform.select({
+  web: { whiteSpace: 'pre-wrap' as const },
+  default: {},
+});
 
 function fileNameFromPath(storagePath: string): string {
   return storagePath.split('/').pop() ?? 'Attachment';
 }
 
-/** Strip storage uuid prefix for readable labels (e.g. `uuid-IMG_7148.PNG` → `IMG_7148.PNG`). */
 function displayFileName(storagePath: string): string {
   const raw = fileNameFromPath(storagePath);
   const stripped = raw.replace(
@@ -86,229 +79,6 @@ function useAttachmentUrls(attachments: SupportTicketAttachmentRow[]) {
   return urls;
 }
 
-function PreviewFrame({
-  size,
-  url,
-  mimeType,
-}: {
-  size: number;
-  url?: string;
-  mimeType: string | null;
-}) {
-  const isImage = isImageAttachment(mimeType);
-  return (
-    <View style={[styles.previewFrame, { width: size, height: size }]}>
-      {isImage && url ? (
-        <Image
-          source={{ uri: url }}
-          style={styles.previewImage}
-          resizeMode="cover"
-          accessibilityIgnoresInvertColors
-        />
-      ) : (
-        <FileText size={Math.round(size * 0.28)} color={Theme.primary} />
-      )}
-    </View>
-  );
-}
-
-/** Mobile: horizontal chip — thumb left (~30%), meta right (~70%). */
-function MobileDocChip({
-  attachment,
-  url,
-  onPreview,
-}: {
-  attachment: SupportTicketAttachmentRow;
-  url?: string;
-  onPreview: (url: string, mime: string | null, fileName: string) => void;
-}) {
-  const fileName = fileNameFromPath(attachment.storage_path);
-  const label = displayFileName(attachment.storage_path);
-  const mimeShort = attachment.mime_type?.split('/')[1]?.toUpperCase() ?? 'FILE';
-  const sizeLabel = formatAttachmentSize(attachment.size_bytes);
-
-  return (
-    <Pressable
-      onPress={() => url && onPreview(url, attachment.mime_type, fileName)}
-      disabled={!url}
-      style={({ pressed }) => [styles.mobileChip, pressed && styles.pressed]}
-      accessibilityRole="button"
-      accessibilityLabel={`Preview ${label}`}
-    >
-      <PreviewFrame size={MOBILE_THUMB} url={url} mimeType={attachment.mime_type} />
-      <View style={styles.mobileChipText}>
-        <Text style={styles.docName} numberOfLines={2}>
-          {label}
-        </Text>
-        <Text style={styles.docMeta} numberOfLines={1}>
-          {[mimeShort, sizeLabel].filter(Boolean).join(' · ')}
-        </Text>
-      </View>
-    </Pressable>
-  );
-}
-
-/** Desktop: preview fills remaining page height inside a narrow rail. */
-function DesktopPreviewFrame({
-  url,
-  mimeType,
-}: {
-  url?: string;
-  mimeType: string | null;
-}) {
-  const isImage = isImageAttachment(mimeType);
-  return (
-    <View style={styles.desktopPreviewFrame}>
-      {isImage && url ? (
-        <Image
-          source={{ uri: url }}
-          style={styles.desktopPreviewImage}
-          resizeMode="contain"
-          accessibilityIgnoresInvertColors
-        />
-      ) : (
-        <View style={styles.desktopPreviewPlaceholder}>
-          <FileText size={28} color={Theme.primary} />
-        </View>
-      )}
-    </View>
-  );
-}
-
-function DesktopDocCard({
-  attachment,
-  url,
-  onPreview,
-  fillHeight,
-}: {
-  attachment: SupportTicketAttachmentRow;
-  url?: string;
-  onPreview: (url: string, mime: string | null, fileName: string) => void;
-  fillHeight: boolean;
-}) {
-  const fileName = fileNameFromPath(attachment.storage_path);
-  const label = displayFileName(attachment.storage_path);
-  const sizeLabel = formatAttachmentSize(attachment.size_bytes);
-
-  return (
-    <Pressable
-      onPress={() => url && onPreview(url, attachment.mime_type, fileName)}
-      disabled={!url}
-      style={({ pressed }) => [
-        styles.desktopCard,
-        fillHeight && styles.desktopCardFill,
-        pressed && styles.pressed,
-      ]}
-      accessibilityRole="button"
-      accessibilityLabel={`Preview ${label}`}
-    >
-      <DesktopPreviewFrame url={url} mimeType={attachment.mime_type} />
-      <Text style={styles.docName} numberOfLines={2}>
-        {label}
-      </Text>
-      <Text style={styles.docMeta} numberOfLines={1}>
-        {sizeLabel || attachment.mime_type?.split('/')[1]?.toUpperCase() || 'File'}
-      </Text>
-    </Pressable>
-  );
-}
-
-function AttachmentChips({
-  attachments,
-  onPreview,
-}: {
-  attachments: SupportTicketAttachmentRow[];
-  onPreview: (url: string, mime: string | null, fileName: string) => void;
-}) {
-  const urls = useAttachmentUrls(attachments);
-  if (!attachments.length) return null;
-  return (
-    <View style={styles.mobileChipList}>
-      {attachments.map((a) => (
-        <MobileDocChip
-          key={a.id}
-          attachment={a}
-          url={urls[a.id]}
-          onPreview={onPreview}
-        />
-      ))}
-    </View>
-  );
-}
-
-function TicketBubble({
-  isOwn,
-  author,
-  timestamp,
-  body,
-  attachments,
-  docHint,
-  onPreview,
-}: {
-  isOwn: boolean;
-  author: string;
-  timestamp: string;
-  body: string;
-  attachments?: SupportTicketAttachmentRow[];
-  docHint?: string | null;
-  onPreview: (url: string, mime: string | null, fileName: string) => void;
-}) {
-  return (
-    <View style={[styles.bubbleWrap, isOwn ? styles.bubbleWrapOwn : styles.bubbleWrapOther]}>
-      <View style={[styles.bubble, isOwn ? styles.bubbleOwn : styles.bubbleSupport]}>
-        <Text style={[styles.bubbleAuthor, isOwn && styles.bubbleAuthorOwn]}>
-          {author} · {timestamp}
-        </Text>
-        <Text style={styles.bubbleBody}>{body}</Text>
-        {attachments?.length ? (
-          <AttachmentChips attachments={attachments} onPreview={onPreview} />
-        ) : null}
-        {docHint ? <Text style={styles.bubbleDocHint}>{docHint}</Text> : null}
-      </View>
-    </View>
-  );
-}
-
-function DocumentsPanel({
-  attachments,
-  onPreview,
-}: {
-  attachments: SupportTicketAttachmentRow[];
-  onPreview: (url: string, mime: string | null, fileName: string) => void;
-}) {
-  const urls = useAttachmentUrls(attachments);
-  if (!attachments.length) return null;
-
-  const fillHeight = attachments.length === 1;
-
-  const cards = attachments.map((a) => (
-    <DesktopDocCard
-      key={a.id}
-      attachment={a}
-      url={urls[a.id]}
-      onPreview={onPreview}
-      fillHeight={fillHeight}
-    />
-  ));
-
-  return (
-    <View style={styles.desktopRail}>
-      <Text style={styles.sectionLabel}>Documents</Text>
-      {fillHeight ? (
-        <View style={styles.desktopRailFill}>{cards}</View>
-      ) : (
-        <ScrollView
-          style={styles.desktopRailScroll}
-          contentContainerStyle={styles.desktopRailScrollContent}
-          showsVerticalScrollIndicator
-        >
-          {cards}
-        </ScrollView>
-      )}
-    </View>
-  );
-}
-
 function statusColor(status: SupportTicketStatus): string {
   switch (status) {
     case 'resolved':
@@ -335,11 +105,61 @@ function formatTimestamp(iso: string): string {
   });
 }
 
+function AttachmentRows({
+  attachments,
+  onPreview,
+}: {
+  attachments: SupportTicketAttachmentRow[];
+  onPreview: (url: string, mime: string | null, fileName: string) => void;
+}) {
+  const urls = useAttachmentUrls(attachments);
+  if (!attachments.length) return null;
+  return (
+    <View style={styles.attachmentList}>
+      {attachments.map((a) => {
+        const fileName = fileNameFromPath(a.storage_path);
+        const label = displayFileName(a.storage_path);
+        const url = urls[a.id];
+        const mimeShort = a.mime_type?.split('/')[1]?.toUpperCase() ?? 'FILE';
+        const isImage = isImageAttachment(a.mime_type);
+        return (
+          <Pressable
+            key={a.id}
+            onPress={() => url && onPreview(url, a.mime_type, fileName)}
+            disabled={!url}
+            style={({ pressed }) => [styles.attachmentRow, pressed && styles.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel={`Preview ${label}`}
+          >
+            <View style={styles.attachmentThumb}>
+              {isImage && url ? (
+                <Image
+                  source={{ uri: url }}
+                  style={styles.attachmentImage}
+                  resizeMode="cover"
+                  accessibilityIgnoresInvertColors
+                />
+              ) : (
+                <FileText size={14} color={Theme.actionBtnInk} />
+              )}
+            </View>
+            <View style={styles.attachmentInfo}>
+              <Text style={styles.attachmentName} numberOfLines={1}>
+                {label}
+              </Text>
+              <Text style={styles.attachmentMeta}>
+                {[mimeShort, formatAttachmentSize(a.size_bytes)].filter(Boolean).join(' · ')}
+              </Text>
+            </View>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 export function SupportTicketDetailScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
-  const isSplit = width >= SPLIT_MIN_WIDTH;
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -356,7 +176,6 @@ export function SupportTicketDetailScreen() {
     () => attachments.filter((a) => a.comment_id === null),
     [attachments],
   );
-  const hasDocs = attachments.length > 0;
   const closed = ticket ? isSupportTicketClosed(ticket.status) : true;
 
   useEffect(() => {
@@ -378,7 +197,7 @@ export function SupportTicketDetailScreen() {
 
   const handleBack = () => {
     if (router.canGoBack()) router.back();
-    else router.replace('/support-tickets' as Href);
+    else router.replace(ROUTES.SUPPORT_TICKETS as Href);
   };
 
   const handleSend = async () => {
@@ -398,492 +217,337 @@ export function SupportTicketDetailScreen() {
     }
   };
 
-  const thread = ticket ? (
-    <>
-      <View style={styles.headerCard}>
-        <View style={styles.headerTop}>
-          <Text style={styles.subject} numberOfLines={3}>
-            {ticket.subject}
-          </Text>
-          <View
-            style={[styles.statusPill, { backgroundColor: `${statusColor(ticket.status)}1A` }]}
-          >
-            <Text style={[styles.statusPillText, { color: statusColor(ticket.status) }]}>
-              {supportTicketStatusLabel(ticket.status)}
-            </Text>
-          </View>
-        </View>
-        <Text style={styles.metaLine}>
-          {ticket.category} · {priorityLabel(ticket.priority)} priority
-        </Text>
-      </View>
-
-      <TicketBubble
-        isOwn
-        author="You"
-        timestamp={formatTimestamp(ticket.created_at)}
-        body={ticket.description}
-        attachments={isSplit ? undefined : openingAttachments}
-        docHint={
-          openingAttachments.length > 0 && isSplit
-            ? `${openingAttachments.length} attachment${openingAttachments.length === 1 ? '' : 's'} — see Documents`
-            : null
-        }
-        onPreview={handlePreview}
-      />
-
-      {comments.map((c) => {
-        const commentAttachments = attachments.filter((a) => a.comment_id === c.id);
-        const isOwn =
-          c.author_type === 'user' ||
-          (c.author_type !== 'agent' && c.author_user_id === user?.uid);
-        return (
-          <TicketBubble
-            key={c.id}
-            isOwn={isOwn}
-            author={isOwn ? 'You' : 'Support'}
-            timestamp={formatTimestamp(c.created_at)}
-            body={c.body}
-            attachments={isSplit ? undefined : commentAttachments}
-            docHint={
-              commentAttachments.length > 0 && isSplit
-                ? `${commentAttachments.length} attachment${commentAttachments.length === 1 ? '' : 's'} — see Documents`
-                : null
-            }
-            onPreview={handlePreview}
-          />
-        );
-      })}
-
-      {closed ? <Text style={styles.closedHint}>This ticket is closed.</Text> : null}
-    </>
-  ) : null;
-
-  const composer = !closed ? (
-    <View style={[styles.composerDock, { paddingBottom: Math.max(10, insets.bottom) }]}>
-      <View style={styles.composerRow}>
-        <TextInput
-          style={styles.composerInput}
-          value={reply}
-          onChangeText={setReply}
-          placeholder="Add a reply..."
-          placeholderTextColor={Theme.textMuted}
-          multiline
-        />
-        <TouchableOpacity
-          style={[styles.sendBtn, (!reply.trim() || sending) && styles.sendBtnDisabled]}
-          onPress={() => void handleSend()}
-          disabled={!reply.trim() || sending}
-          activeOpacity={0.85}
-          accessibilityLabel="Send reply"
-        >
-          {sending ? (
-            <ActivityIndicator color={Theme.buttonPrimaryText} size="small" />
-          ) : (
-            <Send size={18} color={Theme.buttonPrimaryText} />
-          )}
-        </TouchableOpacity>
-      </View>
-    </View>
-  ) : null;
-
   return (
     <>
-      <View style={styles.screen}>
-        <View
-          style={[
-            styles.navHeader,
-            {
-              paddingTop: insets.top + Layout.headerPaddingBelowInset,
-              backgroundColor: Theme.screenBackground,
-            },
-          ]}
-        >
-          <TouchableOpacity
-            style={styles.backBtn}
-            onPress={handleBack}
-            accessibilityLabel="Back"
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            activeOpacity={0.7}
+      <DetailPageLayout
+        title={ticket?.display_id ?? 'Ticket'}
+        onBack={handleBack}
+        rightAction={
+          <Pressable
+            onPress={() => router.push(ROUTES.SUPPORT_TICKETS as Href)}
+            hitSlop={8}
+            style={styles.headerBtn}
+            accessibilityRole="button"
+            accessibilityLabel="My tickets"
           >
-            <FontAwesome name="arrow-left" size={20} color={Theme.textPrimaryDark} />
-          </TouchableOpacity>
-          <Text style={styles.navTitle} numberOfLines={1}>
-            {ticket?.display_id ?? 'Ticket'}
-          </Text>
-          <View style={styles.backBtn} />
-        </View>
-
+            <Text style={styles.headerBtnText}>My tickets</Text>
+          </Pressable>
+        }
+      >
         {isLoading ? (
           <CenteredLoadingView />
         ) : error || !ticket ? (
           <Text style={styles.errorText}>
             {error instanceof Error ? error.message : 'Ticket not found.'}
           </Text>
-        ) : hasDocs && isSplit ? (
-          <View style={styles.desktopSplit}>
-            <View style={styles.desktopLeft}>
-              <DocumentsPanel
-                attachments={attachments}
-                onPreview={handlePreview}
-              />
-            </View>
-            <View style={styles.desktopDivider} />
-            <View style={styles.desktopRight}>
-              <ScrollView
-                style={styles.threadScroll}
-                contentContainerStyle={styles.desktopRightContent}
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-              >
-                {thread}
-              </ScrollView>
-              {composer}
-            </View>
-          </View>
         ) : (
-          <KeyboardAvoidingView
-            style={styles.mobileColumn}
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            keyboardVerticalOffset={0}
-          >
-            <ScrollView
-              style={styles.threadScroll}
-              contentContainerStyle={styles.mobileScrollContent}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-              {thread}
-            </ScrollView>
-            {composer}
-          </KeyboardAvoidingView>
+          <View style={styles.page}>
+            <View style={styles.card}>
+              <View style={styles.cardHead}>
+                <View style={styles.headCopy}>
+                  <Text style={styles.cardKicker}>{ticket.subject}</Text>
+                  <Text style={styles.cardHint}>
+                    {ticket.category} · {priorityLabel(ticket.priority)} priority ·{' '}
+                    {formatTimestamp(ticket.created_at)}
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    styles.statusPill,
+                    { backgroundColor: `${statusColor(ticket.status)}1A` },
+                  ]}
+                >
+                  <Text style={[styles.statusPillText, { color: statusColor(ticket.status) }]}>
+                    {supportTicketStatusLabel(ticket.status)}
+                  </Text>
+                </View>
+              </View>
+              <Text style={styles.body}>{ticket.description}</Text>
+              {openingAttachments.length > 0 ? (
+                <>
+                  <Text style={styles.fieldLabel}>Attachments</Text>
+                  <AttachmentRows
+                    attachments={openingAttachments}
+                    onPreview={handlePreview}
+                  />
+                </>
+              ) : null}
+            </View>
+
+            {comments.length > 0 ? (
+              <View style={styles.threadSection}>
+                <Text style={styles.sectionLabel}>Discussion</Text>
+                {comments.map((c) => {
+                  const commentAttachments = attachments.filter((a) => a.comment_id === c.id);
+                  const isOwn =
+                    c.author_type === 'user' ||
+                    (c.author_type !== 'agent' && c.author_user_id === user?.uid);
+                  return (
+                    <View key={c.id} style={styles.card}>
+                      <View style={styles.threadHead}>
+                        <Text style={styles.threadAuthor}>{isOwn ? 'You' : 'Support'}</Text>
+                        <Text style={styles.threadTime}>{formatTimestamp(c.created_at)}</Text>
+                      </View>
+                      <Text style={styles.body}>{c.body}</Text>
+                      {commentAttachments.length > 0 ? (
+                        <AttachmentRows
+                          attachments={commentAttachments}
+                          onPreview={handlePreview}
+                        />
+                      ) : null}
+                    </View>
+                  );
+                })}
+              </View>
+            ) : null}
+
+            {closed ? (
+              <Text style={styles.closedHint}>This ticket is closed.</Text>
+            ) : (
+              <View style={styles.card}>
+                <Text style={styles.fieldLabel}>Reply</Text>
+                <TextInput
+                  style={[styles.input, styles.replyInput]}
+                  value={reply}
+                  onChangeText={setReply}
+                  placeholder="Add a reply..."
+                  placeholderTextColor={Theme.placeholder}
+                  multiline
+                  textAlignVertical="top"
+                />
+                <TouchableOpacity
+                  style={[styles.submitBtn, (!reply.trim() || sending) && styles.submitBtnDisabled]}
+                  onPress={() => void handleSend()}
+                  disabled={!reply.trim() || sending}
+                  activeOpacity={0.88}
+                  accessibilityRole="button"
+                  accessibilityLabel="Send reply"
+                >
+                  {sending ? (
+                    <ActivityIndicator color={Theme.buttonDarkText} size="small" />
+                  ) : (
+                    <View style={styles.submitInner}>
+                      <Send size={13} color={Theme.buttonDarkText} />
+                      <Text style={styles.submitBtnText}>Send reply</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
         )}
-      </View>
+      </DetailPageLayout>
       {previewNode}
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: Theme.screenBackground,
+  page: {
+    width: '100%',
+    maxWidth: 720,
+    alignSelf: 'center',
+    gap: 16,
   },
-  navHeader: {
+  card: {
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
+    borderRadius: 12,
+    backgroundColor: Theme.cardWhite,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 14,
+    gap: 8,
+  },
+  cardHead: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  headCopy: { flex: 1, minWidth: 0, gap: 4 },
+  cardKicker: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Theme.actionBtnInk,
+    letterSpacing: 0,
+    ...WEB_COPY,
+  },
+  cardHint: {
+    fontSize: 11,
+    fontWeight: '400',
+    lineHeight: 16,
+    color: Theme.textMuted,
+    letterSpacing: 0,
+    ...WEB_COPY,
+  },
+  body: {
+    fontSize: 13,
+    fontWeight: '400',
+    lineHeight: 19,
+    color: Theme.textPrimaryDark,
+    letterSpacing: 0,
+    ...WEB_COPY,
+  },
+  fieldLabel: {
+    fontSize: 10,
+    fontWeight: '500',
+    letterSpacing: 0,
+    color: Theme.textMuted,
+    marginTop: 4,
+    ...WEB_COPY,
+  },
+  statusPill: {
+    borderRadius: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    flexShrink: 0,
+  },
+  statusPillText: {
+    fontSize: 10,
+    fontWeight: '500',
+    letterSpacing: 0,
+    ...WEB_COPY,
+  },
+  attachmentList: { gap: 6 },
+  attachmentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
+    borderRadius: 8,
+    backgroundColor: Theme.surface,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  attachmentThumb: {
+    width: 36,
+    height: 36,
+    borderRadius: 6,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    flexShrink: 0,
+  },
+  attachmentImage: { width: '100%', height: '100%' },
+  attachmentInfo: { flex: 1, minWidth: 0, gap: 1 },
+  attachmentName: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: Theme.textPrimaryDark,
+    letterSpacing: 0,
+    ...WEB_COPY,
+  },
+  attachmentMeta: {
+    fontSize: 10,
+    color: Theme.textMuted,
+    letterSpacing: 0,
+    ...WEB_COPY,
+  },
+  threadSection: { gap: 8 },
+  sectionLabel: {
+    fontSize: 10,
+    fontWeight: '500',
+    letterSpacing: 0,
+    color: Theme.textMuted,
+    ...WEB_COPY,
+  },
+  threadHead: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Layout.screenPaddingHorizontal,
-    paddingBottom: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Theme.borderLight,
+    gap: 8,
   },
-  backBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Theme.surfaceLight,
+  threadAuthor: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: Theme.actionBtnInk,
+    letterSpacing: 0,
+    ...WEB_COPY,
+  },
+  threadTime: {
+    fontSize: 10,
+    color: Theme.textMuted,
+    letterSpacing: 0,
+    ...WEB_COPY,
+  },
+  input: {
+    backgroundColor: Theme.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    fontSize: 13,
+    fontWeight: '400',
+    color: Theme.textPrimaryDark,
+    minHeight: 40,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
+    borderRadius: 8,
+  },
+  replyInput: {
+    minHeight: 96,
+    paddingTop: 10,
+  },
+  submitBtn: {
+    backgroundColor: Theme.actionBtnInk,
+    minHeight: 40,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 4,
   },
-  navTitle: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 16,
-    fontWeight: '700',
-    color: Theme.textPrimaryDark,
-    letterSpacing: 0.4,
+  submitBtnDisabled: { opacity: 0.65 },
+  submitInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  submitBtnText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: Theme.buttonDarkText,
+    letterSpacing: 0,
+    ...WEB_COPY,
+  },
+  closedHint: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: Theme.textMuted,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
+    borderRadius: 8,
+    backgroundColor: Theme.surface,
+    letterSpacing: 0,
+    ...WEB_COPY,
+  },
+  headerBtn: {
+    minHeight: 32,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
+    backgroundColor: Theme.cardWhite,
+    justifyContent: 'center',
+  },
+  headerBtnText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: Theme.actionBtnInk,
+    letterSpacing: 0,
+    ...WEB_COPY,
   },
   errorText: {
     color: Theme.negative,
     fontSize: 13,
-    fontWeight: '600',
-    marginTop: 16,
-    marginHorizontal: Layout.screenPaddingHorizontal,
+    fontWeight: '500',
+    letterSpacing: 0,
+    ...WEB_COPY,
   },
   pressed: { opacity: 0.88 },
-
-  previewFrame: {
-    borderRadius: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
-    backgroundColor: Theme.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-    flexShrink: 0,
-  },
-  previewImage: {
-    width: '100%',
-    height: '100%',
-  },
-
-  // ── Mobile docs ──────────────────────────────────────────────────────────
-  mobileChipList: {
-    gap: 8,
-    marginTop: 4,
-  },
-  mobileChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
-    backgroundColor: Theme.cardWhite,
-    padding: 6,
-    paddingRight: 10,
-    minHeight: 44,
-  },
-  mobileChipText: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-    justifyContent: 'center',
-  },
-  docName: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Theme.textPrimaryDark,
-    lineHeight: 17,
-  },
-  docMeta: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: Theme.textMuted,
-  },
-
-  // ── Desktop split: ~1/3 preview (fills height) + remaining discussion ───
-  desktopSplit: {
-    flex: 1,
-    flexDirection: 'row',
-    minHeight: 0,
-    width: '100%',
-    alignItems: 'stretch',
-  },
-  desktopLeft: {
-    width: '34%',
-    minWidth: 300,
-    maxWidth: 460,
-    flexShrink: 0,
-    minHeight: 0,
-    backgroundColor: Theme.cardWhite,
-    borderRightWidth: StyleSheet.hairlineWidth,
-    borderRightColor: Theme.borderLight,
-  },
-  desktopDivider: {
-    width: 0,
-  },
-  desktopRight: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: 0,
-    backgroundColor: Theme.screenBackground,
-  },
-  threadScroll: {
-    flex: 1,
-    minHeight: 0,
-  },
-  desktopRightContent: {
-    width: '100%',
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 16,
-  },
-  mobileColumn: {
-    flex: 1,
-    minHeight: 0,
-  },
-  desktopRail: {
-    flex: 1,
-    minHeight: 0,
-    paddingTop: 14,
-    paddingHorizontal: 12,
-    paddingBottom: 12,
-  },
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-    color: Theme.textMuted,
-    marginBottom: 10,
-  },
-  desktopRailFill: {
-    flex: 1,
-    minHeight: 0,
-  },
-  desktopRailScroll: { flex: 1, minHeight: 0 },
-  desktopRailScrollContent: {
-    gap: 12,
-    paddingBottom: 8,
-  },
-  desktopCard: {
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: Theme.borderLight,
-    backgroundColor: Theme.surfaceLight,
-    padding: 8,
-    gap: 8,
-    width: '100%',
-  },
-  desktopCardFill: {
-    flex: 1,
-    minHeight: 0,
-  },
-  desktopPreviewFrame: {
-    flex: 1,
-    minHeight: 0,
-    width: '100%',
-    borderRadius: 8,
-    backgroundColor: Theme.cardWhite,
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  desktopPreviewImage: {
-    width: '100%',
-    height: '100%',
-  },
-  desktopPreviewPlaceholder: {
-    flex: 1,
-    width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Theme.cardWhite,
-  },
-
-  // ── Mobile / no-docs scroll ──────────────────────────────────────────────
-  mobileScrollContent: {
-    paddingHorizontal: Layout.screenPaddingHorizontal,
-    paddingTop: 12,
-    paddingBottom: 20,
-    width: '100%',
-    gap: 2,
-  },
-
-  // ── Discussion ───────────────────────────────────────────────────────────
-  headerCard: {
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
-    backgroundColor: Theme.cardWhite,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 6,
-    marginBottom: 14,
-  },
-  headerTop: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  subject: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 17,
-    fontWeight: '700',
-    color: Theme.textPrimaryDark,
-    letterSpacing: -0.2,
-  },
-  statusPill: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    flexShrink: 0,
-  },
-  statusPillText: { fontSize: 11, fontWeight: '700' },
-  metaLine: { fontSize: 12, color: Theme.textMuted, fontWeight: '500' },
-  bubbleWrap: {
-    width: '100%',
-    marginBottom: 8,
-  },
-  bubbleWrapOwn: {
-    alignItems: 'flex-end',
-  },
-  bubbleWrapOther: {
-    alignItems: 'flex-start',
-  },
-  bubble: {
-    maxWidth: '86%',
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 5,
-  },
-  bubbleOwn: {
-    backgroundColor: Theme.surface,
-    borderBottomRightRadius: 6,
-  },
-  bubbleSupport: {
-    backgroundColor: Theme.brandBlueSoft,
-    borderBottomLeftRadius: 6,
-  },
-  bubbleAuthor: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: Theme.textMuted,
-  },
-  bubbleAuthorOwn: {
-    color: Theme.textMuted,
-  },
-  bubbleBody: {
-    fontSize: 15,
-    lineHeight: 21,
-    color: Theme.textPrimaryDark,
-    fontWeight: '500',
-  },
-  bubbleDocHint: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: Theme.primary,
-    marginTop: 2,
-  },
-  composerDock: {
-    flexShrink: 0,
-    paddingHorizontal: Layout.screenPaddingHorizontal,
-    paddingTop: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Theme.borderLight,
-    backgroundColor: Theme.cardWhite,
-  },
-  composerRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 8,
-  },
-  composerInput: {
-    flex: 1,
-    minHeight: 44,
-    maxHeight: 120,
-    borderRadius: 22,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderInput,
-    backgroundColor: Theme.surface,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    fontSize: 15,
-    color: Theme.textPrimaryDark,
-    textAlignVertical: 'center',
-  },
-  sendBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Theme.buttonPrimary,
-    borderWidth: Theme.buttonPrimaryBorderWidth,
-    borderColor: Theme.buttonPrimaryBorder,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  sendBtnDisabled: { opacity: 0.4 },
-  closedHint: {
-    marginTop: 8,
-    marginBottom: 16,
-    textAlign: 'center',
-    fontSize: 13,
-    color: Theme.textMuted,
-  },
 });

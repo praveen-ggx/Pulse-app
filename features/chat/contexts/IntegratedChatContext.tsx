@@ -14,6 +14,10 @@ import { subscribeSharedPostgresChanges } from "@/lib/realtimeRegistry";
 import { setNetworkUnreadCount } from "@/lib/chatUnreadSignal";
 import { networkMetadataToReplyPreview } from "@/features/network/utils/storyReplyPreview.util";
 import * as chatService from "../services/chat.service";
+import {
+  loadNetworkChatBootstrap,
+  persistNetworkChatBootstrap,
+} from "../persist/networkChatBootstrapPersist";
 import type {
   NetworkConversation,
   NetworkConversationRow,
@@ -250,6 +254,7 @@ const networkChatFetchInFlight = new Map<
   string,
   Promise<{ conversations: NetworkConversation[]; partners: NetworkPartner[] }>
 >();
+const networkInboxFetchInFlight = new Map<string, Promise<NetworkConversation[]>>();
 const networkChatFetchCache = new Map<
   string,
   { conversations: NetworkConversation[]; partners: NetworkPartner[]; fetchedAt: number }
@@ -260,11 +265,29 @@ const NETWORK_CHAT_FETCH_STALE_MS = 5 * 60_000;
 /** Test-only: clears the shared bootstrap cache/in-flight state between tests. */
 export function __resetNetworkChatBootstrapForTests(): void {
   networkChatFetchInFlight.clear();
+  networkInboxFetchInFlight.clear();
   networkChatFetchCache.clear();
+}
+
+async function fetchNetworkChatInboxShared(orgId: string): Promise<NetworkConversation[]> {
+  const cached = networkChatFetchCache.get(orgId);
+  if (cached && Date.now() - cached.fetchedAt < NETWORK_CHAT_FETCH_STALE_MS) {
+    return cached.conversations;
+  }
+  const inFlight = networkInboxFetchInFlight.get(orgId);
+  if (inFlight) return inFlight;
+  const promise = chatService.getNetworkConversationsByOrg(orgId);
+  networkInboxFetchInFlight.set(orgId, promise);
+  try {
+    return await promise;
+  } finally {
+    networkInboxFetchInFlight.delete(orgId);
+  }
 }
 
 async function fetchNetworkChatBootstrapShared(
   orgId: string,
+  inbox?: NetworkConversation[],
 ): Promise<{ conversations: NetworkConversation[]; partners: NetworkPartner[] }> {
   const cached = networkChatFetchCache.get(orgId);
   if (cached && Date.now() - cached.fetchedAt < NETWORK_CHAT_FETCH_STALE_MS) {
@@ -274,12 +297,17 @@ async function fetchNetworkChatBootstrapShared(
   if (inFlight) return inFlight;
 
   const promise = (async () => {
-    const [conversations, partners] = await Promise.all([
-      chatService.getNetworkConversationsByOrg(orgId),
+    const conversations = inbox ?? (await fetchNetworkChatInboxShared(orgId));
+    const [branded, partners] = await Promise.all([
+      chatService.enrichNetworkConversationsWithPartnerBranding(conversations),
       chatService.getIntegratedPartners(orgId),
     ]);
-    networkChatFetchCache.set(orgId, { conversations, partners, fetchedAt: Date.now() });
-    return { conversations, partners };
+    networkChatFetchCache.set(orgId, {
+      conversations: branded,
+      partners,
+      fetchedAt: Date.now(),
+    });
+    return { conversations: branded, partners };
   })();
   networkChatFetchInFlight.set(orgId, promise);
   try {
@@ -390,35 +418,61 @@ export function IntegratedChatProvider({
     }, 180);
   }, []);
 
+  const applyConversations = useCallback((convs: NetworkConversation[]) => {
+    setConversations((prev) => {
+      const prevById = new Map(prev.map((c) => [c.id, c]));
+      return convs.map((c) => {
+        const local = prevById.get(c.id);
+        if (!local?.messages?.length) return c;
+        return {
+          ...c,
+          messages: mergeNetworkMessagesPreservingOptimistic(
+            local.messages,
+            c.messages ?? [],
+          ),
+        };
+      });
+    });
+  }, []);
+
   const loadData = useCallback(async () => {
     if (!orgId || !selfUid || !sessionReady) return;
-    setIsLoading(true);
+    const memory = networkChatFetchCache.get(orgId);
+    if (memory && Date.now() - memory.fetchedAt < NETWORK_CHAT_FETCH_STALE_MS) {
+      applyConversations(memory.conversations);
+      setPartners(memory.partners);
+      setIsLoading(false);
+      lastFetchedAtRef.current = memory.fetchedAt;
+      return;
+    }
+
+    if (conversationsRef.current.length === 0) {
+      const disk = await loadNetworkChatBootstrap(orgId);
+      if (disk) {
+        applyConversations(disk.conversations);
+        setPartners(disk.partners);
+        setIsLoading(false);
+      } else {
+        setIsLoading(true);
+      }
+    }
+
     try {
+      const inbox = await fetchNetworkChatInboxShared(orgId);
+      applyConversations(inbox);
+      setIsLoading(false);
       const { conversations: convs, partners: pts } =
-        await fetchNetworkChatBootstrapShared(orgId);
-      // Preserve optimistic bubbles if a refresh races an in-flight send.
-      setConversations((prev) => {
-        const prevById = new Map(prev.map((c) => [c.id, c]));
-        return convs.map((c) => {
-          const local = prevById.get(c.id);
-          if (!local?.messages?.length) return c;
-          return {
-            ...c,
-            messages: mergeNetworkMessagesPreservingOptimistic(
-              local.messages,
-              c.messages ?? [],
-            ),
-          };
-        });
-      });
+        await fetchNetworkChatBootstrapShared(orgId, inbox);
+      applyConversations(convs);
       setPartners(pts);
       lastFetchedAtRef.current = Date.now();
+      void persistNetworkChatBootstrap(orgId, convs, pts);
     } catch {
       // Fail silently — tables may not be migrated yet
     } finally {
       setIsLoading(false);
     }
-  }, [orgId, selfUid, sessionReady]);
+  }, [orgId, selfUid, sessionReady, applyConversations]);
   loadDataRef.current = loadData;
 
   useEffect(() => {

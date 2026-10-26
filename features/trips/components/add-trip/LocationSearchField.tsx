@@ -13,6 +13,7 @@ import {
   searchPlacesInIndia,
   type PlaceResult,
 } from "@/lib/placesService";
+import { customPlaceCoords, isUsablePlaceCoordinate } from "@/lib/placeSearch.util";
 import {
   enrichPlaceSelectionSync,
   formatCityStateFromParts,
@@ -45,8 +46,9 @@ import {
 } from "react-native";
 
 export interface PlaceCoords {
-  lat: number;
-  lon: number;
+  /** Omitted / null for text-only custom addresses — never a fake 0,0 pin. */
+  lat?: number | null;
+  lon?: number | null;
   pincode?: string | null;
   city?: string | null;
   state?: string | null;
@@ -275,10 +277,7 @@ export function LocationSearchField({
       }).catch(() => {});
       closeDropdown();
 
-      const hasCoords =
-        Number.isFinite(sync.lat) &&
-        Number.isFinite(sync.lon) &&
-        !(sync.lat === 0 && sync.lon === 0);
+      const hasCoords = isUsablePlaceCoordinate(sync.lat, sync.lon);
       const needsEnrich = hasCoords && (!sync.city || !sync.state || !sync.pincode);
       if (!needsEnrich || !onSelectPlace) return;
 
@@ -332,13 +331,7 @@ export function LocationSearchField({
     if (trimmed) {
       const label = formatCityStateLabel(trimmed) || trimmed;
       onChangeText(label);
-      onSelectPlace?.(label, { lat: 0, lon: 0 });
-      addToPlacesCache({
-        placeId: `custom-${label}`,
-        displayName: label,
-        lat: 0,
-        lon: 0,
-      }).catch(() => {});
+      onSelectPlace?.(label, customPlaceCoords());
     }
     closeDropdown();
   }, [draft, onChangeText, onSelectPlace, closeDropdown]);

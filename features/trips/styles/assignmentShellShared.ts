@@ -26,11 +26,46 @@ export const assignmentShellStyles = StyleSheet.create({
     flex: 1,
     backgroundColor: assignmentShellColors.backdrop,
     padding: 18,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  webModalBackdropTap: {
+    ...StyleSheet.absoluteFillObject,
+  },
+
+  /** Mobile assignment — edge-to-edge page, not a centered card. */
+  webModalBackdropFullPage: {
+    flex: 1,
+    padding: 0,
+    justifyContent: "flex-start",
+    alignItems: "stretch",
+    backgroundColor: Theme.assignmentPageBg,
+  },
+  assignModalWrapFullPage: {
+    flex: 1,
+    width: "100%",
+    maxWidth: "100%",
+    maxHeight: "100%",
+    minHeight: 0,
+    alignSelf: "stretch",
+    backgroundColor: Theme.assignmentPageBg,
+  },
+
+  /** Change-driver / assign — notification-sized centered popup. */
+  assignModalWrapPopup: {
+    width: "100%",
+    maxWidth: 520,
+    maxHeight: "88%",
+    borderRadius: 16,
+    overflow: "hidden",
+    alignSelf: "center",
+    backgroundColor: assignmentShellColors.cardWhite,
+    flexDirection: "column",
     ...Platform.select({
       web: {
-        justifyContent: "center",
-        alignItems: "center",
+        boxShadow: "0 16px 48px rgba(24, 28, 50, 0.16)",
       } as object,
+      default: {},
     }),
   },
 

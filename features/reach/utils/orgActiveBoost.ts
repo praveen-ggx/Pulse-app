@@ -1,7 +1,7 @@
 import type { ReachCampaignRow } from '@/features/reach/services/campaigns.service';
 
 /**
- * Org-level Pulse Reach invariant helper: at most one draft/active campaign
+ * Org-level Pulse Boost invariant helper: at most one draft/active campaign
  * per organization (enforced in DB/RPC). Prefer `active` over `draft` if
  * both somehow appear (should not after the org unique index).
  */

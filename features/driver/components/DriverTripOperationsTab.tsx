@@ -1,5 +1,4 @@
 import { type Href, useRouter } from "expo-router";
-import { useFocusEffect } from "@react-navigation/native";
 import { ChevronRight, Gauge } from "lucide-react-native";
 import { useCallback, type ReactNode } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -17,9 +16,7 @@ import {
   toVerificationSnapshot,
 } from "@/features/trips/verification/selectors/verificationSelectors";
 import { computeDistanceDiscrepancy } from "@/features/trips/verification/verification.service";
-import { queryKeys } from "@/lib/queryKeys";
 import { ROUTES } from "@/lib/routes";
-import { useQueryClient } from "@tanstack/react-query";
 
 type Props = {
   trip: TripRow;
@@ -50,7 +47,6 @@ function TimelineSectionHeader({
 export function DriverTripOperationsTab({ trip }: Props) {
   const router = useRouter();
   const colors = useDriverThemeColors();
-  const queryClient = useQueryClient();
 
   const openOdometerCapture = useCallback(() => {
     router.push(ROUTES.tripVerification(trip.id, "both") as Href);
@@ -59,15 +55,6 @@ export function DriverTripOperationsTab({ trip }: Props) {
   const verificationQuery = useTripVerification(trip.id);
   const snapshot = verificationQuery.data ?? toVerificationSnapshot(trip);
   const gpsEstimate = useGPSDistanceEstimate(trip);
-
-  useFocusEffect(
-    useCallback(() => {
-      if (!trip.id) return;
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.trips.verification(trip.id),
-      });
-    }, [queryClient, trip.id]),
-  );
 
   const odometerMetrics = [
     { label: "Start", value: formatKm(snapshot.startOdometerKm) },

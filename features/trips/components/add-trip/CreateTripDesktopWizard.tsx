@@ -306,6 +306,14 @@ export function CreateTripDesktopWizard({
     setters.setSaleUnitRate("");
   }, [setters]);
 
+  const handleLaneGateActiveChange = useCallback(
+    (active: boolean) => {
+      setLaneGateActive(active);
+      onLaneGateActiveChange?.(active);
+    },
+    [onLaneGateActiveChange],
+  );
+
   const syncPerMtTotal = useCallback(
     (unitRaw: string, tonsRaw: string) => {
       const total = computeClientPrice({
@@ -630,10 +638,7 @@ export function CreateTripDesktopWizard({
           onClearLane={handleClearLane}
           laneSearch={laneSearch}
           onLaneSearchChange={setLaneSearch}
-          onLaneGateActiveChange={(active) => {
-            setLaneGateActive(active);
-            onLaneGateActiveChange?.(active);
-          }}
+          onLaneGateActiveChange={handleLaneGateActiveChange}
           saleRateBasis={state.saleRateBasis}
           saleUnitRate={state.saleUnitRate}
           onSaleRateBasisChange={handleSaleRateBasisChange}

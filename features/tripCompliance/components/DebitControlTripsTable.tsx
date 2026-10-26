@@ -26,6 +26,7 @@ import {
 } from "@/features/debit-control/utils/podAging.util";
 import { isSoftPodDocumentType } from "@/features/trips/services/tripDocumentLrPod.service";
 import { tryGetDocumentViewUrl } from "@/features/trips/services/tripDocuments.service";
+import { ComplianceActivityLogButton } from "@/features/tripCompliance/components/ComplianceTripActivityLog";
 import { ArrowDown, ArrowUp, Eye } from "lucide-react-native";
 import { useCallback, useMemo, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -36,6 +37,7 @@ type Props = {
   onOpenTrip: (tripId: string) => void;
   /** Awaiting POD: tapping a row opens Log hard copy POD. */
   onRowPress?: (summary: ComplianceTripSummary) => void;
+  onOpenActivityLog?: (summary: ComplianceTripSummary) => void;
 };
 
 const dash = (value: string | null | undefined) => value?.trim() || "—";
@@ -71,7 +73,13 @@ function podDelay(summary: ComplianceTripSummary, today: string) {
 
 type PodPreview = { tripId: string; title: string; url: string | null; isPdf: boolean; loading: boolean };
 
-export function DebitControlTripsTable({ summaries, tripFacts, onOpenTrip, onRowPress }: Props) {
+export function DebitControlTripsTable({
+  summaries,
+  tripFacts,
+  onOpenTrip,
+  onRowPress,
+  onOpenActivityLog,
+}: Props) {
   const [sort, setSort] = useState<"asc" | "desc">("desc");
 
   const rows = useMemo(
@@ -143,6 +151,7 @@ export function DebitControlTripsTable({ summaries, tripFacts, onOpenTrip, onRow
         <Text style={[styles.cell, styles.head, styles.colCompleted]}>Completed date</Text>
         <Text style={[styles.cell, styles.head, styles.colDelay]}>POD delay (days)</Text>
         <Text style={[styles.cell, styles.head, styles.colPod]}>Soft copy POD</Text>
+        <Text style={[styles.cell, styles.head, styles.colLog]}>Log</Text>
       </View>
       {rows.map((summary) => {
         const trip = summary.trip;
@@ -225,6 +234,11 @@ export function DebitControlTripsTable({ summaries, tripFacts, onOpenTrip, onRow
                 </View>
               );
             })()}
+            <View style={styles.colLog}>
+              {onOpenActivityLog ? (
+                <ComplianceActivityLogButton compact onPress={() => onOpenActivityLog(summary)} />
+              ) : null}
+            </View>
           </TouchableOpacity>
         );
       })}
@@ -283,6 +297,7 @@ const styles = StyleSheet.create({
   late: { color: Theme.destructive, fontWeight: "700" },
   sub: { fontSize: 9, lineHeight: 11, color: Theme.textMuted },
   colPod: { width: 92, minWidth: 0, alignItems: "center" },
+  colLog: { width: 44, minWidth: 44, alignItems: "center" },
   eyeBtn: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   eyeOn: { backgroundColor: Theme.surfaceBorder },
   eyeOff: { opacity: 0.45 },

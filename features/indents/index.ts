@@ -3,6 +3,7 @@ import * as directQuotesService from '@/features/indents/services/direct-quotes.
 import { IndentDetailScreen } from '@/features/indents/components/IndentDetailScreen';
 
 export const getIndentsByOrganization = indentsService.getIndentsByOrganization;
+export const getFailedIndentsByOrganization = indentsService.getFailedIndentsByOrganization;
 export const getIndentById = indentsService.getIndentById;
 export const getIndentDisplayNumber = indentsService.getIndentDisplayNumber;
 export const resolveSupplierTargetDisplayRate =

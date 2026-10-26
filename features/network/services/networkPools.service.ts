@@ -134,3 +134,124 @@ export async function submitNetworkQuote(
   if (error) return { error: new Error(error.message), quote: null };
   return { error: null, quote: (data ?? null) as NetworkQuoteResult | null };
 }
+
+export type NetworkPoolQuoteCommitInput = {
+  vehicleLimit: number;
+  validUntilIso: string;
+};
+
+export type NetworkPoolQuoteCommitResult = {
+  commit_id: string;
+  pool_key: string;
+  quoted: number;
+  failed: number;
+  vehicle_limit: number;
+  valid_until: string;
+};
+
+export async function submitNetworkPoolQuote(
+  orgId: string,
+  key: MarketplaceLoadSearch,
+  amount: number,
+  commit: NetworkPoolQuoteCommitInput,
+): Promise<{ error: Error | null; result: NetworkPoolQuoteCommitResult | null }> {
+  const { data, error } = await supabase().rpc('submit_network_pool_quote', {
+    p_org_id: orgId,
+    p_pickup: key.pickup,
+    p_drop: key.drop,
+    p_vehicle_type: key.vehicleType,
+    p_amount: Number(amount),
+    p_vehicle_limit: Math.floor(commit.vehicleLimit),
+    p_valid_until: commit.validUntilIso,
+  });
+  if (error) {
+    const detail = [error.code, error.message].filter(Boolean).join(" ");
+    return { error: new Error(detail || "submit_network_pool_quote failed"), result: null };
+  }
+  return { error: null, result: (data ?? null) as NetworkPoolQuoteCommitResult | null };
+}
+
+export type NetworkPoolBidCommitRow = {
+  id: string;
+  status: string;
+  awarded_count: number;
+  vehicle_limit: number;
+  valid_until: string;
+};
+
+export async function withdrawNetworkQuotes(
+  orgId: string,
+  indentIds: string[],
+): Promise<{ error: Error | null; withdrawn: number }> {
+  const unique = [...new Set(indentIds.filter(Boolean))];
+  if (!orgId || unique.length === 0) {
+    return { error: new Error("No bid to cancel."), withdrawn: 0 };
+  }
+
+  const { data: rpcCount, error: rpcError } = await supabase().rpc(
+    "withdraw_network_quotes",
+    {
+      p_bidder_org_id: orgId,
+      p_indent_ids: unique,
+    },
+  );
+  if (!rpcError) {
+    const withdrawn = Math.max(0, Math.floor(Number(rpcCount ?? 0)));
+    if (withdrawn === 0) {
+      return { error: new Error("No pending bid to cancel."), withdrawn: 0 };
+    }
+    return { error: null, withdrawn };
+  }
+
+  const rpcMissing =
+    /could not find the function|schema cache|withdraw_network_quotes|not found|pgrst202|404/i.test(
+      [rpcError.code, rpcError.message].filter(Boolean).join(" "),
+    );
+
+  const { data, error } = await supabase()
+    .from("direct_quotes")
+    .delete()
+    .eq("bidder_organization_id", orgId)
+    .eq("status", "pending")
+    .in("indent_id", unique)
+    .select("id");
+  if (!error) {
+    const withdrawn = (data ?? []).length;
+    if (withdrawn === 0) {
+      return {
+        error: new Error(
+          rpcMissing
+            ? "Could not cancel bid. Withdraw is not available on the server yet."
+            : "No pending bid to cancel.",
+        ),
+        withdrawn: 0,
+      };
+    }
+    return { error: null, withdrawn };
+  }
+
+  const detail = [rpcError.code, rpcError.message, error.message]
+    .filter(Boolean)
+    .join(" ");
+  return {
+    error: new Error(detail || "Could not cancel bid."),
+    withdrawn: 0,
+  };
+}
+
+export async function getNetworkPoolBidCommitsByIds(
+  ids: string[],
+): Promise<{ error: Error | null; commits: Record<string, NetworkPoolBidCommitRow> }> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (unique.length === 0) return { error: null, commits: {} };
+  const { data, error } = await supabase()
+    .from('network_pool_bid_commits')
+    .select('id, status, awarded_count, vehicle_limit, valid_until')
+    .in('id', unique);
+  if (error) return { error: new Error(error.message), commits: {} };
+  const commits: Record<string, NetworkPoolBidCommitRow> = {};
+  for (const row of (data ?? []) as NetworkPoolBidCommitRow[]) {
+    if (row.id) commits[row.id] = row;
+  }
+  return { error: null, commits };
+}

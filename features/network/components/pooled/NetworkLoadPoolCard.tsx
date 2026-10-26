@@ -57,6 +57,23 @@ export function vehicleTonnage(minKg: number | null, maxKg: number | null): stri
   return `${min} – ${max}`;
 }
 
+function mtLabel(kg: number | null): string | null {
+  if (kg == null || kg <= 0) return null;
+  const t = Math.round((kg / 1000) * 10) / 10;
+  if (t < 0.1) return `${Math.round(kg)} kg`;
+  const n = t % 1 === 0 ? t.toFixed(0) : String(t);
+  return `${n} MT`;
+}
+
+/** Load weight for bid heroes — “20 MT”, or a range when members differ. */
+export function loadMtLabel(minKg: number | null, maxKg: number | null): string | null {
+  const min = mtLabel(minKg);
+  const max = mtLabel(maxKg);
+  if (min == null) return max;
+  if (max == null || min === max) return min;
+  return `${min} – ${max}`;
+}
+
 export function NetworkLoadPoolCard({
   pool,
   canQuote,
@@ -171,7 +188,9 @@ export function NetworkLoadPoolCard({
 
 export const networkPoolCardStyles = StyleSheet.create({
   card: {
-    flex: 1,
+    width: "100%",
+    alignSelf: "stretch",
+    flexGrow: 0,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: Theme.borderInput,
@@ -206,7 +225,7 @@ export const networkPoolCardStyles = StyleSheet.create({
   tagText: {
     fontSize: 9,
     fontWeight: "600",
-    letterSpacing: 0.45,
+    letterSpacing: 0,
     color: Theme.primary,
   },
   countPill: {
@@ -218,7 +237,7 @@ export const networkPoolCardStyles = StyleSheet.create({
   countPillText: {
     fontSize: 9,
     fontWeight: "600",
-    letterSpacing: 0.3,
+    letterSpacing: 0,
     color: Theme.primary,
   },
   view: { flexDirection: "row", alignItems: "center", gap: 1 },
@@ -245,7 +264,7 @@ export const networkPoolCardStyles = StyleSheet.create({
   factLabel: {
     fontSize: 9,
     fontWeight: "500",
-    letterSpacing: 0.35,
+    letterSpacing: 0,
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
@@ -256,11 +275,12 @@ export const networkPoolCardStyles = StyleSheet.create({
     alignItems: "baseline",
     justifyContent: "space-between",
     gap: 8,
+    minHeight: 20,
   },
   targetLabel: {
     fontSize: 9,
     fontWeight: "500",
-    letterSpacing: 0.35,
+    letterSpacing: 0,
     textTransform: "uppercase",
     color: Theme.textMuted,
   },

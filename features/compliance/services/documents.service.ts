@@ -29,6 +29,10 @@
  */
 
 import { supabase } from "@/lib/supabase";
+import {
+  documentAuditLookupOrFilter,
+  storageLeftAfterDbDeleteMessage,
+} from "../utils/documentAuditLookup.util";
 import type {
   ComplianceBlockResult,
   ComplianceScore,
@@ -108,9 +112,6 @@ const ALLOWED_MIME_TYPES: ReadonlySet<string> = new Set([
   "image/heif",
   "application/pdf",
 ]);
-
-type SignedUrlCacheEntry = { url: string; expiresAtMs: number };
-const signedUrlCache = new Map<string, SignedUrlCacheEntry>();
 
 // ── Internals ──────────────────────────────────────────────────────────────
 
@@ -341,6 +342,34 @@ export async function verifyDocument(
   return { error: (error as Error | null) ?? null };
 }
 
+/** Latest active file for an entity + type (partner vault writes). */
+export async function updateLatestEntityDocumentExpiry(input: {
+  orgId: string;
+  entityType: "vehicle" | "driver";
+  entityId: string;
+  docType: string;
+  expiryDate: string;
+}): Promise<{ error: Error | null }> {
+  const trimmed = input.expiryDate.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return { error: new Error("Use YYYY-MM-DD for the expiry date (for example 2027-03-15).") };
+  }
+  const { data, error: lookupError } = await supabase()
+    .from("entity_documents")
+    .select("id")
+    .eq("organization_id", input.orgId)
+    .eq("entity_type", input.entityType)
+    .eq("entity_id", input.entityId)
+    .eq("doc_type", input.docType)
+    .neq("status", "replaced")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (lookupError) return { error: new Error(lookupError.message) };
+  if (!data?.id) return { error: null };
+  return updateEntityDocumentExpiry(data.id, trimmed);
+}
+
 /** Set expiry on an entity document (Insurance / FC / DL require this before Approve). */
 export async function updateEntityDocumentExpiry(
   docId: string,
@@ -513,42 +542,79 @@ export async function getComplianceDocumentSignedUrl(
     return { url: null, error: new Error("Missing storage path.") };
   }
 
-  const now = Date.now();
-  const cached = signedUrlCache.get(storagePath);
-  if (cached && cached.expiresAtMs > now) {
-    return { url: cached.url, error: null };
-  }
-
   const { data, error } = await supabase()
     .storage.from(COMPLIANCE_BUCKET)
     .createSignedUrl(storagePath, SIGNED_URL_EXPIRY_SEC);
 
   if (error || !data?.signedUrl) {
-    return { url: null, error: new Error(error?.message ?? "No signed URL.") };
+    const kind = /not found/i.test(error?.message ?? "")
+      ? "This document is missing."
+      : /unauthorized|permission|jwt/i.test(error?.message ?? "")
+        ? "You don't have access to this document."
+        : /expired/i.test(error?.message ?? "")
+          ? "This preview expired. Try again."
+          : (error?.message ?? "No signed URL.");
+    return { url: null, error: new Error(kind) };
   }
 
-  signedUrlCache.set(storagePath, {
-    url: data.signedUrl,
-    expiresAtMs: now + SIGNED_URL_CACHE_TTL_MS,
-  });
+  const { previewPrivateObject, storagePreviewFailureMessage } = await import(
+    "@/features/trips/utils/storagePreviewObjectUrl.util"
+  );
+  const preview = await previewPrivateObject(
+    COMPLIANCE_BUCKET,
+    storagePath,
+    data.signedUrl,
+  );
+  if (!preview.url) {
+    return {
+      url: null,
+      error: new Error(storagePreviewFailureMessage(preview.kind ?? "failed")),
+    };
+  }
 
-  return { url: data.signedUrl, error: null };
+  return { url: preview.url, error: null };
 }
 
-/** Hard delete — removes storage object and DB row (audit row remains). */
+/** Hard delete — DB row first, then storage. Refused deletes keep the file. */
 export async function deleteComplianceDocument(
   docId: string,
   storagePath: string | null,
 ): Promise<{ error: Error | null }> {
-  if (storagePath) {
-    await supabase().storage.from(COMPLIANCE_BUCKET).remove([storagePath]);
-    signedUrlCache.delete(storagePath);
+  // Older copies keep `replaced_by_id` on this row. Clear them first or
+  // Postgres refuses the delete (`entity_documents_replaced_by_id_fkey`).
+  const { error: unlinkError } = await supabase()
+    .from("entity_documents")
+    .update({
+      replaced_by_id: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("replaced_by_id", docId);
+  if (unlinkError) {
+    return { error: new Error(unlinkError.message) };
   }
-  const { error } = await supabase()
+
+  const { data: deleted, error } = await supabase()
     .from("entity_documents")
     .delete()
-    .eq("id", docId);
-  return { error: (error as Error | null) ?? null };
+    .eq("id", docId)
+    .select("id");
+  if (error) {
+    return { error: new Error(error.message) };
+  }
+  if ((deleted ?? []).length === 0) {
+    return { error: new Error("This document could not be deleted. Refresh and try again.") };
+  }
+  if (storagePath) {
+    const { error: storageError } = await supabase()
+      .storage.from(COMPLIANCE_BUCKET)
+      .remove([storagePath]);
+    if (storageError) {
+      return {
+        error: new Error(storageLeftAfterDbDeleteMessage(storageError.message)),
+      };
+    }
+  }
+  return { error: null };
 }
 
 // ── Audit log ──────────────────────────────────────────────────────────────
@@ -557,10 +623,14 @@ export async function getDocumentAuditLog(
   documentId: string,
   options: { limit?: number } = {},
 ): Promise<{ error: Error | null; entries: DocumentAuditEntry[] }> {
+  const orFilter = documentAuditLookupOrFilter(documentId);
+  if (!orFilter) {
+    return { error: new Error("Invalid document id."), entries: [] };
+  }
   let q = supabase()
     .from("document_audit_log")
     .select("*")
-    .eq("document_id", documentId)
+    .or(orFilter)
     .order("created_at", { ascending: false });
   if (options.limit) q = q.limit(options.limit);
 

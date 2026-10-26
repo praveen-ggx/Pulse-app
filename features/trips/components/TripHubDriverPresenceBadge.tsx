@@ -1,6 +1,7 @@
 import Theme from "@/constants/Theme";
 import type { TripHubInTransitPingMeta } from "@/features/trips/hooks/useTripHubInTransitPings";
-import { StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef, type ReactNode } from "react";
+import { Animated, StyleSheet, Text, View } from "react-native";
 
 type Props = {
   ping: TripHubInTransitPingMeta | null | undefined;
@@ -8,23 +9,112 @@ type Props = {
   alignEnd?: boolean;
 };
 
+/** Soft red ring around the driver avatar while offline. */
+export function DriverOfflineGlow({
+  active,
+  size,
+  children,
+}: {
+  active: boolean;
+  size: number;
+  children: ReactNode;
+}) {
+  const pulse = useRef(new Animated.Value(0.32)).current;
+
+  useEffect(() => {
+    if (!active) {
+      pulse.stopAnimation();
+      pulse.setValue(0.32);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 0.92,
+          duration: 1200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0.28,
+          duration: 1200,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => {
+      loop.stop();
+    };
+  }, [active, pulse]);
+
+  const ring = size + 8;
+  return (
+    <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
+      {active ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.glowRing,
+            {
+              width: ring,
+              height: ring,
+              borderRadius: ring / 2,
+              opacity: pulse,
+            },
+          ]}
+        />
+      ) : null}
+      {children}
+    </View>
+  );
+}
+
 /** Driver online / offline — compact status under the driver name. */
 export function TripHubDriverPresenceBadge({
   ping,
   variant = "inline",
   alignEnd = false,
 }: Props) {
+  const pulse = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (!ping || ping.isOnline) {
+      pulse.stopAnimation();
+      pulse.setValue(1);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 0.72,
+          duration: 1200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 1200,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => {
+      loop.stop();
+    };
+  }, [ping, pulse]);
+
   if (!ping) return null;
 
   const online = ping.isOnline;
   const statusText = online ? "Online" : ping.offlineLabel ?? "Offline";
 
   const row = (
-    <View
+    <Animated.View
       style={[
         styles.chip,
         online ? styles.chipOnline : styles.chipOffline,
         alignEnd && styles.chipEnd,
+        !online ? { opacity: pulse } : null,
       ]}
     >
       <View
@@ -36,7 +126,7 @@ export function TripHubDriverPresenceBadge({
       >
         {statusText}
       </Text>
-    </View>
+    </Animated.View>
   );
 
   if (variant === "belowName") {
@@ -51,6 +141,16 @@ export function TripHubDriverPresenceBadge({
 }
 
 const styles = StyleSheet.create({
+  glowRing: {
+    position: "absolute",
+    borderWidth: 1.5,
+    borderColor: Theme.destructive,
+    backgroundColor: Theme.destructiveWash,
+    shadowColor: Theme.destructive,
+    shadowOpacity: 0.85,
+    shadowRadius: 7,
+    shadowOffset: { width: 0, height: 0 },
+  },
   belowWrap: {
     alignSelf: "flex-start",
     marginTop: 3,
@@ -61,11 +161,13 @@ const styles = StyleSheet.create({
   chip: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 4,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
+    height: 16,
+    paddingHorizontal: 6,
+    paddingVertical: 0,
     borderRadius: 999,
-    maxWidth: "100%",
+    flexShrink: 0,
   },
   chipEnd: {
     justifyContent: "flex-end",
@@ -74,7 +176,9 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.positive,
   },
   chipOffline: {
-    backgroundColor: Theme.destructive,
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: Theme.destructive,
   },
   dot: {
     width: 4,
@@ -83,22 +187,23 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   dotOnline: {
-    backgroundColor: "#fff",
+    backgroundColor: Theme.cardWhite,
   },
   dotOffline: {
-    backgroundColor: "#fff",
+    backgroundColor: Theme.destructive,
   },
   label: {
     fontSize: 8,
     lineHeight: 10,
+    includeFontPadding: false,
     fontWeight: "700",
     letterSpacing: 0.15,
     flexShrink: 1,
   },
   labelOnline: {
-    color: "#fff",
+    color: Theme.cardWhite,
   },
   labelOffline: {
-    color: "#fff",
+    color: Theme.destructive,
   },
 });

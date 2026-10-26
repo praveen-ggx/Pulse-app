@@ -78,7 +78,10 @@ jest.mock("@/features/compliance/services/documents.service", () => ({
   uploadComplianceDocument: (...args: unknown[]) => mockUploadComplianceDocument(...args),
 }));
 
-import { uploadAndSaveVehicleDocumentForTrip } from "@/features/vehicles/services/vehicleDocuments.service";
+import {
+  uploadAndSaveVehicleDocumentForTrip,
+  uploadAndSaveVehicleExtraDocumentsForTrip,
+} from "@/features/vehicles/services/vehicleDocuments.service";
 
 const FILE = { arrayBuffer: new ArrayBuffer(8), fileName: "rc.jpeg", mimeType: "image/jpeg" };
 
@@ -156,5 +159,44 @@ describe("uploadAndSaveVehicleDocumentForTrip", () => {
 
     expect(res.documents).toBeNull();
     expect(res.error?.message).toBe("denied");
+  });
+});
+
+describe("uploadAndSaveVehicleExtraDocumentsForTrip", () => {
+  it("partner truck extra page: saves under the viewer org, never touches the owner's vault", async () => {
+    const ownerDocs = { rc: { url: `${OWNER}/${VEHICLE}/rc.pdf`, expiryDate: "" } };
+    mockVehicles = [{ id: VEHICLE, organization_id: OWNER, documents: ownerDocs }];
+
+    const res = await uploadAndSaveVehicleExtraDocumentsForTrip(
+      VIEWER,
+      VEHICLE,
+      [{ ...FILE, fileName: "rc-2.jpeg", docType: "rc" }],
+      ownerDocs,
+      [VIEWER],
+    );
+
+    expect(res.error).toBeNull();
+    expect(res.documents?.extras?.[0]?.url).toBe(`${VIEWER}/vehicle/${VEHICLE}/rc_x.jpeg`);
+    expect(mockUploadComplianceDocument).toHaveBeenCalledTimes(1);
+    expect(mockStorageUploads).toEqual([]);
+    expect(mockVehicleUpdates).toEqual([]);
+    expect(mockVehicles[0].documents).toBe(ownerDocs);
+  });
+
+  it("own truck extra page: writes the viewer org's vault extras", async () => {
+    mockVehicles = [{ id: VEHICLE, organization_id: VIEWER, documents: { rc: { url: `${VIEWER}/${VEHICLE}/rc.jpeg`, expiryDate: "" } } }];
+
+    const res = await uploadAndSaveVehicleExtraDocumentsForTrip(
+      VIEWER,
+      VEHICLE,
+      [{ ...FILE, fileName: "rc-2.jpeg", docType: "rc" }],
+      mockVehicles[0].documents as { rc: { url: string; expiryDate: string } },
+      [VIEWER],
+    );
+
+    expect(res.error).toBeNull();
+    expect(mockStorageUploads[0]?.path).toMatch(new RegExp(`^${VIEWER}/${VEHICLE}/extras/`));
+    expect(mockVehicleUpdates).toEqual([{ org: VIEWER, id: VEHICLE }]);
+    expect(mockUploadComplianceDocument).not.toHaveBeenCalled();
   });
 });

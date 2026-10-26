@@ -50,7 +50,7 @@ The full loop — why credits exist at all is that using them productively creat
       Credits Wallet
             │
             ▼
-      Pulse Reach Campaign
+      Pulse Boost Campaign
             │
             ▼
  More Reach → More Views → More Bids
@@ -104,7 +104,7 @@ Loads often don't reach enough fleet owners. A broadcast load sits in the networ
 
 ### Solution
 
-Pulse Reach lets an organization promote a broadcast to a wider audience, paying with Pulse Credits or cash. Three plans — Starter, Growth, Business — each promise a reach range (up to 25 / 60 / 150 verified fleet owners) and a fixed duration (24h / 48h / 72h).
+Pulse Boost lets an organization promote a broadcast to a wider audience, paying with Pulse Credits or cash. Three plans — Starter, Growth, Business — each promise a reach range (up to 25 / 60 / 150 verified fleet owners) and a fixed duration (24h / 48h / 72h).
 
 ### Customer Journey
 

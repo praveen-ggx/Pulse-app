@@ -54,10 +54,10 @@ const styles = StyleSheet.create({
     minHeight: 40,
     paddingVertical: 10,
     paddingHorizontal: 12,
-    backgroundColor: 'rgba(255, 206, 68, 0.28)',
+    backgroundColor: Theme.cardWhite,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: Theme.accentGoldBorder,
+    borderColor: Theme.surfaceBorder,
     ...Platform.select({
       web: {
         transition: 'background-color 0.15s ease, border-color 0.15s ease',
@@ -66,8 +66,8 @@ const styles = StyleSheet.create({
     }),
   },
   rowPressed: {
-    backgroundColor: 'rgba(255, 206, 68, 0.38)',
-    borderColor: 'rgba(255, 206, 68, 0.5)',
+    backgroundColor: Theme.brandBlueSoft,
+    borderColor: Theme.brandBlue,
   },
   rowCompact: {
     minHeight: 36,
@@ -77,9 +77,9 @@ const styles = StyleSheet.create({
   title: {
     flex: 1,
     minWidth: 0,
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '400',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
     color: ONBOARDING_BRAND.ink,
   },
   titleCompact: {

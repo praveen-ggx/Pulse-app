@@ -8,6 +8,7 @@ import {
 } from '@/features/trips/services/trips.service';
 import { useDebouncedValue } from '@/lib/hooks/useDebouncedValue';
 import { formatMobileNumber } from '@/lib/format';
+import { isSameDriverPhone } from '@/features/trips/utils/reassignChangeDetection.util';
 import { validatePhone } from '@/lib/phoneValidation';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -52,6 +53,16 @@ type Props = {
   onPhoneBusyChange: (busy: boolean) => void;
   /** Hide title / current card / segment — parent workspace owns chrome. */
   embedded?: boolean;
+  /**
+   * When the parent already runs `useAggregateDriverPhoneLookup`, pass that
+   * result so this section does not issue a second 400ms lookup.
+   */
+  phoneLookup?: {
+    suggestedName: string | null;
+    inTrip: boolean;
+    busyTripLabel: string | null;
+    loading: boolean;
+  } | null;
 };
 
 export function DriverReassignSection({
@@ -76,6 +87,7 @@ export function DriverReassignSection({
   phoneBusy,
   onPhoneBusyChange,
   embedded = false,
+  phoneLookup = null,
 }: Props) {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebouncedValue(search, 300);
@@ -105,6 +117,14 @@ export function DriverReassignSection({
   }, [isAggregate, mode, onModeChange]);
 
   useEffect(() => {
+    if (!phoneLookup || mode !== 'phone') return;
+    setPhoneName(phoneLookup.suggestedName);
+    setPhoneBusyLabel(phoneLookup.busyTripLabel);
+    onPhoneBusyChange(phoneLookup.inTrip);
+  }, [mode, onPhoneBusyChange, phoneLookup]);
+
+  useEffect(() => {
+    if (phoneLookup) return;
     if (mode !== 'phone') {
       setPhoneName(null);
       onPhoneBusyChange(false);
@@ -145,27 +165,36 @@ export function DriverReassignSection({
               excludeTripId: tripId,
             });
         if (requestId !== phoneLookupRequestRef.current) return;
-        onPhoneBusyChange(result.isBusy);
-        setPhoneBusyLabel(result.ongoingTripLabel ?? null);
+        const currentPhone =
+          drivers.find((d) => d.id === currentDriverId)?.phone ?? null;
+        const editingCurrent = isSameDriverPhone(normalized, currentPhone);
+        onPhoneBusyChange(Boolean(result.isBusy) && !editingCurrent);
+        setPhoneBusyLabel(
+          editingCurrent ? null : result.ongoingTripLabel ?? null,
+        );
       });
-    }, 400);
+    }, 280);
 
     return () => {
       phoneLookupRequestRef.current += 1;
       if (phoneLookupRef.current) clearTimeout(phoneLookupRef.current);
     };
   }, [
-    mode,
-    phone,
+    currentDriverId,
     driverAssignOrgId,
-    organizationId,
-    tripId,
+    drivers,
+    mode,
     onPhoneBusyChange,
+    organizationId,
+    phone,
+    phoneLookup,
+    tripId,
   ]);
 
   useEffect(() => {
     if (mode !== 'phone' || !phoneName) return;
-    if (!driverName.trim()) onDriverNameChange(phoneName);
+    if (driverName.trim()) return;
+    onDriverNameChange(phoneName);
   }, [mode, phoneName, driverName, onDriverNameChange]);
 
   const driverNameTrimmed = driverName.trim();
@@ -292,9 +321,19 @@ export function DriverReassignSection({
             placeholderTextColor={Theme.textMuted}
             keyboardType="phone-pad"
           />
-          {phoneName ? (
+          {phoneName && driverName.trim() !== phoneName.trim() ? (
+            <TouchableOpacity
+              onPress={() => onDriverNameChange(phoneName)}
+              accessibilityRole="button"
+              accessibilityLabel={`Use app name ${phoneName}`}
+            >
+              <Text style={[s.rowSub, { marginTop: 4 }]} numberOfLines={2}>
+                App name: {phoneName}. Tap to use.
+              </Text>
+            </TouchableOpacity>
+          ) : phoneName ? (
             <Text style={[s.rowSub, { marginTop: 4 }]} numberOfLines={2}>
-              Found: {phoneName}
+              Existing driver matched by phone. Local name is saved on this trip.
             </Text>
           ) : null}
           {phoneBusy ? (

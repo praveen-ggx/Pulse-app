@@ -46,6 +46,7 @@ import { useGlobalSyncStore } from "@/lib/globalSync/useGlobalSyncStore";
 import { useOperationsShelfItems } from "@/lib/globalSync/useOperationsDerived";
 import { useProtocolInvitesWithDriverSent } from "@/lib/hooks/useProtocolInvitesWithDriverSent";
 import { useOptionalAwardedIndentDeployModal } from "@/contexts/AwardedIndentDeployModalContext";
+import { useOptionalChangeDriverPopup } from "@/contexts/ChangeDriverPopupContext";
 import { useTabBarActiveLoadCount } from "@/lib/hooks/useTabBarActiveLoadCount";
 import {
     resolveTabBarLayoutPlatform,
@@ -230,6 +231,7 @@ export function DemoTabBar({
   const [notifActionId, setNotifActionId] = useState<string | null>(null);
   const [inviteActionId, setInviteActionId] = useState<string | null>(null);
   const businessConnectionModal = useOptionalBusinessConnectionRequestModal();
+  const changeDriver = useOptionalChangeDriverPopup();
   const notificationsPopoverRootRef = useRef<View | null>(null);
   const invitationsPopoverRootRef = useRef<View | null>(null);
   const registryDrawerRef = useRef<View | null>(null);
@@ -482,9 +484,11 @@ export function DemoTabBar({
   const handleOpenOps = useCallback(
     (ops: GlobalOperationAlert) => {
       setShowNotifications(false);
-      navigateToOpsAlert(router, ops);
+      navigateToOpsAlert(router, ops, {
+        onOpenChangeDriver: changeDriver?.openChangeDriver,
+      });
     },
-    [router],
+    [changeDriver?.openChangeDriver, router],
   );
 
   const isWeb = isWebEarly;

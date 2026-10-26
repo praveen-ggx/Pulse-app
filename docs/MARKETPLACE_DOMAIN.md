@@ -451,6 +451,15 @@ Work together → trust → relationship → network. Owned by ADR-012.
 
 Only after transaction history exists: Assist, Escrow, Credit, Insurance, dynamic limits — on proven behaviour, not assumptions.
 
+The transaction history starts with **Pulse Exchange** settlement: every org has a
+protected default party, *Pulse Exchange*, as both a supplier and a customer.
+Marketplace trips settle against it in two gates (one side records, the other
+confirms; only then does it post to both orgs' Finance ledgers and Cash).
+Pulse Exchange is the counterparty on both sides, including a bidder's own
+execution trip; the shipper and bidder never become each other's Finance
+parties. See
+`docs/deployment/PULSE_EXCHANGE_TRANSACTION_LAYER_AUDIT.md` §7.
+
 ---
 
 ## Distribution vs monetization (design intent, locked 2026-09-02)
@@ -468,6 +477,23 @@ The indent is the single commercial object (`CommercialOpportunity`). `circulati
 **Double-monetization guard:** if an indent is `both` + Reach-boosted and the winning bid comes through the Marketplace side, commission is decided by the transaction's marketplace eligibility/source — never simply because Reach also touched that indent. Reach charges for attention; Marketplace charges for access/transaction. Don't charge both for the same outcome.
 
 **Find Loads scoping (feeds M2 / A4):** a business's "Find Loads" surface must resolve `CommercialOpportunity` for indents where `circulation_target ∈ {marketplace, both}` — not every indent in the org. Reach-boosted marketplace-visible indents get a "Sponsored" affordance in that same feed; it's still the same `CommercialOpportunity`, not a separate list.
+
+### Omni-channel award classification (locked 2026-10-06)
+
+`circulation_target = 'both'` publishes **one indent to two channels**: Network
+(the shipper's approved suppliers) and Marketplace (the open market). Where an
+indent is published never decides how its trip is classified. The **winning
+offer** does:
+
+| Winning offer | Channel | Trip |
+|---|---|---|
+| Accepted `market_bids` row from the awarded org | Marketplace | `source='market_bid'`, `source_market_bid_id`, no `supplier_id` (ADR-012), fee-gated |
+| Offer from an org that is **not** an approved Network supplier, on a `marketplace`/`both` indent | Marketplace (open market) | No `supplier_id` (ADR-012) |
+| Anything else (approved Network supplier, `integrated_supplier` indent) | Network | `supplier_id` linked, shipper's `client_price` kept, no Marketplace fee |
+
+The single source of truth is `is_marketplace_indent_award(indent, bidder_org)`
+(`20271006142659`). A deploy only binds to the awarded org's own accepted bid,
+never to another bidder's.
 
 ### Contact visibility (locked 2026-09-02, A4.4)
 

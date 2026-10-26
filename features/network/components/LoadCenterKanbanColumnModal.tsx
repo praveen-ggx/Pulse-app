@@ -422,11 +422,6 @@ export function LoadCenterKanbanColumnModal({
       bidPools ? bidPools.pools.filter((p) => p.members.some(shownInStage)) : [],
     [bidPools, shownInStage],
   );
-  const openBidPool =
-    openPoolId && bidPools
-      ? (bidPools.pools.find((p) => p.id === openPoolId) ?? null)
-      : null;
-
   const viaForPool = useCallback(
     (members: readonly IndentRow[]) =>
       viaStopsByIndentId
@@ -440,7 +435,6 @@ export function LoadCenterKanbanColumnModal({
 
   const filteredLoads = useMemo(() => {
     if (bidPools) {
-      if (openBidPool) return [];
       return bidPools.individual.filter(shownInStage);
     }
     if (pooledMode) {
@@ -467,7 +461,6 @@ export function LoadCenterKanbanColumnModal({
     );
   }, [
     bidPools,
-    openBidPool,
     shownInStage,
     pooledMode,
     openPool,
@@ -494,7 +487,7 @@ export function LoadCenterKanbanColumnModal({
   );
 
   const showPoolList = pooledMode && !openPool;
-  const showBidPoolList = bidPools != null && !openBidPool;
+  const showBidPoolList = bidPools != null;
   const columns = maxColumnsForWidth(width);
 
   const cellStyle = useMemo(() => {
@@ -707,9 +700,7 @@ export function LoadCenterKanbanColumnModal({
                   ? "Choose pickup, drop, and vehicle to see matching loads"
                   : openPool
                     ? `${openPool.members.length} load${openPool.members.length === 1 ? "" : "s"} in this pool · one quote`
-                    : openBidPool
-                      ? `${openBidPool.members.length} load${openBidPool.members.length === 1 ? "" : "s"} in this pool · your pooled bid`
-                      : showBidPoolList && shownBidPools.length > 0
+                    : showBidPoolList && shownBidPools.length > 0
                         ? bidPoolSummary
                     : showPoolList
                       ? poolSummary
@@ -944,37 +935,6 @@ export function LoadCenterKanbanColumnModal({
               </Text>
             </View>
           ) : null}
-          {openBidPool ? (
-            <View
-              style={[
-                styles.poolDetail,
-                Platform.OS === "web"
-                  ? ({ maxWidth: "100%", alignSelf: "stretch", width: "100%" } as object)
-                  : null,
-              ]}
-            >
-              <Pressable
-                onPress={() => setOpenPoolId(null)}
-                style={styles.poolBack}
-                accessibilityRole="button"
-                accessibilityLabel="Back to my bids"
-                hitSlop={8}
-              >
-                <FontAwesome name="chevron-left" size={11} color={Theme.primary} />
-                <Text style={styles.poolBackText}>My bids</Text>
-              </Pressable>
-              <NetworkBidPoolCard
-                pool={openBidPool}
-                showViewAction={false}
-                onReviseBid={
-                  onReviseBidPool
-                    ? () => onReviseBidPool(openBidPool)
-                    : undefined
-                }
-                viaStops={viaForPool(openBidPool.members)}
-              />
-            </View>
-          ) : null}
           {showBidPoolList && shownBidPools.length > 0 ? (
             <View
               style={[
@@ -989,7 +949,6 @@ export function LoadCenterKanbanColumnModal({
                 <View key={pool.id} style={cellStyle}>
                   <NetworkBidPoolCard
                     pool={pool}
-                    onViewPool={() => setOpenPoolId(pool.id)}
                     onReviseBid={
                       onReviseBidPool ? () => onReviseBidPool(pool) : undefined
                     }
@@ -1044,8 +1003,7 @@ export function LoadCenterKanbanColumnModal({
           ) : null}
           {showPoolList && filteredLoads.length > 0 ? <IncompleteLaneNotice /> : null}
           {(showPoolList ||
-            (showBidPoolList && shownBidPools.length > 0) ||
-            openBidPool) &&
+            (showBidPoolList && shownBidPools.length > 0)) &&
           filteredLoads.length === 0 ? null : filteredLoads.length === 0 ? (
             <View style={styles.empty}>
               <View style={styles.emptyIcon}>
@@ -1093,9 +1051,7 @@ export function LoadCenterKanbanColumnModal({
               ]}
             >
               {visibleLoads.map((load) => {
-                const memberRenderer = openBidPool
-                  ? (renderBidPoolMemberCard ?? renderPoolMemberCard)
-                  : pooledMode
+                const memberRenderer = pooledMode
                     ? renderPoolMemberCard
                     : null;
                 return (

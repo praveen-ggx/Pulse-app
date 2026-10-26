@@ -8,6 +8,7 @@ import type { DriverRow } from "@/features/drivers/services/drivers.service";
 import type { SupplierRow } from "@/features/suppliers/services/suppliers.service";
 import type { TripRow } from "../services/trips.service";
 import { overlayViewerTripSubcontract } from "./overlayViewerTripSubcontract.util";
+import { driverAvatarSeedFromId } from "@/lib/partyAvatarDisplay";
 
 export function isUuidLikeString(value: string | null | undefined): boolean {
   return (
@@ -279,7 +280,9 @@ export function buildTripHubPartyMetaByTripId(
       ),
       driverAvatarUrl:
         driverImage || (driverRow?.avatar_url ?? "").trim() || null,
-      driverAvatarSeed: (driverRow?.avatar_seed ?? "").trim() || null,
+      driverAvatarSeed:
+        (driverRow?.avatar_seed ?? "").trim() ||
+        (driverImageId ? driverAvatarSeedFromId(driverImageId) : null),
       driverTrackingOnly: driverRow?.tracking_only === true ? true : driverRow ? false : null,
     });
   }

@@ -5,9 +5,11 @@ import {
   useCallback,
   useContext,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Alert } from "react-native";
 import { useRouter } from "expo-router";
 
@@ -18,7 +20,11 @@ import {
   resolveDriverOpsActiveTrip,
 } from "@/features/driver/utils/driverActiveOpsTrip.util";
 import * as tripsService from "@/features/trips/services/trips.service";
-import { useDriverUiTripsQuery } from "@/lib/queries/useDriverUiTripsQuery";
+import { refetchDriverDashboardTripsIfStale } from "@/features/trips/domain/driverDashboardTripList";
+import {
+  driverUiTripsQueryKey,
+  useDriverUiTripsQuery,
+} from "@/lib/queries/useDriverUiTripsQuery";
 import { usePendingOtpTripsQuery } from "@/lib/queries/usePendingOtpTripsQuery";
 import { ROUTES } from "@/lib/routes";
 
@@ -38,8 +44,20 @@ type DriverTripOpsContextValue = {
 
 const DriverTripOpsContext = createContext<DriverTripOpsContextValue | null>(null);
 
-export function DriverTripOpsProvider({ children }: { children: ReactNode }) {
+export function DriverTripOpsProvider({
+  children,
+  refreshOpenTripsOnFocus = true,
+}: {
+  children: ReactNode;
+  /**
+   * The driver shell owns the open-trip list. Trip Detail must subscribe to
+   * the same cache without refetching it, or Odometer/Expense/Settlement
+   * compete with a second list read.
+   */
+  refreshOpenTripsOnFocus?: boolean;
+}) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { profile } = useAuth();
   const uid = profile?.uid ?? null;
   const pendingOtpQuery = usePendingOtpTripsQuery(uid);
@@ -48,17 +66,37 @@ export function DriverTripOpsProvider({ children }: { children: ReactNode }) {
   const [acceptedTripId, setAcceptedTripId] = useState<string | null>(null);
   const [contextTrip, setContextTrip] = useState<tripsService.TripRow | null>(null);
 
+  const tripsQueryRef = useRef(tripsQuery);
+  tripsQueryRef.current = tripsQuery;
+
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
       void AsyncStorage.getItem(DRIVER_ACCEPTED_TRIP_ID_KEY).then((id) => {
         if (!cancelled) setAcceptedTripId(id?.trim() ? id : null);
       });
-      void tripsQuery.refetch();
+      if (!refreshOpenTripsOnFocus) {
+        return () => {
+          cancelled = true;
+        };
+      }
+      // refetch() ignores staleTime. A fresh open-trip list stays cached.
+      // Leaving the shell cancels an in-flight list so it does not keep a
+      // pool slot while a child route reads one trip.
+      const query = tripsQueryRef.current;
+      refetchDriverDashboardTripsIfStale(
+        { isFetched: query.isFetched, isStale: query.isStale },
+        () => {
+          void query.refetch();
+        },
+      );
       return () => {
         cancelled = true;
+        if (uid) {
+          void queryClient.cancelQueries({ queryKey: driverUiTripsQueryKey(uid) });
+        }
       };
-    }, [tripsQuery.refetch]),
+    }, [queryClient, refreshOpenTripsOnFocus, uid]),
   );
 
   const allTrips = tripsQuery.trips;

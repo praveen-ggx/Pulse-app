@@ -15,7 +15,7 @@ interface PdfViewerProps {
   style?: StyleProp<ViewStyle>;
   showToolbar?: boolean;
   zoom?: number;
-  sizing?: "original" | "fit";
+  sizing?: "original" | "fit" | "cover";
   page?: number;
   interactive?: boolean;
   scrollbar?: boolean;
@@ -55,7 +55,7 @@ const styles = StyleSheet.create({
     flex: 1,
     width: "100%",
     height: "100%",
-    minHeight: 280,
+    minHeight: 0,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: Theme.surface,

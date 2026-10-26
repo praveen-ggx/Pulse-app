@@ -30,7 +30,7 @@ import {
     type DriverOfferForAggregation,
 } from "@/features/finance/aggregation";
 import {
-    useCustomerLedgerInputsQuery,
+    useFinanceCustomerLedgerInputs,
     useDriverLedgerAggregationQuery,
     useSupplierLedgerAggregationQuery,
 } from "@/lib/queries/useLedgerAggregationQuery";
@@ -233,6 +233,8 @@ export function FinanceScreen() {
     driverOffers,
     connectionRequestsSent,
     entitiesLoading,
+    clientsLoading,
+    suppliersLoading,
     garagePeriodOptions,
     setPendingDriverSalaryRequests,
   } = entities;
@@ -745,21 +747,16 @@ export function FinanceScreen() {
     cardMetricsOrgId,
     cardMetricsApplyAdjustments,
   );
-  const { data: cardCustomerLedgerInputs } = useCustomerLedgerInputsQuery(
-    cardMetricsOrgId,
-    false,
-  );
+  const {
+    data: cardCustomerLedgerInputs,
+    isSuccess: cardCustomerLedgerReady,
+  } = useFinanceCustomerLedgerInputs(cardMetricsOrgId);
 
   const desktopCardMetrics = useMemo(() => {
-    const customersAgg = aggregateCustomersFromRpc(
-      clientRows,
-      cardCustomerLedgerInputs ?? {
-        trip_inputs: [],
-        unlinked_payments: [],
-        ledger_only_parties: [],
-        client_ledger_totals: [],
-      },
-    );
+    const customersAgg =
+      cardCustomerLedgerReady && cardCustomerLedgerInputs
+        ? aggregateCustomersFromRpc(clientRows, cardCustomerLedgerInputs)
+        : { rows: [], totals: { totalIn: 0, totalOut: 0 } };
     const suppliersAgg = aggregateSuppliersFromRpc(supplierRows, cardSupplierLedgerRpcRows);
     const driversAgg = aggregateDriversFromRpc(driverRows, cardDriverLedgerRpcRows);
 
@@ -808,15 +805,19 @@ export function FinanceScreen() {
         secondaryValue: formatCompactRupee(ledgerTotalsData.totalOut),
       },
       customers: {
-        value: formatCompactRupee(
-          customersAgg.rows.reduce(
-            (sum, row) => sum + Number(row.received ?? 0),
-            0,
-          ),
-        ),
-        count: activeCustomersCount,
+        value: cardCustomerLedgerReady
+          ? formatCompactRupee(
+              customersAgg.rows.reduce(
+                (sum, row) => sum + Number(row.received ?? 0),
+                0,
+              ),
+            )
+          : "—",
+        count: cardCustomerLedgerReady ? activeCustomersCount : clientRows.length,
         secondaryLabel: "Outstanding",
-        secondaryValue: formatCompactRupee(customersOutstanding),
+        secondaryValue: cardCustomerLedgerReady
+          ? formatCompactRupee(customersOutstanding)
+          : "—",
       },
       suppliers: {
         value: formatCompactRupee(
@@ -849,6 +850,7 @@ export function FinanceScreen() {
     } as const;
   }, [
     cardCustomerLedgerInputs,
+    cardCustomerLedgerReady,
     cardSupplierLedgerRpcRows,
     cardDriverLedgerRpcRows,
     clientRows,
@@ -1479,7 +1481,15 @@ export function FinanceScreen() {
   useFocusEffect(
     useCallback(() => {
       const org = currentOrganization?.id;
-      if (!org || entitiesLoading) return;
+      if (!org) return;
+      if (financeSubTab === "customers" && clientsLoading) return;
+      if (financeSubTab === "suppliers" && suppliersLoading) return;
+      if (
+        (financeSubTab === "drivers" || financeSubTab === "garage") &&
+        entitiesLoading
+      ) {
+        return;
+      }
 
       const partyTab =
         financeSubTab === "customers" ||
@@ -1517,6 +1527,8 @@ export function FinanceScreen() {
     }, [
       currentOrganization?.id,
       entitiesLoading,
+      clientsLoading,
+      suppliersLoading,
       financeSubTab,
       clientRows.length,
       supplierRows.length,
@@ -1726,6 +1738,8 @@ export function FinanceScreen() {
               driverRows={driverRows}
               driverOffers={driverOffers}
               entitiesLoading={entitiesLoading}
+              clientsLoading={clientsLoading}
+              suppliersLoading={suppliersLoading}
               onTabTotals={setTabTotals}
               onEntityRowSelect={handleEntityRowSelect}
               searchQuery={searchQuery}

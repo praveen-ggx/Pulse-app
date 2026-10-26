@@ -1,5 +1,5 @@
 /**
- * Top live-corridor ticker for Pulse Reach studio. Decorative feed strip —
+ * Top live-corridor ticker for Pulse Boost studio. Decorative feed strip —
  * copy is illustrative corridor activity, not live RPC events.
  */
 import Theme from "@/constants/Theme";

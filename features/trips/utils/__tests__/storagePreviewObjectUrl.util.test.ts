@@ -42,6 +42,19 @@ afterEach(() => {
 });
 
 describe("openStoragePreview", () => {
+  it("paints a local picker URI without calling Storage", async () => {
+    const opened = await openStoragePreview({
+      bucket: "trip-documents",
+      path: "blob:http://localhost:8081/preview-1",
+    });
+    expect(opened).toEqual({
+      ok: true,
+      url: "blob:http://localhost:8081/preview-1",
+      release: expect.any(Function),
+    });
+    expect(mockDownload).not.toHaveBeenCalled();
+  });
+
   it("previews an authenticated download as a blob URL", async () => {
     mockDownload.mockResolvedValue({ data: blob(), error: null });
     const opened = await openStoragePreview({ bucket: "trip-documents", path: "trip/lr/a.jpg" });

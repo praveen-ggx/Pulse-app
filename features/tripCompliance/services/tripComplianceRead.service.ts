@@ -32,7 +32,18 @@ import {
   tripPodIsReceived,
 } from "@/features/trips/services/tripDocumentLrPod.service";
 import { lrNumbersFromDocumentNumber } from "@/features/trips/utils/hardCopyPodLrSelection.util";
-import { POD_VALIDATED_EVENT } from "@/features/debit-control/utils/debitControlPod.model";
+import {
+  POD_NOT_FOUND_EVENT,
+  POD_REVALIDATE_EVENT,
+  POD_SETTLEMENT_RELEASED_EVENT,
+  POD_VALIDATED_EVENT,
+} from "@/features/debit-control/utils/debitControlPod.model";
+import {
+  resolvePodChargeWorkflow,
+  workflowEventPostedMs,
+  type PodChargeWorkflowFlags,
+} from "@/features/debit-control/utils/podChargeWorkflow.util";
+import { podDebitIdentifiedFromPayload } from "@/features/debit-control/utils/podExceptionDebit.util";
 import { decodeCourierLrRemarks, lrReceiptForTrip } from "@/features/trips/utils/lrReceiptStatus.util";
 import {
   isCompletedTripStatus,
@@ -273,36 +284,110 @@ function attachIbondFlags(
   return next;
 }
 
+/** Latest validate / revalidate times so Settlement vs Reverification stay in sync. */
+export async function fetchPodChargeWorkflowFlags(
+  tripIds: string[],
+): Promise<Map<string, PodChargeWorkflowFlags>> {
+  const out = new Map<string, PodChargeWorkflowFlags>();
+  if (tripIds.length === 0) return out;
+  const { data, error } = await supabase()
+    .from("trip_workflow_events")
+    .select("trip_id, event_type, payload, created_at")
+    .in("event_type", [
+      POD_VALIDATED_EVENT,
+      POD_REVALIDATE_EVENT,
+      POD_NOT_FOUND_EVENT,
+      POD_SETTLEMENT_RELEASED_EVENT,
+    ])
+    .in("trip_id", tripIds);
+  if (error) {
+    if (isMissingColumnOrRelation(error)) return out;
+    throw new Error(error.message);
+  }
+  const validatedAt = new Map<string, number>();
+  const validatedPayload = new Map<string, unknown>();
+  const revalidateAt = new Map<string, number>();
+  const notFoundAt = new Map<string, number>();
+  const releasedAt = new Map<string, number>();
+  for (const row of data ?? []) {
+    const tripId = String((row as { trip_id?: string }).trip_id ?? "").trim();
+    const eventType = String((row as { event_type?: string }).event_type ?? "").trim();
+    if (!tripId) continue;
+    const ms = workflowEventPostedMs({
+      createdAt: (row as { created_at?: string }).created_at,
+      payload: (row as { payload?: unknown }).payload,
+    });
+    if (eventType === POD_VALIDATED_EVENT) {
+      const prev = validatedAt.get(tripId) ?? 0;
+      if (ms >= prev) {
+        validatedAt.set(tripId, ms);
+        validatedPayload.set(tripId, (row as { payload?: unknown }).payload);
+      }
+    }
+    if (eventType === POD_REVALIDATE_EVENT) {
+      revalidateAt.set(tripId, Math.max(revalidateAt.get(tripId) ?? 0, ms));
+    }
+    if (eventType === POD_NOT_FOUND_EVENT) {
+      notFoundAt.set(tripId, Math.max(notFoundAt.get(tripId) ?? 0, ms));
+    }
+    if (eventType === POD_SETTLEMENT_RELEASED_EVENT) {
+      releasedAt.set(tripId, Math.max(releasedAt.get(tripId) ?? 0, ms));
+    }
+  }
+  for (const tripId of new Set([
+    ...validatedAt.keys(),
+    ...revalidateAt.keys(),
+    ...notFoundAt.keys(),
+    ...releasedAt.keys(),
+  ])) {
+    const workflow = resolvePodChargeWorkflow({
+      validatedAtMs: validatedAt.get(tripId) ?? null,
+      revalidateAtMs: revalidateAt.get(tripId) ?? null,
+      notFoundAtMs: notFoundAt.get(tripId) ?? null,
+      settlementReleasedAtMs: releasedAt.get(tripId) ?? null,
+    });
+    const hasDebit =
+      workflow.chargesSaved && podDebitIdentifiedFromPayload(validatedPayload.get(tripId));
+    out.set(tripId, {
+      ...workflow,
+      hasDebit,
+      noDebit: workflow.chargesSaved && !hasDebit,
+    });
+  }
+  return out;
+}
+
 /** Trips whose POD client/vendor charges have been saved. */
 export async function fetchPodChargeValidatedTripIds(tripIds: string[]): Promise<Set<string>> {
   const ids = new Set<string>();
-  if (tripIds.length === 0) return ids;
-  const { data, error } = await supabase()
-    .from("trip_workflow_events")
-    .select("trip_id")
-    .eq("event_type", POD_VALIDATED_EVENT)
-    .in("trip_id", tripIds);
-  if (error) {
-    if (isMissingColumnOrRelation(error)) return ids;
-    throw new Error(error.message);
-  }
-  for (const row of data ?? []) {
-    const tripId = String((row as { trip_id?: string }).trip_id ?? "").trim();
-    if (tripId) ids.add(tripId);
+  const flags = await fetchPodChargeWorkflowFlags(tripIds);
+  for (const [tripId, workflow] of flags) {
+    if (workflow.chargesSaved) ids.add(tripId);
   }
   return ids;
 }
 
 function attachChargesSavedFlags(
   flagsByTrip: Map<string, ComplianceTripFlags>,
-  validatedTripIds: Set<string>,
+  workflowByTrip: Map<string, PodChargeWorkflowFlags>,
 ): Map<string, ComplianceTripFlags> {
-  if (validatedTripIds.size === 0) return flagsByTrip;
+  if (workflowByTrip.size === 0) return flagsByTrip;
   const next = new Map(flagsByTrip);
-  for (const tripId of validatedTripIds) {
+  for (const [tripId, workflow] of workflowByTrip) {
     const flags = next.get(tripId);
     if (!flags) continue;
-    next.set(tripId, { ...flags, pod_charges_saved: true });
+    next.set(tripId, {
+      ...flags,
+      ...(workflow.chargesSaved ? { pod_charges_saved: true } : { pod_charges_saved: false }),
+      ...(workflow.revalidateRequested
+        ? { pod_revalidate_requested: true }
+        : { pod_revalidate_requested: false }),
+      ...(workflow.settlementReleased
+        ? { pod_settlement_released: true }
+        : { pod_settlement_released: false }),
+      ...(workflow.noDebit ? { pod_no_debit: true } : { pod_no_debit: false }),
+      ...(workflow.hasDebit ? { pod_has_debit: true } : { pod_has_debit: false }),
+    });
   }
   return next;
 }
@@ -788,13 +873,13 @@ export async function fetchComplianceTripInputs(
   if (trips.length === 0) return [];
   const tripIds = trips.map((t) => t.id);
   const entityIds = trips.flatMap((trip) => [trip.vehicle_id, trip.driver_id].filter((id): id is string => Boolean(id)));
-  const [docsByTrip, flagsByTrip, receivedLrsByTrip, ibondTripIds, chargesSavedIds, txnsByTrip, entityDocsById, vault, driverKycDocs] =
+  const [docsByTrip, flagsByTrip, receivedLrsByTrip, ibondTripIds, chargeWorkflow, txnsByTrip, entityDocsById, vault, driverKycDocs] =
     await Promise.all([
       fetchTripDocumentsForTrips(tripIds),
       fetchComplianceTripFlags(tripIds),
       fetchHardCopyReceivedLrNumbers(tripIds),
       fetchHardCopyIbondTripIds(tripIds),
-      fetchPodChargeValidatedTripIds(tripIds),
+      fetchPodChargeWorkflowFlags(tripIds),
       fetchComplianceTransactions(tripIds),
       fetchEntityDocumentsByIds(orgIdOf(trips), entityIds, ["vehicle", "driver"]),
       fetchVehicleVaultDocumentsForTrips(trips, viewerOrgId),
@@ -802,7 +887,7 @@ export async function fetchComplianceTripInputs(
     ]);
   const flagsWithLrs = attachChargesSavedFlags(
     attachIbondFlags(attachReceivedLrNumbers(flagsByTrip, receivedLrsByTrip), ibondTripIds),
-    chargesSavedIds,
+    chargeWorkflow,
   );
   return trips.map((trip) => ({
     trip,
@@ -929,6 +1014,10 @@ export function summarizeComplianceTrip(inputs: ComplianceTripInputs): Complianc
       receivedBy: flags?.pod_hard_copy_received_by ?? null,
       ibond: flags?.pod_ibond === true,
       ...(flags?.pod_charges_saved ? { chargesSaved: true } : {}),
+      ...(flags?.pod_revalidate_requested ? { revalidateRequested: true } : {}),
+      ...(flags?.pod_settlement_released ? { settlementReleased: true } : {}),
+      ...(flags?.pod_no_debit ? { noDebit: true } : {}),
+      ...(flags?.pod_has_debit ? { hasDebit: true } : {}),
       lrNumbers: [...lrReceipt.received, ...lrReceipt.pending],
       receivedLrNumbers: lrReceipt.received,
     },
@@ -988,17 +1077,17 @@ export async function fetchTripScopedInputs(
 ): Promise<Map<string, Pick<ComplianceTripInputs, "documents" | "flags" | "taggedAdvance" | "balance">>> {
   const byTrip = new Map<string, Pick<ComplianceTripInputs, "documents" | "flags" | "taggedAdvance" | "balance">>();
   if (tripIds.length === 0) return byTrip;
-  const [docsByTrip, flagsByTrip, receivedLrsByTrip, ibondTripIds, chargesSavedIds, txnsByTrip] = await Promise.all([
+  const [docsByTrip, flagsByTrip, receivedLrsByTrip, ibondTripIds, chargeWorkflow, txnsByTrip] = await Promise.all([
     fetchTripDocumentsForTrips(tripIds),
     fetchComplianceTripFlags(tripIds),
     fetchHardCopyReceivedLrNumbers(tripIds),
     fetchHardCopyIbondTripIds(tripIds),
-    fetchPodChargeValidatedTripIds(tripIds),
+    fetchPodChargeWorkflowFlags(tripIds),
     fetchComplianceTransactions(tripIds),
   ]);
   const flagsWithLrs = attachChargesSavedFlags(
     attachIbondFlags(attachReceivedLrNumbers(flagsByTrip, receivedLrsByTrip), ibondTripIds),
-    chargesSavedIds,
+    chargeWorkflow,
   );
   for (const id of tripIds) {
     byTrip.set(id, {
@@ -1043,6 +1132,47 @@ export async function fetchTripAdvanceLedger(tripId: string): Promise<{
   return {
     complianceAdvance: toPaymentSummary(rows.filter((row) => row.ledger_category === "compliance_advance")),
     receipts,
+  };
+}
+
+/** Cost-side cash out on a trip — compliance tags plus Finance supplier/driver payouts. */
+export async function fetchTripCostLedgerPaid(tripId: string): Promise<{
+  taggedAdvance: number;
+  taggedBalance: number;
+  ledgerCostPaid: number;
+}> {
+  const empty = { taggedAdvance: 0, taggedBalance: 0, ledgerCostPaid: 0 };
+  const id = String(tripId ?? "").trim();
+  if (!id) return empty;
+  const { data, error } = await supabase()
+    .from("transactions")
+    .select("amount_out, ledger_category, contact_type")
+    .eq("trip_id", id)
+    .gt("amount_out", 0);
+  if (error) return empty;
+  let taggedAdvance = 0;
+  let taggedBalance = 0;
+  let ledgerCostPaid = 0;
+  for (const row of data ?? []) {
+    const out = Number((row as { amount_out?: number | null }).amount_out ?? 0);
+    if (!Number.isFinite(out) || out <= 0) continue;
+    const category = String((row as { ledger_category?: string | null }).ledger_category ?? "");
+    const contact = String((row as { contact_type?: string | null }).contact_type ?? "").toLowerCase();
+    if (category === "compliance_advance") taggedAdvance += out;
+    if (category === "compliance_balance") taggedBalance += out;
+    if (
+      category === "compliance_advance" ||
+      category === "compliance_balance" ||
+      contact === "supplier" ||
+      contact === "driver"
+    ) {
+      ledgerCostPaid += out;
+    }
+  }
+  return {
+    taggedAdvance: Math.round(taggedAdvance * 100) / 100,
+    taggedBalance: Math.round(taggedBalance * 100) / 100,
+    ledgerCostPaid: Math.round(ledgerCostPaid * 100) / 100,
   };
 }
 

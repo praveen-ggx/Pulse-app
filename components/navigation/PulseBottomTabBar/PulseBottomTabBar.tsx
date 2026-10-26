@@ -200,7 +200,7 @@ function PulseBottomTabBarInner({
         ) : null}
         {showCompliance ? (
           <PulseBottomTabSlot
-            label="Compliance"
+            label="Comply"
             active={activeTab === 'compliance'}
             compact={isCompactMobile}
             onPress={() => switchTab('compliance')}

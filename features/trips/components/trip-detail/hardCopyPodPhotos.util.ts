@@ -1,10 +1,22 @@
+import { COMPLIANCE_TRIP_DOC_FORMAT_LABEL } from "@/features/tripCompliance/utils/complianceTripDocumentFormat.util";
 import { VAULT_DOC_MAX_BYTES, VAULT_DOC_MAX_MB } from "@/features/trips/components/trip-detail/tripDocTypes";
 
-/** Image types accepted on the Hard Copy POD photo picker. */
-export const HARD_COPY_POD_PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
+/** Same formats as Compliance trip document upload. */
+export const HARD_COPY_POD_PHOTO_TYPES = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+] as const;
 
-const POD_PHOTO_MIME = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp"]);
-const POD_PHOTO_EXT = new Set(["jpg", "jpeg", "png", "webp"]);
+const POD_PHOTO_MIME = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+]);
+const POD_PHOTO_EXT = new Set(["pdf", "jpg", "jpeg", "png", "webp"]);
 
 export type HardCopyPodPhotoCandidate = {
   name?: string | null;
@@ -50,7 +62,7 @@ export function hardCopyPodPhotoRejectionMessage(
   if (unsupported.length > 0) {
     const names = unsupported.map(fileLabel).join(", ");
     parts.push(
-      `${names} ${unsupported.length === 1 ? "is" : "are"} not supported. Use JPG, JPEG, PNG, or WEBP.`,
+      `${names} ${unsupported.length === 1 ? "is" : "are"} not supported. Use ${COMPLIANCE_TRIP_DOC_FORMAT_LABEL}.`,
     );
   }
   return parts.length > 0 ? parts.join(" ") : null;

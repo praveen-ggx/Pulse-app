@@ -29,6 +29,8 @@ import {
   getRatingsReceivedAsLinkedOrganization,
 } from "@/features/ratings/services/ratings.service";
 import { getSignedAvatarUrl, pickAndUploadOrgLogo, updateOrganizationLogo } from "@/lib/avatarUpload";
+import { showAppAlert } from "@/lib/appAlert";
+import { syncBrandingFromOrg } from "@/features/invoicing/services/invoiceBranding.service";
 import { PartyAvatar } from "@/components/PartyAvatar";
 import { canAccessPartyKind } from "@/lib/capabilities";
 import { useCapabilities } from "@/lib/useCapabilities";
@@ -60,13 +62,13 @@ import {
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    Alert,
     Image,
     Pressable,
     RefreshControl,
     ScrollView,
     StyleSheet,
     Text,
+    useWindowDimensions,
     View,
 } from "react-native";
 import { useLayoutInsets } from "@/lib/layoutInsets";
@@ -360,6 +362,12 @@ function BusinessRoadmapPanel({
 export type ProfileScreenProps = {
   /** Render inside the workspace flex-card (no full-screen header / tab insets). */
   embedded?: boolean;
+  /**
+   * `page` — trip/indent mobile layout: light header + one full-page scroll.
+   * `embedded` — desktop workspace card.
+   * Omit to keep `embedded` behavior.
+   */
+  presentation?: "page" | "embedded";
   onClose?: () => void;
   onOpenAccount?: () => void;
   /** When embedded, opens the workspace team panel (members & access). */
@@ -367,32 +375,34 @@ export type ProfileScreenProps = {
   onOpenVerification?: () => void;
   onOpenBusinessIdentity?: () => void;
   onOpenWorkspaceSettings?: () => void;
-  onOpenProducts?: () => void;
   onOpenScanUsage?: () => void;
   onOpenRoute?: (path: string) => void;
 };
 
 export default function ProfileScreen({
   embedded = false,
+  presentation,
   onClose,
   onOpenAccount,
   onOpenTeam,
   onOpenVerification,
   onOpenBusinessIdentity,
   onOpenWorkspaceSettings,
-  onOpenProducts,
   onOpenScanUsage,
   onOpenRoute,
 }: ProfileScreenProps = {}) {
   const insets = useSafeAreaInsets();
   const layout = useLayoutInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const pageLayout = presentation === "page";
+  const compactPage = pageLayout && windowWidth < Layout.workspaceSplitMinWidth;
   const tabBarScrollProps = useTabBarAwareScrollProps();
   const router = useRouter();
   const queryClient = useQueryClient();
   const { currentOrganization, refreshOrganization } = useOrganization();
   const orgId = currentOrganization?.id ?? null;
   const { user, profile, refreshSession } = useAuth();
-  const { role } = useOrgRole();
+  const { role, canEdit } = useOrgRole();
   const { can: canSurface } = useMemberAccess();
 
   const { data: trips = [], isLoading: tripsLoading } = useTripsQuery(orgId);
@@ -622,14 +632,6 @@ export default function ProfileScreen({
     openPath(`${ROUTES.WORKSPACE}?panel=settings`);
   };
 
-  const openProducts = () => {
-    if (onOpenProducts) {
-      onOpenProducts();
-      return;
-    }
-    openPath(`${ROUTES.WORKSPACE}?panel=products`);
-  };
-
   const openScanUsage = () => {
     if (onOpenScanUsage) {
       onOpenScanUsage();
@@ -707,40 +709,74 @@ export default function ProfileScreen({
 
   const handleUploadOrgLogo = async () => {
     if (!orgId || orgLogoUploading) return;
+    if (!canEdit) {
+      showAppAlert(
+        "Workspace logo",
+        "Only workspace owners and admins can update the organisation logo.",
+      );
+      return;
+    }
     setOrgLogoUploading(true);
     try {
       const result = await pickAndUploadOrgLogo(orgId);
       if (result.error) {
-        Alert.alert("Upload failed", result.error.message);
+        showAppAlert("Upload failed", result.error.message);
         return;
       }
       if (!result.path) return;
       const { error } = await updateOrganizationLogo(orgId, result.path);
       if (error) {
-        Alert.alert("Save failed", error.message);
+        showAppAlert("Save failed", error.message);
         return;
       }
       if (result.previewUri) setOrgLogoUri(result.previewUri);
       await refreshOrganization();
+      await syncBrandingFromOrg(orgId, currentOrganization?.name?.trim() || displayName, result.path);
+      showAppAlert("Profile picture updated", undefined, { tone: "success" });
     } finally {
       setOrgLogoUploading(false);
     }
   };
 
   return (
-    <View style={[styles.outer, embedded && styles.outerEmbedded]}>
+    <View style={[styles.outer, pageLayout && styles.outerPage, embedded && styles.outerEmbedded]}>
+      {pageLayout && viewMode === "main" ? (
+        <View style={[styles.pageNav, { paddingTop: insets.top + 6 }]}>
+          <Pressable
+            onPress={handleClose}
+            style={({ pressed }) => [styles.pageNavBack, pressed && { opacity: 0.8 }]}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+            hitSlop={Layout.touchTargetHitSlop}
+          >
+            <ChevronLeft size={22} color={Theme.textPrimaryDark} strokeWidth={2.2} />
+          </Pressable>
+          <View style={styles.pageNavCopy}>
+            <Text style={styles.pageNavTitle} numberOfLines={1}>
+              Organization
+            </Text>
+            {currentOrganization?.name?.trim() ? (
+              <Text style={styles.pageNavSub} numberOfLines={1}>
+                {currentOrganization.name.trim()}
+              </Text>
+            ) : null}
+          </View>
+          <View style={styles.pageNavSpacer} />
+        </View>
+      ) : null}
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[
           styles.scrollContent,
+          pageLayout && styles.scrollContentPage,
           {
-            paddingBottom: embedded
-              ? Layout.sectionSpacing + 16
+            paddingBottom: pageLayout || embedded
+              ? insets.bottom + Layout.sectionSpacing + 20
               : Layout.sectionSpacing + layout.scrollBottomPadding(),
           },
         ]}
         showsVerticalScrollIndicator={false}
-        {...(embedded ? {} : tabBarScrollProps)}
+        {...(embedded || pageLayout ? {} : tabBarScrollProps)}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -753,7 +789,7 @@ export default function ProfileScreen({
           <BusinessRoadmapPanel
             experience={experience}
             embedded={embedded}
-            topInset={insets.top}
+            topInset={pageLayout ? 8 : insets.top}
             onBack={() => setViewMode("main")}
             onOpenVerification={onOpenVerification}
             onOpenTrips={() => {
@@ -765,7 +801,7 @@ export default function ProfileScreen({
 
         {viewMode === "main" ? (
           <>
-            {!embedded ? (
+            {!embedded && !pageLayout ? (
             <View style={[styles.driverLikeTopBar, { paddingTop: insets.top + 8 }]}>
               <Pressable
                 onPress={handleClose}
@@ -780,13 +816,23 @@ export default function ProfileScreen({
             </View>
             ) : null}
 
-            <View style={[styles.contentWrapDriverLike, embedded && styles.contentWrapEmbedded]}>
+            <View
+              style={[
+                styles.contentWrapDriverLike,
+                embedded && styles.contentWrapEmbedded,
+                compactPage && styles.contentWrapPage,
+              ]}
+            >
               {/* Hero bleeds to screen edges via negative margins — sits flush under the dark top bar */}
               <LinearGradient
                 colors={[Theme.accentBrown, Theme.accentBrownDeep, "#3f2c2c"]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                style={[styles.driverLikeHero, embedded && styles.driverLikeHeroEmbedded]}
+                style={[
+                  styles.driverLikeHero,
+                  embedded && styles.driverLikeHeroEmbedded,
+                  compactPage && styles.driverLikeHeroPage,
+                ]}
               >
                 <View style={[styles.avatarGlow, embedded && styles.avatarGlowEmbedded]} />
 
@@ -820,7 +866,10 @@ export default function ProfileScreen({
                   </Pressable>
                 </View>
 
-                <Text numberOfLines={1} style={[styles.nameText, embedded && styles.nameTextEmbedded]}>
+                <Text
+                  numberOfLines={compactPage ? 2 : 1}
+                  style={[styles.nameText, embedded && styles.nameTextEmbedded]}
+                >
                   {currentOrganization?.name || displayName}
                 </Text>
 
@@ -1073,14 +1122,6 @@ export default function ProfileScreen({
                       <>
                         <View style={styles.premiumDivider} />
                         <ProfileItemRow
-                          icon="th-large"
-                          label="Products & modules"
-                          value={`Manage what's enabled for ${currentOrganization?.name?.trim() || "this organization"}`}
-                          onPress={openProducts}
-                          showChevron
-                        />
-                        <View style={styles.premiumDivider} />
-                        <ProfileItemRow
                           icon="barcode"
                           label="Pulse Scan"
                           value={`Scan usage for ${currentOrganization?.name?.trim() || "this organization"}`}
@@ -1118,11 +1159,66 @@ export default function ProfileScreen({
 
 const styles = StyleSheet.create({
   outer: { flex: 1, backgroundColor: Theme.screenBackground },
+  outerPage: { backgroundColor: Theme.screenBackground },
   outerEmbedded: { backgroundColor: "#f5f7fb" },
+  pageNav: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingBottom: 8,
+    backgroundColor: Theme.screenBackground,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.borderLight,
+    gap: 4,
+  },
+  pageNavBack: {
+    width: 40,
+    height: 40,
+    alignItems: "flex-start",
+    justifyContent: "center",
+  },
+  pageNavCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  pageNavTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+    letterSpacing: -0.2,
+  },
+  pageNavSub: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: Theme.textSecondary,
+  },
+  pageNavSpacer: {
+    width: 40,
+    height: 40,
+  },
   scroll: { flex: 1 },
   scrollContent: {
     paddingTop: 0,
     gap: 0,
+  },
+  scrollContentPage: {
+    paddingTop: 0,
+  },
+  contentWrapPage: {
+    paddingHorizontal: 16,
+    paddingTop: 0,
+    gap: 14,
+  },
+  driverLikeHeroPage: {
+    marginHorizontal: -16,
+    marginBottom: 2,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    paddingTop: 20,
+    paddingBottom: 18,
   },
   driverLikeTopBar: {
     flexDirection: "row",

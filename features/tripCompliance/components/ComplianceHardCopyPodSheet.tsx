@@ -11,6 +11,7 @@ import {
   type HardCopyPodLrOption,
 } from "@/features/trips/components/trip-detail/LogHardCopyPodModal";
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
+import type { ReactNode } from "react";
 
 type Props = {
   summary: ComplianceTripSummary;
@@ -24,6 +25,7 @@ type Props = {
   onChanged: (tripIds: string[]) => void | Promise<void>;
   /** Render inside a pane instead of as the drawer. */
   inline?: boolean;
+  headerEnd?: ReactNode;
 };
 
 export function ComplianceHardCopyPodSheet({
@@ -36,6 +38,7 @@ export function ComplianceHardCopyPodSheet({
   tripFacts,
   onChanged,
   inline = false,
+  headerEnd,
 }: Props) {
   const trip = summary.trip;
   const orgId = organizationId || trip.organization_id;
@@ -52,7 +55,9 @@ export function ComplianceHardCopyPodSheet({
       onUpdated={async (tripIds) => {
         await onChanged(tripIds?.length ? tripIds : [trip.id]);
       }}
-      lrOptions={lrOptions}
+      tripScoped
+      headerEnd={headerEnd}
+      lrOptions={lrOptions.filter((option) => option.tripId.trim() === trip.id.trim())}
       summary={{
         manifestId: getTripDisplayNumber(trip, orgId || null),
         clientName: trip.client_name?.trim() || "—",

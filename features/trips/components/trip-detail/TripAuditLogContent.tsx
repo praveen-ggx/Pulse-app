@@ -1,8 +1,10 @@
 /**
  * Trip activity — Metronic journey timeline (who did what, when, with people).
  */
+import { DriverAvatar, UserAvatar } from "@/components/Avatar";
 import { PartyAvatar } from "@/components/PartyAvatar";
 import { TinyEmptyLottie } from "@/components/TinyEmptyLottie";
+import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { TripActivityTimelineIcon } from "@/features/trips/components/trip-detail/TripActivityTimelineIcon";
 import {
@@ -22,6 +24,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -30,6 +33,12 @@ import {
   useWindowDimensions,
   type ViewStyle,
 } from "react-native";
+
+const WEB_COPY = Platform.select({
+  web: { whiteSpace: "pre-wrap" as const, letterSpacing: 0 },
+  default: {},
+});
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const METRONIC = {
   ink: "#181C32",
@@ -44,6 +53,8 @@ const METRONIC = {
 
 const TABS: { id: TripAuditFilterTab; label: string }[] = [
   { id: "all", label: "All" },
+  { id: "documents", label: "Documents" },
+  { id: "activity", label: "Activity" },
   { id: "payment", label: "Payment" },
   { id: "updates", label: "Updates" },
   { id: "assignment", label: "Assignment" },
@@ -73,6 +84,11 @@ const CATEGORY_TONE: Record<
     text: "#4f46e5",
     border: "rgba(99,102,241,0.22)",
   },
+  document: {
+    bg: "rgba(14,165,233,0.1)",
+    text: "#0369a1",
+    border: "rgba(14,165,233,0.22)",
+  },
 };
 
 export type TripAuditLogContentProps = {
@@ -83,6 +99,8 @@ export type TripAuditLogContentProps = {
   loading?: boolean;
   onClose: () => void;
   shellStyle?: ViewStyle;
+  tabs?: TripAuditFilterTab[];
+  emptyBody?: string;
 };
 
 type TimelineRow =
@@ -154,21 +172,56 @@ function JourneyHero({
   );
 }
 
+function ActivityUserAvatar({
+  avatar,
+  size,
+}: {
+  avatar: TripAuditLogEntry["actorAvatar"];
+  size: number;
+}) {
+  if (avatar.entityType === "driver") {
+    return (
+      <DriverAvatar
+        name={avatar.name}
+        avatarUrl={avatar.avatarUrl}
+        avatarSeed={avatar.avatarSeed}
+        size={size}
+        showBorder={false}
+      />
+    );
+  }
+  if (avatar.entityType === "vehicle") {
+    return (
+      <PartyAvatar
+        name={avatar.name}
+        entityType="vehicle"
+        avatarUrl={avatar.avatarUrl}
+        avatarSeed={avatar.avatarSeed}
+        initialsColorSeed={avatar.initialsColorSeed}
+        size={size}
+        shape="circle"
+      />
+    );
+  }
+  return (
+    <UserAvatar
+      name={avatar.name}
+      avatarUrl={avatar.avatarUrl}
+      avatarSeed={avatar.avatarSeed}
+      context="personal"
+      size={size}
+      showBorder={false}
+    />
+  );
+}
+
 function PeopleRow({ people }: { people: TripAuditLogPerson[] }) {
   if (people.length === 0) return null;
   const person = people[0];
 
   return (
     <View style={styles.peopleRow}>
-      <PartyAvatar
-        name={person.avatar.name}
-        entityType={person.avatar.entityType ?? "client"}
-        avatarUrl={person.avatar.avatarUrl}
-        avatarSeed={person.avatar.avatarSeed}
-        initialsColorSeed={person.avatar.initialsColorSeed}
-        size={18}
-        shape="circle"
-      />
+      <ActivityUserAvatar avatar={person.avatar} size={18} />
       <Text style={styles.peopleLabel} numberOfLines={1}>
         {person.role ? (
           <Text style={styles.peopleRole}>{person.role}: </Text>
@@ -256,18 +309,10 @@ function ActivityActorHeadline({ entry }: { entry: TripAuditLogEntry }) {
 
   return (
     <View style={styles.headlineRow}>
-      <PartyAvatar
-        name={entry.actorAvatar.name}
-        entityType={entry.actorAvatar.entityType ?? "client"}
-        avatarUrl={entry.actorAvatar.avatarUrl ?? undefined}
-        avatarSeed={entry.actorAvatar.avatarSeed ?? undefined}
-        initialsColorSeed={entry.actorAvatar.initialsColorSeed ?? undefined}
-        size={22}
-        shape="circle"
-      />
-      <Text style={styles.headline} numberOfLines={4}>
-        <Text style={styles.actorName}>{entry.recordedBy}</Text>
-        <Text style={styles.actionText}> {phrase}</Text>
+      <ActivityUserAvatar avatar={entry.actorAvatar} size={22} />
+      <Text style={[styles.headline, WEB_COPY]} numberOfLines={4}>
+        <Text style={[styles.actorName, WEB_COPY]}>{entry.recordedBy}</Text>
+        <Text style={[styles.actionText, WEB_COPY]}> {phrase}</Text>
         {entry.headlineTarget ? (
           <Text style={styles.targetName}> {entry.headlineTarget}</Text>
         ) : null}
@@ -401,11 +446,22 @@ export function TripAuditLogContent({
   loading = false,
   onClose,
   shellStyle,
+  tabs,
+  emptyBody,
 }: TripAuditLogContentProps) {
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const compact = width < 768;
   const scrollRef = useRef<ScrollView>(null);
+  const visibleTabs = useMemo(
+    () => (tabs?.length ? TABS.filter((tab) => tabs.includes(tab.id)) : TABS),
+    [tabs],
+  );
   const [filterTab, setFilterTab] = useState<TripAuditFilterTab>("all");
   const [activeYear, setActiveYear] = useState<number | null>(null);
+  useEffect(() => {
+    if (!visibleTabs.some((tab) => tab.id === filterTab)) setFilterTab("all");
+  }, [filterTab, visibleTabs]);
 
   const tabbedEntries = useMemo(
     () => entries.filter((entry) => matchesTab(entry, filterTab)),
@@ -438,7 +494,7 @@ export function TripAuditLogContent({
 
   return (
     <View style={[styles.shell, shellStyle]}>
-      <View style={styles.header}>
+      <View style={[styles.header, compact && styles.headerCompact]}>
         <View style={styles.headerTextCol}>
           <Text style={styles.headerTitle}>{title}</Text>
           {subtitle ? (
@@ -449,12 +505,12 @@ export function TripAuditLogContent({
         </View>
         <Pressable
           onPress={onClose}
-          style={styles.closeBtn}
+          style={[styles.closeBtn, compact && styles.closeBtnCompact]}
           accessibilityRole="button"
           accessibilityLabel="Close activity"
           hitSlop={8}
         >
-          <X size={14} color={METRONIC.muted} strokeWidth={2} />
+          <X size={compact ? 18 : 14} color={METRONIC.muted} strokeWidth={2} />
         </Pressable>
       </View>
 
@@ -465,13 +521,13 @@ export function TripAuditLogContent({
           contentContainerStyle={styles.tabScrollContent}
           style={styles.tabScroll}
         >
-          {TABS.map((tab) => {
+          {visibleTabs.map((tab) => {
             const selected = filterTab === tab.id;
             return (
               <Pressable
                 key={tab.id}
                 onPress={() => setFilterTab(tab.id)}
-                style={styles.tabItem}
+                style={[styles.tabItem, compact && styles.tabItemCompact]}
                 accessibilityRole="tab"
                 accessibilityState={{ selected }}
               >
@@ -531,7 +587,9 @@ export function TripAuditLogContent({
           style={styles.scroll}
           contentContainerStyle={[
             styles.scrollContent,
+            compact && styles.scrollContentCompact,
             showYearRail && styles.scrollContentWithRail,
+            { paddingBottom: 24 + insets.bottom },
           ]}
           showsVerticalScrollIndicator
         >
@@ -576,8 +634,8 @@ export function TripAuditLogContent({
               </View>
               <Text style={styles.emptyTitle}>No activity yet</Text>
               <Text style={styles.emptyBody}>
-                Payments, assignments, and trip updates by your team will appear
-                on this journey timeline.
+                {emptyBody ??
+                  "Payments, assignments, and trip updates by your team will appear on this journey timeline."}
               </Text>
             </View>
           ) : null}
@@ -609,12 +667,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    paddingHorizontal: 14,
+    paddingHorizontal: Layout.screenPaddingHorizontal,
     paddingTop: 12,
     paddingBottom: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: METRONIC.border,
     backgroundColor: Theme.cardWhite,
+  },
+  headerCompact: {
+    paddingTop: 14,
+    paddingBottom: 10,
+    alignItems: "center",
   },
   headerTextCol: {
     flex: 1,
@@ -629,18 +692,23 @@ const styles = StyleSheet.create({
   },
   headerSubtitle: {
     marginTop: 2,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "400",
     color: METRONIC.muted,
-    lineHeight: 16,
+    lineHeight: 17,
   },
   closeBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
+    width: Layout.minTouchTargetSize,
+    height: Layout.minTouchTargetSize,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: METRONIC.quoteBg,
+    flexShrink: 0,
+  },
+  closeBtnCompact: {
+    width: Layout.minTouchTargetSize,
+    height: Layout.minTouchTargetSize,
   },
   toolbar: {
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -662,7 +730,13 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 9,
     minWidth: 48,
+    minHeight: 44,
     alignItems: "center",
+    justifyContent: "center",
+  },
+  tabItemCompact: {
+    paddingHorizontal: 14,
+    minWidth: 56,
   },
   tabText: {
     fontSize: 12,
@@ -719,9 +793,13 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   scrollContent: {
-    paddingHorizontal: 10,
+    paddingHorizontal: Layout.screenPaddingHorizontal,
     paddingTop: 10,
     paddingBottom: 24,
+  },
+  scrollContentCompact: {
+    paddingHorizontal: Layout.screenPaddingHorizontal,
+    paddingTop: 12,
   },
   scrollContentWithRail: {
     paddingRight: 4,
@@ -834,14 +912,17 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     color: METRONIC.ink,
     fontWeight: "500",
+    letterSpacing: 0,
   },
   actorName: {
     fontWeight: "600",
     color: METRONIC.ink,
+    letterSpacing: 0,
   },
   actionText: {
     fontWeight: "500",
     color: METRONIC.ink,
+    letterSpacing: 0,
   },
   targetName: {
     fontWeight: "600",
@@ -880,6 +961,7 @@ const styles = StyleSheet.create({
   },
   detailCard: {
     marginTop: 8,
+    minWidth: 0,
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 8,
@@ -897,7 +979,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 6,
+    gap: 8,
+    flexWrap: "wrap",
+    minWidth: 0,
   },
   categoryChip: {
     borderRadius: 3,
@@ -906,7 +990,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   categoryChipText: {
-    fontSize: 8,
+    fontSize: 10,
     fontWeight: "500",
     letterSpacing: 0.3,
     textTransform: "uppercase",
@@ -939,7 +1023,8 @@ const styles = StyleSheet.create({
   },
   peopleLabel: {
     flex: 1,
-    fontSize: 10,
+    minWidth: 0,
+    fontSize: 12,
     fontWeight: "400",
     color: METRONIC.ink,
     lineHeight: 13,

@@ -35,6 +35,26 @@ describe("isIndentStoryLive", () => {
       }),
     ).toBe(false);
   });
+
+  it("keeps an indent-linked story live after the 24h reel clock", () => {
+    expect(
+      isIndentStoryLive({
+        is_active: true,
+        source_indent_id: "ind-1",
+        expires_at: new Date(Date.now() - 60_000).toISOString(),
+      }),
+    ).toBe(true);
+  });
+
+  it("hides an indent-linked story only after it is deactivated", () => {
+    expect(
+      isIndentStoryLive({
+        is_active: false,
+        source_indent_id: "ind-1",
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("indentStoryExpiresAt", () => {

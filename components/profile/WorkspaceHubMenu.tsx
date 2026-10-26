@@ -48,7 +48,6 @@ import {
   Car,
   ChevronRight,
   HelpCircle,
-  Landmark,
   Lock,
   LogOut,
   Settings,
@@ -235,12 +234,6 @@ export function WorkspaceHubMenu({
     setShowCommerceConfirm(true);
   }, []);
 
-  /** In-app stack push — do not use window.location / new-tab (remounts the data plane). */
-  const openFinancePro = useCallback(() => {
-    onExit?.();
-    router.push(ROUTES.FINANCE_PRO as Parameters<typeof router.push>[0]);
-  }, [onExit, router]);
-
   const openPulseCore = useCallback(() => {
     onExit?.();
     router.replace(DEFAULT_DISPATCHER_ROUTE as Parameters<typeof router.replace>[0]);
@@ -317,14 +310,6 @@ export function WorkspaceHubMenu({
         accessibilityLabel:
           "Pulse Scan. Scan documents and track your organization's scan usage.",
       },
-      {
-        id: "ws-finance-pro",
-        label: "Pulse Finance Pro",
-        icon: hubLucideIcon(Landmark),
-        onPress: openFinancePro,
-        accessibilityLabel:
-          "Pulse Finance Pro. Billing, collections, and trip-linked receivables for this workspace.",
-      },
     ];
     // When already inside Invoice / POD / Finance Pro, offer Core as a return path.
     if (activeShell) {
@@ -338,12 +323,6 @@ export function WorkspaceHubMenu({
       });
     }
     rows.push(
-      {
-        id: "ws-products",
-        label: "Open Pulse products",
-        icon: hubLucideIcon(Sparkles),
-        panelId: "products",
-      },
       {
         id: "ws-commerce",
         label: "Commerce",
@@ -364,11 +343,17 @@ export function WorkspaceHubMenu({
         },
       },
     );
-    return rows;
+    return rows.filter(
+      (row) =>
+        row.id !== "ws-products" &&
+        row.id !== "ws-finance-pro" &&
+        row.panelId !== "products" &&
+        row.label !== "Open Pulse products" &&
+        row.label !== "Pulse Finance Pro",
+    );
   }, [
     activeShell,
     openCommerce,
-    openFinancePro,
     openPulseCore,
     canSurface,
     complianceEnabled,

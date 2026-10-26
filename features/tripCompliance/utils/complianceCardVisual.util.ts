@@ -195,38 +195,79 @@ export function verificationStatusVisual(
   };
 }
 
-/** Trip Operations status on a Compliance Pending card — not the compliance stage. */
+/** Trip Operations status — same rail as Unassigned → Delivered. */
 export function tripOpsStatusBadge(
   status: string | null | undefined,
+  trip?: { driver_id?: string | null; started_at?: string | null } | null,
 ): { label: string; tone: ComplianceTone } | null {
   const raw = (status ?? "").trim().toLowerCase();
-  if (!raw) return null;
-  if (raw === "in_progress" || raw === "loading") {
-    return { label: "Loading", tone: COMPLIANCE_STAGE_TONE.compliance_pending };
+  const tripKnown = trip != null;
+  const hasDriver = Boolean(String(trip?.driver_id ?? "").trim());
+  const muted = { fg: Theme.textMuted, bg: Theme.complianceStagePendingBg };
+  const assigned = COMPLIANCE_STAGE_TONE.compliance_pending;
+  const transit = { fg: Theme.complianceStageInfoFg, bg: Theme.complianceStageInfoBg };
+  const unload = COMPLIANCE_STAGE_TONE.balance_pending;
+  const delivered = COMPLIANCE_STAGE_TONE.compliance_verified;
+  const cancelled = COMPLIANCE_STAGE_TONE.pending_for_docs;
+
+  if (tripKnown && !hasDriver && raw !== "cancelled" && raw !== "canceled") {
+    return { label: "Unassigned", tone: muted };
   }
-  if (raw === "in_transit" || raw === "in transit") {
-    return {
-      label: "In Transit",
-      tone: { fg: Theme.complianceStageInfoFg, bg: Theme.complianceStageInfoBg },
-    };
+  if (!raw) {
+    if (!tripKnown) return null;
+    return hasDriver ? { label: "Assigned", tone: assigned } : { label: "Unassigned", tone: muted };
   }
-  if (raw === "at_destination" || raw === "at_drop") {
-    return { label: "At Destination", tone: COMPLIANCE_STAGE_TONE.balance_pending };
+  if (raw === "unassigned") {
+    return { label: "Unassigned", tone: muted };
+  }
+  if (raw === "assigned" || raw === "accepted") {
+    return { label: "Assigned", tone: assigned };
+  }
+  if (raw === "in_progress") {
+    return trip?.started_at
+      ? { label: "In Transit", tone: transit }
+      : { label: "Loading", tone: assigned };
+  }
+  if (raw === "loading" || raw === "picked_up" || raw === "pickup") {
+    return { label: "Loading", tone: assigned };
+  }
+  if (raw === "in_transit" || raw === "in transit" || raw === "transit" || raw === "dispatched") {
+    return { label: "In Transit", tone: transit };
+  }
+  if (
+    raw === "unloading" ||
+    raw === "at_destination" ||
+    raw === "at_drop" ||
+    raw === "arrived"
+  ) {
+    return { label: "Unloading", tone: unload };
   }
   if (raw === "completed" || raw === "delivered" || raw === "done") {
-    return { label: "Completed", tone: COMPLIANCE_STAGE_TONE.compliance_verified };
+    return { label: "Delivered", tone: delivered };
   }
   if (raw === "cancelled" || raw === "canceled") {
-    return { label: "Cancelled", tone: COMPLIANCE_STAGE_TONE.pending_for_docs };
+    return { label: "Cancelled", tone: cancelled };
   }
   const label = raw
     .split("_")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
-  return { label, tone: COMPLIANCE_STAGE_TONE.compliance_pending };
+  return { label, tone: assigned };
 }
 
 /** True when payment/pipeline progressed past verification — show both pills. */
+export function podDebitStatusVisual(
+  summary: Pick<ComplianceTripSummary, "hardCopyPod">,
+): { label: string; tone: ComplianceTone } | null {
+  if (summary.hardCopyPod.hasDebit) {
+    return { label: "Debit", tone: COMPLIANCE_STAGE_TONE.balance_pending };
+  }
+  if (summary.hardCopyPod.noDebit || (summary.hardCopyPod.chargesSaved && !summary.hardCopyPod.hasDebit)) {
+    return { label: "No debit", tone: COMPLIANCE_STAGE_TONE.compliance_verified };
+  }
+  return null;
+}
+
 export function shouldShowPaymentStatusPill(summary: ComplianceTripSummary): boolean {
   if (summary.advance || summary.balance) return true;
   return (

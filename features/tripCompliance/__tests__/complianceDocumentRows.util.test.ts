@@ -33,13 +33,17 @@ function doc(overrides: Partial<ComplianceDocumentRow>): ComplianceDocumentRow {
 }
 
 describe("deriveTripVaultReviewRows", () => {
-  it("lists only LR / E-way Bill / Invoice, even when POD or Memo are on file", () => {
+  it("keeps required Trip types and surfaces a logged POD for preview", () => {
     const rows = deriveTripVaultReviewRows([
       doc({ id: "pod-1", document_type: "pod" }),
       doc({ id: "memo-1", document_type: "memo" }),
     ]);
-    expect(rows.map((r) => r.type)).toEqual(["lr", "eway_bill", "invoice"]);
-    expect(rows.every((r) => r.required)).toBe(true);
+    expect(rows.map((r) => r.type)).toEqual(["lr", "eway_bill", "invoice", "pod"]);
+    expect(rows.filter((row) => row.required).map((row) => row.type)).toEqual([
+      "lr",
+      "eway_bill",
+      "invoice",
+    ]);
   });
 
   it("keeps every extra LR / Invoice / E-way file on the Trip tab", () => {
@@ -49,7 +53,7 @@ describe("deriveTripVaultReviewRows", () => {
       doc({ id: "pod-1", document_type: "pod" }),
     ]);
     expect(rows.filter((r) => r.type === "lr")).toHaveLength(2);
-    expect(rows.some((r) => r.type === "pod")).toBe(false);
+    expect(rows.some((r) => r.type === "pod")).toBe(true);
     expect(rows.filter((r) => r.required).map((r) => r.type).sort()).toEqual([
       "eway_bill",
       "invoice",

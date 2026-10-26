@@ -208,6 +208,10 @@ export async function applyTransactionRealtimeEvent(
   // patched, so preserve their existing invalidation behaviour, unchanged in scope.
   scheduleInvalidation(qc, ['q', 'transactions', organizationId, 'infinite']);
   scheduleInvalidation(qc, ['q', 'transactions', organizationId, 'contact']);
+  scheduleInvalidation(qc, ['q', 'finance-aggregation', 'customer', organizationId]);
+  scheduleInvalidation(qc, ['q', 'finance-aggregation', 'supplier', organizationId]);
+  scheduleInvalidation(qc, queryKeys.financeAggregation.driver(organizationId));
+  scheduleInvalidation(qc, queryKeys.financeAggregation.dco(organizationId));
 
   // Trip-linked ledger rows drive Compliance Advance Processed / stage counts.
   const tripId =

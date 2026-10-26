@@ -153,6 +153,12 @@ describe('in-flight request dedup — concurrent calls for the same path share o
     expect(mockDownload).toHaveBeenCalledTimes(1);
     expect(results[0]?.url).toBe('blob:mock-url');
     expect(results[1]?.url).toBe('blob:mock-url');
+    const revoke = jest.fn();
+    (URL as unknown as { revokeObjectURL: (url: string) => void }).revokeObjectURL = revoke;
+    results[0]?.revoke();
+    expect(revoke).not.toHaveBeenCalled();
+    results[1]?.revoke();
+    expect(revoke).toHaveBeenCalledWith('blob:mock-url');
 
     if (originalCreateObjectURL) {
       (URL as unknown as { createObjectURL: unknown }).createObjectURL = originalCreateObjectURL;

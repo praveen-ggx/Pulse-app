@@ -269,6 +269,7 @@ export function RegistryPrimaryButton({
   disabled,
   compact = false,
   backgroundColor,
+  style,
 }: {
   label: string;
   onPress: () => void;
@@ -276,6 +277,7 @@ export function RegistryPrimaryButton({
   compact?: boolean;
   /** Override default navy fill — e.g. chat accent on ledger audit actions. */
   backgroundColor?: string;
+  style?: ViewStyle;
 }) {
   const accentStyle =
     backgroundColor != null
@@ -285,12 +287,15 @@ export function RegistryPrimaryButton({
     <Pressable
       onPress={onPress}
       disabled={disabled}
-      style={[
+      style={({ hovered, pressed }) => [
         alertRegistryActionStyles.primaryBtn,
         accentStyle,
         compact && alertRegistryActionStyles.primaryBtnCompact,
         disabled && alertRegistryActionStyles.btnDisabled,
         compact && alertRegistryActionStyles.btnCompactFlex,
+        style,
+        !disabled && hovered ? { opacity: 0.88 } : null,
+        !disabled && pressed ? { opacity: 0.8 } : null,
       ]}
       accessibilityRole="button"
     >

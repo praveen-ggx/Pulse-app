@@ -926,6 +926,25 @@ async function fetchLrPodRowsViaRest(
   return rows;
 }
 
+/**
+ * Raw LR rows (trip_id + stored document_number) for many trips. Same RPC-first,
+ * bounded-concurrency path as the hub index, so org-wide LR checks skip the
+ * per-row trip_documents RLS.
+ */
+export async function loadLrDocumentRowsByTripIds(
+  tripIds: string[],
+): Promise<TripDocumentLrPodRow[]> {
+  const unique = Array.from(new Set(tripIds.filter(Boolean)));
+  if (unique.length === 0) return [];
+  const viaRpc = await fetchLrPodRowsViaRpc(unique);
+  if (viaRpc) {
+    return viaRpc.filter(
+      (row) => String(row.document_type ?? "").trim().toLowerCase() === "lr",
+    );
+  }
+  return fetchLrPodRowsViaRest(unique, ["lr"]);
+}
+
 /** One bulk read of LR + POD metadata for many trips. */
 export async function loadLrPodIndexByTripIds(
   tripIds: string[],

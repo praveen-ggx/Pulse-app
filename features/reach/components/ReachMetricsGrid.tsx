@@ -1,9 +1,9 @@
 /**
- * Shared 4-metric grid (Impressions, Views, Bids, Credits Used). No CTR/CPM/CPC
- * by design. Compact boxed cells matching the Pulse Reach HTML mock density.
+ * Shared 4-metric grid (Impressions, Views, Bids, Credits Used).
  */
 import Theme from "@/constants/Theme";
 import { useReachCampaignMetricsQuery } from "@/lib/queries/useReachCampaignsQuery";
+import { Coins, Eye, Gavel, Radio } from "lucide-react-native";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 
 export function ReachMetricsGrid({
@@ -11,7 +11,6 @@ export function ReachMetricsGrid({
   withDivider = false,
 }: {
   campaignId: string;
-  /** Top rule used inside campaign cards; leave off in sheets/detail. */
   withDivider?: boolean;
 }) {
   const metricsQ = useReachCampaignMetricsQuery(campaignId);
@@ -25,26 +24,64 @@ export function ReachMetricsGrid({
     );
   }
 
+  const cells = [
+    { label: "Impressions", value: m.impressions.toLocaleString(), Icon: Radio, tone: "plain" as const },
+    { label: "Views", value: m.views.toLocaleString(), Icon: Eye, tone: "plain" as const },
+    {
+      label: "Bids",
+      value: String(m.bids),
+      Icon: Gavel,
+      tone: "bids" as const,
+    },
+    {
+      label: "Credits",
+      value: m.creditsUsed.toLocaleString(),
+      Icon: Coins,
+      tone: "credits" as const,
+    },
+  ];
+
   return (
     <View style={[styles.metricsRow, withDivider && styles.metricsRowDivided]}>
-      <View style={styles.metricCell}>
-        <Text style={styles.metricValue}>{m.impressions.toLocaleString()}</Text>
-        <Text style={styles.metricLabel}>Impressions</Text>
-      </View>
-      <View style={styles.metricCell}>
-        <Text style={styles.metricValue}>{m.views.toLocaleString()}</Text>
-        <Text style={styles.metricLabel}>Story Views</Text>
-      </View>
-      <View style={styles.metricCell}>
-        <Text style={[styles.metricValue, styles.metricValueBids]}>
-          {m.bids}{m.bids === 1 ? " Bid" : " Bids"}
-        </Text>
-        <Text style={styles.metricLabel}>Driver Bids</Text>
-      </View>
-      <View style={[styles.metricCell, styles.metricCellCredits]}>
-        <Text style={[styles.metricValue, styles.metricValueCredits]}>{m.creditsUsed}</Text>
-        <Text style={[styles.metricLabel, styles.metricLabelCredits]}>Credits Spent</Text>
-      </View>
+      {cells.map((cell) => (
+        <View
+          key={cell.label}
+          style={[
+            styles.metricCell,
+            cell.tone === "credits" && styles.metricCellCredits,
+          ]}
+        >
+          <cell.Icon
+            size={12}
+            color={
+              cell.tone === "credits"
+                ? Theme.accentBrown
+                : cell.tone === "bids"
+                  ? Theme.positive
+                  : Theme.textMuted
+            }
+          />
+          <Text
+            style={[
+              styles.metricValue,
+              cell.tone === "bids" && styles.metricValueBids,
+              cell.tone === "credits" && styles.metricValueCredits,
+            ]}
+            numberOfLines={1}
+          >
+            {cell.value}
+          </Text>
+          <Text
+            style={[
+              styles.metricLabel,
+              cell.tone === "credits" && styles.metricLabelCredits,
+            ]}
+            numberOfLines={1}
+          >
+            {cell.label}
+          </Text>
+        </View>
+      ))}
     </View>
   );
 }
@@ -52,6 +89,7 @@ export function ReachMetricsGrid({
 const styles = StyleSheet.create({
   metricsRow: {
     flexDirection: "row",
+    alignItems: "stretch",
     gap: 6,
   },
   metricsRowDivided: {
@@ -63,11 +101,13 @@ const styles = StyleSheet.create({
   metricCell: {
     flex: 1,
     minWidth: 0,
+    minHeight: 72,
     alignItems: "center",
-    gap: 1,
-    paddingVertical: 6,
-    paddingHorizontal: 2,
-    borderRadius: 10,
+    justifyContent: "center",
+    gap: 3,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderRadius: 12,
     backgroundColor: Theme.surface,
   },
   metricCellCredits: {
@@ -75,11 +115,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Theme.accentBrownBorder,
   },
-  metricValue: { fontSize: 13, fontWeight: "800", color: Theme.textPrimaryDark },
-  metricValueBids: { color: Theme.success },
+  metricValue: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: Theme.actionBtnInk,
+    fontVariant: ["tabular-nums"],
+  },
+  metricValueBids: { color: Theme.positive },
   metricValueCredits: { color: Theme.accentBrownDeep },
   metricLabel: {
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: "700",
     color: Theme.textMuted,
     textTransform: "uppercase",

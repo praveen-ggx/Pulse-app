@@ -4,7 +4,7 @@
  *
  * Selection is owned locally so parent auto-preview effects cannot clobber taps.
  */
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -20,8 +20,8 @@ import { Plus } from "lucide-react-native";
 import { useRouter } from "expo-router";
 
 import Theme from "@/constants/Theme";
-import type { DriverRow } from "@/features/drivers/services/drivers.service";
-import type { VehicleRow } from "@/features/vehicles/services/vehicles.service";
+import { type DriverRow } from "@/features/drivers/services/drivers.service";
+import { type VehicleRow } from "@/features/vehicles/services/vehicles.service";
 import {
   TripAssignmentWorkspace,
   type AssignmentPanelAction,
@@ -29,6 +29,14 @@ import {
 } from "@/features/trips/components/assignment/TripAssignmentWorkspace";
 import { aws } from "@/features/trips/components/assignment/tripAssignmentWorkspace.styles";
 import type { TripRow } from "@/features/trips/services/trips.service";
+import {
+  suggestedNameForPhoneLookup,
+  trimDriverLabel,
+} from "@/features/trips/utils/driverDisplayName.util";
+import {
+  lookupDriversByPhoneVariants,
+  normalizeIndianMobileLast10,
+} from "@/features/trips/utils/driverPhoneLookup.util";
 import { formatIndianVehicleNumber, formatMobileNumber } from "@/lib/format";
 
 type Props = {
@@ -46,8 +54,35 @@ type Props = {
   initialDriverId?: string | null;
   initialVehicleId?: string | null;
   saving: boolean;
-  onConfirm: (driverId: string, vehicleId: string) => void | Promise<void>;
+  onConfirm: (
+    driverId: string,
+    vehicleId: string | null,
+    extras?: {
+      driverName?: string | null;
+      vehiclePlate?: string | null;
+      vehicleType?: string | null;
+    },
+  ) => void | boolean | Promise<void | boolean>;
+  /** Persist a swap immediately so the outgoing driver/vehicle leaves this trip. */
+  onLiveSwap?: (
+    next: {
+      driverId: string;
+      vehicleId: string | null;
+      driverName?: string | null;
+      vehiclePlate?: string | null;
+      vehicleType?: string | null;
+    },
+  ) => void | boolean | Promise<void | boolean>;
   onClose: () => void;
+  /** Parent shows the confirm/edit preview so it is not buried in the assign modal. */
+  onPreviewRequest?: (draft: {
+    driverId: string;
+    vehicleId: string | null;
+    driverName: string;
+    driverPhone: string;
+    vehiclePlate: string;
+    vehicleType: string;
+  }) => void;
   onBeforeRegisterNavigate?: () => void;
   focus?: "driver" | "vehicle";
 };
@@ -124,15 +159,21 @@ export function FleetAssignWorkspace({
   initialVehicleId = null,
   saving,
   onConfirm,
+  onLiveSwap,
   onClose,
+  onPreviewRequest,
   onBeforeRegisterNavigate,
   focus = "driver",
 }: Props) {
   const router = useRouter();
   const { width: windowWidth } = useWindowDimensions();
   const isCompact = windowWidth < 720;
-  const [driverAction, setDriverAction] = useState<AssignmentPanelAction>("SWAP");
-  const [vehicleAction, setVehicleAction] = useState<AssignmentPanelAction>("SWAP");
+  const [driverAction, setDriverAction] = useState<AssignmentPanelAction>(() =>
+    focus === "driver" ? "EDIT" : "PREVIEW",
+  );
+  const [vehicleAction, setVehicleAction] = useState<AssignmentPanelAction>(() =>
+    focus === "vehicle" ? "EDIT" : "PREVIEW",
+  );
   const [driverSearch, setDriverSearch] = useState("");
   const [vehicleSearch, setVehicleSearch] = useState("");
   const [changeReason, setChangeReason] =
@@ -146,6 +187,11 @@ export function FleetAssignWorkspace({
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(
     initialVehicleId ?? trip.vehicle_id ?? null,
   );
+  const [editDriverName, setEditDriverName] = useState("");
+  const [editDriverPhone, setEditDriverPhone] = useState("");
+  const [editVehiclePlate, setEditVehiclePlate] = useState("");
+  const [editVehicleType, setEditVehicleType] = useState("");
+  const [wizardStep, setWizardStep] = useState<"details" | "reason">("details");
 
   // Seed once when roster arrives (do not fight later user taps).
   useEffect(() => {
@@ -165,8 +211,13 @@ export function FleetAssignWorkspace({
   }, [vehicles, initialVehicleId, trip.vehicle_id, selectedVehicleId]);
 
   useEffect(() => {
-    if (focus === "vehicle") setVehicleAction("SWAP");
-    else setDriverAction("SWAP");
+    if (focus === "vehicle") {
+      setDriverAction("PREVIEW");
+      setVehicleAction((prev) => (prev === "PREVIEW" ? "EDIT" : prev));
+      return;
+    }
+    setVehicleAction("PREVIEW");
+    setDriverAction((prev) => (prev === "PREVIEW" ? "EDIT" : prev));
   }, [focus]);
 
   const selectedDriver = useMemo(
@@ -177,6 +228,100 @@ export function FleetAssignWorkspace({
     () => vehicles.find((v) => v.id === selectedVehicleId) ?? null,
     [vehicles, selectedVehicleId],
   );
+
+  const seededDriverIdRef = useRef<string | null>(null);
+  const seededVehicleIdRef = useRef<string | null>(null);
+  const [suggestedAppName, setSuggestedAppName] = useState<string | null>(null);
+  const nameOwnedLocallyRef = useRef(false);
+  const nameOwnedForLast10Ref = useRef("");
+
+  useEffect(() => {
+    if (selectedDriverId === seededDriverIdRef.current) return;
+    seededDriverIdRef.current = selectedDriverId;
+    const localName = trip.driver_display_name?.trim() || "";
+    const appName = selectedDriver?.name?.trim() || "";
+    setEditDriverName(localName || appName);
+    if (localName && localName !== appName) {
+      nameOwnedLocallyRef.current = true;
+      nameOwnedForLast10Ref.current = normalizeIndianMobileLast10(
+        selectedDriver?.phone ?? "",
+      );
+    }
+    setSuggestedAppName(appName || null);
+    setEditDriverPhone(
+      selectedDriver?.phone ? formatMobileNumber(selectedDriver.phone) : "",
+    );
+  }, [selectedDriver, selectedDriverId, trip.driver_display_name]);
+
+  useEffect(() => {
+    const seedKey = selectedVehicleId ?? `plate:${trip.vehicle_display_number ?? ""}`;
+    if (seedKey === seededVehicleIdRef.current) return;
+    seededVehicleIdRef.current = seedKey;
+    const isCurrentTripVehicle =
+      !!selectedVehicleId &&
+      (selectedVehicleId === trip.vehicle_id || selectedVehicleId === initialVehicleId);
+    const localPlate = trip.vehicle_display_number?.trim()
+      ? formatIndianVehicleNumber(trip.vehicle_display_number)
+      : "";
+    const rosterPlate = selectedVehicle
+      ? formatIndianVehicleNumber(selectedVehicle.vehicle_number)
+      : "";
+    setEditVehiclePlate(
+      (isCurrentTripVehicle && localPlate ? localPlate : "") ||
+        rosterPlate ||
+        localPlate,
+    );
+    setEditVehicleType(selectedVehicle?.vehicle_type?.trim() || "");
+  }, [
+    initialVehicleId,
+    selectedVehicle,
+    selectedVehicleId,
+    trip.vehicle_display_number,
+    trip.vehicle_id,
+  ]);
+
+  useEffect(() => {
+    const last10 = normalizeIndianMobileLast10(editDriverPhone);
+    if (last10.length < 10) {
+      setSuggestedAppName(null);
+      return;
+    }
+    if (nameOwnedForLast10Ref.current !== last10) {
+      nameOwnedLocallyRef.current = false;
+    }
+    let cancelled = false;
+    void lookupDriversByPhoneVariants(last10).then(({ matches }) => {
+      if (cancelled) return;
+      const match = matches[0] ?? null;
+      const appName = trimDriverLabel(match?.full_name);
+      setSuggestedAppName(appName);
+      if (match) {
+        const matchPhone = normalizeIndianMobileLast10(match.phone);
+        const fleet = drivers.find((d) => {
+          if (d.left_at || d.tracking_only) return false;
+          if (match.user_id && d.user_id === match.user_id) return true;
+          return (
+            matchPhone.length >= 10 &&
+            normalizeIndianMobileLast10(d.phone ?? "") === matchPhone
+          );
+        });
+        if (fleet) {
+          seededDriverIdRef.current = fleet.id;
+          setSelectedDriverId(fleet.id);
+        }
+      }
+      setEditDriverName((current) =>
+        suggestedNameForPhoneLookup({
+          currentName: current,
+          suggestedAppName: appName,
+          nameOwnedLocally: nameOwnedLocallyRef.current,
+        }),
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [drivers, editDriverPhone]);
 
   const filteredDrivers = useMemo(() => {
     const q = driverSearch.trim().toLowerCase();
@@ -199,39 +344,104 @@ export function FleetAssignWorkspace({
   }, [vehicles, vehicleSearch]);
 
   const isDriverBusy = useCallback(
-    (id: string) => activeDriverIds.has(id) && id !== trip.driver_id,
-    [activeDriverIds, trip.driver_id],
+    (id: string) =>
+      activeDriverIds.has(id) && id !== trip.driver_id && id !== selectedDriverId,
+    [activeDriverIds, selectedDriverId, trip.driver_id],
   );
   const isVehicleBusy = useCallback(
-    (id: string) => activeVehicleIds.has(id) && id !== trip.vehicle_id,
-    [activeVehicleIds, trip.vehicle_id],
+    (id: string) =>
+      activeVehicleIds.has(id) && id !== trip.vehicle_id && id !== selectedVehicleId,
+    [activeVehicleIds, selectedVehicleId, trip.vehicle_id],
   );
 
   const driverDisplayName =
+    editDriverName.trim() ||
     selectedDriver?.name?.trim() ||
     trip.driver_display_name?.trim() ||
     "Select driver";
-  const driverPhoneDisplay = selectedDriver?.phone
-    ? formatMobileNumber(selectedDriver.phone)
-    : null;
-  const vehicleDisplayLabel = selectedVehicle
-    ? formatIndianVehicleNumber(selectedVehicle.vehicle_number)
-    : trip.vehicle_display_number
-      ? formatIndianVehicleNumber(trip.vehicle_display_number)
-      : "Select vehicle";
+  const driverPhoneDisplay =
+    editDriverPhone.trim() ||
+    (selectedDriver?.phone ? formatMobileNumber(selectedDriver.phone) : null);
+  const vehicleDisplayLabel =
+    editVehiclePlate.trim() ||
+    (selectedVehicle
+      ? formatIndianVehicleNumber(selectedVehicle.vehicle_number)
+      : trip.vehicle_display_number
+        ? formatIndianVehicleNumber(trip.vehicle_display_number)
+        : "Select vehicle");
+  const vehicleTypeDisplay = editVehicleType.trim() || selectedVehicle?.vehicle_type || null;
 
+  const vehicleReady = !!(
+    selectedVehicleId ||
+    trip.vehicle_id ||
+    String(trip.vehicle_display_number ?? "").trim() ||
+    editVehiclePlate.trim()
+  );
+  const persistDriverId = selectedDriverId ?? trip.driver_id ?? null;
+  const canConfirmDriver =
+    !!persistDriverId && !isDriverBusy(persistDriverId);
+  const canConfirmVehicle =
+    vehicleReady && !(selectedVehicleId && isVehicleBusy(selectedVehicleId));
   const canConfirm =
-    !!selectedDriverId &&
-    !!selectedVehicleId &&
-    !isDriverBusy(selectedDriverId) &&
-    !isVehicleBusy(selectedVehicleId);
+    focus === "vehicle"
+      ? canConfirmVehicle && !!persistDriverId
+      : focus === "driver"
+        ? canConfirmDriver
+        : canConfirmDriver && canConfirmVehicle;
 
-  const handleConfirm = useCallback(async () => {
-    if (!selectedDriverId || !selectedVehicleId || !canConfirm) return;
-    await onConfirm(selectedDriverId, selectedVehicleId);
-    setToast("Assignment saved to trip manifest.");
-    setTimeout(() => setToast(null), 3000);
-  }, [onConfirm, selectedDriverId, selectedVehicleId, canConfirm]);
+  const assignmentDraft = useCallback(() => {
+    if (!persistDriverId) return null;
+    return {
+      driverId: persistDriverId,
+      vehicleId: selectedVehicleId ?? trip.vehicle_id ?? null,
+      driverName:
+        editDriverName.trim() ||
+        selectedDriver?.name?.trim() ||
+        trip.driver_display_name?.trim() ||
+        "Driver",
+      driverPhone: editDriverPhone.trim(),
+      vehiclePlate:
+        formatIndianVehicleNumber(editVehiclePlate).trim() ||
+        (selectedVehicle
+          ? formatIndianVehicleNumber(selectedVehicle.vehicle_number)
+          : trip.vehicle_display_number?.trim() || "Vehicle"),
+      vehicleType:
+        editVehicleType.trim() || selectedVehicle?.vehicle_type?.trim() || "",
+    };
+  }, [
+    editDriverName,
+    editDriverPhone,
+    editVehiclePlate,
+    editVehicleType,
+    persistDriverId,
+    selectedDriver,
+    selectedVehicle,
+    selectedVehicleId,
+    trip.driver_display_name,
+    trip.vehicle_display_number,
+    trip.vehicle_id,
+  ]);
+
+  const goToReason = useCallback(() => {
+    if (!canConfirm || !assignmentDraft()) return;
+    setWizardStep("reason");
+  }, [assignmentDraft, canConfirm]);
+
+  const saveAssignment = useCallback(() => {
+    const draft = assignmentDraft();
+    if (!draft || !canConfirm) return;
+    void Promise.resolve(
+      onConfirm(draft.driverId, draft.vehicleId, {
+        driverName: draft.driverName,
+        vehiclePlate: draft.vehiclePlate,
+        vehicleType: draft.vehicleType,
+      }),
+    )
+      .then((ok) => {
+        if (ok !== false) onClose();
+      })
+      .catch(() => undefined);
+  }, [assignmentDraft, canConfirm, onClose, onConfirm]);
 
   const openAddDriver = () => {
     onClose();
@@ -245,14 +455,25 @@ export function FleetAssignWorkspace({
   };
 
   const selectDriver = (id: string) => {
-    if (isDriverBusy(id)) return;
+    if (saving || isDriverBusy(id)) return;
+    const picked = drivers.find((d) => d.id === id);
     setSelectedDriverId(id);
+    nameOwnedLocallyRef.current = false;
+    nameOwnedForLast10Ref.current = normalizeIndianMobileLast10(picked?.phone ?? "");
+    setSuggestedAppName(picked?.name?.trim() || null);
+    setEditDriverName(picked?.name?.trim() || "");
+    setEditDriverPhone(picked?.phone ? formatMobileNumber(picked.phone) : "");
     setDriverAction("EDIT");
   };
 
   const selectVehicle = (id: string) => {
-    if (isVehicleBusy(id)) return;
+    if (saving || isVehicleBusy(id)) return;
+    const picked = vehicles.find((v) => v.id === id);
     setSelectedVehicleId(id);
+    setEditVehiclePlate(
+      picked ? formatIndianVehicleNumber(picked.vehicle_number) : "",
+    );
+    setEditVehicleType(picked?.vehicle_type?.trim() || "");
     setVehicleAction("EDIT");
   };
 
@@ -349,45 +570,61 @@ export function FleetAssignWorkspace({
       </View>
     ) : (
       <View style={styles.panelStack}>
-        {!isCompact ? (
-          <View style={aws.sectionHintRow}>
-            <Text style={aws.sectionHint}>Selected driver details</Text>
-            <Text style={aws.kycHint}>Fleet record</Text>
-          </View>
-        ) : null}
         <View style={[styles.fieldStack, isCompact && aws.fieldsGridPhone]}>
           <View style={isCompact ? aws.fieldPhone : undefined}>
-            <Text style={aws.fieldLabel}>Driver full name</Text>
+            <Text style={aws.fieldLabel}>Name</Text>
             <TextInput
-              style={[aws.input, styles.readOnly]}
-              value={selectedDriver?.name ?? ""}
-              editable={false}
-              placeholder="Pick a driver in Swap"
+              style={aws.input}
+              value={editDriverName}
+              onChangeText={(value) => {
+                nameOwnedLocallyRef.current = true;
+                nameOwnedForLast10Ref.current =
+                  normalizeIndianMobileLast10(editDriverPhone);
+                setEditDriverName(value);
+              }}
+              placeholder="Driver name"
               placeholderTextColor={Theme.textMuted}
+              autoCapitalize="words"
+              autoCorrect={false}
             />
+            {suggestedAppName &&
+            editDriverName.trim() !== suggestedAppName ? (
+              <Pressable
+                onPress={() => {
+                  nameOwnedLocallyRef.current = false;
+                  setEditDriverName(suggestedAppName);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={`Use app name ${suggestedAppName}`}
+              >
+                <Text style={styles.rowSub}>
+                  App name: {suggestedAppName}. Tap to use.
+                </Text>
+              </Pressable>
+            ) : suggestedAppName ? (
+              <Text style={styles.rowSub}>
+                Existing driver matched by phone. Name on this trip can stay
+                different.
+              </Text>
+            ) : normalizeIndianMobileLast10(editDriverPhone).length >= 10 ? (
+              <Text style={styles.rowSub}>
+                New number. This name is saved on this trip only.
+              </Text>
+            ) : null}
           </View>
           <View style={isCompact ? aws.fieldPhone : undefined}>
-            <Text style={aws.fieldLabel}>Mobile contact no.</Text>
+            <Text style={aws.fieldLabel}>Phone</Text>
             <TextInput
-              style={[aws.input, styles.readOnly]}
-              value={
-                selectedDriver?.phone
-                  ? formatMobileNumber(selectedDriver.phone)
-                  : ""
-              }
-              editable={false}
-              placeholder="Phone from fleet profile"
+              style={aws.input}
+              value={editDriverPhone}
+              onChangeText={(value) => setEditDriverPhone(formatMobileNumber(value))}
+              placeholder="Phone number"
               placeholderTextColor={Theme.textMuted}
+              keyboardType="phone-pad"
+              autoCorrect={false}
             />
           </View>
         </View>
-        <Pressable
-          onPress={() => setDriverAction("SWAP")}
-          style={({ pressed }) => [styles.switchLink, pressed && { opacity: 0.7 }]}
-        >
-          <FontAwesome name="refresh" size={12} color={Theme.networkHubListCardConnectedText} />
-          <Text style={styles.switchLinkText}>Swap to another driver</Text>
-        </Pressable>
       </View>
     );
 
@@ -483,94 +720,96 @@ export function FleetAssignWorkspace({
       </View>
     ) : (
       <View style={styles.panelStack}>
-        {!isCompact ? (
-          <View style={aws.sectionHintRow}>
-            <Text style={aws.sectionHint}>Selected vehicle details</Text>
-            <Text style={[aws.kycHint, { color: Theme.assignmentVehicleAccent }]}>
-              RC verified
-            </Text>
-          </View>
-        ) : null}
         <View style={[styles.fieldStack, isCompact && aws.fieldsGridPhone]}>
           <View style={isCompact ? aws.fieldPhone : undefined}>
-            <Text style={aws.fieldLabel}>Registration no</Text>
+            <Text style={aws.fieldLabel}>Plate</Text>
             <TextInput
-              style={[aws.input, styles.readOnly, { fontWeight: "800" }]}
-              value={
-                selectedVehicle
-                  ? formatIndianVehicleNumber(selectedVehicle.vehicle_number)
-                  : ""
+              style={[aws.input, { fontWeight: "700" }]}
+              value={editVehiclePlate}
+              onChangeText={(value) =>
+                setEditVehiclePlate(formatIndianVehicleNumber(value))
               }
-              editable={false}
-              placeholder="Pick a truck in Swap"
+              placeholder="Registration number"
               placeholderTextColor={Theme.textMuted}
+              autoCapitalize="characters"
+              autoCorrect={false}
             />
           </View>
           <View style={isCompact ? aws.fieldPhone : undefined}>
-            <Text style={aws.fieldLabel}>Container type / specs</Text>
+            <Text style={aws.fieldLabel}>Type</Text>
             <TextInput
-              style={[aws.input, styles.readOnly]}
-              value={selectedVehicle?.vehicle_type ?? ""}
-              editable={false}
-              placeholder="From fleet record"
+              style={aws.input}
+              value={editVehicleType}
+              onChangeText={setEditVehicleType}
+              placeholder="e.g. Mini Truck / LCV"
               placeholderTextColor={Theme.textMuted}
+              autoCorrect={false}
             />
           </View>
         </View>
-        <Pressable
-          onPress={() => setVehicleAction("SWAP")}
-          style={({ pressed }) => [styles.switchLink, pressed && { opacity: 0.7 }]}
-        >
-          <FontAwesome
-            name="refresh"
-            size={12}
-            color={Theme.assignmentVehicleAccent}
-          />
-          <Text
-            style={[
-              styles.switchLinkText,
-              { color: Theme.assignmentVehicleAccent },
-            ]}
-          >
-            Swap to another truck
-          </Text>
-        </Pressable>
       </View>
     );
 
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, !isCompact && styles.rootDesktop]}>
       <TripAssignmentWorkspace
         trip={trip}
         organizationId={organizationId}
         driverDisplayName={driverDisplayName}
         driverPhoneDisplay={driverPhoneDisplay}
         vehicleDisplayLabel={vehicleDisplayLabel}
-        vehicleCategory={selectedVehicle?.vehicle_type ?? null}
+        vehicleCategory={vehicleTypeDisplay}
         fulfillmentMode="ASSET"
         fulfillmentModeEditable={false}
         driverAction={driverAction}
-        onDriverActionChange={setDriverAction}
+        onDriverActionChange={(next) => {
+          if (next === "EDIT") {
+            const seed = selectedDriverId ?? initialDriverId ?? trip.driver_id;
+            if (seed) setSelectedDriverId(seed);
+          }
+          setDriverAction(next);
+        }}
         vehicleAction={vehicleAction}
-        onVehicleActionChange={setVehicleAction}
+        onVehicleActionChange={(next) => {
+          if (next === "EDIT") {
+            const seed = selectedVehicleId ?? initialVehicleId ?? trip.vehicle_id;
+            if (seed) setSelectedVehicleId(seed);
+          }
+          setVehicleAction(next);
+        }}
         driverPanelBody={driverPanelBody}
         vehiclePanelBody={vehiclePanelBody}
         changeReason={changeReason}
         onChangeReasonChange={setChangeReason}
         changeRemarks={changeRemarks}
         onChangeRemarksChange={setChangeRemarks}
-        onConfirm={() => void handleConfirm()}
+        onConfirm={saveAssignment}
+        onContinue={goToReason}
+        onWizardBack={() => setWizardStep("details")}
+        wizardStep={wizardStep}
+        continueLabel="Continue"
         confirmDisabled={!canConfirm || saving}
         confirmLoading={saving}
-        confirmLabel="Confirm & assign"
+        panelScope={focus === "vehicle" ? "vehicle" : "driver"}
+        confirmLabel="Save assignment"
         confirmHint={
-          !selectedDriverId
-            ? "Select a driver from Swap driver."
-            : !selectedVehicleId
-              ? "Select a vehicle from Swap truck."
-              : !canConfirm
-                ? "Selected resource is busy on another trip."
-                : null
+          wizardStep === "reason"
+            ? saving
+              ? "Saving these details to the trip…"
+              : "Pick a reason, then save to update the trip."
+            : focus === "vehicle"
+              ? !vehicleReady
+                ? "Edit the plate or tap Replace to pick a vehicle."
+                : !persistDriverId
+                  ? "This trip needs a driver before the vehicle can be saved."
+                  : !canConfirm
+                    ? "That truck is already on another trip."
+                    : null
+              : !persistDriverId
+                ? "Tap Replace to pick a driver."
+                : !canConfirm
+                  ? "That person is already on another trip."
+                  : null
         }
         onClose={onClose}
         toastMessage={toast}
@@ -583,7 +822,13 @@ const styles = {
   root: {
     flex: 1,
     width: "100%" as const,
-    maxWidth: Platform.OS === "web" ? 1280 : undefined,
+    height: "100%" as const,
+    maxWidth: "100%" as const,
+    alignSelf: "stretch" as const,
+    position: "relative" as const,
+  },
+  rootDesktop: {
+    maxWidth: Platform.OS === "web" ? 1360 : undefined,
     alignSelf: "center" as const,
   },
   panelStack: {
@@ -666,18 +911,21 @@ const styles = {
     minWidth: 0,
   },
   rowTitle: {
-    fontSize: 13,
-    fontWeight: "700" as const,
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: "600" as const,
     color: Theme.textPrimaryDark,
   },
   rowSub: {
-    fontSize: 11,
-    color: Theme.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+    color: Theme.textSecondary,
     marginTop: 2,
   },
   emptyText: {
-    fontSize: 12,
-    color: Theme.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+    color: Theme.textSecondary,
     paddingVertical: 8,
   },
   fieldStack: {
@@ -694,8 +942,135 @@ const styles = {
     paddingVertical: 8,
   },
   switchLinkText: {
-    fontSize: 12,
-    fontWeight: "700" as const,
+    fontSize: 11,
+    fontWeight: "600" as const,
     color: Theme.networkHubListCardConnectedText,
+  },
+  confirmBackdrop: {
+    flex: 1,
+    backgroundColor: Theme.overlayBackdrop,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    padding: 24,
+  },
+  confirmCard: {
+    width: "100%" as const,
+    maxWidth: 400,
+    borderRadius: 20,
+    backgroundColor: Theme.cardWhite,
+    padding: 22,
+    gap: 10,
+    alignItems: "center" as const,
+  },
+  confirmIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Theme.networkHubListCardConnectedBg,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+  },
+  confirmTitle: {
+    fontSize: 17,
+    fontWeight: "700" as const,
+    color: Theme.textPrimaryDark,
+    textAlign: "center" as const,
+  },
+  confirmBody: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: Theme.textSecondary,
+    textAlign: "center" as const,
+  },
+  confirmBtn: {
+    marginTop: 8,
+    minHeight: 44,
+    minWidth: 120,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    backgroundColor: Theme.assignmentHeroBg,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+  },
+  confirmBtnText: {
+    fontSize: 14,
+    fontWeight: "700" as const,
+    color: Theme.cardWhite,
+  },
+  previewCard: {
+    width: "100%" as const,
+    maxWidth: 420,
+    borderRadius: 20,
+    backgroundColor: Theme.cardWhite,
+    padding: 22,
+    gap: 12,
+  },
+  previewTitle: {
+    fontSize: 17,
+    fontWeight: "700" as const,
+    color: Theme.textPrimaryDark,
+    textAlign: "center" as const,
+  },
+  previewHint: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: Theme.textSecondary,
+    textAlign: "center" as const,
+  },
+  previewRow: {
+    borderRadius: 12,
+    backgroundColor: Theme.surface,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    gap: 2,
+  },
+  previewLabel: {
+    fontSize: 11,
+    fontWeight: "700" as const,
+    letterSpacing: 0.6,
+    textTransform: "uppercase" as const,
+    color: Theme.textMuted,
+  },
+  previewValue: {
+    fontSize: 16,
+    fontWeight: "700" as const,
+    color: Theme.textPrimaryDark,
+  },
+  previewMeta: {
+    fontSize: 13,
+    color: Theme.textSecondary,
+  },
+  previewActions: {
+    flexDirection: "row" as const,
+    gap: 10,
+    marginTop: 4,
+  },
+  previewEditBtn: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.networkCardBorder,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    backgroundColor: Theme.cardWhite,
+  },
+  previewEditText: {
+    fontSize: 14,
+    fontWeight: "700" as const,
+    color: Theme.textPrimaryDark,
+  },
+  previewConfirmBtn: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 12,
+    backgroundColor: Theme.assignmentHeroBg,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+  },
+  previewConfirmText: {
+    fontSize: 14,
+    fontWeight: "700" as const,
+    color: Theme.cardWhite,
   },
 };

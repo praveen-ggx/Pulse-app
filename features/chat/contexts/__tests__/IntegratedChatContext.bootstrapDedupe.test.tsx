@@ -36,10 +36,15 @@ jest.mock("@/features/network/utils/storyReplyPreview.util", () => ({
 jest.mock("../../services/chat.service", () => ({
   getNetworkConversationsByOrg: jest.fn(),
   getIntegratedPartners: jest.fn(),
+  enrichNetworkConversationsWithPartnerBranding: jest.fn(async (rows: unknown) => rows),
   getNetworkMessagesByConversation: jest.fn(),
   getOrCreateNetworkConversation: jest.fn(),
   markNetworkConversationRead: jest.fn(),
   NETWORK_CHAT_HISTORY_PAGE: 30,
+}));
+jest.mock("../../persist/networkChatBootstrapPersist", () => ({
+  loadNetworkChatBootstrap: jest.fn(async () => null),
+  persistNetworkChatBootstrap: jest.fn(async () => {}),
 }));
 
 const mockGetConvs = chatService.getNetworkConversationsByOrg as jest.Mock;

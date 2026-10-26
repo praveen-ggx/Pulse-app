@@ -1,9 +1,11 @@
 import {
   awaitingPodAgeSubview,
+  countAwaitingPodSoftCopy,
   countAwaitingPodSubviews,
   daysSinceTripCompleted,
   isPartiallyReceivedPod,
   matchesAwaitingPodSubview,
+  tripHasSoftCopyPodOnFile,
 } from "@/features/tripCompliance/utils/awaitingPodSubview.util";
 
 const NOW = new Date("2026-10-01T06:30:00.000Z");
@@ -91,5 +93,21 @@ describe("awaiting POD subviews", () => {
     expect(matchesAwaitingPodSubview(rows[0], "age_0_3", NOW)).toBe(true);
     expect(matchesAwaitingPodSubview(rows[2], "age_0_3", NOW)).toBe(false);
     expect(matchesAwaitingPodSubview(rows[2], "all", NOW)).toBe(true);
+  });
+
+  it("splits awaiting trips by soft-copy POD on file", () => {
+    const rows = [
+      { documents: [{ document_type: "pod", storage_path: "pods/a.jpg" }] },
+      { documents: [{ document_type: "lr", storage_path: "lrs/b.pdf" }] },
+      { documents: [{ document_type: "soft_pod", storage_path: "" }] },
+    ];
+    expect(tripHasSoftCopyPodOnFile(rows[0])).toBe(true);
+    expect(tripHasSoftCopyPodOnFile(rows[1])).toBe(false);
+    expect(tripHasSoftCopyPodOnFile(rows[2])).toBe(false);
+    expect(countAwaitingPodSoftCopy(rows)).toEqual({
+      all: 3,
+      soft_received: 1,
+      not_received: 2,
+    });
   });
 });

@@ -31,10 +31,12 @@ export type LeafletMarker = {
   highlighted?: boolean;
   /** Pickup 1 / Drop 2 numbering for multi-stop plans. */
   kindIndex?: number;
-  /** "+N next · Drop 2" hint for a stacked route-plan pin. Not drawn yet. */
+  /** "+N next · Drop 2" hint for a stacked route-plan pin. */
   nextLabel?: string | null;
-  /** Pickup/drop numbers stacked under one route-plan pin. Not drawn yet. */
+  /** Pickup/drop numbers stacked under one route-plan pin. */
   clusterBadges?: ReadonlyArray<{ kind: 'pickup' | 'drop'; index: number }>;
+  /** Horizontal pixel shift when another stop sits on the same point. */
+  nudgeX?: number;
   /** Tap marker (or online status chip) to focus / open location. */
   onPress?: () => void;
 };

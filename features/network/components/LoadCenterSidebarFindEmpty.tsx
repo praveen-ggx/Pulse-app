@@ -38,7 +38,7 @@ export function LoadCenterSidebarFindEmpty({ mode, plain = false }: Props) {
       <Text style={styles.title}>{label}</Text>
       <Text style={styles.sub} numberOfLines={2}>
         {isGet
-          ? "Try Find load to search network indents."
+          ? "Sponsored Pulse Boost loads will show here."
           : "Try Find vehicles to search idle capacity."}
       </Text>
     </View>

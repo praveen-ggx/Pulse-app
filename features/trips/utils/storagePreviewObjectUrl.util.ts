@@ -23,6 +23,11 @@ const cache = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<LoadResult>>();
 const holdsByUrl = new Map<string, Array<() => void>>();
 
+/** Local picker / in-memory preview — do not send these to Storage. */
+export function isInlinePreviewUri(value: string | null | undefined): boolean {
+  return /^(blob:|data:|file:|content:)/i.test(String(value ?? "").trim());
+}
+
 export function canMaterializeStoragePreview(): boolean {
   return (
     typeof document !== "undefined" &&
@@ -147,6 +152,21 @@ export async function openStoragePreview(input: {
   const path = input.path.trim();
   const bucket = input.bucket.trim();
   if (!path || !bucket) return { ok: false, kind: "missing" };
+  if (isInlinePreviewUri(path)) {
+    return { ok: true, url: path, release: () => {} };
+  }
+  if (/^https?:\/\//i.test(path) && /\/storage\/v1\/(?:object|render\/image)\//i.test(path)) {
+    if (canMaterializeStoragePreview()) {
+      const fetched = await blobFromSignedUrl(path);
+      if ("blob" in fetched) {
+        const url = URL.createObjectURL(fetched.blob);
+        const release = retain(`signed:${path}`, url, true);
+        return { ok: true, url, release };
+      }
+      return { ok: false, kind: fetched.kind };
+    }
+    return { ok: true, url: path, release: () => {} };
+  }
   if (/^https?:\/\//i.test(path)) {
     return { ok: true, url: path, release: () => {} };
   }

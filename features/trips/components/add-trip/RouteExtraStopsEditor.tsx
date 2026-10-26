@@ -3,6 +3,7 @@ import { memo, useCallback, type Dispatch, type SetStateAction } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import Theme from "@/constants/Theme";
+import { coordsOrUnset } from "@/lib/placeSearch.util";
 import { formatINR } from "@/lib/format";
 import {
   newRouteExtraStopDraft,
@@ -109,11 +110,11 @@ export const RouteExtraStopsEditor = memo(function RouteExtraStopsEditor({
             value={stop.location}
             onChangeText={(v) => update(stop.key, { location: v })}
             onSelectPlace={(name, coords) => {
-              const known = !(coords.lat === 0 && coords.lon === 0);
+              const { lat, lon } = coordsOrUnset(coords);
               update(stop.key, {
                 location: name,
-                lat: known ? coords.lat : null,
-                lon: known ? coords.lon : null,
+                lat,
+                lon,
               });
             }}
             leadingIcon={<CircleDot size={14} color={Theme.textRouteCard} strokeWidth={2} />}

@@ -32,11 +32,20 @@ describe("syncFinanceComplianceCaches", () => {
     qc.setQueryData(queryKeys.transactions.finite(orgId), []);
     qc.setQueryData(queryKeys.transactions.all(orgId), []);
     qc.setQueryData(queryKeys.transactions.byContact(orgId, contactId), []);
+    qc.setQueryData(queryKeys.financeAggregation.customer(orgId, true), {
+      trip_inputs: [],
+      unlinked_payments: [],
+      ledger_only_parties: [],
+      client_ledger_totals: [],
+    });
     invalidateFinanceLedgerCaches(qc, orgId);
     await flushInvalidations();
     expect(isInvalidated(qc, queryKeys.transactions.finite(orgId))).toBe(true);
     expect(isInvalidated(qc, queryKeys.transactions.all(orgId))).toBe(true);
     expect(isInvalidated(qc, queryKeys.transactions.byContact(orgId, contactId))).toBe(true);
+    expect(
+      isInvalidated(qc, queryKeys.financeAggregation.customer(orgId, true)),
+    ).toBe(true);
   });
 
   it("invalidates Compliance pipeline + trip detail", async () => {

@@ -1,11 +1,17 @@
 /**
  * Load story preview — single elegant card with entrance motion + Lottie hero.
  */
+import { PulseStoryWatermark } from "@/components/brand/PulseStoryWatermark";
 import { HubPromoHeroLottie } from "@/components/hub/HubPromoLottie";
+import { PartyAvatar } from "@/components/PartyAvatar";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { RouteEndpointStack } from "@/features/network/components/RouteEndpointStack";
 import type { PostRow } from "@/features/network/services/posts.service";
+import {
+  formatStoryBidSubmittedAt,
+  type StoryOwnerBidRow,
+} from "@/features/network/utils/bidding/storyOwnerBids.util";
 import { formatINR } from "@/lib/format";
 import { ArrowRight, Package } from "lucide-react-native";
 import { useEffect, useRef } from "react";
@@ -36,6 +42,10 @@ export type StoryBroadcastPreviewProps = {
   storyKey: string;
   /** Defaults to "Load broadcast". FO capacity uses "Open capacity". */
   kicker?: string;
+  /** Owner-only: how many open indents sit on this lane. Hidden for bidders. */
+  indentCount?: number;
+  /** Owner-only: newest bid on this lane (history stays in the bids sheet). */
+  latestBid?: StoryOwnerBidRow | null;
 };
 
 export function StoryBroadcastPreview({
@@ -47,6 +57,8 @@ export function StoryBroadcastPreview({
   isDesktopPreview = false,
   storyKey,
   kicker = "Load broadcast",
+  indentCount,
+  latestBid = null,
 }: StoryBroadcastPreviewProps) {
   const fade = useRef(new Animated.Value(0)).current;
   const rise = useRef(new Animated.Value(28)).current;
@@ -104,9 +116,11 @@ export function StoryBroadcastPreview({
     outputRange: [0.45, 1],
   });
 
-  const lottieSize = isDesktopPreview ? 88 : 72;
   const vehicleHero = post.vehicle_type?.trim() || "Any vehicle";
+  const showOwnerIndentCount = typeof indentCount === "number" && indentCount > 0;
+  const latestBidAt = latestBid ? formatStoryBidSubmittedAt(latestBid.createdAt) : "";
   const showMetaRow =
+    showOwnerIndentCount ||
     Boolean(loadMaterial?.trim()) ||
     post.weight_tonnes != null ||
     loadTargetRate != null;
@@ -121,13 +135,35 @@ export function StoryBroadcastPreview({
       pointerEvents="none"
     >
       <View style={[styles.card, isDesktopPreview && styles.cardDesktop]}>
-        <View style={styles.lottieRing}>
-          <HubPromoHeroLottie
-            source={heroLottie}
-            width={lottieSize}
-            height={lottieSize}
-            renderScale={1.22}
-          />
+        <View style={styles.brandHero}>
+          <View style={[styles.brandRing, isDesktopPreview && styles.brandRingDesktop]}>
+            <PartyAvatar
+              name={(post.org_name ?? "").trim() || " "}
+              organizationImageUrl={post.org_avatar_url}
+              organizationAvatarSeed={post.org_avatar_seed}
+              avatarSeed={post.org_avatar_seed}
+              initialsColorSeed={post.organization_id ?? post.org_name}
+              entityType="supplier"
+              size={isDesktopPreview ? 96 : 84}
+              shape="circle"
+            />
+            <View style={styles.lottieBadge}>
+              <HubPromoHeroLottie
+                source={heroLottie}
+                width={isDesktopPreview ? 36 : 32}
+                height={isDesktopPreview ? 36 : 32}
+                renderScale={1.15}
+              />
+            </View>
+          </View>
+          {(post.org_name ?? "").trim() ? (
+            <Text
+              style={[styles.orgName, isDesktopPreview && styles.orgNameDesktop]}
+              numberOfLines={2}
+            >
+              {post.org_name.trim()}
+            </Text>
+          ) : null}
         </View>
 
         <Text style={[styles.kicker, isDesktopPreview && styles.kickerDesktop]}>
@@ -140,6 +176,10 @@ export function StoryBroadcastPreview({
         >
           {vehicleHero}
         </Text>
+
+        <View style={styles.watermark} pointerEvents="none">
+          <PulseStoryWatermark size={isDesktopPreview ? 42 : 36} opacity={0.48} />
+        </View>
 
         <View style={styles.routeStrip}>
           <View style={styles.routeEndpoint}>
@@ -172,6 +212,13 @@ export function StoryBroadcastPreview({
 
         {showMetaRow ? (
           <View style={styles.metaRow}>
+            {showOwnerIndentCount ? (
+              <View style={styles.metaChip} accessibilityLabel={`${indentCount} indents on this lane`}>
+                <Text style={styles.metaChipText}>
+                  {indentCount} {indentCount === 1 ? "indent" : "indents"}
+                </Text>
+              </View>
+            ) : null}
             {loadMaterial?.trim() ? (
               <View style={styles.metaChip}>
                 <Package size={11} color={MUTED} strokeWidth={2} />
@@ -190,6 +237,20 @@ export function StoryBroadcastPreview({
                 <Text style={styles.metaChipRateText}>{formatINR(loadTargetRate)}</Text>
               </View>
             ) : null}
+          </View>
+        ) : null}
+        {latestBid ? (
+          <View
+            style={styles.latestBidBox}
+            accessibilityLabel={`Latest bid ${formatINR(latestBid.amount)} submitted ${latestBidAt}`}
+          >
+            <Text style={styles.latestBidKicker}>Latest bid</Text>
+            <Text style={styles.latestBidAmount}>{formatINR(latestBid.amount)}</Text>
+            <Text style={styles.latestBidMeta} numberOfLines={2}>
+              {latestBidAt
+                ? `${latestBid.bidderName} · ${latestBidAt}`
+                : latestBid.bidderName}
+            </Text>
           </View>
         ) : null}
       </View>
@@ -244,17 +305,64 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     gap: 10,
   },
-  lottieRing: {
-    width: 76,
-    height: 76,
-    borderRadius: 22,
-    backgroundColor: SKY_TRAY,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.loadStatusTabBorderSoft,
+  watermark: {
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 4,
-    overflow: "hidden",
+    paddingVertical: 4,
+  },
+  brandHero: {
+    zIndex: 1,
+    alignItems: "center",
+    marginBottom: 2,
+    gap: 8,
+  },
+  orgName: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: INK,
+    letterSpacing: -0.3,
+    textAlign: "center",
+    maxWidth: "92%",
+    lineHeight: 19,
+  },
+  orgNameDesktop: {
+    fontSize: 17,
+    lineHeight: 21,
+  },
+  brandRing: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 3,
+    borderColor: Theme.cardWhite,
+    ...Platform.select({
+      web: { boxShadow: "0 8px 20px rgba(77, 54, 54, 0.12)" } as object,
+      ios: {
+        shadowColor: Theme.pulseIndigo,
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.16,
+        shadowRadius: 12,
+      },
+      android: { elevation: 4 },
+      default: {},
+    }),
+  },
+  brandRingDesktop: { width: 108, height: 108, borderRadius: 54 },
+  lottieBadge: {
+    position: "absolute",
+    right: -4,
+    bottom: -4,
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: SKY_TRAY,
+    borderWidth: 2,
+    borderColor: Theme.cardWhite,
+    alignItems: "center",
+    justifyContent: "center",
   },
   kicker: {
     fontSize: 9,
@@ -388,5 +496,36 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: INK,
     letterSpacing: -0.15,
+  },
+  latestBidBox: {
+    width: "100%",
+    marginTop: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: SKY_TRAY,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.loadStatusTabBorderSoft,
+    alignItems: "center",
+    gap: 2,
+  },
+  latestBidKicker: {
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    color: MUTED,
+  },
+  latestBidAmount: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: INK,
+    letterSpacing: -0.3,
+  },
+  latestBidMeta: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: MUTED,
+    textAlign: "center",
   },
 });

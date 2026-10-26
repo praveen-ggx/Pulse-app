@@ -66,6 +66,8 @@ export const queryKeys = {
       ["q", "trips", "assignment-audit", tripIdsKey] as const,
     /** Phase 3a: single-RPC bundle for trip detail hydration. */
     bundle: (tripId: string) => ["q", "trips", "bundle", tripId] as const,
+    assignmentPaint: (tripId: string) =>
+      ["q", "trips", "assignment-paint", tripId] as const,
     /** Hard-copy POD receipt for one trip (trips.pod_* + workflow event). */
     hardCopyPod: (tripId: string) => ["q", "trips", "hard-copy-pod", tripId] as const,
     /** Hub list: last ping time / offline for in-transit trips. */
@@ -186,7 +188,7 @@ export const queryKeys = {
   indents: {
     all: (orgId: string) => ["q", "indents", orgId] as const,
     finite: (orgId: string) => ["q", "indents", orgId, "finite"] as const,
-    /** Cancelled / expired only (Trips hub Failed tag), not capped by the finite list. */
+    /** Cancelled/expired indents with no trip — not the capped finite list. */
     failed: (orgId: string) => ["q", "indents", orgId, "failed"] as const,
     infinite: (orgId: string, pageSize: number) =>
       ["q", "indents", orgId, "infinite", pageSize] as const,
@@ -346,6 +348,10 @@ export const queryKeys = {
     /** Live indent-linked LOAD stories for Mine / own story preview queue. */
     liveOwnLoadStories: (orgId: string) =>
       ["q", "posts", orgId, "live-own-load-stories"] as const,
+    /** WhatsApp story row: connected pool posts + Pulse Boost ads. */
+    storyStrip: (orgId: string, connectedIdsKey: string) =>
+      ["q", "posts", orgId, "story-strip", connectedIdsKey] as const,
+    orgStoryBrand: (orgId: string) => ["q", "posts", "org-story-brand", orgId] as const,
   },
 
   bids: {

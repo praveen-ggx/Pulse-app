@@ -5,7 +5,6 @@ import {
   peekChatImageFullDisplayUrl,
   resolveChatDocumentStorageUrl,
   resolveChatImageFullDisplayUrl,
-  tryChatDocumentBlobObjectUrl,
 } from "@/features/chat/utils/resolveChatDocumentUrl.util";
 import {
   appendImageTransformQuery,
@@ -83,10 +82,9 @@ export async function resolveChatGallerySlideUrl(
   const preview = String(slide.previewUrl ?? "").trim();
   const previewIsHttps = /^https?:\/\//i.test(preview);
 
-  if (options?.preferBlob && path) {
-    const blob = await tryChatDocumentBlobObjectUrl(path);
-    if (blob?.url) return blob.url;
-  }
+  // preferBlob is intentionally ignored here. This function returns a string
+  // and cannot hand back a Blob release handle. Callers that need a Blob URL
+  // use tryChatDocumentBlobObjectUrl and revoke it when the view unmounts.
 
   if (path) {
     const cached = peekChatImageFullDisplayUrl(path, FULL_EDGE, FULL_QUALITY);

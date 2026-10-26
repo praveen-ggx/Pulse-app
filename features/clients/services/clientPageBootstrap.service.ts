@@ -5,13 +5,17 @@ import {
   type ClientRow,
 } from "@/features/clients/services/clients.service";
 import type { DriverRow } from "@/features/drivers/services/drivers.service";
-import {
-  getTransactionsByOrganizationAndContactId,
-  toLedgerRow,
-  type LedgerRow,
-} from "@/features/finance/services/finance.service";
+import { toLedgerRow, type LedgerRow } from "@/features/finance/services/finance.service";
+import { toRange } from "@/lib/pagination";
 import type { RatingRow } from "@/features/ratings";
 import type { SupplierRow } from "@/features/suppliers/services/suppliers.service";
+import { CLIENT_PAGE_TRIP_COLUMNS } from "@/features/clients/utils/clientPageTripColumns.util";
+import {
+  CLIENT_PAGE_TX_PAGE_SIZE,
+  mapClientPageTripIdRows,
+  shouldFailClosedWithoutTripIdRpc,
+  shouldFetchNextTransactionPage,
+} from "@/features/clients/utils/clientPageFallback.util";
 import { unwrapPartyBootstrapBundle } from "@/features/clients/utils/unwrapPartyBootstrap.util";
 import { viewerOwnedClientTrips } from "@/features/clients/utils/viewerClientTrips.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
@@ -29,15 +33,88 @@ export type ClientPageBootstrap = {
   clients: ClientRow[];
 };
 
-function isMissingRpc(error: { code?: string; message?: string } | null): boolean {
+const CLIENT_PAGE_TX_COLUMNS =
+  "id, organization_id, trip_id, party_name, description, amount_in, amount_out, transaction_date, created_at, contact_id, contact_type, ledger_entity_type, ledger_flow_type, ledger_category, payment_ref, created_by, booking_ref, is_opening_balance";
+
+const TRIP_ID_CHUNK = 100;
+
+function isMissingRpc(
+  error: { code?: string; message?: string } | null,
+  fnName?: string,
+): boolean {
   const code = String(error?.code ?? "");
   const msg = (error?.message ?? "").toLowerCase();
   return (
     code === "PGRST202" ||
     code === "42883" ||
     msg.includes("could not find the function") ||
-    msg.includes("get_client_page_bootstrap")
+    Boolean(fnName && msg.includes(fnName))
   );
+}
+
+export async function fetchClientPageTripIds(
+  orgId: string,
+  clientId: string,
+): Promise<{ error: Error | null; ids: string[]; missingRpc: boolean }> {
+  const { data, error } = await supabase().rpc("client_page_trip_ids", {
+    p_org_id: orgId,
+    p_client_id: clientId,
+  });
+  if (error) {
+    return {
+      error: new Error(error.message),
+      ids: [],
+      missingRpc: isMissingRpc(error, "client_page_trip_ids"),
+    };
+  }
+  return { error: null, ids: mapClientPageTripIdRows(data), missingRpc: false };
+}
+
+export async function fetchClientPageTransactionsUncapped(
+  orgId: string,
+  clientId: string,
+): Promise<{ error: Error | null; transactions: LedgerRow[] }> {
+  const transactions: LedgerRow[] = [];
+  let offset = 0;
+  for (;;) {
+    const { from, to } = toRange(offset, CLIENT_PAGE_TX_PAGE_SIZE);
+    const { data, error } = await supabase()
+      .from("transactions")
+      .select(CLIENT_PAGE_TX_COLUMNS)
+      .eq("organization_id", orgId)
+      .eq("contact_id", clientId)
+      .eq("contact_type", "client")
+      .order("transaction_date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .range(from, to);
+    if (error) return { error: new Error(error.message), transactions: [] };
+    const page = ((data ?? []) as unknown[]).map(mapTx);
+    transactions.push(...page);
+    if (!shouldFetchNextTransactionPage(page.length, CLIENT_PAGE_TX_PAGE_SIZE)) break;
+    offset += CLIENT_PAGE_TX_PAGE_SIZE;
+  }
+  return { error: null, transactions };
+}
+
+async function fetchTripsByIds(
+  orgId: string,
+  ids: string[],
+): Promise<{ error: Error | null; trips: TripRow[] }> {
+  if (ids.length === 0) return { error: null, trips: [] };
+  const trips: TripRow[] = [];
+  for (let i = 0; i < ids.length; i += TRIP_ID_CHUNK) {
+    const chunk = ids.slice(i, i + TRIP_ID_CHUNK);
+    const { data, error } = await supabase()
+      .from("trips")
+      .select(CLIENT_PAGE_TRIP_COLUMNS)
+      .eq("organization_id", orgId)
+      .in("id", chunk)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false });
+    if (error) return { error: new Error(error.message), trips: [] };
+    trips.push(...((data ?? []) as TripRow[]));
+  }
+  return { error: null, trips };
 }
 
 function mapTx(raw: unknown): LedgerRow {
@@ -81,48 +158,28 @@ async function fetchClientPageBootstrapScoped(
   orgId: string,
   clientId: string,
 ): Promise<{ error: Error | null; bundle: ClientPageBootstrap | null }> {
-  const [detail, ownTripsRes, txRes] = await Promise.all([
+  const [detail, tripIdsRes, txRes] = await Promise.all([
     getClientDetailBundle(orgId, clientId),
-    supabase()
-      .from("trips")
-      .select("*")
-      .eq("organization_id", orgId)
-      .eq("client_id", clientId)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false })
-      .limit(400),
-    getTransactionsByOrganizationAndContactId(orgId, clientId),
+    fetchClientPageTripIds(orgId, clientId),
+    fetchClientPageTransactionsUncapped(orgId, clientId),
   ]);
   if (detail.error) return { error: detail.error, bundle: null };
   if (!detail.client) return { error: null, bundle: null };
-  if (ownTripsRes.error) return { error: new Error(ownTripsRes.error.message), bundle: null };
+  if (shouldFailClosedWithoutTripIdRpc(tripIdsRes.missingRpc)) {
+    return {
+      error: new Error("client_page_trip_ids is required for the client page fallback"),
+      bundle: null,
+    };
+  }
+  if (tripIdsRes.error) return { error: tripIdsRes.error, bundle: null };
   if (txRes.error) return { error: txRes.error, bundle: null };
 
-  const nameKey = (detail.client.name || detail.client.contact_person || "")
-    .trim()
-    .toLowerCase();
-
-  const extra: TripRow[] = [];
-  if (nameKey) {
-    const named = await supabase()
-      .from("trips")
-      .select("*")
-      .eq("organization_id", orgId)
-      .is("deleted_at", null)
-      .ilike("client_name", nameKey)
-      .order("created_at", { ascending: false })
-      .limit(200);
-    if (named.error) return { error: new Error(named.error.message), bundle: null };
-    extra.push(...((named.data ?? []) as TripRow[]));
-  }
+  const tripsRes = await fetchTripsByIds(orgId, tripIdsRes.ids);
+  if (tripsRes.error) return { error: tripsRes.error, bundle: null };
 
   const seen = new Set<string>();
   const trips: TripRow[] = [];
-  for (const trip of viewerOwnedClientTrips(
-    [...((ownTripsRes.data ?? []) as TripRow[]), ...extra],
-    orgId,
-    detail.client,
-  )) {
+  for (const trip of viewerOwnedClientTrips(tripsRes.trips, orgId, detail.client)) {
     if (!trip.id || seen.has(trip.id)) continue;
     seen.add(trip.id);
     trips.push(trip);
@@ -136,9 +193,7 @@ async function fetchClientPageBootstrapScoped(
       warehouses: detail.warehouses,
       contracts: detail.contracts,
       trips,
-      transactions: (txRes.transactions ?? []).filter(
-        (tx) => tx.contact_type === "client" && tx.contact_id === clientId,
-      ),
+      transactions: txRes.transactions,
       suppliers: [],
       drivers: [],
       clients: [detail.client],
@@ -161,7 +216,7 @@ export async function fetchClientPageBootstrap(
       return { error: null, missingRpc: false, bundle };
     }
   }
-  if (error && !isMissingRpc(error)) {
+  if (error && !isMissingRpc(error, "get_client_page_bootstrap")) {
     return { error: new Error(error.message), missingRpc: false, bundle: null };
   }
   const scoped = await fetchClientPageBootstrapScoped(orgId, clientId);

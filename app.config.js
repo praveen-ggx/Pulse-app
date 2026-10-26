@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs');
 
 require('./scripts/expo-env');
+require('./scripts/netlifyDeployPreviewSupabase.cjs').applyDeployPreviewSupabaseEnv(process.env);
 
 // Load .env from same directory as this config file (project root)
 const projectRoot = __dirname;

@@ -104,6 +104,7 @@ import {
   isComplianceHoldAwaitingResubmit,
   isFinanceDeclinedTrip,
   isResubmittedFinanceReject,
+  missingOrRejectedRequiredTripDocs,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
 import { groundOpsTransitDocLabel } from "@/features/tripCompliance/utils/groundOpsTransitGate.util";
 import { HubTripLrUpdateModal } from "@/features/trips/components/HubTripLrUpdateModal";
@@ -163,7 +164,6 @@ import { ComplianceHardCopyPodSheet } from "@/features/tripCompliance/components
 import { PodVerificationPane } from "@/features/tripCompliance/components/PodVerificationPane";
 import {
   formatDocumentHeaderFacts,
-  missingOrRejectedRequiredTripDocs,
   formatInvoiceVaultNumberLabel,
   formatLrVaultNumberLabel,
 } from "@/features/trips/components/trip-detail/tripDocTypes";

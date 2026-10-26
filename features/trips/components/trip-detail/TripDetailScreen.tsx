@@ -44,9 +44,7 @@ import {
   type GroundOpsPickupTarget,
 } from "@/features/trips/services/groundOpsPickup.service";
 import { loadCompliancePipelineInputs } from "@/features/tripCompliance/services/compliancePipelineSync.service";
-import { documentRequiresExpiry } from "@/features/tripCompliance/tripCompliance.types";
 import { GroundOpsTransitChecklist } from "@/features/trips/components/trip-detail/GroundOpsTransitChecklist";
-import { ExpiryDatePickerModal, formatExpiryLabel } from "@/components/ExpiryDatePicker";
 import {
   listMissingDocsForGroundOpsTransit,
 } from "@/features/tripCompliance/utils/groundOpsTransitGate.util";
@@ -1882,21 +1880,6 @@ export default function TripDetailScreen({
         }
       }
 
-      // Insurance / Fitness / licence need an expiry date or Compliance keeps
-      // the trip in Pending Docs (and Ground Ops cannot Resubmit).
-      const expiryKind =
-        pending.vehicleKind && pending.vehicleKind !== "extra"
-          ? pending.vehicleKind
-          : (pending.driverKind ?? null);
-      const assetExpiry =
-        expiryKind && documentRequiresExpiry(expiryKind) ? pendingAssetExpiry.trim() : null;
-      if (assetExpiry !== null && !/^\d{4}-\d{2}-\d{2}$/.test(assetExpiry)) {
-        showAppAlert(
-          "Expiry date needed",
-          "Pick the expiry date before saving this document.",
-        );
-        return;
-      }
 
       const accepted = acceptVaultFileConfirmation({
         inFlight: false,
@@ -9416,6 +9399,7 @@ export default function TripDetailScreen({
                   const path =
                     detail.vehicleDocs?.[docType]?.url?.trim() || typeDocs[0]?.storagePath?.trim() || "";
                   const onFile = fileCount > 0 || !!path;
+                  const typeFiles = vehicleFilesForDocType(detail.vehicleDocs, docType);
                   const canUpload = canUploadTripDocs && !uploadingDocId;
                   const label = DOCUMENT_LABELS[docType];
                   const slotPreviews = typeFiles.map((file) => ({
@@ -9505,6 +9489,7 @@ export default function TripDetailScreen({
                   const path =
                     detail.driverIdentityDocs?.[docType]?.url?.trim() || typeDocs[0]?.storagePath?.trim() || "";
                   const onFile = fileCount > 0 || !!path;
+                  const typeFiles = driverFilesForDocType(detail.driverIdentityDocs, docType);
                   const canUpload = canUploadTripDocs && !uploadingDocId;
                   const label = DRIVER_IDENTITY_LABELS[docType];
                   const slotPreviews = typeFiles.map((file) => ({
@@ -9638,51 +9623,6 @@ export default function TripDetailScreen({
                 />
               ) : null}
 
-              {pendingVaultUpload &&
-              documentRequiresExpiry(
-                (pendingVaultUpload.vehicleKind !== "extra" ? pendingVaultUpload.vehicleKind : undefined) ??
-                  pendingVaultUpload.driverKind ??
-                  "",
-              ) ? (
-                <View>
-                  <Text style={styles.lrNumberFieldLabel}>EXPIRY DATE</Text>
-                  <Pressable
-                    style={styles.lrDateField}
-                    onPress={() => {
-                      if (uploadingDocId) return;
-                      setAssetExpiryPickerOpen(true);
-                    }}
-                    disabled={!!uploadingDocId}
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      pendingAssetExpiry
-                        ? `Expiry date ${formatExpiryLabel(pendingAssetExpiry)}, change`
-                        : "Pick expiry date"
-                    }
-                  >
-                    <Text
-                      style={
-                        pendingAssetExpiry ? styles.lrDateFieldText : styles.lrDateFieldPlaceholder
-                      }
-                      numberOfLines={1}
-                    >
-                      {pendingAssetExpiry ? formatExpiryLabel(pendingAssetExpiry) : "Pick expiry date"}
-                    </Text>
-                    <Feather name="calendar" size={16} color={Theme.primary} />
-                  </Pressable>
-                  <ExpiryDatePickerModal
-                    visible={assetExpiryPickerOpen}
-                    title={`Expiry date — ${pendingVaultUpload.label}`}
-                    initialValue={pendingAssetExpiry}
-                    confirmLabel="Done"
-                    onCancel={() => setAssetExpiryPickerOpen(false)}
-                    onConfirm={(iso) => {
-                      setPendingAssetExpiry(iso);
-                      setAssetExpiryPickerOpen(false);
-                    }}
-                  />
-                </View>
-              ) : null}
 
               {pendingVaultUpload?.docType === "lr" ? (
                 <View>

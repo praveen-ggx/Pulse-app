@@ -3,7 +3,10 @@
  * Service-layer validation: single pass over inputs before insert.
  */
 import { getWarehousesByClient } from "@/features/clients/services/clientWarehouses.service";
-import { warehouseIdForPickup } from "@/features/clients/utils/warehouseAddress.util";
+import {
+  resolveIndentWarehouseId,
+  type IndentWarehouseLane,
+} from "@/features/clients/utils/warehouseAddress.util";
 import { getClientById } from "@/features/clients/services/clients.service";
 import { findIndentInMarketList } from "@/features/indents/utils/findIndentInList.util";
 import { createSharedIndentCopiesWithOps } from "@/features/indents/utils/indentShareCopies.util";
@@ -780,6 +783,42 @@ export function resolveSupplierTargetDisplayRate(
 }
 
 /**
+ * Link an indent to the client warehouse its pickup belongs to, so Ground Ops
+ * assigned to that warehouse see the trip (see resolveIndentWarehouseId).
+ * Typed pickups that are not a warehouse's address stay null.
+ */
+export async function resolveWarehouseForIndentWrite(
+  orgId: string,
+  input: {
+    clientId?: string | null;
+    warehouseId?: string | null;
+    laneId?: string | null;
+    pickup?: string | null;
+  },
+): Promise<string | null> {
+  if (!input.clientId) return null;
+  const { warehouses } = await getWarehousesByClient(orgId, input.clientId);
+  if (warehouses.length === 0) return null;
+  let lane: IndentWarehouseLane | null = null;
+  if (input.laneId && !input.warehouseId) {
+    const { data } = await supabase()
+      .from("client_lane_rates")
+      .select("client_id, origin_warehouse_id")
+      .eq("id", input.laneId)
+      .eq("organization_id", orgId)
+      .maybeSingle();
+    lane = (data as IndentWarehouseLane | null) ?? null;
+  }
+  return resolveIndentWarehouseId({
+    clientId: input.clientId,
+    warehouses,
+    explicitWarehouseId: input.warehouseId,
+    lane,
+    pickup: input.pickup,
+  });
+}
+
+/**
  * Create a new indent (RLS enforces org membership).
  * Resolves client_name from clients when client_id is set and client_name is empty.
  * indent_number is omitted so DB trigger sets display_indent_id.
@@ -919,24 +958,12 @@ async function insertIndentRow(
   }
   if (!client_name) client_name = data.client_name || "";
 
-  // Link the indent to the client warehouse its pickup was picked from, so
-  // Ground Ops assigned to that warehouse see the trip. A saved lane carries
-  // its pickup warehouse; otherwise only an untouched warehouse address links.
-  // Typed pickups stay null.
-  let warehouse_id = data.warehouse_id ?? null;
-  if (!warehouse_id && data.lane_id) {
-    const { data: lane } = await supabase()
-      .from("client_lane_rates")
-      .select("origin_warehouse_id")
-      .eq("id", data.lane_id)
-      .eq("organization_id", orgId)
-      .maybeSingle();
-    warehouse_id = (lane?.origin_warehouse_id as string | null | undefined) ?? null;
-  }
-  if (!warehouse_id && data.client_id && data.pickup_area?.trim()) {
-    const { warehouses } = await getWarehousesByClient(orgId, data.client_id);
-    warehouse_id = warehouseIdForPickup(data.pickup_area, warehouses);
-  }
+  const warehouse_id = await resolveWarehouseForIndentWrite(orgId, {
+    clientId: data.client_id,
+    warehouseId: data.warehouse_id,
+    laneId: data.lane_id,
+    pickup: data.pickup_area,
+  });
 
   const indent_number = null;
   // Insert only columns that exist on indents table. client_id is resolved to client_name above;
@@ -1195,6 +1222,45 @@ function toIndentUpdateError(message: string): Error {
   return new Error(message);
 }
 
+/**
+ * New indents.warehouse_id for a draft edit, or undefined to leave it as is.
+ * Only pickup / lane / client edits re-link; the result uses the edited values
+ * and clears a link the new route no longer resolves to.
+ */
+async function draftWarehouseLinkUpdate(
+  indentId: string,
+  updates: Pick<DraftEditableFields, "pickup_area" | "lane_id" | "client_id">,
+): Promise<string | null | undefined> {
+  if (
+    updates.pickup_area === undefined &&
+    updates.lane_id === undefined &&
+    updates.client_id === undefined
+  ) {
+    return undefined;
+  }
+  const { data: current } = await supabase()
+    .from("indents")
+    .select("organization_id, client_id, lane_id, pickup_area, warehouse_id")
+    .eq("id", indentId)
+    .maybeSingle();
+  if (!current) return undefined;
+  const row = current as Pick<
+    IndentRow,
+    "organization_id" | "client_id" | "lane_id" | "pickup_area"
+  > & { warehouse_id: string | null };
+  const next = {
+    clientId: updates.client_id !== undefined ? updates.client_id : row.client_id,
+    laneId: updates.lane_id !== undefined ? updates.lane_id : row.lane_id,
+    pickup: updates.pickup_area !== undefined ? updates.pickup_area : row.pickup_area,
+  };
+  const unchanged =
+    (next.clientId ?? null) === (row.client_id ?? null) &&
+    (next.laneId ?? null) === (row.lane_id ?? null) &&
+    (next.pickup ?? "").trim() === (row.pickup_area ?? "").trim();
+  if (unchanged && row.warehouse_id) return undefined;
+  return resolveWarehouseForIndentWrite(row.organization_id, next);
+}
+
 export async function updateIndentDraft(
   indentId: string,
   updates: DraftEditableFields,
@@ -1246,6 +1312,8 @@ export async function updateIndentDraft(
     payload.owner_user_id = updates.owner_user_id;
   if (updates.created_by_user_id !== undefined)
     payload.created_by_user_id = updates.created_by_user_id;
+  const warehouseLink = await draftWarehouseLinkUpdate(indentId, updates);
+  if (warehouseLink !== undefined) payload.warehouse_id = warehouseLink;
   payload.last_saved_at = new Date().toISOString();
 
   const { data, error } = await supabase()

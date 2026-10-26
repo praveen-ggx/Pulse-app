@@ -1,5 +1,5 @@
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { ArrowUpDown, ChevronRight, MapPin, Replace } from "lucide-react-native";
+import { AlertTriangle, ArrowUpDown, ChevronRight, MapPin, Replace } from "lucide-react-native";
 import { memo, useCallback, useState, type Dispatch, type SetStateAction } from "react";
 import {
   Modal,
@@ -88,6 +88,8 @@ export type CreateTripDesktopRouteStepProps = {
   onExtraStopsChange?: Dispatch<SetStateAction<RouteExtraStopDraft[]>>;
   /** Show the per-stop supplier pay field (hide for own-fleet trips). */
   showExtraStopSupplierCharge?: boolean;
+  /** Non-blocking note under Pickup (e.g. pickup not linked to a client warehouse). */
+  pickupWarning?: string | null;
 };
 
 export const CreateTripDesktopRouteStep = memo(function CreateTripDesktopRouteStep({
@@ -105,6 +107,7 @@ export const CreateTripDesktopRouteStep = memo(function CreateTripDesktopRouteSt
   extraStops,
   onExtraStopsChange,
   showExtraStopSupplierCharge = true,
+  pickupWarning = null,
 }: CreateTripDesktopRouteStepProps) {
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
 
@@ -404,6 +407,12 @@ export const CreateTripDesktopRouteStep = memo(function CreateTripDesktopRouteSt
           inputStyle={fieldInvalid("pickup") ? s.inputBoxCleanError : undefined}
           onDropdownOpenChange={onPickupDropdownOpenChange}
         />
+        {pickupWarning ? (
+          <View style={s.allocationWarnCompact} accessibilityRole="alert">
+            <AlertTriangle size={14} color={Theme.warning} strokeWidth={2.5} />
+            <Text style={s.allocationWarnCompactText}>{pickupWarning}</Text>
+          </View>
+        ) : null}
 
         {extraStopsEditor}
 

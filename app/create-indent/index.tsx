@@ -16,6 +16,7 @@ import {
   toRawString,
 } from "@/components/mobile-input/keypad";
 import { resolveWizardClientPhone } from "@/features/clients/utils/clientContactDisplay.util";
+import { pickupWarehouseLinkWarning } from "@/features/clients/utils/warehouseAddress.util";
 import { PartyAvatar } from "@/components/PartyAvatar";
 import { ThemedAlertModal } from "@/components/ThemedAlertModal";
 import { ThemedConfirmModal } from "@/components/ThemedConfirmModal";
@@ -881,6 +882,28 @@ export default function CreateIndentScreen() {
     [clientWarehouses, selectedClientRow],
   );
 
+  const pickupWarehouseWarning = useMemo(
+    () =>
+      pickupWarehouseLinkWarning({
+        clientId: form.client_id,
+        clientName: form.client_name,
+        warehouses: clientWarehouses,
+        laneSelected: Boolean(selectedLaneId),
+        lane: selectedLaneId
+          ? (contractLanes.find((l) => l.id === selectedLaneId) ?? null)
+          : null,
+        pickup: form.pickup_area,
+      }),
+    [
+      clientWarehouses,
+      contractLanes,
+      form.client_id,
+      form.client_name,
+      form.pickup_area,
+      selectedLaneId,
+    ],
+  );
+
   useEffect(() => {
     if (wizardStep !== "route" || form.pickup_area.trim()) return;
     const preferred = preferredPickupRecommendation(pickupRecommendations);
@@ -1670,6 +1693,7 @@ export default function CreateIndentScreen() {
                       }
                     : undefined
                 }
+                pickupWarning={pickupWarehouseWarning}
               />
             ) : null}
             {wizardStep === "vehicle" ? (
@@ -1964,6 +1988,8 @@ export default function CreateIndentScreen() {
                     />
                     {errors.pickup_area ? (
                       <Text style={styles.errorText}>{errors.pickup_area}</Text>
+                    ) : pickupWarehouseWarning ? (
+                      <Text style={styles.warningText}>{pickupWarehouseWarning}</Text>
                     ) : null}
                   </View>
                   <View style={styles.gridCol}>
@@ -3783,6 +3809,7 @@ const styles = StyleSheet.create({
   },
   inputError: { borderColor: Theme.negative },
   errorText: { fontSize: 12, color: Theme.negative, marginTop: 4 },
+  warningText: { fontSize: 12, color: Theme.warning, marginTop: 4 },
   actionButtonsHoverHost: {
     position: "relative",
     zIndex: 2,

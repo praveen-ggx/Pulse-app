@@ -6,6 +6,16 @@ import {
 } from "@/lib/alertRegistry/registryOpsPresentation.util";
 import type { GlobalOperationAlert } from "@/lib/globalSync/priorityEngine.util";
 
+// registryOpsPresentation → partyAvatarDisplay → avatarUpload pulls in AuthContext and
+// native pickers that have no module under Jest; these tests never resolve avatar URLs.
+jest.mock("@/lib/avatarUpload", () => ({
+  AVATAR_BUCKET: "userprofiles",
+  LEGACY_AVATAR_BUCKET: "avatars",
+  getSignedAvatarUrl: jest.fn(async () => null),
+  extractPathFromStorageUrl: jest.fn(() => null),
+  resolveOrgLogoPublicUrl: jest.fn(() => null),
+}));
+
 function ops(
   overrides: Partial<GlobalOperationAlert> &
     Pick<GlobalOperationAlert, "category">,

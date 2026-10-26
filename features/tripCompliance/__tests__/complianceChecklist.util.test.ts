@@ -189,7 +189,8 @@ describe("complianceGroupOnFileCount", () => {
         entity_id: "v1",
         doc_type,
         status: "verified",
-        expiry_date: null,
+        // Permit / PUC / road tax have a validity period and count only with an expiry date.
+        expiry_date: "2027-01-01",
       }),
     );
     const requiredTrip = buildComplianceChecklist({

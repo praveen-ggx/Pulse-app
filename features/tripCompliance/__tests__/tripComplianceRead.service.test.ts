@@ -575,7 +575,7 @@ describe("summarizeComplianceTrip — the advance is paid from Verified", () => 
     expect(readiness.advance.reason).toMatch(/Advance posted/i);
   });
 
-  it("keeps a verified trip with only a Finance receipt in Verified, ready for the advance, even with the POD received", () => {
+  it("keeps a verified trip with only a Finance receipt in Verified; with the POD received the balance can be paid without an advance", () => {
     const s = summary({
       verifiedAt: "2026-10-02T00:00:00Z",
       tagged: false,
@@ -584,8 +584,12 @@ describe("summarizeComplianceTrip — the advance is paid from Verified", () => 
     });
     expect(s.stage).toBe("compliance_verified");
     expect(s.advance).toBeNull();
-    // Advance waits for Finance's Approve Advance (finance_verified_at).
-    expect(deriveComplianceQueueReadiness(s).readyCategory).toBeNull();
+    const readiness = deriveComplianceQueueReadiness(s);
+    // Advance still waits for Finance's Approve Advance (finance_verified_at).
+    expect(readiness.advance.status).toBe("blocked");
+    expect(readiness.advance.reason).toMatch(/Approve Advance/);
+    // Since 71a5643c a received hard-copy POD allows the balance with no advance posted.
+    expect(readiness.readyCategory).toBe("compliance_balance");
   });
 
   it("counts an advance posted after verification (exception approval sets the same column)", () => {

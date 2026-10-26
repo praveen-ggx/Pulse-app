@@ -77,6 +77,7 @@ function makeSummary(opts: {
       id: "t1",
       organization_id: "org-1",
       status: "delivered",
+      driver_id: "d1",
       booking_ref: "TRP001",
       client_name: "Acme",
       pod_received_at: null,
@@ -115,7 +116,7 @@ describe("ComplianceTripsTable — columns (AC-1, AC-2)", () => {
     expect(texts).toContain("Invoice");
     expect(texts).toContain("LR");
     expect(texts).toContain("Truck No");
-    expect(texts).toContain("Completed");
+    expect(texts).toContain("Delivered");
     expect(texts).not.toContain("Advance");
     expect(texts).not.toContain("Balance");
     expect(texts).not.toContain("Payment");

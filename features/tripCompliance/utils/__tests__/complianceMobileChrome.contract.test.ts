@@ -17,6 +17,8 @@ describe("Compliance mobile chrome", () => {
   it("is wired on the queue below the 768px breakpoint only", () => {
     expect(screen).toContain("isComplianceMobileViewport");
     expect(screen).toContain("<ComplianceMobileChrome");
-    expect(screen).toContain("isMobile ? (");
+    // Mobile: the hub chrome is the cards list header; desktop header is not rendered.
+    expect(screen).toMatch(/listHeader=\{isMobile && !mobileReviewing \? mobileQueueChrome : cardsListHeader\}/);
+    expect(screen).toContain("{isMobile ? null : (");
   });
 });

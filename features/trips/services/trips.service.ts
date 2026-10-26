@@ -2847,7 +2847,7 @@ export async function assignAggregateTripDriverByPhone(
   vehicleDisplayNumber?: string | null,
   vehicleId?: string | null,
   previousDriverId?: string | null,
-  /** Dispatcher-entered name — stored on drivers.name so hub does not show UNASSIGNED. */
+  /** Dispatcher-entered trip label. Sent as optional p_driver_name; persisted on trips.driver_display_name. */
   driverName?: string | null,
   /** Explicit own-asset vs third-party choice (Issue B). Omitted/undefined = NULL, preserving legacy AGGREGATE-default behavior. */
   executionType?: "ASSET" | "AGGREGATE" | null,
@@ -2999,9 +2999,20 @@ export async function assignAggregateTripDriverByPhone(
     };
   }
   const driverLinked = obj.driver_linked === true;
-  const resultTrip = (obj.trip ?? null) as TripRow | null;
+  let resultTrip = (obj.trip ?? null) as TripRow | null;
   if (resultTrip && usableDriverName) {
     resultTrip.driver_display_name = usableDriverName;
+    const { error: labelErr, trip: labeled } = await updateTripAssignment(tripId, {
+      driver_display_name: usableDriverName,
+    });
+    if (labelErr) {
+      console.warn(
+        "[trips] trip-local driver name was not saved after assignment:",
+        labelErr.message,
+      );
+    } else if (labeled) {
+      resultTrip = labeled;
+    }
   }
   if (resultTrip) {
     const { postAggregateAssignmentMessage } = await import(

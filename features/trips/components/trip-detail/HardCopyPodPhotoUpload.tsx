@@ -1120,7 +1120,7 @@ function PodFilePreview({
             {item?.previewUri ? (
               <View style={[styles.previewZoom, zoomStyle]} pointerEvents={keepPdfChrome ? "box-none" : "none"}>
                 {isPdf ? (
-                  <PdfViewer pdfUri={item.previewUri} showToolbar={false} style={styles.previewFile} />
+                  <PdfViewer pdfUri={item.previewUri} showToolbar={keepPdfChrome} style={styles.previewFile} />
                 ) : (
                   <Image
                     source={{ uri: item.previewUri }}

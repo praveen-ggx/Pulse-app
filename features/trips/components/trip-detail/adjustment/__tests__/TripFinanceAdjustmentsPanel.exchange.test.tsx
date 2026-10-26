@@ -8,6 +8,9 @@ jest.mock("@/components/EntityAvatar", () => ({
   EntityAvatar: () => null,
 }));
 jest.mock("@expo/vector-icons/Feather", () => "Feather");
+jest.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => ({ user: { uid: "user-1" }, profile: { uid: "user-1", full_name: "Ops User" } }),
+}));
 
 const base = {
   adjustments: [],

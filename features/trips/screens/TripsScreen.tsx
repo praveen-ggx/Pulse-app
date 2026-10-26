@@ -39,6 +39,11 @@ import { useLoadingStuck } from "@/lib/hooks/useLoadingStuck";
 import { isInfrastructureErrorMessage } from "@/lib/supabaseHttp.util";
 import { useGlobalSyncStore } from "@/lib/globalSync/useGlobalSyncStore";
 import { TripsLedgerExportModalGate } from "@/features/trips/components/TripsLedgerExportModalGate";
+import { downloadTripIndentReportExcel } from "@/features/trips/services/tripIndentReport.export";
+import {
+  buildTripIndentReport,
+  loadTripIndentReportCatalog,
+} from "@/features/trips/services/tripIndentReport.service";
 import {
   resolveTripsPromoVariant,
 } from "@/lib/tripsPromoAssets";
@@ -176,6 +181,7 @@ import { scheduleIdleWork } from "@/lib/scheduleIdleWork";
 import { supabase } from "@/lib/supabase";
 import { useLinkedOrgProfileMap } from "@/lib/useLinkedOrgProfileMap";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
+import { Download } from "lucide-react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -440,6 +446,7 @@ export default function TripsScreen() {
   const [customDateFrom, setCustomDateFrom] = useState<string | null>(null);
   const [customDateTo, setCustomDateTo] = useState<string | null>(null);
   const [tripLedgerExportOpen, setTripLedgerExportOpen] = useState(false);
+  const [tripReportDownloading, setTripReportDownloading] = useState(false);
   const [activeHistoryMetricTab, setActiveHistoryMetricTab] =
     useState<HistoryTripMetricId | null>(null);
   const [showDateRangePicker, setShowDateRangePicker] = useState(false);
@@ -1787,6 +1794,51 @@ export default function TripsScreen() {
     ],
   );
 
+  /** Full Trip Ops catalog (not the current page / toolbar filter) → Excel. */
+  const handleDownloadTripReport = useCallback(async () => {
+    if (!orgId || tripReportDownloading) return;
+    setTripReportDownloading(true);
+    try {
+      const catalog = await loadTripIndentReportCatalog(orgId, hubTrips, allIndents);
+      if (catalog.error) {
+        showAppAlert(
+          "Export failed",
+          catalog.error.message || "Could not load trips and indents for the report.",
+        );
+        return;
+      }
+      const driverPhoneByTripId = await loadDriverPhonesByTripId(catalog.trips);
+      const { error, rows } = await buildTripIndentReport({
+        orgId,
+        trips: catalog.trips,
+        indents: catalog.indents,
+        partyMetaByTripId: tripHubPartyMetaByTripId,
+        driverPhoneByTripId,
+        stageLabelForTrip: getStageLabelForTrip,
+      });
+      if (error) {
+        showAppAlert("Export failed", error.message || "Could not build the trip report.");
+        return;
+      }
+      await downloadTripIndentReportExcel(rows, {
+        companyName: currentOrganization?.name ?? undefined,
+      });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      showAppAlert("Export failed", message || "Could not download the trip report.");
+    } finally {
+      setTripReportDownloading(false);
+    }
+  }, [
+    orgId,
+    tripReportDownloading,
+    hubTrips,
+    allIndents,
+    tripHubPartyMetaByTripId,
+    getStageLabelForTrip,
+    currentOrganization?.name,
+  ]);
+
   const { data: inTransitPingByTripId = {} } = useTripHubInTransitPings(
     orgId,
     showCompletedList ? [] : tripsByStatus,
@@ -2733,6 +2785,25 @@ export default function TripsScreen() {
     return <SceneLoadingSplash variant="preparing" message={tr("loading")} />;
   }
 
+  const tripsReportButton = canAccess ? (
+    <View
+      {...(Platform.OS === "web"
+        ? ({ title: "Download Trip Report" } as object)
+        : null)}
+    >
+      <PulsePillButton
+        size="compact"
+        showPlusIcon
+        IconComponent={Download}
+        loading={tripReportDownloading}
+        disabled={tripReportDownloading || !orgId}
+        onPress={() => void handleDownloadTripReport()}
+        accessibilityLabel="Download Trip Report"
+        style={[styles.tripsAddButtonOnChrome, styles.tripsReportIconButton]}
+      />
+    </View>
+  ) : null;
+
   const tripsAddButton = canUnifiedAdd ? (
     <PulsePillButton
       label="Add"
@@ -2743,6 +2814,14 @@ export default function TripsScreen() {
       style={styles.tripsAddButtonOnChrome}
     />
   ) : null;
+
+  const tripsHeaderActions =
+    tripsReportButton || tripsAddButton ? (
+      <View style={styles.tripsHeaderActionsRow}>
+        {tripsReportButton}
+        {tripsAddButton}
+      </View>
+    ) : null;
 
   return (
     <HubScreenShell
@@ -2959,7 +3038,7 @@ export default function TripsScreen() {
                         />
                       ))}
                     </ScrollView>
-                    {tripsAddButton}
+                    {tripsHeaderActions}
                   </View>
                   <View style={hubChrome.tabDivider} />
                 </>
@@ -3123,7 +3202,7 @@ export default function TripsScreen() {
                           </TouchableOpacity>
                         </View>
                       ) : null}
-                      {tripsAddButton}
+                      {tripsHeaderActions}
                     </View>
                   </View>
                 </View>
@@ -4440,6 +4519,17 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     flexShrink: 0,
     alignSelf: "center",
+  },
+  /** Same compact height as Add; square padding so only the download icon shows. */
+  tripsReportIconButton: {
+    minWidth: 32,
+    paddingHorizontal: 8,
+  },
+  tripsHeaderActionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 0,
+    gap: 4,
   },
   tripsFilterHeaderCompact: {
     flexDirection: "column",

@@ -2488,13 +2488,16 @@ export function DocumentScreen({
                   uri={uri}
                   isPdf
                     // Hide Chrome PDF chrome — its built-in rotate breaks smooth scroll.
-                    // Use the header Rotate control instead.
+                    // Use the header Rotate control instead. Upright files still
+                    // use the live iframe (previewTier=full + scrollbar) so pages
+                    // can be scrolled, same as vault preview.
                   showToolbar={false}
                   sizing="fit"
                     zoom={pdfViewOwned ? 1 : scale}
                     page={showPdfPageTools ? page : undefined}
                     scrollbar={!pdfViewOwned}
                     interactive={!pdfViewOwned}
+                    previewTier={pdfViewOwned ? "thumb" : "full"}
                   style={styles.screenFile}
                   accessibilityLabel={title}
                 />

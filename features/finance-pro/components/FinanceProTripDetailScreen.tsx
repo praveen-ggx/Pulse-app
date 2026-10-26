@@ -154,8 +154,7 @@ function TripBody({
           </FinanceProFactGrid>
           <Text style={styles.note}>
             {billingGate} Policy{" "}
-            {resolved ? invoicePodPolicyLabel(resolved) : "unconfigured"}
-            {clientPolicy == null ? " (workspace default)" : ""}.
+            {resolved ? invoicePodPolicyLabel(resolved) : "unconfigured"}.
           </Text>
           {invoices.map((d) => (
             <Pressable

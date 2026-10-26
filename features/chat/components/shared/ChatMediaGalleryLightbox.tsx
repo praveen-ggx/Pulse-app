@@ -127,6 +127,13 @@ function GallerySlidePage({
           blobRevokeRef.current = blob.revoke;
           loadPassRef.current = "blob";
           setUri(blob.url);
+          setLoading(false);
+          return;
+        }
+      }
+      if (loadPassRef.current === "default") {
+        const signed = await loadGallerySlideUri(slide, "signed");
+        if (signed) {
           loadPassRef.current = "signed";
           setUri(signed);
           setLoading(false);

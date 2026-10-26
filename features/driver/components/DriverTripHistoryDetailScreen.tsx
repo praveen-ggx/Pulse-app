@@ -171,6 +171,20 @@ export function DriverTripHistoryDetailScreen({
   const [detailPodLoading, setDetailPodLoading] = useState(false);
   const [detailPodViewUrls, setDetailPodViewUrls] = useState<Record<string, string>>({});
   const detailPodUrlRequestedRef = useRef<Set<string>>(new Set());
+  const [podPreviewIndex, setPodPreviewIndex] = useState<number | null>(null);
+  const resolveDetailPodPreview = useCallback(
+    async (doc: tripDocumentsService.TripDocumentRow): Promise<string | null> => {
+      const cached = detailPodViewUrls[doc.id];
+      if (cached) return cached;
+      const url = await tripDocumentsService.tryGetDocumentViewUrl(doc.storage_path);
+      if (!url) return null;
+      setDetailPodViewUrls((prev) => ({ ...prev, [doc.id]: url }));
+      return url;
+    },
+    [detailPodViewUrls],
+  );
+
+  useRegisterDriverContextTrip(trip);
   const heldPodPreviewUrls = useRef<Map<string, string>>(new Map());
   useEffect(() => () => {
     for (const url of heldPodPreviewUrls.current.values()) releaseStoragePreviewUrl(url);

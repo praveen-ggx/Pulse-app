@@ -309,6 +309,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 20,
+    ...Platform.select({
+      web: { zIndex: 10050 } as object,
+      default: {},
+    }),
   },
   dismiss: {
     ...StyleSheet.absoluteFillObject,

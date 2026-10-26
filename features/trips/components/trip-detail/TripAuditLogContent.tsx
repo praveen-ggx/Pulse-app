@@ -24,6 +24,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -32,6 +33,11 @@ import {
   useWindowDimensions,
   type ViewStyle,
 } from "react-native";
+
+const WEB_COPY = Platform.select({
+  web: { whiteSpace: "pre-wrap" as const, letterSpacing: 0 },
+  default: {},
+});
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const METRONIC = {
@@ -304,9 +310,9 @@ function ActivityActorHeadline({ entry }: { entry: TripAuditLogEntry }) {
   return (
     <View style={styles.headlineRow}>
       <ActivityUserAvatar avatar={entry.actorAvatar} size={22} />
-      <Text style={styles.headline} numberOfLines={4}>
-        <Text style={styles.actorName}>{entry.recordedBy}</Text>
-        <Text style={styles.actionText}> {phrase}</Text>
+      <Text style={[styles.headline, WEB_COPY]} numberOfLines={4}>
+        <Text style={[styles.actorName, WEB_COPY]}>{entry.recordedBy}</Text>
+        <Text style={[styles.actionText, WEB_COPY]}> {phrase}</Text>
         {entry.headlineTarget ? (
           <Text style={styles.targetName}> {entry.headlineTarget}</Text>
         ) : null}
@@ -906,14 +912,17 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     color: METRONIC.ink,
     fontWeight: "500",
+    letterSpacing: 0,
   },
   actorName: {
     fontWeight: "600",
     color: METRONIC.ink,
+    letterSpacing: 0,
   },
   actionText: {
     fontWeight: "500",
     color: METRONIC.ink,
+    letterSpacing: 0,
   },
   targetName: {
     fontWeight: "600",

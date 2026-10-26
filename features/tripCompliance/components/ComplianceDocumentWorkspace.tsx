@@ -2292,7 +2292,7 @@ export function DocumentScreen({
         >
           <View style={[styles.screenBar, compact && styles.screenBarCompact]}>
             <View style={styles.screenTitleBlock}>
-              <Text style={styles.screenTitle} numberOfLines={1}>{title}</Text>
+            <Text style={styles.screenTitle} numberOfLines={1}>{title}</Text>
               {headerFacts ? (
                 <Text style={styles.screenSubtitle} numberOfLines={1}>
                   {headerFacts}
@@ -4683,7 +4683,7 @@ export function ComplianceDocumentWorkspace({
             >
               <View style={hubMobileListCanvasStyles.cardWrap}>
                 <ComplianceTripCard
-                  summary={item}
+                summary={item}
                   compact
                   selected={!mobileExclusive && item.trip.id === summary?.trip.id}
                   onReviewDocuments={(group) => {
@@ -4896,9 +4896,9 @@ export function ComplianceDocumentWorkspace({
                         ] as const
                       ).map((item) => {
                         const active = docFilter === item.key;
-                        return (
-                          <Pressable
-                            key={item.key}
+              return (
+                <Pressable
+                  key={item.key}
                             onPress={() => applyDocFilter(item.key)}
                             style={(state: HoverPressState) => [
                               styles.docScopeTab,
@@ -4906,8 +4906,8 @@ export function ComplianceDocumentWorkspace({
                               WEB_POINTER,
                               isHovered(state) && !active && styles.docScopeTabHover,
                             ]}
-                            accessibilityRole="tab"
-                            accessibilityState={{ selected: active }}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active }}
                             accessibilityLabel={`Show ${item.label} documents`}
                           >
                             <Text
@@ -4915,52 +4915,52 @@ export function ComplianceDocumentWorkspace({
                               numberOfLines={1}
                             >
                               {item.label}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
+                      </Text>
+                </Pressable>
+              );
+            })}
+          </View>
                     {summary && onOpenActivityLog ? (
                       <ComplianceActivityLogButton hub onPress={() => onOpenActivityLog(summary)} />
-                    ) : null}
+            ) : null}
                 </View>
-                {showEntityUnassigned ? (
+            {showEntityUnassigned ? (
                   <View style={[styles.missingHeader, styles.missingHeaderMobile]}>
                     <Text style={styles.missingTitle}>{vaultCopy.unassignedTitle}</Text>
                     <Text style={[styles.missingHint, styles.missingHintMobile]}>
                       {vaultCopy.unassignedHint}
-                    </Text>
-                  </View>
-                ) : (
-                  <>
+                </Text>
+              </View>
+            ) : (
+              <>
                     <View style={[styles.missingHeader, styles.missingHeaderMobile]}>
                       <View style={[styles.missingTitleRow, styles.missingTitleRowMobile]}>
                         <Text style={styles.missingTitle}>
                           {isFinanceMode ? "Trip details" : "Documents to upload"}
                         </Text>
                         <View
-                          style={[
+                      style={[
                             styles.missingCountChip,
                             documentsMissing && styles.missingCountChipNeed,
                             documentsOnFile && styles.missingCountChipReady,
                           ]}
-                        >
-                          <Text
-                            style={[
+                    >
+                      <Text
+                        style={[
                               styles.missingCountChipText,
                               documentsMissing && styles.missingCountChipTextNeed,
                               documentsOnFile && styles.missingCountChipTextReady,
-                            ]}
-                            numberOfLines={1}
-                          >
+                        ]}
+                        numberOfLines={1}
+                      >
                             {listMissingRows.length > 0
                               ? `${listMissingRows.length} to upload`
                         : `${uploadedCount} on file`}
-                    </Text>
+                      </Text>
                   </View>
                 </View>
                       <Text
-                        style={[
+                          style={[
                           styles.missingSubtitle,
                           documentsOnFile && styles.missingSubtitleReady,
                           documentsMissing && styles.missingSubtitleMissing,
@@ -4969,7 +4969,7 @@ export function ComplianceDocumentWorkspace({
                       >
                     {missingHeadline}
                   </Text>
-                  <Text
+                          <Text
                     style={[styles.missingHint, styles.missingHintMobile]}
                     numberOfLines={2}
                   >
@@ -4978,7 +4978,7 @@ export function ComplianceDocumentWorkspace({
                 </View>
                     {verifyNotice ? (
                       <View
-                        style={[
+                            style={[
                           styles.verifyNotice,
                           verifyNotice.tone === "success" && styles.verifyNoticeSuccess,
                         ]}
@@ -4993,9 +4993,9 @@ export function ComplianceDocumentWorkspace({
                         )}
                         <Text style={styles.verifyNoticeText} numberOfLines={2}>
                           {verifyNotice.text}
-                        </Text>
-                      </View>
-                    ) : null}
+                          </Text>
+                        </View>
+                      ) : null}
                 <View
                   style={[
                     styles.checklistDocsContent,
@@ -5012,7 +5012,7 @@ export function ComplianceDocumentWorkspace({
                             return group === "required" ? withRequiredType : !withRequiredType;
                           });
                           if (groupRows.length === 0) return null;
-                          return (
+                      return (
                             <View
                               key={group}
                               style={[styles.reviewGroup, group === "optional" && styles.reviewGroupSpaced]}
@@ -5081,16 +5081,16 @@ export function ComplianceDocumentWorkspace({
                           accessibilityRole="button"
                           accessibilityState={{ selected: checklistPreviewMode === "trip" }}
                           accessibilityLabel="Show trip details"
-                        >
-                          <Text
-                              style={[
+                            >
+                              <Text
+                                style={[
                               styles.checklistModeBtnText,
                               checklistPreviewMode === "trip" && styles.checklistModeBtnTextSelected,
-                            ]}
+                                ]}
                             numberOfLines={1}
-                          >
+                              >
                             Trip Detail
-                          </Text>
+                              </Text>
                         </Pressable>
                         {showFinanceTab && !compliancePendingView && !hideCommercials ? (
                           <Pressable
@@ -5113,7 +5113,7 @@ export function ComplianceDocumentWorkspace({
                             accessibilityLabel="Show advance payment details"
                             >
                               <Text
-                                style={[
+                        style={[
                                 styles.checklistModeBtnText,
                                 checklistPreviewMode === "advance" && styles.checklistModeBtnTextSelected,
                               ]}
@@ -5127,7 +5127,7 @@ export function ComplianceDocumentWorkspace({
                         showHardcopyPodButton &&
                         !isPendingDocsTrip &&
                         !compliancePendingView ? (
-                          <Pressable
+                        <Pressable
                             style={(state: HoverPressState) => [
                               styles.checklistModeBtn,
                               WEB_POINTER,
@@ -5136,9 +5136,9 @@ export function ComplianceDocumentWorkspace({
                             ]}
                             disabled={!summary}
                             onPress={() => setPodOpen(true)}
-                            accessibilityRole="button"
+                          accessibilityRole="button"
                             accessibilityLabel="Log hardcopy POD"
-                          >
+                        >
                             <Text style={styles.checklistModeBtnText} numberOfLines={1}>
                               Hardcopy POD
                             </Text>
@@ -5162,8 +5162,8 @@ export function ComplianceDocumentWorkspace({
                             }}
                             accessibilityRole="button"
                             accessibilityLabel="Mark compliance verified"
-                          >
-                            <Text
+                            >
+                              <Text
                               style={[styles.checklistModeBtnText, styles.checklistModeBtnTextActive]}
                             numberOfLines={1}
                           >
@@ -5235,11 +5235,11 @@ export function ComplianceDocumentWorkspace({
                             {`Finance flag: ${summary.financeFlagNote?.trim() || "no note"}`}
                           </Text>
                           {onRejectCompliance ? (
-                            <TouchableOpacity
+                    <TouchableOpacity
                               style={styles.declineTripBtn}
                               activeOpacity={0.85}
                               onPress={() => setRejectOpen(true)}
-                              accessibilityRole="button"
+                      accessibilityRole="button"
                               accessibilityLabel="Reject trip compliance"
                             >
                               <Text style={styles.declineTripBtnText}>Reject</Text>
@@ -5254,7 +5254,7 @@ export function ComplianceDocumentWorkspace({
                               accessibilityLabel="Clear finance flag"
                             >
                               <Text style={styles.verifyTripBtnText}>Clear flag</Text>
-                            </TouchableOpacity>
+                    </TouchableOpacity>
                           ) : null}
                       </View>
                       ) : null}
@@ -5316,7 +5316,7 @@ export function ComplianceDocumentWorkspace({
                   >
                     <FontAwesome name="chevron-left" size={16} color="#212121" />
                     <Text style={styles.mobilePreviewBackText}>Documents</Text>
-                  </TouchableOpacity>
+                    </TouchableOpacity>
                 ) : null}
                 {(() => {
                   const previewingDocument =
@@ -5348,7 +5348,7 @@ export function ComplianceDocumentWorkspace({
                     <View style={styles.previewNavCopy}>
                       <Text style={styles.previewNavTitle} numberOfLines={1}>
                         {docTitle}
-                      </Text>
+                  </Text>
                       {previewHeaderFacts ? (
                         <Text style={styles.previewNavMeta} numberOfLines={1}>
                           {previewHeaderFacts}
@@ -5359,7 +5359,7 @@ export function ComplianceDocumentWorkspace({
                           {previewOrdinal} of {previewable.length}
                         </Text>
                       ) : null}
-                    </View>
+                </View>
                     <View style={styles.previewNavTools}>
                       <Pressable
                         style={[styles.previewNavTool, !toolsEnabled && styles.previewToolBtnDisabled]}
@@ -5401,7 +5401,7 @@ export function ComplianceDocumentWorkspace({
                       >
                         <Maximize2 size={16} color={expandColor} />
                       </Pressable>
-                    </View>
+              </View>
                   </View>
                 ) : null}
                 <View style={[styles.checklistPreviewBody, styles.checklistPreviewBodyMobile]}>
@@ -5621,7 +5621,7 @@ export function ComplianceDocumentWorkspace({
                     </>
                   );
                 })()}
-              </View>
+                  </View>
                   )
                 }
               />
@@ -6013,7 +6013,7 @@ function TripDetailFact({
                     >
       <Text style={styles.tripFactLabel} numberOfLines={1}>
         {label}
-      </Text>
+                      </Text>
       {ValueText}
                     </View>
   );

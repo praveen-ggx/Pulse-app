@@ -321,7 +321,7 @@ export function getManifestCurrentStepIndex(
     return MANIFEST_LAST_INDEX;
   }
   if (s === "at_drop") return 4;
-  if (s === "in_transit") return 3;
+  if (s === "in_transit" || s === "dispatched" || s === "transit") return 3;
   if (["in_progress", "picked_up", "pickup"].includes(s)) return 2;
   if (s === "assigned") {
     // `assigned` alone is a dispatcher action; only advance to the acceptance

@@ -13,6 +13,11 @@ import { FileText, Pencil } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
+const WEB_COPY =
+  Platform.OS === "web"
+    ? ({ whiteSpace: "pre-wrap" as const, letterSpacing: 0 })
+    : {};
+
 export type VaultChooserPreviewSource = "trip" | "vehicle" | "compliance" | "supplier-kyc";
 
 export type VaultChooserPreview = {
@@ -266,7 +271,7 @@ export function VaultChooserNotifyRow({
         </View>
         <View style={styles.headerCopy}>
           <View style={styles.titleRow}>
-            <Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">
+            <Text style={[styles.title, WEB_COPY]} numberOfLines={1} ellipsizeMode="tail">
               {label}
             </Text>
             {required === true ? (
@@ -315,7 +320,7 @@ export function VaultChooserNotifyRow({
         <View style={styles.headerActions}>
             <View style={[styles.statusPill, onFile ? styles.statusOnFile : styles.statusPending]}>
               <View style={[styles.statusDot, onFile ? styles.statusDotOn : styles.statusDotOff]} />
-              <Text style={[styles.statusText, onFile ? styles.statusTextOn : styles.statusTextOff]}>
+              <Text style={[styles.statusText, onFile ? styles.statusTextOn : styles.statusTextOff, WEB_COPY]}>
                 {onFile ? onFileLabel : "Pending"}
               </Text>
             </View>
@@ -358,7 +363,7 @@ export function VaultChooserNotifyRow({
                 accessibilityRole="button"
                 accessibilityLabel={`Add ${label}`}
               >
-                <Text style={styles.addBtnText}>Add</Text>
+                <Text style={[styles.addBtnText, WEB_COPY]}>Add</Text>
               </Pressable>
             ) : null}
         </View>

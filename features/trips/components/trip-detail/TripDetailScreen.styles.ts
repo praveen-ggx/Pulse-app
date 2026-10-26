@@ -1493,12 +1493,12 @@ export const neoStyles = StyleSheet.create({
   },
   simModalTime: {
     marginBottom: 16,
-    padding: 14,
-    borderRadius: 14,
-    backgroundColor: "rgba(245,158,11,0.08)",
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: Theme.cardWhite,
     borderWidth: 1,
-    borderColor: "rgba(245,158,11,0.22)",
-    gap: 10,
+    borderColor: Theme.borderLight,
+    gap: 8,
   },
   simModalError: {
     fontSize: 12,

@@ -235,12 +235,15 @@ async function signCompliancePreviewUrlUncached(input: {
       }
     } else if (source === "entity" || source === "compliance" || source === "supplier-kyc") {
       const { url } = await getComplianceDocumentSignedUrl(path);
-      signed = url ?? (await getVehicleDocumentViewUrl(path));
+      if (url) return url;
+      signed = null;
     } else if (source === "driver-kyc") {
       const { data } = await supabase().storage.from("driver-documents").createSignedUrl(path, 3600);
       signed = data?.signedUrl ?? null;
     } else {
-      signed = (await tryGetDocumentViewUrl(path)) ?? (await getVehicleDocumentViewUrl(path));
+      const tripUrl = await tryGetDocumentViewUrl(path);
+      if (tripUrl) return tripUrl;
+      return null;
     }
     return paintCompliancePreviewUrl(objectPath, source, signed);
   } catch {

@@ -1277,6 +1277,13 @@ export function useTripDetail({
         tripSupplierName: trip?.supplier_name,
         linkedOrganizationName: supplierPartyAvatarFields?.organizationName,
         clientName: displayClientName ?? trip?.client_name,
+        viewerOrganizationName:
+          trip &&
+          currentOrganization?.id &&
+          trip.organization_id !== currentOrganization.id &&
+          String(trip.supplier_id ?? "").trim()
+            ? currentOrganization.name
+            : null,
         ledgerEntries: tripLedgerEntries,
       }),
     [
@@ -1286,6 +1293,10 @@ export function useTripDetail({
       supplierPartyAvatarFields?.organizationName,
       displayClientName,
       trip?.client_name,
+      trip?.organization_id,
+      trip?.supplier_id,
+      currentOrganization?.id,
+      currentOrganization?.name,
       tripLedgerEntries,
     ],
   );

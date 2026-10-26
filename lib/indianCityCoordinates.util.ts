@@ -1,6 +1,12 @@
 /** Lat/lon centroids for common Indian cities — HQ map + trip map fallbacks. */
 export const INDIAN_CITY_COORDINATES: Record<string, { latitude: number; longitude: number }> = {
   mumbai: { latitude: 19.076, longitude: 72.8777 },
+  "navi mumbai": { latitude: 19.033, longitude: 73.0297 },
+  vasai: { latitude: 19.3919, longitude: 72.8397 },
+  virar: { latitude: 19.4559, longitude: 72.8119 },
+  "vasai virar": { latitude: 19.425, longitude: 72.82 },
+  "vasai-virar": { latitude: 19.425, longitude: 72.82 },
+  kalyan: { latitude: 19.2403, longitude: 73.1305 },
   delhi: { latitude: 28.6139, longitude: 77.209 },
   bangalore: { latitude: 12.9716, longitude: 77.5946 },
   bengaluru: { latitude: 12.9716, longitude: 77.5946 },

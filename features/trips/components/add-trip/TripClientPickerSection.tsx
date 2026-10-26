@@ -12,7 +12,7 @@ import Theme from "@/constants/Theme";
 import { resolveWizardClientPhone } from "@/features/clients/utils/clientContactDisplay.util";
 import type { ClientRow } from "@/features/clients/services/clients.service";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { CheckCircle2, Clock, PlusCircle } from "lucide-react-native";
+import { CheckCircle2, Clock } from "lucide-react-native";
 import {
   ActivityIndicator,
   Platform,
@@ -33,7 +33,7 @@ export type TripClientPickerSectionProps = {
   clientListExpanded: boolean;
   setClientListExpanded: React.Dispatch<React.SetStateAction<boolean>>;
   onSelectClient: (client: ClientRow) => void;
-  onAddClient: () => void;
+  onAddClient?: () => void;
   hasError?: boolean;
   /** Stepped mobile wizard — flat picker / summary card only. */
   wizardMode?: boolean;
@@ -91,7 +91,7 @@ export function TripClientPickerSection({
             loading={clientsLoading}
             selectedClientId={clientId}
             onSelect={onSelectClient}
-            onAddClient={onAddClient}
+            onAddClient={undefined}
             columns={pickerColumns}
             addClientAlign={addClientAlign}
             showListShell={false}
@@ -133,14 +133,6 @@ export function TripClientPickerSection({
               />
             </TouchableOpacity>
           ) : null}
-          <TouchableOpacity
-            style={[styles.addClientBtn, webPointer]}
-            onPress={onAddClient}
-            activeOpacity={0.85}
-          >
-            <PlusCircle size={14} color={Theme.iconPrimary} />
-            <Text style={styles.addClientBtnText}>Add client</Text>
-          </TouchableOpacity>
         </View>
       </View>
 
@@ -148,7 +140,7 @@ export function TripClientPickerSection({
         <ActivityIndicator color={Theme.iconPrimary} />
       ) : clients.length === 0 ? (
         <Text style={styles.mutedSmall}>
-          No clients yet. Add clients from the Clients page first.
+          No clients yet. Add the party from Customers first.
         </Text>
       ) : showClientSummary && selectedClientRow ? (
         <TouchableOpacity

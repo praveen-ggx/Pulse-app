@@ -150,42 +150,69 @@ export function VaultCategoryPreviewModal({
       setUrls({});
       return;
     }
+    const currentPath = String(current?.storagePath ?? "").trim();
+    const ordered = currentPath
+      ? [currentPath, ...paths.filter((path) => path !== currentPath)]
+      : paths;
     let cancelled = false;
-    void getDocumentViewUrls(paths).then((next) => {
+    void (async () => {
+      const first = ordered[0];
+      if (first) {
+        const one = await getDocumentViewUrls([first]);
+        if (cancelled) return;
+        setUrls((prev) => mergeCategoryPreviewUrls(prev, one));
+      }
+      const rest = ordered.slice(1);
+      if (rest.length === 0) return;
+      const more = await getDocumentViewUrls(rest);
       if (cancelled) return;
-      setUrls((prev) => mergeCategoryPreviewUrls(prev, next));
-    });
+      setUrls((prev) => mergeCategoryPreviewUrls(prev, more));
+    })();
     return () => {
       cancelled = true;
     };
-  }, [paths, visible]);
+  }, [current?.storagePath, paths, visible]);
 
   useEffect(() => {
     if (!visible || !onResolveUrl || files.length === 0) return;
+    const ordered = [
+      current,
+      ...files.filter((file) => file.id !== current?.id),
+    ].filter((file): file is VaultCategoryPreviewFile => Boolean(file));
     let cancelled = false;
-    void Promise.all(
-      files.map(async (file) => {
-        if (file.previewUri?.trim()) {
-          return [file.id, file.previewUri.trim()] as const;
-        }
-        const path = String(file.storagePath ?? "").trim();
-        const next = await onResolveUrl(file);
-        return [path || file.id, next] as const;
-      }),
-    ).then((entries) => {
+    const applyResolved = (
+      file: VaultCategoryPreviewFile,
+      next: string | null,
+    ) => {
+      if (!next) return;
+      const path = String(file.storagePath ?? "").trim();
+      setUrls((prev) => ({
+        ...prev,
+        ...(path ? { [path]: next } : {}),
+        [file.id]: next,
+      }));
+    };
+    void (async () => {
+      const [first, ...rest] = ordered;
+      if (first) {
+        const firstUrl = first.previewUri?.trim() || (await onResolveUrl(first));
+        if (cancelled) return;
+        applyResolved(first, firstUrl ?? null);
+      }
+      if (rest.length === 0) return;
+      const extras = await Promise.all(
+        rest.map(async (file) => {
+          const url = file.previewUri?.trim() || (await onResolveUrl(file));
+          return [file, url] as const;
+        }),
+      );
       if (cancelled) return;
-      setUrls((prev) => {
-        const merged = { ...prev };
-        for (const [key, value] of entries) {
-          if (value) merged[key] = value;
-        }
-        return merged;
-      });
-    });
+      for (const [file, url] of extras) applyResolved(file, url);
+    })();
     return () => {
       cancelled = true;
     };
-  }, [files, onResolveUrl, visible]);
+  }, [current, files, onResolveUrl, visible]);
 
   const items = useMemo(
     () =>

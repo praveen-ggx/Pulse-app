@@ -85,7 +85,10 @@ import {
   mergeFinanceBankDocsFromSupplier,
   type ComplianceDocRow,
 } from "@/features/tripCompliance/utils/complianceDocumentRows.util";
-import { compliancePreviewSourceForRow } from "@/features/tripCompliance/utils/compliancePreviewSource.util";
+import {
+  compliancePreviewSourceForRow,
+  compliancePreviewSourceForVaultFile,
+} from "@/features/tripCompliance/utils/compliancePreviewSource.util";
 import { deriveComplianceQueueReadiness } from "@/features/tripCompliance/utils/complianceReadiness.util";
 import {
   applyOptimisticDecision,
@@ -3096,7 +3099,16 @@ export function ComplianceDocumentWorkspace({
 
   useEffect(() => {
     if (!organizationId || !canViewDocuments) return;
-    for (const row of displayListRows.filter(hasFile).slice(0, 8)) {
+    const withFiles = displayListRows.filter(hasFile);
+    const focus = withFiles.findIndex((row) => row.key === checklistKey);
+    const start = focus >= 0 ? focus : 0;
+    const neighbors = [start, start + 1, start + 2, start - 1]
+      .filter((i) => i >= 0 && i < withFiles.length)
+      .map((i) => withFiles[i]);
+    const seen = new Set<string>();
+    for (const row of neighbors) {
+      if (!row || seen.has(row.key)) continue;
+      seen.add(row.key);
       if (row.doc && !classifyTripDocument(row.doc).hasBinary) continue;
       const path = vaultPreviewPath(row);
       if (!path) continue;
@@ -3114,6 +3126,7 @@ export function ComplianceDocumentWorkspace({
     }
   }, [
     canViewDocuments,
+    checklistKey,
     displayListRows,
     organizationId,
     reviewScope,
@@ -5541,12 +5554,7 @@ export function ComplianceDocumentWorkspace({
                     </View>
                   ) : (
                     <View style={styles.previewStageRow}>
-                      {loadingPreview ? (
-                    <View style={styles.checklistPreviewEmpty}>
-                      <ActivityIndicator color={Theme.textPrimaryDark} />
-                          <Text style={styles.checklistPreviewLoadingText}>Loading document…</Text>
-                    </View>
-                  ) : typedLines && canViewDocuments ? (
+                      {typedLines && canViewDocuments && !previewUrl ? (
                         <TypedDetailsPreview
                           title={docTitle}
                           lines={typedLines}
@@ -5635,6 +5643,11 @@ export function ComplianceDocumentWorkspace({
                     </ScrollView>
                           ) : null}
                         </View>
+                  ) : loadingPreview ? (
+                    <View style={styles.checklistPreviewEmpty}>
+                      <ActivityIndicator color={Theme.textPrimaryDark} />
+                      <Text style={styles.checklistPreviewLoadingText}>Loading document…</Text>
+                    </View>
                   ) : (
                     <View style={styles.checklistPreviewEmpty}>
                       <Text style={styles.checklistPreviewEmptyTitle}>
@@ -5832,7 +5845,7 @@ export function ComplianceDocumentWorkspace({
           }
           return signCompliancePreviewUrl({
             storagePath: path,
-            source: file.category === "bank_docs" ? "supplier-kyc" : "compliance",
+            source: compliancePreviewSourceForVaultFile(file),
             organizationId,
             entityId:
               file.driverKind

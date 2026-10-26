@@ -44,7 +44,7 @@ export type CreateTripDesktopSourceStepProps = {
   onExpandPartnerList: () => void;
   onTogglePartnerList: () => void;
   onSelectPartner: (supplier: SupplierRow) => void;
-  onAddPartner: () => void;
+  onAddPartner?: () => void;
   /** Full-width source cards + stacked partner grid on mobile. */
   compact?: boolean;
   /** `source` = Asset vs Market only. `partner` = existing supplier + rate. */
@@ -62,7 +62,6 @@ export const CreateTripDesktopSourceStep = memo(function CreateTripDesktopSource
   onExpandPartnerList,
   onTogglePartnerList,
   onSelectPartner,
-  onAddPartner,
   compact = false,
   variant = "source",
   allowedSupplyModes = ["asset", "aggregate"],
@@ -329,15 +328,6 @@ export const CreateTripDesktopSourceStep = memo(function CreateTripDesktopSource
                     changeExpanded={partnerListOpen}
                     onToggleChange={onTogglePartnerList}
                   />
-                  <Pressable
-                    onPress={onAddPartner}
-                    style={s.compactAddClientBtn}
-                    accessibilityRole="button"
-                    accessibilityLabel="Add transport partner"
-                    hitSlop={8}
-                  >
-                    <Text style={s.compactAddClientBtnText}>Add partner</Text>
-                  </Pressable>
                 </View>
               </View>
               <DesktopPartySearchField
@@ -365,13 +355,6 @@ export const CreateTripDesktopSourceStep = memo(function CreateTripDesktopSource
                   changeExpanded={partnerListOpen}
                   onToggleChange={onTogglePartnerList}
                 />
-                <Pressable
-                  onPress={onAddPartner}
-                  style={s.commodityAddClientBtn}
-                  accessibilityRole="button"
-                >
-                  <Text style={s.commodityAddClientBtnText}>Add partner</Text>
-                </Pressable>
               </View>
             </View>
           )}

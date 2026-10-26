@@ -119,6 +119,7 @@ export type StageLog = {
   detail?: string;
   location?: string;
   simulated?: boolean;
+  history?: Array<{ time: string; actor: string; action: string }>;
 };
 
 type Step = {
@@ -454,6 +455,18 @@ function Timeline({
                   ) : null}
                 </View>
               </View>
+              {(log?.history?.length ?? 0) > 0 ? (
+                <View style={styles.tlHistoryAlways}>
+                  {log!.history!.map((line, hi) => (
+                    <Text
+                      key={`${line.time}-${hi}`}
+                      style={[styles.tlHistoryAlwaysLine, WEB_COPY]}
+                    >
+                      {line.time} · {line.actor} · {line.action}
+                    </Text>
+                  ))}
+                </View>
+              ) : null}
               {open ? (
                 <View style={styles.tlLog}>
                   <View style={styles.tlLogAccent} />
@@ -492,6 +505,18 @@ function Timeline({
                       <Text style={[styles.tlLogMeta, WEB_COPY]} numberOfLines={2}>
                         {log.detail}
                       </Text>
+                    ) : null}
+                    {(log?.history?.length ?? 0) > 0 ? (
+                      <View style={styles.tlLogHistory}>
+                        {log!.history!.map((line, hi) => (
+                          <Text
+                            key={`${line.time}-${hi}`}
+                            style={[styles.tlLogHistoryLine, WEB_COPY]}
+                          >
+                            {line.time} · {line.actor} · {line.action}
+                          </Text>
+                        ))}
+                      </View>
                     ) : null}
                   </View>
                 </View>
@@ -1292,6 +1317,29 @@ const styles = StyleSheet.create({
     fontWeight: "400",
     color: BODY,
     lineHeight: 14,
+    letterSpacing: 0,
+  },
+  tlLogHistory: {
+    marginTop: 6,
+    gap: 2,
+  },
+  tlLogHistoryLine: {
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "500",
+    color: MUTED,
+    letterSpacing: 0,
+  },
+  tlHistoryAlways: {
+    marginTop: 2,
+    marginBottom: 4,
+    gap: 1,
+  },
+  tlHistoryAlwaysLine: {
+    fontSize: 8,
+    lineHeight: 11,
+    fontWeight: "500",
+    color: MUTED,
     letterSpacing: 0,
   },
   tlLabel: {

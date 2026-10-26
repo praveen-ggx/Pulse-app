@@ -1,6 +1,6 @@
 /**
  * Mobile finance tab — Flipkart “Order Payment Details” chrome.
- * Presents trip amounts as label/value rows; Summary / Transactions stay functional.
+ * Presents trip amounts as label/value rows, then the ledger list.
  */
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { memo, type ReactNode } from "react";
@@ -37,8 +37,6 @@ export type TripMobileFinancePanelProps = {
   clientName: string;
   payablePartyName?: string;
   payablePartyLabel?: string;
-  subTab: "summary" | "transactions";
-  onSubTabChange: (tab: "summary" | "transactions") => void;
   searchTerm: string;
   onSearchChange: (v: string) => void;
   summarySlot?: ReactNode;
@@ -173,8 +171,6 @@ export const TripMobileFinancePanel = memo(function TripMobileFinancePanel({
   adjustedCostInr,
   marginInr,
   marginBasisLabel,
-  subTab,
-  onSubTabChange,
   searchTerm,
   onSearchChange,
   summarySlot,
@@ -205,46 +201,8 @@ export const TripMobileFinancePanel = memo(function TripMobileFinancePanel({
           {heroSub}
         </Text>
 
-        <View style={styles.subTabs}>
-          <TouchableOpacity
-            style={[
-              styles.subTab,
-              subTab === "summary" && styles.subTabActive,
-            ]}
-            onPress={() => onSubTabChange("summary")}
-            activeOpacity={0.85}
-          >
-            <Text
-              style={[
-                styles.subTabText,
-                subTab === "summary" && styles.subTabTextActive,
-              ]}
-            >
-              Summary
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.subTab,
-              subTab === "transactions" && styles.subTabActive,
-            ]}
-            onPress={() => onSubTabChange("transactions")}
-            activeOpacity={0.85}
-          >
-            <Text
-              style={[
-                styles.subTabText,
-                subTab === "transactions" && styles.subTabTextActive,
-              ]}
-            >
-              Transactions
-            </Text>
-          </TouchableOpacity>
-        </View>
       </View>
 
-      {subTab === "summary" ? (
-        <>
           <View style={styles.blockGap}>
             <View style={styles.block}>
               <View style={styles.sectionTitleRow}>
@@ -306,8 +264,7 @@ export const TripMobileFinancePanel = memo(function TripMobileFinancePanel({
               <View style={styles.blockPadSoft}>{summarySlot}</View>
             </View>
           ) : null}
-        </>
-      ) : (
+
         <View style={styles.blockGap}>
           <View style={styles.block}>
             <Text style={styles.sectionTitle}>Transactions</Text>
@@ -324,7 +281,6 @@ export const TripMobileFinancePanel = memo(function TripMobileFinancePanel({
             {transactionsSlot}
           </View>
         </View>
-      )}
 
       <View style={styles.bottomBar}>
         <Text style={styles.bottomText} numberOfLines={1}>
@@ -374,34 +330,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "400",
     color: MUTED,
-  },
-  subTabs: {
-    flexDirection: "row",
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#EEEEEE",
-    marginHorizontal: -PAD,
-    paddingHorizontal: PAD,
-  },
-  subTab: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 11,
-    borderBottomWidth: 2,
-    borderBottomColor: "transparent",
-    minHeight: 40,
-  },
-  subTabActive: {
-    borderBottomColor: INK,
-  },
-  subTabText: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: MUTED,
-  },
-  subTabTextActive: {
-    fontWeight: "600",
-    color: INK,
   },
   sectionTitleRow: {
     flexDirection: "row",

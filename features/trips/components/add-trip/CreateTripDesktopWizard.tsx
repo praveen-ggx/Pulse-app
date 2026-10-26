@@ -390,20 +390,6 @@ export function CreateTripDesktopWizard({
     }
   }, [state.laneId, selectedLaneId]);
 
-  const handleAddClient = useCallback(() => {
-    router.push({
-      pathname: "/(modals)/add-client",
-      params: { returnTo: ROUTES.ADD_TRIP },
-    });
-  }, [router]);
-
-  const handleAddPartner = useCallback(() => {
-    router.push({
-      pathname: "/(modals)/add-supplier",
-      params: { returnTo: ROUTES.ADD_TRIP },
-    });
-  }, [router]);
-
   const handleSelectPartner = useCallback(
     (supplier: SupplierRow) => {
       const primary =
@@ -625,7 +611,7 @@ export function CreateTripDesktopWizard({
           onExpandClientList={() => setClientListExpanded(true)}
           onToggleClientList={() => setClientListExpanded((prev) => !prev)}
           onSelectClient={handleSelectClient}
-          onAddClient={handleAddClient}
+          onAddClient={undefined}
           clientError={invalid("client")}
           clientPrice={state.clientPrice}
           onClientPriceChange={setters.setClientPrice}
@@ -696,7 +682,7 @@ export function CreateTripDesktopWizard({
           onExpandPartnerList={() => setPartnerListExpanded(true)}
           onTogglePartnerList={() => setPartnerListExpanded((prev) => !prev)}
           onSelectPartner={handleSelectPartner}
-          onAddPartner={handleAddPartner}
+          onAddPartner={undefined}
           variant="source"
           allowedSupplyModes={allowedSupplyModes}
         />
@@ -726,7 +712,7 @@ export function CreateTripDesktopWizard({
           onExpandPartnerList={() => setPartnerListExpanded(true)}
           onTogglePartnerList={() => setPartnerListExpanded((prev) => !prev)}
           onSelectPartner={handleSelectPartner}
-          onAddPartner={handleAddPartner}
+          onAddPartner={undefined}
           variant="partner"
           allowedSupplyModes={["aggregate"]}
         />

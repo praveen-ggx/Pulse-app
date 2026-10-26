@@ -216,12 +216,25 @@ export function buildTripHubPartyMetaByTripId(
     );
     const tidKey = String(t.id).trim().toLowerCase();
     const entries = txByTripId.get(tidKey) ?? [];
-    const displaySupplierName = resolveSupplierName(
+    const displayDriverName = resolveDriverName(t, driverById);
+    const viewerOrgId = String(opts?.viewerOrgId ?? "").trim();
+    const tripOwnerOrgId = String(t.organization_id ?? "").trim();
+    const viewerIsAwardedSupplier =
+      !!viewerOrgId &&
+      !!String(t.supplier_id ?? "").trim() &&
+      !!tripOwnerOrgId &&
+      viewerOrgId !== tripOwnerOrgId;
+    let displaySupplierName = resolveSupplierName(
       t,
       entries,
       supplierById,
       supplierNameByIdFallback,
     );
+    if (viewerIsAwardedSupplier) {
+      // Awarded carrier: never label themselves as the supplier (or "Awaiting
+      // data") after they assigned a roster driver on the shipper trip.
+      displaySupplierName = displayDriverName;
+    }
 
     const clientIdKey = (t.client_id ?? "").trim().toLowerCase();
     const clientRow = findPartyByIdOrUniqueName(
@@ -261,7 +274,7 @@ export function buildTripHubPartyMetaByTripId(
 
     meta.set(t.id, {
       displaySupplierName,
-      displayDriverName: resolveDriverName(t, driverById),
+      displayDriverName,
       clientAvatarUrl: (clientRow?.avatar_url ?? "").trim() || null,
       clientAvatarSeed: (clientRow?.avatar_seed ?? "").trim() || null,
       supplierAvatarUrl: (supplierRow?.avatar_url ?? "").trim() || null,

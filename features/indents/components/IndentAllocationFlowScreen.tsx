@@ -925,16 +925,6 @@ export function IndentAllocationFlowScreen({
 
   const showAssignLaterOnPartner = !deploySucceeded && step === "partner";
 
-  const onAddPartner = useCallback(() => {
-    handleClose();
-    setTimeout(
-      () => {
-        router.push("/(modals)/add-supplier" as import("expo-router").Href);
-      },
-      Platform.OS === "ios" ? 100 : 0,
-    );
-  }, [handleClose, router]);
-
   const fillBodyStep =
     step === "rates" ||
     step === "driverPhone" ||
@@ -1184,7 +1174,6 @@ export function IndentAllocationFlowScreen({
                 suppliers={selectableSuppliers}
                 state={state}
                 set={set}
-                onAddPartner={onAddPartner}
                 blockedReasonBySupplierId={blockedPartnerReasons}
                 onPartnerSelected={advanceToRates}
                 awardedRate={awardedRate}

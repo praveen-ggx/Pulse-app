@@ -1,4 +1,7 @@
-import { compliancePreviewSourceForRow } from "../compliancePreviewSource.util";
+import {
+  compliancePreviewSourceForRow,
+  compliancePreviewSourceForVaultFile,
+} from "../compliancePreviewSource.util";
 import type { ComplianceDocRow } from "../complianceDocumentRows.util";
 
 function row(
@@ -103,5 +106,14 @@ describe("compliancePreviewSourceForRow", () => {
         }),
       ),
     ).toBe("supplier-kyc");
+  });
+
+  it("signs a trip memo from the trip vault, not compliance-documents", () => {
+    expect(
+      compliancePreviewSourceForVaultFile({
+        category: "memo",
+        deleteKind: "trip",
+      }),
+    ).toBe("trip");
   });
 });

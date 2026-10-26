@@ -1,5 +1,6 @@
 import type { ComplianceViewSource } from "@/features/tripCompliance/services/complianceDocumentView.service";
 import type { ComplianceDocRow } from "@/features/tripCompliance/utils/complianceDocumentRows.util";
+import type { VaultCategoryPreviewFile } from "@/features/trips/components/trip-detail/vaultCategoryPreview.types";
 
 /**
  * Storage signer for a checklist row. Must follow the row, not the active tab —
@@ -23,5 +24,20 @@ export function compliancePreviewSourceForRow(
   if (row.entityDoc?.entity_type === "vehicle") return "vehicle-vault";
   if (row.entityDoc?.entity_type === "driver") return "driver-kyc";
   if (row.entityDoc?.entity_type === "supplier") return "supplier-kyc";
+  return "trip";
+}
+
+/** Category carousel files — trip memos must not sign as compliance-documents. */
+export function compliancePreviewSourceForVaultFile(
+  file: Pick<
+    VaultCategoryPreviewFile,
+    "category" | "complianceType" | "driverKind" | "deleteKind"
+  > | null | undefined,
+): ComplianceViewSource {
+  if (!file) return "trip";
+  if (file.category === "bank_docs") return "supplier-kyc";
+  if (file.driverKind) return "compliance";
+  if (file.deleteKind === "vehicle_extra") return "vehicle-vault";
+  if (file.complianceType || file.deleteKind === "vehicle_compliance") return "entity";
   return "trip";
 }

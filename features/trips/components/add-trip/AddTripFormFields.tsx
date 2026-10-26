@@ -769,18 +769,6 @@ export function AddTripFormFields({
     setClientListExpanded(false);
   };
 
-  const handleAddClientShortcut = useCallback(() => {
-    router.push({
-      pathname: "/(modals)/add-client",
-      params: { returnTo: ROUTES.ADD_TRIP },
-    });
-  }, [router]);
-  const handleAddSupplierShortcut = useCallback(() => {
-    router.push({
-      pathname: "/(modals)/add-supplier",
-      params: { returnTo: ROUTES.ADD_TRIP },
-    });
-  }, [router]);
   const handleSelectPartner = useCallback(
     (supplier: SupplierRow) => {
       const primary =
@@ -1893,7 +1881,6 @@ export function AddTripFormFields({
                 onExpandClientList={() => setClientListExpanded(true)}
                 onToggleClientList={() => setClientListExpanded((p) => !p)}
                 onSelectClient={handleSelectClient}
-                onAddClient={handleAddClientShortcut}
                 clientError={invalid("client")}
                 clientPrice={state.clientPrice}
                 onClientPriceChange={(v) => setters.setClientPrice(v)}
@@ -1974,7 +1961,7 @@ export function AddTripFormFields({
                   clientListExpanded={clientListExpanded}
                   setClientListExpanded={setClientListExpanded}
                   onSelectClient={handleSelectClient}
-                  onAddClient={handleAddClientShortcut}
+                  onAddClient={undefined}
                   hasError={invalid("client")}
                   wizardMode={isWizardTypography}
                   fieldLabelStyle={fieldLabelStyle}
@@ -2078,7 +2065,7 @@ export function AddTripFormFields({
                   clientListExpanded={clientListExpanded}
                   setClientListExpanded={setClientListExpanded}
                   onSelectClient={handleSelectClient}
-                  onAddClient={handleAddClientShortcut}
+                  onAddClient={undefined}
                   hasError={invalid("client")}
                   wizardMode={
                     Boolean(isWizardSingleCard && showClientPickerOnly && isWizardTypography)
@@ -2272,7 +2259,7 @@ export function AddTripFormFields({
                   setPartnerListExpanded={setPartnerListExpanded}
                   onSelectPartner={handleSelectPartner}
                   onClearPartner={handleClearPartner}
-                  onAddPartner={handleAddSupplierShortcut}
+                  onAddPartner={undefined}
                   hasError={invalid("partner")}
                   wizardMode
                   listMaxHeight={300}
@@ -2383,7 +2370,7 @@ export function AddTripFormFields({
                 setPartnerListExpanded={setPartnerListExpanded}
                 onSelectPartner={handleSelectPartner}
                 onClearPartner={handleClearPartner}
-                onAddPartner={handleAddSupplierShortcut}
+                      onAddPartner={undefined}
                 hasError={invalid("partner")}
                 wizardMode
                 suppressCollapsedSummary={Boolean(allocationContextRow?.right)}
@@ -3076,7 +3063,7 @@ export function AddTripFormFields({
                       setPartnerListExpanded={setPartnerListExpanded}
                       onSelectPartner={handleSelectPartner}
                       onClearPartner={handleClearPartner}
-                      onAddPartner={handleAddSupplierShortcut}
+                      onAddPartner={undefined}
                       hasError={invalid("partner")}
                       fieldLabelStyle={fieldLabelStyle}
                       isDenseForm={isDenseForm}
@@ -3121,7 +3108,7 @@ export function AddTripFormFields({
                       setPartnerListExpanded={setPartnerListExpanded}
                       onSelectPartner={handleSelectPartner}
                       onClearPartner={handleClearPartner}
-                      onAddPartner={handleAddSupplierShortcut}
+                      onAddPartner={undefined}
                       hasError={invalid("partner")}
                       wizardMode={isWizardAllocationCard}
                       fieldLabelStyle={fieldLabelStyle}

@@ -122,6 +122,18 @@ describe("common field validation", () => {
     expect(issues.some((i) => i.field === "clientPrice")).toBe(true);
   });
 
+  it("does not accept a typed client name without a party-list id", () => {
+    const issues = getAddTripValidationIssues(
+      form({
+        ...common,
+        clientId: null,
+        supplySource: "asset",
+        assignLater: true,
+      }),
+    );
+    expect(issues.some((i) => i.field === "client")).toBe(true);
+  });
+
   it("accepts filled common fields on the asset assign-later path", () => {
     const issues = getAddTripValidationIssues(
       form({

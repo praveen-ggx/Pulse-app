@@ -1,7 +1,6 @@
 /**
  * Create Trip — step 1: billing client → optional contract lane gate → sale value.
  */
-import { Plus } from "lucide-react-native";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
@@ -37,7 +36,7 @@ export type CreateTripDesktopClientStepProps = {
   onExpandClientList: () => void;
   onToggleClientList: () => void;
   onSelectClient: (client: ClientRow) => void;
-  onAddClient: () => void;
+  onAddClient?: () => void;
   clientError?: boolean;
   clientPrice: string;
   onClientPriceChange: (value: string) => void;
@@ -68,7 +67,6 @@ export const CreateTripDesktopClientStep = memo(
     onExpandClientList,
     onToggleClientList,
     onSelectClient,
-    onAddClient,
     clientError,
     clientPrice,
     onClientPriceChange,
@@ -326,20 +324,6 @@ export const CreateTripDesktopClientStep = memo(
                     changeExpanded={clientListOpen}
                     onToggleChange={onToggleClientList}
                   />
-                  <Pressable
-                    onPress={onAddClient}
-                    style={s.compactAddClientBtn}
-                    accessibilityRole="button"
-                    accessibilityLabel="Add new client"
-                    hitSlop={8}
-                  >
-                    <Plus
-                      size={14}
-                      color={Theme.textPrimaryDark}
-                      strokeWidth={2.5}
-                    />
-                    <Text style={s.compactAddClientBtnText}>Add client</Text>
-                  </Pressable>
                 </View>
               </View>
               <DesktopPartySearchField
@@ -367,18 +351,6 @@ export const CreateTripDesktopClientStep = memo(
                   changeExpanded={clientListOpen}
                   onToggleChange={onToggleClientList}
                 />
-                <Pressable
-                  onPress={onAddClient}
-                  style={s.commodityAddClientBtn}
-                  accessibilityRole="button"
-                >
-                  <Plus
-                    size={14}
-                    color={Theme.textPrimaryDark}
-                    strokeWidth={2.5}
-                  />
-                  <Text style={s.commodityAddClientBtnText}>Add new client</Text>
-                </Pressable>
               </View>
             </View>
           )}

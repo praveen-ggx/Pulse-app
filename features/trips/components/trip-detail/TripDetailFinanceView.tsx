@@ -470,19 +470,21 @@ export function TripDetailFinanceView({
   }, [tripLedgerEntries]);
 
   const supplierDisplayName = useMemo(() => {
-    const fromTrip = (partnerName ?? trip.supplier_name ?? "").trim() || null;
+    const viewerLc = (viewerOrganizationName ?? "").trim().toLowerCase();
+    const usable = (value: string | null | undefined) => {
+      const v = (value ?? "").trim();
+      if (!v || v === "—") return null;
+      if (viewerLc && v.toLowerCase() === viewerLc) return null;
+      return v;
+    };
+    const fromTrip = usable(partnerName ?? trip.supplier_name);
     if (fromTrip) return fromTrip;
-    if (supplierNameFromLedger) return supplierNameFromLedger;
-    if (isPartnerSettlementView) {
-      const v = (viewerOrganizationName ?? "").trim();
-      return v || null;
-    }
+    if (usable(supplierNameFromLedger)) return usable(supplierNameFromLedger);
     return null;
   }, [
     partnerName,
     trip.supplier_name,
     supplierNameFromLedger,
-    isPartnerSettlementView,
     viewerOrganizationName,
   ]);
 

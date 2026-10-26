@@ -8,6 +8,7 @@ import { getIndentOperationalDisplayCode } from '@/features/operations/display/o
 import {
   hasFullPulseBoostDistribution,
   PULSE_BOOST_DISTRIBUTION_CHANNELS,
+  type ReachDistributionChannel,
 } from '@/features/reach/utils/reachDistribution.util';
 
 export type ReachPlanCode = 'basic' | 'boost' | 'max';
@@ -86,7 +87,7 @@ export interface ReachCampaignRow {
   load_type?: string | null;
 }
 
-export type ReachDistributionChannel = 'fleet' | 'driver';
+export type { ReachDistributionChannel } from '@/features/reach/utils/reachDistribution.util';
 
 export interface ReachDriverRewardConfig {
   distributionChannels: ReachDistributionChannel[];

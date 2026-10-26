@@ -15,7 +15,7 @@ import { DEFAULT_PAGE_SIZE, type PageOpts } from '@/lib/pagination';
 import { syncDomainRows } from '@/lib/cache/domainSync';
 import { mergeDeltaRows } from '@/lib/cache/mergeDelta';
 import type { DeltaResponse } from '@/lib/cache/deltaTypes';
-import type { RatingRow } from '@/features/ratings';
+import type { RatingRow } from '@/features/ratings/types';
 import type { ClientWarehouse } from '@/features/clients/services/clientWarehouses.service';
 import type { ClientContract } from '@/features/clients/services/clientContracts.service';
 import type { InvoicePodPolicy } from '@/features/invoicing/utils/invoicePodPolicy.util';

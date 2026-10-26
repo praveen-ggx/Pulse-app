@@ -1,4 +1,5 @@
-import type { ReachDistributionChannel } from "@/features/reach/services/campaigns.service";
+/** Where a Reach campaign is delivered. */
+export type ReachDistributionChannel = "fleet" | "driver";
 
 /** Every Pulse Boost plan places on Network + Pulse + Pilot/DCO. */
 export const PULSE_BOOST_DISTRIBUTION_CHANNELS: ReachDistributionChannel[] = [

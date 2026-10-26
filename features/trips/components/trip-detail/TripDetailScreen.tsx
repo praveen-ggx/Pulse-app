@@ -24,7 +24,7 @@ import {
   shouldLoadTripDocumentsForViewer,
   shouldSkipExpenseTabAutoSelect,
 } from "@/features/trips/components/trip-detail/completedTripInitialLoad.util";
-import { canAddMoreTripDocs, canMutateTripVaultDoc, formatInvoiceVaultNumberLabel, formatLrVaultDateLabel, formatLrVaultNumberLabel, formatVaultDocDate, isDriverIdentityVaultDoc, isDriverPodVaultDoc, isEwayBillVaultDoc, isLrVaultDoc, isPdfTripDoc, isTripDetailsVaultDoc, TRIP_DETAILS_SLOTS, TRIP_DETAILS_TYPE_HINT, type TripDetailsSlot, type TripDocItem, VAULT_DOC_LIMIT_HINT, VAULT_DOC_MAX_BYTES, VAULT_DOC_MAX_MB, VAULT_DOC_PICKER_TYPES, vaultDocDateToIso, vaultDocHasPreviewableFile, vaultPickerRejectionMessage, viewerCanUploadTripDocuments } from "@/features/trips/components/trip-detail/tripDocTypes";
+import { canAddMoreTripDocs, canMutateTripVaultDoc, formatInvoiceVaultNumberLabel, formatLrVaultDateLabel, formatLrVaultNumberLabel, formatVaultDocDate, isDriverIdentityVaultDoc, isDriverPodVaultDoc, isEwayBillVaultDoc, isLrVaultDoc, isPdfTripDoc, isTripDetailsVaultDoc, TRIP_DETAILS_SLOTS, TRIP_DETAILS_TYPE_HINT, type TripDetailsSlot, type TripDocFile, type TripDocItem, VAULT_DOC_LIMIT_HINT, VAULT_DOC_MAX_BYTES, VAULT_DOC_MAX_MB, VAULT_DOC_PICKER_TYPES, vaultDocDateToIso, vaultDocHasPreviewableFile, vaultPickerRejectionMessage, viewerCanUploadTripDocuments } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { CompactValidTillCalendar, EwayBillLrStrip, buildEwayBillStripRows } from "@/features/trips/components/trip-detail/EwayBillVaultTab";
 import { ElrTripDetailAction } from "@/features/trips/components/trip-detail/ElrTripDetailAction";
 import { HubTripLrUpdateModal } from "@/features/trips/components/HubTripLrUpdateModal";
@@ -440,7 +440,6 @@ function NeoManifestHeroBridgePartyEnd({
   organizationAvatarSeed,
   isIntegrated,
   vehicleLabel,
-  vehicleId,
   styles: neo,
   partyStyles,
 }: {
@@ -455,7 +454,6 @@ function NeoManifestHeroBridgePartyEnd({
   organizationAvatarSeed?: string | null;
   isIntegrated?: boolean;
   vehicleLabel?: string | null;
-  vehicleId?: string | null;
   styles: {
     heroParty: object;
     heroPartyRight: object;
@@ -464,14 +462,18 @@ function NeoManifestHeroBridgePartyEnd({
     alignRight: object;
     heroPartyName: object;
     heroPartyPhone: object;
+    heroVehiclePlate: object;
     heroVehicleBadge: object;
   };
   partyStyles: typeof manifestHeroBridgePartyStyles;
 }) {
-  const showVehicleBadge =
-    entityType === "driver" && !!String(vehicleLabel ?? "").trim();
-  const badgeSize = Math.max(10, Math.round(avatarSize * 0.42));
-  const stackSize = avatarSize + (showVehicleBadge ? 6 : 0);
+  const vehiclePlate = (() => {
+    const raw = String(vehicleLabel ?? "").trim();
+    if (!raw || raw === "—" || raw === "Pending") return "";
+    const plate = raw.split(/[·•]/)[0]?.trim() ?? raw;
+    return formatIndianVehicleNumber(plate).trim() || plate;
+  })();
+  const showVehiclePlate = Boolean(vehiclePlate);
   const phoneDisplay = formatPhoneForDisplay(partyPhone);
   const phoneDigits = (partyPhone ?? "").replace(/[^\d+]/g, "");
 
@@ -488,6 +490,15 @@ function NeoManifestHeroBridgePartyEnd({
         >
           {partyName.toUpperCase()}
         </Text>
+        {showVehiclePlate ? (
+          <Text
+            style={[neo.heroVehiclePlate, neo.alignRight]}
+            numberOfLines={1}
+            accessibilityLabel={`Vehicle ${vehiclePlate}`}
+          >
+            {vehiclePlate}
+          </Text>
+        ) : null}
         {phoneDisplay ? (
           <TouchableOpacity
             onPress={() => {
@@ -510,7 +521,7 @@ function NeoManifestHeroBridgePartyEnd({
       <View
         style={[
           partyStyles.avatarStack,
-          { width: stackSize, height: stackSize },
+          { width: avatarSize, height: avatarSize },
         ]}
       >
         <PartyAvatar
@@ -524,20 +535,6 @@ function NeoManifestHeroBridgePartyEnd({
           isIntegrated={isIntegrated}
           showIntegrationBadge={false}
         />
-        {showVehicleBadge ? (
-          <View
-            style={partyStyles.vehicleBadge}
-            accessibilityLabel={`Vehicle ${vehicleLabel}`}
-          >
-            <PartyAvatar
-              name={vehicleLabel!}
-              entityType="driver"
-              size={badgeSize}
-              avatarSeed={vehicleId ?? undefined}
-              showIntegrationBadge={false}
-            />
-          </View>
-        ) : null}
       </View>
     </View>
   );
@@ -3265,6 +3262,7 @@ export default function TripDetailScreen({
           category:
             slot === "invoice" ? "invoice" : slot === "lr" ? "lr" : "trip",
           deleteKind: "trip" as const,
+          documentNumber: file.documentNumber ?? file.invoiceNumber ?? null,
         };
       });
     const path = supplierBankProof?.previewPath?.trim() ?? "";
@@ -3280,6 +3278,28 @@ export default function TripDetailScreen({
     }
     return mapped;
   }, [detail.computedTripDocs, supplierBankProof?.previewPath]);
+
+  const vaultDocs = useMemo(() => {
+    const path = supplierBankProof?.previewPath?.trim() ?? "";
+    if (!path) return detail.computedTripDocs;
+    return detail.computedTripDocs.map((doc) => {
+      if (!isTripDetailsVaultDoc(doc)) return doc;
+      const files = [...(doc.files ?? [])];
+      if (files.some((file) => file.slotType === "bank_docs")) return doc;
+      const remote = /^https?:\/\//i.test(path);
+      const bankFile: TripDocFile = {
+        id: "bank-proof",
+        label: "Bank Docs",
+        type: "JPG",
+        storagePath: path,
+        fileName: supplierBankProof?.kycDoc?.file_name?.trim() || "Cancelled cheque",
+        slotType: "bank_docs",
+        docSource: remote ? "trip" : "supplier-kyc",
+        previewUri: remote ? path : null,
+      };
+      return { ...doc, files: [...files, bankFile], status: "Uploaded" as const };
+    });
+  }, [detail.computedTripDocs, supplierBankProof?.kycDoc?.file_name, supplierBankProof?.previewPath]);
 
   const vehiclePreviewFiles = useCallback((): VaultCategoryPreviewFile[] => {
     const typed = VEHICLE_UPLOAD_CHOOSER_ORDER.flatMap((docType) => {
@@ -3997,7 +4017,14 @@ export default function TripDetailScreen({
     String(tripExtra.driver_name ?? "").trim() ||
     "Unassigned";
   const allocatedVehicleLabel =
-    assignmentPaint?.vehicleLabel.trim() ||
+    visibleAssignedVehiclePlate({
+      displayVehicleFromInput: assignmentPaint?.vehicleLabel,
+      vehicleLabel: detail.vehicleLabel,
+      vehicleDisplayNumber: trip.vehicle_display_number,
+      vehicleNumber:
+        detail.displayVehicleFromInput ??
+        String(tripExtra.vehicle_number ?? ""),
+    }) ||
     trip.vehicle_display_number?.trim() ||
     detail.displayVehicleFromInput?.trim()?.split(/[·•]/)[0]?.trim() ||
     detail.vehicleLabel?.trim()?.split(/[·•]/)[0]?.trim() ||
@@ -4891,7 +4918,11 @@ export default function TripDetailScreen({
       .toLowerCase();
     return text.includes(q);
   });
-  const vaultDocs = detail.computedTripDocs;
+  const vaultPreviewSign = {
+    organizationId: detail.trip?.organization_id ?? currentOrganization?.id ?? null,
+    supplierId: detail.trip?.supplier_id ?? null,
+    driverId: detail.trip?.driver_id ?? null,
+  };
   const ewayBillDoc = vaultDocs.find(isEwayBillVaultDoc);
   const vaultCardDocs = vaultDocs.filter((doc) => !isEwayBillVaultDoc(doc));
   const ewayStripRows = buildEwayBillStripRows({
@@ -6463,6 +6494,7 @@ export default function TripDetailScreen({
                 vehicleId={trip.vehicle_id ?? null}
                 onCardPress={handleVaultCardPress}
                 onAddMore={(doc) => startAddMoreForDoc(doc)}
+                sign={vaultPreviewSign}
                 ewayStripRows={ewayStripRows}
                 onViewEwayBill={openEwayBillPreview}
                 onUploadEwayBill={openEwayBillUpload}
@@ -6530,7 +6562,6 @@ export default function TripDetailScreen({
                         avatarUrl={detail.driverAvatarUri}
                         avatarSeed={trip.driver_id}
                         vehicleLabel={allocatedVehicleLabel}
-                        vehicleId={trip.vehicle_id}
                         styles={neoStyles}
                         partyStyles={manifestHeroBridgePartyStyles}
                       />
@@ -6552,6 +6583,7 @@ export default function TripDetailScreen({
                             ?.organizationAvatarSeed
                         }
                         isIntegrated={supplierPartyIntegrated}
+                        vehicleLabel={allocatedVehicleLabel}
                         styles={neoStyles}
                         partyStyles={manifestHeroBridgePartyStyles}
                       />
@@ -7021,12 +7053,19 @@ export default function TripDetailScreen({
                                   : "—")}
                             </Text>
                             {detail.driverName?.trim() ? (
-                              <Text style={neoStyles.radarDriverName} numberOfLines={1}>
-                                {detail.driverName.trim()}
-                                {detail.vehicleLabel?.trim()
-                                  ? ` · ${detail.vehicleLabel.trim()}`
-                                  : ""}
-                              </Text>
+                              <>
+                                <Text style={neoStyles.radarDriverName} numberOfLines={1}>
+                                  {detail.driverName.trim()}
+                                </Text>
+                                {detail.vehicleLabel?.trim() ? (
+                                  <Text style={neoStyles.radarVehiclePlate} numberOfLines={1}>
+                                    {formatIndianVehicleNumber(
+                                      detail.vehicleLabel.trim().split(/[·•]/)[0] ??
+                                        detail.vehicleLabel,
+                                    )}
+                                  </Text>
+                                ) : null}
+                              </>
                             ) : null}
                           </View>
                           <View style={neoStyles.radarBottomRight}>
@@ -7449,6 +7488,7 @@ export default function TripDetailScreen({
                       driverSummary={driverIdentityOnFileSummary(detail.driverIdentityDocs)}
                       onOpen={handleVaultCardPress}
                       onAdd={startAddMoreForDoc}
+                      sign={vaultPreviewSign}
                       ewayStripRows={ewayStripRows}
                       onViewEwayBill={openEwayBillPreview}
                       onUploadEwayBill={openEwayBillUpload}
@@ -7482,6 +7522,7 @@ export default function TripDetailScreen({
                       driverName={detail.driverName}
                       driverAvatarUrl={detail.driverAvatarUri}
                       driverId={trip.driver_id}
+                      vehicleLabel={allocatedVehicleLabel}
                       showChange={canChangeManifestAssets}
                       onChange={() => openAssignmentFlow("driver")}
                       style={neoStyles.assetCardWrap}

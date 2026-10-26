@@ -27,6 +27,7 @@ import {
 } from "@/features/trips/services/ewayBillFields.util";
 import { type TripAdjustment } from "@/features/trips/services/tripAdjustments";
 import { tripNonSupplierOutflowTotal } from "@/features/trips/utils/tripManifestFreightCost";
+import { tripMatchesHubSearch } from "@/features/trips/utils/tripHubSearch.util";
 import { isLoadBasedTrip } from "@/features/trips/visibility/tripVisibility";
 import { compareTripsByScheduleDesc } from "@/lib/dateRangePresets";
 import {
@@ -1169,6 +1170,8 @@ export type TripsHubTableViewProps = {
   ewayExpiryByTripId?: Record<string, string>;
   /** LR numbers per lowercased trip id — hub search. */
   lrNumbersByTripId?: Record<string, string>;
+  lrLabelByTripId?: Record<string, string>;
+  elrLabelByTripId?: Record<string, string>;
 };
 
 function txnAmount(row: LedgerRow): number {
@@ -1314,6 +1317,8 @@ export function TripsHubTableView({
   hardPodTripIds,
   ewayExpiryByTripId,
   lrNumbersByTripId,
+  lrLabelByTripId,
+  elrLabelByTripId,
 }: TripsHubTableViewProps) {
   const insets = useSafeAreaInsets();
   const { width: layoutWidth } = useWindowDimensions();
@@ -1369,37 +1374,24 @@ export function TripsHubTableView({
     if (q && searchQueryProp === undefined) {
       rows = rows.filter((t) => {
         const meta = partyMetaByTripId?.get(t.id);
-        const clientName = (clientNameByTripId?.[t.id] ?? (t.organization_id !== currentOrganizationId ? "" : t.client_name ?? ""))
-          .trim()
-          .toLowerCase();
-        const supplierName = (
-          meta?.displaySupplierName ??
-          t.supplier_name ??
-          ""
-        )
-          .trim()
-          .toLowerCase();
-        const driverName = (t.driver_display_name ?? "").trim().toLowerCase();
-        const route = `${t.pickup_area ?? ""} ${t.drop_location ?? ""}`
-          .trim()
-          .toLowerCase();
-        const tripNo = `${getTripDisplayNumber(t, currentOrganizationId)} ${t.trip_number ?? ""} ${t.display_trip_id ?? ""}`.toLowerCase();
+        const id = t.id.trim().toLowerCase();
+        if (
+          tripMatchesHubSearch(t, q, {
+            organizationId: currentOrganizationId,
+            clientName:
+              clientNameByTripId?.[t.id] ??
+              (t.organization_id !== currentOrganizationId ? "" : t.client_name ?? ""),
+            supplierName: meta?.displaySupplierName ?? t.supplier_name,
+            lrLabel: lrLabelByTripId?.[id] ?? lrLabelByTripId?.[t.id],
+            elrLabel: elrLabelByTripId?.[id] ?? elrLabelByTripId?.[t.id],
+          })
+        ) {
+          return true;
+        }
+        // Source indent codes and every LR number on the trip (release 2026-10-22).
         const indentRef = t.indent_id ? indentSearchTextByIndentId?.get(t.indent_id) ?? "" : "";
-        const vehicleNo = (t.vehicle_display_number ?? "").toLowerCase().replace(/\s+/g, "");
-        const lrNos = (
-          lrNumbersByTripId?.[t.id.trim().toLowerCase()] ?? ""
-        ).toLowerCase();
-        const qCompact = q.replace(/\s+/g, "");
-        return (
-          tripNo.includes(q) ||
-          indentRef.includes(q) ||
-          (qCompact.length > 0 && vehicleNo.includes(qCompact)) ||
-          lrNos.includes(q) ||
-          clientName.includes(q) ||
-          supplierName.includes(q) ||
-          driverName.includes(q) ||
-          route.includes(q)
-        );
+        const lrNos = (lrNumbersByTripId?.[id] ?? "").toLowerCase();
+        return indentRef.includes(q) || lrNos.includes(q);
       });
     }
     if (ewayStatusFilter && ewayExpiryByTripId) {
@@ -1442,6 +1434,8 @@ export function TripsHubTableView({
     ewayExpiryByTripId,
     ewayStatusFilter,
     lrNumbersByTripId,
+    lrLabelByTripId,
+    elrLabelByTripId,
   ]);
 
   const rowsForTableBody = useMemo(() => {
@@ -1844,7 +1838,7 @@ export function TripsHubTableView({
       <TextInput
         value={tableQuery}
         onChangeText={setTableQuery}
-        placeholder="Search trip / LR / vehicle / client / driver"
+        placeholder="Search LR, vehicle, driver, trip, client, supplier"
         placeholderTextColor="#94a3b8"
         autoCapitalize="none"
         style={styles.auditSearchInput}
@@ -1992,7 +1986,7 @@ export function TripsHubTableView({
                     <TextInput
                       value={tableQuery}
                       onChangeText={setTableQuery}
-                      placeholder="Search trip / LR / vehicle / client / driver"
+                      placeholder="Search LR, vehicle, driver, trip, client, supplier"
                       placeholderTextColor={Theme.textMuted}
                       autoCapitalize="none"
                       style={styles.auditSearchInputStandard}

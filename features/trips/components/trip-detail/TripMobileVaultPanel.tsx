@@ -10,6 +10,7 @@ import {
   EwayBillLrStrip,
 } from "@/features/trips/components/trip-detail/EwayBillVaultTab";
 import { TripMobileVaultCategoryRow } from "@/features/trips/components/trip-detail/TripMobileVaultCategoryRow";
+import type { VaultPreviewSignContext } from "@/features/trips/components/trip-detail/VaultCardLrStylePreview";
 import { neoStyles } from "@/features/trips/components/trip-detail/TripDetailScreen.styles";
 import {
   canMutateTripVaultDoc,
@@ -45,6 +46,7 @@ type Props = {
   onSaveEwayBill?: (values: EwayFieldValues[]) => Promise<boolean>;
   tripIdLabel: string;
   createdAtLabel: string;
+  sign?: VaultPreviewSignContext;
 };
 
 function onFileSummary(doc: TripDocItem | undefined): string {
@@ -86,6 +88,7 @@ export const TripMobileVaultPanel = memo(function TripMobileVaultPanel({
   onSaveEwayBill,
   tripIdLabel,
   createdAtLabel,
+  sign,
 }: Props) {
   const insets = useSafeAreaInsets();
   const vehicleCard = docs.find((doc) => doc.id === "vehicle-documents");
@@ -115,6 +118,7 @@ export const TripMobileVaultPanel = memo(function TripMobileVaultPanel({
             }
             onPreview={(fileIndex) => onCardPress(doc, fileIndex)}
             onAdd={() => onAddMore?.(doc)}
+            sign={sign}
           />
         ))}
       </View>

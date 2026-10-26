@@ -4362,29 +4362,13 @@ export function ComplianceDocumentWorkspace({
           previews={typePreviews}
           onPreview={() => {
             if (!canOpenRowFiles) return;
-            setCategoryPreview({
-              files: typeFiles.map((item) =>
-                compliancePreviewFileFromRow(item, rowLabel, canEditFiles),
-              ),
-              index: 0,
-              type: displayRow.type,
-            });
-            setFilesModalType(null);
+            previewChecklistRow(typeFiles[0] ?? displayRow);
             setScreenOpen(false);
-            if (mobileExclusive) setMobileDocPane("list");
           }}
           onPreviewAt={(index) => {
             if (!canOpenRowFiles) return;
-            setCategoryPreview({
-              files: typeFiles.map((item) =>
-                compliancePreviewFileFromRow(item, rowLabel, canEditFiles),
-              ),
-              index: Math.max(0, Math.min(index, typeFiles.length - 1)),
-              type: displayRow.type,
-            });
-            setFilesModalType(null);
+            previewChecklistRow(typeFiles[index] ?? displayRow);
             setScreenOpen(false);
-            if (mobileExclusive) setMobileDocPane("list");
           }}
           onEdit={() => {
             if (!canOpenRowFiles) return;
@@ -4400,6 +4384,11 @@ export function ComplianceDocumentWorkspace({
             if (mobileExclusive) setMobileDocPane("list");
           }}
           onAdd={() => void uploadVaultDocument(row)}
+          onOpenFull={(index) => {
+            const target = typeFiles[index] ?? displayRow;
+            previewChecklistRow(target);
+            setScreenOpen(true);
+          }}
         />
         {canEditFiles && needsExpiry && canSetEntityExpiry(displayRow) ? (
           <Pressable
@@ -5016,6 +5005,38 @@ export function ComplianceDocumentWorkspace({
                       <View style={styles.checklistPreviewActionsGrid}>
                         <Pressable
                           style={(state: HoverPressState) => {
+                            const active = checklistPreviewMode === "document";
+                            return [
+                              styles.checklistModeBtn,
+                              WEB_POINTER,
+                              WEB_TRANSITION,
+                              isHovered(state) && !active && styles.checklistModeBtnHover,
+                              active && styles.checklistModeBtnSelected,
+                            ];
+                          }}
+                          onPress={() => {
+                            setChecklistPreviewMode("document");
+                            if (!checklistKey && previewable[0]) {
+                              setChecklistKey(previewable[0].key);
+                            }
+                            if (mobileExclusive) setMobileDocPane("preview");
+                          }}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: checklistPreviewMode === "document" }}
+                          accessibilityLabel="Preview documents"
+                        >
+                          <Text
+                            style={[
+                              styles.checklistModeBtnText,
+                              checklistPreviewMode === "document" && styles.checklistModeBtnTextSelected,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            Preview
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          style={(state: HoverPressState) => {
                             const active = checklistPreviewMode === "trip";
                             return [
                               styles.checklistModeBtn,
@@ -5279,9 +5300,7 @@ export function ComplianceDocumentWorkspace({
                   const previewPos = previewable.findIndex((row) => row.key === checklistKey);
                   const previewOrdinal = previewPos >= 0 ? previewPos + 1 : previewable.length > 0 ? 1 : 0;
                   const showSideNav =
-                    previewingDocument &&
-                    previewable.length > 1 &&
-                    (Boolean(previewUrl) || Boolean(typedLines) || loadingPreview);
+                    previewingDocument && previewable.length > 1;
                   return (
                     <>
                 {previewingDocument ? (

@@ -9,16 +9,22 @@ import {
   type EwayFieldValues,
 } from "@/features/trips/components/trip-detail/EwayBillVaultTab";
 import { neoStyles } from "@/features/trips/components/trip-detail/TripDetailScreen.styles";
-import { VaultCardLrStylePreview } from "@/features/trips/components/trip-detail/VaultCardLrStylePreview";
 import {
+  VaultCardLrStylePreview,
+  type VaultPreviewSignContext,
+} from "@/features/trips/components/trip-detail/VaultCardLrStylePreview";
+import {
+  formatSelectedVaultFileMeta,
   isDriverIdentityVaultDoc,
   isDriverPodVaultDoc,
   isEwayBillVaultDoc,
   isTripDetailsVaultDoc,
+  type TripDocFile,
   type TripDocItem,
   vaultDocHasPreviewableFile,
 } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { VEHICLE_COMPLIANCE_TYPE_HINT } from "@/features/vehicles/utils/vehicleDocuments.util";
+import { useState } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
 
 const WEB_COPY =
@@ -43,6 +49,7 @@ type Props = {
   onSaveEwayBill: (values: EwayFieldValues[]) => Promise<boolean>;
   columns?: 2 | 3 | 4;
   compact?: boolean;
+  sign?: VaultPreviewSignContext;
 };
 
 function opensVaultDialog(doc: TripDocItem): boolean {
@@ -69,6 +76,60 @@ function cardStatus(
   return doc.status;
 }
 
+function VaultGridCard({
+  doc,
+  statusLabel,
+  failure,
+  isUploadingThis,
+  previewDisabled,
+  showAdd,
+  onAdd,
+  onOpen,
+  sign,
+}: {
+  doc: TripDocItem;
+  statusLabel: string;
+  failure: string | null;
+  isUploadingThis: boolean;
+  previewDisabled: boolean;
+  showAdd: boolean;
+  onAdd: () => void;
+  onOpen: (doc: TripDocItem, fileIndex?: number) => void;
+  sign?: VaultPreviewSignContext;
+}) {
+  const [selectedFile, setSelectedFile] = useState<TripDocFile | null>(null);
+  const meta = isUploadingThis
+    ? "Uploading…"
+    : failure ?? formatSelectedVaultFileMeta(selectedFile, statusLabel, doc);
+  return (
+    <View style={[neoStyles.vaultCard, neoStyles.vaultCardQuarter, styles.card]}>
+      <View style={styles.header}>
+        <Text style={[styles.title, WEB_COPY]} numberOfLines={1}>
+          {doc.label}
+        </Text>
+        <Text
+          style={[styles.meta, WEB_COPY, failure ? styles.metaFail : null]}
+          numberOfLines={1}
+        >
+          {meta}
+        </Text>
+      </View>
+      <View style={styles.preview}>
+        <VaultCardLrStylePreview
+          doc={doc}
+          disabled={previewDisabled}
+          onAdd={showAdd ? onAdd : undefined}
+          onPressFile={(index) => {
+            if (!previewDisabled) onOpen(doc, index);
+          }}
+          onSelectedFile={setSelectedFile}
+          sign={sign}
+        />
+      </View>
+    </View>
+  );
+}
+
 export function TripVaultCardGrid({
   docs,
   uploadingDocId,
@@ -84,6 +145,7 @@ export function TripVaultCardGrid({
   canUploadEwayBill,
   canEditEwayBill,
   onSaveEwayBill,
+  sign,
 }: Props) {
   const cards = docs.filter((doc) => !isEwayBillVaultDoc(doc));
 
@@ -100,29 +162,18 @@ export function TripVaultCardGrid({
           uploadError?.slotId === doc.id ? uploadError.message : null;
         const previewDisabled = isUploadingThis || (!previewReady && !dialog);
         return (
-          <View key={doc.id} style={[neoStyles.vaultCard, neoStyles.vaultCardQuarter, styles.card]}>
-            <View style={styles.header}>
-              <Text style={[styles.title, WEB_COPY]} numberOfLines={1}>
-                {doc.label}
-              </Text>
-              <Text
-                style={[styles.meta, WEB_COPY, failure ? styles.metaFail : null]}
-                numberOfLines={1}
-              >
-                {isUploadingThis ? "Uploading…" : failure ?? statusLabel}
-              </Text>
-            </View>
-            <View style={styles.preview}>
-              <VaultCardLrStylePreview
-                doc={doc}
-                disabled={previewDisabled}
-                onAdd={showAdd ? () => onAdd(doc) : undefined}
-                onPressFile={(index) => {
-                  if (!previewDisabled) onOpen(doc, index);
-                }}
-              />
-            </View>
-          </View>
+          <VaultGridCard
+            key={doc.id}
+            doc={doc}
+            statusLabel={statusLabel}
+            failure={failure}
+            isUploadingThis={isUploadingThis}
+            previewDisabled={previewDisabled}
+            showAdd={showAdd}
+            onAdd={() => onAdd(doc)}
+            onOpen={onOpen}
+            sign={sign}
+          />
         );
       })}
       </View>

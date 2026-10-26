@@ -4,12 +4,15 @@
 import { DocumentDateCalendar } from "@/components/DocumentDateCalendar";
 import Theme from "@/constants/Theme";
 import { documentRequiresExpiry } from "@/features/tripCompliance/tripCompliance.types";
+import { formatLrVaultNumberLabel } from "@/features/trips/components/trip-detail/tripDocTypes";
 import {
   RegistryGhostButton,
   RegistryPrimaryButton,
 } from "@/components/AlertRegistryCardActions";
 import { ThemedAlertModal } from "@/components/ThemedAlertModal";
+import { isPdfTripDoc } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { VaultDraftPreviewBlock } from "@/features/trips/components/trip-detail/VaultDraftPreviewBlock";
+import { VaultFullDocumentModal } from "@/features/trips/components/trip-detail/VaultFullDocumentModal";
 import type { VaultCategoryPreviewFile } from "@/features/trips/components/trip-detail/vaultCategoryPreview.types";
 import { getDocumentViewUrls } from "@/features/trips/services/tripDocuments.service";
 
@@ -97,17 +100,22 @@ export function VaultCategoryPreviewModal({
   const [deleteFile, setDeleteFile] = useState<VaultCategoryPreviewFile | null>(null);
   const [editingExpiry, setEditingExpiry] = useState(false);
   const [draftExpiry, setDraftExpiry] = useState("");
+  const [fullOpen, setFullOpen] = useState(false);
   const safeIndex = Math.max(0, Math.min(index, Math.max(0, files.length - 1)));
   const current = files[safeIndex] ?? null;
   const category = current?.categoryLabel || "Document";
-  const headerExpiryIso =
-    current?.expiryDate?.trim() ||
-    files.find((file) => file.expiryDate?.trim())?.expiryDate ||
-    "";
+  const headerExpiryIso = current?.expiryDate?.trim() || "";
   const headerExpiry = prettyPreviewExpiry(headerExpiryIso);
   const showHeaderExpiry =
     Boolean(headerExpiry) ||
     documentRequiresExpiry(current?.complianceType ?? current?.driverKind ?? "");
+  const headerNumber =
+    current?.category === "invoice"
+      ? current.documentNumber?.trim() || ""
+      : formatLrVaultNumberLabel(current?.documentNumber) ||
+        current?.documentNumber?.trim() ||
+        "";
+  const showHeaderFacts = Boolean(headerNumber) || showHeaderExpiry;
   const canEditExpiry =
     Boolean(onSaveExpiry) &&
     (documentRequiresExpiry(current?.complianceType ?? current?.driverKind ?? "") ||
@@ -116,6 +124,7 @@ export function VaultCategoryPreviewModal({
   useEffect(() => {
     if (!visible) {
       setEditingExpiry(false);
+      setFullOpen(false);
       return;
     }
     setDraftExpiry(headerExpiryIso || defaultExpiryIso());
@@ -189,6 +198,12 @@ export function VaultCategoryPreviewModal({
       })),
     [files, urls],
   );
+  const selectedItem = items.find((item) => item.id === current?.id) ?? items[0] ?? null;
+  const fullUri = selectedItem?.previewUri?.trim() || null;
+  const fullIsPdf = isPdfTripDoc({
+    fileName: selectedItem?.fileName,
+    storagePath: selectedItem?.storagePath,
+  });
 
   return (
     <>
@@ -214,35 +229,44 @@ export function VaultCategoryPreviewModal({
                     : "No document"}
                 </Text>
               </View>
-              {showHeaderExpiry ? (
-                <Pressable
-                  onPress={
-                    canEditExpiry
-                      ? () => {
-                          setDraftExpiry(headerExpiryIso || defaultExpiryIso());
-                          setEditingExpiry(true);
-                        }
-                      : undefined
-                  }
-                  disabled={!canEditExpiry}
-                  style={styles.headerExpiryRow}
-                  accessibilityRole={canEditExpiry ? "button" : undefined}
-                  accessibilityLabel="Valid till date, edit"
-                >
-                  <Text style={styles.expiryLabel}>Valid till</Text>
-                  <Text
-                    style={[
-                      styles.headerExpiryValue,
-                      !headerExpiry && styles.expiryEmpty,
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {headerExpiry || "Add date"}
-                  </Text>
-                  {canEditExpiry ? (
-                    <Text style={styles.expiryEdit}>Edit</Text>
+              {showHeaderFacts ? (
+                <View style={styles.headerFacts}>
+                  {headerNumber ? (
+                    <Text style={styles.headerNumber} numberOfLines={1}>
+                      {headerNumber}
+                    </Text>
                   ) : null}
-                </Pressable>
+                  {showHeaderExpiry ? (
+                    <Pressable
+                      onPress={
+                        canEditExpiry
+                          ? () => {
+                              setDraftExpiry(headerExpiryIso || defaultExpiryIso());
+                              setEditingExpiry(true);
+                            }
+                          : undefined
+                      }
+                      disabled={!canEditExpiry}
+                      style={styles.headerExpiryRow}
+                      accessibilityRole={canEditExpiry ? "button" : undefined}
+                      accessibilityLabel="Valid till date, edit"
+                    >
+                      <Text style={styles.expiryLabel}>Valid till</Text>
+                      <Text
+                        style={[
+                          styles.headerExpiryValue,
+                          !headerExpiry && styles.expiryEmpty,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {headerExpiry || "Add date"}
+                      </Text>
+                      {canEditExpiry ? (
+                        <Text style={styles.expiryEdit}>Edit</Text>
+                      ) : null}
+                    </Pressable>
+                  ) : null}
+                </View>
               ) : null}
             </View>
             <Pressable
@@ -307,6 +331,22 @@ export function VaultCategoryPreviewModal({
                   if (next >= 0) onIndexChange(next);
                 }}
                 onAdd={onAdd ?? (() => undefined)}
+                onOpenFull={() => {
+                  if (fullUri) {
+                    setFullOpen(true);
+                    return;
+                  }
+                  const file = current;
+                  if (!file || !onResolveUrl) return;
+                  void onResolveUrl(file).then((url) => {
+                    if (!url) return;
+                    setUrls((prev) => ({
+                      ...prev,
+                      [file.storagePath?.trim() || file.id]: url,
+                    }));
+                    setFullOpen(true);
+                  });
+                }}
                 onRemove={
                   onDelete
                     ? (id) => {
@@ -335,6 +375,23 @@ export function VaultCategoryPreviewModal({
         </View>
       </View>
     </Modal>
+    <VaultFullDocumentModal
+      visible={visible && fullOpen}
+      uri={fullUri}
+      isPdf={fullIsPdf}
+      title={selectedItem?.fileName || category}
+      documentKey={selectedItem?.storagePath ?? selectedItem?.id}
+      documentVersion={selectedItem?.id}
+      navLabel={
+        files.length > 1 ? `${safeIndex + 1} of ${files.length}` : null
+      }
+      canNavigate={files.length > 1}
+      onPrev={() =>
+        onIndexChange((safeIndex - 1 + files.length) % files.length)
+      }
+      onNext={() => onIndexChange((safeIndex + 1) % files.length)}
+      onClose={() => setFullOpen(false)}
+    />
       <ThemedAlertModal
         visible={deleteFile != null}
         title="Delete document?"
@@ -384,6 +441,16 @@ const styles = StyleSheet.create({
   headerTitleRow: {
     gap: 2,
     minWidth: 0,
+  },
+  headerFacts: {
+    gap: 4,
+    minWidth: 0,
+  },
+  headerNumber: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+    ...WEB_COPY,
   },
   category: {
     fontSize: 15,
@@ -500,5 +567,32 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 14,
     paddingVertical: 12,
+  },
+  fullBackdrop: {
+    flex: 1,
+    backgroundColor: Theme.overlayBackdrop,
+    paddingHorizontal: 12,
+  },
+  fullHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 10,
+    minHeight: 44,
+  },
+  fullTitle: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 15,
+    fontWeight: "600",
+    color: Theme.cardWhite,
+    ...WEB_COPY,
+  },
+  fullBody: {
+    flex: 1,
+    minHeight: 0,
+    borderRadius: 12,
+    overflow: "hidden",
+    backgroundColor: Theme.cardWhite,
   },
 });

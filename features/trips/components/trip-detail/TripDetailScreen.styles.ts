@@ -800,6 +800,14 @@ export const neoStyles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: -0.25,
   },
+  heroVehiclePlate: {
+    marginTop: 2,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "600",
+    letterSpacing: 0.4,
+    color: Theme.textRouteCard,
+  },
   heroPartyPhone: {
     marginTop: 4,
     fontSize: 11,
@@ -1803,6 +1811,13 @@ export const neoStyles = StyleSheet.create({
     color: "#cbd5e1",
     fontSize: 11,
     fontWeight: "600",
+  },
+  radarVehiclePlate: {
+    marginTop: 1,
+    color: "#94a3b8",
+    fontSize: 10,
+    fontWeight: "600",
+    letterSpacing: 0.3,
   },
   radarMetaCoords: {
     color: "#94a3b8",

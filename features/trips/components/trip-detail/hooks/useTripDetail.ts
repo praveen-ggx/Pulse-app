@@ -143,7 +143,7 @@ import type { ReassignCompletedMeta } from "../../reassign/reassign.types";
 
 export type { ReassignCompletedMeta };
 import type { TripDetailTab } from "../TripDetailFinanceView";
-import { isPdfTripDoc, joinInvoiceNumbers, readStoredInvoiceNumber, TRIP_DETAILS_TYPE_HINT, TRIP_DETAILS_TYPE_HINT_NO_BANK, type TripDetailsSlot, type TripDocFile, type TripDocItem } from "../tripDocTypes";
+import { isPdfTripDoc, isVaultFieldsMetaPath, joinInvoiceNumbers, readStoredInvoiceNumber, TRIP_DETAILS_TYPE_HINT, TRIP_DETAILS_TYPE_HINT_NO_BANK, type TripDetailsSlot, type TripDocFile, type TripDocItem } from "../tripDocTypes";
 import {
   isNarrowWebViewport,
   shouldFetchTripSubcontractsOnDetail,
@@ -252,7 +252,12 @@ function buildSlotCard(
   }
   const isEwaySlot = slot.category === "eway" || slot.id === "eway_bill";
   const isInvoiceSlot = slot.id === "invoice" || slot.category === "invoice";
-  const files = rows.map((row, index) => {
+  const previewRows = rows.filter(
+    (row) =>
+      !isVaultFieldsMetaPath(row.storage_path, row.file_name) &&
+      !!row.storage_path?.trim(),
+  );
+  const files = previewRows.map((row, index) => {
     const invoiceNumber = isInvoiceSlot
       ? readStoredInvoiceNumber(row.document_number)
       : "";
@@ -273,6 +278,7 @@ function buildSlotCard(
       documentId: row.id,
       fileName: row.file_name?.trim() || undefined,
       invoiceNumber: invoiceNumber || undefined,
+      documentNumber: number || null,
     };
   });
   const storedFields = rows
@@ -290,10 +296,10 @@ function buildSlotCard(
   return {
     id: slot.id,
     label: slot.label,
-    type: files.length > 1 ? "FILES" : files[0].type,
+    type: files.length > 1 ? "FILES" : files[0]?.type ?? slot.pendingType,
     status: "Uploaded",
-    storagePath: files[0].storagePath,
-    documentId: files[0].documentId,
+    storagePath: files[0]?.storagePath,
+    documentId: files[0]?.documentId,
     category: slot.category,
     files,
     documentNumber,
@@ -1327,6 +1333,7 @@ export function useTripDetail({
             storagePath,
             documentId: row?.id,
             docType,
+            expiryDate: row?.expiryDate ?? null,
           }
         : {
             id: `driver-${docType}`,
@@ -1359,6 +1366,7 @@ export function useTripDetail({
         type: doc.type,
         storagePath: doc.storagePath!,
         docSource: "vehicle" as const,
+        expiryDate: doc.expiryDate ?? null,
       }));
 
     const hasDriverIdentityDoc = driverIdentityPreviewDocs.some(
@@ -1376,6 +1384,7 @@ export function useTripDetail({
         storagePath: doc.storagePath!,
         documentId: doc.documentId,
         docSource: "compliance" as const,
+        expiryDate: doc.expiryDate ?? null,
       }));
 
     return [

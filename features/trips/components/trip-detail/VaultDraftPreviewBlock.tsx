@@ -41,6 +41,8 @@ type Props = {
   onRemove?: (id: string) => void;
   onAdd: () => void;
   onHeroPress?: () => void;
+  /** Opens the selected file in the full document viewer. */
+  onOpenFull?: () => void;
   onRetrySign?: () => void;
 };
 
@@ -56,11 +58,13 @@ export function VaultDraftPreviewBlock({
   onRemove,
   onAdd,
   onHeroPress,
+  onOpenFull,
   onRetrySign,
 }: Props) {
   const selected = items.find((item) => item.id === selectedId) ?? items[0] ?? null;
   const card = density === "card";
 
+  const openFull = onOpenFull ?? onHeroPress;
   const addThumb = showAddThumb ? (
     <Pressable
       onPress={onAdd}
@@ -102,15 +106,7 @@ export function VaultDraftPreviewBlock({
 
   return (
     <View style={[styles.wrap, card && styles.wrapCard]}>
-      <Pressable
-        onPress={onHeroPress}
-        disabled={!onHeroPress}
-        style={[styles.hero, card && styles.heroCard]}
-        accessibilityRole={onHeroPress ? "button" : undefined}
-        accessibilityLabel={
-          onHeroPress ? `Preview ${selected?.fileName || "document"}` : undefined
-        }
-      >
+      <View style={[styles.hero, card && styles.heroCard]}>
         <VaultDocThumb
           uri={selected?.previewUri}
           isPdf={isPdfTripDoc({
@@ -125,7 +121,18 @@ export function VaultDraftPreviewBlock({
           priority={2}
           onRetrySign={onRetrySign}
         />
-      </Pressable>
+        {openFull ? (
+          <Pressable
+            onPress={openFull}
+            disabled={busy}
+            style={({ pressed }) => [styles.heroEye, pressed && styles.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel={`View full ${selected?.fileName || "document"}`}
+          >
+            <Feather name="eye" size={16} color={Theme.actionBtnInk} />
+          </Pressable>
+        ) : null}
+      </View>
       <ScrollView
         horizontal
         nestedScrollEnabled
@@ -237,6 +244,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   heroImage: { width: "100%", height: "100%" },
+  heroEye: {
+    position: "absolute",
+    right: 8,
+    bottom: 8,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
+    zIndex: 2,
+  },
   heroPdf: {
     alignItems: "center",
     justifyContent: "center",

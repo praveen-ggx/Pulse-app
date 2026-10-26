@@ -167,6 +167,7 @@ export const Theme = {
   warningMuted: "#FEF3C7",
   negative: "#E82127",
   destructive: "#E82127",
+  destructiveWash: "rgba(232, 33, 39, 0.14)",
   /** Aggregate (partner) trip pill — distinct from asset/own fleet */
   aggregatePillBg: "rgba(99,102,241,0.12)",
   aggregatePillBorder: "rgba(99,102,241,0.35)",

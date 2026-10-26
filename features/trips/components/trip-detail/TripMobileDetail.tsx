@@ -14,7 +14,7 @@
 import { EntityAvatar } from "@/components/EntityAvatar";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
-import { formatINR } from "@/lib/format";
+import { formatIndianVehicleNumber, formatINR } from "@/lib/format";
 import { formatPhoneForDisplay } from "@/lib/phoneLookup";
 import type { PartyEntityType } from "@/lib/partyAvatarDisplay";
 import { memo, useMemo, type ReactNode } from "react";
@@ -481,6 +481,12 @@ export const TripMobileDetail = memo(function TripMobileDetail({
       ? adjustedSaleInr
       : saleInr;
 
+  const driverVehiclePlate = (() => {
+    const raw = vehicleLabel?.trim() ?? "";
+    if (!raw || raw === "—" || raw === "Pending") return "";
+    const plate = raw.split(/[·•]/)[0]?.trim() ?? raw;
+    return formatIndianVehicleNumber(plate).trim() || plate;
+  })();
   const specLine = [vehicleType || vehicleLabel, loadTonsLabel, distanceLabel]
     .filter((v) => v && v !== "—" && String(v).trim())
     .join(" · ");
@@ -612,6 +618,11 @@ export const TripMobileDetail = memo(function TripMobileDetail({
                 <Text style={styles.partyName} numberOfLines={2}>
                   {costFace.name}
                 </Text>
+                {costFace.entityType === "driver" && driverVehiclePlate ? (
+                  <Text style={styles.partyVehicle} numberOfLines={1}>
+                    {driverVehiclePlate}
+                  </Text>
+                ) : null}
               </View>
             ) : (
               <View style={styles.partyColSpacer} />
@@ -925,6 +936,16 @@ const styles = StyleSheet.create({
     textAlign: "center",
     width: "100%",
     lineHeight: 14,
+  },
+  partyVehicle: {
+    marginTop: 2,
+    fontSize: 9,
+    fontWeight: "600",
+    letterSpacing: 0.3,
+    color: MUTED,
+    textAlign: "center",
+    width: "100%",
+    lineHeight: 12,
   },
   itemBrand: {
     fontSize: 13,

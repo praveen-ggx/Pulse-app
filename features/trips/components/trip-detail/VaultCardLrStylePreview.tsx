@@ -8,6 +8,7 @@ import {
 } from "@/features/trips/components/trip-detail/VaultDraftPreviewBlock";
 import { VaultFullDocumentModal } from "@/features/trips/components/trip-detail/VaultFullDocumentModal";
 import {
+  formatDocumentHeaderFacts,
   isPdfTripDoc,
   isVaultFieldsMetaPath,
   type TripDocFile,
@@ -222,6 +223,11 @@ export function VaultCardLrStylePreview({
         title={fullTitle}
         documentKey={selected?.storagePath ?? selected?.id}
         documentVersion={selected?.id}
+        headerFacts={formatDocumentHeaderFacts({
+          documentNumber: selected?.documentNumber ?? doc.documentNumber,
+          category: selected?.slotType ?? doc.type,
+          expiryDate: selected?.expiryDate,
+        })}
         onClose={() => setFullOpen(false)}
       />
     </>

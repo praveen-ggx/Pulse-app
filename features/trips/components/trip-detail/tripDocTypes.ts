@@ -363,6 +363,50 @@ export function formatLrVaultNumberLabel(number?: string | null): string | null 
   return /^lr\s*no\.?/i.test(trimmed) ? trimmed : `LR No. ${trimmed}`;
 }
 
+/** Long card-style expiry, e.g. `29 December 2026`. */
+export function formatDocumentExpiryLong(value?: string | null): string | null {
+  const iso = vaultDocDateToIso(value);
+  if (iso) {
+    return new Date(`${iso}T12:00:00`).toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  }
+  return formatVaultDocDate(value);
+}
+
+/** Preview header facts: LR / invoice number plus Valid till. */
+export function formatDocumentHeaderFacts(input: {
+  numbers?: Array<string | null | undefined>;
+  documentNumber?: string | null;
+  category?: string | null;
+  expiryDate?: string | null;
+}): string {
+  const parts: string[] = [];
+  const numbers = (input.numbers ?? [])
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean);
+  if (numbers.length > 0) {
+    parts.push(numbers.join(" · "));
+  } else {
+    const raw = (input.documentNumber ?? "").trim();
+    const category = (input.category ?? "").toLowerCase();
+    if (raw) {
+      const labeled =
+        category === "invoice"
+          ? formatInvoiceVaultNumberLabel(raw)
+          : category === "lr" || category === "elr"
+            ? formatLrVaultNumberLabel(raw)
+            : raw;
+      if (labeled) parts.push(labeled);
+    }
+  }
+  const expiry = formatDocumentExpiryLong(input.expiryDate);
+  if (expiry) parts.push(`Valid till ${expiry}`);
+  return parts.join(" · ");
+}
+
 /** Header line for the selected vault copy: LR / invoice / Valid till. */
 export function formatSelectedVaultFileMeta(
   file: TripDocFile | null | undefined,

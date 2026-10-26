@@ -102,7 +102,6 @@ import {
   isComplianceAwaitingResubmit,
   isComplianceDeclineActive,
   isComplianceHoldAwaitingResubmit,
-  missingOrRejectedRequiredTripDocs,
   isFinanceDeclinedTrip,
   isResubmittedFinanceReject,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
@@ -163,6 +162,8 @@ import { type HardCopyPodLrOption } from "@/features/trips/components/trip-detai
 import { ComplianceHardCopyPodSheet } from "@/features/tripCompliance/components/ComplianceHardCopyPodSheet";
 import { PodVerificationPane } from "@/features/tripCompliance/components/PodVerificationPane";
 import {
+  formatDocumentHeaderFacts,
+  missingOrRejectedRequiredTripDocs,
   formatInvoiceVaultNumberLabel,
   formatLrVaultNumberLabel,
 } from "@/features/trips/components/trip-detail/tripDocTypes";
@@ -1863,6 +1864,7 @@ export function DocumentScreen({
   onPrev,
   onNext,
   navLabel = null,
+  headerFacts = null,
   canNavigate = false,
   typedLines = null,
   resolving = false,
@@ -1877,6 +1879,8 @@ export function DocumentScreen({
   onPrev?: () => void;
   onNext?: () => void;
   navLabel?: string | null;
+  /** LR / invoice / Valid till — same facts as the document card. */
+  headerFacts?: string | null;
   canNavigate?: boolean;
   /** Details-only docs (e.g. typed E-way) — no binary file. */
   typedLines?: { label: string; value: string }[] | null;
@@ -2287,7 +2291,14 @@ export function DocumentScreen({
           ]}
         >
           <View style={[styles.screenBar, compact && styles.screenBarCompact]}>
-            <Text style={styles.screenTitle} numberOfLines={1}>{title}</Text>
+            <View style={styles.screenTitleBlock}>
+              <Text style={styles.screenTitle} numberOfLines={1}>{title}</Text>
+              {headerFacts ? (
+                <Text style={styles.screenSubtitle} numberOfLines={1}>
+                  {headerFacts}
+                </Text>
+              ) : null}
+            </View>
             <View style={styles.screenTools}>
               {showPdfPageTools ? (
                 <View style={[styles.previewZoomCluster, styles.previewPageCluster]}>
@@ -3702,6 +3713,23 @@ export function ComplianceDocumentWorkspace({
   const isPdf = (previewMime ?? "").includes("pdf");
   const readiness = summary ? deriveComplianceQueueReadiness(summary) : null;
   const typedLines = typedDetailsLines(activeRow);
+  const vaultHeaderNumbers = activeRow
+    ? complianceVaultDocNumbers(summary?.documents ?? [], activeRow.type)
+    : [];
+  const typedPrimary = typedLines ? primaryTypedLine(typedLines)?.value : undefined;
+  const previewHeaderFacts = formatDocumentHeaderFacts({
+    numbers:
+      vaultHeaderNumbers.length > 0
+        ? vaultHeaderNumbers
+        : typedPrimary
+          ? [typedPrimary]
+          : [],
+    category: activeRow?.type,
+    expiryDate:
+      activeRow?.entityDoc?.expiry_date ??
+      typedLines?.find((line) => /valid/i.test(line.label))?.value ??
+      null,
+  });
   const financeBankSelected =
     isFinanceMode && checklistSelectedRow?.type === "bank_docs";
   const showBankPayeeDetails = Boolean(summary && !PRE_VERIFIED_STAGES.has(summary.stage));
@@ -5321,6 +5349,11 @@ export function ComplianceDocumentWorkspace({
                       <Text style={styles.previewNavTitle} numberOfLines={1}>
                         {docTitle}
                       </Text>
+                      {previewHeaderFacts ? (
+                        <Text style={styles.previewNavMeta} numberOfLines={1}>
+                          {previewHeaderFacts}
+                        </Text>
+                      ) : null}
                       {previewable.length > 0 ? (
                         <Text style={styles.previewNavMeta} numberOfLines={1}>
                           {previewOrdinal} of {previewable.length}
@@ -5631,6 +5664,7 @@ export function ComplianceDocumentWorkspace({
         canNavigate={previewable.length > 1}
         typedLines={typedLines}
         resolving={loadingPreview}
+        headerFacts={previewHeaderFacts || null}
         navLabel={
           previewable.length > 0
             ? `${Math.max(
@@ -7938,7 +7972,9 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     paddingVertical: 8,
   },
-  screenTitle: { flex: 1, minWidth: 80, fontSize: 13, fontWeight: "600", color: Theme.textPrimaryDark },
+  screenTitleBlock: { flex: 1, minWidth: 80, gap: 1 },
+  screenTitle: { fontSize: 13, fontWeight: "600", color: Theme.textPrimaryDark },
+  screenSubtitle: { fontSize: 11, fontWeight: "500", color: Theme.textSecondary },
   screenTools: {
     flexDirection: "row",
     flexWrap: "nowrap",

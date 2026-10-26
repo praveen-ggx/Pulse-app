@@ -20,6 +20,7 @@ export function VaultFullDocumentModal({
   documentKey,
   documentVersion,
   navLabel,
+  headerFacts,
   canNavigate = false,
   onPrev,
   onNext,
@@ -32,6 +33,8 @@ export function VaultFullDocumentModal({
   documentKey?: string | null;
   documentVersion?: string | null;
   navLabel?: string | null;
+  /** LR / invoice / Valid till — same facts as the document card. */
+  headerFacts?: string | null;
   canNavigate?: boolean;
   onPrev?: () => void;
   onNext?: () => void;
@@ -72,6 +75,11 @@ export function VaultFullDocumentModal({
             <Text style={styles.title} numberOfLines={1}>
               {title}
             </Text>
+            {headerFacts ? (
+              <Text style={styles.meta} numberOfLines={1}>
+                {headerFacts}
+              </Text>
+            ) : null}
             {navLabel ? (
               <Text style={styles.meta} numberOfLines={1}>
                 {navLabel}

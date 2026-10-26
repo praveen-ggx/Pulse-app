@@ -86,11 +86,13 @@ function ChooserQuoteDoc({
   onPress,
   onOpenFull,
   tiled = false,
+  headerFacts = null,
 }: {
   preview: VaultChooserPreview;
   onPress: () => void;
   onOpenFull?: () => void;
   tiled?: boolean;
+  headerFacts?: string | null;
 }) {
   const readyUri = preview.previewUri?.trim() || "";
   const [uri, setUri] = useState<string | null>(readyUri || null);
@@ -197,6 +199,7 @@ function ChooserQuoteDoc({
         title={title}
         documentKey={preview.storagePath ?? preview.previewUri ?? title}
         documentVersion={preview.fileName}
+        headerFacts={headerFacts}
         onClose={() => setFullOpen(false)}
       />
     </View>
@@ -237,6 +240,9 @@ export function VaultChooserNotifyRow({
   const expiryLine = expiryIso ? formatCardExpiry(expiryIso) : "";
   const showExpiry = Boolean(expiryLine) || (needsExpiry && onFile);
   const caption = redundantMeta(meta, onFile) || meta.trim() === numberLine ? "" : meta.trim();
+  const headerFacts = [numberLine, expiryLine ? `Valid till ${expiryLine}` : ""]
+    .filter(Boolean)
+    .join(" · ");
   const onFileLabel = fileCount > 1 ? `${fileCount} on file` : "On file";
   const openEditor = onEdit ?? onPreview;
   const previewFile = (index: number) => {
@@ -363,6 +369,7 @@ export function VaultChooserNotifyRow({
           preview={allPreviews[0]}
           onPress={() => previewFile(0)}
           onOpenFull={onOpenFull ? () => onOpenFull(0) : undefined}
+          headerFacts={headerFacts || null}
         />
       ) : showDoc ? (
         <View style={styles.quoteGrid}>
@@ -373,6 +380,7 @@ export function VaultChooserNotifyRow({
               tiled
               onPress={() => previewFile(index)}
               onOpenFull={onOpenFull ? () => onOpenFull(index) : undefined}
+              headerFacts={headerFacts || null}
             />
           ))}
         </View>

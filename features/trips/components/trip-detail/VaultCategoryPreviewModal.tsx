@@ -4,7 +4,10 @@
 import { DocumentDateCalendar } from "@/components/DocumentDateCalendar";
 import Theme from "@/constants/Theme";
 import { documentRequiresExpiry } from "@/features/tripCompliance/tripCompliance.types";
-import { formatLrVaultNumberLabel } from "@/features/trips/components/trip-detail/tripDocTypes";
+import {
+  formatDocumentHeaderFacts,
+  formatLrVaultNumberLabel,
+} from "@/features/trips/components/trip-detail/tripDocTypes";
 import {
   RegistryGhostButton,
   RegistryPrimaryButton,
@@ -382,6 +385,11 @@ export function VaultCategoryPreviewModal({
       title={selectedItem?.fileName || category}
       documentKey={selectedItem?.storagePath ?? selectedItem?.id}
       documentVersion={selectedItem?.id}
+      headerFacts={formatDocumentHeaderFacts({
+        documentNumber: current?.documentNumber,
+        category: current?.category,
+        expiryDate: current?.expiryDate,
+      })}
       navLabel={
         files.length > 1 ? `${safeIndex + 1} of ${files.length}` : null
       }

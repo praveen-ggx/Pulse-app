@@ -10,6 +10,7 @@ import { formatINR } from "@/lib/format";
 import { useReachTripMetricsQuery } from "@/lib/queries/useReachCampaignsQuery";
 import { getReachPlanDisplay } from "@/lib/reachPlanRegistry";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { REACH_M } from "@/features/reach/styles/reachMetronic";
 
 interface ReachCampaignReelCardProps {
   /** The trip's current/highest-tier campaign — one card per trip, never one per boost. */

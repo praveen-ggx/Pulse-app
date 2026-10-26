@@ -5618,8 +5618,11 @@ export default function TripDetailScreen({
       : []),
   ];
 
-  // Shared by the desktop Manifest Pulse card and the mobile stage actions.
-  const simConfirmModal = simConfirmStep ? (
+  // Ground Ops Reached Pickup / Start Trip: one dialog with the required-documents
+  // checklist (Confirm disabled while any are missing). Shared by the desktop
+  // Manifest Pulse card and the mobile stage actions. Trip Ops simulate uses the
+  // Simulate Stage dialog at the screen root, so only one dialog ever opens.
+  const simConfirmModal = simConfirmStep?.groundOps ? (
       <Modal
         transparent
         animationType="fade"
@@ -8389,7 +8392,7 @@ export default function TripDetailScreen({
         <View style={{ height: !isDesktop ? 120 : 48 }} />
       </ScrollView>
 
-      {simConfirmStep ? (
+      {simConfirmStep && !simConfirmStep.groundOps ? (
         <Modal
           transparent
           animationType="fade"

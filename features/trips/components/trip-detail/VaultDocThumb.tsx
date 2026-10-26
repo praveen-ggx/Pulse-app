@@ -70,7 +70,11 @@ export function VaultDocThumb({
     <View style={[styles.frame, styles.empty, style]}>
       <Feather name="file-text" size={12} color={Theme.actionBtnInk} />
       {onRetrySign ? (
-        <Pressable onPress={onRetrySign} accessibilityRole="button" accessibilityLabel="Retry preview">
+        <Pressable
+          onPress={onRetrySign}
+          accessibilityRole="none"
+          accessibilityLabel="Retry preview"
+        >
           <Text style={styles.retry}>Retry</Text>
         </Pressable>
       ) : null}

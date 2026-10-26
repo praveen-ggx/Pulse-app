@@ -723,12 +723,14 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
                     </Text>
                   </View>
                 ) : null}
-                <Text style={styles.headMeta} numberOfLines={1}>
-                  {stageUpper}
-                </Text>
-                {inTransitPing ? (
-                  <TripHubDriverPresenceBadge ping={inTransitPing} />
-                ) : null}
+                <View style={styles.headStatusCluster}>
+                  <Text style={styles.headMeta} numberOfLines={1}>
+                    {stageUpper}
+                  </Text>
+                  {inTransitPing ? (
+                    <TripHubDriverPresenceBadge ping={inTransitPing} />
+                  ) : null}
+                </View>
               </View>
               {trip.is_commerce ? (
                 <View style={styles.commerceTag} accessibilityLabel="Originated from Pulse Commerce">
@@ -1111,7 +1113,6 @@ const styles = StyleSheet.create({
     maxWidth: "58%",
     alignItems: "flex-end",
     gap: 5,
-    paddingTop: 1,
   },
   headMetaRow: {
     flexDirection: "row",
@@ -1121,10 +1122,20 @@ const styles = StyleSheet.create({
     maxWidth: "100%",
     minWidth: 0,
   },
+  headStatusCluster: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 5,
+    minWidth: 0,
+    flexShrink: 1,
+    height: 16,
+  },
   headMeta: {
-    flexShrink: 0,
+    flexShrink: 1,
+    minWidth: 0,
     fontSize: 10,
-    lineHeight: 13,
+    lineHeight: 16,
     fontWeight: "500",
     color: REF.muted,
     textAlign: "right",
@@ -1428,7 +1439,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   chipStacked: {
-    alignItems: "flex-start",
+    alignItems: "center",
   },
   chipEnd: {
     flexDirection: "row-reverse",
@@ -1442,7 +1453,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   chipCopyStacked: {
-    justifyContent: "flex-start",
+    justifyContent: "center",
   },
   chipCopyEnd: {
     alignItems: "flex-end",
@@ -1460,6 +1471,7 @@ const styles = StyleSheet.create({
   },
   chipPlate: {
     marginTop: 1,
+    alignSelf: "stretch",
     fontSize: 9,
     lineHeight: 11,
     fontWeight: "600",

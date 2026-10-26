@@ -8626,6 +8626,8 @@ export default function TripDetailScreen({
         organizationId={currentOrganization?.id ?? trip.organization_id}
         canManage={canManageHardCopyPod}
         initialMode={hardCopyPodModalMode}
+        tripScoped
+        fullScreen
         summary={{
           manifestId: getTripDisplayNumber(trip, currentOrganization?.id),
           clientName:
@@ -8644,6 +8646,9 @@ export default function TripDetailScreen({
         }}
         onUpdated={() => {
           void detail.load();
+          void queryClient.invalidateQueries({
+            queryKey: queryKeys.trips.hardCopyPod(trip.id),
+          });
         }}
       />
 

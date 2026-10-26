@@ -47,30 +47,23 @@ export function DriverOfflineGlow({
     };
   }, [active, pulse]);
 
-  if (!active) return <>{children}</>;
-
   const ring = size + 8;
   return (
-    <View
-      style={{
-        width: ring,
-        height: ring,
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          styles.glowRing,
-          {
-            width: ring,
-            height: ring,
-            borderRadius: ring / 2,
-            opacity: pulse,
-          },
-        ]}
-      />
+    <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
+      {active ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.glowRing,
+            {
+              width: ring,
+              height: ring,
+              borderRadius: ring / 2,
+              opacity: pulse,
+            },
+          ]}
+        />
+      ) : null}
       {children}
     </View>
   );
@@ -168,11 +161,13 @@ const styles = StyleSheet.create({
   chip: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 4,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
+    height: 16,
+    paddingHorizontal: 6,
+    paddingVertical: 0,
     borderRadius: 999,
-    maxWidth: "100%",
+    flexShrink: 0,
   },
   chipEnd: {
     justifyContent: "flex-end",
@@ -198,6 +193,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 8,
     lineHeight: 10,
+    includeFontPadding: false,
     fontWeight: "700",
     letterSpacing: 0.15,
     flexShrink: 1,

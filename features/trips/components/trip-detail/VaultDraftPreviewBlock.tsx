@@ -163,7 +163,6 @@ export function VaultDraftPreviewBlock({
                   documentVersion={previewIdentity(item).documentVersion}
                   lazy
                   priority={active ? 1 : 0}
-                  onRetrySign={onRetrySign}
                 />
               </Pressable>
               {onRemove && !item.locked ? (

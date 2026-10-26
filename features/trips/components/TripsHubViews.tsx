@@ -3296,6 +3296,8 @@ export function TripsHubTableView({
         organizationId={currentOrganizationId ?? hardCopyPodTrip?.organization_id}
         canManage={canManageHardCopyPod}
         initialMode="create"
+        tripScoped
+        fullScreen
         summary={{
           manifestId: hardCopyPodTrip
             ? getTripDisplayNumber(hardCopyPodTrip, currentOrganizationId)

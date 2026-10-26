@@ -16,7 +16,7 @@ import {
 import { getDocumentViewUrls } from "@/features/trips/services/tripDocuments.service";
 import { getVehicleDocumentViewUrl } from "@/features/vehicles/services/vehicleDocuments.service";
 import { invalidatePdfPreview } from "@/components/pdfEmbedCache.util";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 function filesFromDoc(doc: TripDocItem): TripDocFile[] {
   const nested = (doc.files ?? []).filter(
@@ -97,11 +97,26 @@ export function VaultCardLrStylePreview({
   sign?: VaultPreviewSignContext;
 }) {
   const files = useMemo(() => filesFromDoc(doc), [doc]);
+  const fileFingerprint = useMemo(
+    () =>
+      files
+        .map((file) => `${file.id}:${file.storagePath}:${file.previewUri ?? ""}`)
+        .join("|"),
+    [files],
+  );
+  const signOrgId = sign?.organizationId ?? null;
+  const signSupplierId = sign?.supplierId ?? null;
+  const signDriverId = sign?.driverId ?? null;
   const [urls, setUrls] = useState<Record<string, string | null>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [fullOpen, setFullOpen] = useState(false);
   const [signEpoch, setSignEpoch] = useState(0);
   const seenKeys = useRef<Set<string>>(new Set());
+  const onSelectedFileRef = useRef(onSelectedFile);
+  onSelectedFileRef.current = onSelectedFile;
+  const handleRetrySign = useCallback(() => {
+    setSignEpoch((value) => value + 1);
+  }, []);
 
   useEffect(() => {
     if (files.length === 0) {
@@ -114,6 +129,11 @@ export function VaultCardLrStylePreview({
       .filter((file) => (file.docSource ?? "trip") === "trip")
       .map((file) => file.storagePath.trim())
       .filter(Boolean);
+    const signCtx: VaultPreviewSignContext = {
+      organizationId: signOrgId,
+      supplierId: signSupplierId,
+      driverId: signDriverId,
+    };
     void (async () => {
       const next: Record<string, string | null> = {};
       if (tripPaths.length > 0) {
@@ -122,24 +142,27 @@ export function VaultCardLrStylePreview({
       await Promise.all(
         files.map(async (file) => {
           if (next[file.storagePath]) return;
-          next[file.storagePath] = await resolveUrl(file, sign);
+          next[file.storagePath] = await resolveUrl(file, signCtx);
         }),
       );
       if (cancelled) return;
       setUrls(next);
-      setSelectedId((current) => {
-        const next =
-          current && files.some((file) => file.id === current)
-            ? current
-            : files[0]?.id ?? null;
-        onSelectedFile?.(files.find((file) => file.id === next) ?? null);
-        return next;
-      });
+      setSelectedId((current) =>
+        current && files.some((file) => file.id === current)
+          ? current
+          : files[0]?.id ?? null,
+      );
     })();
     return () => {
       cancelled = true;
     };
-  }, [files, sign, signEpoch]);
+  }, [fileFingerprint, files, signDriverId, signEpoch, signOrgId, signSupplierId]);
+
+  useEffect(() => {
+    const file =
+      files.find((item) => item.id === selectedId) ?? files[0] ?? null;
+    onSelectedFileRef.current?.(file);
+  }, [files, selectedId]);
 
   useEffect(() => {
     const nextKeys = new Set(
@@ -187,7 +210,7 @@ export function VaultCardLrStylePreview({
         onOpenFull={() => {
           if (fullUri) setFullOpen(true);
         }}
-        onRetrySign={() => setSignEpoch((value) => value + 1)}
+        onRetrySign={handleRetrySign}
       />
       <VaultFullDocumentModal
         visible={fullOpen}

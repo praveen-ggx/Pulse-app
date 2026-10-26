@@ -3598,7 +3598,7 @@ export default function TripDetailScreen({
     ],
   );
 
-  
+
 
   const previewTripDetailsSlot = useCallback(
     (slot: TripDetailsSlot) => {

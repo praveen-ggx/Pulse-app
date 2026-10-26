@@ -32,6 +32,10 @@ import { VaultChooserNotifyRow } from "@/features/trips/components/trip-detail/V
 import { VaultCategoryPreviewModal } from "@/features/trips/components/trip-detail/VaultCategoryPreviewModal";
 import { VaultDraftPreviewBlock } from "@/features/trips/components/trip-detail/VaultDraftPreviewBlock";
 import type { VaultCategoryPreviewFile } from "@/features/trips/components/trip-detail/vaultCategoryPreview.types";
+import {
+  bytesForVaultFile,
+  readVaultPickerAsset,
+} from "@/features/trips/components/trip-detail/vaultPickerFile.util";
 import type { ElrTripSource } from "@/features/trips/services/elrSnapshot.util";
 import { SimCompletionTimeField } from "@/features/trips/components/trip-detail/SimCompletionTimeField";
 import {
@@ -158,7 +162,6 @@ import {
 import Feather from "@expo/vector-icons/Feather";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import * as DocumentPicker from "expo-document-picker";
-import * as FileSystem from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
 import { Activity, MessageSquare, Zap } from "lucide-react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -1506,7 +1509,13 @@ export default function TripDetailScreen({
     uri: string;
     fileName: string;
     mimeType: string;
-    extraFiles?: { uri: string; fileName: string; mimeType: string }[];
+    extraFiles?: {
+      uri: string;
+      fileName: string;
+      mimeType: string;
+      arrayBuffer?: ArrayBuffer;
+    }[];
+    arrayBuffer?: ArrayBuffer;
     vehicleKind?: VehicleComplianceDocType | "extra";
     driverKind?: DriverIdentityDocType;
   } | null>(null);
@@ -1700,11 +1709,15 @@ export default function TripDetailScreen({
       });
       if (res.canceled || !res.assets?.[0]) return;
       if (alertIfVaultPickerRejected(res.assets)) return;
-      const extras = res.assets.map((item, index) => ({
-        uri: item.uri,
-        fileName: item.name || `${pendingVaultUpload.slotId}-${Date.now()}-${index}.pdf`,
-        mimeType: vaultMimeFromFileName(item.name, item.mimeType),
-      }));
+      const extras = await Promise.all(
+        res.assets.map((item, index) =>
+          readVaultPickerAsset(
+            item,
+            `${pendingVaultUpload.slotId}-${Date.now()}-${index}.pdf`,
+            vaultMimeFromFileName,
+          ),
+        ),
+      );
       setPendingVaultUpload({
         ...pendingVaultUpload,
         extraFiles: [...(pendingVaultUpload.extraFiles ?? []), ...extras],
@@ -1729,7 +1742,14 @@ export default function TripDetailScreen({
       if (current.uri === id) {
         const [next, ...rest] = current.extraFiles ?? [];
         if (!next) return null;
-        return { ...current, uri: next.uri, fileName: next.fileName, mimeType: next.mimeType, extraFiles: rest };
+        return {
+          ...current,
+          uri: next.uri,
+          fileName: next.fileName,
+          mimeType: next.mimeType,
+          arrayBuffer: next.arrayBuffer,
+          extraFiles: rest,
+        };
       }
       return {
         ...current,
@@ -1797,15 +1817,8 @@ export default function TripDetailScreen({
   ]);
 
   const readFileAsArrayBuffer = useCallback(
-    async (uri: string): Promise<ArrayBuffer> => {
-      if (Platform.OS === "web") {
-        const response = await fetch(uri);
-        return response.arrayBuffer();
-      }
-      const base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: "base64" as const,
-      });
-      return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)).buffer;
+    async (uri: string, arrayBuffer?: ArrayBuffer): Promise<ArrayBuffer> => {
+      return bytesForVaultFile({ uri, arrayBuffer });
     },
     [],
   );
@@ -1911,6 +1924,7 @@ export default function TripDetailScreen({
           uri: pending.uri,
           fileName: pending.fileName,
           mimeType: vaultMimeFromFileName(pending.fileName, pending.mimeType),
+          arrayBuffer: pending.arrayBuffer,
         },
         ...(pending.extraFiles ?? []).map((file) => ({
           ...file,
@@ -1941,7 +1955,7 @@ export default function TripDetailScreen({
           mimeType: string;
         }[] = [];
         for (const file of files) {
-          const arrayBuffer = await readFileAsArrayBuffer(file.uri);
+          const arrayBuffer = await readFileAsArrayBuffer(file.uri, file.arrayBuffer);
           if (!arrayBuffer || arrayBuffer.byteLength === 0) {
             notifyVaultFailure(
               "Upload failed",
@@ -2059,7 +2073,7 @@ export default function TripDetailScreen({
           notifyVaultFailure("Upload failed", "No file selected.");
           return;
         }
-        const arrayBuffer = await readFileAsArrayBuffer(first.uri);
+        const arrayBuffer = await readFileAsArrayBuffer(first.uri, first.arrayBuffer);
         if (!arrayBuffer || arrayBuffer.byteLength === 0) {
           notifyVaultFailure(
             "Upload failed",
@@ -2116,7 +2130,7 @@ export default function TripDetailScreen({
         }
       } else {
         for (const [index, file] of files.entries()) {
-          const arrayBuffer = await readFileAsArrayBuffer(file.uri);
+          const arrayBuffer = await readFileAsArrayBuffer(file.uri, file.arrayBuffer);
           if (!arrayBuffer || arrayBuffer.byteLength === 0) {
             notifyVaultFailure(
               "Upload failed",
@@ -2614,7 +2628,13 @@ export default function TripDetailScreen({
       let uri: string | null = null;
       let fileName = `${doc.id}-${Date.now()}.pdf`;
       let mimeType = "application/pdf";
-      let extraFiles: { uri: string; fileName: string; mimeType: string }[] = [];
+      let extraFiles: {
+        uri: string;
+        fileName: string;
+        mimeType: string;
+        arrayBuffer?: ArrayBuffer;
+      }[] = [];
+      let arrayBuffer: ArrayBuffer | undefined;
 
       try {
         const res = await DocumentPicker.getDocumentAsync({
@@ -2625,14 +2645,24 @@ export default function TripDetailScreen({
         if (res.canceled || !res.assets?.[0]) return;
         if (alertIfVaultPickerRejected(res.assets)) return;
         const [asset, ...rest] = res.assets;
-        uri = asset.uri;
-        fileName = asset.name || fileName;
-        mimeType = vaultMimeFromFileName(asset.name, asset.mimeType);
-        extraFiles = rest.map((item, index) => ({
-          uri: item.uri,
-          fileName: item.name || `${doc.id}-${Date.now()}-${index + 2}.pdf`,
-          mimeType: vaultMimeFromFileName(item.name, item.mimeType),
-        }));
+        const first = await readVaultPickerAsset(
+          asset,
+          fileName,
+          vaultMimeFromFileName,
+        );
+        uri = first.uri;
+        fileName = first.fileName;
+        mimeType = first.mimeType;
+        arrayBuffer = first.arrayBuffer;
+        extraFiles = await Promise.all(
+          rest.map((item, index) =>
+            readVaultPickerAsset(
+              item,
+              `${doc.id}-${Date.now()}-${index + 2}.pdf`,
+              vaultMimeFromFileName,
+            ),
+          ),
+        );
 
         if (!uri) return;
 
@@ -2672,6 +2702,7 @@ export default function TripDetailScreen({
           uri,
           fileName,
           mimeType,
+          arrayBuffer,
           extraFiles: extraFiles.length > 0 ? extraFiles : undefined,
         });
       } catch (e) {

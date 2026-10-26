@@ -54,7 +54,16 @@ async function vaultFileFromAsset(
     });
     if (!early.ok) throw new Error(early.reason);
   }
-  const arrayBuffer = await fetch(asset.uri).then((r) => r.arrayBuffer());
+  const nativeFile = (asset as { file?: Blob }).file;
+  const arrayBuffer =
+    nativeFile && typeof nativeFile.arrayBuffer === "function"
+      ? await nativeFile.arrayBuffer()
+      : await fetch(asset.uri).then((response) => {
+          if (!response.ok) {
+            throw new Error("Could not read the selected file. Choose it again.");
+          }
+          return response.arrayBuffer();
+        });
   const format = validateComplianceTripDocumentFile({
     fileName,
     mimeType: asset.mimeType,

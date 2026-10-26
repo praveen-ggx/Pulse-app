@@ -4,7 +4,7 @@
  */
 import type { AdvanceProcessedEnrichment } from "@/features/tripCompliance/services/complianceAdvanceProcessed.service";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
-import { latestDocNumber } from "@/features/tripCompliance/utils/complianceVerifiedExport.util";
+import { exportLrNumber, latestDocNumber } from "@/features/tripCompliance/utils/complianceVerifiedExport.util";
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { formatIndianVehicleNumber } from "@/lib/format";
 import * as XLSX from "xlsx";
@@ -53,7 +53,7 @@ export function buildAdvanceProcessedExportRow(
   const supplier = (info?.supplierName || trip.supplier_name || "").trim();
   return {
     "TRIP ID": getTripDisplayNumber(trip, trip.organization_id ?? null),
-    "LR NO": latestDocNumber(summary.documents, "lr"),
+    "LR NO": exportLrNumber(summary),
     "TRUCK NO": formatIndianVehicleNumber(trip.vehicle_display_number?.trim() || "").trim(),
     "PAYMENT TYPE": "Advance",
     "REQUEST ID": (info?.requestId ?? "").trim(),
@@ -102,7 +102,7 @@ export function buildAdvancePaymentPendingRow(
   const trip = summary.trip;
   return {
     "TRIP ID": getTripDisplayNumber(trip, trip.organization_id ?? null),
-    "LR NO": latestDocNumber(summary.documents, "lr"),
+    "LR NO": exportLrNumber(summary),
     "TRUCK NO": formatIndianVehicleNumber(trip.vehicle_display_number?.trim() || "").trim(),
     "PAYMENT TYPE": "Advance",
     "REQUEST ID": requestNo.trim(),

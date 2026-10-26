@@ -78,6 +78,11 @@ import {
   type SupplierBankProofBundle,
 } from "@/features/tripCompliance/utils/supplierBankProof.util";
 import { signCompliancePreviewUrl } from "@/features/tripCompliance/services/complianceDocumentView.service";
+import {
+  ComplianceExpiryDateModal,
+  formatExpiryLabel,
+} from "@/features/tripCompliance/components/ComplianceExpiryDateModal";
+import { documentRequiresExpiry } from "@/features/tripCompliance/tripCompliance.types";
 import { useWorkspaceProductsQuery } from "@/lib/queries/useWorkspaceProductsQuery";
 import { queryKeys } from "@/lib/queryKeys";
 import type { LedgerRow } from "@/features/finance/services/finance.service";
@@ -121,6 +126,9 @@ import {
 import {
   deleteComplianceDocument,
   getComplianceDocumentSignedUrl,
+  replaceComplianceDocument,
+  updateEntityDocumentExpiry,
+  updateLatestEntityDocumentExpiry,
   uploadComplianceDocument,
 } from "@/features/compliance/services/documents.service";
 import {
@@ -134,6 +142,7 @@ import {
   deleteVehicleDocument,
   deleteVehicleExtraDocument,
   getVehicleDocumentViewUrl,
+  updateVehicleDocumentExpiry,
   uploadAndSaveVehicleDocumentForTrip,
   uploadAndSaveVehicleExtraDocuments,
 } from "@/features/vehicles/services/vehicleDocuments.service";
@@ -563,6 +572,14 @@ function vaultMimeFromFileName(
   if (ext === "heic") return "image/heic";
   if (ext === "heif") return "image/heif";
   return "application/pdf";
+}
+
+function vaultAssetExpiryKind(pending: {
+  vehicleKind?: VehicleComplianceDocType | "extra";
+  driverKind?: DriverIdentityDocType;
+}): string | null {
+  if (pending.vehicleKind && pending.vehicleKind !== "extra") return pending.vehicleKind;
+  return pending.driverKind ?? null;
 }
 
 function DeferredTripMap(props: ComponentProps<typeof TripMap>) {
@@ -1521,7 +1538,26 @@ export default function TripDetailScreen({
     setShowPendingLrCalendar(false);
     setPendingLrIsDuplicate(false);
     setLrDuplicateAlertVisible(false);
+    setPendingAssetExpiry("");
+    setAssetExpiryPickerOpen(false);
   }, []);
+  const pendingExpirySeedKey = pendingVaultUpload
+    ? `${pendingVaultUpload.slotId}:${pendingVaultUpload.driverKind ?? ""}:${pendingVaultUpload.vehicleKind ?? ""}:${pendingVaultUpload.uri}`
+    : "";
+  useEffect(() => {
+    if (!pendingVaultUpload) return;
+    const kind = vaultAssetExpiryKind(pendingVaultUpload);
+    const existing =
+      pendingVaultUpload.vehicleKind && pendingVaultUpload.vehicleKind !== "extra"
+        ? detail.vehicleDocs?.[pendingVaultUpload.vehicleKind]?.expiryDate
+        : pendingVaultUpload.driverKind
+          ? detail.driverIdentityDocs?.[pendingVaultUpload.driverKind]?.expiryDate
+          : null;
+    setPendingAssetExpiry(existing?.trim() ?? "");
+    setAssetExpiryPickerOpen(Boolean(kind && documentRequiresExpiry(kind) && !existing?.trim()));
+    // Seed once per picked file, not when extra files are added.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingExpirySeedKey]);
   const fillPendingLrFields = useCallback(
     (raw?: string | null, dateFallback?: string | null) => {
       const fields = parseLrFieldValues(raw);
@@ -1574,6 +1610,8 @@ export default function TripDetailScreen({
     index: number;
     add?: () => void;
   } | null>(null);
+  const [previewExpiryFile, setPreviewExpiryFile] =
+    useState<VaultCategoryPreviewFile | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -1799,6 +1837,38 @@ export default function TripDetailScreen({
 
     vaultUploadInFlightRef.current = true;
     try {
+      const expiryKind = vaultAssetExpiryKind(pending);
+      const assetExpiry =
+        expiryKind && documentRequiresExpiry(expiryKind) ? pendingAssetExpiry.trim() : null;
+      if (assetExpiry !== null && !/^\d{4}-\d{2}-\d{2}$/.test(assetExpiry)) {
+        showAppAlert(
+          "Expiry date needed",
+          "Pick the expiry date before saving this document.",
+        );
+        setAssetExpiryPickerOpen(true);
+        return;
+      }
+
+      let vaultVehicleTarget: { vehicleId: string; orgId: string } | null = null;
+      if (pending.docType === "vehicle_extra") {
+        const plate = visibleAssignedVehiclePlate({
+          displayVehicleFromInput: detail.displayVehicleFromInput,
+          vehicleLabel: detail.vehicleLabel,
+          vehicleDisplayNumber: detail.trip?.vehicle_display_number,
+          vehicleNumber: tripExtraVehicleNumber(
+            detail.trip as { vehicle_number?: string | null } | null,
+          ),
+        });
+        vaultVehicleTarget = await detail.resolveVaultVehicle(plate);
+        if (!vaultVehicleTarget) {
+          notifyVaultFailure(
+            "Assign a vehicle",
+            "Assign a vehicle on this trip before uploading RC, Fitness, Insurance, or PUC.",
+          );
+          return;
+        }
+      }
+
       if (pending.docType === "lr" && normalizeOrgLrNumber(pendingLrNumber)) {
         const duplicate = await findOrgDuplicateLrNumberForTrip({
           tripId: tripIdForUpload,
@@ -1856,22 +1926,11 @@ export default function TripDetailScreen({
       } | null = null;
 
       if (pending.docType === "vehicle_extra") {
-        // Trips linked by owner vehicle or plate only have no vehicle_id.
-        const target = await detail.resolveVaultVehicle();
+        const target = vaultVehicleTarget;
         if (!target) {
-          const plate = visibleAssignedVehiclePlate({
-            displayVehicleFromInput: detail.displayVehicleFromInput,
-            vehicleLabel: detail.vehicleLabel,
-            vehicleDisplayNumber: detail.trip?.vehicle_display_number,
-            vehicleNumber: tripExtraVehicleNumber(
-              detail.trip as { vehicle_number?: string | null } | null,
-            ),
-          });
           notifyVaultFailure(
-            plate ? "Couldn't attach this vehicle" : "Assign a vehicle",
-            plate
-              ? `${plate} is assigned. Open Change, confirm the truck, then add RC, Fitness, Insurance, or PUC again.`
-              : "Assign a vehicle on this trip before uploading RC, Fitness, Insurance, or PUC.",
+            "Assign a vehicle",
+            "Assign a vehicle on this trip before uploading RC, Fitness, Insurance, or PUC.",
           );
           return;
         }
@@ -2027,7 +2086,7 @@ export default function TripDetailScreen({
             fileName: first.fileName,
           },
           uploadedBy: uploaderId,
-          expiryDate: assetExpiry || (detail.driverIdentityDocs?.[driverKind]?.expiryDate ?? null),
+          expiryDate: assetExpiry ?? detail.driverIdentityDocs?.[driverKind]?.expiryDate ?? null,
         };
         // Add, never replace (same as the Compliance upload): an existing licence /
         // Aadhaar stays on file and the new one is listed next to it.
@@ -2163,6 +2222,18 @@ export default function TripDetailScreen({
           categoryLabel: pending.label,
           previewUri: file.uri,
           mimeHint: file.mimeType,
+          expiryDate: assetExpiry,
+          complianceType:
+            pending.vehicleKind && pending.vehicleKind !== "extra"
+              ? pending.vehicleKind
+              : undefined,
+          driverKind: pending.driverKind,
+          deleteKind:
+            pending.docType === "driver_identity"
+              ? ("driver_identity" as const)
+              : pending.docType === "vehicle_extra" || pending.vehicleKind
+                ? ("vehicle_compliance" as const)
+                : undefined,
         })),
         index: 0,
         add:
@@ -3173,6 +3244,7 @@ export default function TripDetailScreen({
           storagePath: path,
           deleteKind: "vehicle_compliance" as const,
           complianceType: docType,
+          expiryDate: detail.vehicleDocs?.[docType]?.expiryDate ?? null,
         },
       ];
     });
@@ -3206,6 +3278,7 @@ export default function TripDetailScreen({
           documentId: detail.driverIdentityDocs?.[docType]?.id,
           deleteKind: "driver_identity" as const,
           driverKind: docType,
+          expiryDate: detail.driverIdentityDocs?.[docType]?.expiryDate ?? null,
         },
       ];
     });
@@ -3253,6 +3326,86 @@ export default function TripDetailScreen({
       });
     },
     [currentOrganization?.id, detail.trip?.driver_id, detail.trip?.organization_id, detail.trip?.supplier_id],
+  );
+
+  const savePreviewExpiry = useCallback(
+    async (isoDate: string) => {
+      const file = previewExpiryFile;
+      if (!file || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return;
+      const viewerOrgId =
+        currentOrganization?.id?.trim() || detail.trip?.organization_id?.trim() || "";
+      try {
+        if (file.complianceType && isVehicleComplianceDocType(file.complianceType)) {
+          const target = await detail.resolveVaultVehicle();
+          if (target) {
+            const vault = await updateVehicleDocumentExpiry(
+              target.orgId,
+              target.vehicleId,
+              file.complianceType,
+              isoDate,
+              detail.vehicleDocs,
+            );
+            if (vault.documents) detail.setVehicleDocs(vault.documents);
+            if (viewerOrgId) {
+              await updateLatestEntityDocumentExpiry({
+                orgId: viewerOrgId,
+                entityType: "vehicle",
+                entityId: target.vehicleId,
+                docType: file.complianceType,
+                expiryDate: isoDate,
+              });
+            }
+          }
+        } else if (file.driverKind) {
+          if (file.documentId) {
+            const { error } = await updateEntityDocumentExpiry(file.documentId, isoDate);
+            if (error) throw error;
+          } else if (viewerOrgId && detail.trip?.driver_id) {
+            const { error } = await updateLatestEntityDocumentExpiry({
+              orgId: viewerOrgId,
+              entityType: "driver",
+              entityId: detail.trip.driver_id,
+              docType: file.driverKind,
+              expiryDate: isoDate,
+            });
+            if (error) throw error;
+          }
+          detail.setDriverIdentityDocs({
+            ...(detail.driverIdentityDocs ?? {}),
+            [file.driverKind]: {
+              ...(detail.driverIdentityDocs?.[file.driverKind] ?? {
+                id: file.documentId ?? "",
+                url: file.storagePath ?? "",
+              }),
+              expiryDate: isoDate,
+            },
+          });
+        }
+        setCategoryPreview((current) => {
+          if (!current) return current;
+          return {
+            ...current,
+            files: current.files.map((item, index) =>
+              index === current.index || item.id === file.id
+                ? { ...item, expiryDate: isoDate }
+                : item,
+            ),
+          };
+        });
+      } catch (error) {
+        showAppAlert(
+          "Could not save date",
+          error instanceof Error ? error.message : "Try again.",
+        );
+      } finally {
+        setPreviewExpiryFile(null);
+      }
+    },
+    [
+      previewExpiryFile,
+      currentOrganization?.id,
+      detail,
+    ],
   );
 
   const previewVehicleDoc = useCallback(
@@ -9033,6 +9186,8 @@ export default function TripDetailScreen({
                       meta={
                         fileCount > 1 ? `${fileCount} files` : onFile ? "On file" : "Not uploaded"
                       }
+                      expiryDate={detail.vehicleDocs?.[docType]?.expiryDate}
+                      needsExpiry={documentRequiresExpiry(docType)}
                       onFile={onFile}
                       canUpload={canUpload}
                       entityType="vehicle"
@@ -9107,6 +9262,8 @@ export default function TripDetailScreen({
                       meta={
                         fileCount > 1 ? `${fileCount} files` : onFile ? "On file" : "Not uploaded"
                       }
+                      expiryDate={detail.driverIdentityDocs?.[docType]?.expiryDate}
+                      needsExpiry={documentRequiresExpiry(docType)}
                       onFile={onFile}
                       canUpload={canUpload}
                       entityType="driver"
@@ -9375,6 +9532,41 @@ export default function TripDetailScreen({
                   ))}
                 </View>
               ) : null}
+
+              {pendingVaultUpload &&
+              documentRequiresExpiry(vaultAssetExpiryKind(pendingVaultUpload) ?? "") ? (
+                <View style={styles.invoiceNumberFields}>
+                  <Text style={styles.lrNumberFieldLabel}>EXPIRY DATE</Text>
+                  <Pressable
+                    style={styles.lrDateField}
+                    onPress={() => {
+                      if (uploadingDocId) return;
+                      setAssetExpiryPickerOpen(true);
+                    }}
+                    disabled={!!uploadingDocId}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      pendingAssetExpiry
+                        ? `Expiry date ${formatExpiryLabel(pendingAssetExpiry)}, change`
+                        : "Pick expiry date"
+                    }
+                  >
+                    <Text
+                      style={
+                        pendingAssetExpiry
+                          ? styles.lrDateFieldText
+                          : styles.lrDateFieldPlaceholder
+                      }
+                      numberOfLines={1}
+                    >
+                      {pendingAssetExpiry
+                        ? formatExpiryLabel(pendingAssetExpiry)
+                        : "Pick expiry date"}
+                    </Text>
+                    <Feather name="calendar" size={16} color={Theme.primary} />
+                  </Pressable>
+                </View>
+              ) : null}
             </ScrollView>
 
             <View style={styles.docModalFooter}>
@@ -9399,7 +9591,13 @@ export default function TripDetailScreen({
                   void confirmPendingVaultUpload();
                 }}
                 activeOpacity={0.85}
-                disabled={!!uploadingDocId}
+                disabled={
+                  !!uploadingDocId ||
+                  (documentRequiresExpiry(
+                    vaultAssetExpiryKind(pendingVaultUpload ?? {}) ?? "",
+                  ) &&
+                    !/^\d{4}-\d{2}-\d{2}$/.test(pendingAssetExpiry))
+                }
               >
                 {uploadingDocId ? (
                   <ActivityIndicator
@@ -9415,8 +9613,28 @@ export default function TripDetailScreen({
         </View>
       </Modal>
 
+      <ComplianceExpiryDateModal
+        visible={assetExpiryPickerOpen || previewExpiryFile != null}
+        docLabel={
+          previewExpiryFile?.categoryLabel ?? pendingVaultUpload?.label ?? "Document"
+        }
+        initialValue={previewExpiryFile?.expiryDate ?? pendingAssetExpiry}
+        onCancel={() => {
+          setAssetExpiryPickerOpen(false);
+          setPreviewExpiryFile(null);
+        }}
+        onSubmit={(isoDate) => {
+          if (previewExpiryFile) {
+            void savePreviewExpiry(isoDate);
+            return;
+          }
+          setPendingAssetExpiry(isoDate);
+          setAssetExpiryPickerOpen(false);
+        }}
+      />
+
       <VaultCategoryPreviewModal
-        visible={Boolean(categoryPreview)}
+        visible={Boolean(categoryPreview) && previewExpiryFile == null}
         files={categoryPreview?.files ?? []}
         index={categoryPreview?.index ?? 0}
         onIndexChange={(index) =>
@@ -9434,6 +9652,15 @@ export default function TripDetailScreen({
         }
         onResolveUrl={resolveCategoryPreviewUrl}
         onDelete={deleteCategoryPreviewFile}
+        onEditExpiry={(file) => {
+          if (
+            !documentRequiresExpiry(file.complianceType ?? file.driverKind ?? "") &&
+            !file.expiryDate
+          ) {
+            return;
+          }
+          setPreviewExpiryFile(file);
+        }}
       />
 
       <ThemedAlertModal

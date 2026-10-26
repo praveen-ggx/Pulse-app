@@ -2,6 +2,7 @@
  * Category document viewer — hero + sideways thumb strip (same as LR copies).
  */
 import Theme from "@/constants/Theme";
+import { documentRequiresExpiry } from "@/features/tripCompliance/tripCompliance.types";
 import {
   RegistryGhostButton,
   RegistryPrimaryButton,
@@ -57,7 +58,18 @@ type Props = {
   onAdd?: () => void;
   onDelete?: (file: VaultCategoryPreviewFile) => void;
   onResolveUrl?: (file: VaultCategoryPreviewFile) => Promise<string | null>;
+  onEditExpiry?: (file: VaultCategoryPreviewFile) => void;
 };
+
+function prettyPreviewExpiry(iso?: string | null): string {
+  const day = iso?.trim().slice(0, 10) ?? "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return "";
+  return new Date(`${day}T12:00:00`).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
 
 export function VaultCategoryPreviewModal({
   visible,
@@ -68,6 +80,7 @@ export function VaultCategoryPreviewModal({
   onAdd,
   onDelete,
   onResolveUrl,
+  onEditExpiry,
 }: Props) {
   const insets = useSafeAreaInsets();
   const [urls, setUrls] = useState<Record<string, string | null>>({});
@@ -75,6 +88,14 @@ export function VaultCategoryPreviewModal({
   const safeIndex = Math.max(0, Math.min(index, Math.max(0, files.length - 1)));
   const current = files[safeIndex] ?? null;
   const category = current?.categoryLabel || "Document";
+  const headerExpiryIso =
+    current?.expiryDate?.trim() ||
+    files.find((file) => file.expiryDate?.trim())?.expiryDate ||
+    "";
+  const headerExpiry = prettyPreviewExpiry(headerExpiryIso);
+  const showHeaderExpiry =
+    Boolean(headerExpiry) ||
+    documentRequiresExpiry(current?.complianceType ?? current?.driverKind ?? "");
 
   const paths = useMemo(
     () =>
@@ -153,14 +174,43 @@ export function VaultCategoryPreviewModal({
         <View style={styles.card}>
           <View style={styles.header}>
             <View style={styles.headerCopy}>
-              <Text style={styles.category} numberOfLines={1}>
-                {category}
-              </Text>
-              <Text style={styles.meta} numberOfLines={1}>
-                {files.length > 0
-                  ? `${safeIndex + 1} of ${files.length}`
-                  : "No document"}
-              </Text>
+              <View style={styles.headerTitleRow}>
+                <Text style={styles.category} numberOfLines={1}>
+                  {category}
+                </Text>
+                <Text style={styles.meta} numberOfLines={1}>
+                  {files.length > 0
+                    ? `${safeIndex + 1} of ${files.length}`
+                    : "No document"}
+                </Text>
+              </View>
+              {showHeaderExpiry ? (
+                <Pressable
+                  onPress={
+                    onEditExpiry && current
+                      ? () => onEditExpiry(current)
+                      : undefined
+                  }
+                  disabled={!onEditExpiry}
+                  style={styles.headerExpiryRow}
+                  accessibilityRole={onEditExpiry ? "button" : undefined}
+                  accessibilityLabel="Valid till date"
+                >
+                  <Text style={styles.expiryLabel}>Valid till</Text>
+                  <Text
+                    style={[
+                      styles.headerExpiryValue,
+                      !headerExpiry && styles.expiryEmpty,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {headerExpiry || "Add date"}
+                  </Text>
+                  {onEditExpiry ? (
+                    <Text style={styles.expiryEdit}>Edit</Text>
+                  ) : null}
+                </Pressable>
+              ) : null}
             </View>
             <Pressable
               onPress={onClose}
@@ -259,7 +309,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
-  headerCopy: { flex: 1, minWidth: 0 },
+  headerCopy: { flex: 1, minWidth: 0, gap: 6 },
+  headerTitleRow: {
+    gap: 2,
+    minWidth: 0,
+  },
   category: {
     fontSize: 15,
     fontWeight: "600",
@@ -267,11 +321,27 @@ const styles = StyleSheet.create({
     ...WEB_COPY,
   },
   meta: {
-    marginTop: 2,
     fontSize: 12,
     fontWeight: "400",
     color: Theme.textSecondary,
     ...WEB_COPY,
+  },
+  headerExpiryRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 10,
+    minWidth: 0,
+  },
+  headerExpiryValue: {
+    flex: 1,
+    minWidth: 0,
+    textAlign: "right",
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: "700",
+    fontVariant: ["tabular-nums"],
+    color: Theme.textPrimaryDark,
   },
   close: {
     width: 32,
@@ -291,6 +361,24 @@ const styles = StyleSheet.create({
     paddingVertical: 24,
     textAlign: "center",
     ...WEB_COPY,
+  },
+  expiryLabel: {
+    flexShrink: 0,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+    color: Theme.textMuted,
+  },
+  expiryEmpty: {
+    fontWeight: "600",
+    color: Theme.complianceStagePendingFg,
+  },
+  expiryEdit: {
+    flexShrink: 0,
+    fontSize: 12,
+    fontWeight: "800",
+    color: Theme.brandBlueInk,
   },
   footer: {
     flexDirection: "row",

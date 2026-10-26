@@ -3,6 +3,7 @@
  * Pressable + calendar icon, in-app calendar overlay on web,
  * DateTimePicker on iOS/Android. Stores ISO YYYY-MM-DD.
  */
+import { DocumentDateCalendar } from "@/components/DocumentDateCalendar";
 import Theme from "@/constants/Theme";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Calendar as CalendarIcon } from "lucide-react-native";
@@ -15,7 +16,6 @@ import {
   Text,
   View,
 } from "react-native";
-import { Calendar } from "react-native-calendars";
 
 function toISODate(d: Date): string {
   const y = d.getFullYear();
@@ -123,39 +123,11 @@ export function HardCopyPodDateField({
                 <Text style={styles.popoverKicker}>Date</Text>
                 <Text style={styles.popoverTitle}>{label}</Text>
               </View>
-              <Calendar
-                current={isoValue || undefined}
-                onDayPress={(day: { dateString: string }) => {
-                  onChange(day.dateString);
+              <DocumentDateCalendar
+                selectedIso={isoValue}
+                onSelect={(iso) => {
+                  onChange(iso);
                   close();
-                }}
-                markedDates={
-                  isoValue
-                    ? {
-                        [isoValue]: {
-                          selected: true,
-                          selectedColor: Theme.primary,
-                          selectedTextColor: Theme.textOnPrimary,
-                        },
-                      }
-                    : undefined
-                }
-                theme={{
-                  backgroundColor: Theme.cardWhite,
-                  calendarBackground: Theme.cardWhite,
-                  textSectionTitleColor: Theme.textMuted,
-                  monthTextColor: Theme.textPrimaryDark,
-                  dayTextColor: Theme.textPrimaryDark,
-                  todayTextColor: Theme.primary,
-                  arrowColor: Theme.primary,
-                  selectedDayBackgroundColor: Theme.primary,
-                  selectedDayTextColor: Theme.textOnPrimary,
-                  textDayFontWeight: "500",
-                  textMonthFontWeight: "600",
-                  textDayHeaderFontWeight: "500",
-                  textDayFontSize: 13,
-                  textMonthFontSize: 13,
-                  textDayHeaderFontSize: 11,
                 }}
               />
               <Pressable

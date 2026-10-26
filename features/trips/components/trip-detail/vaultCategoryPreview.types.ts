@@ -11,6 +11,8 @@ export type VaultCategoryPreviewFile = {
   extraId?: string;
   complianceType?: string;
   driverKind?: "license" | "aadhaar";
+  /** ISO YYYY-MM-DD when this file has a validity date. */
+  expiryDate?: string | null;
 };
 
 export type VaultCategoryPreviewSession = {

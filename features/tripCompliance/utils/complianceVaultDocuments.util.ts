@@ -29,6 +29,9 @@ const STORAGE_BUCKET_PREFIX_RE =
 export function parseComplianceStorageRef(raw: string): { kind: "url" | "path"; value: string } {
   const trimmed = raw.trim();
   if (!trimmed) return { kind: "path", value: "" };
+  if (/^(blob:|data:|file:|content:)/i.test(trimmed)) {
+    return { kind: "url", value: trimmed };
+  }
   if (/^https?:\/\//i.test(trimmed)) {
     const fromStorage = trimmed.match(STORAGE_OBJECT_RE);
     if (fromStorage?.[1]) return { kind: "path", value: decodeURIComponent(fromStorage[1]) };

@@ -14,8 +14,6 @@ const WEBSITE_HTML = `<!doctype html>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>pulse.</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/lucide@latest"></script>
   <style>
     :root {
       --ink: #4D3636;
@@ -319,6 +317,175 @@ const WEBSITE_HTML = `<!doctype html>
       .nav-desktop { display: none !important; }
       .site-header { grid-template-columns: minmax(0, 1fr) auto; }
     }
+    .min-h-screen { min-height: 100vh; }
+    .bg-white { background: #fff; }
+    .font-sans { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .overflow-x-hidden { overflow-x: hidden; }
+    .overflow-hidden { overflow: hidden; }
+    .fixed { position: fixed; }
+    .relative { position: relative; }
+    .absolute { position: absolute; }
+    .top-0 { top: 0; }
+    .left-0 { left: 0; }
+    .right-0 { right: 0; }
+    .bottom-7 { bottom: 1.75rem; }
+    .left-7 { left: 1.75rem; }
+    .right-7 { right: 1.75rem; }
+    .inset-0 { inset: 0; }
+    .-inset-10 { inset: -2.5rem; }
+    .left-1\\/2 { left: 50%; }
+    .top-8 { top: 2rem; }
+    .left-\\[12\\%\\] { left: 12%; }
+    .right-\\[12\\%\\] { right: 12%; }
+    .z-\\[100\\] { z-index: 100; }
+    .z-10 { z-index: 10; }
+    .-z-10 { z-index: -10; }
+    .min-w-0 { min-width: 0; }
+    .w-full { width: 100%; }
+    .w-11 { width: 2.75rem; }
+    .w-14 { width: 3.5rem; }
+    .w-5 { width: 1.25rem; }
+    .w-2\\.5 { width: 0.625rem; }
+    .w-2 { width: 0.5rem; }
+    .w-60 { width: 15rem; }
+    .h-11 { height: 2.75rem; }
+    .h-14 { height: 3.5rem; }
+    .h-5 { height: 1.25rem; }
+    .h-6 { height: 1.5rem; }
+    .h-2\\.5 { height: 0.625rem; }
+    .h-2 { height: 0.5rem; }
+    .h-1\\.5 { height: 0.375rem; }
+    .h-28 { height: 7rem; }
+    .h-px { height: 1px; }
+    .h-\\[460px\\] { height: 460px; }
+    .max-w-2xl { max-width: 42rem; }
+    .max-w-4xl { max-width: 56rem; }
+    .max-w-md { max-width: 28rem; }
+    .flex { display: flex; }
+    .grid { display: grid; }
+    .block { display: block; }
+    .inline-block { display: inline-block; }
+    .hidden { display: none; }
+    .flex-col { flex-direction: column; }
+    .flex-wrap { flex-wrap: wrap; }
+    .items-center { align-items: center; }
+    .items-end { align-items: flex-end; }
+    .justify-between { justify-content: space-between; }
+    .justify-center { justify-content: center; }
+    .shrink-0 { flex-shrink: 0; }
+    .gap-1\\.5 { gap: 0.375rem; }
+    .gap-2 { gap: 0.5rem; }
+    .gap-3 { gap: 0.75rem; }
+    .gap-4 { gap: 1rem; }
+    .gap-8 { gap: 2rem; }
+    .gap-10 { gap: 2.5rem; }
+    .gap-12 { gap: 3rem; }
+    .space-y-3 > * + * { margin-top: 0.75rem; }
+    .space-y-4 > * + * { margin-top: 1rem; }
+    .space-y-5 > * + * { margin-top: 1.25rem; }
+    .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .p-3 { padding: 0.75rem; }
+    .p-4 { padding: 1rem; }
+    .p-5 { padding: 1.25rem; }
+    .p-6 { padding: 1.5rem; }
+    .p-7 { padding: 1.75rem; }
+    .px-2\\.5 { padding-left: 0.625rem; padding-right: 0.625rem; }
+    .px-4 { padding-left: 1rem; padding-right: 1rem; }
+    .px-5 { padding-left: 1.25rem; padding-right: 1.25rem; }
+    .px-8 { padding-left: 2rem; padding-right: 2rem; }
+    .px-10 { padding-left: 2.5rem; padding-right: 2.5rem; }
+    .py-1 { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+    .py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+    .py-2\\.5 { padding-top: 0.625rem; padding-bottom: 0.625rem; }
+    .py-3 { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+    .py-3\\.5 { padding-top: 0.875rem; padding-bottom: 0.875rem; }
+    .py-4 { padding-top: 1rem; padding-bottom: 1rem; }
+    .py-10 { padding-top: 2.5rem; padding-bottom: 2.5rem; }
+    .py-16 { padding-top: 4rem; padding-bottom: 4rem; }
+    .py-20 { padding-top: 5rem; padding-bottom: 5rem; }
+    .pt-28 { padding-top: 7rem; }
+    .pb-20 { padding-bottom: 5rem; }
+    .mb-1 { margin-bottom: 0.25rem; }
+    .mb-2 { margin-bottom: 0.5rem; }
+    .mb-3 { margin-bottom: 0.75rem; }
+    .mb-4 { margin-bottom: 1rem; }
+    .mb-5 { margin-bottom: 1.25rem; }
+    .mb-6 { margin-bottom: 1.5rem; }
+    .mb-7 { margin-bottom: 1.75rem; }
+    .mb-8 { margin-bottom: 2rem; }
+    .mb-10 { margin-bottom: 2.5rem; }
+    .mt-1 { margin-top: 0.25rem; }
+    .mt-8 { margin-top: 2rem; }
+    .mx-auto { margin-left: auto; margin-right: auto; }
+    .text-center { text-align: center; }
+    .text-white { color: #fff; }
+    .text-white\\/85 { color: rgba(255,255,255,0.85); }
+    .text-white\\/80 { color: rgba(255,255,255,0.8); }
+    .font-black { font-weight: 900; }
+    .font-bold { font-weight: 700; }
+    .font-semibold { font-weight: 600; }
+    .font-medium { font-weight: 500; }
+    .italic { font-style: italic; }
+    .uppercase { text-transform: uppercase; }
+    .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .text-\\[8px\\] { font-size: 8px; }
+    .text-\\[9px\\] { font-size: 9px; }
+    .text-\\[10px\\] { font-size: 10px; }
+    .text-\\[11px\\] { font-size: 11px; }
+    .text-sm { font-size: 0.875rem; line-height: 1.25rem; }
+    .text-lg { font-size: 1.125rem; line-height: 1.75rem; }
+    .text-xl { font-size: 1.25rem; line-height: 1.75rem; }
+    .text-2xl { font-size: 1.5rem; line-height: 2rem; }
+    .text-3xl { font-size: 1.875rem; line-height: 2.25rem; }
+    .tracking-tight { letter-spacing: -0.025em; }
+    .tracking-tighter { letter-spacing: -0.05em; }
+    .tracking-wider { letter-spacing: 0.05em; }
+    .tracking-widest { letter-spacing: 0.1em; }
+    .tracking-\\[0.28em\\] { letter-spacing: 0.28em; }
+    .tracking-\\[0.2em\\] { letter-spacing: 0.2em; }
+    .tracking-\\[0.16em\\] { letter-spacing: 0.16em; }
+    .leading-relaxed { line-height: 1.625; }
+    .leading-tight { line-height: 1.25; }
+    .leading-none { line-height: 1; }
+    .rounded-full { border-radius: 9999px; }
+    .rounded-xl { border-radius: 0.75rem; }
+    .rounded-2xl { border-radius: 1rem; }
+    .rounded-t-lg { border-top-left-radius: 0.5rem; border-top-right-radius: 0.5rem; }
+    .rounded-b-xl { border-bottom-left-radius: 0.75rem; border-bottom-right-radius: 0.75rem; }
+    .rounded-\\[22px\\] { border-radius: 22px; }
+    .rounded-\\[28px\\] { border-radius: 28px; }
+    .rounded-\\[2\\.5rem\\] { border-radius: 2.5rem; }
+    .opacity-60 { opacity: 0.6; }
+    .opacity-70 { opacity: 0.7; }
+    .blur-\\[80px\\] { filter: blur(80px); }
+    .-translate-x-1\\/2 { transform: translateX(-50%); }
+    .order-1 { order: 1; }
+    .order-2 { order: 2; }
+    .icon-svg { width: 20px; height: 20px; display: block; flex-shrink: 0; }
+    @media (min-width: 640px) {
+      .sm\\:flex-row { flex-direction: row; }
+      .sm\\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .sm\\:block { display: block; }
+    }
+    @media (min-width: 768px) {
+      .md\\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .md\\:p-8 { padding: 2rem; }
+      .md\\:p-6 { padding: 1.5rem; }
+      .md\\:text-base { font-size: 1rem; line-height: 1.5rem; }
+      .md\\:text-3xl { font-size: 1.875rem; line-height: 2.25rem; }
+    }
+    @media (min-width: 1024px) {
+      .lg\\:grid-cols-2 { grid-template-columns: 1fr 1fr; }
+      .lg\\:grid-cols-\\[1fr_1\\.05fr\\] { grid-template-columns: 1fr 1.05fr; }
+      .lg\\:order-1 { order: 1; }
+      .lg\\:order-2 { order: 2; }
+      .lg\\:justify-self-end { justify-self: end; }
+    }
+    @media (min-width: 1280px) {
+      .xl\\:gap-16 { gap: 4rem; }
+      .xl\\:gap-14 { gap: 3.5rem; }
+    }
   </style>
 </head>
 <body id="top" class="min-h-screen bg-white font-sans overflow-x-hidden">
@@ -366,7 +533,7 @@ const WEBSITE_HTML = `<!doctype html>
                 <p class="text-[9px] font-black uppercase tracking-widest mb-1" style="color:rgba(255,255,255,0.45)">Active trip</p>
                 <p class="text-white text-sm md:text-base font-black truncate">DARJEELING → KOLKATA</p>
               </div>
-              <i data-lucide="activity" class="w-5 h-5 shrink-0 live-dot" style="color:var(--gold)"></i>
+              <svg class="icon-svg shrink-0 live-dot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:var(--gold)"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
             </div>
             <div class="p-4 rounded-2xl" style="background:var(--blue);color:var(--ink)">
               <p class="text-[9px] uppercase font-black mb-1 opacity-60">Workspace ledger</p>
@@ -389,15 +556,15 @@ const WEBSITE_HTML = `<!doctype html>
         </p>
         <div class="space-y-3">
           <div class="feature-row hover-tile p-4 rounded-2xl" style="background:var(--canvas);border:1px solid var(--line)">
-            <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--white);color:var(--ink)"><i data-lucide="store" class="w-5 h-5"></i></div>
+            <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--white);color:var(--ink)"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/><path d="M2 7h20"/><path d="M22 7v3a2 2 0 0 1-2 2v0a2.07 2.07 0 0 1-2-2V7"/></svg></div>
             <div class="min-w-0"><h4 class="font-black uppercase text-sm tracking-tight">Give &amp; get loads</h4><p class="text-sm font-medium" style="color:var(--muted)">Broadcast to connections from Load Center.</p></div>
           </div>
           <div class="feature-row hover-tile p-4 rounded-2xl" style="background:var(--canvas);border:1px solid var(--line)">
-            <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--white);color:var(--ink)"><i data-lucide="gavel" class="w-5 h-5"></i></div>
+            <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--white);color:var(--ink)"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m14 13-7.5 7.5"/><path d="m16 16 6-6"/><path d="m8 8 6-6"/><path d="m9 7 8 8"/><path d="m21 11-8-8"/></svg></div>
             <div class="min-w-0"><h4 class="font-black uppercase text-sm tracking-tight">Live bidding</h4><p class="text-sm font-medium" style="color:var(--muted)">Quotes land on the story. Award the best rate.</p></div>
           </div>
           <div class="feature-row hover-tile p-4 rounded-2xl" style="background:var(--canvas);border:1px solid var(--line)">
-            <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--white);color:var(--ink)"><i data-lucide="badge-check" class="w-5 h-5"></i></div>
+            <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--white);color:var(--ink)"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m9 12 2 2 4-4"/></svg></div>
             <div class="min-w-0"><h4 class="font-black uppercase text-sm tracking-tight">Connected network</h4><p class="text-sm font-medium" style="color:var(--muted)">Only verified partners in your circle see the load.</p></div>
           </div>
         </div>
@@ -442,17 +609,17 @@ const WEBSITE_HTML = `<!doctype html>
       </div>
       <div class="product-grid grid md:grid-cols-3 gap-4">
         <div class="reveal hover-tile p-6 rounded-[22px]" style="background:var(--white);border:1px solid var(--line);--reveal-delay:40ms">
-          <div class="icon-chip w-11 h-11 rounded-xl mb-4 flex items-center justify-center" style="background:var(--blue)"><i data-lucide="users" class="w-5 h-5" style="color:var(--ink)"></i></div>
+          <div class="icon-chip w-11 h-11 rounded-xl mb-4 flex items-center justify-center" style="background:var(--blue)"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:var(--ink)"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
           <h4 class="font-black uppercase text-sm mb-2">Invite partners</h4>
           <p class="text-sm font-medium" style="color:var(--muted)">Add suppliers and customers. They only see what you share.</p>
         </div>
         <div class="reveal hover-tile p-6 rounded-[22px]" style="background:var(--white);border:1px solid var(--line);--reveal-delay:110ms">
-          <div class="icon-chip w-11 h-11 rounded-xl mb-4 flex items-center justify-center" style="background:var(--blue)"><i data-lucide="radio" class="w-5 h-5" style="color:var(--ink)"></i></div>
+          <div class="icon-chip w-11 h-11 rounded-xl mb-4 flex items-center justify-center" style="background:var(--blue)"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:var(--ink)"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/></svg></div>
           <h4 class="font-black uppercase text-sm mb-2">Story broadcast</h4>
           <p class="text-sm font-medium" style="color:var(--muted)">A load becomes a story bubble — route, vehicle, and bid count.</p>
         </div>
         <div class="reveal hover-tile p-6 rounded-[22px]" style="background:var(--white);border:1px solid var(--line);--reveal-delay:180ms">
-          <div class="icon-chip w-11 h-11 rounded-xl mb-4 flex items-center justify-center" style="background:var(--blue)"><i data-lucide="handshake" class="w-5 h-5" style="color:var(--ink)"></i></div>
+          <div class="icon-chip w-11 h-11 rounded-xl mb-4 flex items-center justify-center" style="background:var(--blue)"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:var(--ink)"><path d="m11 17 2 2a1 1 0 1 0 3-3"/><path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.42.25L21 4"/><path d="m21 3 1 11h-2"/><path d="M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3"/><path d="M3 4h8"/></svg></div>
           <h4 class="font-black uppercase text-sm mb-2">Award once</h4>
           <p class="text-sm font-medium" style="color:var(--muted)">Accept a bid and the trip is created with both parties attached.</p>
         </div>
@@ -485,11 +652,11 @@ const WEBSITE_HTML = `<!doctype html>
         </p>
         <div class="space-y-3">
           <div class="feature-row hover-tile p-4 rounded-2xl" style="background:var(--canvas);border:1px solid var(--line)">
-            <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--gold)"><i data-lucide="megaphone" class="w-5 h-5"></i></div>
+            <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--gold)"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 18-5v12L3 13v-2z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg></div>
             <div class="min-w-0"><h4 class="font-black uppercase text-sm tracking-tight">Targeted release</h4><p class="text-sm font-medium" style="color:var(--muted)">Credits push the indent to selected workspaces.</p></div>
           </div>
           <div class="feature-row hover-tile p-4 rounded-2xl" style="background:var(--canvas);border:1px solid var(--line)">
-            <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--gold)"><i data-lucide="eye" class="w-5 h-5"></i></div>
+            <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--gold)"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg></div>
             <div class="min-w-0"><h4 class="font-black uppercase text-sm tracking-tight">Real impressions</h4><p class="text-sm font-medium" style="color:var(--muted)">Counted when another org views the sponsored card.</p></div>
           </div>
         </div>
@@ -503,17 +670,17 @@ const WEBSITE_HTML = `<!doctype html>
       <p class="section-lead font-semibold max-w-2xl leading-relaxed mb-10 mx-auto text-center" style="color:rgba(255,255,255,0.62)">Assign drivers, track the lane, and settle into the ledger when the POD lands.</p>
       <div class="trip-feature-grid grid md:grid-cols-3 gap-4">
         <div class="hover-tile-dark p-6 rounded-2xl text-center" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08)">
-          <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center mx-auto mb-4" style="background:var(--blue)"><i data-lucide="mouse-pointer-2" class="w-5 h-5" style="color:var(--ink)"></i></div>
+          <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center mx-auto mb-4" style="background:var(--blue)"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:var(--ink)"><path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.941l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.941.063z"/></svg></div>
           <h4 class="font-black uppercase text-sm mb-2 italic">Instant assign</h4>
           <p class="text-sm leading-relaxed font-medium" style="color:rgba(255,255,255,0.62)">Push the job to the driver app in one tap.</p>
         </div>
         <div class="hover-tile-dark p-6 rounded-2xl text-center" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08)">
-          <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center mx-auto mb-4" style="background:var(--blue)"><i data-lucide="map-pinned" class="w-5 h-5" style="color:var(--ink)"></i></div>
+          <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center mx-auto mb-4" style="background:var(--blue)"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:var(--ink)"><path d="M18 8c0 3.613-3.869 7.429-5.393 8.795a1 1 0 0 1-1.214 0C9.87 15.429 6 11.613 6 8a6 6 0 0 1 12 0"/><circle cx="12" cy="8" r="2"/><path d="M8.714 14h-3.71a1 1 0 0 0-.948.684l-2.004 6A1 1 0 0 0 3 22h18a1 1 0 0 0 .948-1.316l-2-6A1 1 0 0 0 18.996 14h-3.712"/></svg></div>
           <h4 class="font-black uppercase text-sm mb-2 italic">Live route</h4>
           <p class="text-sm leading-relaxed font-medium" style="color:rgba(255,255,255,0.62)">GPS and status stay on the same trip card.</p>
         </div>
         <div class="hover-tile-dark p-6 rounded-2xl text-center" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08)">
-          <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center mx-auto mb-4" style="background:var(--blue)"><i data-lucide="check-circle-2" class="w-5 h-5" style="color:var(--ink)"></i></div>
+          <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center mx-auto mb-4" style="background:var(--blue)"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:var(--ink)"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></div>
           <h4 class="font-black uppercase text-sm mb-2 italic">Auto-settlement</h4>
           <p class="text-sm leading-relaxed font-medium" style="color:rgba(255,255,255,0.62)">Completion writes the ledger lines — no re-keying.</p>
         </div>
@@ -557,11 +724,11 @@ const WEBSITE_HTML = `<!doctype html>
         </p>
         <div class="space-y-3">
           <div class="feature-row hover-tile p-4 rounded-2xl" style="background:var(--white);border:1px solid var(--line)">
-            <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--blue)"><i data-lucide="chart-column" class="w-5 h-5"></i></div>
+            <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--blue)"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg></div>
             <div class="min-w-0"><h4 class="font-black uppercase text-sm tracking-tight">Lane &amp; revenue</h4><p class="text-sm font-medium" style="color:var(--muted)">Volume and settlement by corridor.</p></div>
           </div>
           <div class="feature-row hover-tile p-4 rounded-2xl" style="background:var(--white);border:1px solid var(--line)">
-            <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--blue)"><i data-lucide="coins" class="w-5 h-5"></i></div>
+            <div class="icon-chip w-11 h-11 rounded-xl flex items-center justify-center" style="background:var(--blue)"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/></svg></div>
             <div class="min-w-0"><h4 class="font-black uppercase text-sm tracking-tight">Credits &amp; Boost</h4><p class="text-sm font-medium" style="color:var(--muted)">Campaign spend next to impressions.</p></div>
           </div>
         </div>
@@ -595,10 +762,10 @@ const WEBSITE_HTML = `<!doctype html>
         <h2 class="headline-lg font-black uppercase italic mb-4">Built for drivers too<span class="dot-gold">.</span></h2>
         <p class="section-lead font-semibold max-w-md mb-8" style="color:var(--muted)">Trip updates, digital POD, and expenses on the same phone the office already tracks.</p>
         <div class="driver-feature-grid grid grid-cols-2 gap-3">
-          <div class="hover-tile p-4 rounded-xl flex flex-col items-center text-center gap-2" style="background:var(--canvas);border:1px solid var(--line)"><i data-lucide="smartphone" class="w-5 h-5"></i><span class="font-black uppercase text-[10px] tracking-widest">Pilot app</span></div>
-          <div class="hover-tile p-4 rounded-xl flex flex-col items-center text-center gap-2" style="background:var(--canvas);border:1px solid var(--line)"><i data-lucide="camera" class="w-5 h-5"></i><span class="font-black uppercase text-[10px] tracking-widest">Instant POD</span></div>
-          <div class="hover-tile p-4 rounded-xl flex flex-col items-center text-center gap-2" style="background:var(--canvas);border:1px solid var(--line)"><i data-lucide="fuel" class="w-5 h-5"></i><span class="font-black uppercase text-[10px] tracking-widest">Expense logs</span></div>
-          <div class="hover-tile p-4 rounded-xl flex flex-col items-center text-center gap-2" style="background:var(--canvas);border:1px solid var(--line)"><i data-lucide="wallet" class="w-5 h-5"></i><span class="font-black uppercase text-[10px] tracking-widest">Pay status</span></div>
+          <div class="hover-tile p-4 rounded-xl flex flex-col items-center text-center gap-2" style="background:var(--canvas);border:1px solid var(--line)"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg><span class="font-black uppercase text-[10px] tracking-widest">Pilot app</span></div>
+          <div class="hover-tile p-4 rounded-xl flex flex-col items-center text-center gap-2" style="background:var(--canvas);border:1px solid var(--line)"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg><span class="font-black uppercase text-[10px] tracking-widest">Instant POD</span></div>
+          <div class="hover-tile p-4 rounded-xl flex flex-col items-center text-center gap-2" style="background:var(--canvas);border:1px solid var(--line)"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 22h12"/><path d="M4 9h10"/><path d="M14 22V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v18"/><path d="M14 13h2a2 2 0 0 1 2 2v2a2 2 0 0 0 2 2a2 2 0 0 0 2-2V9.83a2 2 0 0 0-.59-1.42L18 5"/></svg><span class="font-black uppercase text-[10px] tracking-widest">Expense logs</span></div>
+          <div class="hover-tile p-4 rounded-xl flex flex-col items-center text-center gap-2" style="background:var(--canvas);border:1px solid var(--line)"><svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></svg><span class="font-black uppercase text-[10px] tracking-widest">Pay status</span></div>
         </div>
       </div>
       <div class="reveal flex justify-center">
@@ -661,7 +828,6 @@ const WEBSITE_HTML = `<!doctype html>
     <a href="/onboarding" target="_top">Enter</a>
   </div>
   <script>
-    lucide.createIcons();
     const navEl = document.querySelector('.glass-nav');
     const syncNav = () => { if (navEl) navEl.classList.toggle('is-scrolled', window.scrollY > 8); };
     syncNav();
@@ -707,6 +873,8 @@ const WEBSITE_HTML = `<!doctype html>
 </body>
 </html>`;
 
+const IFRAME_STYLE = { width: '100%', height: '100vh', border: 'none' } as const;
+
 export default function TerminalWebsitePage() {
   const router = useRouter();
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -721,6 +889,11 @@ export default function TerminalWebsitePage() {
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
   }, [router]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    void import('@/features/onboarding/components/OnboardingPersonaHub');
+  }, []);
 
   if (Platform.OS !== 'web') {
     return (
@@ -741,7 +914,7 @@ export default function TerminalWebsitePage() {
       ref={iframeRef}
       title="pulse."
       srcDoc={WEBSITE_HTML}
-      style={{ width: '100%', height: '100vh', border: 'none' }}
+      style={IFRAME_STYLE}
       sandbox="allow-scripts allow-same-origin allow-popups allow-top-navigation allow-top-navigation-by-user-activation"
     />
   );

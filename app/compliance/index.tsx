@@ -1561,6 +1561,14 @@ export default function ComplianceScreen() {
     [router],
   );
 
+  const openSupplier = useCallback(
+    (supplierId: string) => {
+      if (!supplierId.trim()) return;
+      router.push(ROUTES.supplierDetail(supplierId) as Parameters<typeof router.push>[0]);
+    },
+    [router],
+  );
+
   const openPay = useCallback((summary: ComplianceTripSummary) => {
     const readiness = deriveComplianceQueueReadiness(summary);
     if (!readiness.readyCategory) {
@@ -2092,6 +2100,7 @@ export default function ComplianceScreen() {
             summaries={tableWindowItems}
             organizationId={currentOrganization?.id ?? ""}
             onOpenTrip={openTrip}
+            onOpenSupplier={openSupplier}
             onOpenActivityLog={setActivityLogSummary}
             onUtrSaved={(tripId) => void syncChange({ type: "payment", tripId })}
           />
@@ -2101,6 +2110,7 @@ export default function ComplianceScreen() {
           <ComplianceTripsTable
             summaries={tableWindowItems}
             onOpenTrip={openTrip}
+            onOpenSupplier={openSupplier}
             onOpenDetails={openDetails}
             onReview={(tripId, _documentKey, scope = "trip") => {
               openComplianceCard(tripId, scope);
@@ -2272,6 +2282,8 @@ export default function ComplianceScreen() {
             openComplianceCard(tripId, scope);
           }}
           onOpenActivityLog={setActivityLogSummary}
+          onOpenTrip={openTrip}
+          onOpenSupplier={openSupplier}
         />
       )}
 

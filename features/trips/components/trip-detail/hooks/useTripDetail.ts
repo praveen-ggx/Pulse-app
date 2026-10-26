@@ -40,7 +40,7 @@ import {
 } from "@/features/suppliers/services/suppliers.service";
 import { getVehicleDocumentViewUrl, getVehicleDocumentViewUrls, mergeEntityDocumentsIntoVehicleVault } from "@/features/vehicles/services/vehicleDocuments.service";
 import { resolveTripDocumentPreviewUrl } from "@/features/tripCompliance/services/vehicleDocumentReuse.service";
-import { getVehicleById, getVehicleForTripViewer, findVehicleByPlate, createVehicle } from "@/features/vehicles/services/vehicles.service";
+import { getVehicleById, getVehicleForTripViewer, findVehicleByPlate, ensureVehicleForVault } from "@/features/vehicles/services/vehicles.service";
 import { assignedVehiclePlate } from "@/features/trips/utils/tripAssignmentVehicle.util";
 import type { VehicleDocuments } from "@/features/vehicles/utils/vehicleDocuments.util";
 import type { VehicleComplianceDocType } from "@/features/vehicles/utils/vehicleDocuments.util";
@@ -2456,7 +2456,7 @@ export function useTripDetail({
    * insurance, and PUC. A plate with no vehicle row yet is saved as an adhoc
    * vehicle in the trip org. trips.vehicle_id is not changed.
    */
-  const resolveVaultVehicle = useCallback(async (): Promise<{
+  const resolveVaultVehicle = useCallback(async (plateHint?: string): Promise<{
     vehicleId: string;
     orgId: string;
   } | null> => {
@@ -2473,13 +2473,11 @@ export function useTripDetail({
         return { vehicleId: linkedId, orgId: vehicleOwnerOrgId };
       }
       const owned = await getVehicleById(orgId, linkedId);
-      if (currentTripIdRef.current !== requestedTripId) return null;
       if (owned.vehicle) {
         rememberVaultVehicle(linkedId, orgId, (owned.vehicle.documents ?? null) as VehicleDocuments | null);
         return { vehicleId: linkedId, orgId };
       }
       const viewed = await getVehicleForTripViewer(linkedId, requestedTripId, orgId);
-      if (currentTripIdRef.current !== requestedTripId) return null;
       const ownerOrgId = viewed.vehicle?.organization_id?.trim() || "";
       if (viewed.vehicle && ownerOrgId) {
         rememberVaultVehicle(
@@ -2489,44 +2487,34 @@ export function useTripDetail({
         );
         return { vehicleId: linkedId, orgId: ownerOrgId };
       }
+      return {
+        vehicleId: linkedId,
+        orgId: vehicleOwnerOrgId || orgId,
+      };
     }
 
     if (vaultVehicleId && vehicleOwnerOrgId) {
       return { vehicleId: vaultVehicleId, orgId: vehicleOwnerOrgId };
     }
 
-    const plateSource = assignedVehiclePlate({
-      displayVehicleFromInput,
-      vehicleLabel,
-      vehicleDisplayNumber: trip?.vehicle_display_number,
-      vehicleNumber: (trip as { vehicle_number?: string | null } | null)?.vehicle_number,
-    });
+    const plateSource =
+      assignedVehiclePlate({
+        displayVehicleFromInput,
+        vehicleLabel,
+        vehicleDisplayNumber: trip?.vehicle_display_number,
+        vehicleNumber: (trip as { vehicle_number?: string | null } | null)?.vehicle_number,
+      }) ||
+      (plateHint ?? "").trim();
     const plate =
       formatIndianVehicleNumber(plateSource).trim() || plateSource.trim();
     if (!plate) return null;
-    if (vaultVehicleId && vehicleOwnerOrgId) {
-      return { vehicleId: vaultVehicleId, orgId: vehicleOwnerOrgId };
-    }
-
-    const inTripOrg = await findVehicleByPlate(orgId, plate);
-    if (currentTripIdRef.current !== requestedTripId) return null;
-    if (inTripOrg.vehicle) {
-      rememberVaultVehicle(
-        inTripOrg.vehicle.id,
-        orgId,
-        (inTripOrg.vehicle.documents ?? null) as VehicleDocuments | null,
-      );
-      return { vehicleId: inTripOrg.vehicle.id, orgId };
-    }
 
     const supplierId = trip?.supplier_id?.trim() ?? "";
     if (supplierId) {
       const { supplier } = await getSupplierById(orgId, supplierId);
-      if (currentTripIdRef.current !== requestedTripId) return null;
       const linkedOrgId = supplier?.linked_organization_id?.trim() ?? "";
       if (linkedOrgId && linkedOrgId !== orgId) {
         const inSupplierOrg = await findVehicleByPlate(linkedOrgId, plate);
-        if (currentTripIdRef.current !== requestedTripId) return null;
         if (inSupplierOrg.vehicle) {
           rememberVaultVehicle(
             inSupplierOrg.vehicle.id,
@@ -2538,31 +2526,23 @@ export function useTripDetail({
       }
     }
 
-    const created = await createVehicle(orgId, {
-      vehicle_number: plate,
-      vehicleSource: "partner",
-    });
-    if (currentTripIdRef.current !== requestedTripId) return null;
-    if (created.vehicle) {
+    const ensured = await ensureVehicleForVault(orgId, plate);
+    if (ensured.vehicle) {
       rememberVaultVehicle(
-        created.vehicle.id,
-        orgId,
-        (created.vehicle.documents ?? {}) as VehicleDocuments,
+        ensured.vehicle.id,
+        ensured.vehicle.organization_id?.trim() || orgId,
+        (ensured.vehicle.documents ?? {}) as VehicleDocuments,
       );
-      return { vehicleId: created.vehicle.id, orgId };
+      return {
+        vehicleId: ensured.vehicle.id,
+        orgId: ensured.vehicle.organization_id?.trim() || orgId,
+      };
     }
-    if (created.error?.message.toLowerCase().includes("already added")) {
-      const again = await findVehicleByPlate(orgId, plate);
-      if (again.vehicle) {
-        rememberVaultVehicle(
-          again.vehicle.id,
-          orgId,
-          (again.vehicle.documents ?? null) as VehicleDocuments | null,
-        );
-        return { vehicleId: again.vehicle.id, orgId };
-      }
-    }
-    return null;
+
+    // Trip id is a uuid; entity_documents has no FK to vehicles. This unblocks
+    // RC / FC / insurance when garage insert is denied.
+    rememberVaultVehicle(requestedTripId, orgId, null);
+    return { vehicleId: requestedTripId, orgId };
   }, [
     trip?.id,
     trip?.organization_id,

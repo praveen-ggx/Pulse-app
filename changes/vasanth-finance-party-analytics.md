@@ -2,6 +2,7 @@
 
 ## What
 - Vault preview pipeline and document delete order on trip detail / workspace docs.
+- Vault / compliance cards preview every uploaded file, skip `fields.json` markers, and paint local `blob:` / `file:` URIs without signing.
 
 ## Why
 - Preview cards must not treat a failed delete as success, and preview evidence must stay separate from unclassified full-suite noise.

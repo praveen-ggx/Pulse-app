@@ -1,15 +1,16 @@
 /**
  * Vault document card — title, number, and a preview that fills the frame.
  */
-import { RegistryPrimaryButton } from "@/components/AlertRegistryCardActions";
+import { RegistryGhostButton, RegistryPrimaryButton } from "@/components/AlertRegistryCardActions";
 import Theme from "@/constants/Theme";
 import { signCompliancePreviewUrl } from "@/features/tripCompliance/services/complianceDocumentView.service";
+import { isInlinePreviewUri } from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import { isPdfTripDoc } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { VaultDocThumb } from "@/features/trips/components/trip-detail/VaultDocThumb";
 import type { PartyEntityType } from "@/lib/partyAvatarDisplay";
 import { FileText } from "lucide-react-native";
 import { useEffect, useState } from "react";
-import { Platform, Pressable, StyleSheet, Text, View, type ViewStyle } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View, type ViewStyle } from "react-native";
 
 const ADD_BTN: ViewStyle = {
   alignSelf: "center",
@@ -40,37 +41,79 @@ type Props = {
   /** LR / invoice / e-way number, shown under the title. */
   actionText?: string;
   required?: boolean;
-  onPreview: () => void;
+  /** ISO date (YYYY-MM-DD or timestamp) shown as Valid till. */
+  expiryDate?: string | null;
+  /** When true, show Valid till even if the date is still missing. */
+  needsExpiry?: boolean;
+  /** All active files for this type. Falls back to `preview` when omitted. */
+  previews?: VaultChooserPreview[];
+  onPreview?: () => void;
+  /** Tap a specific file when more than one is on file. */
+  onPreviewAt?: (index: number) => void;
   onAdd: () => void;
 };
 
+function normalizeExpiryIso(raw?: string | null): string | null {
+  const value = raw?.trim() ?? "";
+  if (!value) return null;
+  const day = value.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null;
+}
+
+function formatCardExpiry(iso: string): string {
+  return new Date(`${iso}T12:00:00`).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 const WEB_POINTER = Platform.OS === "web" ? ({ cursor: "pointer" } as const) : null;
+
+function isCardPreviewable(item: VaultChooserPreview): boolean {
+  if (item.previewUri?.trim()) return true;
+  const path = item.storagePath?.trim() ?? "";
+  if (!path) return false;
+  if (isInlinePreviewUri(path)) return true;
+  if (path.startsWith("ref:")) return false;
+  const base = path.split("?")[0]?.split("/").pop()?.toLowerCase() ?? "";
+  if (base === "fields.json" || base.endsWith("-fields.json")) return false;
+  return true;
+}
 
 function ChooserQuoteDoc({
   preview,
   onPress,
+  tiled = false,
 }: {
   preview: VaultChooserPreview;
   onPress: () => void;
+  tiled?: boolean;
 }) {
-  const [uri, setUri] = useState<string | null>(preview.previewUri?.trim() || null);
+  const readyUri = preview.previewUri?.trim() || "";
+  const [uri, setUri] = useState<string | null>(readyUri || null);
+  const [pending, setPending] = useState(!readyUri);
 
   useEffect(() => {
     const ready = preview.previewUri?.trim() || "";
     if (ready) {
       setUri(ready);
+      setPending(false);
       return;
     }
     const path = preview.storagePath?.trim() || "";
-    if (!path) {
+    if (!path || path.startsWith("ref:")) {
       setUri(null);
+      setPending(false);
       return;
     }
-    if (/^https?:\/\//i.test(path)) {
+    if (isInlinePreviewUri(path)) {
       setUri(path);
+      setPending(false);
       return;
     }
     let cancelled = false;
+    setPending(true);
     void signCompliancePreviewUrl({
       storagePath: path,
       source:
@@ -84,12 +127,16 @@ function ChooserQuoteDoc({
       organizationId: preview.organizationId,
       entityId: preview.entityId,
     }).then((signed) => {
-      if (!cancelled) setUri(signed);
+      if (cancelled) return;
+      setUri(signed);
+      setPending(false);
     });
     return () => {
       cancelled = true;
     };
   }, [preview.entityId, preview.organizationId, preview.previewUri, preview.source, preview.storagePath]);
+
+  if (!pending && !uri) return null;
 
   const pdf = isPdfTripDoc({
     fileName: preview.fileName,
@@ -99,18 +146,27 @@ function ChooserQuoteDoc({
 
   return (
     <Pressable
-      onPress={onPress}
-      style={[styles.quoteDoc, WEB_POINTER]}
+      onPress={(event) => {
+        event?.stopPropagation?.();
+        onPress();
+      }}
+      style={[tiled && styles.quoteCell, styles.quoteDoc, WEB_POINTER]}
       accessibilityRole="button"
       accessibilityLabel={`Preview ${preview.fileName || "document"}`}
     >
-      <VaultDocThumb
-        uri={uri}
-        isPdf={pdf}
-        fileName={preview.fileName}
-        sizing="cover"
-        style={styles.quoteImage}
-      />
+      {uri ? (
+        <VaultDocThumb
+          uri={uri}
+          isPdf={pdf}
+          fileName={preview.fileName}
+          sizing="cover"
+          style={styles.quoteImage}
+        />
+      ) : (
+        <View style={styles.quoteLoading}>
+          <ActivityIndicator size="small" color={Theme.actionBtnInk} />
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -127,22 +183,38 @@ export function VaultChooserNotifyRow({
   onFile,
   canUpload,
   preview = null,
+  previews,
   actionText,
   required,
+  expiryDate,
+  needsExpiry = false,
   onPreview,
+  onPreviewAt,
   onAdd,
 }: Props) {
-  const showDoc = onFile && Boolean(preview?.previewUri?.trim() || preview?.storagePath?.trim());
+  const allPreviews = (
+    previews && previews.length > 0 ? previews : preview ? [preview] : []
+  ).filter(isCardPreviewable);
+  const showDoc = onFile && allPreviews.length > 0;
+  const fileCount = allPreviews.length;
   const numberLine = actionText?.trim() || "";
+  const expiryIso = normalizeExpiryIso(expiryDate);
+  const expiryLine = expiryIso ? formatCardExpiry(expiryIso) : "";
+  const showExpiry = Boolean(expiryLine) || (needsExpiry && onFile);
   const caption = redundantMeta(meta, onFile) || meta.trim() === numberLine ? "" : meta.trim();
+  const onFileLabel = fileCount > 1 ? `${fileCount} on file` : "On file";
+  const previewFile = (index: number) => {
+    if (onPreviewAt) {
+      onPreviewAt(index);
+      return;
+    }
+    onPreview?.();
+  };
 
   return (
-    <Pressable
-      onPress={onFile ? onPreview : canUpload ? onAdd : undefined}
-      disabled={!onFile && !canUpload}
-      accessibilityRole="button"
+    <View
       accessibilityLabel={`${label}${numberLine ? ` ${numberLine}` : ""}`}
-      style={[styles.card, WEB_POINTER]}
+      style={styles.card}
     >
       <View style={styles.header}>
         <View style={styles.iconWash} accessibilityElementsHidden>
@@ -165,7 +237,7 @@ export function VaultChooserNotifyRow({
             <View style={[styles.statusPill, onFile ? styles.statusOnFile : styles.statusPending]}>
               <View style={[styles.statusDot, onFile ? styles.statusDotOn : styles.statusDotOff]} />
               <Text style={[styles.statusText, onFile ? styles.statusTextOn : styles.statusTextOff]}>
-                {onFile ? "On file" : "Pending"}
+                {onFile ? onFileLabel : "Pending"}
               </Text>
             </View>
           </View>
@@ -174,26 +246,65 @@ export function VaultChooserNotifyRow({
               {numberLine}
             </Text>
           ) : null}
+          {showExpiry ? (
+            <View style={styles.expiryRow}>
+              <Text style={styles.expiryLabel}>Valid till</Text>
+              <Text
+                style={[styles.expiryValue, !expiryLine && styles.expiryMissing]}
+                numberOfLines={1}
+              >
+                {expiryLine || "Add date"}
+              </Text>
+            </View>
+          ) : null}
           {caption ? (
             <Text style={styles.caption} numberOfLines={1} ellipsizeMode="tail">
               {caption}
             </Text>
           ) : null}
         </View>
-        {canUpload ? (
-          <RegistryPrimaryButton label="Add" onPress={onAdd} style={ADD_BTN} />
+        {fileCount > 1 || canUpload ? (
+          <View style={styles.headerActions}>
+            {fileCount > 1 ? (
+              <RegistryGhostButton
+                label="Files"
+                onPress={() => onPreview?.()}
+                style={ADD_BTN}
+              />
+            ) : null}
+            {canUpload ? (
+              <RegistryPrimaryButton label="Add" onPress={onAdd} style={ADD_BTN} />
+            ) : null}
+          </View>
         ) : null}
       </View>
 
-      {showDoc && preview ? (
-        <ChooserQuoteDoc preview={preview} onPress={onPreview} />
+      {showDoc && allPreviews.length === 1 ? (
+        <ChooserQuoteDoc preview={allPreviews[0]} onPress={() => previewFile(0)} />
+      ) : showDoc ? (
+        <View style={styles.quoteGrid}>
+          {allPreviews.map((item, index) => (
+            <ChooserQuoteDoc
+              key={`${item.storagePath ?? item.previewUri ?? item.fileName ?? "file"}-${index}`}
+              preview={item}
+              tiled
+              onPress={() => previewFile(index)}
+            />
+          ))}
+        </View>
       ) : (
-        <View style={styles.emptyQuote} accessibilityLabel={`${label} has no file yet`}>
+        <Pressable
+          onPress={canUpload ? onAdd : undefined}
+          disabled={!canUpload}
+          style={styles.emptyQuote}
+          accessibilityRole={canUpload ? "button" : "none"}
+          accessibilityLabel={`${label} has no file yet`}
+        >
           <FileText size={18} color={Theme.textMuted} strokeWidth={1.8} />
           <Text style={styles.emptyQuoteText}>No file in this slot yet</Text>
-        </View>
+        </Pressable>
       )}
-    </Pressable>
+    </View>
   );
 }
 
@@ -212,6 +323,12 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: 10,
     minWidth: 0,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 0,
   },
   iconWash: {
     width: 32,
@@ -267,11 +384,53 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
     color: Theme.buttonDark,
   },
+  expiryRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 12,
+    minWidth: 0,
+    paddingTop: 1,
+  },
+  expiryLabel: {
+    flexShrink: 0,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+    color: Theme.textMuted,
+  },
+  expiryValue: {
+    flex: 1,
+    minWidth: 0,
+    textAlign: "right",
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: "700",
+    fontVariant: ["tabular-nums"],
+    color: Theme.textPrimaryDark,
+  },
+  expiryMissing: {
+    fontWeight: "600",
+    color: Theme.complianceStagePendingFg,
+  },
   caption: {
     fontSize: 11,
     lineHeight: 15,
     fontWeight: "400",
     color: Theme.textMuted,
+  },
+  quoteGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  quoteCell: {
+    flexGrow: 0,
+    flexBasis: "47%",
+    width: "47%",
+    minWidth: 140,
+    maxWidth: "48.5%",
   },
   quoteDoc: {
     width: "100%",
@@ -283,6 +442,12 @@ const styles = StyleSheet.create({
   quoteImage: {
     width: "100%",
     height: "100%",
+  },
+  quoteLoading: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.compliancePreviewCanvas,
   },
   emptyQuote: {
     width: "100%",

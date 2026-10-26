@@ -1,3 +1,4 @@
+import { DocumentDateCalendar } from "@/components/DocumentDateCalendar";
 import {
   AlertRegistrySignalCard,
 } from "@/components/AlertRegistrySignalCard";
@@ -99,136 +100,156 @@ function rowsToEntries(rows: EwayBillStripRow[]): EwayFieldValues[] {
     );
 }
 
-function isoFromDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+function toIsoToday(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
-function dateFromIso(iso: string): Date {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return new Date(`${iso}T12:00:00`);
-  return new Date();
-}
-
-const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
-
-function monthLabel(year: number, month: number): string {
-  return new Date(year, month, 1).toLocaleDateString("en-IN", {
-    month: "short",
+function prettyEwayDate(iso: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "";
+  return new Date(`${iso}T12:00:00`).toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "long",
     year: "numeric",
   });
 }
 
-function monthCells(year: number, month: number): Array<{
-  iso: string;
-  day: number;
-  inMonth: boolean;
-}> {
-  const firstWeekday = new Date(year, month, 1).getDay();
-  const gridStart = new Date(year, month, 1 - firstWeekday);
-  return Array.from({ length: 42 }, (_, index) => {
-    const date = new Date(
-      gridStart.getFullYear(),
-      gridStart.getMonth(),
-      gridStart.getDate() + index,
-    );
-    return {
-      iso: isoFromDate(date),
-      day: date.getDate(),
-      inMonth: date.getMonth() === month,
-    };
-  });
+function ewayRemainingLabel(iso: string): string {
+  const target = new Date(`${iso}T12:00:00`).getTime();
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  const remaining = Math.round((target - today.getTime()) / 86_400_000);
+  if (remaining < 0) return "Already expired";
+  if (remaining === 0) return "Expires today";
+  if (remaining === 1) return "Valid for 1 day";
+  if (remaining < 60) return `Valid for ${remaining} days`;
+  return `Valid for ${Math.round(remaining / 30)} months`;
 }
+
+function addDaysIso(fromIso: string, days: number): string {
+  const base = /^\d{4}-\d{2}-\d{2}$/.test(fromIso)
+    ? new Date(`${fromIso}T12:00:00`)
+    : new Date();
+  base.setDate(base.getDate() + days);
+  return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}-${String(base.getDate()).padStart(2, "0")}`;
+}
+
+const VALID_TILL_SPANS = [
+  { id: "1d", label: "1 day", days: 1 },
+  { id: "3d", label: "3 days", days: 3 },
+  { id: "7d", label: "7 days", days: 7 },
+  { id: "15d", label: "15 days", days: 15 },
+] as const;
 
 export function CompactValidTillCalendar({
   selectedIso,
   onSelect,
+  minDate,
+  maxDate,
 }: {
   selectedIso: string;
   onSelect: (iso: string) => void;
+  minDate?: string;
+  maxDate?: string;
 }) {
-  const pivot = selectedIso ? dateFromIso(selectedIso) : new Date();
-  const [year, setYear] = useState(pivot.getFullYear());
-  const [month, setMonth] = useState(pivot.getMonth());
-  const cells = useMemo(() => monthCells(year, month), [year, month]);
-  const todayIso = isoFromDate(new Date());
-
-  const shiftMonth = (delta: number) => {
-    const next = new Date(year, month + delta, 1);
-    setYear(next.getFullYear());
-    setMonth(next.getMonth());
-  };
-
   return (
     <View style={styles.compactCal}>
-      <View style={styles.compactCalHeader}>
-        <TouchableOpacity
-          style={styles.compactCalNav}
-          onPress={() => shiftMonth(-1)}
-          accessibilityRole="button"
-          accessibilityLabel="Previous month"
-          hitSlop={{
-            top: Layout.touchTargetHitSlop,
-            bottom: Layout.touchTargetHitSlop,
-            left: Layout.touchTargetHitSlop,
-            right: Layout.touchTargetHitSlop,
-          }}
-        >
-          <Feather name="chevron-left" size={14} color={Theme.primary} />
-        </TouchableOpacity>
-        <Text style={styles.compactCalMonth}>{monthLabel(year, month)}</Text>
-        <TouchableOpacity
-          style={styles.compactCalNav}
-          onPress={() => shiftMonth(1)}
-          accessibilityRole="button"
-          accessibilityLabel="Next month"
-          hitSlop={{
-            top: Layout.touchTargetHitSlop,
-            bottom: Layout.touchTargetHitSlop,
-            left: Layout.touchTargetHitSlop,
-            right: Layout.touchTargetHitSlop,
-          }}
-        >
-          <Feather name="chevron-right" size={14} color={Theme.primary} />
-        </TouchableOpacity>
-      </View>
-      <View style={styles.compactCalWeek}>
-        {WEEKDAYS.map((day) => (
-          <Text key={day} style={styles.compactCalWeekText}>
-            {day}
+      <DocumentDateCalendar
+        selectedIso={selectedIso}
+        minDate={minDate}
+        maxDate={maxDate}
+        onSelect={onSelect}
+      />
+    </View>
+  );
+}
+
+function EwayDatePreviewField({
+  label,
+  emptyHint,
+  selectedIso,
+  open,
+  onToggle,
+  onSelect,
+  minDate,
+  maxDate,
+  chips,
+}: {
+  label: string;
+  emptyHint: string;
+  selectedIso: string;
+  open: boolean;
+  onToggle: () => void;
+  onSelect: (iso: string) => void;
+  minDate?: string;
+  maxDate?: string;
+  chips?: readonly { id: string; label: string; days: number }[];
+}) {
+  const pretty = prettyEwayDate(selectedIso);
+  const hasDate = Boolean(pretty);
+  const calendarIso = selectedIso || toIsoToday();
+
+  return (
+    <View style={styles.datePreviewCard}>
+      <Pressable
+        onPress={onToggle}
+        style={styles.datePreviewHead}
+        accessibilityRole="button"
+        accessibilityLabel={`${label}. ${pretty || emptyHint}`}
+      >
+        <View style={styles.datePreviewIcon}>
+          <Feather name="calendar" size={16} color={Theme.brandBlueInk} />
+        </View>
+        <View style={styles.datePreviewCopy}>
+          <Text style={styles.datePreviewLabel}>{label}</Text>
+          <Text
+            style={[styles.datePreviewValue, !hasDate && styles.datePreviewEmpty]}
+            numberOfLines={1}
+          >
+            {pretty || emptyHint}
           </Text>
-        ))}
-      </View>
-      <View style={styles.compactCalGrid}>
-        {cells.map((cell) => {
-          const selected = cell.iso === selectedIso;
-          const today = cell.iso === todayIso;
-          return (
-            <TouchableOpacity
-              key={cell.iso}
-              style={[
-                styles.compactCalDay,
-                selected && styles.compactCalDaySelected,
-              ]}
-              onPress={() => onSelect(cell.iso)}
-              accessibilityRole="button"
-              accessibilityLabel={`Select ${cell.iso}`}
-            >
-              <Text
-                style={[
-                  styles.compactCalDayText,
-                  !cell.inMonth && styles.compactCalDayMuted,
-                  today && !selected && styles.compactCalDayToday,
-                  selected && styles.compactCalDayTextSelected,
-                ]}
-              >
-                {cell.day}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+          {hasDate && label === "Valid till" ? (
+            <Text style={styles.datePreviewMeta}>{ewayRemainingLabel(selectedIso)}</Text>
+          ) : null}
+        </View>
+        <Text style={styles.datePreviewToggle}>{open ? "Hide" : "Adjust"}</Text>
+      </Pressable>
+      {open ? (
+        <View style={styles.datePreviewBody}>
+          {chips && chips.length > 0 ? (
+            <View style={styles.dateChipRow}>
+              {chips.map((chip) => {
+                const chipIso = addDaysIso(minDate || toIsoToday(), chip.days);
+                const active = selectedIso === chipIso;
+                return (
+                  <Pressable
+                    key={chip.id}
+                    onPress={() => onSelect(chipIso)}
+                    style={[styles.dateChip, active && styles.dateChipActive]}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    accessibilityLabel={`${label} ${chip.label}`}
+                  >
+                    <Text style={[styles.dateChipText, active && styles.dateChipTextActive]}>
+                      {chip.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
+          <CompactValidTillCalendar
+            selectedIso={calendarIso}
+            minDate={minDate}
+            maxDate={maxDate}
+            onSelect={onSelect}
+          />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -283,16 +304,17 @@ export function EwayBillLrStrip({
   };
 
   const openEditor = (row: EwayBillStripRow) => {
-    setDraft(rowToDraft(row));
+    const next = rowToDraft(row);
+    setDraft(next);
     setEditingIndex(row.id === EMPTY_ROW.id ? "new" : row.entryIndex);
-    setShowDatePicker(null);
+    setShowDatePicker(next.validTill ? null : "validTill");
     setEditing(true);
   };
 
   const openAdd = () => {
     setDraft({ ...EMPTY_EWAY_FIELD_VALUES });
     setEditingIndex("new");
-    setShowDatePicker(null);
+    setShowDatePicker("validTill");
     setEditing(true);
   };
 
@@ -586,80 +608,35 @@ export function EwayBillLrStrip({
                 editable={!saving}
               />
             </View>
-            <View style={styles.fieldWrap}>
-              <Text style={styles.fieldLabel}>Created date</Text>
-              <Pressable
-                style={styles.dateField}
-                onPress={() => {
-                  if (saving) return;
-                  setShowDatePicker((open) =>
-                    open === "createdDate" ? null : "createdDate",
-                  );
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Pick created date"
-              >
-                <View style={styles.dateFieldInner}>
-                  <Text
-                    style={
-                      draft.createdDate
-                        ? styles.dateFieldText
-                        : styles.dateFieldPlaceholder
-                    }
-                    numberOfLines={1}
-                  >
-                    {draft.createdDate || "Pick date"}
-                  </Text>
-                  <Feather name="calendar" size={16} color={Theme.primary} />
-                </View>
-              </Pressable>
-              {showDatePicker === "createdDate" ? (
-                <CompactValidTillCalendar
-                  selectedIso={createdDateIso}
-                  onSelect={(iso) => {
-                    applyDraftDate("createdDate", iso);
-                    setShowDatePicker(null);
-                  }}
-                />
-              ) : null}
-            </View>
-            <View style={styles.fieldWrap}>
-              <Text style={styles.fieldLabel}>Valid till</Text>
-              <Pressable
-                style={styles.dateField}
-                onPress={() => {
-                  if (saving) return;
-                  setShowDatePicker((open) =>
-                    open === "validTill" ? null : "validTill",
-                  );
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Pick valid till date"
-              >
-                <View style={styles.dateFieldInner}>
-                  <Text
-                    style={
-                      draft.validTill
-                        ? styles.dateFieldText
-                        : styles.dateFieldPlaceholder
-                    }
-                    numberOfLines={1}
-                  >
-                    {draft.validTill || "Pick date"}
-                  </Text>
-                  <Feather name="calendar" size={16} color={Theme.primary} />
-                </View>
-              </Pressable>
-              {showDatePicker === "validTill" ? (
-                <CompactValidTillCalendar
-                  selectedIso={validTillIso}
-                  onSelect={(iso) => {
-                    applyDraftDate("validTill", iso);
-                    setShowDatePicker(null);
-                  }}
-                />
-              ) : null}
-            </View>
+            <EwayDatePreviewField
+              label="Created date"
+              emptyHint="Issue date on the bill"
+              selectedIso={createdDateIso}
+              open={!saving && showDatePicker === "createdDate"}
+              onToggle={() => {
+                if (saving) return;
+                setShowDatePicker((open) =>
+                  open === "createdDate" ? null : "createdDate",
+                );
+              }}
+              onSelect={(iso) => applyDraftDate("createdDate", iso)}
+              maxDate={toIsoToday()}
+            />
+            <EwayDatePreviewField
+              label="Valid till"
+              emptyHint="When this e-way expires"
+              selectedIso={validTillIso}
+              open={!saving && showDatePicker === "validTill"}
+              onToggle={() => {
+                if (saving) return;
+                setShowDatePicker((open) =>
+                  open === "validTill" ? null : "validTill",
+                );
+              }}
+              onSelect={(iso) => applyDraftDate("validTill", iso)}
+              minDate={createdDateIso || toIsoToday()}
+              chips={VALID_TILL_SPANS}
+            />
             <View style={styles.fieldWrap}>
               <Text style={styles.fieldLabel}>Doc No</Text>
               <TextInput
@@ -876,46 +853,104 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
     minHeight: Layout.minTouchTargetSize,
   },
-  dateField: {
-    position: "relative",
+  datePreviewCard: {
     borderWidth: 1.5,
     borderColor: Theme.surfaceBorder,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    minHeight: Layout.minTouchTargetSize,
-    backgroundColor: Theme.cardWhite,
-    justifyContent: "center",
+    borderRadius: 14,
+    backgroundColor: Theme.brandBlueWashSubtle,
+    overflow: "hidden",
   },
-  dateFieldInner: {
+  datePreviewHead: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    minHeight: Layout.minTouchTargetSize,
   },
-  dateFieldText: {
+  datePreviewIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.cardWhite,
+    flexShrink: 0,
+  },
+  datePreviewCopy: {
     flex: 1,
     minWidth: 0,
-    fontSize: 14,
+    gap: 2,
+  },
+  datePreviewLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+  },
+  datePreviewValue: {
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "800",
+    color: Theme.textPrimaryDark,
+  },
+  datePreviewEmpty: {
+    fontWeight: "600",
+    color: Theme.textMuted,
+  },
+  datePreviewMeta: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+    color: Theme.primary,
+  },
+  datePreviewToggle: {
+    flexShrink: 0,
+    fontSize: 11,
+    fontWeight: "800",
+    color: Theme.brandBlueInk,
+  },
+  datePreviewBody: {
+    paddingHorizontal: 10,
+    paddingBottom: 12,
+    gap: 10,
+  },
+  dateChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  dateChip: {
+    minHeight: 32,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Theme.surfaceBorder,
+    backgroundColor: Theme.cardWhite,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dateChipActive: {
+    backgroundColor: Theme.accentGold,
+    borderColor: Theme.accentGold,
+  },
+  dateChipText: {
+    fontSize: 11,
     fontWeight: "700",
     color: Theme.textPrimaryDark,
   },
-  dateFieldPlaceholder: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 14,
-    fontWeight: "700",
-    color: Theme.textMuted,
+  dateChipTextActive: {
+    color: Theme.brandBlueInk,
   },
   compactCal: {
     alignSelf: "stretch",
-    maxWidth: 260,
     borderWidth: 1,
     borderColor: Theme.borderLight,
-    borderRadius: 10,
+    borderRadius: 12,
     paddingHorizontal: 8,
     paddingVertical: 8,
-    backgroundColor: Theme.surface,
+    backgroundColor: Theme.cardWhite,
   },
   compactCalHeader: {
     flexDirection: "row",

@@ -13,6 +13,7 @@ import { ThemedAlertModal } from "@/components/ThemedAlertModal";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import {
+  deleteComplianceDocument,
   rejectDocument,
   updateEntityDocumentExpiry,
   verifyDocument,
@@ -36,6 +37,7 @@ import { ComplianceActivityLogButton } from "@/features/tripCompliance/component
 import { ComplianceTripCard } from "@/features/tripCompliance/components/ComplianceTripCard";
 import { hubMobileListCanvasStyles, HUB_MOBILE_LIST_CANVAS_BG } from "@/components/hub";
 import { ComplianceNumberStack } from "@/features/tripCompliance/components/ComplianceNumberStack";
+import { ComplianceExpiryDateModal } from "@/features/tripCompliance/components/ComplianceExpiryDateModal";
 import {
   CompliancePaymentConfirmModal,
   type CompliancePaymentConfirmValues,
@@ -109,7 +111,6 @@ import {
   isResubmittedFinanceReject,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
 import { groundOpsTransitDocLabel } from "@/features/tripCompliance/utils/groundOpsTransitGate.util";
-import { ExpiryDatePickerModal } from "@/components/ExpiryDatePicker";
 import { HubTripLrUpdateModal } from "@/features/trips/components/HubTripLrUpdateModal";
 import { parseLrFieldValues } from "@/features/trips/services/lrDocumentOcr.util";
 import {
@@ -170,7 +171,10 @@ import {
   formatLrVaultNumberLabel,
 } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { TripVaultFilePreview } from "@/features/trips/components/trip-detail/TripVaultFilePreview";
-import { VaultChooserNotifyRow } from "@/features/trips/components/trip-detail/VaultChooserNotifyRow";
+import {
+  VaultChooserNotifyRow,
+  type VaultChooserPreview,
+} from "@/features/trips/components/trip-detail/VaultChooserNotifyRow";
 import { getTripExecutionModel } from "@/features/trips/domain/tripExecutionModel";
 import { isEwayBillMetaPath } from "@/features/trips/services/ewayBillFields.util";
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
@@ -416,6 +420,50 @@ function firstRowPerType(rows: ComplianceDocRow[]): ComplianceDocRow[] {
     if (!current || (!hasFile(current) && hasFile(row))) byType.set(row.type, row);
   }
   return rows.filter((row) => byType.get(row.type) === row);
+}
+
+function vaultPreviewPath(row: ComplianceDocRow): string | null {
+  const tripDoc = row.doc;
+  if (tripDoc) {
+    const kind = classifyTripDocument(tripDoc);
+    const path = tripDoc.storage_path?.trim() || "";
+    if (
+      (kind.kind === "file" || kind.kind === "url") &&
+      kind.hasBinary &&
+      path &&
+      !path.startsWith("ref:")
+    ) {
+      return path;
+    }
+  }
+  const entityPath = row.entityDoc?.storage_path?.trim() || "";
+  if (!entityPath || entityPath.startsWith("ref:") || /fields\.json$/i.test(entityPath)) {
+    return null;
+  }
+  return entityPath;
+}
+
+function vaultPreviewForRow(
+  row: ComplianceDocRow,
+  organizationId: string,
+  tripId: string | null,
+  fallbackName: string,
+): VaultChooserPreview | null {
+  const storagePath = vaultPreviewPath(row);
+  if (!storagePath) return null;
+  return {
+    storagePath,
+    fileName: row.doc?.file_name ?? fallbackName,
+    mimeHint: row.doc?.mime_type,
+    source:
+      row.entityDoc?.source === "supplier-kyc"
+        ? "supplier-kyc"
+        : row.entityDoc
+          ? "compliance"
+          : "trip",
+    organizationId,
+    entityId: row.entityDoc?.entity_id ?? tripId,
+  };
 }
 
 function hasFile(row: ComplianceDocRow): boolean {
@@ -2545,6 +2593,8 @@ export function ComplianceDocumentWorkspace({
   detailHeader = null,
   pageHeader = null,
   onOpenActivityLog,
+  onOpenTrip,
+  onOpenSupplier,
 }: {
   summaries: ComplianceTripSummary[];
   /** Resolved by the page for the full queue — one lookup pass, not one per view. */
@@ -2671,6 +2721,10 @@ export function ComplianceDocumentWorkspace({
     scope?: "trip" | "vehicle" | "driver",
   ) => void;
   onOpenActivityLog?: (summary: ComplianceTripSummary) => void;
+  /** Open the trip page from Trip ID. */
+  onOpenTrip?: (tripId: string) => void;
+  /** Open the supplier page from the supplier name. */
+  onOpenSupplier?: (supplierId: string) => void;
 }) {
   const listRef = useRef<ScrollView>(null);
   const listViewportH = useRef(0);
@@ -2967,7 +3021,8 @@ export function ComplianceDocumentWorkspace({
   useEffect(() => {
     if (!organizationId || !canViewDocuments) return;
     for (const row of displayListRows.filter(hasFile).slice(0, 8)) {
-      const path = row.doc?.storage_path ?? row.entityDoc?.storage_path ?? null;
+      if (row.doc && !classifyTripDocument(row.doc).hasBinary) continue;
+      const path = vaultPreviewPath(row);
       if (!path) continue;
       void signCompliancePreviewUrl({
         storagePath: path,
@@ -4020,6 +4075,29 @@ export function ComplianceDocumentWorkspace({
     }
   };
 
+  const removeEntityFile = async (row: ComplianceDocRow, label: string) => {
+    const doc = row.entityDoc;
+    if (!summary || !doc || doc.entity_type === "supplier") return;
+    const place = doc.entity_type === "driver" ? "driver" : "vehicle";
+    const ok = await confirmAction(
+      "Remove file?",
+      `${label} will be deleted from this ${place} profile.`,
+      "Remove",
+    );
+    if (!ok) return;
+    setFileActionKey(row.key);
+    try {
+      const { error } = await deleteComplianceDocument(doc.id, doc.storage_path);
+      if (error) {
+        alertMessage("Couldn't remove file", error.message);
+        return;
+      }
+      onChanged(entityDocumentChange(doc));
+    } finally {
+      setFileActionKey(null);
+    }
+  };
+
   const previewChecklistRow = useCallback((row: ComplianceDocRow) => {
     setChecklistPreviewMode("document");
     setChecklistKey(row.key);
@@ -4116,13 +4194,9 @@ export function ComplianceDocumentWorkspace({
       reviewScope === "trip"
         ? complianceVaultDocNumbers(summary?.documents ?? [], displayRow.type)
         : [];
-    const previewPath = (() => {
-      const tripDoc = displayRow.doc;
-      if (tripDoc && classifyTripDocument(tripDoc).hasBinary) {
-        return tripDoc.storage_path?.trim() || null;
-      }
-      return displayRow.entityDoc?.storage_path?.trim() || null;
-    })();
+    const typePreviews = typeFiles
+      .map((item) => vaultPreviewForRow(item, organizationId, summary?.trip.id ?? null, rowLabel))
+      .filter((item): item is VaultChooserPreview => Boolean(item));
     const entityType =
       displayRow.type === "license" || displayRow.type === "aadhaar"
         ? "driver"
@@ -4133,9 +4207,14 @@ export function ComplianceDocumentWorkspace({
           : "client";
     // Insurance / FC / licence rows without an expiry date (release 2026-10-23).
     const needsExpiry = !isFinanceMode && entityRowNeedsExpiry(displayRow);
+    const expiryIso =
+      typeFiles
+        .map((item) => item.entityDoc?.expiry_date?.trim() ?? "")
+        .find((value) => Boolean(value)) ||
+      displayRow.entityDoc?.expiry_date?.trim() ||
+      null;
     const meta = [
       declineReason ? `Reason: ${declineReason}` : null,
-      needsExpiry ? "Expiry date missing" : null,
       isBankDocs && supplierBankLoading ? "Fetching supplier Banking…" : null,
       bankFromSupplier && displayRow.status !== "missing" ? "Synced from supplier Banking" : null,
       vaultDetail && vaultNumbers.length === 0 ? vaultDetail : null,
@@ -4143,13 +4222,11 @@ export function ComplianceDocumentWorkspace({
       .filter((part): part is string => Boolean(part))
       .join(" · ");
   return (
-      <Pressable
+      <View
         key={displayRow.key}
-        style={(state: HoverPressState) => [
+        style={[
           styles.checklistVaultRow,
-          WEB_TRANSITION,
           selected && styles.checklistVaultRowSelected,
-          isHovered(state) && styles.checklistVaultRowHover,
         ]}
       >
         <VaultChooserNotifyRow
@@ -4164,29 +4241,26 @@ export function ComplianceDocumentWorkspace({
               ? vaultNumbers.join(" · ")
               : undefined
           }
-          preview={
-            rowHasFile && previewPath
-              ? {
-                  storagePath: previewPath,
-                  fileName: displayRow.doc?.file_name ?? rowLabel,
-                  mimeHint: displayRow.doc?.mime_type,
-                  source:
-                    displayRow.entityDoc?.source === "supplier-kyc"
-                      ? "supplier-kyc"
-                      : displayRow.entityDoc
-                        ? "compliance"
-                        : "trip",
-                  organizationId: organizationId,
-                  entityId:
-                    displayRow.entityDoc?.entity_id ??
-                    summary?.trip.id ??
-                    null,
-                }
-              : null
-          }
+          expiryDate={expiryIso}
+          needsExpiry={documentRequiresExpiry(displayRow.type)}
+          preview={typePreviews[0] ?? null}
+          previews={typePreviews}
           onPreview={() => {
             if (!canOpenRowFiles) return;
+            if (typeFiles.length > 1) {
+              setFilesModalType(displayRow.type);
+              return;
+            }
             previewChecklistRow(displayRow);
+          }}
+          onPreviewAt={(index) => {
+            if (!canOpenRowFiles) return;
+            const path = typePreviews[index]?.storagePath?.trim() ?? "";
+            const file =
+              (path
+                ? typeFiles.find((item) => vaultPreviewPath(item) === path)
+                : null) ?? typeFiles[index];
+            if (file) previewChecklistRow(file);
           }}
           onAdd={() => void uploadVaultDocument(row)}
         />
@@ -4214,7 +4288,7 @@ export function ComplianceDocumentWorkspace({
             </Text>
           </Pressable>
         ) : null}
-      </Pressable>
+      </View>
     );
   };
 
@@ -5095,9 +5169,17 @@ export function ComplianceDocumentWorkspace({
                       supplierName={supplierNameByTripId[summary.trip.id] ?? null}
                         onOpenDocumentUpload={openDocumentUploadFromDetails}
                       hideCommercials={hideCommercials}
+                        onOpenTrip={onOpenTrip}
+                        onOpenSupplier={onOpenSupplier}
                     />
                     </ScrollView>
                   ) : checklistPreviewMode === "advance" && summary && !compliancePendingView && !hideCommercials ? (
+                    <ScrollView
+                      style={styles.tripDetailsScroll}
+                      contentContainerStyle={styles.advancePaymentScrollContent}
+                      keyboardShouldPersistTaps="handled"
+                      showsVerticalScrollIndicator
+                    >
                     <ChecklistAdvancePaymentPanel
                       summary={summary}
                       supplierName={supplierNameByTripId[summary.trip.id] ?? null}
@@ -5153,6 +5235,7 @@ export function ComplianceDocumentWorkspace({
                           : undefined
                       }
                     />
+                    </ScrollView>
                   ) : showEntityUnassigned ? (
                     <View style={styles.checklistPreviewEmpty}>
                       <Text style={styles.checklistPreviewEmptyTitle}>{vaultCopy.unassignedTitle}</Text>
@@ -5410,23 +5493,33 @@ export function ComplianceDocumentWorkspace({
                   ownRecentUpload: isOwnRecentUpload(row.doc, actorId),
                 })
               : null;
+          const entityDoc = row.entityDoc;
+          const isOwnedEntityFile =
+            Boolean(entityDoc) &&
+            !isTripFile &&
+            entityDoc.entity_type !== "supplier" &&
+            entityDoc.source !== "supplier-kyc";
           const approved = row.status === "verified" || verifiedLock || groundOpsLock != null;
+          const entityName =
+            entityDoc?.notes?.trim() ||
+            entityDoc?.storage_path?.split("/").pop()?.trim() ||
+            "";
           return {
             key: row.key,
             label: fileRows.length > 1 ? `${label} · ${index + 1}` : label,
             // Typed e-way details are stored as eway-fields.json; show what it is, not the file.
             fileName: isEwayBillMetaPath(row.doc?.storage_path, row.doc?.file_name)
               ? "Entered details"
-              : row.doc?.file_name?.trim() || (row.declineReason ? "" : row.entityDoc?.notes?.trim()) || "",
+              : row.doc?.file_name?.trim() || entityName,
             statusLabel: row.declineReason
               ? `${COMPLIANCE_STATUS_META[row.status].label}: ${row.declineReason}`
               : COMPLIANCE_STATUS_META[row.status].label,
             statusColor: COMPLIANCE_STATUS_META[row.status].color,
             canPreview: canViewDocuments,
             canReplace: canUploadHere && isTripFile && !approved,
-            canRemove: canUploadHere && isTripFile && !approved,
+            canRemove: canUploadHere && !approved && (isTripFile || isOwnedEntityFile),
             lockedReason:
-              approved && isTripFile && canUploadHere
+              approved && canUploadHere && (isTripFile || isOwnedEntityFile)
                 ? row.status === "verified"
                   ? "Approved files are locked"
                   : groundOpsLock
@@ -5470,8 +5563,16 @@ export function ComplianceDocumentWorkspace({
             footnote={
               typeLock
                 ? groundOpsDocumentLockLabel(typeLock)
-                : fileRows.some((row) => !row.doc)
-                  ? "Vehicle and driver files are shared with other trips. Replace or remove them from the vehicle or driver profile."
+                : fileRows.some(
+                (row) =>
+                  Boolean(row.entityDoc) &&
+                  !row.doc &&
+                  (row.entityDoc.entity_type === "supplier" ||
+                    row.entityDoc.source === "supplier-kyc"),
+              )
+                ? "Supplier files stay on the supplier profile. Replace or remove them there."
+                : fileRows.some((row) => Boolean(row.entityDoc) && !row.doc)
+                  ? "Vehicle and driver files are shared with other trips. Removing a file here removes it from the profile."
                   : null
             }
             onPreview={(key) => {
@@ -5489,9 +5590,14 @@ export function ComplianceDocumentWorkspace({
             }}
             onRemove={(key) => {
               const index = fileRows.findIndex((item) => item.key === key);
-              if (index >= 0) {
-                void removeTripFile(fileRows[index], fileRows.length > 1 ? `${label} · ${index + 1}` : label);
+              if (index < 0) return;
+              const row = fileRows[index];
+              const itemLabel = fileRows.length > 1 ? `${label} · ${index + 1}` : label;
+              if (row.doc) {
+                void removeTripFile(row, itemLabel);
+                return;
               }
+              void removeEntityFile(row, itemLabel);
             }}
             onAdd={() => {
               if (addRow) void uploadVaultDocument(addRow);
@@ -5606,16 +5712,15 @@ export function ComplianceDocumentWorkspace({
           }}
         />
       ) : null}
-      <ExpiryDatePickerModal
+      <ComplianceExpiryDateModal
         visible={expiryPrompt != null}
-        title={`Expiry date — ${expiryPrompt ? labelForDocType(expiryPrompt.docType) : "Document"}`}
-        confirmLabel="Continue"
+        docLabel={expiryPrompt ? labelForDocType(expiryPrompt.docType) : "Document"}
         onCancel={() => {
           expiryPrompt?.resolve(null);
           setExpiryPrompt(null);
         }}
-        onConfirm={(iso) => {
-          expiryPrompt?.resolve(iso);
+        onSubmit={(isoDate) => {
+          expiryPrompt?.resolve(isoDate);
           setExpiryPrompt(null);
         }}
       />
@@ -5650,6 +5755,7 @@ function TripDetailFact({
   columns = 2,
   layout = "grid",
   last = false,
+  onPress,
 }: {
   label: string;
   value: string;
@@ -5658,19 +5764,28 @@ function TripDetailFact({
   columns?: 2 | 3;
   layout?: "grid" | "list";
   last?: boolean;
+  onPress?: () => void;
 }) {
+  const ValueText = (
+        <Text
+          style={[
+            layout === "list" ? styles.tripFactRowValue : styles.tripFactValue,
+            emphasize && styles.tripFactValueEmphasize,
+            onPress ? styles.tripFactValueLink : null,
+          ]}
+          selectable={!onPress}
+          onPress={onPress}
+        >
+        {value}
+      </Text>
+  );
   if (layout === "list") {
   return (
       <View style={[styles.tripFactRow, last && styles.tripFactRowLast]}>
         <Text style={styles.tripFactRowLabel} numberOfLines={1}>
           {label}
         </Text>
-        <Text
-          style={[styles.tripFactRowValue, emphasize && styles.tripFactValueEmphasize]}
-          numberOfLines={1}
-        >
-        {value}
-      </Text>
+        {ValueText}
     </View>
   );
 }
@@ -5686,12 +5801,7 @@ function TripDetailFact({
       <Text style={styles.tripFactLabel} numberOfLines={1}>
         {label}
       </Text>
-                      <Text
-        style={[styles.tripFactValue, emphasize && styles.tripFactValueEmphasize]}
-        numberOfLines={wide ? 2 : 1}
-      >
-        {value}
-                      </Text>
+      {ValueText}
                     </View>
   );
 }
@@ -5984,6 +6094,8 @@ function ChecklistTripDetailsPanel({
   supplierName,
   onOpenDocumentUpload,
   hideCommercials = false,
+  onOpenTrip,
+  onOpenSupplier,
 }: {
   summary: ComplianceTripSummary;
   truckType: string | null;
@@ -5991,6 +6103,8 @@ function ChecklistTripDetailsPanel({
   onOpenDocumentUpload?: (target: { vault: string; type?: string }) => void;
   /** Ground Ops: drop the Rates and Banking cards (and never fetch the supplier bank account). */
   hideCommercials?: boolean;
+  onOpenTrip?: (tripId: string) => void;
+  onOpenSupplier?: (supplierId: string) => void;
 }) {
   const trip = summary.trip;
   const commercial = trip as typeof trip & TripCommercialFacts;
@@ -6127,7 +6241,11 @@ function ChecklistTripDetailsPanel({
         columns={tripColumns}
         style={styles.tripDetailSectionLead}
       >
-        <TripDetailFact label="Trip ID" value={tripId} />
+        <TripDetailFact
+          label="Trip ID"
+          value={tripId}
+          onPress={onOpenTrip ? () => onOpenTrip(trip.id) : undefined}
+        />
         <TripDetailFact label="Vehicle" value={vehicle} />
         {tripColumns === 3 ? <TripDetailFact label="Truck type" value={truckLabel} /> : null}
         <TripDetailFact label="Route" value={routeLine} wide />
@@ -6148,7 +6266,15 @@ function ChecklistTripDetailsPanel({
           style={[styles.tripDetailSectionPair, !pairCards && styles.tripDetailSectionPairFull]}
         >
           <TripDetailFact label="Customer" value={customerName} />
-          <TripDetailFact label="Supplier" value={supplierLabel} />
+          <TripDetailFact
+            label="Supplier"
+            value={supplierLabel}
+            onPress={
+              onOpenSupplier && trip.supplier_id
+                ? () => onOpenSupplier(trip.supplier_id!)
+                : undefined
+            }
+          />
         </TripDetailSection>
         <TripDetailSection
           title="Documents"
@@ -8500,9 +8626,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   checklistAdvancePanel: {
-    flex: 1,
     minHeight: 0,
-    overflow: "hidden",
+    overflow: "visible",
     paddingHorizontal: 8,
     paddingVertical: 6,
     gap: 6,
@@ -8530,7 +8655,8 @@ const styles = StyleSheet.create({
   },
   // Scrolls inside tripDetailsScroll instead of clipping on smaller screens.
   tripDetailsScroll: { flex: 1, minHeight: 0 },
-  tripDetailsScrollContent: { flexGrow: 1 },
+  tripDetailsScrollContent: { flexGrow: 1, paddingBottom: 24 },
+  advancePaymentScrollContent: { flexGrow: 1, paddingBottom: 32 },
   tripDetailsPanel: {
     flexGrow: 1,
     paddingHorizontal: 8,
@@ -8907,12 +9033,13 @@ const styles = StyleSheet.create({
   tripFactRow: {
     flexGrow: 0,
     flexShrink: 0,
-    height: 26,
+    minHeight: 26,
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
     gap: 10,
     paddingHorizontal: 12,
+    paddingVertical: 5,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.borderLight,
   },
@@ -8972,6 +9099,10 @@ const styles = StyleSheet.create({
     color: Theme.textPrimaryDark,
     lineHeight: 14,
     fontVariant: ["tabular-nums"],
+  },
+  tripFactValueLink: {
+    color: Theme.brandBlueInk,
+    textDecorationLine: "underline",
   },
   tripFactValueEmphasize: {
     fontWeight: "700",

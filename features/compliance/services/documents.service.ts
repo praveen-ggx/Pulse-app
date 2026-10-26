@@ -342,6 +342,34 @@ export async function verifyDocument(
   return { error: (error as Error | null) ?? null };
 }
 
+/** Latest active file for an entity + type (partner vault writes). */
+export async function updateLatestEntityDocumentExpiry(input: {
+  orgId: string;
+  entityType: "vehicle" | "driver";
+  entityId: string;
+  docType: string;
+  expiryDate: string;
+}): Promise<{ error: Error | null }> {
+  const trimmed = input.expiryDate.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return { error: new Error("Use YYYY-MM-DD for the expiry date (for example 2027-03-15).") };
+  }
+  const { data, error: lookupError } = await supabase()
+    .from("entity_documents")
+    .select("id")
+    .eq("organization_id", input.orgId)
+    .eq("entity_type", input.entityType)
+    .eq("entity_id", input.entityId)
+    .eq("doc_type", input.docType)
+    .neq("status", "replaced")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (lookupError) return { error: new Error(lookupError.message) };
+  if (!data?.id) return { error: null };
+  return updateEntityDocumentExpiry(data.id, trimmed);
+}
+
 /** Set expiry on an entity document (Insurance / FC / DL require this before Approve). */
 export async function updateEntityDocumentExpiry(
   docId: string,
@@ -552,6 +580,19 @@ export async function deleteComplianceDocument(
   docId: string,
   storagePath: string | null,
 ): Promise<{ error: Error | null }> {
+  // Older copies keep `replaced_by_id` on this row. Clear them first or
+  // Postgres refuses the delete (`entity_documents_replaced_by_id_fkey`).
+  const { error: unlinkError } = await supabase()
+    .from("entity_documents")
+    .update({
+      replaced_by_id: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("replaced_by_id", docId);
+  if (unlinkError) {
+    return { error: new Error(unlinkError.message) };
+  }
+
   const { data: deleted, error } = await supabase()
     .from("entity_documents")
     .delete()

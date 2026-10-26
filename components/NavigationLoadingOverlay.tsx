@@ -33,6 +33,8 @@ function shouldShowNavigationOverlay(
     pathname === '/sign-up' ||
     pathname === '/welcome' ||
     pathname === '/terminal-website' ||
+    pathname === '/onboarding' ||
+    pathname.startsWith('/onboarding/') ||
     pathname === '/forgot-password' ||
     pathname.startsWith('/auth/')
   ) {

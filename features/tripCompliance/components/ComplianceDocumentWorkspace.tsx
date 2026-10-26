@@ -28,10 +28,6 @@ import {
 } from "@/features/tripCompliance/components/ComplianceAdvancePaidDetails";
 import { ComplianceAdvancePaymentArt } from "@/features/tripCompliance/components/ComplianceAdvancePaymentArt";
 import { ComplianceDeclineModal } from "@/features/tripCompliance/components/ComplianceDeclineModal";
-import {
-  ComplianceDocTypeFilesModal,
-  type ComplianceDocTypeFile,
-} from "@/features/tripCompliance/components/ComplianceDocTypeFilesModal";
 import { NoDocumentPreviewEmpty, NoTripsFoundEmpty } from "@/features/tripCompliance/components/ComplianceEmptyState";
 import { ComplianceActivityLogButton } from "@/features/tripCompliance/components/ComplianceTripActivityLog";
 import { ComplianceTripCard } from "@/features/tripCompliance/components/ComplianceTripCard";
@@ -171,6 +167,8 @@ import {
   formatLrVaultNumberLabel,
 } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { TripVaultFilePreview } from "@/features/trips/components/trip-detail/TripVaultFilePreview";
+import { VaultCategoryPreviewModal } from "@/features/trips/components/trip-detail/VaultCategoryPreviewModal";
+import type { VaultCategoryPreviewFile } from "@/features/trips/components/trip-detail/vaultCategoryPreview.types";
 import {
   VaultChooserNotifyRow,
   type VaultChooserPreview,
@@ -181,6 +179,7 @@ import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { lrReceiptForTrip } from "@/features/trips/utils/lrReceiptStatus.util";
 import { splitHubRouteLocationDisplay } from "@/features/trips/utils/tripLocationDisplay.util";
 import { markVehicleDocumentVerified } from "@/features/vehicles/services/vehicleDocuments.service";
+import { isVehicleComplianceDocType } from "@/features/vehicles/utils/vehicleDocuments.util";
 import { formatIndianVehicleNumber } from "@/lib/format";
 import { ROUTES } from "@/lib/routes";
 import { SIGNED_URL_CACHE_TTL_MS, SIGNED_URL_EXPIRY_SEC } from "@/lib/storageSignedUrlCache";
@@ -463,6 +462,56 @@ function vaultPreviewForRow(
           : "trip",
     organizationId,
     entityId: row.entityDoc?.entity_id ?? tripId,
+  };
+}
+
+function localVaultFilePreviewUri(file: { uri?: string; arrayBuffer: ArrayBuffer; mimeType: string }): string | null {
+  if (file.uri?.trim()) return file.uri.trim();
+  if (typeof Blob === "undefined" || typeof URL === "undefined") return null;
+  try {
+    return URL.createObjectURL(
+      new Blob([file.arrayBuffer], { type: file.mimeType || "application/octet-stream" }),
+    );
+  } catch {
+    return null;
+  }
+}
+
+function compliancePreviewFileFromRow(
+  row: ComplianceDocRow,
+  label: string,
+  canDelete: boolean,
+): VaultCategoryPreviewFile {
+  const isTripFile = Boolean(row.doc);
+  const entityDoc = row.entityDoc;
+  const driverKind =
+    row.type === "license" || row.type === "aadhaar" ? row.type : undefined;
+  const complianceType = isVehicleComplianceDocType(row.type) ? row.type : undefined;
+  const approved = row.status === "verified";
+  const supplierLocked =
+    Boolean(entityDoc) &&
+    !isTripFile &&
+    (entityDoc.entity_type === "supplier" || entityDoc.source === "supplier-kyc");
+  return {
+    id: row.key,
+    fileName: row.doc?.file_name?.trim() || entityDoc?.notes?.trim() || label,
+    categoryLabel: label,
+    storagePath: vaultPreviewPath(row),
+    documentId: row.doc?.id ?? entityDoc?.id,
+    category: row.type,
+    deleteKind:
+      canDelete && !approved && !supplierLocked
+        ? isTripFile
+          ? "trip"
+          : complianceType
+            ? "vehicle_compliance"
+            : driverKind
+              ? "driver_identity"
+              : undefined
+        : undefined,
+    complianceType,
+    driverKind,
+    expiryDate: entityDoc?.expiry_date ?? null,
   };
 }
 
@@ -2813,6 +2862,11 @@ export function ComplianceDocumentWorkspace({
   const [uploadingFinanceType, setUploadingFinanceType] = useState<string | null>(null);
   /** Document type whose files dialog is open (eye on a grouped row). */
   const [filesModalType, setFilesModalType] = useState<string | null>(null);
+  const [categoryPreview, setCategoryPreview] = useState<{
+    files: VaultCategoryPreviewFile[];
+    index: number;
+    type: string;
+  } | null>(null);
   const [fileActionKey, setFileActionKey] = useState<string | null>(null);
   /** Files dialog to reopen when the full-screen viewer opened from it closes. */
   const filesModalReturnRef = useRef<string | null>(null);
@@ -3896,6 +3950,30 @@ export function ComplianceDocumentWorkspace({
       try {
         const files = await pickComplianceVaultFiles(row.type);
         if (files.length === 0) return;
+        const rowLabel = isFinanceMode
+          ? labelForFinanceDocType(row.type)
+          : labelForDocType(row.type);
+        const existingPreview = listRows
+          .filter((item) => item.type === row.type && hasFile(item))
+          .map((item) =>
+            compliancePreviewFileFromRow(item, rowLabel, canEditFiles && !uploadingFinanceType),
+          );
+        const drafts: VaultCategoryPreviewFile[] = files.map((file, index) => ({
+          id: `draft-${Date.now()}-${index}`,
+          fileName: file.fileName,
+          categoryLabel: rowLabel,
+          previewUri: localVaultFilePreviewUri(file),
+          mimeHint: file.mimeType,
+          deleteKind: "trip",
+        }));
+        setCategoryPreview({
+          files: [...existingPreview, ...drafts],
+          index: existingPreview.length,
+          type: row.type,
+        });
+        setFilesModalType(null);
+        if (mobileExclusive) setMobileDocPane("list");
+        setScreenOpen(false);
 
         let expiryDate: string | null = null;
         if (scope !== "trip") {
@@ -3931,6 +4009,8 @@ export function ComplianceDocumentWorkspace({
         }
         focusUploadTypeRef.current = row.type;
         resetPreviewView();
+        if (mobileExclusive) setMobileDocPane("list");
+        setScreenOpen(false);
         onChanged(
           scope === "vehicle" && entityId
             ? { type: "vehicleDocuments", vehicleId: entityId }
@@ -3947,7 +4027,10 @@ export function ComplianceDocumentWorkspace({
     },
     [
       actorId,
+      canEditFiles,
       isFinanceMode,
+      listRows,
+      mobileExclusive,
       onChanged,
       organizationId,
       promptExpiryDate,
@@ -4008,8 +4091,40 @@ export function ComplianceDocumentWorkspace({
   // The files dialog belongs to one trip and tab.
   useEffect(() => {
     setFilesModalType(null);
+    setCategoryPreview(null);
     filesModalReturnRef.current = null;
   }, [summary?.trip.id, tab, financeList]);
+
+  const categoryPreviewType = categoryPreview?.type ?? null;
+  useEffect(() => {
+    if (!categoryPreviewType) return;
+    const label = isFinanceMode
+      ? labelForFinanceDocType(categoryPreviewType)
+      : labelForDocType(categoryPreviewType);
+    const next = listRows
+      .filter((item) => item.type === categoryPreviewType && hasFile(item))
+      .map((item) => compliancePreviewFileFromRow(item, label, canEditFiles));
+    setCategoryPreview((current) => {
+      if (!current || current.type !== categoryPreviewType) return current;
+      const drafts = current.files.filter((file) => String(file.id).startsWith("draft-"));
+      const files = uploadingFinanceType ? [...next, ...drafts] : next.length > 0 ? next : current.files;
+      if (
+        files.length === current.files.length &&
+        files.every(
+          (file, index) =>
+            file.id === current.files[index]?.id &&
+            file.storagePath === current.files[index]?.storagePath,
+        )
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        files,
+        index: Math.min(current.index, Math.max(0, files.length - 1)),
+      };
+    });
+  }, [canEditFiles, categoryPreviewType, isFinanceMode, listRows, uploadingFinanceType]);
 
   /** Trip-scope file as the delete helper's row shape. */
   const tripDocumentForDelete = (row: ComplianceDocRow): TripDocumentRow | null =>
@@ -4247,20 +4362,42 @@ export function ComplianceDocumentWorkspace({
           previews={typePreviews}
           onPreview={() => {
             if (!canOpenRowFiles) return;
-            if (typeFiles.length > 1) {
-              setFilesModalType(displayRow.type);
-              return;
-            }
-            previewChecklistRow(displayRow);
+            setCategoryPreview({
+              files: typeFiles.map((item) =>
+                compliancePreviewFileFromRow(item, rowLabel, canEditFiles),
+              ),
+              index: 0,
+              type: displayRow.type,
+            });
+            setFilesModalType(null);
+            setScreenOpen(false);
+            if (mobileExclusive) setMobileDocPane("list");
           }}
           onPreviewAt={(index) => {
             if (!canOpenRowFiles) return;
-            const path = typePreviews[index]?.storagePath?.trim() ?? "";
-            const file =
-              (path
-                ? typeFiles.find((item) => vaultPreviewPath(item) === path)
-                : null) ?? typeFiles[index];
-            if (file) previewChecklistRow(file);
+            setCategoryPreview({
+              files: typeFiles.map((item) =>
+                compliancePreviewFileFromRow(item, rowLabel, canEditFiles),
+              ),
+              index: Math.max(0, Math.min(index, typeFiles.length - 1)),
+              type: displayRow.type,
+            });
+            setFilesModalType(null);
+            setScreenOpen(false);
+            if (mobileExclusive) setMobileDocPane("list");
+          }}
+          onEdit={() => {
+            if (!canOpenRowFiles) return;
+            setCategoryPreview({
+              files: typeFiles.map((item) =>
+                compliancePreviewFileFromRow(item, rowLabel, canEditFiles),
+              ),
+              index: 0,
+              type: displayRow.type,
+            });
+            setFilesModalType(null);
+            setScreenOpen(false);
+            if (mobileExclusive) setMobileDocPane("list");
           }}
           onAdd={() => void uploadVaultDocument(row)}
         />
@@ -4384,6 +4521,69 @@ export function ComplianceDocumentWorkspace({
         ) : null}
       </View>
     );
+  };
+
+  /** Trip / Ground Ops lock for one file: same rules as the former files dialog (the database enforces them too). */
+  const complianceFileLockReason = (row: ComplianceDocRow): string | null => {
+    const isTripFile = Boolean(row.doc);
+    const entityDoc = row.entityDoc;
+    const isOwnedEntityFile =
+      Boolean(entityDoc) &&
+      !isTripFile &&
+      entityDoc?.entity_type !== "supplier" &&
+      entityDoc?.source !== "supplier-kyc";
+    if (!isTripFile && !isOwnedEntityFile) return null;
+    if (row.status === "verified") return "Approved files are locked";
+    const groundOpsLock =
+      groundOpsDocumentLock && summary && isTripFile
+        ? groundOpsDocumentLockReason({
+            trip: {
+              status: summary.trip.status,
+              compliance_verified_at: summary.complianceVerifiedAt,
+              compliance_declined_at: summary.complianceDeclinedAt,
+              compliance_resubmitted_at: summary.complianceResubmittedAt ?? null,
+              finance_verified_at: summary.financeVerifiedAt ?? null,
+            },
+            documentStatus: row.doc?.status,
+            advancePosted: Boolean(summary.advance || summary.advanceBeforeVerification),
+            ownRecentUpload: isOwnRecentUpload(row.doc, actorId),
+          })
+        : null;
+    if (groundOpsLock) return groundOpsDocumentLockLabel(groundOpsLock);
+    const verifiedLock = Boolean(
+      summary?.complianceVerifiedAt &&
+        !isComplianceAwaitingResubmit(summary) &&
+        REQUIRED_COMPLIANCE_DOCUMENT_TYPES.includes(row.type),
+    );
+    return verifiedLock ? "Locked after the trip is verified" : null;
+  };
+
+  /**
+   * Ground Ops may not add another file over a locked type; a rejected file or a
+   * trip back for resubmit reopens it (only a file that is neither rejected nor
+   * this user's own recent upload blocks adding).
+   */
+  const complianceTypeAddLockReason = (type: string): string | null => {
+    if (!groundOpsDocumentLock || !summary) return null;
+    const blocking = listRows.filter(
+      (row) =>
+        row.type === type &&
+        row.doc &&
+        row.doc.status !== "rejected" &&
+        !isOwnRecentUpload(row.doc, actorId),
+    );
+    if (blocking.length === 0) return null;
+    const lock = groundOpsDocumentLockReason({
+      trip: {
+        status: summary.trip.status,
+        compliance_verified_at: summary.complianceVerifiedAt,
+        compliance_declined_at: summary.complianceDeclinedAt,
+        compliance_resubmitted_at: summary.complianceResubmittedAt ?? null,
+        finance_verified_at: summary.financeVerifiedAt ?? null,
+      },
+      advancePosted: Boolean(summary.advance || summary.advanceBeforeVerification),
+    });
+    return lock ? groundOpsDocumentLockLabel(lock) : null;
   };
 
   const mobileListOnly = mobileExclusive && !mobileReviewing;
@@ -5404,9 +5604,8 @@ export function ComplianceDocumentWorkspace({
         presentation="page"
         onClose={() => {
           setScreenOpen(false);
-          const returnType = filesModalReturnRef.current;
           filesModalReturnRef.current = null;
-          if (returnType) setFilesModalType(returnType);
+          if (mobileExclusive) setMobileDocPane("list");
         }}
         onPrev={goPrev}
         onNext={goNext}
@@ -5460,152 +5659,113 @@ export function ComplianceDocumentWorkspace({
           await declineWithReason(reason);
         }}
       />
-      {(() => {
-        if (!filesModalType) return null;
-        const typeRows = listRows.filter((row) => row.type === filesModalType);
-        const fileRows = typeRows.filter(hasFile).map((row) => {
-          const local = localDecisionByKey[optimisticKey(reviewScope, row.key)];
-          return { ...applyOptimisticDecision(row, local), declineReason: complianceRowDeclineReason(row, local) };
-        });
-        const label = isFinanceMode ? labelForFinanceDocType(filesModalType) : labelForDocType(filesModalType);
-        const canUploadHere = canEditFiles;
-        // Required trip files are locked once the trip is verified (unless it is
-        // back with Ground Ops after a hold / reject). The database enforces it too.
-        const verifiedLock = Boolean(
-          summary?.complianceVerifiedAt &&
-            !isComplianceAwaitingResubmit(summary) &&
-            REQUIRED_COMPLIANCE_DOCUMENT_TYPES.includes(filesModalType),
-        );
-        const files: ComplianceDocTypeFile[] = fileRows.map((row, index) => {
-          const isTripFile = Boolean(row.doc);
-          const groundOpsLock =
-            groundOpsDocumentLock && summary && isTripFile
-              ? groundOpsDocumentLockReason({
-                  trip: {
-                    status: summary.trip.status,
-                    compliance_verified_at: summary.complianceVerifiedAt,
-                    compliance_declined_at: summary.complianceDeclinedAt,
-                    compliance_resubmitted_at: summary.complianceResubmittedAt ?? null,
-                    finance_verified_at: summary.financeVerifiedAt ?? null,
-                  },
-                  documentStatus: row.doc?.status,
-                  advancePosted: Boolean(summary.advance || summary.advanceBeforeVerification),
-                  ownRecentUpload: isOwnRecentUpload(row.doc, actorId),
-                })
-              : null;
-          const entityDoc = row.entityDoc;
-          const isOwnedEntityFile =
-            Boolean(entityDoc) &&
-            !isTripFile &&
-            entityDoc.entity_type !== "supplier" &&
-            entityDoc.source !== "supplier-kyc";
-          const approved = row.status === "verified" || verifiedLock || groundOpsLock != null;
-          const entityName =
-            entityDoc?.notes?.trim() ||
-            entityDoc?.storage_path?.split("/").pop()?.trim() ||
-            "";
-          return {
-            key: row.key,
-            label: fileRows.length > 1 ? `${label} · ${index + 1}` : label,
-            // Typed e-way details are stored as eway-fields.json; show what it is, not the file.
-            fileName: isEwayBillMetaPath(row.doc?.storage_path, row.doc?.file_name)
-              ? "Entered details"
-              : row.doc?.file_name?.trim() || entityName,
-            statusLabel: row.declineReason
-              ? `${COMPLIANCE_STATUS_META[row.status].label}: ${row.declineReason}`
-              : COMPLIANCE_STATUS_META[row.status].label,
-            statusColor: COMPLIANCE_STATUS_META[row.status].color,
-            canPreview: canViewDocuments,
-            canReplace: canUploadHere && isTripFile && !approved,
-            canRemove: canUploadHere && !approved && (isTripFile || isOwnedEntityFile),
-            lockedReason:
-              approved && canUploadHere && (isTripFile || isOwnedEntityFile)
-                ? row.status === "verified"
-                  ? "Approved files are locked"
-                  : groundOpsLock
-                    ? groundOpsDocumentLockLabel(groundOpsLock)
-                    : "Locked after the trip is verified"
-                : null,
-          };
-        });
-        const addRow = typeRows[0];
-        // Ground Ops may not add a second file over a locked type either; a rejected
-        // file or a trip back for resubmit reopens it (groundOpsDocumentLock.util).
-        // Same as the database: only a file that is neither rejected nor this
-        // user's own recent upload blocks adding another of the type.
-        const blockingTypeFiles = fileRows.filter(
-          (row) =>
-            row.doc &&
-            row.doc.status !== "rejected" &&
-            !isOwnRecentUpload(row.doc, actorId),
-        );
-        const typeLock =
-          groundOpsDocumentLock && summary && blockingTypeFiles.length > 0
-            ? groundOpsDocumentLockReason({
-                trip: {
-                  status: summary.trip.status,
-                  compliance_verified_at: summary.complianceVerifiedAt,
-                  compliance_declined_at: summary.complianceDeclinedAt,
-                  compliance_resubmitted_at: summary.complianceResubmittedAt ?? null,
-                  finance_verified_at: summary.financeVerifiedAt ?? null,
-                },
-                advancePosted: Boolean(summary.advance || summary.advanceBeforeVerification),
-              })
-            : null;
-        return (
-          <ComplianceDocTypeFilesModal
-            visible
-            title={`${label} · ${fileRows.length} file${fileRows.length === 1 ? "" : "s"}`}
-            files={files}
-            busyKey={fileActionKey}
-            adding={Boolean(addRow && uploadingFinanceType === addRow.key)}
-            canAdd={canUploadHere && Boolean(addRow) && !typeLock}
-            footnote={
-              typeLock
-                ? groundOpsDocumentLockLabel(typeLock)
-                : fileRows.some(
-                (row) =>
-                  Boolean(row.entityDoc) &&
-                  !row.doc &&
-                  (row.entityDoc.entity_type === "supplier" ||
-                    row.entityDoc.source === "supplier-kyc"),
-              )
-                ? "Supplier files stay on the supplier profile. Replace or remove them there."
-                : fileRows.some((row) => Boolean(row.entityDoc) && !row.doc)
-                  ? "Vehicle and driver files are shared with other trips. Removing a file here removes it from the profile."
-                  : null
-            }
-            onPreview={(key) => {
-              const row = fileRows.find((item) => item.key === key);
-              setFilesModalType(null);
-              if (!row) return;
-              // Select the file, open the full-screen viewer, and come back here on close.
-              filesModalReturnRef.current = row.type;
-              previewChecklistRow(row);
-              setScreenOpen(true);
-            }}
-            onReplace={(key) => {
-              const row = fileRows.find((item) => item.key === key);
-              if (row) void replaceTripFile(row);
-            }}
-            onRemove={(key) => {
-              const index = fileRows.findIndex((item) => item.key === key);
-              if (index < 0) return;
-              const row = fileRows[index];
-              const itemLabel = fileRows.length > 1 ? `${label} · ${index + 1}` : label;
-              if (row.doc) {
-                void removeTripFile(row, itemLabel);
-                return;
+      <VaultCategoryPreviewModal
+        visible={Boolean(categoryPreview)}
+        files={categoryPreview?.files ?? []}
+        index={categoryPreview?.index ?? 0}
+        onIndexChange={(index) =>
+          setCategoryPreview((current) => (current ? { ...current, index } : current))
+        }
+        onClose={() => {
+          setCategoryPreview(null);
+          setScreenOpen(false);
+          if (mobileExclusive) setMobileDocPane("list");
+        }}
+        onAdd={
+          canEditFiles && categoryPreview
+            ? () => {
+                const addLock = complianceTypeAddLockReason(categoryPreview.type);
+                if (addLock) {
+                  alertMessage("Document locked", addLock);
+                  return;
+                }
+                const row =
+                  listRows.find((item) => item.type === categoryPreview.type) ??
+                  displayListRows.find((item) => item.type === categoryPreview.type);
+                if (row) void uploadVaultDocument(row);
               }
-              void removeEntityFile(row, itemLabel);
-            }}
-            onAdd={() => {
-              if (addRow) void uploadVaultDocument(addRow);
-            }}
-            onClose={() => setFilesModalType(null)}
-          />
-        );
-      })()}
+            : undefined
+        }
+        onDelete={
+          canEditFiles
+            ? (file) => {
+                if (String(file.id).startsWith("draft-")) {
+                  setCategoryPreview((current) => {
+                    if (!current) return current;
+                    const next = current.files.filter((item) => item.id !== file.id);
+                    if (next.length === 0) return null;
+                    return {
+                      ...current,
+                      files: next,
+                      index: Math.min(current.index, next.length - 1),
+                    };
+                  });
+                  return;
+                }
+                const row = listRows.find((item) => item.key === file.id);
+                if (!row) return;
+                const fileLock = complianceFileLockReason(row);
+                if (fileLock) {
+                  alertMessage("Document locked", fileLock);
+                  return;
+                }
+                const label = file.fileName || file.categoryLabel;
+                if (row.doc) {
+                  void removeTripFile(row, label);
+                  return;
+                }
+                void removeEntityFile(row, label);
+              }
+            : undefined
+        }
+        onResolveUrl={async (file) => {
+          if (file.previewUri?.trim()) return file.previewUri.trim();
+          const path = file.storagePath?.trim();
+          if (!path) return null;
+          if (/^https?:\/\//i.test(path) || path.startsWith("blob:") || path.startsWith("data:")) {
+            return path;
+          }
+          return signCompliancePreviewUrl({
+            storagePath: path,
+            source: file.category === "bank_docs" ? "supplier-kyc" : "compliance",
+            organizationId,
+            entityId:
+              file.driverKind
+                ? summary?.trip.driver_id ?? null
+                : file.complianceType
+                  ? summary?.trip.vehicle_id ?? null
+                  : summary?.trip.id ?? null,
+            docType: file.category,
+          });
+        }}
+        onSaveExpiry={async (file, isoDate) => {
+          if (!file.documentId) return;
+          const { error } = await updateEntityDocumentExpiry(file.documentId, isoDate);
+          if (error) {
+            alertMessage("Could not save date", error.message);
+            return;
+          }
+          setCategoryPreview((current) =>
+            current
+              ? {
+                  ...current,
+                  files: current.files.map((item) =>
+                    item.id === file.id ? { ...item, expiryDate: isoDate } : item,
+                  ),
+                }
+              : current,
+          );
+          if (summary) {
+            onChanged(
+              file.driverKind && summary.trip.driver_id
+                ? { type: "driverDocuments", driverId: summary.trip.driver_id }
+                : file.complianceType && summary.trip.vehicle_id
+                  ? { type: "vehicleDocuments", vehicleId: summary.trip.vehicle_id }
+                  : { type: "tripDocuments", tripId: summary.trip.id },
+            );
+          }
+        }}
+      />
       <ComplianceDeclineModal
         visible={flagOpen}
         title="Flag to Compliance"

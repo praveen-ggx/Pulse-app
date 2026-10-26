@@ -29,6 +29,7 @@ export type ComplianceVaultFile = {
   arrayBuffer: ArrayBuffer;
   fileName: string;
   mimeType: string;
+  uri?: string;
 };
 
 /** Vehicle doc types stored on `vehicles.documents` (the vehicle vault). */
@@ -70,7 +71,7 @@ async function vaultFileFromAsset(
     byteLength: arrayBuffer.byteLength,
   });
   if (!format.ok) throw new Error(format.reason);
-  return { arrayBuffer, fileName, mimeType: format.mimeType };
+  return { arrayBuffer, fileName, mimeType: format.mimeType, uri: asset.uri };
 }
 
 /** Opens the file picker. Users can select any number of files. Empty when cancelled. */

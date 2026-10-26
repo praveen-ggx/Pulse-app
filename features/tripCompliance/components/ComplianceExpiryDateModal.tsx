@@ -5,14 +5,16 @@
 import { DocumentDateCalendar } from "@/components/DocumentDateCalendar";
 import Theme from "@/constants/Theme";
 import { Calendar as CalendarIcon } from "lucide-react-native";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -75,7 +77,7 @@ export function ComplianceExpiryDateModal({
   onSubmit,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const todayIso = useMemo(() => toISODate(new Date()), [visible]);
+  const { height: windowHeight } = useWindowDimensions();
   const [selected, setSelected] = useState(toISODate(addMonths(new Date(), 12)));
   const [span, setSpan] = useState<SpanId | null>("1y");
 
@@ -115,15 +117,31 @@ export function ComplianceExpiryDateModal({
       animationType="fade"
       onRequestClose={onCancel}
       statusBarTranslucent
+      presentationStyle="overFullScreen"
       {...(Platform.OS === "web" ? { style: { zIndex: 40000 } } : {})}
     >
-      <View style={[styles.overlay, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+      <View
+        pointerEvents="box-none"
+        style={[
+          styles.overlay,
+          {
+            paddingTop: Math.max(insets.top, 12),
+            paddingBottom: Math.max(insets.bottom, 16),
+          },
+        ]}
+      >
         <Pressable
           style={StyleSheet.absoluteFill}
           onPress={onCancel}
           accessibilityLabel="Dismiss expiry date picker"
         />
-        <View style={styles.sheet}>
+        <View
+          pointerEvents="auto"
+          style={[
+            styles.sheet,
+            { maxHeight: Math.max(320, windowHeight - insets.top - insets.bottom - 24) },
+          ]}
+        >
           <View style={styles.head}>
             <View style={styles.iconWrap}>
               <CalendarIcon size={18} color={Theme.brandBlueInk} strokeWidth={2} />
@@ -161,14 +179,20 @@ export function ComplianceExpiryDateModal({
             })}
           </View>
 
-          <DocumentDateCalendar
-            selectedIso={selected}
-            minDate={todayIso}
-            onSelect={(iso) => {
-              setSelected(iso);
-              setSpan(null);
-            }}
-          />
+          <ScrollView
+            style={styles.calendarScroll}
+            contentContainerStyle={styles.calendarScrollContent}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled
+          >
+            <DocumentDateCalendar
+              selectedIso={selected}
+              onSelect={(iso) => {
+                setSelected(iso);
+                setSpan(null);
+              }}
+            />
+          </ScrollView>
 
           <View style={styles.actions}>
             <Pressable
@@ -202,6 +226,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 16,
     zIndex: 40000,
+  },
+  calendarScroll: {
+    flexGrow: 0,
+  },
+  calendarScrollContent: {
+    paddingBottom: 4,
   },
   sheet: {
     width: "100%",

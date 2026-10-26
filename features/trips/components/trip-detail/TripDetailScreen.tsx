@@ -82,10 +82,7 @@ import {
   type SupplierBankProofBundle,
 } from "@/features/tripCompliance/utils/supplierBankProof.util";
 import { signCompliancePreviewUrl } from "@/features/tripCompliance/services/complianceDocumentView.service";
-import {
-  ComplianceExpiryDateModal,
-  formatExpiryLabel,
-} from "@/features/tripCompliance/components/ComplianceExpiryDateModal";
+import { formatExpiryLabel } from "@/features/tripCompliance/components/ComplianceExpiryDateModal";
 import { documentRequiresExpiry } from "@/features/tripCompliance/tripCompliance.types";
 import { useWorkspaceProductsQuery } from "@/lib/queries/useWorkspaceProductsQuery";
 import { queryKeys } from "@/lib/queryKeys";
@@ -583,6 +580,14 @@ function vaultAssetExpiryKind(pending: {
 }): string | null {
   if (pending.vehicleKind && pending.vehicleKind !== "extra") return pending.vehicleKind;
   return pending.driverKind ?? null;
+}
+
+function nextYearIso(): string {
+  const next = new Date();
+  next.setMonth(next.getMonth() + 12);
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(
+    next.getDate(),
+  ).padStart(2, "0")}`;
 }
 
 function DeferredTripMap(props: ComponentProps<typeof TripMap>) {
@@ -1521,7 +1526,6 @@ export default function TripDetailScreen({
   } | null>(null);
   /** Insurance / Fitness / licence expiry typed in the save dialog (YYYY-MM-DD). */
   const [pendingAssetExpiry, setPendingAssetExpiry] = useState("");
-  const [assetExpiryPickerOpen, setAssetExpiryPickerOpen] = useState(false);
   const [pendingLrNumber, setPendingLrNumber] = useState("");
   // Prefill the expiry already on file when the save dialog opens.
   useEffect(() => {
@@ -1548,7 +1552,6 @@ export default function TripDetailScreen({
     setPendingLrIsDuplicate(false);
     setLrDuplicateAlertVisible(false);
     setPendingAssetExpiry("");
-    setAssetExpiryPickerOpen(false);
   }, []);
   const pendingExpirySeedKey = pendingVaultUpload
     ? `${pendingVaultUpload.slotId}:${pendingVaultUpload.driverKind ?? ""}:${pendingVaultUpload.vehicleKind ?? ""}:${pendingVaultUpload.uri}`
@@ -1562,8 +1565,14 @@ export default function TripDetailScreen({
         : pendingVaultUpload.driverKind
           ? detail.driverIdentityDocs?.[pendingVaultUpload.driverKind]?.expiryDate
           : null;
-    setPendingAssetExpiry(existing?.trim() ?? "");
-    setAssetExpiryPickerOpen(Boolean(kind && documentRequiresExpiry(kind) && !existing?.trim()));
+    const seed = existing?.trim() ?? "";
+    setPendingAssetExpiry(
+      kind && documentRequiresExpiry(kind)
+        ? /^\d{4}-\d{2}-\d{2}$/.test(seed)
+          ? seed
+          : nextYearIso()
+        : "",
+    );
     // Seed once per picked file, not when extra files are added.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingExpirySeedKey]);
@@ -1618,9 +1627,8 @@ export default function TripDetailScreen({
     files: VaultCategoryPreviewFile[];
     index: number;
     add?: () => void;
+    editExpiry?: boolean;
   } | null>(null);
-  const [previewExpiryFile, setPreviewExpiryFile] =
-    useState<VaultCategoryPreviewFile | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -1858,7 +1866,6 @@ export default function TripDetailScreen({
           "Expiry date needed",
           "Pick the expiry date before saving this document.",
         );
-        setAssetExpiryPickerOpen(true);
         return;
       }
 
@@ -2881,15 +2888,20 @@ export default function TripDetailScreen({
         });
         if (res.canceled || !res.assets?.[0]) return;
         if (alertIfVaultPickerRejected(res.assets)) return;
-        const asset = res.assets[0];
+        const asset = await readVaultPickerAsset(
+          res.assets[0],
+          `driver-${kind}-${Date.now()}.pdf`,
+          vaultMimeFromFileName,
+        );
         setPendingVaultUpload({
           slotId: "driver-documents",
           label: DRIVER_IDENTITY_LABELS[kind],
           docType: "driver_identity",
           driverKind: kind,
           uri: asset.uri,
-          fileName: asset.name || `driver-${kind}-${Date.now()}.pdf`,
-          mimeType: vaultMimeFromFileName(asset.name, asset.mimeType),
+          fileName: asset.fileName,
+          mimeType: asset.mimeType,
+          arrayBuffer: asset.arrayBuffer,
         });
       } catch (e) {
         showAppAlert(
@@ -3211,7 +3223,12 @@ export default function TripDetailScreen({
   );
 
   const openCategoryPreview = useCallback(
-    (files: VaultCategoryPreviewFile[], index = 0, add?: () => void) => {
+    (
+      files: VaultCategoryPreviewFile[],
+      index = 0,
+      add?: () => void,
+      options?: { editExpiry?: boolean },
+    ) => {
       const next = files.filter(
         (file) =>
           Boolean(file.previewUri?.trim()) || Boolean(file.storagePath?.trim()),
@@ -3221,6 +3238,7 @@ export default function TripDetailScreen({
         files: next,
         index: Math.max(0, Math.min(index, next.length - 1)),
         add,
+        editExpiry: options?.editExpiry,
       });
       return true;
     },
@@ -3360,8 +3378,7 @@ export default function TripDetailScreen({
   );
 
   const savePreviewExpiry = useCallback(
-    async (isoDate: string) => {
-      const file = previewExpiryFile;
+    async (file: VaultCategoryPreviewFile, isoDate: string) => {
       if (!file || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return;
       const viewerOrgId =
         currentOrganization?.id?.trim() || detail.trip?.organization_id?.trim() || "";
@@ -3428,116 +3445,100 @@ export default function TripDetailScreen({
           "Could not save date",
           error instanceof Error ? error.message : "Try again.",
         );
-      } finally {
-        setPreviewExpiryFile(null);
       }
     },
-    [
-      previewExpiryFile,
-      currentOrganization?.id,
-      detail,
-    ],
+    [currentOrganization?.id, detail],
   );
 
   const previewVehicleDoc = useCallback(
-    (storagePath: string, label: string) => {
+    (
+      storagePath: string,
+      label: string,
+      docType?: VehicleComplianceDocType,
+      options?: { editExpiry?: boolean },
+    ) => {
       const files = vehiclePreviewFiles();
-      const index = files.findIndex((file) => file.storagePath === storagePath.trim());
+      const index = files.findIndex(
+        (file) =>
+          file.storagePath === storagePath.trim() ||
+          (docType && file.complianceType === docType),
+      );
       openCategoryPreview(
         files.length > 0
           ? files
           : [
               {
-                id: label,
+                id: docType ?? label,
                 fileName: label,
                 categoryLabel: label,
                 storagePath,
+                complianceType: docType,
+                expiryDate: docType ? detail.vehicleDocs?.[docType]?.expiryDate ?? null : null,
+                deleteKind: docType ? "vehicle_compliance" : undefined,
               },
             ],
         index >= 0 ? index : 0,
         () => openVehicleDocChooser(),
+        options,
       );
     },
-    [openCategoryPreview, openVehicleDocChooser, vehiclePreviewFiles],
+    [detail.vehicleDocs, openCategoryPreview, openVehicleDocChooser, vehiclePreviewFiles],
   );
 
   const previewDriverIdentityDoc = useCallback(
-    (storagePath: string, label: string) => {
+    (
+      storagePath: string,
+      label: string,
+      docType?: DriverIdentityDocType,
+      options?: { editExpiry?: boolean },
+    ) => {
       const files = driverIdentityPreviewFiles();
-      const index = files.findIndex((file) => file.storagePath === storagePath.trim());
+      const index = files.findIndex(
+        (file) =>
+          file.storagePath === storagePath.trim() ||
+          (docType && file.driverKind === docType),
+      );
       openCategoryPreview(
         files.length > 0
           ? files
           : [
               {
-                id: label,
+                id: docType ?? label,
                 fileName: label,
                 categoryLabel: label,
                 storagePath,
+                documentId: docType ? detail.driverIdentityDocs?.[docType]?.id : undefined,
+                deleteKind: docType ? "driver_identity" : undefined,
+                driverKind: docType,
+                expiryDate: docType
+                  ? detail.driverIdentityDocs?.[docType]?.expiryDate ?? null
+                  : null,
               },
             ],
         index >= 0 ? index : 0,
         () => openDriverDocChooser(),
+        options,
       );
     },
-    [driverIdentityPreviewFiles, openCategoryPreview, openDriverDocChooser],
-  );
-
-  /**
-   * Chooser eye for one vehicle / driver type: every file on file for that type
-   * (slot + added), paged in the gallery. One file opens directly as before.
-   */
-  const previewAssetDocType = useCallback(
-    (owner: "vehicle" | "driver", docType: string, label: string) => {
-      const docs = (owner === "vehicle"
-        ? detail.vehiclePreviewDocs
-        : detail.driverIdentityPreviewDocs
-      ).filter((doc) => doc.docType === docType && !!doc.storagePath?.trim());
-      if (docs.length === 0) return;
-      if (docs.length === 1) {
-        if (owner === "vehicle") previewVehicleDoc(docs[0].storagePath!, label);
-        else previewDriverIdentityDoc(docs[0].storagePath!, label);
-        return;
-      }
-      const files = docs.map((doc, index) => ({
-        id: doc.id,
-        label: `${label} ${index + 1} of ${docs.length}`,
-        type: doc.type,
-        storagePath: doc.storagePath!,
-        documentId: doc.documentId,
-        docSource: owner === "vehicle" ? ("vehicle" as const) : ("compliance" as const),
-      }));
-      detail.setVehiclePreviewIndex(0);
-      detail.setSelectedDoc({
-        id: `${owner}-type-${docType}`,
-        label,
-        type: "FILES",
-        status: "Uploaded",
-        category: owner === "vehicle" ? "vehicle" : "driver_identity",
-        docSource: owner === "vehicle" ? "vehicle" : "compliance",
-        files,
-        storagePath: files[0].storagePath,
-      });
-    },
     [
-      detail.vehiclePreviewDocs,
-      detail.driverIdentityPreviewDocs,
-      detail.setVehiclePreviewIndex,
-      detail.setSelectedDoc,
-      previewVehicleDoc,
-      previewDriverIdentityDoc,
+      detail.driverIdentityDocs,
+      driverIdentityPreviewFiles,
+      openCategoryPreview,
+      openDriverDocChooser,
     ],
   );
 
+  
+
   const previewTripDetailsSlot = useCallback(
     (slot: TripDetailsSlot) => {
-      const files = tripDetailsPreviewFiles();
+      const all = tripDetailsPreviewFiles();
       const label =
         TRIP_DETAILS_SLOTS.find((item) => item.id === slot)?.label ?? slot;
-      const index = files.findIndex((file) => file.categoryLabel === label);
+      const files = all.filter((file) => file.categoryLabel === label);
       const opened = openCategoryPreview(
-        files,
-        index >= 0 ? index : 0,
+        files.length > 0 ? files : all,
+        0,
         () => uploadTripDetailsSlot(slot),
       );
       if (!opened && slot === "bank_docs") {
@@ -4941,6 +4942,14 @@ export default function TripDetailScreen({
         const files = (tripDetailsCard?.files ?? []).filter(
           (file) => file.slotType === slot.id && !!file.storagePath?.trim(),
         );
+        const slotPreviews = files.map((file) => ({
+          storagePath: file.storagePath,
+          fileName: file.fileName ?? file.label ?? slot.label,
+          mimeHint: file.type,
+          source: "trip" as const,
+          organizationId: detail.trip?.organization_id ?? currentOrganization?.id,
+          entityId: detail.trip?.supplier_id,
+        }));
         const supplierBankOnFile =
           slot.id === "bank_docs" &&
           files.length === 0 &&
@@ -5016,7 +5025,9 @@ export default function TripDetailScreen({
                   }
                 : null
             }
+            previews={slotPreviews.length > 0 ? slotPreviews : undefined}
             onPreview={() => previewTripDetailsSlot(slot.id)}
+            onEdit={() => previewTripDetailsSlot(slot.id)}
             onAdd={() => uploadTripDetailsSlot(slot.id)}
           />
         );
@@ -9234,10 +9245,15 @@ export default function TripDetailScreen({
                             }
                           : null
                       }
-                      onPreview={() =>
-                        fileCount > 1
-                          ? previewAssetDocType("vehicle", docType, label)
-                          : previewVehicleDoc(path, label)
+                      onPreview={() => previewVehicleDoc(path, label, docType)}
+                      onEdit={() => previewVehicleDoc(path, label, docType)}
+                      onEditExpiry={
+                        onFile
+                          ? () => {
+                              setVehicleDocChooserVisible(false);
+                              previewVehicleDoc(path, label, docType, { editExpiry: true });
+                            }
+                          : undefined
                       }
                       onAdd={() => chooseVehicleDocKind(docType)}
                     />
@@ -9310,10 +9326,17 @@ export default function TripDetailScreen({
                             }
                           : null
                       }
-                      onPreview={() =>
-                        fileCount > 1
-                          ? previewAssetDocType("driver", docType, label)
-                          : previewDriverIdentityDoc(path, label)
+                      onPreview={() => previewDriverIdentityDoc(path, label, docType)}
+                      onEdit={() => previewDriverIdentityDoc(path, label, docType)}
+                      onEditExpiry={
+                        onFile
+                          ? () => {
+                              setDriverDocChooserVisible(false);
+                              previewDriverIdentityDoc(path, label, docType, {
+                                editExpiry: true,
+                              });
+                            }
+                          : undefined
                       }
                       onAdd={() => chooseDriverDocKind(docType)}
                     />
@@ -9568,34 +9591,15 @@ export default function TripDetailScreen({
               documentRequiresExpiry(vaultAssetExpiryKind(pendingVaultUpload) ?? "") ? (
                 <View style={styles.invoiceNumberFields}>
                   <Text style={styles.lrNumberFieldLabel}>EXPIRY DATE</Text>
-                  <Pressable
-                    style={styles.lrDateField}
-                    onPress={() => {
-                      if (uploadingDocId) return;
-                      setAssetExpiryPickerOpen(true);
-                    }}
-                    disabled={!!uploadingDocId}
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      pendingAssetExpiry
-                        ? `Expiry date ${formatExpiryLabel(pendingAssetExpiry)}, change`
-                        : "Pick expiry date"
-                    }
-                  >
-                    <Text
-                      style={
-                        pendingAssetExpiry
-                          ? styles.lrDateFieldText
-                          : styles.lrDateFieldPlaceholder
-                      }
-                      numberOfLines={1}
-                    >
-                      {pendingAssetExpiry
-                        ? formatExpiryLabel(pendingAssetExpiry)
-                        : "Pick expiry date"}
-                    </Text>
-                    <Feather name="calendar" size={16} color={Theme.primary} />
-                  </Pressable>
+                  <Text style={styles.lrDateFieldText}>
+                    {pendingAssetExpiry
+                      ? formatExpiryLabel(pendingAssetExpiry)
+                      : "Pick the date below"}
+                  </Text>
+                  <CompactValidTillCalendar
+                    selectedIso={pendingAssetExpiry || nextYearIso()}
+                    onSelect={setPendingAssetExpiry}
+                  />
                 </View>
               ) : null}
             </ScrollView>
@@ -9644,30 +9648,11 @@ export default function TripDetailScreen({
         </View>
       </Modal>
 
-      <ComplianceExpiryDateModal
-        visible={assetExpiryPickerOpen || previewExpiryFile != null}
-        docLabel={
-          previewExpiryFile?.categoryLabel ?? pendingVaultUpload?.label ?? "Document"
-        }
-        initialValue={previewExpiryFile?.expiryDate ?? pendingAssetExpiry}
-        onCancel={() => {
-          setAssetExpiryPickerOpen(false);
-          setPreviewExpiryFile(null);
-        }}
-        onSubmit={(isoDate) => {
-          if (previewExpiryFile) {
-            void savePreviewExpiry(isoDate);
-            return;
-          }
-          setPendingAssetExpiry(isoDate);
-          setAssetExpiryPickerOpen(false);
-        }}
-      />
-
       <VaultCategoryPreviewModal
-        visible={Boolean(categoryPreview) && previewExpiryFile == null}
+        visible={Boolean(categoryPreview)}
         files={categoryPreview?.files ?? []}
         index={categoryPreview?.index ?? 0}
+        startEditingExpiry={Boolean(categoryPreview?.editExpiry)}
         onIndexChange={(index) =>
           setCategoryPreview((current) => (current ? { ...current, index } : current))
         }
@@ -9683,14 +9668,8 @@ export default function TripDetailScreen({
         }
         onResolveUrl={resolveCategoryPreviewUrl}
         onDelete={deleteCategoryPreviewFile}
-        onEditExpiry={(file) => {
-          if (
-            !documentRequiresExpiry(file.complianceType ?? file.driverKind ?? "") &&
-            !file.expiryDate
-          ) {
-            return;
-          }
-          setPreviewExpiryFile(file);
+        onSaveExpiry={(file, isoDate) => {
+          void savePreviewExpiry(file, isoDate);
         }}
       />
 

@@ -1,14 +1,14 @@
 /**
  * Vault document card — title, number, and a preview that fills the frame.
  */
-import { RegistryGhostButton, RegistryPrimaryButton } from "@/components/AlertRegistryCardActions";
+import { RegistryPrimaryButton } from "@/components/AlertRegistryCardActions";
 import Theme from "@/constants/Theme";
 import { signCompliancePreviewUrl } from "@/features/tripCompliance/services/complianceDocumentView.service";
 import { isInlinePreviewUri } from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import { isPdfTripDoc } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { VaultDocThumb } from "@/features/trips/components/trip-detail/VaultDocThumb";
 import type { PartyEntityType } from "@/lib/partyAvatarDisplay";
-import { FileText } from "lucide-react-native";
+import { FileText, Pencil } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View, type ViewStyle } from "react-native";
 
@@ -50,6 +50,10 @@ type Props = {
   onPreview?: () => void;
   /** Tap a specific file when more than one is on file. */
   onPreviewAt?: (index: number) => void;
+  /** Edit Valid till without opening the file first. */
+  onEditExpiry?: () => void;
+  /** Opens the vault preview sheet (same UI as trip vault). */
+  onEdit?: () => void;
   onAdd: () => void;
 };
 
@@ -190,6 +194,8 @@ export function VaultChooserNotifyRow({
   needsExpiry = false,
   onPreview,
   onPreviewAt,
+  onEditExpiry,
+  onEdit,
   onAdd,
 }: Props) {
   const allPreviews = (
@@ -203,12 +209,13 @@ export function VaultChooserNotifyRow({
   const showExpiry = Boolean(expiryLine) || (needsExpiry && onFile);
   const caption = redundantMeta(meta, onFile) || meta.trim() === numberLine ? "" : meta.trim();
   const onFileLabel = fileCount > 1 ? `${fileCount} on file` : "On file";
+  const openEditor = onEdit ?? onPreview;
   const previewFile = (index: number) => {
     if (onPreviewAt) {
       onPreviewAt(index);
       return;
     }
-    onPreview?.();
+    openEditor?.();
   };
 
   return (
@@ -247,7 +254,17 @@ export function VaultChooserNotifyRow({
             </Text>
           ) : null}
           {showExpiry ? (
-            <View style={styles.expiryRow}>
+            <Pressable
+              onPress={onEditExpiry}
+              disabled={!onEditExpiry}
+              style={styles.expiryRow}
+              accessibilityRole={onEditExpiry ? "button" : "none"}
+              accessibilityLabel={
+                expiryLine
+                  ? `Valid till ${expiryLine}${onEditExpiry ? ", edit" : ""}`
+                  : "Add expiry date"
+              }
+            >
               <Text style={styles.expiryLabel}>Valid till</Text>
               <Text
                 style={[styles.expiryValue, !expiryLine && styles.expiryMissing]}
@@ -255,7 +272,8 @@ export function VaultChooserNotifyRow({
               >
                 {expiryLine || "Add date"}
               </Text>
-            </View>
+              {onEditExpiry ? <Text style={styles.expiryEdit}>Edit</Text> : null}
+            </Pressable>
           ) : null}
           {caption ? (
             <Text style={styles.caption} numberOfLines={1} ellipsizeMode="tail">
@@ -263,14 +281,17 @@ export function VaultChooserNotifyRow({
             </Text>
           ) : null}
         </View>
-        {fileCount > 1 || canUpload ? (
+        {(onFile && openEditor) || canUpload ? (
           <View style={styles.headerActions}>
-            {fileCount > 1 ? (
-              <RegistryGhostButton
-                label="Files"
-                onPress={() => onPreview?.()}
-                style={ADD_BTN}
-              />
+            {onFile && openEditor ? (
+              <Pressable
+                onPress={openEditor}
+                style={styles.editBtn}
+                accessibilityRole="button"
+                accessibilityLabel={`Edit ${label}`}
+              >
+                <Pencil size={16} color={Theme.actionBtnInk} strokeWidth={2.2} />
+              </Pressable>
             ) : null}
             {canUpload ? (
               <RegistryPrimaryButton label="Add" onPress={onAdd} style={ADD_BTN} />
@@ -323,6 +344,16 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: 10,
     minWidth: 0,
+  },
+  editBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.surface,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
   },
   headerActions: {
     flexDirection: "row",
@@ -386,11 +417,18 @@ const styles = StyleSheet.create({
   },
   expiryRow: {
     flexDirection: "row",
-    alignItems: "baseline",
+    alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
+    gap: 8,
     minWidth: 0,
+    minHeight: 44,
     paddingTop: 1,
+  },
+  expiryEdit: {
+    flexShrink: 0,
+    fontSize: 12,
+    fontWeight: "800",
+    color: Theme.brandBlueInk,
   },
   expiryLabel: {
     flexShrink: 0,

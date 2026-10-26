@@ -1,6 +1,7 @@
 /**
  * Category document viewer — hero + sideways thumb strip (same as LR copies).
  */
+import { DocumentDateCalendar } from "@/components/DocumentDateCalendar";
 import Theme from "@/constants/Theme";
 import { documentRequiresExpiry } from "@/features/tripCompliance/tripCompliance.types";
 import {
@@ -30,6 +31,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -58,7 +60,8 @@ type Props = {
   onAdd?: () => void;
   onDelete?: (file: VaultCategoryPreviewFile) => void;
   onResolveUrl?: (file: VaultCategoryPreviewFile) => Promise<string | null>;
-  onEditExpiry?: (file: VaultCategoryPreviewFile) => void;
+  onSaveExpiry?: (file: VaultCategoryPreviewFile, isoDate: string) => void;
+  startEditingExpiry?: boolean;
 };
 
 function prettyPreviewExpiry(iso?: string | null): string {
@@ -71,6 +74,12 @@ function prettyPreviewExpiry(iso?: string | null): string {
   });
 }
 
+function defaultExpiryIso(): string {
+  const next = new Date();
+  next.setMonth(next.getMonth() + 12);
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
+}
+
 export function VaultCategoryPreviewModal({
   visible,
   files,
@@ -80,11 +89,14 @@ export function VaultCategoryPreviewModal({
   onAdd,
   onDelete,
   onResolveUrl,
-  onEditExpiry,
+  onSaveExpiry,
+  startEditingExpiry = false,
 }: Props) {
   const insets = useSafeAreaInsets();
   const [urls, setUrls] = useState<Record<string, string | null>>({});
   const [deleteFile, setDeleteFile] = useState<VaultCategoryPreviewFile | null>(null);
+  const [editingExpiry, setEditingExpiry] = useState(false);
+  const [draftExpiry, setDraftExpiry] = useState("");
   const safeIndex = Math.max(0, Math.min(index, Math.max(0, files.length - 1)));
   const current = files[safeIndex] ?? null;
   const category = current?.categoryLabel || "Document";
@@ -96,6 +108,24 @@ export function VaultCategoryPreviewModal({
   const showHeaderExpiry =
     Boolean(headerExpiry) ||
     documentRequiresExpiry(current?.complianceType ?? current?.driverKind ?? "");
+  const canEditExpiry =
+    Boolean(onSaveExpiry) &&
+    (documentRequiresExpiry(current?.complianceType ?? current?.driverKind ?? "") ||
+      Boolean(headerExpiryIso));
+
+  useEffect(() => {
+    if (!visible) {
+      setEditingExpiry(false);
+      return;
+    }
+    setDraftExpiry(headerExpiryIso || defaultExpiryIso());
+    if (startEditingExpiry && canEditExpiry) setEditingExpiry(true);
+  }, [canEditExpiry, startEditingExpiry, visible]);
+
+  useEffect(() => {
+    if (!visible || editingExpiry) return;
+    setDraftExpiry(headerExpiryIso || defaultExpiryIso());
+  }, [editingExpiry, headerExpiryIso, visible]);
 
   const paths = useMemo(
     () =>
@@ -187,14 +217,17 @@ export function VaultCategoryPreviewModal({
               {showHeaderExpiry ? (
                 <Pressable
                   onPress={
-                    onEditExpiry && current
-                      ? () => onEditExpiry(current)
+                    canEditExpiry
+                      ? () => {
+                          setDraftExpiry(headerExpiryIso || defaultExpiryIso());
+                          setEditingExpiry(true);
+                        }
                       : undefined
                   }
-                  disabled={!onEditExpiry}
+                  disabled={!canEditExpiry}
                   style={styles.headerExpiryRow}
-                  accessibilityRole={onEditExpiry ? "button" : undefined}
-                  accessibilityLabel="Valid till date"
+                  accessibilityRole={canEditExpiry ? "button" : undefined}
+                  accessibilityLabel="Valid till date, edit"
                 >
                   <Text style={styles.expiryLabel}>Valid till</Text>
                   <Text
@@ -206,7 +239,7 @@ export function VaultCategoryPreviewModal({
                   >
                     {headerExpiry || "Add date"}
                   </Text>
-                  {onEditExpiry ? (
+                  {canEditExpiry ? (
                     <Text style={styles.expiryEdit}>Edit</Text>
                   ) : null}
                 </Pressable>
@@ -222,7 +255,45 @@ export function VaultCategoryPreviewModal({
             </Pressable>
           </View>
 
-          <View style={styles.body}>
+          <ScrollView
+            style={styles.body}
+            contentContainerStyle={styles.bodyContent}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled
+          >
+            {editingExpiry && canEditExpiry ? (
+              <View style={styles.expiryEditor}>
+                <Text style={styles.expiryEditorTitle}>
+                  {prettyPreviewExpiry(draftExpiry) || "Pick expiry date"}
+                </Text>
+                <DocumentDateCalendar
+                  selectedIso={draftExpiry || defaultExpiryIso()}
+                  onSelect={setDraftExpiry}
+                />
+                <View style={styles.expiryEditorActions}>
+                  <Pressable
+                    onPress={() => setEditingExpiry(false)}
+                    style={styles.expiryCancel}
+                    accessibilityRole="button"
+                    accessibilityLabel="Cancel date edit"
+                  >
+                    <Text style={styles.expiryCancelText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => {
+                      if (!current || !/^\d{4}-\d{2}-\d{2}$/.test(draftExpiry)) return;
+                      onSaveExpiry?.(current, draftExpiry);
+                      setEditingExpiry(false);
+                    }}
+                    style={styles.expirySave}
+                    accessibilityRole="button"
+                    accessibilityLabel="Save expiry date"
+                  >
+                    <Text style={styles.expirySaveText}>Save date</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
             {items.length === 0 ? (
               <Text style={styles.empty}>No files to preview</Text>
             ) : (
@@ -246,7 +317,7 @@ export function VaultCategoryPreviewModal({
                 }
               />
             )}
-          </View>
+          </ScrollView>
 
           <View style={styles.footer}>
             <RegistryGhostButton label="Close" onPress={onClose} style={HUG} />
@@ -328,10 +399,11 @@ const styles = StyleSheet.create({
   },
   headerExpiryRow: {
     flexDirection: "row",
-    alignItems: "baseline",
+    alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
     minWidth: 0,
+    minHeight: 44,
   },
   headerExpiryValue: {
     flex: 1,
@@ -352,8 +424,50 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.surface,
   },
   body: {
+    maxHeight: 420,
+  },
+  bodyContent: {
     paddingHorizontal: 14,
+    paddingBottom: 8,
+    gap: 10,
+  },
+  expiryEditor: {
+    gap: 10,
     paddingBottom: 4,
+  },
+  expiryEditorTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: Theme.brandBlueInk,
+  },
+  expiryEditorActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    gap: 8,
+  },
+  expiryCancel: {
+    minHeight: 44,
+    paddingHorizontal: 12,
+    justifyContent: "center",
+  },
+  expiryCancelText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: Theme.textMuted,
+  },
+  expirySave: {
+    minHeight: 44,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    backgroundColor: Theme.brandBlueInk,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  expirySaveText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Theme.cardWhite,
   },
   empty: {
     fontSize: 13,

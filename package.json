@@ -156,6 +156,7 @@
     "sqids": "^0.3.0",
     "tslib": "^2.8.1",
     "xlsx": "^0.18.5",
+    "xlsx-js-style": "^1.2.0",
     "zustand": "^5.0.13"
   },
   "devDependencies": {

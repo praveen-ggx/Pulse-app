@@ -9,6 +9,7 @@ import type { ConversationImagePreview } from "@/features/chat/utils/conversatio
 import { ChatSlackMirrorToggle } from "@/features/chat/components/shared/ChatSlackMirrorToggle";
 import { SLACK_STREAM_TABS } from "@/features/chat/components/shared/chatSlackStreamTabs";
 import type { ResolvedPartyAvatarIdentity } from "@/lib/entityIdentity";
+import { getSignedAvatarUrl } from "@/lib/avatarUpload";
 import { CHAT_ACCENT } from "@/features/chat/chatTheme";
 import { LinearGradient } from "expo-linear-gradient";
 import LottieView from "lottie-react-native";
@@ -36,7 +37,7 @@ import {
   type TextStyle,
   type ViewStyle,
 } from "react-native";
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   CHAT_SLACK_BOTTOM_NAV_BAR,
@@ -307,6 +308,14 @@ export function ChatSlackPeopleStrip({
   sectionLabel?: string;
   onCompose?: () => void;
 }) {
+  useEffect(() => {
+    for (const item of items) {
+      const path =
+        item.identity.organizationImageUrl ?? item.identity.avatarUrl ?? null;
+      if (path) void getSignedAvatarUrl(path);
+    }
+  }, [items]);
+
   if (items.length === 0 && !onCompose) return null;
 
   return (

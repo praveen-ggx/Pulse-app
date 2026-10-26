@@ -23,6 +23,25 @@ describe("vehicleVaultDocumentsToEntityDocs", () => {
     expect(rows.find((row) => row.doc_type === "rc")?.status).toBe("pending");
   });
 
+  it("keeps extra pages of the same type instead of dropping them", () => {
+    const rows = vehicleVaultDocumentsToEntityDocs("v1", {
+      rc: { url: "org/v1/rc.pdf", expiryDate: "2027-01-01", uploadedAt: "2026-09-01" },
+      extras: [
+        {
+          id: "e-rc-2",
+          url: "org/v1/extras/rc-2.jpg",
+          expiryDate: "",
+          fileName: "RC · back.jpg",
+          docType: "rc",
+        },
+      ],
+    });
+    expect(rows.filter((row) => row.doc_type === "rc").map((row) => row.storage_path)).toEqual([
+      "org/v1/rc.pdf",
+      "org/v1/extras/rc-2.jpg",
+    ]);
+  });
+
   it("keeps an uploaded RC pending until Compliance approval is stored", () => {
     const pending = vehicleVaultDocumentsToEntityDocs("v1", {
       rc: { url: "org/v1/rc.pdf", expiryDate: "", uploadedAt: "2026-09-24" },
@@ -152,7 +171,9 @@ describe("mergeComplianceEntityDocs", () => {
         source: "entity",
       },
     ];
-    expect(mergeComplianceEntityDocs(vault, entity)[0]?.id).toBe("vault-rc");
+    const merged = mergeComplianceEntityDocs(vault, entity);
+    expect(merged.map((row) => row.id).sort()).toEqual(["entity-rc", "vault-rc"]);
+    expect(merged.find((row) => row.id === "vault-rc")?.storage_path).toBe("vault/rc.pdf");
   });
 
   it("inherits expiry from fallback when preferred has none", () => {
@@ -188,7 +209,7 @@ describe("mergeComplianceEntityDocs", () => {
     ];
     // Production: preferred = entity, fallback = vault
     const merged = mergeComplianceEntityDocs(entity, vault);
-    expect(merged[0]?.id).toBe("entity-ins");
-    expect(merged[0]?.expiry_date).toBe("2027-08-15");
+    expect(merged.find((row) => row.id === "entity-ins")?.expiry_date).toBe("2027-08-15");
+    expect(merged.find((row) => row.id === "vault-ins")?.storage_path).toBe("vault/ins.pdf");
   });
 });

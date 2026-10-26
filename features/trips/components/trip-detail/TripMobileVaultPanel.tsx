@@ -10,6 +10,7 @@ import {
   EwayBillLrStrip,
 } from "@/features/trips/components/trip-detail/EwayBillVaultTab";
 import { TripMobileVaultCategoryRow } from "@/features/trips/components/trip-detail/TripMobileVaultCategoryRow";
+import type { VaultPreviewSignContext } from "@/features/trips/components/trip-detail/VaultCardLrStylePreview";
 import { neoStyles } from "@/features/trips/components/trip-detail/TripDetailScreen.styles";
 import {
   canMutateTripVaultDoc,
@@ -45,6 +46,7 @@ type Props = {
   onSaveEwayBill?: (values: EwayFieldValues[]) => Promise<boolean>;
   tripIdLabel: string;
   createdAtLabel: string;
+  sign?: VaultPreviewSignContext;
 };
 
 function onFileSummary(doc: TripDocItem | undefined): string {
@@ -86,6 +88,7 @@ export const TripMobileVaultPanel = memo(function TripMobileVaultPanel({
   onSaveEwayBill,
   tripIdLabel,
   createdAtLabel,
+  sign,
 }: Props) {
   const insets = useSafeAreaInsets();
   const vehicleCard = docs.find((doc) => doc.id === "vehicle-documents");
@@ -115,11 +118,11 @@ export const TripMobileVaultPanel = memo(function TripMobileVaultPanel({
             }
             onPreview={(fileIndex) => onCardPress(doc, fileIndex)}
             onAdd={() => onAddMore?.(doc)}
+            sign={sign}
           />
         ))}
       </View>
       <View style={styles.eway}>
-        <Text style={[styles.sectionTitle, WEB_COPY]}>E-way Bill</Text>
         <EwayBillLrStrip
           rows={ewayStripRows}
           onView={onViewEwayBill ?? (() => undefined)}
@@ -163,11 +166,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Layout.screenPaddingHorizontal,
     paddingTop: 16,
     gap: 8,
-  },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: Theme.actionBtnInk,
   },
   bottomBar: {
     flexDirection: "row",

@@ -296,7 +296,7 @@ export function TripAuditLogPanel({
   const tabs: TripAuditFilterTab[] =
     scope === "compliance"
       ? ["all", "documents", "activity"]
-      : ["all", "payment", "updates", "assignment"];
+      : ["all", "updates", "assignment", "payment"];
 
   const panel = (
     <TripAuditLogContent

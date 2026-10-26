@@ -34,6 +34,12 @@ import { resolveCommercialOpportunity } from '@/features/marketplace/domain';
 import { BidConfirmModal, type BidConfirmPhase } from '@/features/network/components/bidding/BidConfirmModal';
 import { withdrawBid, type BidRow } from '@/features/network/services/bids.service';
 import { type PostRow } from '@/features/network/services/posts.service';
+import {
+  isShipperScopedStoryPost,
+  STORY_BID_SCOPE_NOTE,
+  STORY_BID_SUCCESS_SUBTITLE,
+  STORY_BID_WITHDRAW_NOTE,
+} from '@/features/network/utils/storyBidScope.util';
 import { formatINR } from '@/lib/format';
 import { useSubmitBidMutation } from '@/lib/queries/useBidsQuery';
 import { queryKeys } from '@/lib/queryKeys';
@@ -330,7 +336,7 @@ export function BidSheet({
       setActiveField('amount');
       return;
     }
-    if (!post.source_indent_id) {
+    if (!isShipperScopedStoryPost(post)) {
       Alert.alert(
         'Cannot place bid',
         'This story is not linked to a load indent. Use Get Load to quote, or ask the publisher to broadcast from an indent.',
@@ -350,7 +356,7 @@ export function BidSheet({
     setAmountRaw(toRawString(Math.round(targetRate)));
     setActiveField('amount');
     setValidationError(undefined);
-    if (!post.source_indent_id) {
+    if (!isShipperScopedStoryPost(post)) {
       Alert.alert(
         'Cannot place bid',
         'This story is not linked to a load indent. Use Get Load to quote, or ask the publisher to broadcast from an indent.',
@@ -391,7 +397,7 @@ export function BidSheet({
       setActiveField('amount');
       return;
     }
-    if (!post.source_indent_id) {
+    if (!isShipperScopedStoryPost(post) || !post.source_indent_id) {
       celebrationLockRef.current = false;
       setConfirmOpen(false);
       setConfirmPhase('review');
@@ -409,8 +415,8 @@ export function BidSheet({
     const indentIdForCache = post.source_indent_id;
 
     try {
-      // New bid and edit share one RPC: it revises this org's pending bid and
-      // its direct quote together, and refuses decided or countered quotes.
+      // Shipper indent only — submit_pulse_bid_with_direct_quote.
+      // Never submit_network_pool_quote (that would quote every pool member).
       const submitRes = await submitMutation.mutateAsync({
         amount,
         note: bidNote || undefined,
@@ -582,6 +588,11 @@ export function BidSheet({
         void handleSubmit();
       }}
       onSuccessDone={finishAfterSuccess}
+      copy={{
+        scopeNote: STORY_BID_SCOPE_NOTE,
+        withdrawScopeNote: STORY_BID_WITHDRAW_NOTE,
+        successSubtitle: STORY_BID_SUCCESS_SUBTITLE,
+      }}
     />
   );
 

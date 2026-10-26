@@ -2,7 +2,10 @@
  * Mobile trips hub — MakeMyTrip “My Trips” ticket card (single white surface, no nested panels).
  */
 import { PartyAvatar } from "@/components/PartyAvatar";
-import { TripHubDriverPresenceBadge } from "@/features/trips/components/TripHubDriverPresenceBadge";
+import {
+  DriverOfflineGlow,
+  TripHubDriverPresenceBadge,
+} from "@/features/trips/components/TripHubDriverPresenceBadge";
 import { TripPodStatusTags } from "@/features/trips/components/TripPodStatusTags";
 import { FinanceTxnTypography } from "@/constants/FinanceTxnTypography";
 import Theme from "@/constants/Theme";
@@ -26,6 +29,8 @@ import {
 import { splitHubRouteLocationDisplay } from "@/features/trips/utils/tripLocationDisplay.util";
 import { isLoadBasedTrip } from "@/features/trips/visibility/tripVisibility";
 import { formatIndianVehicleNumber } from "@/lib/format";
+import { driverAvatarSeedFromId } from "@/lib/partyAvatarDisplay";
+import { assignedVehiclePlate } from "@/features/trips/utils/tripAssignmentVehicle.util";
 import type { ReactNode } from "react";
 import { memo, useState } from "react";
 import {
@@ -220,9 +225,10 @@ function PartyChip({
   isIntegrated,
   alignEnd,
   presencePing,
+  vehiclePlate,
 }: {
   name: string;
-  entityType: "supplier" | "driver";
+  entityType: "supplier" | "driver" | "vehicle";
   avatarUrl?: string | null;
   avatarSeed?: string | null;
   initialsColorSeed?: string;
@@ -231,34 +237,42 @@ function PartyChip({
   isIntegrated?: boolean;
   alignEnd?: boolean;
   presencePing?: TripHubInTransitPingMeta | null;
+  vehiclePlate?: string | null;
 }) {
   const label = formatPartyName(name);
-  const showPresence = entityType === "driver" && Boolean(presencePing);
+  const plate = (vehiclePlate ?? "").trim();
+  const showPlate = Boolean(plate);
+  const stacked = showPlate;
 
   return (
     <View
       style={[
         styles.chip,
         alignEnd && styles.chipEnd,
-        showPresence ? styles.chipStacked : styles.chipSingle,
+        stacked ? styles.chipStacked : styles.chipSingle,
       ]}
     >
-      <PartyAvatar
-        name={label}
-        initialsColorSeed={initialsColorSeed}
-        organizationImageUrl={organizationImageUrl}
-        organizationAvatarSeed={organizationAvatarSeed}
-        avatarUrl={avatarUrl}
-        avatarSeed={avatarSeed}
-        entityType={entityType}
-        isIntegrated={isIntegrated}
+      <DriverOfflineGlow
+        active={entityType === "driver" && Boolean(presencePing) && !presencePing?.isOnline}
         size={CHIP_AVATAR}
-      />
+      >
+        <PartyAvatar
+          name={label}
+          initialsColorSeed={initialsColorSeed}
+          organizationImageUrl={organizationImageUrl}
+          organizationAvatarSeed={organizationAvatarSeed}
+          avatarUrl={avatarUrl}
+          avatarSeed={avatarSeed}
+          entityType={entityType}
+          isIntegrated={isIntegrated}
+          size={CHIP_AVATAR}
+        />
+      </DriverOfflineGlow>
       <View
         style={[
           styles.chipCopy,
           alignEnd && styles.chipCopyEnd,
-          showPresence ? styles.chipCopyStacked : styles.chipCopySingle,
+          stacked ? styles.chipCopyStacked : styles.chipCopySingle,
         ]}
       >
         <Text
@@ -267,12 +281,14 @@ function PartyChip({
         >
           {label}
         </Text>
-        {showPresence ? (
-          <TripHubDriverPresenceBadge
-            ping={presencePing}
-            variant="belowName"
-            alignEnd={alignEnd}
-          />
+        {showPlate ? (
+          <Text
+            style={[styles.chipPlate, alignEnd && styles.chipNameEnd]}
+            numberOfLines={1}
+            accessibilityLabel={`Vehicle ${plate}`}
+          >
+            {plate}
+          </Text>
         ) : null}
       </View>
     </View>
@@ -532,6 +548,14 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
     displayDriverName,
     tr("unassigned"),
   );
+  const driverVehiclePlate = (() => {
+    const raw = assignedVehiclePlate({
+      vehicleDisplayNumber: trip.vehicle_display_number,
+      vehicleNumber: (trip as { vehicle_number?: string | null }).vehicle_number,
+    });
+    if (!raw) return "";
+    return formatIndianVehicleNumber(raw).trim() || raw;
+  })();
   const elrNumber = (elrLabel ?? "").trim() || null;
   const clientFb =
     (clientAvatarFallbackSeed ?? "").trim() ||
@@ -546,7 +570,7 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
   const vehicleFb = trip.vehicle_id
     ? `vehicle-entity:${String(trip.vehicle_id).trim()}`
     : `vehicle-trip:${trip.id}`;
-  const leftChipEntityType = isAssetTrip ? "driver" : "supplier";
+  const leftChipEntityType = isAssetTrip ? "vehicle" : "supplier";
   const leftChipAvatarUrl = isAssetTrip ? undefined : supplierAvatarUrl;
   const leftChipAvatarSeed = isAssetTrip ? undefined : supplierAvatarSeed;
   const leftChipInitialsSeed = isAssetTrip ? vehicleFb : supplierFb;
@@ -625,7 +649,9 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
             <View
               style={[
                 styles.headLeft,
-                clientSubline ? styles.headLeftStacked : styles.headLeftSingle,
+                clientSubline || originTagItems.length > 0
+                  ? styles.headLeftStacked
+                  : styles.headLeftSingle,
               ]}
             >
               <PartyAvatar
@@ -642,7 +668,9 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
               <View
                 style={[
                   styles.headText,
-                  clientSubline ? styles.headTextStacked : styles.headTextSingle,
+                  clientSubline || originTagItems.length > 0
+                    ? styles.headTextStacked
+                    : styles.headTextSingle,
                 ]}
               >
                 <Text style={styles.brand} numberOfLines={1}>
@@ -652,6 +680,37 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
                   <Text style={styles.partnerSubline} numberOfLines={1}>
                     {formatPartyName(clientSubline)}
                   </Text>
+                ) : null}
+                {originTagItems.length > 0 ? (
+                  <View style={styles.originTagsRow}>
+                    {originTagItems.map((tag) => {
+                      const indentLook = tag === "INDENT" || tag === "NETWORK";
+                      return (
+                        <View
+                          key={tag}
+                          style={[
+                            styles.originTag,
+                            indentLook
+                              ? styles.originTagIndent
+                              : styles.originTagDirect,
+                          ]}
+                          accessibilityLabel={`Created from ${tag}`}
+                        >
+                          <Text
+                            style={[
+                              styles.originTagText,
+                              indentLook
+                                ? styles.originTagTextIndent
+                                : styles.originTagTextDirect,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {tag}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
                 ) : null}
               </View>
             </View>
@@ -665,42 +724,15 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
                     </Text>
                   </View>
                 ) : null}
-                <Text style={styles.headMeta} numberOfLines={1}>
-                  {stageUpper}
-                </Text>
+                <View style={styles.headStatusCluster}>
+                  <Text style={styles.headMeta} numberOfLines={1}>
+                    {stageUpper}
+                  </Text>
+                  {inTransitPing ? (
+                    <TripHubDriverPresenceBadge ping={inTransitPing} />
+                  ) : null}
+                </View>
               </View>
-              {originTagItems.length > 0 ? (
-              <View style={styles.originTagsRow}>
-                {originTagItems.map((tag) => {
-                  const indentLook =
-                    tag === "INDENT" || tag === "NETWORK";
-                  return (
-                    <View
-                      key={tag}
-                      style={[
-                        styles.originTag,
-                        indentLook
-                          ? styles.originTagIndent
-                          : styles.originTagDirect,
-                      ]}
-                      accessibilityLabel={`Created from ${tag}`}
-                    >
-                      <Text
-                        style={[
-                          styles.originTagText,
-                          indentLook
-                            ? styles.originTagTextIndent
-                            : styles.originTagTextDirect,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {tag}
-                      </Text>
-                    </View>
-                  );
-                })}
-              </View>
-              ) : null}
               {trip.is_commerce ? (
                 <View style={styles.commerceTag} accessibilityLabel="Originated from Pulse Commerce">
                   <Text style={styles.commerceTagText} numberOfLines={1}>
@@ -786,10 +818,16 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
                     name={driverChipName}
                     entityType="driver"
                     avatarUrl={driverAvatarUrl}
-                    avatarSeed={driverAvatarSeed}
+                    avatarSeed={
+                      driverAvatarSeed ||
+                      (trip.driver_id
+                        ? driverAvatarSeedFromId(String(trip.driver_id))
+                        : null)
+                    }
                     initialsColorSeed={driverFb}
                     alignEnd
                     presencePing={inTransitPing}
+                    vehiclePlate={driverVehiclePlate}
                   />
                 </View>
               )}
@@ -817,10 +855,16 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
                     name={driverChipName}
                     entityType="driver"
                     avatarUrl={driverAvatarUrl}
-                    avatarSeed={driverAvatarSeed}
+                    avatarSeed={
+                      driverAvatarSeed ||
+                      (trip.driver_id
+                        ? driverAvatarSeedFromId(String(trip.driver_id))
+                        : null)
+                    }
                     initialsColorSeed={driverFb}
                     alignEnd
                     presencePing={inTransitPing}
+                    vehiclePlate={driverVehiclePlate}
                   />
                 </View>
               )}
@@ -1080,20 +1124,29 @@ const styles = StyleSheet.create({
     maxWidth: "58%",
     alignItems: "flex-end",
     gap: 5,
-    paddingTop: 1,
   },
   headMetaRow: {
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "center",
     justifyContent: "flex-end",
-    gap: 10,
+    gap: 6,
     maxWidth: "100%",
     minWidth: 0,
   },
+  headStatusCluster: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 5,
+    minWidth: 0,
+    flexShrink: 1,
+    height: 16,
+  },
   headMeta: {
-    flexShrink: 0,
+    flexShrink: 1,
+    minWidth: 0,
     fontSize: 10,
-    lineHeight: 13,
+    lineHeight: 16,
     fontWeight: "500",
     color: REF.muted,
     textAlign: "right",
@@ -1155,17 +1208,19 @@ const styles = StyleSheet.create({
   originTagsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    justifyContent: "flex-end",
+    justifyContent: "flex-start",
+    alignItems: "center",
     gap: 4,
-    maxWidth: 200,
-    alignSelf: "flex-end",
+    marginTop: 3,
+    maxWidth: "100%",
+    alignSelf: "flex-start",
   },
   originTag: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
     borderRadius: Theme.buttonPrimaryRadius,
     borderWidth: Theme.buttonPrimaryBorderWidth,
-    alignSelf: "flex-end",
+    alignSelf: "flex-start",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1180,11 +1235,11 @@ const styles = StyleSheet.create({
     borderColor: Theme.buttonPrimaryBorder,
   },
   originTagText: {
-    fontSize: 9,
-    lineHeight: 11,
+    fontSize: 7.5,
+    lineHeight: 10,
     fontWeight: "700",
     textTransform: "uppercase",
-    letterSpacing: 0.4,
+    letterSpacing: 0.3,
     textAlign: "center",
   },
   originTagTextIndent: {
@@ -1395,7 +1450,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   chipStacked: {
-    alignItems: "flex-start",
+    alignItems: "center",
   },
   chipEnd: {
     flexDirection: "row-reverse",
@@ -1409,7 +1464,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   chipCopyStacked: {
-    justifyContent: "flex-start",
+    justifyContent: "center",
   },
   chipCopyEnd: {
     alignItems: "flex-end",
@@ -1424,5 +1479,15 @@ const styles = StyleSheet.create({
   },
   chipNameEnd: {
     textAlign: "right",
+  },
+  chipPlate: {
+    marginTop: 1,
+    alignSelf: "stretch",
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: "600",
+    letterSpacing: 0.3,
+    color: Theme.textMuted,
+    fontVariant: ["tabular-nums"],
   },
 });

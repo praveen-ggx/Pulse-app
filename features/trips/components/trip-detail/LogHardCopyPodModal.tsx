@@ -837,14 +837,6 @@ export function LogHardCopyPodModal({
             />
             <DetailRow label="Courier" value={podState.courier ?? "—"} />
             <DetailRow label="Tracking / AWB" value={podState.awbNumber ?? "—"} emphasize />
-            <DetailRow
-              label="Dispatch Date"
-              value={formatDisplayDate(podState.dispatchDate)}
-            />
-            <DetailRow
-              label="Received Delivery Date"
-              value={formatDisplayDate(podState.expectedDeliveryDate)}
-            />
           </>
         ) : null}
         {podState.status === "RECEIVED" ? (
@@ -1364,11 +1356,12 @@ export function LogHardCopyPodModal({
             keyboardShouldPersistTaps="handled"
           >
             {summaryEl}
-            {formBodyEl}          </ScrollView>
+            {formBodyEl}
+          </ScrollView>
 
           {footerEl}
           </View>
-          {compact && !showCreateForm && !isNarrow ? (
+          {compact && !showCreateForm ? (
             <View style={[styles.splitPreview, isNarrow && styles.splitPreviewStacked]}>
               <HardCopyPodPhotoUpload
                 tripId={tripId}
@@ -2555,8 +2548,10 @@ const styles = StyleSheet.create({
     color: Theme.buttonPrimaryText,
   },
   secondaryBtn: {
-    flex: 1,
-    minHeight: Layout.minTouchTargetSize,
+    alignSelf: "stretch",
+    height: 40,
+    minHeight: 40,
+    flexGrow: 0,
     borderRadius: Theme.buttonPrimaryRadius,
     borderWidth: 1,
     borderColor: Theme.borderMedium,

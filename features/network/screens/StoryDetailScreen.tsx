@@ -3,7 +3,8 @@
  * Own posts: show WhatsApp-style viewer list.
  * Other posts: show existing bid + edit bid flow.
  */
-import { PulseBrandMark } from '@/components/brand/PulseBrandMark';
+import { PulseStoryWatermark } from '@/components/brand/PulseStoryWatermark';
+import { PartyAvatar } from "@/components/PartyAvatar";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { useAuth } from "@/contexts/AuthContext";
@@ -23,15 +24,22 @@ import { StoryMessageSheet } from "@/features/network/components/StoryMessageShe
 import { StoryViewersSheet } from "@/features/network/components/StoryViewersSheet";
 import { BidSheet } from "@/features/network/components/bidding/BidSheet";
 import { StoryOwnerBidsSheet } from "@/features/network/components/bidding/StoryOwnerBidsSheet";
-import { type BidRow } from "@/features/network/services/bids.service";
+import {
+    getBidsForPosts,
+    getDriverDirectBidsForPosts,
+    type BidRow,
+} from "@/features/network/services/bids.service";
+import { getDirectQuotesByIndentIds } from "@/features/indents/services/direct-quotes.service";
 import {
     deactivatePost,
+    getOrganizationStoryBrand,
     getPostById,
     isPostVisibleForOrg,
     type PostRow,
 } from "@/features/network/services/posts.service";
 import {
     buildStoryOwnerBidRows,
+    latestStoryOwnerBid,
     storyOwnerBidsLabel,
 } from "@/features/network/utils/bidding/storyOwnerBids.util";
 import {
@@ -41,6 +49,13 @@ import {
     storyHeadline,
     storyTypeLabel,
 } from "@/features/network/utils/storyDisplay";
+import {
+    collapseStoriesByLane,
+    indentCountForStory,
+    laneMembersForPost,
+} from "@/features/network/utils/storyLaneGroup.util";
+import { isIndentStoryLive } from "@/features/network/utils/indentStoryWindow.util";
+import { sameOrgId } from "@/features/network/utils/storyLoadVisibility.util";
 import { positiveMoneyOrNull } from "@/lib/format";
 import {
     buildStoryOwnerViewRows,
@@ -53,14 +68,17 @@ import { BoostSheet } from "@/features/reach/components/BoostSheet";
 import { recordReachEvent } from "@/features/reach/services/events.service";
 import { findOrgDraftOrActiveCampaign } from "@/features/reach/utils/orgActiveBoost";
 import { confirmDialog } from "@/lib/confirmDialog";
-import { useIndentDirectQuotesQuery, useMyDirectQuotesQuery } from "@/lib/queries";
-import { useBidsForPostQuery, useDriverDirectBidsForPostQuery, useMyBidQuery } from "@/lib/queries/useBidsQuery";
+import { useMyDirectQuotesQuery } from "@/lib/queries";
+import { useMyBidQuery } from "@/lib/queries/useBidsQuery";
 import { useInvalidateIndents } from "@/lib/queries/useIndentsQuery";
+import { queryKeys } from "@/lib/queryKeys";
+import { STALE } from "@/lib/queryClient";
 import { useAfterPostDeleted, useInvalidatePosts, useLiveOwnLoadStoriesQuery, useNetworkFeedQuery } from "@/lib/queries/usePostsQuery";
 import { useMarkReachCampaignSourceDeletedMutation, useReachCampaignsQuery } from "@/lib/queries/useReachCampaignsQuery";
 import { useRecordStoryViewMutation, useStoryViewsQuery } from "@/lib/queries/useStoryViewsQuery";
 import { ROUTES, buildPulseStoryPublicUrl } from "@/lib/routes";
 import { useMemberAccess } from "@/lib/useMemberAccess";
+import { useSafeBack } from "@/lib/useSafeBack";
 import { useQuery } from "@tanstack/react-query";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -85,6 +103,7 @@ import {
     Alert,
     Animated,
     Easing,
+    Platform,
     Pressable,
     StyleSheet,
     Text,
@@ -179,6 +198,7 @@ const entrance = StyleSheet.create({
 
 export default function StoryDetailScreen() {
   const router = useRouter();
+  const closeStory = useSafeBack(ROUTES.TABS.NETWORK);
   const insets = useSafeAreaInsets();
   const { width: viewportWidth } = useWindowDimensions();
   const phonePopup = useStoryPhonePopup();
@@ -220,7 +240,7 @@ export default function StoryDetailScreen() {
   const viewingOwnLoads =
     viewingOwnOrg &&
     (params.storyType === "LOAD" || params.storyType === "UPDATE" || !params.storyType);
-  const liveOwnLoadsQ = useLiveOwnLoadStoriesQuery(viewingOwnLoads ? myOrgId : null);
+  const liveOwnLoadsQ = useLiveOwnLoadStoriesQuery(myOrgId || null);
 
   const queueIds = useMemo(
     () => (params.queue ?? "").split(",").map((s) => s.trim()).filter(Boolean),
@@ -245,16 +265,50 @@ export default function StoryDetailScreen() {
    * the Mine queue, which made 2 green icons collapse to 1 progress segment.
    */
   const liveOwnLoads = liveOwnLoadsQ.data ?? [];
-  const storyList: PostRow[] =
-    viewingOwnLoads && liveOwnLoads.length > 0
-      ? liveOwnLoads
-      : storiesFromQueue.length > 0
-        ? storiesFromQueue
-        : storiesByOrgType.length > 0
-          ? storiesByOrgType
-          : seedPost
-            ? [seedPost]
-            : [];
+  const ownLaneStories = useMemo(
+    () => collapseStoriesByLane(liveOwnLoads),
+    [liveOwnLoads],
+  );
+  const storyList: PostRow[] = useMemo(() => {
+    const isLiveStory = (p: PostRow) =>
+      p.type === "LOAD" ? isIndentStoryLive(p) : p.is_active !== false;
+    const storiesForSeed = (seed: PostRow): PostRow[] => {
+      if (sameOrgId(seed.organization_id, myOrgId) && ownLaneStories.length > 0) {
+        return ownLaneStories;
+      }
+      const matched = allPosts.filter(
+        (p) =>
+          isBusinessPost(p) &&
+          isLiveStory(p) &&
+          sameOrgId(p.organization_id, seed.organization_id) &&
+          p.type === seed.type &&
+          !!p.is_sponsored === !!seed.is_sponsored,
+      );
+      return collapseStoriesByLane(matched);
+    };
+    const seeds = storiesFromQueue.length > 0 ? storiesFromQueue : seedPost ? [seedPost] : [];
+    const seen = new Set<string>();
+    const reel: PostRow[] = [];
+    for (const seed of seeds) {
+      for (const post of storiesForSeed(seed)) {
+        if (!post.id || seen.has(post.id)) continue;
+        seen.add(post.id);
+        reel.push(post);
+      }
+    }
+    if (reel.length > 0) return reel;
+    if (viewingOwnLoads && ownLaneStories.length > 0) return ownLaneStories;
+    if (storiesByOrgType.length > 0) return collapseStoriesByLane(storiesByOrgType);
+    return seedPost ? [seedPost] : [];
+  }, [
+    allPosts,
+    myOrgId,
+    ownLaneStories,
+    seedPost,
+    storiesByOrgType,
+    storiesFromQueue,
+    viewingOwnLoads,
+  ]);
 
   // Direct fetch by postId when feed cache is empty (e.g. opened via shared URL).
   const directPostQ = useQuery({
@@ -293,8 +347,8 @@ export default function StoryDetailScreen() {
 
   const goNext = useCallback(() => {
     if (current < resolvedStoryList.length - 1) { progress.setValue(0); setCurrent((c) => c + 1); }
-    else router.back();
-  }, [current, resolvedStoryList.length, progress, router]);
+    else closeStory();
+  }, [current, resolvedStoryList.length, progress, closeStory]);
 
   const goPrev = useCallback(() => {
     if (current > 0) { progress.setValue(0); setCurrent((c) => c - 1); }
@@ -332,7 +386,61 @@ export default function StoryDetailScreen() {
 
   useEffect(() => { setCurrent(initialStoryIndex); progress.setValue(0); }, [initialStoryIndex, progress]);
 
-  const post = resolvedStoryList[current];
+  const rawPost = resolvedStoryList[current];
+  const currentPartyStories = useMemo(() => {
+    if (!rawPost) return resolvedStoryList;
+    return resolvedStoryList.filter(
+      (p) =>
+        sameOrgId(p.organization_id, rawPost.organization_id) &&
+        p.type === rawPost.type &&
+        !!p.is_sponsored === !!rawPost.is_sponsored,
+    );
+  }, [rawPost, resolvedStoryList]);
+  const currentPartyIndex = Math.max(
+    0,
+    currentPartyStories.findIndex((p) => p.id === rawPost?.id),
+  );
+  const storyOrgId = (rawPost?.organization_id ?? params.orgId ?? "").trim();
+  const orgBrandQ = useQuery({
+    queryKey: queryKeys.posts.orgStoryBrand(storyOrgId),
+    queryFn: async () => {
+      const { brand } = await getOrganizationStoryBrand(
+        storyOrgId,
+        rawPost?.id,
+      );
+      return brand;
+    },
+    enabled: Boolean(storyOrgId),
+    staleTime: STALE.slow,
+  });
+  const post = useMemo(() => {
+    if (!rawPost) return rawPost;
+    const own =
+      myOrgId && rawPost.organization_id === myOrgId ? currentOrganization : null;
+    const name = (
+      orgBrandQ.data?.name ||
+      rawPost.org_name ||
+      own?.name ||
+      ""
+    ).trim();
+    const logo =
+      (orgBrandQ.data?.logoUrl || rawPost.org_avatar_url || own?.logo_url || "").trim() ||
+      null;
+    const seed =
+      (orgBrandQ.data?.avatarSeed || rawPost.org_avatar_seed || own?.id || "").trim() ||
+      null;
+    return {
+      ...rawPost,
+      org_name: name,
+      org_avatar_url: logo,
+      org_avatar_seed: seed,
+    };
+  }, [
+    rawPost,
+    orgBrandQ.data,
+    myOrgId,
+    currentOrganization,
+  ]);
 
   useEffect(() => {
     if (!post) return;
@@ -363,6 +471,12 @@ export default function StoryDetailScreen() {
   const isVehicle = post?.type === "VEHICLE_AVAILABILITY";
 
   const isOwnPost = useMemo(() => !!myOrgId && !!post && post.organization_id === myOrgId, [myOrgId, post]);
+  const ownerIndentCount = useMemo(() => {
+    if (!isOwnPost || !isLoad || !post?.id) return 0;
+    const fromLive = indentCountForStory(liveOwnLoads, post.id);
+    if (fromLive > 0) return fromLive;
+    return indentCountForStory(storiesByOrgType, post.id);
+  }, [isOwnPost, isLoad, post?.id, liveOwnLoads, storiesByOrgType]);
   const myCampaignsQ = useReachCampaignsQuery(isOwnPost ? myOrgId : null);
   /** Org-level invariant — not post.reach_campaign_id (that missed other loads). */
   const orgActiveBoost = useMemo(
@@ -475,24 +589,67 @@ export default function StoryDetailScreen() {
 
   const ownerIndentId =
     isOwnPost && isLoad ? (post?.source_indent_id ?? null) : null;
-  const storyBidsQ = useBidsForPostQuery(
-    isOwnPost && isLoad ? (post?.id ?? null) : null,
+  const laneMembers = useMemo(
+    () => laneMembersForPost(liveOwnLoads, post?.id),
+    [liveOwnLoads, post?.id],
   );
-  const driverDirectBidsQ = useDriverDirectBidsForPostQuery(
-    isOwnPost && isLoad ? (post?.id ?? null) : null,
-  );
-  const ownerQuotesQ = useIndentDirectQuotesQuery(ownerIndentId);
+  const lanePostIds = laneMembers.postIds.length > 0
+    ? laneMembers.postIds
+    : post?.id
+      ? [post.id]
+      : [];
+  const laneIndentIds = laneMembers.indentIds.length > 0
+    ? laneMembers.indentIds
+    : ownerIndentId
+      ? [ownerIndentId]
+      : [];
+  const lanePostKey = lanePostIds.slice().sort().join(",");
+  const laneIndentKey = laneIndentIds.slice().sort().join(",");
+  const laneBidsQ = useQuery({
+    queryKey: ["q", "stories", "lane-bids", myOrgId, lanePostKey],
+    queryFn: async () => {
+      const { bids, error } = await getBidsForPosts(lanePostIds);
+      if (error) throw error;
+      return bids;
+    },
+    enabled: Boolean(isOwnPost && isLoad && lanePostIds.length > 0),
+    staleTime: 15_000,
+  });
+  const laneDriverBidsQ = useQuery({
+    queryKey: ["q", "stories", "lane-driver-bids", myOrgId, lanePostKey],
+    queryFn: async () => {
+      const { bids, error } = await getDriverDirectBidsForPosts(lanePostIds);
+      if (error) throw error;
+      return bids;
+    },
+    enabled: Boolean(isOwnPost && isLoad && lanePostIds.length > 0),
+    staleTime: 15_000,
+  });
+  const laneQuotesQ = useQuery({
+    queryKey: ["q", "stories", "lane-quotes", myOrgId, laneIndentKey],
+    queryFn: async () => {
+      const { quotes, error } = await getDirectQuotesByIndentIds(laneIndentIds);
+      if (error) throw error;
+      return quotes;
+    },
+    enabled: Boolean(isOwnPost && isLoad && laneIndentIds.length > 0),
+    staleTime: 15_000,
+  });
   const ownerBidRows = useMemo(
     () =>
       buildStoryOwnerBidRows(
-        storyBidsQ.data ?? [],
-        ownerQuotesQ.data ?? [],
-        driverDirectBidsQ.data ?? [],
+        laneBidsQ.data ?? [],
+        laneQuotesQ.data ?? [],
+        laneDriverBidsQ.data ?? [],
       ),
-    [storyBidsQ.data, ownerQuotesQ.data, driverDirectBidsQ.data],
+    [laneBidsQ.data, laneQuotesQ.data, laneDriverBidsQ.data],
+  );
+  const latestLaneBid = useMemo(
+    () => latestStoryOwnerBid(ownerBidRows),
+    [ownerBidRows],
   );
   const ownerBidsLoading =
-    storyBidsQ.isLoading || ownerQuotesQ.isLoading || driverDirectBidsQ.isLoading;
+    laneBidsQ.isLoading || laneQuotesQ.isLoading || laneDriverBidsQ.isLoading;
   const ownerViewRows = useMemo(
     () => buildStoryOwnerViewRows(views, ownerBidRows),
     [views, ownerBidRows],
@@ -530,7 +687,7 @@ export default function StoryDetailScreen() {
       ? await confirmDialog({
           title: "Delete story?",
           message:
-            "This story has an active Pulse Reach campaign.\n\nThe story will be removed, but your paid campaign continues:\n" +
+            "This story has an active Pulse Boost campaign.\n\nThe story will be removed, but your paid campaign continues:\n" +
             "• Delivery keeps running from the campaign snapshot\n" +
             "• Analytics and campaign history stay intact\n" +
             "• The campaign ends on its normal schedule\n\n" +
@@ -561,8 +718,8 @@ export default function StoryDetailScreen() {
       return;
     }
     await afterPostDeleted(post.id);
-    router.back();
-  }, [post, isOwnPost, isDeletingCurrent, myOrgId, afterPostDeleted, router, activeCampaignForPost, markSourceDeletedMutation]);
+    closeStory();
+  }, [post, isOwnPost, isDeletingCurrent, myOrgId, afterPostDeleted, closeStory, activeCampaignForPost, markSourceDeletedMutation]);
 
   const [showMessageSheet, setShowMessageSheet] = useState(false);
 
@@ -606,11 +763,11 @@ export default function StoryDetailScreen() {
 
   if (!post) {
     return (
-      <StoryMobilePopupShell onBackdropPress={() => router.back()}>
+      <StoryMobilePopupShell onBackdropPress={closeStory}>
         <View style={[styles.container, { paddingTop: insets.top, paddingHorizontal: Layout.screenPaddingHorizontal }]}>
           <Pressable
             style={[styles.topBarIconBtn, { marginTop: 8, alignSelf: "flex-start" }]}
-            onPress={() => router.back()}
+            onPress={closeStory}
           >
             <X size={16} color={INK} strokeWidth={2.25} />
           </Pressable>
@@ -624,22 +781,37 @@ export default function StoryDetailScreen() {
   }
 
   return (
-    <StoryMobilePopupShell onBackdropPress={() => router.back()}>
+    <StoryMobilePopupShell onBackdropPress={closeStory}>
     <View style={styles.container}>
       {isLoad ? <View style={styles.ambientGlow} pointerEvents="none" /> : null}
       <View style={[styles.progressRow, { paddingTop: (phonePopup ? 12 : insets.top) + 8 }]}>
-        {resolvedStoryList.map((_, i) => (
-          <ProgressSegment key={i} index={i} current={current} progress={progress} />
+        {currentPartyStories.map((partyStory, i) => (
+          <ProgressSegment
+            key={partyStory.id ?? i}
+            index={i}
+            current={currentPartyIndex}
+            progress={progress}
+          />
         ))}
       </View>
 
       {/* Top bar */}
       <View style={[styles.topBar, isDesktopPreview && styles.topBarDesktop, { paddingHorizontal: Layout.screenPaddingHorizontal }]}>
         <View style={styles.topBarLeft}>
+          <PartyAvatar
+            name={(post.org_name ?? "").trim() || " "}
+            organizationImageUrl={post.org_avatar_url}
+            organizationAvatarSeed={post.org_avatar_seed}
+            initialsColorSeed={post.organization_id ?? post.org_name}
+            avatarSeed={post.org_avatar_seed}
+            entityType="supplier"
+            size={40}
+            shape="circle"
+          />
           <View style={styles.topBarText}>
             <View style={styles.orgBrandRow}>
               <Text style={[styles.orgTitle, (post.org_name ?? '').trim().toUpperCase() === "PULSE" && styles.orgTitlePulse]} numberOfLines={1}>
-                {post.org_name}
+                {(post.org_name ?? "").trim()}
               </Text>
               {(post.org_name ?? '').trim().toUpperCase() === "PULSE" ? <View style={styles.pulseGreenDot} /> : null}
             </View>
@@ -649,11 +821,11 @@ export default function StoryDetailScreen() {
                 <Pressable
                   style={styles.sponsoredTag}
                   onPress={() =>
-                    Alert.alert("Sponsored", "This load has been promoted through Pulse Reach.")
+                    Alert.alert("Sponsored", "This load has been promoted through Pulse Boost.")
                   }
                   hitSlop={6}
                   accessibilityRole="button"
-                  accessibilityLabel="Why am I seeing this? This load has been promoted through Pulse Reach."
+                  accessibilityLabel="Why am I seeing this? This load has been promoted through Pulse Boost."
                 >
                   <Rocket size={9} color={Theme.accentBrown} strokeWidth={2.25} />
                   <Text style={styles.sponsoredTagText}>Sponsored</Text>
@@ -682,7 +854,7 @@ export default function StoryDetailScreen() {
           ) : null}
           <Pressable
             style={({ pressed }) => [styles.topBarIconBtn, pressed && styles.topBarIconBtnPressed]}
-            onPress={() => router.back()}
+            onPress={closeStory}
             hitSlop={6}
             accessibilityRole="button"
             accessibilityLabel="Close story"
@@ -711,6 +883,8 @@ export default function StoryDetailScreen() {
             loadTargetRate={loadDisplayPrice}
             isDesktopPreview={isDesktopPreview}
             storyKey={post.id}
+            indentCount={isOwnPost ? ownerIndentCount : 0}
+            latestBid={isOwnPost ? latestLaneBid : null}
           />
         ) : isVehicle && post.origin ? (
           <StoryBroadcastPreview
@@ -785,9 +959,11 @@ export default function StoryDetailScreen() {
         )}
       </View>
 
-      <View style={[styles.watermark, isDesktopPreview && styles.watermarkDesktop]} pointerEvents="none">
-        <PulseBrandMark wordColor={INK} dotColor={INK} textStyle={styles.watermarkText} />
-      </View>
+      {!(isLoad && post.origin && post.destination) && !(isVehicle && post.origin) ? (
+        <View style={[styles.watermark, isDesktopPreview && styles.watermarkDesktop]} pointerEvents="none">
+          <PulseStoryWatermark size={isDesktopPreview ? 42 : 36} />
+        </View>
+      ) : null}
 
       {/* Footer — stacked above tap zones so bid status never overlaps the hero */}
       <Animated.View
@@ -812,7 +988,11 @@ export default function StoryDetailScreen() {
             hint="This is your broadcast — others can place bids on this indent."
             primaryLabel="Open load center"
             onViewersPress={() => setShowViewers(true)}
-            onBidsPress={ownerIndentId ? () => setShowBids(true) : undefined}
+            onBidsPress={
+              ownerIndentId || laneIndentIds.length > 0 || ownerBidRows.length > 0
+                ? () => setShowBids(true)
+                : undefined
+            }
             onPrimaryPress={() => router.push(ROUTES.PULSE_LOADS)}
             onShareWhatsApp={handleShareWhatsApp}
             boostLabel={orgActiveBoost ? "Boost Active" : "Boost"}
@@ -832,7 +1012,7 @@ export default function StoryDetailScreen() {
             hint="Your vehicle availability is visible to your network."
             primaryLabel="Done"
             onViewersPress={() => setShowViewers(true)}
-            onPrimaryPress={() => router.back()}
+            onPrimaryPress={closeStory}
             onShareWhatsApp={handleShareWhatsApp}
           />
         )}
@@ -943,7 +1123,7 @@ export default function StoryDetailScreen() {
             >
               <Send size={16} color={INK} />
               <Text style={styles.authorizeBtnText}>
-                {commercialOpportunity.actions.primary?.label ?? "Place bid on indent"}
+                {commercialOpportunity.actions.primary?.label ?? "Bid this shipper"}
               </Text>
             </Pressable>
           ) : null
@@ -1042,8 +1222,13 @@ export default function StoryDetailScreen() {
         visible={showBids}
         bids={ownerBidRows}
         loading={ownerBidsLoading}
+        latestBidKey={latestLaneBid?.key ?? null}
         indentId={ownerIndentId}
-        indentLabel={indentDisplayLabel}
+        indentLabel={
+          ownerIndentCount > 1
+            ? `Lane · ${ownerIndentCount} indents`
+            : indentDisplayLabel
+        }
         onClose={() => setShowBids(false)}
         onOpenReviewHub={
           ownerIndentId
@@ -1117,7 +1302,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   topBarDesktop: { marginBottom: 12 },
-  topBarLeft: { flexDirection: "row", alignItems: "center", flex: 1, minWidth: 0, paddingRight: 10 },
+  topBarLeft: { flexDirection: "row", alignItems: "center", flex: 1, minWidth: 0, paddingRight: 10, gap: 8 },
   topBarText: { flex: 1, minWidth: 0 },
   topBarActions: {
     flexDirection: "row",
@@ -1134,6 +1319,8 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.loadStatusTabTrayBg,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Theme.loadStatusTabBorderSoft,
+    zIndex: 110,
+    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as object) : null),
   },
   topBarDeleteBtn: {
     backgroundColor: "rgba(220, 38, 38, 0.06)",
@@ -1147,7 +1334,7 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   orgBrandRow: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 },
-  orgTitle: { flexShrink: 1, fontSize: 13, fontWeight: "800", color: INK, letterSpacing: -0.2 },
+  orgTitle: { flexShrink: 1, fontSize: 14, fontWeight: "800", color: INK, letterSpacing: -0.2 },
   orgTitlePulse: { fontStyle: "italic", letterSpacing: -0.45 },
   pulseGreenDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: Theme.darkGreen, marginTop: 1, flexShrink: 0 },
   timeAgoLabel: { fontSize: 8, fontWeight: "700", color: MUTED, letterSpacing: 1, textTransform: "uppercase", marginTop: 1 },
@@ -1344,15 +1531,13 @@ const styles = StyleSheet.create({
   metaChipText: { fontSize: 9, fontWeight: "800", color: MUTED, letterSpacing: 0.1 },
   watermark: {
     position: "absolute",
-    top: "50%",
+    top: "42%",
     left: 0,
     right: 0,
     alignItems: "center",
-    transform: [{ translateY: -28 }],
     zIndex: 5,
   },
-  watermarkDesktop: { transform: [{ translateY: -36 }] },
-  watermarkText: { fontSize: 56, fontWeight: "900", color: INK, opacity: 0.03, letterSpacing: -1.2, fontStyle: "italic" },
+  watermarkDesktop: { top: "40%" },
   footer: {
     paddingHorizontal: Layout.screenPaddingHorizontal,
     paddingTop: 12,

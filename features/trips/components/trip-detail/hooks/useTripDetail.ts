@@ -40,8 +40,12 @@ import {
 } from "@/features/suppliers/services/suppliers.service";
 import { getVehicleDocumentViewUrl, getVehicleDocumentViewUrls, mergeEntityDocumentsIntoVehicleVault } from "@/features/vehicles/services/vehicleDocuments.service";
 import { resolveTripDocumentPreviewUrl } from "@/features/tripCompliance/services/vehicleDocumentReuse.service";
-import { getVehicleById, getVehicleForTripViewer, findVehicleByPlate, createVehicle } from "@/features/vehicles/services/vehicles.service";
+import { getVehicleById, getVehicleForTripViewer, findVehicleByPlate, ensureVehicleForVault } from "@/features/vehicles/services/vehicles.service";
 import { assignedVehiclePlate } from "@/features/trips/utils/tripAssignmentVehicle.util";
+import {
+  parseTripSimulationNotes,
+  unrevokedBisimEntries,
+} from "@/features/trips/utils/simulateTripStage.util";
 import type { VehicleDocuments } from "@/features/vehicles/utils/vehicleDocuments.util";
 import type { VehicleComplianceDocType } from "@/features/vehicles/utils/vehicleDocuments.util";
 import {
@@ -50,6 +54,7 @@ import {
 } from "@/features/trips/components/trip-detail/assetEntityExtras.util";
 import {
     DOCUMENT_LABELS,
+    DOCUMENT_SHORT_LABELS,
     VEHICLE_COMPLIANCE_TYPE_HINT,
     VEHICLE_UPLOAD_CHOOSER_ORDER,
     vehicleComplianceOnFileSummary,
@@ -143,7 +148,7 @@ import type { ReassignCompletedMeta } from "../../reassign/reassign.types";
 
 export type { ReassignCompletedMeta };
 import type { TripDetailTab } from "../TripDetailFinanceView";
-import { isPdfTripDoc, joinInvoiceNumbers, readStoredInvoiceNumber, TRIP_DETAILS_TYPE_HINT, TRIP_DETAILS_TYPE_HINT_NO_BANK, type TripDetailsSlot, type TripDocFile, type TripDocItem } from "../tripDocTypes";
+import { isPdfTripDoc, isVaultFieldsMetaPath, joinInvoiceNumbers, readStoredInvoiceNumber, TRIP_DETAILS_TYPE_HINT, TRIP_DETAILS_TYPE_HINT_NO_BANK, type TripDetailsSlot, type TripDocFile, type TripDocItem } from "../tripDocTypes";
 import {
   isNarrowWebViewport,
   shouldFetchTripSubcontractsOnDetail,
@@ -252,7 +257,12 @@ function buildSlotCard(
   }
   const isEwaySlot = slot.category === "eway" || slot.id === "eway_bill";
   const isInvoiceSlot = slot.id === "invoice" || slot.category === "invoice";
-  const files = rows.map((row, index) => {
+  const previewRows = rows.filter(
+    (row) =>
+      !isVaultFieldsMetaPath(row.storage_path, row.file_name) &&
+      !!row.storage_path?.trim(),
+  );
+  const files = previewRows.map((row, index) => {
     const invoiceNumber = isInvoiceSlot
       ? readStoredInvoiceNumber(row.document_number)
       : "";
@@ -273,6 +283,9 @@ function buildSlotCard(
       documentId: row.id,
       fileName: row.file_name?.trim() || undefined,
       invoiceNumber: invoiceNumber || undefined,
+      documentNumber: number || null,
+      uploadedAt: row.uploaded_at ?? null,
+      uploadedBy: row.uploaded_by ?? null,
     };
   });
   const storedFields = rows
@@ -287,13 +300,18 @@ function buildSlotCard(
   const documentNumber = isEwaySlot
     ? ewayRaw?.trim() || null
     : storedFields?.lrNumber || null;
+  const latest = [...rows].sort(
+    (a, b) =>
+      (Date.parse(b.uploaded_at ?? "") || 0) -
+      (Date.parse(a.uploaded_at ?? "") || 0),
+  )[0];
   return {
     id: slot.id,
     label: slot.label,
-    type: files.length > 1 ? "FILES" : files[0].type,
+    type: files.length > 1 ? "FILES" : files[0]?.type ?? slot.pendingType,
     status: "Uploaded",
-    storagePath: files[0].storagePath,
-    documentId: files[0].documentId,
+    storagePath: files[0]?.storagePath,
+    documentId: files[0]?.documentId,
     category: slot.category,
     files,
     documentNumber,
@@ -309,7 +327,8 @@ function buildSlotCard(
             .map((row) => readStoredInvoiceNumber(row.document_number)),
         ) || null
       : storedFields?.invoice || null,
-    uploadedAt: rows[0]?.uploaded_at ?? null,
+    uploadedAt: latest.uploaded_at ?? rows[0]?.uploaded_at ?? null,
+    uploadedBy: latest.uploaded_by ?? rows[0]?.uploaded_by ?? null,
   };
 }
 
@@ -338,12 +357,15 @@ export type DriverActivityTimelineRow =
       changed_at: string;
       status_context:
         | "started"
+        | "pickup"
         | "in_transit"
+        | "at_drop"
         | "completed"
         | "created"
         | "accepted"
         | "assigned"
-        | "pod_received";
+        | "pod_received"
+        | "sim_revoked";
       detail_line: string;
       /** profiles.id of the staff or driver who recorded this event. */
       actorUserId?: string | null;
@@ -519,7 +541,6 @@ export function useTripDetail({
    * vehicle vault JSON. Added files land here instead of replacing the first.
    */
   const [vehicleEntityExtras, setVehicleEntityExtras] = useState<AssetEntityExtra[]>([]);
-  const [driverIdentityExtras, setDriverIdentityExtras] = useState<AssetEntityExtra[]>([]);
   const [assetExtrasReloadKey, setAssetExtrasReloadKey] = useState(0);
   const reloadAssetExtras = useCallback(() => setAssetExtrasReloadKey((key) => key + 1), []);
   const [displayVehicleFromInput, setDisplayVehicleFromInput] = useState("");
@@ -928,45 +949,86 @@ export function useTripDetail({
       });
     }
 
+    const statusLower = String(trip.status ?? "").toLowerCase();
+    const simNotes = parseTripSimulationNotes(trip.notes);
+    const liveSims = unrevokedBisimEntries(trip.notes);
+    const simStatus = new Set(liveSims.map((row) => row.status));
+    const staffOrDriverId =
+      trip.status_updated_role === "driver"
+        ? trip.driver_id ?? null
+        : trip.status_updated_by ?? null;
+
+    const stageContext = (
+      status: string,
+    ): Extract<DriverActivityTimelineRow, { kind: "status" }>["status_context"] => {
+      if (status === "assigned") return "accepted";
+      if (status === "in_progress" || status === "picked_up" || status === "pickup") {
+        return "pickup";
+      }
+      if (status === "in_transit" || status === "dispatched" || status === "transit") {
+        return "in_transit";
+      }
+      if (status === "at_drop" || status === "at_destination") return "at_drop";
+      if (status === "completed" || status === "delivered" || status === "done") {
+        return "completed";
+      }
+      return "started";
+    };
+    const stageLabel = (
+      context: Extract<DriverActivityTimelineRow, { kind: "status" }>["status_context"],
+    ) => {
+      if (context === "accepted") return "Driver accepted";
+      if (context === "pickup") return "Pickup";
+      if (context === "in_transit") return "In-transit";
+      if (context === "at_drop") return "Arrived at drop-off";
+      if (context === "completed") return "Delivered";
+      return "Trip update";
+    };
+
     if (
-      (trip.status_updated_role === "driver" || Number(trip.status_revision ?? 0) > 0) &&
+      !simStatus.has("assigned") &&
+      (trip.status_updated_role === "driver" ||
+        liveSims.length > 0 ||
+        Number(trip.status_revision ?? 0) > 0) &&
       (trip.updated_at || trip.started_at)
     ) {
       rows.push({
         kind: "status",
         id: "status-accepted",
-        status_label: "Driver Accepted",
-        changed_at: trip.updated_at ?? trip.started_at ?? new Date().toISOString(),
+        status_label: "Driver accepted",
+        changed_at: trip.started_at ?? trip.updated_at ?? new Date().toISOString(),
         status_context: "accepted",
         actorUserId: trip.status_updated_by ?? trip.driver_id ?? null,
         detail_line: trip.pickup_area || "Accepted assignment",
       });
     }
 
-    const statusLower = String(trip.status ?? "").toLowerCase();
-    const inTransitLikeStatus =
-      statusLower === "in_progress" ||
-      statusLower === "in_transit" ||
-      statusLower === "pickup" ||
-      statusLower === "picked_up" ||
-      statusLower === "at_drop";
-
-    if (trip.started_at || inTransitLikeStatus) {
+    for (const sim of liveSims) {
+      const context = stageContext(sim.status);
       rows.push({
         kind: "status",
-        id: "status-in-transit",
-        status_label: "In transit",
-        changed_at:
-          trip.started_at ??
-          tripStatusMeta.status_updated_at ??
-          trip.updated_at ??
-          new Date().toISOString(),
-        status_context: "in_transit",
-        actorUserId:
-          trip.status_updated_role === "driver"
-            ? null
-            : trip.status_updated_by ?? null,
-        detail_line: trip.pickup_area || "Origin",
+        id: `status-sim-${sim.status}-${sim.timestamp}`,
+        status_label: stageLabel(context),
+        changed_at: sim.timestamp || trip.updated_at || new Date().toISOString(),
+        status_context: context,
+        actorUserId: staffOrDriverId,
+        detail_line:
+          sim.locationLabel ||
+          (context === "at_drop" || context === "completed"
+            ? trip.drop_location || "Destination"
+            : trip.pickup_area || "Origin"),
+      });
+    }
+
+    for (const revoke of simNotes.revokes) {
+      rows.push({
+        kind: "status",
+        id: `status-sim-revoke-${revoke.fromStatus}-${revoke.timestamp}`,
+        status_label: "Simulation revoked",
+        changed_at: revoke.timestamp || trip.updated_at || new Date().toISOString(),
+        status_context: "sim_revoked",
+        actorUserId: staffOrDriverId,
+        detail_line: `Reverted ${revoke.fromStatus.replace(/_/g, " ")} → ${revoke.toStatus.replace(/_/g, " ")}`,
       });
     }
 
@@ -974,7 +1036,63 @@ export function useTripDetail({
       statusLower.includes("complet") ||
       statusLower.includes("deliver") ||
       statusLower === "done";
-    if (trip.completed_at || completedLikeStatus) {
+    if (
+      !simStatus.has("in_progress") &&
+      !simStatus.has("picked_up") &&
+      (trip.started_at || statusLower === "in_progress" || statusLower === "picked_up")
+    ) {
+      rows.push({
+        kind: "status",
+        id: "status-pickup",
+        status_label: "Pickup",
+        changed_at:
+          trip.started_at ??
+          tripStatusMeta.status_updated_at ??
+          trip.updated_at ??
+          new Date().toISOString(),
+        status_context: "pickup",
+        actorUserId: staffOrDriverId,
+        detail_line: trip.pickup_area || "Origin",
+      });
+    }
+    if (
+      !simStatus.has("in_transit") &&
+      (statusLower === "in_transit" ||
+        statusLower === "at_drop" ||
+        completedLikeStatus)
+    ) {
+      rows.push({
+        kind: "status",
+        id: "status-in-transit",
+        status_label: "In-transit",
+        changed_at:
+          tripStatusMeta.status_updated_at ??
+          trip.updated_at ??
+          new Date().toISOString(),
+        status_context: "in_transit",
+        actorUserId: staffOrDriverId,
+        detail_line: trip.pickup_area || "Origin",
+      });
+    }
+    if (!simStatus.has("at_drop") && (statusLower === "at_drop" || completedLikeStatus)) {
+      rows.push({
+        kind: "status",
+        id: "status-at-drop",
+        status_label: "Arrived at drop-off",
+        changed_at:
+          tripStatusMeta.status_updated_at ??
+          trip.updated_at ??
+          new Date().toISOString(),
+        status_context: "at_drop",
+        actorUserId: staffOrDriverId,
+        detail_line: trip.drop_location || "Destination",
+      });
+    }
+    if (
+      !simStatus.has("completed") &&
+      !simStatus.has("delivered") &&
+      (trip.completed_at || completedLikeStatus)
+    ) {
       rows.push({
         kind: "status",
         id: "status-completed",
@@ -985,10 +1103,7 @@ export function useTripDetail({
           trip.updated_at ??
           new Date().toISOString(),
         status_context: "completed",
-        actorUserId:
-          trip.status_updated_role === "driver"
-            ? null
-            : trip.status_updated_by ?? null,
+        actorUserId: staffOrDriverId,
         detail_line: trip.drop_location || "Destination",
       });
     }
@@ -1295,7 +1410,10 @@ export function useTripDetail({
       .filter((extra) => !!extra.url?.trim())
       .map((extra, index) => ({
         id: `vehicle-extra-${extra.id}`,
-        label: extra.fileName?.trim() || `Vehicle Document ${index + 1}`,
+        label:
+          extra.docType
+            ? `${DOCUMENT_SHORT_LABELS[extra.docType]}${extra.fileName?.trim() ? ` · ${extra.fileName.trim()}` : ""}`
+            : extra.fileName?.trim() || `Vehicle Document ${index + 1}`,
         type: docTypeFromFileName(extra.url),
         status: "Uploaded" as const,
         storagePath: extra.url,
@@ -1327,6 +1445,7 @@ export function useTripDetail({
             storagePath,
             documentId: row?.id,
             docType,
+            expiryDate: row?.expiryDate ?? null,
           }
         : {
             id: `driver-${docType}`,
@@ -1335,17 +1454,20 @@ export function useTripDetail({
             status: "Pending" as const,
           };
     });
-    const extras = driverIdentityExtras.map((extra) => ({
-      id: `driver-entity-${extra.id}`,
-      label: `${DRIVER_IDENTITY_LABELS[extra.docType as "license" | "aadhaar"] ?? extra.docType} · added`,
-      type: docTypeFromFileName(extra.storagePath),
-      status: "Uploaded" as const,
-      storagePath: extra.storagePath,
-      documentId: extra.id,
-      docType: extra.docType,
-    }));
+    const extras = (driverIdentityDocs?.extras ?? [])
+      .filter((file) => file.url?.trim())
+      .map((file, index) => ({
+        id: `driver-extra-${file.id}`,
+        label: `${DRIVER_IDENTITY_LABELS[file.kind]}${file.fileName?.trim() ? ` · ${file.fileName.trim()}` : ` ${index + 2}`}`,
+        type: docTypeFromFileName(file.url),
+        status: "Uploaded" as const,
+        storagePath: file.url,
+        documentId: file.id,
+        expiryDate: file.expiryDate ?? null,
+        docType: file.kind,
+      }));
     return [...slots, ...extras];
-  }, [driverIdentityDocs, driverIdentityExtras]);
+  }, [driverIdentityDocs]);
 
   const computedTripDocs = useMemo<TripDocItem[]>(() => {
     const hasVehicleDoc = vehiclePreviewDocs.some((doc) => !!doc.storagePath);
@@ -1359,6 +1481,7 @@ export function useTripDetail({
         type: doc.type,
         storagePath: doc.storagePath!,
         docSource: "vehicle" as const,
+        expiryDate: doc.expiryDate ?? null,
       }));
 
     const hasDriverIdentityDoc = driverIdentityPreviewDocs.some(
@@ -1376,6 +1499,7 @@ export function useTripDetail({
         storagePath: doc.storagePath!,
         documentId: doc.documentId,
         docSource: "compliance" as const,
+        expiryDate: doc.expiryDate ?? null,
       }));
 
     return [
@@ -1971,25 +2095,45 @@ export function useTripDetail({
         "license" | "aadhaar",
         { id: string; url: string; expiryDate?: string | null; fileName?: string | null; createdAt: string }
       >();
+      const extras: DriverIdentityDocuments["extras"] = [];
       for (const row of res.documents) {
         if (!isDriverIdentityDocType(row.doc_type)) continue;
         if (row.status === "rejected" || row.status === "replaced") continue;
         const path = row.storage_path?.trim();
         if (!path) continue;
-        const prev = bestByType.get(row.doc_type);
-        if (prev && prev.createdAt >= (row.created_at ?? "")) continue;
-        bestByType.set(row.doc_type, {
+        const nextFile = {
           id: row.id,
           url: path,
           expiryDate: row.expiry_date,
           fileName: row.doc_label,
           createdAt: row.created_at ?? "",
+        };
+        const prev = bestByType.get(row.doc_type);
+        if (!prev) {
+          bestByType.set(row.doc_type, nextFile);
+          continue;
+        }
+        if (prev.createdAt >= nextFile.createdAt) {
+          extras.push({
+            id: nextFile.id,
+            url: nextFile.url,
+            expiryDate: nextFile.expiryDate,
+            fileName: nextFile.fileName,
+            kind: row.doc_type,
+          });
+          continue;
+        }
+        extras.push({
+          id: prev.id,
+          url: prev.url,
+          expiryDate: prev.expiryDate,
+          fileName: prev.fileName,
+          kind: row.doc_type,
         });
+        bestByType.set(row.doc_type, nextFile);
       }
       const next: DriverIdentityDocuments = {};
-      const shownIds = new Set<string>();
       for (const [docType, value] of bestByType) {
-        shownIds.add(value.id);
         next[docType] = {
           id: value.id,
           url: value.url,
@@ -1997,13 +2141,8 @@ export function useTripDetail({
           fileName: value.fileName,
         };
       }
+      if (extras.length > 0) next.extras = extras;
       setDriverIdentityDocs(next);
-      setDriverIdentityExtras(
-        collectAssetEntityExtras(res.documents, {
-          allowedTypes: DRIVER_IDENTITY_UPLOAD_ORDER,
-          shownIds,
-        }),
-      );
     });
     return () => {
       cancelled = true;
@@ -2456,7 +2595,7 @@ export function useTripDetail({
    * insurance, and PUC. A plate with no vehicle row yet is saved as an adhoc
    * vehicle in the trip org. trips.vehicle_id is not changed.
    */
-  const resolveVaultVehicle = useCallback(async (): Promise<{
+  const resolveVaultVehicle = useCallback(async (plateHint?: string): Promise<{
     vehicleId: string;
     orgId: string;
   } | null> => {
@@ -2473,13 +2612,11 @@ export function useTripDetail({
         return { vehicleId: linkedId, orgId: vehicleOwnerOrgId };
       }
       const owned = await getVehicleById(orgId, linkedId);
-      if (currentTripIdRef.current !== requestedTripId) return null;
       if (owned.vehicle) {
         rememberVaultVehicle(linkedId, orgId, (owned.vehicle.documents ?? null) as VehicleDocuments | null);
         return { vehicleId: linkedId, orgId };
       }
       const viewed = await getVehicleForTripViewer(linkedId, requestedTripId, orgId);
-      if (currentTripIdRef.current !== requestedTripId) return null;
       const ownerOrgId = viewed.vehicle?.organization_id?.trim() || "";
       if (viewed.vehicle && ownerOrgId) {
         rememberVaultVehicle(
@@ -2489,44 +2626,34 @@ export function useTripDetail({
         );
         return { vehicleId: linkedId, orgId: ownerOrgId };
       }
+      return {
+        vehicleId: linkedId,
+        orgId: vehicleOwnerOrgId || orgId,
+      };
     }
 
     if (vaultVehicleId && vehicleOwnerOrgId) {
       return { vehicleId: vaultVehicleId, orgId: vehicleOwnerOrgId };
     }
 
-    const plateSource = assignedVehiclePlate({
-      displayVehicleFromInput,
-      vehicleLabel,
-      vehicleDisplayNumber: trip?.vehicle_display_number,
-      vehicleNumber: (trip as { vehicle_number?: string | null } | null)?.vehicle_number,
-    });
+    const plateSource =
+      assignedVehiclePlate({
+        displayVehicleFromInput,
+        vehicleLabel,
+        vehicleDisplayNumber: trip?.vehicle_display_number,
+        vehicleNumber: (trip as { vehicle_number?: string | null } | null)?.vehicle_number,
+      }) ||
+      (plateHint ?? "").trim();
     const plate =
       formatIndianVehicleNumber(plateSource).trim() || plateSource.trim();
     if (!plate) return null;
-    if (vaultVehicleId && vehicleOwnerOrgId) {
-      return { vehicleId: vaultVehicleId, orgId: vehicleOwnerOrgId };
-    }
-
-    const inTripOrg = await findVehicleByPlate(orgId, plate);
-    if (currentTripIdRef.current !== requestedTripId) return null;
-    if (inTripOrg.vehicle) {
-      rememberVaultVehicle(
-        inTripOrg.vehicle.id,
-        orgId,
-        (inTripOrg.vehicle.documents ?? null) as VehicleDocuments | null,
-      );
-      return { vehicleId: inTripOrg.vehicle.id, orgId };
-    }
 
     const supplierId = trip?.supplier_id?.trim() ?? "";
     if (supplierId) {
       const { supplier } = await getSupplierById(orgId, supplierId);
-      if (currentTripIdRef.current !== requestedTripId) return null;
       const linkedOrgId = supplier?.linked_organization_id?.trim() ?? "";
       if (linkedOrgId && linkedOrgId !== orgId) {
         const inSupplierOrg = await findVehicleByPlate(linkedOrgId, plate);
-        if (currentTripIdRef.current !== requestedTripId) return null;
         if (inSupplierOrg.vehicle) {
           rememberVaultVehicle(
             inSupplierOrg.vehicle.id,
@@ -2538,31 +2665,23 @@ export function useTripDetail({
       }
     }
 
-    const created = await createVehicle(orgId, {
-      vehicle_number: plate,
-      vehicleSource: "partner",
-    });
-    if (currentTripIdRef.current !== requestedTripId) return null;
-    if (created.vehicle) {
+    const ensured = await ensureVehicleForVault(orgId, plate);
+    if (ensured.vehicle) {
       rememberVaultVehicle(
-        created.vehicle.id,
-        orgId,
-        (created.vehicle.documents ?? {}) as VehicleDocuments,
+        ensured.vehicle.id,
+        ensured.vehicle.organization_id?.trim() || orgId,
+        (ensured.vehicle.documents ?? {}) as VehicleDocuments,
       );
-      return { vehicleId: created.vehicle.id, orgId };
+      return {
+        vehicleId: ensured.vehicle.id,
+        orgId: ensured.vehicle.organization_id?.trim() || orgId,
+      };
     }
-    if (created.error?.message.toLowerCase().includes("already added")) {
-      const again = await findVehicleByPlate(orgId, plate);
-      if (again.vehicle) {
-        rememberVaultVehicle(
-          again.vehicle.id,
-          orgId,
-          (again.vehicle.documents ?? null) as VehicleDocuments | null,
-        );
-        return { vehicleId: again.vehicle.id, orgId };
-      }
-    }
-    return null;
+
+    // Trip id is a uuid; entity_documents has no FK to vehicles. This unblocks
+    // RC / FC / insurance when garage insert is denied.
+    rememberVaultVehicle(requestedTripId, orgId, null);
+    return { vehicleId: requestedTripId, orgId };
   }, [
     trip?.id,
     trip?.organization_id,

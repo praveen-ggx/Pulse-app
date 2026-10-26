@@ -3,9 +3,15 @@
  * belong to, whether they can be coalesced, and whether their query shape is
  * unbounded or over-selecting.
  *
- * Everything is derived from the PostgREST URL, so no service file has to be
- * changed to opt in.
+ * Everything is derived from the PostgREST URL (plus an optional lane header),
+ * so service files do not have to opt in. Newer Network / Reach / story reads
+ * are inferred as `background` — see `featureLanes.ts`.
  */
+import {
+  inferredFeatureLane,
+  isReadOnlyFeatureRpc,
+  parseRestResource,
+} from './featureLanes';
 import type { RequestLane, ShapeViolation } from './types';
 
 /** Callers can force a lane with this header; absent, the lane is inferred. */
@@ -85,15 +91,6 @@ export function classifyRequest(
     return { lane: 'interactive', violations: [], isAuth, bypassModerator: true };
   }
 
-  const isWrite = method !== 'GET' && method !== 'HEAD';
-
-  // Writes are ALWAYS interactive, whatever a caller asked for. A queued read is
-  // a slow screen; a shed write is lost user data (a trip status, a payment, a
-  // POD). The breaker must never drop one, so writes never enter a sheddable lane.
-  const explicit = headerOf(init, LANE_HEADER);
-  const lane: RequestLane =
-    isWrite ? 'interactive' : isLane(explicit) ? explicit : 'interactive';
-
   let parsed: URL | null = null;
   try {
     parsed = new URL(raw);
@@ -101,23 +98,45 @@ export function classifyRequest(
     parsed = null;
   }
 
-  const isRead = method === 'GET';
+  const resource = parsed ? parseRestResource(parsed.pathname) : { kind: 'other' as const };
+  const readOnlyRpc =
+    resource.kind === 'rpc' &&
+    isReadOnlyFeatureRpc(resource.name) &&
+    (method === 'GET' || method === 'HEAD' || method === 'POST');
+
+  // Writes are ALWAYS interactive. Read-only feature RPCs are POSTs in
+  // supabase-js but have no side effects — treat them as reads so they can
+  // coalesce and yield. Unlisted RPCs stay writes.
+  const isWrite = method !== 'GET' && method !== 'HEAD' && !readOnlyRpc;
+
+  const explicit = headerOf(init, LANE_HEADER);
+  const inferred = !isWrite ? inferredFeatureLane(resource) : null;
+  const lane: RequestLane = isWrite
+    ? 'interactive'
+    : isLane(explicit)
+      ? explicit
+      : inferred ?? 'interactive';
+
+  const isRead = method === 'GET' || readOnlyRpc;
   const violations: ShapeViolation[] = [];
   let coalesceKey: string | undefined;
 
   if (parsed && isRead) {
-    const params = parsed.searchParams;
-    const select = params.get('select');
-    if (select === '*' || select === null) violations.push('select-star');
-    if (isUnbounded(params, init)) violations.push('unbounded');
-
-    // Sort params so identical filters in different orders share a key.
-    const sorted = [...params.entries()].sort(([a], [b]) => a.localeCompare(b));
-    const qs = sorted.map(([k, v]) => `${k}=${v}`).join('&');
-    // The auth token is part of the identity of a read under RLS: two users
-    // must never share a coalesced response.
     const auth = headerOf(init, 'authorization') ?? '';
-    coalesceKey = `${parsed.pathname}?${qs}|${auth}`;
+    if (method === 'GET') {
+      const params = parsed.searchParams;
+      const select = params.get('select');
+      if (select === '*' || select === null) violations.push('select-star');
+      if (isUnbounded(params, init)) violations.push('unbounded');
+
+      const sorted = [...params.entries()].sort(([a], [b]) => a.localeCompare(b));
+      const qs = sorted.map(([k, v]) => `${k}=${v}`).join('&');
+      coalesceKey = `${parsed.pathname}?${qs}|${auth}`;
+    } else if (readOnlyRpc) {
+      // Include the JSON body so two partner-display batches never share a key.
+      const body = typeof init?.body === 'string' ? init.body : '';
+      if (body) coalesceKey = `${parsed.pathname}|${body}|${auth}`;
+    }
   }
 
   return { lane, coalesceKey, violations, isAuth, bypassModerator: false };

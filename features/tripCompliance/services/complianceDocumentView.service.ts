@@ -9,7 +9,10 @@
  * look up entity_documents when the primary sign fails.
  */
 import { getComplianceDocumentSignedUrl } from "@/features/compliance/services/documents.service";
-import { previewPrivateObject } from "@/features/trips/utils/storagePreviewObjectUrl.util";
+import {
+  isInlinePreviewUri,
+  previewPrivateObject,
+} from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import { tryGetDocumentViewUrl } from "@/features/trips/services/tripDocuments.service";
 import { parseComplianceStorageRef } from "@/features/tripCompliance/utils/complianceVaultDocuments.util";
 import { getVehicleDocumentViewUrl } from "@/features/vehicles/services/vehicleDocuments.service";
@@ -22,6 +25,8 @@ import {
   composeComplianceActorDetail,
   type ComplianceActorDetail,
 } from "@/features/tripCompliance/utils/complianceDocumentActivity.util";
+import { isTypedDetailsMarker } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
+import { Platform } from "react-native";
 
 export type ComplianceViewSource =
   | "vehicle-vault"
@@ -75,10 +80,23 @@ async function paintCompliancePreviewUrl(
   source: ComplianceViewSource,
   signed: string | null,
 ): Promise<string | null> {
-  if (/^https?:\/\//i.test(path)) return path;
+  if (isInlinePreviewUri(path)) return path;
+  if (/^https?:\/\//i.test(path)) {
+    const parsed = parseComplianceStorageRef(path);
+    if (parsed.kind === "url") return parsed.value;
+    const paintedRemote = await previewPrivateObject(
+      bucketForPreviewSource(source),
+      parsed.value,
+      path,
+    );
+    if (paintedRemote.url) return paintedRemote.url;
+    return Platform.OS === "web" ? null : signed ?? path;
+  }
   if (!path) return signed;
   const painted = await previewPrivateObject(bucketForPreviewSource(source), path, signed);
-  return painted.url ?? signed;
+  if (painted.url) return painted.url;
+  // Web <img> cannot paint a Storage signed URL (CORS / 400). Native viewers can.
+  return Platform.OS === "web" ? null : signed;
 }
 
 const SIGNED_URL_TTL_MS = 50 * 60_000;
@@ -138,6 +156,11 @@ async function signCompliancePreviewUrlUncached(input: {
 }): Promise<string | null> {
   const raw = (input.storagePath ?? "").trim();
   const source = input.source ?? "trip";
+  if (!raw) return null;
+  if (isInlinePreviewUri(raw)) return raw;
+  if (isTypedDetailsMarker({ storage_path: raw, file_name: raw })) {
+    return null;
+  }
   if (input.sourceEntityDocumentId || isVehicleDocumentReferencePath(raw)) {
     const signed = await resolveTripDocumentPreviewUrl({
       storagePath: raw,

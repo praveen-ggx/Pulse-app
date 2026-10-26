@@ -1,5 +1,5 @@
 /**
- * Pulse Reach — Metronic demo2 / KeenThemes tokens + shared chrome.
+ * Pulse Boost — Metronic demo2 / KeenThemes tokens + shared chrome.
  * Used by Campaign Manager (home) and Campaign detail.
  */
 import Theme from "@/constants/Theme";
@@ -27,6 +27,8 @@ export const REACH_M = {
 } as const;
 
 export const REACH_PAGE_MAX = 1280;
+/** Alias for older bundles that still read `REACH_PAGE`. */
+export const REACH_PAGE = REACH_PAGE_MAX;
 export const REACH_DETAIL_PAGE_MAX = 1440;
 export const REACH_DESKTOP_BP = 1024;
 

@@ -378,7 +378,7 @@ export function ComplianceTripCard({
           (hovered || selected || isHovered(state)) && styles.cardHover,
           selected && styles.cardSelected,
         ]}
-        accessibilityRole="button"
+        accessibilityRole="none"
         accessibilityLabel={`${tripId} ${clientName}, ${asLabel(origin)} to ${asLabel(dest)}`}
       >
         <View style={[styles.body, compact && styles.bodyCompact]}>

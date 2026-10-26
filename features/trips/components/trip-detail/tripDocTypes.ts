@@ -43,8 +43,16 @@ export interface TripDocFile {
   slotType?: TripDetailsSlot;
   /** Invoice number typed for this file. */
   invoiceNumber?: string;
+  /** LR / invoice / e-way number for this copy. */
+  documentNumber?: string | null;
+  /** ISO YYYY-MM-DD when this copy has a validity date. */
+  expiryDate?: string | null;
   /** Bucket used to resolve signed URLs. Default: trip documents. */
-  docSource?: "trip" | "vehicle" | "compliance";
+  docSource?: "trip" | "vehicle" | "compliance" | "supplier-kyc";
+  /** Already-resolved preview URL (https / blob). */
+  previewUri?: string | null;
+  uploadedAt?: string | null;
+  uploadedBy?: string | null;
 }
 
 export interface TripDocItem {
@@ -70,6 +78,7 @@ export interface TripDocItem {
   invoiceNumber?: string | null;
   /** Upload timestamp for the latest file in this slot (ISO). */
   uploadedAt?: string | null;
+  uploadedBy?: string | null;
 }
 
 /** Matches trip-documents + vehicle-documents bucket limits (100 MB). */
@@ -267,6 +276,11 @@ function pathLooksLikePdf(value?: string | null): boolean {
   return path.endsWith(".pdf");
 }
 
+function pathLooksLikeImage(value?: string | null): boolean {
+  const base = (value ?? "").trim().split("?")[0]?.split("/").pop() ?? "";
+  return /\.(jpe?g|png|webp|heic|heif|gif)$/i.test(base);
+}
+
 /** True when vault metadata, mime, filename, or storage path identifies a PDF. */
 export function isPdfTripDoc(doc: {
   type?: string | null;
@@ -275,10 +289,24 @@ export function isPdfTripDoc(doc: {
   storagePath?: string | null;
 } | null | undefined): boolean {
   if (!doc) return false;
-  if ((doc.type ?? "").toUpperCase() === "PDF") return true;
+  if (pathLooksLikePdf(doc.fileName) || pathLooksLikePdf(doc.storagePath)) return true;
+  if (pathLooksLikeImage(doc.fileName) || pathLooksLikeImage(doc.storagePath)) {
+    return false;
+  }
   if ((doc.mimeType ?? "").toLowerCase().includes("pdf")) return true;
-  if (pathLooksLikePdf(doc.fileName)) return true;
-  return pathLooksLikePdf(doc.storagePath);
+  if ((doc.mimeType ?? "").toLowerCase().startsWith("image/")) return false;
+  return (doc.type ?? "").toUpperCase() === "PDF";
+}
+
+/** OCR / e-way sidecar objects must not appear as previewable vault files. */
+export function isVaultFieldsMetaPath(
+  path?: string | null,
+  fileName?: string | null,
+): boolean {
+  const base =
+    (fileName || path || "").trim().split("?")[0]?.split("/").pop()?.toLowerCase() ??
+    "";
+  return base === "fields.json" || base.endsWith("-fields.json");
 }
 
 const VAULT_DATE_MONTHS = [
@@ -336,6 +364,73 @@ export function formatLrVaultNumberLabel(number?: string | null): string | null 
   const trimmed = parseLrFieldValues(number).lrNumber;
   if (!trimmed) return null;
   return /^lr\s*no\.?/i.test(trimmed) ? trimmed : `LR No. ${trimmed}`;
+}
+
+/** Long card-style expiry, e.g. `29 December 2026`. */
+export function formatDocumentExpiryLong(value?: string | null): string | null {
+  const iso = vaultDocDateToIso(value);
+  if (iso) {
+    return new Date(`${iso}T12:00:00`).toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  }
+  return formatVaultDocDate(value);
+}
+
+/** Preview header facts: LR / invoice number plus Valid till. */
+export function formatDocumentHeaderFacts(input: {
+  numbers?: Array<string | null | undefined>;
+  documentNumber?: string | null;
+  category?: string | null;
+  expiryDate?: string | null;
+}): string {
+  const parts: string[] = [];
+  const numbers = (input.numbers ?? [])
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean);
+  if (numbers.length > 0) {
+    parts.push(numbers.join(" · "));
+  } else {
+    const raw = (input.documentNumber ?? "").trim();
+    const category = (input.category ?? "").toLowerCase();
+    if (raw) {
+      const labeled =
+        category === "invoice"
+          ? formatInvoiceVaultNumberLabel(raw)
+          : category === "lr" || category === "elr"
+            ? formatLrVaultNumberLabel(raw)
+            : raw;
+      if (labeled) parts.push(labeled);
+    }
+  }
+  const expiry = formatDocumentExpiryLong(input.expiryDate);
+  if (expiry) parts.push(`Valid till ${expiry}`);
+  return parts.join(" · ");
+}
+
+/** Header line for the selected vault copy: LR / invoice / Valid till. */
+export function formatSelectedVaultFileMeta(
+  file: TripDocFile | null | undefined,
+  fallback: string,
+  card?: Pick<TripDocItem, "documentNumber" | "invoiceNumber"> | null,
+): string {
+  const parts: string[] = [];
+  const slot = file?.slotType;
+  const lr = formatLrVaultNumberLabel(
+    file?.documentNumber || card?.documentNumber,
+  );
+  const invoice =
+    file?.invoiceNumber?.trim() ||
+    (slot === "invoice" ? (file?.documentNumber ?? "").trim() : "") ||
+    (card?.invoiceNumber ?? "").trim();
+  const expiry = formatVaultDocDate(file?.expiryDate);
+  if (slot === "invoice" && invoice) parts.push(invoice);
+  else if (lr) parts.push(lr);
+  else if (invoice && slot !== "bank_docs") parts.push(invoice);
+  if (expiry) parts.push(`Valid till ${expiry}`);
+  return parts.length > 0 ? parts.join(" · ") : fallback;
 }
 
 /** Invoice number stored on one invoice row: plain text, or the invoice field of an LR payload. */

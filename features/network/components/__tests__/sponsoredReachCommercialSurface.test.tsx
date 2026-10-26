@@ -12,6 +12,7 @@ import { buildNetworkLoadPools } from "@/features/network/utils/networkLoadPools
 import {
   isSponsoredReachLoad,
   isSponsoredReachPost,
+  sponsoredPostFromReachCampaign,
   sponsoredReachIndentIds,
 } from "@/features/network/utils/sponsoredReach.util";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -28,6 +29,12 @@ jest.mock("expo-router", () => ({ useRouter: () => ({ push: mockPush }) }));
 let mockFeed: PostRow[] = [];
 jest.mock("@/lib/queries/usePostsQuery", () => ({
   useNetworkFeedQuery: () => ({ data: mockFeed, isLoading: false }),
+}));
+jest.mock("@/features/network/hooks/useNetworkStoryStrip", () => ({
+  useNetworkStoryStrip: () => ({ posts: [], isLoading: false }),
+}));
+jest.mock("@/lib/queries/useReachCampaignsQuery", () => ({
+  useReachCampaignsQuery: () => ({ data: [], isLoading: false }),
 }));
 jest.mock("@/lib/queries/useLinkedOrgDisplayQuery", () => ({
   useLinkedOrgDisplayMap: () => ({}),
@@ -75,6 +82,28 @@ afterEach(() => queryClient.clear());
 function wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
 }
+
+describe("sponsoredPostFromReachCampaign", () => {
+  it("turns an active Boost into a sponsored Get Load row", () => {
+    const row = sponsoredPostFromReachCampaign({
+      id: "camp-1",
+      org_id: "gogovan",
+      post_id: "post-1",
+      status: "active",
+      published_at: "2026-10-25T17:08:40Z",
+      created_at: "2026-10-25T17:08:40Z",
+      expires_at: "2026-10-28T17:08:40Z",
+      snapshot_post_type: "LOAD",
+      snapshot_origin: "Periyapalayam",
+      snapshot_destination: "Poonamallee",
+      snapshot_vehicle_type: "20FT",
+      snapshot_source_indent_id: "ind-1",
+    });
+    expect(row?.is_sponsored).toBe(true);
+    expect(row?.id).toBe("post-1");
+    expect(isSponsoredReachPost(row!)).toBe(true);
+  });
+});
 
 describe("sponsored Reach predicate", () => {
   it("a post is sponsored Reach only when it is an active sponsored LOAD", () => {
@@ -167,6 +196,21 @@ describe("Get load sidebar: sponsored Reach posts only", () => {
       { wrapper },
     );
     expect(result.current.posts.map((p) => p.id)).toEqual(["p-sponsored"]);
+  });
+
+  it("hides the viewer's own Boost from Sponsored loads", () => {
+    mockFeed = [
+      post("p-mine-ad", {
+        organization_id: "viewer-org",
+        is_sponsored: true,
+        source_indent_id: "ind-mine",
+      }),
+    ];
+    const { result } = renderHook(
+      () => useLoadCenterOpportunityPosts("viewer-org", "get"),
+      { wrapper },
+    );
+    expect(result.current.posts.map((p) => p.id)).toEqual([]);
   });
 
   it("give mode is unchanged: capacity posts still show", () => {

@@ -141,6 +141,7 @@ import {
 } from "@/features/trips/hooks/useTripHubInTransitPings";
 import { buildTripHubPartyMetaByTripId } from "@/features/trips/utils/tripHubPartyMeta";
 import { tripNonSupplierOutflowTotal } from "@/features/trips/utils/tripManifestFreightCost";
+import { tripMatchesHubSearch } from "@/features/trips/utils/tripHubSearch.util";
 import { canAccessTrips } from "@/lib/capabilities";
 import { useOptionalAuth } from "@/contexts/AuthContext";
 import { useMemberAccess } from "@/lib/useMemberAccess";
@@ -1323,12 +1324,25 @@ export default function TripsScreen() {
       );
     }
 
-    const q = searchQuery.trim().toLowerCase();
+    const q = searchQuery.trim();
     if (q) {
       const qDigits = hubSearchPhoneDigits(q);
       list = list.filter((t) => {
         // Server search already matched it (LR, driver phone, client master, …).
         if (hubSearchHitIds.has(t.id)) return true;
+        if (
+          tripMatchesHubSearch(t, q, {
+            organizationId: orgId,
+            clientName:
+              shipperNameByTripId[t.id] ??
+              (t.organization_id !== orgId ? "" : t.client_name ?? ""),
+            supplierName: t.supplier_name,
+            lrLabel: hubLrLabelFor(t.id),
+            elrLabel: hubElrLabelFor(t.id),
+          })
+        ) {
+          return true;
+        }
         const displayName = (
           shipperNameByTripId[t.id] ??
           (t.organization_id !== orgId ? "" : t.client_name ?? "")
@@ -1440,6 +1454,8 @@ export default function TripsScreen() {
     lrNumbersByTripId,
     ewayNumbersByTripId,
     shipperNameByTripId,
+    hubLrLabelFor,
+    hubElrLabelFor,
     showCompletedList,
     sortBy,
     paymentFilter,
@@ -3302,6 +3318,8 @@ export default function TripsScreen() {
               ]}
               searchQuery={searchQuery}
               onSearchQueryChange={setSearchQuery}
+              lrLabelByTripId={{ ...hubLrLabels, ...hubLrPreviewByTripId }}
+              elrLabelByTripId={hubElrLabels}
               pagination={showIndentPoolView ? undefined : tripsListPagination}
               onDisplayedTripsLengthChange={undefined}
               currentOrganizationId={currentOrganization?.id ?? null}
@@ -3362,6 +3380,8 @@ export default function TripsScreen() {
                   searchQuery={searchQuery}
                   onSearchQueryChange={setSearchQuery}
                   indentSearchTextByIndentId={indentCodesByIndentId}
+                  lrLabelByTripId={{ ...hubLrLabels, ...hubLrPreviewByTripId }}
+                  elrLabelByTripId={hubElrLabels}
                   toolbarCountLabel={
                     activeMetricTab === "all" ? allToolbarCountLabel : undefined
                   }
@@ -3427,6 +3447,8 @@ export default function TripsScreen() {
                 searchQuery={searchQuery}
                 onSearchQueryChange={setSearchQuery}
                 indentSearchTextByIndentId={indentCodesByIndentId}
+                lrLabelByTripId={{ ...hubLrLabels, ...hubLrPreviewByTripId }}
+                elrLabelByTripId={hubElrLabels}
                 toolbarCountLabel={
                   activeMetricTab === "all" ? allToolbarCountLabel : undefined
                 }

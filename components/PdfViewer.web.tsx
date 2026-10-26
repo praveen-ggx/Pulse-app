@@ -90,6 +90,9 @@ function PdfEmbedPage({
   onRetrySign?: () => void;
 }) {
   const boxRef = useRef<View>(null);
+  const onRetrySignRef = useRef(onRetrySign);
+  onRetrySignRef.current = onRetrySign;
+  const retriedSignKey = useRef<string | null>(null);
   const [visible, setVisible] = useState(!lazy);
   const [tier, setTier] = useState<PreviewTier>(previewTier ?? "thumb");
   const [retry, setRetry] = useState(0);
@@ -157,11 +160,15 @@ function PdfEmbedPage({
         if (controller.signal.aborted) return;
         setFailed(true);
         if (error instanceof Error && /401|403|expired/i.test(error.message)) {
-          onRetrySign?.();
+          const key = request.documentKey || request.signedUrl || "";
+          if (retriedSignKey.current !== key) {
+            retriedSignKey.current = key;
+            onRetrySignRef.current?.();
+          }
         }
       });
     return () => controller.abort();
-  }, [onRetrySign, priority, request, retry, visible]);
+  }, [priority, request, retry, visible]);
 
   if (failed) {
     return (
@@ -173,7 +180,7 @@ function PdfEmbedPage({
             setRetry((value) => value + 1);
             onRetrySign?.();
           }}
-          accessibilityRole="button"
+          accessibilityRole="none"
           accessibilityLabel="Retry document preview"
           style={styles.retry}
         >

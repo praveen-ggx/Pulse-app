@@ -9,7 +9,7 @@ import type { Page } from '@playwright/test';
  * produces confusing "element not found" failures instead of "you forgot the env file".
  *
  * Flow mirrors nihas-tests/signin-flow.mjs, the manual smoke script this was derived from:
- *   /terminal-website → "Enter OS" (inside an iframe) → "Sign in" → email/password → submit.
+ *   /terminal-website → "Enter OS" (inside an iframe) → /onboarding → "Sign in" → email/password → submit.
  * `signin-submit-btn` is a real testID (app/sign-in.tsx:291); the rest are text/role based
  * because the sign-in screen carries no other testIDs.
  */
@@ -53,7 +53,7 @@ export async function signIn(
   await page.goto('/terminal-website');
 
   const cta = page
-    .frameLocator('iframe[title="Pulse Website"]')
+    .frameLocator('iframe[title="pulse."]')
     .getByRole('link', { name: 'Enter OS' })
     .first();
   await cta.waitFor({ state: 'visible' });

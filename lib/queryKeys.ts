@@ -348,6 +348,10 @@ export const queryKeys = {
     /** Live indent-linked LOAD stories for Mine / own story preview queue. */
     liveOwnLoadStories: (orgId: string) =>
       ["q", "posts", orgId, "live-own-load-stories"] as const,
+    /** WhatsApp story row: connected pool posts + Pulse Boost ads. */
+    storyStrip: (orgId: string, connectedIdsKey: string) =>
+      ["q", "posts", orgId, "story-strip", connectedIdsKey] as const,
+    orgStoryBrand: (orgId: string) => ["q", "posts", "org-story-brand", orgId] as const,
   },
 
   bids: {

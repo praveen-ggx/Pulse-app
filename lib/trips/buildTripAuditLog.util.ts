@@ -132,12 +132,15 @@ function categoryLabel(category: TripAuditLogCategory): string {
 
 type StatusActivityContext =
   | "started"
+  | "pickup"
   | "in_transit"
+  | "at_drop"
   | "completed"
   | "created"
   | "accepted"
   | "assigned"
-  | "pod_received";
+  | "pod_received"
+  | "sim_revoked";
 
 function statusActivityTitle(
   context: StatusActivityContext,
@@ -148,13 +151,21 @@ function statusActivityTitle(
       return "created trip";
     case "accepted":
       return "accepted assignment";
+    case "assigned":
+      return "assigned this trip";
+    case "pickup":
     case "started":
+      return "arrived at pickup";
     case "in_transit":
       return "marked in transit";
+    case "at_drop":
+      return "arrived at drop-off";
     case "completed":
-      return "marked complete";
+      return "marked delivered";
     case "pod_received":
       return "recorded hard copy POD";
+    case "sim_revoked":
+      return "revoked a simulated stage";
     default:
       return fallbackLabel.charAt(0).toLowerCase() + fallbackLabel.slice(1);
   }
@@ -445,7 +456,9 @@ export function buildTripAuditLog(params: {
 
   for (const item of timelineRows) {
     if (item.kind !== "status") continue;
-    if (item.status_context === "assigned") continue;
+    if (item.status_context === "assigned" && assignmentAuditRows.length > 0) {
+      continue;
+    }
     if (item.status_context === "pod_received" && hardCopyPod) continue;
     if (
       complianceOnly &&
@@ -496,9 +509,19 @@ export function buildTripAuditLog(params: {
       contextLabel:
         item.status_context === "created"
           ? "Trip created"
-          : item.status_context === "completed"
-            ? "Completed"
-            : "Status update",
+          : item.status_context === "accepted"
+            ? "Driver accepted"
+            : item.status_context === "pickup"
+              ? "Pickup"
+              : item.status_context === "in_transit"
+                ? "In-transit"
+                : item.status_context === "at_drop"
+                  ? "Drop-off"
+                  : item.status_context === "completed"
+                    ? "Delivered"
+                    : item.status_context === "sim_revoked"
+                      ? "Simulation"
+                      : "Status update",
       detail: statusDetailLine(item, tripRef, actor),
       people:
         statusEntityType === "driver" && driverDisplayName

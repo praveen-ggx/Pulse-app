@@ -56,7 +56,7 @@ export const PULSE_PRODUCTS_COMING_SOON: readonly PulseProductPreview[] = [
 export const WORKSPACE_ACCESS_ACTIONS: readonly WorkspaceAccessAction[] = [
   {
     id: 'join_workspace',
-    title: 'Join an existing workspace',
+    title: 'Join a workspace',
     route: ROUTES.ONBOARDING.BUSINESS,
     params: { intent: 'team' },
   },

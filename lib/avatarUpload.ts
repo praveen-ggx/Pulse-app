@@ -56,6 +56,48 @@ function noteSignSuccess(): void {
 const signedAvatarUrlCache = new Map<string, { url: string | null; expiresAt: number }>();
 // Deduplicates concurrent calls for the same path (thundering-herd guard)
 const inFlightAvatarRequests = new Map<string, Promise<string | null>>();
+const SIGNED_AVATAR_PERSIST_KEY = "pulse-signed-avatar-urls-v1";
+let signedAvatarPersistTimer: ReturnType<typeof setTimeout> | null = null;
+
+function hydrateSignedAvatarCacheFromStorage(): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const raw = localStorage.getItem(SIGNED_AVATAR_PERSIST_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Array<[string, { url: string | null; expiresAt: number }]>;
+    if (!Array.isArray(parsed)) return;
+    const now = Date.now();
+    for (const entry of parsed) {
+      if (!Array.isArray(entry) || entry.length !== 2) continue;
+      const [key, value] = entry;
+      if (!key || !value?.url || typeof value.expiresAt !== "number" || value.expiresAt <= now) {
+        continue;
+      }
+      signedAvatarUrlCache.set(key, value);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function schedulePersistSignedAvatarCache(): void {
+  if (typeof localStorage === "undefined") return;
+  if (signedAvatarPersistTimer) return;
+  signedAvatarPersistTimer = setTimeout(() => {
+    signedAvatarPersistTimer = null;
+    try {
+      const now = Date.now();
+      const entries = [...signedAvatarUrlCache.entries()]
+        .filter(([, value]) => Boolean(value.url) && value.expiresAt > now)
+        .slice(0, 200);
+      localStorage.setItem(SIGNED_AVATAR_PERSIST_KEY, JSON.stringify(entries));
+    } catch {
+      /* ignore */
+    }
+  }, 250);
+}
+
+hydrateSignedAvatarCacheFromStorage();
 
 /** Driver: driver-* cartoons; user-*: same 2D pool as business PartyAvatar. */
 function driverDisplayPresetUri(seed: string): string {
@@ -596,6 +638,17 @@ export function resolveAvatarPublicUrl(path: string | null | undefined): string 
  * Returns null if path is empty or signed URL fails.
  * Accepts path as "userId" or "userId/avatar.jpg".
  */
+/** Sync hit for already-signed paths (memory + last session on web). */
+export function peekSignedAvatarUrl(path: string): string | null {
+  const cacheKey = path.trim();
+  if (!cacheKey) return null;
+  const orgLogoUrl = resolveOrgLogoPublicUrl(cacheKey);
+  if (orgLogoUrl) return orgLogoUrl;
+  const cached = signedAvatarUrlCache.get(cacheKey);
+  if (cached?.url && cached.expiresAt > Date.now()) return cached.url;
+  return null;
+}
+
 export async function getSignedAvatarUrl(path: string): Promise<string | null> {
   const cacheKey = path.trim();
   // Org logos live in the PUBLIC S3 `org-assets` bucket. Never sign them.
@@ -631,7 +684,10 @@ export async function getSignedAvatarUrl(path: string): Promise<string | null> {
       if (!primary.error && primary.data?.signedUrl) {
         const url = primary.data.signedUrl;
         noteSignSuccess();
-        if (cacheKey) signedAvatarUrlCache.set(cacheKey, { url, expiresAt: Date.now() + SIGNED_URL_CACHE_MS });
+        if (cacheKey) {
+          signedAvatarUrlCache.set(cacheKey, { url, expiresAt: Date.now() + SIGNED_URL_CACHE_MS });
+          schedulePersistSignedAvatarCache();
+        }
         return url;
       }
       noteSignFailure();
@@ -648,7 +704,10 @@ export async function getSignedAvatarUrl(path: string): Promise<string | null> {
       if (!legacy.error && legacy.data?.signedUrl) {
         const url = legacy.data.signedUrl;
         noteSignSuccess();
-        if (cacheKey) signedAvatarUrlCache.set(cacheKey, { url, expiresAt: Date.now() + SIGNED_URL_CACHE_MS });
+        if (cacheKey) {
+          signedAvatarUrlCache.set(cacheKey, { url, expiresAt: Date.now() + SIGNED_URL_CACHE_MS });
+          schedulePersistSignedAvatarCache();
+        }
         return url;
       }
       noteSignFailure();

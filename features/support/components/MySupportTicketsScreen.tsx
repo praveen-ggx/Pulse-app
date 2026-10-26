@@ -22,16 +22,22 @@ import {
 import { useMySupportTicketsQuery } from '@/lib/queries/useMySupportTicketsQuery';
 import { ROUTES } from '@/lib/routes';
 import { useRouter, type Href } from 'expo-router';
-import { Inbox, Plus } from 'lucide-react-native';
+import { Inbox } from 'lucide-react-native';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+
+const WEB_COPY = Platform.select({
+  web: { whiteSpace: 'pre-wrap' as const },
+  default: {},
+});
 
 function formatUpdatedAt(iso: string): string {
   const then = new Date(iso).getTime();
@@ -141,21 +147,23 @@ export function MySupportTicketsScreen() {
   return (
     <>
       <DetailPageLayout
-        title={updateBadge ? `My Support Tickets (${updateBadge})` : 'My Support Tickets'}
+        title={updateBadge ? `My tickets (${updateBadge})` : 'My tickets'}
         onBack={handleBack}
         onRefresh={() => void refetch()}
         refreshing={isRefetching}
         rightAction={
           <Pressable
             onPress={() => router.push(ROUTES.support() as Href)}
-            hitSlop={10}
-            style={styles.newBtn}
+            hitSlop={8}
+            style={styles.headerBtn}
+            accessibilityRole="button"
             accessibilityLabel="New ticket"
           >
-            <Plus size={20} color={Theme.primary} />
+            <Text style={styles.headerBtnText}>New ticket</Text>
           </Pressable>
         }
       >
+        <View style={styles.page}>
         {error ? (
           <Text style={styles.errorText}>
             {error instanceof Error ? error.message : 'Could not load your tickets.'}
@@ -163,13 +171,13 @@ export function MySupportTicketsScreen() {
         ) : null}
 
         {isLoading ? (
-          <ActivityIndicator color={Theme.primary} style={{ marginTop: 28 }} />
+          <ActivityIndicator color={Theme.primary} style={{ marginTop: 8 }} />
         ) : tickets.length === 0 ? (
           <View style={styles.empty}>
-            <Inbox size={26} color={Theme.primary} />
+            <Inbox size={18} color={Theme.textMuted} />
             <Text style={styles.emptyTitle}>No tickets yet</Text>
             <Text style={styles.emptyBody}>
-              When you contact Support, your tickets will show up here.
+              Submitted tickets will show up here.
             </Text>
           </View>
         ) : (
@@ -213,6 +221,7 @@ export function MySupportTicketsScreen() {
             );
           })
         )}
+        </View>
       </DetailPageLayout>
       {previewNode}
     </>
@@ -220,22 +229,37 @@ export function MySupportTicketsScreen() {
 }
 
 const styles = StyleSheet.create({
-  newBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
+  page: {
+    width: '100%',
+    maxWidth: 720,
+    alignSelf: 'center',
+    gap: 8,
+  },
+  headerBtn: {
+    minHeight: 32,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
+    backgroundColor: Theme.cardWhite,
     justifyContent: 'center',
-    backgroundColor: Theme.surfaceLight,
+  },
+  headerBtnText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: Theme.actionBtnInk,
+    letterSpacing: 0,
+    ...WEB_COPY,
   },
   card: {
-    borderRadius: 12,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: Theme.borderLight,
+    borderColor: Theme.actionBtnGhostBorder,
     backgroundColor: Theme.cardWhite,
-    padding: 14,
-    gap: 4,
-    marginBottom: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 3,
   },
   cardUpdate: {
     borderColor: Theme.warning,
@@ -261,28 +285,38 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.destructive,
   },
   displayId: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '500',
     color: Theme.textMuted,
-    letterSpacing: 0.3,
+    letterSpacing: 0,
+    ...WEB_COPY,
   },
   statusPill: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    borderRadius: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
   },
-  statusPillText: { fontSize: 11, fontWeight: '700' },
+  statusPillText: {
+    fontSize: 10,
+    fontWeight: '500',
+    letterSpacing: 0,
+    ...WEB_COPY,
+  },
   subject: {
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '500',
     color: Theme.textPrimaryDark,
+    letterSpacing: 0,
+    ...WEB_COPY,
   },
   subjectUpdate: {
-    fontWeight: '800',
+    fontWeight: '600',
   },
   meta: {
-    fontSize: 12,
+    fontSize: 10,
     color: Theme.textMuted,
+    letterSpacing: 0,
+    ...WEB_COPY,
   },
   previewRow: {
     flexDirection: 'row',
@@ -318,21 +352,34 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
   empty: {
-    alignItems: 'center',
-    gap: 8,
-    borderRadius: 16,
+    alignItems: 'flex-start',
+    gap: 6,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: Theme.borderLight,
-    backgroundColor: Theme.cardWhite,
-    padding: 24,
-    marginTop: 8,
+    borderColor: Theme.actionBtnGhostBorder,
+    backgroundColor: Theme.surface,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
   },
-  emptyTitle: { fontSize: 15, fontWeight: '800', color: Theme.textPrimaryDark },
-  emptyBody: {
+  emptyTitle: {
     fontSize: 13,
-    lineHeight: 19,
-    color: Theme.textMuted,
-    textAlign: 'center',
+    fontWeight: '600',
+    color: Theme.actionBtnInk,
+    letterSpacing: 0,
+    ...WEB_COPY,
   },
-  errorText: { color: Theme.negative, fontSize: 13, fontWeight: '600', marginBottom: 12 },
+  emptyBody: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: Theme.textMuted,
+    letterSpacing: 0,
+    ...WEB_COPY,
+  },
+  errorText: {
+    color: Theme.negative,
+    fontSize: 13,
+    fontWeight: '500',
+    letterSpacing: 0,
+    ...WEB_COPY,
+  },
 });

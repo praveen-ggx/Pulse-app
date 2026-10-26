@@ -2,6 +2,9 @@ import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { partyAddModalChromeStyles } from "@/components/PartyAddModalChrome";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
+import { VaultDraftPreviewBlock } from "@/features/trips/components/trip-detail/VaultDraftPreviewBlock";
+import { VaultFullDocumentModal } from "@/features/trips/components/trip-detail/VaultFullDocumentModal";
+import { isPdfTripDoc } from "@/features/trips/components/trip-detail/tripDocTypes";
 import type { OrganizationKycDocDefinition } from "@/features/organization/types/organizationKycDocuments.types";
 import { ORG_KYC_DOC_LABELS } from "@/features/organization/types/organizationKycDocuments.types";
 import type { PickedVerificationDocument } from "@/features/organization/utils/kycDocumentUpload.util";
@@ -14,14 +17,11 @@ import {
   ArrowRight,
   Check,
   FileText,
-  Pencil,
   ShieldCheck,
-  UploadCloud,
   Zap,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Image,
   Modal,
   Platform,
   Pressable,
@@ -32,6 +32,11 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+const WEB_COPY =
+  Platform.OS === "web"
+    ? ({ whiteSpace: "pre-wrap", letterSpacing: 0 } as const)
+    : ({ letterSpacing: 0 } as const);
 
 type WizardStep = "intro" | "upload" | "preview";
 
@@ -56,10 +61,6 @@ type Props = {
   ) => Promise<boolean>;
 };
 
-function isImageMime(mime: string): boolean {
-  return mime.startsWith("image/") && !mime.includes("heic") && !mime.includes("heif");
-}
-
 export function KycDocumentUpdateWizard({
   visible,
   definition,
@@ -82,6 +83,7 @@ export function KycDocumentUpdateWizard({
   const [uploadDocType, setUploadDocType] = useState<
     OrganizationKycDocDefinition["type"] | null
   >(null);
+  const [fullOpen, setFullOpen] = useState(false);
 
   const acceptTypes = useMemo(
     () => (definition ? resolveAcceptTypes(definition) : []),
@@ -106,6 +108,7 @@ export function KycDocumentUpdateWizard({
     setPicked(null);
     setProofType(null);
     setUploadDocType(null);
+    setFullOpen(false);
   }, [onboarding]);
 
   useEffect(() => {
@@ -114,6 +117,7 @@ export function KycDocumentUpdateWizard({
     setPicked(null);
     setProofType(null);
     setUploadDocType(null);
+    setFullOpen(false);
   }, [visible, onboarding, definition?.type]);
 
   const handleClose = useCallback(() => {
@@ -165,15 +169,15 @@ export function KycDocumentUpdateWizard({
               <Check size={12} color={Theme.cardWhite} strokeWidth={3} />
             </View>
           </View>
-          <Text style={styles.headline}>
+          <Text style={[styles.headline, WEB_COPY]}>
             {hasExistingDocument
-              ? `your ${label.toLowerCase()} needs a fresh review`
-              : `complete your ${label.toLowerCase()} verification`}
+              ? `Your ${label.toLowerCase()} needs a fresh review`
+              : `Complete your ${label.toLowerCase()} verification`}
           </Text>
-          <Text style={styles.subhead}>
+          <Text style={[styles.subhead, WEB_COPY]}>
             {hasExistingDocument
-              ? 'Replace the file, preview only the new document, then send it to the admin console for verification.'
-              : 'Upload the file, preview it, then send it to the admin console for verification.'}
+              ? "Replace the file, preview the new document, then send it for review."
+              : "Upload the file, preview it, then send it for review."}
           </Text>
           <View style={styles.bullets}>
             <View style={styles.bulletRow}>
@@ -181,8 +185,8 @@ export function KycDocumentUpdateWizard({
                 <Zap size={14} color={Theme.positive} strokeWidth={2.2} />
               </View>
               <View style={styles.bulletCopy}>
-                <Text style={styles.bulletTitle}>quick update</Text>
-                <Text style={styles.bulletHint}>takes less than a minute</Text>
+                <Text style={[styles.bulletTitle, WEB_COPY]}>Quick update</Text>
+                <Text style={[styles.bulletHint, WEB_COPY]}>Takes less than a minute</Text>
               </View>
             </View>
             <View style={styles.bulletRow}>
@@ -190,9 +194,9 @@ export function KycDocumentUpdateWizard({
                 <ShieldCheck size={14} color={Theme.positive} strokeWidth={2.2} />
               </View>
               <View style={styles.bulletCopy}>
-                <Text style={styles.bulletTitle}>admin review</Text>
-                <Text style={styles.bulletHint}>
-                  only the new file is queued — the previous copy is not shown
+                <Text style={[styles.bulletTitle, WEB_COPY]}>Admin review</Text>
+                <Text style={[styles.bulletHint, WEB_COPY]}>
+                  Only the new file is queued — the previous copy is not shown
                 </Text>
               </View>
             </View>
@@ -204,7 +208,7 @@ export function KycDocumentUpdateWizard({
               setStep("upload");
             }}
           >
-            <Text style={styles.primaryBtnText}>Start now</Text>
+            <Text style={[styles.primaryBtnText, WEB_COPY]}>Start now</Text>
             <ArrowRight size={16} color={Theme.buttonDarkText} strokeWidth={2.4} />
           </Pressable>
         </View>
@@ -212,13 +216,13 @@ export function KycDocumentUpdateWizard({
 
       {step === "upload" ? (
         <View style={styles.stepBody}>
-          <Text style={styles.stepKicker}>UPDATE DOCUMENT</Text>
-          <Text style={styles.stepTitle}>{`Upload a new ${label.toLowerCase()}`}</Text>
-          <Text style={styles.stepHint}>{definition.hint}</Text>
+          <Text style={[styles.stepKicker, WEB_COPY]}>Update document</Text>
+          <Text style={[styles.stepTitle, WEB_COPY]}>{`Upload a new ${label.toLowerCase()}`}</Text>
+          <Text style={[styles.stepHint, WEB_COPY]}>{definition.hint}</Text>
 
           {needsProofType ? (
             <>
-              <Text style={styles.fieldLabel}>Document type</Text>
+              <Text style={[styles.fieldLabel, WEB_COPY]}>Document type</Text>
               <View style={styles.chipRow}>
                 {ADDRESS_PROOF_OPTIONS.map((opt) => (
                   <Pressable
@@ -242,7 +246,7 @@ export function KycDocumentUpdateWizard({
 
           {showUploadChoices ? (
             <>
-              <Text style={styles.fieldLabel}>Upload as</Text>
+              <Text style={[styles.fieldLabel, WEB_COPY]}>Upload as</Text>
               <View style={styles.chipRow}>
                 {uploadChoices.map((choice) => (
                   <Pressable
@@ -268,73 +272,66 @@ export function KycDocumentUpdateWizard({
             </>
           ) : null}
 
-          <Pressable
-            style={[styles.uploadZone, (!canPick || busy) && styles.disabled]}
-            disabled={!canPick || busy}
-            onPress={() => void handlePick()}
-          >
-            {uploading ? (
-              <LoadingIndicator size="small" color={Theme.primary} />
-            ) : (
-              <>
-                <UploadCloud size={22} color={Theme.primary} strokeWidth={2} />
-                <Text style={styles.uploadZoneTitle}>Choose file</Text>
-                <Text style={styles.uploadZoneHint}>PDF or image</Text>
-              </>
-            )}
-          </Pressable>
-          {formError ? <Text style={styles.errorText}>{formError}</Text> : null}
+          <View style={(!canPick || busy) ? styles.disabled : undefined}>
+            <VaultDraftPreviewBlock
+              items={[]}
+              selectedId={null}
+              busy={busy || !canPick}
+              emptyLabel={`Upload ${label}`}
+              showHint={false}
+              showAddThumb={false}
+              onSelect={() => undefined}
+              onAdd={() => {
+                if (!canPick || busy) return;
+                void handlePick();
+              }}
+            />
+          </View>
+          {formError ? <Text style={[styles.errorText, WEB_COPY]}>{formError}</Text> : null}
         </View>
       ) : null}
 
       {step === "preview" && picked ? (
         <View style={styles.stepBody}>
-          <Text style={styles.stepKicker}>PREVIEW</Text>
-          <Text style={styles.stepTitle}>
+          <Text style={[styles.stepKicker, WEB_COPY]}>Preview</Text>
+          <Text style={[styles.stepTitle, WEB_COPY]}>
             {onboarding
               ? "This file will be included in your application"
               : "Only this new document will be reviewed"}
           </Text>
-          <Text style={styles.stepHint}>
+          <Text style={[styles.stepHint, WEB_COPY]}>
             {onboarding
               ? "Edit to pick a different file. Submit happens on the review step."
               : "Admins see this file — not the previous upload. Edit to pick a different one."}
           </Text>
 
-          <View style={styles.previewCard}>
-            {isImageMime(picked.mimeType) && picked.localUri ? (
-              <Image
-                source={{ uri: picked.localUri }}
-                style={styles.previewImage}
-                resizeMode="contain"
-              />
-            ) : (
-              <View style={styles.previewFile}>
-                <FileText size={28} color={Theme.brandBlueInk} strokeWidth={1.8} />
-              </View>
-            )}
-            <Pressable
-              style={styles.editBadge}
-              onPress={() => {
-                setPicked(null);
-                setStep("upload");
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Edit document"
-            >
-              <Pencil size={12} color={Theme.brandBlueInk} strokeWidth={2.4} />
-            </Pressable>
-            <Text style={styles.previewName} numberOfLines={2}>
-              {picked.fileName}
-            </Text>
-            <Text style={styles.previewMeta}>
-              {onboarding
-                ? `${ORG_KYC_DOC_LABELS[resolvedType]} · saved to your application`
-                : `${ORG_KYC_DOC_LABELS[resolvedType]} · pending admin review`}
-            </Text>
-          </View>
+          <VaultDraftPreviewBlock
+            items={[
+              {
+                id: picked.path || picked.fileName,
+                fileName: picked.fileName,
+                previewUri: picked.localUri ?? null,
+                storagePath: picked.path,
+              },
+            ]}
+            selectedId={picked.path || picked.fileName}
+            emptyLabel={`Add ${label}`}
+            showHint={false}
+            showAddThumb
+            onSelect={() => undefined}
+            onAdd={() => {
+              setPicked(null);
+              setStep("upload");
+            }}
+            onOpenFull={() => setFullOpen(true)}
+          />
+          <Text style={[styles.previewMeta, WEB_COPY]}>
+            {onboarding
+              ? `${ORG_KYC_DOC_LABELS[resolvedType]} · saved to your application`
+              : `${ORG_KYC_DOC_LABELS[resolvedType]} · pending admin review`}
+          </Text>
 
-          {formError ? <Text style={styles.errorText}>{formError}</Text> : null}
+          {formError ? <Text style={[styles.errorText, WEB_COPY]}>{formError}</Text> : null}
 
           <Pressable
             style={[styles.primaryBtn, busy && styles.disabled]}
@@ -345,7 +342,7 @@ export function KycDocumentUpdateWizard({
               <LoadingIndicator size="small" color={Theme.buttonDarkText} />
             ) : (
               <>
-                <Text style={styles.primaryBtnText}>
+                <Text style={[styles.primaryBtnText, WEB_COPY]}>
                   {onboarding ? "Save document" : "Submit for review"}
                 </Text>
                 <ArrowRight size={16} color={Theme.buttonDarkText} strokeWidth={2.4} />
@@ -388,6 +385,22 @@ export function KycDocumentUpdateWizard({
           {body}
         </View>
       </View>
+      {picked ? (
+        <VaultFullDocumentModal
+          visible={fullOpen}
+          uri={picked.localUri ?? null}
+          isPdf={isPdfTripDoc({
+            fileName: picked.fileName,
+            mimeType: picked.mimeType,
+            storagePath: picked.path,
+          })}
+          title={ORG_KYC_DOC_LABELS[resolvedType]}
+          documentKey={picked.path || picked.fileName}
+          documentVersion={picked.path || picked.fileName}
+          headerFacts={picked.fileName}
+          onClose={() => setFullOpen(false)}
+        />
+      ) : null}
     </Modal>
   );
 }
@@ -457,7 +470,6 @@ const styles = StyleSheet.create({
     color: Theme.textPrimaryDark,
     letterSpacing: -0.4,
     lineHeight: 28,
-    textTransform: "lowercase",
   },
   subhead: {
     fontSize: 14,
@@ -480,7 +492,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: Theme.positive,
-    textTransform: "lowercase",
   },
   bulletHint: { fontSize: 12, lineHeight: 16, color: Theme.textMuted },
   primaryBtn: {
@@ -539,65 +550,6 @@ const styles = StyleSheet.create({
   },
   chipText: { fontSize: 12, fontWeight: "600", color: Theme.textSecondary },
   chipTextOn: { color: Theme.primary },
-  uploadZone: {
-    marginTop: 8,
-    minHeight: 120,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Theme.borderMedium,
-    borderStyle: "dashed",
-    backgroundColor: Theme.surface,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    padding: 16,
-  },
-  uploadZoneTitle: { fontSize: 14, fontWeight: "700", color: Theme.primary },
-  uploadZoneHint: { fontSize: 12, color: Theme.textMuted },
-  previewCard: {
-    marginTop: 8,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Theme.borderLight,
-    backgroundColor: Theme.surface,
-    padding: 14,
-    alignItems: "center",
-    gap: 8,
-    position: "relative",
-  },
-  previewImage: {
-    width: "100%",
-    height: 180,
-    borderRadius: 10,
-    backgroundColor: Theme.cardWhite,
-  },
-  previewFile: {
-    width: 72,
-    height: 72,
-    borderRadius: 12,
-    backgroundColor: Theme.brandBlueSoft,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  editBadge: {
-    position: "absolute",
-    top: 10,
-    right: 10,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: Theme.accentGold,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: Theme.cardWhite,
-  },
-  previewName: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: Theme.textPrimaryDark,
-    textAlign: "center",
-  },
   previewMeta: { fontSize: 11, color: Theme.textMuted, textAlign: "center" },
   errorText: { fontSize: 12, fontWeight: "600", color: Theme.negative },
   disabled: { opacity: 0.45 },

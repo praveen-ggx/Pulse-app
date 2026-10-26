@@ -10,7 +10,6 @@ import { ROUTES } from '@/lib/routes';
 
 import { ONBOARDING_BRAND } from './onboardingPersonaAssets';
 import { PulseSplitBrandLogo } from './PulseSplitBrandLogo';
-import { WorkspaceOutcomeTypewriter } from './WorkspaceOutcomeTypewriter';
 
 const PANEL_CONTENT_MAX = 400;
 const FOOTER_CONTENT_MAX = 460;
@@ -34,7 +33,13 @@ export function WorkspaceSetupHeroPanel() {
             <Text style={styles.tag}>{WORKSPACE_SETUP_COPY.tag}</Text>
             <Text style={styles.headline}>{WORKSPACE_SETUP_COPY.headline}</Text>
 
-            <WorkspaceOutcomeTypewriter />
+            <View style={styles.outcomes}>
+              {WORKSPACE_SETUP_COPY.outcomes.map((line) => (
+                <Text key={line} style={styles.outcomeLine}>
+                  {line}
+                </Text>
+              ))}
+            </View>
           </View>
 
           <View style={styles.illustrationWrap}>
@@ -92,6 +97,18 @@ const styles = StyleSheet.create({
     letterSpacing: -0.45,
     marginBottom: 12,
     maxWidth: 340,
+  },
+  outcomes: {
+    gap: 3,
+    minHeight: 76,
+    marginBottom: 6,
+  },
+  outcomeLine: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '400',
+    color: ONBOARDING_BRAND.ink,
+    opacity: 0.82,
   },
   illustrationWrap: {
     width: '100%',

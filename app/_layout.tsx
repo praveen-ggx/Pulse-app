@@ -659,7 +659,10 @@ function RootLayoutNav() {
               <Stack.Screen name="+not-found" options={{ headerShown: false }} />
             </Stack>
             <NavigationLoadingOverlay />
-            {shouldMountRootOverlayTabBar(Boolean(auth?.sessionAttached)) ? (
+            {shouldMountRootOverlayTabBar(
+              Boolean(auth?.sessionAttached),
+              isPublicAuthRoute(pathname),
+            ) ? (
               <RootOverlayTabBar />
             ) : null}
           </View>

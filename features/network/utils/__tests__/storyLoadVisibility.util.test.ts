@@ -98,6 +98,16 @@ describe("shouldShowFeedPostForOrg — organic rules still apply", () => {
     ).toBe(false);
   });
 
+  it("shows an organic story from an approved network connection that is not in the CRM books", () => {
+    expect(
+      shouldShowFeedPostForOrg({
+        ...base,
+        partnerOrgIds: new Set(),
+        networkOrgIds: new Set([AERO]),
+      }),
+    ).toBe(true);
+  });
+
   it("shows an organic LOAD post from a dual-role counterparty", () => {
     expect(
       shouldShowFeedPostForOrg({

@@ -1,23 +1,40 @@
-import Theme from '@/constants/Theme';
-import { Layout } from '@/constants/Layout';
+import Theme from "@/constants/Theme";
+import { Layout } from "@/constants/Layout";
+import { VaultDocThumb } from "@/features/trips/components/trip-detail/VaultDocThumb";
+import { VaultFullDocumentModal } from "@/features/trips/components/trip-detail/VaultFullDocumentModal";
+import { isPdfTripDoc } from "@/features/trips/components/trip-detail/tripDocTypes";
 import type {
   OrganizationKycDocDefinition,
   OrganizationKycDocument,
   OrganizationKycDocType,
-} from '@/features/organization/types/organizationKycDocuments.types';
-import { getVerificationDocumentSignedUrl } from '@/features/organization/services/businessVerification.service';
+} from "@/features/organization/types/organizationKycDocuments.types";
+import { getVerificationDocumentSignedUrl } from "@/features/organization/services/businessVerification.service";
 import {
+  addressProofTypeLabel,
   latestOrgKycDocumentMatching,
   resolveAcceptTypes,
-} from '@/features/organization/utils/kycVerification.util';
+} from "@/features/organization/utils/kycVerification.util";
 import {
   GREEN,
   GREEN_TINT,
-} from '@/features/organization/components/workspace/workspacePanelUi';
-import type { WorkspaceKyc } from '@/types/organization';
-import { Check, FileText } from 'lucide-react-native';
-import { useMemo, useState } from 'react';
-import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+} from "@/features/organization/components/workspace/workspacePanelUi";
+import type { WorkspaceKyc } from "@/types/organization";
+import Feather from "@expo/vector-icons/Feather";
+import { FileText } from "lucide-react-native";
+import { useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+
+const WEB_COPY =
+  Platform.OS === "web"
+    ? ({ whiteSpace: "pre-wrap", letterSpacing: 0 } as const)
+    : ({ letterSpacing: 0 } as const);
 
 type Props = {
   definition: OrganizationKycDocDefinition;
@@ -31,7 +48,7 @@ type Props = {
 };
 
 function formatFileSize(bytes: number | null | undefined): string {
-  if (!bytes || bytes <= 0) return '';
+  if (!bytes || bytes <= 0) return "";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -47,203 +64,367 @@ export function KycVerificationDocumentCard({
   onRemove,
   onDismiss,
 }: Props) {
-  const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewUri, setPreviewUri] = useState<string | null>(null);
+  const [signing, setSigning] = useState(false);
+  const [fullOpen, setFullOpen] = useState(false);
   const acceptTypes = useMemo(() => resolveAcceptTypes(definition), [definition]);
   const doc = latestOrgKycDocumentMatching(documents, acceptTypes);
   const legacyPath =
-    definition.type === 'address_proof' ? kyc?.address_proof_path?.trim() : null;
+    definition.type === "address_proof" ? kyc?.address_proof_path?.trim() : null;
   const storagePath = doc?.storage_path?.trim() || legacyPath || null;
-  const hasDoc = !!storagePath;
+  const hasDoc = Boolean(storagePath);
   const sizeLabel = formatFileSize(doc?.file_size_bytes);
-  const fileName = doc?.file_name?.trim() || (hasDoc ? `${definition.label}.pdf` : '');
-  const draft = (kyc?.verification_status ?? 'unverified') === 'unverified';
+  const fileName = doc?.file_name?.trim() || (hasDoc ? `${definition.label}.pdf` : "");
+  const pendingReview =
+    doc?.status === "pending" ||
+    (hasDoc &&
+      (kyc?.verification_status === "pending" || kyc?.verification_status === "verified") &&
+      doc?.status !== "verified");
+  const rejected = doc?.status === "rejected";
+  const statusLabel = rejected
+    ? "Needs a new file"
+    : pendingReview
+      ? "Pending review"
+      : hasDoc
+        ? "On file"
+        : "Not uploaded";
+  const proofLine =
+    definition.type === "address_proof"
+      ? addressProofTypeLabel(kyc?.address_proof_type)
+      : "";
+  const facts = [fileName, sizeLabel, proofLine].filter(Boolean).join(" · ");
+  const pdf = isPdfTripDoc({
+    fileName,
+    mimeType: doc?.mime_type,
+    storagePath,
+  });
 
-  const handlePreview = async () => {
-    if (!storagePath || previewBusy) return;
-    setPreviewBusy(true);
-    try {
-      const url = await getVerificationDocumentSignedUrl(storagePath);
-      if (url) await Linking.openURL(url);
-    } finally {
-      setPreviewBusy(false);
+  useEffect(() => {
+    if (!storagePath) {
+      setPreviewUri(null);
+      return;
     }
-  };
+    let cancelled = false;
+    setSigning(true);
+    void getVerificationDocumentSignedUrl(storagePath).then((url) => {
+      if (cancelled) return;
+      setPreviewUri(url);
+      setSigning(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [storagePath]);
 
   return (
     <View style={styles.card}>
-      <View style={styles.top}>
-        <View style={[styles.icon, hasDoc && styles.iconDone]}>
-          {hasDoc ? (
-            <Check size={16} color={GREEN} strokeWidth={2.6} />
-          ) : (
-            <FileText size={16} color={Theme.textMuted} strokeWidth={2} />
-          )}
+      <View style={styles.header}>
+        <View style={styles.iconWash}>
+          <FileText size={13} color={Theme.actionBtnInk} strokeWidth={2} />
         </View>
-        <View style={styles.copy}>
-          <Text style={styles.title}>{definition.label}</Text>
-          {definition.mandatory ? (
-            <Text style={styles.required}>Required</Text>
-          ) : (
-            <Text style={styles.optional}>Optional</Text>
-          )}
-          <Text style={styles.hint}>{definition.hint}</Text>
+        <View style={styles.headerCopy}>
+          <View style={styles.titleRow}>
+            <Text style={[styles.title, WEB_COPY]} numberOfLines={1}>
+              {definition.label}
+            </Text>
+            <View style={[styles.chip, definition.mandatory ? styles.chipRequired : styles.chipOptional]}>
+              <Text
+                style={[
+                  styles.chipText,
+                  definition.mandatory ? styles.chipRequiredText : styles.chipOptionalText,
+                  WEB_COPY,
+                ]}
+              >
+                {definition.mandatory ? "Required" : "Optional"}
+              </Text>
+            </View>
+          </View>
+          <Text style={[styles.hint, WEB_COPY]} numberOfLines={2}>
+            {definition.hint}
+          </Text>
+        </View>
+        <View style={styles.headerActions}>
+          <View
+            style={[
+              styles.statusPill,
+              rejected
+                ? styles.statusReject
+                : hasDoc
+                  ? styles.statusOn
+                  : styles.statusOff,
+            ]}
+          >
+            <Text
+              style={[
+                styles.statusText,
+                rejected
+                  ? styles.statusRejectText
+                  : hasDoc
+                    ? styles.statusOnText
+                    : styles.statusOffText,
+                WEB_COPY,
+              ]}
+            >
+              {statusLabel}
+            </Text>
+          </View>
+          {canEdit ? (
+            <Pressable
+              onPress={() => onOpenUpdate(definition)}
+              disabled={uploading}
+              style={styles.addBtn}
+              accessibilityRole="button"
+              accessibilityLabel={`${hasDoc ? "Update" : "Upload"} ${definition.label}`}
+            >
+              <Text style={[styles.addBtnText, WEB_COPY]}>
+                {uploading ? "…" : hasDoc ? "Update" : "Upload"}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
 
       {hasDoc ? (
-        <>
-          <Text style={styles.fileName} numberOfLines={1}>
-            {fileName}
-          </Text>
-          {sizeLabel ? <Text style={styles.meta}>{sizeLabel}</Text> : null}
-          {draft ? <Text style={styles.ready}>Ready to submit</Text> : null}
-          <View style={styles.actions}>
+        <View style={styles.previewFrame}>
+          {previewUri ? (
+            <VaultDocThumb
+              uri={previewUri}
+              isPdf={pdf}
+              fileName={fileName}
+              sizing="cover"
+              style={styles.previewImage}
+            />
+          ) : (
+            <View style={styles.previewLoading}>
+              {signing ? (
+                <ActivityIndicator size="small" color={Theme.actionBtnInk} />
+              ) : (
+                <FileText size={22} color={Theme.textMuted} strokeWidth={1.8} />
+              )}
+            </View>
+          )}
+          {previewUri ? (
             <Pressable
-              style={styles.textBtn}
-              onPress={() => void handlePreview()}
-              disabled={previewBusy}
+              onPress={() => setFullOpen(true)}
+              style={styles.eyeBtn}
               accessibilityRole="button"
               accessibilityLabel={`Preview ${definition.label}`}
             >
-              <Text style={styles.textBtnLabel}>
-                {previewBusy ? 'Opening…' : 'Preview'}
-              </Text>
-            </Pressable>
-            {canEdit ? (
-              <Pressable
-                style={styles.textBtn}
-                onPress={() => onOpenUpdate(definition)}
-                disabled={uploading}
-                accessibilityRole="button"
-                accessibilityLabel={`Change ${definition.label}`}
-              >
-                <Text style={styles.textBtnLabel}>Change</Text>
-              </Pressable>
-            ) : null}
-            {canEdit && onRemove && doc ? (
-              <Pressable
-                style={styles.textBtn}
-                onPress={() => onRemove(doc.doc_type)}
-                accessibilityRole="button"
-                accessibilityLabel={`Remove ${definition.label}`}
-              >
-                <Text style={styles.removeLabel}>Remove</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        </>
-      ) : (
-        <View style={styles.emptyActions}>
-          {canEdit ? (
-            <Pressable
-              style={styles.uploadBtn}
-              onPress={() => onOpenUpdate(definition)}
-              disabled={uploading}
-              accessibilityRole="button"
-              accessibilityLabel={`Upload ${definition.label}`}
-            >
-              <Text style={styles.uploadBtnText}>
-                {uploading ? 'Uploading…' : 'Upload document →'}
-              </Text>
-            </Pressable>
-          ) : null}
-          {onDismiss ? (
-            <Pressable
-              onPress={onDismiss}
-              accessibilityRole="button"
-              accessibilityLabel={`Remove ${definition.label}`}
-            >
-              <Text style={styles.removeLabel}>Remove</Text>
+              <Feather name="eye" size={13} color={Theme.actionBtnInk} />
             </Pressable>
           ) : null}
         </View>
+      ) : (
+        <Pressable
+          onPress={canEdit ? () => onOpenUpdate(definition) : undefined}
+          disabled={!canEdit || uploading}
+          style={styles.emptyQuote}
+          accessibilityRole={canEdit ? "button" : "none"}
+        >
+          <Feather name="upload" size={16} color={Theme.textMuted} />
+          <Text style={[styles.emptyQuoteText, WEB_COPY]}>
+            {canEdit ? "Tap to upload this document" : "No file in this slot yet"}
+          </Text>
+        </Pressable>
       )}
+
+      {hasDoc && facts ? (
+        <Text style={[styles.facts, WEB_COPY]} numberOfLines={1}>
+          {facts}
+        </Text>
+      ) : null}
+
+      {hasDoc && canEdit ? (
+        <View style={styles.footer}>
+          {previewUri ? (
+            <Pressable
+              onPress={() => setFullOpen(true)}
+              style={styles.ghostBtn}
+              accessibilityRole="button"
+              accessibilityLabel={`Preview ${definition.label}`}
+            >
+              <Text style={[styles.ghostBtnText, WEB_COPY]}>Preview</Text>
+            </Pressable>
+          ) : null}
+          {onRemove && doc ? (
+            <Pressable
+              onPress={() => onRemove(doc.doc_type)}
+              style={styles.ghostBtn}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${definition.label}`}
+            >
+              <Text style={[styles.removeText, WEB_COPY]}>Remove</Text>
+            </Pressable>
+          ) : onDismiss ? (
+            <Pressable
+              onPress={onDismiss}
+              style={styles.ghostBtn}
+              accessibilityRole="button"
+            >
+              <Text style={[styles.removeText, WEB_COPY]}>Remove</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : !hasDoc && onDismiss ? (
+        <View style={styles.footer}>
+          <Pressable onPress={onDismiss} style={styles.ghostBtn}>
+            <Text style={[styles.removeText, WEB_COPY]}>Remove</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      <VaultFullDocumentModal
+        visible={fullOpen}
+        uri={previewUri}
+        isPdf={pdf}
+        title={definition.label}
+        documentKey={storagePath}
+        documentVersion={doc?.id}
+        headerFacts={facts || null}
+        onClose={() => setFullOpen(false)}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
+    width: "100%",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder ?? Theme.borderLight,
     backgroundColor: Theme.cardWhite,
-    padding: 14,
+    padding: 10,
     gap: 8,
   },
-  top: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  icon: {
-    width: 32,
-    height: 32,
+  header: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    minWidth: 0,
+  },
+  iconWash: {
+    width: 28,
+    height: 28,
     borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Theme.surfaceGray,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.complianceIconWash ?? Theme.surfaceGray,
+    flexShrink: 0,
   },
-  iconDone: {
-    backgroundColor: GREEN_TINT,
-    borderColor: 'rgba(22,163,74,0.24)',
+  headerCopy: { flex: 1, minWidth: 0, gap: 2, paddingTop: 2 },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minWidth: 0,
   },
-  copy: { flex: 1, minWidth: 0, gap: 2 },
   title: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Theme.textPrimaryDark,
-    letterSpacing: -0.2,
-  },
-  required: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
-    color: Theme.primary,
-  },
-  optional: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
-    color: Theme.textMuted,
-  },
-  hint: { fontSize: 12, color: Theme.textMuted, lineHeight: 16 },
-  fileName: {
+    flex: 1,
+    minWidth: 0,
     fontSize: 13,
-    fontWeight: '600',
+    lineHeight: 18,
+    fontWeight: "700",
     color: Theme.textPrimaryDark,
-    paddingLeft: 42,
   },
-  meta: { fontSize: 11, color: Theme.textMuted, paddingLeft: 42 },
-  ready: {
+  chip: {
+    flexShrink: 0,
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  chipRequired: { backgroundColor: Theme.complianceStageDocsBg ?? Theme.brandBlueSoft },
+  chipOptional: { backgroundColor: Theme.surfaceGray },
+  chipText: { fontSize: 9, lineHeight: 12, fontWeight: "700" },
+  chipRequiredText: { color: Theme.complianceStageDocsFg ?? Theme.primary },
+  chipOptionalText: { color: Theme.textMuted },
+  hint: { fontSize: 11, lineHeight: 15, color: Theme.textMuted },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 0,
+  },
+  statusPill: {
+    height: 20,
+    paddingHorizontal: 7,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statusOn: { backgroundColor: GREEN_TINT },
+  statusOff: { backgroundColor: Theme.surfaceGray },
+  statusReject: { backgroundColor: Theme.surface },
+  statusText: { fontSize: 9, lineHeight: 12, fontWeight: "700" },
+  statusOnText: { color: GREEN },
+  statusOffText: { color: Theme.textMuted },
+  statusRejectText: { color: Theme.destructive },
+  addBtn: {
+    height: 28,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: Theme.actionBtnInk,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 28,
+  },
+  addBtnText: {
     fontSize: 11,
-    fontWeight: '600',
-    color: GREEN,
-    paddingLeft: 42,
+    fontWeight: "700",
+    color: Theme.cardWhite,
   },
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: 12,
-    paddingTop: 4,
+  previewFrame: {
+    width: "100%",
+    height: 168,
+    borderRadius: 10,
+    overflow: "hidden",
+    backgroundColor: Theme.compliancePreviewCanvas ?? Theme.surface,
+    position: "relative",
   },
-  emptyActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: 12,
+  previewImage: { width: "100%", height: "100%" },
+  previewLoading: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  eyeBtn: {
+    position: "absolute",
+    right: 8,
+    bottom: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
+  },
+  emptyQuote: {
+    minHeight: 72,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: Theme.complianceCardBorder ?? Theme.borderLight,
+    backgroundColor: Theme.compliancePageBg ?? Theme.screenBackground,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 16,
+  },
+  emptyQuoteText: { fontSize: 12, fontWeight: "500", color: Theme.textMuted },
+  facts: { fontSize: 11, lineHeight: 15, fontWeight: "500", color: Theme.textMuted },
+  footer: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  ghostBtn: {
     minHeight: Layout.minTouchTargetSize,
+    paddingHorizontal: 8,
+    justifyContent: "center",
   },
-  uploadBtn: {
-    minHeight: Layout.minTouchTargetSize,
-    justifyContent: 'center',
-  },
-  uploadBtnText: { fontSize: 13, fontWeight: '700', color: Theme.primary },
-  textBtn: {
-    minHeight: Layout.minTouchTargetSize,
-    justifyContent: 'center',
-  },
-  textBtnLabel: { fontSize: 13, fontWeight: '700', color: Theme.primary },
-  removeLabel: { fontSize: 12, fontWeight: '600', color: Theme.destructive },
+  ghostBtnText: { fontSize: 12, fontWeight: "700", color: Theme.actionBtnInk },
+  removeText: { fontSize: 12, fontWeight: "600", color: Theme.destructive },
 });

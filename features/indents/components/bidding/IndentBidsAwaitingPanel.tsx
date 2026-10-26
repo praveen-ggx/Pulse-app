@@ -44,7 +44,7 @@ export type IndentBidsAwaitingPanelProps = {
   onShareStory?: () => void;
   onShareWhatsApp?: () => void;
   /**
-   * Boost with Pulse Reach — only shown after a Pulse story is live.
+   * Boost with Pulse Boost — only shown after a Pulse story is live.
    * Do not use as a standalone always-visible Reach entry.
    */
   onBoostReach?: () => void;
@@ -435,11 +435,11 @@ function StackedReachActions({
           hitSlop={8}
           style={styles.stackedBoostLink}
           accessibilityRole="button"
-          accessibilityLabel="Boost with Pulse Reach"
+          accessibilityLabel="Boost with Pulse Boost"
         >
           <Feather name="trending-up" size={12} color={Theme.accentBrown} />
           <Text style={styles.stackedBoostLinkText}>
-            Boost with Pulse Reach
+            Boost with Pulse Boost
           </Text>
           <Feather name="chevron-right" size={12} color={Theme.accentBrown} />
         </TouchableOpacity>
@@ -558,10 +558,10 @@ function ShareDock({
           onPress={onBoostReach}
           style={styles.dockBoostLink}
           accessibilityRole="button"
-          accessibilityLabel="Boost with Pulse Reach"
+          accessibilityLabel="Boost with Pulse Boost"
         >
           <Feather name="trending-up" size={13} color={Theme.accentBrown} />
-          <Text style={styles.dockBoostLinkText}>Boost with Pulse Reach</Text>
+          <Text style={styles.dockBoostLinkText}>Boost with Pulse Boost</Text>
           <Feather name="chevron-right" size={14} color={Theme.accentBrown} />
         </TouchableOpacity>
       ) : null}

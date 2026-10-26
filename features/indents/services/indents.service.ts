@@ -1008,14 +1008,13 @@ async function insertIndentRow(
       if (recovered) {
         const indent = recovered;
         if (action === "share") {
-          void ensureIndentStory(orgId, indent).then(({ error: storyErr }) => {
-            if (storyErr && __DEV__) {
-              console.warn(
-                "[indents] createIndent: default 24h story failed:",
-                storyErr.message,
-              );
-            }
-          });
+          const { error: storyErr } = await ensureIndentStory(orgId, indent);
+          if (storyErr && __DEV__) {
+            console.warn(
+              "[indents] createIndent: default 24h story failed:",
+              storyErr.message,
+            );
+          }
         }
         return { error: null, indent };
       }
@@ -1027,14 +1026,13 @@ async function insertIndentRow(
   }
   const indent = row as IndentRow;
   if (action === "share") {
-    void ensureIndentStory(orgId, indent).then(({ error: storyErr }) => {
-      if (storyErr && __DEV__) {
-        console.warn(
-          "[indents] createIndent: default 24h story failed:",
-          storyErr.message,
-        );
-      }
-    });
+    const { error: storyErr } = await ensureIndentStory(orgId, indent);
+    if (storyErr && __DEV__) {
+      console.warn(
+        "[indents] createIndent: default 24h story failed:",
+        storyErr.message,
+      );
+    }
   }
   return { error: null, indent };
 }
@@ -1303,16 +1301,16 @@ export async function shareDraftIndent(
         .maybeSingle();
       if (existing && (existing as IndentRow).status === "broadcast") {
         const indent = existing as IndentRow;
-        void ensureIndentStory(indent.organization_id, indent).then(
-          ({ error: storyErr }) => {
-            if (storyErr && __DEV__) {
-              console.warn(
-                "[indents] shareDraftIndent: default 24h story failed:",
-                storyErr.message,
-              );
-            }
-          },
+        const { error: storyErr } = await ensureIndentStory(
+          indent.organization_id,
+          indent,
         );
+        if (storyErr && __DEV__) {
+          console.warn(
+            "[indents] shareDraftIndent: default 24h story failed:",
+            storyErr.message,
+          );
+        }
         return { error: null, indent };
       }
     }
@@ -1324,16 +1322,16 @@ export async function shareDraftIndent(
       indent: null,
     };
   const indent = data as IndentRow;
-  void ensureIndentStory(indent.organization_id, indent).then(
-    ({ error: storyErr }) => {
-      if (storyErr && __DEV__) {
-        console.warn(
-          "[indents] shareDraftIndent: default 24h story failed:",
-          storyErr.message,
-        );
-      }
-    },
+  const { error: storyErr } = await ensureIndentStory(
+    indent.organization_id,
+    indent,
   );
+  if (storyErr && __DEV__) {
+    console.warn(
+      "[indents] shareDraftIndent: default 24h story failed:",
+      storyErr.message,
+    );
+  }
   return { error: null, indent };
 }
 

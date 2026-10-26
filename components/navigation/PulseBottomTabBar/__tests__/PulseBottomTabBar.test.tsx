@@ -42,7 +42,7 @@ describe('PulseBottomTabBar', () => {
     expect(queryByLabelText('Home')).toBeNull();
     expect(queryByLabelText('Cash')).toBeNull();
 
-    fireEvent.press(getByLabelText('Compliance'));
+    fireEvent.press(getByLabelText('Comply'));
     expect(onTabChange).toHaveBeenCalledWith('compliance');
   });
 
@@ -50,7 +50,7 @@ describe('PulseBottomTabBar', () => {
     const { queryByLabelText } = renderBar({
       visibility: { finance: true, trips: true, network: true, loadCenter: true, compliance: false },
     });
-    expect(queryByLabelText('Compliance')).toBeNull();
+    expect(queryByLabelText('Comply')).toBeNull();
     expect(queryByLabelText('Chat')).toBeTruthy();
   });
 });

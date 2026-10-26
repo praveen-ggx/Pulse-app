@@ -120,6 +120,76 @@ export function parseSimCompletionInput(value: string): string | null {
   return date.toISOString();
 }
 
+export type ParsedBisimEntry = {
+  status: string;
+  timestamp: string;
+  lat: number | null;
+  lng: number | null;
+  userName: string;
+  fromStatus: string | null;
+  locationLabel: string | null;
+};
+
+export type ParsedBisimRevoke = {
+  fromStatus: string;
+  toStatus: string;
+  timestamp: string;
+};
+
+export function parseTripSimulationNotes(notes: string | null | undefined): {
+  sims: ParsedBisimEntry[];
+  revokes: ParsedBisimRevoke[];
+} {
+  const sims: ParsedBisimEntry[] = [];
+  const revokes: ParsedBisimRevoke[] = [];
+  if (!notes?.trim()) return { sims, revokes };
+  for (const raw of notes.split("\n")) {
+    const line = raw.trim();
+    if (line.startsWith("[BISIM_REVOKE|") && line.endsWith("]")) {
+      const [fromStatus, toStatus, timestamp] = line.slice(14, -1).split("|");
+      if (fromStatus && toStatus) {
+        revokes.push({
+          fromStatus: fromStatus.trim().toLowerCase(),
+          toStatus: toStatus.trim().toLowerCase(),
+          timestamp: timestamp ?? "",
+        });
+      }
+      continue;
+    }
+    if (!line.startsWith("[BISIM|") || !line.endsWith("]")) continue;
+    const [status, timestamp, lat, lng, userName, fromStatus, locationLabel] =
+      line.slice(7, -1).split("|");
+    if (!status) continue;
+    sims.push({
+      status: status.trim().toLowerCase(),
+      timestamp: timestamp ?? "",
+      lat: parseFloat(lat) || null,
+      lng: parseFloat(lng) || null,
+      userName: userName || "Business",
+      fromStatus: fromStatus?.trim().toLowerCase() || null,
+      locationLabel: locationLabel?.trim() || null,
+    });
+  }
+  return { sims, revokes };
+}
+
+/** Simulations still in effect after later BISIM_REVOKE lines. */
+export function unrevokedBisimEntries(
+  notes: string | null | undefined,
+): ParsedBisimEntry[] {
+  const { sims, revokes } = parseTripSimulationNotes(notes);
+  const stack = [...sims];
+  for (const revoke of revokes) {
+    for (let i = stack.length - 1; i >= 0; i -= 1) {
+      if (stack[i]?.status === revoke.fromStatus) {
+        stack.splice(i, 1);
+        break;
+      }
+    }
+  }
+  return stack;
+}
+
 export function lastBisimCoordinate(
   entries: Array<{ lat: number | null; lng: number | null }>,
 ): { latitude: number; longitude: number } | null {

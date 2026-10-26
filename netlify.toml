@@ -114,10 +114,7 @@
   to     = "/oms/index.html"
   status = 200
 
-[[redirects]]
-  from   = "/onboarding"
-  to     = "/oms/index.html"
-  status = 200
+# /onboarding is the Pulse Expo landing hub, not OMS. Leave it for the /* → /index.html catch-all.
 
 # Ops / Admin console SPA routes — must come before the /* catch-all.
 # Two entry points, one app (dist/ops-9f3a2c, built by npm run build:admin):

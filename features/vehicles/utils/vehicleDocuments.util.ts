@@ -15,10 +15,12 @@ export type VehicleComplianceDocType =
   | "permit"
   | "road_tax";
 
-/** Extra files attached from the trip vault (not RC / insurance / fitness / PUC). */
+/** Extra files attached from the trip vault (additional pages of RC / insurance / etc.). */
 export interface VehicleExtraDocument extends DocumentWithExpiry {
   id: string;
   fileName?: string;
+  /** When set, this extra is another page of that compliance type. */
+  docType?: VehicleComplianceDocType;
 }
 
 export interface VehicleDocuments {
@@ -82,4 +84,54 @@ export function vehicleComplianceOnFileSummary(
   return VEHICLE_UPLOAD_CHOOSER_ORDER.filter((docType) => !!docs?.[docType]?.url)
     .map((docType) => DOCUMENT_SHORT_LABELS[docType])
     .join(' · ');
+}
+
+/** Extra pages of RC / insurance / etc. after the first slot file. */
+export function extraBelongsToVehicleDocType(
+  extra: VehicleExtraDocument,
+  docType: VehicleComplianceDocType,
+): boolean {
+  if (extra.docType) return extra.docType === docType;
+  const name = (extra.fileName ?? "").trim().toLowerCase();
+  if (!name) return false;
+  const short = DOCUMENT_SHORT_LABELS[docType].toLowerCase();
+  const long = DOCUMENT_LABELS[docType].toLowerCase();
+  return (
+    name === docType ||
+    name === short ||
+    name === long ||
+    name.startsWith(`${short} ·`) ||
+    name.startsWith(`${short} `) ||
+    name.startsWith(`${long} `)
+  );
+}
+
+export function vehicleFilesForDocType(
+  docs: VehicleDocuments | null | undefined,
+  docType: VehicleComplianceDocType,
+): { url: string; fileName: string; extraId?: string; expiryDate?: string | null }[] {
+  const slot = docs?.[docType];
+  const files: { url: string; fileName: string; extraId?: string; expiryDate?: string | null }[] = [];
+  const slotUrl = slot?.url?.trim() ?? "";
+  if (slotUrl) {
+    files.push({
+      url: slotUrl,
+      fileName: DOCUMENT_LABELS[docType],
+      expiryDate: slot?.expiryDate ?? null,
+    });
+  }
+  (docs?.extras ?? []).forEach((extra, index) => {
+    const url = extra.url?.trim() ?? "";
+    if (!url || !extraBelongsToVehicleDocType(extra, docType)) return;
+    if (files.some((file) => file.url === url)) return;
+    files.push({
+      url,
+      fileName:
+        extra.fileName?.trim() ||
+        `${DOCUMENT_SHORT_LABELS[docType]} ${files.length + index + 1}`,
+      extraId: extra.id,
+      expiryDate: extra.expiryDate || slot?.expiryDate || null,
+    });
+  });
+  return files;
 }

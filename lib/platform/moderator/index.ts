@@ -13,6 +13,12 @@ export {
   __resetModeratorForTests,
 } from './requestModerator';
 export { classifyRequest, LANE_HEADER } from './requestClassifier';
+export {
+  BACKGROUND_FEATURE_TABLES,
+  READ_ONLY_FEATURE_RPCS,
+  parseRestResource,
+  inferredFeatureLane,
+} from './featureLanes';
 export { moderatedFetch } from './moderatedFetch';
 export type { RequestClassification } from './requestClassifier';
 export {

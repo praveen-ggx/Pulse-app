@@ -5,8 +5,13 @@ import type { OrganizationKycDocDefinition } from '@/features/organization/types
 import type { OrganizationKycDocument } from '@/features/organization/types/organizationKycDocuments.types';
 import type { WorkspaceKyc } from '@/types/organization';
 import { Lock } from 'lucide-react-native';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { workspacePanelStyles as panelStyles } from '@/features/organization/components/workspace/workspacePanelUi';
+
+const WEB_COPY =
+  Platform.OS === 'web'
+    ? ({ whiteSpace: 'pre-wrap', letterSpacing: 0 } as const)
+    : ({ letterSpacing: 0 } as const);
 
 type Props = {
   kyc: WorkspaceKyc | null;
@@ -34,6 +39,7 @@ export function OrganizationVerificationPanel({
         <KycVerificationStatusView
           kyc={kyc}
           documents={documents}
+          canEdit={canEdit}
           onOpenUpdate={onOpenUpdate}
         />
         <Pressable
@@ -41,7 +47,7 @@ export function OrganizationVerificationPanel({
           style={({ pressed }) => [styles.secondary, pressed && { opacity: 0.85 }]}
           accessibilityRole="button"
         >
-          <Text style={styles.secondaryText}>
+          <Text style={[styles.secondaryText, WEB_COPY]}>
             {status === 'verified' ? 'Update a document' : 'View submitted documents'}
           </Text>
         </Pressable>
@@ -54,10 +60,10 @@ export function OrganizationVerificationPanel({
   return (
     <View style={panelStyles.panelStack}>
       <View style={styles.intro}>
-        <Text style={styles.introTitle}>
+        <Text style={[styles.introTitle, WEB_COPY]}>
           {rejected ? 'Action required' : 'Verify your business'}
         </Text>
-        <Text style={styles.introBody}>
+        <Text style={[styles.introBody, WEB_COPY]}>
           {rejected
             ? kyc?.kyc_rejected_reason?.trim() ||
               'We need you to update your verification.'
@@ -79,7 +85,7 @@ export function OrganizationVerificationPanel({
           accessibilityRole="button"
           accessibilityLabel={rejected ? 'Fix verification' : 'Continue verification'}
         >
-          <Text style={styles.ctaText}>
+          <Text style={[styles.ctaText, WEB_COPY]}>
             {rejected ? 'Fix verification' : 'Continue verification'}
           </Text>
         </Pressable>
@@ -115,6 +121,11 @@ const styles = StyleSheet.create({
     minHeight: Layout.minTouchTargetSize,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    backgroundColor: Theme.cardWhite,
+    paddingHorizontal: 16,
   },
   secondaryText: { fontSize: 13, fontWeight: '700', color: Theme.primary },
 });

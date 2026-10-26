@@ -1,10 +1,6 @@
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { ChatPartyAvatar } from "@/features/chat/components/ChatPartyAvatar";
-import {
-  isSelfNetworkStory,
-  shouldHideLoadStoryFromAuthor,
-} from "@/features/network/utils/storyLoadVisibility.util";
-import { isIndentStoryLive } from "@/features/network/utils/indentStoryWindow.util";
+import { useNetworkStoryStrip } from "@/features/network/hooks/useNetworkStoryStrip";
 import {
   isDriverSwapPreviewMessage,
   resolveDriverSwapAvatars,
@@ -1621,7 +1617,7 @@ export function ChatScreen() {
 
   const sortedNetChats = useMemo(() => {
     return [...netChats]
-      .filter((c) => c.messages.length > 0)
+      .filter((c) => c.messages.length > 0 || (c.unreadCount ?? 0) > 0 || Boolean(c.lastActivity))
       .sort((a, b) => {
       const unreadDiff = (b.unreadCount ?? 0) - (a.unreadCount ?? 0);
       if (unreadDiff !== 0) return unreadDiff;
@@ -1631,50 +1627,12 @@ export function ChatScreen() {
       });
   }, [netChats]);
   const shouldLoadStoryFeed =
-    Boolean(currentOrgId) && isMobileChatUi && (activeTab === "network" || showStoriesSheet);
-  const { data: networkFeedPosts = [], isLoading: storiesLoading } = useNetworkFeedQuery(
-    shouldLoadStoryFeed ? currentOrgId : null,
-  );
-  const integratedNetworkStories = useMemo(() => {
-    if (!shouldLoadStoryFeed || networkFeedPosts.length === 0) return [];
-    const partnerOrgIds = new Set<string>(
-      sortedNetChats.map((row) => row.partnerId).filter(Boolean),
-    );
-    const supplierOrgIds = new Set<string>();
-    const clientOrgIds = new Set<string>();
-    for (const partner of netPartners) {
-      if (partner.party_type === "supplier") supplierOrgIds.add(partner.org_id);
-      if (partner.party_type === "client") clientOrgIds.add(partner.org_id);
-    }
-    return networkFeedPosts.filter((post) => {
-      if (post.type !== "LOAD" && post.type !== "VEHICLE_AVAILABILITY") return false;
-      if (isSelfNetworkStory(post, currentOrgId)) return false;
-      if (post.is_sponsored) return true;
-      if (!post.organization_id || !partnerOrgIds.has(post.organization_id)) {
-        return false;
-      }
-      if (post.type === "LOAD" && !isIndentStoryLive(post)) {
-        return false;
-      }
-      if (
-        post.type === "LOAD" &&
-        shouldHideLoadStoryFromAuthor({
-          authorOrgId: post.organization_id,
-          supplierOrgIds,
-          clientOrgIds,
-        })
-      ) {
-        return false;
-      }
-      return true;
-    });
-  }, [
-    currentOrgId,
-    networkFeedPosts,
-    shouldLoadStoryFeed,
-    sortedNetChats,
-    netPartners,
-  ]);
+    Boolean(currentOrgId) && (activeTab === "network" || showStoriesSheet);
+  const {
+    posts: networkStoryPosts,
+    indentCountByPostId: networkStoryIndentCounts,
+    isLoading: storiesLoading,
+  } = useNetworkStoryStrip(shouldLoadStoryFeed ? currentOrgId : null);
   const chatNetworkPartnerOrgIds = useMemo(() => {
     const ids = new Set<string>();
     for (const partner of netPartners) {
@@ -2665,10 +2623,15 @@ export function ChatScreen() {
         seen.add(chat.partnerId);
         const shortName =
           chat.partnerName.trim().split(/\s+/)[0] ?? chat.partnerName;
+        const partner = netPartners.find((p) => p.org_id === chat.partnerId);
         items.push({
           id: chat.partnerId,
           name: shortName,
-          identity: resolveNetworkPartnerAvatar(chat),
+          identity: resolveNetworkPartnerAvatar({
+            ...chat,
+            partnerLogoUrl: chat.partnerLogoUrl ?? partner?.logo_url ?? null,
+            partnerAvatarSeed: chat.partnerAvatarSeed ?? partner?.avatar_seed ?? null,
+          }),
           unread: chat.unreadCount,
           online: chat.unreadCount > 0,
           onPress: () => {
@@ -2687,10 +2650,12 @@ export function ChatScreen() {
         items.push({
           id: partner.org_id,
           name: shortName,
-          identity: {
-            displayName: partner.name,
-            entityType: "client",
-          },
+          identity: resolveNetworkPartnerAvatar({
+            partnerId: partner.org_id,
+            partnerName: partner.name,
+            partnerLogoUrl: partner.logo_url ?? null,
+            partnerAvatarSeed: partner.avatar_seed ?? null,
+          }),
           onPress: () => {
             const existing = netChats.find((c) => c.partnerId === partner.org_id);
             if (existing) {
@@ -3086,14 +3051,15 @@ export function ChatScreen() {
           activeTab === "network" ? (
             <View style={s.chatStoryInlineWrap}>
               <StoryReel
-                posts={integratedNetworkStories}
+                posts={networkStoryPosts}
                 orgId={currentOrgId || undefined}
                 orgName={currentOrganization?.name ?? undefined}
                 onCreatePost={() => router.push("/(modals)/create-post")}
                 networkPartnerOrgIds={chatNetworkPartnerOrgIds}
-                fetchLiveOwnLoads={false}
+                indentCountByPostId={networkStoryIndentCounts}
+                embedded
               />
-              {storiesLoading && integratedNetworkStories.length === 0 ? (
+              {storiesLoading && networkStoryPosts.length === 0 ? (
                 <View style={s.chatStoryLoadingRow}>
                   <LoadingIndicator size="small" color={CHAT_ACCENT} />
                   <Text style={s.chatStoryLoadingText}>Syncing stories…</Text>
@@ -3412,12 +3378,14 @@ export function ChatScreen() {
         )}
 
         {isTripStreamTab(activeTab) &&
-          (isLoading && !bootstrapDone ? (
-            // First-ever bootstrap in progress: full-area spinner.
-            // After bootstrap has run once, the list is always rendered from
-            // in-memory Zustand state — no spinner on subsequent refreshes.
-            <View style={{ paddingTop: 40, alignItems: "center" }}>
-              <LoadingIndicator color={CHAT_ACCENT} />
+          (isLoading && !bootstrapDone && tripStreamConversations.length === 0 ? (
+            // First-ever bootstrap in progress: keep the people strip visible
+            // and only spin the conversation list.
+            <View>
+              {isMobileChatUi ? tripStreamMobileHeader : null}
+              <View style={{ paddingTop: 40, alignItems: "center" }}>
+                <LoadingIndicator color={CHAT_ACCENT} />
+              </View>
             </View>
           ) : isMobileChatUi ? (
             <FlatList
@@ -3986,9 +3954,12 @@ export function ChatScreen() {
           ))}
 
         {activeTab === "network" &&
-          (netLoading && netChats.length === 0 ? (
-            <View style={{ paddingTop: 40, alignItems: "center" }}>
-              <LoadingIndicator color={CHAT_ACCENT} />
+          (netLoading && netChats.length === 0 && netPartners.length === 0 ? (
+            <View>
+              {isMobileChatUi ? slackInboxToolbar : desktopPeopleStrip}
+              <View style={{ paddingTop: 40, alignItems: "center" }}>
+                <LoadingIndicator color={CHAT_ACCENT} />
+              </View>
             </View>
           ) : isDesktop ? (
             <ScrollView
@@ -3999,6 +3970,25 @@ export function ChatScreen() {
               showsVerticalScrollIndicator={false}
             >
               {desktopPeopleStrip}
+              {activeTab === "network" ? (
+                <View style={s.chatStoryInlineWrap}>
+                  <StoryReel
+                    posts={networkStoryPosts}
+                    orgId={currentOrgId || undefined}
+                    orgName={currentOrganization?.name ?? undefined}
+                    onCreatePost={() => router.push("/(modals)/create-post")}
+                    networkPartnerOrgIds={chatNetworkPartnerOrgIds}
+                    indentCountByPostId={networkStoryIndentCounts}
+                    embedded
+                  />
+                  {storiesLoading && networkStoryPosts.length === 0 ? (
+                    <View style={s.chatStoryLoadingRow}>
+                      <LoadingIndicator size="small" color={CHAT_ACCENT} />
+                      <Text style={s.chatStoryLoadingText}>Syncing stories…</Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
               <View style={deskSt.sidebarCategoryWrap}>
                 <TouchableOpacity
                   style={deskSt.sidebarCategoryHeader}
@@ -4309,7 +4299,6 @@ export function ChatScreen() {
   }
 
   function StoriesModal() {
-    if (!isMobileChatUi) return null;
     return (
       <Modal
         visible={showStoriesSheet}
@@ -4322,30 +4311,31 @@ export function ChatScreen() {
             <View style={cm.header}>
               <View>
                 <Text style={cm.title}>Stories</Text>
-                <Text style={cm.subtitle}>Integrated network updates</Text>
+                <Text style={cm.subtitle}>Network and Pulse Boost stories</Text>
               </View>
               <TouchableOpacity onPress={() => setShowStoriesSheet(false)} hitSlop={8} style={cm.closeBtn}>
                 <X size={20} color="#94a3b8" />
               </TouchableOpacity>
             </View>
-            {storiesLoading && integratedNetworkStories.length === 0 ? (
+            {storiesLoading && networkStoryPosts.length === 0 ? (
               <View style={s.chatStoriesModalLoading}>
                 <LoadingIndicator color={CHAT_ACCENT} />
                 <Text style={s.chatStoriesModalLoadingText}>Syncing stories…</Text>
               </View>
-            ) : integratedNetworkStories.length === 0 ? (
+            ) : networkStoryPosts.length === 0 ? (
               <View style={s.chatStoriesModalLoading}>
                 <Text style={s.chatStoriesModalLoadingText}>
-                  No active stories from integrated network yet.
+                  No active stories from your network yet.
                 </Text>
               </View>
             ) : (
               <StoryReel
-                posts={integratedNetworkStories}
+                posts={networkStoryPosts}
                 orgId={currentOrgId || undefined}
                 orgName={currentOrganization?.name ?? undefined}
                 onCreatePost={() => router.push("/(modals)/create-post")}
                 networkPartnerOrgIds={chatNetworkPartnerOrgIds}
+                indentCountByPostId={networkStoryIndentCounts}
                 fetchLiveOwnLoads={false}
               />
             )}

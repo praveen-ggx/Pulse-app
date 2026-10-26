@@ -185,6 +185,71 @@ export async function findVehicleByPlate(
   return { error: null, vehicle: null };
 }
 
+/** Plate lookup across every vehicle row RLS lets the viewer read. */
+export async function findVisibleVehicleByPlate(
+  plate: string,
+): Promise<{ error: Error | null; vehicle: VehicleRow | null }> {
+  const compactKey = normalizeVehicleNumberForMatch(plate);
+  const tail = compactKey.slice(-4);
+  if (compactKey.length < 4 || !tail) return { error: null, vehicle: null };
+  const { data: rows, error } = await supabase()
+    .from("vehicles")
+    .select("id, organization_id, vehicle_number, vehicle_type, documents, status, type, created_at, updated_at")
+    .ilike("vehicle_number", `%${tail}%`)
+    .limit(40);
+  if (error) return { error: new Error(error.message), vehicle: null };
+  const match = (rows ?? []).find(
+    (row) =>
+      normalizeVehicleNumberForMatch(
+        (row as { vehicle_number?: string | null }).vehicle_number,
+      ) === compactKey,
+  );
+  return { error: null, vehicle: (match as VehicleRow) ?? null };
+}
+
+/**
+ * Find or create a vehicle row so trip vault uploads have an entity id.
+ * Duplicate / RLS-blocked creates fall back to any visible plate match.
+ */
+export async function ensureVehicleForVault(
+  orgId: string,
+  plate: string,
+): Promise<{ error: Error | null; vehicle: VehicleRow | null }> {
+  const compact = formatIndianVehicleNumber(plate).trim();
+  const raw = plate.trim();
+  const numbers = Array.from(new Set([compact, raw].filter(Boolean)));
+  if (numbers.length === 0) {
+    return { error: new Error("Vehicle number is missing."), vehicle: null };
+  }
+
+  for (const number of numbers) {
+    const inOrg = await findVehicleByPlate(orgId, number);
+    if (inOrg.vehicle) return inOrg;
+  }
+
+  const visible = await findVisibleVehicleByPlate(raw || compact);
+  if (visible.vehicle) return visible;
+
+  let lastError: Error | null = null;
+  for (const number of numbers) {
+    const created = await createVehicle(orgId, {
+      vehicle_number: number,
+      vehicleSource: "partner",
+    });
+    if (created.vehicle) return created;
+    lastError = created.error;
+    const again = await findVehicleByPlate(orgId, number);
+    if (again.vehicle) return again;
+    const againVisible = await findVisibleVehicleByPlate(number);
+    if (againVisible.vehicle) return againVisible;
+  }
+
+  return {
+    error: lastError ?? new Error("Could not open a vehicle vault."),
+    vehicle: null,
+  };
+}
+
 /**
  * Read-only, minimal vehicle info for a viewer org that does not own the
  * vehicle but has a legitimate trip referencing it (e.g. an aggregator

@@ -27,7 +27,6 @@ import {
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
-  type ViewStyle,
 } from "react-native";
 
 export type NetworkHubConnectionsPagedGridProps<T> = {
@@ -128,11 +127,17 @@ export function NetworkHubConnectionsPagedGrid<T>({
     [isWeb],
   );
 
-  const swipePager = pageCount > 1 && slideWidth > 0;
+  const swipePager = !isWeb && pageCount > 1 && slideWidth > 0;
 
   const goToPage = useCallback(
     (target: number, animated = true) => {
       const next = Math.max(0, Math.min(pageCount - 1, target));
+      if (pageRef.current === next) {
+        if (swipePager && slideWidth > 0) {
+          scrollPagerTo(next * slideWidth, animated);
+        }
+        return;
+      }
       pageRef.current = next;
       setPage(next);
       if (swipePager && slideWidth > 0) {
@@ -142,18 +147,38 @@ export function NetworkHubConnectionsPagedGrid<T>({
     [pageCount, scrollPagerTo, slideWidth, swipePager],
   );
 
+  const [webHostEl, setWebHostEl] = useState<HTMLElement | null>(null);
+  const swipeLockRef = useRef(false);
+  const wheelAccRef = useRef(0);
+  const pointerStartXRef = useRef<number | null>(null);
+
+  const bindWebSurface = useCallback((node: View | null) => {
+    if (!node) {
+      setWebHostEl(null);
+      return;
+    }
+    if (typeof HTMLElement !== "undefined" && node instanceof HTMLElement) {
+      setWebHostEl(node);
+      return;
+    }
+    const inner = (
+      node as unknown as { getNode?: () => unknown }
+    ).getNode?.();
+    setWebHostEl(inner instanceof HTMLElement ? inner : null);
+  }, []);
+
   useEffect(() => {
-    if (!isWeb || !swipePager) return;
-    const scroller = listRef.current;
-    const node =
-      typeof (scroller as unknown as { getNativeScrollRef?: () => unknown })
-        ?.getNativeScrollRef === "function"
-        ? (scroller as unknown as { getNativeScrollRef: () => HTMLElement | null }).getNativeScrollRef()
-        : typeof (scroller as unknown as { getScrollableNode?: () => unknown })
-              ?.getScrollableNode === "function"
-          ? (scroller as unknown as { getScrollableNode: () => HTMLElement | null }).getScrollableNode()
-          : null;
-    if (!node) return;
+    if (!isWeb || pageCount <= 1 || !webHostEl) return;
+    const host = webHostEl;
+
+    const step = (dir: 1 | -1) => {
+      if (swipeLockRef.current) return;
+      swipeLockRef.current = true;
+      goToPage(pageRef.current + dir);
+      window.setTimeout(() => {
+        swipeLockRef.current = false;
+      }, 280);
+    };
 
     const onWheel = (event: WheelEvent) => {
       const horizontal = event.shiftKey
@@ -162,17 +187,38 @@ export function NetworkHubConnectionsPagedGrid<T>({
           ? event.deltaX
           : 0;
       if (horizontal === 0) return;
-      const max = node.scrollWidth - node.clientWidth;
-      if (max <= 0) return;
-      const next = Math.max(0, Math.min(max, node.scrollLeft + horizontal));
-      if (next === node.scrollLeft) return;
       event.preventDefault();
-      node.scrollLeft = next;
+      wheelAccRef.current += horizontal;
+      if (wheelAccRef.current > 70) {
+        wheelAccRef.current = 0;
+        step(1);
+      } else if (wheelAccRef.current < -70) {
+        wheelAccRef.current = 0;
+        step(-1);
+      }
     };
 
-    node.addEventListener("wheel", onWheel, { passive: false });
-    return () => node.removeEventListener("wheel", onWheel);
-  }, [isWeb, swipePager, slideWidth, pageCount]);
+    const onPointerDown = (event: PointerEvent) => {
+      pointerStartXRef.current = event.clientX;
+    };
+    const onPointerUp = (event: PointerEvent) => {
+      const start = pointerStartXRef.current;
+      pointerStartXRef.current = null;
+      if (start == null) return;
+      const dx = event.clientX - start;
+      if (dx > 56) step(-1);
+      else if (dx < -56) step(1);
+    };
+
+    host.addEventListener("wheel", onWheel, { passive: false });
+    host.addEventListener("pointerdown", onPointerDown);
+    host.addEventListener("pointerup", onPointerUp);
+    return () => {
+      host.removeEventListener("wheel", onWheel);
+      host.removeEventListener("pointerdown", onPointerDown);
+      host.removeEventListener("pointerup", onPointerUp);
+    };
+  }, [goToPage, isWeb, pageCount, webHostEl]);
 
   useEffect(() => {
     pageRef.current = 0;
@@ -260,6 +306,11 @@ export function NetworkHubConnectionsPagedGrid<T>({
 
   const canGoPrevious = page > 0;
   const canGoNext = page < pageCount - 1;
+  const currentPageItems = pages[Math.min(page, pageCount - 1)] ?? [];
+
+  const pagerPress = (dir: -1 | 1) => {
+    goToPage(pageRef.current + dir);
+  };
 
   return (
     <View
@@ -272,7 +323,11 @@ export function NetworkHubConnectionsPagedGrid<T>({
         setViewportWidth(w);
       }}
     >
-      {swipePager ? (
+      {isWeb ? (
+        <View ref={bindWebSurface} style={styles.webSurface} collapsable={false}>
+          {renderPageBody(currentPageItems)}
+        </View>
+      ) : swipePager ? (
         <ScrollView
           ref={listRef}
           horizontal
@@ -280,7 +335,7 @@ export function NetworkHubConnectionsPagedGrid<T>({
           directionalLockEnabled
           disableIntervalMomentum
           pagingEnabled={Platform.OS !== "android"}
-          snapToInterval={Platform.OS === "android" ? slideWidth : isWeb ? slideWidth : undefined}
+          snapToInterval={Platform.OS === "android" ? slideWidth : undefined}
           snapToAlignment="start"
           decelerationRate="fast"
           bounces={false}
@@ -289,30 +344,26 @@ export function NetworkHubConnectionsPagedGrid<T>({
           scrollEventThrottle={16}
           onScroll={onPagerScroll}
           onMomentumScrollEnd={onPagerScroll}
-          style={[styles.pagerList, isWeb ? WEB_PAGER_SCROLL : null]}
+          style={styles.pagerList}
           contentContainerStyle={styles.pagerContent}
         >
           {pages.map((pageItems, index) => (
             <View
               key={`connections-hub-page-${index}`}
-              style={[
-                styles.pageSlide,
-                { width: slideWidth },
-                isWeb ? WEB_PAGE_SLIDE : null,
-              ]}
+              style={[styles.pageSlide, { width: slideWidth }]}
             >
               {renderPageBody(pageItems)}
             </View>
           ))}
         </ScrollView>
       ) : (
-        renderPageBody(pages[Math.min(page, pageCount - 1)] ?? [])
+        renderPageBody(currentPageItems)
       )}
 
       {pageCount > 1 ? (
-        <View style={styles.pager}>
+        <View style={styles.pager} pointerEvents="box-none">
           <Pressable
-            onPress={() => goToPage(page - 1)}
+            onPress={() => pagerPress(-1)}
             disabled={!canGoPrevious}
             style={({ pressed }) => [
               styles.pagerBtn,
@@ -321,6 +372,14 @@ export function NetworkHubConnectionsPagedGrid<T>({
             ]}
             accessibilityRole="button"
             accessibilityLabel={t("networkConnectionsPrevious")}
+            {...(isWeb
+              ? {
+                  onClick: (e: { stopPropagation: () => void }) => {
+                    e.stopPropagation();
+                    if (canGoPrevious) pagerPress(-1);
+                  },
+                }
+              : null)}
           >
             <ChevronLeft
               size={12}
@@ -339,7 +398,7 @@ export function NetworkHubConnectionsPagedGrid<T>({
           </Text>
 
           <Pressable
-            onPress={() => goToPage(page + 1)}
+            onPress={() => pagerPress(1)}
             disabled={!canGoNext}
             style={({ pressed }) => [
               styles.pagerBtn,
@@ -348,6 +407,14 @@ export function NetworkHubConnectionsPagedGrid<T>({
             ]}
             accessibilityRole="button"
             accessibilityLabel={t("networkConnectionsNext")}
+            {...(isWeb
+              ? {
+                  onClick: (e: { stopPropagation: () => void }) => {
+                    e.stopPropagation();
+                    if (canGoNext) pagerPress(1);
+                  },
+                }
+              : null)}
           >
             <Text
               style={[styles.pagerBtnText, !canGoNext && styles.pagerBtnTextDisabled]}
@@ -366,28 +433,18 @@ export function NetworkHubConnectionsPagedGrid<T>({
   );
 }
 
-const WEB_PAGER_SCROLL: ViewStyle = {
-  width: "100%",
-  maxWidth: "100%",
-  minWidth: 0,
-  overflowX: "auto",
-  overflowY: "hidden",
-  scrollSnapType: "x mandatory",
-  overscrollBehaviorX: "contain",
-  WebkitOverflowScrolling: "touch",
-  touchAction: "pan-x",
-} as ViewStyle;
-
-const WEB_PAGE_SLIDE: ViewStyle = {
-  scrollSnapAlign: "start",
-  scrollSnapStop: "always",
-} as ViewStyle;
-
 const styles = StyleSheet.create({
   root: {
     width: "100%",
     minWidth: 0,
     gap: 8,
+  },
+  webSurface: {
+    width: "100%",
+    minWidth: 0,
+    ...(Platform.OS === "web"
+      ? ({ touchAction: "pan-x", cursor: "grab" } as object)
+      : null),
   },
   pagerList: {
     width: "100%",
@@ -451,13 +508,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    minHeight: 32,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    minHeight: 36,
+    minWidth: 96,
+    zIndex: 6,
     borderRadius: 8,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Theme.borderLight,
     backgroundColor: Theme.screenBackground,
+    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as object) : null),
   },
   pagerBtnPressed: {
     opacity: 0.88,

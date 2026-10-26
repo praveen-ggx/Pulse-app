@@ -132,3 +132,26 @@ export function storyOwnerBidsLabel(count: number, loading: boolean): string {
   if (count === 1) return "1 bid";
   return `${count} bids`;
 }
+
+/** Newest submitted-at wins. History stays; this is the one to pick. */
+export function latestStoryOwnerBid(
+  rows: readonly StoryOwnerBidRow[],
+): StoryOwnerBidRow | null {
+  if (rows.length === 0) return null;
+  return [...rows].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  )[0] ?? null;
+}
+
+export function formatStoryBidSubmittedAt(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const at = new Date(iso);
+  if (!Number.isFinite(at.getTime())) return "";
+  return at.toLocaleString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}

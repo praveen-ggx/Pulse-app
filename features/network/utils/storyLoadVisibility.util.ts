@@ -30,6 +30,8 @@ export function shouldShowFeedPostForOrg(opts: {
   supplierOrgIds: ReadonlySet<string>;
   clientOrgIds: ReadonlySet<string>;
   partnerOrgIds: ReadonlySet<string>;
+  /** Approved Pulse network connections (not only CRM client/supplier books). */
+  networkOrgIds?: ReadonlySet<string>;
 }): boolean {
   const authorOrgId = (opts.authorOrgId ?? "").trim();
   const viewerOrgId = (opts.viewerOrgId ?? "").trim();
@@ -47,7 +49,10 @@ export function shouldShowFeedPostForOrg(opts: {
   ) {
     return false;
   }
-  return opts.partnerOrgIds.has(authorOrgId);
+  return (
+    opts.partnerOrgIds.has(authorOrgId) ||
+    Boolean(opts.networkOrgIds?.has(authorOrgId))
+  );
 }
 
 /** Trimmed org ids — feed rows and viewer context must compare the same way. */
@@ -85,7 +90,7 @@ function storyReelDedupeKey(post: {
 
 /**
  * Horizontal pulse-story row: connected-org indent stories + sponsored
- * Pulse Reach indent ads (and capacity alerts). Never includes the viewer's
+ * Pulse Boost indent ads (and capacity alerts). Never includes the viewer's
  * own posts (no Mine bubble, no self twins on the right).
  */
 export function selectNetworkAndSponsoredStoryPosts<

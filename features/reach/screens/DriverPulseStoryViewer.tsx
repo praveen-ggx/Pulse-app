@@ -3,7 +3,8 @@
  * business StoryDetailScreen + StoryBroadcastPreview.
  * Opens the full active-load reel as one WhatsApp-style sequence.
  */
-import { PulseBrandMark } from "@/components/brand/PulseBrandMark";
+import { PulseStoryWatermark } from "@/components/brand/PulseStoryWatermark";
+import { PartyAvatar } from "@/components/PartyAvatar";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { StoryBroadcastPreview } from "@/features/network/components/StoryBroadcastPreview";
@@ -513,6 +514,15 @@ export function DriverPulseStoryViewer({
 
         <View style={[styles.topBar, { paddingHorizontal: Layout.screenPaddingHorizontal }]}>
           <View style={styles.topBarLeft}>
+            <PartyAvatar
+              name={(post.org_name ?? "").trim() || "Company"}
+              organizationImageUrl={post.org_avatar_url}
+              organizationAvatarSeed={post.org_avatar_seed}
+              avatarSeed={post.org_avatar_seed}
+              entityType="supplier"
+              size={32}
+              shape="circle"
+            />
             <View style={styles.topBarText}>
               <View style={styles.orgBrandRow}>
                 <Text style={styles.orgTitle} numberOfLines={1}>
@@ -529,7 +539,7 @@ export function DriverPulseStoryViewer({
                   onPress={() =>
                     Alert.alert(
                       "Sponsored",
-                      "This load has been promoted through Pulse Reach.",
+                      "This load has been promoted through Pulse Boost.",
                     )
                   }
                   hitSlop={6}
@@ -594,13 +604,11 @@ export function DriverPulseStoryViewer({
           )}
         </View>
 
-        <View style={styles.watermark} pointerEvents="none">
-          <PulseBrandMark
-            wordColor={INK}
-            dotColor={INK}
-            textStyle={styles.watermarkText}
-          />
-        </View>
+        {isLoad ? null : (
+          <View style={styles.watermark} pointerEvents="none">
+            <PulseStoryWatermark size={36} />
+          </View>
+        )}
 
         <Animated.View
           style={[
@@ -716,6 +724,9 @@ const styles = StyleSheet.create({
   topBarLeft: {
     flex: 1,
     minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   topBarText: {
     gap: 3,
@@ -814,19 +825,10 @@ const styles = StyleSheet.create({
   },
   watermark: {
     position: "absolute",
-    top: "50%",
+    top: "42%",
     left: 0,
     right: 0,
     alignItems: "center",
-    transform: [{ translateY: -28 }],
-  },
-  watermarkText: {
-    fontSize: 48,
-    fontWeight: "800",
-    color: INK,
-    opacity: 0.03,
-    letterSpacing: -1,
-    fontStyle: "italic",
   },
   footer: {
     paddingHorizontal: Layout.screenPaddingHorizontal,

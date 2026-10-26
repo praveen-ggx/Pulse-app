@@ -2,8 +2,16 @@
  * Mobile vault category — full-width card: title, hero, thumb strip.
  */
 import Theme from "@/constants/Theme";
-import { VaultCardLrStylePreview } from "@/features/trips/components/trip-detail/VaultCardLrStylePreview";
-import type { TripDocItem } from "@/features/trips/components/trip-detail/tripDocTypes";
+import {
+  VaultCardLrStylePreview,
+  type VaultPreviewSignContext,
+} from "@/features/trips/components/trip-detail/VaultCardLrStylePreview";
+import {
+  formatSelectedVaultFileMeta,
+  type TripDocFile,
+  type TripDocItem,
+} from "@/features/trips/components/trip-detail/tripDocTypes";
+import { useState } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
 
 const WEB_COPY =
@@ -19,6 +27,7 @@ export function TripMobileVaultCategoryRow({
   canAdd = false,
   onPreview,
   onAdd,
+  sign,
 }: {
   doc: TripDocItem;
   statusLabel: string;
@@ -27,7 +36,12 @@ export function TripMobileVaultCategoryRow({
   canAdd?: boolean;
   onPreview: (fileIndex: number) => void;
   onAdd: () => void;
+  sign?: VaultPreviewSignContext;
 }) {
+  const [selectedFile, setSelectedFile] = useState<TripDocFile | null>(null);
+  const meta = uploading
+    ? "Uploading…"
+    : error ?? formatSelectedVaultFileMeta(selectedFile, statusLabel, doc);
   return (
     <View style={styles.card} accessibilityLabel={doc.label}>
       <View style={styles.header}>
@@ -43,7 +57,7 @@ export function TripMobileVaultCategoryRow({
             ]}
             numberOfLines={2}
           >
-            {uploading ? "Uploading…" : error ?? statusLabel}
+            {meta}
           </Text>
         </View>
       </View>
@@ -52,6 +66,8 @@ export function TripMobileVaultCategoryRow({
         disabled={uploading}
         onAdd={canAdd ? onAdd : undefined}
         onPressFile={onPreview}
+        onSelectedFile={setSelectedFile}
+        sign={sign}
       />
     </View>
   );

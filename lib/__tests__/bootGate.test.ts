@@ -161,6 +161,17 @@ describe('authenticated data-plane mount', () => {
       }),
     ).toBe(false);
   });
+
+  it('still mounts the data plane when the URL is a public marketing route', () => {
+    expect(shouldMountAuthenticatedDataPlane(true)).toBe(true);
+    expect(
+      shouldRenderPublicAuthTree({
+        sessionAttached: true,
+        publicRoute: true,
+        status: 'authenticated',
+      }),
+    ).toBe(false);
+  });
 });
 
 describe('root overlay tab bar mount', () => {
@@ -170,6 +181,10 @@ describe('root overlay tab bar mount', () => {
 
   it('mounts on the authenticated data plane', () => {
     expect(shouldMountRootOverlayTabBar(true)).toBe(true);
+  });
+
+  it('stays off on public marketing/auth even with a session', () => {
+    expect(shouldMountRootOverlayTabBar(true, true)).toBe(false);
   });
 });
 

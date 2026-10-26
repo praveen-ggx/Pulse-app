@@ -1,4 +1,4 @@
-# Pulse Reach — Manual Testing Report
+# Pulse Boost — Manual Testing Report
 
 **Tested by:** Nihas
 **Date:** 26 July 2026

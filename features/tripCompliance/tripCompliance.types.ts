@@ -328,9 +328,18 @@ export const COMPLIANCE_DRIVER_DOCUMENT_TYPES: readonly string[] = [
   ...OPTIONAL_DRIVER_DOCUMENT_TYPES,
 ];
 
-/** Insurance, FC, and DL require an expiry date; RC does not. */
+/** Docs with a validity period — RC has none. */
+const EXPIRY_DOCUMENT_TYPES = new Set([
+  "insurance",
+  "fitness",
+  "license",
+  "pollution",
+  "permit",
+  "road_tax",
+]);
+
 export function documentRequiresExpiry(docType: string): boolean {
-  return docType === "insurance" || docType === "fitness" || docType === "license";
+  return EXPIRY_DOCUMENT_TYPES.has(docType);
 }
 
 export function isRequiredVehicleDocumentType(docType: string): boolean {

@@ -375,7 +375,6 @@ export type ProfileScreenProps = {
   onOpenVerification?: () => void;
   onOpenBusinessIdentity?: () => void;
   onOpenWorkspaceSettings?: () => void;
-  onOpenProducts?: () => void;
   onOpenScanUsage?: () => void;
   onOpenRoute?: (path: string) => void;
 };
@@ -389,7 +388,6 @@ export default function ProfileScreen({
   onOpenVerification,
   onOpenBusinessIdentity,
   onOpenWorkspaceSettings,
-  onOpenProducts,
   onOpenScanUsage,
   onOpenRoute,
 }: ProfileScreenProps = {}) {
@@ -632,14 +630,6 @@ export default function ProfileScreen({
       return;
     }
     openPath(`${ROUTES.WORKSPACE}?panel=settings`);
-  };
-
-  const openProducts = () => {
-    if (onOpenProducts) {
-      onOpenProducts();
-      return;
-    }
-    openPath(`${ROUTES.WORKSPACE}?panel=products`);
   };
 
   const openScanUsage = () => {
@@ -1130,14 +1120,6 @@ export default function ProfileScreen({
                     />
                     {canSurface("workspace.products") ? (
                       <>
-                        <View style={styles.premiumDivider} />
-                        <ProfileItemRow
-                          icon="th-large"
-                          label="Products & modules"
-                          value={`Manage what's enabled for ${currentOrganization?.name?.trim() || "this organization"}`}
-                          onPress={openProducts}
-                          showChevron
-                        />
                         <View style={styles.premiumDivider} />
                         <ProfileItemRow
                           icon="barcode"

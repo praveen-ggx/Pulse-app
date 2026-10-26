@@ -38,6 +38,8 @@ type Props = {
   driverName?: string | null;
   driverAvatarUrl?: string | null;
   driverId?: string | null;
+  /** Plate shown under the driver name. */
+  vehicleLabel?: string | null;
   showChange?: boolean;
   onChange?: () => void;
   style?: StyleProp<ViewStyle>;
@@ -234,6 +236,7 @@ export function ManifestRefAssetCard({
   driverName,
   driverAvatarUrl,
   driverId,
+  vehicleLabel = null,
   showChange = false,
   onChange,
   style,
@@ -244,6 +247,12 @@ export function ManifestRefAssetCard({
     variant === "driver"
       ? formatDriverDisplayName(primaryText)
       : formatVehiclePlateOnly(primaryText);
+  const driverPlate =
+    variant === "driver" ? formatVehiclePlateOnly(vehicleLabel ?? "") : "";
+  const showDriverPlate =
+    Boolean(driverPlate) &&
+    driverPlate !== "—" &&
+    driverPlate !== "Pending";
   const phoneDisplay =
     variant === "driver" ? formatPhoneForDisplay(phone) : "";
   const phoneDigits = (phone ?? "").replace(/[^\d+]/g, "");
@@ -344,6 +353,15 @@ export function ManifestRefAssetCard({
             >
               {displayPrimary}
             </Text>
+            {isDriver && showDriverPlate ? (
+              <Text
+                style={[styles.vehicleUnderName, desktop && styles.vehicleUnderNameDesktop]}
+                numberOfLines={1}
+                accessibilityLabel={`Vehicle ${driverPlate}`}
+              >
+                {driverPlate}
+              </Text>
+            ) : null}
 
             {isDriver && phoneDisplay ? (
               <Text
@@ -532,6 +550,17 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 21,
     letterSpacing: -0.2,
+  },
+  vehicleUnderName: {
+    fontSize: 10,
+    fontWeight: "600",
+    letterSpacing: 0.35,
+    lineHeight: 13,
+    color: Theme.textMuted,
+  },
+  vehicleUnderNameDesktop: {
+    fontSize: 11,
+    lineHeight: 14,
   },
   phoneText: {
     fontSize: 11,

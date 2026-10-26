@@ -38,6 +38,9 @@ export function TripsHubIndentStageCard({
   extraStopCount = 0,
   extraStopNames,
   onPress,
+  displayNumber: displayNumberOverride,
+  displayClientName: displayClientNameOverride,
+  extraTags,
   tr,
   hubGrid = false,
   layoutCompact = false,
@@ -55,7 +58,11 @@ export function TripsHubIndentStageCard({
   extraStopCount?: number;
   /** Stop cities in route order, shown under the arrow. */
   extraStopNames?: readonly string[];
-  onPress: () => void;
+  extraTags?: readonly string[];
+  /** Override the indent code (e.g. lane load count on Broadcast). */
+  displayNumber?: string;
+  displayClientName?: string;
+  onPress?: () => void;
   tr: (key: string) => string;
   hubGrid?: boolean;
   layoutCompact?: boolean;
@@ -76,12 +83,13 @@ export function TripsHubIndentStageCard({
     ...(indentHasAwardRevokedTag(indent.status, indent.award_revoked_at)
       ? ["AWARD REVOKED"]
       : []),
+    ...(extraTags ?? []),
   ];
 
   return (
     <TripsHubMobileTripCard
       trip={indentAsHubTripShape(indent)}
-      displayClientName={indent.client_name || "—"}
+      displayClientName={displayClientNameOverride || indent.client_name || "—"}
       stageLabel={stageLabel}
       origin={indent.pickup_area || "—"}
       dest={indent.drop_location || "—"}
@@ -91,8 +99,8 @@ export function TripsHubIndentStageCard({
       onPress={onPress}
       tr={tr}
       originTags={originTags}
-      displayNumber={getIndentDisplayNumber(indent)}
       hidePartyRow
+      displayNumber={displayNumberOverride ?? getIndentDisplayNumber(indent)}
       clientAvatarUrl={clientAvatarUrl}
       clientAvatarSeed={clientAvatarSeed}
       clientAvatarFallbackSeed={clientAvatarFallbackSeed}

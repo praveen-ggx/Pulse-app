@@ -9,6 +9,7 @@
  *  - Double-tap guard: buttons are disabled while an operation is in-flight.
  *  - Rollback: if DB update fails after storage write, orphan file is cleaned up (in service).
  */
+import { DocumentDateCalendar } from "@/components/DocumentDateCalendar";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import Layout from '@/constants/Layout';
 import Theme from '@/constants/Theme';
@@ -26,7 +27,6 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -496,20 +496,14 @@ export function VehicleDocumentsSection({
               <View style={styles.modalBody}>
                 <Text style={styles.modalLabel}>Expiry date</Text>
                 {Platform.OS === 'web' ? (
-                  <TextInput
-                    style={styles.modalDateInput}
-                    value={pendingExpiryInput}
-                    onChangeText={(v) => {
-                      const cleaned = v.replace(/[^\d-]/g, '').slice(0, 10);
-                      setPendingExpiryInput(cleaned);
-                      setPendingExpiry(toISODateFromDisplay(cleaned));
+                  <DocumentDateCalendar
+                    selectedIso={pendingExpiry || toISODate(new Date())}
+                    minDate={toISODate(new Date())}
+                    onSelect={(iso) => {
+                      setPendingExpiry(iso);
+                      setPendingExpiryInput("");
                       setExpiryInlineError(null);
                     }}
-                    placeholder="DD-MM-YYYY"
-                    placeholderTextColor={Theme.textMuted}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    maxLength={10}
                   />
                 ) : Platform.OS === 'android' ? (
                   <DateTimePicker

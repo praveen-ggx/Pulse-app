@@ -16,9 +16,14 @@ import {
   totalUploadedKycDocuments,
 } from '@/features/organization/utils/kycVerification.util';
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { KycRequiredDocumentRow } from './KycRequiredDocumentRow';
+const WEB_COPY =
+  Platform.OS === 'web'
+    ? ({ whiteSpace: 'pre-wrap', letterSpacing: 0 } as const)
+    : ({ letterSpacing: 0 } as const);
+
+import { KycVerificationDocumentCard } from './KycVerificationDocumentCard';
 
 type Props = {
   kyc: WorkspaceKyc | null;
@@ -87,22 +92,24 @@ export function KycRequiredDocumentsSection({
   return (
     <>
       <View style={styles.banner}>
-        <Text style={styles.bannerTitle}>
+        <Text style={[styles.bannerTitle, WEB_COPY]}>
           {structureLabel
             ? `Required for ${structureLabel}`
             : 'Required for your business structure'}
         </Text>
-        {structureHint ? <Text style={styles.bannerBody}>{structureHint}</Text> : null}
+        {structureHint ? (
+          <Text style={[styles.bannerBody, WEB_COPY]}>{structureHint}</Text>
+        ) : null}
       </View>
 
+      <View style={styles.cardStack}>
       {requiredDefs.map((def) => (
-        <KycRequiredDocumentRow
+        <KycVerificationDocumentCard
           key={`req-${def.type}-${def.label}`}
           definition={def}
           documents={documents}
           kyc={kyc}
           canEdit={canEdit}
-          frozen={frozen}
           uploading={
             !!uploadingDocType &&
             (uploadingDocType === def.type ||
@@ -112,22 +119,23 @@ export function KycRequiredDocumentsSection({
           onOpenUpdate={onOpenUpdate}
         />
       ))}
+      </View>
 
       {!requiredOnly && visibleOptional.length > 0 ? (
         <View style={styles.optionalHeader}>
-          <Text style={styles.optionalHeaderText}>Optional for this structure</Text>
+          <Text style={[styles.optionalHeaderText, WEB_COPY]}>Optional for this structure</Text>
         </View>
       ) : null}
 
-      {!requiredOnly
-        ? visibleOptional.map((def) => (
-            <KycRequiredDocumentRow
+      {!requiredOnly ? (
+        <View style={styles.cardStack}>
+        {visibleOptional.map((def) => (
+            <KycVerificationDocumentCard
               key={`opt-${def.type}`}
               definition={def}
               documents={documents}
               kyc={kyc}
               canEdit={canEdit}
-              frozen={frozen}
               uploading={uploadingDocType === def.type}
               onOpenUpdate={onOpenUpdate}
               onRemove={canRemoveUploaded ? onRemove : undefined}
@@ -138,8 +146,9 @@ export function KycRequiredDocumentsSection({
                   : undefined
               }
             />
-          ))
-        : null}
+          ))}
+        </View>
+      ) : null}
 
       {!requiredOnly && canEdit && !frozen && optionalChips.length > 0 ? (
         <View style={styles.chipRow}>
@@ -150,7 +159,7 @@ export function KycRequiredDocumentsSection({
               onPress={() => setRevealedOptional((prev) => [...prev, def.type])}
               accessibilityRole="button"
             >
-              <Text style={styles.addChipText}>{optionalChipLabel(def)}</Text>
+              <Text style={[styles.addChipText, WEB_COPY]}>{optionalChipLabel(def)}</Text>
             </Pressable>
           ))}
         </View>
@@ -160,6 +169,11 @@ export function KycRequiredDocumentsSection({
 }
 
 const styles = StyleSheet.create({
+  cardStack: {
+    gap: 10,
+    paddingHorizontal: 10,
+    paddingBottom: 10,
+  },
   banner: {
     paddingHorizontal: 12,
     paddingTop: 10,

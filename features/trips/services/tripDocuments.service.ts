@@ -261,7 +261,10 @@ export async function getDocumentViewUrl(storagePath: string): Promise<string> {
 export async function tryGetDocumentViewUrl(
   storagePath: string,
 ): Promise<string | null> {
-  if (isVehicleDocumentReferenceStoragePath(storagePath)) {
+  if (/^(blob:|data:|file:|content:)/i.test(storagePath.trim())) {
+    return storagePath.trim();
+  }
+  if (isVehicleDocumentReferenceStoragePath(storagePath) || isDetailsMarkerPath(storagePath)) {
     return null;
   }
   const signed = await tripDocSignedUrls.getUrl(storagePath);
@@ -270,15 +273,26 @@ export async function tryGetDocumentViewUrl(
 }
 
 /** One storage round-trip for all uncached paths. Cached / in-flight paths are reused. */
+function isDetailsMarkerPath(path: string): boolean {
+  const base = path.trim().split("?")[0]?.split("/").pop()?.toLowerCase() ?? "";
+  return base === "fields.json" || base.endsWith("-fields.json");
+}
+
 export async function getDocumentViewUrls(
   storagePaths: string[],
 ): Promise<Record<string, string | null>> {
-  const physical = storagePaths.filter((path) => !isVehicleDocumentReferenceStoragePath(path));
+  const physical = storagePaths.filter(
+    (path) => !isVehicleDocumentReferenceStoragePath(path) && !isDetailsMarkerPath(path),
+  );
   const signed = physical.length > 0 ? await tripDocSignedUrls.getUrls(physical) : {};
   const byPath: Record<string, string | null> = {};
   await Promise.all(
     storagePaths.map(async (path) => {
-      if (isVehicleDocumentReferenceStoragePath(path)) {
+      if (/^(blob:|data:|file:|content:)/i.test(path.trim())) {
+        byPath[path] = path.trim();
+        return;
+      }
+      if (isVehicleDocumentReferenceStoragePath(path) || isDetailsMarkerPath(path)) {
         byPath[path] = null;
         return;
       }
@@ -998,7 +1012,15 @@ export async function upsertEwayBillFields(input: {
     );
 
   if (target) {
-    return { error: await updateTripDocumentNumber(target.id, serialized) };
+    const { error: updateError } = await supabase()
+      .from("trip_documents")
+      .update({
+        document_number: serialized,
+        uploaded_by: input.uploadedBy,
+        uploaded_at: new Date().toISOString(),
+      })
+      .eq("id", target.id);
+    return { error: updateError ? new Error(updateError.message) : null };
   }
 
   const path = ewayBillFieldsStoragePath(input.tripId);
@@ -1019,7 +1041,11 @@ export async function upsertEwayBillFields(input: {
   if (insertError.code === "23505") {
     const { error: updateError } = await supabase()
       .from("trip_documents")
-      .update({ document_number: serialized })
+      .update({
+        document_number: serialized,
+        uploaded_by: input.uploadedBy,
+        uploaded_at: new Date().toISOString(),
+      })
       .eq("storage_path", path);
     return { error: updateError ? new Error(updateError.message) : null };
   }

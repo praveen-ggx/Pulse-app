@@ -2,6 +2,9 @@
 
 ## What
 - Vault preview pipeline and document delete order on trip detail / workspace docs.
+- Vault / compliance cards preview every uploaded file, skip `fields.json` markers, and paint local `blob:` / `file:` URIs without signing.
+- Update LR stores a number per copy, and vault invoice/LR picks keep file bytes so mobile Chrome can submit after the blob URI dies.
+- Expiry dates edit on the vault sheet on mobile, and Compliance uses the same preview/edit sheet as the trip vault.
 
 ## Why
 - Preview cards must not treat a failed delete as success, and preview evidence must stay separate from unclassified full-suite noise.
@@ -12,6 +15,12 @@
 - `features/trips/services/tripDocuments.service.ts`
 - `features/compliance/services/documents.service.ts`
 - `features/trips/components/trip-detail/TripDetailScreen.tsx`
+- `features/trips/components/HubTripLrUpdateModal.tsx`
+- `features/trips/components/trip-detail/vaultPickerFile.util.ts`
+- `features/tripCompliance/services/complianceVaultUpload.service.ts`
+- `features/tripCompliance/components/ComplianceDocumentWorkspace.tsx`
+- `features/trips/components/trip-detail/VaultChooserNotifyRow.tsx`
+- `features/trips/components/trip-detail/VaultCategoryPreviewModal.tsx`
 
 ## Migrations
 - `20271024194500_entity_documents_audit_delete_null_fk.sql` — local only; not applied remotely.

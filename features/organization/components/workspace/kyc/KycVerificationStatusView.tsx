@@ -10,12 +10,19 @@ import {
   resolveAcceptTypes,
 } from '@/features/organization/utils/kycVerification.util';
 import type { WorkspaceKyc } from '@/types/organization';
-import { CheckCircle2, Clock, Pencil, XCircle } from 'lucide-react-native';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { CheckCircle2, Clock, XCircle } from 'lucide-react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
+import { KycVerificationDocumentCard } from './KycVerificationDocumentCard';
+
+const WEB_COPY =
+  Platform.OS === 'web'
+    ? ({ whiteSpace: 'pre-wrap', letterSpacing: 0 } as const)
+    : ({ letterSpacing: 0 } as const);
 
 type Props = {
   kyc: WorkspaceKyc | null;
   documents: OrganizationKycDocument[];
+  canEdit?: boolean;
   onOpenUpdate: (definition: OrganizationKycDocDefinition) => void;
 };
 
@@ -28,7 +35,12 @@ function formatDate(iso: string | null): string {
   });
 }
 
-export function KycVerificationStatusView({ kyc, documents, onOpenUpdate }: Props) {
+export function KycVerificationStatusView({
+  kyc,
+  documents,
+  canEdit = true,
+  onOpenUpdate,
+}: Props) {
   const status = kyc?.verification_status ?? 'pending';
 
   const idRows: { label: string; value: string }[] = [];
@@ -72,9 +84,9 @@ export function KycVerificationStatusView({ kyc, documents, onOpenUpdate }: Prop
     <View style={styles.root}>
       <View style={[styles.card, { borderColor: heading.accent + '33' }]}>
         {heading.icon}
-        <Text style={styles.title}>{heading.title}</Text>
-        {kyc?.name ? <Text style={styles.orgName}>{kyc.name}</Text> : null}
-        {heading.sub ? <Text style={styles.sub}>{heading.sub}</Text> : null}
+        <Text style={[styles.title, WEB_COPY]}>{heading.title}</Text>
+        {kyc?.name ? <Text style={[styles.orgName, WEB_COPY]}>{kyc.name}</Text> : null}
+        {heading.sub ? <Text style={[styles.sub, WEB_COPY]}>{heading.sub}</Text> : null}
         {status === 'rejected' && kyc?.rejection_reasons?.checklist?.length ? (
           <View style={styles.rejectionList}>
             {kyc.rejection_reasons.checklist.map((item) => (
@@ -88,12 +100,12 @@ export function KycVerificationStatusView({ kyc, documents, onOpenUpdate }: Prop
 
       {idRows.length > 0 ? (
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>
+          <Text style={[styles.sectionLabel, WEB_COPY]}>
             {status === 'verified' ? 'Verified information' : 'Submitted information'}
           </Text>
           {idRows.map((row) => (
             <View key={row.label} style={styles.row}>
-              <Text style={styles.rowLabel}>{row.label}</Text>
+              <Text style={[styles.rowLabel, WEB_COPY]}>{row.label}</Text>
               <View style={styles.rowValueGroup}>
                 <Text style={styles.rowValue} numberOfLines={1}>
                   {row.value}
@@ -106,25 +118,21 @@ export function KycVerificationStatusView({ kyc, documents, onOpenUpdate }: Prop
       ) : null}
 
       {uploadedDocDefs.length > 0 ? (
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Verification documents</Text>
-          {uploadedDocDefs.map((def) => (
-            <View key={def.type} style={styles.row}>
-              <Text style={styles.rowLabel}>{def.label}</Text>
-              <View style={styles.rowValueGroup}>
-                <CheckCircle2 size={14} color={Theme.success} strokeWidth={2.4} />
-                <Pressable
-                  style={styles.editIcon}
-                  onPress={() => onOpenUpdate(def)}
-                  hitSlop={8}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Update ${def.label}`}
-                >
-                  <Pencil size={12} color={Theme.primary} strokeWidth={2.2} />
-                </Pressable>
-              </View>
-            </View>
-          ))}
+        <View style={styles.docsSection}>
+          <Text style={[styles.sectionLabel, WEB_COPY]}>Verification documents</Text>
+          <View style={styles.docStack}>
+            {uploadedDocDefs.map((def) => (
+              <KycVerificationDocumentCard
+                key={def.type}
+                definition={def}
+                documents={documents}
+                kyc={kyc}
+                canEdit={canEdit}
+                uploading={false}
+                onOpenUpdate={onOpenUpdate}
+              />
+            ))}
+          </View>
         </View>
       ) : null}
     </View>
@@ -177,5 +185,12 @@ const styles = StyleSheet.create({
   rowLabel: { fontSize: 13, fontWeight: '500', color: Theme.textPrimaryDark },
   rowValueGroup: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1, minWidth: 0 },
   rowValue: { fontSize: 12, color: Theme.textMuted, flexShrink: 1 },
-  editIcon: { padding: 2 },
+  docsSection: {
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderLight,
+    backgroundColor: Theme.cardWhite,
+    overflow: 'hidden',
+  },
+  docStack: { gap: 10, paddingHorizontal: 10, paddingBottom: 10 },
 });

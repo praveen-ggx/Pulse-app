@@ -133,6 +133,12 @@ describe("buildEwayBillStripRows", () => {
         validTill: "03-Sep-26",
         docNo: "262718182",
         canView: false,
+        updatedAt: null,
+        updatedById: null,
+        previewPath: null,
+        previewUri: null,
+        previewFileName: null,
+        previewMime: null,
       },
     ]);
   });
@@ -188,6 +194,62 @@ describe("buildEwayBillStripRows", () => {
       createdDate: "02-Sep-26",
       validTill: "04-Sep-26",
       docNo: "LR-2",
+    });
+  });
+
+  it("carries the last update stamp and actor onto each row", () => {
+    const rows = buildEwayBillStripRows({
+      ewayDoc: {
+        id: "eway_bill",
+        label: "Eway Bill",
+        type: "PDF",
+        status: "Uploaded",
+        uploadedAt: "2026-10-26T09:40:00.000Z",
+        uploadedBy: "user-vasanth",
+        documentNumber: serializeEwayFieldValues({
+          ewayNo: "121321234321",
+          createdDate: "2026-10-25",
+          validTill: "2026-10-28",
+          docNo: "",
+        }),
+      },
+    });
+    expect(rows[0]).toMatchObject({
+      updatedAt: "2026-10-26T09:40:00.000Z",
+      updatedById: "user-vasanth",
+    });
+  });
+
+  it("attaches an uploaded file for the tiny preview", () => {
+    const rows = buildEwayBillStripRows({
+      ewayDoc: {
+        id: "eway_bill",
+        label: "Eway Bill",
+        type: "PDF",
+        status: "Uploaded",
+        storagePath: "trip-1/eway_bill/bill.pdf",
+        documentNumber: serializeEwayFieldValues({
+          ewayNo: "121321234321",
+          createdDate: "",
+          validTill: "",
+          docNo: "",
+        }),
+        files: [
+          {
+            id: "file-1",
+            label: "Eway Bill · 121321234321",
+            type: "PDF",
+            storagePath: "trip-1/eway_bill/bill.pdf",
+            fileName: "bill.pdf",
+          },
+        ],
+      },
+    });
+    expect(rows[0]).toMatchObject({
+      canView: true,
+      previewPath: "trip-1/eway_bill/bill.pdf",
+      previewFileName: "bill.pdf",
+      previewMime: "PDF",
     });
   });
 });

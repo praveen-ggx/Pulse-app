@@ -123,7 +123,6 @@ export const TripMobileVaultPanel = memo(function TripMobileVaultPanel({
         ))}
       </View>
       <View style={styles.eway}>
-        <Text style={[styles.sectionTitle, WEB_COPY]}>E-way Bill</Text>
         <EwayBillLrStrip
           rows={ewayStripRows}
           onView={onViewEwayBill ?? (() => undefined)}
@@ -167,11 +166,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Layout.screenPaddingHorizontal,
     paddingTop: 16,
     gap: 8,
-  },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: Theme.actionBtnInk,
   },
   bottomBar: {
     flexDirection: "row",

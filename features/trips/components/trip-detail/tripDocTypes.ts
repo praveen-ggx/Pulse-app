@@ -51,6 +51,8 @@ export interface TripDocFile {
   docSource?: "trip" | "vehicle" | "compliance" | "supplier-kyc";
   /** Already-resolved preview URL (https / blob). */
   previewUri?: string | null;
+  uploadedAt?: string | null;
+  uploadedBy?: string | null;
 }
 
 export interface TripDocItem {
@@ -76,6 +78,7 @@ export interface TripDocItem {
   invoiceNumber?: string | null;
   /** Upload timestamp for the latest file in this slot (ISO). */
   uploadedAt?: string | null;
+  uploadedBy?: string | null;
 }
 
 /** Matches trip-documents + vehicle-documents bucket limits (100 MB). */

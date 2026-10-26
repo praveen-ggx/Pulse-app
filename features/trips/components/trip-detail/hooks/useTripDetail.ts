@@ -279,6 +279,8 @@ function buildSlotCard(
       fileName: row.file_name?.trim() || undefined,
       invoiceNumber: invoiceNumber || undefined,
       documentNumber: number || null,
+      uploadedAt: row.uploaded_at ?? null,
+      uploadedBy: row.uploaded_by ?? null,
     };
   });
   const storedFields = rows
@@ -293,6 +295,11 @@ function buildSlotCard(
   const documentNumber = isEwaySlot
     ? ewayRaw?.trim() || null
     : storedFields?.lrNumber || null;
+  const latest = [...rows].sort(
+    (a, b) =>
+      (Date.parse(b.uploaded_at ?? "") || 0) -
+      (Date.parse(a.uploaded_at ?? "") || 0),
+  )[0];
   return {
     id: slot.id,
     label: slot.label,
@@ -315,7 +322,8 @@ function buildSlotCard(
             .map((row) => readStoredInvoiceNumber(row.document_number)),
         ) || null
       : storedFields?.invoice || null,
-    uploadedAt: rows[0]?.uploaded_at ?? null,
+    uploadedAt: latest.uploaded_at ?? rows[0]?.uploaded_at ?? null,
+    uploadedBy: latest.uploaded_by ?? rows[0]?.uploaded_by ?? null,
   };
 }
 

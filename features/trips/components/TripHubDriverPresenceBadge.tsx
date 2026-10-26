@@ -176,7 +176,9 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.positive,
   },
   chipOffline: {
-    backgroundColor: Theme.destructive,
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: Theme.destructive,
   },
   dot: {
     width: 4,
@@ -188,7 +190,7 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
   },
   dotOffline: {
-    backgroundColor: Theme.cardWhite,
+    backgroundColor: Theme.destructive,
   },
   label: {
     fontSize: 8,
@@ -202,6 +204,6 @@ const styles = StyleSheet.create({
     color: Theme.cardWhite,
   },
   labelOffline: {
-    color: Theme.cardWhite,
+    color: Theme.destructive,
   },
 });

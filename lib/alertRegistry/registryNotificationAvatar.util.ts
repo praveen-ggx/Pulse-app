@@ -7,20 +7,15 @@ import type {
 import type { NetworkNotificationRow } from "@/features/network/services/networkNotifications.service";
 import type { GlobalOperationAlert } from "@/lib/globalSync/priorityEngine.util";
 import type { ActiveTripSummary } from "@/lib/globalSync/types";
+import {
+  driverAvatarSeedFromId,
+  type PartyEntityType,
+} from "@/lib/partyAvatarDisplay";
 import type { CurrentOrganization } from "@/types/organization";
 
 import type { RegistryNotificationAvatar } from "@/lib/alertRegistry/registryNotificationAvatar.types";
 
 export type { RegistryNotificationAvatar };
-
-function driverFallbackSeed(driverId: string): string {
-  const value = (driverId ?? "").trim() || "driver";
-  let hash = 0;
-  for (let i = 0; i < value.length; i++) {
-    hash = (hash + value.charCodeAt(i)) % 10;
-  }
-  return `driver-${hash + 1}`;
-}
 
 function driverAvatarFromRow(
   driver: Pick<DriverRow, "avatar_url" | "avatar_seed"> | undefined,
@@ -31,7 +26,7 @@ function driverAvatarFromRow(
     name,
     entityType: "driver",
     avatarUrl: driver?.avatar_url ?? null,
-    avatarSeed: driver?.avatar_seed?.trim() || driverFallbackSeed(driverId),
+    avatarSeed: driver?.avatar_seed?.trim() || driverAvatarSeedFromId(driverId),
     initialsColorSeed: driverId,
   };
 }

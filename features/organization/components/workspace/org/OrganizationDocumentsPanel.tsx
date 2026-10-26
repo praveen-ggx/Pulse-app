@@ -8,8 +8,13 @@ import {
   kycRequiredDocumentCounts,
 } from '@/features/organization/utils/kycVerification.util';
 import type { WorkspaceKyc } from '@/types/organization';
-import { StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { workspacePanelStyles as panelStyles } from '@/features/organization/components/workspace/workspacePanelUi';
+
+const WEB_COPY =
+  Platform.OS === 'web'
+    ? ({ whiteSpace: 'pre-wrap', letterSpacing: 0 } as const)
+    : ({ letterSpacing: 0 } as const);
 
 type Props = {
   kyc: WorkspaceKyc | null;
@@ -36,13 +41,13 @@ export function OrganizationDocumentsPanel({
   return (
     <View style={panelStyles.panelStack}>
       <View style={styles.intro}>
-        <Text style={styles.title}>Documents</Text>
-        <Text style={styles.body}>
+        <Text style={[styles.title, WEB_COPY]}>Documents</Text>
+        <Text style={[styles.body, WEB_COPY]}>
           {status === 'verified'
             ? 'These files support your verified business identity. Update a document to send a new file for review.'
-            : 'Evidence for the business structure you selected. Only required files are listed first.'}
+            : 'Evidence for the business structure you selected. Required files are listed first.'}
         </Text>
-        <Text style={styles.count}>
+        <Text style={[styles.count, WEB_COPY]}>
           {formatKycCountCopy(counts.done, counts.total, 'document', 'documents')}
         </Text>
       </View>

@@ -6,7 +6,10 @@ import type {
 } from "@/features/chat/types/chat.types";
 import type { TripForCompose } from "@/features/chat/services/chat.service";
 import type { ResolvedPartyAvatarIdentity } from "@/lib/entityIdentity";
-import type { PartyEntityType } from "@/lib/partyAvatarDisplay";
+import {
+  driverAvatarSeedFromId,
+  type PartyEntityType,
+} from "@/lib/partyAvatarDisplay";
 import type { LinkedOrgDisplay } from "@/lib/useLinkedOrgProfileMap";
 
 export type ChatOrgBranding =
@@ -63,15 +66,7 @@ function hasOrgBranding(
   );
 }
 
-/** Deterministic driver cartoon preset from driver UUID (matches fleet / alerts). */
-export function driverAvatarSeedFromId(driverId: string): string {
-  const value = (driverId ?? "").trim() || "driver";
-  let hash = 0;
-  for (let i = 0; i < value.length; i++) {
-    hash = (hash + value.charCodeAt(i)) % 10;
-  }
-  return `driver-${hash + 1}`;
-}
+export { driverAvatarSeedFromId } from "@/lib/partyAvatarDisplay";
 
 function resolveDriverAvatarIdentity(params: {
   driverId: string | null | undefined;

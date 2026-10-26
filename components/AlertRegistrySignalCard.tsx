@@ -17,7 +17,12 @@ import {
 } from "@/lib/alertRegistry/registryAlertPresentation.util";
 import type { RegistryNotificationAvatar } from "@/lib/alertRegistry/registryNotificationAvatar.types";
 import { createStyles, text, view, webView } from "@/lib/styles/createStyles";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+
+const WEB_COPY =
+  Platform.OS === "web"
+    ? ({ whiteSpace: "pre-wrap", letterSpacing: 0 } as const)
+    : ({ letterSpacing: 0 } as const);
 
 /** Metronic demo2 tokens — notifications dropdown + privacy-settings buttons. */
 const METRONIC = {
@@ -216,12 +221,13 @@ export function AlertRegistrySignalCard({
             <Text
               style={[
                 styles.headline,
+                WEB_COPY,
                 compact && variant === "tile" && styles.headlineCompact,
               ]}
               numberOfLines={compact ? 2 : 4}
             >
-              <Text style={styles.actorName}>{actorName}</Text>
-              <Text style={styles.actionText}> {actionText}</Text>
+              <Text style={[styles.actorName, WEB_COPY]}>{actorName}</Text>
+              <Text style={[styles.actionText, WEB_COPY]}> {actionText}</Text>
               {highlightText ? (
                 <Text style={styles.highlightText}> {highlightText}</Text>
               ) : null}
@@ -238,7 +244,7 @@ export function AlertRegistrySignalCard({
         </View>
 
         <Text
-          style={[styles.metaLine, compact && variant === "tile" && styles.metaLineCompact]}
+          style={[styles.metaLine, WEB_COPY, compact && variant === "tile" && styles.metaLineCompact]}
           numberOfLines={1}
         >
           {timeLabel}
@@ -257,6 +263,7 @@ export function AlertRegistrySignalCard({
               <Text
                 style={[
                   styles.detailTitle,
+                  WEB_COPY,
                   compact && variant === "tile" && styles.detailTitleCompact,
                 ]}
                 numberOfLines={2}
@@ -268,6 +275,7 @@ export function AlertRegistrySignalCard({
               <Text
                 style={[
                   styles.detailSubtitle,
+                  WEB_COPY,
                   compact && variant === "tile" && styles.detailSubtitleCompact,
                 ]}
                 numberOfLines={2}
@@ -471,8 +479,7 @@ const stylesDef = {
   }),
   detailMedia: view({
     width: "100%",
-    minHeight: 120,
-    maxHeight: 168,
+    minHeight: 0,
     borderRadius: 6,
     overflow: "hidden",
     marginBottom: 4,
@@ -519,6 +526,7 @@ const stylesDef = {
   }),
   metaBlock: view({
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "flex-end",
     justifyContent: "space-between",
     gap: 8,
@@ -541,9 +549,11 @@ const stylesDef = {
   }),
   metaActions: view({
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "flex-end",
-    flexShrink: 0,
+    flexShrink: 1,
+    minWidth: 0,
     marginLeft: "auto",
   }),
   metaActionsCompact: webView({

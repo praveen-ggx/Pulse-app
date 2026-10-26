@@ -166,7 +166,16 @@ export function SectionHeader({
     <View style={sh.wrap}>
       <View style={sh.left}>
         <View style={[sh.accent, { backgroundColor: color }]} />
-        <Text style={sh.title}>{label}</Text>
+        <Text
+          style={[
+            sh.title,
+            Platform.OS === 'web'
+              ? ({ whiteSpace: 'pre-wrap', letterSpacing: 0 } as const)
+              : null,
+          ]}
+        >
+          {label}
+        </Text>
       </View>
       {trailing}
     </View>

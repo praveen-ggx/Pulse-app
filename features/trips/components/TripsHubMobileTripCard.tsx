@@ -29,6 +29,7 @@ import {
 import { splitHubRouteLocationDisplay } from "@/features/trips/utils/tripLocationDisplay.util";
 import { isLoadBasedTrip } from "@/features/trips/visibility/tripVisibility";
 import { formatIndianVehicleNumber } from "@/lib/format";
+import { driverAvatarSeedFromId } from "@/lib/partyAvatarDisplay";
 import { assignedVehiclePlate } from "@/features/trips/utils/tripAssignmentVehicle.util";
 import type { ReactNode } from "react";
 import { memo, useState } from "react";
@@ -227,7 +228,7 @@ function PartyChip({
   vehiclePlate,
 }: {
   name: string;
-  entityType: "supplier" | "driver";
+  entityType: "supplier" | "driver" | "vehicle";
   avatarUrl?: string | null;
   avatarSeed?: string | null;
   initialsColorSeed?: string;
@@ -569,7 +570,7 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
   const vehicleFb = trip.vehicle_id
     ? `vehicle-entity:${String(trip.vehicle_id).trim()}`
     : `vehicle-trip:${trip.id}`;
-  const leftChipEntityType = isAssetTrip ? "driver" : "supplier";
+  const leftChipEntityType = isAssetTrip ? "vehicle" : "supplier";
   const leftChipAvatarUrl = isAssetTrip ? undefined : supplierAvatarUrl;
   const leftChipAvatarSeed = isAssetTrip ? undefined : supplierAvatarSeed;
   const leftChipInitialsSeed = isAssetTrip ? vehicleFb : supplierFb;
@@ -817,7 +818,12 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
                     name={driverChipName}
                     entityType="driver"
                     avatarUrl={driverAvatarUrl}
-                    avatarSeed={driverAvatarSeed}
+                    avatarSeed={
+                      driverAvatarSeed ||
+                      (trip.driver_id
+                        ? driverAvatarSeedFromId(String(trip.driver_id))
+                        : null)
+                    }
                     initialsColorSeed={driverFb}
                     alignEnd
                     presencePing={inTransitPing}
@@ -849,7 +855,12 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
                     name={driverChipName}
                     entityType="driver"
                     avatarUrl={driverAvatarUrl}
-                    avatarSeed={driverAvatarSeed}
+                    avatarSeed={
+                      driverAvatarSeed ||
+                      (trip.driver_id
+                        ? driverAvatarSeedFromId(String(trip.driver_id))
+                        : null)
+                    }
                     initialsColorSeed={driverFb}
                     alignEnd
                     presencePing={inTransitPing}

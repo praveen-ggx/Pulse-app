@@ -3,17 +3,20 @@ import {
   AlertRegistrySignalCard,
 } from "@/components/AlertRegistrySignalCard";
 import {
-  RegistryCardActions,
   RegistryGhostButton,
   RegistryPrimaryButton,
 } from "@/components/AlertRegistryCardActions";
 import Layout from "@/constants/Layout";
 import { Theme } from "@/constants/Theme";
 import type { RegistryStatusTone } from "@/lib/alertRegistry/registryAlertPresentation.util";
+import { signCompliancePreviewUrl } from "@/features/tripCompliance/services/complianceDocumentView.service";
 import {
   formatVaultDocDate,
+  isPdfTripDoc,
   vaultDocDateToIso,
 } from "@/features/trips/components/trip-detail/tripDocTypes";
+import { VaultDocThumb } from "@/features/trips/components/trip-detail/VaultDocThumb";
+import { isInlinePreviewUri } from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import {
   buildEwayBillStripRows,
   clampEwayBillNumber,
@@ -24,8 +27,12 @@ import {
   type EwayBillStripRow,
   type EwayFieldValues,
 } from "@/features/trips/services/ewayBillFields.util";
+import { fetchAdjustmentActorNames } from "@/features/trips/components/trip-detail/adjustment/tripAdjustmentAddedLog.util";
+import { useAuth } from "@/contexts/AuthContext";
+import { useOrganization } from "@/contexts/OrganizationContext";
+import { formatLedgerDateTime } from "@/lib/format";
 import Feather from "@expo/vector-icons/Feather";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -41,6 +48,7 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const HUG_BTN: ViewStyle = {
   alignSelf: "flex-start",
@@ -49,7 +57,11 @@ const HUG_BTN: ViewStyle = {
   minWidth: 0,
   width: "auto",
 };
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+const WEB_COPY =
+  Platform.OS === "web"
+    ? ({ whiteSpace: "pre-wrap", letterSpacing: 0 } as const)
+    : ({ letterSpacing: 0 } as const);
 
 export { buildEwayBillStripRows };
 export type { EwayBillStripRow, EwayFieldValues };
@@ -62,7 +74,7 @@ type Props = {
   canUpload?: boolean;
   canEdit?: boolean;
   onSave?: (values: EwayFieldValues[]) => Promise<boolean>;
-  /** Notification cards (vault) vs the legacy table. */
+  /** Same notification card on phone and desktop. Pass `table` only for the old grid. */
   variant?: "table" | "feed";
   compact?: boolean;
 };
@@ -75,7 +87,98 @@ const EMPTY_ROW: EwayBillStripRow = {
   validTill: "—",
   docNo: "—",
   canView: false,
+  updatedAt: null,
+  updatedById: null,
+  previewPath: null,
+  previewUri: null,
+  previewFileName: null,
+  previewMime: null,
 };
+
+function ewayUpdateTimeLabel(iso?: string | null): string {
+  const stamp = formatLedgerDateTime(iso);
+  return stamp === "—" ? "" : stamp;
+}
+
+function EwayTinyPreview({
+  row,
+  organizationId,
+  onPress,
+}: {
+  row: EwayBillStripRow;
+  organizationId?: string | null;
+  onPress: () => void;
+}) {
+  const readyUri = row.previewUri?.trim() || "";
+  const storagePath = row.previewPath?.trim() || "";
+  const [uri, setUri] = useState<string | null>(readyUri || null);
+  const [pending, setPending] = useState(!readyUri && !!storagePath);
+
+  useEffect(() => {
+    const ready = row.previewUri?.trim() || "";
+    if (ready) {
+      setUri(ready);
+      setPending(false);
+      return;
+    }
+    const path = row.previewPath?.trim() || "";
+    if (!path || path.startsWith("ref:")) {
+      setUri(null);
+      setPending(false);
+      return;
+    }
+    if (isInlinePreviewUri(path)) {
+      setUri(path);
+      setPending(false);
+      return;
+    }
+    let cancelled = false;
+    setPending(true);
+    void signCompliancePreviewUrl({
+      storagePath: path,
+      source: "trip",
+      organizationId,
+    }).then((signed) => {
+      if (cancelled) return;
+      setUri(signed);
+      setPending(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId, row.previewPath, row.previewUri]);
+
+  if (!pending && !uri) return null;
+
+  const pdf = isPdfTripDoc({
+    fileName: row.previewFileName,
+    mimeType: row.previewMime,
+    storagePath: row.previewPath,
+  });
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={styles.tinyPreview}
+      accessibilityRole="button"
+      accessibilityLabel={`Preview e-way bill${row.ewayNo !== "—" ? ` ${row.ewayNo}` : ""}`}
+    >
+      {uri ? (
+        <VaultDocThumb
+          uri={uri}
+          isPdf={pdf}
+          fileName={row.previewFileName}
+          sizing="cover"
+          style={styles.tinyThumb}
+        />
+      ) : (
+        <View style={styles.tinyLoading}>
+          <ActivityIndicator size="small" color={Theme.actionBtnInk} />
+        </View>
+      )}
+    </Pressable>
+  );
+}
 
 function displayToDraft(value: string): string {
   return value === "—" ? "" : value;
@@ -205,18 +308,20 @@ function EwayDatePreviewField({
           <Feather name="calendar" size={16} color={Theme.brandBlueInk} />
         </View>
         <View style={styles.datePreviewCopy}>
-          <Text style={styles.datePreviewLabel}>{label}</Text>
+          <Text style={[styles.datePreviewLabel, WEB_COPY]}>{label}</Text>
           <Text
-            style={[styles.datePreviewValue, !hasDate && styles.datePreviewEmpty]}
+            style={[styles.datePreviewValue, WEB_COPY, !hasDate && styles.datePreviewEmpty]}
             numberOfLines={1}
           >
             {pretty || emptyHint}
           </Text>
           {hasDate && label === "Valid till" ? (
-            <Text style={styles.datePreviewMeta}>{ewayRemainingLabel(selectedIso)}</Text>
+            <Text style={[styles.datePreviewMeta, WEB_COPY]}>
+              {ewayRemainingLabel(selectedIso)}
+            </Text>
           ) : null}
         </View>
-        <Text style={styles.datePreviewToggle}>{open ? "Hide" : "Adjust"}</Text>
+        <Text style={[styles.datePreviewToggle, WEB_COPY]}>{open ? "Hide" : "Adjust"}</Text>
       </Pressable>
       {open ? (
         <View style={styles.datePreviewBody}>
@@ -234,7 +339,7 @@ function EwayDatePreviewField({
                     accessibilityState={{ selected: active }}
                     accessibilityLabel={`${label} ${chip.label}`}
                   >
-                    <Text style={[styles.dateChipText, active && styles.dateChipTextActive]}>
+                    <Text style={[styles.dateChipText, WEB_COPY, active && styles.dateChipTextActive]}>
                       {chip.label}
                     </Text>
                   </Pressable>
@@ -274,11 +379,47 @@ export function EwayBillLrStrip({
   canUpload,
   canEdit,
   onSave,
-  variant = "table",
+  variant = "feed",
 }: Props) {
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const { currentOrganization } = useOrganization();
+  const auth = useAuth();
+  const currentUserId = auth.user?.uid ?? auth.profile?.uid ?? null;
+  const currentUserName =
+    auth.profile?.full_name?.trim() ||
+    auth.profile?.displayName?.trim() ||
+    auth.user?.displayName?.trim() ||
+    null;
+  const desktopSheet = windowWidth >= 640;
   const displayRows = rows.length > 0 ? rows : [EMPTY_ROW];
+  const updaterIds = useMemo(
+    () => displayRows.map((row) => row.updatedById),
+    [displayRows],
+  );
+  const [actorNames, setActorNames] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let cancelled = false;
+    const ids = updaterIds.filter((id): id is string => Boolean(id?.trim()));
+    if (ids.length === 0) {
+      setActorNames({});
+      return;
+    }
+    void fetchAdjustmentActorNames(ids, currentOrganization?.id).then((map) => {
+      if (!cancelled) setActorNames(map);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [updaterIds, currentOrganization?.id]);
+
+  const resolveUpdaterName = (row: EwayBillStripRow): string => {
+    const id = row.updatedById?.trim();
+    if (id && actorNames[id]?.trim()) return actorNames[id].trim();
+    if (id && currentUserId === id && currentUserName) return currentUserName;
+    if (id) return "Team member";
+    return "";
+  };
   const showEdit = !!canEdit && !!onSave;
   const showUpload = !!canUpload && !!onUpload;
   const [editing, setEditing] = useState(false);
@@ -356,30 +497,32 @@ export function EwayBillLrStrip({
     >
       {feed ? (
         <>
+          <Text style={[styles.sectionTitle, WEB_COPY]}>E-way Bill</Text>
           {displayRows.map((row) => {
             const expiry = ewayExpiryLabel(row.validTill);
             const expiryTone = ewayExpiryTone(expiry);
             const hasNumber = Boolean(row.ewayNo && row.ewayNo !== "—");
-            const primaryAdd = () => {
-              if (showUpload) {
-                onUpload?.(row.id);
-                return;
-              }
-              if (showEdit) openEditor(row);
-            };
+            const updaterName = resolveUpdaterName(row);
+            const updatedAtLabel = ewayUpdateTimeLabel(row.updatedAt);
             return (
               <AlertRegistrySignalCard
                 key={row.id}
                 variant="feed"
                 isUnread={!hasNumber}
                 avatar={{
-                  name: hasNumber ? row.ewayNo : "E-way bill",
+                  name: updaterName || (hasNumber ? row.ewayNo : "E-way bill"),
                   entityType: "client",
-                  initialsColorSeed: row.id,
+                  initialsColorSeed: row.updatedById || row.id,
                 }}
-                actorName={hasNumber ? row.ewayNo : "E-way bill"}
+                actorName={updaterName || (hasNumber ? row.ewayNo : "E-way bill")}
                 actionText={
-                  hasNumber ? "is on file for this trip" : "needs an e-way number"
+                  updaterName
+                    ? hasNumber
+                      ? "updated this e-way bill"
+                      : "started this e-way bill"
+                    : hasNumber
+                      ? "is on file for this trip"
+                      : "needs an e-way number"
                 }
                 detailTitle={hasNumber ? row.ewayNo : "E-way bill"}
                 detailSubtitle={
@@ -391,30 +534,46 @@ export function EwayBillLrStrip({
                     .filter(Boolean)
                     .join(" · ") || "Add the e-way number to continue"
                 }
-                timeLabel={row.createdDate !== "—" ? row.createdDate : "Vault"}
-                contextLabel="Documents"
+                timeLabel={updatedAtLabel || "—"}
+                contextLabel={updaterName || "Documents"}
+                detailMedia={
+                  row.canView && (row.previewPath || row.previewUri) ? (
+                    <EwayTinyPreview
+                      row={row}
+                      organizationId={currentOrganization?.id}
+                      onPress={() => onView(row.id)}
+                    />
+                  ) : null
+                }
                 statusPill={ewayStatusPill(row, expiry, expiryTone)}
                 footer={
-                  <RegistryCardActions>
+                  <View style={styles.feedActions}>
                     <RegistryGhostButton
                       label="Preview"
                       disabled={!row.canView}
                       onPress={() => onView(row.id)}
                       style={HUG_BTN}
                     />
-                    {showUpload || showEdit ? (
-                      <RegistryPrimaryButton
-                        label="Add"
-                        onPress={primaryAdd}
+                    {showEdit ? (
+                      <RegistryGhostButton
+                        label="Edit"
+                        onPress={() => openEditor(row)}
                         style={HUG_BTN}
                       />
                     ) : null}
-                  </RegistryCardActions>
+                    {showUpload ? (
+                      <RegistryPrimaryButton
+                        label="Upload"
+                        onPress={() => onUpload?.(row.id)}
+                        style={HUG_BTN}
+                      />
+                    ) : null}
+                  </View>
                 }
               />
             );
           })}
-          {showEdit ? (
+          {showEdit && !editing ? (
             <View style={styles.feedAddRow}>
               <RegistryPrimaryButton
                 label="Add e-way number"
@@ -445,9 +604,23 @@ export function EwayBillLrStrip({
               const expiryTone = ewayExpiryTone(expiry);
               return (
                 <View key={row.id} style={styles.dataRow}>
-                  <Text style={[styles.cell, styles.colEway]} numberOfLines={1}>
-                    {row.ewayNo}
-                  </Text>
+                  <View style={styles.colEway}>
+                    <Text style={styles.cell} numberOfLines={1}>
+                      {row.ewayNo}
+                    </Text>
+                    {ewayUpdateTimeLabel(row.updatedAt) || resolveUpdaterName(row) ? (
+                      <Text style={styles.logMeta} numberOfLines={2}>
+                        {[
+                          ewayUpdateTimeLabel(row.updatedAt),
+                          resolveUpdaterName(row)
+                            ? `by ${resolveUpdaterName(row)}`
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                      </Text>
+                    ) : null}
+                  </View>
                   <Text style={[styles.cell, styles.colDate]} numberOfLines={1}>
                     {row.createdDate}
                   </Text>
@@ -558,136 +731,141 @@ export function EwayBillLrStrip({
         transparent
         onRequestClose={closeEditor}
       >
-        <KeyboardAvoidingView
-          style={styles.modalRoot}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-        >
+        <View style={[styles.modalRoot, { minHeight: windowHeight }]}>
           <Pressable style={styles.modalBackdrop} onPress={closeEditor} />
-          <View
-            style={[
-              styles.modalCard,
-              {
-                marginTop: insets.top + Layout.headerPaddingBelowInset,
-                marginBottom: insets.bottom + Layout.modalBottomPadding,
-                maxHeight:
-                  windowHeight -
-                  insets.top -
-                  insets.bottom -
-                  Layout.headerPaddingBelowInset -
-                  Layout.modalBottomPadding,
-              },
-            ]}
+          <KeyboardAvoidingView
+            style={styles.modalCenter}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            pointerEvents="box-none"
           >
-            <ScrollView
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.modalBody}
+            <View
+              style={[
+                styles.modalCard,
+                desktopSheet ? styles.modalCardDesktop : styles.modalCardPhone,
+                {
+                  marginTop: Math.max(insets.top, 16),
+                  marginBottom: Math.max(insets.bottom, 16),
+                  maxHeight:
+                    windowHeight -
+                    Math.max(insets.top, 16) -
+                    Math.max(insets.bottom, 16),
+                },
+              ]}
             >
-            <Text style={styles.modalTitle}>
-              {editingIndex === "new" ? "Add e-way bill" : "E-way bill"}
-            </Text>
-            <Text style={styles.modalSubtitle}>
-              Fill these if the number and date did not come from the document.
-            </Text>
-            <View style={styles.fieldWrap}>
-              <Text style={styles.fieldLabel}>E-way No</Text>
-              <TextInput
-                style={styles.fieldInput}
-                value={draft.ewayNo}
-                onChangeText={(ewayNo) =>
-                  setDraft((prev) => ({
-                    ...prev,
-                    ewayNo: clampEwayBillNumber(ewayNo),
-                  }))
-                }
-                placeholder="12-digit e-way number"
-                placeholderTextColor={Theme.textMuted}
-                keyboardType="number-pad"
-                maxLength={EWAY_BILL_NUMBER_MAX_DIGITS}
-                autoCorrect={false}
-                editable={!saving}
-              />
-            </View>
-            <EwayDatePreviewField
-              label="Created date"
-              emptyHint="Issue date on the bill"
-              selectedIso={createdDateIso}
-              open={!saving && showDatePicker === "createdDate"}
-              onToggle={() => {
-                if (saving) return;
-                setShowDatePicker((open) =>
-                  open === "createdDate" ? null : "createdDate",
-                );
-              }}
-              onSelect={(iso) => applyDraftDate("createdDate", iso)}
-              maxDate={toIsoToday()}
-            />
-            <EwayDatePreviewField
-              label="Valid till"
-              emptyHint="When this e-way expires"
-              selectedIso={validTillIso}
-              open={!saving && showDatePicker === "validTill"}
-              onToggle={() => {
-                if (saving) return;
-                setShowDatePicker((open) =>
-                  open === "validTill" ? null : "validTill",
-                );
-              }}
-              onSelect={(iso) => applyDraftDate("validTill", iso)}
-              minDate={createdDateIso || toIsoToday()}
-              chips={VALID_TILL_SPANS}
-            />
-            <View style={styles.fieldWrap}>
-              <Text style={styles.fieldLabel}>Doc No</Text>
-              <TextInput
-                style={styles.fieldInput}
-                value={draft.docNo}
-                onChangeText={(docNo) => setDraft((prev) => ({ ...prev, docNo }))}
-                placeholder="E-way document number"
-                placeholderTextColor={Theme.textMuted}
-                autoCapitalize="characters"
-                autoCorrect={false}
-                editable={!saving}
-              />
-            </View>
-            <View style={styles.modalActions}>
-              {canRemove ? (
-                <TouchableOpacity
-                  style={styles.cancelBtn}
-                  onPress={() => void saveEditor("remove")}
+              <View style={styles.modalHeader}>
+                <View style={styles.modalHeaderCopy}>
+                  <Text style={[styles.modalTitle, WEB_COPY]}>
+                    {editingIndex === "new" ? "Add e-way bill" : "E-way bill"}
+                  </Text>
+                  <Text style={[styles.modalSubtitle, WEB_COPY]}>
+                    Fill these if the number and date did not come from the document.
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={closeEditor}
                   disabled={saving}
+                  style={styles.modalClose}
+                  hitSlop={8}
                   accessibilityRole="button"
-                  accessibilityLabel="Remove e-way bill"
+                  accessibilityLabel="Close e-way bill editor"
                 >
-                  <Text style={styles.removeBtnText}>Remove</Text>
-                </TouchableOpacity>
-              ) : null}
-              <TouchableOpacity
-                style={styles.cancelBtn}
-                onPress={closeEditor}
-                disabled={saving}
-                accessibilityRole="button"
-                accessibilityLabel="Cancel e-way bill edit"
+                  <Feather name="x" size={18} color={Theme.textMuted} />
+                </Pressable>
+              </View>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.modalBody}
               >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.saveBtn}
-                onPress={() => void saveEditor("save")}
-                disabled={saving}
-                accessibilityRole="button"
-                accessibilityLabel="Save e-way bill details"
-              >
-                {saving ? (
-                  <ActivityIndicator size="small" color={Theme.buttonPrimaryText} />
-                ) : (
-                  <Text style={styles.saveBtnText}>Save</Text>
-                )}
-              </TouchableOpacity>
+                <View style={styles.fieldWrap}>
+                  <Text style={[styles.fieldLabel, WEB_COPY]}>E-way No</Text>
+                  <TextInput
+                    style={[styles.fieldInput, WEB_COPY]}
+                    value={draft.ewayNo}
+                    onChangeText={(ewayNo) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        ewayNo: clampEwayBillNumber(ewayNo),
+                      }))
+                    }
+                    placeholder="12-digit e-way number"
+                    placeholderTextColor={Theme.textMuted}
+                    keyboardType="number-pad"
+                    maxLength={EWAY_BILL_NUMBER_MAX_DIGITS}
+                    autoCorrect={false}
+                    editable={!saving}
+                  />
+                </View>
+                <EwayDatePreviewField
+                  label="Created date"
+                  emptyHint="Issue date on the bill"
+                  selectedIso={createdDateIso}
+                  open={!saving && showDatePicker === "createdDate"}
+                  onToggle={() => {
+                    if (saving) return;
+                    setShowDatePicker((open) =>
+                      open === "createdDate" ? null : "createdDate",
+                    );
+                  }}
+                  onSelect={(iso) => applyDraftDate("createdDate", iso)}
+                  maxDate={toIsoToday()}
+                />
+                <EwayDatePreviewField
+                  label="Valid till"
+                  emptyHint="When this e-way expires"
+                  selectedIso={validTillIso}
+                  open={!saving && showDatePicker === "validTill"}
+                  onToggle={() => {
+                    if (saving) return;
+                    setShowDatePicker((open) =>
+                      open === "validTill" ? null : "validTill",
+                    );
+                  }}
+                  onSelect={(iso) => applyDraftDate("validTill", iso)}
+                  minDate={createdDateIso || toIsoToday()}
+                  chips={VALID_TILL_SPANS}
+                />
+                <View style={styles.fieldWrap}>
+                  <Text style={[styles.fieldLabel, WEB_COPY]}>Doc No</Text>
+                  <TextInput
+                    style={[styles.fieldInput, WEB_COPY]}
+                    value={draft.docNo}
+                    onChangeText={(docNo) => setDraft((prev) => ({ ...prev, docNo }))}
+                    placeholder="E-way document number"
+                    placeholderTextColor={Theme.textMuted}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    editable={!saving}
+                  />
+                </View>
+              </ScrollView>
+              <View style={styles.modalActions}>
+                {canRemove ? (
+                  <RegistryGhostButton
+                    label="Remove"
+                    onPress={() => void saveEditor("remove")}
+                    disabled={saving}
+                    style={HUG_BTN}
+                  />
+                ) : null}
+                <View style={styles.modalActionsEnd}>
+                  <RegistryGhostButton
+                    label="Cancel"
+                    onPress={closeEditor}
+                    disabled={saving}
+                    style={HUG_BTN}
+                  />
+                  <RegistryPrimaryButton
+                    label={saving ? "Saving" : "Save"}
+                    onPress={() => void saveEditor("save")}
+                    disabled={saving}
+                    style={HUG_BTN}
+                  />
+                </View>
+              </View>
             </View>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
+          </KeyboardAvoidingView>
+        </View>
       </Modal>
     </View>
   );
@@ -703,16 +881,45 @@ const styles = StyleSheet.create({
   feedWrap: {
     width: "100%",
     alignSelf: "stretch",
+    gap: 8,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: Theme.actionBtnInk,
+    paddingHorizontal: 2,
+    paddingTop: 4,
+  },
+  feedActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    gap: 6,
+    maxWidth: "100%",
+  },
+  tinyPreview: {
+    width: "100%",
+    height: 72,
+    borderRadius: 6,
+    overflow: "hidden",
+    backgroundColor: Theme.compliancePreviewCanvas,
+  },
+  tinyThumb: {
+    width: "100%",
+    height: "100%",
+  },
+  tinyLoading: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   feedAddRow: {
     flexDirection: "row",
-    justifyContent: "flex-end",
+    justifyContent: "flex-start",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: Theme.cardWhite,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Theme.borderLight,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
   },
   table: {
     width: "100%",
@@ -770,6 +977,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Theme.warning,
   },
+  logMeta: {
+    marginTop: 2,
+    fontSize: 10,
+    fontWeight: "600",
+    color: Theme.textMuted,
+  },
   expiryOk: {
     color: Theme.positive,
   },
@@ -801,12 +1014,18 @@ const styles = StyleSheet.create({
   },
   modalRoot: {
     flex: 1,
-    justifyContent: "center",
-    paddingHorizontal: Layout.screenPaddingHorizontal,
+    width: "100%",
+    height: "100%",
   },
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: Theme.overlayBackdrop,
+  },
+  modalCenter: {
+    flex: 1,
+    width: "100%",
+    justifyContent: "center",
+    paddingHorizontal: Layout.screenPaddingHorizontal,
   },
   modalCard: {
     backgroundColor: Theme.cardWhite,
@@ -814,31 +1033,64 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Theme.surfaceBorder,
     paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 14,
+    paddingTop: 14,
+    paddingBottom: 12,
     zIndex: 1,
+    gap: 12,
+  },
+  modalCardPhone: {
+    alignSelf: "stretch",
+    width: "100%",
+  },
+  modalCardDesktop: {
+    alignSelf: "center",
+    width: 440,
+    maxWidth: "100%",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  modalHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  modalClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.surface,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
+    flexShrink: 0,
   },
   modalBody: {
-    gap: 10,
+    gap: 12,
+    paddingBottom: 4,
   },
   modalTitle: {
     fontSize: 16,
-    fontWeight: "800",
+    lineHeight: 22,
+    fontWeight: "700",
     color: Theme.textPrimaryDark,
   },
   modalSubtitle: {
-    fontSize: 12,
-    fontWeight: "600",
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "500",
     color: Theme.textMuted,
-    marginTop: -4,
   },
   fieldWrap: {
-    gap: 4,
+    gap: 6,
   },
   fieldLabel: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.7,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
     color: Theme.textMuted,
   },
   fieldInput: {
@@ -883,16 +1135,15 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   datePreviewLabel: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
     color: Theme.textMuted,
   },
   datePreviewValue: {
     fontSize: 15,
-    lineHeight: 19,
-    fontWeight: "800",
+    lineHeight: 20,
+    fontWeight: "700",
     color: Theme.textPrimaryDark,
   },
   datePreviewEmpty: {
@@ -907,8 +1158,9 @@ const styles = StyleSheet.create({
   },
   datePreviewToggle: {
     flexShrink: 0,
-    fontSize: 11,
-    fontWeight: "800",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
     color: Theme.brandBlueInk,
   },
   datePreviewBody: {
@@ -1012,41 +1264,19 @@ const styles = StyleSheet.create({
   modalActions: {
     flexDirection: "row",
     flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    paddingTop: 4,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Theme.borderLight,
+  },
+  modalActionsEnd: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
     justifyContent: "flex-end",
     gap: 8,
-    marginTop: 6,
-  },
-  cancelBtn: {
-    minHeight: Layout.minTouchTargetSize,
-    paddingHorizontal: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 10,
-  },
-  cancelBtnText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: Theme.textMuted,
-  },
-  removeBtnText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: Theme.teslaRed,
-  },
-  saveBtn: {
-    minHeight: Layout.minTouchTargetSize,
-    minWidth: 88,
-    paddingHorizontal: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: Theme.buttonPrimaryRadius,
-    backgroundColor: Theme.buttonPrimary,
-    borderWidth: Theme.buttonPrimaryBorderWidth,
-    borderColor: Theme.buttonPrimaryBorder,
-  },
-  saveBtnText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: Theme.buttonPrimaryText,
+    marginLeft: "auto",
   },
 });

@@ -1,3 +1,4 @@
+import { PartyAvatar } from '@/components/PartyAvatar';
 import Theme from '@/constants/Theme';
 import { Layout } from '@/constants/Layout';
 import type { OrgHubSection } from '@/features/organization/components/workspace/workspacePanelTypes';
@@ -5,7 +6,6 @@ import {
   GREEN,
   SectionHeader,
   modelLabel,
-  orgInitials,
   workspacePanelStyles as panelStyles,
 } from '@/features/organization/components/workspace/workspacePanelUi';
 import {
@@ -26,7 +26,12 @@ import {
   ShieldCheck,
   Users,
 } from 'lucide-react-native';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+
+const WEB_COPY =
+  Platform.OS === 'web'
+    ? ({ whiteSpace: 'pre-wrap', letterSpacing: 0 } as const)
+    : ({ letterSpacing: 0 } as const);
 import {
   formatOrgHubDate,
   maskGstin,
@@ -65,7 +70,7 @@ function HubRow({
       accessibilityRole="button"
       accessibilityLabel={label}
     >
-      <Text style={styles.rowLabel}>{label}</Text>
+      <Text style={[styles.rowLabel, WEB_COPY]}>{label}</Text>
       {trailing === 'check' ? (
         <Check size={16} color={GREEN} strokeWidth={2.6} />
       ) : trailing === 'clock' ? (
@@ -120,10 +125,15 @@ export function OrganizationHomePanel({
   return (
     <View style={panelStyles.panelStack}>
       <View style={styles.hero}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{orgInitials(orgName)}</Text>
-        </View>
-        <Text style={styles.orgName}>{orgName || 'Organisation'}</Text>
+        <PartyAvatar
+          name={orgName || 'Organisation'}
+          initialsColorSeed={organization?.id ?? orgName}
+          organizationImageUrl={organization?.logo_url}
+          entityType="client"
+          isIntegrated
+          size={64}
+        />
+        <Text style={[styles.orgName, WEB_COPY]}>{orgName || 'Organisation'}</Text>
         <View style={styles.statusRow}>
           {status === 'verified' ? (
             <ShieldCheck size={14} color={GREEN} strokeWidth={2.4} />
@@ -137,6 +147,7 @@ export function OrganizationHomePanel({
           <Text
             style={[
               styles.statusKicker,
+              WEB_COPY,
               status === 'verified' && { color: GREEN },
               status === 'pending' && { color: Theme.warning },
               status === 'rejected' && { color: Theme.destructive },
@@ -147,9 +158,9 @@ export function OrganizationHomePanel({
         </View>
         {status === 'verified' ? (
           <>
-            {gstinLine ? <Text style={styles.meta}>{gstinLine}</Text> : null}
-            {typeLabel ? <Text style={styles.meta}>{typeLabel}</Text> : null}
-            <Text style={styles.body}>
+            {gstinLine ? <Text style={[styles.meta, WEB_COPY]}>{gstinLine}</Text> : null}
+            {typeLabel ? <Text style={[styles.meta, WEB_COPY]}>{typeLabel}</Text> : null}
+            <Text style={[styles.body, WEB_COPY]}>
               {verifiedOn ? `Verified ${verifiedOn}.` : copy.kicker}
             </Text>
             <Pressable
@@ -158,13 +169,13 @@ export function OrganizationHomePanel({
               accessibilityRole="button"
               accessibilityLabel="View verification"
             >
-              <Text style={styles.linkCtaText}>View verification</Text>
+              <Text style={[styles.linkCtaText, WEB_COPY]}>View verification</Text>
             </Pressable>
           </>
         ) : null}
         {status === 'unverified' ? (
           <>
-            <Text style={styles.body}>{copy.body}</Text>
+            <Text style={[styles.body, WEB_COPY]}>{copy.body}</Text>
             {canEdit ? (
               <Pressable
                 onPress={onStartVerify}
@@ -172,14 +183,14 @@ export function OrganizationHomePanel({
                 accessibilityRole="button"
                 accessibilityLabel="Continue verification"
               >
-                <Text style={styles.ctaText}>Continue verification</Text>
+                <Text style={[styles.ctaText, WEB_COPY]}>Continue verification</Text>
               </Pressable>
             ) : null}
           </>
         ) : null}
         {status === 'pending' ? (
           <>
-            <Text style={styles.body}>
+            <Text style={[styles.body, WEB_COPY]}>
               {submittedOn
                 ? `Submitted ${submittedOn}.`
                 : "We're reviewing your business information and documents."}
@@ -190,13 +201,13 @@ export function OrganizationHomePanel({
               accessibilityRole="button"
               accessibilityLabel="View submission"
             >
-              <Text style={styles.linkCtaText}>View submission</Text>
+              <Text style={[styles.linkCtaText, WEB_COPY]}>View submission</Text>
             </Pressable>
           </>
         ) : null}
         {status === 'rejected' ? (
           <>
-            <Text style={styles.body}>{copy.body}</Text>
+            <Text style={[styles.body, WEB_COPY]}>{copy.body}</Text>
             {canEdit ? (
               <Pressable
                 onPress={onStartVerify}
@@ -204,7 +215,7 @@ export function OrganizationHomePanel({
                 accessibilityRole="button"
                 accessibilityLabel="Fix verification"
               >
-                <Text style={styles.ctaText}>Fix verification</Text>
+                <Text style={[styles.ctaText, WEB_COPY]}>Fix verification</Text>
               </Pressable>
             ) : null}
           </>
@@ -247,7 +258,9 @@ export function OrganizationHomePanel({
             style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
           >
             <Users size={14} color={Theme.textMuted} strokeWidth={2} />
-            <Text style={[styles.rowLabel, styles.rowLabelFlex]}>Members & access</Text>
+            <Text style={[styles.rowLabel, styles.rowLabelFlex, WEB_COPY]}>
+              Members & access
+            </Text>
             <ChevronRight size={16} color={Theme.textMuted} strokeWidth={2} />
           </Pressable>
         </View>
@@ -261,7 +274,7 @@ export function OrganizationHomePanel({
             style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
           >
             <Settings2 size={14} color={Theme.textMuted} strokeWidth={2} />
-            <Text style={[styles.rowLabel, styles.rowLabelFlex]}>
+            <Text style={[styles.rowLabel, styles.rowLabelFlex, WEB_COPY]}>
               Workspace settings
             </Text>
             <ChevronRight size={16} color={Theme.textMuted} strokeWidth={2} />
@@ -270,7 +283,7 @@ export function OrganizationHomePanel({
       ) : null}
 
       {organization?.operatingModel ? (
-        <Text style={styles.footerMeta}>
+        <Text style={[styles.footerMeta, WEB_COPY]}>
           {`${modelLabel(organization.operatingModel)} · ${orgName || 'Organisation'}`}
         </Text>
       ) : null}
@@ -288,21 +301,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     alignItems: 'center',
     gap: 6,
-  },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    backgroundColor: Theme.brandBlueSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-  },
-  avatarText: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: Theme.brandBlueInk,
-    letterSpacing: -0.3,
   },
   orgName: {
     fontSize: 22,

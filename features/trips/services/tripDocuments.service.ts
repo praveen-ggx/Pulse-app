@@ -1012,7 +1012,15 @@ export async function upsertEwayBillFields(input: {
     );
 
   if (target) {
-    return { error: await updateTripDocumentNumber(target.id, serialized) };
+    const { error: updateError } = await supabase()
+      .from("trip_documents")
+      .update({
+        document_number: serialized,
+        uploaded_by: input.uploadedBy,
+        uploaded_at: new Date().toISOString(),
+      })
+      .eq("id", target.id);
+    return { error: updateError ? new Error(updateError.message) : null };
   }
 
   const path = ewayBillFieldsStoragePath(input.tripId);
@@ -1033,7 +1041,11 @@ export async function upsertEwayBillFields(input: {
   if (insertError.code === "23505") {
     const { error: updateError } = await supabase()
       .from("trip_documents")
-      .update({ document_number: serialized })
+      .update({
+        document_number: serialized,
+        uploaded_by: input.uploadedBy,
+        uploaded_at: new Date().toISOString(),
+      })
       .eq("storage_path", path);
     return { error: updateError ? new Error(updateError.message) : null };
   }

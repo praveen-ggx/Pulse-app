@@ -10,11 +10,12 @@ import {
   isIntegratedClientRow,
   isIntegratedSupplierRow,
 } from "@/features/trips/visibility/tripVisibility";
-import type { PartyEntityType } from "@/lib/partyAvatarDisplay";
 import {
+  driverAvatarSeedFromId,
   partyAvatarHasRenderableOutput,
   partyInitialsFromName,
   resolvePartyDisplayUri,
+  type PartyEntityType,
 } from "@/lib/partyAvatarDisplay";
 import { resolveAvatarPublicUrl } from "@/lib/avatarUpload";
 import type { LinkedOrgDisplay } from "@/lib/useLinkedOrgProfileMap";
@@ -89,11 +90,13 @@ export function resolvePartyAvatarIdentityFromDriver(
     (driver?.avatar_url ?? "").trim() ||
     (resolvedAvatarUrl ?? "").trim() ||
     null;
+  const driverId = (driver?.id ?? "").trim();
+  const dbSeed = (driver?.avatar_seed ?? "").trim() || null;
   return {
     displayName: name,
     entityType: "driver",
     avatarUrl: url,
-    avatarSeed: (driver?.avatar_seed ?? "").trim() || null,
+    avatarSeed: dbSeed || (driverId ? driverAvatarSeedFromId(driverId) : null),
     isIntegrated: false,
   };
 }

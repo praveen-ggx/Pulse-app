@@ -570,7 +570,7 @@ export async function uploadAndSaveVehicleDocumentForTrip(
       resolved.orgId,
       vehicleId,
       docType,
-      file,
+      { ...file, arrayBuffer: file.arrayBuffer.slice(0) },
       expiryDate,
       resolved.documents ?? existingDocuments,
     );
@@ -592,7 +592,7 @@ export async function uploadAndSaveVehicleDocumentForTrip(
       entityId: vehicleId,
       docType,
       file: {
-        arrayBuffer: file.arrayBuffer,
+        arrayBuffer: file.arrayBuffer.slice(0),
         mimeType: file.mimeType,
         fileName: file.fileName,
       },

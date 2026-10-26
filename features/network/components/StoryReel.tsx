@@ -17,6 +17,7 @@ import {
   sameOrgId,
   selectNetworkAndSponsoredStoryPosts,
 } from "@/features/network/utils/storyLoadVisibility.util";
+import { storyIdsForBubble, matchesStoryBubble } from "@/features/network/utils/storyReelOpen.util";
 import { storyOrgPreviewLabel } from "@/features/network/utils/storyStrip.util";
 import { useRecordSponsoredImpressions } from "@/features/reach/hooks/useRecordSponsoredImpressions";
 import { useLiveOwnLoadStoriesQuery } from "@/lib/queries/usePostsQuery";
@@ -127,14 +128,6 @@ function isDisplayedActiveStory(post: PostRow): boolean {
     return post.is_active !== false;
   }
   return false;
-}
-
-function matchesStoryBubble(post: PostRow, bubble: PostRow): boolean {
-  return (
-    sameOrgId(post.organization_id, bubble.organization_id) &&
-    post.type === bubble.type &&
-    !!post.is_sponsored === !!bubble.is_sponsored
-  );
 }
 
 function activeStoryCountForBubble(posts: readonly PostRow[], bubble: PostRow): number {
@@ -521,9 +514,7 @@ export function StoryReel({
     }
     return ids.size;
   }, [liveOwnLoadsQ.data, ownStories]);
-  const reelQueueIds = [...ownStoryQueueResolved.map((s) => s.id), ...stories.map((s) => s.id)]
-    .filter(Boolean)
-    .join(",");
+  const mineQueueIds = ownStoryQueueResolved.map((s) => s.id).filter(Boolean).join(",");
   const hasOwnStories = ownStoryQueueResolved.length > 0;
 
   /** Mine bubble is the org brand (logo), not the signed-in user's personal avatar. */
@@ -605,7 +596,7 @@ export function StoryReel({
                 postId: latestOwnStory.id,
                 orgId: latestOwnStory.organization_id,
                 storyType: latestOwnStory.type,
-                queue: reelQueueIds,
+                queue: mineQueueIds,
               },
             });
           }}
@@ -704,7 +695,7 @@ export function StoryReel({
                   postId: post.id,
                   orgId: post.organization_id,
                   storyType: post.type,
-                  queue: reelQueueIds,
+                  queue: storyIdsForBubble(businessOnly, post).join(","),
                 },
               });
             }}

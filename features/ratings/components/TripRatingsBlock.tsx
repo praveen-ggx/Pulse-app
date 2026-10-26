@@ -1964,26 +1964,31 @@ export function TripRatingsBlock({
             ) : (
               <>
                 <View style={[styles.bizFormWrap, isDesktop && styles.bizFormWrapDesktop]}>
-                  <TouchableOpacity
-                    style={styles.bizBackBtn}
-                    onPress={closeModal}
-                    activeOpacity={0.8}
-                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                  >
-                    <Feather name="chevron-left" size={22} color={Theme.textPrimaryDark} />
-                  </TouchableOpacity>
-
-                  <View style={styles.bizFormHeader}>
-                    <View style={styles.bizLiveDot} />
-                    <Text style={styles.bizFormTitle}>
-                      {isEditMode ? 'Edit feedback' : pulseUi.formTitle}
-                    </Text>
+                  <View style={styles.bizTopBar}>
+                    <TouchableOpacity
+                      style={styles.bizBackBtn}
+                      onPress={closeModal}
+                      activeOpacity={0.8}
+                      hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Close feedback"
+                    >
+                      <Feather name="chevron-left" size={20} color={Theme.textPrimaryDark} />
+                    </TouchableOpacity>
+                    <View style={styles.bizTopBarText}>
+                      <View style={styles.bizFormHeader}>
+                        <View style={styles.bizLiveDot} />
+                        <Text style={styles.bizFormTitle} numberOfLines={1}>
+                          {isEditMode ? 'Edit feedback' : pulseUi.formTitle}
+                        </Text>
+                      </View>
+                      <Text style={styles.bizFormHint}>
+                        {isEditMode
+                          ? 'Update the fields below, then submit.'
+                          : 'Rate this trip to keep the network reliable.'}
+                      </Text>
+                    </View>
                   </View>
-                  <Text style={styles.bizFormHint}>
-                    {isEditMode
-                      ? 'Update the fields below, then submit.'
-                      : 'Fill required fields and continue.'}
-                  </Text>
 
                   <View style={styles.bizPartyRow}>
                     <SharedPartyAvatar
@@ -2027,10 +2032,7 @@ export function TripRatingsBlock({
                       <TouchableOpacity
                         key={n}
                         onPress={() => setScore(n)}
-                        style={[
-                          styles.starBtnPulse,
-                          { transform: [{ scale: n <= score ? 1.08 : 1 }] },
-                        ]}
+                        style={styles.starBtnPulse}
                         hitSlop={12}
                         activeOpacity={0.85}
                       >
@@ -2071,7 +2073,7 @@ export function TripRatingsBlock({
                                 ? styles.tagChipTextPulseActive
                                 : styles.tagChipTextPulseIdle,
                             ]}
-                            numberOfLines={1}
+                            numberOfLines={2}
                           >
                             {tag.label}
                           </Text>
@@ -2135,30 +2137,35 @@ export function TripRatingsBlock({
         }}
       >
             <View style={[styles.bizFormWrap, isDesktop && styles.bizFormWrapDesktop]}>
-              <TouchableOpacity
-                style={styles.bizBackBtn}
-                onPress={() => {
-                  setShowClientFeedbackModal(false);
-                  setIsClientEditMode(false);
-                  setClientEditReason('');
-                }}
-                activeOpacity={0.8}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              >
-                <Feather name="chevron-left" size={22} color={Theme.textPrimaryDark} />
-              </TouchableOpacity>
-
-              <View style={styles.bizFormHeader}>
-                <View style={styles.bizLiveDot} />
-                <Text style={styles.bizFormTitle}>
-                  {isClientEditMode ? 'Edit feedback' : 'Settlement feedback'}
-                </Text>
+              <View style={styles.bizTopBar}>
+                <TouchableOpacity
+                  style={styles.bizBackBtn}
+                  onPress={() => {
+                    setShowClientFeedbackModal(false);
+                    setIsClientEditMode(false);
+                    setClientEditReason('');
+                  }}
+                  activeOpacity={0.8}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close feedback"
+                >
+                  <Feather name="chevron-left" size={20} color={Theme.textPrimaryDark} />
+                </TouchableOpacity>
+                <View style={styles.bizTopBarText}>
+                  <View style={styles.bizFormHeader}>
+                    <View style={styles.bizLiveDot} />
+                    <Text style={styles.bizFormTitle} numberOfLines={1}>
+                      {isClientEditMode ? 'Edit feedback' : 'Settlement feedback'}
+                    </Text>
+                  </View>
+                  <Text style={styles.bizFormHint}>
+                    {isClientEditMode
+                      ? 'Update the fields below, then submit.'
+                      : 'Rate this settlement to keep the network reliable.'}
+                  </Text>
+                </View>
               </View>
-              <Text style={styles.bizFormHint}>
-                {isClientEditMode
-                  ? 'Update the fields below, then submit.'
-                  : 'Fill required fields and continue.'}
-              </Text>
 
               <View style={styles.bizPartyRow}>
                 <SharedPartyAvatar
@@ -2205,10 +2212,7 @@ export function TripRatingsBlock({
                   <TouchableOpacity
                     key={`client-rate-${n}`}
                     onPress={() => setClientScore(n)}
-                    style={[
-                      styles.starBtnPulse,
-                      { transform: [{ scale: n <= clientScore ? 1.08 : 1 }] },
-                    ]}
+                    style={styles.starBtnPulse}
                     hitSlop={12}
                     activeOpacity={0.85}
                   >
@@ -2245,7 +2249,7 @@ export function TripRatingsBlock({
                             ? styles.tagChipTextPulseActive
                             : styles.tagChipTextPulseIdle,
                         ]}
-                        numberOfLines={1}
+                        numberOfLines={2}
                       >
                         {tag.label}
                       </Text>
@@ -2387,22 +2391,29 @@ export function TripRatingsBlock({
           onRequestClose={() => { setShowEditConfirm(false); setPendingEditTarget(null); }}
         >
           <View style={[styles.bizFormWrap, isDesktop && styles.bizFormWrapDesktop]}>
-            <TouchableOpacity
-              style={styles.bizBackBtn}
-              onPress={() => { setShowEditConfirm(false); setPendingEditTarget(null); }}
-              activeOpacity={0.8}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            >
-              <Feather name="chevron-left" size={22} color={Theme.textPrimaryDark} />
-            </TouchableOpacity>
-            <View style={styles.bizFormHeader}>
-              <View style={styles.bizLiveDot} />
-              <Text style={styles.bizFormTitle}>Edit submitted feedback?</Text>
+            <View style={styles.bizTopBar}>
+              <TouchableOpacity
+                style={styles.bizBackBtn}
+                onPress={() => { setShowEditConfirm(false); setPendingEditTarget(null); }}
+                activeOpacity={0.8}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+              >
+                <Feather name="chevron-left" size={20} color={Theme.textPrimaryDark} />
+              </TouchableOpacity>
+              <View style={styles.bizTopBarText}>
+                <View style={styles.bizFormHeader}>
+                  <View style={styles.bizLiveDot} />
+                  <Text style={styles.bizFormTitle} numberOfLines={2}>
+                    Edit submitted feedback?
+                  </Text>
+                </View>
+                <Text style={styles.bizFormHint}>
+                  Your previous rating will be replaced. Tell us why you are updating it.
+                </Text>
+              </View>
             </View>
-            <Text style={styles.bizFormHint}>
-              Your previous feedback will be replaced with the changes you submit. Please tell us why
-              you're updating it.
-            </Text>
             <Text style={styles.bizFieldLabel}>Reason</Text>
             <TextInput
               style={styles.editConfirmInput}
@@ -3449,26 +3460,36 @@ const styles = StyleSheet.create({
   },
   bizFormWrap: {
     paddingHorizontal: 20,
-    paddingTop: 12,
+    paddingTop: 16,
     paddingBottom: 20,
     backgroundColor: Theme.screenBackground,
   },
   bizFormWrapDesktop: {
-    paddingHorizontal: 28,
-    paddingTop: 16,
-    paddingBottom: 24,
+    paddingHorizontal: 24,
+    paddingTop: 18,
+    paddingBottom: 22,
+  },
+  bizTopBar: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 16,
+  },
+  bizTopBarText: {
+    flex: 1,
+    minWidth: 0,
+    paddingTop: 2,
   },
   bizBackBtn: {
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: '#f1f5f9',
+    backgroundColor: Theme.surface,
     borderWidth: 1,
-    borderColor: '#e8ecf1',
+    borderColor: Theme.surfaceBorder,
     alignItems: 'center',
     justifyContent: 'center',
-    alignSelf: 'flex-start',
-    marginBottom: 8,
+    flexShrink: 0,
   },
   bizFormHeader: {
     flexDirection: 'row',
@@ -3480,25 +3501,30 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#22c55e',
+    backgroundColor: Theme.positive,
+    flexShrink: 0,
   },
   bizFormTitle: {
-    ...FinanceTxnTypography.partyTitle,
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '700',
+    color: Theme.textPrimaryDark,
+    letterSpacing: -0.2,
     flexShrink: 1,
+    minWidth: 0,
   },
   bizFormHint: {
-    ...FinanceTxnTypography.routeWhy,
-    fontSize: 9,
-    lineHeight: 14,
-    marginBottom: 14,
+    fontSize: 13,
+    lineHeight: 18,
+    color: Theme.textSecondary,
   },
   bizPartyRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    marginBottom: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    marginBottom: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: Theme.borderInput,
@@ -3510,48 +3536,55 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   bizPartyName: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '700',
     color: Theme.textPrimaryDark,
   },
   bizPartyMeta: {
-    ...FinanceTxnTypography.routeWhy,
-    fontSize: 9,
+    fontSize: 13,
+    lineHeight: 18,
+    color: Theme.textSecondary,
   },
   bizFieldLabel: {
-    ...FinanceTxnTypography.fieldLabel,
-    marginBottom: 6,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
+    color: Theme.textSecondary,
+    letterSpacing: 0.2,
+    marginBottom: 8,
     alignSelf: 'flex-start',
   },
   bizFieldLabelSpaced: {
-    marginTop: 12,
+    marginTop: 16,
   },
   bizHelperHint: {
-    ...FinanceTxnTypography.routeWhy,
-    fontSize: 9,
-    lineHeight: 14,
-    marginBottom: 12,
+    fontSize: 12,
+    lineHeight: 17,
+    color: Theme.textMuted,
+    marginBottom: 14,
   },
   bizPrimaryBtn: {
-    marginTop: 16,
+    marginTop: 20,
+    minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
     backgroundColor: Theme.buttonDark,
     paddingVertical: 14,
+    paddingHorizontal: 16,
     borderRadius: 14,
     width: '100%',
   },
   bizPrimaryBtnDisabled: {
-    opacity: 0.45,
+    opacity: 0.4,
   },
   bizPrimaryBtnText: {
-    ...FinanceTxnTypography.buttonLabel,
-    fontSize: 11,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: '700',
     color: Theme.buttonDarkText,
-    letterSpacing: 0.75,
   },
   submitErrorText: {
     marginTop: 12,
@@ -3675,19 +3708,21 @@ const styles = StyleSheet.create({
   },
   starsPulse: {
     flexDirection: 'row',
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
     alignItems: 'center',
     alignSelf: 'stretch',
-    gap: 10,
     marginBottom: 4,
   },
   starsPulseDesktop: {
-    gap: 14,
+    justifyContent: 'space-between',
+    maxWidth: 280,
     marginBottom: 4,
   },
   starBtnPulse: {
-    paddingVertical: 6,
-    paddingHorizontal: 4,
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   composerSectionPulse: {
     width: '100%',
@@ -3698,11 +3733,11 @@ const styles = StyleSheet.create({
   tagsWrapPulse: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     gap: 8,
   },
   tagsWrapPulseDesktop: {
-    gap: 10,
+    gap: 8,
   },
   clientTagsWrapPulse: {
     width: '100%',
@@ -3711,50 +3746,51 @@ const styles = StyleSheet.create({
     columnGap: 8,
   },
   clientTagsWrapPulseDesktop: {
-    flexWrap: 'nowrap',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
     gap: 8,
   },
   tagChipPulse: {
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderWidth: 1,
   },
   tagChipPulseDesktop: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
   },
   clientTagChipPulse: {
-    minHeight: 34,
-    paddingHorizontal: 12,
+    minHeight: 40,
+    paddingHorizontal: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   clientTagChipPulseDesktop: {
     width: 'auto',
-    flex: 1,
+    flexGrow: 0,
+    flexShrink: 1,
     minWidth: 0,
     minHeight: 40,
-    paddingHorizontal: 6,
+    paddingHorizontal: 14,
   },
   tagChipPulseIdle: {
     backgroundColor: Theme.surface,
-    borderColor: Theme.borderLight,
+    borderColor: Theme.borderInput,
   },
   tagChipPulseActive: {
     backgroundColor: Theme.buttonPrimary,
     borderColor: Theme.primary,
   },
   tagChipTextPulse: {
-    fontSize: 9,
-    fontWeight: '500',
-    letterSpacing: 0.35,
-    textTransform: 'uppercase',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   tagChipTextPulseDesktop: {
-    fontSize: 10,
-    letterSpacing: 0.2,
+    fontSize: 13,
+    lineHeight: 18,
   },
   tagChipTextPulseIdle: {
     color: Theme.textSecondary,

@@ -2699,7 +2699,7 @@ export function ComplianceDocumentWorkspace({
   showFinanceTab?: boolean;
   /** Log hard-copy POD — Compliance role (and owner/admin) only. */
   canManagePod?: boolean;
-  /** Upload / Replace / Remove trip files (Ground Ops resubmit). Verifiers only view. */
+  /** Upload / Replace / Remove trip files. Ground Ops: document view, not only resubmit. */
   canEditTripFiles?: boolean;
   /** True while the POD queue can log hard copy (POD Pending, or All on an awaiting trip). */
   showHardCopyPodLog?: boolean;
@@ -3971,6 +3971,24 @@ export function ComplianceDocumentWorkspace({
         return;
       }
       if (uploadingFinanceType) return;
+      if (groundOpsDocumentLock && !isFinanceMode && tab === "trip" && hasFile(row)) {
+        const lock = groundOpsDocumentLockReason({
+          trip: {
+            status: summary.trip.status,
+            compliance_verified_at: summary.complianceVerifiedAt,
+            compliance_declined_at: summary.complianceDeclinedAt,
+            compliance_resubmitted_at: summary.complianceResubmittedAt ?? null,
+            finance_verified_at: summary.financeVerifiedAt ?? null,
+          },
+          documentStatus: row.doc?.status,
+          advancePosted: Boolean(summary.advance || summary.advanceBeforeVerification),
+          ownRecentUpload: isOwnRecentUpload(row.doc, actorId),
+        });
+        if (lock) {
+          alertMessage("Can't upload", groundOpsDocumentLockLabel(lock));
+          return;
+        }
+      }
       // LR: same dialog as the Trips hub (LR number + copies, duplicate check),
       // so the number is never left empty after an upload from here.
       if (row.type === "lr" && !isFinanceMode) {
@@ -4045,6 +4063,7 @@ export function ComplianceDocumentWorkspace({
             entityId,
             existing: index > 0 ? row.entityDoc : null,
             append: index > 0,
+            skipVehicleVault: groundOpsDocumentLock,
             file,
             expiryDate,
           });
@@ -4078,6 +4097,7 @@ export function ComplianceDocumentWorkspace({
     [
       actorId,
       canEditFiles,
+      groundOpsDocumentLock,
       isFinanceMode,
       listRows,
       mobileExclusive,
@@ -4402,7 +4422,7 @@ export function ComplianceDocumentWorkspace({
           label={rowLabel}
           meta={meta}
           onFile={rowHasFile}
-          canUpload={canEditFiles && !uploadingFinanceType}
+          canUpload={canEditFiles && !uploadingFinanceType && !complianceTypeAddLockReason(displayRow.type)}
           entityType={entityType}
           required={displayRow.required}
           actionText={

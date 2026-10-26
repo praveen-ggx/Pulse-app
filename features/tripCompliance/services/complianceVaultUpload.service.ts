@@ -99,6 +99,11 @@ export type ComplianceVaultUploadInput = {
   existing: ComplianceEntityDocument | null | undefined;
   /** Extra files of an already-used type append instead of replacing the vault slot. */
   append?: boolean;
+  /**
+   * Ground Ops cannot finish a vehicles.documents write (and a failed vault
+   * upsert+rollback can delete the existing RC/FC object). Write entity_documents.
+   */
+  skipVehicleVault?: boolean;
   file: ComplianceVaultFile;
   expiryDate: string | null;
 };
@@ -108,7 +113,7 @@ export type ComplianceVaultUploadInput = {
  * conflict means the file already landed, so it is treated as success.
  */
 export async function uploadComplianceVaultFile(input: ComplianceVaultUploadInput): Promise<void> {
-  const { scope, type, tripId, organizationId, actorId, vehicleId, entityId, existing, append, file, expiryDate } = input;
+  const { scope, type, tripId, organizationId, actorId, vehicleId, entityId, existing, append, skipVehicleVault, file, expiryDate } = input;
 
   if (scope === "trip") {
     const { error } = await uploadTripDocument(
@@ -119,7 +124,14 @@ export async function uploadComplianceVaultFile(input: ComplianceVaultUploadInpu
       undefined,
       { replaceExistingOfType: false },
     );
-    if (error && !isTripDocumentsStoragePathConflict({ message: error.message })) throw error;
+    if (error && !isTripDocumentsStoragePathConflict({ message: error.message })) {
+      const denied = /row-level security|violates|policy|permission/i.test(error.message);
+      throw new Error(
+        denied
+          ? "Could not save this trip file. Ground Ops can upload only when document upload is on for the organization and the trip is in your warehouse."
+          : error.message,
+      );
+    }
     invalidateCompliancePreviewCache([existing?.storage_path]);
     return;
   }
@@ -132,7 +144,7 @@ export async function uploadComplianceVaultFile(input: ComplianceVaultUploadInpu
     );
   }
 
-  if (scope === "vehicle" && COMPLIANCE_VEHICLE_VAULT_TYPES.has(type) && vehicleId && !append) {
+  if (scope === "vehicle" && COMPLIANCE_VEHICLE_VAULT_TYPES.has(type) && vehicleId && !append && !skipVehicleVault) {
     // First file for RC / FC / insurance / etc. overwrites the vault slot (same
     // path as Trip Detail). Extra files in the same picker still append below.
     const saved = await uploadAndSaveVehicleDocumentForTrip(

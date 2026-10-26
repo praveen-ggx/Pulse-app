@@ -18,7 +18,18 @@ describe("Vault PDF thumb contract", () => {
   it("keeps the iframe hash toolbar off unless the caller asks for chrome", () => {
     expect(viewer).toContain('toolbar=${toolbar}');
     expect(viewer).toContain("Cached first-page JPEG");
-    expect(viewer).toContain("if (!showToolbar)");
+    // Only thumbs raster page 1; a reading preview (full tier or scrollbar) keeps the iframe.
+    expect(viewer).toMatch(/useBitmapPage\s*=\s*!showToolbar && previewTier !== "full" && !scrollbar/);
+    expect(viewer).toContain("if (useBitmapPage)");
+  });
+
+  it("lets Compliance scroll PDF pages unless the app owns rotate/pan", () => {
+    const workspace = readFileSync(
+      join(process.cwd(), "features/tripCompliance/components/ComplianceDocumentWorkspace.tsx"),
+      "utf8",
+    );
+    expect(workspace).toContain('previewTier={pdfViewOwned ? "thumb" : "full"}');
+    expect(workspace).toContain("scrollbar={!pdfViewOwned}");
   });
 });
 

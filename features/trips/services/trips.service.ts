@@ -10,7 +10,9 @@ import { isDcoOperatingTrip } from "@/features/trips/domain/tripDcoOperating";
 import {
     EMPTY_ORG_HUB_METRICS,
     parseOrgHubMetrics,
+    resolveOrgHubMetricsRpcResult,
     type OrgHubMetrics,
+    type OrgHubMetricsSource,
 } from "@/features/trips/utils/orgHubMetrics.util";
 import {
     shouldFallbackTripsTableScan,
@@ -296,8 +298,9 @@ function normalizeTripRowWithIndent(
 
 /**
  * Fetch all trips visible to an org via RPC — includes cross-org supplier trips. Mirrors useTripsQuery.
- * The list is the newest 400; `includeComplianceBacklog` also returns older trips still open in
- * the Compliance workflow (verified / approved / requested, not settled) for the Compliance queue.
+ * The list is the newest 400; a dated call is newest 2000 matching trips (not unlimited).
+ * `includeComplianceBacklog` also returns older trips still open in the Compliance workflow
+ * (verified / approved / requested, not settled) for the Compliance queue.
  */
 export async function getTripsForOrg(
   orgId: string,
@@ -1507,7 +1510,8 @@ async function getOrgHubMetricsFallback(
     assigned,
     loading,
     inTransit,
-    unloading,
+    destAtDrop,
+    destWithDocs,
     noDriver,
     draftOrCancelled,
     indentFailed,
@@ -1533,6 +1537,15 @@ async function getOrgHubMetricsFallback(
     ),
     headCount(() =>
       trip()
+        .in("status", ["unloading", "arrived", "at_destination", "at_drop"])
+        .not("driver_id", "is", null),
+    ),
+    headCount(() =>
+      supabase()
+        .from("trips")
+        .select("id, trip_documents!inner(id)", { count: "exact", head: true })
+        .eq("organization_id", orgId)
+        .is("deleted_at", null)
         .in("status", ["unloading", "arrived", "at_destination", "at_drop"])
         .not("driver_id", "is", null),
     ),
@@ -1568,8 +1581,8 @@ async function getOrgHubMetricsFallback(
   ]);
 
   const firstError = [
-    completed, cancelled, active, assigned, loading, inTransit, unloading,
-    noDriver, draftOrCancelled, indentFailed, failClient, failExpiredReason,
+    completed, cancelled, active, assigned, loading, inTransit, destAtDrop,
+    destWithDocs, noDriver, draftOrCancelled, indentFailed, failClient, failExpiredReason,
     failExpiredStatus, failNoRates, failWrong, indentOpen, indentAllocated,
   ].find((row) => row.error)?.error ?? null;
 
@@ -1585,8 +1598,8 @@ async function getOrgHubMetricsFallback(
       assigned: assigned.count,
       loading: loading.count,
       inTransit: inTransit.count,
-      unloading: unloading.count,
-      deliveredDocsPending: completed.count,
+      unloading: Math.max(0, destAtDrop.count - destWithDocs.count),
+      deliveredDocsPending: destWithDocs.count,
       indentUnallocated: Math.max(0, indentOpen.count - indentAllocated.count),
       indentFailed: indentFailed.count,
       failReasons: {
@@ -1605,28 +1618,44 @@ export async function getOrgHubMetrics(
 ): Promise<{
   error: Error | null;
   metrics: OrgHubMetrics;
+  source: OrgHubMetricsSource;
 }> {
-  if (!orgId) return { error: null, metrics: EMPTY_ORG_HUB_METRICS };
+  if (!orgId) {
+    return { error: null, metrics: EMPTY_ORG_HUB_METRICS, source: "empty" };
+  }
   const { data, error } = await supabase().rpc("count_org_hub_metrics", {
     p_org_id: orgId,
   });
-  if (!error && data) {
-    const metrics = parseOrgHubMetrics(data);
-    return { error: null, metrics };
+  const resolution = resolveOrgHubMetricsRpcResult({ error, data });
+  if (resolution === "parse") {
+    return { error: null, metrics: parseOrgHubMetrics(data), source: "rpc" };
   }
-  return getOrgHubMetricsFallback(orgId);
+  if (resolution === "empty") {
+    return { error: null, metrics: EMPTY_ORG_HUB_METRICS, source: "empty" };
+  }
+  return { error: null, metrics: EMPTY_ORG_HUB_METRICS, source: "fallback" };
 }
 
 /** Exact owned-trip totals for org profile / hub stats — not catalog `.length`. */
 export async function getOrgTripCounts(
   orgId: string,
 ): Promise<{ error: Error | null; counts: OrgTripCounts }> {
-  const { error, metrics } = await getOrgHubMetrics(orgId);
+  const { error, metrics, source } = await getOrgHubMetrics(orgId);
+  if (source === "rpc" || source === "empty") {
+    return {
+      error,
+      counts: {
+        total: metrics.tripsActive + metrics.tripsCompleted,
+        completed: metrics.tripsCompleted,
+      },
+    };
+  }
+  const fallback = await getOrgHubMetricsFallback(orgId);
   return {
-    error,
+    error: fallback.error,
     counts: {
-      total: metrics.tripsActive + metrics.tripsCompleted,
-      completed: metrics.tripsCompleted,
+      total: fallback.metrics.tripsActive + fallback.metrics.tripsCompleted,
+      completed: fallback.metrics.tripsCompleted,
     },
   };
 }

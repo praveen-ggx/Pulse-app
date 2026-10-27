@@ -1,5 +1,19 @@
 import { isInfrastructureErrorMessage } from "@/lib/supabaseHttp.util";
 
+/** Live undated get_trips_for_org catalog size. */
+export const GET_TRIPS_FOR_ORG_DEFAULT_CAP = 400;
+/** Dated-mode safety cap in 20271027155318. Not unlimited. */
+export const GET_TRIPS_FOR_ORG_DATED_SAFETY_CAP = 2000;
+
+export function isDatedGetTripsForOrgCapped(rowCount: number): boolean {
+  return rowCount >= GET_TRIPS_FOR_ORG_DATED_SAFETY_CAP;
+}
+
+export function datedGetTripsForOrgCapNote(rowCount: number): string | null {
+  if (!isDatedGetTripsForOrgCapped(rowCount)) return null;
+  return `Results may be incomplete (newest ${GET_TRIPS_FOR_ORG_DATED_SAFETY_CAP} matching trips)`;
+}
+
 /**
  * Table-scan fallback for `get_trips_for_org` is only for a missing RPC
  * (local/old schema). 503/504/timeout must not start a second `trips` SELECT

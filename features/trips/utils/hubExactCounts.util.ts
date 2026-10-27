@@ -56,6 +56,7 @@ export function buildOrgHubExactCounts(
     dateRangeFilter: TripHubDateFilter;
     customFrom?: string | null;
     customTo?: string | null;
+    /** Kept for callers that still want History on the docs-pending rail. Hub screen passes false. */
     includeCompletedInDelivered: boolean;
   },
 ): OrgHubExactCounts {

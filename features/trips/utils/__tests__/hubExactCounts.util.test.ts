@@ -17,16 +17,46 @@ describe("buildOrgHubExactCounts", () => {
           { id: "i3", status: "open", pickup_date: null, created_at: "2026-10-04" },
         ],
       },
-      { dateRangeFilter: "all", includeCompletedInDelivered: true },
+      { dateRangeFilter: "all", includeCompletedInDelivered: false },
     );
 
     expect(counts.active).toBe(2);
     expect(counts.history).toBe(1);
     expect(counts.metrics.assigned).toBe(1);
     expect(counts.metrics.in_transit).toBe(1);
-    expect(counts.metrics.delivered_docs_pending).toBe(1);
+    expect(counts.metrics.delivered_docs_pending).toBe(0);
     expect(counts.metrics.indent).toBe(1);
     expect(counts.allActive).toBe(3);
     expect(counts.indentIdsWithTrip).toEqual(expect.arrayContaining(["i1", "i2"]));
+  });
+
+  it("does not treat completed History trips as documents pending", () => {
+    const counts = buildOrgHubExactCounts(
+      {
+        trips: [
+          {
+            id: "done",
+            status: "completed",
+            driver_id: "d1",
+            indent_id: null,
+            pickup_date: null,
+            created_at: "2026-10-01",
+          },
+          {
+            id: "pod",
+            status: "at_destination",
+            driver_id: "d1",
+            indent_id: null,
+            pickup_date: null,
+            created_at: "2026-10-01",
+          },
+        ],
+        documentTripIds: ["done", "pod"],
+        indents: [],
+      },
+      { dateRangeFilter: "all", includeCompletedInDelivered: false },
+    );
+    expect(counts.history).toBe(1);
+    expect(counts.metrics.delivered_docs_pending).toBe(1);
   });
 });

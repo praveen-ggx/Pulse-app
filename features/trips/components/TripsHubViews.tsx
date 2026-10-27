@@ -1600,14 +1600,15 @@ export function TripsHubTableView({
   );
 
   const dateFilterTagLabel = (() => {
+    const extra = (dateRangeLabel ?? "").trim();
     if (dateRangeFilter === "custom") {
-      const custom = (dateRangeLabel ?? "").trim();
-      return custom ? `DATE · ${custom}` : "DATE";
+      return extra ? `DATE · ${extra}` : "DATE";
     }
-    if (dateRangeFilter === "all") return "DATE";
+    if (dateRangeFilter === "all") return extra ? `DATE · ${extra}` : "DATE";
     const preset =
       datePresetOptions.find((opt) => opt.id === dateRangeFilter)?.label;
-    return preset ? `DATE · ${preset}` : "DATE";
+    if (preset && extra) return `DATE · ${preset} · ${extra}`;
+    return preset ? `DATE · ${preset}` : extra ? `DATE · ${extra}` : "DATE";
   })();
 
   const dateFilterActive = dateRangeFilter !== "all";

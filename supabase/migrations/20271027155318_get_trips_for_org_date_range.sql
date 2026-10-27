@@ -1,14 +1,29 @@
--- Trips hub date pills were filtering the newest 400 only (created since ~6 Oct
--- on prod). When p_from/p_to are set, return every visible trip whose pickup
--- date or Asia/Kolkata created day falls in that inclusive range (no 400 cap).
--- Default call (null range) is unchanged: newest 400, plus optional backlog.
+-- Dated hub pills need trips older than the newest-400 catalog.
 --
--- Body copied from 20271013113000_compliance_trips_backlog; only the signature
--- and the date / cap predicates change.
+-- Date semantics (matches lib/dateRangePresets.tripDayMatchesHubDateFilter):
+--   a trip is in range if pickup_date is in [p_from, p_to]
+--   OR the Asia/Kolkata calendar day of created_at is in [p_from, p_to].
+--   Not pickup-only. Not created-only.
+--
+-- Caps (do not treat dated mode as unlimited):
+--   p_from/p_to null: newest 400 + optional Compliance backlog (live behavior).
+--   both set: matching rows newest-first, safety cap 2000.
+--   2000 is the existing dated-draft bound, not a new arbitrary limit.
+--
+-- Replacement safety: this file is one transaction (Supabase wraps migrations).
+-- DROP of the live 2-arg identity rolls back if CREATE fails, so the function
+-- cannot stay absent. After apply, verify PostgREST sees the 4-arg identity:
+--   select pg_get_function_identity_arguments(p.oid)
+--   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+--   where n.nspname = 'public' and p.proname = 'get_trips_for_org';
+-- expect: p_org_id uuid, p_include_compliance_backlog boolean, p_from date, p_to date
+--
+-- Visibility, grants, and backlog rules are unchanged from 20271013113000.
+-- 2-arg / p_org_id-only callers still bind (new args default null).
 
 SET LOCAL lock_timeout = '5s';
 
-drop function if exists public.get_trips_for_org(uuid, boolean);
+DROP FUNCTION IF EXISTS public.get_trips_for_org(uuid, boolean);
 
 create function public.get_trips_for_org(
   p_org_id uuid,
@@ -213,6 +228,9 @@ AS $function$
   ORDER BY r.created_at DESC;
 $function$;
 
-revoke all on function public.get_trips_for_org(uuid, boolean, date, date) from public;
-grant execute on function public.get_trips_for_org(uuid, boolean, date, date)
-  to anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.get_trips_for_org(uuid, boolean, date, date) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_trips_for_org(uuid, boolean, date, date)
+  TO anon, authenticated, service_role;
+
+-- Reload PostgREST so p_from/p_to are callable immediately after apply.
+NOTIFY pgrst, 'reload schema';

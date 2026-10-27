@@ -43,6 +43,33 @@ function asCount(value: unknown): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
 }
 
+export type OrgHubMetricsSource = "rpc" | "empty" | "fallback";
+
+/**
+ * count_org_hub_metrics:
+ * - success + jsonb → parse (authoritative org-wide rails)
+ * - success + null → fail closed (not a member / denied). Do not table-scan.
+ * - error (missing RPC) → incomplete; do not present owner-only counts as org rails.
+ */
+export function resolveOrgHubMetricsRpcResult(args: {
+  error: { message?: string } | null;
+  data: unknown;
+}): "parse" | "empty" | "fallback" {
+  if (!args.error && args.data != null) return "parse";
+  if (!args.error && args.data == null) return "empty";
+  return "fallback";
+}
+
+/** Exact rails only when the RPC succeeded. Missing RPC is not a zeroed org. */
+export function hubMetricsForExactRail(args: {
+  source: OrgHubMetricsSource;
+  metrics: OrgHubMetrics;
+}): OrgHubMetrics | null {
+  if (args.source === "rpc") return args.metrics;
+  if (args.source === "empty") return EMPTY_ORG_HUB_METRICS;
+  return null;
+}
+
 export function parseOrgHubMetrics(raw: unknown): OrgHubMetrics {
   const row = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   return {

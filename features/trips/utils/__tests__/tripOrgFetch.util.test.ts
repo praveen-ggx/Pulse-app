@@ -1,4 +1,8 @@
 import {
+  GET_TRIPS_FOR_ORG_DATED_SAFETY_CAP,
+  GET_TRIPS_FOR_ORG_DEFAULT_CAP,
+  datedGetTripsForOrgCapNote,
+  isDatedGetTripsForOrgCapped,
   shouldFallbackTripsTableScan,
   shouldTableScanTripsForOrg,
   tripsForOrgRpcArgs,
@@ -7,6 +11,14 @@ import {
 describe("tripsForOrgRpcArgs", () => {
   it("sends only the org for the newest-400 list", () => {
     expect(tripsForOrgRpcArgs("org-1")).toEqual({ p_org_id: "org-1" });
+  });
+
+  it("omits date args for the live two-argument / p_org_id-only call", () => {
+    expect(tripsForOrgRpcArgs("org-1", { includeComplianceBacklog: true })).toEqual({
+      p_org_id: "org-1",
+      p_include_compliance_backlog: true,
+    });
+    expect(Object.keys(tripsForOrgRpcArgs("org-1"))).toEqual(["p_org_id"]);
   });
 
   it("adds a calendar range so the hub can load older months", () => {
@@ -58,5 +70,18 @@ describe("shouldTableScanTripsForOrg", () => {
     expect(
       shouldTableScanTripsForOrg({ message: "function get_trips_for_org does not exist" }),
     ).toBe(true);
+  });
+});
+
+describe("dated get_trips_for_org cap", () => {
+  it("keeps the agreed 400 / 2000 limits and labels a full dated page as truncated", () => {
+    expect(GET_TRIPS_FOR_ORG_DEFAULT_CAP).toBe(400);
+    expect(GET_TRIPS_FOR_ORG_DATED_SAFETY_CAP).toBe(2000);
+    expect(isDatedGetTripsForOrgCapped(1999)).toBe(false);
+    expect(isDatedGetTripsForOrgCapped(2000)).toBe(true);
+    expect(datedGetTripsForOrgCapNote(2000)).toBe(
+      "Results may be incomplete (newest 2000 matching trips)",
+    );
+    expect(datedGetTripsForOrgCapNote(20)).toBeNull();
   });
 });

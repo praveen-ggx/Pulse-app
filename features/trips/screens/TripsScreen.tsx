@@ -164,6 +164,7 @@ import {
   hubDateFilterIsoBounds,
   type TripHubDateFilter,
 } from "@/lib/dateRangePresets";
+import { datedGetTripsForOrgCapNote } from "@/features/trips/utils/tripOrgFetch.util";
 import { shouldShowAggregateTripKindPill } from "@/features/drivers/utils/driverUtils.util";
 import { formatLedgerDate } from "@/lib/format";
 import { toReportIsoDate } from "@/features/finance/lib/ledgerReportTable.util";
@@ -490,7 +491,7 @@ export default function TripsScreen() {
   const [showSortModal, setShowSortModal] = useState(false);
   const toolbarDateRangeFilter: ToolbarDateFilter =
     dateRangeFilter === "tomorrow" ? "all" : dateRangeFilter;
-  const hubDateRangeLabel =
+  const hubCustomDateRangeLabel =
     toolbarDateRangeFilter === "custom" && customDateFrom && customDateTo
       ? formatIsoDayRangeLabel(customDateFrom, customDateTo)
       : null;
@@ -599,6 +600,11 @@ export default function TripsScreen() {
     [customDateFrom, customDateTo, dateRangeFilter],
   );
   const { trips: hubDateRangeTrips } = useTripsHubDateRange(orgId, hubDateBounds);
+  const hubDateRangeLabel = useMemo(() => {
+    const capNote = hubDateBounds ? datedGetTripsForOrgCapNote(hubDateRangeTrips.length) : null;
+    if (hubCustomDateRangeLabel && capNote) return `${hubCustomDateRangeLabel} · ${capNote}`;
+    return capNote ?? hubCustomDateRangeLabel;
+  }, [hubCustomDateRangeLabel, hubDateBounds, hubDateRangeTrips.length]);
   const { hits: hubSearchHits, needle: hubSearchNeedle } = useTripsHubSearch(
     orgId,
     searchQuery,
@@ -1352,7 +1358,7 @@ export default function TripsScreen() {
       dateRangeFilter,
       customFrom: customDateFrom,
       customTo: customDateTo,
-      includeCompletedInDelivered: !showCompletedList,
+      includeCompletedInDelivered: false,
     });
   }, [
     hubCountSource,
@@ -1361,7 +1367,6 @@ export default function TripsScreen() {
     dateRangeFilter,
     customDateFrom,
     customDateTo,
-    showCompletedList,
   ]);
 
   const exactHubCountsAllDates = useMemo(() => {
@@ -1385,34 +1390,17 @@ export default function TripsScreen() {
       tripsForHubMetricCounts,
       tripIdsWithDocuments,
     );
-    if (!showCompletedList) {
-      const completedTripsCount = trips.filter(
-        (t) =>
-          isCompletedStatus(t.status) &&
-          tripMatchesSupplyFilter(
-            t,
-            supplyFilter,
-            tripKindPillMetaByTripId.get(t.id),
-            currentOrganization?.id,
-          ),
-      ).length;
-      counts.delivered_docs_pending += completedTripsCount;
-    }
     counts.indent = indentStageCount;
     return counts;
   }, [
     tripsForHubMetricCounts,
     tripIdsWithDocuments,
-    showCompletedList,
-    trips,
-    supplyFilter,
-    attributionFilter,
-    tripKindPillMetaByTripId,
-    currentOrganization?.id,
     dateFilteredUnallocatedIndents,
     exactHubCountsDated,
     hubMetrics,
     dateRangeFilter,
+    supplyFilter,
+    attributionFilter,
   ]);
 
   const transactionsByTripId = useMemo(() => {
@@ -1436,13 +1424,8 @@ export default function TripsScreen() {
       } else if (activeMetricTab === "indent") {
         list = [];
       } else if (activeMetricTab === "delivered_docs_pending") {
-        const deliveredDocsPendingTrips = tripsByStatus.filter(
+        list = tripsByStatus.filter(
           (t) => classifyTripMetric(t, tripIdsWithDocuments) === activeMetricTab,
-        );
-        const completedTrips = hubTrips.filter((t) => isCompletedStatus(t.status));
-        const seen = new Set(deliveredDocsPendingTrips.map((t) => t.id));
-        list = deliveredDocsPendingTrips.concat(
-          completedTrips.filter((t) => !seen.has(t.id)),
         );
       } else {
       list = list.filter(

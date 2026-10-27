@@ -17,7 +17,10 @@ import {
   type OrgTripCounts,
 } from '@/features/trips/services/trips.service';
 import type { OrgHubCountSource } from '@/features/trips/utils/hubExactCounts.util';
-import type { OrgHubMetrics } from '@/features/trips/utils/orgHubMetrics.util';
+import {
+  hubMetricsForExactRail,
+  type OrgHubMetrics,
+} from '@/features/trips/utils/orgHubMetrics.util';
 import { queryKeys } from '@/lib/queryKeys';
 import { STALE } from '@/lib/queryClient';
 import { refetchOnMountIfEntityListEmpty } from '@/lib/queries/entityListQueryOptions';
@@ -85,12 +88,12 @@ export function useOrgTripCountsQuery(orgId: string | null) {
 export function useOrgHubMetricsQuery(orgId: string | null) {
   const { status } = useAuth();
   const bootQuietOpen = useAppQueryGate(orgId);
-  return useQuery<OrgHubMetrics, Error>({
+  return useQuery<OrgHubMetrics | null, Error>({
     queryKey: queryKeys.trips.hubCounts(orgId ?? ''),
     queryFn: async () => {
       const res = await getOrgHubMetrics(orgId!);
       if (res.error) throw res.error;
-      return res.metrics;
+      return hubMetricsForExactRail(res);
     },
     enabled: !!orgId && status !== 'restoring' && bootQuietOpen,
     staleTime: STALE.moderate,

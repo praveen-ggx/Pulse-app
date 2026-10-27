@@ -375,11 +375,16 @@ export default function ComplianceScreen() {
   const canTabAdvancePayment = canSurface("trip_compliance.tab.advance_payment");
   const canTabSettlementVerification = canSurface("trip_compliance.tab.settlement_verification");
   const canTabFinalSettlement = canSurface("trip_compliance.tab.final_settlement");
+  /** Watch-only: every stage tab, actions still gated by their own surfaces. */
+  const canViewAllTabs = canSurface("trip_compliance.tab.view_all");
   // Debit control (POD only — no Document Upload, Verification or Finance tabs)
   // works completed trips only, and has no "All" (it would equal Awaiting POD).
   const debitControlOnly =
     canManagePod && !canViewDocuments && !canVerifyDocuments && !canMarkVerified && !canViewFinance;
   const visibleStages = useMemo(() => {
+    if (canViewAllTabs) {
+      return new Set<ComplianceQueueFilter>([...STAGE_LANDING_ORDER, "advance_payment_processed"]);
+    }
     const stages = new Set<ComplianceQueueFilter>();
     if (canViewDocuments || canResubmit || canVerifyDocuments || canMarkVerified) {
       stages.add("pending_for_docs");
@@ -399,6 +404,7 @@ export default function ComplianceScreen() {
     if (stages.size > 1 && !debitControlOnly) stages.add("all");
     return stages;
   }, [
+    canViewAllTabs,
     debitControlOnly,
     canManagePod,
     canMarkVerified,

@@ -103,6 +103,7 @@ export type MemberSurfaceId =
   | "trip_compliance.tab.final_settlement"
   | "trip_compliance.finance.manage"
   | "trip_compliance.pod.manage"
+  | "trip_compliance.tab.view_all"
   // Fleet (asset path)
   | "fleet.vehicles.view"
   | "fleet.vehicles.create"
@@ -930,6 +931,18 @@ export const MEMBER_SURFACE_CATALOG: readonly MemberSurfaceDef[] = [
     grantsCaps: [],
     requires: "trip_compliance.tab",
   },
+  {
+    // Watch-only: every stage tab of the Compliance page, no actions. Verify,
+    // Approve, POD and payment buttons stay behind their own surfaces.
+    id: "trip_compliance.tab.view_all",
+    group: "Compliance page",
+    label: "See all Compliance tabs (read-only)",
+    hint: "Show every Compliance stage tab; acting still needs its own permission",
+    domain: "trip_compliance",
+    anyOfCaps: DISP,
+    grantsCaps: [],
+    requires: "trip_compliance.documents.view",
+  },
 
   // ── Fleet ────────────────────────────────────────────────────────────────
   {
@@ -1243,6 +1256,7 @@ export const MEMBER_SECTION_SURFACES: Record<
   compliance: [
     ...COMPLIANCE_ROLE_SURFACE_IDS,
     "trip_compliance.trip.resubmit",
+    "trip_compliance.tab.view_all",
   ],
   // Hard-copy POD (POD Pending / POD Received). Settlement and payments are
   // Finance — see FINANCE_COMPLIANCE_PAGE_SURFACES.

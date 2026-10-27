@@ -1,5 +1,7 @@
 import Theme from "@/constants/Theme";
+import { MobilePdfPageScroll } from "@/components/MobilePdfPageScroll";
 import { previewTierForBox, type PreviewTier } from "@/components/documentPreviewPipeline.util";
+import { shouldRasterizePdfForViewport } from "@/components/mobilePdfPreview.util";
 import {
   peekPdfPreview,
   previewRequestFromFile,
@@ -244,6 +246,21 @@ export function PdfViewer({
   // it must not collapse the file to a single JPEG.
   const useBitmapPage =
     !showToolbar && previewTier !== "full" && !scrollbar;
+  const mobileRead =
+    shouldRasterizePdfForViewport({ uri: pdfUri }) && !useBitmapPage;
+
+  if (mobileRead) {
+    return (
+      <MobilePdfPageScroll
+        uri={pdfUri}
+        page={page}
+        style={style}
+        documentKey={documentKey}
+        documentVersion={documentVersion}
+        onRetrySign={onRetrySign}
+      />
+    );
+  }
 
   if (useBitmapPage) {
     return (
@@ -289,7 +306,7 @@ const styles = StyleSheet.create({
     flex: 1,
     width: "100%",
     height: "100%",
-    minHeight: 0,
+    minHeight: 280,
     maxHeight: "100%",
     position: "relative",
     backgroundColor: Theme.surface,

@@ -196,6 +196,8 @@
   "tripHubLabelJob": "Job",
   "tripAssigned": "Assigned",
   "tripInTransit": "In Transit",
+  "tripMetricAllTrips": "Active + completed",
+  "tripMetricHintAllTrips": "All trips",
   "tripMetricIndent": "Active indent",
   "tripMetricHintIndent": "Requirement not yet allocated to a trip",
   "tripMetricUnassigned": "Unassigned",

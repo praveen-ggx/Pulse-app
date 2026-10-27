@@ -1,5 +1,6 @@
 import { LazySuspenseInlineFallback } from '@/components/LazySuspenseFallback';
 import type { TripDetailScreenProps } from '@/features/trips/components/trip-detail/TripDetailScreen.types';
+import { setLastOpenedHubItem } from '@/features/trips/utils/lastOpenedHubItem.util';
 import { parseTripDetailRouteParams, ROUTES } from '@/lib/routes';
 import { useSafeBack } from '@/lib/useSafeBack';
 import { useLocalSearchParams } from 'expo-router';
@@ -22,6 +23,7 @@ export default function TripDetailRoute() {
   const safeBack = useSafeBack(ROUTES.TABS.TRIPS);
 
   const parsed = parseTripDetailRouteParams(raw);
+  if (parsed.tripId) setLastOpenedHubItem(parsed.tripId);
 
   const screenProps: TripDetailScreenProps = {
     tripId: parsed.tripId,

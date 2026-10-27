@@ -235,6 +235,31 @@ export function formatIsoDayRangeLabel(fromIso: string, toIso: string): string {
   return `${formatIsoDayLabel(fromIso)} – ${formatIsoDayLabel(toIso)}`;
 }
 
+/** Inclusive local-calendar bounds for a Trips hub date pill. Null = no server fetch. */
+export function hubDateFilterIsoBounds(
+  preset: TripHubDateFilter,
+  opts?: CalendarPeriodFilterOptions,
+  now: Date = new Date(),
+): { from: string; to: string } | null {
+  if (preset === "all") return null;
+  if (preset === "tomorrow") {
+    const tmr = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const iso = toIsoDateLocal(tmr);
+    return { from: iso, to: iso };
+  }
+  const periodByPreset: Record<
+    Exclude<TripHubDateFilter, "all" | "tomorrow">,
+    CalendarPeriodFilter
+  > = {
+    today: "TODAY",
+    yesterday: "YESTERDAY",
+    this_week: "WEEK",
+    this_month: "MONTH",
+    custom: "CUSTOM",
+  };
+  return getCalendarPeriodBounds(periodByPreset[preset], opts, now);
+}
+
 /** Always both ends: `From 1 Aug 2026  To 31 Aug 2026`. */
 export function formatFromToDateLabel(fromIso: string, toIso: string): string {
   return `From ${formatIsoDayLabel(fromIso)}  To ${formatIsoDayLabel(toIso)}`;

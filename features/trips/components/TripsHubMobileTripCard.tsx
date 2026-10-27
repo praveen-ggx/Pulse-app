@@ -614,9 +614,12 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
 
   return (
     <View
+      nativeID={`hub-item-${trip.id}`}
+      collapsable={false}
       style={[
         styles.cardWrap,
         fillGrid && styles.cardWrapGrid,
+        highlighted && styles.cardWrapHighlighted,
         style,
       ]}
     >
@@ -626,7 +629,7 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
           WEB_TRANSITION,
           fillGrid && styles.cardGrid,
           fillGrid && styles.cardGridElevated,
-          cardActive && styles.cardHover,
+          (cardActive || highlighted) && styles.cardHover,
           highlighted && styles.cardHighlighted,
         ]}
       >
@@ -905,6 +908,9 @@ const styles = StyleSheet.create({
   },
   cardWrap: {
     ...hubMobileListCanvasStyles.cardWrap,
+  },
+  cardWrapHighlighted: {
+    borderRadius: 14,
   },
   cardWrapGrid: {
     flex: 1,

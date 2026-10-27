@@ -37,6 +37,7 @@ export function TripsHubIndentStageCard({
   bidCount,
   extraStopCount = 0,
   extraStopNames,
+  highlighted = false,
   onPress,
   displayNumber: displayNumberOverride,
   displayClientName: displayClientNameOverride,
@@ -58,6 +59,7 @@ export function TripsHubIndentStageCard({
   extraStopCount?: number;
   /** Stop cities in route order, shown under the arrow. */
   extraStopNames?: readonly string[];
+  highlighted?: boolean;
   extraTags?: readonly string[];
   /** Override the indent code (e.g. lane load count on Broadcast). */
   displayNumber?: string;
@@ -108,6 +110,7 @@ export function TripsHubIndentStageCard({
       clientOrganizationAvatarSeed={clientOrganizationAvatarSeed}
       clientIntegrated={clientIntegrated}
       specLine={indentHubLoadSpecLine(indent)}
+      highlighted={highlighted}
       dense={hubGrid || layoutCompact}
       fillGrid={hubGrid}
       actions={actions}

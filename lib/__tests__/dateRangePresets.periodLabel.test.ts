@@ -3,6 +3,7 @@ import {
   formatFromToDateLabel,
   formatIsoDayLabel,
   getCalendarPeriodBounds,
+  hubDateFilterIsoBounds,
   minMaxIsoDays,
 } from "../dateRangePresets";
 
@@ -30,6 +31,29 @@ describe("formatCalendarPeriodRangeLabel", () => {
         NOW,
       ),
     ).toBe("From 1 Apr 2026  To 15 Apr 2026");
+  });
+
+  it("maps hub pills to the same inclusive day bounds the list filter uses", () => {
+    expect(hubDateFilterIsoBounds("all", undefined, NOW)).toBeNull();
+    expect(hubDateFilterIsoBounds("today", undefined, NOW)).toEqual({
+      from: "2026-08-17",
+      to: "2026-08-17",
+    });
+    expect(hubDateFilterIsoBounds("this_month", undefined, NOW)).toEqual({
+      from: "2026-08-01",
+      to: "2026-08-31",
+    });
+    expect(hubDateFilterIsoBounds("tomorrow", undefined, NOW)).toEqual({
+      from: "2026-08-18",
+      to: "2026-08-18",
+    });
+    expect(
+      hubDateFilterIsoBounds(
+        "custom",
+        { customFrom: "2026-09-01", customTo: "2026-09-30" },
+        NOW,
+      ),
+    ).toEqual({ from: "2026-09-01", to: "2026-09-30" });
   });
 
   it("returns null bounds for all-time RANGE and min/max from actual days", () => {

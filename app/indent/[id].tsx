@@ -1,4 +1,5 @@
 import { LazySuspenseInlineFallback } from "@/components/LazySuspenseFallback";
+import { setLastOpenedHubItem } from "@/features/trips/utils/lastOpenedHubItem.util";
 import { INDENT_DETAIL_ANONYMOUS_CONTEXT } from "@/lib/routes";
 import { useSafeBack } from "@/lib/useSafeBack";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -15,6 +16,7 @@ export default function IndentDetailRoute() {
   const router = useRouter();
   const safeBack = useSafeBack();
   const indentId = typeof id === "string" ? id : (id?.[0] ?? "");
+  if (indentId) setLastOpenedHubItem(indentId);
   const anonymous = context === INDENT_DETAIL_ANONYMOUS_CONTEXT;
 
   return (

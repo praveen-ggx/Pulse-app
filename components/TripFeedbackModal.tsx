@@ -15,9 +15,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 const DESKTOP_BREAKPOINT = 768;
 
 /** Shared max width for trip rating / settlement modals on phones. */
-export const TRIP_FEEDBACK_MODAL_MAX_WIDTH = 340;
-/** Desktop: wide enough for a 4-tag row and a centered card. */
-export const TRIP_FEEDBACK_MODAL_MAX_WIDTH_DESKTOP = 520;
+export const TRIP_FEEDBACK_MODAL_MAX_WIDTH = 400;
+/** Desktop: wide enough for tags to wrap without clipping. */
+export const TRIP_FEEDBACK_MODAL_MAX_WIDTH_DESKTOP = 480;
 
 type TripFeedbackModalProps = {
   visible: boolean;
@@ -91,7 +91,7 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: Theme.screenBackground,
-    borderRadius: 22,
+    borderRadius: 20,
     width: '100%',
     maxWidth: TRIP_FEEDBACK_MODAL_MAX_WIDTH,
     alignSelf: 'center',
@@ -110,9 +110,10 @@ const styles = StyleSheet.create({
   },
   cardDesktop: {
     maxWidth: TRIP_FEEDBACK_MODAL_MAX_WIDTH_DESKTOP,
-    borderRadius: 24,
+    borderRadius: 20,
   },
   cardScroll: {
     flexGrow: 1,
+    paddingBottom: 4,
   },
 });

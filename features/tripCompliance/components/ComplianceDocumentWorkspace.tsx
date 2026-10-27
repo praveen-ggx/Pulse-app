@@ -48,6 +48,7 @@ import {
 } from "@/features/tripCompliance/hooks/useComplianceListWindow";
 import {
   guessCompliancePreviewMime,
+  invalidateCompliancePreviewCache,
   signCompliancePreviewUrl,
 } from "@/features/tripCompliance/services/complianceDocumentView.service";
 import type { ComplianceChange } from "@/features/tripCompliance/services/compliancePipelineSync.service";
@@ -1868,6 +1869,8 @@ export function DocumentScreen({
   canNavigate = false,
   typedLines = null,
   resolving = false,
+  documentKey = null,
+  documentVersion = null,
 }: {
   visible: boolean;
   uri: string | null;
@@ -1886,6 +1889,8 @@ export function DocumentScreen({
   typedLines?: { label: string; value: string }[] | null;
   /** True while the next signed URL is being fetched. */
   resolving?: boolean;
+  documentKey?: string | null;
+  documentVersion?: string | null;
 }) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -2498,6 +2503,8 @@ export function DocumentScreen({
                     scrollbar={!pdfViewOwned}
                     interactive={!pdfViewOwned}
                     previewTier={pdfViewOwned ? "thumb" : "full"}
+                    documentKey={documentKey}
+                    documentVersion={documentVersion}
                   style={styles.screenFile}
                   accessibilityLabel={title}
                 />
@@ -2692,7 +2699,7 @@ export function ComplianceDocumentWorkspace({
   showFinanceTab?: boolean;
   /** Log hard-copy POD — Compliance role (and owner/admin) only. */
   canManagePod?: boolean;
-  /** Upload / Replace / Remove trip files (Ground Ops resubmit). Verifiers only view. */
+  /** Upload / Replace / Remove trip files. Ground Ops: document view, not only resubmit. */
   canEditTripFiles?: boolean;
   /** True while the POD queue can log hard copy (POD Pending, or All on an awaiting trip). */
   showHardCopyPodLog?: boolean;
@@ -2870,6 +2877,7 @@ export function ComplianceDocumentWorkspace({
   }, [checklistKey]);
   const [screenOpen, setScreenOpen] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewEpoch, setPreviewEpoch] = useState(0);
   const [previewMime, setPreviewMime] = useState<string | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -3367,6 +3375,7 @@ export function ComplianceDocumentWorkspace({
     activePreviewMimeHint,
     canViewDocuments,
     organizationId,
+    previewEpoch,
   ]);
 
   // Prefetch the next file so Approve → Next feels instant.
@@ -3962,6 +3971,24 @@ export function ComplianceDocumentWorkspace({
         return;
       }
       if (uploadingFinanceType) return;
+      if (groundOpsDocumentLock && !isFinanceMode && tab === "trip" && hasFile(row)) {
+        const lock = groundOpsDocumentLockReason({
+          trip: {
+            status: summary.trip.status,
+            compliance_verified_at: summary.complianceVerifiedAt,
+            compliance_declined_at: summary.complianceDeclinedAt,
+            compliance_resubmitted_at: summary.complianceResubmittedAt ?? null,
+            finance_verified_at: summary.financeVerifiedAt ?? null,
+          },
+          documentStatus: row.doc?.status,
+          advancePosted: Boolean(summary.advance || summary.advanceBeforeVerification),
+          ownRecentUpload: isOwnRecentUpload(row.doc, actorId),
+        });
+        if (lock) {
+          alertMessage("Can't upload", groundOpsDocumentLockLabel(lock));
+          return;
+        }
+      }
       // LR: same dialog as the Trips hub (LR number + copies, duplicate check),
       // so the number is never left empty after an upload from here.
       if (row.type === "lr" && !isFinanceMode) {
@@ -4013,7 +4040,10 @@ export function ComplianceDocumentWorkspace({
             expiryDate = current;
           } else if (documentRequiresExpiry(row.type)) {
             const entered = (await promptExpiryDate(row.type))?.trim() ?? "";
-            if (!entered) return;
+            if (!entered) {
+              setCategoryPreview(null);
+              return;
+            }
             if (!/^\d{4}-\d{2}-\d{2}$/.test(entered)) {
               alertMessage("Invalid expiry date", "Use YYYY-MM-DD (for example 2027-03-15).");
               return;
@@ -4022,7 +4052,6 @@ export function ComplianceDocumentWorkspace({
           }
         }
 
-        const alreadyHasFile = hasFile(row);
         for (const [index, file] of files.entries()) {
           await uploadComplianceVaultFile({
             scope,
@@ -4032,12 +4061,21 @@ export function ComplianceDocumentWorkspace({
             actorId,
             vehicleId: summary.trip.vehicle_id ?? null,
             entityId,
-            existing: alreadyHasFile || index > 0 ? row.entityDoc : null,
-            append: alreadyHasFile || index > 0,
+            existing: index > 0 ? row.entityDoc : null,
+            append: index > 0,
+            skipVehicleVault: groundOpsDocumentLock,
             file,
             expiryDate,
           });
         }
+        invalidateCompliancePreviewCache(
+          listRows
+            .filter((item) => item.type === row.type)
+            .map((item) => item.doc?.storage_path ?? item.entityDoc?.storage_path),
+        );
+        previewCacheRef.current.clear();
+        setPreviewUrl(null);
+        setPreviewEpoch((value) => value + 1);
         focusUploadTypeRef.current = row.type;
         resetPreviewView();
         if (mobileExclusive) setMobileDocPane("list");
@@ -4059,6 +4097,7 @@ export function ComplianceDocumentWorkspace({
     [
       actorId,
       canEditFiles,
+      groundOpsDocumentLock,
       isFinanceMode,
       listRows,
       mobileExclusive,
@@ -4195,6 +4234,10 @@ export function ComplianceDocumentWorkspace({
         alertMessage("Couldn't replace file", error.message);
         return;
       }
+      invalidateCompliancePreviewCache([row.doc.storage_path]);
+      previewCacheRef.current.clear();
+      setPreviewUrl(null);
+      setPreviewEpoch((value) => value + 1);
       onChanged({ type: "tripDocuments", tripId: summary.trip.id });
     } catch (err) {
       alertMessage("Couldn't replace file", err instanceof Error ? err.message : "Replace failed. Try again.");
@@ -4379,7 +4422,7 @@ export function ComplianceDocumentWorkspace({
           label={rowLabel}
           meta={meta}
           onFile={rowHasFile}
-          canUpload={canEditFiles && !uploadingFinanceType}
+          canUpload={canEditFiles && !uploadingFinanceType && !complianceTypeAddLockReason(displayRow.type)}
           entityType={entityType}
           required={displayRow.required}
           actionText={
@@ -5656,6 +5699,12 @@ export function ComplianceDocumentWorkspace({
           uri={previewUrl}
           isPdf={isPdf}
           title={docTitle}
+          documentKey={activePreviewPath}
+          documentVersion={
+            activeRow?.entityDoc?.created_at ??
+            activeRow?.doc?.uploaded_at ??
+            String(previewEpoch)
+          }
         presentation="page"
         onClose={() => {
           setScreenOpen(false);

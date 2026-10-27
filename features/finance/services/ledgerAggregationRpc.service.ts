@@ -14,6 +14,15 @@ import {
 } from "@/features/finance/aggregation/commerceSelfFulfillment";
 import { supabase } from "@/lib/supabase";
 
+/** PostgREST `.in()` in the query string 400s past a few hundred UUIDs. */
+const POSTGREST_IN_CHUNK = 40;
+
+function chunkIds(ids: string[], size = POSTGREST_IN_CHUNK): string[][] {
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += size) chunks.push(ids.slice(i, i + size));
+  return chunks;
+}
+
 function n(v: unknown): number {
   const num = typeof v === "number" ? v : Number(v ?? 0);
   return Number.isFinite(num) ? num : 0;
@@ -150,13 +159,19 @@ async function fetchCommercePlanTripIds(orgId: string): Promise<string[]> {
         .filter((id): id is string => Boolean(id)),
     ),
   ];
-  const { data: indents, error: indentError } = await supabase()
-    .from("indents")
-    .select("id")
-    .in("id", indentIds)
-    .not("execution_plan_id", "is", null);
-  if (indentError || !indents?.length) return [];
-  const planIndents = new Set(indents.map((indent) => indent.id));
+  const planIndents = new Set<string>();
+  for (const chunk of chunkIds(indentIds)) {
+    const { data: indents, error: indentError } = await supabase()
+      .from("indents")
+      .select("id")
+      .in("id", chunk)
+      .not("execution_plan_id", "is", null);
+    if (indentError) return [];
+    for (const indent of indents ?? []) {
+      if (indent.id) planIndents.add(indent.id);
+    }
+  }
+  if (planIndents.size === 0) return [];
   return tripRows
     .filter((trip) => trip.indent_id && planIndents.has(trip.indent_id))
     .map((trip) => trip.id);
@@ -179,29 +194,41 @@ async function fetchCommerceFulfillmentOrders(orgId: string) {
         .filter((id): id is string => Boolean(id)),
     ),
   ];
-  const { data: indents, error: indentError } = await supabase()
-    .from("indents")
-    .select("id, execution_plan_id")
-    .in("id", indentIds)
-    .not("execution_plan_id", "is", null);
-  if (indentError || !indents?.length) return [];
-
-  const planByIndent = new Map(
-    indents
-      .filter((indent) => indent.execution_plan_id)
-      .map((indent) => [indent.id, indent.execution_plan_id as string]),
-  );
+  const planByIndent = new Map<string, string>();
+  for (const chunk of chunkIds(indentIds)) {
+    const { data: indents, error: indentError } = await supabase()
+      .from("indents")
+      .select("id, execution_plan_id")
+      .in("id", chunk)
+      .not("execution_plan_id", "is", null);
+    if (indentError) return [];
+    for (const indent of indents ?? []) {
+      if (indent.id && indent.execution_plan_id) {
+        planByIndent.set(indent.id, indent.execution_plan_id);
+      }
+    }
+  }
   const planIds = [...new Set(planByIndent.values())];
   if (planIds.length === 0) return [];
 
-  const { data: orders, error: orderError } = await supabase()
-    .from("sales_orders")
-    .select("id, customer_id, total_amount, execution_plan_id, status")
-    .eq("organization_id", orgId)
-    .in("execution_plan_id", planIds)
-    .is("deleted_at", null)
-    .in("status", ["Planned", "Pending Consolidation", "Fulfilled"]);
-  if (orderError || !orders?.length) return [];
+  const orders: Array<{
+    id: string;
+    customer_id: string | null;
+    total_amount: unknown;
+    execution_plan_id: string | null;
+  }> = [];
+  for (const chunk of chunkIds(planIds)) {
+    const { data, error: orderError } = await supabase()
+      .from("sales_orders")
+      .select("id, customer_id, total_amount, execution_plan_id, status")
+      .eq("organization_id", orgId)
+      .in("execution_plan_id", chunk)
+      .is("deleted_at", null)
+      .in("status", ["Planned", "Pending Consolidation", "Fulfilled"]);
+    if (orderError) return [];
+    orders.push(...((data ?? []) as typeof orders));
+  }
+  if (orders.length === 0) return [];
 
   const tripByPlan = new Map<string, string>();
   for (const trip of tripRows) {

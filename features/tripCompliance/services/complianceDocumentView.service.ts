@@ -8,8 +8,11 @@
  * often cannot be signed by the trip org — rewrite under the viewer org and
  * look up entity_documents when the primary sign fails.
  */
+import { invalidatePdfPreview } from "@/components/pdfEmbedCache.util";
 import { getComplianceDocumentSignedUrl } from "@/features/compliance/services/documents.service";
 import {
+  invalidateStoragePreviewPath,
+  invalidateStoragePreviewPrefix,
   isInlinePreviewUri,
   previewPrivateObject,
 } from "@/features/trips/utils/storagePreviewObjectUrl.util";
@@ -119,6 +122,31 @@ function signedUrlCacheKey(input: {
     input.entityId ?? "",
     input.docType ?? "",
   ].join("\u0000");
+}
+
+/** Call after a vault/entity/trip file is overwritten so the next preview is not a stale blob. */
+export function invalidateCompliancePreviewCache(paths: Array<string | null | undefined>): void {
+  const unique = [...new Set(paths.map((path) => (path ?? "").trim()).filter(Boolean))];
+  if (unique.length === 0) return;
+  for (const key of [...signedUrlCache.keys()]) {
+    if (unique.some((path) => key === path || key.startsWith(`${path}\u0000`))) {
+      signedUrlCache.delete(key);
+    }
+  }
+  for (const key of [...signedUrlInflight.keys()]) {
+    if (unique.some((path) => key === path || key.startsWith(`${path}\u0000`))) {
+      signedUrlInflight.delete(key);
+    }
+  }
+  for (const path of unique) {
+    invalidateStoragePreviewPath("vehicle-documents", path);
+    invalidateStoragePreviewPath("compliance-documents", path);
+    invalidateStoragePreviewPath("trip-documents", path);
+    invalidateStoragePreviewPath("driver-documents", path);
+    invalidateStoragePreviewPrefix("vehicle-documents", path);
+    invalidateStoragePreviewPrefix("compliance-documents", path);
+    invalidatePdfPreview(path);
+  }
 }
 
 export async function signCompliancePreviewUrl(input: {

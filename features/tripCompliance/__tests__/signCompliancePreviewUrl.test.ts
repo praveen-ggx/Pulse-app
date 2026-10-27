@@ -22,9 +22,18 @@ jest.mock("@/features/trips/utils/storagePreviewObjectUrl.util", () => ({
     return { url: signed ? "blob:license" : null, kind: signed ? null : "missing" };
   },
   storagePreviewFailureMessage: () => "failed",
+  invalidateStoragePreviewPath: jest.fn(),
+  invalidateStoragePreviewPrefix: jest.fn(),
 }));
 
-import { signCompliancePreviewUrl } from "@/features/tripCompliance/services/complianceDocumentView.service";
+jest.mock("@/components/pdfEmbedCache.util", () => ({
+  invalidatePdfPreview: jest.fn(),
+}));
+
+import {
+  invalidateCompliancePreviewCache,
+  signCompliancePreviewUrl,
+} from "@/features/tripCompliance/services/complianceDocumentView.service";
 
 describe("signCompliancePreviewUrl", () => {
   beforeEach(() => {
@@ -39,5 +48,15 @@ describe("signCompliancePreviewUrl", () => {
     });
     expect(mockSignedBuckets).toEqual(["compliance-documents"]);
     expect(mockPaintedBuckets).not.toContain("trip-documents");
+  });
+
+  it("re-signs after invalidate so an overwritten PDF is not served from cache", async () => {
+    const path = "org/vehicle/v1/rc.pdf";
+    await signCompliancePreviewUrl({ storagePath: path, source: "compliance" });
+    const signedBefore = mockSignedBuckets.length;
+    invalidateCompliancePreviewCache([path]);
+    await signCompliancePreviewUrl({ storagePath: path, source: "compliance" });
+    expect(mockSignedBuckets.length).toBeGreaterThan(signedBefore);
+    expect(mockSignedBuckets).toContain("compliance-documents");
   });
 });

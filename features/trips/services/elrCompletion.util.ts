@@ -456,7 +456,7 @@ export function validateElrCompletion(draft: ElrCompletionDraft): ElrFieldIssue[
   return issues;
 }
 
-export function elrCompletionMessage(issues: ElrFieldIssue[]): string {
+export function elrCompletionMessage(issues: readonly Pick<ElrFieldIssue, "label">[]): string {
   return `E-LR cannot be generated.\n\nComplete the following:\n${issues
     .map((issue) => `• ${issue.label}`)
     .join("\n")}`;

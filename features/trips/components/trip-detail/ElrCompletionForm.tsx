@@ -77,7 +77,9 @@ export function ElrCompletionForm({
   const locked = new Set(lockedFields);
   const set = (patch: Partial<ElrCompletionDraft>) => {
     const next = { ...draft, ...patch };
-    for (const key of locked) next[key] = draft[key];
+    for (const key of locked) {
+      (next as Record<FieldKey, ElrCompletionDraft[FieldKey]>)[key] = draft[key];
+    }
     onChange(next);
   };
   const issueFor = (field: FieldKey) => issues.find((issue) => issue.field === field);
@@ -927,7 +929,7 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.screenBackground,
     fontSize: 12,
     ...(Platform.OS === "web"
-      ? ({ outlineStyle: "none", boxSizing: "border-box" } as const)
+      ? ({ outlineStyle: "none", boxSizing: "border-box" } as object)
       : null),
   },
   inputError: { borderColor: Theme.negative },

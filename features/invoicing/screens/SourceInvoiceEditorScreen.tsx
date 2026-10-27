@@ -119,7 +119,7 @@ export function SourceInvoiceEditorScreen() {
         notes: model.notes,
         paymentTerms: model.payment_terms,
         draftId: status.action === "view_draft" ? status.invoiceId : null,
-        createdBy: user?.id ?? null,
+        createdBy: user?.uid ?? null,
         issuerSnapshot,
         clientSnapshot: {
           client_id: bundle.customer.id,

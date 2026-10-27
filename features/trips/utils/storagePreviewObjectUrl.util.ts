@@ -254,3 +254,33 @@ export function resetStoragePreviewCacheForTests(): void {
   inflight.clear();
   holdsByUrl.clear();
 }
+
+/** Drop a cached blob after Storage upserts the same object path. */
+export function invalidateStoragePreviewPath(bucket: string, path: string): void {
+  const trimmedBucket = bucket.trim();
+  const trimmedPath = path.trim();
+  if (!trimmedBucket || !trimmedPath) return;
+  const exact = `${trimmedBucket}:${trimmedPath}`;
+  inflight.delete(exact);
+  evictPreviewCacheKey(exact);
+}
+
+export function invalidateStoragePreviewPrefix(bucket: string, prefix: string): void {
+  const trimmedBucket = bucket.trim();
+  const trimmedPrefix = prefix.trim();
+  if (!trimmedBucket || !trimmedPrefix) return;
+  const keyPrefix = `${trimmedBucket}:`;
+  for (const key of [...cache.keys()]) {
+    if (key.startsWith(keyPrefix) && key.includes(trimmedPrefix)) evictPreviewCacheKey(key);
+  }
+  for (const key of [...inflight.keys()]) {
+    if (key.startsWith(keyPrefix) && key.includes(trimmedPrefix)) inflight.delete(key);
+  }
+}
+
+function evictPreviewCacheKey(key: string): void {
+  const entry = cache.get(key);
+  if (!entry) return;
+  cache.delete(key);
+  if (entry.revoke) URL.revokeObjectURL(entry.url);
+}

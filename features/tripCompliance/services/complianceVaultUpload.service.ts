@@ -5,21 +5,20 @@
  * Shared by the Cards workspace (inline Upload / Add) and the review sheet.
  */
 import { uploadComplianceDocument } from "@/features/compliance/services/documents.service";
+import { invalidateCompliancePreviewCache } from "@/features/tripCompliance/services/complianceDocumentView.service";
 import type { ComplianceEntityDocument } from "@/features/tripCompliance/tripCompliance.types";
 import {
   COMPLIANCE_TRIP_DOC_PICKER_TYPES,
+  inferComplianceTripDocMime,
   validateComplianceTripDocumentFile,
 } from "@/features/tripCompliance/utils/complianceTripDocumentFormat.util";
+import { readVaultPickerAsset } from "@/features/trips/components/trip-detail/vaultPickerFile.util";
 import {
   isTripDocumentsStoragePathConflict,
   uploadTripDocument,
   type TripDocumentType,
 } from "@/features/trips/services/tripDocuments.service";
-import {
-  resolveVehicleDocumentsWriteTarget,
-  uploadAndSaveVehicleDocument,
-} from "@/features/vehicles/services/vehicleDocuments.service";
-import { getVehicleById } from "@/features/vehicles/services/vehicles.service";
+import { uploadAndSaveVehicleDocumentForTrip } from "@/features/vehicles/services/vehicleDocuments.service";
 import type { VehicleComplianceDocType } from "@/features/vehicles/utils/vehicleDocuments.util";
 import * as DocumentPicker from "expo-document-picker";
 
@@ -46,32 +45,24 @@ async function vaultFileFromAsset(
   type: string,
   asset: DocumentPicker.DocumentPickerAsset,
 ): Promise<ComplianceVaultFile> {
-  const fileName = asset.name ?? `${type}.pdf`;
-  if (typeof asset.size === "number") {
-    const early = validateComplianceTripDocumentFile({
-      fileName,
-      mimeType: asset.mimeType,
-      byteLength: asset.size,
-    });
-    if (!early.ok) throw new Error(early.reason);
+  const picked = await readVaultPickerAsset(asset, `${type}.pdf`, (name, mime) => {
+    return inferComplianceTripDocMime({ fileName: name, mimeType: mime }) ?? mime ?? "application/octet-stream";
+  });
+  if (typeof asset.size === "number" && asset.size > 0 && picked.arrayBuffer.byteLength === 0) {
+    throw new Error("Could not read the selected file. Choose it again.");
   }
-  const nativeFile = (asset as { file?: Blob }).file;
-  const arrayBuffer =
-    nativeFile && typeof nativeFile.arrayBuffer === "function"
-      ? await nativeFile.arrayBuffer()
-      : await fetch(asset.uri).then((response) => {
-          if (!response.ok) {
-            throw new Error("Could not read the selected file. Choose it again.");
-          }
-          return response.arrayBuffer();
-        });
   const format = validateComplianceTripDocumentFile({
-    fileName,
-    mimeType: asset.mimeType,
-    byteLength: arrayBuffer.byteLength,
+    fileName: picked.fileName,
+    mimeType: picked.mimeType,
+    byteLength: picked.arrayBuffer.byteLength,
   });
   if (!format.ok) throw new Error(format.reason);
-  return { arrayBuffer, fileName, mimeType: format.mimeType, uri: asset.uri };
+  return {
+    arrayBuffer: picked.arrayBuffer,
+    fileName: picked.fileName,
+    mimeType: format.mimeType,
+    uri: picked.uri,
+  };
 }
 
 /** Opens the file picker. Users can select any number of files. Empty when cancelled. */
@@ -108,6 +99,11 @@ export type ComplianceVaultUploadInput = {
   existing: ComplianceEntityDocument | null | undefined;
   /** Extra files of an already-used type append instead of replacing the vault slot. */
   append?: boolean;
+  /**
+   * Ground Ops cannot finish a vehicles.documents write (and a failed vault
+   * upsert+rollback can delete the existing RC/FC object). Write entity_documents.
+   */
+  skipVehicleVault?: boolean;
   file: ComplianceVaultFile;
   expiryDate: string | null;
 };
@@ -117,7 +113,7 @@ export type ComplianceVaultUploadInput = {
  * conflict means the file already landed, so it is treated as success.
  */
 export async function uploadComplianceVaultFile(input: ComplianceVaultUploadInput): Promise<void> {
-  const { scope, type, tripId, organizationId, actorId, vehicleId, entityId, existing, append, file, expiryDate } = input;
+  const { scope, type, tripId, organizationId, actorId, vehicleId, entityId, existing, append, skipVehicleVault, file, expiryDate } = input;
 
   if (scope === "trip") {
     const { error } = await uploadTripDocument(
@@ -128,7 +124,15 @@ export async function uploadComplianceVaultFile(input: ComplianceVaultUploadInpu
       undefined,
       { replaceExistingOfType: false },
     );
-    if (error && !isTripDocumentsStoragePathConflict({ message: error.message })) throw error;
+    if (error && !isTripDocumentsStoragePathConflict({ message: error.message })) {
+      const denied = /row-level security|violates|policy|permission/i.test(error.message);
+      throw new Error(
+        denied
+          ? "Could not save this trip file. Ground Ops can upload only when document upload is on for the organization and the trip is in your warehouse."
+          : error.message,
+      );
+    }
+    invalidateCompliancePreviewCache([existing?.storage_path]);
     return;
   }
 
@@ -140,51 +144,22 @@ export async function uploadComplianceVaultFile(input: ComplianceVaultUploadInpu
     );
   }
 
-  if (scope === "vehicle" && COMPLIANCE_VEHICLE_VAULT_TYPES.has(type) && vehicleId && !existing && !append) {
-    // Prefer the vehicle vault when this org owns the truck. Cross-org / RLS-blocked
-    // vault writes fall back to entity_documents so Compliance can still collect it.
-    // Extra files of the same type append as entity_documents (existing is set).
-    const owned = await getVehicleById(organizationId, vehicleId);
-    if (owned.error) throw owned.error;
-
-    let savedToVault = false;
-    if (owned.vehicle) {
-      const { error } = await uploadAndSaveVehicleDocument(
-        organizationId,
-        vehicleId,
-        type as VehicleComplianceDocType,
-        file,
-        expiryDate ?? "",
-        owned.vehicle.documents ?? null,
-      );
-      savedToVault = !error;
-    } else {
-      const resolved = await resolveVehicleDocumentsWriteTarget(vehicleId, [organizationId]);
-      if (resolved) {
-        const { error } = await uploadAndSaveVehicleDocument(
-          resolved.orgId,
-          vehicleId,
-          type as VehicleComplianceDocType,
-          file,
-          expiryDate ?? "",
-          resolved.documents,
-        );
-        savedToVault = !error;
-      }
-    }
-    if (savedToVault) return;
-
-    const upload = {
-      orgId: organizationId,
-      entityType: "vehicle" as const,
-      entityId: vehicleId,
-      docType: type,
+  if (scope === "vehicle" && COMPLIANCE_VEHICLE_VAULT_TYPES.has(type) && vehicleId && !append && !skipVehicleVault) {
+    // First file for RC / FC / insurance / etc. overwrites the vault slot (same
+    // path as Trip Detail). Extra files in the same picker still append below.
+    const saved = await uploadAndSaveVehicleDocumentForTrip(
+      organizationId,
+      tripId,
+      vehicleId,
+      type as VehicleComplianceDocType,
       file,
-      uploadedBy: actorId,
-      expiryDate: expiryDate || null,
-    };
-    const { error } = await uploadComplianceDocument(upload);
-    if (error) throw error;
+      expiryDate ?? "",
+      null,
+      [organizationId],
+    );
+    if (saved.error) throw saved.error;
+    const slot = saved.documents?.[type as VehicleComplianceDocType];
+    invalidateCompliancePreviewCache([slot?.url, existing?.storage_path]);
     return;
   }
 
@@ -197,6 +172,7 @@ export async function uploadComplianceVaultFile(input: ComplianceVaultUploadInpu
     uploadedBy: actorId,
     expiryDate: expiryDate || null,
   };
-  const { error } = await uploadComplianceDocument(upload);
+  const { error, document } = await uploadComplianceDocument(upload);
   if (error) throw error;
+  invalidateCompliancePreviewCache([document?.storage_path, existing?.storage_path]);
 }

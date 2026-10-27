@@ -238,7 +238,14 @@ export function PdfViewer({
     );
   }
 
-  if (!showToolbar) {
+  // Raster thumbs stay on PdfEmbedPage. A reading preview (vault full viewer,
+  // Compliance DocumentScreen) must use a live iframe so the wheel/scrollbar
+  // can move through pages. `showToolbar={false}` only hides Chrome chrome —
+  // it must not collapse the file to a single JPEG.
+  const useBitmapPage =
+    !showToolbar && previewTier !== "full" && !scrollbar;
+
+  if (useBitmapPage) {
     return (
       <PdfEmbedPage
         uri={pdfUri}
@@ -258,8 +265,8 @@ export function PdfViewer({
   return (
     <View style={[styles.container, style]}>
       <iframe
-        src={withPdfViewerHash(pdfUri, true, zoom, sizing, page, scrollbar)}
-        key={`${page ?? 0}-${Math.round(zoom * 100)}-chrome`}
+        src={withPdfViewerHash(pdfUri, showToolbar, zoom, sizing, page, scrollbar ?? true)}
+        key={`${page ?? 0}-${Math.round(zoom * 100)}-${showToolbar ? "chrome" : "read"}-${documentVersion ?? ""}`}
         style={{
           position: "absolute",
           top: 0,

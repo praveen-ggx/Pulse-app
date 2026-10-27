@@ -56,6 +56,7 @@ import {
 } from "@/features/network/utils/storyLaneGroup.util";
 import { isIndentStoryLive } from "@/features/network/utils/indentStoryWindow.util";
 import { sameOrgId } from "@/features/network/utils/storyLoadVisibility.util";
+import { pickOpenedStorySeed } from "@/features/network/utils/storyReelOpen.util";
 import { positiveMoneyOrNull } from "@/lib/format";
 import {
     buildStoryOwnerViewRows,
@@ -252,13 +253,6 @@ export default function StoryDetailScreen() {
   const storiesByOrgType = allPosts.filter(
     (p) => p.organization_id === targetOrgId && isBusinessPost(p) && (targetStoryType ? p.type === targetStoryType : true),
   );
-  const storiesFromQueue = useMemo(() => {
-    if (queueIds.length === 0) return [];
-    const byId = new Map(allPosts.map((p) => [p.id, p] as const));
-    return queueIds.map((id) => byId.get(id)).filter((p): p is PostRow => !!p && isBusinessPost(p));
-  }, [queueIds, allPosts]);
-  const seedPost = allPosts.find((p) => p.id === params.postId && isBusinessPost(p));
-
   /**
    * Own LOAD preview: prefer live indent stories (same as green Pulse), not the
    * network-feed subset — feed can miss a live post or drop sponsored rows from
@@ -269,6 +263,18 @@ export default function StoryDetailScreen() {
     () => collapseStoriesByLane(liveOwnLoads),
     [liveOwnLoads],
   );
+  const storiesFromQueue = useMemo(() => {
+    if (queueIds.length === 0) return [];
+    const byId = new Map<string, PostRow>();
+    for (const post of [...allPosts, ...liveOwnLoads]) {
+      if (post.id && isBusinessPost(post) && !byId.has(post.id)) byId.set(post.id, post);
+    }
+    return queueIds.map((id) => byId.get(id)).filter((p): p is PostRow => !!p);
+  }, [queueIds, allPosts, liveOwnLoads]);
+  const seedPost =
+    allPosts.find((p) => p.id === params.postId && isBusinessPost(p)) ??
+    liveOwnLoads.find((p) => p.id === params.postId && isBusinessPost(p)) ??
+    null;
   const storyList: PostRow[] = useMemo(() => {
     const isLiveStory = (p: PostRow) =>
       p.type === "LOAD" ? isIndentStoryLive(p) : p.is_active !== false;
@@ -286,17 +292,15 @@ export default function StoryDetailScreen() {
       );
       return collapseStoriesByLane(matched);
     };
-    const seeds = storiesFromQueue.length > 0 ? storiesFromQueue : seedPost ? [seedPost] : [];
-    const seen = new Set<string>();
-    const reel: PostRow[] = [];
-    for (const seed of seeds) {
-      for (const post of storiesForSeed(seed)) {
-        if (!post.id || seen.has(post.id)) continue;
-        seen.add(post.id);
-        reel.push(post);
-      }
+    const seed = pickOpenedStorySeed(params.postId, storiesFromQueue, [
+      ...ownLaneStories,
+      ...(seedPost ? [seedPost] : []),
+    ]);
+    if (seed) {
+      const opened = storiesForSeed(seed);
+      if (opened.length > 0) return opened;
+      return [seed];
     }
-    if (reel.length > 0) return reel;
     if (viewingOwnLoads && ownLaneStories.length > 0) return ownLaneStories;
     if (storiesByOrgType.length > 0) return collapseStoriesByLane(storiesByOrgType);
     return seedPost ? [seedPost] : [];
@@ -304,6 +308,7 @@ export default function StoryDetailScreen() {
     allPosts,
     myOrgId,
     ownLaneStories,
+    params.postId,
     seedPost,
     storiesByOrgType,
     storiesFromQueue,

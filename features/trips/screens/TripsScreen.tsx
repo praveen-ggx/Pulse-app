@@ -627,7 +627,7 @@ export default function TripsScreen() {
   }).completeness;
   const hubCountsPartial = hubTripCompleteness !== "exact";
   const useRangeList = hubTripCompleteness === "exact" || hubTripCompleteness === "capped";
-  // Shown on the "Showing X of Y" toolbar. dateRangeLabel only renders for custom ranges.
+  // Full-width toolbar warning (HubPartialWarning). dateRangeLabel only renders for custom ranges.
   const hubCompletenessNote = hubTripCompletenessNote(hubTripCompleteness);
   const hubDateRangeLabel = hubCustomDateRangeLabel;
   const { hits: hubSearchHits, needle: hubSearchNeedle } = useTripsHubSearch(
@@ -2640,14 +2640,12 @@ export default function TripsScreen() {
       shown: filtered.length,
       total,
       partial: hubCountsPartial,
-      note: hubCompletenessNote,
     });
   }, [
     activeHistoryMetricTab,
     activeMetricTab,
     filtered.length,
     historyMetricCards,
-    hubCompletenessNote,
     hubCountsPartial,
     metricCounts,
     showCompletedList,
@@ -3640,6 +3638,7 @@ export default function TripsScreen() {
                       ? indentStageToolbarCountLabel
                       : tripListToolbarCountLabel
                   }
+                  toolbarWarning={hubShowsIndentList ? null : hubCompletenessNote}
                   renderAboveBody={null}
                   dateRangeFilter={dateRangeFilter}
                   dateRangeLabel={hubDateRangeLabel}
@@ -3701,6 +3700,7 @@ export default function TripsScreen() {
                 lrLabelByTripId={{ ...hubLrLabels, ...hubLrPreviewByTripId }}
                 elrLabelByTripId={hubElrLabels}
                 toolbarCountLabel={tripListToolbarCountLabel}
+                toolbarWarning={hubCompletenessNote}
                 renderAboveBody={null}
                 dateRangeFilter={dateRangeFilter}
                 dateRangeLabel={hubDateRangeLabel}

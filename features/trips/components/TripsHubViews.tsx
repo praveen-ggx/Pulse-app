@@ -91,6 +91,7 @@ import {
 import { TripHubInTransitPingLines } from "./TripHubInTransitPingLines";
 import type { TripHubInTransitPingMeta } from "../hooks/useTripHubInTransitPings";
 import type { TripHubPartyMeta } from "../utils/tripHubPartyMeta";
+import { HubPartialWarning } from "./HubPartialWarning";
 import { TripPodStatusTags } from "./TripPodStatusTags";
 import {
   tripHasHubPodFlag,
@@ -1108,6 +1109,8 @@ export type TripsHubTableViewProps = {
   hideBody?: boolean;
   /** Override the toolbar "Showing n of m" label (e.g. INDENT loads). */
   toolbarCountLabel?: string;
+  /** Approximate-count notice, shown full width above the toolbar (not in the count chip). */
+  toolbarWarning?: string | null;
   /** Tiny status tags rendered in the hub toolbar row (indent stage). */
   toolbarTags?: ReadonlyArray<{
     id: string;
@@ -1303,6 +1306,7 @@ export function TripsHubTableView({
   renderAboveBody,
   hideBody = false,
   toolbarCountLabel,
+  toolbarWarning,
   toolbarTags,
   searchQuery: searchQueryProp,
   onSearchQueryChange,
@@ -1870,6 +1874,7 @@ export function TripsHubTableView({
           styles.auditTableWrapDesktopHub,
       ]}
     >
+      <HubPartialWarning message={toolbarWarning} />
       <View
         style={[
           styles.auditToolbar,

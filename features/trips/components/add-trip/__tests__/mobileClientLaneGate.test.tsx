@@ -279,4 +279,41 @@ describe("mobile create-trip lane gate", () => {
     expect(screen.queryByText("lane-gate")).toBeNull();
     expect(screen.queryByText("sale-keypad")).toBeNull();
   });
+
+  it("does not treat the previous client's placeholder lanes as this client's contracts", () => {
+    const gates: boolean[] = [];
+    const { rerender } = render(
+      <MobileCreate
+        clientId="client-1"
+        lanes={[lane]}
+        loading={false}
+        onGate={(active) => gates.push(active)}
+      />,
+    );
+    expect(screen.getByText("lane-gate")).toBeTruthy();
+
+    rerender(
+      <MobileCreate
+        clientId="client-2"
+        lanes={[lane]}
+        loading
+        placeholder
+        onGate={(active) => gates.push(active)}
+      />,
+    );
+    expect(screen.getByText("lane-gate")).toBeTruthy();
+
+    rerender(
+      <MobileCreate
+        clientId="client-2"
+        lanes={[]}
+        loading={false}
+        placeholder={false}
+        onGate={(active) => gates.push(active)}
+      />,
+    );
+    expect(screen.getByText("sale-keypad")).toBeTruthy();
+    expect(screen.queryByText("lane-gate")).toBeNull();
+    expect(gates[gates.length - 1]).toBe(false);
+  });
 });

@@ -85,11 +85,16 @@ export function useAddTripFleetResources(
     });
   }, [organizationId, status]);
 
+  const suppliersFetchedForOrgRef = useRef<string | null>(null);
+
   const fetchSuppliers = useCallback(() => {
     if (!organizationId) return;
     setSuppliersLoading(true);
     void getSuppliersByOrganization(organizationId)
-      .then((r) => setSuppliers(r.error ? [] : manuallySelectableSuppliers(r.suppliers)))
+      .then((r) => {
+        suppliersFetchedForOrgRef.current = organizationId;
+        setSuppliers(r.error ? [] : manuallySelectableSuppliers(r.suppliers));
+      })
       .finally(() => setSuppliersLoading(false));
   }, [organizationId]);
 
@@ -101,12 +106,15 @@ export function useAddTripFleetResources(
     useCallback(() => {
       if (!organizationId || status === "restoring") return;
       fetchFleet();
+      // Focus re-entry should refresh; force by clearing the de-dupe key.
+      suppliersFetchedForOrgRef.current = null;
       fetchSuppliers();
     }, [organizationId, status, fetchFleet, fetchSuppliers]),
   );
 
   useEffect(() => {
     if (!organizationId || state.supplySource !== "aggregate") return;
+    if (suppliersFetchedForOrgRef.current === organizationId) return;
     fetchSuppliers();
   }, [organizationId, state.supplySource, fetchSuppliers]);
 
@@ -143,17 +151,19 @@ export function useAddTripFleetResources(
 
   useEffect(() => {
     if (state.supplySource !== "aggregate" || state.assignLater) {
-      setDriverPhoneMatches([]);
-      setDriverPhoneLookupLoading(false);
-      setSelectedDriverMatchId(null);
+      // Always-new [] / false would re-render forever (Maximum update depth).
+      setDriverPhoneMatches((prev) => (prev.length === 0 ? prev : []));
+      setDriverPhoneLookupLoading((prev) => (prev ? false : prev));
+      setSelectedDriverMatchId((prev) => (prev == null ? prev : null));
       return;
     }
     const trimmed = state.driverPhone.trim();
     const last10 = normalizeIndianMobileLast10(trimmed);
     if (last10.length < 10) {
-      setDriverPhoneMatches([]);
-      setDriverPhoneLookupLoading(false);
-      setSelectedDriverMatchId(null);
+      setDriverPhoneMatches((prev) => (prev.length === 0 ? prev : []));
+      setDriverPhoneLookupLoading((prev) => (prev ? false : prev));
+      setSelectedDriverMatchId((prev) => (prev == null ? prev : null));
+      // Setters no-op when already cleared — avoids Maximum update depth.
       setters.setDriverPhoneName(null);
       setters.setDriverPhoneConfirmed(false);
       setters.setDriverPhoneTripConflict(false, null);

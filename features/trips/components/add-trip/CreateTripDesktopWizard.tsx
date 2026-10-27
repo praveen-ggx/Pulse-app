@@ -320,7 +320,7 @@ export function CreateTripDesktopWizard({
 
   const handleLaneGateActiveChange = useCallback(
     (active: boolean) => {
-      setLaneGateActive(active);
+      setLaneGateActive((prev) => (prev === active ? prev : active));
       onLaneGateActiveChange?.(active);
     },
     [onLaneGateActiveChange],

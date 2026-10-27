@@ -184,7 +184,8 @@ export function buildTripIndentReportWorkbook(
     typeof companyNameOrOptions === "string"
       ? { companyName: companyNameOrOptions }
       : companyNameOrOptions ?? {};
-  const includeCosts = options.includeCosts !== false;
+  /** Opt-in only — never include costs unless the caller explicitly sets true. */
+  const includeCosts = options.includeCosts === true;
   const columns = tripIndentReportColumnsForAccess(includeCosts);
   const header = columns.map((c) => c.label);
   const body = rows.map((row) =>

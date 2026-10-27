@@ -40,7 +40,10 @@ function sampleRow(overrides: Partial<TripIndentReportRow> = {}): TripIndentRepo
 
 describe("tripIndentReportExport.util formatting", () => {
   it("applies Calibri 10, bold headers, money format, and autofilter", () => {
-    const wb = buildTripIndentReportWorkbook([sampleRow()], "GoGo Pulse");
+    const wb = buildTripIndentReportWorkbook([sampleRow()], {
+      companyName: "GoGo Pulse",
+      includeCosts: true,
+    });
     const sheet = wb.Sheets["Trip Report"];
     expect(sheet).toBeDefined();
 
@@ -92,7 +95,7 @@ describe("tripIndentReportExport.util formatting", () => {
   it("writes OOXML with Calibri size 10 and bold headers", () => {
     const wb = buildTripIndentReportWorkbook(
       [sampleRow(), sampleRow({ tripId: "", pulseId: "GGV234ABCIND000002", status: "Pending" })],
-      "GoGo Pulse",
+      { companyName: "GoGo Pulse", includeCosts: true },
     );
     const buffer = Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
 
@@ -116,7 +119,10 @@ describe("tripIndentReportExport.util formatting", () => {
     expect(sheetXml).toMatch(/autoFilter/i);
   });
 
-  it("omits cost columns when includeCosts is false", () => {
+  it("omits cost columns by default and when includeCosts is false", () => {
+    const defaultWb = buildTripIndentReportWorkbook([sampleRow()], "GoGo Pulse");
+    expect(defaultWb.Sheets["Trip Report"]!["!cols"]?.length).toBe(16);
+
     const wb = buildTripIndentReportWorkbook([sampleRow()], {
       companyName: "GoGo Pulse",
       includeCosts: false,

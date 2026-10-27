@@ -315,7 +315,7 @@ function MemberCard({
           {roleLabel(member)}
         </Text>
         <View style={cardStyles.contactBlock}>
-          <ContactLine icon={Phone} value={member.phone?.trim() || "No phone"} muted={!member.phone?.trim()} />
+          <ContactLine icon={Phone} value={member.phone?.trim() || "No phone on their account"} muted={!member.phone?.trim()} />
           <ContactLine icon={Mail} value={member.email?.trim() || "No email"} muted={!member.email?.trim()} />
           <ContactLine icon={Clock} value={`Joined ${formatRelative(member.joined_at)}`} />
         </View>

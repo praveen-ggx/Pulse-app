@@ -345,11 +345,9 @@ export function MemberPermissionsPanel({ memberId, onBack, embedded = false }: P
               {member.email}
             </Text>
           ) : null}
-          {member.phone ? (
-            <Text style={styles.identityLine} numberOfLines={1}>
-              {member.phone}
-            </Text>
-          ) : null}
+          <Text style={styles.identityLine} numberOfLines={1}>
+            {member.phone?.trim() || "No phone on their account"}
+          </Text>
           <View style={styles.tagRow}>
             <View style={styles.tag}>
               <Text style={styles.tagText}>

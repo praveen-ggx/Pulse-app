@@ -13,7 +13,7 @@ import * as XLSX from "xlsx-js-style";
 import {
   applyTripIndentReportSheetFormatting,
   buildTripIndentReportWorkbook,
-} from "../tripIndentReport.export";
+} from "../tripIndentReportExport.util";
 import type { TripIndentReportRow } from "@/features/trips/utils/tripIndentReport.model";
 
 function sampleRow(overrides: Partial<TripIndentReportRow> = {}): TripIndentReportRow {
@@ -40,7 +40,7 @@ function sampleRow(overrides: Partial<TripIndentReportRow> = {}): TripIndentRepo
   };
 }
 
-describe("tripIndentReport.export formatting", () => {
+describe("tripIndentReportExport.util formatting", () => {
   it("applies Calibri 10, bold headers, money format, and autofilter", () => {
     const wb = buildTripIndentReportWorkbook([sampleRow()], "GoGo Pulse");
     const sheet = wb.Sheets["Trip Report"];

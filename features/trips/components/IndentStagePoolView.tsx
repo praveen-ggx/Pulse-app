@@ -1060,7 +1060,7 @@ function PoolClientFilter({
 }
 
 export function IndentStagePoolView({
-  lanes,
+  lanes: _lanes,
   poolIndents,
   allocatedIndents,
   poolSearch,

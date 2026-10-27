@@ -151,7 +151,7 @@ export function ChatImage({
   );
   const [loadError, setLoadError] = useState(false);
   const blobRevokeRef = useRef<(() => void) | null>(null);
-  const adoptBlob = useCallback((blob: { url: string; revoke: () => void }) => {
+  const _adoptBlob = useCallback((blob: { url: string; revoke: () => void }) => {
     blobRevokeRef.current?.();
     blobRevokeRef.current = blob.revoke;
     setUri(blob.url);

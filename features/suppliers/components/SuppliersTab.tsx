@@ -125,7 +125,7 @@ export function SuppliersTab({
   const isWebDesktop = Platform.OS === "web" && screenWidth >= 1024;
   const isControlled = suppliersProp !== undefined && tripsProp !== undefined;
   const suppliersQuery = useSuppliersQuery(isControlled ? null : organizationId);
-  const tripsQuery = useTripsQuery(isControlled ? null : organizationId);
+  const _tripsQuery = useTripsQuery(isControlled ? null : organizationId);
   const suppliers = isControlled ? (suppliersProp ?? []) : (suppliersQuery.data ?? []);
   const applyAdjustments = tripFinanceAdjustmentsByTripId !== undefined;
   const { data: supplierLedgerRpcRows = [] } =

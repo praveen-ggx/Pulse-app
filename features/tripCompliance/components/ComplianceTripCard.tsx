@@ -348,7 +348,7 @@ export function ComplianceTripCard({
   };
 
   const nextLine = readiness.nextAction?.trim() || "";
-  const blockerLines = readiness.blockerLines
+  const _blockerLines = readiness.blockerLines
     .filter((line) => {
       const n = line.replace(/\.+$/, "").trim().toLowerCase();
       const next = nextLine.replace(/\.+$/, "").trim().toLowerCase();

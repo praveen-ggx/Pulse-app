@@ -32,14 +32,12 @@ import { NoDocumentPreviewEmpty, NoTripsFoundEmpty } from "@/features/tripCompli
 import { ComplianceActivityLogButton } from "@/features/tripCompliance/components/ComplianceTripActivityLog";
 import { ComplianceTripCard } from "@/features/tripCompliance/components/ComplianceTripCard";
 import { hubMobileListCanvasStyles, HUB_MOBILE_LIST_CANVAS_BG } from "@/components/hub";
-import { ComplianceNumberStack } from "@/features/tripCompliance/components/ComplianceNumberStack";
 import { ComplianceExpiryDateModal } from "@/features/tripCompliance/components/ComplianceExpiryDateModal";
 import {
   CompliancePaymentConfirmModal,
   type CompliancePaymentConfirmValues,
 } from "@/features/tripCompliance/components/CompliancePaymentConfirmModal";
 import { ComplianceRejectRemarkModal } from "@/features/tripCompliance/components/ComplianceRejectRemarkModal";
-import { COMPLIANCE_STATUS_META } from "@/features/tripCompliance/components/ComplianceStatusIcon";
 import { complianceActionButtonStyles } from "@/features/tripCompliance/utils/complianceActionButton.util";
 import type { ComplianceListTripFacts } from "@/features/tripCompliance/hooks/useComplianceListTripFacts";
 import {
@@ -179,7 +177,6 @@ import {
   type VaultChooserPreview,
 } from "@/features/trips/components/trip-detail/VaultChooserNotifyRow";
 import { getTripExecutionModel } from "@/features/trips/domain/tripExecutionModel";
-import { isEwayBillMetaPath } from "@/features/trips/services/ewayBillFields.util";
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { lrReceiptForTrip } from "@/features/trips/utils/lrReceiptStatus.util";
 import { splitHubRouteLocationDisplay } from "@/features/trips/utils/tripLocationDisplay.util";
@@ -191,7 +188,7 @@ import { SIGNED_URL_CACHE_TTL_MS, SIGNED_URL_EXPIRY_SEC } from "@/lib/storageSig
 import { Image as ExpoImage } from "expo-image";
 import { useRouter, type Href } from "expo-router";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { Banknote, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleCheck, ClipboardList, Clock, Eye, FileText, Landmark, Maximize2, Minus, NotebookText, Plus, RotateCwSquare, Truck, Users, X } from "lucide-react-native";
+import { Banknote, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleCheck, ClipboardList, Clock, FileText, Landmark, Maximize2, Minus, NotebookText, Plus, RotateCwSquare, Truck, Users, X } from "lucide-react-native";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -2826,7 +2823,7 @@ export function ComplianceDocumentWorkspace({
     clientsQuery.data ?? [],
     suppliersQuery.data ?? [],
   );
-  const partyAvatarByTripId = useMemo(() => {
+  const _partyAvatarByTripId = useMemo(() => {
     const clientById = new Map((clientsQuery.data ?? []).map((row) => [row.id, row]));
     const supplierById = new Map((suppliersQuery.data ?? []).map((row) => [row.id, row]));
     const next: Record<string, ListCardPartyAvatar> = {};
@@ -2859,7 +2856,7 @@ export function ComplianceDocumentWorkspace({
     docFilter === "vehicle" || docFilter === "driver" ? docFilter : "trip";
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
-  const [toolLabel, setToolLabel] = useState<"rotate" | "refresh" | null>(null);
+  const [_toolLabel, setToolLabel] = useState<"rotate" | "refresh" | null>(null);
   const resetPreviewView = useCallback(() => {
     setZoom(1);
     setRotation(0);
@@ -2886,13 +2883,13 @@ export function ComplianceDocumentWorkspace({
   const [busy, setBusy] = useState(false);
   const [uploadingFinanceType, setUploadingFinanceType] = useState<string | null>(null);
   /** Document type whose files dialog is open (eye on a grouped row). */
-  const [filesModalType, setFilesModalType] = useState<string | null>(null);
+  const [_filesModalType, setFilesModalType] = useState<string | null>(null);
   const [categoryPreview, setCategoryPreview] = useState<{
     files: VaultCategoryPreviewFile[];
     index: number;
     type: string;
   } | null>(null);
-  const [fileActionKey, setFileActionKey] = useState<string | null>(null);
+  const [_fileActionKey, setFileActionKey] = useState<string | null>(null);
   /** Files dialog to reopen when the full-screen viewer opened from it closes. */
   const filesModalReturnRef = useRef<string | null>(null);
   const [declineOpen, setDeclineOpen] = useState(false);
@@ -2903,7 +2900,7 @@ export function ComplianceDocumentWorkspace({
   const [resubmitOpen, setResubmitOpen] = useState(false);
   const [flagOpen, setFlagOpen] = useState(false);
   const [podOpen, setPodOpen] = useState(false);
-  const [podLogRound, setPodLogRound] = useState(0);
+  const [_podLogRound, _setPodLogRound] = useState(0);
   const [expiryPrompt, setExpiryPrompt] = useState<{
     docType: string;
     resolve: (value: string | null) => void;
@@ -4236,7 +4233,7 @@ export function ComplianceDocumentWorkspace({
    * Replace one trip file in place: same row, new file, status back to
    * pending, old version kept in the audit log. No second row is created.
    */
-  const replaceTripFile = async (row: ComplianceDocRow) => {
+  const _replaceTripFile = async (row: ComplianceDocRow) => {
     if (!summary || !row.doc || !actorId) return;
     setFileActionKey(row.key);
     try {
@@ -4346,7 +4343,7 @@ export function ComplianceDocumentWorkspace({
     },
     [resetPreviewView],
   );
-  const tabMissingCounts = useMemo(() => {
+  const _tabMissingCounts = useMemo(() => {
     if (!summary) return { all: 0, trip: 0, vehicle: 0, driver: 0, finance: 0 };
     const finance = financeRowsFor(summary, hideCommercials);
     const trip = deriveTripVaultReviewRows(summary.documents).filter((row) => row.status === "missing").length;
@@ -7125,7 +7122,7 @@ function ChecklistAdvancePaymentPanel({
   );
 }
 
-const TripListRow = React.memo(function TripListRow({
+const _TripListRow = React.memo(function TripListRow({
   summary,
   selected,
   organizationId,

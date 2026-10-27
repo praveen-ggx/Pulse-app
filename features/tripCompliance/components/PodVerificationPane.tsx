@@ -1677,8 +1677,8 @@ function SettlementChargeNotesCard({
   onViewNotePdf,
   onSelectedAdjustmentChange,
   onEditAdjustment,
-  onEdit,
-  onRevoke,
+  onEdit: _onEdit,
+  onRevoke: _onRevoke,
   onRevalidate,
   onProceed,
   onPayBalance,
@@ -2207,7 +2207,7 @@ function SettlementPayableSummary({
   );
 }
 
-function SettlementNoteGroup({
+function _SettlementNoteGroup({
   stacked = false,
   title,
   drafts,

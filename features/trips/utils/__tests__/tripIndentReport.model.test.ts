@@ -6,7 +6,9 @@ import {
   indentIdsCoveredByTrips,
   resolveIndentType,
   resolvePulseId,
+  tripIndentReportColumnsForAccess,
   tripIndentReportFileName,
+  TRIP_INDENT_REPORT_COLUMNS,
 } from "../tripIndentReport.model";
 
 function trip(partial: Partial<TripRow> & { id: string }): TripRow {
@@ -154,5 +156,15 @@ describe("tripIndentReport.model", () => {
     expect(tripIndentReportFileName(new Date("2026-10-23T12:00:00Z"))).toBe(
       "Pulse_Trip_Report_2026-10-23.xlsx",
     );
+  });
+
+  it("drops cost columns when finance access is off", () => {
+    const withCosts = tripIndentReportColumnsForAccess(true);
+    const withoutCosts = tripIndentReportColumnsForAccess(false);
+    expect(withCosts).toHaveLength(TRIP_INDENT_REPORT_COLUMNS.length);
+    expect(withCosts.some((c) => c.key === "clientCost")).toBe(true);
+    expect(withoutCosts.some((c) => c.key === "clientCost")).toBe(false);
+    expect(withoutCosts.some((c) => c.key === "supplierCost")).toBe(false);
+    expect(withoutCosts).toHaveLength(TRIP_INDENT_REPORT_COLUMNS.length - 2);
   });
 });

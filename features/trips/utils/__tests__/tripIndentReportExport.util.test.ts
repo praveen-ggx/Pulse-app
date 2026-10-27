@@ -7,8 +7,6 @@ jest.mock("expo-file-system/legacy", () => ({
   writeAsStringAsync: jest.fn(async () => undefined),
 }));
 
-import * as fs from "fs";
-import * as path from "path";
 import * as XLSX from "xlsx-js-style";
 import {
   applyTripIndentReportSheetFormatting,
@@ -97,11 +95,6 @@ describe("tripIndentReportExport.util formatting", () => {
       "GoGo Pulse",
     );
     const buffer = Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
-    const outDir = path.join(process.cwd(), "tmp");
-    fs.mkdirSync(outDir, { recursive: true });
-    const outPath = path.join(outDir, "Pulse_Trip_Report_format_verify.xlsx");
-    fs.writeFileSync(outPath, buffer);
-    // Sample file left under ./tmp for manual open in Excel (gitignored via tmp/).
 
     // xlsx is a zip; styles live in xl/styles.xml
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -121,7 +114,54 @@ describe("tripIndentReportExport.util formatting", () => {
     expect(text).toContain("Trip ID");
     expect(text).toContain("Customer Name");
     expect(sheetXml).toMatch(/autoFilter/i);
-    expect(fs.existsSync(outPath)).toBe(true);
+  });
+
+  it("omits cost columns when includeCosts is false", () => {
+    const wb = buildTripIndentReportWorkbook([sampleRow()], {
+      companyName: "GoGo Pulse",
+      includeCosts: false,
+    });
+    const sheet = wb.Sheets["Trip Report"];
+    const range = XLSX.utils.decode_range(sheet!["!ref"] ?? "A1");
+    let headerRow = 0;
+    for (let r = range.s.r; r <= range.e.r; r += 1) {
+      const cell = sheet![`A${r + 1}`] as XLSX.CellObject | undefined;
+      if (cell && String(cell.v) === "Customer Name") {
+        headerRow = r + 1;
+        break;
+      }
+    }
+    const labels: string[] = [];
+    for (let c = 0; c <= range.e.c; c += 1) {
+      const addr = XLSX.utils.encode_cell({ r: headerRow - 1, c });
+      const cell = sheet![addr] as XLSX.CellObject | undefined;
+      if (cell?.v != null && String(cell.v).trim()) labels.push(String(cell.v));
+    }
+    expect(labels).not.toContain("Client Cost");
+    expect(labels).not.toContain("Supplier Cost");
+    expect(labels).toContain("Pulse ID");
+    expect(sheet!["!cols"]?.length).toBe(16);
+  });
+
+  it("writes truncation / enrichment notes in the banner", () => {
+    const wb = buildTripIndentReportWorkbook([sampleRow()], {
+      companyName: "GoGo Pulse",
+      notes: ["Export capped at 5,000 trips.", "Vehicle lookup failed."],
+    });
+    const sheet = wb.Sheets["Trip Report"];
+    const range = XLSX.utils.decode_range(sheet!["!ref"] ?? "A1");
+    const cells: string[] = [];
+    for (let r = range.s.r; r <= range.e.r; r += 1) {
+      for (let c = range.s.c; c <= range.e.c; c += 1) {
+        const cell = sheet![XLSX.utils.encode_cell({ r, c })] as
+          | XLSX.CellObject
+          | undefined;
+        if (cell?.v != null) cells.push(String(cell.v));
+      }
+    }
+    expect(cells).toContain("Note");
+    expect(cells.some((v) => v.includes("Export capped"))).toBe(true);
+    expect(cells.some((v) => v.includes("Vehicle lookup"))).toBe(true);
   });
 
   it("styles empty sheets without throwing", () => {

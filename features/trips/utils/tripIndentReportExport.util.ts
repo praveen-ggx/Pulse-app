@@ -10,10 +10,13 @@ import { Platform, Share } from "react-native";
 import { prependPulseExcelBanner } from "@/lib/reportWatermark.util";
 import {
   TRIP_INDENT_REPORT_COLUMNS,
+  tripIndentReportColumnsForAccess,
   tripIndentReportFileName,
   type TripIndentReportColumnKey,
   type TripIndentReportRow,
 } from "@/features/trips/utils/tripIndentReport.model";
+
+type ReportColumn = { key: TripIndentReportColumnKey; label: string };
 
 const FONT_NAME = "Calibri";
 const FONT_SIZE = 10;
@@ -67,15 +70,18 @@ function findHeaderRowIndex(sheet: XLSX.WorkSheet): number {
 }
 
 /** Apply Calibri 10, bold headers, borders, alignment, money formats, widths, autofilter. */
-export function applyTripIndentReportSheetFormatting(sheet: XLSX.WorkSheet): void {
+export function applyTripIndentReportSheetFormatting(
+  sheet: XLSX.WorkSheet,
+  columns: readonly ReportColumn[] = TRIP_INDENT_REPORT_COLUMNS,
+): void {
   const ref = sheet["!ref"];
   if (!ref) return;
   const range = XLSX.utils.decode_range(ref);
   const headerRow = findHeaderRowIndex(sheet);
   const lastCol = range.e.c;
   const lastRow = range.e.r;
-  const colCount = TRIP_INDENT_REPORT_COLUMNS.length;
-  const widths = TRIP_INDENT_REPORT_COLUMNS.map((col) =>
+  const colCount = columns.length;
+  const widths = columns.map((col) =>
     Math.max(10, Math.min(28, col.label.length + 2)),
   );
 
@@ -93,8 +99,7 @@ export function applyTripIndentReportSheetFormatting(sheet: XLSX.WorkSheet): voi
         sheet[addr] = cell;
       }
 
-      const colKey =
-        c < colCount ? TRIP_INDENT_REPORT_COLUMNS[c]?.key : undefined;
+      const colKey = c < colCount ? columns[c]?.key : undefined;
       const isNumericCol = Boolean(colKey && NUMERIC_COLUMN_KEYS.has(colKey));
 
       if (isData && isNumericCol && cell.v !== "" && cell.v != null) {
@@ -162,28 +167,48 @@ export function applyTripIndentReportSheetFormatting(sheet: XLSX.WorkSheet): voi
   }
 }
 
+export type TripIndentReportDownloadOptions = {
+  companyName?: string;
+  fileName?: string;
+  /** Include Client Cost / Supplier Cost (finance members only). */
+  includeCosts?: boolean;
+  /** Notes shown in the sheet banner (truncation, enrichment gaps). */
+  notes?: string[];
+};
+
 export function buildTripIndentReportWorkbook(
   rows: TripIndentReportRow[],
-  companyName?: string,
+  companyNameOrOptions?: string | TripIndentReportDownloadOptions,
 ): XLSX.WorkBook {
-  const header = TRIP_INDENT_REPORT_COLUMNS.map((c) => c.label);
+  const options: TripIndentReportDownloadOptions =
+    typeof companyNameOrOptions === "string"
+      ? { companyName: companyNameOrOptions }
+      : companyNameOrOptions ?? {};
+  const includeCosts = options.includeCosts !== false;
+  const columns = tripIndentReportColumnsForAccess(includeCosts);
+  const header = columns.map((c) => c.label);
   const body = rows.map((row) =>
-    TRIP_INDENT_REPORT_COLUMNS.map((c) => {
+    columns.map((c) => {
       const v = row[c.key];
       return v == null ? "" : v;
     }),
   );
+  const noteRows = (options.notes ?? [])
+    .map((n) => n.trim())
+    .filter(Boolean)
+    .map((n) => ["Note", n] as (string | number)[]);
   const sheetRows: (string | number)[][] = [
     ["Pulse Trip Report"],
-    ...(companyName ? [["Company", companyName]] : []),
+    ...(options.companyName ? [["Company", options.companyName]] : []),
     ["Generated", new Date().toLocaleString("en-IN")],
     ["Rows", rows.length],
+    ...noteRows,
     [],
     header,
     ...body,
   ];
   const sheet = XLSX.utils.aoa_to_sheet(prependPulseExcelBanner(sheetRows));
-  applyTripIndentReportSheetFormatting(sheet);
+  applyTripIndentReportSheetFormatting(sheet, columns);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, sheet, "Trip Report");
   return wb;
@@ -191,9 +216,9 @@ export function buildTripIndentReportWorkbook(
 
 export async function downloadTripIndentReportExcel(
   rows: TripIndentReportRow[],
-  options?: { companyName?: string; fileName?: string },
+  options?: TripIndentReportDownloadOptions,
 ): Promise<void> {
-  const workbook = buildTripIndentReportWorkbook(rows, options?.companyName);
+  const workbook = buildTripIndentReportWorkbook(rows, options);
   const fileName = options?.fileName ?? tripIndentReportFileName();
   if (Platform.OS === "web") {
     const arrayBuffer = XLSX.write(workbook, { type: "array", bookType: "xlsx" });

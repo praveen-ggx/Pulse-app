@@ -11,6 +11,7 @@
 - Excel formatting (export only): Calibri 10pt worksheet-wide, bold header row with light fill, thin borders on table, right-aligned costs with `#,##0.00`, auto column widths, autofilter. Uses `xlsx-js-style` so styles persist in the file.
 - Row uniqueness: one row per trip; one row per org-owned indent with no linked trip (`indent_id` / `source_indent_id`). When an indent becomes a trip, only the trip row remains.
 - Data from existing trips/indents catalogs plus enrichment (`market_bids.accepted_at`, `vehicles`, `profiles`, `organizations`, driver phones RPC). No schema change.
+- Review follow-up: Client/Supplier Cost columns only when `useMemberCapabilities().finance`; enrichment failures and 5k trip/indent cap surface as sheet Notes + post-download alert; download button uses `icon={Download}` (no `showPlusIcon`); dropped unrelated `tmp/` from `.gitignore`.
 
 ## Why
 - Trip Ops needs a full indent+trip lifecycle Excel report without redesigning the hub or changing award/assignment workflows.

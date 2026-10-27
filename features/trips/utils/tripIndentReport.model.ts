@@ -34,6 +34,14 @@ export const TRIP_INDENT_REPORT_COLUMNS = [
   { key: "tripId", label: "Trip ID" },
 ] as const;
 
+const COST_COLUMN_KEYS = new Set<string>(["clientCost", "supplierCost"]);
+
+/** Drop Client/Supplier Cost unless the member has finance access. */
+export function tripIndentReportColumnsForAccess(includeCosts: boolean) {
+  if (includeCosts) return [...TRIP_INDENT_REPORT_COLUMNS];
+  return TRIP_INDENT_REPORT_COLUMNS.filter((c) => !COST_COLUMN_KEYS.has(c.key));
+}
+
 export type TripIndentReportColumnKey =
   (typeof TRIP_INDENT_REPORT_COLUMNS)[number]["key"];
 

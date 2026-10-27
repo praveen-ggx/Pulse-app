@@ -64,7 +64,6 @@ playwright-report/
 *.old
 *.tmp
 tmp_*
-tmp/
 *.reference
 
 # IDE

@@ -43,6 +43,7 @@ import { downloadTripIndentReportExcel } from "@/features/trips/utils/tripIndent
 import {
   buildTripIndentReport,
   loadTripIndentReportCatalog,
+  TRIP_INDENT_REPORT_MAX_ENTITY_ROWS,
 } from "@/features/trips/services/tripIndentReport.service";
 import {
   resolveTripsPromoVariant,
@@ -447,6 +448,8 @@ export default function TripsScreen() {
   const [customDateTo, setCustomDateTo] = useState<string | null>(null);
   const [tripLedgerExportOpen, setTripLedgerExportOpen] = useState(false);
   const [tripReportDownloading, setTripReportDownloading] = useState(false);
+  /** Domain flags — finance gates cost columns on Trip Report export. */
+  const memberDomains = useMemberCapabilities();
   const [activeHistoryMetricTab, setActiveHistoryMetricTab] =
     useState<HistoryTripMetricId | null>(null);
   const [showDateRangePicker, setShowDateRangePicker] = useState(false);
@@ -1808,7 +1811,7 @@ export default function TripsScreen() {
         return;
       }
       const driverPhoneByTripId = await loadDriverPhonesByTripId(catalog.trips);
-      const { error, rows } = await buildTripIndentReport({
+      const { error, rows, warnings } = await buildTripIndentReport({
         orgId,
         trips: catalog.trips,
         indents: catalog.indents,
@@ -1820,9 +1823,24 @@ export default function TripsScreen() {
         showAppAlert("Export failed", error.message || "Could not build the trip report.");
         return;
       }
+      const notes: string[] = [...warnings];
+      if (catalog.truncated) {
+        const cap = TRIP_INDENT_REPORT_MAX_ENTITY_ROWS.toLocaleString("en-IN");
+        notes.unshift(
+          `Export capped at ${cap} trips and ${cap} indents. Additional rows were not included.`,
+        );
+      }
       await downloadTripIndentReportExcel(rows, {
         companyName: currentOrganization?.name ?? undefined,
+        includeCosts: memberDomains.finance,
+        notes,
       });
+      if (notes.length > 0) {
+        showAppAlert(
+          "Trip Report downloaded with notes",
+          notes.join("\n\n"),
+        );
+      }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       showAppAlert("Export failed", message || "Could not download the trip report.");
@@ -1837,6 +1855,7 @@ export default function TripsScreen() {
     tripHubPartyMetaByTripId,
     getStageLabelForTrip,
     currentOrganization?.name,
+    memberDomains.finance,
   ]);
 
   const { data: inTransitPingByTripId = {} } = useTripHubInTransitPings(
@@ -1996,7 +2015,6 @@ export default function TripsScreen() {
   ]);
 
   /** Trip Ops members without Finance export the ops sheet instead of the ledger. */
-  const memberDomains = useMemberCapabilities();
   const useOpsTripExport = memberDomains.tripops && !memberDomains.finance;
   const opsExportTripIds = useMemo(
     () => (useOpsTripExport ? filtered.map((t) => t.id) : []),
@@ -2793,8 +2811,13 @@ export default function TripsScreen() {
     >
       <PulsePillButton
         size="compact"
-        showPlusIcon
-        IconComponent={Download}
+        icon={
+          <Download
+            size={12}
+            color={Theme.buttonDarkText}
+            strokeWidth={2.4}
+          />
+        }
         loading={tripReportDownloading}
         disabled={tripReportDownloading || !orgId}
         onPress={() => void handleDownloadTripReport()}

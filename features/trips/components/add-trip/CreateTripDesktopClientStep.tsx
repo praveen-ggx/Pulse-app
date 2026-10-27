@@ -53,6 +53,11 @@ export type CreateTripDesktopClientStepProps = {
   onLaneSearchChange?: (value: string) => void;
   /** Parent can block wizard Continue while the lane gate is showing. */
   onLaneGateActiveChange?: (active: boolean) => void;
+  /**
+   * Previous client's lanes are still on screen while the next query loads.
+   * Do not treat that list as this client's contracts.
+   */
+  contractLanesPlaceholder?: boolean;
   saleRateBasis?: SaleRateBasis;
   saleUnitRate?: string;
   onSaleRateBasisChange?: (basis: SaleRateBasis) => void;
@@ -87,6 +92,7 @@ export const CreateTripDesktopClientStep = memo(
     saleUnitRate = "",
     onSaleRateBasisChange,
     onSaleUnitRateChange,
+    contractLanesPlaceholder = false,
   }: CreateTripDesktopClientStepProps) {
     const showClientChange = Boolean(clientId);
     const [saleModalOpen, setSaleModalOpen] = useState(false);
@@ -97,19 +103,31 @@ export const CreateTripDesktopClientStep = memo(
     /** Sticky: client has contracts (survives search filtering to zero rows). */
     const [clientHasContracts, setClientHasContracts] = useState(false);
     const autoOpenedSaleKeyRef = useRef<string | null>(null);
+    const onLaneGateActiveChangeRef = useRef(onLaneGateActiveChange);
+    onLaneGateActiveChangeRef.current = onLaneGateActiveChange;
+    const lastLaneGate = useRef<boolean | null>(null);
 
     useEffect(() => {
       setAdhocTrip(false);
       setClientHasContracts(false);
       setSaleDoneAttempted(false);
       autoOpenedSaleKeyRef.current = null;
+      if (!clientId) {
+        lastLaneGate.current = false;
+        onLaneGateActiveChangeRef.current?.(false);
+      }
     }, [clientId]);
 
     useEffect(() => {
-      if (!contractLanesLoading && contractLanes.length > 0) {
-        setClientHasContracts(true);
+      if (
+        contractLanesLoading ||
+        contractLanesPlaceholder ||
+        contractLanes.length === 0
+      ) {
+        return;
       }
-    }, [contractLanesLoading, contractLanes.length]);
+      setClientHasContracts((prev) => (prev ? prev : true));
+    }, [contractLanesLoading, contractLanesPlaceholder, contractLanes.length]);
 
     const filteredClients = useMemo(
       () => filterClientsByPartyQuery(clients, partySearch),
@@ -163,10 +181,19 @@ export const CreateTripDesktopClientStep = memo(
     );
 
     const laneGateEnabled = Boolean(clientId && onSelectLane);
+    /**
+     * `contractLanes.length` covers the frame where loading just finished and
+     * the sticky flag is still false. Using only the sticky flag dropped the
+     * gate for one render, which flipped the mobile shell and remounted the
+     * wizard. The sticky flag still keeps the gate up when a search filters
+     * the list to zero.
+     */
     const showLaneGate =
       laneGateEnabled &&
-      (contractLanesLoading ||
-        (clientHasContracts && !selectedLaneId && !adhocTrip));
+      ((contractLanesLoading || contractLanesPlaceholder) ||
+        ((contractLanes.length > 0 || clientHasContracts) &&
+          !selectedLaneId &&
+          !adhocTrip));
     const showPricing =
       Boolean(clientId) &&
       !showLaneGate &&
@@ -182,22 +209,11 @@ export const CreateTripDesktopClientStep = memo(
      */
     const saleLockedToLane = Boolean(selectedLaneId) && Boolean(saleDisplay);
 
-    const onLaneGateActiveChangeRef = useRef(onLaneGateActiveChange);
-    onLaneGateActiveChangeRef.current = onLaneGateActiveChange;
-    const lastLaneGate = useRef<boolean | null>(null);
     useEffect(() => {
       if (lastLaneGate.current === showLaneGate) return;
       lastLaneGate.current = showLaneGate;
       onLaneGateActiveChangeRef.current?.(showLaneGate);
     }, [showLaneGate]);
-    useEffect(() => {
-      return () => {
-        if (lastLaneGate.current) {
-          lastLaneGate.current = false;
-          onLaneGateActiveChangeRef.current?.(false);
-        }
-      };
-    }, []);
 
     useEffect(() => {
       if (compact || !showPricing || saleLockedToLane || !clientId) return;

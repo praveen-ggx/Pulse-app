@@ -74,7 +74,7 @@ export type ComplianceTripCardProps = {
   onOpenDetails?: () => void;
   onPay?: () => void;
   /** When every required trip document is approved, Verify Docs marks the trip compliance verified. */
-  onMarkComplianceVerified?: () => Promise<void>;
+  onMarkComplianceVerified?: () => Promise<boolean | void>;
   canManageFinance?: boolean;
   /** Details screen renders its own full decline section. */
   hideDeclineNotice?: boolean;
@@ -617,14 +617,14 @@ export function ComplianceTripCard({
               </View>
               {debitStatus ? (
                 <View
-                  style={[styles.stagePill, { backgroundColor: debitStatus.tone.bg }]}
-                  accessibilityLabel={debitStatus.label}
+                  style={[styles.stagePill, { backgroundColor: debitStatus?.tone.bg }]}
+                  accessibilityLabel={debitStatus?.label}
                 >
                   <Text
-                    style={[styles.stagePillText, { color: debitStatus.tone.fg }]}
+                    style={[styles.stagePillText, { color: debitStatus?.tone.fg }]}
                     numberOfLines={1}
                   >
-                    {debitStatus.label}
+                    {debitStatus?.label}
                   </Text>
                 </View>
               ) : null}

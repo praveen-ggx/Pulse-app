@@ -494,7 +494,7 @@ function compliancePreviewFileFromRow(
   const complianceType = isVehicleComplianceDocType(row.type) ? row.type : undefined;
   const approved = row.status === "verified";
   const supplierLocked =
-    Boolean(entityDoc) &&
+    entityDoc != null &&
     !isTripFile &&
     (entityDoc.entity_type === "supplier" || entityDoc.source === "supplier-kyc");
   return {
@@ -3515,7 +3515,14 @@ export function ComplianceDocumentWorkspace({
           alertMessage("Couldn't approve document", error.message);
         return false;
       }
-      if (sync) onChanged(entityDocumentChange(row.entityDoc));
+      if (sync) {
+        onChanged(
+          entityDocumentChange({
+            entity_type: row.entityDoc.entity_type,
+            entity_id: row.entityDoc.entity_id,
+          }),
+        );
+      }
       return true;
     }
     alertMessage("Couldn't approve document", "This document can't be approved from this preview.");

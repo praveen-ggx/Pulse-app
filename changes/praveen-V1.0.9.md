@@ -19,9 +19,9 @@
 - `features/trips/screens/TripsScreen.tsx`
 - `features/trips/utils/tripIndentReport.model.ts`
 - `features/trips/services/tripIndentReport.service.ts`
-- `features/trips/services/tripIndentReport.export.ts`
+- `features/trips/utils/tripIndentReportExport.util.ts` (export helper; `*.util.ts` naming for domain lint)
 - `features/trips/utils/__tests__/tripIndentReport.model.test.ts`
-- `features/trips/services/__tests__/tripIndentReport.export.test.ts`
+- `features/trips/utils/__tests__/tripIndentReportExport.util.test.ts`
 
 ## Migrations
 - None.

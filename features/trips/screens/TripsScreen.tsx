@@ -39,7 +39,7 @@ import { useLoadingStuck } from "@/lib/hooks/useLoadingStuck";
 import { isInfrastructureErrorMessage } from "@/lib/supabaseHttp.util";
 import { useGlobalSyncStore } from "@/lib/globalSync/useGlobalSyncStore";
 import { TripsLedgerExportModalGate } from "@/features/trips/components/TripsLedgerExportModalGate";
-import { downloadTripIndentReportExcel } from "@/features/trips/services/tripIndentReport.export";
+import { downloadTripIndentReportExcel } from "@/features/trips/utils/tripIndentReportExport.util";
 import {
   buildTripIndentReport,
   loadTripIndentReportCatalog,

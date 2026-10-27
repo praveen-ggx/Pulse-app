@@ -7,6 +7,8 @@ import {
   Text,
   useWindowDimensions,
   View,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft } from "lucide-react-native";
@@ -37,7 +39,7 @@ export interface FullPageWizardShellProps {
   progress?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
-  /** Keypad / fill steps — flex body, compact chrome, no ScrollView wrapper */
+  /** Keypad / fill steps — flex body and compact chrome. Scroll stays off; the body host does not change. */
   fillBody?: boolean;
   /** When true, shell wraps children in ScrollView (simple step content). */
   scrollBody?: boolean;
@@ -47,6 +49,48 @@ export interface FullPageWizardShellProps {
   contextPanel?: ReactNode;
   /** When true, use stepped wizard chrome on wide desktop (not enterprise multi-card grid). */
   steppedLayout?: boolean;
+}
+
+type WizardBodyMode = "keypad" | "scrollFill" | "scroll" | "plain";
+
+/**
+ * One host for every step. Swapping ScrollView and View remounts children —
+ * on mobile Create Trip that remount restarted supplier fetches each time
+ * the contract-lane gate flipped. Scrolling is a prop on this ScrollView.
+ * Keypad steps keep scroll off and a flex content box so the absolute pad
+ * still docks to the body.
+ */
+function WizardStepBody({
+  mode,
+  children,
+  contentContainerStyle,
+}: {
+  mode: WizardBodyMode;
+  children: ReactNode;
+  contentContainerStyle?: StyleProp<ViewStyle>;
+}) {
+  const scrolling = mode === "scroll" || mode === "scrollFill";
+  return (
+    <ScrollView
+      scrollEnabled={scrolling}
+      bounces={scrolling}
+      style={mode === "scroll" ? styles.bodyScroll : styles.bodyFill}
+      contentContainerStyle={contentContainerStyle}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+      {...(mode === "scroll"
+        ? {
+            keyboardDismissMode:
+              Platform.OS === "ios"
+                ? ("interactive" as const)
+                : ("on-drag" as const),
+            automaticallyAdjustKeyboardInsets: Platform.OS === "ios",
+          }
+        : null)}
+    >
+      {children}
+    </ScrollView>
+  );
 }
 
 export function FullPageWizardShell({
@@ -123,51 +167,35 @@ export function FullPageWizardShell({
     </View>
   ) : null;
 
-  const body = fillBody ? (
-    /**
-     * Keypad steps hoist Continue above the pad — must stay a flex View so
-     * `wizardKeypadRoot` gets a real height and marginTop:auto docks CTA+keys.
-     * ScrollView breaks that chain (CTA floats mid-body over Partner rate).
-     */
-    isKeypadStep ? (
-      <View style={styles.bodyFill}>{children}</View>
-    ) : (
-      <ScrollView
-        style={styles.bodyFill}
-        contentContainerStyle={[
+  const bodyMode: WizardBodyMode = fillBody
+    ? isKeypadStep
+      ? "keypad"
+      : "scrollFill"
+    : scrollBody
+      ? "scroll"
+      : "plain";
+  const bodyContentStyle: StyleProp<ViewStyle> =
+    bodyMode === "keypad" || bodyMode === "scrollFill"
+      ? [
           styles.bodyFillScrollContent,
-          pinFooterToViewport && { paddingBottom: mobileFooterReserve },
-        ]}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        {children}
-      </ScrollView>
-    )
-  ) : scrollBody ? (
-    <ScrollView
-      style={styles.bodyScroll}
-      contentContainerStyle={[
-        styles.bodyScrollContent,
-        isMobileWizardLayout && styles.bodyScrollContentMobile,
-        pinFooterToViewport && { paddingBottom: mobileFooterReserve },
-      ]}
-      showsVerticalScrollIndicator={false}
-      keyboardShouldPersistTaps="handled"
-      keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-      automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
-    >
+          bodyMode === "keypad" ? { flex: 1 } : null,
+          pinFooterToViewport && bodyMode !== "keypad"
+            ? { paddingBottom: mobileFooterReserve }
+            : null,
+        ]
+      : bodyMode === "scroll"
+        ? [
+            styles.bodyScrollContent,
+            isMobileWizardLayout && styles.bodyScrollContentMobile,
+            pinFooterToViewport && { paddingBottom: mobileFooterReserve },
+          ]
+        : pinFooterToViewport
+          ? { paddingBottom: mobileFooterReserve, flexGrow: 1 }
+          : { flexGrow: 1 };
+  const body = (
+    <WizardStepBody mode={bodyMode} contentContainerStyle={bodyContentStyle}>
       {children}
-    </ScrollView>
-  ) : (
-    <View
-      style={[
-        styles.bodyFill,
-        pinFooterToViewport && { paddingBottom: mobileFooterReserve },
-      ]}
-    >
-      {children}
-    </View>
+    </WizardStepBody>
   );
 
   const page = (

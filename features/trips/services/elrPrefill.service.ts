@@ -16,13 +16,13 @@ function clientAddress(row: ClientPartyRow | null): string {
   return (row?.registered_address || row?.address || "").trim();
 }
 
-async function readMaybe<T>(
-  run: () => PromiseLike<{ data: T | null; error: unknown }>,
-): Promise<T | null> {
+async function readMaybe<R extends { data: unknown; error: unknown }>(
+  run: () => PromiseLike<R>,
+): Promise<NonNullable<R["data"]> | null> {
   try {
     const { data, error } = await run();
     if (error) return null;
-    return data ?? null;
+    return (data ?? null) as NonNullable<R["data"]> | null;
   } catch {
     return null;
   }

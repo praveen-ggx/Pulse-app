@@ -30,7 +30,7 @@ export function buildManualInvoiceLines(
   drafts: ManualInvoiceLineDraft[],
 ): InvoiceLineSnapshot[] {
   return drafts
-    .map((draft) => {
+    .map((draft): InvoiceLineSnapshot | null => {
       const qty = Number(draft.qty);
       const rate = Number(draft.rate);
       const discount = Number(draft.discount || 0);
@@ -48,10 +48,10 @@ export function buildManualInvoiceLines(
         unit: "ea",
         rate,
         taxable_value: taxable,
-        line_type: "goods" as const,
+        line_type: "goods",
         hsn_sac: normalizeHsnSac(draft.hsnSac),
         tax_rate: Number.isFinite(taxRate) ? taxRate : null,
       };
     })
-    .filter((line): line is InvoiceLineSnapshot => line != null);
+    .filter((line) => line != null);
 }

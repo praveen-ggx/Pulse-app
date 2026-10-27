@@ -28,6 +28,7 @@ import { runSingleflight } from "@/lib/cache/singleflight";
 import {
     DEFAULT_PAGE_SIZE,
     DRIVER_TRIPS_PAGE_SIZE,
+    readAllPages,
     type PageOpts,
 } from "@/lib/pagination";
 
@@ -362,12 +363,17 @@ export async function getTripPartyCountsForOrg(
     byDriverId: {},
   };
   if (!orgId) return { error: null, counts: empty };
-  const { data, error } = await supabase()
-    .from("trips")
-    .select("client_id, supplier_id, driver_id")
-    .eq("organization_id", orgId)
-    .is("deleted_at", null)
-    .limit(2000);
+  // `.limit(2000)` was silently capped at PostgREST max_rows (1000) — page through all trips.
+  const { data, error } = await readAllPages((afterId, limit) => {
+    // `id` is selected only as the keyset cursor.
+    let q = supabase()
+      .from("trips")
+      .select("id, client_id, supplier_id, driver_id")
+      .eq("organization_id", orgId)
+      .is("deleted_at", null);
+    if (afterId) q = q.gt("id", afterId);
+    return q.order("id", { ascending: true }).limit(limit);
+  });
   if (error) return { error: new Error(error.message), counts: empty };
   const counts: TripPartyCounts = {
     byClientId: {},

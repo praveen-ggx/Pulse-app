@@ -200,6 +200,11 @@ export const queryKeys = {
     finite: (orgId: string) => ["q", "indents", orgId, "finite"] as const,
     /** Cancelled/expired indents with no trip — not the capped finite list. */
     failed: (orgId: string) => ["q", "indents", orgId, "failed"] as const,
+    /** Trips hub live / needs-trip indent workload (IST day in the key). */
+    workloadCounts: (orgId: string, today: string) =>
+      ["q", "indents", orgId, "workload", "counts", today] as const,
+    workloadList: (orgId: string, today: string) =>
+      ["q", "indents", orgId, "workload", "list", today] as const,
     infinite: (orgId: string, pageSize: number) =>
       ["q", "indents", orgId, "infinite", pageSize] as const,
     list: (orgId: string, opts?: { limit?: number; offset?: number }) =>

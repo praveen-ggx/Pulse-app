@@ -14,10 +14,9 @@ import type { TripRow } from "@/features/trips/services/trips.service";
  * `features/network/utils/loadCenter.model.ts`) and becomes an actual trip,
  * landing on UNASSIGNED, then progresses through the stages below exactly
  * as it always has. Because an indent record and a trip record are
- * different tables, `classifyTripMetric`/`countTripsByMetric` (which only
- * ever look at real trip rows) cannot themselves place something into
- * `"indent"` — the caller (TripsScreen) fills that one count in from the
- * indents list before this same lifecycle rail renders it as stage one.
+ * different tables, `classifyTripMetric`/`countTripsByMetric` only look at
+ * real trip rows. The indent key stays 0 on trip rails; it is not mixed
+ * into Active / All / History trip metrics.
  */
 export type TripMetricId =
   | "indent"

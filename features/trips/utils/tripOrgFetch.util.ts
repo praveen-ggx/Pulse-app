@@ -5,6 +5,13 @@ export const GET_TRIPS_FOR_ORG_DEFAULT_CAP = 400;
 /** Dated-mode safety cap in 20271027155318. Not unlimited. */
 export const GET_TRIPS_FOR_ORG_DATED_SAFETY_CAP = 2000;
 
+/**
+ * "All time" on the Trips hub. Sent as p_from / p_to so get_trips_for_org uses its
+ * dated mode (every visible trip, newest 2000) instead of the undated newest 400.
+ * Every trip has created_at, so this range matches all of them.
+ */
+export const HUB_ALL_TIME_BOUNDS = { from: "2000-01-01", to: "2099-12-31" } as const;
+
 export function isDatedGetTripsForOrgCapped(rowCount: number): boolean {
   return rowCount >= GET_TRIPS_FOR_ORG_DATED_SAFETY_CAP;
 }

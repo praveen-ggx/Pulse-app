@@ -4,8 +4,9 @@ import { STALE } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
 
 /**
- * Trips hub date-range fetch. The default list is only the newest 400 trips,
- * so September / early October only appear when this query runs for the pill.
+ * Trips hub trip rows for a date range (HUB_ALL_TIME_BOUNDS for "All time").
+ * The default list is only the newest 400 trips, so hub counts come from this query.
+ * Errors surface as `isError`; the RPC never falls back to a table scan here.
  */
 export function useTripsHubDateRange(
   orgId: string | null,
@@ -23,5 +24,10 @@ export function useTripsHubDateRange(
     enabled: Boolean(orgId && from && to),
     staleTime: STALE.frequent,
   });
-  return { trips: query.data ?? [], isFetching: query.isFetching };
+  return {
+    trips: query.data ?? [],
+    isFetching: query.isFetching,
+    isFetched: query.isSuccess,
+    isError: query.isError,
+  };
 }

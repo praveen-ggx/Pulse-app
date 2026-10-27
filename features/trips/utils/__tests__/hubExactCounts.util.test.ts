@@ -17,16 +17,18 @@ describe("buildOrgHubExactCounts", () => {
           { id: "i3", status: "open", pickup_date: null, created_at: "2026-10-04" },
         ],
       },
-      { dateRangeFilter: "all", includeCompletedInDelivered: false },
+      { dateRangeFilter: "all" },
     );
 
     expect(counts.active).toBe(2);
     expect(counts.history).toBe(1);
     expect(counts.metrics.assigned).toBe(1);
     expect(counts.metrics.in_transit).toBe(1);
+    // Completed trip "c" is History; it is not added to the Active Delivered tile.
     expect(counts.metrics.delivered_docs_pending).toBe(0);
     expect(counts.metrics.indent).toBe(1);
-    expect(counts.allActive).toBe(3);
+    // ALL is trips only; the open indent i3 stays on the indent tile.
+    expect(counts.allActive).toBe(2);
     expect(counts.indentIdsWithTrip).toEqual(expect.arrayContaining(["i1", "i2"]));
   });
 

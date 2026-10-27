@@ -1,16 +1,16 @@
 import { isIndentFailedStatus } from "@/features/indents/utils/indentCancelReason.util";
 import { isIndentStageDone } from "@/features/network/utils/loadCenter.model";
-import {
-  tripDayMatchesHubDateFilter,
-  type TripHubDateFilter,
-} from "@/lib/dateRangePresets";
-import {
-  countTripsByMetric,
-  isCompletedTripStatus,
-  isTripCancelledForHub,
-  type TripMetricId,
-} from "@/features/trips/utils/tripHubMetrics";
 import type { TripRow } from "@/features/trips/services/trips.service";
+import {
+    countTripsByMetric,
+    isCompletedTripStatus,
+    isTripCancelledForHub,
+    type TripMetricId
+} from "@/features/trips/utils/tripHubMetrics";
+import {
+    tripDayMatchesHubDateFilter,
+    type TripHubDateFilter,
+} from "@/lib/dateRangePresets";
 
 export type HubTripFact = {
   id: string;
@@ -56,8 +56,6 @@ export function buildOrgHubExactCounts(
     dateRangeFilter: TripHubDateFilter;
     customFrom?: string | null;
     customTo?: string | null;
-    /** Kept for callers that still want History on the docs-pending rail. Hub screen passes false. */
-    includeCompletedInDelivered: boolean;
   },
 ): OrgHubExactCounts {
   const dateOpts = {
@@ -88,13 +86,11 @@ export function buildOrgHubExactCounts(
     activeFacts.push(trip);
   }
 
+  // Active tiles count open trips only; completed trips are History.
   const metrics = countTripsByMetric(
     activeFacts.map(factAsTrip),
     docs,
   );
-  if (opts.includeCompletedInDelivered) {
-    metrics.delivered_docs_pending += history;
-  }
 
   const indent = source.indents.filter((row) => {
     const status = row.status ?? "";
@@ -108,7 +104,8 @@ export function buildOrgHubExactCounts(
     metrics,
     active,
     history,
-    allActive: active + indent,
+    // Trips only — the indent tile is separate and never adds to ALL.
+    allActive: active,
     indentIdsWithTrip: [...indentIdsWithTrip],
   };
 }

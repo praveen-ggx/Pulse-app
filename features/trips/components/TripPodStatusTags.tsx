@@ -78,25 +78,28 @@ export function TripCompletionOrPodTags({
   );
 }
 
+/** `softCopyReceived: null` = document flags not loaded; the Soft chip is left out. */
 export function TripPodStatusTags({
   softCopyReceived,
   hardCopyReceived,
   compact = false,
 }: {
-  softCopyReceived: boolean;
+  softCopyReceived: boolean | null;
   hardCopyReceived: boolean;
   compact?: boolean;
 }) {
   return (
     <View style={[styles.row, styles.rowInline]} accessibilityRole="text">
-      <PodTag
-        compact={compact}
-        received={softCopyReceived}
-        label="Soft"
-        accessibilityLabel={
-          softCopyReceived ? "Soft copy POD received" : "Soft copy POD missing"
-        }
-      />
+      {softCopyReceived == null ? null : (
+        <PodTag
+          compact={compact}
+          received={softCopyReceived}
+          label="Soft"
+          accessibilityLabel={
+            softCopyReceived ? "Soft copy POD received" : "Soft copy POD missing"
+          }
+        />
+      )}
       <PodTag
         compact={compact}
         received={hardCopyReceived}

@@ -451,7 +451,8 @@ export type TripsHubMobileTripCardProps = {
   secondaryLabel?: string | null;
   /** Last ping time / offline for in-transit trips (no location line). */
   inTransitPing?: TripHubInTransitPingMeta | null;
-  softPodReceived?: boolean;
+  /** null = document flags not loaded (Soft chip hidden). */
+  softPodReceived?: boolean | null;
   hardPodReceived?: boolean;
   /** Override origin tags (e.g. NETWORK / MARKETPLACE on unallocated indents). */
   originTags?: string[];

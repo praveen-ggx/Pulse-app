@@ -451,8 +451,8 @@ export type TripsHubTripCardProps = {
   hubGrid?: boolean;
   /** Last ping time / offline for in-transit hub cards. */
   inTransitPing?: TripHubInTransitPingMeta | null;
-  /** Digital POD present (trip_documents document_type=pod). */
-  softPodReceived?: boolean;
+  /** Digital POD present (trip_documents document_type=pod). null = flags not loaded. */
+  softPodReceived?: boolean | null;
   /** Physical POD (trips.pod_received_at / Pulse POD received). */
   hardPodReceived?: boolean;
   /** EW-Bill expiring / expired label for this trip. */
@@ -1164,6 +1164,8 @@ export type TripsHubTableViewProps = {
   onDisplayedTripsLengthChange?: (n: number) => void;
   /** Trip ids with a digital POD document (batched). */
   softPodTripIds?: Set<string>;
+  /** Lower-cased ids whose soft-POD flags were fetched; others hide the Soft chip. */
+  softPodCheckedTripIds?: Set<string>;
   /** Trip ids with Pulse POD hard-copy received (trips.pod_received_at). */
   hardPodTripIds?: Set<string>;
   /** Most critical e-way label per trip id. Omit on lists that are not trips. */
@@ -1314,6 +1316,7 @@ export function TripsHubTableView({
   pagination,
   onDisplayedTripsLengthChange,
   softPodTripIds,
+  softPodCheckedTripIds,
   hardPodTripIds,
   ewayExpiryByTripId,
   lrNumbersByTripId,
@@ -2354,10 +2357,13 @@ export function TripsHubTableView({
                             {tripIsDeliveredStatus(t.status) ? (
                               <TripPodStatusTags
                                 compact
-                                softCopyReceived={tripHasHubPodFlag(
-                                  softPodTripIds,
-                                  t.id,
-                                )}
+                                softCopyReceived={
+                                  softPodTripIds &&
+                                  (!softPodCheckedTripIds ||
+                                    softPodCheckedTripIds.has(t.id.trim().toLowerCase()))
+                                    ? tripHasHubPodFlag(softPodTripIds, t.id)
+                                    : null
+                                }
                                 hardCopyReceived={
                                   tripHasHubPodFlag(hardPodTripIds, t.id) ||
                                   tripPodIsReceived(t)

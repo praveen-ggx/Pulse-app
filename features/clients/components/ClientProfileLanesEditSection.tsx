@@ -17,7 +17,7 @@ import { TripCommodityFields } from "@/features/trips/components/add-trip/TripCo
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { formatINRChip } from "@/lib/format";
 import { formatCityStateLabel } from "@/lib/placeCityState.util";
-import { coordsOrUnset } from "@/lib/placeSearch.util";
+import { coordsOrUnset } from "@/lib/maps/placeSearch.util";
 import { getLaneDistanceKm, type LatLon } from "@/lib/routingService";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

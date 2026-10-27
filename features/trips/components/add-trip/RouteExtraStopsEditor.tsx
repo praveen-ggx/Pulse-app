@@ -3,7 +3,7 @@ import { memo, useCallback, type Dispatch, type SetStateAction } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import Theme from "@/constants/Theme";
-import { coordsOrUnset } from "@/lib/placeSearch.util";
+import { coordsOrUnset } from "@/lib/maps/placeSearch.util";
 import { formatINR } from "@/lib/format";
 import {
   newRouteExtraStopDraft,

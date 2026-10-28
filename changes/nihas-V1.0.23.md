@@ -15,3 +15,6 @@
 
 ## Tested
 - New Jest cases with the reported number; full Jest, navigation-policy, ci-baseline in a clean worktree. Not clicked through on gx-pulse yet.
+
+## Baseline
+- After syncing prod into V1 (#51): typecheck 350 → 325; ci-baseline lowered.

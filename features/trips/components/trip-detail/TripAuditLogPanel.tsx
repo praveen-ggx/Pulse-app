@@ -4,10 +4,9 @@
 import { RegistryWebDrawer } from "@/components/RegistryWebDrawer";
 import { useAuth } from "@/contexts/AuthContext";
 import { TripAuditLogContent } from "@/features/trips/components/trip-detail/TripAuditLogContent";
-import { getProfile } from "@/features/auth/services/auth.service";
 import { resolveComplianceActorDetails } from "@/features/tripCompliance/services/complianceDocumentView.service";
 import type { LedgerRow } from "@/features/finance/services/finance.service";
-import { getOrganizationMembersShared } from "@/features/organization/services/members.service";
+import { getOrganizationMembers } from "@/features/organization/services/members.service";
 import type { DriverActivityTimelineRow } from "@/features/trips/components/trip-detail/hooks/useTripDetail";
 import type { TripAssignmentAuditRow } from "@/features/trips/services/trip-assignment-audit.service";
 import type { TripHardCopyPodState } from "@/features/trips/services/tripDocumentLrPod.service";
@@ -15,9 +14,16 @@ import {
   getTripDisplayNumber,
   type TripRow,
 } from "@/features/trips/services/trips.service";
+import { listTripActivityMilestones } from "@/features/trips/services/tripActivityMilestones.service";
+import {
+  applyDocumentActorsToMilestones,
+  displayMapFromProfiles,
+  loadTripActivityActorHydration,
+  mergeLedgerCreatedBy,
+  type TripActivityActorHydration,
+} from "@/lib/trips/hydrateTripActivityActors.util";
 import {
   buildTripAuditLog,
-  inferTripStaffUserId,
   matchesTripAuditTab,
   type TripActivityUserProfile,
   type TripAuditLogScope,
@@ -52,6 +58,18 @@ export type TripAuditLogPanelProps = {
   loading?: boolean;
   scope?: TripAuditLogScope;
   milestones?: TripAuditMilestone[];
+  complianceEnabled?: boolean;
+  vaultDocuments?: Array<{
+    id: string;
+    document_type?: string | null;
+    file_name?: string | null;
+    uploaded_at?: string | null;
+    uploaded_by?: string | null;
+    status?: string | null;
+    verified_at?: string | null;
+    verified_by?: string | null;
+    rejection_reason?: string | null;
+  }>;
 };
 
 function collectActivityUserIds(
@@ -60,6 +78,9 @@ function collectActivityUserIds(
   transactions: LedgerRow[],
   milestones: TripAuditMilestone[] = [],
   currentUserId?: string | null,
+  timelineRows: DriverActivityTimelineRow[] = [],
+  hardCopyActorId?: string | null,
+  vaultDocuments: TripAuditLogPanelProps["vaultDocuments"] = [],
 ): string[] {
   const ids = new Set<string>();
   const add = (id: string | null | undefined) => {
@@ -72,12 +93,17 @@ function collectActivityUserIds(
   add(trip.owner_user_id);
   add(trip.assigned_by_user_id);
   add(trip.status_updated_by);
+  add(hardCopyActorId);
   for (const row of assignmentAuditRows) add(row.changed_by);
-  for (const tx of transactions) {
-    add(tx.created_by);
-    add(inferTripStaffUserId(trip, tx.created_by));
-  }
+  for (const tx of transactions) add(tx.created_by);
   for (const mile of milestones) add(mile.actorUserId);
+  for (const item of timelineRows) {
+    if (item.kind === "status") add(item.actorUserId);
+  }
+  for (const doc of vaultDocuments ?? []) {
+    add(doc.uploaded_by);
+    add(doc.verified_by);
+  }
   return Array.from(ids);
 }
 
@@ -97,6 +123,8 @@ export function TripAuditLogPanel({
   loading = false,
   scope = "all",
   milestones = [],
+  complianceEnabled = false,
+  vaultDocuments = [],
 }: TripAuditLogPanelProps) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
@@ -108,20 +136,117 @@ export function TripAuditLogPanel({
     Record<string, TripActivityUserProfile>
   >({});
   const [resolvingUsers, setResolvingUsers] = useState(false);
+  const [capturedMilestones, setCapturedMilestones] = useState<TripAuditMilestone[]>(
+    [],
+  );
+  const [loadingCaptured, setLoadingCaptured] = useState(false);
+  const [actorHydration, setActorHydration] = useState<TripActivityActorHydration>({
+    createdByByTxId: {},
+    uploadedByByDocId: {},
+    verifiedByByDocId: {},
+    profiles: {},
+  });
 
   const tripRef = getTripDisplayNumber(trip, organizationId ?? undefined);
   const route = [trip.pickup_area, trip.drop_location].filter(Boolean).join(" → ");
+  const vaultDocumentsKey = vaultDocuments
+    .map((doc) =>
+      [doc.id, doc.uploaded_at, doc.uploaded_by, doc.verified_at, doc.status].join(":"),
+    )
+    .join("|");
+
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    setLoadingCaptured(true);
+    void listTripActivityMilestones(trip, vaultDocuments)
+      .then((rows) => {
+        if (cancelled) return;
+        setCapturedMilestones(rows);
+        setLoadingCaptured(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCapturedMilestones([]);
+        setLoadingCaptured(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // vaultDocumentsKey is the stable identity for the live vault rows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, trip.id, trip.organization_id, trip.indent_id, vaultDocumentsKey]);
+
+  const knownUserIdsKey = [
+    sessionUserId,
+    trip.created_by_user_id,
+    trip.created_by,
+    trip.owner_user_id,
+    trip.assigned_by_user_id,
+    trip.status_updated_by,
+    hardCopyPod?.actorId,
+    ...assignmentAuditRows.map((row) => row.changed_by),
+    ...tripLedgerEntries.map((row) => row.created_by),
+    ...vaultDocuments.map((doc) => doc.uploaded_by ?? doc.verified_by),
+  ]
+    .map((id) => String(id ?? "").trim())
+    .filter(Boolean)
+    .join(",");
+
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    void loadTripActivityActorHydration({
+      tripId: trip.id,
+      extraUserIds: knownUserIdsKey.split(","),
+    }).then((hydration) => {
+      if (!cancelled) setActorHydration(hydration);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, trip.id, knownUserIdsKey]);
+
+  const mergedMilestones = useMemo(() => {
+    const byId = new Map<string, TripAuditMilestone>();
+    for (const row of [...capturedMilestones, ...milestones]) {
+      if (!row?.id) continue;
+      byId.set(row.id, row);
+    }
+    return applyDocumentActorsToMilestones(
+      Array.from(byId.values()),
+      actorHydration.uploadedByByDocId,
+      actorHydration.verifiedByByDocId,
+    );
+  }, [actorHydration.uploadedByByDocId, actorHydration.verifiedByByDocId, capturedMilestones, milestones]);
+
+  const hydratedLedgerEntries = useMemo(
+    () => mergeLedgerCreatedBy(tripLedgerEntries, actorHydration.createdByByTxId),
+    [tripLedgerEntries, actorHydration.createdByByTxId],
+  );
 
   const activityUserIds = useMemo(
     () =>
       collectActivityUserIds(
         trip,
         assignmentAuditRows,
-        tripLedgerEntries,
-        milestones,
+        hydratedLedgerEntries,
+        mergedMilestones,
         sessionUserId,
+        timelineRows,
+        hardCopyPod?.actorId,
+        vaultDocuments,
       ),
-    [trip, assignmentAuditRows, tripLedgerEntries, milestones, sessionUserId],
+    [
+      trip,
+      assignmentAuditRows,
+      hydratedLedgerEntries,
+      mergedMilestones,
+      sessionUserId,
+      timelineRows,
+      hardCopyPod?.actorId,
+      vaultDocuments,
+    ],
   );
   // Stable primitive key: the effect below must only re-run when the actual set
   // of ids changes, not when the parent hands us a new array reference each
@@ -175,8 +300,15 @@ export function TripAuditLogPanel({
         });
       }
 
+      for (const [id, profile] of Object.entries(actorHydration.profiles)) {
+        rememberProfile(id, profile);
+      }
+      for (const [id, name] of Object.entries(displayMapFromProfiles(actorHydration.profiles))) {
+        if (name) displayMap[id] = name;
+      }
+
       if (orgId) {
-        const { members } = await getOrganizationMembersShared(orgId);
+        const { members } = await getOrganizationMembers(orgId);
         for (const member of members) {
           const uid = String(member.user_id ?? "").trim();
           if (!uid) continue;
@@ -217,25 +349,6 @@ export function TripAuditLogPanel({
           }
         }
       }
-      await Promise.all(
-        activityUserIds.filter(missingName).map(async (id) => {
-          const profile = await getProfile(id);
-          if (!profile) return;
-          rememberProfile(id, {
-            full_name:
-              profile.full_name?.trim() ||
-              profile.displayName?.trim() ||
-              profile.phone?.trim() ||
-              profile.email?.trim() ||
-              null,
-            email: profile.email?.trim() || null,
-            phone: profile.phone?.trim() || null,
-            avatar_url: profile.avatar_url ?? null,
-            avatar_seed: profile.avatar_seed ?? null,
-          });
-        }),
-      );
-
       if (!cancelled) {
         setUserDisplayById(displayMap);
         setUserProfileById(profileMap);
@@ -255,6 +368,9 @@ export function TripAuditLogPanel({
     sessionUserId,
     sessionProfile?.avatar_url,
     sessionProfile?.avatar_seed,
+    sessionProfile?.full_name,
+    sessionProfile?.displayName,
+    actorHydration.profiles,
   ]);
 
   const entries = useMemo(
@@ -266,14 +382,14 @@ export function TripAuditLogPanel({
         assignmentDriverNames,
         assignmentVehicleLabels,
         timelineRows,
-        transactions: tripLedgerEntries,
+        transactions: hydratedLedgerEntries,
         currentUserId: sessionUserId,
         userDisplayById,
         userProfileById,
         driverDisplayName: driverDisplayName ?? trip.driver_display_name,
         hardCopyPod,
         scope,
-        milestones,
+        milestones: mergedMilestones,
       }),
     [
       trip,
@@ -282,21 +398,23 @@ export function TripAuditLogPanel({
       assignmentDriverNames,
       assignmentVehicleLabels,
       timelineRows,
-      tripLedgerEntries,
+      hydratedLedgerEntries,
       sessionUserId,
       userDisplayById,
       userProfileById,
       driverDisplayName,
       hardCopyPod,
       scope,
-      milestones,
+      mergedMilestones,
     ],
   );
 
   const tabs: TripAuditFilterTab[] =
     scope === "compliance"
-      ? ["all", "documents", "activity"]
-      : ["all", "updates", "assignment", "payment"];
+      ? ["all", "documents", "compliance"]
+      : complianceEnabled
+        ? ["all", "documents", "compliance", "updates", "assignment", "payment"]
+        : ["all", "documents", "updates", "assignment", "payment"];
 
   const panel = (
     <TripAuditLogContent
@@ -304,14 +422,15 @@ export function TripAuditLogPanel({
       subtitle={route ? `${tripRef} · ${route}` : tripRef}
       entries={entries}
       matchesTab={matchesTripAuditTab}
-      loading={loading || resolvingUsers}
+      loading={loading || resolvingUsers || loadingCaptured}
       onClose={onClose}
       shellStyle={styles.panelFullBleed}
       tabs={tabs}
+      initialTab="all"
       emptyBody={
         scope === "compliance"
-          ? "Document uploads, deletions, and compliance activity for this trip will appear here."
-          : undefined
+          ? "Document uploads, deletions, and compliance checks will appear here with the workspace member who did them."
+          : "Document uploads, payments, assignments, and trip updates by your workspace will appear here."
       }
     />
   );

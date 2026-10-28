@@ -186,6 +186,7 @@ function ledgerRowsFromBundleTransactions(
     ledger_entity_type: tx.ledger_entity_type,
     ledger_flow_type: tx.ledger_flow_type,
     ledger_category: tx.ledger_category,
+    created_by: tx.created_by ?? null,
   }));
 }
 

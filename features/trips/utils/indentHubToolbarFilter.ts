@@ -2,7 +2,12 @@ import {
     getIndentDisplayNumber,
     type IndentRow,
 } from "@/features/indents/services/indents.service";
-import { indentCancelReasonLabel } from "@/features/indents/utils/indentCancelReason.util";
+import {
+    indentCancelReasonLabel,
+    indentFailedCategory,
+    isIndentFailedStatus,
+    type IndentCancelReasonId,
+} from "@/features/indents/utils/indentCancelReason.util";
 import {
     tripDayMatchesHubDateFilter,
     type TripHubDateFilter,
@@ -46,6 +51,55 @@ export function indentMatchesHubDateFilter(
     preset,
     opts,
   );
+}
+
+/**
+ * Failed chip list. `mergeIndentsByLatestUpdate` may include live rows from
+ * the capped org list; keep cancelled/expired only so Pending/Awarded stay out.
+ */
+export function filterFailedHubIndents(
+  indents: readonly IndentRow[],
+  opts: {
+    orgId: string;
+    dateRangeFilter: TripHubDateFilter;
+    customFrom?: string | null;
+    customTo?: string | null;
+    searchQuery: string;
+    indentIdsWithTrip?: ReadonlySet<string>;
+  },
+): IndentRow[] {
+  return indents.filter((indent) => {
+    if ((indent.organization_id ?? "") !== opts.orgId) return false;
+    if (!isIndentFailedStatus(indent.status)) return false;
+    if (opts.indentIdsWithTrip?.has(indent.id)) return false;
+    return (
+      indentMatchesHubDateFilter(indent, opts.dateRangeFilter, {
+        customFrom: opts.customFrom,
+        customTo: opts.customTo,
+      }) && indentMatchesHubSearch(indent, opts.searchQuery)
+    );
+  });
+}
+
+const EMPTY_FAILED_REASON_COUNTS: Record<IndentCancelReasonId, number> = {
+  client_cancelled: 0,
+  indent_expired: 0,
+  no_rates_available: 0,
+  wrong_entry: 0,
+};
+
+/** Same rows as the Failed chip / list — not the org-wide RPC totals. */
+export function countFailedHubReasons(
+  indents: readonly IndentRow[],
+): Record<IndentCancelReasonId, number> {
+  const counts = { ...EMPTY_FAILED_REASON_COUNTS };
+  for (const indent of indents) {
+    const reason = indentFailedCategory(indent);
+    if (reason && reason in counts) {
+      counts[reason as IndentCancelReasonId] += 1;
+    }
+  }
+  return counts;
 }
 
 export function filterIndentsForTripsToolbar(

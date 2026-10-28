@@ -56,6 +56,11 @@ import { getTripDriverPhones } from "@/features/tripCompliance/services/tripDriv
 import { groundOpsDocumentLockReason } from "@/features/tripCompliance/utils/groundOpsDocumentLock.util";
 import { AttributionRequestsSection } from "@/features/trips/components/AttributionRequestsSection";
 import { HubTripLrUpdateModal } from "@/features/trips/components/HubTripLrUpdateModal";
+import {
+  IndentHubActivityLogButton,
+  IndentHubActivityLogPanel,
+} from "@/features/trips/components/IndentHubActivityLog";
+import { IndentHubSpreadsheetTable } from "@/features/trips/components/IndentHubSpreadsheetTable";
 import { IndentStageViews } from "@/features/trips/components/IndentStagePoolView";
 import { TripsFilterBottomSheet } from "@/features/trips/components/TripsFilterBottomSheet";
 import {
@@ -148,6 +153,7 @@ import {
     mergeIndentsByLatestUpdate,
     mergeIndentSearchHits,
 } from "@/features/trips/utils/indentHubToolbarFilter";
+import { nextIndentActivitySelection } from "@/features/trips/utils/indentHubActivity.util";
 import {
     getLastOpenedHubItem,
     setLastOpenedHubItem,
@@ -472,6 +478,28 @@ export default function TripsScreen() {
   >(null);
   const [indentFailedReason, setIndentFailedReason] =
     useState<IndentCancelReasonId | null>(null);
+  const [indentActivityOpen, setIndentActivityOpen] = useState(false);
+  const [indentActivityFocusId, setIndentActivityFocusId] = useState<string | null>(
+    null,
+  );
+  const indentActivityClickAt = useRef(0);
+  const toggleIndentActivity = useCallback((indentId: string | null) => {
+    if (!indentId) {
+      setIndentActivityFocusId(null);
+      indentActivityClickAt.current = 0;
+      setIndentActivityOpen(true);
+      return;
+    }
+    const next = nextIndentActivitySelection(
+      indentActivityFocusId,
+      indentId,
+      Date.now(),
+      indentActivityClickAt.current,
+    );
+    indentActivityClickAt.current = next.lastClickAt;
+    setIndentActivityFocusId(next.selectedId);
+    setIndentActivityOpen(true);
+  }, [indentActivityFocusId]);
   const [customDateFrom, setCustomDateFrom] = useState<string | null>(null);
   const [customDateTo, setCustomDateTo] = useState<string | null>(null);
   const [tripLedgerExportOpen, setTripLedgerExportOpen] = useState(false);
@@ -919,6 +947,91 @@ export default function TripsScreen() {
     }
     return counts;
   }, [failedStageIndents, hubMetrics]);
+  const indentHubToolbarTags = useMemo(
+    () => [
+      {
+        id: "pending",
+        kind: "status" as const,
+        label: `Pending ${indentStatusTagCounts.pending}`,
+        selected: indentStatusTag === "pending",
+        accessibilityLabel: "Pending, waiting for bid",
+        onPress: () => {
+          setIndentFailedReason(null);
+          setIndentStatusTag((current) =>
+            current === "pending" ? null : "pending",
+          );
+        },
+      },
+      {
+        id: "bids",
+        kind: "status" as const,
+        label: `Bids received ${indentStatusTagCounts.bids}`,
+        selected: indentStatusTag === "bids",
+        accessibilityLabel: "Bids received, receiving bids",
+        onPress: () => {
+          setIndentFailedReason(null);
+          setIndentStatusTag((current) =>
+            current === "bids" ? null : "bids",
+          );
+        },
+      },
+      {
+        id: "awarded",
+        kind: "status" as const,
+        label: `Needs trip creation ${indentStatusTagCounts.awarded}`,
+        selected: indentStatusTag === "awarded",
+        accessibilityLabel: "Awarded, needs trip creation",
+        onPress: () => {
+          setIndentFailedReason(null);
+          setIndentStatusTag((current) =>
+            current === "awarded" ? null : "awarded",
+          );
+        },
+      },
+      {
+        id: "failed",
+        kind: "status" as const,
+        label: `Failed ${hubMetrics?.indentFailed ?? failedStageIndents.length}`,
+        selected: indentStatusTag === "failed",
+        accessibilityLabel:
+          indentStatusTag === "failed"
+            ? "Failed, tap again to clear"
+            : "Failed indents",
+        onPress: () => {
+          setIndentFailedReason(null);
+          setIndentStatusTag((current) =>
+            current === "failed" ? null : "failed",
+          );
+        },
+      },
+      ...(indentStatusTag === "failed"
+        ? INDENT_CANCEL_REASONS.map((reason) => ({
+            id: `reason:${reason.id}`,
+            kind: "reason" as const,
+            label: `${reason.label} ${failedReasonCounts[reason.id]}`,
+            selected: indentFailedReason === reason.id,
+            accessibilityLabel:
+              indentFailedReason === reason.id
+                ? `${reason.label}, tap again to clear`
+                : reason.label,
+            onPress: () =>
+              setIndentFailedReason((current) =>
+                current === reason.id ? null : reason.id,
+              ),
+          }))
+        : []),
+    ],
+    [
+      failedReasonCounts,
+      failedStageIndents.length,
+      hubMetrics?.indentFailed,
+      indentFailedReason,
+      indentStatusTag,
+      indentStatusTagCounts.awarded,
+      indentStatusTagCounts.bids,
+      indentStatusTagCounts.pending,
+    ],
+  );
   const indentHubActionOrgId =
     activeMetricTab === "all" || activeMetricTab === "indent" ? orgId : null;
   const handleOpenUnallocatedIndent = useCallback(
@@ -3142,6 +3255,17 @@ export default function TripsScreen() {
       />
 
       {indentHubActions.sheets}
+      <IndentHubActivityLogPanel
+        visible={indentActivityOpen}
+        orgId={orgId}
+        indentId={indentActivityFocusId}
+        onSelectIndent={setIndentActivityFocusId}
+        onClose={() => {
+          setIndentActivityOpen(false);
+          setIndentActivityFocusId(null);
+          indentActivityClickAt.current = 0;
+        }}
+      />
 
       <ScrollView
           style={styles.scroll}
@@ -3498,79 +3622,14 @@ export default function TripsScreen() {
               }
               renderBody={() => null}
               toolbarCountLabel={indentStageToolbarCountLabel}
-              toolbarTags={[
-                {
-                  id: "pending",
-                  kind: "status",
-                  label: `Pending ${indentStatusTagCounts.pending}`,
-                  selected: indentStatusTag === "pending",
-                  accessibilityLabel: "Pending, waiting for bid",
-                  onPress: () => {
-                    setIndentFailedReason(null);
-                    setIndentStatusTag((current) =>
-                      current === "pending" ? null : "pending",
-                    );
-                  },
-                },
-                {
-                  id: "bids",
-                  kind: "status",
-                  label: `Bids received ${indentStatusTagCounts.bids}`,
-                  selected: indentStatusTag === "bids",
-                  accessibilityLabel: "Bids received, receiving bids",
-                  onPress: () => {
-                    setIndentFailedReason(null);
-                    setIndentStatusTag((current) =>
-                      current === "bids" ? null : "bids",
-                    );
-                  },
-                },
-                {
-                  id: "awarded",
-                  kind: "status",
-                  label: `Needs trip creation ${indentStatusTagCounts.awarded}`,
-                  selected: indentStatusTag === "awarded",
-                  accessibilityLabel: "Awarded, needs trip creation",
-                  onPress: () => {
-                    setIndentFailedReason(null);
-                    setIndentStatusTag((current) =>
-                      current === "awarded" ? null : "awarded",
-                    );
-                  },
-                },
-                {
-                  id: "failed",
-                  kind: "status",
-                  label: `Failed ${hubMetrics?.indentFailed ?? failedStageIndents.length}`,
-                  selected: indentStatusTag === "failed",
-                  accessibilityLabel: indentStatusTag === "failed"
-                    ? "Failed, tap again to clear"
-                    : "Failed indents",
-                  onPress: () => {
-                    setIndentFailedReason(null);
-                    setIndentStatusTag((current) =>
-                      current === "failed" ? null : "failed",
-                    );
-                  },
-                },
-                ...(indentStatusTag === "failed"
-                  ? INDENT_CANCEL_REASONS.map((reason) => ({
-                      id: `reason:${reason.id}`,
-                      kind: "reason" as const,
-                      label: `${reason.label} ${failedReasonCounts[reason.id]}`,
-                      selected: indentFailedReason === reason.id,
-                      accessibilityLabel:
-                        indentFailedReason === reason.id
-                          ? `${reason.label}, tap again to clear`
-                          : reason.label,
-                      onPress: () =>
-                        setIndentFailedReason((current) =>
-                          current === reason.id ? null : reason.id,
-                        ),
-                    }))
-                  : []),
-              ]}
+              toolbarTags={indentHubToolbarTags}
+              toolbarLeading={
+                <IndentHubActivityLogButton
+                  onPress={() => toggleIndentActivity(null)}
+                />
+              }
               searchQuery={searchQuery}
+              searchPlaceholder="Search indent, client, trip id"
               onSearchQueryChange={setSearchQuery}
               lrLabelByTripId={{ ...hubLrLabels, ...hubLrPreviewByTripId }}
               elrLabelByTripId={hubElrLabels}
@@ -3632,7 +3691,38 @@ export default function TripsScreen() {
                   subcontractRateByTripId={hubSubcontractRateByTripId}
                   onOpenTripDetails={handleOpenHubTableRow}
                   tr={tr}
+                  renderBody={
+                    activeMetricTab === "indent"
+                      ? (rows) => (
+                          <IndentHubSpreadsheetTable
+                            indents={rows
+                              .map((row) => indentById.get(row.id) ?? indentById.get(row.indent_id ?? ""))
+                              .filter((indent): indent is IndentRow => indent != null)}
+                            bidCountById={indentOfferCounts}
+                            onOpenIndent={handleOpenUnallocatedIndent}
+                            onOpenActivity={(indent) => {
+                              toggleIndentActivity(indent.id);
+                            }}
+                          />
+                        )
+                      : undefined
+                  }
+                  toolbarLeading={
+                    activeMetricTab === "indent" ? (
+                      <IndentHubActivityLogButton
+                        onPress={() => toggleIndentActivity(null)}
+                      />
+                    ) : undefined
+                  }
+                  toolbarTags={
+                    activeMetricTab === "indent" ? indentHubToolbarTags : undefined
+                  }
                   searchQuery={searchQuery}
+                  searchPlaceholder={
+                    activeMetricTab === "indent"
+                      ? "Search indent, client, trip id"
+                      : undefined
+                  }
                   onSearchQueryChange={setSearchQuery}
                   indentSearchTextByIndentId={indentCodesByIndentId}
                   lrLabelByTripId={{ ...hubLrLabels, ...hubLrPreviewByTripId }}
@@ -3658,13 +3748,23 @@ export default function TripsScreen() {
                   clientNameByTripId={shipperNameByTripId}
                   linkedOrgByOrganizationId={linkedOrgByOrganizationId}
                   partyMetaByTripId={tripHubPartyMetaByTripId}
-                  softPodTripIds={tripIdsWithDocuments}
-                  softPodCheckedTripIds={softPodCheckedTripIds}
-                  hardPodTripIds={hardPodTripIds}
-                  ewayExpiryByTripId={ewayExpiryByTripId}
-                  lrNumbersByTripId={lrNumbersByTripId}
+                  ewayExpiryByTripId={
+                    activeMetricTab === "indent" ? undefined : ewayExpiryByTripId
+                  }
+                  lrNumbersByTripId={
+                    activeMetricTab === "indent" ? undefined : lrNumbersByTripId
+                  }
+                  softPodTripIds={
+                    activeMetricTab === "indent" ? undefined : tripIdsWithDocuments
+                  }
+                  softPodCheckedTripIds={
+                    activeMetricTab === "indent" ? undefined : softPodCheckedTripIds
+                  }
+                  hardPodTripIds={
+                    activeMetricTab === "indent" ? undefined : hardPodTripIds
+                  }
                 />
-                {hubTableTrips.length === 0 ? (
+                {hubTableTrips.length === 0 && activeMetricTab !== "indent" ? (
                   <View style={emptyBannerStageStyle}>
                     <TripsPromoCard
                       variant={tripsEmptyPromoVariant}

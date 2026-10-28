@@ -64,6 +64,7 @@ import { routeStackScreenOptions } from '@/lib/routeStackOptions';
 import { ROUTES } from '@/lib/routes';
 import { safeHideSplashAsync, safePreventAutoHideAsync } from '@/lib/safeSplashScreen.util';
 import { markStartupPhase } from '@/lib/startupMetrics';
+import { prefetchCriticalWebImages } from '@/lib/media/prefetchCriticalWebImages';
 import { hasSupabaseConfig, SUPABASE_CONFIG_MISSING_MESSAGE } from '@/lib/supabase';
 import '@/lib/tracking/backgroundTasks';
 import { useMemberAccess } from '@/lib/useMemberAccess';
@@ -347,6 +348,10 @@ export default function RootLayout() {
   useEffect(() => {
     if (error) throw error;
   }, [error]);
+
+  useEffect(() => {
+    prefetchCriticalWebImages();
+  }, []);
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;

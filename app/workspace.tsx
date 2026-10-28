@@ -204,7 +204,7 @@ function AuthenticatedWorkspaceScreen() {
           onOpenPanel={openPanel}
           onOpenRoute={(path) => {
             closeOverlay();
-            router.replace(path as Parameters<typeof router.replace>[0]);
+            router.push(path as Parameters<typeof router.push>[0]);
           }}
         />
       );
@@ -226,7 +226,7 @@ function AuthenticatedWorkspaceScreen() {
           onOpenOrgSection={openOrgSection}
           onOpenRoute={(path) => {
             closeOverlay();
-            router.replace(path as Parameters<typeof router.replace>[0]);
+            router.push(path as Parameters<typeof router.push>[0]);
           }}
         />
       );
@@ -275,7 +275,7 @@ function AuthenticatedWorkspaceScreen() {
       onOpenPanel={openPanel}
       onOpenRoute={(path) => {
         closeOverlay();
-        router.replace(path as Parameters<typeof router.replace>[0]);
+        router.push(path as Parameters<typeof router.push>[0]);
       }}
     />
   ) : (

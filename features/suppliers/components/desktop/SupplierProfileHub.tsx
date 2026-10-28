@@ -43,6 +43,9 @@ import {
   pickAndUploadSupplierKycDocument,
   notifySupplierKycUser,
 } from "@/features/suppliers/utils/supplierKycUpload.util";
+import { getSupplierTripCount } from "@/features/trips/services/trips.service";
+import { queryKeys } from "@/lib/queryKeys";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Linking, Pressable, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
@@ -262,6 +265,21 @@ export function SupplierProfileHub({
   }, [initialTab]);
 
   const { supplier, trips, kyc_documents, performance } = bundle;
+  const { data: exactTripCount } = useQuery({
+    queryKey: queryKeys.trips.partyCount(
+      supplier.organization_id,
+      "supplier",
+      supplier.id,
+    ),
+    queryFn: async () => {
+      const res = await getSupplierTripCount(supplier.organization_id, supplier.id);
+      if (res.error) throw res.error;
+      return res.count;
+    },
+    enabled: Boolean(supplier.organization_id && supplier.id),
+    staleTime: 60_000,
+  });
+  const totalTripCount = exactTripCount ?? trips.length;
   const displayName =
     (supplier.name || supplier.company_name || supplier.contact_person || "Supplier").trim();
   const isIntegrated =
@@ -302,6 +320,7 @@ export function SupplierProfileHub({
             onRefresh={onRefresh}
             isIntegrated={isIntegrated}
             linkedOrgId={supplier.linked_organization_id}
+            totalTripCount={totalTripCount}
             onImportFromProfile={isIntegrated && supplier.linked_organization_id ? async () => {
               const { error, profile } = await getLinkedOrgProfileForSupplier(supplier.linked_organization_id!);
               if (error || !profile) return;
@@ -344,6 +363,7 @@ export function SupplierProfileHub({
             onRefresh={onRefresh}
             isIntegrated={isIntegrated}
             linkedOrgId={supplier.linked_organization_id}
+            totalTripCount={totalTripCount}
             onImportFromProfile={isIntegrated && supplier.linked_organization_id ? async () => {
               const { error, profile } = await getLinkedOrgProfileForSupplier(supplier.linked_organization_id!);
               if (error || !profile) return;
@@ -386,7 +406,7 @@ export function SupplierProfileHub({
       ) : (
         <SupplierProfileHubHero
           supplier={supplier}
-          totalTrips={trips.length}
+          totalTrips={totalTripCount}
           totalPayable={0}
           kycScore={kycScore}
           performanceScore={perfScore}

@@ -73,6 +73,47 @@ export function isOriginDownError(error: unknown): boolean {
 }
 
 
+const PERMANENT_NOT_FOUND_MESSAGE =
+  /\b404\b|object not found|not found|no such (file|key|object)|the resource was not found/i;
+
+/** Missing Storage/REST objects and other permanent client failures. */
+export function isPermanentNotFoundMessage(message: string): boolean {
+  if (!message.trim()) return false;
+  // Schema-cache outage text contains "not" + "query", not a missing object.
+  if (/could not query the database for the schema cache/i.test(message)) return false;
+  return PERMANENT_NOT_FOUND_MESSAGE.test(message);
+}
+
+export function isPermanentHttpClientError(error: unknown): boolean {
+  const status = (error as { status?: unknown } | null)?.status;
+  if (status === 400 || status === 404) return true;
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof (error as { message?: unknown } | null)?.message === "string"
+        ? (error as { message: string }).message
+        : "";
+  return isPermanentNotFoundMessage(message);
+}
+
+/**
+ * Extra Storage-layer loops (upload / sign) must not retry while the shared
+ * origin circuit is open, and must not retry a missing object.
+ */
+export function isRetryableStorageError(message: string): boolean {
+  if (isSupabaseCircuitOpen()) return false;
+  if (isPermanentNotFoundMessage(message)) return false;
+  const m = message.toLowerCase();
+  return (
+    m.includes("timeout") ||
+    m.includes("timed out") ||
+    m.includes("connection") ||
+    m.includes("network") ||
+    m.includes("fetch failed") ||
+    m.includes("gateway")
+  );
+}
+
 export function isRetryableHttpResponse(res: Response): boolean {
   if (res.ok) return false;
   // 503 = PostgREST/Postgres unavailable. 521 = Cloudflare "web server is down".
@@ -80,11 +121,11 @@ export function isRetryableHttpResponse(res: Response): boolean {
   // is already Unhealthy (2026-09-18 incident: profiles/org_members 503 every ~2s).
   if (ORIGIN_DOWN_STATUSES.has(res.status)) return false;
   if (TRANSIENT_RETRY_STATUSES.has(res.status)) return true;
-  const ct = (res.headers.get('content-type') ?? '').toLowerCase();
-  // HTML 5xx (Warp timeout pages) must not retry — the last-line fallback
-  // used to treat any non-JSON 400+ as retryable.
+  // HTML 5xx (Warp timeout pages) must not retry.
   if (res.status >= 500) return false;
-  return !ct.includes('json') && res.status >= 400;
+  // Permanent 4xx (400/404 not-found, 401/403) used to retry when the body
+  // was non-JSON. That multiplied Storage sign attempts for missing files.
+  return false;
 }
 
 export function isInfrastructureErrorMessage(message: string): boolean {
@@ -162,6 +203,7 @@ export function authTokenRetryDelayMs(
 export function isTransientFetchError(error: Error): boolean {
   if (error.name === "TimeoutError" || error.name === "AbortError") return false;
   if (isSupabaseCircuitOpen()) return false;
+  if (isPermanentHttpClientError(error)) return false;
   return (
     error.message === "Network request failed" ||
     error.message === "Load failed" ||
@@ -178,6 +220,7 @@ export function canRetryFetchAttempt(args: {
   const { attempt, maxRetries, timeoutMaxRetries, error } = args;
   if (error.name === "AbortError") return false;
   if (isSupabaseCircuitOpen()) return false;
+  if (isPermanentHttpClientError(error)) return false;
   if (error.name === "TimeoutError") {
     return attempt < timeoutMaxRetries;
   }

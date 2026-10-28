@@ -10,6 +10,7 @@
  *  - Delete: removes storage object + clears JSONB key in one call
  */
 import { supabase } from '@/lib/supabase';
+import { isRetryableStorageError } from '@/lib/supabaseHttp.util';
 import { uploadComplianceDocument } from '@/features/compliance/services/documents.service';
 import { createStorageSignedUrlCache } from '@/lib/storageSignedUrlCache';
 import type {
@@ -87,25 +88,13 @@ export async function resolveVehicleDocumentsWriteTarget(
   return null;
 }
 
-function isTransientStorageError(message: string): boolean {
-  const m = message.toLowerCase();
-  return (
-    m.includes('timeout') ||
-    m.includes('timed out') ||
-    m.includes('connection') ||
-    m.includes('network') ||
-    m.includes('fetch failed') ||
-    m.includes('gateway')
-  );
-}
-
 async function runWithStorageRetry<T>(op: () => Promise<T>, classifyError: (value: T) => string | null): Promise<T> {
   let lastResult: T | null = null;
   for (let i = 0; i < STORAGE_RETRY_DELAYS_MS.length + 1; i += 1) {
     const result = await op();
     lastResult = result;
     const errMessage = classifyError(result);
-    if (!errMessage || !isTransientStorageError(errMessage)) return result;
+    if (!errMessage || !isRetryableStorageError(errMessage)) return result;
     if (i < STORAGE_RETRY_DELAYS_MS.length) {
       await sleep(STORAGE_RETRY_DELAYS_MS[i]);
     }

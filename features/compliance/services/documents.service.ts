@@ -34,6 +34,7 @@ import {
   storagePreviewFailureMessage,
 } from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import { chunkIdsForRead, readAllPages } from "@/lib/pagination";
+import { isRetryableStorageError } from "@/lib/supabaseHttp.util";
 import { supabase } from "@/lib/supabase";
 import {
   documentAuditLookupOrFilter,
@@ -125,18 +126,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isTransient(message: string): boolean {
-  const m = message.toLowerCase();
-  return (
-    m.includes("timeout") ||
-    m.includes("timed out") ||
-    m.includes("connection") ||
-    m.includes("network") ||
-    m.includes("fetch failed") ||
-    m.includes("gateway")
-  );
-}
-
 async function runWithRetry<T>(
   op: () => Promise<T>,
   classify: (value: T) => string | null,
@@ -146,7 +135,7 @@ async function runWithRetry<T>(
     const result = await op();
     last = result;
     const err = classify(result);
-    if (!err || !isTransient(err)) return result;
+    if (!err || !isRetryableStorageError(err)) return result;
     if (i < STORAGE_RETRY_DELAYS_MS.length) {
       await sleep(STORAGE_RETRY_DELAYS_MS[i]);
     }

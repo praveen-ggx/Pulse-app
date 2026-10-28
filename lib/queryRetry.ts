@@ -5,7 +5,10 @@
  * pile onto a recovering Postgres.
  */
 
-import { isOriginDownError as isOriginDownErrorShared } from '@/lib/supabaseHttp.util';
+import {
+  isOriginDownError as isOriginDownErrorShared,
+  isPermanentHttpClientError,
+} from '@/lib/supabaseHttp.util';
 
 const INFRA_PATTERN =
   /522|521|520|500|502|503|504|429|timeout|timed out|network|fetch failed|gateway|connection/i;
@@ -75,6 +78,7 @@ function isTimeoutErrorMessage(message: string): boolean {
 export function infrastructureShouldRetry(failureCount: number, error: unknown): boolean {
   const name = (error as { name?: string } | null)?.name;
   if (name === 'TimeoutError' || name === 'AbortError') return false;
+  if (isPermanentHttpClientError(error)) return false;
   if (isPermanentSchemaOrRlsError(error)) return false;
   if (isTimeoutErrorMessage(errorMessage(error))) return false;
   if (isOriginDownError(error)) return false;

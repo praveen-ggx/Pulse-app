@@ -70,6 +70,11 @@ describe("shouldRetryQuery", () => {
     expect(shouldRetryQuery(0, new Error("Request timed out"))).toBe(false);
   });
 
+  it("does not retry a permanent Storage 400 / object not found", () => {
+    expect(shouldRetryQuery(0, { status: 400, message: "Object not found" })).toBe(false);
+    expect(shouldRetryQuery(0, { status: 404, message: "not found" })).toBe(false);
+  });
+
   it("does not retry HTTP 500 (PostgREST Warp / pool exhaustion)", () => {
     expect(shouldRetryQuery(0, { message: "Internal Server Error", status: 500 })).toBe(false);
   });

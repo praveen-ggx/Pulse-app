@@ -1,5 +1,7 @@
 import type { IndentRow } from "@/features/indents/services/indents.service";
 import {
+  countFailedHubReasons,
+  filterFailedHubIndents,
   filterIndentsForTripsToolbar,
   indentMatchesHubDateFilter,
   indentMatchesHubSearch,
@@ -134,5 +136,77 @@ describe("mergeIndentsByLatestUpdate", () => {
     const reactivated = indent({ id: "a", status: "open", updated_at: "2026-10-21T00:00:00Z" });
     expect(mergeIndentsByLatestUpdate([staleFailed], [reactivated])).toEqual([reactivated]);
     expect(mergeIndentsByLatestUpdate([reactivated], [staleFailed])).toEqual([reactivated]);
+  });
+});
+
+describe("filterFailedHubIndents", () => {
+  it("keeps cancelled and expired rows and drops live statuses", () => {
+    const rows = [
+      indent({ id: "open", status: "open" }),
+      indent({ id: "awarded", status: "awarded" }),
+      indent({ id: "cancelled", status: "cancelled", cancel_reason: "client_cancelled" }),
+      indent({ id: "expired", status: "expired" }),
+      indent({ id: "other-org", status: "cancelled", organization_id: "other" }),
+    ];
+    expect(
+      filterFailedHubIndents(rows, {
+        orgId: "org",
+        dateRangeFilter: "all",
+        searchQuery: "",
+      }).map((row) => row.id),
+    ).toEqual(["cancelled", "expired"]);
+  });
+
+  it("drops a failed row that later reactivated after merge", () => {
+    const staleFailed = indent({
+      id: "a",
+      status: "expired",
+      updated_at: "2026-10-12T00:00:00Z",
+    });
+    const reactivated = indent({
+      id: "a",
+      status: "open",
+      updated_at: "2026-10-21T00:00:00Z",
+    });
+    const merged = mergeIndentsByLatestUpdate([staleFailed], [reactivated]);
+    expect(
+      filterFailedHubIndents(merged, {
+        orgId: "org",
+        dateRangeFilter: "all",
+        searchQuery: "",
+      }),
+    ).toEqual([]);
+  });
+
+  it("drops failed indents that already have a trip", () => {
+    expect(
+      filterFailedHubIndents(
+        [indent({ id: "linked", status: "cancelled" })],
+        {
+          orgId: "org",
+          dateRangeFilter: "all",
+          searchQuery: "",
+          indentIdsWithTrip: new Set(["linked"]),
+        },
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("countFailedHubReasons", () => {
+  it("counts only the failed list, including expired without a stored reason", () => {
+    expect(
+      countFailedHubReasons([
+        indent({ id: "a", status: "cancelled", cancel_reason: "wrong_entry" }),
+        indent({ id: "b", status: "cancelled", cancel_reason: "wrong_entry" }),
+        indent({ id: "c", status: "expired", cancel_reason: null }),
+        indent({ id: "d", status: "open" }),
+      ]),
+    ).toEqual({
+      client_cancelled: 0,
+      indent_expired: 1,
+      no_rates_available: 0,
+      wrong_entry: 2,
+    });
   });
 });

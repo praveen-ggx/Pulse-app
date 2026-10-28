@@ -1,4 +1,10 @@
-import { indentRowToHubTrip } from "@/features/trips/utils/indentHubTableTrip.util";
+import {
+  indentHubLaneLabel,
+  indentHubTableDate,
+  indentHubTableMargin,
+  indentHubTableStatus,
+  indentRowToHubTrip,
+} from "@/features/trips/utils/indentHubTableTrip.util";
 import type { IndentRow } from "@/features/indents/services/indents.service";
 
 function indent(overrides: Partial<IndentRow> = {}): IndentRow {
@@ -32,5 +38,34 @@ describe("indentRowToHubTrip", () => {
     expect(trip.client_name).toBe("Apollo");
     expect(trip.source).toBe("indent");
     expect(trip.status).toBe("pending");
+    expect(trip.margin).toBe(2000);
+  });
+});
+
+describe("indent hub spreadsheet cells", () => {
+  it("shortens the lane and keeps the full hover path", () => {
+    expect(
+      indentHubLaneLabel("Bhandara, Maharashtra", "Tumakuru, Karnataka"),
+    ).toEqual({
+      short: "Bhandara → Tumakuru",
+      full: "Bhandara, Maharashtra → Tumakuru, Karnataka",
+    });
+  });
+
+  it("formats margin against sales", () => {
+    expect(indentHubTableMargin(20000, 19000)).toEqual({
+      amount: "₹1.0K",
+      ofSales: "5% of sales",
+    });
+  });
+
+  it("formats pickup day without a timezone shift", () => {
+    expect(indentHubTableDate("2026-10-26")).toBe("26 Oct");
+  });
+
+  it("uses the indent lifecycle label", () => {
+    expect(indentHubTableStatus("open", 0)).toBe("WAITING FOR BID");
+    expect(indentHubTableStatus("open", 2)).toBe("RECEIVING BIDS");
+    expect(indentHubTableStatus("cancelled", 1)).toBe("FAILED");
   });
 });

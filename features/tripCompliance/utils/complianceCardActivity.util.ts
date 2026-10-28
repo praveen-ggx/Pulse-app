@@ -338,12 +338,6 @@ const WORKFLOW_COPY: Record<
     fallbackDetail: "Exception charges saved from POD",
     category: "compliance",
   },
-  "pod.debit_control_validated": {
-    title: "validated POD",
-    contextLabel: "POD Verification",
-    fallbackDetail: "POD verification completed",
-    category: "compliance",
-  },
   "compliance.advance_document_cost": {
     title: "logged advance document cost",
     contextLabel: "Compliance",

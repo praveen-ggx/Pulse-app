@@ -89,7 +89,8 @@ export async function listTripActivityMilestones(
   }
   if (!events.error) {
     for (const row of events.data ?? []) {
-      mergeMilestone(merged, asMilestone(milestoneFromWorkflowEvent(row)));
+      const item = milestoneFromWorkflowEvent(row);
+      if (item) mergeMilestone(merged, asMilestone(item));
     }
   }
   if (!audits.error) {

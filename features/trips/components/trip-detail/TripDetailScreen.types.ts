@@ -17,7 +17,7 @@ export interface TripDetailScreenProps {
   clientNameFromContext?: string;
   /** Deep link: open Finance Hub, Journey Log, etc. on first paint. */
   initialTab?: TripDetailRouteTab;
-  /** Deep link: Finance Hub sub-tab (Summary vs Transactions). */
+  /** Deep link: unused finance sub-tab (kept for existing URLs). */
   initialFinanceSubTab?: TripDetailRouteFinanceSubTab;
   onBack: () => void;
 }

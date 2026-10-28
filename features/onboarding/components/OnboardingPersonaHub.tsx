@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -27,6 +27,8 @@ import { ROUTES } from '@/lib/routes';
 import { useIsDesktopWebInput } from '@/lib/useIsDesktopWebInput';
 import { WEB_APP_VIEWPORT_STYLE } from '@/lib/webViewportHeight';
 
+import { prefetchCriticalWebImages } from '@/lib/media/prefetchCriticalWebImages';
+
 import { PulseAccessOption } from './PulseAccessOption';
 import { PulseComingSoonProduct } from './PulseComingSoonProduct';
 import { PulseProductOption } from './PulseProductOption';
@@ -37,6 +39,10 @@ export function OnboardingPersonaHub() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const isDesktop = useIsDesktopWebInput();
+
+  useEffect(() => {
+    prefetchCriticalWebImages();
+  }, []);
 
   const navigateProduct = useCallback(
     (route: string) => {

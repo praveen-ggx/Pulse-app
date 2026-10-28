@@ -1277,6 +1277,13 @@ export function useTripDetail({
         tripSupplierName: trip?.supplier_name,
         linkedOrganizationName: supplierPartyAvatarFields?.organizationName,
         clientName: displayClientName ?? trip?.client_name,
+        viewerOrganizationName:
+          trip &&
+          currentOrganization?.id &&
+          trip.organization_id !== currentOrganization.id &&
+          String(trip.supplier_id ?? "").trim()
+            ? currentOrganization.name
+            : null,
         ledgerEntries: tripLedgerEntries,
       }),
     [
@@ -1286,6 +1293,10 @@ export function useTripDetail({
       supplierPartyAvatarFields?.organizationName,
       displayClientName,
       trip?.client_name,
+      trip?.organization_id,
+      trip?.supplier_id,
+      currentOrganization?.id,
+      currentOrganization?.name,
       tripLedgerEntries,
     ],
   );
@@ -3912,7 +3923,7 @@ export function useTripDetail({
       if (!tripId) return;
       patchTripDetailBundleCache(queryClient, tripId, (old) => {
         if (!old || old.trip.id !== row.id) return old;
-        return { ...old, trip: { ...old.trip, ...row } };
+        return { ...old, trip: { ...old.trip, ...row } as typeof old.trip };
       });
     },
     [tripId, queryClient],
@@ -4001,6 +4012,20 @@ export function useTripDetail({
 
     // Documents
     tripDocuments,
+    tripDocumentsReady: !loading,
+    tripDocumentsFailed: Boolean(error),
+    // The screen also handles "missing" | "unauthorized" | "expired" once the
+    // preview loader reports them; today it only distinguishes failed vs not.
+    docPreviewFailure: (docPreviewError ? "unknown" : null) as
+      | "missing"
+      | "unauthorized"
+      | "expired"
+      | "unknown"
+      | null,
+    retryDocPreview: () => {
+      setDocPreviewError(false);
+      setDocPreviewUrl(null);
+    },
     loadTripDocuments,
     ensureTripDocumentsForViewer,
     ensureVehicleDocs,

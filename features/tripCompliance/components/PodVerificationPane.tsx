@@ -1677,8 +1677,8 @@ function SettlementChargeNotesCard({
   onViewNotePdf,
   onSelectedAdjustmentChange,
   onEditAdjustment,
-  onEdit,
-  onRevoke,
+  onEdit: _onEdit,
+  onRevoke: _onRevoke,
   onRevalidate,
   onProceed,
   onPayBalance,
@@ -1962,7 +1962,7 @@ function SettlementChargeNotesCard({
                   label={
                     payingBalance ? "Posting…" : summaryBalanceLabel(canPayBalance)
                   }
-                  onPress={onPayBalance}
+                  onPress={() => onPayBalance?.()}
                   disabled={!canPayBalance || payingBalance || revalidating}
                   style={styles.validateBtnStacked}
                 />
@@ -1993,7 +1993,7 @@ function SettlementChargeNotesCard({
             {finalSettlement ? (
               <RegistryPrimaryButton
                 label={payingBalance ? "Posting…" : summaryBalanceLabel(canPayBalance)}
-                onPress={onPayBalance}
+                onPress={() => onPayBalance?.()}
                 disabled={!canPayBalance || payingBalance || revalidating}
               />
             ) : (
@@ -2142,7 +2142,8 @@ function SettlementPayableSummary({
     balancePaid: 0,
   });
   const extraLedger = Math.max(0, Math.round((ledgerPaid - advancePaid - balancePaid) * 100) / 100);
-  const rows: { label: string; value: string; emphasize?: boolean; deduct?: boolean }[] = [
+  type PayableRow = { label: string; value: string; emphasize?: boolean; deduct?: boolean };
+  const rows: PayableRow[] = ([
     { label: "Revised vendor / driver payable", value: formatInr(next.revisedPayable) },
     {
       label: "POD not adjusted",
@@ -2173,7 +2174,7 @@ function SettlementPayableSummary({
       value: formatInr(remainingPayable),
       emphasize: true,
     },
-  ].filter((row): row is { label: string; value: string; emphasize?: boolean; deduct?: boolean } => row != null);
+  ] as (PayableRow | null)[]).filter((row): row is PayableRow => row != null);
   return (
     <View style={styles.payableCard}>
       <Text style={styles.payableTitle}>Payable after POD</Text>
@@ -2206,7 +2207,7 @@ function SettlementPayableSummary({
   );
 }
 
-function SettlementNoteGroup({
+function _SettlementNoteGroup({
   stacked = false,
   title,
   drafts,

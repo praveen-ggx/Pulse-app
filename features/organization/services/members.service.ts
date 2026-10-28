@@ -12,9 +12,10 @@ import type {
   UserProfileForInvite,
 } from "@/types/organization";
 import {
+  lookupUserByEmail,
   precheckTeamInviteContact,
-  precheckToProfile,
 } from "@/features/organization/services/teamInvitePrecheck.service";
+import { resolveTeamInviteContactMatch } from "@/features/organization/utils/resolveTeamInviteContactMatch.util";
 import {
   buildMemberPermissions,
   buildTeamInvitePermissions,
@@ -442,79 +443,81 @@ export async function inviteTeamMemberByContact(
   alreadyMember?: boolean;
   alreadyInvited?: boolean;
   precheckAction?: string;
+  suppliedPhoneNotSaved?: boolean;
 }> {
-  if (!params.existingUserId) {
-    const pre = await precheckTeamInviteContact(orgId, params.phone, params.email);
-    if (pre.error) return { error: pre.error, kind: null, member: null, pendingInvite: null };
-    const check = pre.result;
-    if (check) {
-      if (check.recommendedAction === "already_member") {
-        return {
-          error: null,
-          kind: null,
-          member: null,
-          pendingInvite: null,
-          alreadyMember: true,
-          precheckAction: check.recommendedAction,
-        };
-      }
-      if (check.recommendedAction === "already_invited") {
-        return {
-          error: null,
-          kind: null,
-          member: null,
-          pendingInvite: null,
-          alreadyInvited: true,
-          precheckAction: check.recommendedAction,
-        };
-      }
-      if (check.recommendedAction === "belongs_to_other_org") {
-        return {
-          error: new Error(
-            check.message ??
-              "This person already belongs to another organization on Pulse and cannot be added here.",
-          ),
-          kind: null,
-          member: null,
-          pendingInvite: null,
-          precheckAction: check.recommendedAction,
-        };
-      }
-      if (
-        check.recommendedAction === "invite_existing_user" ||
-        check.recommendedAction === "email_registered"
-      ) {
-        const profile = precheckToProfile(check);
-        if (profile?.user_id) {
-          const res = await inviteTeamMember(orgId, profile.user_id, params.platformRole, params.access);
-          return {
-            error: res.error,
-            kind: res.member ? "member" : null,
-            member: res.member,
-            pendingInvite: null,
-            alreadyMember: res.alreadyMember,
-            alreadyInvited: res.alreadyInvited,
-            precheckAction: res.belongsToOtherOrg ? "belongs_to_other_org" : check.recommendedAction,
-          };
-        }
-        if (check.recommendedAction === "email_registered") {
-          return {
-            error: new Error(
-              check.message ??
-                "This email already has a Pulse account. They must sign in to accept — not sign up again.",
-            ),
-            kind: null,
-            member: null,
-            pendingInvite: null,
-            precheckAction: check.recommendedAction,
-          };
-        }
-      }
-    }
+  const [phoneLookup, emailLookup, pre] = await Promise.all([
+    lookupUserByPhone(params.phone),
+    params.email?.trim()
+      ? lookupUserByEmail(params.email)
+      : Promise.resolve({ error: null, profile: null }),
+    precheckTeamInviteContact(orgId, params.phone, params.email),
+  ]);
+  if (phoneLookup.error) {
+    return { error: phoneLookup.error, kind: null, member: null, pendingInvite: null };
+  }
+  if (emailLookup.error) {
+    return { error: emailLookup.error, kind: null, member: null, pendingInvite: null };
+  }
+  if (pre.error) {
+    return { error: pre.error, kind: null, member: null, pendingInvite: null };
   }
 
-  if (params.existingUserId) {
-    const res = await inviteTeamMember(orgId, params.existingUserId, params.platformRole, params.access);
+  const match = resolveTeamInviteContactMatch({
+    suppliedPhone: params.phone,
+    suppliedEmail: params.email,
+    profileByPhone: phoneLookup.profile,
+    profileByEmail: emailLookup.profile,
+    precheck: pre.result,
+  });
+
+  if (match.kind === "blocked") {
+    if (match.action === "already_member") {
+      return {
+        error: null,
+        kind: null,
+        member: null,
+        pendingInvite: null,
+        alreadyMember: true,
+        precheckAction: match.action,
+      };
+    }
+    if (match.action === "already_invited") {
+      return {
+        error: null,
+        kind: null,
+        member: null,
+        pendingInvite: null,
+        alreadyInvited: true,
+        precheckAction: match.action,
+      };
+    }
+    return {
+      error: new Error(match.message),
+      kind: null,
+      member: null,
+      pendingInvite: null,
+      precheckAction: match.action,
+    };
+  }
+
+  if (match.kind === "invite_existing") {
+    if (params.existingUserId && params.existingUserId !== match.profile.user_id) {
+      return {
+        error: new Error(
+          "The phone and email belong to two different Pulse accounts. Use one contact that belongs to the same person.",
+        ),
+        kind: null,
+        member: null,
+        pendingInvite: null,
+        precheckAction: "contact_conflict",
+      };
+    }
+    const res = await inviteTeamMember(
+      orgId,
+      match.profile.user_id,
+      params.platformRole,
+      params.access,
+    );
     return {
       error: res.error,
       kind: res.member ? "member" : null,
@@ -522,14 +525,18 @@ export async function inviteTeamMemberByContact(
       pendingInvite: null,
       alreadyMember: res.alreadyMember,
       alreadyInvited: res.alreadyInvited,
+      precheckAction: res.belongsToOtherOrg ? "belongs_to_other_org" : "invite_existing_user",
+      suppliedPhoneNotSaved: match.suppliedPhoneNotSaved,
     };
   }
+
   const res = await createPendingTeamInvite(orgId, params);
   return {
     error: res.error,
     kind: res.invite ? "pending" : null,
     member: null,
     pendingInvite: res.invite,
+    alreadyInvited: res.alreadyPending,
   };
 }
 

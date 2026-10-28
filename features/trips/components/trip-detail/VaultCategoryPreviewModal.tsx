@@ -17,7 +17,8 @@ import { isPdfTripDoc } from "@/features/trips/components/trip-detail/tripDocTyp
 import { VaultDraftPreviewBlock } from "@/features/trips/components/trip-detail/VaultDraftPreviewBlock";
 import { VaultFullDocumentModal } from "@/features/trips/components/trip-detail/VaultFullDocumentModal";
 import type { VaultCategoryPreviewFile } from "@/features/trips/components/trip-detail/vaultCategoryPreview.types";
-import { getDocumentViewUrls } from "@/features/trips/services/tripDocuments.service";
+import { signCompliancePreviewUrl } from "@/features/tripCompliance/services/complianceDocumentView.service";
+import { compliancePreviewSourceForVaultFile } from "@/features/tripCompliance/utils/compliancePreviewSource.util";
 
 /** A trip-bucket miss must not erase a URL already signed from another bucket. */
 export function mergeCategoryPreviewUrls(
@@ -139,53 +140,63 @@ export function VaultCategoryPreviewModal({
     setDraftExpiry(headerExpiryIso || defaultExpiryIso());
   }, [editingExpiry, headerExpiryIso, visible]);
 
-  const paths = useMemo(
-    () =>
-      [...new Set(files.map((file) => String(file.storagePath ?? "").trim()).filter(Boolean))],
-    [files],
-  );
-
   useEffect(() => {
-    if (!visible || paths.length === 0) {
+    if (!visible || files.length === 0) {
       setUrls({});
       return;
     }
+    const ordered = [
+      current,
+      ...files.filter((file) => file.id !== current?.id),
+    ].filter((file): file is VaultCategoryPreviewFile => Boolean(file));
     let cancelled = false;
-    void getDocumentViewUrls(paths).then((next) => {
+    const applyResolved = (
+      file: VaultCategoryPreviewFile,
+      next: string | null,
+    ) => {
+      if (!next) return;
+      const path = String(file.storagePath ?? "").trim();
+      setUrls((prev) => ({
+        ...prev,
+        ...(path ? { [path]: next } : {}),
+        [file.id]: next,
+      }));
+    };
+    void (async () => {
+      const [first, ...rest] = ordered;
+      if (first) {
+        const firstUrl =
+          first.previewUri?.trim() ||
+          (await (onResolveUrl
+            ? onResolveUrl(first)
+            : signCompliancePreviewUrl({
+                storagePath: first.storagePath,
+                source: compliancePreviewSourceForVaultFile(first),
+              })));
+        if (cancelled) return;
+        applyResolved(first, firstUrl ?? null);
+      }
+      if (rest.length === 0) return;
+      const extras = await Promise.all(
+        rest.map(async (file) => {
+          const url =
+            file.previewUri?.trim() ||
+            (await (onResolveUrl
+              ? onResolveUrl(file)
+              : signCompliancePreviewUrl({
+                  storagePath: file.storagePath,
+                  source: compliancePreviewSourceForVaultFile(file),
+                })));
+          return [file, url] as const;
+        }),
+      );
       if (cancelled) return;
-      setUrls((prev) => mergeCategoryPreviewUrls(prev, next));
-    });
+      for (const [file, url] of extras) applyResolved(file, url);
+    })();
     return () => {
       cancelled = true;
     };
-  }, [paths, visible]);
-
-  useEffect(() => {
-    if (!visible || !onResolveUrl || files.length === 0) return;
-    let cancelled = false;
-    void Promise.all(
-      files.map(async (file) => {
-        if (file.previewUri?.trim()) {
-          return [file.id, file.previewUri.trim()] as const;
-        }
-        const path = String(file.storagePath ?? "").trim();
-        const next = await onResolveUrl(file);
-        return [path || file.id, next] as const;
-      }),
-    ).then((entries) => {
-      if (cancelled) return;
-      setUrls((prev) => {
-        const merged = { ...prev };
-        for (const [key, value] of entries) {
-          if (value) merged[key] = value;
-        }
-        return merged;
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [files, onResolveUrl, visible]);
+  }, [current, files, onResolveUrl, visible]);
 
   const items = useMemo(
     () =>

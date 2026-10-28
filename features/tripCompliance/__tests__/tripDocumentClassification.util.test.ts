@@ -10,11 +10,19 @@
 function mockMakeThenable<T>(result: { data: T; error: null }) {
   const builder: Record<string, unknown> = {};
   const chain = () => builder;
+  // Single-page fake: the keyset follow-up page (`gt("id", …)`) is empty.
+  let current: { data: unknown; error: null } = result;
   builder.select = chain;
   builder.eq = chain;
   builder.in = chain;
   builder.is = chain;
-  builder.then = (resolve: (v: typeof result) => void) => resolve(result);
+  builder.order = chain;
+  builder.limit = chain;
+  builder.gt = () => {
+    current = { data: [], error: null };
+    return builder;
+  };
+  builder.then = (resolve: (v: typeof result) => void) => resolve(current as typeof result);
   return builder;
 }
 

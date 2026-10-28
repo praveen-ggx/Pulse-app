@@ -12,6 +12,13 @@ export type ManifestJourneyStepKey =
   | "unloading"
   | "delivered";
 
+export type ManifestJourneyHistoryLine = {
+  atIso: string;
+  time: string;
+  actor: string;
+  action: string;
+};
+
 export type ManifestJourneyLogEntry = {
   stepKey: ManifestJourneyStepKey;
   status: string;
@@ -21,6 +28,8 @@ export type ManifestJourneyLogEntry = {
   time: string;
   details: string;
   atIso: string | null;
+  /** Oldest-first change trail for this step (who / when / what). */
+  history?: ManifestJourneyHistoryLine[];
 };
 
 export type ManifestSimLogEntry = {
@@ -258,7 +267,9 @@ function resolveStepLocation(
  * action, and `updated_at`, which any server-side edit bumps.
  */
 export function resolveDriverAcceptanceAt(input: {
-  trip: Pick<TripRow, "status" | "started_at" | "completed_at" | "updated_at">;
+  trip: Pick<TripRow, "status" | "started_at" | "completed_at"> & {
+    updated_at?: TripRow["updated_at"] | null;
+  };
   assignmentAuditRows?: TripAssignmentAuditRow[];
   locationPings?: ManifestLocationPing[];
 }): string | null {
@@ -307,7 +318,9 @@ export function resolveDriverAcceptanceAt(input: {
 
 /** Last fully completed manifest step (0–4). Matches driver control / Manifest Pulse. */
 export function getManifestCurrentStepIndex(
-  trip: Pick<TripRow, "status" | "completed_at" | "started_at" | "updated_at">,
+  trip: Pick<TripRow, "status" | "completed_at" | "started_at"> & {
+    updated_at?: TripRow["updated_at"] | null;
+  },
   evidence?: {
     assignmentAuditRows?: TripAssignmentAuditRow[];
     locationPings?: ManifestLocationPing[];
@@ -356,6 +369,112 @@ export function getVisibleManifestJourneyLogs(
   });
 }
 
+function partyLabel(
+  id: string | null | undefined,
+  names: Record<string, string> | undefined,
+  fallback?: string | null,
+): string | null {
+  const key = (id ?? "").trim();
+  if (!key) return fallback?.trim() || null;
+  return names?.[key]?.trim() || fallback?.trim() || null;
+}
+
+function actorLabel(input: {
+  userId?: string | null;
+  actorNameById?: Record<string, string>;
+  currentUserId?: string | null;
+  staffDisplayName?: string | null;
+  fallback: string;
+}): string {
+  const id = (input.userId ?? "").trim();
+  if (id && input.currentUserId && id === input.currentUserId) {
+    return input.staffDisplayName?.trim() || "You";
+  }
+  if (id) {
+    const named = input.actorNameById?.[id]?.trim();
+    if (named) return named;
+  }
+  return input.fallback;
+}
+
+function assignmentHistoryLine(
+  row: TripAssignmentAuditRow,
+  names: {
+    driverNames?: Record<string, string>;
+    vehicleLabels?: Record<string, string>;
+    actorNameById?: Record<string, string>;
+    currentUserId?: string | null;
+    staffDisplayName?: string | null;
+    driverDisplayName?: string | null;
+  },
+): ManifestJourneyHistoryLine {
+  const ev = String(row.event_type ?? "").toLowerCase();
+  const driverPrev =
+    partyLabel(row.driver_id_prev, names.driverNames, row.driver_name_prev);
+  const driverNew = partyLabel(
+    row.driver_id_new,
+    names.driverNames,
+    row.driver_name_new ?? names.driverDisplayName,
+  );
+  const vehiclePrev = partyLabel(
+    row.vehicle_id_prev,
+    names.vehicleLabels,
+    row.vehicle_number_prev,
+  );
+  const vehicleNew = partyLabel(
+    row.vehicle_id_new,
+    names.vehicleLabels,
+    row.vehicle_number_new,
+  );
+  const verb =
+    ev === "driver_accepted" || ev === "accepted"
+      ? "Driver accepted"
+      : ev === "reassignment"
+        ? "Reassigned"
+        : ev === "completed"
+          ? "Assignment completed"
+          : "Assigned";
+  const bits = [verb];
+  if (driverPrev && driverNew && driverPrev !== driverNew) {
+    bits.push(`driver ${driverPrev} → ${driverNew}`);
+  } else if (driverNew) {
+    bits.push(`driver ${driverNew}`);
+  } else if (driverPrev) {
+    bits.push(`driver ${driverPrev} removed`);
+  }
+  if (vehiclePrev && vehicleNew && vehiclePrev !== vehicleNew) {
+    bits.push(`vehicle ${vehiclePrev} → ${vehicleNew}`);
+  } else if (vehicleNew) {
+    bits.push(`vehicle ${vehicleNew}`);
+  } else if (vehiclePrev) {
+    bits.push(`vehicle ${vehiclePrev} removed`);
+  }
+  const actorFallback =
+    ev === "driver_accepted" || ev === "accepted"
+      ? driverNew || names.driverDisplayName?.trim() || "Driver"
+      : names.staffDisplayName?.trim() || "Staff";
+  return {
+    atIso: row.changed_at,
+    time: formatTrackingDateTime(row.changed_at),
+    actor: actorLabel({
+      userId: row.changed_by,
+      actorNameById: names.actorNameById,
+      currentUserId: names.currentUserId,
+      staffDisplayName: names.staffDisplayName,
+      fallback: actorFallback,
+    }),
+    action: bits.join(" · "),
+  };
+}
+
+function sortHistory(
+  lines: ManifestJourneyHistoryLine[],
+): ManifestJourneyHistoryLine[] {
+  return [...lines].sort(
+    (a, b) => new Date(a.atIso).getTime() - new Date(b.atIso).getTime(),
+  );
+}
+
 export function buildManifestJourneyLogs(input: {
   trip: TripRow;
   assignmentAuditRows: TripAssignmentAuditRow[];
@@ -369,6 +488,12 @@ export function buildManifestJourneyLogs(input: {
   simLogs?: ManifestSimLogEntry[];
   simLocationByKey?: Record<string, string>;
   locationLoadingLabel?: string;
+  driverNames?: Record<string, string>;
+  vehicleLabels?: Record<string, string>;
+  actorNameById?: Record<string, string>;
+  currentUserId?: string | null;
+  staffDisplayName?: string | null;
+  driverDisplayName?: string | null;
 }): ManifestJourneyLogEntry[] {
   const tr = input.trip;
   const simLogs = input.simLogs ?? [];
@@ -597,7 +722,138 @@ export function buildManifestJourneyLogs(input: {
     },
   ];
 
-  return steps;
+  const nameCtx = {
+    driverNames: input.driverNames,
+    vehicleLabels: input.vehicleLabels,
+    actorNameById: input.actorNameById,
+    currentUserId: input.currentUserId,
+    staffDisplayName: input.staffDisplayName,
+    driverDisplayName: input.driverDisplayName,
+  };
+  const staff = input.staffDisplayName?.trim() || "Staff";
+  const driver = input.driverDisplayName?.trim() || "Driver";
+  const auditHistory = [...audits]
+    .sort(
+      (a, b) =>
+        new Date(a.changed_at).getTime() - new Date(b.changed_at).getTime(),
+    )
+    .map((row) => assignmentHistoryLine(row, nameCtx));
+
+  const simHistory = (statuses: string[]): ManifestJourneyHistoryLine[] =>
+    simLogs
+      .filter((e) => statuses.includes(e.status) && e.timestamp)
+      .map((e) => ({
+        atIso: e.timestamp,
+        time: formatTrackingDateTime(e.timestamp),
+        actor: e.userName?.trim() || staff,
+        action: e.locationLabel?.trim()
+          ? `Simulated ${e.status.replace(/_/g, " ")} · ${e.locationLabel.trim()}`
+          : `Simulated ${e.status.replace(/_/g, " ")}`,
+      }));
+
+  const fallbackAssigned: ManifestJourneyHistoryLine[] =
+    auditHistory.length > 0
+      ? []
+      : assignedAtIso
+        ? [
+            {
+              atIso: assignedAtIso,
+              time: formatTrackingDateTime(assignedAtIso),
+              actor: actorLabel({
+                userId: tr.assigned_by_user_id,
+                actorNameById: input.actorNameById,
+                currentUserId: input.currentUserId,
+                staffDisplayName: input.staffDisplayName,
+                fallback: staff,
+              }),
+              action: driver
+                ? `Assigned · driver ${driver}`
+                : "Assigned",
+            },
+          ]
+        : [];
+
+  const acceptHistoryExtra: ManifestJourneyHistoryLine[] = [];
+  if (driverAcceptedAtIso && acceptPing?.recorded_at) {
+    acceptHistoryExtra.push({
+      atIso: acceptPing.recorded_at,
+      time: formatTrackingDateTime(acceptPing.recorded_at),
+      actor: driver,
+      action: acceptPing.locationName?.trim()
+        ? `GPS at acceptance · ${acceptPing.locationName.trim()}`
+        : `GPS at acceptance · ${formatCoordinateLabel(acceptPing.latitude, acceptPing.longitude)}`,
+    });
+  } else if (driverAcceptedAtIso && !acceptPing) {
+    acceptHistoryExtra.push({
+      atIso: driverAcceptedAtIso,
+      time: formatTrackingDateTime(driverAcceptedAtIso),
+      actor: driver,
+      action: "Accepted · driver GPS not recorded yet",
+    });
+  }
+
+  const historyByStep: Record<ManifestJourneyStepKey, ManifestJourneyHistoryLine[]> = {
+    assigned: sortHistory([
+      ...auditHistory.filter((l) => !l.action.startsWith("Driver accepted")),
+      ...fallbackAssigned,
+      ...simHistory(["pending_acceptance", "assigned"]),
+    ]),
+    driver_accepted: sortHistory([
+      ...auditHistory,
+      ...fallbackAssigned,
+      ...acceptHistoryExtra,
+      ...simHistory(["assigned"]),
+    ]),
+    pickup: sortHistory([
+      ...(tr.started_at
+        ? [
+            {
+              atIso: tr.started_at,
+              time: formatTrackingDateTime(tr.started_at),
+              actor: driver,
+              action: "Pickup started",
+            },
+          ]
+        : []),
+      ...simHistory(["in_progress", "picked_up", "pickup"]),
+    ]),
+    loading: [],
+    in_transit: sortHistory([
+      ...simHistory(["in_transit"]),
+      ...(input.driverLocation?.recorded_at
+        ? [
+            {
+              atIso: input.driverLocation.recorded_at,
+              time: formatTrackingDateTime(input.driverLocation.recorded_at),
+              actor: driver,
+              action: latestDriverLabel
+                ? `Last GPS · ${latestDriverLabel}`
+                : "Last GPS update",
+            },
+          ]
+        : []),
+    ]),
+    drop_off: sortHistory(simHistory(["at_drop"])),
+    unloading: [],
+    delivered: sortHistory([
+      ...(tr.completed_at
+        ? [
+            {
+              atIso: tr.completed_at,
+              time: formatTrackingDateTime(tr.completed_at),
+              actor: staff,
+              action: "Marked delivered",
+            },
+          ]
+        : []),
+      ...simHistory(["completed", "delivered", "done"]),
+    ]),
+  };
+
+  return steps.map((step) => ({
+    ...step,
+    history: historyByStep[step.stepKey] ?? [],
+  }));
 }
 
 export function manifestStepIndexForLog(

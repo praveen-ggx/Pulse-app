@@ -32,5 +32,5 @@ export function useAssignmentPaint(tripId: string | null | undefined): Assignmen
     },
   });
   const fromQuery = data?.tripId === tripId ? data : null;
-  return live ?? fromQuery;
+  return live ?? fromQuery ?? null;
 }

@@ -77,6 +77,7 @@ import {
     Route,
     Search,
     Sparkles,
+    User,
     X
 } from "lucide-react-native";
 import React, {
@@ -2358,12 +2359,13 @@ export function AddTransactionModal({
           safeSuppliers.length === 0 &&
           safeDrivers.length === 0 &&
           !hidePartyForCashOut)));
+  const needsLedgerPartyPick =
+    (!tripLocked || tripLockedCashInNeedsPartyPick) && !isPartyLocked;
 
   // Category / payment type required when the field is shown.
-  // When tripLocked + Cash IN, party is derived from trip — treat as client payment for category.
+  // Cash IN payment types are always CLIENT_CATEGORIES (picker is not tied to party).
   const hasValidCategory =
     (type === "in" &&
-      (isClientPayment || tripLocked) &&
       category != null &&
       (CLIENT_CATEGORIES as readonly string[]).includes(category)) ||
     (type === "in" &&
@@ -2400,6 +2402,25 @@ export function AddTransactionModal({
     hasValidTrip &&
     !supplierNeedsTrip &&
     !entryDateError;
+  const submitBlockReason = !canSubmit
+    ? !hasValidParty
+      ? type === "in"
+        ? "Select a customer to authorize this payment."
+        : "Select a party to authorize this entry."
+      : !hasValidCategory
+        ? type === "in"
+          ? "Select a payment type."
+          : "Select a category."
+        : amount <= 0
+          ? "Enter an amount."
+          : entryDateError
+            ? entryDateError
+            : supplierNeedsTrip
+              ? "Link a trip for this supplier payment."
+              : !hasValidTrip
+                ? "Select a trip."
+                : "Complete the required fields to authorize."
+    : null;
 
   const ledgerMobileFlow = fullPage && stackTripFinancialBand;
   /** Opened from trip detail — desktop single-page; mobile uses 2-step wizard. */
@@ -3595,6 +3616,10 @@ export function AddTransactionModal({
     ? 24 + keyboardPaddingBottom
     : 280;
   const submitButton = (
+    <View style={styles.submitBtnWrap}>
+      {submitBlockReason ? (
+        <Text style={styles.submitBlockReason}>{submitBlockReason}</Text>
+      ) : null}
     <TouchableOpacity
       style={[
         styles.submitBtn,
@@ -3638,6 +3663,7 @@ export function AddTransactionModal({
             : "SAVE ENTRY"}
       </Text>
     </TouchableOpacity>
+    </View>
   );
   const selectedPaymentModeName =
     PAYMENT_MODES.find((p) => p.id === paymentModeId)?.name ?? "Cash";
@@ -3968,6 +3994,56 @@ export function AddTransactionModal({
       Boolean(selectedPaymentTypeLabel);
     const capturePaymentModeCollapsed =
       ledgerDesktopPaymentSplitActive && !paymentModeExpanded && Boolean(paymentModeId);
+
+    const ledgerDesktopPartyBand = (
+      <View style={styles.ledgerDesktopPaymentSectionCard}>
+        <View style={styles.ledgerDesktopSectionHead}>
+          <View style={[styles.ledgerDesktopSectionIcon, styles.ledgerDesktopSectionIconParty]}>
+            <User size={15} color={Theme.primary} strokeWidth={2.2} />
+          </View>
+          <View style={styles.ledgerDesktopSectionHeadText}>
+            <Text style={styles.ledgerDesktopSectionEyebrow}>
+              {type === "in" ? "Customer" : "Party"}
+            </Text>
+            <Text style={styles.ledgerDesktopSectionHint}>
+              {type === "in"
+                ? "Who is paying this amount?"
+                : "Who is this entry for?"}
+            </Text>
+          </View>
+        </View>
+        <TouchableOpacity
+          style={styles.selectorSummaryCard}
+          onPress={() => {
+            setShowTripPicker(false);
+            setShowCategoryPicker(false);
+            setShowPartyPicker((v) => !v);
+          }}
+          activeOpacity={0.85}
+        >
+          <View style={styles.selectorSummaryMain}>
+            <Text
+              style={[
+                styles.selectorSummaryText,
+                !effectivePartyName && styles.selectorSummaryPlaceholder,
+              ]}
+              numberOfLines={1}
+            >
+              {effectivePartyName ||
+                (type === "in" ? "Select customer" : "Select party")}
+            </Text>
+          </View>
+          <FontAwesome name="chevron-down" size={11} color={Theme.textMutedDemo} />
+        </TouchableOpacity>
+        {!hasValidParty ? (
+          <Text style={styles.fieldErrorText}>
+            {type === "in"
+              ? "This trip has no linked customer. Choose one to authorize."
+              : "Choose a party to authorize."}
+          </Text>
+        ) : null}
+      </View>
+    );
 
     const ledgerDesktopLeftCategoryBand = (
       <View style={styles.ledgerDesktopPaymentSectionCard}>
@@ -4591,6 +4667,7 @@ export function AddTransactionModal({
           ledgerFocusedTripCardElement
             ? ledgerFocusedTripCardElement
             : null}
+          {needsLedgerPartyPick ? ledgerDesktopPartyBand : null}
           {ledgerDesktopLeftCategoryBand}
           {ledgerDesktopModeBand}
           {ledgerDesktopReferenceSection}
@@ -5301,8 +5378,7 @@ export function AddTransactionModal({
           ]}
         >
           <View style={styles.ledgerV2Col}>
-            {(!tripLocked || tripLockedCashInNeedsPartyPick) &&
-            !isPartyLocked ? (
+            {needsLedgerPartyPick ? (
               <TouchableOpacity
                 style={styles.syncPartyRow}
                 onPress={() => {
@@ -5847,8 +5923,7 @@ export function AddTransactionModal({
             </View>
 
             {/* Party: hidden when tripLocked with a linked client (derived). */}
-            {(!tripLocked || tripLockedCashInNeedsPartyPick) &&
-            !isPartyLocked ? (
+            {needsLedgerPartyPick ? (
               <TouchableOpacity
                 style={[styles.fieldBlockFull, showPartyPicker && styles.fieldBlockOpen]}
                 onPress={() => {
@@ -7442,6 +7517,10 @@ const styles = StyleSheet.create({
     fontSize: 11,
     textTransform: "none",
   },
+  selectorSummaryPlaceholder: {
+    color: Theme.textMutedDemo,
+    fontWeight: "600",
+  },
   paymentModeGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -7638,6 +7717,18 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
   },
 
+  submitBtnWrap: {
+    width: "100%",
+    alignSelf: "stretch",
+    gap: 8,
+  },
+  submitBlockReason: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+    color: Theme.textSecondary,
+    textAlign: "center",
+  },
   submitBtn: {
     paddingVertical: 19,
     minHeight: Layout.minTouchTargetSize + 28,
@@ -8076,6 +8167,9 @@ const styles = StyleSheet.create({
   },
   ledgerDesktopSectionIconCategory: {
     backgroundColor: "rgba(99,102,241,0.08)",
+  },
+  ledgerDesktopSectionIconParty: {
+    backgroundColor: Theme.primaryLight,
   },
   ledgerDesktopSectionIconRef: {
     backgroundColor: "rgba(99,102,241,0.08)",

@@ -159,9 +159,9 @@ export function FleetAssignWorkspace({
   initialVehicleId = null,
   saving,
   onConfirm,
-  onLiveSwap,
+  onLiveSwap: _onLiveSwap,
   onClose,
-  onPreviewRequest,
+  onPreviewRequest: _onPreviewRequest,
   onBeforeRegisterNavigate,
   focus = "driver",
 }: Props) {
@@ -179,7 +179,7 @@ export function FleetAssignWorkspace({
   const [changeReason, setChangeReason] =
     useState<ChangeReasonCode>("AD_HOC_SUBSTITUTION");
   const [changeRemarks, setChangeRemarks] = useState("");
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, _setToast] = useState<string | null>(null);
 
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(
     initialDriverId ?? trip.driver_id ?? null,

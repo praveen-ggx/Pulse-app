@@ -122,7 +122,10 @@ export function canonicalPoolField(value: string | null | undefined): string {
 
 /** Trimmed display values for a pool; identity is poolKeyId. */
 export function poolKey(
-  draft: Partial<MarketplaceLoadSearch> | null | undefined,
+  draft:
+    | { [K in keyof MarketplaceLoadSearch]?: MarketplaceLoadSearch[K] | null }
+    | null
+    | undefined,
 ): MarketplaceLoadSearch {
   return {
     pickup: (draft?.pickup ?? "").trim(),

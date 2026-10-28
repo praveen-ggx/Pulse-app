@@ -64,4 +64,46 @@ describe("manifest journey simulation flow", () => {
       "Mumbai, Maharashtra",
     );
   });
+
+  it("lists assignment change history on the driver-accepted step", () => {
+    const logs = buildManifestJourneyLogs({
+      trip,
+      assignmentAuditRows: [
+        {
+          id: "a1",
+          trip_id: "t1",
+          event_type: "assignment",
+          driver_id_prev: null,
+          driver_id_new: "driver-1",
+          vehicle_id_prev: null,
+          vehicle_id_new: "veh-1",
+          changed_at: "2026-08-13T05:00:00.000Z",
+          changed_by: "staff-1",
+        },
+        {
+          id: "a2",
+          trip_id: "t1",
+          event_type: "reassignment",
+          driver_id_prev: "driver-1",
+          driver_id_new: "driver-2",
+          vehicle_id_prev: "veh-1",
+          vehicle_id_new: "veh-1",
+          changed_at: "2026-08-13T06:00:00.000Z",
+          changed_by: "staff-1",
+        },
+      ],
+      driverNames: { "driver-1": "Ravi", "driver-2": "Imran" },
+      vehicleLabels: { "veh-1": "TN 01 AB 1234" },
+      actorNameById: { "staff-1": "Meena" },
+      driverDisplayName: "Imran",
+    });
+    const accepted = logs.find((row) => row.stepKey === "driver_accepted");
+    expect(accepted?.history?.map((line) => line.action)).toEqual(
+      expect.arrayContaining([
+        "Assigned · driver Ravi · vehicle TN 01 AB 1234",
+        "Reassigned · driver Ravi → Imran · vehicle TN 01 AB 1234",
+      ]),
+    );
+    expect(accepted?.history?.[0]?.actor).toBe("Meena");
+  });
 });

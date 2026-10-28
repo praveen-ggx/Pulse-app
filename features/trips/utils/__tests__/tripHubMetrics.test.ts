@@ -107,6 +107,19 @@ describe("isOperationsDeliveredTrip — Delivered tile membership", () => {
   });
 });
 
+describe("countTripsByMetric — documents pending is not History", () => {
+  it("does not count completed trips as delivered_docs_pending even with documents", () => {
+    const counts = countTripsByMetric(
+      [
+        trip({ id: "done", status: "completed", driver_id: "d1" }),
+        trip({ id: "pod", status: "at_destination", driver_id: "d1" }),
+      ],
+      new Set(["done", "pod"]),
+    );
+    expect(counts.delivered_docs_pending).toBe(1);
+  });
+});
+
 describe("countTripsByMetric — indent bucket exists and starts at zero", () => {
   it("initializes indent to 0 — only the caller (TripsScreen) populates it from indents", () => {
     const counts = countTripsByMetric(

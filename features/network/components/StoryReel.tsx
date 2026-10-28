@@ -17,7 +17,7 @@ import {
   sameOrgId,
   selectNetworkAndSponsoredStoryPosts,
 } from "@/features/network/utils/storyLoadVisibility.util";
-import { storyIdsForBubble, matchesStoryBubble } from "@/features/network/utils/storyReelOpen.util";
+import { storyIdsForBubble } from "@/features/network/utils/storyReelOpen.util";
 import { storyOrgPreviewLabel } from "@/features/network/utils/storyStrip.util";
 import { useRecordSponsoredImpressions } from "@/features/reach/hooks/useRecordSponsoredImpressions";
 import { useLiveOwnLoadStoriesQuery } from "@/lib/queries/usePostsQuery";
@@ -120,24 +120,8 @@ function storyBubbleKey(post: PostRow): string {
   return `${post.id}:${storyLane(post)}`;
 }
 
-function isDisplayedActiveStory(post: PostRow): boolean {
-  if (post.type === "LOAD") {
-    return isIndentStoryLive(post);
-  }
-  if (post.type === "VEHICLE_AVAILABILITY") {
-    return post.is_active !== false;
-  }
-  return false;
-}
-
 function activeStoryCountForBubble(posts: readonly PostRow[], bubble: PostRow): number {
-  const ids = new Set<string>();
-  for (const post of posts) {
-    if (!matchesStoryBubble(post, bubble) || !isDisplayedActiveStory(post)) continue;
-    const id = (post.id ?? "").trim();
-    if (id) ids.add(id);
-  }
-  return ids.size;
+  return storyIdsForBubble(posts, bubble).length;
 }
 
 /**
@@ -365,7 +349,7 @@ function BroadcastStory({
       caption={isSponsored ? "Ad" : undefined}
       badge={
         <>
-          {storyCount > 1 ? (
+          {storyCount > 0 ? (
             <View style={styles.countChip} pointerEvents="none">
               <Text style={styles.countChipText}>{storyCount}</Text>
             </View>
@@ -502,18 +486,7 @@ export function StoryReel({
     );
   }, [liveOwnLoadsQ.data, ownStories]);
   const latestOwnStory = ownStoryQueueResolved[0];
-  const mineActiveStoryCount = useMemo(() => {
-    const ids = new Set<string>();
-    for (const p of liveOwnLoadsQ.data ?? []) {
-      if (isDisplayedActiveStory(p) && p.id) ids.add(p.id);
-    }
-    const liveQueryReady = (liveOwnLoadsQ.data?.length ?? 0) > 0;
-    for (const p of ownStories) {
-      if (p.type === "LOAD" && p.source_indent_id && liveQueryReady) continue;
-      if (isDisplayedActiveStory(p) && p.id) ids.add(p.id);
-    }
-    return ids.size;
-  }, [liveOwnLoadsQ.data, ownStories]);
+  const mineActiveStoryCount = ownStoryQueueResolved.length;
   const mineQueueIds = ownStoryQueueResolved.map((s) => s.id).filter(Boolean).join(",");
   const hasOwnStories = ownStoryQueueResolved.length > 0;
 
@@ -602,7 +575,7 @@ export function StoryReel({
           }}
           badge={
             <>
-              {mineActiveStoryCount > 1 ? (
+              {mineActiveStoryCount > 0 ? (
                 <View style={styles.countChip} pointerEvents="none">
                   <Text style={styles.countChipText}>{mineActiveStoryCount}</Text>
                 </View>
@@ -723,8 +696,8 @@ const styles = StyleSheet.create({
     gap: 10,
     alignItems: "flex-start",
     paddingRight: 12,
-    paddingTop: 2,
-    // Room for the floating Ad chip that hangs below the ring.
+    paddingTop: 6,
+    // Room for the count chip and the Ad chip that hang on the ring.
     paddingBottom: 8,
     overflow: "visible",
   },
@@ -901,25 +874,27 @@ const styles = StyleSheet.create({
   },
   countChip: {
     position: "absolute",
-    left: 0,
-    top: 0,
-    minWidth: 13,
-    height: 13,
-    paddingHorizontal: 3,
-    borderRadius: 999,
-    backgroundColor: Theme.cardWhite,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.surfaceBorder,
+    top: 1,
+    right: 1,
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 5,
+    borderRadius: 11,
+    backgroundColor: Theme.accentBrownDeep,
+    borderWidth: 2,
+    borderColor: Theme.screenBackground,
     alignItems: "center",
     justifyContent: "center",
     zIndex: 5,
   },
   countChipText: {
-    fontSize: 8,
-    lineHeight: 9,
-    fontWeight: "500",
-    color: Theme.textSecondary,
-    letterSpacing: 0,
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "700",
+    color: Theme.textOnDark,
+    letterSpacing: -0.2,
+    textAlign: "center",
+    includeFontPadding: false,
   },
   orgBadge: {
     position: "absolute",

@@ -2829,7 +2829,7 @@ export default function ClientDetailScreen({
                 partyId: clientId,
                 defaultType: "in",
               });
-              if (due > 0) q.set("dueAmountIn", String(due));
+              if (due != null && due > 0) q.set("dueAmountIn", String(due));
               router.push(`/(modals)/ledger-sync?${q.toString()}` as const);
             }}
             accessibilityLabel={t("addTransaction")}

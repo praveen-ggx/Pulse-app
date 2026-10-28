@@ -1,11 +1,11 @@
 import {
-  getIndentDisplayNumber,
-  type IndentRow,
+    getIndentDisplayNumber,
+    type IndentRow,
 } from "@/features/indents/services/indents.service";
 import { indentCancelReasonLabel } from "@/features/indents/utils/indentCancelReason.util";
 import {
-  tripDayMatchesHubDateFilter,
-  type TripHubDateFilter,
+    tripDayMatchesHubDateFilter,
+    type TripHubDateFilter,
 } from "@/lib/dateRangePresets";
 
 /**
@@ -87,16 +87,14 @@ export function mergeIndentSearchHits<T extends { id: string }>(
   return [...loaded, ...extra];
 }
 
-/** Active ALL toolbar: unallocated indent cards + trip rows (client-side). */
+/** Active ALL toolbar: trip rows only. Indent cards stay on the Indent tile. */
 export function tripsHubAllToolbarCountLabel(opts: {
-  visibleIndentCount: number;
-  dateFilteredIndentCount: number;
   visibleTripCount: number;
   dateFilteredTripCount: number;
+  visibleIndentCount?: number;
+  dateFilteredIndentCount?: number;
 }): string {
-  const shown = opts.visibleIndentCount + opts.visibleTripCount;
-  const total = opts.dateFilteredIndentCount + opts.dateFilteredTripCount;
-  return `Showing ${shown} of ${total}`;
+  return `Showing ${opts.visibleTripCount} of ${opts.dateFilteredTripCount}`;
 }
 
 /** One row per indent id across several lists; the most recently updated copy wins. */

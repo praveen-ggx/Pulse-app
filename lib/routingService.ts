@@ -113,7 +113,9 @@ function buildWebRouteProxyUrl(from: LatLon, to: LatLon): string | null {
 }
 const OSRM_NETWORK_ERROR_COOLDOWN_MS = 60_000;
 const OSRM_TEMPORARY_BACKOFF_MS = 5 * 60_000;
-const OSRM_FETCH_TIMEOUT_MS = 8_000;
+const OSRM_FETCH_TIMEOUT_MS = 4_000;
+const ROUTE_CACHE_COORD_DECIMALS = 4;
+const optimalRouteCache = new Map<string, RouteResult>();
 let lastOSRMNetworkErrorLogAt = 0;
 let osrmBackoffUntil = 0;
 
@@ -304,38 +306,71 @@ async function getGoogleRoute(from: LatLon, to: LatLon): Promise<RouteResult | n
   }
 }
 
+async function fetchProxyRoute(from: LatLon, to: LatLon): Promise<RouteResult | null> {
+  const proxyUrl = buildWebRouteProxyUrl(from, to);
+  if (!proxyUrl) return null;
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), OSRM_FETCH_TIMEOUT_MS);
+    try {
+      const proxyRes = await fetch(proxyUrl, { signal: controller.signal });
+      if (!proxyRes.ok) return null;
+      const payload = (await proxyRes.json()) as {
+        ok?: boolean;
+        route?: RouteResult;
+      };
+      if (payload?.ok === true && payload.route) return payload.route;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  } catch {
+    /* fall through */
+  }
+  return null;
+}
+
+function firstResolvedRoute(
+  tasks: Array<Promise<RouteResult | null>>,
+): Promise<RouteResult | null> {
+  if (tasks.length === 0) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let pending = tasks.length;
+    let settled = false;
+    for (const task of tasks) {
+      void task.then((route) => {
+        if (route && !settled) {
+          settled = true;
+          resolve(route);
+          return;
+        }
+        pending -= 1;
+        if (!settled && pending === 0) resolve(null);
+      });
+    }
+  });
+}
+
 /**
  * Main entry point: Get optimal route.
- * Prioritizes OSRM (Truly free, no token) -> Mapbox (Token required) -> Google (Token required).
+ * Races the Netlify proxy with OSRM, then Mapbox / Google. Results are cached.
  */
 export async function getOptimalRoute(from: LatLon, to: LatLon): Promise<RouteResult | null> {
-  // Web-specific: optional server-side proxy (Netlify) to avoid browser CORS/provider blocking.
-  const proxyUrl = buildWebRouteProxyUrl(from, to);
-  if (proxyUrl) {
-    try {
-      const proxyRes = await fetch(proxyUrl);
-      if (proxyRes.ok) {
-        const payload = (await proxyRes.json()) as {
-          ok?: boolean;
-          route?: RouteResult;
-        };
-        if (payload?.ok === true && payload.route) return payload.route;
-      }
-    } catch {
-      // fall through to direct providers
-    }
-  }
+  const cacheKey = [
+    formatKeyCoord(from.latitude, ROUTE_CACHE_COORD_DECIMALS),
+    formatKeyCoord(from.longitude, ROUTE_CACHE_COORD_DECIMALS),
+    formatKeyCoord(to.latitude, ROUTE_CACHE_COORD_DECIMALS),
+    formatKeyCoord(to.longitude, ROUTE_CACHE_COORD_DECIMALS),
+  ].join(ROUTE_FETCH_KEY_SEPARATOR);
+  const cached = optimalRouteCache.get(cacheKey);
+  if (cached) return cached;
 
-  // 1. Try OSRM (Truly free, open-source data)
-  const osrmResult = await getOSRMRoute(from, to);
-  if (osrmResult) return osrmResult;
-
-  // 2. Try Mapbox (100k free/mo, requires token)
-  const mapboxResult = await getMapboxRoute(from, to);
-  if (mapboxResult) return mapboxResult;
-
-  // 3. Try Google (Requires token + billing)
-  return await getGoogleRoute(from, to);
+  const raced = await firstResolvedRoute([
+    fetchProxyRoute(from, to),
+    getOSRMRoute(from, to),
+  ]);
+  const route = raced ?? (await getMapboxRoute(from, to)) ?? (await getGoogleRoute(from, to));
+  if (route) optimalRouteCache.set(cacheKey, route);
+  return route;
 }
 
 /** Straight-line km — offline fallback when every routing provider fails. */

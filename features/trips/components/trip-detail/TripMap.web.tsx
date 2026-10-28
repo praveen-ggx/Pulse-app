@@ -24,41 +24,20 @@ import React, { useEffect, useRef, useState } from 'react';
 /** Metro web cannot bundle leaflet.css (relative url(images/...) in CSS). Load from CDN instead. */
 const LEAFLET_CSS_VERSION = '1.9.4';
 const LEAFLET_CSS_LINK_ID = 'leaflet-dist-css';
+const NOMINATIM_TIMEOUT_MS = 2_000;
+const geocodeCache = new Map<string, [number, number]>();
+const leafletReady =
+  typeof window !== 'undefined' ? import('leaflet') : null;
 
-function ensureLeafletStylesheet(): Promise<void> {
-  if (typeof document === 'undefined') return Promise.resolve();
-  const existing = document.getElementById(LEAFLET_CSS_LINK_ID) as HTMLLinkElement | null;
-  if (existing?.dataset.loaded === '1') return Promise.resolve();
-  if (existing && existing.dataset.loaded !== '1') {
-    return new Promise((resolve) => {
-      const done = () => {
-        existing.dataset.loaded = '1';
-        resolve();
-      };
-      if (existing.sheet) {
-        done();
-        return;
-      }
-      existing.addEventListener('load', done, { once: true });
-      // Don't hard-fail map init if CDN CSS is blocked; Leaflet can still render.
-      existing.addEventListener('error', () => resolve(), {
-        once: true,
-      });
-    });
-  }
-  return new Promise((resolve) => {
-    const link = document.createElement('link');
-    link.id = LEAFLET_CSS_LINK_ID;
-    link.rel = 'stylesheet';
-    link.href = `https://unpkg.com/leaflet@${LEAFLET_CSS_VERSION}/dist/leaflet.css`;
-    link.crossOrigin = 'anonymous';
-    link.onload = () => {
-      link.dataset.loaded = '1';
-      resolve();
-    };
-    link.onerror = () => resolve();
-    document.head.appendChild(link);
-  });
+function ensureLeafletStylesheet(): void {
+  if (typeof document === 'undefined') return;
+  if (document.getElementById(LEAFLET_CSS_LINK_ID)) return;
+  const link = document.createElement('link');
+  link.id = LEAFLET_CSS_LINK_ID;
+  link.rel = 'stylesheet';
+  link.href = `https://cdn.jsdelivr.net/npm/leaflet@${LEAFLET_CSS_VERSION}/dist/leaflet.css`;
+  link.crossOrigin = 'anonymous';
+  document.head.appendChild(link);
 }
 
 const getFallbackCoordinates = (location?: string): [number, number] => {
@@ -68,11 +47,20 @@ const getFallbackCoordinates = (location?: string): [number, number] => {
   return [INDIA_MAP_CENTER.latitude, INDIA_MAP_CENTER.longitude];
 };
 
-const getCoordinates = async (location: string, retryCount = 0): Promise<[number, number]> => {
-  if (!location?.trim()) return getFallbackCoordinates(location);
+const getCoordinates = async (location: string): Promise<[number, number]> => {
+  const key = location.trim().toLowerCase();
+  if (!key) return getFallbackCoordinates(location);
+  const cached = geocodeCache.get(key);
+  if (cached) return cached;
+  const local = lookupIndianCityCoordinate(location);
+  if (local) {
+    const coords: [number, number] = [local.latitude, local.longitude];
+    geocodeCache.set(key, coords);
+    return coords;
+  }
   try {
     const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 8000);
+    const id = setTimeout(() => controller.abort(), NOMINATIM_TIMEOUT_MS);
     const res = await fetch(
       `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)},India&format=json&limit=1&countrycodes=IN`,
       { signal: controller.signal, headers: { Accept: 'application/json' }, mode: 'cors' },
@@ -81,20 +69,16 @@ const getCoordinates = async (location: string, retryCount = 0): Promise<[number
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (Array.isArray(data) && data[0]?.lat && data[0]?.lon) {
-      return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+      const coords: [number, number] = [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+      geocodeCache.set(key, coords);
+      return coords;
     }
-    throw new Error('No results');
-  } catch (err: unknown) {
-    const e = err as { name?: string; message?: string };
-    if (
-      retryCount < 2 &&
-      (e.name === 'AbortError' || e.message?.includes('Failed to fetch') || e.message?.includes('HTTP 5'))
-    ) {
-      await new Promise((r) => setTimeout(r, (retryCount + 1) * 1000));
-      return getCoordinates(location, retryCount + 1);
-    }
-    return getFallbackCoordinates(location);
+  } catch {
+    /* city centroid / India center is enough for first paint */
   }
+  const fallback = getFallbackCoordinates(location);
+  geocodeCache.set(key, fallback);
+  return fallback;
 };
 
 function isLatLngObject(
@@ -231,9 +215,9 @@ export function TripMap({
       setIsLoading(true);
       setError(null);
 
-      // Dynamic imports to avoid SSR issues (same pattern as existing LeafletMap.web.tsx)
-      const L = (await import('leaflet')).default;
-      await ensureLeafletStylesheet();
+      ensureLeafletStylesheet();
+      const leafletMod = leafletReady ? await leafletReady : await import('leaflet');
+      const L = leafletMod.default;
       if (!isRunActive()) return;
       // Resolve every missing pin at once. Sequential Nominatim calls made the
       // map sit on a spinner for several seconds before the first tile.
@@ -529,6 +513,7 @@ export function TripMap({
       };
 
       let routedPolylineCoords: [number, number][] = [];
+      let previewRouteLine: import('leaflet').Polyline | null = null;
 
       const collectViewportCoords = (): [number, number][] => {
         const coords: [number, number][] = [
@@ -595,7 +580,11 @@ export function TripMap({
         }
         if (onDistanceCalculated) onDistanceCalculated((totalDist * 1.3).toFixed(1));
         try {
-          L.polyline(allPoints, {
+          if (previewRouteLine) {
+            try { map.removeLayer(previewRouteLine); } catch { /* ignore */ }
+            previewRouteLine = null;
+          }
+          previewRouteLine = L.polyline(allPoints, {
             color: '#2196F3',
             weight: 3,
             opacity: 0.7,
@@ -635,7 +624,11 @@ export function TripMap({
             const totalDistM = validSegments.reduce((sum, s) => sum + s.distance, 0);
             if (allLatLngs.length > 1) {
               try {
-                L.polyline(allLatLngs, {
+                if (previewRouteLine) {
+                  try { map.removeLayer(previewRouteLine); } catch { /* ignore */ }
+                  previewRouteLine = null;
+                }
+                previewRouteLine = L.polyline(allLatLngs, {
                   color: '#2196F3',
                   weight: 4,
                   opacity: 0.85,
@@ -657,6 +650,9 @@ export function TripMap({
           createFallbackRoute();
         }
       })();
+
+      // Straight-line preview first — road geometry replaces it when OSRM returns.
+      createFallbackRoute();
 
       // ── Fit bounds (endpoints until routed polyline loads) ───────────────
       fitMapToFullRoute();

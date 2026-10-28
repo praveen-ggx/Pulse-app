@@ -28,6 +28,12 @@ function mockQuery(table: string) {
   };
   builder.is = () => builder;
   builder.neq = () => builder;
+  builder.order = () => builder;
+  builder.gt = (col: string, val: string) => {
+    rows = rows.filter((r) => r[col] !== undefined && String(r[col]) > val);
+    return builder;
+  };
+  builder.limit = () => builder;
   builder.then = (resolve: (v: { data: Row[]; error: null }) => void) => resolve({ data: rows, error: null });
   return builder;
 }

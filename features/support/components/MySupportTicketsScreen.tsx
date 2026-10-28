@@ -20,6 +20,7 @@ import {
   supportTicketHasUserUpdate,
 } from '@/features/support/utils/supportTicketUnread.util';
 import { useMySupportTicketsQuery } from '@/lib/queries/useMySupportTicketsQuery';
+import { useSafeBack } from '@/lib/useSafeBack';
 import { ROUTES } from '@/lib/routes';
 import { useRouter, type Href } from 'expo-router';
 import { Inbox } from 'lucide-react-native';
@@ -139,10 +140,7 @@ export function MySupportTicketsScreen() {
   );
   const updateBadge = formatSupportUnreadBadge(updateCount);
 
-  const handleBack = () => {
-    if (router.canGoBack()) router.back();
-    else router.replace('/' as Href);
-  };
+  const handleBack = useSafeBack('/');
 
   return (
     <>

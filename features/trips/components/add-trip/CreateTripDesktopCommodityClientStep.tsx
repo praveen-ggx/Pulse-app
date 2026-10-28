@@ -1,8 +1,6 @@
-import { Plus } from "lucide-react-native";
 import { memo, useCallback, useMemo, useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 
-import Theme from "@/constants/Theme";
 import type { ClientRow } from "@/features/clients/services/clients.service";
 import { resolveWizardClientPhone } from "@/features/clients/utils/clientContactDisplay.util";
 import { TripCommodityFields } from "@/features/trips/components/add-trip/TripCommodityFields";
@@ -43,7 +41,7 @@ export type CreateTripDesktopCommodityClientStepProps = {
   onExpandClientList: () => void;
   onToggleClientList: () => void;
   onSelectClient: (client: ClientRow) => void;
-  onAddClient: () => void;
+  onAddClient?: () => void;
   clientError?: boolean;
   clientPrice: string;
   onClientPriceChange: (value: string) => void;
@@ -73,7 +71,6 @@ export const CreateTripDesktopCommodityClientStep = memo(
     onExpandClientList,
     onToggleClientList,
     onSelectClient,
-    onAddClient,
     clientError,
     clientPrice,
     onClientPriceChange,
@@ -223,18 +220,6 @@ export const CreateTripDesktopCommodityClientStep = memo(
                     changeExpanded={clientListOpen}
                     onToggleChange={onToggleClientList}
                   />
-                  <Pressable
-                    onPress={onAddClient}
-                    style={s.commodityAddClientBtn}
-                    accessibilityRole="button"
-                  >
-                    <Plus
-                      size={14}
-                      color={Theme.textPrimaryDark}
-                      strokeWidth={2.5}
-                    />
-                    <Text style={s.commodityAddClientBtnText}>Add new client</Text>
-                  </Pressable>
                 </View>
               </View>
               <CreateTripDesktopClientGrid

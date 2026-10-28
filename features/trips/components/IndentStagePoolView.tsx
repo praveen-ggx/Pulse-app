@@ -405,12 +405,13 @@ function StageBar({
   onTrip: number;
   onSelect?: (filter: StageFilter) => void;
 }) {
-  const parts: { key: StageFilter; value: number; style: object }[] = [
+  const allParts: { key: StageFilter; value: number; style: object }[] = [
     { key: "waiting", value: waiting, style: styles.barWaiting },
     { key: "bids", value: bids, style: styles.barBids },
     { key: "awarded", value: awarded, style: styles.barAwarded },
     { key: "onTrip", value: onTrip, style: styles.barTrip },
-  ].filter((p) => p.value > 0);
+  ];
+  const parts = allParts.filter((p) => p.value > 0);
   return (
     <View style={styles.bar}>
       {parts.map((p) => (
@@ -1059,7 +1060,7 @@ function PoolClientFilter({
 }
 
 export function IndentStagePoolView({
-  lanes,
+  lanes: _lanes,
   poolIndents,
   allocatedIndents,
   poolSearch,

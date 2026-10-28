@@ -1,33 +1,9 @@
-const mockTripsQueries: { kind: "org" | "single"; value: string }[] = [];
+import { createFakePostgrest, fakeUuid, shuffled } from "@/lib/__tests__/fakePostgrest";
+
+const mockServer = createFakePostgrest();
 const mockOrgTripIds = ["trip-a", "trip-b", "trip-c"];
 
-jest.mock("@/lib/supabase", () => ({
-  supabase: () => ({
-    from: (table: string) => {
-      if (table !== "trips") throw new Error(`unexpected table ${table}`);
-      return {
-        select: (columns: string) => ({
-          eq: (_col: string, value: string) => {
-            if (columns === "organization_id") {
-              return {
-                maybeSingle: async () => {
-                  mockTripsQueries.push({ kind: "single", value });
-                  return { data: { organization_id: "org-1" }, error: null };
-                },
-              };
-            }
-            return {
-              is: async () => {
-                mockTripsQueries.push({ kind: "org", value });
-                return { data: mockOrgTripIds.map((id) => ({ id })), error: null };
-              },
-            };
-          },
-        }),
-      };
-    },
-  }),
-}));
+jest.mock("@/lib/supabase", () => ({ supabase: () => mockServer.client }));
 
 const mockLoadLrRows = jest.fn();
 jest.mock("@/features/trips/services/tripDocumentLrPod.service", () => ({
@@ -36,16 +12,26 @@ jest.mock("@/features/trips/services/tripDocumentLrPod.service", () => ({
 
 import {
   __resetOrgLrDuplicateCacheForTests,
+  checkOrgDuplicateLrNumbersForTrip,
   findOrgDuplicateLrNumberForTrip,
   findOrgDuplicateLrNumbersForTrip,
   invalidateOrgLrIndexForTrip,
+  OrgLrIndexUnavailableError,
 } from "../orgLrDuplicate.service";
 
-const orgSweeps = () => mockTripsQueries.filter((q) => q.kind === "org").length;
+/** Org-wide trip sweeps = first keyset page of the org trips read. */
+const orgSweeps = () =>
+  mockServer.requests.filter(
+    (r) => r.table === "trips" && r.filters.includes("organization_id=eq.org-1") && r.afterId === null,
+  ).length;
+const tripOrgLookups = () =>
+  mockServer.requests.filter((r) => r.table === "trips" && r.filters.some((f) => f.startsWith("id=eq."))).length;
 
 beforeEach(() => {
   __resetOrgLrDuplicateCacheForTests();
-  mockTripsQueries.length = 0;
+  mockServer.requests.length = 0;
+  mockServer.state.failRequest = null;
+  mockServer.tables.trips = mockOrgTripIds.map((id) => ({ id, organization_id: "org-1", deleted_at: null }));
   mockLoadLrRows.mockReset();
   mockLoadLrRows.mockResolvedValue([
     { trip_id: "trip-a", document_type: "lr", document_number: "LR 100" },
@@ -79,7 +65,7 @@ describe("org LR duplicate check", () => {
     expect(orgSweeps()).toBe(1);
     expect(mockLoadLrRows).toHaveBeenCalledTimes(1);
     // trip → org is looked up once too.
-    expect(mockTripsQueries.filter((q) => q.kind === "single")).toHaveLength(1);
+    expect(tripOrgLookups()).toBe(1);
   });
 
   it("joins concurrent checks onto one in-flight build", async () => {
@@ -130,10 +116,64 @@ describe("org LR duplicate check", () => {
     ).resolves.toEqual({ tripId: "trip-c", lrNumber: "LR 9" });
   });
 
-  it("fails open (no duplicate) when the org index cannot be built", async () => {
+  it("advisory find* reports no duplicate when the org index cannot be built", async () => {
     mockLoadLrRows.mockRejectedValueOnce(new Error("timeout"));
     await expect(
       findOrgDuplicateLrNumberForTrip({ tripId: "trip-c", lrNumber: "LR 100" }),
+    ).resolves.toBeNull();
+  });
+});
+
+describe("org LR index over the 1000-row server cap", () => {
+  it("indexes LRs of all 1200 org trips; a duplicate on trip #1150 is found", async () => {
+    const tripIds = Array.from({ length: 1200 }, (_, i) => fakeUuid(i, 6));
+    mockServer.tables.trips = shuffled([
+      ...tripIds.map((id) => ({ id, organization_id: "org-1", deleted_at: null })),
+      ...Array.from({ length: 50 }, (_, i) => ({ id: fakeUuid(5000 + i, 6), organization_id: "org-1", deleted_at: "2026-10-01" })),
+      ...Array.from({ length: 300 }, (_, i) => ({ id: fakeUuid(9000 + i, 6), organization_id: "org-2", deleted_at: null })),
+    ]);
+    mockLoadLrRows.mockImplementation(async (ids: string[]) =>
+      ids.includes(tripIds[1150]) ? [{ trip_id: tripIds[1150], document_type: "lr", document_number: "LR-OLD-1150" }] : [],
+    );
+
+    await expect(
+      checkOrgDuplicateLrNumbersForTrip({ tripId: tripIds[3], lrNumbers: ["lr-old-1150"] }),
+    ).resolves.toEqual({ tripId: tripIds[1150], lrNumber: "LR-OLD-1150" });
+    const loaded = mockLoadLrRows.mock.calls[0][0] as string[];
+    expect(loaded).toHaveLength(1200);
+    expect(new Set(loaded)).toEqual(new Set(tripIds));
+  });
+});
+
+describe("fail-closed check for write paths", () => {
+  it("throws when an org trips page fails, and does not cache the failure", async () => {
+    mockServer.state.failRequest = (req) => req.table === "trips" && req.afterId !== null;
+    await expect(
+      checkOrgDuplicateLrNumbersForTrip({ tripId: "trip-c", lrNumbers: ["LR 100"] }),
+    ).rejects.toBeInstanceOf(OrgLrIndexUnavailableError);
+    mockServer.state.failRequest = null;
+    await expect(
+      checkOrgDuplicateLrNumbersForTrip({ tripId: "trip-c", lrNumbers: ["LR 100"] }),
+    ).resolves.toEqual({ tripId: "trip-a", lrNumber: "LR 100" });
+  });
+
+  it("throws when the LR rows cannot be loaded completely", async () => {
+    mockLoadLrRows.mockRejectedValueOnce(new Error("chunk failed"));
+    await expect(
+      checkOrgDuplicateLrNumbersForTrip({ tripId: "trip-c", lrNumbers: ["LR 100"] }),
+    ).rejects.toBeInstanceOf(OrgLrIndexUnavailableError);
+  });
+
+  it("throws when the trip → org lookup errors", async () => {
+    mockServer.state.failRequest = (req) => req.filters.some((f) => f.startsWith("id=eq."));
+    await expect(
+      checkOrgDuplicateLrNumbersForTrip({ tripId: "trip-c", lrNumbers: ["LR 100"] }),
+    ).rejects.toBeInstanceOf(OrgLrIndexUnavailableError);
+  });
+
+  it("a trip the user cannot see is still not checked (unchanged behaviour)", async () => {
+    await expect(
+      checkOrgDuplicateLrNumbersForTrip({ tripId: "trip-unknown", lrNumbers: ["LR 100"] }),
     ).resolves.toBeNull();
   });
 });

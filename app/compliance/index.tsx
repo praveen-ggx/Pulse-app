@@ -1646,7 +1646,14 @@ export default function ComplianceScreen() {
       .catch((error: unknown) => {
         if (request !== payExportRequest.current) return;
         setPayExport((cur) => ({ ...cur, open: false, preparing: false }));
-        alertMessage("Couldn't prepare report", error instanceof Error ? error.message : "Please try again.");
+        alertMessage(
+          "Couldn't prepare report",
+          error instanceof Error && error.name === "SupabaseQueueRejectedError"
+            ? "Too many requests are in progress. Wait a moment and try Export Report again."
+            : error instanceof Error
+              ? error.message
+              : "Please try again.",
+        );
       });
   }, [advancePaidPool, currentOrganization?.id, filtered]);
 
@@ -1685,7 +1692,14 @@ export default function ComplianceScreen() {
       .catch((error: unknown) => {
         if (request !== apExportRequest.current) return;
         setApExport((cur) => ({ ...cur, open: false, preparing: false }));
-        alertMessage("Couldn't prepare report", error instanceof Error ? error.message : "Please try again.");
+        alertMessage(
+          "Couldn't prepare report",
+          error instanceof Error && error.name === "SupabaseQueueRejectedError"
+            ? "Too many requests are in progress. Wait a moment and try Export Report again."
+            : error instanceof Error
+              ? error.message
+              : "Please try again.",
+        );
       });
   }, [currentOrganization?.id, filtered]);
 

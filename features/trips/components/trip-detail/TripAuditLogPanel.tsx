@@ -7,7 +7,7 @@ import { TripAuditLogContent } from "@/features/trips/components/trip-detail/Tri
 import { getProfile } from "@/features/auth/services/auth.service";
 import { resolveComplianceActorDetails } from "@/features/tripCompliance/services/complianceDocumentView.service";
 import type { LedgerRow } from "@/features/finance/services/finance.service";
-import { getOrganizationMembers } from "@/features/organization/services/members.service";
+import { getOrganizationMembersShared } from "@/features/organization/services/members.service";
 import type { DriverActivityTimelineRow } from "@/features/trips/components/trip-detail/hooks/useTripDetail";
 import type { TripAssignmentAuditRow } from "@/features/trips/services/trip-assignment-audit.service";
 import type { TripHardCopyPodState } from "@/features/trips/services/tripDocumentLrPod.service";
@@ -176,7 +176,7 @@ export function TripAuditLogPanel({
       }
 
       if (orgId) {
-        const { members } = await getOrganizationMembers(orgId);
+        const { members } = await getOrganizationMembersShared(orgId);
         for (const member of members) {
           const uid = String(member.user_id ?? "").trim();
           if (!uid) continue;

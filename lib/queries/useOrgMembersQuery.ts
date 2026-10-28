@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   getMyTeamInvites,
   getOrgTeamRoster,
+  invalidateSharedOrganizationMembers,
   subscribeToOrgTeamRoster,
 } from '@/features/organization/services/members.service';
 import type { OrgTeamRoster } from '@/types/organization';
@@ -47,13 +48,16 @@ export function useOrgMembersQuery(orgId: string | null) {
 }
 
 /**
- * Read-only variant: shares the same query cache as useOrgMembersQuery but does
- * NOT open a realtime channel. Use when another mounted component already owns
- * the org-team subscription (Supabase rejects a second postgres_changes callback
- * on the same channel name).
+ * Display variant for panels that remount often (Hub / Goals / Performance):
+ * shares the useOrgMembersQuery cache but skips the refetch on every mount.
+ * It still listens for membership changes on the shared, ref-counted
+ * `org-team` channel, so the roster refreshes when members actually change
+ * rather than only when the 30-minute staleTime runs out.
  */
 export function useOrgMembersData(orgId: string | null) {
-  return useQuery({
+  const queryClient = useQueryClient();
+
+  const query = useQuery({
     queryKey: queryKeys.orgMembers.all(orgId ?? ''),
     queryFn: async () => {
       const res = await getOrgTeamRoster(orgId!);
@@ -62,9 +66,21 @@ export function useOrgMembersData(orgId: string | null) {
     },
     enabled: !!orgId,
     staleTime: STALE.slow,
-    refetchOnMount: 'always',
+    // Team screens that own the roster keep refetchOnMount: 'always' via useOrgMembersQuery.
+    refetchOnMount: false,
     refetchOnReconnect: 'always',
   });
+
+  useEffect(() => {
+    if (!orgId) return;
+    return subscribeToOrgTeamRoster(orgId, () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.orgMembers.all(orgId),
+      });
+    });
+  }, [orgId, queryClient]);
+
+  return query;
 }
 
 export function useMyTeamInvitesQuery() {
@@ -83,6 +99,7 @@ export function useInvalidateOrgMembers(orgId: string | null) {
   const qc = useQueryClient();
   return () => {
     if (!orgId) return;
+    invalidateSharedOrganizationMembers(orgId);
     qc.invalidateQueries({ queryKey: queryKeys.orgMembers.all(orgId) });
   };
 }

@@ -194,7 +194,7 @@ import { useTransactionsQuery } from "@/lib/queries/useTransactionsQuery";
 import { useTripFinanceAdjustmentsMap } from "@/lib/queries/useTripFinanceAdjustmentsQuery";
 import {
     useAssignmentAuditQuery,
-    useOrgHubCountSourceQuery,
+    useOrgIndentIdsWithTripQuery,
     useOrgHubMetricsQuery,
     useShipperDisplayNamesQuery,
     useTripsQuery,
@@ -600,7 +600,7 @@ export default function TripsScreen() {
     error: tripsLoadError,
     refetch: refetchTrips,
   } = useTripsQuery(orgId);
-  const { data: hubCountSource } = useOrgHubCountSourceQuery(orgId);
+  const { data: orgIndentIdsWithTrip } = useOrgIndentIdsWithTripQuery(orgId);
   const { data: hubMetrics } = useOrgHubMetricsQuery(orgId);
   const trips = tripsData as TripRow[];
   // Newest 400 by default; date pills and search pull older rows from the server.
@@ -690,12 +690,9 @@ export default function TripsScreen() {
     const set = new Set(
       hubTrips.map((t) => t.indent_id).filter((id): id is string => Boolean(id)),
     );
-    for (const id of hubCountSource?.trips ?? []) {
-      const indentId = id.indent_id?.trim();
-      if (indentId) set.add(indentId);
-    }
+    for (const indentId of orgIndentIdsWithTrip ?? []) set.add(indentId);
     return set;
-  }, [hubTrips, hubCountSource]);
+  }, [hubTrips, orgIndentIdsWithTrip]);
   // Live + needs-trip workload rows (server list; until it loads, the capped
   // newest list filtered by the same rules, and counts stay server-exact).
   const indentWorkloadKindById = useMemo(() => {

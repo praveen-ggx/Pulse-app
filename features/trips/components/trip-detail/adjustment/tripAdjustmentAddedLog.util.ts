@@ -1,4 +1,4 @@
-import { getOrganizationMembers } from "@/features/organization/services/members.service";
+import { getOrganizationMembersShared } from "@/features/organization/services/members.service";
 import { formatLedgerDateTime } from "@/lib/format";
 import { supabase } from "@/lib/supabase";
 import type { TripAdjustment } from "@/features/trips/services/tripAdjustments";
@@ -44,7 +44,7 @@ export async function fetchAdjustmentActorNames(
   const out: Record<string, string> = {};
 
   if (orgId) {
-    const { members } = await getOrganizationMembers(orgId);
+    const { members } = await getOrganizationMembersShared(orgId);
     for (const member of members) {
       if (!unique.includes(member.user_id)) continue;
       const label = memberLabel(member);

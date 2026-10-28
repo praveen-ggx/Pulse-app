@@ -48,7 +48,7 @@ import type { SalesDateRange } from "@/features/network/utils/connectionSalesAna
 import { formatINR, formatINRChip } from "@/lib/format";
 import { useClientsQuery } from "@/lib/queries/useClientsQuery";
 import { useDriversQuery } from "@/lib/queries/useDriversQuery";
-import { useOrgMembersQuery } from "@/lib/queries/useOrgMembersQuery";
+import { useOrgMembersData } from "@/lib/queries/useOrgMembersQuery";
 import { useSuppliersQuery } from "@/lib/queries/useSuppliersQuery";
 import { useTransactionsQuery } from "@/lib/queries/useTransactionsQuery";
 import { useTripsQuery } from "@/lib/queries/useTripsQuery";
@@ -787,7 +787,7 @@ export function NetworkDesktopGoalsPanel({ orgId }: Props) {
   const suppliersQ = useSuppliersQuery(orgId);
   const driversQ = useDriversQuery(orgId);
   const vehiclesQ = useVehiclesQuery(orgId);
-  const orgMembersQ = useOrgMembersQuery(orgId);
+  const orgMembersQ = useOrgMembersData(orgId);
 
   const trips = tripsQ.data ?? [];
   const transactions = txQ.data ?? [];

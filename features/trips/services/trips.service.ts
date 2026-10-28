@@ -72,10 +72,6 @@ export type DriverTripListOpts = PageOpts & {
 import { getPlatformEventBus } from "@/lib/platform/events/InProcessEventBus";
 import { getAccessToken, supabase } from "@/lib/supabase";
 import { uuidv7 } from "@/lib/uuidv7";
-import {
-  isCompletedTripStatus,
-  isTripCancelledForHub,
-} from "@/features/trips/utils/tripHubMetrics";
 import type { DriverTripRow, SupplierTripRow } from "@/types/trip-views";
 import {
     driverRowToTripRow,
@@ -1682,115 +1678,34 @@ export async function getClientTripCount(
   return countOwnedTrips(orgId, { clientId });
 }
 
-const HUB_FACT_PAGE = 1000;
-const HUB_FACT_MAX_PAGES = 50;
-/** Trip ids per `trip_documents` `.in()` — keeps the request URL well under the server limit. */
-const HUB_FACT_ID_CHUNK = 100;
-
-async function pageOrgRows<T>(
-  fetchPage: (
-    from: number,
-    to: number,
-  ) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
-): Promise<{ error: Error | null; rows: T[] }> {
-  const rows: T[] = [];
-  for (let page = 0; page < HUB_FACT_MAX_PAGES; page += 1) {
-    const from = page * HUB_FACT_PAGE;
-    const to = from + HUB_FACT_PAGE - 1;
-    const { data, error } = await fetchPage(from, to);
-    if (error) return { error: new Error(error.message), rows: [] };
-    const chunk = data ?? [];
-    rows.push(...chunk);
-    if (chunk.length < HUB_FACT_PAGE) return { error: null, rows };
-  }
-  return { error: null, rows };
-}
-
 /**
- * Every owned trip/indent fact needed for hub rail counts.
- * Do not use `get_trips_for_org` length — that list is capped at 400.
+ * Indent ids that already have an owned, non-deleted trip — the hub uses this
+ * to keep those indents off the "needs trip" list. Reads only trips that carry
+ * an indent, two columns, keyset-paged (an unpaged select stops at max_rows).
  */
-export async function getOrgHubCountSource(
+export async function getOrgIndentIdsWithTrip(
   orgId: string,
-): Promise<{
-  error: Error | null;
-  source: import("@/features/trips/utils/hubExactCounts.util").OrgHubCountSource;
-}> {
-  const empty = { trips: [], documentTripIds: [], indents: [] };
-  if (!orgId) return { error: null, source: empty };
-
-  const [tripsRes, indentsRes] = await Promise.all([
-    pageOrgRows<{
-      id: string;
-      status: string | null;
-      driver_id: string | null;
-      indent_id: string | null;
-      pickup_date: string | null;
-      created_at: string | null;
-    }>((from, to) =>
-      supabase()
-        .from("trips")
-        .select("id, status, driver_id, indent_id, pickup_date, created_at")
-        .eq("organization_id", orgId)
-        .is("deleted_at", null)
-        .range(from, to),
-    ),
-    pageOrgRows<{
-      id: string;
-      status: string | null;
-      pickup_date: string | null;
-      created_at: string | null;
-    }>((from, to) =>
-      supabase()
-        .from("indents")
-        .select("id, status, pickup_date, created_at")
-        .eq("organization_id", orgId)
-        .is("deleted_at", null)
-        .range(from, to),
-    ),
-  ]);
-  if (tripsRes.error) return { error: tripsRes.error, source: empty };
-  if (indentsRes.error) return { error: indentsRes.error, source: empty };
-
-  // Document facts only feed the open-trip tiles, so skip completed/cancelled
-  // trips: the RLS-checked trip_documents read is the costliest part of this source.
-  const tripIds = tripsRes.rows
-    .filter((row) => !isCompletedTripStatus(row.status) && !isTripCancelledForHub(row.status))
-    .map((row) => row.id);
-  const documentTripIds = new Set<string>();
-  // 1000 uuids in one `.in()` is a ~34 KB URL that PostgREST rejects (400), so
-  // chunk the ids; page each chunk by `id` because a chunk can exceed max_rows.
-  for (let i = 0; i < tripIds.length; i += HUB_FACT_ID_CHUNK) {
-    const batch = tripIds.slice(i, i + HUB_FACT_ID_CHUNK);
-    let afterId: string | null = null;
-    for (;;) {
+): Promise<{ error: Error | null; indentIds: string[] }> {
+  if (!orgId) return { error: null, indentIds: [] };
+  const { data, error } = await readAllPages<{ id: string; indent_id: string | null }, { message: string }>(
+    (afterId, limit) => {
       let q = supabase()
-        .from("trip_documents")
-        .select("id, trip_id")
-        .in("trip_id", batch);
+        .from("trips")
+        .select("id, indent_id")
+        .eq("organization_id", orgId)
+        .is("deleted_at", null)
+        .not("indent_id", "is", null);
       if (afterId) q = q.gt("id", afterId);
-      const { data, error } = await q
-        .order("id", { ascending: true })
-        .limit(HUB_FACT_PAGE);
-      if (error) return { error: new Error(error.message), source: empty };
-      const rows = (data ?? []) as { id: string; trip_id?: string | null }[];
-      for (const row of rows) {
-        const id = row.trip_id?.trim();
-        if (id) documentTripIds.add(id);
-      }
-      if (rows.length < HUB_FACT_PAGE) break;
-      afterId = rows[rows.length - 1].id;
-    }
-  }
-
-  return {
-    error: null,
-    source: {
-      trips: tripsRes.rows,
-      documentTripIds: [...documentTripIds],
-      indents: indentsRes.rows,
+      return q.order("id", { ascending: true }).limit(limit);
     },
-  };
+  );
+  if (error) return { error: new Error(error.message), indentIds: [] };
+  const ids = new Set<string>();
+  for (const row of data) {
+    const indentId = row.indent_id?.trim();
+    if (indentId) ids.add(indentId);
+  }
+  return { error: null, indentIds: [...ids] };
 }
 
 /** Trip rows for a single supplier, scoped by org — for profile screens that only need spend/volume. */

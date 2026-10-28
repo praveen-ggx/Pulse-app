@@ -267,7 +267,9 @@ function resolveStepLocation(
  * action, and `updated_at`, which any server-side edit bumps.
  */
 export function resolveDriverAcceptanceAt(input: {
-  trip: Pick<TripRow, "status" | "started_at" | "completed_at" | "updated_at">;
+  trip: Pick<TripRow, "status" | "started_at" | "completed_at"> & {
+    updated_at?: TripRow["updated_at"] | null;
+  };
   assignmentAuditRows?: TripAssignmentAuditRow[];
   locationPings?: ManifestLocationPing[];
 }): string | null {
@@ -316,7 +318,9 @@ export function resolveDriverAcceptanceAt(input: {
 
 /** Last fully completed manifest step (0–4). Matches driver control / Manifest Pulse. */
 export function getManifestCurrentStepIndex(
-  trip: Pick<TripRow, "status" | "completed_at" | "started_at" | "updated_at">,
+  trip: Pick<TripRow, "status" | "completed_at" | "started_at"> & {
+    updated_at?: TripRow["updated_at"] | null;
+  },
   evidence?: {
     assignmentAuditRows?: TripAssignmentAuditRow[];
     locationPings?: ManifestLocationPing[];

@@ -44,8 +44,8 @@ const BODY = "#616161";
 const INK = "#212121";
 const PAD = 14;
 const DOT = 9;
-const RAIL = 16;
-const ROW = 36;
+const _RAIL = 16;
+const _ROW = 36;
 const BTN_H = 40;
 const PARTY_FACE = 36;
 
@@ -305,7 +305,7 @@ function buildTripSteps(args: {
     status,
     completed,
     createdAtIso,
-    pickupDateIso,
+    pickupDateIso: _pickupDateIso,
     startedAtIso,
     completedAtIso,
   } = args;

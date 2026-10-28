@@ -2,7 +2,6 @@
  * Upgrade picker — higher plans only, with expected reach and new expiry.
  */
 import Theme from "@/constants/Theme";
-import type { ReachPlanRow } from "@/features/reach/services/campaigns.service";
 import { formatINR, formatLedgerDateTime } from "@/lib/format";
 import { useReachPlansQuery, useUpgradeReachCampaignMutation } from "@/lib/queries/useReachCampaignsQuery";
 import { useReachWalletQuery } from "@/lib/queries/useReachWalletQuery";

@@ -96,7 +96,7 @@ export function TripsHubIndentStageCard({
       routeViaLabel={extraStopChipLabel(extraStopCount)}
       routeViaDetail={extraStopNames?.length ? extraStopNames.join(", ") : null}
       pickupIso={indent.pickup_date ?? indent.created_at}
-      onPress={onPress}
+      onPress={() => onPress?.()}
       tr={tr}
       originTags={originTags}
       hidePartyRow

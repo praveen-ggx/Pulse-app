@@ -107,7 +107,7 @@ import { AggregateTrackingMobileStep } from "./AggregateTrackingMobileStep";
 import { DriverPhoneRecommendations } from "./DriverPhoneRecommendations";
 import { lookupDriversByPhoneVariants, enrichDriverMatchesWithFleetAvatars } from "@/features/trips/utils/driverPhoneLookup.util";
 import { LocationSearchField } from "./LocationSearchField";
-import { coordsOrUnset } from "@/lib/placeSearch.util";
+import { coordsOrUnset } from "@/lib/maps/placeSearch.util";
 import { TripClientPickerSection } from "./TripClientPickerSection";
 import { TripCommodityFields } from "./TripCommodityFields";
 import type { AddTripFormState, AddTripSourceIndent } from "./types";

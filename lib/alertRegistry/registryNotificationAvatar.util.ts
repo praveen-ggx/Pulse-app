@@ -9,7 +9,6 @@ import type { GlobalOperationAlert } from "@/lib/globalSync/priorityEngine.util"
 import type { ActiveTripSummary } from "@/lib/globalSync/types";
 import {
   driverAvatarSeedFromId,
-  type PartyEntityType,
 } from "@/lib/partyAvatarDisplay";
 import type { CurrentOrganization } from "@/types/organization";
 

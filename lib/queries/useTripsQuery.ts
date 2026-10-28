@@ -7,11 +7,20 @@ import {
   getTripsByOrganization,
   getTripsForOrg,
   getTripPartyCountsForOrg,
+  getOrgTripCounts,
+  getOrgHubMetrics,
+  getOrgHubCountSource,
   getShipperDisplayNamesForSupplierTrips,
   updateTripStatus,
   type TripRow,
   type TripPartyCounts,
+  type OrgTripCounts,
 } from '@/features/trips/services/trips.service';
+import type { OrgHubCountSource } from '@/features/trips/utils/hubExactCounts.util';
+import {
+  hubMetricsForExactRail,
+  type OrgHubMetrics,
+} from '@/features/trips/utils/orgHubMetrics.util';
 import { queryKeys } from '@/lib/queryKeys';
 import { STALE } from '@/lib/queryClient';
 import { refetchOnMountIfEntityListEmpty } from '@/lib/queries/entityListQueryOptions';
@@ -56,6 +65,54 @@ export function useComplianceTripCatalogQuery(orgId: string | null) {
     enabled: !!orgId && status !== 'restoring' && bootQuietOpen,
     staleTime: STALE.realtime,
     refetchOnMount: refetchOnMountIfEntityListEmpty<TripRow[]>(),
+  });
+}
+
+/** Exact owned-trip totals for profile / hub tiles — not the newest-400 catalog. */
+export function useOrgTripCountsQuery(orgId: string | null) {
+  const { status } = useAuth();
+  const bootQuietOpen = useAppQueryGate(orgId);
+  return useQuery<OrgTripCounts, Error>({
+    queryKey: queryKeys.trips.orgCounts(orgId ?? ''),
+    queryFn: async () => {
+      const res = await getOrgTripCounts(orgId!);
+      if (res.error) throw res.error;
+      return res.counts;
+    },
+    enabled: !!orgId && status !== 'restoring' && bootQuietOpen,
+    staleTime: STALE.moderate,
+  });
+}
+
+/** Exact hub rail / Failed / profile counts — never a paginated catalog. */
+export function useOrgHubMetricsQuery(orgId: string | null) {
+  const { status } = useAuth();
+  const bootQuietOpen = useAppQueryGate(orgId);
+  return useQuery<OrgHubMetrics | null, Error>({
+    queryKey: queryKeys.trips.hubCounts(orgId ?? ''),
+    queryFn: async () => {
+      const res = await getOrgHubMetrics(orgId!);
+      if (res.error) throw res.error;
+      return hubMetricsForExactRail(res);
+    },
+    enabled: !!orgId && status !== 'restoring' && bootQuietOpen,
+    staleTime: STALE.moderate,
+  });
+}
+
+/** Every owned trip/indent fact for hub rail counts — not the newest-400 catalog. */
+export function useOrgHubCountSourceQuery(orgId: string | null) {
+  const { status } = useAuth();
+  const bootQuietOpen = useAppQueryGate(orgId);
+  return useQuery<OrgHubCountSource, Error>({
+    queryKey: queryKeys.trips.hubCountSource(orgId ?? ''),
+    queryFn: async () => {
+      const res = await getOrgHubCountSource(orgId!);
+      if (res.error) throw res.error;
+      return res.source;
+    },
+    enabled: !!orgId && status !== 'restoring' && bootQuietOpen,
+    staleTime: STALE.moderate,
   });
 }
 

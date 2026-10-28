@@ -37,7 +37,7 @@ export function PoolBidCommitSheet({
   onClose,
   onSubmit,
   amount,
-  poolSize,
+  poolSize: _poolSize,
   fleetVehicleCount,
   routeLabel,
   submitting = false,

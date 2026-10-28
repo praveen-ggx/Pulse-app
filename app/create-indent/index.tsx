@@ -125,7 +125,7 @@ import {
     VALIDATION,
 } from "@/lib/validation";
 import { getOptimalRoute } from "@/lib/routingService";
-import { coordsOrUnset } from "@/lib/placeSearch.util";
+import { coordsOrUnset } from "@/lib/maps/placeSearch.util";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import FontAwesome from "@expo/vector-icons/FontAwesome";

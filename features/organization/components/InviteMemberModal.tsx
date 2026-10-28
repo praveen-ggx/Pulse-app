@@ -14,11 +14,17 @@ import {
   inviteTeamMemberByContact,
 } from "@/features/organization/services/members.service";
 import {
+  lookupUserByEmail,
   precheckTeamInviteContact,
-  precheckToProfile,
   type TeamInvitePrecheckResult,
 } from "@/features/organization/services/teamInvitePrecheck.service";
 import { platformRoleLabel } from "@/features/organization/utils/teamInviteRoles.util";
+import { teamInviteWorkspaceBlock } from "@/features/organization/utils/teamInviteWorkspaceBlock.util";
+import {
+  resolveTeamInviteContactMatch,
+  suppliedPhoneNotSavedMessage,
+} from "@/features/organization/utils/resolveTeamInviteContactMatch.util";
+import { showAppAlert } from "@/lib/appAlert";
 import { MemberAccessEditor } from "@/features/organization/components/MemberPermissionsPanel/MemberAccessEditor";
 import {
   accessSnapshotFromRole,
@@ -199,6 +205,7 @@ export function InviteMemberFlow({
   const [searchError, setSearchError] = useState<string | null>(null);
   const [foundProfile, setFoundProfile] = useState<UserProfileForInvite | null>(null);
   const [isNewEmployee, setIsNewEmployee] = useState(false);
+  const [suppliedPhoneNotSaved, setSuppliedPhoneNotSaved] = useState(false);
   const orgCaps = useOrgCapabilities();
   const { isOwner } = useOrgRole();
   // Same draft + editor as Edit member, so invite and edit store identical access.
@@ -238,6 +245,7 @@ export function InviteMemberFlow({
   }, [phone, employeeEmail, orgId, step]);
 
   const canonicalPhone = normalizeIndianPhoneForMetadata(phone);
+  const liveBlock = teamInviteWorkspaceBlock(liveCheck);
 
   const handleContinue = async () => {
     const trimmedName = employeeName.trim();
@@ -255,14 +263,22 @@ export function InviteMemberFlow({
     setIsNewEmployee(false);
     setPrecheck(null);
 
-    const [{ error, profile }, pre] = await Promise.all([
+    const emailValue = employeeEmail.trim() || null;
+    const [{ error, profile }, emailLookup, pre] = await Promise.all([
       lookupUserByPhone(canonicalPhone),
-      precheckTeamInviteContact(orgId, canonicalPhone, employeeEmail.trim() || null),
+      emailValue
+        ? lookupUserByEmail(emailValue)
+        : Promise.resolve({ error: null, profile: null }),
+      precheckTeamInviteContact(orgId, canonicalPhone, emailValue),
     ]);
     setSearching(false);
 
     if (error) {
       setSearchError(error.message);
+      return;
+    }
+    if (emailLookup.error) {
+      setSearchError(emailLookup.error.message);
       return;
     }
     if (pre.error) {
@@ -273,37 +289,35 @@ export function InviteMemberFlow({
     const check = pre.result;
     setPrecheck(check);
 
-    if (check?.recommendedAction === "already_member") {
-      setSearchError("This person is already an active member of your team.");
-      return;
-    }
-    if (check?.recommendedAction === "already_invited") {
-      setSearchError("An invitation has already been sent to this person.");
-      return;
-    }
-    if (check?.recommendedAction === "belongs_to_other_org") {
-      setSearchError(
-        check.message ??
-          "This person already belongs to another organization on Pulse and cannot be added here.",
-      );
+    const match = resolveTeamInviteContactMatch({
+      suppliedPhone: canonicalPhone,
+      suppliedEmail: emailValue,
+      profileByPhone: profile,
+      profileByEmail: emailLookup.profile,
+      precheck: check,
+    });
+
+    if (match.kind === "blocked") {
+      setSearchError(match.message);
+      showAppAlert(match.title, match.message);
       return;
     }
 
-    const profileFromPrecheck = check ? precheckToProfile(check) : null;
-    if (profile) {
-      setFoundProfile(profile);
-      setIsNewEmployee(false);
-    } else if (profileFromPrecheck) {
-      setFoundProfile(profileFromPrecheck);
-      setIsNewEmployee(false);
-    } else if (check?.recommendedAction === "email_registered") {
-      setSearchError(
-        check.message ??
-          "This email already has a Pulse account. Remove the email or ask them to sign in — do not use Awaiting Signup.",
-      );
+    const block = teamInviteWorkspaceBlock(check);
+    if (block) {
+      setSearchError(block.message);
+      showAppAlert(block.title, block.message);
       return;
+    }
+
+    if (match.kind === "invite_existing") {
+      setFoundProfile(match.profile);
+      setIsNewEmployee(false);
+      setSuppliedPhoneNotSaved(match.suppliedPhoneNotSaved);
     } else {
+      setFoundProfile(null);
       setIsNewEmployee(true);
+      setSuppliedPhoneNotSaved(false);
     }
     // Start from the TripOps preset under the org's current operating model.
     resetAccess(accessSnapshotFromRole("tripops", orgCaps));
@@ -315,6 +329,14 @@ export function InviteMemberFlow({
     if (!trimmedName || !canonicalPhone) return;
     setSubmitting(true);
     setSubmitError(null);
+
+    const preSubmitBlock = teamInviteWorkspaceBlock(precheck);
+    if (preSubmitBlock) {
+      setSubmitting(false);
+      setSubmitError(preSubmitBlock.message);
+      showAppAlert(preSubmitBlock.title, preSubmitBlock.message);
+      return;
+    }
 
     const result = await inviteTeamMemberByContact(orgId, {
       phone: canonicalPhone,
@@ -332,18 +354,26 @@ export function InviteMemberFlow({
     setSubmitting(false);
 
     if (result.alreadyMember) {
-      setSubmitError("This person is already an active member of your team.");
+      const message = "This person is already an active member of this workspace. They cannot be added again.";
+      setSubmitError(message);
+      showAppAlert("Already on this workspace", message);
       return;
     }
     if (result.alreadyInvited) {
-      setSubmitError("An invitation has already been sent to this person.");
+      const message = "This phone already has a pending invitation to this workspace.";
+      setSubmitError(message);
+      showAppAlert("Invite already sent", message);
       return;
     }
-    if (result.precheckAction === "belongs_to_other_org") {
-      setSubmitError(
+    if (
+      result.precheckAction === "belongs_to_other_org" ||
+      result.precheckAction === "email_registered"
+    ) {
+      const message =
         result.error?.message ??
-          "This person already belongs to another organization on Pulse and cannot be added here.",
-      );
+        "This phone number already belongs to someone on Pulse and cannot be added to this workspace.";
+      setSubmitError(message);
+      showAppAlert("Cannot add to this workspace", message);
       return;
     }
     if (result.precheckAction === "invite_existing_user" && result.kind === "member") {
@@ -356,7 +386,11 @@ export function InviteMemberFlow({
     }
     if (result.error) {
       setSubmitError(result.error.message);
+      showAppAlert("Cannot add to this workspace", result.error.message);
       return;
+    }
+    if (result.suppliedPhoneNotSaved) {
+      setSuppliedPhoneNotSaved(true);
     }
     if (result.kind) {
       setSuccessKind(result.kind);
@@ -375,6 +409,7 @@ export function InviteMemberFlow({
       setStep("phone");
       setFoundProfile(null);
       setIsNewEmployee(false);
+      setSuppliedPhoneNotSaved(false);
       setSubmitError(null);
     } else {
       onClose();
@@ -403,6 +438,7 @@ export function InviteMemberFlow({
             {successKind === "pending"
               ? ". They will join when they sign up with this phone (new account only)."
               : ". They sign in with their existing Pulse account to accept."}
+            {suppliedPhoneNotSaved ? ` ${suppliedPhoneNotSavedMessage()}` : ""}
           </Text>
           {successKind === "pending" && canonicalPhone && (
             <>
@@ -496,34 +532,10 @@ export function InviteMemberFlow({
             </View>
           ) : null}
 
-          {!liveChecking && liveCheck?.recommendedAction === "already_member" ? (
-            <View style={ui.conflictBannerInfo}>
-              <Text style={ui.conflictBody}>
-                {liveCheck.userName || "This person"} is already an active member of
-                your team.
-              </Text>
-            </View>
-          ) : null}
-
-          {!liveChecking && liveCheck?.recommendedAction === "already_invited" ? (
-            <View style={ui.conflictBannerInfo}>
-              <Text style={ui.conflictBody}>
-                An invitation has already been sent to{" "}
-                {liveCheck.userName || "this number"}.
-              </Text>
-            </View>
-          ) : null}
-
-          {!liveChecking && liveCheck?.recommendedAction === "belongs_to_other_org" ? (
+          {!liveChecking && liveBlock ? (
             <View style={ui.conflictBanner}>
-              <Text style={ui.conflictTitle}>Already on Pulse</Text>
-              <Text style={ui.conflictBody}>
-                {liveCheck.userName || "This person"} already belongs to{" "}
-                {liveCheck.otherOrgs.length > 1
-                  ? `${liveCheck.otherOrgs.length} other workspaces`
-                  : "another workspace"}{" "}
-                on Pulse and cannot be added here.
-              </Text>
+              <Text style={ui.conflictTitle}>{liveBlock.title}</Text>
+              <Text style={ui.conflictBody}>{liveBlock.message}</Text>
             </View>
           ) : null}
 
@@ -550,10 +562,11 @@ export function InviteMemberFlow({
 
           <Pressable
             onPress={handleContinue}
-            disabled={searching}
+            disabled={searching || !!liveBlock}
             style={({ pressed }) => [
               ui.primaryBtn,
               embedded && ui.primaryBtnEmbedded,
+              (searching || liveBlock) && { opacity: 0.45 },
               pressed && { opacity: 0.85 },
             ]}
           >
@@ -600,6 +613,11 @@ export function InviteMemberFlow({
                 Invitation will be sent to their existing Pulse account. They sign in to
                 accept — not through new business signup.
               </Text>
+              {suppliedPhoneNotSaved ? (
+                <Text style={[ui.conflictBody, { marginTop: 8 }]}>
+                  {suppliedPhoneNotSavedMessage()}
+                </Text>
+              ) : null}
             </View>
           ) : null}
 
@@ -634,11 +652,12 @@ export function InviteMemberFlow({
 
           <Pressable
             onPress={handleInvite}
-            disabled={submitting}
+            disabled={submitting || !!teamInviteWorkspaceBlock(precheck)}
             style={({ pressed }) => [
               ui.primaryBtn,
               embedded && ui.primaryBtnEmbedded,
               { marginTop: 4 },
+              (submitting || teamInviteWorkspaceBlock(precheck)) && { opacity: 0.45 },
               pressed && { opacity: 0.85 },
             ]}
           >

@@ -16,6 +16,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
+import { PulseImage } from '@/components/PulseImage';
 import Theme from '@/constants/Theme';
 import { useFailedImageUriGuard } from '@/hooks/useFailedImageUriGuard';
 import {
@@ -143,6 +144,23 @@ export function Avatar({
   ];
 
   if (!imgError && !guardFailed && imageSource) {
+    if (Platform.OS === 'web') {
+      return (
+        <View style={containerStyle}>
+          <PulseImage
+            source={imageSource}
+            contentFit={resizeMode}
+            recyclingKey={guardUri ?? undefined}
+            style={[styles.img, { borderRadius: br }]}
+            onError={() => {
+              onGuardError();
+              setImgError(true);
+            }}
+            accessibilityIgnoresInvertColors
+          />
+        </View>
+      );
+    }
     return (
       <View style={containerStyle}>
         <Animated.Image
@@ -150,7 +168,6 @@ export function Avatar({
           style={[
             styles.img,
             { borderRadius: br, opacity },
-            Platform.OS === 'web' ? { objectFit: resizeMode } : null,
           ]}
           resizeMode={resizeMode}
           onLoad={onLoad}

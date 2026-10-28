@@ -10,7 +10,7 @@ import Theme from "@/constants/Theme";
 import { resolveWizardContactPhone } from "@/features/clients/utils/clientContactDisplay.util";
 import type { SupplierRow } from "@/features/suppliers/services/suppliers.service";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { CheckCircle2, PlusCircle } from "lucide-react-native";
+import { CheckCircle2 } from "lucide-react-native";
 import { useMemo } from "react";
 import {
   ActivityIndicator,
@@ -34,7 +34,7 @@ export type TripPartnerPickerSectionProps = {
   setPartnerListExpanded: React.Dispatch<React.SetStateAction<boolean>>;
   onSelectPartner: (supplier: SupplierRow) => void;
   onClearPartner?: () => void;
-  onAddPartner: () => void;
+  onAddPartner?: () => void;
   hasError?: boolean;
   wizardMode?: boolean;
   fieldLabelStyle?: StyleProp<TextStyle>;
@@ -164,15 +164,17 @@ export function TripPartnerPickerSection({
                 onSelectPartner(row);
                 setPartnerListExpanded(false);
               }}
-              emptyMessage="No partners yet. Add suppliers from your network first."
+              emptyMessage="No partners yet. Add the party from Suppliers first."
               listMaxHeight={listMaxHeight}
               columns={1}
               variant="partyCard"
               showListShell
             />
-            <Pressable style={styles.addPartnerBtn} onPress={onAddPartner}>
-              <Text style={styles.addPartnerBtnText}>+ Add partner</Text>
-            </Pressable>
+            {onAddPartner ? (
+              <Pressable style={styles.addPartnerBtn} onPress={onAddPartner}>
+                <Text style={styles.addPartnerBtnText}>+ Add partner</Text>
+              </Pressable>
+            ) : null}
           </>
         ) : null}
         {hasError ? (
@@ -213,14 +215,6 @@ export function TripPartnerPickerSection({
               />
             </TouchableOpacity>
           ) : null}
-          <TouchableOpacity
-            style={[styles.addPartnerBtn, webPointer]}
-            onPress={onAddPartner}
-            activeOpacity={0.85}
-          >
-            <PlusCircle size={14} color={Theme.iconPrimary} />
-            <Text style={styles.addPartnerBtnText}>Add partner</Text>
-          </TouchableOpacity>
         </View>
       </View>
 
@@ -228,7 +222,7 @@ export function TripPartnerPickerSection({
         <ActivityIndicator color={Theme.iconPrimary} />
       ) : suppliers.length === 0 ? (
         <Text style={styles.mutedSmall}>
-          No partners yet. Add suppliers from your network first.
+          No partners yet. Add the party from Suppliers first.
         </Text>
       ) : showPartnerSummary && selectedSupplier ? (
         <TouchableOpacity

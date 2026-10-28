@@ -10716,7 +10716,6 @@ export type Database = {
           owner_full_name?: string | null
           pan_number?: string | null
           phone?: string | null
-          primary_region?: string | null
           secondary_phone?: string | null
           status_changed_at?: string | null
           status_changed_by?: string | null
@@ -10760,7 +10759,6 @@ export type Database = {
           owner_full_name?: string | null
           pan_number?: string | null
           phone?: string | null
-          primary_region?: string | null
           secondary_phone?: string | null
           status_changed_at?: string | null
           status_changed_by?: string | null
@@ -16163,6 +16161,7 @@ export type Database = {
         }
         Returns: Json
       }
+      count_org_hub_metrics: { Args: { p_org_id: string }; Returns: Json }
       claim_pending_team_invites: {
         Args: { p_phone: string; p_user_id: string }
         Returns: number
@@ -18873,7 +18872,12 @@ export type Database = {
         Returns: Json
       }
       get_trips_for_org: {
-        Args: { p_include_compliance_backlog?: boolean; p_org_id: string }
+        Args: {
+          p_org_id: string
+          p_include_compliance_backlog?: boolean
+          p_from?: string
+          p_to?: string
+        }
         Returns: Json[]
       }
       get_trips_for_pod_org: { Args: { p_org_id: string }; Returns: Json[] }

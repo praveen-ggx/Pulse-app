@@ -1329,6 +1329,21 @@ export const neoStyles = StyleSheet.create({
   timelineLocationCoordsMobile: {
     fontSize: 10,
   },
+  timelineHistory: {
+    marginTop: 6,
+    gap: 2,
+  },
+  timelineHistoryLine: {
+    color: Theme.textMutedDemo,
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "500",
+    fontVariant: ["tabular-nums"],
+  },
+  timelineHistoryLineMobile: {
+    fontSize: 8,
+    lineHeight: 11,
+  },
   manifestPulseSubtitlePending: {
     color: Theme.textSection,
   },
@@ -1899,7 +1914,7 @@ export const neoStyles = StyleSheet.create({
   },
   financeSummaryTwoPaneDesktop: {
     gap: 22,
-    alignItems: "stretch",
+    alignItems: "flex-start",
   },
   financeSummaryPaneLeft: {
     flex: 1.28,
@@ -1917,7 +1932,7 @@ export const neoStyles = StyleSheet.create({
     flex: 0.72,
     minWidth: 300,
     maxWidth: 380,
-    alignSelf: "stretch",
+    alignSelf: "flex-start",
   },
   financeLedgerPreviewCard: {
     width: "100%",
@@ -1934,7 +1949,8 @@ export const neoStyles = StyleSheet.create({
     elevation: 2,
   },
   financeLedgerPreviewCardDesktop: {
-    flex: 1,
+    flexGrow: 0,
+    flexShrink: 0,
     borderRadius: 16,
     paddingHorizontal: 18,
     paddingVertical: 16,
@@ -1954,7 +1970,7 @@ export const neoStyles = StyleSheet.create({
     maxWidth: "100%",
     flexGrow: 0,
     flexShrink: 0,
-    alignSelf: "stretch",
+    alignSelf: "flex-start",
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: 14,
@@ -2023,7 +2039,7 @@ export const neoStyles = StyleSheet.create({
     maxHeight: 420,
   },
   financeLedgerPreviewScrollDesktop: {
-    maxHeight: 100000,
+    maxHeight: 280,
   },
   financeLedgerPreviewScrollContent: {
     gap: 8,
@@ -3611,7 +3627,7 @@ export const neoStyles = StyleSheet.create({
     elevation: 0,
   },
   feedbackSideCard: {
-    paddingTop: 28,
+    paddingTop: 18,
   },
   sideSection: {
     gap: 18,

@@ -417,7 +417,7 @@ export async function fetchTripPodClientValidation(
       draftedAt: draft.get(tripId)?.createdAt ?? null,
       noDebit:
         parsed?.noDebit === true ||
-        (Boolean(parsed) && !podDebitIdentified(parsed.clientCharges, parsed.vendorCharges)),
+        (parsed != null && !podDebitIdentified(parsed.clientCharges, parsed.vendorCharges)),
       clientCharges: parsed?.clientCharges ?? null,
       vendorCharges: parsed?.vendorCharges
         ? { ...parsed.vendorCharges, documentCost }

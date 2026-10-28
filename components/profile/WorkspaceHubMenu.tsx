@@ -419,7 +419,7 @@ export function WorkspaceHubMenu({
   }, [capabilities, canSurface]);
 
   const navigate = (path: string) => {
-    router.replace(path as Parameters<typeof router.replace>[0]);
+    router.push(path as Parameters<typeof router.push>[0]);
   };
 
   const renderHubSection = (

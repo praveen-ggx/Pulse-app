@@ -466,7 +466,7 @@ export function LogHardCopyPodModal({
     selectedLrRows.length,
     tripScoped,
   ]);
-  const canSubmitHardCopy = canManage && logReady && podUploaded && !saving;
+  const _canSubmitHardCopy = canManage && logReady && podUploaded && !saving;
 
   const requestSaveCreate = useCallback(() => {
     if (!canManage || saving) return;

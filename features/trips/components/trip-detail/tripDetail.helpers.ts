@@ -21,6 +21,7 @@ export type TripSupplierNameLedgerEntry = {
 function isUsableSupplierDisplayName(
   value: string | null | undefined,
   clientName?: string | null,
+  viewerOrganizationName?: string | null,
 ): value is string {
   const v = (value ?? "").trim();
   if (!v || v === "—" || v === "-") return false;
@@ -38,6 +39,8 @@ function isUsableSupplierDisplayName(
   }
   const clientLc = (clientName ?? "").trim().toLowerCase();
   if (clientLc && lc === clientLc) return false;
+  const viewerLc = (viewerOrganizationName ?? "").trim().toLowerCase();
+  if (viewerLc && lc === viewerLc) return false;
   return true;
 }
 
@@ -54,22 +57,25 @@ export function resolveTripSupplierDisplayName(opts: {
   /** Linked org profile name (e.g. from get_connection_partner_display). */
   linkedOrganizationName?: string | null;
   clientName?: string | null;
+  /** When the viewer is the awarded carrier, reject their own org name. */
+  viewerOrganizationName?: string | null;
   ledgerEntries?: TripSupplierNameLedgerEntry[] | null;
 }): string | null {
   const clientName = opts.clientName ?? null;
+  const viewerOrganizationName = opts.viewerOrganizationName ?? null;
   for (const candidate of [
     opts.partnerName,
     opts.supplierPartyName,
     opts.tripSupplierName,
     opts.linkedOrganizationName,
   ]) {
-    if (isUsableSupplierDisplayName(candidate, clientName)) {
+    if (isUsableSupplierDisplayName(candidate, clientName, viewerOrganizationName)) {
       return candidate.trim();
     }
   }
   for (const tx of opts.ledgerEntries ?? []) {
     if (tx.contact_type !== "supplier") continue;
-    if (isUsableSupplierDisplayName(tx.party_name, clientName)) {
+    if (isUsableSupplierDisplayName(tx.party_name, clientName, viewerOrganizationName)) {
       return String(tx.party_name).trim();
     }
   }

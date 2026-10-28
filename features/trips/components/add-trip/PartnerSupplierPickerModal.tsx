@@ -120,7 +120,7 @@ export function PartnerSupplierPickerModal({
   const emptyMessage = (() => {
     if (loading && suppliers.length === 0) return "";
     if (suppliers.length === 0) {
-      return "No partners yet. Add suppliers from your network first.";
+      return "No partners yet. Add the party from Suppliers first.";
     }
     if (filtered.length === 0) {
       return "No partners match your search.";

@@ -40,7 +40,7 @@ import { getOrgVerificationBannerFields } from "@/features/organization/services
 import { orgHubStatusCopy } from "@/features/organization/components/workspace/org/organizationHub.util";
 import { useClientsQuery } from "@/lib/queries/useClientsQuery";
 import { useDriversQuery } from "@/lib/queries/useDriversQuery";
-import { useTripsQuery } from "@/lib/queries/useTripsQuery";
+import { useOrgHubMetricsQuery } from "@/lib/queries/useTripsQuery";
 import { queryKeys } from "@/lib/queryKeys";
 import { ROUTES } from "@/lib/routes";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
@@ -51,6 +51,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import {
     BarChart3,
+    Camera,
     ChevronLeft,
     ChevronRight,
     Crown,
@@ -77,11 +78,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 const SLATE_900 = "#0f172a";
 const AMBER_400 = "#fbbf24";
 const AMBER_500 = "#f59e0b";
-
-function isTripDone(status: string) {
-  const s = (status || "").toLowerCase();
-  return s === "completed" || s === "delivered" || s === "done";
-}
 
 type ProfileViewMode = "main" | "roadmap";
 
@@ -405,7 +401,7 @@ export default function ProfileScreen({
   const { role, canEdit } = useOrgRole();
   const { can: canSurface } = useMemberAccess();
 
-  const { data: trips = [], isLoading: tripsLoading } = useTripsQuery(orgId);
+  const { data: hubMetrics, isLoading: tripsLoading } = useOrgHubMetricsQuery(orgId);
   const { data: drivers = [] } = useDriversQuery(orgId);
   const { data: clients = [] } = useClientsQuery(orgId);
 
@@ -452,10 +448,8 @@ export default function ProfileScreen({
     refetchOnMount: false,
   });
 
-  const completedTrips = useMemo(
-    () => (trips ?? []).filter((t) => isTripDone(t.status ?? "")).length,
-    [trips],
-  );
+  const completedTrips = hubMetrics?.tripsCompleted ?? 0;
+  const totalTrips = (hubMetrics?.tripsActive ?? 0) + (hubMetrics?.tripsCompleted ?? 0);
 
   const { data: verificationStatus } = useQuery({
     queryKey: queryKeys.workspace.verificationBanner(orgId ?? ""),
@@ -836,34 +830,70 @@ export default function ProfileScreen({
               >
                 <View style={[styles.avatarGlow, embedded && styles.avatarGlowEmbedded]} />
 
-                {/* Org DP — always org-centric */}
                 <View style={[styles.heroDpWrap, embedded && styles.heroDpWrapEmbedded]}>
                   <Pressable
-                    style={({ pressed }) => [styles.orgDpTouch, pressed && { opacity: 0.86 }]}
+                    style={({ pressed }) => [
+                      styles.orgDpTouch,
+                      pressed && styles.orgDpTouchPressed,
+                    ]}
                     onPress={() => void handleUploadOrgLogo()}
+                    disabled={orgLogoUploading}
                     accessibilityRole="button"
-                    accessibilityLabel="Change organisation logo"
+                    accessibilityLabel={
+                      canEdit ? "Change organisation logo" : "Organisation logo"
+                    }
+                    hitSlop={Layout.touchTargetHitSlop}
                   >
-                    {orgLogoUri ? (
-                      <Image
-                        source={{ uri: orgLogoUri }}
-                        style={[styles.orgDpImage, embedded && styles.orgDpImageEmbedded]}
-                      />
-                    ) : (
-                      <View style={[styles.orgDpPlaceholder, embedded && styles.orgDpImageEmbedded]}>
-                        <Text style={[styles.orgDpInitialsText, embedded && styles.orgDpInitialsEmbedded]}>
-                          {orgInitials(currentOrganization?.name || "Org")}
-                        </Text>
-                      </View>
-                    )}
-                    <View style={styles.orgDpCameraBadge}>
-                      {orgLogoUploading ? (
-                        <LoadingIndicator size="small" color={Theme.primary} />
+                    <View style={[styles.orgDpRing, embedded && styles.orgDpRingEmbedded]}>
+                      {orgLogoUri ? (
+                        <Image
+                          source={{ uri: orgLogoUri }}
+                          style={[styles.orgDpImage, embedded && styles.orgDpImageEmbedded]}
+                          resizeMode="cover"
+                        />
                       ) : (
-                        <FontAwesome name="camera" size={12} color={Theme.primary} />
+                        <View
+                          style={[
+                            styles.orgDpPlaceholder,
+                            embedded && styles.orgDpImageEmbedded,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.orgDpInitialsText,
+                              embedded && styles.orgDpInitialsEmbedded,
+                            ]}
+                          >
+                            {orgInitials(currentOrganization?.name || "Org")}
+                          </Text>
+                        </View>
                       )}
                     </View>
+                    {canEdit ? (
+                      <View
+                        style={[
+                          styles.orgDpCameraBadge,
+                          embedded && styles.orgDpCameraBadgeEmbedded,
+                        ]}
+                        pointerEvents="none"
+                      >
+                        {orgLogoUploading ? (
+                          <LoadingIndicator size="small" color={Theme.accentBrownDeep} />
+                        ) : (
+                          <Camera
+                            size={embedded ? 13 : 15}
+                            color={Theme.accentBrownDeep}
+                            strokeWidth={2.2}
+                          />
+                        )}
+                      </View>
+                    ) : null}
                   </Pressable>
+                  {canEdit ? (
+                    <Text style={styles.orgDpHint}>
+                      {orgLogoUploading ? "Updating…" : "Tap to update logo"}
+                    </Text>
+                  ) : null}
                 </View>
 
                 <Text
@@ -947,19 +977,23 @@ export default function ProfileScreen({
 
               <View style={[styles.statsGrid, embedded && styles.statsGridEmbedded]}>
                 <View style={[styles.statTile, embedded && styles.statTileEmbedded]}>
-                  <Truck size={16} color={Theme.primary} strokeWidth={2} />
+                  <View style={styles.statIconWell}>
+                    <Truck size={15} color={Theme.accentBrownDeep} strokeWidth={2.2} />
+                  </View>
                   <Text style={styles.statTileNum} numberOfLines={1}>
-                    {tripsLoading ? "—" : completedTrips}
+                    {tripsLoading ? "—" : totalTrips}
                   </Text>
                   <Text style={styles.statTileLbl}>Trips</Text>
                 </View>
                 <View style={[styles.statTile, embedded && styles.statTileEmbedded]}>
-                  <Star
-                    size={16}
-                    color={AMBER_500}
-                    fill={showStatMiddleStars ? AMBER_500 : "transparent"}
-                    strokeWidth={2}
-                  />
+                  <View style={[styles.statIconWell, styles.statIconWellGold]}>
+                    <Star
+                      size={15}
+                      color={AMBER_500}
+                      fill={showStatMiddleStars ? AMBER_500 : "transparent"}
+                      strokeWidth={2}
+                    />
+                  </View>
                   <Text style={styles.statTileNum} numberOfLines={1}>
                     {statMiddleLoading
                       ? "…"
@@ -970,7 +1004,9 @@ export default function ProfileScreen({
                   <Text style={styles.statTileLbl}>{statMiddleLabel}</Text>
                 </View>
                 <View style={[styles.statTile, embedded && styles.statTileEmbedded]}>
-                  <Users size={16} color={Theme.primary} strokeWidth={2} />
+                  <View style={styles.statIconWell}>
+                    <Users size={15} color={Theme.accentBrownDeep} strokeWidth={2.2} />
+                  </View>
                   <Text style={styles.statTileNum} numberOfLines={1}>{drivers.length}</Text>
                   <Text style={styles.statTileLbl}>Drivers</Text>
                 </View>
@@ -1340,17 +1376,17 @@ const styles = StyleSheet.create({
   },
   avatarGlow: {
     position: "absolute",
-    top: 8,
-    width: 132,
-    height: 132,
-    borderRadius: 66,
-    backgroundColor: Theme.accentBrownMuted,
+    top: 4,
+    width: 168,
+    height: 168,
+    borderRadius: 84,
+    backgroundColor: Theme.accentGoldMuted,
   },
   avatarGlowEmbedded: {
-    width: 104,
-    height: 104,
-    borderRadius: 52,
-    top: 4,
+    width: 128,
+    height: 128,
+    borderRadius: 64,
+    top: 0,
   },
   heroAvatarGroup: {
     flexDirection: "row",
@@ -1477,12 +1513,13 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   nameText: {
-    fontSize: 25,
+    fontSize: 24,
     fontWeight: "800",
     color: Theme.textOnDark,
-    marginBottom: 2,
+    marginBottom: 8,
     textAlign: "center",
     paddingHorizontal: 8,
+    letterSpacing: -0.3,
   },
   nameTextEmbedded: {
     fontSize: 20,
@@ -1536,11 +1573,12 @@ const styles = StyleSheet.create({
   },
   xpCard: {
     width: "100%",
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderRadius: 18,
-    padding: 14,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.1)",
+    borderColor: Theme.borderOnDark,
   },
   xpTop: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
   xpEyebrow: { fontSize: 9, fontWeight: "900", color: "rgba(239,228,216,0.72)", letterSpacing: 2 },
@@ -1576,7 +1614,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     backgroundColor: Theme.cardWhite,
-    borderRadius: 18,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: Theme.borderInput,
     paddingVertical: 14,
@@ -1584,6 +1622,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
+  },
+  statIconWell: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Theme.accentBrownWash,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statIconWellGold: {
+    backgroundColor: Theme.accentGoldMuted,
   },
   statTileEmbedded: {
     flexGrow: 1,
@@ -2085,60 +2134,99 @@ const styles = StyleSheet.create({
   // ── Org DP (hero) ──────────────────────────────────────────────
   heroDpWrap: {
     alignItems: "center",
-    marginBottom: 10,
+    marginBottom: 12,
   },
   heroDpWrapEmbedded: {
-    marginBottom: 8,
+    marginBottom: 10,
   },
   orgDpTouch: {
     position: "relative",
+    minWidth: Layout.minTouchTargetSize,
+    minHeight: Layout.minTouchTargetSize,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  orgDpTouchPressed: {
+    opacity: 0.88,
+    transform: [{ scale: 0.98 }],
+  },
+  orgDpRing: {
+    padding: 3,
+    borderRadius: 28,
+    borderWidth: 1.5,
+    borderColor: Theme.accentGoldBorder,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    shadowColor: Theme.shadow,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.28,
+    shadowRadius: 18,
+    elevation: 8,
+  },
+  orgDpRingEmbedded: {
+    padding: 2,
+    borderRadius: 22,
   },
   orgDpImage: {
-    width: 88,
-    height: 88,
-    borderRadius: 22,
-    borderWidth: 3,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: Theme.surfaceGray,
+    width: 96,
+    height: 96,
+    borderRadius: 24,
+    backgroundColor: Theme.cardWhite,
   },
   orgDpImageEmbedded: {
-    width: 72,
-    height: 72,
+    width: 76,
+    height: 76,
     borderRadius: 18,
   },
   orgDpPlaceholder: {
-    width: 88,
-    height: 88,
-    borderRadius: 22,
+    width: 96,
+    height: 96,
+    borderRadius: 24,
     overflow: "hidden",
-    borderWidth: 3,
-    borderColor: "rgba(255,255,255,0.14)",
     backgroundColor: Theme.accentBrownDeep,
     alignItems: "center",
     justifyContent: "center",
   },
   orgDpInitialsText: {
-    fontSize: 28,
-    fontWeight: "900",
-    color: "rgba(255,255,255,0.82)",
-    letterSpacing: 3,
+    fontSize: 30,
+    fontWeight: "800",
+    color: Theme.textOnDark,
+    letterSpacing: 1.5,
   },
   orgDpInitialsEmbedded: {
     fontSize: 22,
-    letterSpacing: 2,
+    letterSpacing: 1,
   },
   orgDpCameraBadge: {
     position: "absolute",
-    right: -6,
-    bottom: -6,
-    width: 28,
-    height: 28,
-    borderRadius: 10,
+    right: -2,
+    bottom: -2,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: Theme.cardWhite,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2.5,
-    borderColor: Theme.accentBrownDeep,
+    borderWidth: 2,
+    borderColor: Theme.accentGold,
+    shadowColor: Theme.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.16,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  orgDpCameraBadgeEmbedded: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    right: -1,
+    bottom: -1,
+  },
+  orgDpHint: {
+    marginTop: 8,
+    fontSize: 11,
+    fontWeight: "600",
+    color: Theme.textOnDarkMuted,
+    letterSpacing: 0.2,
   },
 
   // ── Hero badge row ─────────────────────────────────────────────

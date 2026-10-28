@@ -58,6 +58,7 @@ module.exports = {
         '@expo/vector-icons$': '<rootDir>/__mocks__/@expo/vector-icons.ts',
         '@react-native-async-storage/async-storage':
           '<rootDir>/__mocks__/@react-native-async-storage/async-storage.js',
+        'expo-image': '<rootDir>/__mocks__/expo-image.js',
         'expo-image-manipulator': '<rootDir>/__mocks__/expo-image-manipulator.js',
         'expo-image-picker': '<rootDir>/__mocks__/expo-image-picker.js',
         // @sentry/react-native ships untranspiled ESM that Jest cannot parse, so

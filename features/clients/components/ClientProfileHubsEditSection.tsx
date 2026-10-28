@@ -8,7 +8,7 @@ import {
 import { LocationSearchField } from "@/features/trips/components/add-trip/LocationSearchField";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { formatCityStateLabel } from "@/lib/placeCityState.util";
-import { coordsOrUnset } from "@/lib/placeSearch.util";
+import { coordsOrUnset } from "@/lib/maps/placeSearch.util";
 import { formatMobileNumber } from "@/lib/format";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { MapPin } from "lucide-react-native";

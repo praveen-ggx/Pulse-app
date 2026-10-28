@@ -1565,7 +1565,7 @@ export function TripRatingsBlock({
 
         <View style={[styles.regCardFoot, isRegistrySidebar && styles.regCardFootSidebar]}>
           <View style={styles.regFootSide}>
-            <Text style={styles.regRatePrompt} numberOfLines={2}>
+            <Text style={styles.regRatePrompt} numberOfLines={1}>
               {ratePrompt}
             </Text>
           </View>
@@ -2582,8 +2582,6 @@ const styles = StyleSheet.create({
   },
   wsWrapperSidebar: {
     marginBottom: 0,
-    flex: 1,
-    minHeight: 0,
     width: "100%",
   },
   wsCard: {
@@ -2986,8 +2984,6 @@ const styles = StyleSheet.create({
     borderRadius: 0,
     borderWidth: 0,
     backgroundColor: 'transparent',
-    flex: 1,
-    minHeight: 0,
     ...Platform.select({
       web: { boxShadow: 'none' },
       default: {},
@@ -3000,8 +2996,6 @@ const styles = StyleSheet.create({
   },
   regWrapSidebar: {
     gap: 0,
-    flex: 1,
-    minHeight: 0,
     width: "100%",
   },
   regStack: {
@@ -3010,9 +3004,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   regStackSidebar: {
-    gap: 6,
-    flex: 1,
-    minHeight: 0,
+    gap: 8,
     width: "100%",
   },
   regCard: {
@@ -3035,11 +3027,8 @@ const styles = StyleSheet.create({
     }),
   },
   regCardSidebar: {
-    borderRadius: 8,
+    borderRadius: 12,
     borderColor: Theme.borderLight,
-    flex: 1,
-    minHeight: 0,
-    justifyContent: "space-between",
   },
   regCardMain: {
     paddingHorizontal: 14,
@@ -3166,6 +3155,8 @@ const styles = StyleSheet.create({
     borderTopColor: Theme.borderLight,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
     backgroundColor: Theme.surfaceGray,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -3174,31 +3165,30 @@ const styles = StyleSheet.create({
   regCardFootSidebar: {
     marginTop: 0,
     paddingTop: 0,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    minHeight: 40,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    minHeight: 44,
   },
   regFootSide: {
-    width: 76,
-    flexShrink: 0,
+    flex: 1,
+    minWidth: 0,
     justifyContent: 'center',
   },
   regFootSideEnd: {
     alignItems: 'flex-end',
   },
   regRatePrompt: {
-    fontSize: 12,
-    fontWeight: '500',
+    fontSize: 13,
+    fontWeight: '600',
     color: Theme.textSecondary,
-    lineHeight: 15,
+    lineHeight: 18,
   },
   regStarsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
     gap: 2,
-    flex: 1,
-    minWidth: 0,
+    flexShrink: 0,
   },
   regStarHit: {
     paddingVertical: 4,

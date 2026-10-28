@@ -1,12 +1,8 @@
-import { LazySuspenseInlineFallback } from '@/components/LazySuspenseFallback';
-import { lazy, Suspense } from 'react';
+import { createPreloadedTabRoute } from '@/lib/createPreloadedTabRoute';
 
-const ResourcesScreen = lazy(() => import('@/features/fleet/screens/ResourcesScreen'));
+const { TabRoute: ResourcesTab } = createPreloadedTabRoute(
+  () => import('@/features/fleet/screens/ResourcesScreen'),
+  'resources',
+);
 
-export default function ResourcesRoute() {
-  return (
-    <Suspense fallback={<LazySuspenseInlineFallback />}>
-      <ResourcesScreen />
-    </Suspense>
-  );
-}
+export default ResourcesTab;

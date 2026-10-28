@@ -28,7 +28,7 @@ type PoolIndent = {
 export function useShipperPoolIndentView<I extends PoolIndent>(input: {
   poolIndents: readonly I[];
   visibleIndents: readonly I[];
-  allocatedIndents?: readonly PoolIndent[];
+  allocatedIndents?: readonly I[];
 }) {
   const { poolIndents, visibleIndents, allocatedIndents } = input;
   const [view, setView] = useState<ShipperIndentStageView>("cards");

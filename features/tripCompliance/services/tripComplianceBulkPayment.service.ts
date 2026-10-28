@@ -2,13 +2,15 @@ import { supabase } from "@/lib/supabase";
 import { PAYMENT_MODES } from "@/lib/paymentModes";
 import { interpretLedgerRowStructured } from "@/features/finance/ledger/ledgerEntryModel";
 import type { TripRow } from "@/features/trips/services/trips.service";
-import { fetchComplianceTransactions } from "@/features/tripCompliance/services/tripComplianceRead.service";
+import {
+  fetchComplianceTransactions,
+  fetchTripDocumentsForTrips,
+} from "@/features/tripCompliance/services/tripComplianceRead.service";
 import { evaluateCompliancePaymentGuard } from "@/features/tripCompliance/utils/compliancePaymentGuard.util";
 import {
   summarizeRequiredTripDocuments,
   type RequiredTripDocumentSummary,
 } from "@/features/tripCompliance/utils/complianceReadiness.util";
-import type { ComplianceDocumentRow } from "@/features/tripCompliance/tripCompliance.types";
 import {
   postCompliancePayment,
   validateCompliancePaymentAmount,
@@ -47,22 +49,6 @@ export type ComplianceBulkValidationResult = {
 };
 
 const VALID_MODE_IDS = new Set(PAYMENT_MODES.map((m) => m.id));
-
-async function fetchBulkTripDocuments(tripIds: string[]): Promise<Map<string, ComplianceDocumentRow[]>> {
-  const byTrip = new Map<string, ComplianceDocumentRow[]>();
-  if (tripIds.length === 0) return byTrip;
-  const { data, error } = await supabase()
-    .from("trip_documents")
-    .select("id, trip_id, document_type, file_name, storage_path, uploaded_at, status, verified_by, verified_at, rejection_reason")
-    .in("trip_id", tripIds);
-  if (error) throw new Error(error.message);
-  for (const row of (data ?? []) as ComplianceDocumentRow[]) {
-    const list = byTrip.get(row.trip_id) ?? [];
-    list.push(row);
-    byTrip.set(row.trip_id, list);
-  }
-  return byTrip;
-}
 
 function bulkRequirementBlockReason(
   category: ComplianceLedgerCategory,
@@ -185,7 +171,8 @@ export async function validateComplianceBulkPayments(params: {
   }
 
   const buckets = await fetchComplianceTransactions(tripIds);
-  const documentsByTrip = await fetchBulkTripDocuments(tripIds);
+  // Same paged reader as the Compliance list, so both judge documents identically.
+  const documentsByTrip = await fetchTripDocumentsForTrips(tripIds);
   const eligible: ComplianceBulkRowValidation[] = [];
   const blocked: ComplianceBulkRowValidation[] = [];
   const alreadyPaid: ComplianceBulkRowValidation[] = [];

@@ -19,6 +19,7 @@ import {
   type SupportTicketStatus,
 } from '@/features/support/services/supportTickets.service';
 import { showAppAlert } from '@/lib/appAlert';
+import { useSafeBack } from '@/lib/useSafeBack';
 import { useSupportTicketDetailQuery } from '@/lib/queries/useSupportTicketDetailQuery';
 import { queryKeys } from '@/lib/queryKeys';
 import { ROUTES } from '@/lib/routes';
@@ -195,10 +196,7 @@ export function SupportTicketDetailScreen() {
     void openPreview(url, mime, fileName);
   };
 
-  const handleBack = () => {
-    if (router.canGoBack()) router.back();
-    else router.replace(ROUTES.SUPPORT_TICKETS as Href);
-  };
+  const handleBack = useSafeBack(ROUTES.SUPPORT_TICKETS);
 
   const handleSend = async () => {
     const body = reply.trim();

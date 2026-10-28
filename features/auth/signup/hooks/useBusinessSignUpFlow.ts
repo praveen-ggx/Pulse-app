@@ -98,7 +98,7 @@ import { useCompleteInvitationJoin } from './useCompleteInvitationJoin';
 import type { InvitePhase, SignupTrack } from '../signupInviteTypes';
 import { usePendingOnboarding } from '@/contexts/PendingOnboardingContext';
 import { reverseGeocodePlaceInIndia, resolveIndiaPincode } from '@/lib/placesService';
-import { coordsOrUnset } from '@/lib/placeSearch.util';
+import { coordsOrUnset } from '@/lib/maps/placeSearch.util';
 import { useViewportWidth } from '@/lib/hooks/useViewportWidth';
 import {
   matchIndiaLocation,

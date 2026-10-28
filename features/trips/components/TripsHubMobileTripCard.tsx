@@ -451,7 +451,8 @@ export type TripsHubMobileTripCardProps = {
   secondaryLabel?: string | null;
   /** Last ping time / offline for in-transit trips (no location line). */
   inTransitPing?: TripHubInTransitPingMeta | null;
-  softPodReceived?: boolean;
+  /** null = document flags not loaded (Soft chip hidden). */
+  softPodReceived?: boolean | null;
   hardPodReceived?: boolean;
   /** Override origin tags (e.g. NETWORK / MARKETPLACE on unallocated indents). */
   originTags?: string[];
@@ -593,7 +594,11 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
       ? originTags
       : [fromIndent ? tr("tripOriginIndent") : tr("tripOriginDirect")]
   ).map((label) => asLabel(label).toUpperCase());
-  const originTagJoined = originTagItems.join(" ");
+  const typeTag = clientSubline
+    ? asLabel(clientSubline).toUpperCase()
+    : "";
+  const originTagJoined = [typeTag, ...originTagItems].filter(Boolean).join(" ");
+  const showHeadTags = Boolean(typeTag) || originTagItems.length > 0;
   const showFooterBar = Boolean(actions);
   const refMeta = (
     <HubCardRefMeta
@@ -614,9 +619,12 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
 
   return (
     <View
+      nativeID={`hub-item-${trip.id}`}
+      collapsable={false}
       style={[
         styles.cardWrap,
         fillGrid && styles.cardWrapGrid,
+        highlighted && styles.cardWrapHighlighted,
         style,
       ]}
     >
@@ -626,7 +634,7 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
           WEB_TRANSITION,
           fillGrid && styles.cardGrid,
           fillGrid && styles.cardGridElevated,
-          cardActive && styles.cardHover,
+          (cardActive || highlighted) && styles.cardHover,
           highlighted && styles.cardHighlighted,
         ]}
       >
@@ -649,9 +657,7 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
             <View
               style={[
                 styles.headLeft,
-                clientSubline || originTagItems.length > 0
-                  ? styles.headLeftStacked
-                  : styles.headLeftSingle,
+                showHeadTags ? styles.headLeftStacked : styles.headLeftSingle,
               ]}
             >
               <PartyAvatar
@@ -668,21 +674,27 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
               <View
                 style={[
                   styles.headText,
-                  clientSubline || originTagItems.length > 0
-                    ? styles.headTextStacked
-                    : styles.headTextSingle,
+                  showHeadTags ? styles.headTextStacked : styles.headTextSingle,
                 ]}
               >
                 <Text style={styles.brand} numberOfLines={1}>
                   {formatPartyName(clientName)}
                 </Text>
-                {clientSubline ? (
-                  <Text style={styles.partnerSubline} numberOfLines={1}>
-                    {formatPartyName(clientSubline)}
-                  </Text>
-                ) : null}
-                {originTagItems.length > 0 ? (
+                {showHeadTags ? (
                   <View style={styles.originTagsRow}>
+                    {typeTag ? (
+                      <View
+                        style={[styles.originTag, styles.originTagType]}
+                        accessibilityLabel={typeTag}
+                      >
+                        <Text
+                          style={[styles.originTagText, styles.originTagTextType]}
+                          numberOfLines={1}
+                        >
+                          {typeTag}
+                        </Text>
+                      </View>
+                    ) : null}
                     {originTagItems.map((tag) => {
                       const indentLook = tag === "INDENT" || tag === "NETWORK";
                       return (
@@ -905,6 +917,9 @@ const styles = StyleSheet.create({
   },
   cardWrap: {
     ...hubMobileListCanvasStyles.cardWrap,
+  },
+  cardWrapHighlighted: {
+    borderRadius: 14,
   },
   cardWrapGrid: {
     flex: 1,
@@ -1207,13 +1222,20 @@ const styles = StyleSheet.create({
   },
   originTagsRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
     justifyContent: "flex-start",
     alignItems: "center",
     gap: 4,
     marginTop: 3,
     maxWidth: "100%",
     alignSelf: "flex-start",
+  },
+  originTagType: {
+    backgroundColor: Theme.surfaceGray,
+    borderColor: Theme.borderMedium,
+  },
+  originTagTextType: {
+    color: Theme.textPrimaryDark,
   },
   originTag: {
     paddingHorizontal: 6,

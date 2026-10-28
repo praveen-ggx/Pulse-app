@@ -1,7 +1,5 @@
 import React, { useEffect, useState } from "react";
 import {
-  Image,
-  Platform,
   StyleSheet,
   Text,
   View,
@@ -9,6 +7,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+import { PulseImage } from "@/components/PulseImage";
 import { Building2, Truck, User } from "lucide-react-native";
 import Theme from "@/constants/Theme";
 import { useFailedImageUriGuard } from "@/hooks/useFailedImageUriGuard";
@@ -213,9 +212,10 @@ export function PartyAvatar({
           style,
         ]}
       >
-        <Image
+        <PulseImage
           source={{ uri }}
-          resizeMode={resizeMode}
+          contentFit={resizeMode}
+          recyclingKey={uri}
           accessibilityIgnoresInvertColors
           onError={onImageError}
           style={[
@@ -225,7 +225,6 @@ export function PartyAvatar({
               height: size,
               borderRadius: radius,
             },
-            Platform.OS === "web" ? { objectFit: resizeMode } : null,
             borderStyle,
           ]}
         />

@@ -670,7 +670,7 @@ export function TripAssignmentBlock({
       // atomically in one SECURITY DEFINER call.  The previous pattern of calling
       // assignAggregateTripDriverByPhone then updateTripAssignment separately failed
       // when the supplier record lacked linked_organization_id (RLS gap on direct update).
-      const { error: rpcErr, trip: assignedTrip } = await assignAggregateTripDriverByPhone(
+      const { error: rpcErr, trip: _assignedTrip } = await assignAggregateTripDriverByPhone(
         trip.id,
         orgForDriver,
         trimmed,
@@ -686,7 +686,7 @@ export function TripAssignmentBlock({
         return;
       }
     } else {
-      const { error, trip: assignedTrip } = await assignTripDriverByPhone(
+      const { error, trip: _assignedTrip } = await assignTripDriverByPhone(
         trip.id,
         orgForDriver,
         trimmed,

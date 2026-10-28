@@ -13,6 +13,13 @@ export const queryKeys = {
     compliance: (orgId: string) => ["q", "trips", orgId, "compliance"] as const,
     partyCounts: (orgId: string) =>
       ["q", "trips", orgId, "party-counts"] as const,
+    /** Exact owned-trip totals — not the newest-400 catalog length. */
+    orgCounts: (orgId: string) => ["q", "trips", orgId, "org-counts"] as const,
+    hubCounts: (orgId: string) => ["q", "trips", orgId, "hub-counts"] as const,
+    hubCountSource: (orgId: string) =>
+      ["q", "trips", orgId, "hub-count-source"] as const,
+    partyCount: (orgId: string, kind: "client" | "supplier", partyId: string) =>
+      ["q", "trips", orgId, "party-count", kind, partyId] as const,
     infinite: (orgId: string, pageSize: number) =>
       ["q", "trips", orgId, "infinite", pageSize] as const,
     list: (orgId: string, opts?: { limit?: number; offset?: number }) =>
@@ -79,6 +86,9 @@ export const queryKeys = {
     /** Hub server search: older trips beyond the newest 400. Not persisted. */
     hubSearch: (orgId: string, needle: string) =>
       ["q", "trips", orgId, "hub-search", needle.toLowerCase()] as const,
+    /** Hub date pill: trips in that calendar range, not only the newest 400. */
+    hubDateRange: (orgId: string, from: string, to: string) =>
+      ["q", "trips", orgId, "hub-date", from, to] as const,
     /** LR / e-way numbers for a trip set (`tripIdsHashKey`). Not persisted. */
     hubDocNumbers: (orgId: string, tripIdsKey: string) =>
       ["q", "trips", "search-doc-numbers", orgId, tripIdsKey] as const,
@@ -190,6 +200,11 @@ export const queryKeys = {
     finite: (orgId: string) => ["q", "indents", orgId, "finite"] as const,
     /** Cancelled/expired indents with no trip — not the capped finite list. */
     failed: (orgId: string) => ["q", "indents", orgId, "failed"] as const,
+    /** Trips hub live / needs-trip indent workload (IST day in the key). */
+    workloadCounts: (orgId: string, today: string) =>
+      ["q", "indents", orgId, "workload", "counts", today] as const,
+    workloadList: (orgId: string, today: string) =>
+      ["q", "indents", orgId, "workload", "list", today] as const,
     infinite: (orgId: string, pageSize: number) =>
       ["q", "indents", orgId, "infinite", pageSize] as const,
     list: (orgId: string, opts?: { limit?: number; offset?: number }) =>
@@ -727,6 +742,7 @@ export function isNonPersistedTripsQueryKey(queryKey: readonly unknown[]): boole
   // hubSearch is `["q", "trips", orgId, "hub-search", needle]`.
   return (
     NON_PERSISTED_TRIPS_SEGMENTS.has(String(queryKey[2])) ||
-    (queryKey.length === 5 && queryKey[3] === "hub-search")
+    (queryKey.length === 5 && queryKey[3] === "hub-search") ||
+    (queryKey.length === 6 && queryKey[3] === "hub-date")
   );
 }

@@ -1,0 +1,64 @@
+import { buildOrgHubExactCounts } from "@/features/trips/utils/hubExactCounts.util";
+
+describe("buildOrgHubExactCounts", () => {
+  it("counts every owned trip, not a 400-row catalog slice", () => {
+    const counts = buildOrgHubExactCounts(
+      {
+        trips: [
+          { id: "a", status: "assigned", driver_id: "d1", indent_id: "i1", pickup_date: null, created_at: "2026-10-01" },
+          { id: "b", status: "in_transit", driver_id: "d1", indent_id: null, pickup_date: null, created_at: "2026-10-02" },
+          { id: "c", status: "completed", driver_id: "d1", indent_id: "i2", pickup_date: null, created_at: "2026-09-01" },
+          { id: "d", status: "cancelled", driver_id: null, indent_id: null, pickup_date: null, created_at: "2026-10-03" },
+        ],
+        documentTripIds: [],
+        indents: [
+          { id: "i1", status: "open", pickup_date: null, created_at: "2026-10-01" },
+          { id: "i2", status: "open", pickup_date: null, created_at: "2026-09-01" },
+          { id: "i3", status: "open", pickup_date: null, created_at: "2026-10-04" },
+        ],
+      },
+      { dateRangeFilter: "all" },
+    );
+
+    expect(counts.active).toBe(2);
+    expect(counts.history).toBe(1);
+    expect(counts.metrics.assigned).toBe(1);
+    expect(counts.metrics.in_transit).toBe(1);
+    // Completed trip "c" is History; it is not added to the Active Delivered tile.
+    expect(counts.metrics.delivered_docs_pending).toBe(0);
+    expect(counts.metrics.indent).toBe(1);
+    // ALL is trips only; the open indent i3 stays on the indent tile.
+    expect(counts.allActive).toBe(2);
+    expect(counts.indentIdsWithTrip).toEqual(expect.arrayContaining(["i1", "i2"]));
+  });
+
+  it("does not treat completed History trips as documents pending", () => {
+    const counts = buildOrgHubExactCounts(
+      {
+        trips: [
+          {
+            id: "done",
+            status: "completed",
+            driver_id: "d1",
+            indent_id: null,
+            pickup_date: null,
+            created_at: "2026-10-01",
+          },
+          {
+            id: "pod",
+            status: "at_destination",
+            driver_id: "d1",
+            indent_id: null,
+            pickup_date: null,
+            created_at: "2026-10-01",
+          },
+        ],
+        documentTripIds: ["done", "pod"],
+        indents: [],
+      },
+      { dateRangeFilter: "all", includeCompletedInDelivered: false },
+    );
+    expect(counts.history).toBe(1);
+    expect(counts.metrics.delivered_docs_pending).toBe(1);
+  });
+});

@@ -1,4 +1,5 @@
 import { setInitialTripForDetail } from "@/features/trips/initialTripForDetail";
+import { setLastOpenedHubItem } from "@/features/trips/utils/lastOpenedHubItem.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { ROUTES } from "@/lib/routes";
 import { useRouter } from "expo-router";
@@ -15,6 +16,7 @@ export function useOpenTripDetail() {
     (tripId: string, seed?: TripRow | null) => {
       const id = tripId.trim();
       if (!id) return;
+      setLastOpenedHubItem(id);
       if (seed?.id === id) {
         setInitialTripForDetail(seed);
       }

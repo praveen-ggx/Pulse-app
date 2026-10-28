@@ -60,14 +60,13 @@ async function resolveUrl(
   const source = file.docSource ?? "trip";
   if (source === "trip") {
     const urls = await getDocumentViewUrls([path]);
-    if (urls[path]) return urls[path];
+    return urls[path] ?? null;
   }
-  if (source === "vehicle" || source === "trip") {
+  if (source === "vehicle") {
     try {
-      const vehicleUrl = await getVehicleDocumentViewUrl(path);
-      if (vehicleUrl) return vehicleUrl;
+      return await getVehicleDocumentViewUrl(path);
     } catch {
-      /* try compliance / KYC next */
+      return null;
     }
   }
   return signCompliancePreviewUrl({

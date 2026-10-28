@@ -91,6 +91,7 @@ import {
 import { TripHubInTransitPingLines } from "./TripHubInTransitPingLines";
 import type { TripHubInTransitPingMeta } from "../hooks/useTripHubInTransitPings";
 import type { TripHubPartyMeta } from "../utils/tripHubPartyMeta";
+import { HubPartialWarning } from "./HubPartialWarning";
 import { TripPodStatusTags } from "./TripPodStatusTags";
 import {
   tripHasHubPodFlag,
@@ -451,8 +452,8 @@ export type TripsHubTripCardProps = {
   hubGrid?: boolean;
   /** Last ping time / offline for in-transit hub cards. */
   inTransitPing?: TripHubInTransitPingMeta | null;
-  /** Digital POD present (trip_documents document_type=pod). */
-  softPodReceived?: boolean;
+  /** Digital POD present (trip_documents document_type=pod). null = flags not loaded. */
+  softPodReceived?: boolean | null;
   /** Physical POD (trips.pod_received_at / Pulse POD received). */
   hardPodReceived?: boolean;
   /** EW-Bill expiring / expired label for this trip. */
@@ -1108,6 +1109,8 @@ export type TripsHubTableViewProps = {
   hideBody?: boolean;
   /** Override the toolbar "Showing n of m" label (e.g. INDENT loads). */
   toolbarCountLabel?: string;
+  /** Approximate-count notice, shown full width above the toolbar (not in the count chip). */
+  toolbarWarning?: string | null;
   /** Tiny status tags rendered in the hub toolbar row (indent stage). */
   toolbarTags?: ReadonlyArray<{
     id: string;
@@ -1164,6 +1167,8 @@ export type TripsHubTableViewProps = {
   onDisplayedTripsLengthChange?: (n: number) => void;
   /** Trip ids with a digital POD document (batched). */
   softPodTripIds?: Set<string>;
+  /** Lower-cased ids whose soft-POD flags were fetched; others hide the Soft chip. */
+  softPodCheckedTripIds?: Set<string>;
   /** Trip ids with Pulse POD hard-copy received (trips.pod_received_at). */
   hardPodTripIds?: Set<string>;
   /** Most critical e-way label per trip id. Omit on lists that are not trips. */
@@ -1301,6 +1306,7 @@ export function TripsHubTableView({
   renderAboveBody,
   hideBody = false,
   toolbarCountLabel,
+  toolbarWarning,
   toolbarTags,
   searchQuery: searchQueryProp,
   onSearchQueryChange,
@@ -1314,6 +1320,7 @@ export function TripsHubTableView({
   pagination,
   onDisplayedTripsLengthChange,
   softPodTripIds,
+  softPodCheckedTripIds,
   hardPodTripIds,
   ewayExpiryByTripId,
   lrNumbersByTripId,
@@ -1600,14 +1607,15 @@ export function TripsHubTableView({
   );
 
   const dateFilterTagLabel = (() => {
+    const extra = (dateRangeLabel ?? "").trim();
     if (dateRangeFilter === "custom") {
-      const custom = (dateRangeLabel ?? "").trim();
-      return custom ? `DATE · ${custom}` : "DATE";
+      return extra ? `DATE · ${extra}` : "DATE";
     }
-    if (dateRangeFilter === "all") return "DATE";
+    if (dateRangeFilter === "all") return extra ? `DATE · ${extra}` : "DATE";
     const preset =
       datePresetOptions.find((opt) => opt.id === dateRangeFilter)?.label;
-    return preset ? `DATE · ${preset}` : "DATE";
+    if (preset && extra) return `DATE · ${preset} · ${extra}`;
+    return preset ? `DATE · ${preset}` : extra ? `DATE · ${extra}` : "DATE";
   })();
 
   const dateFilterActive = dateRangeFilter !== "all";
@@ -1866,6 +1874,7 @@ export function TripsHubTableView({
           styles.auditTableWrapDesktopHub,
       ]}
     >
+      <HubPartialWarning message={toolbarWarning} />
       <View
         style={[
           styles.auditToolbar,
@@ -2353,10 +2362,13 @@ export function TripsHubTableView({
                             {tripIsDeliveredStatus(t.status) ? (
                               <TripPodStatusTags
                                 compact
-                                softCopyReceived={tripHasHubPodFlag(
-                                  softPodTripIds,
-                                  t.id,
-                                )}
+                                softCopyReceived={
+                                  softPodTripIds &&
+                                  (!softPodCheckedTripIds ||
+                                    softPodCheckedTripIds.has(t.id.trim().toLowerCase()))
+                                    ? tripHasHubPodFlag(softPodTripIds, t.id)
+                                    : null
+                                }
                                 hardCopyReceived={
                                   tripHasHubPodFlag(hardPodTripIds, t.id) ||
                                   tripPodIsReceived(t)

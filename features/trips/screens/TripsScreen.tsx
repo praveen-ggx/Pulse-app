@@ -1764,10 +1764,6 @@ export default function TripsScreen() {
     () => cardNumberFlags?.lrNumbersByTripId ?? ({} as Record<string, string>),
     [cardNumberFlags],
   );
-  const ewayNumbersByTripId = useMemo(
-    () => cardNumberFlags?.ewayNumbersByTripId ?? ({} as Record<string, string>),
-    [cardNumberFlags],
-  );
   const softPodCheckedTripIds = useMemo(
     () =>
       hubSoftPodCheckedTripIds([

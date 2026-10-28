@@ -133,7 +133,10 @@ import {
     hubPageForIndex,
     hubVisibleCountForIndex,
 } from "@/features/trips/utils/hubLastOpenedVisibility.util";
-import { sliceHubListPage } from "@/features/trips/utils/hubListPageSlice.util";
+import {
+  sliceHubListPage,
+  visibleHubTripIds,
+} from "@/features/trips/utils/hubListPageSlice.util";
 import {
     indentHubStatusTag,
     type IndentHubStatusTag,
@@ -252,6 +255,8 @@ const TRIPS_LIST_LAYOUT_KEY = "@pulse/trips-list-layout";
 /** Native mobile: render trips in batches so the hub stays responsive at scale. */
 const MOBILE_HUB_INITIAL_BATCH = 20;
 const MOBILE_HUB_BATCH_STEP = 20;
+/** Rail tiles are status-only; document flags are not needed for counts. */
+const EMPTY_HUB_DOC_TRIP_IDS = new Set<string>();
 
 /** Aligns list + Intake / In motion hub counts with All / Asset / Aggregate (same pill logic as hub cards). */
 function tripMatchesSupplyFilter(
@@ -1174,10 +1179,6 @@ export default function TripsScreen() {
     ],
   );
 
-  const podDocumentTripIdsSorted = useMemo(() => {
-    const ids = baseTripsByStatus.map((t) => t.id).filter(Boolean).sort();
-    return [...new Set(ids)].join(",");
-  }, [baseTripsByStatus]);
   const baseTripIdsKey = useMemo(
     () => tripIdsHashKey(baseTripsByStatus.map((t) => t.id)),
     [baseTripsByStatus],
@@ -1187,49 +1188,20 @@ export default function TripsScreen() {
     [hubExtraTrips],
   );
   const hasOlderHits = hubExtraTrips.length > 0;
-
-  /** Persisted React Query cache is JSON — `Set` breaks after hydrate (`.has` missing). Store IDs as array, derive Set in memo. */
-  const { data: hubPodFlagsRaw } = useQuery({
-    queryKey: [
-      "q",
-      "trips",
-      "doc-trip-ids",
-      // v7: adds ewayNumbersByTripId; older persisted payloads lack it.
-      "v7-pod-eway",
-      orgId ?? "",
-      podDocumentTripIdsSorted,
-    ],
-    enabled:
-      !!orgId &&
-      shouldFetchHubDigitalPodFlags(showCompletedList, {
-        compactViewport: isMobileViewport,
-      }) &&
-      podDocumentTripIdsSorted.length > 0,
-    staleTime: 60_000,
-    queryFn: async () => {
-      const ids = podDocumentTripIdsSorted.split(",").filter(Boolean);
-      return loadHubPodReceiptFlags(ids);
-    },
-  });
-  /**
-   * The flags above skip phones and History. While searching there, load the same
-   * document flags just for their LR / e-way numbers so those searches still work.
-   */
   const hubDocFlagsLoadedForView = shouldFetchHubDigitalPodFlags(showCompletedList, {
     compactViewport: isMobileViewport,
   });
   const hubSearchActive = searchQuery.trim().length >= 2;
+  /**
+   * Search may need LR / e-way numbers for trips not on this page. Cards load
+   * documents only for the visible page (see visibleHubTripIdsForDocs below).
+   */
   const { data: searchDocFlags } = useQuery({
     queryKey: queryKeys.trips.hubDocNumbers(orgId ?? "", baseTripIdsKey),
-    enabled:
-      !!orgId &&
-      hubSearchActive &&
-      !hubDocFlagsLoadedForView &&
-      baseTripsByStatus.length > 0,
+    enabled: !!orgId && hubSearchActive && baseTripsByStatus.length > 0,
     staleTime: 60_000,
     queryFn: () => loadHubPodReceiptFlags(baseTripsByStatus.map((t) => t.id)),
   });
-  // Older search hits are not in either list above; their flags load on their own.
   const { data: olderHitDocFlags } = useQuery({
     queryKey: queryKeys.trips.hubDocNumbers(orgId ?? "", olderHitIdsKey),
     enabled: !!orgId && hasOlderHits,
@@ -1238,29 +1210,17 @@ export default function TripsScreen() {
     queryFn: () => loadHubPodReceiptFlags(hubExtraTrips.map((t) => t.id)),
   });
   const olderHitFlags = hasOlderHits ? olderHitDocFlags : undefined;
-  const hubPodFlags = useMemo(
-    () =>
-      hubDocFlagsLoadedForView
-        ? mergeHubPodFlags(hubPodFlagsRaw, olderHitFlags)
-        : hubPodFlagsRaw,
-    [hubDocFlagsLoadedForView, hubPodFlagsRaw, olderHitFlags],
+  const searchNumberFlags = useMemo(
+    () => mergeHubPodFlags(searchDocFlags, olderHitFlags),
+    [olderHitFlags, searchDocFlags],
   );
-  const ewayExpiryByTripId = useMemo(() => {
-    const map = hubPodFlags?.ewayExpiryByTripId;
-    if (!map || typeof map !== "object") return {} as Record<string, string>;
-    return map;
-  }, [hubPodFlags]);
-  const docNumberFlags = useMemo(
-    () => (hubDocFlagsLoadedForView ? hubPodFlags : mergeHubPodFlags(searchDocFlags, olderHitFlags)),
-    [hubDocFlagsLoadedForView, hubPodFlags, searchDocFlags, olderHitFlags],
+  const searchLrNumbersByTripId = useMemo(
+    () => searchNumberFlags?.lrNumbersByTripId ?? ({} as Record<string, string>),
+    [searchNumberFlags],
   );
-  const lrNumbersByTripId = useMemo(
-    () => docNumberFlags?.lrNumbersByTripId ?? ({} as Record<string, string>),
-    [docNumberFlags],
-  );
-  const ewayNumbersByTripId = useMemo(
-    () => docNumberFlags?.ewayNumbersByTripId ?? ({} as Record<string, string>),
-    [docNumberFlags],
+  const searchEwayNumbersByTripId = useMemo(
+    () => searchNumberFlags?.ewayNumbersByTripId ?? ({} as Record<string, string>),
+    [searchNumberFlags],
   );
 
   /**
@@ -1288,92 +1248,6 @@ export default function TripsScreen() {
         ? { ...baseDriverPhoneByTripId, ...olderHitDriverPhoneByTripId }
         : baseDriverPhoneByTripId,
     [hasOlderHits, baseDriverPhoneByTripId, olderHitDriverPhoneByTripId],
-  );
-  // Soft-POD chips are only definite for trips whose flags were fetched in this view.
-  const softPodCheckedTripIds = useMemo(
-    () =>
-      hubSoftPodCheckedTripIds([
-        {
-          loaded: hubDocFlagsLoadedForView && hubPodFlagsRaw != null,
-          tripIds: podDocumentTripIdsSorted.split(","),
-        },
-        {
-          loaded: hasOlderHits && olderHitDocFlags != null,
-          tripIds: hubExtraTrips.map((t) => t.id),
-        },
-      ]),
-    [
-      hasOlderHits,
-      hubDocFlagsLoadedForView,
-      hubExtraTrips,
-      hubPodFlagsRaw,
-      olderHitDocFlags,
-      podDocumentTripIdsSorted,
-    ],
-  );
-  const tripIdsWithDocuments = useMemo(() => {
-    const soft = hubPodFlags?.softTripIds;
-    if (Array.isArray(soft)) {
-      return new Set(
-        soft
-          .filter((value): value is string => typeof value === "string")
-          .map((value) => value.trim().toLowerCase())
-          .filter(Boolean),
-      );
-    }
-    return new Set<string>();
-  }, [hubPodFlags]);
-  const hubLrTripIdsKey = useMemo(
-    () =>
-      tripsByStatus
-        .map((row) => row.id.trim().toLowerCase())
-        .filter(Boolean)
-        .sort()
-        .join(","),
-    [tripsByStatus],
-  );
-  const { data: hubDocLabels } = useQuery({
-    queryKey: queryKeys.trips.hubLrLabels(orgId ?? "", hubLrTripIdsKey),
-    enabled: Boolean(orgId && hubLrTripIdsKey),
-    staleTime: 60_000,
-    queryFn: () => loadHubTripDocumentLabelsByTripIds(hubLrTripIdsKey.split(",")),
-  });
-  const hubLrLabels = hubDocLabels?.lrLabels ?? {};
-  const hubElrLabels = hubDocLabels?.elrLabels ?? {};
-  const hubLrLabelFor = useCallback(
-    (tripId: string) => {
-      const id = tripId.trim().toLowerCase();
-      return hubLrPreviewByTripId[id] || hubLrLabels[id] || "";
-    },
-    [hubLrLabels, hubLrPreviewByTripId],
-  );
-  const hubElrLabelFor = useCallback(
-    (tripId: string) => hubElrLabels[tripId.trim().toLowerCase()] || "",
-    [hubElrLabels],
-  );
-  /** Ground Ops can add a missing LR, but not change one once the trip is in transit / approved. */
-  const canEditHubLrFor = useCallback(
-    (trip: TripRow | undefined) =>
-      canEditHubLr &&
-      !(
-        isGroundOpsMember &&
-        trip &&
-        hubLrLabelFor(trip.id) &&
-        groundOpsDocumentLockReason({ trip }) != null
-      ),
-    [canEditHubLr, isGroundOpsMember, hubLrLabelFor],
-  );
-  const openHubLrEdit = useCallback(
-    (tripId: string) => {
-      const trip = tripsByStatus.find((row) => row.id === tripId);
-      if (!canEditHubLrFor(trip)) return;
-      setHubLrEdit({
-        tripId,
-        label: hubLrLabelFor(tripId),
-        organizationId: trip?.organization_id ?? orgId ?? null,
-      });
-    },
-    [canEditHubLrFor, hubLrLabelFor, orgId, tripsByStatus],
   );
   const hardPodTripIds = useMemo(() => {
     const set = new Set<string>();
@@ -1427,8 +1301,8 @@ export default function TripsScreen() {
   // Rail tiles = open trips in hubScopedTrips (same rows as the Active tab badge).
   // Completed trips are History only; the indent tile counts indents, never trips.
   const openHubRailCounts = useMemo(
-    () => buildActiveHubRailCounts(hubScopedTrips, tripIdsWithDocuments),
-    [hubScopedTrips, tripIdsWithDocuments],
+    () => buildActiveHubRailCounts(hubScopedTrips, EMPTY_HUB_DOC_TRIP_IDS),
+    [hubScopedTrips],
   );
 
   const metricCounts = useMemo(
@@ -1460,7 +1334,7 @@ export default function TripsScreen() {
         list = historyTripsForDelivered;
       } else {
         list = list.filter(
-          (t) => hubActiveRailMetric(t, tripIdsWithDocuments) === activeMetricTab,
+          (t) => hubActiveRailMetric(t, EMPTY_HUB_DOC_TRIP_IDS) === activeMetricTab,
         );
       }
     }
@@ -1517,8 +1391,11 @@ export default function TripsScreen() {
               shipperNameByTripId[t.id] ??
               (t.organization_id !== orgId ? "" : t.client_name ?? ""),
             supplierName: t.supplier_name,
-            lrLabel: hubLrLabelFor(t.id),
-            elrLabel: hubElrLabelFor(t.id),
+            lrLabel:
+              hubLrPreviewByTripId[t.id.trim().toLowerCase()] ||
+              searchLrNumbersByTripId[t.id.trim().toLowerCase()] ||
+              "",
+            elrLabel: "",
           })
         ) {
           return true;
@@ -1560,11 +1437,11 @@ export default function TripsScreen() {
         // Allocated indents have no card of their own, so their codes match the trip.
         const indentRef = t.indent_id ? indentCodesByIndentId.get(t.indent_id) ?? "" : "";
         const lrNos = (
-          lrNumbersByTripId[t.id.trim().toLowerCase()] ?? ""
+          searchLrNumbersByTripId[t.id.trim().toLowerCase()] ?? ""
         ).toLowerCase();
         const qCompact = q.replace(/\s+/g, "");
         const ewayNos = (
-          ewayNumbersByTripId[t.id.trim().toLowerCase()] ?? ""
+          searchEwayNumbersByTripId[t.id.trim().toLowerCase()] ?? ""
         ).toLowerCase();
         const vehicleNo = (t.vehicle_display_number ?? "")
           .toLowerCase()
@@ -1621,7 +1498,6 @@ export default function TripsScreen() {
     tripsByStatus,
     historyTripsForDelivered,
     activeMetricTab,
-    tripIdsWithDocuments,
     supplyFilter,
     attributionFilter,
     tripKindPillMetaByTripId,
@@ -1631,11 +1507,10 @@ export default function TripsScreen() {
     clientById,
     driverPhoneById,
     searchDriverPhoneByTripId,
-    lrNumbersByTripId,
-    ewayNumbersByTripId,
+    searchLrNumbersByTripId,
+    searchEwayNumbersByTripId,
     shipperNameByTripId,
-    hubLrLabelFor,
-    hubElrLabelFor,
+    hubLrPreviewByTripId,
     showCompletedList,
     sortBy,
     paymentFilter,
@@ -1844,6 +1719,138 @@ export default function TripsScreen() {
           hubListPageSlice.indentOffset + hubListPageSlice.indentLimit,
         )
       : indentStageIndents;
+
+  const visibleHubTripIdsForDocs = useMemo(() => {
+    const ids = filtered.map((trip) => trip.id);
+    if (Platform.OS === "web" && !isMobileViewport) {
+      return visibleHubTripIds(ids, hubListPageSlice);
+    }
+    return visibleHubTripIds(ids, { page: 0, pageSize: mobileVisibleCount });
+  }, [filtered, hubListPageSlice, isMobileViewport, mobileVisibleCount]);
+  const visibleHubTripIdsKey = useMemo(
+    () => tripIdsHashKey(visibleHubTripIdsForDocs),
+    [visibleHubTripIdsForDocs],
+  );
+  const { data: pagePodFlagsRaw } = useQuery({
+    queryKey: [
+      "q",
+      "trips",
+      "doc-trip-ids",
+      "v7-pod-eway-page",
+      orgId ?? "",
+      visibleHubTripIdsKey,
+    ],
+    enabled:
+      !!orgId &&
+      hubDocFlagsLoadedForView &&
+      visibleHubTripIdsForDocs.length > 0,
+    staleTime: 60_000,
+    queryFn: () => loadHubPodReceiptFlags(visibleHubTripIdsForDocs),
+  });
+  const hubPodFlags = useMemo(
+    () => mergeHubPodFlags(pagePodFlagsRaw, olderHitFlags),
+    [olderHitFlags, pagePodFlagsRaw],
+  );
+  const ewayExpiryByTripId = useMemo(() => {
+    const map = hubPodFlags?.ewayExpiryByTripId;
+    if (!map || typeof map !== "object") return {} as Record<string, string>;
+    return map;
+  }, [hubPodFlags]);
+  const cardNumberFlags = useMemo(
+    () => mergeHubPodFlags(hubPodFlags, searchNumberFlags),
+    [hubPodFlags, searchNumberFlags],
+  );
+  const lrNumbersByTripId = useMemo(
+    () => cardNumberFlags?.lrNumbersByTripId ?? ({} as Record<string, string>),
+    [cardNumberFlags],
+  );
+  const softPodCheckedTripIds = useMemo(
+    () =>
+      hubSoftPodCheckedTripIds([
+        {
+          loaded: hubDocFlagsLoadedForView && pagePodFlagsRaw != null,
+          tripIds: visibleHubTripIdsForDocs,
+        },
+        {
+          loaded: hasOlderHits && olderHitDocFlags != null,
+          tripIds: hubExtraTrips.map((t) => t.id),
+        },
+        {
+          loaded: hubSearchActive && searchDocFlags != null,
+          tripIds: baseTripsByStatus.map((t) => t.id),
+        },
+      ]),
+    [
+      baseTripsByStatus,
+      hasOlderHits,
+      hubDocFlagsLoadedForView,
+      hubExtraTrips,
+      hubSearchActive,
+      olderHitDocFlags,
+      pagePodFlagsRaw,
+      searchDocFlags,
+      visibleHubTripIdsForDocs,
+    ],
+  );
+  const tripIdsWithDocuments = useMemo(() => {
+    const soft = cardNumberFlags?.softTripIds;
+    if (Array.isArray(soft)) {
+      return new Set(
+        soft
+          .filter((value): value is string => typeof value === "string")
+          .map((value) => value.trim().toLowerCase())
+          .filter(Boolean),
+      );
+    }
+    return new Set<string>();
+  }, [cardNumberFlags]);
+  const { data: hubDocLabels } = useQuery({
+    queryKey: queryKeys.trips.hubLrLabels(orgId ?? "", visibleHubTripIdsKey),
+    enabled: Boolean(orgId && visibleHubTripIdsKey),
+    staleTime: 60_000,
+    queryFn: () => loadHubTripDocumentLabelsByTripIds(visibleHubTripIdsForDocs),
+  });
+  const hubLrLabels = hubDocLabels?.lrLabels ?? {};
+  const hubElrLabels = hubDocLabels?.elrLabels ?? {};
+  const hubLrLabelFor = useCallback(
+    (tripId: string) => {
+      const id = tripId.trim().toLowerCase();
+      return (
+        hubLrPreviewByTripId[id] ||
+        hubLrLabels[id] ||
+        lrNumbersByTripId[id] ||
+        ""
+      );
+    },
+    [hubLrLabels, hubLrPreviewByTripId, lrNumbersByTripId],
+  );
+  const hubElrLabelFor = useCallback(
+    (tripId: string) => hubElrLabels[tripId.trim().toLowerCase()] || "",
+    [hubElrLabels],
+  );
+  const canEditHubLrFor = useCallback(
+    (trip: TripRow | undefined) =>
+      canEditHubLr &&
+      !(
+        isGroundOpsMember &&
+        trip &&
+        hubLrLabelFor(trip.id) &&
+        groundOpsDocumentLockReason({ trip }) != null
+      ),
+    [canEditHubLr, isGroundOpsMember, hubLrLabelFor],
+  );
+  const openHubLrEdit = useCallback(
+    (tripId: string) => {
+      const trip = tripsByStatus.find((row) => row.id === tripId);
+      if (!canEditHubLrFor(trip)) return;
+      setHubLrEdit({
+        tripId,
+        label: hubLrLabelFor(tripId),
+        organizationId: trip?.organization_id ?? orgId ?? null,
+      });
+    },
+    [canEditHubLrFor, hubLrLabelFor, orgId, tripsByStatus],
+  );
 
   useEffect(() => {
     setHubToolbarMatchCount(null);

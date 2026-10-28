@@ -36,6 +36,7 @@ import {
   getIndianDlNormalizedLength,
   INDIAN_DL_FORMATS,
   INDIAN_DL_MAX_LENGTH,
+  INDIAN_DL_OTHER_MAX_LENGTH,
   type IndianDlFormat,
 } from "@/lib/indianDrivingLicenseInput.util";
 
@@ -57,7 +58,7 @@ const SEGMENTS: Record<IndianDlFormat, readonly { label: string; doneAt: number 
   other: [],
 };
 
-const OTHER_DL_MAX_LENGTH = 18;
+const OTHER_DL_MAX_LENGTH = INDIAN_DL_OTHER_MAX_LENGTH;
 
 export interface IndianDrivingLicenseKeypadFlowProps {
   value: string;

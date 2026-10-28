@@ -4,7 +4,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
-import Theme from "@/constants/Theme";
 import type { ClientRow } from "@/features/clients/services/clients.service";
 import { resolveWizardClientPhone } from "@/features/clients/utils/clientContactDisplay.util";
 

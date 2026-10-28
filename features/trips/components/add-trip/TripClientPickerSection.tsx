@@ -52,7 +52,7 @@ export function TripClientPickerSection({
   clientListExpanded,
   setClientListExpanded,
   onSelectClient,
-  onAddClient,
+  onAddClient: _onAddClient,
   hasError = false,
   wizardMode = false,
   columns,

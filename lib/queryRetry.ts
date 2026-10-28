@@ -6,6 +6,7 @@
  */
 
 import {
+  isFetchOwnedTransientProxyError,
   isOriginDownError as isOriginDownErrorShared,
   isPermanentHttpClientError,
 } from '@/lib/supabaseHttp.util';
@@ -79,6 +80,7 @@ export function infrastructureShouldRetry(failureCount: number, error: unknown):
   const name = (error as { name?: string } | null)?.name;
   if (name === 'TimeoutError' || name === 'AbortError') return false;
   if (isPermanentHttpClientError(error)) return false;
+  if (isFetchOwnedTransientProxyError(error)) return false;
   if (isPermanentSchemaOrRlsError(error)) return false;
   if (isTimeoutErrorMessage(errorMessage(error))) return false;
   if (isOriginDownError(error)) return false;

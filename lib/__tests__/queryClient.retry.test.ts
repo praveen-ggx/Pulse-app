@@ -95,9 +95,9 @@ describe("shouldRetryQuery", () => {
     expect(shouldRetryQuery(0, new Error("Invalid login credentials"))).toBe(true);
   });
 
-  it("allows one default retry for normalized Cloudflare 522 timed-out messages", () => {
-    expect(shouldRetryQuery(0, new Error("Connection timed out (522)"))).toBe(true);
-    expect(shouldRetryQuery(1, new Error("Connection timed out (522)"))).toBe(false);
+  it("does not stack a TanStack retry on 522 — fetch owns that one proxy retry", () => {
+    expect(shouldRetryQuery(0, new Error("Connection timed out (522)"))).toBe(false);
+    expect(shouldRetryQuery(0, { status: 429, message: "Too Many Requests" })).toBe(false);
   });
 
   it("still does not retry origin-down when status is 503 even if message says timed out", () => {

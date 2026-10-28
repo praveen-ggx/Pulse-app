@@ -74,7 +74,30 @@ export function isOriginDownError(error: unknown): boolean {
 
 
 const PERMANENT_NOT_FOUND_MESSAGE =
-  /\b404\b|object not found|not found|no such (file|key|object)|the resource was not found/i;
+  /\b400\b|\b404\b|bad request|object not found|not found|no such (file|key|object)|the resource was not found/i;
+
+/** Extra HTTP attempts for 408/425/429/520/522/524. Fetch owns this; TanStack must not stack another cycle. */
+export const TRANSIENT_PROXY_MAX_RETRIES = 1;
+
+export function isTransientProxyHttpStatus(status: number): boolean {
+  return TRANSIENT_RETRY_STATUSES.has(status);
+}
+
+export function maxRetriesForHttpResponse(status: number): number {
+  return isTransientProxyHttpStatus(status) ? TRANSIENT_PROXY_MAX_RETRIES : 0;
+}
+
+export function isFetchOwnedTransientProxyError(error: unknown): boolean {
+  const status = (error as { status?: unknown } | null)?.status;
+  if (typeof status === "number" && TRANSIENT_RETRY_STATUSES.has(status)) return true;
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof (error as { message?: unknown } | null)?.message === "string"
+        ? (error as { message: string }).message
+        : "";
+  return /\b(408|425|429|520|522|524)\b/.test(message);
+}
 
 /** Missing Storage/REST objects and other permanent client failures. */
 export function isPermanentNotFoundMessage(message: string): boolean {
@@ -103,6 +126,7 @@ export function isPermanentHttpClientError(error: unknown): boolean {
 export function isRetryableStorageError(message: string): boolean {
   if (isSupabaseCircuitOpen()) return false;
   if (isPermanentNotFoundMessage(message)) return false;
+  if (isFetchOwnedTransientProxyError(new Error(message))) return false;
   const m = message.toLowerCase();
   return (
     m.includes("timeout") ||
@@ -221,6 +245,7 @@ export function canRetryFetchAttempt(args: {
   if (error.name === "AbortError") return false;
   if (isSupabaseCircuitOpen()) return false;
   if (isPermanentHttpClientError(error)) return false;
+  if (error.name === "ServiceUnavailableError") return false;
   if (error.name === "TimeoutError") {
     return attempt < timeoutMaxRetries;
   }

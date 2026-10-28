@@ -21,6 +21,7 @@ import {
 } from '@/lib/platform/scalability/queryCacheMetrics';
 import {
   isBrowserTransportFailure,
+  isFetchOwnedTransientProxyError,
   isOriginDownError,
   isPermanentHttpClientError,
   isServiceUnavailableError,
@@ -257,6 +258,7 @@ export function shouldRetryQuery(failureCount: number, error: unknown): boolean 
   if (isTimeoutError(error)) return false;
   if (isQueryOriginDownError(error)) return false;
   if (isPermanentHttpClientError(error)) return false;
+  if (isFetchOwnedTransientProxyError(error)) return false;
   if (isPermanentSchemaOrRlsError(error)) return false;
   return true;
 }

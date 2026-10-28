@@ -81,6 +81,8 @@ export async function listIndentHubActivityPage(
 
   const { data, error } = await query.range(from, from + limit - 1);
   if (error) return { error: new Error(error.message), indents: [], hasMore: false };
-  const rows = ((data ?? []) as IndentRow[]).map((row) => normalizeIndentRow(row));
+  const rows = ((data ?? []) as unknown as IndentRow[]).map((row) =>
+    normalizeIndentRow(row),
+  );
   return { error: null, indents: rows, hasMore: rows.length === limit };
 }

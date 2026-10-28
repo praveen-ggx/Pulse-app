@@ -18,4 +18,16 @@ describe("market_indents_for_org client args", () => {
     expect(fn).toMatch(/rpc\("market_indents_for_org", \{\s*p_org_id:/);
     expect(fn).not.toMatch(/rpc\("market_indents_for_org", \{\s*org_id:/);
   });
+
+  it("calls the RPC once per fetch (no immediate repeat on error)", () => {
+    const source = readFileSync(
+      join(__dirname, "../indents.service.ts"),
+      "utf8",
+    );
+    const fn = source.slice(
+      source.indexOf("export async function getMarketIndentsForOrganization"),
+      source.indexOf("async function resolveShipperOrganizationName"),
+    );
+    expect(fn.match(/rpc\("market_indents_for_org"/g)).toHaveLength(1);
+  });
 });

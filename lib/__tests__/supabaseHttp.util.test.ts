@@ -66,6 +66,12 @@ describe("supabaseHttp origin-down vs transient", () => {
     expect(isRetryableHttpResponse(makeResponse(500))).toBe(false);
   });
 
+  it("does not retry permanent 400/404 even when the body is non-JSON", () => {
+    expect(isRetryableHttpResponse(makeResponse(400, "text/html"))).toBe(false);
+    expect(isRetryableHttpResponse(makeResponse(404, "text/plain"))).toBe(false);
+    expect(isRetryableHttpResponse(makeResponse(400, "application/json"))).toBe(false);
+  });
+
   it("classifies origin-down messages including 57P03", () => {
     expect(isOriginDownErrorMessage("57P03 the database system is not accepting connections")).toBe(true);
     expect(isOriginDownErrorMessage("JSON could not be generated (544)")).toBe(true);

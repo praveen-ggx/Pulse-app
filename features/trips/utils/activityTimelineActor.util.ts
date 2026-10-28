@@ -42,6 +42,6 @@ export function fallbackActorForStatusContext(
 ): string {
   if (context === "accepted") return "Driver";
   if (context === "assigned") return "Dispatcher";
-  if (context === "created") return "Staff";
-  return "Staff";
+  if (context === "created") return "Workspace member";
+  return "Workspace member";
 }

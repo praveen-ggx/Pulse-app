@@ -12,6 +12,9 @@ import { resolveComplianceActorNames } from "@/features/tripCompliance/services/
 import { toPaymentSummary } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import type { ComplianceTripSummary, CompliancePaymentSummary } from "@/features/tripCompliance/tripCompliance.types";
 import { getTripExecutionModel } from "@/features/trips/domain/tripExecutionModel";
+import { mapWithConcurrency } from "@/features/tripCompliance/utils/mapWithConcurrency.util";
+
+const EXPORT_FETCH_CONCURRENCY = 4;
 
 const FINANCE_RECEIPT_PREFIX = "amount-paid:";
 
@@ -96,22 +99,35 @@ export type TripPaymentRequest = { requestNo: string; status: string; approvedAm
  * Live advance request per trip (`payment_requests`, issued at advance approval).
  * The request number is the Request ID everywhere — never text on the ledger row.
  */
+const REST_IN_CHUNK = 40;
+
+function chunkIds(ids: string[], size: number): string[][] {
+  const unique = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
+  const chunks: string[][] = [];
+  for (let i = 0; i < unique.length; i += size) chunks.push(unique.slice(i, i + size));
+  return chunks;
+}
+
 export async function fetchAdvanceRequestsForTrips(tripIds: string[]): Promise<Record<string, TripPaymentRequest>> {
-  if (tripIds.length === 0) return {};
-  const { data, error } = await supabase()
-    .from("payment_requests")
-    .select("trip_id, request_no, status, approved_amount")
-    .in("trip_id", tripIds)
-    .eq("payment_type", "advance")
-    .neq("status", "cancelled");
-  if (error) throw new Error(error.message);
+  const chunks = chunkIds(tripIds, REST_IN_CHUNK);
+  if (chunks.length === 0) return {};
+  const parts = await mapWithConcurrency(chunks, EXPORT_FETCH_CONCURRENCY, async (chunk) => {
+    const { data, error } = await supabase()
+      .from("payment_requests")
+      .select("trip_id, request_no, status, approved_amount")
+      .in("trip_id", chunk)
+      .eq("payment_type", "advance")
+      .neq("status", "cancelled");
+    if (error) throw new Error(error.message);
+    return (data ?? []) as {
+      trip_id: string;
+      request_no: string;
+      status: string;
+      approved_amount: number | null;
+    }[];
+  });
   const out: Record<string, TripPaymentRequest> = {};
-  for (const row of (data ?? []) as {
-    trip_id: string;
-    request_no: string;
-    status: string;
-    approved_amount: number | null;
-  }[]) {
+  for (const row of parts.flat()) {
     out[row.trip_id] = {
       requestNo: row.request_no,
       status: row.status,
@@ -149,30 +165,36 @@ export async function fetchAdvancePayeeBanks(
   summaries: ComplianceTripSummary[],
 ): Promise<Record<string, SupplierBank>> {
   const cache = new Map<string, Promise<SupplierBank>>();
-  const entries = await Promise.all(
-    summaries.map(async (summary): Promise<[string, SupplierBank]> => [
+  const entries = await mapWithConcurrency(
+    summaries,
+    EXPORT_FETCH_CONCURRENCY,
+    async (summary): Promise<[string, SupplierBank]> => [
       summary.trip.id,
       await resolveTripPayeeBank(orgId, summary.trip, cache),
-    ]),
+    ],
   );
   return Object.fromEntries(entries);
 }
 
 /** Not org-filtered: receipts on shared trips can sit in the partner org; RLS scopes reads. */
 async function fetchAdvanceTransactions(tripIds: string[]): Promise<TxnRow[]> {
-  if (tripIds.length === 0) return [];
-  const { data, error } = await supabase()
-    .from("transactions")
-    .select(
-      "id, trip_id, amount_in, amount_out, description, transaction_date, created_by, ledger_category, payment_reference",
-    )
-    .in("trip_id", tripIds)
-    // Client receipts are money in; compliance advance / balance are supplier
-    // payouts (money out) — match both, not only amount_in.
-    .or("amount_in.gt.0,ledger_category.in.(compliance_advance,compliance_balance)")
-    .order("transaction_date", { ascending: true });
-  if (error) throw new Error(error.message);
-  return (data ?? []) as TxnRow[];
+  const chunks = chunkIds(tripIds, REST_IN_CHUNK);
+  if (chunks.length === 0) return [];
+  const parts = await mapWithConcurrency(chunks, EXPORT_FETCH_CONCURRENCY, async (chunk) => {
+    const { data, error } = await supabase()
+      .from("transactions")
+      .select(
+        "id, trip_id, amount_in, amount_out, description, transaction_date, created_by, ledger_category, payment_reference",
+      )
+      .in("trip_id", chunk)
+      // Client receipts are money in; compliance advance / balance are supplier
+      // payouts (money out) — match both, not only amount_in.
+      .or("amount_in.gt.0,ledger_category.in.(compliance_advance,compliance_balance)")
+      .order("transaction_date", { ascending: true });
+    if (error) throw new Error(error.message);
+    return (data ?? []) as TxnRow[];
+  });
+  return parts.flat();
 }
 
 export async function fetchAdvanceProcessedEnrichment(
@@ -198,8 +220,10 @@ export async function fetchAdvanceProcessedEnrichment(
   const supplierCache = new Map<string, Promise<SupplierBank>>();
   const [approverNames] = await Promise.all([resolveComplianceActorNames(approverIds, orgId)]);
 
-  const entries = await Promise.all(
-    withAdvance.map(async (summary): Promise<[string, AdvanceProcessedEnrichment]> => {
+  const entries = await mapWithConcurrency(
+    withAdvance,
+    EXPORT_FETCH_CONCURRENCY,
+    async (summary): Promise<[string, AdvanceProcessedEnrichment]> => {
       const trip = summary.trip;
       const advance = summary.advance!;
       const fromFinance = advance.transactionId.startsWith(FINANCE_RECEIPT_PREFIX);
@@ -231,7 +255,7 @@ export async function fetchAdvanceProcessedEnrichment(
           branch: bank.branch,
         },
       ];
-    }),
+    },
   );
   return Object.fromEntries(entries);
 }

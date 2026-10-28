@@ -5,7 +5,8 @@ export type TripAuditLogCategory =
   | "trip"
   | "assignment"
   | "status"
-  | "document";
+  | "document"
+  | "compliance";
 
 export type TripAuditFilterTab =
   | "all"
@@ -13,11 +14,14 @@ export type TripAuditFilterTab =
   | "assignment"
   | "payment"
   | "documents"
-  | "activity";
+  | "activity"
+  | "compliance";
 
 export type TripAuditLogPerson = {
   name: string;
   role?: string;
+  /** Workspace or party organization when it is not the same as `name`. */
+  orgLabel?: string;
   avatar: RegistryNotificationAvatar;
 };
 

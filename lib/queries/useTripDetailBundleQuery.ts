@@ -166,6 +166,7 @@ export interface BundleTransaction {
   ledger_entity_type: string | null;
   ledger_flow_type: string | null;
   ledger_category: string | null;
+  created_by: string | null;
 }
 
 export interface BundleAdjustment {
@@ -259,7 +260,7 @@ export const LIGHT_BUNDLE_DOC_LIMIT = 20;
 export const LIGHT_BUNDLE_TX_LIMIT = 50;
 
 const BUNDLE_TX_SELECT =
-  "id, organization_id, trip_id, party_name, description, amount_in, amount_out, transaction_date, created_at, contact_id, contact_type, ledger_entity_type, ledger_flow_type, ledger_category";
+  "id, organization_id, trip_id, party_name, description, amount_in, amount_out, transaction_date, created_at, created_by, contact_id, contact_type, ledger_entity_type, ledger_flow_type, ledger_category";
 
 const BUNDLE_ADJ_SELECT =
   "id, trip_id, organization_id, type, impact, amount, reason, mission_key, created_at, created_by, voided_at, void_reason";

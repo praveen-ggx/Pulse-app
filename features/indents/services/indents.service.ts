@@ -565,14 +565,11 @@ export async function getMarketIndentsForOrganization(
   const quotedPromise = supabase().rpc("quoted_indents_for_org", {
     org_id: orgId,
   });
-  let marketRes = await supabase().rpc("market_indents_for_org", {
+  // No inline repeat: an immediate identical call after a timeout or 5xx only
+  // doubles load on a struggling DB. The fetch layer and React Query retry with backoff.
+  const marketRes = await supabase().rpc("market_indents_for_org", {
     p_org_id: orgId,
   });
-  if (marketRes.error || !Array.isArray(marketRes.data)) {
-    marketRes = await supabase().rpc("market_indents_for_org", {
-      p_org_id: orgId,
-    });
-  }
   const quotedRes = await quotedPromise;
 
   const quotedExtras =

@@ -28,7 +28,13 @@
  * exported so existing call sites don't break; everything else is new.
  */
 
+import {
+  canMaterializeStoragePreview,
+  previewPrivateObject,
+  storagePreviewFailureMessage,
+} from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import { chunkIdsForRead, readAllPages } from "@/lib/pagination";
+import { isRetryableStorageError } from "@/lib/supabaseHttp.util";
 import { supabase } from "@/lib/supabase";
 import {
   documentAuditLookupOrFilter,
@@ -120,18 +126,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isTransient(message: string): boolean {
-  const m = message.toLowerCase();
-  return (
-    m.includes("timeout") ||
-    m.includes("timed out") ||
-    m.includes("connection") ||
-    m.includes("network") ||
-    m.includes("fetch failed") ||
-    m.includes("gateway")
-  );
-}
-
 async function runWithRetry<T>(
   op: () => Promise<T>,
   classify: (value: T) => string | null,
@@ -141,7 +135,7 @@ async function runWithRetry<T>(
     const result = await op();
     last = result;
     const err = classify(result);
-    if (!err || !isTransient(err)) return result;
+    if (!err || !isRetryableStorageError(err)) return result;
     if (i < STORAGE_RETRY_DELAYS_MS.length) {
       await sleep(STORAGE_RETRY_DELAYS_MS[i]);
     }
@@ -552,6 +546,16 @@ export async function getComplianceDocumentSignedUrl(
     return { url: null, error: new Error("Missing storage path.") };
   }
 
+  // Web paints a downloaded Blob and signs only if that download fails, so
+  // signing first is an unused Storage call there. Native viewers need the URL.
+  if (canMaterializeStoragePreview()) {
+    const preview = await previewPrivateObject(COMPLIANCE_BUCKET, storagePath, null);
+    if (!preview.url) {
+      return { url: null, error: new Error(storagePreviewFailureMessage(preview.kind ?? "failed")) };
+    }
+    return { url: preview.url, error: null };
+  }
+
   const { data, error } = await supabase()
     .storage.from(COMPLIANCE_BUCKET)
     .createSignedUrl(storagePath, SIGNED_URL_EXPIRY_SEC);
@@ -567,9 +571,6 @@ export async function getComplianceDocumentSignedUrl(
     return { url: null, error: new Error(kind) };
   }
 
-  const { previewPrivateObject, storagePreviewFailureMessage } = await import(
-    "@/features/trips/utils/storagePreviewObjectUrl.util"
-  );
   const preview = await previewPrivateObject(
     COMPLIANCE_BUCKET,
     storagePath,

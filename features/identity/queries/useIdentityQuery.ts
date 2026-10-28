@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { STALE } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
 import { getProfile } from "@/features/auth/services/auth.service";
-import { getOrganizationMembers } from "@/features/organization/services/members.service";
+import { getOrganizationMembersShared } from "@/features/organization/services/members.service";
 import type { OrgMember } from "@/types/organization";
 import { composeResolvedIdentity } from "../selectors/identitySelectors";
 import { identitiesKey } from "../utils/identityUtils";
@@ -33,7 +33,7 @@ export function resolveDisplayIdentity(params: {
     const [profile, membersRes] = await Promise.all([
       getProfile(userId),
       orgId
-        ? getOrganizationMembers(orgId)
+        ? getOrganizationMembersShared(orgId)
         : Promise.resolve({ members: [] as OrgMember[] }),
     ]);
     const member =
@@ -80,7 +80,7 @@ export function useResolvedIdentities(params: {
     queryKey: key ? queryKeys.identity.many(key) : ["q", "identities", "noop"],
     queryFn: async () => {
       const membersRes = orgId
-        ? await getOrganizationMembers(orgId)
+        ? await getOrganizationMembersShared(orgId)
         : { members: [] as OrgMember[] };
       const uniqueIds = key ? key.split(",") : [];
       const identities = await Promise.all(

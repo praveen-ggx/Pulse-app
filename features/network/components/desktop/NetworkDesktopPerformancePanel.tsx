@@ -108,7 +108,7 @@ import { canAccessClients, canAccessDrivers, canAccessSuppliers } from "@/lib/ca
 import { useCapabilities } from "@/lib/useCapabilities";
 import { useClientsQuery } from "@/lib/queries/useClientsQuery";
 import { useDriversQuery } from "@/lib/queries/useDriversQuery";
-import { useOrgMembersQuery } from "@/lib/queries/useOrgMembersQuery";
+import { useOrgMembersData } from "@/lib/queries/useOrgMembersQuery";
 import { useSuppliersQuery } from "@/lib/queries/useSuppliersQuery";
 import { useTripsQuery } from "@/lib/queries/useTripsQuery";
 import { useVehiclesQuery } from "@/lib/queries/useVehiclesQuery";
@@ -226,7 +226,7 @@ export function NetworkDesktopPerformancePanel({ orgId }: Props) {
   const driversQ = useDriversQuery(orgId);
   const vehiclesQ = useVehiclesQuery(orgId);
   const suppliersQ = useSuppliersQuery(orgId);
-  const orgMembersQ = useOrgMembersQuery(orgId);
+  const orgMembersQ = useOrgMembersData(orgId);
 
   const trips = tripsQ.data ?? [];
   const clients = clientsQ.data ?? [];

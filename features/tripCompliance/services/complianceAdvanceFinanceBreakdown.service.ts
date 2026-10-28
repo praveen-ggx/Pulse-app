@@ -8,6 +8,7 @@
 import { getDocumentChargeConfig } from "@/features/organization/services/documentCharges.service";
 import { formatSlabRange } from "@/features/organization/utils/documentChargeSlabs.util";
 import { fetchTripAdvanceLedger } from "@/features/tripCompliance/services/tripComplianceRead.service";
+import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
 import {
   COMPLIANCE_DEFAULT_ADVANCE_PERCENT,
   computeCompliancePaymentAmount,
@@ -15,10 +16,15 @@ import {
   resolveComplianceDocumentationCharge,
   resolveComplianceTdsRate,
 } from "@/features/tripCompliance/utils/compliancePaymentAmount.util";
+import { mapWithConcurrency } from "@/features/tripCompliance/utils/mapWithConcurrency.util";
 import {
   getVendorOnboardingProfile,
   listSupplierTdsRates,
+  type SupplierTdsRate,
+  type VendorOnboardingProfile,
 } from "@/features/suppliers/services/supplierVendorOnboarding.service";
+
+const TERMS_FETCH_CONCURRENCY = 4;
 
 export type ComplianceAdvanceFinanceBreakdown = {
   baseFreight: number | null;
@@ -140,4 +146,96 @@ export async function fetchComplianceAdvanceFinanceBreakdown(input: {
     postedPaymentMode: posted?.paymentMode?.trim() || null,
     postedUtr: posted?.utr?.trim() || null,
   };
+}
+
+function payableFromVaultTerms(
+  input: {
+    supplierRate: number | null | undefined;
+    supplierRateBasis: string | null | undefined;
+    loadTons: number | null | undefined;
+  },
+  profile: VendorOnboardingProfile | null,
+  rates: SupplierTdsRate[],
+  docCharge: Awaited<ReturnType<typeof getDocumentChargeConfig>>["data"],
+): number {
+  const baseFreight = supplierBaseFreight(input);
+  const resolvedTds = resolveComplianceTdsRate(rates);
+  const tdsAmount = computeComplianceTdsAmount(baseFreight ?? 0, resolvedTds?.ratePercent ?? null);
+  const adv = profile?.advance_percentage;
+  const vendorPct = adv != null && Number.isFinite(Number(adv)) ? Number(adv) : null;
+  const advancePercent =
+    vendorPct != null
+      ? Math.min(100, Math.max(0, vendorPct))
+      : COMPLIANCE_DEFAULT_ADVANCE_PERCENT;
+  const documentationCharges = resolveComplianceDocumentationCharge(docCharge, baseFreight).amount;
+  return computeCompliancePaymentAmount({
+    baseFreight: baseFreight ?? 0,
+    advancePercent,
+    documentationCharges,
+    tdsAmount,
+  });
+}
+
+/**
+ * Computed advance payable for many pending trips. One vault read per unique
+ * supplier (not 4 requests per trip) and no ledger — export only needs the amount.
+ */
+export async function fetchComplianceAdvancePayablesForTrips(
+  fallbackOrgId: string,
+  summaries: ComplianceTripSummary[],
+): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  if (summaries.length === 0) return out;
+
+  const orgIds = new Set<string>();
+  const supplierKeys: { orgId: string; supplierId: string }[] = [];
+  const seenSupplier = new Set<string>();
+  for (const summary of summaries) {
+    const orgId = (summary.trip.organization_id ?? fallbackOrgId).trim() || fallbackOrgId;
+    const supplierId = summary.trip.supplier_id?.trim() || "";
+    if (orgId) orgIds.add(orgId);
+    if (!orgId || !supplierId) continue;
+    const key = `${orgId}:${supplierId}`;
+    if (seenSupplier.has(key)) continue;
+    seenSupplier.add(key);
+    supplierKeys.push({ orgId, supplierId });
+  }
+
+  const docByOrg = new Map<string, Awaited<ReturnType<typeof getDocumentChargeConfig>>["data"]>();
+  await mapWithConcurrency([...orgIds], 2, async (orgId) => {
+    const { data } = await getDocumentChargeConfig(orgId);
+    docByOrg.set(orgId, data);
+  });
+
+  const terms = new Map<string, { profile: VendorOnboardingProfile | null; rates: SupplierTdsRate[] }>();
+  await mapWithConcurrency(supplierKeys, TERMS_FETCH_CONCURRENCY, async ({ orgId, supplierId }) => {
+    const [tdsResult, profileResult] = await Promise.all([
+      listSupplierTdsRates(orgId, supplierId),
+      getVendorOnboardingProfile(orgId, supplierId),
+    ]);
+    terms.set(`${orgId}:${supplierId}`, {
+      profile: profileResult.profile,
+      rates: tdsResult.rates,
+    });
+  });
+
+  for (const summary of summaries) {
+    const orgId = (summary.trip.organization_id ?? fallbackOrgId).trim() || fallbackOrgId;
+    const supplierId = summary.trip.supplier_id?.trim() || "";
+    if (!orgId || !supplierId) continue;
+    const vault = terms.get(`${orgId}:${supplierId}`);
+    if (!vault) continue;
+    out[summary.trip.id] = payableFromVaultTerms(
+      {
+        supplierRate: summary.trip.supplier_rate,
+        supplierRateBasis:
+          (summary.trip as { supplier_rate_basis?: string | null }).supplier_rate_basis ?? null,
+        loadTons: summary.trip.load_tons ?? null,
+      },
+      vault.profile,
+      vault.rates,
+      docByOrg.get(orgId) ?? null,
+    );
+  }
+  return out;
 }

@@ -83,3 +83,16 @@ test("pages a chunk whose documents exceed max_rows instead of dropping trips", 
   expect(res.source.documentTripIds).toHaveLength(100);
   expect(res.source.documentTripIds).toContain("t-000099");
 });
+
+test("skips completed and cancelled trips when reading documents", async () => {
+  mockTrips = [
+    { id: "t-open", status: "in_transit" },
+    { id: "t-done", status: "completed" },
+    { id: "t-cancel", status: "cancelled" },
+  ] as unknown as { id: string }[];
+  mockDocs = mockTrips.map((t, i) => ({ id: `d-${pad(i)}`, trip_id: t.id }));
+  const res = await getOrgHubCountSource("org-1");
+  expect(res.error).toBeNull();
+  expect(res.source.documentTripIds).toEqual(["t-open"]);
+  expect(mockInSizes).toEqual([1]);
+});

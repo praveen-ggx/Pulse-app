@@ -72,6 +72,10 @@ export type DriverTripListOpts = PageOpts & {
 import { getPlatformEventBus } from "@/lib/platform/events/InProcessEventBus";
 import { getAccessToken, supabase } from "@/lib/supabase";
 import { uuidv7 } from "@/lib/uuidv7";
+import {
+  isCompletedTripStatus,
+  isTripCancelledForHub,
+} from "@/features/trips/utils/tripHubMetrics";
 import type { DriverTripRow, SupplierTripRow } from "@/types/trip-views";
 import {
     driverRowToTripRow,
@@ -1748,7 +1752,11 @@ export async function getOrgHubCountSource(
   if (tripsRes.error) return { error: tripsRes.error, source: empty };
   if (indentsRes.error) return { error: indentsRes.error, source: empty };
 
-  const tripIds = tripsRes.rows.map((row) => row.id);
+  // Document facts only feed the open-trip tiles, so skip completed/cancelled
+  // trips: the RLS-checked trip_documents read is the costliest part of this source.
+  const tripIds = tripsRes.rows
+    .filter((row) => !isCompletedTripStatus(row.status) && !isTripCancelledForHub(row.status))
+    .map((row) => row.id);
   const documentTripIds = new Set<string>();
   // 1000 uuids in one `.in()` is a ~34 KB URL that PostgREST rejects (400), so
   // chunk the ids; page each chunk by `id` because a chunk can exceed max_rows.

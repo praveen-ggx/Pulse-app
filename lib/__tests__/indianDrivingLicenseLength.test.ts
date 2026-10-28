@@ -71,3 +71,21 @@ describe("Indian DL — Continue gate (DL_FORMAT)", () => {
     }
   });
 });
+
+describe("Indian DL — Telangana smart card with letter suffix", () => {
+  // Reported from the field (Rithwik, 28 Oct): card prints DLFAP029126912005OD.
+  const TS_SMART_OD = "DLFAP029126912005OD";
+
+  it("keeps all 19 chars in the Old card layout", () => {
+    expect(applyIndianDlKeystroke(TS_SMART_OD, "other")).toBe(TS_SMART_OD);
+  });
+
+  it("passes the Continue gate", () => {
+    expect(isIndianDrivingLicenseComplete(TS_SMART_OD)).toBe(true);
+    expect(isIndianDrivingLicenseComplete("DLFAP12810371208")).toBe(true);
+  });
+
+  it("still rejects more than 3 trailing letters", () => {
+    expect(isIndianDrivingLicenseComplete("DLFAP029126912005ODXY")).toBe(false);
+  });
+});

@@ -180,6 +180,39 @@ export function subscribeToOrgTeamRoster(
 
 // ─── List members ──────────────────────────────────────────────────────────────
 
+/** How long a display-only member list is reused before it is read again. */
+const SHARED_MEMBERS_TTL_MS = 60_000;
+const sharedMembers = new Map<
+  string,
+  { at: number; promise: Promise<{ error: Error | null; members: OrgMember[] }> }
+>();
+
+/**
+ * Member list for display lookups (names/avatars in identities, audit logs,
+ * tracking). Concurrent callers for one org share a single request and reuse
+ * the result for 60s; failures are not cached. Roster screens that must show
+ * the latest access state keep using `getOrganizationMembers` directly.
+ */
+export function getOrganizationMembersShared(orgId: string): Promise<{
+  error: Error | null;
+  members: OrgMember[];
+}> {
+  const now = Date.now();
+  const hit = sharedMembers.get(orgId);
+  if (hit && now - hit.at < SHARED_MEMBERS_TTL_MS) return hit.promise;
+  const promise = getOrganizationMembers(orgId).then((res) => {
+    if (res.error && sharedMembers.get(orgId)?.promise === promise) sharedMembers.delete(orgId);
+    return res;
+  });
+  sharedMembers.set(orgId, { at: now, promise });
+  return promise;
+}
+
+/** @internal — Jest only. */
+export function __resetSharedMembersForTests(): void {
+  sharedMembers.clear();
+}
+
 export async function getOrganizationMembers(orgId: string): Promise<{
   error: Error | null;
   members: OrgMember[];

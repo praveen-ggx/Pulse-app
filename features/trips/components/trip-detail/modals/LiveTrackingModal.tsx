@@ -34,7 +34,7 @@ import {
 } from "@/features/trips/utils/driverLastPingDisplay.util";
 import { formatTrackingDateTime } from "@/features/trips/utils/formatTrackingTimestamp.util";
 import { getProfile } from "@/features/auth/services/auth.service";
-import { getOrganizationMembers } from "@/features/organization/services/members.service";
+import { getOrganizationMembersShared } from "@/features/organization/services/members.service";
 import {
   collectActivityTimelineActorIds,
   fallbackActorForStatusContext,
@@ -149,7 +149,7 @@ export function LiveTrackingModal({
     void (async () => {
       const next: Record<string, string> = {};
       if (orgId) {
-        const { members } = await getOrganizationMembers(orgId);
+        const { members } = await getOrganizationMembersShared(orgId);
         for (const member of members) {
           const uid = String(member.user_id ?? "").trim();
           const name =

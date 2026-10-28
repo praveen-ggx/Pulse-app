@@ -1692,6 +1692,8 @@ export async function getClientTripCount(
 
 const HUB_FACT_PAGE = 1000;
 const HUB_FACT_MAX_PAGES = 50;
+/** Trip ids per `trip_documents` `.in()` — keeps the request URL well under the server limit. */
+const HUB_FACT_ID_CHUNK = 100;
 
 async function pageOrgRows<T>(
   fetchPage: (
@@ -1760,17 +1762,28 @@ export async function getOrgHubCountSource(
 
   const tripIds = tripsRes.rows.map((row) => row.id);
   const documentTripIds = new Set<string>();
-  for (let i = 0; i < tripIds.length; i += HUB_FACT_PAGE) {
-    const batch = tripIds.slice(i, i + HUB_FACT_PAGE);
-    if (batch.length === 0) break;
-    const { data, error } = await supabase()
-      .from("trip_documents")
-      .select("trip_id")
-      .in("trip_id", batch);
-    if (error) return { error: new Error(error.message), source: empty };
-    for (const row of data ?? []) {
-      const id = (row as { trip_id?: string | null }).trip_id?.trim();
-      if (id) documentTripIds.add(id);
+  // 1000 uuids in one `.in()` is a ~34 KB URL that PostgREST rejects (400), so
+  // chunk the ids; page each chunk by `id` because a chunk can exceed max_rows.
+  for (let i = 0; i < tripIds.length; i += HUB_FACT_ID_CHUNK) {
+    const batch = tripIds.slice(i, i + HUB_FACT_ID_CHUNK);
+    let afterId: string | null = null;
+    for (;;) {
+      let q = supabase()
+        .from("trip_documents")
+        .select("id, trip_id")
+        .in("trip_id", batch);
+      if (afterId) q = q.gt("id", afterId);
+      const { data, error } = await q
+        .order("id", { ascending: true })
+        .limit(HUB_FACT_PAGE);
+      if (error) return { error: new Error(error.message), source: empty };
+      const rows = (data ?? []) as { id: string; trip_id?: string | null }[];
+      for (const row of rows) {
+        const id = row.trip_id?.trim();
+        if (id) documentTripIds.add(id);
+      }
+      if (rows.length < HUB_FACT_PAGE) break;
+      afterId = rows[rows.length - 1].id;
     }
   }
 

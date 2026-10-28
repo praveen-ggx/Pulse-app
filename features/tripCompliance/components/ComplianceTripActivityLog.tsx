@@ -82,7 +82,6 @@ export function ComplianceTripActivityLog({
               .from("document_audit_log")
               .select("id, action, actor_id, created_at, entity_id, notes, metadata")
               .eq("organization_id", orgId)
-              .in("action", ["deleted", "replaced"])
               .in("entity_id", entityIds)
               .order("created_at", { ascending: false })
               .limit(80)
@@ -175,6 +174,7 @@ export function ComplianceTripActivityLog({
       hardCopyPod={hardCopyPod}
       loading={loading}
       scope="compliance"
+      complianceEnabled
       milestones={milestones}
     />
   );

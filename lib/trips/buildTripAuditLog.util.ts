@@ -33,7 +33,7 @@ function resolveActivityActorAvatar(
   const name =
     displayName.trim() ||
     profile?.full_name?.trim() ||
-    "Staff";
+    "Workspace member";
   return {
     name,
     entityType,
@@ -78,20 +78,76 @@ function profileDisplayName(
   );
 }
 
+const USER_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function looksLikeUserId(value: string): boolean {
+  return USER_ID_RE.test(value);
+}
+
 export function resolveTripActivityUserLabel(
   userId: string | null | undefined,
   currentUserId: string | null | undefined,
   userDisplayById: Record<string, string>,
-  fallback = "Staff",
+  fallback = "Workspace member",
   userProfileById?: Record<string, TripActivityUserProfile>,
 ): string {
-  if (!userId) return fallback;
-  if (currentUserId && userId === currentUserId) return "You";
-  const fromMap = userDisplayById[userId]?.trim();
-  if (fromMap) return fromMap;
-  const fromProfile = profileDisplayName(userProfileById?.[userId]);
-  if (fromProfile) return fromProfile;
-  return fallback;
+  const id = String(userId ?? "").trim();
+  if (!id) return fallback;
+  const fromMap = userDisplayById[id]?.trim() || "";
+  const fromProfile = profileDisplayName(userProfileById?.[id]) || "";
+  const storedName = looksLikeUserId(id) ? "" : id;
+  const name = fromMap || fromProfile || storedName;
+  if (currentUserId && id === currentUserId) {
+    return name ? `${name} (you)` : "You";
+  }
+  return name || fallback;
+}
+
+function samePartyLabel(left: string, right: string): boolean {
+  return (
+    left.trim().toLowerCase().replace(/\s+/g, " ") ===
+    right.trim().toLowerCase().replace(/\s+/g, " ")
+  );
+}
+
+export function resolveTripActivityParty(input: {
+  partyName?: string | null;
+  driverName?: string | null;
+  contactType?: string | null;
+  tripClientName?: string | null;
+  tripSupplierName?: string | null;
+}): {
+  name: string;
+  role: "Client" | "Supplier" | "Driver" | "Party";
+  orgLabel: string | null;
+} {
+  const contactType = String(input.contactType ?? "").trim().toLowerCase();
+  const role: "Client" | "Supplier" | "Driver" | "Party" =
+    contactType === "driver"
+      ? "Driver"
+      : contactType === "client"
+        ? "Client"
+        : contactType === "supplier"
+          ? "Supplier"
+          : "Party";
+  const raw = (input.partyName ?? input.driverName ?? "").trim();
+  const tripParty =
+    role === "Supplier"
+      ? (input.tripSupplierName ?? "").trim()
+      : role === "Client"
+        ? (input.tripClientName ?? "").trim()
+        : role === "Driver"
+          ? (input.driverName ?? "").trim()
+          : "";
+  const name = raw && raw !== "—" ? raw : tripParty;
+  const orgLabel =
+    tripParty && name && !samePartyLabel(tripParty, name) ? tripParty : null;
+  return {
+    name: name || "—",
+    role,
+    orgLabel,
+  };
 }
 
 /** Best-effort staff user when ledger / audit rows omit created_by. */
@@ -120,13 +176,15 @@ function categoryLabel(category: TripAuditLogCategory): string {
     case "assignment":
       return "Assignment";
     case "status":
-      return "Update";
+      return "Journey";
     case "trip":
-      return "Update";
+      return "Trip";
     case "document":
       return "Document";
+    case "compliance":
+      return "Compliance";
     default:
-      return "Update";
+      return "Journey";
   }
 }
 
@@ -188,7 +246,7 @@ function resolveStatusActor(
       item.actorUserId,
       currentUserId,
       userDisplayById,
-      context === "assigned" ? "Dispatcher" : "Staff",
+      context === "assigned" ? "Dispatcher" : "Workspace member",
       userProfileById,
     );
   }
@@ -199,7 +257,7 @@ function resolveStatusActor(
       creatorId,
       currentUserId,
       userDisplayById,
-      "Staff",
+      "Workspace member",
       userProfileById,
     );
   }
@@ -222,7 +280,7 @@ function resolveStatusActor(
     trip.status_updated_by,
     currentUserId,
     userDisplayById,
-    context === "assigned" ? "Dispatcher" : "Staff",
+    context === "assigned" ? "Dispatcher" : "Workspace member",
     userProfileById,
   );
 }
@@ -252,12 +310,9 @@ export function matchesTripAuditTab(
     return entry.category === "trip" || entry.category === "status";
   }
   if (tab === "documents") return entry.category === "document";
+  if (tab === "compliance") return entry.category === "compliance";
   if (tab === "activity") {
-    return (
-      entry.category === "status" ||
-      entry.category === "trip" ||
-      entry.category === "payment"
-    );
+    return true;
   }
   return true;
 }
@@ -272,7 +327,53 @@ export type TripAuditMilestone = {
   detail: string;
   contextLabel?: string;
   lane?: "document" | "activity";
+  category?: TripAuditLogCategory;
 };
+
+function activityFamily(title: string): string {
+  const value = title.toLowerCase();
+  if (/creat/.test(value)) return "created";
+  if (/deliver|complet/.test(value)) return "delivered";
+  if (/reassign/.test(value)) return "reassigned";
+  if (/reject|declin/.test(value) && /assign/.test(value)) return "declined-assign";
+  if (/assign/.test(value) && !/accept/.test(value)) return "assigned";
+  if (/pickup|picked/.test(value)) return "pickup";
+  if (/transit/.test(value)) return "transit";
+  if (/drop/.test(value)) return "drop";
+  if (/finance/.test(value) && /verif/.test(value)) return "finance-verified";
+  if (/compliance/.test(value) && /verif/.test(value)) return "compliance-verified";
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function activityDedupeKey(entry: TripAuditLogEntry): string {
+  const time = Date.parse(entry.at);
+  const bucket = Number.isFinite(time) ? Math.floor(time / 60_000) : entry.at;
+  return `${activityFamily(entry.title)}|${bucket}`;
+}
+
+function preferAuditEntry(
+  current: TripAuditLogEntry,
+  incoming: TripAuditLogEntry,
+): TripAuditLogEntry {
+  const score = (row: TripAuditLogEntry) =>
+    (row.people?.length ?? 0) * 3 +
+    (row.detailLines?.length ?? 0) * 2 +
+    (row.recordedBy !== "Staff" && row.recordedBy !== "Workspace member" ? 2 : 0) +
+    (row.detail && !row.detail.includes(".") ? 1 : 0);
+  return score(incoming) > score(current) ? incoming : current;
+}
+
+export function dedupeTripAuditEntries(
+  entries: TripAuditLogEntry[],
+): TripAuditLogEntry[] {
+  const byKey = new Map<string, TripAuditLogEntry>();
+  for (const entry of entries) {
+    const key = activityDedupeKey(entry);
+    const prev = byKey.get(key);
+    byKey.set(key, prev ? preferAuditEntry(prev, entry) : entry);
+  }
+  return Array.from(byKey.values());
+}
 
 export function buildTripAuditLog(params: {
   trip: TripRow;
@@ -551,33 +652,44 @@ export function buildTripAuditLog(params: {
     const isIn = inAmt > 0;
     const typeLabel =
       getDoubleEntryDisplayLabel(tx) ?? tx.description ?? "Payment";
-    const party = (tx.party_name ?? tx.driver_name ?? "").trim() || "—";
+    const party = resolveTripActivityParty({
+      partyName: tx.party_name,
+      driverName: tx.driver_name ?? driverDisplayName ?? trip.driver_display_name,
+      contactType: tx.contact_type ?? (isIn ? "client" : undefined),
+      tripClientName: trip.client_name,
+      tripSupplierName: trip.supplier_name,
+    });
     // Prefer created_at (full timestamptz) over transaction_date here: the timeline
     // renders a wall-clock time, but transaction_date is a date-only column, so
     // `new Date("YYYY-MM-DD")` parses as UTC midnight and shows e.g. 5:30 AM in IST.
     // (Ledger/statement views intentionally keep transaction_date-first for business date.)
     const at = tx.created_at ?? tx.transaction_date ?? "";
     const signedAmount = `${isIn ? "+" : "−"} ₹${formatAmount(amount)}`;
-    const actorUserId = inferTripStaffUserId(trip, tx.created_by);
+    const actorUserId = String(tx.created_by ?? "").trim() || null;
     const actor = resolveTripActivityUserLabel(
       actorUserId,
       currentUserId,
       userDisplayById,
-      "Staff",
+      "Workspace member",
       userProfileById,
     );
 
     const partyAvatar = resolveActivityActorAvatar(
-      party,
+      party.name,
       null,
       userProfileById,
-      tx.contact_type === "supplier"
+      party.role === "Supplier"
         ? "supplier"
-        : tx.contact_type === "driver"
+        : party.role === "Driver"
           ? "driver"
           : "client",
-      party,
+      party.name,
     );
+    const partyDetail = [
+      party.name !== "—" ? `${party.role}: ${party.name}` : null,
+      party.orgLabel ? `Org: ${party.orgLabel}` : null,
+      typeLabel && typeLabel !== "Payment" ? typeLabel : null,
+    ].filter(Boolean) as string[];
 
     entries.push({
       id: `payment-${tx.id}`,
@@ -585,33 +697,30 @@ export function buildTripAuditLog(params: {
       category: "payment",
       categoryLabel: categoryLabel("payment"),
       title: isIn
-        ? "recorded customer payment for"
-        : tx.contact_type === "driver"
-          ? "recorded driver payment to"
-          : "recorded supplier payment to",
+        ? "recorded a customer payment"
+        : party.role === "Driver"
+          ? "recorded a driver payment"
+          : "recorded a supplier payment",
       recordedAtLabel: formatAuditTimestamp(at),
       recordedBy: actor,
-      headlineTarget: party !== "—" ? party : undefined,
+      headlineTarget: party.name !== "—" ? party.name : undefined,
       actorAvatar: resolveActivityActorAvatar(
-        actor,
+        actor.replace(/ \(you\)$/i, ""),
         actorUserId,
         userProfileById,
         "client",
       ),
       contextLabel: isIn ? "Cash in" : "Cash out",
-      detail: typeLabel,
+      detail: partyDetail.join(" · ") || typeLabel,
+      detailLines: partyDetail.length > 0 ? partyDetail : undefined,
       amountLabel: signedAmount,
       people:
-        party !== "—"
+        party.name !== "—"
           ? [
               {
-                name: party,
-                role:
-                  tx.contact_type === "driver"
-                    ? "Driver"
-                    : isIn
-                      ? "Client"
-                      : "Supplier",
+                name: party.name,
+                role: party.role,
+                orgLabel: party.orgLabel ?? undefined,
                 avatar: partyAvatar,
               },
             ]
@@ -625,11 +734,13 @@ export function buildTripAuditLog(params: {
       mile.actorUserId,
       currentUserId,
       userDisplayById,
-      "Staff",
+      "Workspace member",
       userProfileById,
     );
     const category: TripAuditLogCategory =
-      mile.lane === "document" ? "document" : "status";
+      mile.category ??
+      (mile.lane === "document" ? "document" : "status");
+    const detail = mile.detail?.trim() || "";
     entries.push({
       id: mile.id,
       at: mile.at,
@@ -645,7 +756,8 @@ export function buildTripAuditLog(params: {
         "client",
       ),
       contextLabel: mile.contextLabel ?? "Compliance",
-      detail: mile.detail,
+      detail,
+      detailLines: detail ? [detail] : undefined,
     });
   }
 
@@ -657,7 +769,7 @@ export function buildTripAuditLog(params: {
       creatorId,
       currentUserId,
       userDisplayById,
-      "Staff",
+      "Workspace member",
       userProfileById,
     );
     entries.push({
@@ -679,6 +791,50 @@ export function buildTripAuditLog(params: {
     });
   }
 
+  const updatedAt = String(trip.updated_at ?? "").trim();
+  const createdAt = String(trip.created_at ?? "").trim();
+  if (
+    !complianceOnly &&
+    updatedAt &&
+    createdAt &&
+    updatedAt > createdAt &&
+    !entries.some((entry) => {
+      const delta = Math.abs(Date.parse(entry.at) - Date.parse(updatedAt));
+      return Number.isFinite(delta) && delta < 60_000;
+    })
+  ) {
+    const editorId =
+      trip.status_updated_by ??
+      trip.assigned_by_user_id ??
+      trip.owner_user_id ??
+      trip.created_by_user_id ??
+      null;
+    const editor = resolveTripActivityUserLabel(
+      editorId,
+      currentUserId,
+      userDisplayById,
+      "Workspace member",
+      userProfileById,
+    );
+    entries.push({
+      id: `trip-edited-${trip.id}-${updatedAt}`,
+      at: updatedAt,
+      category: "trip",
+      categoryLabel: categoryLabel("trip"),
+      title: "edited this trip",
+      recordedAtLabel: formatAuditTimestamp(updatedAt),
+      recordedBy: editor,
+      actorAvatar: resolveActivityActorAvatar(
+        editor,
+        editorId,
+        userProfileById,
+        "client",
+      ),
+      contextLabel: "Trip edited",
+      detail: `${editor} edited ${tripRef}`,
+    });
+  }
+
   if (hardCopyPod && hardCopyPod.status !== "PENDING") {
     const at =
       hardCopyPod.receivedAt ??
@@ -691,7 +847,7 @@ export function buildTripAuditLog(params: {
       actorId,
       currentUserId,
       userDisplayById,
-      "Staff",
+      "Workspace member",
       userProfileById,
     );
     const methodLabel =
@@ -733,7 +889,7 @@ export function buildTripAuditLog(params: {
     });
   }
 
-  return entries.sort(
+  return dedupeTripAuditEntries(entries).sort(
     (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime(),
   );
 }

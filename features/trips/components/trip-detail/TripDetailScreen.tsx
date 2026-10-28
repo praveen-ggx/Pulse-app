@@ -8692,6 +8692,7 @@ export default function TripDetailScreen({
       <TripAuditLogPanel
         visible={showTripAuditLog}
         onClose={() => setShowTripAuditLog(false)}
+        complianceEnabled={complianceEnabled}
         trip={trip}
         organizationId={currentOrganization?.id ?? trip.organization_id}
         currentUserId={detail.currentUserId}
@@ -8702,6 +8703,7 @@ export default function TripDetailScreen({
         tripLedgerEntries={detail.tripLedgerEntries}
         driverDisplayName={detail.driverName}
         hardCopyPod={hardCopyPodState}
+        vaultDocuments={detail.tripDocuments}
       />
 
       <LogHardCopyPodModal

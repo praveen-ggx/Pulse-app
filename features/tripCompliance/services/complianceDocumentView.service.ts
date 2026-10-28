@@ -10,6 +10,7 @@
  */
 import { invalidatePdfPreview } from "@/components/pdfEmbedCache.util";
 import { getComplianceDocumentSignedUrl } from "@/features/compliance/services/documents.service";
+import { getOrganizationMembersShared } from "@/features/organization/services/members.service";
 import {
   invalidateStoragePreviewPath,
   invalidateStoragePreviewPrefix,
@@ -301,8 +302,8 @@ export async function resolveComplianceActorDetails(
   const details: Record<string, ComplianceActorDetail> = {};
 
   if (orgId) {
-    const { data } = await supabase().rpc("get_org_members_with_profiles", { p_org_id: orgId });
-    for (const row of data ?? []) {
+    const { members } = await getOrganizationMembersShared(orgId);
+    for (const row of members as unknown as Record<string, unknown>[]) {
       const userId = typeof row.user_id === "string" ? row.user_id : "";
       if (!userId || !unique.includes(userId) || details[userId]) continue;
       details[userId] = composeComplianceActorDetail({

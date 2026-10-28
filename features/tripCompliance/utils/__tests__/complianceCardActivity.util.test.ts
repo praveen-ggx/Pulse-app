@@ -3,6 +3,7 @@ import {
   complianceCardMilestones,
   milestoneFromDocumentAudit,
   milestoneFromWorkflowEvent,
+  milestonesFromTripDocument,
 } from "@/features/tripCompliance/utils/complianceCardActivity.util";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
 
@@ -109,6 +110,39 @@ describe("milestoneFromWorkflowEvent", () => {
     });
   });
 
+  it("maps finance.verified to a compliance category", () => {
+    expect(
+      milestoneFromWorkflowEvent({
+        id: "fv",
+        event_type: "finance.verified",
+        created_at: "2026-10-25T13:24:00.000Z",
+        actor_id: "user-dhira",
+      }),
+    ).toMatchObject({
+      title: "verified finance",
+      contextLabel: "Finance",
+      category: "compliance",
+      detail: "Advance approved by Finance",
+    });
+  });
+
+  it("keeps unknown workflow edits on the activity list", () => {
+    expect(
+      milestoneFromWorkflowEvent({
+        id: "e3",
+        event_type: "trip.rate_updated",
+        created_at: "2026-10-25T12:00:00.000Z",
+        actor_id: "user-staff",
+        payload: { reason: "Client rate changed" },
+      }),
+    ).toMatchObject({
+      title: "rate updated",
+      actorUserId: "user-staff",
+      detail: "Client rate changed",
+      contextLabel: "Journey",
+    });
+  });
+
   it("maps later charge edits and removals to activity titles", () => {
     expect(
       milestoneFromWorkflowEvent({
@@ -123,6 +157,36 @@ describe("milestoneFromWorkflowEvent", () => {
       actorUserId: "user-staff",
       detail: "Removed Late delivery — no debit.",
     });
+  });
+});
+
+describe("milestonesFromTripDocument", () => {
+  it("keeps the uploader id on vault files", () => {
+    expect(
+      milestonesFromTripDocument({
+        id: "doc-1",
+        document_type: "lr",
+        file_name: "lr.pdf",
+        uploaded_at: "2026-10-24T09:00:00.000Z",
+        uploaded_by: "user-priya",
+        status: "verified",
+        verified_at: "2026-10-24T10:00:00.000Z",
+        verified_by: "user-vasanth",
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        title: "uploaded LR",
+        actorUserId: "user-priya",
+        detail: "lr.pdf",
+        lane: "document",
+        category: "document",
+      }),
+      expect.objectContaining({
+        title: "verified LR",
+        actorUserId: "user-vasanth",
+        lane: "document",
+      }),
+    ]);
   });
 });
 
@@ -158,8 +222,22 @@ describe("milestoneFromDocumentAudit", () => {
       milestoneFromDocumentAudit({
         action: "uploaded",
         created_at: "2026-10-24T12:00:00.000Z",
+        metadata: { file_name: "lr.pdf" },
       }),
-    ).toBeNull();
+    ).toMatchObject({
+      title: "uploaded lr.pdf",
+      lane: "document",
+    });
+    expect(
+      milestoneFromDocumentAudit({
+        action: "updated",
+        created_at: "2026-10-24T12:10:00.000Z",
+        metadata: { file_name: "lr.pdf" },
+      }),
+    ).toMatchObject({
+      title: "edited lr.pdf",
+      contextLabel: "Document Edited",
+    });
   });
 });
 

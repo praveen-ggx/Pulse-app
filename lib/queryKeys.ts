@@ -16,8 +16,8 @@ export const queryKeys = {
     /** Exact owned-trip totals — not the newest-400 catalog length. */
     orgCounts: (orgId: string) => ["q", "trips", orgId, "org-counts"] as const,
     hubCounts: (orgId: string) => ["q", "trips", orgId, "hub-counts"] as const,
-    hubCountSource: (orgId: string) =>
-      ["q", "trips", orgId, "hub-count-source"] as const,
+    indentIdsWithTrip: (orgId: string) =>
+      ["q", "trips", orgId, "indent-ids-with-trip"] as const,
     partyCount: (orgId: string, kind: "client" | "supplier", partyId: string) =>
       ["q", "trips", orgId, "party-count", kind, partyId] as const,
     infinite: (orgId: string, pageSize: number) =>

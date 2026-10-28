@@ -21,6 +21,7 @@ export type ComplianceCardMilestone = {
   detail: string;
   contextLabel: string;
   lane: ComplianceCardLane;
+  category?: "compliance" | "status" | "trip" | "document" | "payment";
 };
 
 function push(
@@ -29,6 +30,59 @@ function push(
 ) {
   if (!item?.at) return;
   items.push(item);
+}
+
+export function milestonesFromTripDocument(doc: {
+  id: string;
+  document_type?: string | null;
+  file_name?: string | null;
+  uploaded_at?: string | null;
+  uploaded_by?: string | null;
+  status?: string | null;
+  verified_at?: string | null;
+  verified_by?: string | null;
+  rejection_reason?: string | null;
+}): ComplianceCardMilestone[] {
+  const items: ComplianceCardMilestone[] = [];
+  const kind = labelForDocType(doc.document_type ?? "other");
+  const fileName = String(doc.file_name ?? "").trim();
+  if (doc.uploaded_at) {
+    push(items, {
+      id: `vault-upload-${doc.id}`,
+      at: doc.uploaded_at,
+      title: `uploaded ${kind}`,
+      actorUserId: doc.uploaded_by ?? null,
+      detail: fileName || kind,
+      contextLabel: "Document Upload",
+      lane: "document",
+      category: "document",
+    });
+  }
+  if (doc.verified_at && doc.status === "verified") {
+    push(items, {
+      id: `vault-verified-${doc.id}`,
+      at: doc.verified_at,
+      title: `verified ${kind}`,
+      actorUserId: doc.verified_by ?? null,
+      detail: fileName || kind,
+      contextLabel: "Document Verification",
+      lane: "document",
+      category: "document",
+    });
+  }
+  if (doc.verified_at && doc.status === "rejected") {
+    push(items, {
+      id: `vault-rejected-${doc.id}`,
+      at: doc.verified_at,
+      title: `rejected ${kind}`,
+      actorUserId: doc.verified_by ?? null,
+      detail: doc.rejection_reason?.trim() || fileName || kind,
+      contextLabel: "Document Verification",
+      lane: "document",
+      category: "document",
+    });
+  }
+  return items;
 }
 
 function entityDocMilestones(doc: ComplianceEntityDocument): ComplianceCardMilestone[] {
@@ -211,42 +265,84 @@ function workflowPayload(payload: unknown): {
 
 const WORKFLOW_COPY: Record<
   string,
-  { title: string; contextLabel: string; fallbackDetail: string }
+  {
+    title: string;
+    contextLabel: string;
+    fallbackDetail: string;
+    category?: ComplianceCardMilestone["category"];
+  }
 > = {
+  "finance.verified": {
+    title: "verified finance",
+    contextLabel: "Finance",
+    fallbackDetail: "Advance approved by Finance",
+    category: "compliance",
+  },
+  "compliance.verified": {
+    title: "verified compliance",
+    contextLabel: "Compliance",
+    fallbackDetail: "Trip marked compliance verified",
+    category: "compliance",
+  },
+  "compliance.declined": {
+    title: "declined compliance",
+    contextLabel: "Compliance",
+    fallbackDetail: "Trip sent back from compliance",
+    category: "compliance",
+  },
+  "trip.completed": {
+    title: "marked delivered",
+    contextLabel: "Delivered",
+    fallbackDetail: "Trip completed",
+    category: "status",
+  },
+  "trip.created": {
+    title: "created trip",
+    contextLabel: "Trip created",
+    fallbackDetail: "Trip created",
+    category: "trip",
+  },
   "pod.hard_copy_courier_dispatched": {
     title: "logged hard copy POD",
     contextLabel: "Awaiting POD",
     fallbackDetail: "Hard copy dispatched by courier",
+    category: "compliance",
   },
   "pod.hard_copy_received": {
     title: "recorded hard copy POD",
     contextLabel: "Awaiting POD",
     fallbackDetail: "Hard copy received",
+    category: "compliance",
   },
   [POD_VALIDATED_EVENT]: {
     title: "validated POD",
     contextLabel: "POD Verification",
     fallbackDetail: "POD verification completed",
+    category: "compliance",
   },
   [POD_REVALIDATE_EVENT]: {
     title: "requested POD revalidation",
     contextLabel: "Settlement Verification",
     fallbackDetail: "Sent back to POD Verification",
+    category: "compliance",
   },
   [POD_NOT_FOUND_EVENT]: {
     title: "reported POD not found",
     contextLabel: "POD Verification",
     fallbackDetail: "Returned to Awaiting POD",
+    category: "compliance",
   },
   "pod.debit_control_draft": {
     title: "saved POD charges",
     contextLabel: "POD Verification",
     fallbackDetail: "Exception charges saved from POD",
+    category: "compliance",
   },
   "compliance.advance_document_cost": {
     title: "logged advance document cost",
     contextLabel: "Compliance",
     fallbackDetail: "Advance document cost posted",
+    category: "compliance",
   },
 };
 
@@ -272,6 +368,7 @@ export function milestoneFromWorkflowEvent(row: {
       detail: reason || "POD charges were changed",
       contextLabel: "POD Verification",
       lane: "activity",
+      category: "compliance",
     };
   }
   const known = WORKFLOW_COPY[type];
@@ -283,21 +380,34 @@ export function milestoneFromWorkflowEvent(row: {
       actorUserId,
       detail: reason || known.fallbackDetail,
       contextLabel: known.contextLabel,
-      lane: "activity",
+      lane: known.category === "document" ? "document" : "activity",
+      category: known.category,
     };
   }
-  if (type.startsWith("compliance.") || type.startsWith("pod.")) {
-    return {
-      id: `wf-${row.id ?? type}-${at}`,
-      at,
-      title: type.replace(/^[a-z]+\./, "").replace(/_/g, " "),
-      actorUserId,
-      detail: reason || type,
-      contextLabel: "Compliance",
-      lane: "activity",
-    };
-  }
-  return null;
+  const prefix = type.split(".")[0];
+  const category: ComplianceCardMilestone["category"] =
+    prefix === "finance" || prefix === "compliance" || prefix === "pod"
+      ? "compliance"
+      : prefix === "trip"
+        ? "status"
+        : "status";
+  return {
+    id: `wf-${row.id ?? type}-${at}`,
+    at,
+    title: type.replace(/^[a-z]+\./, "").replace(/[._]/g, " "),
+    actorUserId,
+    detail: reason || type.replace(/[._]/g, " "),
+    contextLabel:
+      prefix === "pod"
+        ? "POD"
+        : prefix === "finance"
+          ? "Finance"
+          : prefix === "compliance"
+            ? "Compliance"
+            : "Journey",
+    lane: "activity",
+    category,
+  };
 }
 
 const ACTOR_NEARBY_MS = 3 * 60_000;
@@ -372,23 +482,45 @@ export function milestoneFromDocumentAudit(
 ): ComplianceCardMilestone | null {
   const at = String(row.created_at ?? "").trim();
   const action = String(row.action ?? "").trim().toLowerCase();
-  if (!at) return null;
-  if (action !== "deleted" && action !== "replaced") return null;
+  if (!at || !action) return null;
   const fileName = auditFileName(row.metadata);
   const kind = fileName || "document";
   const replacedWith = String(row.metadata?.new_file_name ?? "").trim();
+  const titleByAction: Record<string, string> = {
+    created: `uploaded ${kind}`,
+    uploaded: `uploaded ${kind}`,
+    updated: `edited ${kind}`,
+    verified: `verified ${kind}`,
+    rejected: `rejected ${kind}`,
+    replaced: `replaced ${kind}`,
+    deleted: `deleted ${kind}`,
+    downloaded: `downloaded ${kind}`,
+  };
+  const contextByAction: Record<string, string> = {
+    created: "Document Upload",
+    uploaded: "Document Upload",
+    updated: "Document Edited",
+    verified: "Document Verification",
+    rejected: "Document Verification",
+    replaced: "Document Replaced",
+    deleted: "Document Deleted",
+    downloaded: "Document Download",
+  };
   return {
     id: `doc-audit-${row.id ?? `${action}-${row.entity_id ?? "x"}`}-${at}`,
     at,
-    title: action === "deleted" ? `deleted ${kind}` : `replaced ${kind}`,
+    title: titleByAction[action] ?? `${action} ${kind}`,
     actorUserId: row.actor_id ?? null,
     detail:
       action === "replaced"
         ? [replacedWith ? `Replaced with ${replacedWith}` : null, row.notes?.trim() || null]
             .filter(Boolean)
             .join(" · ") || kind
-        : row.notes?.trim() || fileName || "Document removed from this trip",
-    contextLabel: action === "deleted" ? "Document Deleted" : "Document Replaced",
+        : action === "deleted"
+          ? row.notes?.trim() || fileName || "Document removed from this trip"
+          : row.notes?.trim() || fileName || kind,
+    contextLabel: contextByAction[action] ?? "Document",
     lane: "document",
+    category: "document",
   };
 }

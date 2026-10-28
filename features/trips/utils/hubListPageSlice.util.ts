@@ -31,3 +31,19 @@ export function sliceHubListPage(args: {
 
   return { indentOffset, indentLimit, tripOffset, tripLimit };
 }
+
+/** Trip ids on the current hub page — document chips/labels load these only. */
+export function visibleHubTripIds(
+  tripIds: readonly string[],
+  slice:
+    | Pick<HubListPageSlice, "tripOffset" | "tripLimit">
+    | { page: number; pageSize: number },
+): string[] {
+  if ("tripOffset" in slice) {
+    const start = Math.max(0, slice.tripOffset);
+    return tripIds.slice(start, start + Math.max(0, slice.tripLimit)).filter(Boolean);
+  }
+  const pageSize = Math.max(1, slice.pageSize);
+  const start = Math.max(0, slice.page) * pageSize;
+  return tripIds.slice(start, start + pageSize).filter(Boolean);
+}

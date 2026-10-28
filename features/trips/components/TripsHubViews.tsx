@@ -1126,6 +1126,7 @@ export type TripsHubTableViewProps = {
    * (including server-side matches), so the table does not filter again.
    * When omitted, the table keeps internal search state and filters itself.
    */
+  searchPlaceholder?: string;
   searchQuery?: string;
   onSearchQueryChange?: (next: string) => void;
   /** Lowercased indent codes keyed by indent id, so a trip matches its source indent's code. */
@@ -1177,6 +1178,8 @@ export type TripsHubTableViewProps = {
   lrNumbersByTripId?: Record<string, string>;
   lrLabelByTripId?: Record<string, string>;
   elrLabelByTripId?: Record<string, string>;
+  /** Optional control rendered immediately before Sort (indent activity log). */
+  toolbarLeading?: ReactNode;
 };
 
 function txnAmount(row: LedgerRow): number {
@@ -1309,6 +1312,7 @@ export function TripsHubTableView({
   toolbarWarning,
   toolbarTags,
   searchQuery: searchQueryProp,
+  searchPlaceholder,
   onSearchQueryChange,
   indentSearchTextByIndentId,
   dateRangeFilter = "all",
@@ -1326,6 +1330,7 @@ export function TripsHubTableView({
   lrNumbersByTripId,
   lrLabelByTripId,
   elrLabelByTripId,
+  toolbarLeading,
 }: TripsHubTableViewProps) {
   const insets = useSafeAreaInsets();
   const { width: layoutWidth } = useWindowDimensions();
@@ -1607,15 +1612,14 @@ export function TripsHubTableView({
   );
 
   const dateFilterTagLabel = (() => {
-    const extra = (dateRangeLabel ?? "").trim();
     if (dateRangeFilter === "custom") {
-      return extra ? `DATE · ${extra}` : "DATE";
+      const custom = (dateRangeLabel ?? "").trim();
+      return custom ? `DATE · ${custom}` : "DATE";
     }
-    if (dateRangeFilter === "all") return extra ? `DATE · ${extra}` : "DATE";
+    if (dateRangeFilter === "all") return "DATE";
     const preset =
       datePresetOptions.find((opt) => opt.id === dateRangeFilter)?.label;
-    if (preset && extra) return `DATE · ${preset} · ${extra}`;
-    return preset ? `DATE · ${preset}` : extra ? `DATE · ${extra}` : "DATE";
+    return preset ? `DATE · ${preset}` : "DATE";
   })();
 
   const dateFilterActive = dateRangeFilter !== "all";
@@ -1846,7 +1850,10 @@ export function TripsHubTableView({
       <TextInput
         value={tableQuery}
         onChangeText={setTableQuery}
-        placeholder="Search LR, vehicle, driver, trip, client, supplier"
+        placeholder={
+          searchPlaceholder ??
+          "Search LR, vehicle, driver, trip, client, supplier"
+        }
         placeholderTextColor="#94a3b8"
         autoCapitalize="none"
         style={styles.auditSearchInput}
@@ -1917,6 +1924,7 @@ export function TripsHubTableView({
                 </View>
               </View>
             ) : null}
+            {toolbarLeading}
             {sortToolbarBtn}
             {tableSearchField}
             {addTripBtn}
@@ -1953,6 +1961,7 @@ export function TripsHubTableView({
                 {toolbarStatusTags}
                 {dateFilterChips}
                 {ewayFilterChips}
+                {toolbarLeading}
                 <TouchableOpacity
                   style={styles.auditToolbarBtn}
                   onPress={cycleSortKey}
@@ -1975,7 +1984,12 @@ export function TripsHubTableView({
               </View>
             )
           ) : null}
-              {!useMobileToolbarLayout ? sortToolbarBtn : null}
+              {!useMobileToolbarLayout ? (
+                <>
+                  {toolbarLeading}
+                  {sortToolbarBtn}
+                </>
+              ) : null}
               {mobileCardList ? (
                 <View style={styles.auditToolbarSearchRow}>
                   <View style={styles.auditToolbarCountInline}>
@@ -1995,7 +2009,10 @@ export function TripsHubTableView({
                     <TextInput
                       value={tableQuery}
                       onChangeText={setTableQuery}
-                      placeholder="Search LR, vehicle, driver, trip, client, supplier"
+                      placeholder={
+                        searchPlaceholder ??
+                        "Search LR, vehicle, driver, trip, client, supplier"
+                      }
                       placeholderTextColor={Theme.textMuted}
                       autoCapitalize="none"
                       style={styles.auditSearchInputStandard}

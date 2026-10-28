@@ -33,6 +33,7 @@ import {
   finishSupabaseCircuitProbe,
   isOriginDownHttpStatus,
   isRetryableHttpResponse,
+  maxRetriesForHttpResponse,
   shouldOpenOriginCircuitForHttpFailure,
   noteSupabaseHealthy,
   noteSupabaseOriginDown,
@@ -256,7 +257,7 @@ async function fetchWithTimeoutAndRetryRaw(
         }
         if (
           isRetryableHttpResponse(res) &&
-          attempt < maxRetries &&
+          attempt < maxRetriesForHttpResponse(res.status) &&
           !(await isStatementTimeoutResponse(res))
         ) {
           await new Promise((r) => setTimeout(r, delayForAttempt(attempt)));

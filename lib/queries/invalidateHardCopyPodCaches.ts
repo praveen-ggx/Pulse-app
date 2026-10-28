@@ -160,6 +160,29 @@ export function invalidateHardCopyPodCachesForTrips(
 }
 
 /**
+ * Realtime POD-column change on one trip. The Compliance pipeline holds
+ * documents, flags and ledger inputs for every pipeline trip, and invalidating
+ * it re-reads all of them; patch just this trip's POD record into it instead
+ * (as a local POD write does). Other Compliance views still refetch. If the
+ * POD read fails, fall back to refetching the pipeline.
+ */
+export async function refreshCompliancePodForTrip(
+  queryClient: QueryClient,
+  tripId: string,
+): Promise<void> {
+  const id = tripId.trim();
+  if (!id) return;
+  const { error, state } = await fetchTripHardCopyPodState(id);
+  const patched = !error && !!state;
+  if (patched) publishHardCopyPodState(queryClient, id, state);
+  // After the publish: setQueriesData would otherwise clear these invalidations.
+  void queryClient.invalidateQueries({
+    queryKey: ["q", "tripCompliance"],
+    predicate: (query) => !patched || query.queryKey[2] !== "pipeline",
+  });
+}
+
+/**
  * After a successful hard-copy POD write, read the trip's POD record back
  * and publish it into the shared query plus any cached trip rows for that id.
  * Callers must invoke this only when the write succeeded.

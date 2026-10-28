@@ -1,12 +1,12 @@
 /**
  * Trip activity — Metronic journey timeline (who did what, when, with people).
  */
+import { AlertRegistrySignalCard } from "@/components/AlertRegistrySignalCard";
 import { DriverAvatar, UserAvatar } from "@/components/Avatar";
 import { PartyAvatar } from "@/components/PartyAvatar";
 import { TinyEmptyLottie } from "@/components/TinyEmptyLottie";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
-import { TripActivityTimelineIcon } from "@/features/trips/components/trip-detail/TripActivityTimelineIcon";
 import {
   formatTripActivityRelativeTime,
   tripActivityMonthYearLabel,
@@ -14,17 +14,13 @@ import {
 } from "@/lib/trips/formatTripActivityTime.util";
 import { TRIP_ACTIVITY_LOTTIE } from "@/lib/trips/tripActivityLottieAssets";
 import type { TripAuditFilterTab } from "@/lib/trips/tripAuditLog.types";
-import type {
-  TripAuditLogEntry,
-  TripAuditLogPerson,
-} from "@/lib/trips/tripAuditLog.types";
+import type { TripAuditLogEntry } from "@/lib/trips/tripAuditLog.types";
 import Feather from "@expo/vector-icons/Feather";
 import { X } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -33,11 +29,6 @@ import {
   useWindowDimensions,
   type ViewStyle,
 } from "react-native";
-
-const WEB_COPY = Platform.select({
-  web: { whiteSpace: "pre-wrap" as const, letterSpacing: 0 },
-  default: {},
-});
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const METRONIC = {
@@ -54,42 +45,11 @@ const METRONIC = {
 const TABS: { id: TripAuditFilterTab; label: string }[] = [
   { id: "all", label: "All" },
   { id: "documents", label: "Documents" },
-  { id: "activity", label: "Activity" },
-  { id: "payment", label: "Payment" },
-  { id: "updates", label: "Updates" },
+  { id: "compliance", label: "Compliance" },
+  { id: "updates", label: "Journey" },
   { id: "assignment", label: "Assignment" },
+  { id: "payment", label: "Payment" },
 ];
-
-const CATEGORY_TONE: Record<
-  TripAuditLogEntry["category"],
-  { bg: string; text: string; border: string }
-> = {
-  payment: {
-    bg: "rgba(16,185,129,0.1)",
-    text: "#047857",
-    border: "rgba(16,185,129,0.22)",
-  },
-  assignment: {
-    bg: "rgba(59,130,246,0.1)",
-    text: "#1d4ed8",
-    border: "rgba(59,130,246,0.22)",
-  },
-  status: {
-    bg: "rgba(148,163,184,0.12)",
-    text: "#475569",
-    border: "rgba(148,163,184,0.22)",
-  },
-  trip: {
-    bg: "rgba(99,102,241,0.1)",
-    text: "#4f46e5",
-    border: "rgba(99,102,241,0.22)",
-  },
-  document: {
-    bg: "rgba(14,165,233,0.1)",
-    text: "#0369a1",
-    border: "rgba(14,165,233,0.22)",
-  },
-};
 
 export type TripAuditLogContentProps = {
   title?: string;
@@ -100,6 +60,7 @@ export type TripAuditLogContentProps = {
   onClose: () => void;
   shellStyle?: ViewStyle;
   tabs?: TripAuditFilterTab[];
+  initialTab?: TripAuditFilterTab;
   emptyBody?: string;
 };
 
@@ -215,128 +176,37 @@ function ActivityUserAvatar({
   );
 }
 
-function PeopleRow({ people }: { people: TripAuditLogPerson[] }) {
-  if (people.length === 0) return null;
-  const person = people[0];
-
-  return (
-    <View style={styles.peopleRow}>
-      <ActivityUserAvatar avatar={person.avatar} size={18} />
-      <Text style={styles.peopleLabel} numberOfLines={1}>
-        {person.role ? (
-          <Text style={styles.peopleRole}>{person.role}: </Text>
-        ) : null}
-        {person.name}
-      </Text>
-    </View>
-  );
-}
-
-function ActivityDetailCard({ entry }: { entry: TripAuditLogEntry }) {
-  const tone = CATEGORY_TONE[entry.category];
-  const isPayment = entry.category === "payment";
-  const showCard =
-    isPayment ||
-    entry.category === "assignment" ||
-    Boolean(entry.detailLines?.length) ||
-    Boolean(entry.people?.length);
-
-  if (!showCard) return null;
-
-  return (
-    <View style={styles.detailCard}>
-      {isPayment ? (
-        <>
-          <View style={styles.detailCardHead}>
-            <View
-              style={[
-                styles.categoryChip,
-                { backgroundColor: tone.bg, borderColor: tone.border },
-              ]}
-            >
-              <Text style={[styles.categoryChipText, { color: tone.text }]}>
-                {entry.categoryLabel}
-              </Text>
-            </View>
-            {entry.amountLabel ? (
-              <Text
-                style={[
-                  styles.amountPill,
-                  entry.amountLabel.startsWith("+")
-                    ? styles.amountIn
-                    : styles.amountOut,
-                ]}
-              >
-                {entry.amountLabel}
-              </Text>
-            ) : null}
-          </View>
-          {entry.detail ? (
-            <Text style={styles.detailSecondary} numberOfLines={2}>
-              {entry.detail}
-            </Text>
-          ) : null}
-          {entry.detailLines?.map((line) => (
-            <Text key={line} style={styles.detailSecondary} numberOfLines={1}>
-              {line}
-            </Text>
-          ))}
-        </>
-      ) : (
-        <>
-          {entry.detailLines?.map((line) => (
-            <Text key={line} style={styles.detailSecondary} numberOfLines={2}>
-              {line}
-            </Text>
-          ))}
-          {!entry.detailLines?.length && entry.detail ? (
-            <Text style={styles.detailSecondary} numberOfLines={3}>
-              {entry.detail}
-            </Text>
-          ) : null}
-        </>
-      )}
-
-      {entry.people && entry.people.length > 0 ? (
-        <PeopleRow people={entry.people} />
-      ) : null}
-    </View>
-  );
-}
-
-function ActivityActorHeadline({ entry }: { entry: TripAuditLogEntry }) {
-  const phrase = actionPhrase(entry);
-
-  return (
-    <View style={styles.headlineRow}>
-      <ActivityUserAvatar avatar={entry.actorAvatar} size={22} />
-      <Text style={[styles.headline, WEB_COPY]} numberOfLines={4}>
-        <Text style={[styles.actorName, WEB_COPY]}>{entry.recordedBy}</Text>
-        <Text style={[styles.actionText, WEB_COPY]}> {phrase}</Text>
-        {entry.headlineTarget ? (
-          <Text style={styles.targetName}> {entry.headlineTarget}</Text>
-        ) : null}
-      </Text>
-    </View>
-  );
-}
-
 function TimelineEntryRow({
   entry,
-  showLine,
   index,
 }: {
   entry: TripAuditLogEntry;
-  showLine: boolean;
   index: number;
 }) {
   const entrance = useRef(new Animated.Value(0)).current;
   const relativeTime = formatTripActivityRelativeTime(entry.at);
-  const showDetailCard =
-    entry.category === "payment" ||
-    entry.category === "assignment" ||
-    Boolean(entry.detailLines?.length) ||
-    Boolean(entry.people?.length);
+  const detailTitle =
+    entry.amountLabel ||
+    entry.detailLines?.[0] ||
+    (entry.category === "document" || entry.category === "compliance"
+      ? entry.detail
+      : undefined);
+  const extraLines = (entry.detailLines ?? []).filter((line) => line && line !== detailTitle);
+  const peopleLine = entry.people?.[0]
+    ? [
+        entry.people[0].role ? `${entry.people[0].role}: ${entry.people[0].name}` : entry.people[0].name,
+        entry.people[0].orgLabel &&
+        entry.people[0].orgLabel !== entry.people[0].name
+          ? entry.people[0].orgLabel
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : null;
+  const detailSubtitle =
+    extraLines.join(" · ") ||
+    peopleLine ||
+    (detailTitle && entry.detail && entry.detail !== detailTitle ? entry.detail : undefined);
 
   useEffect(() => {
     Animated.timing(entrance, {
@@ -349,52 +219,31 @@ function TimelineEntryRow({
 
   return (
     <Animated.View
-      style={[
-        styles.entryRow,
-        {
-          opacity: entrance,
-          transform: [
-            {
-              translateY: entrance.interpolate({
-                inputRange: [0, 1],
-                outputRange: [4, 0],
-              }),
-            },
-          ],
-        },
-      ]}
+      style={{
+        opacity: entrance,
+        transform: [
+          {
+            translateY: entrance.interpolate({
+              inputRange: [0, 1],
+              outputRange: [4, 0],
+            }),
+          },
+        ],
+      }}
     >
-      <View style={styles.trackCol}>
-        <TripActivityTimelineIcon
-          category={entry.category}
-          title={entry.title}
-          amountLabel={entry.amountLabel}
-          size={28}
-        />
-        {showLine ? <View style={styles.trackLine} /> : null}
-      </View>
-
-      <View style={styles.entryBody}>
-        <ActivityActorHeadline entry={entry} />
-
-        <View style={styles.metaRow}>
-          <View style={styles.metaDot} />
-          <Text style={styles.metaLine} numberOfLines={2}>
-            {relativeTime}
-            {entry.contextLabel ? (
-              <Text style={styles.metaContext}> · {entry.contextLabel}</Text>
-            ) : null}
-          </Text>
-        </View>
-
-        {showDetailCard ? <ActivityDetailCard entry={entry} /> : null}
-
-        {!showDetailCard && entry.detail ? (
-          <Text style={styles.plainDetail} numberOfLines={3}>
-            {entry.detail}
-          </Text>
-        ) : null}
-      </View>
+      <AlertRegistrySignalCard
+        avatar={entry.actorAvatar}
+        actorName={entry.recordedBy}
+        actionText={actionPhrase(entry)}
+        highlightText={entry.headlineTarget}
+        detailTitle={detailTitle}
+        detailSubtitle={detailSubtitle}
+        detail={!detailTitle ? entry.detail : undefined}
+        timeLabel={relativeTime}
+        contextLabel={entry.contextLabel ?? entry.categoryLabel}
+        tags={[{ label: entry.categoryLabel }]}
+        avatarSlot={<ActivityUserAvatar avatar={entry.actorAvatar} size={36} />}
+      />
     </Animated.View>
   );
 }
@@ -447,6 +296,7 @@ export function TripAuditLogContent({
   onClose,
   shellStyle,
   tabs,
+  initialTab = "all",
   emptyBody,
 }: TripAuditLogContentProps) {
   const { width } = useWindowDimensions();
@@ -457,7 +307,7 @@ export function TripAuditLogContent({
     () => (tabs?.length ? TABS.filter((tab) => tabs.includes(tab.id)) : TABS),
     [tabs],
   );
-  const [filterTab, setFilterTab] = useState<TripAuditFilterTab>("all");
+  const [filterTab, setFilterTab] = useState<TripAuditFilterTab>(initialTab);
   const [activeYear, setActiveYear] = useState<number | null>(null);
   useEffect(() => {
     if (!visibleTabs.some((tab) => tab.id === filterTab)) setFilterTab("all");
@@ -621,7 +471,6 @@ export function TripAuditLogContent({
                   <TimelineEntryRow
                     key={row.key}
                     entry={row.entry}
-                    showLine={!row.isLast}
                     index={entryIndex}
                   />
                 );
@@ -660,7 +509,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
     flexDirection: "column",
-    backgroundColor: "#F9F9F9",
+    backgroundColor: Theme.cardWhite,
     overflow: "hidden",
   },
   header: {
@@ -793,12 +642,12 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   scrollContent: {
-    paddingHorizontal: Layout.screenPaddingHorizontal,
+    paddingHorizontal: 0,
     paddingTop: 10,
     paddingBottom: 24,
   },
   scrollContentCompact: {
-    paddingHorizontal: Layout.screenPaddingHorizontal,
+    paddingHorizontal: 0,
     paddingTop: 12,
   },
   scrollContentWithRail: {
@@ -808,18 +657,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    marginBottom: 14,
+    marginHorizontal: Layout.screenPaddingHorizontal,
+    marginBottom: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: METRONIC.border,
     backgroundColor: Theme.cardWhite,
-    shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 3,
-    elevation: 1,
   },
   journeyHeroIcon: {
     width: 36,
@@ -856,9 +701,9 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   monthHeader: {
-    marginTop: 4,
-    marginBottom: 10,
-    paddingLeft: TRACK_WIDTH + 8,
+    marginTop: 8,
+    marginBottom: 4,
+    paddingHorizontal: Layout.screenPaddingHorizontal,
   },
   monthPill: {
     alignSelf: "flex-start",

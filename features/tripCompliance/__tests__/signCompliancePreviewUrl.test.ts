@@ -17,6 +17,8 @@ jest.mock("@/lib/supabase", () => ({
 jest.mock("@/features/trips/utils/storagePreviewObjectUrl.util", () => ({
   isInlinePreviewUri: jest.requireActual("@/features/trips/utils/storagePreviewObjectUrl.util")
     .isInlinePreviewUri,
+  // Native path: the bucket is chosen by signing (web skips the up-front sign).
+  canMaterializeStoragePreview: () => false,
   previewPrivateObject: async (bucket: string, _path: string, signed?: string | null) => {
     mockPaintedBuckets.push(bucket);
     return { url: signed ? "blob:license" : null, kind: signed ? null : "missing" };

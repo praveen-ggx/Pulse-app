@@ -9,14 +9,13 @@ import {
   getTripPartyCountsForOrg,
   getOrgTripCounts,
   getOrgHubMetrics,
-  getOrgHubCountSource,
+  getOrgIndentIdsWithTrip,
   getShipperDisplayNamesForSupplierTrips,
   updateTripStatus,
   type TripRow,
   type TripPartyCounts,
   type OrgTripCounts,
 } from '@/features/trips/services/trips.service';
-import type { OrgHubCountSource } from '@/features/trips/utils/hubExactCounts.util';
 import {
   hubMetricsForExactRail,
   type OrgHubMetrics,
@@ -100,16 +99,16 @@ export function useOrgHubMetricsQuery(orgId: string | null) {
   });
 }
 
-/** Every owned trip/indent fact for hub rail counts — not the newest-400 catalog. */
-export function useOrgHubCountSourceQuery(orgId: string | null) {
+/** Indent ids that already have an owned trip — keeps them off the hub's needs-trip list. */
+export function useOrgIndentIdsWithTripQuery(orgId: string | null) {
   const { status } = useAuth();
   const bootQuietOpen = useAppQueryGate(orgId);
-  return useQuery<OrgHubCountSource, Error>({
-    queryKey: queryKeys.trips.hubCountSource(orgId ?? ''),
+  return useQuery<string[], Error>({
+    queryKey: queryKeys.trips.indentIdsWithTrip(orgId ?? ''),
     queryFn: async () => {
-      const res = await getOrgHubCountSource(orgId!);
+      const res = await getOrgIndentIdsWithTrip(orgId!);
       if (res.error) throw res.error;
-      return res.source;
+      return res.indentIds;
     },
     enabled: !!orgId && status !== 'restoring' && bootQuietOpen,
     staleTime: STALE.moderate,

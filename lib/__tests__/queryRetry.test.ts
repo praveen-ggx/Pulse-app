@@ -39,12 +39,11 @@ describe("queryRetry infrastructure policy", () => {
     expect(infrastructureShouldRetry(0, named)).toBe(false);
   });
 
-  it("retries a brief 522 once at TanStack layer with long backoff", () => {
+  it("does not stack a TanStack infrastructure retry on 522 — fetch owns that attempt", () => {
     const err = new Error("Connection timed out (522)");
     expect(isInfrastructureError(err)).toBe(true);
-    expect(infrastructureShouldRetry(0, err)).toBe(true);
+    expect(infrastructureShouldRetry(0, err)).toBe(false);
     expect(infrastructureShouldRetry(1, err)).toBe(false);
-    expect(infrastructureShouldRetry(2, err)).toBe(false);
     expect(infrastructureRetryDelay(0, () => 0.5)).toBe(15_000);
     expect(infrastructureRetryDelay(1, () => 0.5)).toBe(30_000);
     expect(infrastructureRetryDelay(2, () => 0.5)).toBe(60_000);

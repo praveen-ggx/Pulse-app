@@ -28,6 +28,11 @@
  * exported so existing call sites don't break; everything else is new.
  */
 
+import {
+  canMaterializeStoragePreview,
+  previewPrivateObject,
+  storagePreviewFailureMessage,
+} from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import { chunkIdsForRead, readAllPages } from "@/lib/pagination";
 import { supabase } from "@/lib/supabase";
 import {
@@ -552,6 +557,16 @@ export async function getComplianceDocumentSignedUrl(
     return { url: null, error: new Error("Missing storage path.") };
   }
 
+  // Web paints a downloaded Blob and signs only if that download fails, so
+  // signing first is an unused Storage call there. Native viewers need the URL.
+  if (canMaterializeStoragePreview()) {
+    const preview = await previewPrivateObject(COMPLIANCE_BUCKET, storagePath, null);
+    if (!preview.url) {
+      return { url: null, error: new Error(storagePreviewFailureMessage(preview.kind ?? "failed")) };
+    }
+    return { url: preview.url, error: null };
+  }
+
   const { data, error } = await supabase()
     .storage.from(COMPLIANCE_BUCKET)
     .createSignedUrl(storagePath, SIGNED_URL_EXPIRY_SEC);
@@ -567,9 +582,6 @@ export async function getComplianceDocumentSignedUrl(
     return { url: null, error: new Error(kind) };
   }
 
-  const { previewPrivateObject, storagePreviewFailureMessage } = await import(
-    "@/features/trips/utils/storagePreviewObjectUrl.util"
-  );
   const preview = await previewPrivateObject(
     COMPLIANCE_BUCKET,
     storagePath,

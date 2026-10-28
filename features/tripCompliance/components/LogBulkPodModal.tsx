@@ -217,8 +217,8 @@ export function LogBulkPodModal({
   const [remarks, setRemarks] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [captureIndex, setCaptureIndex] = useState(0);
-  const [sharedFiles, setSharedFiles] = useState<DraftFile[]>([]);
-  const [sharedSelectedId, setSharedSelectedId] = useState<string | null>(null);
+  const [_sharedFiles, setSharedFiles] = useState<DraftFile[]>([]);
+  const [_sharedSelectedId, setSharedSelectedId] = useState<string | null>(null);
   const [filesByTrip, setFilesByTrip] = useState<Record<string, DraftFile[]>>({});
   const [tripSelectedId, setTripSelectedId] = useState<Record<string, string | null>>({});
   const [saving, setSaving] = useState(false);

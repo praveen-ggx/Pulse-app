@@ -212,7 +212,7 @@ function TripRowContent({
   summary,
   onOpenTrip,
   onOpenSupplier,
-  onOpenDetails,
+  onOpenDetails: _onOpenDetails,
   onReview,
   onMarkComplianceVerified,
   onVerifyDocs,

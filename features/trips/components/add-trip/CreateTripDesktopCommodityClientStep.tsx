@@ -1,7 +1,6 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 
-import Theme from "@/constants/Theme";
 import type { ClientRow } from "@/features/clients/services/clients.service";
 import { resolveWizardClientPhone } from "@/features/clients/utils/clientContactDisplay.util";
 import { TripCommodityFields } from "@/features/trips/components/add-trip/TripCommodityFields";

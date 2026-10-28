@@ -9838,7 +9838,6 @@ export type Database = {
           pan_number?: string | null
           primary_region?: string | null
           phone?: string | null
-          primary_region?: string | null
           secondary_phone?: string | null
           status_changed_at?: string | null
           vendor_status?: string
@@ -9882,7 +9881,6 @@ export type Database = {
           pan_number?: string | null
           primary_region?: string | null
           phone?: string | null
-          primary_region?: string | null
           secondary_phone?: string | null
           status_changed_at?: string | null
           vendor_status?: string

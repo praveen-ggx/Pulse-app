@@ -3314,7 +3314,7 @@ export default function TripDetailScreen({
           fileName: file.fileName ?? file.label ?? label,
           categoryLabel: label,
           storagePath: file.storagePath,
-          previewUri: null,
+          previewUri: null as string | null,
           documentId: file.documentId,
           category:
             slot === "invoice" ? "invoice" : slot === "lr" ? "lr" : "trip",
@@ -3331,7 +3331,7 @@ export default function TripDetailScreen({
         categoryLabel: "Bank Docs",
         storagePath: /^https?:\/\//i.test(path) ? "" : path,
         previewUri: /^https?:\/\//i.test(path) ? path : null,
-      });
+      } as (typeof mapped)[number]);
     }
     return mapped;
   }, [detail.computedTripDocs, supplierBankProof?.previewPath]);
@@ -3539,7 +3539,9 @@ export default function TripDetailScreen({
             fileName: file.fileName,
             categoryLabel: label,
             storagePath: file.url,
-            deleteKind: (file.extraId ? "vehicle_extra" : "vehicle_compliance") as const,
+            deleteKind: (file.extraId ? "vehicle_extra" : "vehicle_compliance") as
+              | "vehicle_extra"
+              | "vehicle_compliance",
             extraId: file.extraId,
             complianceType: docType,
             expiryDate: file.expiryDate ?? null,
@@ -5187,7 +5189,7 @@ export default function TripDetailScreen({
               onFile
                 ? {
                     storagePath: file.storagePath,
-                    fileName: file.fileName ?? file.label ?? "POD",
+                    fileName: ("fileName" in file ? file.fileName : undefined) ?? file.label ?? "POD",
                     mimeHint: file.type,
                     source: "trip",
                     organizationId:

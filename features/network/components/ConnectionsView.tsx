@@ -1192,7 +1192,8 @@ export function ConnectionsView({
             isMobileHub && styles.connectionsPhotoWatermarkCompact,
           ]}
           resizeMode="contain"
-          pointerEvents="none"
+          // ImageProps omits pointerEvents; RN / RN-web still honour it on Image.
+          {...({ pointerEvents: "none" } as object)}
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
         />

@@ -13,7 +13,7 @@ import {
   searchPlacesInIndia,
   type PlaceResult,
 } from "@/lib/placesService";
-import { customPlaceCoords, isUsablePlaceCoordinate } from "@/lib/placeSearch.util";
+import { customPlaceCoords, isUsablePlaceCoordinate } from "@/lib/maps/placeSearch.util";
 import {
   enrichPlaceSelectionSync,
   formatCityStateFromParts,

@@ -326,7 +326,7 @@ export function AlertRegistrySignalCard({
     <Pressable
       onPress={onPress}
       disabled={!onPress}
-      style={({ pressed, hovered }) => [
+      style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => [
         styles.pressable,
         hovered && styles.pressableHover,
         pressed && onPress ? styles.pressablePressed : null,

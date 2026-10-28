@@ -68,7 +68,7 @@ import {
   ENABLE_UNLINKED_COUNTERPARTIES,
   UnlinkedCounterpartiesSection,
 } from "@/features/network/components/UnlinkedCounterpartiesSection";
-import { isPostVisibleForOrg, type PostRow } from "@/features/network/services/posts.service";
+import { isPostVisibleForOrg } from "@/features/network/services/posts.service";
 import { isFleetOwnerCapacityPost } from "@/features/network/utils/storyDisplay";
 import { shouldShowFeedPostForOrg } from "@/features/network/utils/storyLoadVisibility.util";
 import { isIndentStoryLive } from "@/features/network/utils/indentStoryWindow.util";
@@ -453,14 +453,14 @@ function NetworkScreenInner() {
       ]),
     [orgId, receivedQ.data, sentQ.data],
   );
-  const networkConnectionsReady = !receivedQ.isPending && !sentQ.isPending;
+  const _networkConnectionsReady = !receivedQ.isPending && !sentQ.isPending;
   /**
    * The clients/suppliers books back every relationship rule in the feed
    * filter. They resolve independently of the feed itself, so until both have
    * settled an empty book is indistinguishable from a genuinely empty one.
    */
   const partnerBooksReady = clientsQ.isSuccess && suppliersQ.isSuccess;
-  const feedPosts = useMemo(
+  const _feedPosts = useMemo(
     () =>
       (feedQ.data ?? []).filter((post) => {
         if (!isPostVisibleForOrg(post, { allowLoadPosts })) return false;

@@ -287,7 +287,7 @@ export function RegistryPrimaryButton({
     <Pressable
       onPress={onPress}
       disabled={disabled}
-      style={({ hovered, pressed }) => [
+      style={({ hovered, pressed }: { pressed: boolean; hovered?: boolean }) => [
         alertRegistryActionStyles.primaryBtn,
         accentStyle,
         compact && alertRegistryActionStyles.primaryBtnCompact,

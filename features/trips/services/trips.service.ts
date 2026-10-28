@@ -7,7 +7,18 @@ import {
     selectTripOperationalReference,
 } from "@/features/operations/numbering";
 import { isDcoOperatingTrip } from "@/features/trips/domain/tripDcoOperating";
-import { shouldFallbackTripsTableScan } from "@/features/trips/utils/tripOrgFetch.util";
+import {
+    EMPTY_ORG_HUB_METRICS,
+    parseOrgHubMetrics,
+    resolveOrgHubMetricsRpcResult,
+    type OrgHubMetrics,
+    type OrgHubMetricsSource,
+} from "@/features/trips/utils/orgHubMetrics.util";
+import {
+    shouldFallbackTripsTableScan,
+    shouldTableScanTripsForOrg,
+    tripsForOrgRpcArgs,
+} from "@/features/trips/utils/tripOrgFetch.util";
 import { shouldMarkAssignedOnFirstAssign } from "@/features/trips/utils/tripReassign.util";
 import { TRIP_REASSIGN_STALE_ERROR } from "@/features/trips/utils/tripReassignConflict.util";
 import {
@@ -287,32 +298,33 @@ function normalizeTripRowWithIndent(
 
 /**
  * Fetch all trips visible to an org via RPC — includes cross-org supplier trips. Mirrors useTripsQuery.
- * The list is the newest 400; `includeComplianceBacklog` also returns older trips still open in
- * the Compliance workflow (verified / approved / requested, not settled) for the Compliance queue.
+ * The list is the newest 400; a dated call is newest 2000 matching trips (not unlimited).
+ * `includeComplianceBacklog` also returns older trips still open in the Compliance workflow
+ * (verified / approved / requested, not settled) for the Compliance queue.
  */
 export async function getTripsForOrg(
   orgId: string,
-  opts?: { includeComplianceBacklog?: boolean },
+  opts?: { includeComplianceBacklog?: boolean; from?: string; to?: string },
 ): Promise<{ error: Error | null; trips: TripRow[] }> {
   const backlog = opts?.includeComplianceBacklog === true;
-  return runSingleflight(`get_trips_for_org:${orgId}${backlog ? ":compliance" : ""}`, async () => {
+  const rpcArgs = tripsForOrgRpcArgs(orgId, opts);
+  const rangeKey =
+    rpcArgs.p_from && rpcArgs.p_to ? `:${rpcArgs.p_from}:${rpcArgs.p_to}` : "";
+  return runSingleflight(`get_trips_for_org:${orgId}${backlog ? ":compliance" : ""}${rangeKey}`, async () => {
     try {
-      const { data, error } = await supabase().rpc(
-        "get_trips_for_org",
-        backlog ? { p_org_id: orgId, p_include_compliance_backlog: true } : { p_org_id: orgId },
-      );
+      const { data, error } = await supabase().rpc("get_trips_for_org", rpcArgs);
       if (!error) {
         const trips = ((data ?? []) as TripRow[]).map((row) =>
           normalizeTripRowWithIndent(row as TripRow & { indents?: TripIndentJoin | null }),
         );
         return { error: null, trips };
       }
-      if (!shouldFallbackTripsTableScan(error)) {
+      if (!shouldTableScanTripsForOrg(error, opts)) {
         return { error: new Error(error.message), trips: [] };
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      if (!shouldFallbackTripsTableScan({ message })) {
+      if (!shouldTableScanTripsForOrg({ message }, opts)) {
         return { error: e instanceof Error ? e : new Error(message), trips: [] };
       }
     }
@@ -352,6 +364,32 @@ export type TripPartyCounts = {
   byDriverId: Record<string, number>;
 };
 
+const TRIP_PARTY_COUNT_PAGE = 1000;
+const TRIP_PARTY_COUNT_MAX_PAGES = 50;
+
+export type TripPartyCountRow = {
+  client_id?: string | null;
+  supplier_id?: string | null;
+  driver_id?: string | null;
+};
+
+export function accumulateTripPartyCounts(
+  rows: readonly TripPartyCountRow[],
+  into: TripPartyCounts = { byClientId: {}, bySupplierId: {}, byDriverId: {} },
+): TripPartyCounts {
+  for (const row of rows) {
+    const clientId = row.client_id?.trim();
+    const supplierId = row.supplier_id?.trim();
+    const driverId = row.driver_id?.trim();
+    if (clientId) into.byClientId[clientId] = (into.byClientId[clientId] ?? 0) + 1;
+    if (supplierId) {
+      into.bySupplierId[supplierId] = (into.bySupplierId[supplierId] ?? 0) + 1;
+    }
+    if (driverId) into.byDriverId[driverId] = (into.byDriverId[driverId] ?? 0) + 1;
+  }
+  return into;
+}
+
 /** Owner-org trip counts only — do not use `get_trips_for_org` for Network card badges. */
 export async function getTripPartyCountsForOrg(
   orgId: string,
@@ -362,27 +400,27 @@ export async function getTripPartyCountsForOrg(
     byDriverId: {},
   };
   if (!orgId) return { error: null, counts: empty };
-  const { data, error } = await supabase()
-    .from("trips")
-    .select("client_id, supplier_id, driver_id")
-    .eq("organization_id", orgId)
-    .is("deleted_at", null)
-    .limit(2000);
-  if (error) return { error: new Error(error.message), counts: empty };
   const counts: TripPartyCounts = {
     byClientId: {},
     bySupplierId: {},
     byDriverId: {},
   };
-  for (const row of data ?? []) {
-    const clientId = (row as { client_id?: string | null }).client_id?.trim();
-    const supplierId = (row as { supplier_id?: string | null }).supplier_id?.trim();
-    const driverId = (row as { driver_id?: string | null }).driver_id?.trim();
-    if (clientId) counts.byClientId[clientId] = (counts.byClientId[clientId] ?? 0) + 1;
-    if (supplierId) {
-      counts.bySupplierId[supplierId] = (counts.bySupplierId[supplierId] ?? 0) + 1;
+  // PostgREST caps a single response (~1000). Page so Network badges are exact.
+  for (let page = 0; page < TRIP_PARTY_COUNT_MAX_PAGES; page += 1) {
+    const from = page * TRIP_PARTY_COUNT_PAGE;
+    const to = from + TRIP_PARTY_COUNT_PAGE - 1;
+    const { data, error } = await supabase()
+      .from("trips")
+      .select("client_id, supplier_id, driver_id")
+      .eq("organization_id", orgId)
+      .is("deleted_at", null)
+      .range(from, to);
+    if (error) return { error: new Error(error.message), counts: empty };
+    const rows = (data ?? []) as TripPartyCountRow[];
+    accumulateTripPartyCounts(rows, counts);
+    if (rows.length < TRIP_PARTY_COUNT_PAGE) {
+      return { error: null, counts };
     }
-    if (driverId) counts.byDriverId[driverId] = (counts.byDriverId[driverId] ?? 0) + 1;
   }
   return { error: null, counts };
 }
@@ -1407,18 +1445,227 @@ export async function getVehicleOngoingTrip(
   return { error: null, trip: rows[0] ?? null };
 }
 
+const COMPLETED_TRIP_STATUSES = ["completed", "delivered", "done"] as const;
+
+export type OrgTripCounts = {
+  total: number;
+  completed: number;
+};
+
+type OwnedTripCountFilter = {
+  driverId?: string;
+  vehicleId?: string;
+  supplierId?: string;
+  clientId?: string;
+  completedOnly?: boolean;
+};
+
+async function countOwnedTrips(
+  orgId: string,
+  filter: OwnedTripCountFilter = {},
+): Promise<{ error: Error | null; count: number }> {
+  let q = supabase()
+    .from("trips")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", orgId)
+    .is("deleted_at", null);
+  if (filter.driverId) q = q.eq("driver_id", filter.driverId);
+  if (filter.vehicleId) q = q.eq("vehicle_id", filter.vehicleId);
+  if (filter.supplierId) q = q.eq("supplier_id", filter.supplierId);
+  if (filter.clientId) q = q.eq("client_id", filter.clientId);
+  if (filter.completedOnly) q = q.in("status", [...COMPLETED_TRIP_STATUSES]);
+  const { count, error } = await q;
+  if (error) return { error: new Error(error.message), count: 0 };
+  return { error: null, count: count ?? 0 };
+}
+
+async function headCount(
+  build: () => PromiseLike<{ count: number | null; error: { message: string } | null }>,
+): Promise<{ error: Error | null; count: number }> {
+  const { count, error } = await build();
+  if (error) return { error: new Error(error.message), count: 0 };
+  return { error: null, count: count ?? 0 };
+}
+
+async function getOrgHubMetricsFallback(
+  orgId: string,
+): Promise<{ error: Error | null; metrics: OrgHubMetrics }> {
+  const trip = () =>
+    supabase()
+      .from("trips")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", orgId)
+      .is("deleted_at", null);
+  const indent = () =>
+    supabase()
+      .from("indents")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", orgId)
+      .is("deleted_at", null);
+
+  const [
+    completed,
+    cancelled,
+    active,
+    assigned,
+    loading,
+    inTransit,
+    destAtDrop,
+    destWithDocs,
+    noDriver,
+    draftOrCancelled,
+    indentFailed,
+    failClient,
+    failExpiredReason,
+    failExpiredStatus,
+    failNoRates,
+    failWrong,
+    indentOpen,
+    indentAllocated,
+  ] = await Promise.all([
+    headCount(() => trip().in("status", [...COMPLETED_TRIP_STATUSES])),
+    headCount(() => trip().eq("status", "cancelled")),
+    headCount(() =>
+      trip().not("status", "in", '("completed","delivered","done","cancelled")'),
+    ),
+    headCount(() => trip().eq("status", "assigned").not("driver_id", "is", null)),
+    headCount(() =>
+      trip().in("status", ["picked_up", "pickup", "in_progress"]).not("driver_id", "is", null),
+    ),
+    headCount(() =>
+      trip().in("status", ["in_transit", "dispatched", "transit"]).not("driver_id", "is", null),
+    ),
+    headCount(() =>
+      trip()
+        .in("status", ["unloading", "arrived", "at_destination", "at_drop"])
+        .not("driver_id", "is", null),
+    ),
+    headCount(() =>
+      supabase()
+        .from("trips")
+        .select("id, trip_documents!inner(id)", { count: "exact", head: true })
+        .eq("organization_id", orgId)
+        .is("deleted_at", null)
+        .in("status", ["unloading", "arrived", "at_destination", "at_drop"])
+        .not("driver_id", "is", null),
+    ),
+    headCount(() =>
+      trip().is("driver_id", null).not("status", "in", '("completed","delivered","done")'),
+    ),
+    headCount(() =>
+      trip()
+        .in("status", ["cancelled", "draft"])
+        .not("driver_id", "is", null),
+    ),
+    headCount(() => indent().in("status", ["cancelled", "expired"])),
+    headCount(() => indent().eq("cancel_reason", "client_cancelled")),
+    headCount(() => indent().eq("cancel_reason", "indent_expired")),
+    headCount(() => indent().eq("status", "expired")),
+    headCount(() => indent().eq("cancel_reason", "no_rates_available")),
+    headCount(() => indent().eq("cancel_reason", "wrong_entry")),
+    headCount(() =>
+      indent().not("status", "in", '("completed","cancelled","closed","expired")'),
+    ),
+    headCount(() =>
+      supabase()
+        .from("indents")
+        .select("id, trips!trips_indent_id_fkey!inner(id)", {
+          count: "exact",
+          head: true,
+        })
+        .eq("organization_id", orgId)
+        .is("deleted_at", null)
+        .not("status", "in", '("completed","cancelled","closed","expired")')
+        .is("trips.deleted_at", null),
+    ),
+  ]);
+
+  const firstError = [
+    completed, cancelled, active, assigned, loading, inTransit, destAtDrop,
+    destWithDocs, noDriver, draftOrCancelled, indentFailed, failClient, failExpiredReason,
+    failExpiredStatus, failNoRates, failWrong, indentOpen, indentAllocated,
+  ].find((row) => row.error)?.error ?? null;
+
+  return {
+    error: firstError,
+    metrics: {
+      ...EMPTY_ORG_HUB_METRICS,
+      tripsCompleted: completed.count,
+      tripsCancelled: cancelled.count,
+      tripsActive: active.count,
+      tripsTotal: active.count + completed.count,
+      unassigned: noDriver.count + draftOrCancelled.count,
+      assigned: assigned.count,
+      loading: loading.count,
+      inTransit: inTransit.count,
+      unloading: Math.max(0, destAtDrop.count - destWithDocs.count),
+      deliveredDocsPending: destWithDocs.count,
+      indentUnallocated: Math.max(0, indentOpen.count - indentAllocated.count),
+      indentFailed: indentFailed.count,
+      failReasons: {
+        client_cancelled: failClient.count,
+        indent_expired: failExpiredReason.count + failExpiredStatus.count,
+        no_rates_available: failNoRates.count,
+        wrong_entry: failWrong.count,
+      },
+    },
+  };
+}
+
+/** Exact rail / profile / Failed-tag counts. Never uses a paginated catalog. */
+export async function getOrgHubMetrics(
+  orgId: string,
+): Promise<{
+  error: Error | null;
+  metrics: OrgHubMetrics;
+  source: OrgHubMetricsSource;
+}> {
+  if (!orgId) {
+    return { error: null, metrics: EMPTY_ORG_HUB_METRICS, source: "empty" };
+  }
+  const { data, error } = await supabase().rpc("count_org_hub_metrics", {
+    p_org_id: orgId,
+  });
+  const resolution = resolveOrgHubMetricsRpcResult({ error, data });
+  if (resolution === "parse") {
+    return { error: null, metrics: parseOrgHubMetrics(data), source: "rpc" };
+  }
+  if (resolution === "empty") {
+    return { error: null, metrics: EMPTY_ORG_HUB_METRICS, source: "empty" };
+  }
+  return { error: null, metrics: EMPTY_ORG_HUB_METRICS, source: "fallback" };
+}
+
+/** Exact owned-trip totals for org profile / hub stats — not catalog `.length`. */
+export async function getOrgTripCounts(
+  orgId: string,
+): Promise<{ error: Error | null; counts: OrgTripCounts }> {
+  const { error, metrics, source } = await getOrgHubMetrics(orgId);
+  if (source === "rpc" || source === "empty") {
+    return {
+      error,
+      counts: {
+        total: metrics.tripsActive + metrics.tripsCompleted,
+        completed: metrics.tripsCompleted,
+      },
+    };
+  }
+  const fallback = await getOrgHubMetricsFallback(orgId);
+  return {
+    error: fallback.error,
+    counts: {
+      total: fallback.metrics.tripsActive + fallback.metrics.tripsCompleted,
+      completed: fallback.metrics.tripsCompleted,
+    },
+  };
+}
+
 /** Trip count for a single driver, scoped by org — for profile screens that only need a count. */
 export async function getDriverTripCount(
   orgId: string,
   driverId: string,
 ): Promise<{ error: Error | null; count: number }> {
-  const { count, error } = await supabase()
-    .from("trips")
-    .select("id", { count: "exact", head: true })
-    .eq("organization_id", orgId)
-    .eq("driver_id", driverId);
-  if (error) return { error: new Error(error.message), count: 0 };
-  return { error: null, count: count ?? 0 };
+  return countOwnedTrips(orgId, { driverId });
 }
 
 /** Trip count for a single vehicle, scoped by org — for profile screens that only need a count. */
@@ -1426,13 +1673,115 @@ export async function getVehicleTripCount(
   orgId: string,
   vehicleId: string,
 ): Promise<{ error: Error | null; count: number }> {
-  const { count, error } = await supabase()
-    .from("trips")
-    .select("id", { count: "exact", head: true })
-    .eq("organization_id", orgId)
-    .eq("vehicle_id", vehicleId);
-  if (error) return { error: new Error(error.message), count: 0 };
-  return { error: null, count: count ?? 0 };
+  return countOwnedTrips(orgId, { vehicleId });
+}
+
+export async function getSupplierTripCount(
+  orgId: string,
+  supplierId: string,
+): Promise<{ error: Error | null; count: number }> {
+  return countOwnedTrips(orgId, { supplierId });
+}
+
+export async function getClientTripCount(
+  orgId: string,
+  clientId: string,
+): Promise<{ error: Error | null; count: number }> {
+  return countOwnedTrips(orgId, { clientId });
+}
+
+const HUB_FACT_PAGE = 1000;
+const HUB_FACT_MAX_PAGES = 50;
+
+async function pageOrgRows<T>(
+  fetchPage: (
+    from: number,
+    to: number,
+  ) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<{ error: Error | null; rows: T[] }> {
+  const rows: T[] = [];
+  for (let page = 0; page < HUB_FACT_MAX_PAGES; page += 1) {
+    const from = page * HUB_FACT_PAGE;
+    const to = from + HUB_FACT_PAGE - 1;
+    const { data, error } = await fetchPage(from, to);
+    if (error) return { error: new Error(error.message), rows: [] };
+    const chunk = data ?? [];
+    rows.push(...chunk);
+    if (chunk.length < HUB_FACT_PAGE) return { error: null, rows };
+  }
+  return { error: null, rows };
+}
+
+/**
+ * Every owned trip/indent fact needed for hub rail counts.
+ * Do not use `get_trips_for_org` length — that list is capped at 400.
+ */
+export async function getOrgHubCountSource(
+  orgId: string,
+): Promise<{
+  error: Error | null;
+  source: import("@/features/trips/utils/hubExactCounts.util").OrgHubCountSource;
+}> {
+  const empty = { trips: [], documentTripIds: [], indents: [] };
+  if (!orgId) return { error: null, source: empty };
+
+  const [tripsRes, indentsRes] = await Promise.all([
+    pageOrgRows<{
+      id: string;
+      status: string | null;
+      driver_id: string | null;
+      indent_id: string | null;
+      pickup_date: string | null;
+      created_at: string | null;
+    }>((from, to) =>
+      supabase()
+        .from("trips")
+        .select("id, status, driver_id, indent_id, pickup_date, created_at")
+        .eq("organization_id", orgId)
+        .is("deleted_at", null)
+        .range(from, to),
+    ),
+    pageOrgRows<{
+      id: string;
+      status: string | null;
+      pickup_date: string | null;
+      created_at: string | null;
+    }>((from, to) =>
+      supabase()
+        .from("indents")
+        .select("id, status, pickup_date, created_at")
+        .eq("organization_id", orgId)
+        .is("deleted_at", null)
+        .range(from, to),
+    ),
+  ]);
+  if (tripsRes.error) return { error: tripsRes.error, source: empty };
+  if (indentsRes.error) return { error: indentsRes.error, source: empty };
+
+  const tripIds = tripsRes.rows.map((row) => row.id);
+  const documentTripIds = new Set<string>();
+  for (let i = 0; i < tripIds.length; i += HUB_FACT_PAGE) {
+    const batch = tripIds.slice(i, i + HUB_FACT_PAGE);
+    if (batch.length === 0) break;
+    const { data, error } = await supabase()
+      .from("trip_documents")
+      .select("trip_id")
+      .in("trip_id", batch);
+    if (error) return { error: new Error(error.message), source: empty };
+    for (const row of data ?? []) {
+      const id = (row as { trip_id?: string | null }).trip_id?.trim();
+      if (id) documentTripIds.add(id);
+    }
+  }
+
+  return {
+    error: null,
+    source: {
+      trips: tripsRes.rows,
+      documentTripIds: [...documentTripIds],
+      indents: indentsRes.rows,
+    },
+  };
 }
 
 /** Trip rows for a single supplier, scoped by org — for profile screens that only need spend/volume. */

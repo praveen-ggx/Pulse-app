@@ -136,11 +136,13 @@ async function loadWebBlob(bucket: string, path: string, signedUrl?: string | nu
     downloadKind = "failed";
   }
 
+  // A missing object is already decided. Signing/fetching it only adds Storage 400s.
+  if (downloadKind === "missing") return { kind: "missing" };
+
   const signed = (signedUrl ?? "").trim() || (await signedUrlFor(bucket, path));
   if (!signed) return { kind: downloadKind };
   const fetched = await blobFromSignedUrl(signed);
   if ("blob" in fetched) return fetched;
-  if (downloadKind === "missing") return { kind: "missing" };
   return { kind: fetched.kind === "failed" ? downloadKind : fetched.kind };
 }
 

@@ -1,0 +1,6 @@
+# Trips Hub RPCs (PR #32). Already on prod (2026-10-27); this set brings preprod level.
+# get_trips_for_org(p_org_id, p_include_compliance_backlog, p_from, p_to) + count_org_hub_metrics(p_org_id).
+# Rollback (preprod): restore the captured 2-arg get_trips_for_org, drop both, then
+# `supabase migration repair --status reverted 20271027155318 20271027155402`.
+20271027155318
+20271027155402

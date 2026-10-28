@@ -14925,6 +14925,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      count_org_hub_metrics: { Args: { p_org_id: string }; Returns: Json }
       claim_pending_team_invites: {
         Args: { p_phone: string; p_user_id: string }
         Returns: number
@@ -17399,7 +17400,15 @@ export type Database = {
         Args: { p_limit?: number; p_org_id: string; p_since: string }
         Returns: Json
       }
-      get_trips_for_org: { Args: { p_org_id: string }; Returns: Json[] }
+      get_trips_for_org: {
+        Args: {
+          p_org_id: string
+          p_include_compliance_backlog?: boolean
+          p_from?: string
+          p_to?: string
+        }
+        Returns: Json[]
+      }
       get_trips_for_pod_org: { Args: { p_org_id: string }; Returns: Json[] }
       get_trips_where_org_is_client: {
         Args: { p_org_id: string }

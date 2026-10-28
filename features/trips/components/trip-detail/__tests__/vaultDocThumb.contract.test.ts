@@ -18,9 +18,11 @@ describe("Vault PDF thumb contract", () => {
   it("keeps the iframe hash toolbar off unless the caller asks for chrome", () => {
     expect(viewer).toContain('toolbar=${toolbar}');
     expect(viewer).toContain("Cached first-page JPEG");
-    // Only thumbs raster page 1; a reading preview (full tier or scrollbar) keeps the iframe.
+    // Only thumbs raster page 1; desktop reading preview keeps the iframe.
     expect(viewer).toMatch(/useBitmapPage\s*=\s*!showToolbar && previewTier !== "full" && !scrollbar/);
     expect(viewer).toContain("if (useBitmapPage)");
+    expect(viewer).toContain("shouldRasterizePdfForViewport");
+    expect(viewer).toContain("MobilePdfPageScroll");
   });
 
   it("lets Compliance scroll PDF pages unless the app owns rotate/pan", () => {

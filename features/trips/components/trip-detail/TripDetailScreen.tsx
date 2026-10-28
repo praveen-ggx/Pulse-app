@@ -80,6 +80,7 @@ import {
   type SupplierBankProofBundle,
 } from "@/features/tripCompliance/utils/supplierBankProof.util";
 import { signCompliancePreviewUrl } from "@/features/tripCompliance/services/complianceDocumentView.service";
+import { compliancePreviewSourceForVaultFile } from "@/features/tripCompliance/utils/compliancePreviewSource.util";
 import { formatExpiryLabel } from "@/features/tripCompliance/components/ComplianceExpiryDateModal";
 import { documentRequiresExpiry } from "@/features/tripCompliance/tripCompliance.types";
 import { useWorkspaceProductsQuery } from "@/lib/queries/useWorkspaceProductsQuery";
@@ -3317,7 +3318,13 @@ export default function TripDetailScreen({
           previewUri: null as string | null,
           documentId: file.documentId,
           category:
-            slot === "invoice" ? "invoice" : slot === "lr" ? "lr" : "trip",
+            slot === "invoice"
+              ? "invoice"
+              : slot === "lr"
+                ? "lr"
+                : slot === "bank_docs"
+                  ? "bank_docs"
+                  : "trip",
           deleteKind: "trip" as const,
           documentNumber: file.documentNumber ?? file.invoiceNumber ?? null,
         };
@@ -3329,6 +3336,7 @@ export default function TripDetailScreen({
         id: "bank-proof",
         fileName: "Bank Docs",
         categoryLabel: "Bank Docs",
+        category: "bank_docs",
         storagePath: /^https?:\/\//i.test(path) ? "" : path,
         previewUri: /^https?:\/\//i.test(path) ? path : null,
       } as (typeof mapped)[number]);
@@ -3430,27 +3438,28 @@ export default function TripDetailScreen({
       const path = file.storagePath?.trim();
       if (!path) return null;
       if (/^https?:\/\//i.test(path)) return path;
-      const tripUrls = await tripDocumentsService.getDocumentViewUrls([path]);
-      if (tripUrls[path]) return tripUrls[path];
-      try {
-        const vehicleUrl = await getVehicleDocumentViewUrl(path);
-        if (vehicleUrl) return vehicleUrl;
-      } catch {
-        /* try compliance next */
-      }
+      const source = compliancePreviewSourceForVaultFile(file);
       return signCompliancePreviewUrl({
         storagePath: path,
-        source: file.categoryLabel === "Bank Docs" ? "supplier-kyc" : "compliance",
+        source,
         organizationId:
           detail.trip?.organization_id ?? currentOrganization?.id ?? null,
         entityId:
-          file.categoryLabel === "Bank Docs"
+          source === "supplier-kyc"
             ? (detail.trip?.supplier_id ?? "").trim() || null
-            : (detail.trip?.driver_id ?? "").trim() || null,
-        docType: file.categoryLabel === "Bank Docs" ? "bank_docs" : undefined,
+            : source === "vehicle-vault" || source === "entity"
+              ? (detail.trip?.vehicle_id ?? "").trim() || null
+              : (detail.trip?.driver_id ?? "").trim() || null,
+        docType: source === "supplier-kyc" ? "bank_docs" : file.complianceType,
       });
     },
-    [currentOrganization?.id, detail.trip?.driver_id, detail.trip?.organization_id, detail.trip?.supplier_id],
+    [
+      currentOrganization?.id,
+      detail.trip?.driver_id,
+      detail.trip?.organization_id,
+      detail.trip?.supplier_id,
+      detail.trip?.vehicle_id,
+    ],
   );
 
   const savePreviewExpiry = useCallback(

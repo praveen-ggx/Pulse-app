@@ -41,6 +41,15 @@ describe("signCompliancePreviewUrl", () => {
     mockPaintedBuckets.length = 0;
   });
 
+  it("signs a supplier cancelled cheque from compliance-documents even if tagged trip", async () => {
+    await signCompliancePreviewUrl({
+      storagePath: "org/supplier/s1/cancelled_cheque.jpg",
+      source: "trip",
+    });
+    expect(mockSignedBuckets).toEqual(["compliance-documents"]);
+    expect(mockPaintedBuckets).not.toContain("trip-documents");
+  });
+
   it("signs a Driver License from compliance-documents, not the trip bucket", async () => {
     await signCompliancePreviewUrl({
       storagePath: "org/driver/driver-1/license_abc.jpg",

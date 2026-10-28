@@ -177,7 +177,7 @@ type IndentTripJoin = {
   trip_code?: string | null;
 };
 
-function normalizeIndentRow(
+export function normalizeIndentRow(
   row: IndentRow & {
     active_trip?: IndentTripJoin[] | null;
     trips?: IndentTripJoin[] | null;

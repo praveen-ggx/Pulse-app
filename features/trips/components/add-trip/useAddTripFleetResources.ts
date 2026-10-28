@@ -85,18 +85,53 @@ export function useAddTripFleetResources(
     });
   }, [organizationId, status]);
 
+  /** Org id we successfully loaded suppliers for (null = none / last load failed). */
   const suppliersFetchedForOrgRef = useRef<string | null>(null);
+  /** Org id with an in-flight supplier request — blocks double-fetch on mount. */
+  const suppliersInFlightOrgRef = useRef<string | null>(null);
+  const organizationIdRef = useRef(organizationId);
+  organizationIdRef.current = organizationId;
+  const supplySourceRef = useRef(state.supplySource);
+  supplySourceRef.current = state.supplySource;
 
-  const fetchSuppliers = useCallback(() => {
-    if (!organizationId) return;
+  const fetchSuppliers = useCallback((opts?: { force?: boolean }) => {
+    const orgId = organizationIdRef.current;
+    if (!orgId) return;
+    // Focus refresh clears a successful cache entry, but still coalesces with
+    // an in-flight request for the same org (avoids double mount fetch).
+    if (opts?.force) {
+      suppliersFetchedForOrgRef.current = null;
+    }
+    if (suppliersFetchedForOrgRef.current === orgId) return;
+    if (suppliersInFlightOrgRef.current === orgId) return;
+    // Claim the slot when the request starts so focus + aggregate effects
+    // in the same commit do not both hit the network.
+    suppliersInFlightOrgRef.current = orgId;
+    suppliersFetchedForOrgRef.current = orgId;
     setSuppliersLoading(true);
-    void getSuppliersByOrganization(organizationId)
+    void getSuppliersByOrganization(orgId)
       .then((r) => {
-        suppliersFetchedForOrgRef.current = organizationId;
-        setSuppliers(r.error ? [] : manuallySelectableSuppliers(r.suppliers));
+        // Staleness: ignore a late response after an org switch.
+        if (organizationIdRef.current !== orgId) return;
+        if (r.error) {
+          // Failed load must not stick in the de-dupe cache — allow retry.
+          if (suppliersFetchedForOrgRef.current === orgId) {
+            suppliersFetchedForOrgRef.current = null;
+          }
+          setSuppliers([]);
+          return;
+        }
+        setSuppliers(manuallySelectableSuppliers(r.suppliers));
       })
-      .finally(() => setSuppliersLoading(false));
-  }, [organizationId]);
+      .finally(() => {
+        if (suppliersInFlightOrgRef.current === orgId) {
+          suppliersInFlightOrgRef.current = null;
+        }
+        if (organizationIdRef.current === orgId) {
+          setSuppliersLoading(false);
+        }
+      });
+  }, []);
 
   useEffect(() => {
     if (organizationId && status !== "restoring") fetchFleet();
@@ -106,15 +141,15 @@ export function useAddTripFleetResources(
     useCallback(() => {
       if (!organizationId || status === "restoring") return;
       fetchFleet();
-      // Focus re-entry should refresh; force by clearing the de-dupe key.
-      suppliersFetchedForOrgRef.current = null;
-      fetchSuppliers();
+      // Asset-only flows do not need the supplier list; Aggregate refreshes on focus.
+      if (supplySourceRef.current === "aggregate") {
+        fetchSuppliers({ force: true });
+      }
     }, [organizationId, status, fetchFleet, fetchSuppliers]),
   );
 
   useEffect(() => {
     if (!organizationId || state.supplySource !== "aggregate") return;
-    if (suppliersFetchedForOrgRef.current === organizationId) return;
     fetchSuppliers();
   }, [organizationId, state.supplySource, fetchSuppliers]);
 

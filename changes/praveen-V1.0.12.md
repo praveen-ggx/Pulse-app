@@ -5,6 +5,7 @@
 - `useAddTripFleetResources`: no-op empty-phone / non-aggregate cleanup; de-dupe aggregate supplier fetch per org (focus still refreshes).
 - `useAddTripForm`: phone / driver / vehicle setters no-op when unchanged.
 - Wizard: lane-gate local state skips redundant updates.
+- Review follow-up (Nihas #47): supplier fetch claims in-flight at start (one mount request); ignore late responses after org switch; clear de-dupe on failed fetch so Aggregate toggles retry; Asset focus skips supplier RPC; lane-gate parent callback only fires on change; loop tests cover render budget, single fetch, staleness, and fail-retry.
 
 ## Why
 - V1 / PR #43 fixed ScrollView↔View remounts, but `useAddTripFleetResources` still called `setDriverPhoneMatches([])` (and phone setters) every effect tick. New `[]` ≠ previous `[]` under Object.is → infinite re-renders → queue full / RPC fallback spam.
@@ -20,5 +21,5 @@
 - None.
 
 ## Tested
-- Jest lane-gate + fleet-loop suites (re-run after restore).
-- Browser: restart `npm run dev` on this branch after V1 sync; not claimed until clicked through.
+- Jest: `useAddTripFleetResources.loop.test.tsx` + `mobileClientLaneGate.test.tsx` (11 passed).
+- Browser: not clicked through on this follow-up.

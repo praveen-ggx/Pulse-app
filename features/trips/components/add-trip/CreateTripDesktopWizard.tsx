@@ -318,9 +318,14 @@ export function CreateTripDesktopWizard({
     setters.setSaleUnitRate("");
   }, [setters]);
 
+  const laneGateActiveRef = useRef(laneGateActive);
+  laneGateActiveRef.current = laneGateActive;
   const handleLaneGateActiveChange = useCallback(
     (active: boolean) => {
-      setLaneGateActive((prev) => (prev === active ? prev : active));
+      // Skip both local state and parent callback when unchanged — parent
+      // setState(true) every tick was a loop source even when local was guarded.
+      if (laneGateActiveRef.current === active) return;
+      setLaneGateActive(active);
       onLaneGateActiveChange?.(active);
     },
     [onLaneGateActiveChange],

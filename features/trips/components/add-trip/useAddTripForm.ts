@@ -526,16 +526,17 @@ export function useAddTripForm(options?: {
   const setNotes = useCallback((v: string) => setState((s) => ({ ...s, notes: v })), []);
   const setDriverId = useCallback(
     (v: string | null) =>
-      setState((s) =>
-        s.driverId === v
-          ? s
-          : {
-              ...s,
-              driverId: v,
-              driverCommissionPercent: null,
-              driverCommissionPerKm: null,
-            },
-      ),
+      setState((s) => {
+        // Same id: no-op (keeps commission). Commission clears only when the
+        // driver id actually changes — callers that need rates use setDriver.
+        if (s.driverId === v) return s;
+        return {
+          ...s,
+          driverId: v,
+          driverCommissionPercent: null,
+          driverCommissionPerKm: null,
+        };
+      }),
     [],
   );
   const setDriver = useCallback((

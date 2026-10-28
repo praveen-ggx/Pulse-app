@@ -23,13 +23,14 @@ import {
   fetchAdvanceRequestsForTrips,
   type AdvanceProcessedEnrichment,
 } from "@/features/tripCompliance/services/complianceAdvanceProcessed.service";
-import { fetchComplianceAdvanceFinanceBreakdown } from "@/features/tripCompliance/services/complianceAdvanceFinanceBreakdown.service";
+import { fetchComplianceAdvancePayablesForTrips } from "@/features/tripCompliance/services/complianceAdvanceFinanceBreakdown.service";
 import {
   buildAdvancePaymentExportWorkbook,
   buildAdvancePaymentPaidRow,
   buildAdvancePaymentPendingRow,
   buildAdvanceProcessedExportRow,
   buildAdvanceProcessedExportWorkbook,
+  resolveAdvancePaymentPendingAmount,
   type AdvancePaymentExportRow,
   type AdvanceProcessedExportRow,
 } from "@/features/tripCompliance/utils/complianceAdvanceProcessedExport.util";
@@ -54,6 +55,21 @@ import * as Sharing from "expo-sharing";
 import * as XLSX from "xlsx";
 import { Platform, Share } from "react-native";
 import { formatTruckTypeWithSize } from "@/features/tripCompliance/utils/complianceTruckType.util";
+import { mapWithConcurrency } from "@/features/tripCompliance/utils/mapWithConcurrency.util";
+import { isSupabaseQueueRejectedError } from "@/lib/supabaseHttp.util";
+
+/** Stay under MAX_CONCURRENT_DATA_FETCHES (8) so Export Report cannot fill the queue. */
+const EXPORT_FETCH_CONCURRENCY = 4;
+
+async function withQueueRetry<T>(op: () => Promise<T>): Promise<T> {
+  try {
+    return await op();
+  } catch (error) {
+    if (!isSupabaseQueueRejectedError(error)) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    return op();
+  }
+}
 
 function triggerWebDownload(blob: Blob, fileName: string): void {
   const objectUrl = URL.createObjectURL(blob);
@@ -215,7 +231,9 @@ export async function buildVerifiedExportEnrichment(
     return pending;
   };
 
-  const enrichmentJobs = summaries.map(async (summary) => {
+  await Promise.all([
+    phonesPromise,
+    mapWithConcurrency(summaries, EXPORT_FETCH_CONCURRENCY, async (summary) => {
     const trip = summary.trip;
     const tripOrgId = (trip.organization_id ?? orgId).trim() || orgId;
     const supplierId = trip.supplier_id?.trim() || "";
@@ -256,9 +274,9 @@ export async function buildVerifiedExportEnrichment(
     }
 
     byTrip.set(trip.id, enrichment);
-  });
-
-  const [{ phoneByDriverId }] = await Promise.all([phonesPromise, Promise.all(enrichmentJobs)]);
+    }),
+  ]);
+  const { phoneByDriverId } = await phonesPromise;
 
   // Bulk read is RLS-scoped; fill gaps from the Driver Profile source (Contact Registry → Phone).
   const missingDriverOrg = new Map<string, string>();
@@ -268,12 +286,14 @@ export async function buildVerifiedExportEnrichment(
       missingDriverOrg.set(driverId, (summary.trip.organization_id ?? orgId).trim() || orgId);
     }
   }
-  await Promise.all(
-    Array.from(missingDriverOrg, async ([driverId, driverOrgId]) => {
+  await mapWithConcurrency(
+    Array.from(missingDriverOrg),
+    EXPORT_FETCH_CONCURRENCY,
+    async ([driverId, driverOrgId]) => {
       const { driver } = await getDriverDetailBundle(driverOrgId, driverId);
       const phone = (driver?.phone ?? "").trim();
       if (phone) phoneByDriverId.set(driverId, phone);
-    }),
+    },
   );
 
   for (const summary of summaries) {
@@ -293,7 +313,9 @@ export async function exportVerifiedStageComplianceReport(orgId: string): Promis
   const summaries = await fetchVerifiedStageSummaries(orgId);
   if (summaries.length === 0) return 0;
 
-  const enrichmentByTrip = await buildVerifiedExportEnrichment(orgId, summaries);
+  const enrichmentByTrip = await withQueueRetry(() =>
+    buildVerifiedExportEnrichment(orgId, summaries),
+  );
   const rows = summaries.map((summary) =>
     buildVerifiedExportCsvRow(summary, enrichmentByTrip.get(summary.trip.id) ?? {}),
   );
@@ -321,7 +343,9 @@ export async function prepareAdvanceProcessedReport(
     summaries.filter((summary) => summary.advance),
   );
   if (withAdvance.length === 0) return [];
-  const enrichment = await fetchAdvanceProcessedEnrichment(orgId, withAdvance);
+  const enrichment = await withQueueRetry(() =>
+    fetchAdvanceProcessedEnrichment(orgId, withAdvance),
+  );
   return withAdvance.map((summary) => buildAdvanceProcessedExportRow(summary, enrichment[summary.trip.id]));
 }
 
@@ -344,41 +368,39 @@ export async function prepareAdvancePaymentReport(
   paid: ComplianceTripSummary[],
 ): Promise<AdvancePaymentExportRow[]> {
   const paidRows = sortAdvanceProcessedSummaries(paid.filter((summary) => summary.advance));
-  const [banks, requests, payables, enrichment] = await Promise.all([
-    fetchAdvancePayeeBanks(orgId, pending),
-    fetchAdvanceRequestsForTrips(pending.map((summary) => summary.trip.id)),
-    Promise.all(
-      pending.map((summary) =>
-        fetchComplianceAdvanceFinanceBreakdown({
-          orgId: (summary.trip.organization_id ?? orgId).trim() || orgId,
-          tripId: summary.trip.id,
-          supplierId: summary.trip.supplier_id,
-          supplierRate: summary.trip.supplier_rate,
-          supplierRateBasis:
-            (summary.trip as { supplier_rate_basis?: string | null }).supplier_rate_basis ?? null,
-          loadTons: summary.trip.load_tons ?? null,
-        })
-          .then((breakdown) => breakdown?.computedAdvancePayable ?? null)
-          .catch(() => null),
+  return withQueueRetry(async () => {
+    const [requests, banks, enrichment] = await Promise.all([
+      fetchAdvanceRequestsForTrips(pending.map((summary) => summary.trip.id)),
+      fetchAdvancePayeeBanks(orgId, pending),
+      paidRows.length > 0
+        ? fetchAdvanceProcessedEnrichment(orgId, paidRows)
+        : Promise.resolve({} as Record<string, AdvanceProcessedEnrichment>),
+    ]);
+    const missingApproved = pending.filter((summary) => {
+      const approved = requests[summary.trip.id]?.approvedAmount;
+      return approved == null || !Number.isFinite(approved);
+    });
+    const computed =
+      missingApproved.length > 0
+        ? await fetchComplianceAdvancePayablesForTrips(orgId, missingApproved)
+        : {};
+    return [
+      ...pending.map((summary) =>
+        buildAdvancePaymentPendingRow(
+          summary,
+          banks[summary.trip.id],
+          resolveAdvancePaymentPendingAmount(
+            requests[summary.trip.id]?.approvedAmount,
+            computed[summary.trip.id],
+          ),
+          requests[summary.trip.id]?.requestNo ?? "",
+        ),
       ),
-    ),
-    paidRows.length > 0
-      ? fetchAdvanceProcessedEnrichment(orgId, paidRows)
-      : Promise.resolve<Record<string, AdvanceProcessedEnrichment>>({}),
-  ]);
-  return [
-    ...pending.map((summary, index) =>
-      buildAdvancePaymentPendingRow(
-        summary,
-        banks[summary.trip.id],
-        payables[index],
-        requests[summary.trip.id]?.requestNo ?? "",
+      ...paidRows.map((summary) =>
+        buildAdvancePaymentPaidRow(summary, enrichment[summary.trip.id]),
       ),
-    ),
-    ...paidRows.map((summary) =>
-      buildAdvancePaymentPaidRow(summary, enrichment[summary.trip.id]),
-    ),
-  ];
+    ];
+  });
 }
 
 /** Download prepared Advance Payment rows as .xlsx. */

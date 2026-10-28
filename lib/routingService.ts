@@ -152,6 +152,7 @@ function logOSRMError(error: unknown) {
  * Truly free, no token required (uses OSM data).
  */
 async function getOSRMRoute(from: LatLon, to: LatLon): Promise<RouteResult | null> {
+  if (!isRoutableLatLon(from) || !isRoutableLatLon(to)) return null;
   if (Date.now() < osrmBackoffUntil) return null;
 
   const coords = `${from.longitude},${from.latitude};${to.longitude},${to.latitude}`;
@@ -202,6 +203,7 @@ async function getOSRMRoute(from: LatLon, to: LatLon): Promise<RouteResult | nul
  * Fetch a route from Mapbox Directions API using GeoJSON format.
  */
 async function getMapboxRoute(from: LatLon, to: LatLon): Promise<RouteResult | null> {
+  if (!isRoutableLatLon(from) || !isRoutableLatLon(to)) return null;
   const token = typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_MAPBOX_TOKEN?.trim();
   if (!token) return null;
 
@@ -245,6 +247,7 @@ async function getMapboxRoute(from: LatLon, to: LatLon): Promise<RouteResult | n
  * For now, we prefer Mapbox as it gives GeoJSON directly.
  */
 async function getGoogleRoute(from: LatLon, to: LatLon): Promise<RouteResult | null> {
+  if (!isRoutableLatLon(from) || !isRoutableLatLon(to)) return null;
   const apiKey = typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY?.trim();
   if (!apiKey) return null;
 
@@ -307,6 +310,7 @@ async function getGoogleRoute(from: LatLon, to: LatLon): Promise<RouteResult | n
 }
 
 async function fetchProxyRoute(from: LatLon, to: LatLon): Promise<RouteResult | null> {
+  if (!isRoutableLatLon(from) || !isRoutableLatLon(to)) return null;
   const proxyUrl = buildWebRouteProxyUrl(from, to);
   if (!proxyUrl) return null;
   try {
@@ -354,7 +358,19 @@ function firstResolvedRoute(
  * Main entry point: Get optimal route.
  * Races the Netlify proxy with OSRM, then Mapbox / Google. Results are cached.
  */
+/** Reject Null Island / unset GPS so OSRM and Mapbox are not called with `;0,0`. */
+export function isRoutableLatLon(point: LatLon | null | undefined): boolean {
+  if (!point) return false;
+  const { latitude, longitude } = point;
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return false;
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return false;
+  if (Math.abs(latitude) < 0.0001 && Math.abs(longitude) < 0.0001) return false;
+  return true;
+}
+
 export async function getOptimalRoute(from: LatLon, to: LatLon): Promise<RouteResult | null> {
+  if (!isRoutableLatLon(from) || !isRoutableLatLon(to)) return null;
+
   const cacheKey = [
     formatKeyCoord(from.latitude, ROUTE_CACHE_COORD_DECIMALS),
     formatKeyCoord(from.longitude, ROUTE_CACHE_COORD_DECIMALS),

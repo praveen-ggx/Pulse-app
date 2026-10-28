@@ -70,6 +70,11 @@ describe("shouldRetryQuery", () => {
     expect(shouldRetryQuery(0, new Error("Request timed out"))).toBe(false);
   });
 
+  it("does not retry a permanent Storage 400 / object not found", () => {
+    expect(shouldRetryQuery(0, { status: 400, message: "Object not found" })).toBe(false);
+    expect(shouldRetryQuery(0, { status: 404, message: "not found" })).toBe(false);
+  });
+
   it("does not retry HTTP 500 (PostgREST Warp / pool exhaustion)", () => {
     expect(shouldRetryQuery(0, { message: "Internal Server Error", status: 500 })).toBe(false);
   });
@@ -90,9 +95,9 @@ describe("shouldRetryQuery", () => {
     expect(shouldRetryQuery(0, new Error("Invalid login credentials"))).toBe(true);
   });
 
-  it("allows one default retry for normalized Cloudflare 522 timed-out messages", () => {
-    expect(shouldRetryQuery(0, new Error("Connection timed out (522)"))).toBe(true);
-    expect(shouldRetryQuery(1, new Error("Connection timed out (522)"))).toBe(false);
+  it("does not stack a TanStack retry on 522 — fetch owns that one proxy retry", () => {
+    expect(shouldRetryQuery(0, new Error("Connection timed out (522)"))).toBe(false);
+    expect(shouldRetryQuery(0, { status: 429, message: "Too Many Requests" })).toBe(false);
   });
 
   it("still does not retry origin-down when status is 503 even if message says timed out", () => {

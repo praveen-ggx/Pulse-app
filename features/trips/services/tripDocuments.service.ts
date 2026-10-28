@@ -6,7 +6,10 @@
  * document_type discriminates business concepts: 'pod' | 'manifest' | 'invoice' | 'eway_bill' | 'loading_slip'.
  * Fallback when DB is unavailable: list storage prefix {tripId}/ and infer type from path segment.
  */
-import { previewPrivateObject } from "@/features/trips/utils/storagePreviewObjectUrl.util";
+import {
+  canMaterializeStoragePreview,
+  previewPrivateObject,
+} from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import { supabase } from "@/lib/supabase";
 import { getPlatformEventBus } from "@/lib/platform/events/InProcessEventBus";
 import { recordTripWorkflowEvent } from "@/features/trips/services/tripWorkflow.service";
@@ -266,7 +269,9 @@ export async function tryGetDocumentViewUrl(
   if (isVehicleDocumentReferenceStoragePath(storagePath) || isDetailsMarkerPath(storagePath)) {
     return null;
   }
-  const signed = await tripDocSignedUrls.getUrl(storagePath);
+  // Web paints a downloaded Blob and signs only if that download fails, so a
+  // pre-signed URL is an unused Storage call there. Native viewers use it.
+  const signed = canMaterializeStoragePreview() ? null : await tripDocSignedUrls.getUrl(storagePath);
   const preview = await previewPrivateObject(BUCKET, storagePath, signed);
   return preview.url;
 }
@@ -283,7 +288,11 @@ export async function getDocumentViewUrls(
   const physical = storagePaths.filter(
     (path) => !isVehicleDocumentReferenceStoragePath(path) && !isDetailsMarkerPath(path),
   );
-  const signed = physical.length > 0 ? await tripDocSignedUrls.getUrls(physical) : {};
+  // Web downloads each object (see tryGetDocumentViewUrl) — skip the batch sign there.
+  const signed =
+    physical.length > 0 && !canMaterializeStoragePreview()
+      ? await tripDocSignedUrls.getUrls(physical)
+      : {};
   const byPath: Record<string, string | null> = {};
   await Promise.all(
     storagePaths.map(async (path) => {

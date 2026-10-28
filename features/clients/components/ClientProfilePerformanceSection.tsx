@@ -31,7 +31,7 @@ import {
 import type { SalesSlice } from "@/features/network/utils/connectionSalesAnalytics.util";
 import { getTripsForOrg, type TripRow } from "@/features/trips/services/trips.service";
 import { formatCityStateLabel, formatLaneRouteLabel } from "@/lib/placeCityState.util";
-import { useOrgMembersQuery } from "@/lib/queries/useOrgMembersQuery";
+import { useOrgMembersData } from "@/lib/queries/useOrgMembersQuery";
 import { queryKeys } from "@/lib/queryKeys";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useQuery } from "@tanstack/react-query";
@@ -251,7 +251,7 @@ export function ClientProfilePerformanceSection({
     staleTime: 30_000,
   });
 
-  const orgMembersQ = useOrgMembersQuery(organizationId);
+  const orgMembersQ = useOrgMembersData(organizationId);
   const teamMembers = useMemo(
     () =>
       (orgMembersQ.data?.members ?? []).filter(

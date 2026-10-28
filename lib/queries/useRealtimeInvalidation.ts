@@ -4,6 +4,7 @@
  *                        INSERT/DELETE → the list key too.
  */
 import { getTripLedgerEmbed, toLedgerRow, type LedgerRow } from '@/features/finance/services/finance.service';
+import { refreshCompliancePodForTrip } from '@/lib/queries/invalidateHardCopyPodCaches';
 import { invalidateComplianceSettlementCaches } from '@/lib/queries/syncFinanceComplianceCaches';
 import { queryKeys } from '@/lib/queryKeys';
 import { subscribeSharedPostgresChanges } from '@/lib/realtimeRegistry';
@@ -68,7 +69,7 @@ export function useRealtimeTripsInvalidation(organizationId: string | null) {
           if (podChanged && tripId) {
             qc.invalidateQueries({ queryKey: queryKeys.trips.hardCopyPod(tripId) });
             qc.invalidateQueries({ queryKey: queryKeys.trips.timeline(tripId) });
-            qc.invalidateQueries({ queryKey: ["q", "tripCompliance"] });
+            void refreshCompliancePodForTrip(qc, tripId);
             qc.invalidateQueries({ queryKey: ["q", "invoicing"] });
             qc.invalidateQueries({ queryKey: ["q", "log-pods"] });
           }

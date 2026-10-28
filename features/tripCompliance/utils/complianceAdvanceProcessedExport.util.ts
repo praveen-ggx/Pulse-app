@@ -92,6 +92,16 @@ export function buildAdvancePaymentPaidRow(
   return { ...buildAdvanceProcessedExportRow(summary, info), STATUS: "Paid" };
 }
 
+/** Prefer the amount snapshotted at finance approve; compute only when missing. */
+export function resolveAdvancePaymentPendingAmount(
+  approvedAmount: number | null | undefined,
+  computed: number | null | undefined,
+): number | null {
+  if (approvedAmount != null && Number.isFinite(approvedAmount)) return approvedAmount;
+  if (computed != null && Number.isFinite(computed)) return computed;
+  return null;
+}
+
 /** Pending row: payee bank and the advance payable; mode / date / UTR stay blank until paid. */
 export function buildAdvancePaymentPendingRow(
   summary: ComplianceTripSummary,

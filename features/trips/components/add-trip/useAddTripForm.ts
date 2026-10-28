@@ -85,6 +85,12 @@ function computeValidationIssues(state: AddTripFormState): AddTripValidationIssu
 
   const errClient = runValidators(state.clientName, [required(), maxLength(VALIDATION.CLIENT_SUPPLIER_NAME_MAX_LENGTH)]);
   if (errClient) push('client', `Client: ${errClient}`);
+  else if (!String(state.clientId ?? "").trim()) {
+    push(
+      "client",
+      "Select a client from the Customers list. Add the party there before creating a trip.",
+    );
+  }
 
   const isPerMtSale = state.saleRateBasis === "per_mt";
   const isBidShareDraft =
@@ -116,7 +122,10 @@ function computeValidationIssues(state: AddTripFormState): AddTripValidationIssu
 
   if (state.supplySource === 'aggregate' && !isBidShare) {
     if (!state.supplierId) {
-      push('partner', 'Select a transport partner');
+      push(
+        "partner",
+        "Select a supplier from the Suppliers list. Add the party there before assigning.",
+      );
     }
     const err5 = nonNegativeAmount()(state.supplierRate);
     if (err5) push('partnerRate', `Partner rate: ${err5}`);

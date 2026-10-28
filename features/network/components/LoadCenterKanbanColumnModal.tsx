@@ -278,7 +278,7 @@ export function LoadCenterKanbanColumnModal({
   onQuotePool,
   canQuotePools = false,
   renderPoolMemberCard,
-  renderBidPoolMemberCard,
+  renderBidPoolMemberCard: _renderBidPoolMemberCard,
   poolLoads,
   poolOrgId = null,
   initialOpenPoolId = null,

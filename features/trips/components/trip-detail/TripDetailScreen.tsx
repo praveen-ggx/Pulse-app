@@ -331,7 +331,12 @@ const TripExpensesScreen = lazy(() =>
     (m) => ({ default: m.TripExpensesScreen }),
   ),
 );
-import { isAssetExecutionTrip, shouldShowTripExpenseHub } from "@/features/trips/domain/tripExecutionModel";
+import {
+  isAssetExecutionTrip,
+  isAssetFinanceForViewer,
+  isPartnerAwardedSupplierView,
+  shouldShowTripExpenseHub,
+} from "@/features/trips/domain/tripExecutionModel";
 import { isDcoOperatingTrip } from "@/features/trips/domain/tripDcoOperating";
 import { getMoverAssetTripIdForIndent } from "@/features/trips/services/trips.service";
 import {
@@ -617,8 +622,6 @@ export default function TripDetailScreen({
     enabled: shouldFetchOperationsSummary(tripId, activeTab),
   });
   const {
-    financeSubTab,
-    setFinanceSubTab,
     previewLedgerTx,
     setPreviewLedgerTx,
     searchTerm,
@@ -845,6 +848,16 @@ export default function TripDetailScreen({
     (tripOperationsSummaryQuery.data?.financialSnapshot?.settlementPendingCount ?? 0);
 
   const tripForAssetFinance = detail.trip;
+  const viewerOrgIdForAsset = currentOrganization?.id ?? null;
+  const assetFinanceForViewer = Boolean(
+    tripForAssetFinance &&
+      isAssetFinanceForViewer(tripForAssetFinance, viewerOrgIdForAsset),
+  );
+  const driverCompLookupOrgId = tripForAssetFinance
+    ? isPartnerAwardedSupplierView(tripForAssetFinance, viewerOrgIdForAsset)
+      ? viewerOrgIdForAsset
+      : tripForAssetFinance.organization_id
+    : null;
   const assignedDriverCompQuery = useQuery({
     queryKey: [
       "q",
@@ -852,15 +865,16 @@ export default function TripDetailScreen({
       tripId,
       "driver-comp",
       tripForAssetFinance?.driver_id ?? "",
+      driverCompLookupOrgId ?? "",
     ],
     enabled:
       !!tripForAssetFinance?.driver_id &&
-      !!tripForAssetFinance.organization_id &&
+      !!driverCompLookupOrgId &&
       !!tripForAssetFinance &&
-      isAssetExecutionTrip(tripForAssetFinance),
+      assetFinanceForViewer,
     queryFn: async ({ signal }) => {
       const res = await getDriverById(
-        tripForAssetFinance!.organization_id,
+        driverCompLookupOrgId!,
         tripForAssetFinance!.driver_id!,
         signal,
       );
@@ -872,7 +886,7 @@ export default function TripDetailScreen({
   });
 
   const assetProvisionCostPreview = useMemo(() => {
-    if (!tripForAssetFinance || !isAssetExecutionTrip(tripForAssetFinance)) {
+    if (!tripForAssetFinance || !assetFinanceForViewer) {
       return null;
     }
     return selectAssetTripProvisionCostBreakdown({
@@ -882,6 +896,7 @@ export default function TripDetailScreen({
     });
   }, [
     tripForAssetFinance,
+    assetFinanceForViewer,
     tripOperationsSummaryQuery.data?.costEvents,
     assignedDriverCompQuery.data,
   ]);
@@ -898,12 +913,11 @@ export default function TripDetailScreen({
     ),
     enabled:
       activeTab === "finance" &&
-      financeSubTab === "summary" &&
       Boolean(complianceFinanceOrgId) &&
       Boolean(tripForAssetFinance?.id) &&
       Boolean((tripForAssetFinance?.supplier_id ?? "").trim()) &&
       !!tripForAssetFinance &&
-      !isAssetExecutionTrip(tripForAssetFinance) &&
+      !assetFinanceForViewer &&
       !isDcoOperatingTrip(tripForAssetFinance),
     staleTime: 30_000,
     queryFn: () =>
@@ -920,7 +934,7 @@ export default function TripDetailScreen({
   });
 
   useEffect(() => {
-    if (!detail.trip || !isAssetExecutionTrip(detail.trip)) return;
+    if (!detail.trip || !isAssetFinanceForViewer(detail.trip, currentOrganization?.id)) return;
     if (expenseTabAutoSelectedRef.current) return;
     if (shouldSkipExpenseTabAutoSelect(detail.trip)) {
       expenseTabAutoSelectedRef.current = true;
@@ -940,6 +954,7 @@ export default function TripDetailScreen({
     expensePendingCount,
     tripOperationsSummaryQuery.isFetched,
     detail.trip,
+    currentOrganization?.id,
   ]);
 
   // Bounce off the expenses tab only on true aggregate trips. Keyed on the
@@ -3059,6 +3074,11 @@ export default function TripDetailScreen({
       simLogs: simLogEntries,
       simLocationByKey,
       locationLoadingLabel: MAP_LOCATION_LABEL_LOADING,
+      driverNames: detail.assignmentDriverNames,
+      vehicleLabels: detail.assignmentVehicleLabels,
+      currentUserId: detail.currentUserId,
+      staffDisplayName: detail.profile?.full_name,
+      driverDisplayName: detail.driverName ?? tr.driver_display_name,
     });
     if (!commerceJourney) return ftlLogs;
     return buildCommerceManifestJourneyLogs({
@@ -3069,6 +3089,11 @@ export default function TripDetailScreen({
   }, [
     detail.trip,
     detail.assignmentAuditRows,
+    detail.assignmentDriverNames,
+    detail.assignmentVehicleLabels,
+    detail.currentUserId,
+    detail.profile?.full_name,
+    detail.driverName,
     detail.driverLocation,
     detail.driverLocationAddress,
     manifestJourneyPings,
@@ -3135,6 +3160,11 @@ export default function TripDetailScreen({
         detail: log.details,
         location: log.location,
         simulated: Boolean(lastSim),
+        history: log.history?.map((line) => ({
+          time: line.time,
+          actor: line.actor,
+          action: line.action,
+        })),
       };
     });
   }, [
@@ -3285,7 +3315,7 @@ export default function TripDetailScreen({
           fileName: file.fileName ?? file.label ?? label,
           categoryLabel: label,
           storagePath: file.storagePath,
-          previewUri: null,
+          previewUri: null as string | null,
           documentId: file.documentId,
           category:
             slot === "invoice"
@@ -3309,7 +3339,7 @@ export default function TripDetailScreen({
         category: "bank_docs",
         storagePath: /^https?:\/\//i.test(path) ? "" : path,
         previewUri: /^https?:\/\//i.test(path) ? path : null,
-      });
+      } as (typeof mapped)[number]);
     }
     return mapped;
   }, [detail.computedTripDocs, supplierBankProof?.previewPath]);
@@ -3518,7 +3548,9 @@ export default function TripDetailScreen({
             fileName: file.fileName,
             categoryLabel: label,
             storagePath: file.url,
-            deleteKind: (file.extraId ? "vehicle_extra" : "vehicle_compliance") as const,
+            deleteKind: (file.extraId ? "vehicle_extra" : "vehicle_compliance") as
+              | "vehicle_extra"
+              | "vehicle_compliance",
             extraId: file.extraId,
             complianceType: docType,
             expiryDate: file.expiryDate ?? null,
@@ -3908,7 +3940,8 @@ export default function TripDetailScreen({
   const supplierCost = Number(trip.supplier_rate ?? 0);
   const sales = isPartnerSettlementView ? supplierCost : customerSales;
   const isDcoTrip = isDcoOperatingTrip(trip);
-  const isAssetTripFinance = !isDcoTrip && isAssetExecutionTrip(trip);
+  const isAssetTripFinance =
+    !isDcoTrip && isAssetFinanceForViewer(trip, currentOrganization?.id);
   const assetApprovedCostInr =
     tripOperationsSummaryQuery.data?.financialSnapshot?.approvedOperationalCostInr ?? 0;
   const assetDriverOffer = driverOfferFromDriverRow(
@@ -4134,19 +4167,28 @@ export default function TripDetailScreen({
     detail.displayClientName?.trim() ||
     String(trip.client_name ?? "").trim() ||
     awaitingDataLabel;
-  const supplierNameForParty =
-    resolveTripSupplierDisplayName({
-      partnerName: detail.partnerName,
-      supplierPartyName: detail.supplierPartyRes?.name,
-      tripSupplierName: tripExtra.supplier_name,
-      linkedOrganizationName:
-        detail.supplierPartyAvatarFields?.organizationName,
-      clientName:
-        detail.displayClientName?.trim() ||
-        String(trip.client_name ?? "").trim() ||
-        null,
-      ledgerEntries,
-    }) || awaitingDataLabel;
+  const viewerIsAwardedSupplier = isPartnerAwardedSupplierView(
+    trip,
+    currentOrganization?.id,
+  );
+  const resolvedExternalSupplierName = resolveTripSupplierDisplayName({
+    partnerName: detail.partnerName,
+    supplierPartyName: detail.supplierPartyRes?.name,
+    tripSupplierName: tripExtra.supplier_name,
+    linkedOrganizationName:
+      detail.supplierPartyAvatarFields?.organizationName,
+    clientName:
+      detail.displayClientName?.trim() ||
+      String(trip.client_name ?? "").trim() ||
+      null,
+    viewerOrganizationName: viewerIsAwardedSupplier
+      ? currentOrganization?.name ?? null
+      : null,
+    ledgerEntries,
+  });
+  const supplierNameForParty = viewerIsAwardedSupplier
+    ? allocatedDriverName
+    : resolvedExternalSupplierName || awaitingDataLabel;
   const clientNameCard = clientNameForParty.toUpperCase();
   /**
    * LR number(s) for the route hero, from the trip's LR documents (typed or E-LR).
@@ -4585,7 +4627,6 @@ export default function TripDetailScreen({
   const hasLinkedSupplier = Boolean((trip.supplier_id ?? "").trim());
   const showComplianceAdvanceFinance =
     activeTab === "finance" &&
-    financeSubTab === "summary" &&
     !isAssetTripFinance &&
     !isDcoTrip &&
     hasLinkedSupplier;
@@ -4661,7 +4702,6 @@ export default function TripDetailScreen({
       return;
     }
     setActiveTab("finance");
-    setFinanceSubTab("transactions");
   };
   const financeCapturePaymentSlot = (
     <View style={neoStyles.capturePaymentSlot}>
@@ -5158,7 +5198,7 @@ export default function TripDetailScreen({
               onFile
                 ? {
                     storagePath: file.storagePath,
-                    fileName: file.fileName ?? file.label ?? "POD",
+                    fileName: ("fileName" in file ? file.fileName : undefined) ?? file.label ?? "POD",
                     mimeHint: file.type,
                     source: "trip",
                     organizationId:
@@ -5445,28 +5485,6 @@ export default function TripDetailScreen({
                                 >
                                   Ledger snapshot
                                 </Text>
-                                <TouchableOpacity
-                                  style={neoStyles.financeLedgerPreviewLink}
-                                  onPress={() =>
-                                    setFinanceSubTab("transactions")
-                                  }
-                                  activeOpacity={0.85}
-                                  accessibilityRole="button"
-                                  accessibilityLabel="View full transaction list"
-                                >
-                                  <Text
-                                    style={
-                                      neoStyles.financeLedgerPreviewLinkText
-                                    }
-                                  >
-                                    View all
-                                  </Text>
-                                  <Feather
-                                    name="chevron-right"
-                                    size={14}
-                                    color="#4D3636"
-                                  />
-                                </TouchableOpacity>
                               </View>
                               <Text
                                 style={[
@@ -6420,8 +6438,6 @@ export default function TripDetailScreen({
                 payablePartyLabel={
                   isDcoTrip ? "DCO" : isAssetTripFinance ? "Driver" : "Supplier"
                 }
-                subTab={financeSubTab}
-                onSubTabChange={setFinanceSubTab}
                 searchTerm={searchTerm}
                 onSearchChange={setSearchTerm}
                 captureSlot={undefined}
@@ -6986,6 +7002,22 @@ export default function TripDetailScreen({
                                       {log.locationCoords}
                                     </Text>
                                   ) : null}
+                                  {(log.history?.length ?? 0) > 0 ? (
+                                    <View style={neoStyles.timelineHistory}>
+                                      {log.history!.map((line, hi) => (
+                                        <Text
+                                          key={`${line.atIso}-${hi}`}
+                                          style={[
+                                            neoStyles.timelineHistoryLine,
+                                            isMobile &&
+                                              neoStyles.timelineHistoryLineMobile,
+                                          ]}
+                                        >
+                                          {line.time} · {line.actor} · {line.action}
+                                        </Text>
+                                      ))}
+                                    </View>
+                                  ) : null}
                                   {expanded ? (
                                     <Text style={neoStyles.timelineDetails}>
                                       {log.details}
@@ -7206,32 +7238,6 @@ export default function TripDetailScreen({
                   </View>
                 ) : activeTab === "finance" ? (
                   <View style={neoStyles.financeStack}>
-                  <View style={neoStyles.financeSubTabs}>
-                    {(["summary", "transactions"] as const).map((sub) => {
-                      const active = financeSubTab === sub;
-                      return (
-                        <TouchableOpacity
-                          key={sub}
-                          style={neoStyles.financeSubTab}
-                          onPress={() => setFinanceSubTab(sub)}
-                          activeOpacity={0.86}
-                        >
-                          <Text
-                            style={[
-                              neoStyles.financeSubTabText,
-                              isDesktop && neoStyles.financeSubTabTextDesktop,
-                              active && neoStyles.financeSubTabTextActive,
-                            ]}
-                          >
-                            {sub}
-                          </Text>
-                          {active ? <View style={neoStyles.financeSubLine} /> : null}
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                    {financeSubTab === "summary" ? (
-                      <>
                         <View
                           style={[
                             neoStyles.financeSummaryTwoPane,
@@ -7415,73 +7421,6 @@ export default function TripDetailScreen({
                             ) : null}
                           </View>
                         ) : null}
-                      </>
-                    ) : (
-                      <View style={neoStyles.txnList}>
-                        {ledgerEntries.length === 0 && ledgerEntriesLoading ? (
-                          <Text style={neoStyles.emptyText}>
-                            Loading ledger…
-                          </Text>
-                        ) : ledgerEntries.length === 0 && ledgerEntriesError ? (
-                          <Text style={neoStyles.emptyText}>
-                            Couldn’t load ledger
-                          </Text>
-                        ) : filteredFinanceRows.length === 0 ? (
-                          <Text style={neoStyles.emptyText}>
-                            No transaction rows found
-                          </Text>
-                        ) : (
-                          filteredFinanceRows.map((row) => (
-                            <TouchableOpacity
-                              key={row.key}
-                              style={neoStyles.txnRow}
-                              activeOpacity={0.85}
-                              onPress={() => setPreviewLedgerTx(row.tx)}
-                              accessibilityRole="button"
-                              accessibilityLabel="Preview transaction"
-                            >
-                              <View
-                                style={[
-                                  neoStyles.txnIcon,
-                                  row.isIn
-                                    ? neoStyles.txnIconIn
-                                    : neoStyles.txnIconOut,
-                                ]}
-                              >
-                                <Feather
-                                  name={
-                                    row.isIn
-                                      ? "arrow-down-left"
-                                      : "arrow-up-right"
-                                  }
-                                  size={20}
-                                  color={row.isIn ? Theme.primary : "#f43f5e"}
-                                />
-                              </View>
-                              <View style={neoStyles.txnInfo}>
-                                <Text style={neoStyles.txnTitle}>
-                                  {ledgerHistoryTitle(row.tx, row.isIn)}
-                                </Text>
-                                <Text style={neoStyles.txnMeta}>
-                                  {formatLedgerDate(row.tx.transaction_date)} ·{" "}
-                                  {row.tx.payment_mode || "Wallet"}
-                                </Text>
-                              </View>
-                              <Text
-                                style={[
-                                  neoStyles.txnAmount,
-                                  row.isIn
-                                    ? neoStyles.txnAmountIn
-                                    : neoStyles.txnAmountOut,
-                                ]}
-                              >
-                                {formatINR(row.amount)}
-                              </Text>
-                            </TouchableOpacity>
-                          ))
-                        )}
-                      </View>
-                    )}
                   </View>
                 ) : activeTab === "expenses" ? (
                   <View
@@ -9875,7 +9814,7 @@ export default function TripDetailScreen({
         onClose={() => setPreviewLedgerTx(null)}
         onViewAll={() => {
           setActiveTab("finance");
-          setFinanceSubTab("transactions");
+          setPreviewLedgerTx(null);
         }}
         resolveReceiptPartyAvatar={resolveReceiptPartyAvatar}
         tripDetailsMap={

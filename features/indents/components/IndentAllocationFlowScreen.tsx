@@ -3,7 +3,7 @@
  */
 import { manuallySelectableSuppliers } from "@/features/marketplace/utils/marketplaceParty.util";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Platform, StyleSheet, Switch, Text, useWindowDimensions, View } from "react-native";
+import { StyleSheet, Switch, Text, useWindowDimensions, View } from "react-native";
 import { useRouter } from "expo-router";
 
 import { CenteredLoadingView } from "@/components/CenteredLoadingView";
@@ -925,16 +925,6 @@ export function IndentAllocationFlowScreen({
 
   const showAssignLaterOnPartner = !deploySucceeded && step === "partner";
 
-  const onAddPartner = useCallback(() => {
-    handleClose();
-    setTimeout(
-      () => {
-        router.push("/(modals)/add-supplier" as import("expo-router").Href);
-      },
-      Platform.OS === "ios" ? 100 : 0,
-    );
-  }, [handleClose, router]);
-
   const fillBodyStep =
     step === "rates" ||
     step === "driverPhone" ||
@@ -1184,7 +1174,6 @@ export function IndentAllocationFlowScreen({
                 suppliers={selectableSuppliers}
                 state={state}
                 set={set}
-                onAddPartner={onAddPartner}
                 blockedReasonBySupplierId={blockedPartnerReasons}
                 onPartnerSelected={advanceToRates}
                 awardedRate={awardedRate}

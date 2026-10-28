@@ -12,7 +12,7 @@ import {
 } from "react-native";
 
 import Theme from "@/constants/Theme";
-import { coordsOrUnset } from "@/lib/placeSearch.util";
+import { coordsOrUnset } from "@/lib/maps/placeSearch.util";
 import { TypewriterText } from "@/components/TypewriterText";
 import type { AddTripIssueField } from "@/features/trips/components/add-trip/useAddTripForm";
 import type { RouteExtraStopDraft } from "@/features/trips/utils/routeExtraStops.util";

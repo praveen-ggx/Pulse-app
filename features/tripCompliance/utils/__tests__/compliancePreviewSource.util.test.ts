@@ -107,6 +107,15 @@ describe("compliancePreviewSourceForRow", () => {
       ),
     ).toBe("supplier-kyc");
   });
+
+  it("signs a trip memo from the trip vault, not compliance-documents", () => {
+    expect(
+      compliancePreviewSourceForVaultFile({
+        category: "memo",
+        deleteKind: "trip",
+      }),
+    ).toBe("trip");
+  });
 });
 
 describe("compliancePreviewSourceForVaultFile", () => {

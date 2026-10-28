@@ -11,14 +11,14 @@ import {
   buildNominatimReverseUrl,
   isUsablePlaceCoordinate,
   shouldCachePlaceSearchResults,
-} from '@/lib/placeSearch.util';
+} from '@/lib/maps/placeSearch.util';
 
 export {
   MAPBOX_FORWARD_SEARCH_TYPES,
   NOMINATIM_REVERSE_URL,
   buildNominatimReverseUrl,
   isUsablePlaceCoordinate,
-} from '@/lib/placeSearch.util';
+} from '@/lib/maps/placeSearch.util';
 
 export interface PlaceResult {
   placeId: string;

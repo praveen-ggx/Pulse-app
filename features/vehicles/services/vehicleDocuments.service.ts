@@ -688,7 +688,7 @@ export async function uploadAndSaveVehicleExtraDocumentsForTrip(
       }
       extras.push({
         id: document.id ?? extraDocumentId(),
-        url: document.storage_path,
+        url: document.storage_path ?? "",
         expiryDate: document.expiry_date ?? "",
         uploadedAt: document.created_at,
         fileName: file.fileName,

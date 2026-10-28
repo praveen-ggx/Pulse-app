@@ -20,7 +20,15 @@ import {
   Pencil,
 } from 'lucide-react-native';
 import React, { useRef, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  type TextStyle,
+} from 'react-native';
 
 export const PURPLE = '#4D3636';
 export const PURPLE_MID = '#312e81';
@@ -170,7 +178,7 @@ export function SectionHeader({
           style={[
             sh.title,
             Platform.OS === 'web'
-              ? ({ whiteSpace: 'pre-wrap', letterSpacing: 0 } as const)
+              ? ({ whiteSpace: 'pre-wrap', letterSpacing: 0 } as TextStyle)
               : null,
           ]}
         >

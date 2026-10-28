@@ -166,6 +166,8 @@ export interface IndentRow {
   assigned_supplier_rate?: number | null;
   /** Set when a shipper revokes an award; cleared on the next award. */
   award_revoked_at?: string | null;
+  /** Active trip refs attached by attachActiveTripRefs (empty = unallocated). */
+  active_trip?: IndentTripJoin[] | null;
   [key: string]: unknown;
 }
 

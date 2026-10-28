@@ -8,7 +8,7 @@ import {
   customPlaceCoords,
   isUsablePlaceCoordinate,
   shouldCachePlaceSearchResults,
-} from "@/lib/placeSearch.util";
+} from "@/lib/maps/placeSearch.util";
 import {
   resetPlacesProviderCooldownsForTests,
   resetPlacesSearchMemoryForTests,

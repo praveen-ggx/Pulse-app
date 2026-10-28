@@ -17,16 +17,19 @@ export type AssignmentCachePatch = {
   focus?: "driver" | "vehicle";
 };
 
-export function mergeAssignmentIntoTripRow<T extends Record<string, unknown>>(
+type AssignmentTripFields = {
+  id?: string;
+  driver_id?: string | null;
+  vehicle_id?: string | null;
+  driver_display_name?: string | null;
+  vehicle_display_number?: string | null;
+};
+
+export function mergeAssignmentIntoTripRow<T extends AssignmentTripFields>(
   trip: T,
   patch: AssignmentCachePatch,
 ): T {
-  const next = { ...trip } as T & {
-    driver_id?: string | null;
-    vehicle_id?: string | null;
-    driver_display_name?: string | null;
-    vehicle_display_number?: string | null;
-  };
+  const next = { ...trip };
   if (patch.driverId !== undefined) next.driver_id = patch.driverId;
   if (patch.vehicleId !== undefined) next.vehicle_id = patch.vehicleId;
   if (patch.driverDisplayName !== undefined) {
@@ -46,19 +49,16 @@ export function patchAssignmentCaches(
     patch: AssignmentCachePatch;
   },
 ): void {
-  const applyRow = <T extends Record<string, unknown>>(row: T): T =>
+  const applyRow = <T extends AssignmentTripFields>(row: T): T =>
     row.id === args.tripId ? mergeAssignmentIntoTripRow(row, args.patch) : row;
 
   patchTripDetailBundleCache(queryClient, args.tripId, (old) => {
-    if (!old?.trip || (old.trip as { id?: string }).id !== args.tripId) {
+    if (!old?.trip || old.trip.id !== args.tripId) {
       return old;
     }
     const next: TripDetailBundle = {
       ...old,
-      trip: mergeAssignmentIntoTripRow(
-        old.trip as unknown as Record<string, unknown>,
-        args.patch,
-      ) as TripDetailBundle["trip"],
+      trip: mergeAssignmentIntoTripRow(old.trip, args.patch),
     };
     if (args.patch.driverDisplayName !== undefined && next.driver) {
       next.driver = {
@@ -97,12 +97,12 @@ export function patchAssignmentCaches(
     queryKeys.trips.finite(args.organizationId),
     (rows) =>
       Array.isArray(rows)
-        ? rows.map((row) => applyRow(row as unknown as Record<string, unknown>) as TripRow)
+        ? rows.map((row) => applyRow(row))
         : rows,
   );
 
   queryClient.setQueryData<TripRow>(queryKeys.trips.detail(args.tripId), (row) =>
-    row ? (applyRow(row as unknown as Record<string, unknown>) as TripRow) : row,
+    row ? applyRow(row) : row,
   );
 
   queryClient.setQueryData(queryKeys.trips.assignmentPaint(args.tripId), {

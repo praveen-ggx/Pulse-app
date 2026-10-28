@@ -50,7 +50,7 @@ export function ClientSearchField({
   onClearSelection,
   onClientNameChange,
   onRequestCreateClient,
-  showCreateClientOption = true,
+  showCreateClientOption = false,
   onDropdownOpenChange,
   inputStyle,
   labelStyle,
@@ -106,7 +106,7 @@ export function ClientSearchField({
           <Text style={styles.emptyListText}>
             {query
               ? "No matching client."
-              : "No clients yet. Add clients from the Clients page first."}
+              : "No clients yet. Add the party from Customers first."}
           </Text>
         </View>
       )}

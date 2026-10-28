@@ -31,11 +31,13 @@ export function compliancePreviewSourceForRow(
 export function compliancePreviewSourceForVaultFile(
   file: Pick<
     VaultCategoryPreviewFile,
-    "category" | "complianceType" | "driverKind" | "deleteKind"
+    "category" | "categoryLabel" | "complianceType" | "driverKind" | "deleteKind"
   > | null | undefined,
 ): ComplianceViewSource {
   if (!file) return "trip";
-  if (file.category === "bank_docs") return "supplier-kyc";
+  if (file.category === "bank_docs" || file.categoryLabel === "Bank Docs") {
+    return "supplier-kyc";
+  }
   if (file.driverKind) return "compliance";
   if (file.deleteKind === "vehicle_extra") return "vehicle-vault";
   if (file.complianceType || file.deleteKind === "vehicle_compliance") return "entity";

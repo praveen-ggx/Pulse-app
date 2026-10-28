@@ -117,3 +117,22 @@ describe("compliancePreviewSourceForRow", () => {
     ).toBe("trip");
   });
 });
+
+describe("compliancePreviewSourceForVaultFile", () => {
+  it("signs a trip memo from the trip vault, not compliance-documents", () => {
+    expect(
+      compliancePreviewSourceForVaultFile({
+        category: "memo",
+        deleteKind: "trip",
+      }),
+    ).toBe("trip");
+  });
+
+  it("signs Bank Docs from supplier KYC even when only the label is set", () => {
+    expect(
+      compliancePreviewSourceForVaultFile({
+        categoryLabel: "Bank Docs",
+      }),
+    ).toBe("supplier-kyc");
+  });
+});

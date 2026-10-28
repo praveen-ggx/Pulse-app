@@ -18,6 +18,7 @@ describe("tripIdsHashKey", () => {
 describe("isNonPersistedTripsQueryKey", () => {
   it("matches hub search, doc numbers, driver phones and export status times", () => {
     expect(isNonPersistedTripsQueryKey(queryKeys.trips.hubSearch("org", "abc"))).toBe(true);
+    expect(isNonPersistedTripsQueryKey(queryKeys.trips.hubDateRange("org", "2026-09-01", "2026-09-30"))).toBe(true);
     expect(isNonPersistedTripsQueryKey(queryKeys.trips.hubDocNumbers("org", "k"))).toBe(true);
     expect(isNonPersistedTripsQueryKey(queryKeys.trips.hubDriverPhones("org", "k"))).toBe(true);
     expect(isNonPersistedTripsQueryKey(queryKeys.trips.opsExportStatusTimes("org", "k"))).toBe(true);

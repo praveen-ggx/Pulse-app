@@ -207,6 +207,25 @@ export function peekPdfEmbedBitmap(uri: string, page: number, edge: number): str
   });
 }
 
+export async function probePdfPageCount(
+  uri: string,
+  signal?: AbortSignal,
+): Promise<number> {
+  const pdfjs = await loadPdfJs();
+  if (signal?.aborted) throw signal.reason ?? new Error("cancelled");
+  const doc = await pdfjs.getDocument({
+    url: uri.split("#")[0],
+    withCredentials: false,
+    disableAutoFetch: true,
+    disableStream: false,
+  }).promise;
+  try {
+    return Math.max(1, doc.numPages);
+  } finally {
+    void doc.destroy();
+  }
+}
+
 export async function rasterizePdfPage(uri: string, page: number, edge: number): Promise<string> {
   const identity = documentPreviewIdentity({ storagePath: uri.split("?")[0], fileId: uri });
   if (!identity) throw new Error("missing document identity");

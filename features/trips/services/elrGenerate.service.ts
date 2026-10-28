@@ -9,7 +9,7 @@ import {
   type ElrTripSource,
   type StoredElrDocument,
 } from "@/features/trips/services/elrSnapshot.util";
-import { findOrgDuplicateLrNumberForTrip } from "@/features/trips/services/orgLrDuplicate.service";
+import { checkOrgDuplicateLrNumbersForTrip } from "@/features/trips/services/orgLrDuplicate.service";
 import { ORG_LR_DUPLICATE_MESSAGE } from "@/features/trips/services/orgLrNumber.util";
 import { uploadTripDocument } from "@/features/trips/services/tripDocuments.service";
 
@@ -158,10 +158,12 @@ export async function generateOrOpenElr(input: {
   });
   if (!built.ok) return { ok: false, reason: "missing", missing: built.missing };
 
-  const duplicate = await findOrgDuplicateLrNumberForTrip({
-    tripId,
-    lrNumber: built.snapshot.lrNumber,
-  });
+  let duplicate: Awaited<ReturnType<typeof checkOrgDuplicateLrNumbersForTrip>>;
+  try {
+    duplicate = await checkOrgDuplicateLrNumbersForTrip({ tripId, lrNumbers: [built.snapshot.lrNumber] });
+  } catch (e) {
+    return { ok: false, reason: "save", message: e instanceof Error ? e.message : String(e) };
+  }
   if (duplicate) {
     return { ok: false, reason: "save", message: ORG_LR_DUPLICATE_MESSAGE };
   }

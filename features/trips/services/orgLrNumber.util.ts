@@ -4,6 +4,9 @@ import { readStoredElrSnapshot } from "@/features/trips/services/elrSnapshot.uti
 export const ORG_LR_DUPLICATE_MESSAGE =
   "This LR number already exists in this workspace. Duplicate LR numbers are not allowed.";
 
+export const ORG_LR_CHECK_UNAVAILABLE_MESSAGE =
+  "Couldn't check whether this LR number is already used. Check your connection and try again.";
+
 /** Compare LR numbers the same way in the form and in stored documents. */
 export function normalizeOrgLrNumber(value: string | null | undefined): string {
   return (value ?? "").trim().replace(/\s+/g, " ").toUpperCase();

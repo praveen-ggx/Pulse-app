@@ -39,6 +39,7 @@ import { runSingleflight } from "@/lib/cache/singleflight";
 import {
     DEFAULT_PAGE_SIZE,
     DRIVER_TRIPS_PAGE_SIZE,
+    readAllPages,
     type PageOpts,
 } from "@/lib/pagination";
 
@@ -364,9 +365,6 @@ export type TripPartyCounts = {
   byDriverId: Record<string, number>;
 };
 
-const TRIP_PARTY_COUNT_PAGE = 1000;
-const TRIP_PARTY_COUNT_MAX_PAGES = 50;
-
 export type TripPartyCountRow = {
   client_id?: string | null;
   supplier_id?: string | null;
@@ -400,29 +398,19 @@ export async function getTripPartyCountsForOrg(
     byDriverId: {},
   };
   if (!orgId) return { error: null, counts: empty };
-  const counts: TripPartyCounts = {
-    byClientId: {},
-    bySupplierId: {},
-    byDriverId: {},
-  };
-  // PostgREST caps a single response (~1000). Page so Network badges are exact.
-  for (let page = 0; page < TRIP_PARTY_COUNT_MAX_PAGES; page += 1) {
-    const from = page * TRIP_PARTY_COUNT_PAGE;
-    const to = from + TRIP_PARTY_COUNT_PAGE - 1;
-    const { data, error } = await supabase()
+  // `.limit(2000)` was silently capped at PostgREST max_rows (1000) — page through all trips.
+  const { data, error } = await readAllPages((afterId, limit) => {
+    // `id` is selected only as the keyset cursor.
+    let q = supabase()
       .from("trips")
-      .select("client_id, supplier_id, driver_id")
+      .select("id, client_id, supplier_id, driver_id")
       .eq("organization_id", orgId)
-      .is("deleted_at", null)
-      .range(from, to);
-    if (error) return { error: new Error(error.message), counts: empty };
-    const rows = (data ?? []) as TripPartyCountRow[];
-    accumulateTripPartyCounts(rows, counts);
-    if (rows.length < TRIP_PARTY_COUNT_PAGE) {
-      return { error: null, counts };
-    }
-  }
-  return { error: null, counts };
+      .is("deleted_at", null);
+    if (afterId) q = q.gt("id", afterId);
+    return q.order("id", { ascending: true }).limit(limit);
+  });
+  if (error) return { error: new Error(error.message), counts: empty };
+  return { error: null, counts: accumulateTripPartyCounts((data ?? []) as TripPartyCountRow[]) };
 }
 
 export async function getTripsByOrganization(

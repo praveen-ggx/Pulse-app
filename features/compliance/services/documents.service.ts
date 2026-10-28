@@ -28,6 +28,7 @@
  * exported so existing call sites don't break; everything else is new.
  */
 
+import { chunkIdsForRead, readAllPages } from "@/lib/pagination";
 import { supabase } from "@/lib/supabase";
 import {
   documentAuditLookupOrFilter,
@@ -220,18 +221,27 @@ export async function getDocumentsForEntities(
   entityTypes: EntityType[] = ["vehicle", "driver"],
 ): Promise<{ error: Error | null; documents: DocumentRow[] }> {
   if (!orgId || entityIds.length === 0) return { error: null, documents: [] };
-  const { data, error } = await supabase()
-    .from("entity_documents")
-    .select("*")
-    .eq("organization_id", orgId)
-    .in("entity_type", entityTypes)
-    .in("entity_id", entityIds)
-    .neq("status", "replaced");
-
-  return {
-    error: (error as Error | null) ?? null,
-    documents: (data ?? []) as DocumentRow[],
-  };
+  // Chunked + paged: one select stopped at PostgREST max_rows (1000) without an error.
+  const results = await Promise.all(
+    chunkIdsForRead(entityIds).map((chunk) =>
+      readAllPages((afterId, limit) => {
+        let q = supabase()
+          .from("entity_documents")
+          .select("*")
+          .eq("organization_id", orgId)
+          .in("entity_type", entityTypes)
+          .in("entity_id", chunk)
+          .neq("status", "replaced");
+        if (afterId) q = q.gt("id", afterId);
+        return q.order("id", { ascending: true }).limit(limit);
+      }),
+    ),
+  );
+  const failed = results.find((result) => result.error);
+  if (failed) return { error: failed.error as unknown as Error, documents: [] };
+  const byId = new Map<string, DocumentRow>();
+  for (const result of results) for (const row of result.data as DocumentRow[]) byId.set(row.id, row);
+  return { error: null, documents: Array.from(byId.values()) };
 }
 
 export interface GetOrgDocumentsOptions {

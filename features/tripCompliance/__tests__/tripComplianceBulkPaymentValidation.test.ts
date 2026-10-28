@@ -15,10 +15,18 @@ import type { TripRow } from "@/features/trips/services/trips.service";
 function mockMakeThenable<T>(result: { data: T; error: null }) {
   const builder: Record<string, unknown> = {};
   const chain = () => builder;
+  // Single-page fake: the keyset follow-up page (`gt("id", …)`) is empty.
+  let current: { data: unknown; error: null } = result;
   builder.select = chain;
   builder.eq = chain;
   builder.in = chain;
-  builder.then = (resolve: (v: typeof result) => void) => resolve(result);
+  builder.order = chain;
+  builder.limit = chain;
+  builder.gt = () => {
+    current = { data: [], error: null };
+    return builder;
+  };
+  builder.then = (resolve: (v: typeof result) => void) => resolve(current as typeof result);
   return builder;
 }
 
@@ -244,5 +252,50 @@ describe("validateComplianceBulkPayments", () => {
     });
     expect(result.valid).toHaveLength(0);
     expect(result.alreadyPaid).toHaveLength(1);
+  });
+});
+
+/**
+ * Bulk Payment now reads trip documents through fetchTripDocumentsForTrips (the
+ * Compliance list reader). Typed E-way numbers (`…/eway_bill/fields.json` +
+ * `document_number`) and legacy type names count exactly as on the list.
+ * Documents only shape the block *reason* for unverified advance rows —
+ * eligibility is still decided by compliance / finance verification and POD.
+ */
+describe("validateComplianceBulkPayments — document semantics match the Compliance list", () => {
+  function listShapedDocs(tripId: string, ewayNumber: string | null) {
+    return [
+      { id: `${tripId}-lr`, trip_id: tripId, document_type: "Lorry Receipt", file_name: "lr.pdf", storage_path: `${tripId}/lr/1.pdf`, uploaded_at: "2026-10-27", status: "verified", verified_by: "u1", verified_at: "2026-10-27", rejection_reason: null, document_number: "LR-1" },
+      { id: `${tripId}-inv`, trip_id: tripId, document_type: "tax_invoice", file_name: "inv.pdf", storage_path: `${tripId}/invoice/1.pdf`, uploaded_at: "2026-10-27", status: "verified", verified_by: "u1", verified_at: "2026-10-27", rejection_reason: null, document_number: "INV-1" },
+      { id: `${tripId}-eway`, trip_id: tripId, document_type: "E-Way Bill", file_name: "eway-fields.json", storage_path: `${tripId}/eway_bill/fields.json`, uploaded_at: "2026-10-27", status: "verified", verified_by: "u1", verified_at: "2026-10-27", rejection_reason: null, document_number: ewayNumber },
+    ];
+  }
+  const advanceRow = { rowIndex: 2, tripId: "trip-1", amount: 5000, paymentModeId: "UPI", utr: "UTR9" };
+  beforeEach(() => {
+    mockTxnsResult = { data: [], error: null };
+  });
+
+  it("typed E-way numbers and legacy type names count as on file (reason is verification, not a missing doc)", async () => {
+    mockTripsResult = { data: [TRIP_1], error: null };
+    mockDocsResult = { data: listShapedDocs("trip-1", JSON.stringify({ ewayNo: "582093285239", entries: [{ ewayNo: "582093285239" }] })), error: null };
+    const result = await validateComplianceBulkPayments({ organizationId: "org-1", category: "compliance_advance", rows: [advanceRow] });
+    expect(result.valid).toHaveLength(0);
+    expect(result.blocked[0].gateReason).toBe("Compliance verification not completed");
+  });
+
+  it("an E-way details marker with no numbers is still missing", async () => {
+    mockTripsResult = { data: [TRIP_1], error: null };
+    mockDocsResult = { data: listShapedDocs("trip-1", "{}"), error: null };
+    const result = await validateComplianceBulkPayments({ organizationId: "org-1", category: "compliance_advance", rows: [advanceRow] });
+    expect(result.blocked[0].gateReason).toMatch(/missing$/);
+    expect(result.blocked[0].gateReason).toMatch(/e-?way/i);
+  });
+
+  it("eligibility is unchanged: a compliance + finance verified trip is payable regardless of documents", async () => {
+    mockTripsResult = { data: [TRIP_1_VERIFIED], error: null };
+    mockDocsResult = { data: [], error: null };
+    const result = await validateComplianceBulkPayments({ organizationId: "org-1", category: "compliance_advance", rows: [advanceRow] });
+    expect(result.valid).toHaveLength(1);
+    expect(result.blocked).toHaveLength(0);
   });
 });

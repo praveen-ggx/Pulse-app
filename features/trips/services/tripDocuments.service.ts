@@ -15,8 +15,7 @@ import { listOcrJobsForTripDocuments } from "@/features/ocr/services/ocrJob.serv
 import { runWithConcurrencyLimit } from "@/features/trips/services/tripDocumentLrPod.service";
 import { parseLrFieldsFromOcrJob, parseLrFieldValues, preferredLrDocumentNumber, serializeLrFieldValues, LR_FIELDS_FILE_NAME, lrFieldsStoragePath, isLrFieldsMetaPath } from "@/features/trips/services/lrDocumentOcr.util";
 import {
-  findOrgDuplicateLrNumberForTrip,
-  findOrgDuplicateLrNumbersForTrip,
+  checkOrgDuplicateLrNumbersForTrip,
   invalidateOrgLrIndexForTrip,
 } from "@/features/trips/services/orgLrDuplicate.service";
 import {
@@ -652,10 +651,12 @@ async function uploadTripDocumentRow(
   if (documentType === "lr") {
     const lrNumber = lrNumberFromStoredDocumentNumber(documentNumber);
     if (lrNumber) {
-      const duplicate = await findOrgDuplicateLrNumberForTrip({
-        tripId,
-        lrNumber,
-      });
+      let duplicate: Awaited<ReturnType<typeof checkOrgDuplicateLrNumbersForTrip>>;
+      try {
+        duplicate = await checkOrgDuplicateLrNumbersForTrip({ tripId, lrNumbers: [lrNumber] });
+      } catch (e) {
+        return { doc: null, error: e instanceof Error ? e : new Error(String(e)) };
+      }
       if (duplicate) {
         return { doc: null, error: new Error(ORG_LR_DUPLICATE_MESSAGE) };
       }
@@ -955,10 +956,12 @@ export async function updateTripDocumentNumber(
     const docType = String((row as { document_type?: string } | null)?.document_type ?? "");
     if (tripId && docType === "lr") {
       lrTripId = tripId;
-      const duplicate = await findOrgDuplicateLrNumberForTrip({
-        tripId,
-        lrNumber,
-      });
+      let duplicate: Awaited<ReturnType<typeof checkOrgDuplicateLrNumbersForTrip>>;
+      try {
+        duplicate = await checkOrgDuplicateLrNumbersForTrip({ tripId, lrNumbers: [lrNumber] });
+      } catch (e) {
+        return e instanceof Error ? e : new Error(String(e));
+      }
       if (duplicate) return new Error(ORG_LR_DUPLICATE_MESSAGE);
     }
   }
@@ -1085,10 +1088,12 @@ async function writeTripLrNumbers(input: {
 }): Promise<{ error: Error | null; lrNumbers: string[] }> {
   const lrNumbers = uniqueExpandedLrNumbers(input.lrInput);
   // One org index for the whole range — a range like 100-150 used to run 51 full sweeps.
-  const duplicate = await findOrgDuplicateLrNumbersForTrip({
-    tripId: input.tripId,
-    lrNumbers,
-  });
+  let duplicate: Awaited<ReturnType<typeof checkOrgDuplicateLrNumbersForTrip>>;
+  try {
+    duplicate = await checkOrgDuplicateLrNumbersForTrip({ tripId: input.tripId, lrNumbers });
+  } catch (e) {
+    return { error: e instanceof Error ? e : new Error(String(e)), lrNumbers: [] };
+  }
   if (duplicate) {
     return { error: new Error(ORG_LR_DUPLICATE_MESSAGE), lrNumbers: [] };
   }

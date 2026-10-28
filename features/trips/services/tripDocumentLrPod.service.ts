@@ -900,6 +900,8 @@ async function fetchLrPodRowsViaRest(
   tripIds: string[],
   documentTypes: string[],
   concurrency: number = CHUNK_CONCURRENCY,
+  /** Throw on a failed chunk instead of dropping it (callers that must not see a partial set). */
+  strict = false,
 ): Promise<TripDocumentLrPodRow[]> {
   const chunks = chunkIds(tripIds, TRIP_ID_CHUNK_REST);
   if (chunks.length === 0) return [];
@@ -911,11 +913,13 @@ async function fetchLrPodRowsViaRest(
         .in("trip_id", chunk)
         .in("document_type", documentTypes);
       if (error) {
+        if (strict) throw new Error(error.message);
         console.warn("[tripDocumentLrPod] trip_documents fetch:", error.message);
         return [] as TripDocumentLrPodRow[];
       }
       return (data ?? []) as TripDocumentLrPodRow[];
     } catch (e) {
+      if (strict) throw e;
       const msg = e instanceof Error ? e.message : String(e);
       console.warn("[tripDocumentLrPod] trip_documents fetch:", msg);
       return [] as TripDocumentLrPodRow[];
@@ -929,7 +933,8 @@ async function fetchLrPodRowsViaRest(
 /**
  * Raw LR rows (trip_id + stored document_number) for many trips. Same RPC-first,
  * bounded-concurrency path as the hub index, so org-wide LR checks skip the
- * per-row trip_documents RLS.
+ * per-row trip_documents RLS. Throws when the REST fallback cannot read every
+ * chunk — the duplicate-LR check must not run on a partial set.
  */
 export async function loadLrDocumentRowsByTripIds(
   tripIds: string[],
@@ -942,7 +947,7 @@ export async function loadLrDocumentRowsByTripIds(
       (row) => String(row.document_type ?? "").trim().toLowerCase() === "lr",
     );
   }
-  return fetchLrPodRowsViaRest(unique, ["lr"]);
+  return fetchLrPodRowsViaRest(unique, ["lr"], CHUNK_CONCURRENCY, true);
 }
 
 /** One bulk read of LR + POD metadata for many trips. */

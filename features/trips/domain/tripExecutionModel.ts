@@ -82,6 +82,45 @@ export function isAggregateExecutionTrip(trip: TripRow): boolean {
 }
 
 /**
+ * Awarded carrier on a shipper-owned trip (not the trip owner).
+ * The shipper still books this as aggregate/supplier; the carrier must not.
+ */
+export function isPartnerAwardedSupplierView(
+  trip: Pick<TripRow, "organization_id" | "supplier_id">,
+  viewerOrgId?: string | null,
+): boolean {
+  const viewer = String(viewerOrgId ?? "").trim();
+  const owner = String(trip.organization_id ?? "").trim();
+  const hasSupplier = String(trip.supplier_id ?? "").trim().length > 0;
+  if (!viewer || !hasSupplier) return false;
+  if (owner && viewer === owner) return false;
+  return true;
+}
+
+/**
+ * Carrier assigned its own roster driver on the shipper trip.
+ * Shipper classification stays aggregate (`getTripExecutionModel`); the
+ * carrier's finance/UX must follow asset (driver cost, not self-as-supplier).
+ */
+export function isPartnerOwnRosterHaul(
+  trip: Pick<TripRow, "organization_id" | "supplier_id" | "driver_id">,
+  viewerOrgId?: string | null,
+): boolean {
+  if (!isPartnerAwardedSupplierView(trip, viewerOrgId)) return false;
+  return String(trip.driver_id ?? "").trim().length > 0;
+}
+
+/** Asset finance for this viewer — includes partner own-roster haul. */
+export function isAssetFinanceForViewer(
+  trip: TripRow,
+  viewerOrgId?: string | null,
+): boolean {
+  if (isDcoOperatingTrip(trip)) return false;
+  if (isAssetExecutionTrip(trip)) return true;
+  return isPartnerOwnRosterHaul(trip, viewerOrgId);
+}
+
+/**
  * Expense Hub is reachable for asset execution, and for DCO / Commerce
  * multi-order trips that already have a vehicle (fuel/toll book on this trip).
  */

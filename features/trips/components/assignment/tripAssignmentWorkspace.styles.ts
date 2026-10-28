@@ -2,7 +2,7 @@ import Theme from "@/constants/Theme";
 import Typography from "@/constants/Typography";
 import Layout from "@/constants/Layout";
 import { typography } from "@/design-system/typography";
-import { Platform, StyleSheet } from "react-native";
+import { Platform, StyleSheet, type DimensionValue } from "react-native";
 
 export const aws = StyleSheet.create({
   root: {
@@ -669,7 +669,8 @@ export const aws = StyleSheet.create({
     flexShrink: 1,
     flexBasis: 0,
     minWidth: 0,
-    maxWidth: "none",
+    // Web-only CSS keyword that clears the base panel maxWidth; not in RN's DimensionValue.
+    maxWidth: "none" as DimensionValue,
     borderRadius: 16,
   },
   panelBodyDesktop: {

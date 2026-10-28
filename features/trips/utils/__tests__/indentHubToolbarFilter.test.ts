@@ -109,7 +109,7 @@ describe("mergeIndentSearchHits", () => {
 });
 
 describe("tripsHubAllToolbarCountLabel", () => {
-  it("adds unallocated indents to the active trip count", () => {
+  it("counts trips only and ignores indent counts", () => {
     expect(
       tripsHubAllToolbarCountLabel({
         visibleIndentCount: 13,
@@ -117,7 +117,7 @@ describe("tripsHubAllToolbarCountLabel", () => {
         visibleTripCount: 16,
         dateFilteredTripCount: 16,
       }),
-    ).toBe("Showing 29 of 29");
+    ).toBe("Showing 16 of 16");
   });
 });
 

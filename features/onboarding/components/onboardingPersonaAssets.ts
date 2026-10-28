@@ -106,12 +106,12 @@ export type PulseProductVisual =
 export const PULSE_PRODUCT_VISUALS = {
   core: {
     type: 'image',
-    source: require('@/assets/illustrations/pulse_mascot_cutout.png'),
+    source: require('@/assets/illustrations/web/pulse_mascot_cutout.png'),
     aspect: 691 / 877,
   },
   pilot: {
     type: 'image',
-    source: require('@/assets/illustrations/otp_delivery_truck_mascot_cutout.png'),
+    source: require('@/assets/illustrations/web/otp_delivery_truck_mascot_cutout.png'),
     aspect: 1359 / 645,
   },
   commerce: {

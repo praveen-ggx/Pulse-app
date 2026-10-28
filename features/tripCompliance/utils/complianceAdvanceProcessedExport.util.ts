@@ -4,7 +4,7 @@
  */
 import type { AdvanceProcessedEnrichment } from "@/features/tripCompliance/services/complianceAdvanceProcessed.service";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
-import { exportLrNumber, latestDocNumber } from "@/features/tripCompliance/utils/complianceVerifiedExport.util";
+import { exportLrNumber } from "@/features/tripCompliance/utils/complianceVerifiedExport.util";
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { formatIndianVehicleNumber } from "@/lib/format";
 import * as XLSX from "xlsx";

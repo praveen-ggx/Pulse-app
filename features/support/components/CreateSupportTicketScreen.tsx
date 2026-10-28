@@ -35,6 +35,7 @@ import {
   type PickedSupportAttachment,
 } from '@/features/support/utils/supportAttachmentPick.util';
 import { showAppAlert } from '@/lib/appAlert';
+import { useSafeBack } from '@/lib/useSafeBack';
 import { useMySupportTicketsQuery } from '@/lib/queries/useMySupportTicketsQuery';
 import { ROUTES } from '@/lib/routes';
 import { uuidv7 } from '@/lib/uuidv7';
@@ -119,11 +120,15 @@ export function CreateSupportTicketScreen() {
     [ticketsQ.tickets],
   );
   const updateBadge = formatSupportUnreadBadge(updateCount);
-
-  const handleBack = () => {
-    if (router.canGoBack()) router.back();
-    else router.replace('/' as Href);
-  };
+  const backFallback =
+    params.sourceScreen === 'workspace_hub'
+      ? ROUTES.WORKSPACE
+      : params.sourceScreen === 'my_account'
+        ? ROUTES.WORKSPACE_ACCOUNT
+        : params.sourceScreen === 'network_hub'
+          ? ROUTES.TABS.NETWORK
+          : '/';
+  const handleBack = useSafeBack(backFallback);
 
   const ingestPicked = useCallback((picked: PickedSupportAttachment[]) => {
     if (!picked.length) return;

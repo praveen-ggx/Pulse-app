@@ -26,7 +26,7 @@ export type IndentAggregateAllocationStepProps = {
   blockedReasonBySupplierId?: Record<string, string>;
   state: StaffHandshakeResult["state"];
   set: StaffHandshakeResult["set"];
-  onAddPartner: () => void;
+  onAddPartner?: () => void;
   /** After a partner tile is tapped — parent advances to Rates. */
   onPartnerSelected?: () => void;
   /**
@@ -44,7 +44,6 @@ export const IndentAggregateAllocationStep = memo(function IndentAggregateAlloca
   blockedReasonBySupplierId,
   state,
   set,
-  onAddPartner,
   onPartnerSelected,
   awardedRate,
 }: IndentAggregateAllocationStepProps) {
@@ -180,7 +179,7 @@ export const IndentAggregateAllocationStep = memo(function IndentAggregateAlloca
         setPartnerListExpanded={setPartnerListExpanded}
         onSelectPartner={handleSelectPartner}
         onClearPartner={handleClearPartner}
-        onAddPartner={onAddPartner}
+        onAddPartner={undefined}
         wizardMode
         listMaxHeight={420}
       />

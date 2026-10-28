@@ -1,7 +1,9 @@
+import { readAllPages } from "@/lib/pagination";
 import { supabase } from "@/lib/supabase";
 import {
   lrNumberFromStoredDocumentNumber,
   normalizeOrgLrNumber,
+  ORG_LR_CHECK_UNAVAILABLE_MESSAGE,
 } from "@/features/trips/services/orgLrNumber.util";
 import { loadLrDocumentRowsByTripIds } from "@/features/trips/services/tripDocumentLrPod.service";
 
@@ -17,18 +19,36 @@ const ORG_LR_INDEX_TTL_MS = 30_000;
 type OrgLrIndex = Map<string, Set<string>>;
 
 const orgLrIndexCache = new Map<string, { builtAt: number; index: OrgLrIndex }>();
-const orgLrIndexInFlight = new Map<string, Promise<OrgLrIndex | null>>();
+const orgLrIndexInFlight = new Map<string, Promise<OrgLrIndex>>();
 const tripOrgCache = new Map<string, string>();
 /** Bumped on every invalidation so a build that started before an LR write is not cached. */
 let orgLrIndexGeneration = 0;
 
-async function buildOrgLrIndex(organizationId: string): Promise<OrgLrIndex | null> {
-  const { data: tripRows, error: tripError } = await supabase()
-    .from("trips")
-    .select("id")
-    .eq("organization_id", organizationId)
-    .is("deleted_at", null);
-  if (tripError) return null;
+/**
+ * The org LR index could not be read completely. Write paths must not treat
+ * this as "no duplicate" — see `checkOrgDuplicateLrNumbersForTrip`.
+ */
+export class OrgLrIndexUnavailableError extends Error {
+  constructor(cause?: unknown) {
+    super(ORG_LR_CHECK_UNAVAILABLE_MESSAGE);
+    this.name = "OrgLrIndexUnavailableError";
+    if (cause !== undefined) (this as { cause?: unknown }).cause = cause;
+  }
+}
+
+/** Throws OrgLrIndexUnavailableError when any trip page or LR chunk fails. */
+async function buildOrgLrIndex(organizationId: string): Promise<OrgLrIndex> {
+  // Paged: an unpaged select stops at PostgREST max_rows (1000) and older trips' LRs were never checked.
+  const { data: tripRows, error: tripError } = await readAllPages((afterId, limit) => {
+    let q = supabase()
+      .from("trips")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .is("deleted_at", null);
+    if (afterId) q = q.gt("id", afterId);
+    return q.order("id", { ascending: true }).limit(limit);
+  });
+  if (tripError) throw new OrgLrIndexUnavailableError(tripError);
 
   const tripIds = (tripRows ?? [])
     .map((row) => String((row as { id?: string }).id ?? "").trim())
@@ -36,7 +56,12 @@ async function buildOrgLrIndex(organizationId: string): Promise<OrgLrIndex | nul
   const index: OrgLrIndex = new Map();
   if (tripIds.length === 0) return index;
 
-  const rows = await loadLrDocumentRowsByTripIds(tripIds);
+  let rows: Awaited<ReturnType<typeof loadLrDocumentRowsByTripIds>>;
+  try {
+    rows = await loadLrDocumentRowsByTripIds(tripIds);
+  } catch (e) {
+    throw new OrgLrIndexUnavailableError(e);
+  }
   for (const row of rows) {
     const tripId = String(row.trip_id ?? "").trim();
     const stored = lrNumberFromStoredDocumentNumber(row.document_number);
@@ -48,7 +73,8 @@ async function buildOrgLrIndex(organizationId: string): Promise<OrgLrIndex | nul
   return index;
 }
 
-async function getOrgLrIndex(organizationId: string): Promise<OrgLrIndex | null> {
+/** Cached org index. Rejects (OrgLrIndexUnavailableError) when it cannot be built; failures are not cached. */
+async function getOrgLrIndex(organizationId: string): Promise<OrgLrIndex> {
   const cached = orgLrIndexCache.get(organizationId);
   if (cached && Date.now() - cached.builtAt < ORG_LR_INDEX_TTL_MS) return cached.index;
 
@@ -58,12 +84,11 @@ async function getOrgLrIndex(organizationId: string): Promise<OrgLrIndex | null>
   const generation = orgLrIndexGeneration;
   const build = buildOrgLrIndex(organizationId)
     .then((index) => {
-      if (index && generation === orgLrIndexGeneration) {
+      if (generation === orgLrIndexGeneration) {
         orgLrIndexCache.set(organizationId, { builtAt: Date.now(), index });
       }
       return index;
     })
-    .catch(() => null)
     .finally(() => {
       if (orgLrIndexInFlight.get(organizationId) === build) {
         orgLrIndexInFlight.delete(organizationId);
@@ -73,6 +98,7 @@ async function getOrgLrIndex(organizationId: string): Promise<OrgLrIndex | null>
   return build;
 }
 
+/** null = trip not visible to this user (no check possible, as before); a read error throws. */
 async function organizationIdForTrip(tripId: string): Promise<string | null> {
   const cached = tripOrgCache.get(tripId);
   if (cached) return cached;
@@ -81,7 +107,7 @@ async function organizationIdForTrip(tripId: string): Promise<string | null> {
     .select("organization_id")
     .eq("id", tripId)
     .maybeSingle();
-  if (error) return null;
+  if (error) throw new OrgLrIndexUnavailableError(error);
   const organizationId = String(
     (data as { organization_id?: string | null } | null)?.organization_id ?? "",
   ).trim();
@@ -115,7 +141,8 @@ export async function findOrgDuplicateLrNumber(input: {
   const excludeTripId = (input.excludeTripId ?? "").trim();
   if (!organizationId || !wanted) return null;
 
-  const index = await getOrgLrIndex(organizationId);
+  // Advisory: a failed index read reports no duplicate. Write paths use the check* variant.
+  const index = await getOrgLrIndex(organizationId).catch(() => null);
   if (!index) return null;
   return findInIndex(index, wanted, excludeTripId);
 }
@@ -130,8 +157,12 @@ export async function findOrgDuplicateLrNumberForTrip(input: {
   });
 }
 
-/** Several LR numbers for one trip against a single org index (one sweep at most). */
-export async function findOrgDuplicateLrNumbersForTrip(input: {
+/**
+ * Fail-closed: several LR numbers for one trip against a single org index (one
+ * sweep at most). Throws OrgLrIndexUnavailableError when the index cannot be
+ * read completely, so a save never proceeds on an unchecked LR number.
+ */
+export async function checkOrgDuplicateLrNumbersForTrip(input: {
   tripId: string;
   lrNumbers: string[];
 }): Promise<{ tripId: string; lrNumber: string } | null> {
@@ -143,12 +174,23 @@ export async function findOrgDuplicateLrNumbersForTrip(input: {
   const organizationId = await organizationIdForTrip(tripId);
   if (!organizationId) return null;
   const index = await getOrgLrIndex(organizationId);
-  if (!index) return null;
   for (const lrNumber of wanted) {
     const duplicate = findInIndex(index, lrNumber, tripId);
     if (duplicate) return { ...duplicate, lrNumber };
   }
   return null;
+}
+
+/**
+ * Advisory (typing hints, pre-checks before a service save): a failed index
+ * read reports no duplicate. The service save re-checks with the fail-closed
+ * `checkOrgDuplicateLrNumbersForTrip`.
+ */
+export async function findOrgDuplicateLrNumbersForTrip(input: {
+  tripId: string;
+  lrNumbers: string[];
+}): Promise<{ tripId: string; lrNumber: string } | null> {
+  return checkOrgDuplicateLrNumbersForTrip(input).catch(() => null);
 }
 
 /**

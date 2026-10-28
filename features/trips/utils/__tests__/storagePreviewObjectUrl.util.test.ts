@@ -78,6 +78,8 @@ describe("openStoragePreview", () => {
 
     expect(opened).toEqual({ ok: false, kind: "missing" });
     expect(storagePreviewFailureMessage("missing")).toMatch(/missing/i);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(mockCreateSignedUrl).not.toHaveBeenCalled();
   });
 
   it("classifies unauthorized and expired access separately from a preview failure", async () => {

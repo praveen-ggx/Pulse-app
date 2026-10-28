@@ -61,6 +61,76 @@ export function tripFilterDayCandidates(trip: {
   return out;
 }
 
+/** Same timezone SQL uses: `(timezone('Asia/Kolkata', created_at))::date`. */
+export const HUB_TRIP_DATE_TIME_ZONE = "Asia/Kolkata";
+
+/** Date-only pickup matches the SQL `date` column; datetimes use Asia/Kolkata. */
+export function isoStringToKolkataDayIso(
+  raw: string | null | undefined,
+): string | null {
+  const s = (raw ?? "").trim();
+  if (!s) return null;
+  const dateOnly = s.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return null;
+  if (s.length === 10) return dateOnly;
+  const ms = Date.parse(s);
+  if (!Number.isFinite(ms)) return dateOnly;
+  return instantToKolkataDayIso(new Date(ms)) ?? dateOnly;
+}
+
+export function instantToKolkataDayIso(now: Date): string | null {
+  const formatted = new Intl.DateTimeFormat("en-CA", {
+    timeZone: HUB_TRIP_DATE_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+  return /^\d{4}-\d{2}-\d{2}$/.test(formatted) ? formatted : null;
+}
+
+function addIsoDays(dayIso: string, days: number): string {
+  const [y, m, d] = dayIso.split("-").map(Number);
+  const next = new Date(Date.UTC(y, m - 1, d + days));
+  return `${next.getUTCFullYear()}-${pad2(next.getUTCMonth() + 1)}-${pad2(next.getUTCDate())}`;
+}
+
+function startOfMondayWeekIso(dayIso: string): string {
+  const [y, m, d] = dayIso.split("-").map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  const diff = dow === 0 ? -6 : 1 - dow;
+  return addIsoDays(dayIso, diff);
+}
+
+function endOfMondayWeekIso(dayIso: string): string {
+  return addIsoDays(startOfMondayWeekIso(dayIso), 6);
+}
+
+function startOfMonthIso(dayIso: string): string {
+  return `${dayIso.slice(0, 7)}-01`;
+}
+
+function endOfMonthIso(dayIso: string): string {
+  const [y, m] = dayIso.split("-").map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return `${dayIso.slice(0, 7)}-${pad2(last)}`;
+}
+
+/** Hub list/RPC match days: pickup date or Asia/Kolkata created day. */
+export function tripHubMatchDayCandidates(trip: {
+  pickup_date?: string | null;
+  created_at?: string | null;
+}): string[] {
+  const out: string[] = [];
+  const pickupRaw = (trip.pickup_date ?? "").trim();
+  const pickupDay = pickupRaw.length >= 10 && /^\d{4}-\d{2}-\d{2}$/.test(pickupRaw.slice(0, 10))
+    ? pickupRaw.slice(0, 10)
+    : isoStringToKolkataDayIso(trip.pickup_date);
+  if (pickupDay) out.push(pickupDay);
+  const created = isoStringToKolkataDayIso(trip.created_at);
+  if (created && !out.includes(created)) out.push(created);
+  return out;
+}
+
 /** Trip sort / filter day: scheduled pickup if set, else created (local calendar). */
 export function tripDayIso(trip: {
   pickup_date?: string | null;
@@ -173,7 +243,7 @@ export function dayIsoMatchesPeriod(
   return true;
 }
 
-/** Trips hub date pills — matches pickup or created local day (not started_at). */
+/** Trips hub date pills — pickup date or Asia/Kolkata created day (not started_at). */
 export function tripDayMatchesHubDateFilter(
   trip: {
     pickup_date?: string | null;
@@ -181,30 +251,14 @@ export function tripDayMatchesHubDateFilter(
   },
   preset: TripHubDateFilter,
   opts?: CalendarPeriodFilterOptions,
+  now: Date = new Date(),
 ): boolean {
   if (preset === "all") return true;
-  const days = tripFilterDayCandidates(trip);
+  const days = tripHubMatchDayCandidates(trip);
   if (days.length === 0) return false;
-
-  if (preset === "tomorrow") {
-    const now = new Date();
-    const tmr = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-    const tomorrow = toIsoDateLocal(tmr);
-    return days.some((d) => d === tomorrow);
-  }
-
-  const periodByPreset: Record<
-    Exclude<TripHubDateFilter, "all" | "tomorrow">,
-    CalendarPeriodFilter
-  > = {
-    today: "TODAY",
-    yesterday: "YESTERDAY",
-    this_week: "WEEK",
-    this_month: "MONTH",
-    custom: "CUSTOM",
-  };
-  const period = periodByPreset[preset];
-  return days.some((d) => dayIsoMatchesPeriod(d, period, opts));
+  const bounds = hubDateFilterIsoBounds(preset, opts, now);
+  if (!bounds) return false;
+  return days.some((d) => d >= bounds.from && d <= bounds.to);
 }
 
 const MONTH_SHORT = [
@@ -233,6 +287,40 @@ export function formatIsoDayLabel(iso: string): string {
 export function formatIsoDayRangeLabel(fromIso: string, toIso: string): string {
   if (fromIso === toIso) return formatIsoDayLabel(fromIso);
   return `${formatIsoDayLabel(fromIso)} – ${formatIsoDayLabel(toIso)}`;
+}
+
+/**
+ * Inclusive Asia/Kolkata calendar bounds for a Trips hub date pill.
+ * These are the same `p_from` / `p_to` values sent to get_trips_for_org.
+ * Null = no server fetch. Finance/Treasury still uses getCalendarPeriodBounds (device local).
+ */
+export function hubDateFilterIsoBounds(
+  preset: TripHubDateFilter,
+  opts?: CalendarPeriodFilterOptions,
+  now: Date = new Date(),
+): { from: string; to: string } | null {
+  if (preset === "all") return null;
+  if (preset === "custom") {
+    return getCalendarPeriodBounds("CUSTOM", opts, now);
+  }
+  const today = instantToKolkataDayIso(now);
+  if (!today) return null;
+  if (preset === "today") return { from: today, to: today };
+  if (preset === "yesterday") {
+    const iso = addIsoDays(today, -1);
+    return { from: iso, to: iso };
+  }
+  if (preset === "tomorrow") {
+    const iso = addIsoDays(today, 1);
+    return { from: iso, to: iso };
+  }
+  if (preset === "this_week") {
+    return { from: startOfMondayWeekIso(today), to: endOfMondayWeekIso(today) };
+  }
+  if (preset === "this_month") {
+    return { from: startOfMonthIso(today), to: endOfMonthIso(today) };
+  }
+  return null;
 }
 
 /** Always both ends: `From 1 Aug 2026  To 31 Aug 2026`. */

@@ -2,6 +2,9 @@ import {
   getTripExecutionModel,
   isAggregateExecutionTrip,
   isAssetExecutionTrip,
+  isAssetFinanceForViewer,
+  isPartnerAwardedSupplierView,
+  isPartnerOwnRosterHaul,
   shouldShowTripExpenseHub,
 } from "@/features/trips/domain/tripExecutionModel";
 import type { TripRow } from "@/features/trips/services/trips.service";
@@ -142,6 +145,39 @@ describe("tripExecutionModel", () => {
     it("is case-insensitive and tolerant of whitespace", () => {
       const lower = trip({ supplier_id: "supplier-1", execution_type: "asset" as never });
       expect(getTripExecutionModel(lower)).toBe("asset");
+    });
+  });
+
+  describe("partner own-roster haul (viewer-aware)", () => {
+    const shipperTrip = trip({
+      organization_id: "org-ajio",
+      supplier_id: "supplier-godrej",
+      driver_id: "driver-ganesh",
+      source: "direct_quote",
+      trip_payout_mode: "market",
+    });
+
+    it("keeps the shipper trip aggregate for the owner", () => {
+      expect(getTripExecutionModel(shipperTrip)).toBe("aggregate");
+      expect(isAssetFinanceForViewer(shipperTrip, "org-ajio")).toBe(false);
+      expect(isPartnerAwardedSupplierView(shipperTrip, "org-ajio")).toBe(false);
+    });
+
+    it("treats the awarded carrier with an assigned driver as asset finance", () => {
+      expect(isPartnerAwardedSupplierView(shipperTrip, "org-godrej")).toBe(true);
+      expect(isPartnerOwnRosterHaul(shipperTrip, "org-godrej")).toBe(true);
+      expect(isAssetFinanceForViewer(shipperTrip, "org-godrej")).toBe(true);
+    });
+
+    it("does not treat the carrier as own-roster haul before a driver is assigned", () => {
+      const unassigned = trip({
+        organization_id: "org-ajio",
+        supplier_id: "supplier-godrej",
+        trip_payout_mode: "market",
+      });
+      expect(isPartnerAwardedSupplierView(unassigned, "org-godrej")).toBe(true);
+      expect(isPartnerOwnRosterHaul(unassigned, "org-godrej")).toBe(false);
+      expect(isAssetFinanceForViewer(unassigned, "org-godrej")).toBe(false);
     });
   });
 

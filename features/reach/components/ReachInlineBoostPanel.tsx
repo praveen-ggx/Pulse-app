@@ -2,7 +2,6 @@
  * Inline Pulse Boost tariff picker — live plan cards, icons, light motion.
  */
 import Theme from "@/constants/Theme";
-import type { ReachPlanRow } from "@/features/reach/services/campaigns.service";
 import { formatINR } from "@/lib/format";
 import {
   useCancelReachCampaignMutation,

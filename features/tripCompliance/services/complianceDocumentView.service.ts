@@ -69,6 +69,17 @@ async function lookupEntityDocumentStoragePath(input: {
   return String(data.storage_path).trim() || null;
 }
 
+/** Supplier KYC cheques live at `{org}/supplier/{id}/…` in compliance-documents. */
+export function inferCompliancePreviewSource(
+  path: string,
+  source?: ComplianceViewSource,
+): ComplianceViewSource {
+  if (source && source !== "trip") return source;
+  if (/(^|\/)supplier\//i.test(path)) return "supplier-kyc";
+  if (/(^|\/)vehicle\//i.test(path)) return "vehicle-vault";
+  return source ?? "trip";
+}
+
 function bucketForPreviewSource(source: ComplianceViewSource): string {
   if (source === "vehicle-vault") return "vehicle-documents";
   if (source === "driver-kyc") return "driver-documents";
@@ -183,7 +194,7 @@ async function signCompliancePreviewUrlUncached(input: {
   docType?: string | null;
 }): Promise<string | null> {
   const raw = (input.storagePath ?? "").trim();
-  const source = input.source ?? "trip";
+  const source = inferCompliancePreviewSource(raw, input.source ?? "trip");
   if (!raw) return null;
   if (isInlinePreviewUri(raw)) return raw;
   if (isTypedDetailsMarker({ storage_path: raw, file_name: raw })) {
@@ -235,12 +246,15 @@ async function signCompliancePreviewUrlUncached(input: {
       }
     } else if (source === "entity" || source === "compliance" || source === "supplier-kyc") {
       const { url } = await getComplianceDocumentSignedUrl(path);
-      signed = url ?? (await getVehicleDocumentViewUrl(path));
+      if (url) return url;
+      signed = null;
     } else if (source === "driver-kyc") {
       const { data } = await supabase().storage.from("driver-documents").createSignedUrl(path, 3600);
       signed = data?.signedUrl ?? null;
     } else {
-      signed = (await tryGetDocumentViewUrl(path)) ?? (await getVehicleDocumentViewUrl(path));
+      const tripUrl = await tryGetDocumentViewUrl(path);
+      if (tripUrl) return tripUrl;
+      return null;
     }
     return paintCompliancePreviewUrl(objectPath, source, signed);
   } catch {

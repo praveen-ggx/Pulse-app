@@ -92,7 +92,7 @@ export {
 } from "./useTripOperationsQuery";
 export {
     useAssignmentAuditQuery,
-    useInvalidateTrips, useShipperDisplayNamesQuery, useTripDetailQuery, useTripPartyCountsQuery,
+    useInvalidateTrips, useOrgHubCountSourceQuery, useOrgHubMetricsQuery, useOrgTripCountsQuery, useShipperDisplayNamesQuery, useTripDetailQuery, useTripPartyCountsQuery,
     useTripsInfiniteQuery, useTripsQuery
 } from './useTripsQuery';
 export {

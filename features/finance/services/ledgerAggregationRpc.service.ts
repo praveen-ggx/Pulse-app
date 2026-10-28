@@ -12,6 +12,7 @@ import {
   mergeCommerceProductSales,
   suppressCommercePlanFreight,
 } from "@/features/finance/aggregation/commerceSelfFulfillment";
+import { readAllPages } from "@/lib/pagination";
 import { supabase } from "@/lib/supabase";
 
 /** PostgREST `.in()` in the query string 400s past a few hundred UUIDs. */
@@ -145,12 +146,17 @@ export async function getDcoLedgerAggregation(
 
 /** Shipper trips created from a commerce execution plan, any status. */
 async function fetchCommercePlanTripIds(orgId: string): Promise<string[]> {
-  const { data: tripRows, error: tripError } = await supabase()
-    .from("trips")
-    .select("id, indent_id")
-    .eq("organization_id", orgId)
-    .is("deleted_at", null)
-    .not("indent_id", "is", null);
+  // Paged: an unpaged select stops at PostgREST max_rows (1000) and totals undercount.
+  const { data: tripRows, error: tripError } = await readAllPages((afterId, limit) => {
+    let q = supabase()
+      .from("trips")
+      .select("id, indent_id")
+      .eq("organization_id", orgId)
+      .is("deleted_at", null)
+      .not("indent_id", "is", null);
+    if (afterId) q = q.gt("id", afterId);
+    return q.order("id", { ascending: true }).limit(limit);
+  });
   if (tripError || !tripRows?.length) return [];
   const indentIds = [
     ...new Set(
@@ -178,13 +184,17 @@ async function fetchCommercePlanTripIds(orgId: string): Promise<string[]> {
 }
 
 async function fetchCommerceFulfillmentOrders(orgId: string) {
-  const { data: tripRows, error: tripError } = await supabase()
-    .from("trips")
-    .select("id, indent_id, status")
-    .eq("organization_id", orgId)
-    .is("deleted_at", null)
-    .not("indent_id", "is", null)
-    .in("status", ["completed", "Completed"]);
+  const { data: tripRows, error: tripError } = await readAllPages((afterId, limit) => {
+    let q = supabase()
+      .from("trips")
+      .select("id, indent_id, status")
+      .eq("organization_id", orgId)
+      .is("deleted_at", null)
+      .not("indent_id", "is", null)
+      .in("status", ["completed", "Completed"]);
+    if (afterId) q = q.gt("id", afterId);
+    return q.order("id", { ascending: true }).limit(limit);
+  });
   if (tripError || !tripRows?.length) return [];
 
   const indentIds = [

@@ -17,6 +17,19 @@ describe("storyIdsForBubble", () => {
       ),
     ).toEqual(["gogo-1", "gogo-2"]);
   });
+
+  it("counts every story that opens from that bubble", () => {
+    expect(
+      storyIdsForBubble(
+        [
+          { id: "godrej-1", organization_id: "godrej", type: "LOAD" },
+          { id: "godrej-2", organization_id: "godrej", type: "LOAD" },
+          { id: "pr-1", organization_id: "pr", type: "VEHICLE_AVAILABILITY" },
+        ],
+        { id: "godrej-1", organization_id: "godrej", type: "LOAD" },
+      ).length,
+    ).toBe(2);
+  });
 });
 
 describe("pickOpenedStorySeed", () => {

@@ -190,10 +190,12 @@ export function SupplierProfileOverviewPanel({
   isIntegrated,
   linkedOrgId,
   onImportFromProfile,
+  totalTripCount,
 }: BundleProps & {
   isIntegrated?: boolean;
   linkedOrgId?: string | null;
   onImportFromProfile?: () => Promise<void>;
+  totalTripCount?: number;
 }) {
   const compact = useProfileHubCompact();
   const [importing, setImporting] = useState(false);
@@ -251,7 +253,7 @@ export function SupplierProfileOverviewPanel({
   ];
 
   const kpiItems: { label: string; value: string; lottie: ProfileHubLottieKey }[] = [
-    { label: "Total trips", value: String(trips.length), lottie: "truck" },
+    { label: "Total trips", value: String(totalTripCount ?? trips.length), lottie: "truck" },
     { label: "Completed", value: String(completed.length), lottie: "deliveryComplete" },
     { label: "Payable", value: formatINR(totalPayable), lottie: "payment" },
     { label: "Paid", value: formatINR(totalPaid), lottie: "savings" },

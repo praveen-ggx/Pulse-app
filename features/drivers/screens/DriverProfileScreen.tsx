@@ -105,6 +105,7 @@ async function countCompletedTrips(driverIds: string[]): Promise<number> {
     .from('trips')
     .select('id', { count: 'exact', head: true })
     .in('driver_id', driverIds)
+    .is('deleted_at', null)
     .or(COMPLETED_TRIP_FILTER);
   if (error) throw new Error(error.message);
   return count ?? 0;

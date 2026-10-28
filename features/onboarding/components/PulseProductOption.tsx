@@ -1,8 +1,9 @@
 import { memo } from 'react';
-import { Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import Theme from '@/constants/Theme';
 import { PulseBrandMark } from '@/components/brand/PulseBrandMark';
+import { PulseImage } from '@/components/PulseImage';
 import { PulseMascotBanner } from '@/components/PulseMascotBanner';
 import type { PulseProduct } from '@/lib/onboarding/productCatalog';
 
@@ -54,10 +55,11 @@ export const PulseProductOption = memo(function PulseProductOption({
         ) : visual.type === 'lottie' ? (
           <OnboardingPersonaLottieIcon asset={visual.asset} size={artHeight} />
         ) : (
-          <Image
+          <PulseImage
             source={visual.source}
             style={{ width: imageWidth, height: artHeight }}
-            resizeMode="contain"
+            contentFit="contain"
+            priority="high"
             accessibilityIgnoresInvertColors
           />
         )}

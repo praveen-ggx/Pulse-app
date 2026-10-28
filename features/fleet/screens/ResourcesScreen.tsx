@@ -1,7 +1,7 @@
 import Theme from "@/constants/Theme";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useRouter } from "expo-router";
-import { useLanguage } from "@/contexts/LanguageContext";
+import { useOptionalLanguage } from "@/contexts/LanguageContext";
 import {
   ScrollView,
   StyleSheet,
@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 export default function ResourcesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { t } = useLanguage();
+  const { t } = useOptionalLanguage();
 
   return (
     <ScrollView

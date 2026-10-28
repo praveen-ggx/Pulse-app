@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   getMyTeamInvites,
   getOrgTeamRoster,
+  invalidateSharedOrganizationMembers,
   subscribeToOrgTeamRoster,
 } from '@/features/organization/services/members.service';
 import type { OrgTeamRoster } from '@/types/organization';
@@ -62,7 +63,9 @@ export function useOrgMembersData(orgId: string | null) {
     },
     enabled: !!orgId,
     staleTime: STALE.slow,
-    refetchOnMount: 'always',
+    // Hub / Goals / Performance remounts share this key. Team screens that
+    // own the roster keep refetchOnMount: 'always' via useOrgMembersQuery.
+    refetchOnMount: false,
     refetchOnReconnect: 'always',
   });
 }
@@ -83,6 +86,7 @@ export function useInvalidateOrgMembers(orgId: string | null) {
   const qc = useQueryClient();
   return () => {
     if (!orgId) return;
+    invalidateSharedOrganizationMembers(orgId);
     qc.invalidateQueries({ queryKey: queryKeys.orgMembers.all(orgId) });
   };
 }

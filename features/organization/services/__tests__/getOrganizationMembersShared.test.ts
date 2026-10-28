@@ -3,9 +3,12 @@
  * identity / audit-log lookup re-read the full roster. Display callers now share
  * one in-flight request per org and reuse it for 60s.
  */
+import { resetSingleflightForTests } from "@/lib/cache/singleflight";
 import {
   __resetSharedMembersForTests,
+  getOrganizationMembers,
   getOrganizationMembersShared,
+  invalidateSharedOrganizationMembers,
 } from "../members.service";
 
 const mockRpc = jest.fn();
@@ -17,6 +20,7 @@ const member = { id: "m1", organization_id: "org-1", user_id: "u1", role: "owner
 
 beforeEach(() => {
   __resetSharedMembersForTests();
+  resetSingleflightForTests();
   mockRpc.mockReset();
   jest.useRealTimers();
 });
@@ -48,6 +52,23 @@ test("orgs are cached separately", async () => {
   mockRpc.mockResolvedValue({ data: [member], error: null });
   await getOrganizationMembersShared("org-1");
   await getOrganizationMembersShared("org-2");
+  expect(mockRpc).toHaveBeenCalledTimes(2);
+});
+
+test("an overlapping roster read shares the in-flight RPC", async () => {
+  mockRpc.mockResolvedValue({ data: [member], error: null });
+  await Promise.all([
+    getOrganizationMembers("org-1"),
+    getOrganizationMembersShared("org-1"),
+  ]);
+  expect(mockRpc).toHaveBeenCalledTimes(1);
+});
+
+test("invalidate drops the 60s reuse window", async () => {
+  mockRpc.mockResolvedValue({ data: [member], error: null });
+  await getOrganizationMembersShared("org-1");
+  invalidateSharedOrganizationMembers("org-1");
+  await getOrganizationMembersShared("org-1");
   expect(mockRpc).toHaveBeenCalledTimes(2);
 });
 

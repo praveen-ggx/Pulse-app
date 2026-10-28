@@ -3,6 +3,7 @@
  * Handles team member invite, list, role change, and removal.
  */
 import { supabase } from "@/lib/supabase";
+import { runSingleflight } from "@/lib/cache/singleflight";
 import { subscribeSharedPostgresChanges } from "@/lib/realtimeRegistry";
 import type {
   OrgMember,
@@ -174,7 +175,10 @@ export function subscribeToOrgTeamRoster(
         filter: `organization_id=eq.${orgId}`,
       },
     ],
-    () => onChange(),
+    () => {
+      invalidateSharedOrganizationMembers(orgId);
+      onChange();
+    },
   );
 }
 
@@ -208,12 +212,30 @@ export function getOrganizationMembersShared(orgId: string): Promise<{
   return promise;
 }
 
+/** Drop the display-only roster cache after mutations or Realtime member changes. */
+export function invalidateSharedOrganizationMembers(orgId?: string | null): void {
+  if (orgId) {
+    sharedMembers.delete(orgId);
+    return;
+  }
+  sharedMembers.clear();
+}
+
 /** @internal — Jest only. */
 export function __resetSharedMembersForTests(): void {
   sharedMembers.clear();
 }
 
 export async function getOrganizationMembers(orgId: string): Promise<{
+  error: Error | null;
+  members: OrgMember[];
+}> {
+  return runSingleflight(`get_org_members_with_profiles:${orgId}`, () =>
+    fetchOrganizationMembers(orgId),
+  );
+}
+
+async function fetchOrganizationMembers(orgId: string): Promise<{
   error: Error | null;
   members: OrgMember[];
 }> {
@@ -386,6 +408,7 @@ export async function inviteTeamMember(
         };
       }
     }
+    invalidateSharedOrganizationMembers(orgId);
     return { error: null, member };
   } catch (e) {
     return { error: e instanceof Error ? e : new Error(String(e)), member: null };
@@ -619,6 +642,7 @@ export async function updateMemberPermissions(
       }
       return { error: new Error(error.message) };
     }
+    invalidateSharedOrganizationMembers();
     return { error: null };
   } catch (e) {
     return { error: e instanceof Error ? e : new Error(String(e)) };
@@ -656,6 +680,7 @@ export async function updateMemberSurfacesAsManager(
       }
       return { error: new Error(error.message) };
     }
+    invalidateSharedOrganizationMembers();
     return { error: null };
   } catch (e) {
     return { error: e instanceof Error ? e : new Error(String(e)) };
@@ -696,6 +721,7 @@ export async function updateBulkMemberPermissions(
       }
       return { error: new Error(error.message), updated: 0 };
     }
+    invalidateSharedOrganizationMembers();
     return { error: null, updated: (data ?? []).length };
   } catch (e) {
     return {
@@ -728,6 +754,7 @@ export async function transferOwnership(
       p_new_owner_user_id: newOwnerUserId,
     });
     if (error) return { error: new Error(error.message) };
+    invalidateSharedOrganizationMembers(orgId);
     return { error: null };
   } catch (e) {
     return { error: e instanceof Error ? e : new Error(String(e)) };
@@ -754,6 +781,7 @@ export async function removeMember(memberId: string): Promise<{ error: Error | n
         ),
       };
     }
+    invalidateSharedOrganizationMembers();
     return { error: null };
   } catch (e) {
     return { error: e instanceof Error ? e : new Error(String(e)) };
@@ -789,6 +817,7 @@ export async function acceptTeamInvite(orgId: string): Promise<{ error: Error | 
         .eq("status", "pending");
       if (updErr) return { error: new Error(updErr.message) };
     }
+    invalidateSharedOrganizationMembers(orgId);
     return { error: null };
   } catch (e) {
     return { error: e instanceof Error ? e : new Error(String(e)) };
@@ -811,6 +840,7 @@ export async function rejectTeamInvite(orgId: string): Promise<{ error: Error | 
         .eq("status", "pending");
       if (updErr) return { error: new Error(updErr.message) };
     }
+    invalidateSharedOrganizationMembers(orgId);
     return { error: null };
   } catch (e) {
     return { error: e instanceof Error ? e : new Error(String(e)) };

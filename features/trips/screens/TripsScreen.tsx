@@ -783,6 +783,10 @@ export default function TripsScreen() {
     if (!orgId) return [];
     return failedCandidateIndents.filter((indent) => {
       if ((indent.organization_id ?? "") !== orgId) return false;
+      // allIndents (merged in above) holds every status, not just failed ones —
+      // re-check here or non-failed indents (awarded, bidding, etc.) leak into
+      // the Failed tab's list and count.
+      if (!isIndentFailedStatus(indent.status)) return false;
       if (
         !indentMatchesHubDateFilter(indent, dateRangeFilter, {
           customFrom: customDateFrom,

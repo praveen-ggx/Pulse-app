@@ -1,7 +1,9 @@
-import { mergeCategoryPreviewUrls } from "@/features/trips/components/trip-detail/VaultCategoryPreviewModal";
-
+// Attribution row → Avatar → Auth; keep this pure merge helper test free of native modules.
+jest.mock("@/components/Avatar", () => ({ UserAvatar: "UserAvatar" }));
 // DocumentDateCalendar's lucide icons need react-native-svg internals Jest does not load.
 jest.mock("lucide-react-native", () => ({ ChevronLeft: "ChevronLeft", ChevronRight: "ChevronRight" }));
+
+import { mergeCategoryPreviewUrls } from "@/features/trips/components/trip-detail/VaultCategoryPreviewModal";
 
 describe("mergeCategoryPreviewUrls", () => {
   it("keeps a compliance preview when the trip bucket later reports a miss", () => {

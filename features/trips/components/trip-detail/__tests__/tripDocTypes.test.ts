@@ -2,6 +2,7 @@ import {
   canAddMoreTripDocs,
   canMutateTripVaultDoc,
   viewerCanUploadTripDocuments,
+  formatDocumentUploadAttribution,
   formatLrVaultDateLabel,
   formatLrVaultNumberLabel,
   formatSelectedVaultFileMeta,
@@ -320,5 +321,35 @@ describe("formatLrVaultDateLabel", () => {
 
   it("hides the line when no date was entered", () => {
     expect(formatLrVaultDateLabel("  ")).toBeNull();
+  });
+});
+
+describe("formatDocumentUploadAttribution", () => {
+  it("shows uploaded by name and timestamp together", () => {
+    const line = formatDocumentUploadAttribution({
+      uploadedByName: "Satham Hussain",
+      uploadedAt: "2026-10-29T17:22:00.000Z",
+    });
+    expect(line.startsWith("Uploaded by Satham Hussain · ")).toBe(true);
+    expect(line).toMatch(/ at /);
+    expect(line.includes("2026")).toBe(true);
+  });
+
+  it("falls back to timestamp-only when the name is missing", () => {
+    const line = formatDocumentUploadAttribution({
+      uploadedByName: null,
+      uploadedAt: "2026-10-29T17:22:00.000Z",
+    });
+    expect(line.startsWith("Uploaded · ")).toBe(true);
+    expect(line).toMatch(/ at /);
+  });
+
+  it("returns empty when nothing is known", () => {
+    expect(
+      formatDocumentUploadAttribution({
+        uploadedByName: "  ",
+        uploadedAt: null,
+      }),
+    ).toBe("");
   });
 });

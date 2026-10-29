@@ -10,6 +10,11 @@ import {
 } from "@/features/trips/components/trip-detail/EwayBillVaultTab";
 import { neoStyles } from "@/features/trips/components/trip-detail/TripDetailScreen.styles";
 import {
+  DocumentUploadAttributionRow,
+  documentUploadAttributionHasContent,
+  type DocumentUploadAttribution,
+} from "@/features/trips/components/trip-detail/DocumentUploadAttributionRow";
+import {
   VaultCardLrStylePreview,
   type VaultPreviewSignContext,
 } from "@/features/trips/components/trip-detail/VaultCardLrStylePreview";
@@ -50,6 +55,11 @@ type Props = {
   columns?: 2 | 3 | 4;
   compact?: boolean;
   sign?: VaultPreviewSignContext;
+  /** Resolve uploader avatar + name for the selected vault file. */
+  resolveUploadAttribution?: (
+    file: TripDocFile | null,
+    doc: TripDocItem,
+  ) => DocumentUploadAttribution | null;
 };
 
 function opensVaultDialog(doc: TripDocItem): boolean {
@@ -86,6 +96,7 @@ function VaultGridCard({
   onAdd,
   onOpen,
   sign,
+  resolveUploadAttribution,
 }: {
   doc: TripDocItem;
   statusLabel: string;
@@ -96,14 +107,23 @@ function VaultGridCard({
   onAdd: () => void;
   onOpen: (doc: TripDocItem, fileIndex?: number) => void;
   sign?: VaultPreviewSignContext;
+  resolveUploadAttribution?: (
+    file: TripDocFile | null,
+    doc: TripDocItem,
+  ) => DocumentUploadAttribution | null;
 }) {
   const [selectedFile, setSelectedFile] = useState<TripDocFile | null>(null);
   const meta = isUploadingThis
     ? "Uploading…"
     : failure ?? formatSelectedVaultFileMeta(selectedFile, statusLabel, doc);
+  const uploadAttribution =
+    !isUploadingThis && !failure
+      ? resolveUploadAttribution?.(selectedFile, doc) ?? null
+      : null;
+  const showUploadLog = documentUploadAttributionHasContent(uploadAttribution);
   return (
     <View style={[neoStyles.vaultCard, neoStyles.vaultCardQuarter, styles.card]}>
-      <View style={styles.header}>
+      <View style={[styles.header, showUploadLog && styles.headerWithUpload]}>
         <Text style={[styles.title, WEB_COPY]} numberOfLines={1}>
           {doc.label}
         </Text>
@@ -113,6 +133,13 @@ function VaultGridCard({
         >
           {meta}
         </Text>
+        {showUploadLog ? (
+          <DocumentUploadAttributionRow
+            {...uploadAttribution!}
+            size={20}
+            compact
+          />
+        ) : null}
       </View>
       <View style={styles.preview}>
         <VaultCardLrStylePreview
@@ -124,6 +151,7 @@ function VaultGridCard({
           }}
           onSelectedFile={setSelectedFile}
           sign={sign}
+          uploadAttribution={uploadAttribution}
         />
       </View>
     </View>
@@ -146,6 +174,7 @@ export function TripVaultCardGrid({
   canEditEwayBill,
   onSaveEwayBill,
   sign,
+  resolveUploadAttribution,
 }: Props) {
   const cards = docs.filter((doc) => !isEwayBillVaultDoc(doc));
 
@@ -173,6 +202,7 @@ export function TripVaultCardGrid({
             onAdd={() => onAdd(doc)}
             onOpen={onOpen}
             sign={sign}
+            resolveUploadAttribution={resolveUploadAttribution}
           />
         );
       })}
@@ -214,7 +244,11 @@ const styles = StyleSheet.create({
   header: {
     width: "100%",
     minHeight: 38,
-    gap: 3,
+    gap: 2,
+    alignItems: "stretch",
+  },
+  headerWithUpload: {
+    minHeight: 72,
   },
   title: {
     fontSize: 13,

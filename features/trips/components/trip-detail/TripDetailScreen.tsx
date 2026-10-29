@@ -25,6 +25,19 @@ import {
   shouldSkipExpenseTabAutoSelect,
 } from "@/features/trips/components/trip-detail/completedTripInitialLoad.util";
 import { canAddMoreTripDocs, canMutateTripVaultDoc, formatInvoiceVaultNumberLabel, formatLrVaultDateLabel, formatLrVaultNumberLabel, formatVaultDocDate, isDriverIdentityVaultDoc, isDriverPodVaultDoc, isEwayBillVaultDoc, isLrVaultDoc, isPdfTripDoc, isTripDetailsVaultDoc, TRIP_DETAILS_SLOTS, TRIP_DETAILS_TYPE_HINT, type TripDetailsSlot, type TripDocFile, type TripDocItem, VAULT_DOC_LIMIT_HINT, VAULT_DOC_MAX_BYTES, VAULT_DOC_MAX_MB, VAULT_DOC_PICKER_TYPES, vaultDocDateToIso, vaultDocHasPreviewableFile, vaultPickerRejectionMessage, viewerCanUploadTripDocuments } from "@/features/trips/components/trip-detail/tripDocTypes";
+import {
+  documentUploadAttributionHasContent,
+  type DocumentUploadAttribution,
+} from "@/features/trips/components/trip-detail/DocumentUploadAttributionRow";
+import {
+  displayMapFromProfiles,
+  loadTripActivityActorHydration,
+  resolveActivityUserProfiles,
+} from "@/lib/trips/hydrateTripActivityActors.util";
+import {
+  resolveTripActivityUserLabel,
+  type TripActivityUserProfile,
+} from "@/lib/trips/buildTripAuditLog.util";
 import { CompactValidTillCalendar, EwayBillLrStrip, buildEwayBillStripRows } from "@/features/trips/components/trip-detail/EwayBillVaultTab";
 import { ElrTripDetailAction } from "@/features/trips/components/trip-detail/ElrTripDetailAction";
 import { HubTripLrUpdateModal } from "@/features/trips/components/HubTripLrUpdateModal";
@@ -1626,6 +1639,140 @@ export default function TripDetailScreen({
     add?: () => void;
     editExpiry?: boolean;
   } | null>(null);
+  const [uploaderProfiles, setUploaderProfiles] = useState<
+    Record<string, TripActivityUserProfile>
+  >({});
+  const [uploadedByByDocId, setUploadedByByDocId] = useState<
+    Record<string, string>
+  >({});
+
+  useEffect(() => {
+    const tripId = String(detail.trip?.id ?? "").trim();
+    const orgId =
+      detail.trip?.organization_id ?? currentOrganization?.id ?? null;
+    const ids = (detail.computedTripDocs ?? [])
+      .flatMap((doc) => [
+        doc.uploadedBy,
+        ...(doc.files ?? []).map((file) => file.uploadedBy),
+      ])
+      .map((id) => String(id ?? "").trim())
+      .filter(Boolean);
+    const unique = [...new Set(ids)];
+    if (!tripId && unique.length === 0) {
+      setUploaderProfiles({});
+      setUploadedByByDocId({});
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const hydration = tripId
+        ? await loadTripActivityActorHydration({
+            tripId,
+            organizationId: orgId,
+            extraUserIds: [...unique, detail.currentUserId],
+          })
+        : {
+            uploadedByByDocId: {} as Record<string, string>,
+            profiles: await resolveActivityUserProfiles({
+              userIds: unique,
+              organizationId: orgId,
+            }),
+          };
+      if (cancelled) return;
+      const seed: Record<string, TripActivityUserProfile> = {
+        ...hydration.profiles,
+      };
+      const selfId = String(detail.currentUserId ?? "").trim();
+      if (selfId && detail.profile) {
+        seed[selfId] = {
+          full_name:
+            detail.profile.full_name ??
+            detail.profile.displayName ??
+            null,
+          phone: detail.profile.phone ?? null,
+          email: detail.profile.email ?? null,
+          avatar_url: detail.profile.avatar_url ?? null,
+          avatar_seed: detail.profile.avatar_seed ?? null,
+        };
+      }
+      const docActorIds = Object.values(hydration.uploadedByByDocId);
+      const profiles = await resolveActivityUserProfiles({
+        userIds: [...unique, ...docActorIds, selfId],
+        organizationId: orgId,
+        seedProfiles: seed,
+      });
+      if (cancelled) return;
+      setUploadedByByDocId(hydration.uploadedByByDocId);
+      setUploaderProfiles(profiles);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentOrganization?.id,
+    detail.computedTripDocs,
+    detail.currentUserId,
+    detail.profile?.avatar_seed,
+    detail.profile?.avatar_url,
+    detail.profile?.displayName,
+    detail.profile?.email,
+    detail.profile?.full_name,
+    detail.profile?.phone,
+    detail.trip?.id,
+    detail.trip?.organization_id,
+  ]);
+
+  const attributionForUploader = useCallback(
+    (
+      uploadedAt?: string | null,
+      uploadedById?: string | null,
+      documentId?: string | null,
+    ): DocumentUploadAttribution | null => {
+      const docId = String(documentId ?? "").trim();
+      const id =
+        String(uploadedById ?? "").trim() ||
+        (docId ? uploadedByByDocId[docId] ?? "" : "");
+      const profile = id ? uploaderProfiles[id] : undefined;
+      const isCurrentUser =
+        Boolean(id) &&
+        Boolean(detail.currentUserId) &&
+        id === String(detail.currentUserId).trim();
+      const displayMap = displayMapFromProfiles(uploaderProfiles);
+      const labeled = resolveTripActivityUserLabel(
+        id,
+        detail.currentUserId,
+        displayMap,
+        "",
+        uploaderProfiles,
+      )
+        .replace(/\s*\(you\)$/i, "")
+        .trim();
+      const uploadedByName =
+        labeled ||
+        (isCurrentUser ? detail.profile?.full_name?.trim() || null : null);
+      const attribution: DocumentUploadAttribution = {
+        uploadedAt: uploadedAt ?? null,
+        uploadedByName: uploadedByName || null,
+        uploadedByAvatarUrl:
+          profile?.avatar_url ??
+          (isCurrentUser ? detail.profile?.avatar_url ?? null : null),
+        uploadedByAvatarSeed:
+          profile?.avatar_seed ??
+          (isCurrentUser ? detail.profile?.avatar_seed ?? null : null),
+      };
+      return documentUploadAttributionHasContent(attribution)
+        ? attribution
+        : null;
+    },
+    [
+      detail.currentUserId,
+      detail.profile?.avatar_seed,
+      detail.profile?.avatar_url,
+      detail.profile?.full_name,
+      uploadedByByDocId,
+      uploaderProfiles,
+    ],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -3312,6 +3459,11 @@ export default function TripDetailScreen({
           TRIP_DETAILS_SLOTS.find((item) => item.id === slot)?.label ??
           file.label ??
           "Trip Details";
+        const attribution = attributionForUploader(
+          file.uploadedAt,
+          file.uploadedBy,
+          file.documentId,
+        );
         return {
           id: file.documentId ?? file.storagePath ?? `trip-${index}`,
           fileName: file.fileName ?? file.label ?? label,
@@ -3329,6 +3481,10 @@ export default function TripDetailScreen({
                   : "trip",
           deleteKind: "trip" as const,
           documentNumber: file.documentNumber ?? file.invoiceNumber ?? null,
+          uploadedAt: attribution?.uploadedAt ?? null,
+          uploadedByName: attribution?.uploadedByName ?? null,
+          uploadedByAvatarUrl: attribution?.uploadedByAvatarUrl ?? null,
+          uploadedByAvatarSeed: attribution?.uploadedByAvatarSeed ?? null,
         };
       });
     const path = supplierBankProof?.previewPath?.trim() ?? "";
@@ -3344,7 +3500,11 @@ export default function TripDetailScreen({
       } as (typeof mapped)[number]);
     }
     return mapped;
-  }, [detail.computedTripDocs, supplierBankProof?.previewPath]);
+  }, [
+    attributionForUploader,
+    detail.computedTripDocs,
+    supplierBankProof?.previewPath,
+  ]);
 
   const vaultDocs = useMemo(() => {
     const path = supplierBankProof?.previewPath?.trim() ?? "";
@@ -5134,6 +5294,20 @@ export default function TripDetailScreen({
                 : supplierBankOnFile
                 ? "From supplier banking"
                 : "Not uploaded";
+        const latestUpload = files[0];
+        const uploadAttribution =
+          onFile || supplierBankOnFile
+            ? attributionForUploader(
+                latestUpload?.uploadedAt ??
+                  (supplierBankOnFile
+                    ? supplierBankProof?.kycDoc?.updated_at ??
+                      supplierBankProof?.kycDoc?.created_at ??
+                      null
+                    : null),
+                latestUpload?.uploadedBy,
+                latestUpload?.documentId,
+              )
+            : null;
         return (
           <VaultChooserNotifyRow
             key={slot.id}
@@ -5142,6 +5316,7 @@ export default function TripDetailScreen({
             onFile={onFile || supplierBankOnFile}
             canUpload={canUpload}
             entityType="client"
+            uploadAttribution={uploadAttribution}
             preview={
               onFile || supplierBankOnFile
                 ? {
@@ -5203,6 +5378,15 @@ export default function TripDetailScreen({
             onFile={onFile}
             canUpload={canUpload}
             entityType="driver"
+            uploadAttribution={
+              onFile
+                ? attributionForUploader(
+                    "uploadedAt" in file ? file.uploadedAt : null,
+                    "uploadedBy" in file ? file.uploadedBy : null,
+                    file.documentId,
+                  )
+                : null
+            }
             preview={
               onFile
                 ? {
@@ -6583,6 +6767,13 @@ export default function TripDetailScreen({
                 onCardPress={handleVaultCardPress}
                 onAddMore={(doc) => startAddMoreForDoc(doc)}
                 sign={vaultPreviewSign}
+                resolveUploadAttribution={(file, doc) =>
+                  attributionForUploader(
+                    file?.uploadedAt ?? doc.uploadedAt,
+                    file?.uploadedBy ?? doc.uploadedBy,
+                    file?.documentId ?? doc.documentId,
+                  )
+                }
                 ewayStripRows={ewayStripRows}
                 onViewEwayBill={openEwayBillPreview}
                 onUploadEwayBill={openEwayBillUpload}
@@ -7500,6 +7691,13 @@ export default function TripDetailScreen({
                       onOpen={handleVaultCardPress}
                       onAdd={startAddMoreForDoc}
                       sign={vaultPreviewSign}
+                      resolveUploadAttribution={(file, doc) =>
+                        attributionForUploader(
+                          file?.uploadedAt ?? doc.uploadedAt,
+                          file?.uploadedBy ?? doc.uploadedBy,
+                          file?.documentId ?? doc.documentId,
+                        )
+                      }
                       ewayStripRows={ewayStripRows}
                       onViewEwayBill={openEwayBillPreview}
                       onUploadEwayBill={openEwayBillUpload}

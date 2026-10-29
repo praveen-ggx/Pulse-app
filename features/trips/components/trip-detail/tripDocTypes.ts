@@ -410,6 +410,45 @@ export function formatDocumentHeaderFacts(input: {
   return parts.join(" · ");
 }
 
+/** Compact upload timestamp for document headers (`1 Oct 2026 at 1:50 PM`). */
+export function formatDocumentUploadAt(value?: string | null): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  try {
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return "";
+    const day = d.toLocaleString("en-GB", { day: "numeric" });
+    const month = d.toLocaleString("en-GB", { month: "short" });
+    const year = d.getFullYear();
+    const time = d
+      .toLocaleString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      })
+      .replace(/\u202f/g, " ");
+    return `${day} ${month} ${year} at ${time}`;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Top-header upload line used on vault cards, category preview, and full-screen viewers.
+ * Prefer a resolved display name; timestamp alone is still shown when the name is unknown.
+ */
+export function formatDocumentUploadAttribution(input: {
+  uploadedByName?: string | null;
+  uploadedAt?: string | null;
+}): string {
+  const name = String(input.uploadedByName ?? "").trim();
+  const when = formatDocumentUploadAt(input.uploadedAt);
+  if (name && when) return `Uploaded by ${name} · ${when}`;
+  if (name) return `Uploaded by ${name}`;
+  if (when) return `Uploaded · ${when}`;
+  return "";
+}
+
 /** Header line for the selected vault copy: LR / invoice / Valid till. */
 export function formatSelectedVaultFileMeta(
   file: TripDocFile | null | undefined,

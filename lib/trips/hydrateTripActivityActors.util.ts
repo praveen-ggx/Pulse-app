@@ -81,6 +81,15 @@ function rememberProfile(
   };
 }
 
+function profileHasDisplayName(profile?: TripActivityUserProfile | null): boolean {
+  if (!profile) return false;
+  return Boolean(
+    profile.full_name?.trim() ||
+      profile.phone?.trim() ||
+      profile.email?.trim(),
+  );
+}
+
 export async function fetchActivityUserProfiles(
   userIds: string[],
 ): Promise<Record<string, TripActivityUserProfile>> {
@@ -106,9 +115,68 @@ export async function fetchActivityUserProfiles(
   return profiles;
 }
 
+/**
+ * Same name/avatar resolution Activity uses: profiles table, then org-members RPC
+ * (SECURITY DEFINER — often has names when direct profile reads are sparse under RLS).
+ */
+export async function resolveActivityUserProfiles(input: {
+  userIds: Array<string | null | undefined>;
+  organizationId?: string | null;
+  seedProfiles?: Record<string, TripActivityUserProfile>;
+}): Promise<Record<string, TripActivityUserProfile>> {
+  const unique = [...new Set(input.userIds.map(trimId).filter(Boolean))];
+  const profiles: Record<string, TripActivityUserProfile> = {};
+  for (const [id, profile] of Object.entries(input.seedProfiles ?? {})) {
+    const uid = trimId(id);
+    if (!uid) continue;
+    rememberProfile(profiles, uid, profile);
+  }
+  if (unique.length === 0) return profiles;
+
+  const fromTable = await fetchActivityUserProfiles(unique);
+  for (const [id, profile] of Object.entries(fromTable)) {
+    rememberProfile(profiles, id, profile);
+  }
+
+  const orgId = trimId(input.organizationId);
+  if (orgId) {
+    const { data } = await supabase().rpc("get_org_members_with_profiles", {
+      p_org_id: orgId,
+    });
+    for (const row of data ?? []) {
+      const uid = trimId(
+        typeof row?.user_id === "string"
+          ? row.user_id
+          : typeof row?.id === "string"
+            ? row.id
+            : "",
+      );
+      if (!uid || !unique.includes(uid)) continue;
+      rememberProfile(profiles, uid, {
+        full_name: typeof row?.full_name === "string" ? row.full_name : null,
+        phone: typeof row?.phone === "string" ? row.phone : null,
+        email: typeof row?.email === "string" ? row.email : null,
+        avatar_url: typeof row?.avatar_url === "string" ? row.avatar_url : null,
+        avatar_seed: typeof row?.avatar_seed === "string" ? row.avatar_seed : null,
+      });
+    }
+  }
+
+  const stillMissing = unique.filter((id) => !profileHasDisplayName(profiles[id]));
+  if (stillMissing.length === 0) return profiles;
+
+  // Last pass: profiles again for ids the org roster did not cover (cross-org actors).
+  const retry = await fetchActivityUserProfiles(stillMissing);
+  for (const [id, profile] of Object.entries(retry)) {
+    rememberProfile(profiles, id, profile);
+  }
+  return profiles;
+}
+
 /** Load every trip payment / vault-doc actor, then resolve workspace names. */
 export async function loadTripActivityActorHydration(input: {
   tripId: string;
+  organizationId?: string | null;
   extraUserIds?: Array<string | null | undefined>;
 }): Promise<TripActivityActorHydration> {
   const tripId = trimId(input.tripId);
@@ -157,9 +225,10 @@ export async function loadTripActivityActorHydration(input: {
     verifiedByByDocId,
     profiles: {},
   };
-  hydration.profiles = await fetchActivityUserProfiles(
-    collectHydrationUserIds(hydration, input.extraUserIds),
-  );
+  hydration.profiles = await resolveActivityUserProfiles({
+    userIds: collectHydrationUserIds(hydration, input.extraUserIds),
+    organizationId: input.organizationId,
+  });
   return hydration;
 }
 

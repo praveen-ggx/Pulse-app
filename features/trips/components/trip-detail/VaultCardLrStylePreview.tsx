@@ -8,6 +8,10 @@ import {
 } from "@/features/trips/components/trip-detail/VaultDraftPreviewBlock";
 import { VaultFullDocumentModal } from "@/features/trips/components/trip-detail/VaultFullDocumentModal";
 import {
+  documentUploadAttributionHasContent,
+  type DocumentUploadAttribution,
+} from "@/features/trips/components/trip-detail/DocumentUploadAttributionRow";
+import {
   formatDocumentHeaderFacts,
   isPdfTripDoc,
   isVaultFieldsMetaPath,
@@ -88,6 +92,7 @@ export function VaultCardLrStylePreview({
   onSelectedFile,
   disabled = false,
   sign,
+  uploadAttribution = null,
 }: {
   doc: TripDocItem;
   onPressFile: (index: number) => void;
@@ -95,6 +100,8 @@ export function VaultCardLrStylePreview({
   onSelectedFile?: (file: TripDocFile | null) => void;
   disabled?: boolean;
   sign?: VaultPreviewSignContext;
+  /** Uploader log for the full-screen viewer opened from this card. */
+  uploadAttribution?: DocumentUploadAttribution | null;
 }) {
   const files = useMemo(() => filesFromDoc(doc), [doc]);
   const fileFingerprint = useMemo(
@@ -227,6 +234,25 @@ export function VaultCardLrStylePreview({
           category: selected?.slotType ?? doc.type,
           expiryDate: selected?.expiryDate,
         })}
+        uploadAttribution={
+          documentUploadAttributionHasContent(uploadAttribution)
+            ? {
+                ...uploadAttribution!,
+                uploadedAt:
+                  selected?.uploadedAt ??
+                  uploadAttribution?.uploadedAt ??
+                  doc.uploadedAt ??
+                  null,
+              }
+            : documentUploadAttributionHasContent({
+                  uploadedAt: selected?.uploadedAt ?? doc.uploadedAt,
+                })
+              ? {
+                  uploadedByName: null,
+                  uploadedAt: selected?.uploadedAt ?? doc.uploadedAt,
+                }
+              : null
+        }
         onClose={() => setFullOpen(false)}
       />
     </>

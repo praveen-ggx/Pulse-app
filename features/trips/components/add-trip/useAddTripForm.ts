@@ -533,12 +533,21 @@ export function useAddTripForm(options?: {
     })),
   []);
   const setNotes = useCallback((v: string) => setState((s) => ({ ...s, notes: v })), []);
-  const setDriverId = useCallback((v: string | null) => setState((s) => ({
-    ...s,
-    driverId: v,
-    driverCommissionPercent: null,
-    driverCommissionPerKm: null,
-  })), []);
+  const setDriverId = useCallback(
+    (v: string | null) =>
+      setState((s) => {
+        // Same id: no-op (keeps commission). Commission clears only when the
+        // driver id actually changes — callers that need rates use setDriver.
+        if (s.driverId === v) return s;
+        return {
+          ...s,
+          driverId: v,
+          driverCommissionPercent: null,
+          driverCommissionPerKm: null,
+        };
+      }),
+    [],
+  );
   const setDriver = useCallback((
     id: string | null,
     commissionPercent: number | null,
@@ -549,7 +558,11 @@ export function useAddTripForm(options?: {
     driverCommissionPercent: commissionPercent ?? null,
     driverCommissionPerKm: commissionPerKm ?? null,
   })), []);
-  const setVehicleId = useCallback((v: string | null) => setState((s) => ({ ...s, vehicleId: v })), []);
+  const setVehicleId = useCallback(
+    (v: string | null) =>
+      setState((s) => (s.vehicleId === v ? s : { ...s, vehicleId: v })),
+    [],
+  );
   const setDriverPhone = useCallback(
     (v: string) =>
       setState((s) => ({
@@ -564,15 +577,30 @@ export function useAddTripForm(options?: {
   );
   const setDriverPhoneTripConflict = useCallback(
     (conflict: boolean, label: string | null) =>
-      setState((s) => ({
-        ...s,
-        driverPhoneTripConflict: conflict,
-        driverPhoneTripConflictLabel: label,
-      })),
+      setState((s) =>
+        s.driverPhoneTripConflict === conflict &&
+        s.driverPhoneTripConflictLabel === label
+          ? s
+          : {
+              ...s,
+              driverPhoneTripConflict: conflict,
+              driverPhoneTripConflictLabel: label,
+            },
+      ),
     [],
   );
-  const setDriverPhoneName = useCallback((v: string | null) => setState((s) => ({ ...s, driverPhoneName: v })), []);
-  const setDriverPhoneConfirmed = useCallback((v: boolean) => setState((s) => ({ ...s, driverPhoneConfirmed: v })), []);
+  const setDriverPhoneName = useCallback(
+    (v: string | null) =>
+      setState((s) => (s.driverPhoneName === v ? s : { ...s, driverPhoneName: v })),
+    [],
+  );
+  const setDriverPhoneConfirmed = useCallback(
+    (v: boolean) =>
+      setState((s) =>
+        s.driverPhoneConfirmed === v ? s : { ...s, driverPhoneConfirmed: v },
+      ),
+    [],
+  );
   const setAggregateVehicleText = useCallback((v: string) => setState((s) => ({ ...s, aggregateVehicleText: v })), []);
   const setAggregateDriverCommissionPercent = useCallback(
     (v: string) => setState((s) => ({ ...s, aggregateDriverCommissionPercent: v })),

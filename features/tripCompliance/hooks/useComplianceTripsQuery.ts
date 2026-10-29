@@ -191,7 +191,11 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
       return preserveNewerWrites(rows, current, protectedTripIds(log, startedAt, previous, current));
     },
     enabled: !!orgId && tripsQuery.isSuccess,
-    staleTime: 15_000,
+    // Every refetch re-reads documents/flags/events/ledger for the whole pipeline
+    // (~360 trips, 6 tables). At 15s, focus refetches made this the top DB load
+    // (prod 2026-10-29: 4.6k trip_documents reads, ~1,035s/day). Writes patch the
+    // cache and trips realtime patches POD/settlement, so 2 min is enough.
+    staleTime: 2 * 60_000,
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: true,
     select: selectSummaries,

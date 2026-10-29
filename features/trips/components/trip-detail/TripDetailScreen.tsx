@@ -4380,7 +4380,14 @@ export default function TripDetailScreen({
       }
       const result = await simulateGroundOpsPickupStatus(trip.id, target);
       if (!result.ok) {
-        if (result.missingDocumentTypes?.length) {
+        // The trip already moved on elsewhere (driver / Trip Ops): retrying the
+        // same step can only fail again, so refresh and close instead.
+        const movedTo = /^Cannot mark .+ from status (\w+)/.exec(result.error)?.[1];
+        if (movedTo) {
+          detail.handleRefresh();
+          setSimConfirmStep(null);
+          Alert.alert("Trip already updated", `This trip is already ${movedTo.replace(/_/g, " ")}. Showing the latest status.`);
+        } else if (result.missingDocumentTypes?.length) {
           setGroundOpsMissingDocs(result.missingDocumentTypes);
         } else {
           setSimError(result.error);

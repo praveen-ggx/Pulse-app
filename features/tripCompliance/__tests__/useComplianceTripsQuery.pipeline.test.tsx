@@ -141,7 +141,7 @@ it("window focus refetch is incremental and shows no loading state", async () =>
   const settledAt = loadingHistory.length;
 
   const realNow = Date.now;
-  jest.spyOn(Date, "now").mockImplementation(() => realNow() + 60_000); // past staleTime
+  jest.spyOn(Date, "now").mockImplementation(() => realNow() + 3 * 60_000); // past staleTime (2 min)
   await act(async () => {
     focusManager.setFocused(false);
     focusManager.setFocused(true);

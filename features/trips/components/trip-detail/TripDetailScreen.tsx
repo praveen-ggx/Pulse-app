@@ -43,6 +43,7 @@ import {
   simulateGroundOpsPickupStatus,
   type GroundOpsPickupTarget,
 } from "@/features/trips/services/groundOpsPickup.service";
+import { groundOpsPickupMovedTo } from "@/features/trips/utils/groundOpsPickupStale.util";
 import { loadCompliancePipelineInputs } from "@/features/tripCompliance/services/compliancePipelineSync.service";
 import { GroundOpsTransitChecklist } from "@/features/trips/components/trip-detail/GroundOpsTransitChecklist";
 import {
@@ -4382,7 +4383,7 @@ export default function TripDetailScreen({
       if (!result.ok) {
         // The trip already moved on elsewhere (driver / Trip Ops): retrying the
         // same step can only fail again, so refresh and close instead.
-        const movedTo = /^Cannot mark .+ from status (\w+)/.exec(result.error)?.[1];
+        const movedTo = groundOpsPickupMovedTo(result.error);
         if (movedTo) {
           detail.handleRefresh();
           setSimConfirmStep(null);

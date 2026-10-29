@@ -147,7 +147,10 @@ export type ComplianceQueueResult = {
   isError: boolean;
   error: Error | null;
   isFetching: boolean;
-  refetch: () => void;
+  /** Last SUCCESSFUL pipeline read (ms epoch); 0 before the first one. Failed refreshes leave it. */
+  dataUpdatedAt: number;
+  /** Manual full refresh; a call while one is in flight is ignored. */
+  refetch: () => Promise<void>;
 };
 
 /**
@@ -243,11 +246,19 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
   const isError = tripsQuery.isError || summariesQuery.isError;
   const error = (tripsQuery.error ?? summariesQuery.error) as Error | null;
 
-  const refetch = () => {
+  const refreshingRef = useRef<Promise<void> | null>(null);
+  const refetch = useCallback((): Promise<void> => {
+    if (refreshingRef.current) return refreshingRef.current;
     fullRefreshRef.current = true;
-    void tripsQuery.refetch();
-    void summariesQuery.refetch();
-  };
+    const run = Promise.all([tripsQuery.refetch(), summariesQuery.refetch()]).then(
+      () => undefined,
+      () => undefined,
+    );
+    refreshingRef.current = run.finally(() => {
+      refreshingRef.current = null;
+    });
+    return refreshingRef.current;
+  }, [tripsQuery, summariesQuery]);
 
   return {
     data: {
@@ -263,6 +274,7 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
     isError,
     error,
     isFetching,
+    dataUpdatedAt: summariesQuery.dataUpdatedAt,
     refetch,
   };
 }

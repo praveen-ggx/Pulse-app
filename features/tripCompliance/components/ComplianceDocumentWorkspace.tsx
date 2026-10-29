@@ -89,11 +89,15 @@ import {
 import { deriveComplianceQueueReadiness } from "@/features/tripCompliance/utils/complianceReadiness.util";
 import {
   applyOptimisticDecision,
+  canModerateComplianceRow,
+  canShowSingleRowDecline,
+  complianceDecisionButtonState,
   complianceGroupReviewState,
   complianceReviewDecisionActions,
   complianceRowDeclineReason,
   complianceTabMarkedApproved,
   recordOptimisticDecision,
+  singleComplianceRowDeclineIds,
   type ComplianceGroupReviewState,
   type OptimisticComplianceDecision,
 } from "@/features/tripCompliance/utils/complianceReviewActions.util";
@@ -2910,6 +2914,7 @@ export function ComplianceDocumentWorkspace({
   /** Files dialog to reopen when the full-screen viewer opened from it closes. */
   const filesModalReturnRef = useRef<string | null>(null);
   const [declineOpen, setDeclineOpen] = useState(false);
+  const [rowDeclineTarget, setRowDeclineTarget] = useState<ComplianceDocRow | null>(null);
   const [approveConfirm, setApproveConfirm] = useState<ComplianceReviewGroup | null>(null);
   const [tripDeclineOpen, setTripDeclineOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -3289,6 +3294,7 @@ export function ComplianceDocumentWorkspace({
     setDocIndex(0);
     resetPreviewView();
     setDeclineOpen(false);
+    setRowDeclineTarget(null);
     setRejectOpen(false);
     setExpiryPrompt((prev) => {
       prev?.resolve(null);
@@ -3766,6 +3772,58 @@ export function ComplianceDocumentWorkspace({
       setBusy(false);
     }
   };
+
+  const declineSingleRow = async (reason: string) => {
+    if (!summary || busy || !rowDeclineTarget) return;
+    if (!ensureCanModerate("Can't decline", "Decline")) return;
+    const note = reason.trim();
+    if (!note) {
+      alertMessage("Can't decline", "A rejection reason is required.");
+      return;
+    }
+    const displayed = applyOptimisticDecision(
+      rowDeclineTarget,
+      localDecisionByKey[optimisticKey(reviewScope, rowDeclineTarget.key)],
+    );
+    const ids = singleComplianceRowDeclineIds(displayed, listRows, reviewScope);
+    const selectedId = displayed.doc?.id ?? displayed.entityDoc?.id;
+    if (ids.length !== 1 || !selectedId || ids[0] !== selectedId) {
+      setRowDeclineTarget(null);
+      return;
+    }
+    setRowDeclineTarget(null);
+    setBusy(true);
+    try {
+      if (await writeDecline(displayed, note)) {
+        setLocalDecisionByKey((prev) => ({
+          ...prev,
+          [optimisticKey(reviewScope, displayed.key)]: recordOptimisticDecision(displayed, "rejected", note),
+        }));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const approveSingleRow = async (row: ComplianceDocRow) => {
+    if (!summary || busy) return;
+    if (!ensureCanModerate("Can't approve", "Approve")) return;
+    const displayed = applyOptimisticDecision(row, localDecisionByKey[optimisticKey(reviewScope, row.key)]);
+    if (!complianceReviewDecisionActions(displayed).canApprove) return;
+    setBusy(true);
+    try {
+      if (await writeApproval(displayed)) {
+        setLocalDecisionByKey((prev) => ({
+          ...prev,
+          [optimisticKey(reviewScope, displayed.key)]: recordOptimisticDecision(displayed, "verified"),
+        }));
+        void autoVerifyIfRequiredApproved([displayed.key]);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const docTitle = activeRow
     ? isFinanceMode
       ? labelForFinanceDocType(activeRow.type)
@@ -3791,6 +3849,26 @@ export function ComplianceDocumentWorkspace({
       typedLines?.find((line) => /valid/i.test(line.label))?.value ??
       null,
   });
+  const activeDecisionRow = activeRow
+    ? applyOptimisticDecision(activeRow, localDecisionByKey[optimisticKey(reviewScope, activeRow.key)])
+    : null;
+  const showRowDecline = Boolean(
+    activeDecisionRow &&
+      canShowSingleRowDecline({
+        canVerify,
+        hideDocumentDecisions,
+        row: activeDecisionRow,
+        scope: reviewScope,
+      }),
+  );
+  const showRowApprove = Boolean(
+    canVerify &&
+      !hideDocumentDecisions &&
+      activeDecisionRow &&
+      canModerateComplianceRow(activeDecisionRow, reviewScope) &&
+      complianceReviewDecisionActions(activeDecisionRow).canApprove,
+  );
+  const rowDecisionButtons = complianceDecisionButtonState(activeDecisionRow);
   const financeBankSelected =
     isFinanceMode && checklistSelectedRow?.type === "bank_docs";
   const showBankPayeeDetails = Boolean(summary && !PRE_VERIFIED_STAGES.has(summary.stage));
@@ -5524,6 +5602,7 @@ export function ComplianceDocumentWorkspace({
                   return (
                     <>
                 {previewingDocument ? (
+                  <>
                   <View style={styles.previewNav}>
                     {mobileExclusive ? (
                       <TouchableOpacity
@@ -5595,6 +5674,48 @@ export function ComplianceDocumentWorkspace({
                       </Pressable>
               </View>
                   </View>
+                  {showRowDecline || showRowApprove ? (
+                    <View style={styles.rowDecisionBar}>
+                      {showRowDecline ? (
+                        <TouchableOpacity
+                          style={[
+                            styles.reviewGroupDecline,
+                            rowDecisionButtons.declineActive && styles.reviewGroupDeclineActive,
+                            busy && styles.btnDisabled,
+                          ]}
+                          activeOpacity={0.85}
+                          disabled={busy}
+                          onPress={() => activeDecisionRow && setRowDeclineTarget(activeDecisionRow)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Decline ${docTitle}`}
+                        >
+                          <Text
+                            style={[
+                              styles.reviewGroupDeclineText,
+                              rowDecisionButtons.declineActive && styles.reviewGroupDeclineTextActive,
+                            ]}
+                          >
+                            {rowDecisionButtons.declineLabel}
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      {showRowApprove ? (
+                        <TouchableOpacity
+                          style={[styles.reviewGroupApprove, busy && styles.btnDisabled]}
+                          activeOpacity={0.85}
+                          disabled={busy}
+                          onPress={() => {
+                            if (activeDecisionRow) void approveSingleRow(activeDecisionRow);
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Approve ${docTitle}`}
+                        >
+                          <Text style={styles.reviewGroupApproveText}>{rowDecisionButtons.approveLabel}</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  ) : null}
+                  </>
                 ) : null}
                 <View style={[styles.checklistPreviewBody, styles.checklistPreviewBodyMobile]}>
                   {checklistPreviewMode === "trip" && summary ? (
@@ -5913,6 +6034,27 @@ export function ComplianceDocumentWorkspace({
         onCancel={() => setDeclineOpen(false)}
         onSubmit={async (reason) => {
           await declineWithReason(reason);
+        }}
+      />
+      <ComplianceDeclineModal
+        visible={rowDeclineTarget != null}
+        title={`Decline ${
+          rowDeclineTarget
+            ? isFinanceMode || (COMPLIANCE_FINANCE_DOCUMENT_TYPES as readonly string[]).includes(rowDeclineTarget.type)
+              ? labelForFinanceDocType(rowDeclineTarget.type)
+              : labelForDocType(rowDeclineTarget.type)
+            : "document"
+        }`}
+        presets={complianceDeclineSectionsForScope(reviewScope)}
+        submitLabel="Decline"
+        tripLabel={
+          summary
+            ? getTripDisplayNumber(summary.trip, summary.trip.organization_id ?? null)
+            : "Trip"
+        }
+        onCancel={() => setRowDeclineTarget(null)}
+        onSubmit={async (reason) => {
+          await declineSingleRow(reason);
         }}
       />
       <VaultCategoryPreviewModal
@@ -10582,6 +10724,14 @@ const styles = StyleSheet.create({
   },
   reviewGroupApproveText: {
     ...complianceActionButtonStyles.primaryText,
+  },
+  rowDecisionBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingBottom: 10,
   },
   reviewGroupApprovedPill: {
     ...complianceActionButtonStyles.primary,

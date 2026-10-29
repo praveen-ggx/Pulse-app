@@ -36,6 +36,7 @@ import type {
 } from "@/features/tripCompliance/tripCompliance.types";
 import { ensureComplianceChecklist } from "@/features/tripCompliance/utils/complianceChecklist.util";
 import { selectCompliancePipelineTrips } from "@/features/tripCompliance/utils/compliancePipelineTrips.util";
+import { syncFinanceComplianceCaches } from "@/lib/queries/syncFinanceComplianceCaches";
 import {
   isCompliancePaymentPending,
   isComplianceVerifiedQueue,
@@ -546,9 +547,6 @@ export function useComplianceChangeSync() {
           change.type === "complianceVerified" ||
           change.type === "complianceDeclined"
         ) {
-          const { syncFinanceComplianceCaches } = await import(
-            "@/lib/queries/syncFinanceComplianceCaches"
-          );
           syncFinanceComplianceCaches({
             queryClient: qc,
             organizationId: orgId,

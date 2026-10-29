@@ -36,3 +36,46 @@ None.
 - Prod read-only: PostgREST accepts the new filter (200); same rule in SQL
   returns 16 GOGOVAN indents for This week incl. all seven 28 Oct ones.
 - Not clicked through on gx-pulse yet. "All" shows ~320 live GOGOVAN indents.
+
+## Compliance: detail-screen verify/payment busted the whole org's queue
+
+### What broke / root cause
+- Opening one trip's Compliance detail and clicking Verify or posting a
+  payment invalidated and refetched the entire org's Compliance pipeline
+  (every trip in the queue), plus called an extra `refetch()` on top of a
+  query that already auto-refetches on invalidate. The main Compliance list
+  screen already had the fix for this (patch just the one row); the detail
+  screen was never switched over to it.
+- Found and fixed along the way: the shared sync hook's Finance-cache-sync
+  step used `await import(...)` inside a `try/catch` shared with the main
+  cache patch. Jest can't intercept that import, so this path was untested;
+  proven that in this environment the import throws and the catch silently
+  falls back to invalidating the whole pipeline anyway — the exact thing
+  being fixed. Converting it to a static import closes that gap (no behavior
+  change — 36 other files already import this way; the synced function is
+  trivial and synchronous).
+
+### What
+- Detail-screen verify and payment now call the same `useComplianceChangeSync`
+  patch-in-place sync the list screen uses — one trip patched, Finance caches
+  synced, only that trip's detail key invalidated.
+- `useComplianceTripsQuery.ts`: dynamic import of `syncFinanceComplianceCaches`
+  replaced with a static one.
+
+### Areas
+features/tripCompliance/screens/ComplianceDetailsScreen.tsx,
+features/tripCompliance/hooks/useComplianceTripsQuery.ts.
+
+### Migrations
+None.
+
+### Tested
+- New focused Jest file (4 tests) against the shared sync hook: correct trip
+  patched, other trip untouched, payment values from a fresh server read (not
+  client math), Finance cache sync invoked, and the exact set of invalidated
+  keys proven — the trip's detail key plus the hook's existing narrow Advance
+  Processed key, never the org-wide pipeline key. Stable across 5 runs.
+- Full tripCompliance suite: 700 passed, 3 pre-existing skips, 0 failed.
+- Typecheck 325 vs baseline 350 (pass), cycles 92 (pass, no new circular
+  dependency from the static import).
+- Not clicked through on gx-pulse yet.

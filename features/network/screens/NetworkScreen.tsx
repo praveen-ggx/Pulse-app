@@ -68,7 +68,7 @@ import {
   ENABLE_UNLINKED_COUNTERPARTIES,
   UnlinkedCounterpartiesSection,
 } from "@/features/network/components/UnlinkedCounterpartiesSection";
-import { isPostVisibleForOrg } from "@/features/network/services/posts.service";
+import { isPostVisibleForOrg, type PostRow } from "@/features/network/services/posts.service";
 import { isFleetOwnerCapacityPost } from "@/features/network/utils/storyDisplay";
 import { shouldShowFeedPostForOrg } from "@/features/network/utils/storyLoadVisibility.util";
 import { isIndentStoryLive } from "@/features/network/utils/indentStoryWindow.util";
@@ -453,14 +453,14 @@ function NetworkScreenInner() {
       ]),
     [orgId, receivedQ.data, sentQ.data],
   );
-  const _networkConnectionsReady = !receivedQ.isPending && !sentQ.isPending;
+  const networkConnectionsReady = !receivedQ.isPending && !sentQ.isPending;
   /**
    * The clients/suppliers books back every relationship rule in the feed
    * filter. They resolve independently of the feed itself, so until both have
    * settled an empty book is indistinguishable from a genuinely empty one.
    */
   const partnerBooksReady = clientsQ.isSuccess && suppliersQ.isSuccess;
-  const _feedPosts = useMemo(
+  const feedPosts = useMemo(
     () =>
       (feedQ.data ?? []).filter((post) => {
         if (!isPostVisibleForOrg(post, { allowLoadPosts })) return false;
@@ -560,7 +560,18 @@ function NetworkScreenInner() {
     const snap = profileSnapshotQ.data;
     const nodeOrgId = profileTargetId;
     if (!snap || !nodeOrgId || snap.id !== nodeOrgId) return;
-    setSelectedProfileStats({ totalTrips: snap.total_trips ?? 0 });
+    setSelectedProfileStats((prev) => {
+      const nextTrips = snap.total_trips;
+      // Prefer a real count from the snapshot; keep a previously seeded
+      // positive count when the snapshot still reports 0 (incomplete batch).
+      if (typeof nextTrips === "number" && nextTrips > 0) {
+        return { totalTrips: nextTrips };
+      }
+      if (typeof prev.totalTrips === "number" && prev.totalTrips > 0) {
+        return prev;
+      }
+      return { totalTrips: typeof nextTrips === "number" ? nextTrips : 0 };
+    });
     setSelectedProfileNode((prev) => {
       if (!prev || prev.id !== nodeOrgId) return prev;
       const next = {

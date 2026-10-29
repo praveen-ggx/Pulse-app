@@ -76,6 +76,48 @@ describe("countIndentWorkload", () => {
   });
 });
 
+describe("hub date range", () => {
+  const WEEK = { from: "2026-10-26", to: "2026-11-01" };
+  const DATED_LIVE =
+    "and(status.in.(broadcast,open),or(" +
+    "and(pickup_date.gte.2026-10-26,pickup_date.lte.2026-11-01)," +
+    'and(pickup_date.is.null,created_at.gte."2026-10-26T00:00:00+05:30",' +
+    'created_at.lt."2026-11-02T00:00:00+05:30")))';
+  const NEEDS_TRIP = "and(status.in.(awarded),or(pickup_date.gte.2026-10-21,pickup_date.is.null))";
+
+  it("counts the dated live set server-side; needs_trip unchanged; scoping kept", async () => {
+    mockNextResults = [{ count: 7 }, { count: 31 }];
+    const res = await countIndentWorkload("org-1", BOUNDS, WEEK);
+    expect(res.counts).toEqual({ live: 7, needs_trip: 31 });
+    expect(mockCalls[0]).toContainEqual({ method: "or", args: [DATED_LIVE] });
+    expect(mockCalls[1]).toContainEqual({ method: "or", args: [NEEDS_TRIP] });
+    for (const log of mockCalls) {
+      expect(log).toEqual(
+        expect.arrayContaining([
+          { method: "eq", args: ["organization_id", "org-1"] },
+          { method: "is", args: ["deleted_at", null] },
+          { method: "is", args: ["trips", null] },
+        ]),
+      );
+    }
+  });
+
+  it('"All" counts every broadcast / open indent; scoping kept', async () => {
+    mockNextResults = [{ count: 320 }, { count: 31 }];
+    const res = await countIndentWorkload("org-1", BOUNDS, "all");
+    expect(res.counts).toEqual({ live: 320, needs_trip: 31 });
+    expect(mockCalls[0]).toContainEqual({ method: "or", args: ["status.in.(broadcast,open)"] });
+    expect(mockCalls[0]).toContainEqual({ method: "is", args: ["trips", null] });
+    expect(mockCalls[1]).toContainEqual({ method: "or", args: [NEEDS_TRIP] });
+  });
+
+  it("lists the dated live rows from the server (not a client filter of the default set)", async () => {
+    mockNextResults = [{ data: [{ id: "a" }] }];
+    await listIndentWorkload("org-1", BOUNDS, WEEK);
+    expect(mockCalls[0]).toContainEqual({ method: "or", args: [`${DATED_LIVE},${NEEDS_TRIP}`] });
+  });
+});
+
 describe("listIndentWorkload", () => {
   it("pages both workload sets and strips the trips embed", async () => {
     const page = (n: number, prefix: string) =>

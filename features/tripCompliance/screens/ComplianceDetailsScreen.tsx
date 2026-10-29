@@ -10,8 +10,8 @@ import { ComplianceTripActivityLog } from "@/features/tripCompliance/components/
 import { ComplianceTripCard } from "@/features/tripCompliance/components/ComplianceTripCard";
 import { useComplianceProductEnabled } from "@/features/tripCompliance/hooks/useComplianceProductEnabled";
 import {
+  useComplianceChangeSync,
   useComplianceTripQuery,
-  useInvalidateComplianceTrips,
 } from "@/features/tripCompliance/hooks/useComplianceTripsQuery";
 import { postCompliancePayment, markTripComplianceVerified, type ComplianceLedgerCategory } from "@/features/tripCompliance/services/tripComplianceWrite.service";
 import { COMPLIANCE_STAGE_LABEL, type ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
@@ -20,10 +20,8 @@ import { deriveComplianceQueueReadiness } from "@/features/tripCompliance/utils/
 import { formatMarkComplianceVerifiedError } from "@/features/tripCompliance/utils/complianceMarkVerifiedError.util";
 import { alertMessage } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import { useLayoutInsets } from "@/lib/layoutInsets";
-import { syncFinanceComplianceCaches } from "@/lib/queries/syncFinanceComplianceCaches";
 import { ROUTES } from "@/lib/routes";
 import { useMemberAccess } from "@/lib/useMemberAccess";
-import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ChevronLeft } from "lucide-react-native";
 import React, { useCallback, useState } from "react";
@@ -40,9 +38,8 @@ export function ComplianceDetailsScreen({ tripId }: { tripId: string }) {
   const { user } = useAuth();
   const orgCtx = useOptionalOrganization();
   const currentOrganization = orgCtx?.currentOrganization ?? null;
-  const queryClient = useQueryClient();
   const { data: summary, isLoading, isError, error, refetch, isFetching } = useComplianceTripQuery(tripId);
-  const invalidate = useInvalidateComplianceTrips();
+  const syncChange = useComplianceChangeSync();
   const markTripVerified = useCallback(async () => {
     if (!canMarkVerified) {
       alertMessage("Can't verify", "You don't have permission to mark this trip compliance verified.");
@@ -57,9 +54,11 @@ export function ComplianceDetailsScreen({ tripId }: { tripId: string }) {
       alertMessage("Couldn't verify compliance", formatMarkComplianceVerifiedError(markError.message));
       return;
     }
-    invalidate(tripId);
-    void refetch();
-  }, [canMarkVerified, invalidate, refetch, tripId, user?.uid]);
+    // syncChange patches this trip's row in place (pipeline, trips lists, Finance
+    // caches) and refreshes just this trip's detail key — the detail query already
+    // has staleTime 0 + refetchOnMount "always", so no explicit refetch() needed.
+    await syncChange({ type: "complianceVerified", tripId, actorId: user.uid });
+  }, [canMarkVerified, syncChange, tripId, user?.uid]);
   const [pay, setPay] = useState<{ summary: ComplianceTripSummary; category: ComplianceLedgerCategory } | null>(null);
   const [activityLogOpen, setActivityLogOpen] = useState(false);
   const [paying, setPaying] = useState(false);
@@ -193,16 +192,11 @@ export function ComplianceDetailsScreen({ tripId }: { tripId: string }) {
             return;
           }
           setPay(null);
-          invalidate(trip.id);
-          if (currentOrganization?.id) {
-            syncFinanceComplianceCaches({
-              queryClient,
-              organizationId: currentOrganization.id,
-              tripId: trip.id,
-              includeCompliance: false, // invalidate() already refreshed Settlement
-            });
-          }
-          void refetch();
+          // Same targeted patch the Compliance list screen uses for payments:
+          // patches this trip's row (pipeline, trips lists) and syncs Finance
+          // caches in one pass — no org-wide pipeline invalidation or extra
+          // refetch() needed.
+          await syncChange({ type: "payment", tripId: trip.id });
         }}
       />
       <ComplianceTripActivityLog

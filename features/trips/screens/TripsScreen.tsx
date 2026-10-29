@@ -702,8 +702,10 @@ export default function TripsScreen() {
   // owns that have not yet been allocated to a trip. Allocation is read from
   // the trips this screen already fetches (`trips.indent_id`), not a new query.
   const { data: allIndents = [] } = useIndentsQuery(orgId);
-  // Indent tile = live workload (exact server counts; hub date pills ignored).
-  const indentWorkload = useIndentWorkload(orgId);
+  // Indent tile = live workload (exact server counts). The hub date pill picks the
+  // live range ("All" = every open indent), past pickups included; needs-trip ignores it.
+  const indentWorkloadRange = hubDateBounds ?? "all";
+  const indentWorkload = useIndentWorkload(orgId, { range: indentWorkloadRange });
   const indentCodeSearchQuery = searchQuery.trim();
   const { data: indentCodeSearchHits = [] } = useTripsIndentCodeSearch(
     orgId,
@@ -743,11 +745,16 @@ export default function TripsScreen() {
     const bounds = indentWorkload.bounds;
     if (!bounds) return byId;
     for (const indent of indentWorkload.indents ?? allIndents) {
-      const kind = classifyIndentWorkload(indent, indentIdsWithTrip.has(indent.id), bounds);
+      const kind = classifyIndentWorkload(
+        indent,
+        indentIdsWithTrip.has(indent.id),
+        bounds,
+        indentWorkloadRange,
+      );
       if (kind) byId.set(indent.id, kind);
     }
     return byId;
-  }, [allIndents, indentIdsWithTrip, indentWorkload.bounds, indentWorkload.indents]);
+  }, [allIndents, indentWorkloadRange, indentIdsWithTrip, indentWorkload.bounds, indentWorkload.indents]);
   const unallocatedIndents = useMemo(
     () =>
       (indentWorkload.indents ?? allIndents).filter(
@@ -767,7 +774,7 @@ export default function TripsScreen() {
       orgId,
     ],
   );
-  // Workload is "now": the hub date pills do not filter it.
+  // Date pills already applied by the workload query / classifier above.
   const dateFilteredUnallocatedIndents = unallocatedIndents;
   const liveIndents = useMemo(
     () => unallocatedIndents.filter((i) => indentWorkloadKindById.get(i.id) === "live"),
@@ -3066,8 +3073,13 @@ export default function TripsScreen() {
       ? {
           page: tripsTablePageSafe,
           pageSize: tripsTablePageSize,
-          offset: hubListPageSlice.tripOffset,
-          limit: hubListPageSlice.tripLimit,
+          // Indent tab feeds indents (as rows) into the table, so page by the indent slice.
+          offset: hubShowsIndentList
+            ? hubListPageSlice.indentOffset
+            : hubListPageSlice.tripOffset,
+          limit: hubShowsIndentList
+            ? hubListPageSlice.indentLimit
+            : hubListPageSlice.tripLimit,
         }
       : undefined;
 

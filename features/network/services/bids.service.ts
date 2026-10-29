@@ -638,7 +638,11 @@ async function collectPendingOwnerIndentBids(
 ): Promise<{ error: Error | null; bids: OwnerIndentBid[] }> {
   if (indentIds.length === 0) return { error: null, bids: [] };
 
-  if (isSupabaseCircuitOpen()) return { error: null, bids: [] };
+  // An error, not an empty list: a skipped read cached as "0 offers" moved every
+  // indent into Pending until the next refetch.
+  if (isSupabaseCircuitOpen()) {
+    return { error: new Error('Supabase unavailable; offer counts not loaded.'), bids: [] };
+  }
 
   const POSTGREST_IN_CHUNK = 40;
   const uniqueIds = [...new Set(indentIds.filter(Boolean))];

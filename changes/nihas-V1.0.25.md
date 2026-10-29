@@ -79,3 +79,28 @@ None.
 - Typecheck 325 vs baseline 350 (pass), cycles 92 (pass, no new circular
   dependency from the static import).
 - Not clicked through on gx-pulse yet.
+
+## Trips hub: "Bids received 0" when the Supabase circuit was open
+
+### What broke / root cause
+- GOGOVAN Trips hub showed Pending 329 / Bids received 0 although prod had
+  492 pending quotes on its live indents (e.g. Sree Raamajayam on Bluestar
+  IND003209). The offer-count read skipped itself while the Supabase circuit
+  was open and returned an empty result with no error, so React Query cached
+  "0 offers" for every indent until the next refetch.
+
+### What
+- The offer-count / bid-snapshot read now returns an error while the circuit
+  is open (still no request sent), so it is not cached as an empty count.
+
+### Tests
+- `circuitBreakerBatchGuards.test.ts` updated: offer counts fail fast with an
+  error instead of an empty success.
+- Prod read-only check after reload: Live 329, Pending 113, Bids 216, Needs
+  trip 30, Failed 208 and all trip tiles match prod.
+
+### Not tested
+- Circuit-open path not reproduced in the browser.
+
+### Migrations
+None.

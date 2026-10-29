@@ -102,6 +102,11 @@ import {
   type OptimisticComplianceDecision,
 } from "@/features/tripCompliance/utils/complianceReviewActions.util";
 import {
+  canShowSingleRowReplace,
+  mustReplaceRejectedTripDocument,
+  replaceTripFileOptions,
+} from "@/features/tripCompliance/utils/complianceRowReplace.util";
+import {
   complianceVaultDocNumbers,
   isActiveFinanceReject,
   isComplianceAwaitingResubmit,
@@ -3868,6 +3873,13 @@ export function ComplianceDocumentWorkspace({
       canModerateComplianceRow(activeDecisionRow, reviewScope) &&
       complianceReviewDecisionActions(activeDecisionRow).canApprove,
   );
+  const showRowReplace = Boolean(
+    activeDecisionRow &&
+      canShowSingleRowReplace({
+        canEditFiles,
+        row: activeDecisionRow,
+      }),
+  );
   const rowDecisionButtons = complianceDecisionButtonState(activeDecisionRow);
   const financeBankSelected =
     isFinanceMode && checklistSelectedRow?.type === "bank_docs";
@@ -4133,6 +4145,45 @@ export function ComplianceDocumentWorkspace({
   /** Upload / Replace in place: file picker → vault write → refetch. No review sheet. */
   /** LR upload dialog (shared with the Trips hub) for the selected trip. */
   const [lrDialogOpen, setLrDialogOpen] = useState(false);
+  /**
+   * Replace one trip file in place: same row, new file, status back to
+   * pending, old version kept in the audit log. No second row is created.
+   */
+  const replaceTripFile = useCallback(
+    async (row: ComplianceDocRow) => {
+      const replaceOptions = replaceTripFileOptions(row);
+      if (!summary || !row.doc || !actorId || !replaceOptions) return;
+      if (replaceOptions.replaceDocumentId !== row.doc.id) return;
+      setFileActionKey(row.key);
+      try {
+        const file = await pickComplianceVaultFile(row.type);
+        if (!file) return;
+        const { error } = await uploadTripDocument(
+          summary.trip.id,
+          actorId,
+          file,
+          row.type as TripDocumentType,
+          row.doc.document_number ?? undefined,
+          { ...replaceOptions, organizationId },
+        );
+        if (error) {
+          alertMessage("Couldn't replace file", error.message);
+          return;
+        }
+        setCategoryPreview(null);
+        invalidateCompliancePreviewCache([row.doc.storage_path]);
+        previewCacheRef.current.clear();
+        setPreviewUrl(null);
+        setPreviewEpoch((value) => value + 1);
+        onChanged({ type: "tripDocuments", tripId: summary.trip.id });
+      } catch (err) {
+        alertMessage("Couldn't replace file", err instanceof Error ? err.message : "Replace failed. Try again.");
+      } finally {
+        setFileActionKey(null);
+      }
+    },
+    [actorId, onChanged, organizationId, summary],
+  );
   const uploadVaultDocument = useCallback(
     async (row: ComplianceDocRow) => {
       if (!summary) return;
@@ -4141,6 +4192,10 @@ export function ComplianceDocumentWorkspace({
         return;
       }
       if (uploadingFinanceType) return;
+      if (mustReplaceRejectedTripDocument(row)) {
+        await replaceTripFile(row);
+        return;
+      }
       if (groundOpsDocumentLock && !isFinanceMode && tab === "trip" && hasFile(row)) {
         const lock = groundOpsDocumentLockReason({
           trip: {
@@ -4274,6 +4329,7 @@ export function ComplianceDocumentWorkspace({
       onChanged,
       organizationId,
       promptExpiryDate,
+      replaceTripFile,
       summary,
       resetPreviewView,
       tab,
@@ -4381,40 +4437,6 @@ export function ComplianceDocumentWorkspace({
           document_type: row.doc.document_type,
         } as TripDocumentRow)
       : null;
-
-  /**
-   * Replace one trip file in place: same row, new file, status back to
-   * pending, old version kept in the audit log. No second row is created.
-   */
-  const _replaceTripFile = async (row: ComplianceDocRow) => {
-    if (!summary || !row.doc || !actorId) return;
-    setFileActionKey(row.key);
-    try {
-      const file = await pickComplianceVaultFile(row.type);
-      if (!file) return;
-      const { error } = await uploadTripDocument(
-        summary.trip.id,
-        actorId,
-        file,
-        row.type as TripDocumentType,
-        row.doc.document_number ?? undefined,
-        { replaceDocumentId: row.doc.id, organizationId },
-      );
-      if (error) {
-        alertMessage("Couldn't replace file", error.message);
-        return;
-      }
-      invalidateCompliancePreviewCache([row.doc.storage_path]);
-      previewCacheRef.current.clear();
-      setPreviewUrl(null);
-      setPreviewEpoch((value) => value + 1);
-      onChanged({ type: "tripDocuments", tripId: summary.trip.id });
-    } catch (err) {
-      alertMessage("Couldn't replace file", err instanceof Error ? err.message : "Replace failed. Try again.");
-    } finally {
-      setFileActionKey(null);
-    }
-  };
 
   const removeTripFile = async (row: ComplianceDocRow, label: string) => {
     const old = tripDocumentForDelete(row);
@@ -4647,6 +4669,11 @@ export function ComplianceDocumentWorkspace({
             if (mobileExclusive) setMobileDocPane("list");
           }}
           onAdd={() => void uploadVaultDocument(row)}
+          onReplace={
+            canEditFiles && mustReplaceRejectedTripDocument(displayRow)
+              ? () => void replaceTripFile(displayRow)
+              : undefined
+          }
           onOpenFull={(index) => {
             const target = typeFiles[index] ?? displayRow;
             previewChecklistRow(target);
@@ -5674,8 +5701,22 @@ export function ComplianceDocumentWorkspace({
                       </Pressable>
               </View>
                   </View>
-                  {showRowDecline || showRowApprove ? (
+                  {showRowDecline || showRowApprove || showRowReplace ? (
                     <View style={styles.rowDecisionBar}>
+                      {showRowReplace ? (
+                        <TouchableOpacity
+                          style={[styles.reviewGroupApprove, (busy || Boolean(fileActionKey)) && styles.btnDisabled]}
+                          activeOpacity={0.85}
+                          disabled={busy || Boolean(fileActionKey)}
+                          onPress={() => {
+                            if (activeDecisionRow) void replaceTripFile(activeDecisionRow);
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Replace ${docTitle}`}
+                        >
+                          <Text style={styles.reviewGroupApproveText}>Replace</Text>
+                        </TouchableOpacity>
+                      ) : null}
                       {showRowDecline ? (
                         <TouchableOpacity
                           style={[
@@ -6070,7 +6111,15 @@ export function ComplianceDocumentWorkspace({
           if (mobileExclusive) setMobileDocPane("list");
         }}
         onAdd={
-          canEditFiles && categoryPreview
+          canEditFiles && categoryPreview && !mustReplaceRejectedTripDocument(
+            listRows.find(
+              (item) => item.key === categoryPreview.files[categoryPreview.index]?.id,
+            ) ??
+              listRows.find(
+                (item) =>
+                  item.doc?.id === categoryPreview.files[categoryPreview.index]?.documentId,
+              ),
+          )
             ? () => {
                 const addLock = complianceTypeAddLockReason(categoryPreview.type);
                 if (addLock) {
@@ -6082,6 +6131,21 @@ export function ComplianceDocumentWorkspace({
                   displayListRows.find((item) => item.type === categoryPreview.type);
                 if (row) void uploadVaultDocument(row);
               }
+            : undefined
+        }
+        onReplace={
+          canEditFiles && categoryPreview
+            ? (() => {
+                const currentFile = categoryPreview.files[categoryPreview.index];
+                const row =
+                  listRows.find((item) => item.key === currentFile?.id) ??
+                  listRows.find(
+                    (item) =>
+                      Boolean(currentFile?.documentId) && item.doc?.id === currentFile?.documentId,
+                  );
+                if (!row || !mustReplaceRejectedTripDocument(row)) return undefined;
+                return () => void replaceTripFile(row);
+              })()
             : undefined
         }
         onDelete={

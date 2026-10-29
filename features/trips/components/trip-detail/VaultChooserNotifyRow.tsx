@@ -82,6 +82,8 @@ type Props = {
   /** Full document viewer with next / previous across files. */
   onOpenFull?: (index: number) => void;
   onAdd: () => void;
+  /** Replace the rejected trip file in place. When set, Add is hidden. */
+  onReplace?: () => void;
 };
 
 function normalizeExpiryIso(raw?: string | null): string | null {
@@ -262,6 +264,7 @@ export function VaultChooserNotifyRow({
   onEdit,
   onOpenFull,
   onAdd,
+  onReplace,
 }: Props) {
   const allPreviews = (
     previews && previews.length > 0 ? previews : preview ? [preview] : []
@@ -403,7 +406,20 @@ export function VaultChooserNotifyRow({
                 <Pencil size={12} color={Theme.actionBtnInk} strokeWidth={2} />
               </Pressable>
             ) : null}
-            {canUpload ? (
+            {canUpload && onReplace ? (
+              <Pressable
+                onPress={(event) => {
+                  event?.stopPropagation?.();
+                  onReplace();
+                }}
+                style={styles.addBtn}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={`Replace ${label}`}
+              >
+                <Text style={[styles.addBtnText, WEB_COPY]}>Replace</Text>
+              </Pressable>
+            ) : canUpload ? (
               <Pressable
                 onPress={(event) => {
                   event?.stopPropagation?.();

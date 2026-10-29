@@ -325,6 +325,8 @@ export function CreateTripDesktopWizard({
       // Skip both local state and parent callback when unchanged — parent
       // setState(true) every tick was a loop source even when local was guarded.
       if (laneGateActiveRef.current === active) return;
+      // Sync now so a second flip before re-render compares against this one.
+      laneGateActiveRef.current = active;
       setLaneGateActive(active);
       onLaneGateActiveChange?.(active);
     },

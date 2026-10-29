@@ -148,6 +148,8 @@ export interface TripRow {
   /** Explicit Fleet Owner / Driver-cum-Owner vehicle link. Nullable until set via set_trip_owner_vehicle() — never inferred from ownership or vehicle count. */
   owner_vehicle_id?: string | null;
   client_price: number;
+  /** Client freight rate basis when unit pricing applies. */
+  sale_rate_basis?: "per_mt" | "per_trip" | null;
   supplier_rate: number;
   margin: number;
   platform_fee: number;
@@ -156,6 +158,8 @@ export interface TripRow {
   payment_status: string;
   amount_paid: number;
   status: string;
+  /** Who/what last changed status (e.g. business_simulated). */
+  status_change_origin?: string | null;
   pickup_date: string | null;
   started_at: string | null;
   completed_at: string | null;

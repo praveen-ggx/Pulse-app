@@ -53,7 +53,11 @@ export function labelForFinanceDocType(type: string): string {
   return FINANCE_DOC_TYPE_LABEL[type] ?? labelForDocType(type);
 }
 
-export type ComplianceDocRowStatus = ComplianceDocumentStatus | "missing" | "expired";
+export type ComplianceDocRowStatus =
+  | ComplianceDocumentStatus
+  | "missing"
+  | "expired"
+  | "replaced";
 
 export type ComplianceDocRow = {
   key: string;

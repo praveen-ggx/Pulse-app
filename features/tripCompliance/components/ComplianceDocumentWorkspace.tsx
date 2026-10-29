@@ -2915,7 +2915,7 @@ export function ComplianceDocumentWorkspace({
     index: number;
     type: string;
   } | null>(null);
-  const [_fileActionKey, setFileActionKey] = useState<string | null>(null);
+  const [fileActionKey, setFileActionKey] = useState<string | null>(null);
   /** Files dialog to reopen when the full-screen viewer opened from it closes. */
   const filesModalReturnRef = useRef<string | null>(null);
   const [declineOpen, setDeclineOpen] = useState(false);
@@ -3606,17 +3606,23 @@ export function ComplianceDocumentWorkspace({
         );
       return false;
     }
+    const entityDoc = row.entityDoc;
     if (
-      row.entityDoc?.id &&
-      row.entityDoc.source !== "driver-kyc" &&
-      (row.entityDoc.entity_type === "vehicle" || row.entityDoc.entity_type === "driver")
+      entityDoc?.id &&
+      entityDoc.source !== "driver-kyc" &&
+      (entityDoc.entity_type === "vehicle" || entityDoc.entity_type === "driver")
     ) {
-        const { error } = await rejectDocument(row.entityDoc.id, note);
+        const { error } = await rejectDocument(entityDoc.id, note);
         if (error) {
           alertMessage("Couldn't decline document", error.message);
         return false;
         }
-        onChanged(entityDocumentChange(row.entityDoc));
+        onChanged(
+          entityDocumentChange({
+            entity_type: entityDoc.entity_type,
+            entity_id: entityDoc.entity_id,
+          }),
+        );
       return true;
     }
         alertMessage("Couldn't decline document", "This document can't be declined from this preview.");
@@ -4473,7 +4479,12 @@ export function ComplianceDocumentWorkspace({
         alertMessage("Couldn't remove file", error.message);
         return;
       }
-      onChanged(entityDocumentChange(doc));
+      onChanged(
+        entityDocumentChange({
+          entity_type: doc.entity_type,
+          entity_id: doc.entity_id,
+        }),
+      );
     } finally {
       setFileActionKey(null);
     }

@@ -75,7 +75,7 @@ export function ComplianceTripActivityLog({
         supabase()
           .from("transactions")
           .select(
-            "id, organization_id, trip_id, trip_number, party_name, description, amount_in, amount_out, transaction_date, created_at, contact_id, contact_type, vehicle_number, driver_name, ledger_entity_type, ledger_flow_type, ledger_category, payment_reference, created_by",
+            "id, organization_id, trip_id, party_name, description, amount_in, amount_out, transaction_date, created_at, contact_id, contact_type, ledger_entity_type, ledger_flow_type, ledger_category, payment_reference, created_by",
           )
           .eq("trip_id", tripId)
           .order("transaction_date", { ascending: false })

@@ -502,8 +502,11 @@ export function useTripDetail({
   const { t } = useLanguage();
   const { profile, user } = useAuth();
   const { currentOrganization } = useOrganization();
-  // Ground Ops never upload or see bank details (trip Bank Docs or supplier banking).
-  const hideBankDocs = useOptionalActiveWorkspace()?.memberPlatformRole === "ground_ops";
+  // Ground Ops and Sourcing never upload or see bank details (trip Bank Docs or
+  // supplier banking).
+  const workspacePlatformRole = useOptionalActiveWorkspace()?.memberPlatformRole;
+  const hideBankDocs =
+    workspacePlatformRole === "ground_ops" || workspacePlatformRole === "sourcing";
   const queryClient = useQueryClient();
   const { state: hardCopyPod } = useTripHardCopyPodQuery(tripId);
   void onBack;

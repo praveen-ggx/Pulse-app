@@ -12,6 +12,7 @@ import {
   updateBulkMemberPermissions,
 } from "@/features/organization/services/members.service";
 import type { OrgMember, PendingPhoneTeamInvite } from "@/types/organization";
+import { managerCanEditMember } from "@/lib/memberSurfaces";
 import {
   buildTeamInvitePermissions,
   memberDisplayRoleLabel,
@@ -761,6 +762,7 @@ export function TeamMembersView({
   embedded = false,
   desktopMetronic = false,
   initialSubTab,
+  managerDepartment = null,
 }: {
   orgId: string;
   currentUserId: string | null;
@@ -774,6 +776,12 @@ export function TeamMembersView({
   desktopMetronic?: boolean;
   /** After inline invite, open on pending tab. */
   initialSubTab?: "members" | "pending";
+  /**
+   * Viewer is a Department manager (not owner / admin): show only active
+   * teammates of this department — no pending invites, join requests or bulk
+   * role changes. App-side; the manager RPCs re-check every write.
+   */
+  managerDepartment?: string | null;
 }) {
   const [tab, setTab] = useState<"members" | "pending">(
     () => initialSubTab ?? "members",
@@ -860,8 +868,12 @@ export function TeamMembersView({
   };
 
   const roster = query.data;
-  const all = roster?.members ?? [];
-  const pendingPhoneInvites = roster?.pendingPhoneInvites ?? [];
+  const all = useMemo(() => {
+    const members = roster?.members ?? [];
+    if (!managerDepartment) return members;
+    return members.filter((m) => managerCanEditMember(managerDepartment, currentUserId, m));
+  }, [roster?.members, managerDepartment, currentUserId]);
+  const pendingPhoneInvites = managerDepartment ? [] : (roster?.pendingPhoneInvites ?? []);
   const activeMembers = useMemo(() => all.filter((m) => m.status === "active"), [all]);
   const pendingMembers = useMemo(() => all.filter((m) => m.status === "pending"), [all]);
   const pendingCount = pendingMembers.length + pendingPhoneInvites.length;
@@ -952,7 +964,9 @@ export function TeamMembersView({
 
   const body = (
     <>
-      <DomainJoinRequestsPanel orgId={orgId} canManage={canManage} />
+      {managerDepartment ? null : (
+        <DomainJoinRequestsPanel orgId={orgId} canManage={canManage} />
+      )}
 
       <LinearGradient
         colors={[Theme.brandBlueSoft, Theme.cardWhite]}
@@ -1028,7 +1042,7 @@ export function TeamMembersView({
           returnKeyType="search"
           autoCorrect={false}
         />
-        {canManage && tab === "members" && activeMembers.length > 1 ? (
+        {canManage && !managerDepartment && tab === "members" && activeMembers.length > 1 ? (
           <Pressable
             onPress={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
             style={({ pressed }) => [

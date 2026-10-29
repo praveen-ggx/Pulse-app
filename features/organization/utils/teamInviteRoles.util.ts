@@ -34,6 +34,12 @@ export type PlatformTeamRole =
   /** Trip Compliance — verifies documents, marks trips verified, logs hard-copy POD. Never pays. */
   | "compliance"
   /**
+   * Sourcing desk — follows indents and trips read-only (status / lifecycle).
+   * No bid, award, allocate, assign, documents, finance or money. App-side
+   * only: stored as org role `member`, so the database does not enforce it.
+   */
+  | "sourcing"
+  /**
    * Zero-domain floor. A member with no Finance/Sales/TripOps access left
    * degrades to `restricted` instead of silently inheriting TripOps.
    */
@@ -50,6 +56,7 @@ const ALL_PLATFORM_TEAM_ROLES: readonly PlatformTeamRole[] = [
   "vendor_support",
   "debit_control",
   "compliance",
+  "sourcing",
   "restricted",
 ];
 
@@ -95,6 +102,12 @@ export type TeamInvitePermissions = {
    * organization_member_warehouses by accept_pending_team_invitation.
    */
   warehouseIds?: string[];
+  /**
+   * Sourcing only: clients whose indents and trips the member follows. Written
+   * through the owner-only set_member_role with the rest of permissions.
+   * App-side scope — the database does not filter on it.
+   */
+  clientIds?: string[];
 };
 
 const PERMISSION_LABELS: Record<string, string> = {
@@ -142,6 +155,7 @@ export const PLATFORM_ROLE_GRANTS: Record<PlatformTeamRole, string[]> = {
   vendor_support: ["org:read", "warehouses:read", "commerce:*", "finance:read"],
   debit_control: ["org:read", "execution:read"],
   compliance: ["org:read", "execution:read"],
+  sourcing: ["org:read", "execution:read"],
   // Baseline only — can see the workspace exists, nothing functional.
   restricted: ["org:read"],
 };
@@ -201,6 +215,12 @@ export const TEAM_INVITE_ROLE_OPTIONS: TeamInviteRoleOption[] = [
     label: "Debit control",
     description: "Hard-copy POD — POD Pending / POD Received and the Debit Control page. No payments.",
     grants: PLATFORM_ROLE_GRANTS.debit_control,
+  },
+  {
+    value: "sourcing",
+    label: "Sourcing",
+    description: "Follow indents and trips read-only — status and lifecycle. No bids, awards, documents or money.",
+    grants: PLATFORM_ROLE_GRANTS.sourcing,
   },
 ];
 
@@ -315,6 +335,12 @@ export function platformRoleAfterAccessEdit(
   if (role === "ground_ops") {
     return domains.tripops ? "ground_ops" : platformRoleFromDomains(domains);
   }
+  if (role === "sourcing") {
+    return memberHasSurface(orgCaps, surfaces, "tripops.trips.view") ||
+      memberHasSurface(orgCaps, surfaces, "tripops.indents.view")
+      ? "sourcing"
+      : platformRoleFromDomains(domains);
+  }
   if (role === "debit_control") {
     return memberHasSurface(orgCaps, surfaces, "trip_compliance.pod.manage")
       ? "debit_control"
@@ -405,7 +431,8 @@ export function buildPermissionsFromSurfaces(
       : requested === "ground_ops" ||
           requested === "compliance" ||
           requested === "vendor_support" ||
-          requested === "debit_control"
+          requested === "debit_control" ||
+          requested === "sourcing"
         ? requested
         : (requested === "finance" || requested === "sales" || requested === "tripops") &&
             domains[requested]
@@ -435,6 +462,8 @@ export function buildMemberPermissions(input: {
   surfaces: MemberSurfaceMap;
   isDepartmentManager?: boolean;
   orgCaps: Capability[];
+  /** Sourcing scope; dropped for every other role. */
+  clientIds?: string[];
 }): TeamInvitePermissions {
   const permissions = buildPermissionsFromSurfaces(
     normalizeSurfaces(input.surfaces, input.orgCaps),
@@ -449,6 +478,9 @@ export function buildMemberPermissions(input: {
     isDepartmentManager:
       input.isDepartmentManager === true &&
       canBeDepartmentManager(permissions.platformRole),
+    ...(permissions.platformRole === "sourcing"
+      ? { clientIds: Array.from(new Set(input.clientIds ?? [])) }
+      : null),
   };
 }
 
@@ -527,6 +559,8 @@ export function orgMemberRoleForPlatformRole(
       return "member";
     case "compliance":
       return "member";
+    case "sourcing":
+      return "member";
     case "restricted":
       return "member";
   }
@@ -582,7 +616,11 @@ export function functionalRoleFromPlatformRole(
   ) {
     return platformRole;
   }
-  if (platformRole === "ground_ops" || platformRole === "compliance") {
+  if (
+    platformRole === "ground_ops" ||
+    platformRole === "compliance" ||
+    platformRole === "sourcing"
+  ) {
     return "tripops";
   }
   return null;

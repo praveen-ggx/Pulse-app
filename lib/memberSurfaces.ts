@@ -10,7 +10,7 @@
  *
  * See docs/RBAC_OPERATING_MODEL.md.
  */
-import type { Capability } from "@/lib/capabilities";
+import { CAPABILITIES, type Capability } from "@/lib/capabilities";
 import type {
   FunctionalRole,
   MemberDomainFlags,
@@ -1607,6 +1607,23 @@ export function defaultSurfacesForRole(
         // to prevent field staff from altering trip logistics or viewing financials.
         // No document verify, trip verify, finance view/manage, or POD manage.
       ]);
+    case "sourcing":
+      // Read-only follow-up of indents and trips (status / lifecycle). Indent
+      // view needs sales.tab (its parent). Compliance Document Upload is
+      // view-only: the page drops uploads, banking, client rate and profit
+      // for Sourcing and shows the indent's supplier target instead. No
+      // create / edit / bid / award / allocate / broadcast, no assign /
+      // reassign / tracking / trip docs / expenses / finance / verification /
+      // resubmit, no fleet.
+      return allOn([
+        "sales.tab",
+        "tripops.indents.view",
+        "tripops.tab",
+        "tripops.trips.view",
+        "tripops.trips.detail",
+        "trip_compliance.tab",
+        "trip_compliance.documents.view",
+      ]);
     case "restricted":
       return {};
     default: {
@@ -1614,6 +1631,84 @@ export function defaultSurfacesForRole(
       return _exhaustive;
     }
   }
+}
+
+/** Departments whose Department manager may edit teammates (same preset). */
+export const MANAGER_DEPARTMENTS = [
+  "finance",
+  "sales",
+  "tripops",
+  "compliance",
+  "debit_control",
+  "vendor_support",
+  "ground_ops",
+  "sourcing",
+] as const satisfies readonly PlatformTeamRole[];
+
+export type ManagerDepartment = (typeof MANAGER_DEPARTMENTS)[number];
+
+export function isManagerDepartment(role: string | null | undefined): role is ManagerDepartment {
+  return (MANAGER_DEPARTMENTS as readonly string[]).includes(role ?? "");
+}
+
+const EVERY_CAPABILITY = Object.keys(CAPABILITIES) as Capability[];
+
+/** Minimal member row shape the Department-manager rules read. */
+export type ManagerRuleMember = {
+  user_id?: string | null;
+  role: string;
+  status?: string | null;
+  permissions?: unknown;
+};
+
+function platformRoleOfRow(member: ManagerRuleMember): string | null {
+  const role = (member.permissions as { platformRole?: unknown } | null | undefined)?.platformRole;
+  return typeof role === "string" ? role : null;
+}
+
+/**
+ * The department this member manages, or null: active, holds the Department
+ * manager flag, not owner / admin (they already manage everyone), and in a
+ * department with manager toggles. Mirrors can_manage_member on the server.
+ */
+export function managerDepartmentOf(member: ManagerRuleMember | null | undefined): ManagerDepartment | null {
+  if (!member || member.status !== "active") return null;
+  if (member.role === "owner" || member.role === "admin") return null;
+  const flag = (member.permissions as { isDepartmentManager?: unknown } | null | undefined)
+    ?.isDepartmentManager;
+  if (flag !== true) return null;
+  const dept = platformRoleOfRow(member);
+  return isManagerDepartment(dept) ? dept : null;
+}
+
+/**
+ * A manager of `department` may edit this member: active, same department,
+ * not owner / admin / driver, never themselves. Same rule as the server.
+ */
+export function managerCanEditMember(
+  department: string | null | undefined,
+  viewerUserId: string | null | undefined,
+  target: ManagerRuleMember,
+): boolean {
+  if (!isManagerDepartment(department)) return false;
+  if (target.status !== "active") return false;
+  if (target.role === "owner" || target.role === "admin" || target.role === "driver") return false;
+  if (viewerUserId && target.user_id === viewerUserId) return false;
+  return platformRoleOfRow(target) === department;
+}
+
+/**
+ * Surfaces a Department manager may switch on or off for a teammate: exactly
+ * the department's preset, under every operating model (the org still gates
+ * what is effective). Nothing outside it — no Finance, Team or other
+ * department's toggles. Mirrored server-side in
+ * public.manager_department_surfaces(); rbac.departmentManager.test.ts keeps
+ * the two lists identical.
+ */
+export function managerEditableSurfaceIds(role: string | null | undefined): MemberSurfaceId[] {
+  if (!isManagerDepartment(role)) return [];
+  const preset = defaultSurfacesForRole(role, EVERY_CAPABILITY);
+  return (Object.keys(preset) as MemberSurfaceId[]).filter((id) => preset[id] === true).sort();
 }
 
 /** Derive coarse domain flags from an enabled surface map. */

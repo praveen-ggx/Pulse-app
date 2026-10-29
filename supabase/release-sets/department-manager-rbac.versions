@@ -1,0 +1,22 @@
+# Department manager RBAC (nihas V1.0.26, audit 2026-10-29).
+# 1. department_manager_allowlist_and_scope:
+#    - manager_department_surfaces(dept): a manager may switch only their department's preset toggles
+#      (mirrors lib/memberSurfaces.ts managerEditableSurfaceIds; pinned by rbac.departmentManager.test.ts).
+#    - set_member_surfaces_as_manager re-created: org resolved from the target member, every key checked
+#      against the allowlist and boolean, active non-owner/admin/driver same-department target; anon EXECUTE revoked.
+#    - can_manage_member(member) + set_member_scope_as_manager(member, warehouses[], clients[]):
+#      Ground Ops / Sourcing managers assign teammates' scope from their own scope only.
+#    - organization_member_warehouses: writes owner/admin only (was any staff); managers read teammates' rows.
+# Functions and policies only; no table or data changes.
+#
+# Re-creates set_member_surfaces_as_manager after 20270304022000 (already on prod and preprod). On a fresh
+# local reset this file sorts first and 20270304022000 would overwrite the function — apply via this set only.
+#
+# Apply only via: npm run db:push-set -- department-manager-rbac   (dry-run first; prod apply needs Vasanth's GO)
+# Never via plain `supabase db push` / `npm run db:push`.
+#
+# Verify before applying:
+#   npx jest supabase/migrations/__tests__/departmentManagerRbacSet.test.ts lib/__tests__/rbac.departmentManager.test.ts
+#   PGPORT=<disposable local postgres> bash supabase/tests/department_manager/run_local.sh
+# sha256 805624b3d7428de37dc3f1bee35b44fe7e23f1a9eb0e15e94407f5e0c72f7bbc  20261029171316_department_manager_allowlist_and_scope.sql
+20261029171316

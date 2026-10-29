@@ -58,6 +58,7 @@ import { giveLoadIndentAvatarProps, resolveMergedOrderCardTitle } from "@/featur
 import { isIndentStageDone, isIndentUnallocated } from "@/features/network/utils/loadCenter.model";
 import { GroundOpsWarehouseNotice } from "@/features/organization/components/GroundOpsWarehouseNotice";
 import { useGroundOpsWarehouseGap } from "@/features/organization/hooks/useGroundOpsWarehouseGap";
+import { useSourcingScope } from "@/features/organization/hooks/useSourcingScope";
 import { getTripDriverPhones } from "@/features/tripCompliance/services/tripDriverPhones.service";
 import { groundOpsDocumentLockReason } from "@/features/tripCompliance/utils/groundOpsDocumentLock.util";
 import { AttributionRequestsSection } from "@/features/trips/components/AttributionRequestsSection";
@@ -371,6 +372,7 @@ function hubSearchPhoneDigits(query: string): string {
 const TRIP_DRIVER_PHONES_CHUNK = 500;
 const EMPTY_PHONE_BY_TRIP_ID: Record<string, string> = {};
 const EMPTY_TRIP_ROWS: TripRow[] = [];
+const EMPTY_INDENT_ROWS: IndentRow[] = [];
 const EMPTY_STATUS_TIMES: Awaited<ReturnType<typeof getTripStatusTimes>>["times"] = {};
 
 /** Driver phone per trip via get_trip_driver_phones, in chunks. Plain object: the cache is JSON. */
@@ -453,6 +455,9 @@ export default function TripsScreen() {
   const orgCtx = useOptionalOrganization();
   const workspaceCtx = useOptionalActiveWorkspace();
   const isGroundOpsMember = workspaceCtx?.memberPlatformRole === "ground_ops";
+  // Sourcing follows indents and trips read-only: no card actions, no money
+  // tiles, no report / ledger export. App-side only — see RBAC_OPERATING_MODEL.md.
+  const isSourcingMember = workspaceCtx?.memberPlatformRole === "sourcing";
   const { finance } = useAlertRegistryFinanceHandlers();
   const salaryRequestRows = useGlobalSyncStore((s) => s.salaryRequestRows);
   const [refreshing, setRefreshing] = useState(false);
@@ -624,6 +629,9 @@ export default function TripsScreen() {
     [salaryRequestRows],
   );
   const currentOrganization = orgCtx?.currentOrganization ?? null;
+  // Sourcing: only the assigned clients' / warehouses' indents and trips
+  // (filtered here, app-side). Org-wide server counts are dropped for them.
+  const sourcingScope = useSourcingScope(currentOrganization?.id ?? null);
   const orgLoading = orgCtx?.isLoading ?? !orgCtx;
   const organizationError = orgCtx?.error ?? null;
   const refreshOrganization = orgCtx?.refreshOrganization;
@@ -637,14 +645,19 @@ export default function TripsScreen() {
     : undefined;
 
   const {
-    data: tripsData = [],
+    data: tripsDataRaw = EMPTY_TRIP_ROWS,
     isPending: tripsLoading,
     isError: tripsLoadFailed,
     error: tripsLoadError,
     refetch: refetchTrips,
   } = useTripsQuery(orgId);
+  const tripsData = useMemo(
+    () => sourcingScope.filterTrips(tripsDataRaw as TripRow[]),
+    [sourcingScope, tripsDataRaw],
+  );
   const { data: orgIndentIdsWithTrip } = useOrgIndentIdsWithTripQuery(orgId);
-  const { data: hubMetrics } = useOrgHubMetricsQuery(orgId);
+  const { data: hubMetricsRaw } = useOrgHubMetricsQuery(orgId);
+  const hubMetrics = sourcingScope.active ? undefined : hubMetricsRaw;
   const trips = tripsData as TripRow[];
   // Newest 400 by default; date pills and search pull older rows from the server.
   const hubDateBounds = useMemo(
@@ -658,10 +671,14 @@ export default function TripsScreen() {
   // Hub counts and lists use get_trips_for_org dated mode for every pill, "All time"
   // included. The undated newest-400 list is only a first paint / error fallback.
   const {
-    trips: hubDateRangeTrips,
+    trips: hubDateRangeTripsRaw,
     isFetched: hubDateRangeFetched,
     isError: hubDateRangeFailed,
   } = useTripsHubDateRange(orgId, hubDateBounds ?? HUB_ALL_TIME_BOUNDS);
+  const hubDateRangeTrips = useMemo(
+    () => sourcingScope.filterTrips(hubDateRangeTripsRaw),
+    [sourcingScope, hubDateRangeTripsRaw],
+  );
   const hubTripCompleteness = resolveHubTripDataset({
     rangeRows: hubDateRangeTrips,
     rangeFetched: hubDateRangeFetched,
@@ -673,9 +690,13 @@ export default function TripsScreen() {
   // Full-width toolbar warning (HubPartialWarning). dateRangeLabel only renders for custom ranges.
   const hubCompletenessNote = hubTripCompletenessNote(hubTripCompleteness);
   const hubDateRangeLabel = hubCustomDateRangeLabel;
-  const { hits: hubSearchHits, needle: hubSearchNeedle } = useTripsHubSearch(
+  const { hits: hubSearchHitsRaw, needle: hubSearchNeedle } = useTripsHubSearch(
     orgId,
     searchQuery,
+  );
+  const hubSearchHits = useMemo(
+    () => sourcingScope.filterTrips(hubSearchHitsRaw),
+    [sourcingScope, hubSearchHitsRaw],
   );
   const hubSearchHitsCurrent =
     hubSearchNeedle.length >= 2 &&
@@ -701,15 +722,36 @@ export default function TripsScreen() {
   // TanStack Query cache — no duplicate fetch), filtered to indents this org
   // owns that have not yet been allocated to a trip. Allocation is read from
   // the trips this screen already fetches (`trips.indent_id`), not a new query.
-  const { data: allIndents = [] } = useIndentsQuery(orgId);
+  const { data: allIndentsRaw = EMPTY_INDENT_ROWS } = useIndentsQuery(orgId);
+  const allIndents = useMemo(
+    () => sourcingScope.filterIndents(allIndentsRaw),
+    [sourcingScope, allIndentsRaw],
+  );
   // Indent tile = live workload (exact server counts). The hub date pill picks the
   // live range ("All" = every open indent), past pickups included; needs-trip ignores it.
   const indentWorkloadRange = hubDateBounds ?? "all";
-  const indentWorkload = useIndentWorkload(orgId, { range: indentWorkloadRange });
+  const indentWorkloadRaw = useIndentWorkload(orgId, { range: indentWorkloadRange });
+  const indentWorkload = useMemo(
+    () =>
+      sourcingScope.active
+        ? {
+            ...indentWorkloadRaw,
+            counts: null,
+            indents: indentWorkloadRaw.indents
+              ? sourcingScope.filterIndents(indentWorkloadRaw.indents)
+              : null,
+          }
+        : indentWorkloadRaw,
+    [sourcingScope, indentWorkloadRaw],
+  );
   const indentCodeSearchQuery = searchQuery.trim();
-  const { data: indentCodeSearchHits = [] } = useTripsIndentCodeSearch(
+  const { data: indentCodeSearchHitsRaw = EMPTY_INDENT_ROWS } = useTripsIndentCodeSearch(
     orgId,
     indentCodeSearchQuery,
+  );
+  const indentCodeSearchHits = useMemo(
+    () => sourcingScope.filterIndents(indentCodeSearchHitsRaw),
+    [sourcingScope, indentCodeSearchHitsRaw],
   );
   const hubIndents = useMemo(
     () =>
@@ -718,8 +760,12 @@ export default function TripsScreen() {
         : allIndents,
     [allIndents, indentCodeSearchHits, indentCodeSearchQuery],
   );
-  const { data: failedIndentsRemote = [] } = useFailedIndentsQuery(
+  const { data: failedIndentsRemoteRaw = EMPTY_INDENT_ROWS } = useFailedIndentsQuery(
     activeMetricTab === "indent" ? orgId : null,
+  );
+  const failedIndentsRemote = useMemo(
+    () => sourcingScope.filterIndents(failedIndentsRemoteRaw),
+    [sourcingScope, failedIndentsRemoteRaw],
   );
   const indentCodesByIndentId = useMemo(() => {
     const byId = new Map<string, string>();
@@ -2894,7 +2940,8 @@ export default function TripsScreen() {
           actions={
             // Ground Ops see their warehouses' indents read-only: no share,
             // marketplace, story, broadcast or award. Tapping the card opens detail.
-            isGroundOpsMember ? undefined : (
+            // Sourcing is read-only the same way.
+            isGroundOpsMember || isSourcingMember ? undefined : (
             <GiveLoadIndentCardActions
               load={indent}
               bidCount={bidCount}
@@ -2962,14 +3009,16 @@ export default function TripsScreen() {
     );
   };
 
-  // Ground Ops never see receivable / payable money: History keeps only the POD tiles.
+  // Ground Ops and Sourcing never see receivable / payable money: History keeps
+  // only the POD tiles.
+  const hideMoneyTiles = isGroundOpsMember || isSourcingMember;
   const historyReceivableIds: HistoryTripMetricId[] = useMemo(
-    () => (isGroundOpsMember ? [] : ["due_to_get", "no_due_to_get"]),
-    [isGroundOpsMember],
+    () => (hideMoneyTiles ? [] : ["due_to_get", "no_due_to_get"]),
+    [hideMoneyTiles],
   );
   const historyPayableIds: HistoryTripMetricId[] = useMemo(
-    () => (isGroundOpsMember ? [] : ["due_to_pay", "no_due_to_pay"]),
-    [isGroundOpsMember],
+    () => (hideMoneyTiles ? [] : ["due_to_pay", "no_due_to_pay"]),
+    [hideMoneyTiles],
   );
   const historyPodIds: HistoryTripMetricId[] = useMemo(
     () => hubHistoryPodMetricIds(hubDocFlagsLoadedForView),
@@ -3156,6 +3205,9 @@ export default function TripsScreen() {
   if (groundOpsWarehouseGap.missingWarehouse) {
     return <GroundOpsWarehouseNotice />;
   }
+  if (sourcingScope.missingScope) {
+    return <GroundOpsWarehouseNotice sourcing />;
+  }
 
   if (loading || tripsBootFailed) {
     if (tripsBootFailed) {
@@ -3188,7 +3240,11 @@ export default function TripsScreen() {
     return <SceneLoadingSplash variant="preparing" message={tr("loading")} />;
   }
 
-  const tripsReportButton = canAccess ? (
+  // Trip report and ledger export carry freight / cost columns — not for Sourcing.
+  const openTripLedgerExport = isSourcingMember
+    ? undefined
+    : () => setTripLedgerExportOpen(true);
+  const tripsReportButton = canAccess && !isSourcingMember ? (
     <View
       {...(Platform.OS === "web"
         ? ({ title: "Download Trip Report" } as object)
@@ -3236,7 +3292,7 @@ export default function TripsScreen() {
       footer={
         Platform.OS === "web" && !isMobileViewport ? (
           <TripsHubAuditFooter
-            onExportLedger={() => setTripLedgerExportOpen(true)}
+            onExportLedger={openTripLedgerExport}
             tr={tr}
             pagination={
               showTripsPaginationFooter
@@ -3770,7 +3826,7 @@ export default function TripsScreen() {
                 }
               }}
               onOpenDateRangePicker={() => setShowDateRangePicker(true)}
-              onExportLedger={() => setTripLedgerExportOpen(true)}
+              onExportLedger={openTripLedgerExport}
               clientNameByTripId={shipperNameByTripId}
               linkedOrgByOrganizationId={linkedOrgByOrganizationId}
               partyMetaByTripId={tripHubPartyMetaByTripId}
@@ -3862,7 +3918,7 @@ export default function TripsScreen() {
                     }
                   }}
                   onOpenDateRangePicker={() => setShowDateRangePicker(true)}
-                    onExportLedger={() => setTripLedgerExportOpen(true)}
+                    onExportLedger={openTripLedgerExport}
                   clientNameByTripId={shipperNameByTripId}
                   linkedOrgByOrganizationId={linkedOrgByOrganizationId}
                   partyMetaByTripId={tripHubPartyMetaByTripId}
@@ -3934,7 +3990,7 @@ export default function TripsScreen() {
                   }
                 }}
                 onOpenDateRangePicker={() => setShowDateRangePicker(true)}
-                onExportLedger={() => setTripLedgerExportOpen(true)}
+                onExportLedger={openTripLedgerExport}
                 clientNameByTripId={shipperNameByTripId}
                 linkedOrgByOrganizationId={linkedOrgByOrganizationId}
                 partyMetaByTripId={tripHubPartyMetaByTripId}

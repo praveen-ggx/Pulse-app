@@ -7,6 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { ROUTES } from "@/lib/routes";
 import { useOrgRole } from "@/lib/hooks/useOrgRole";
+import { useViewerManagerDepartment } from "@/lib/queries/useOrgMembersQuery";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import { useRouter } from "expo-router";
 import {
@@ -26,6 +27,7 @@ export default function TeamScreen() {
   const { isOwner, isAdmin } = useOrgRole();
 
   const orgId = currentOrganization?.id ?? null;
+  const managerDepartment = useViewerManagerDepartment(orgId, user?.uid ?? null);
 
   // team_manage is not emitted by getCapabilitiesFromProfile (it comes from org membership role).
   // Show invite/manage controls to all non-driver org users; backend RLS handles authorization.
@@ -89,6 +91,7 @@ export default function TeamScreen() {
           currentUserId={user?.uid ?? null}
           canManage={canManage}
           onInvite={canInvite ? handleInvite : undefined}
+          managerDepartment={managerDepartment}
         />
       )}
     </View>

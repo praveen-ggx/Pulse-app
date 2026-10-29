@@ -3,6 +3,7 @@
  * (pills, route row, indent id, specs slab); freight card, Live Bids, footer follow.
  */
 import { useOptionalActiveWorkspace } from "@/contexts/ActiveWorkspaceContext";
+import { useSourcingScope } from "@/features/organization/hooks/useSourcingScope";
 import {
   useRouteExtraStopRowsFor,
   useRouteExtraStopsSummary,
@@ -298,10 +299,14 @@ export function IndentDetailScreen({
   const { can: canSurface } = useMemberAccess();
   // Ground Ops read the indents of their own warehouses (the database only
   // returns those); every action below still needs its own tripops.indents.* grant.
-  const isGroundOpsMember = useOptionalActiveWorkspace()?.memberPlatformRole === "ground_ops";
-  // Ground Ops never see a load's money; values are stripped below, not just hidden.
-  const hideCommercials = isGroundOpsMember;
+  const memberPlatformRole = useOptionalActiveWorkspace()?.memberPlatformRole;
+  const isGroundOpsMember = memberPlatformRole === "ground_ops";
+  // Ground Ops and Sourcing never see a load's money; values are stripped
+  // below, not just hidden (app-side only — the row still carries them).
+  const hideCommercials = isGroundOpsMember || memberPlatformRole === "sourcing";
   const canViewIndent = canSurface("tripops.indents.view") || isGroundOpsMember;
+  // Sourcing opens only indents of their assigned clients / warehouses (app-side).
+  const sourcingScope = useSourcingScope(currentOrganization?.id ?? null);
   const canAllocateIndent = canSurface("tripops.indents.allocate");
   const canUseSuppliers =
     canAccessSuppliers(capabilities) && canSurface("tripops.indents.view");
@@ -1128,7 +1133,12 @@ export function IndentDetailScreen({
     ],
   );
 
-  if (loading && !indent) {
+  const outsideSourcingScope =
+    sourcingScope.active &&
+    !!indent &&
+    sourcingScope.filterIndents([indent]).length === 0;
+
+  if ((loading && !indent) || (sourcingScope.active && sourcingScope.isLoading)) {
     return (
       <IndentReviewHubDialogShell onDismiss={onBack} stacked={stackedHub}>
         <CenteredLoadingView message="Loading indent…" />
@@ -1136,7 +1146,7 @@ export function IndentDetailScreen({
     );
   }
 
-  if (!canViewIndent) {
+  if (!canViewIndent || outsideSourcingScope) {
     return (
       <IndentReviewHubDialogShell onDismiss={onBack} stacked={stackedHub}>
         <View style={styles.dialogHead}>

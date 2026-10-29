@@ -44,6 +44,7 @@ import {
   type GroundOpsPickupTarget,
 } from "@/features/trips/services/groundOpsPickup.service";
 import { groundOpsPickupMovedTo } from "@/features/trips/utils/groundOpsPickupStale.util";
+import { alertMessage } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import { loadCompliancePipelineInputs } from "@/features/tripCompliance/services/compliancePipelineSync.service";
 import { GroundOpsTransitChecklist } from "@/features/trips/components/trip-detail/GroundOpsTransitChecklist";
 import {
@@ -4387,7 +4388,7 @@ export default function TripDetailScreen({
         if (movedTo) {
           detail.handleRefresh();
           setSimConfirmStep(null);
-          Alert.alert("Trip already updated", `This trip is already ${movedTo.replace(/_/g, " ")}. Showing the latest status.`);
+          alertMessage("Trip already updated", `This trip is already ${movedTo.replace(/_/g, " ")}. Showing the latest status.`);
         } else if (result.missingDocumentTypes?.length) {
           setGroundOpsMissingDocs(result.missingDocumentTypes);
         } else {

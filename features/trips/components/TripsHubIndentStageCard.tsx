@@ -7,6 +7,7 @@ import {
   type IndentRow,
 } from "@/features/indents";
 import { indentCancelReasonLabel } from "@/features/indents/utils/indentCancelReason.util";
+import { isIndentPickupPassed } from "@/features/indents/utils/indentWorkload.util";
 import { TripsHubMobileTripCard } from "@/features/trips/components/TripsHubMobileTripCard";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import {
@@ -85,6 +86,7 @@ export function TripsHubIndentStageCard({
     ...(indentHasAwardRevokedTag(indent.status, indent.award_revoked_at)
       ? ["AWARD REVOKED"]
       : []),
+    ...(isIndentPickupPassed(indent) ? ["PICKUP PASSED"] : []),
     ...(extraTags ?? []),
   ];
 

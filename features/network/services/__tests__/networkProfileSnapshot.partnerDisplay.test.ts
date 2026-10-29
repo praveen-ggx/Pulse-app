@@ -9,10 +9,15 @@ jest.mock("@/features/clients/services/clients.service", () => ({
     mockGetLinkedOrgProfilesBatch(...args),
 }));
 
+const mockGetSession = jest.fn(async () => ({
+  data: { session: { access_token: "tok" } },
+}));
+
 jest.mock("@/lib/supabase", () => ({
   supabase: () => ({
     from: (...args: unknown[]) => mockFrom(...args),
     rpc: (...args: unknown[]) => mockRpc(...args),
+    auth: { getSession: (...args: unknown[]) => mockGetSession(...args) },
   }),
 }));
 
@@ -35,6 +40,10 @@ describe("getOrgProfileSnapshot partner-display reuse", () => {
     mockGetLinkedOrgProfilesBatch.mockReset();
     mockFrom.mockReset();
     mockRpc.mockReset();
+    mockGetSession.mockClear();
+    mockGetSession.mockResolvedValue({
+      data: { session: { access_token: "tok" } },
+    });
   });
 
   it("uses getLinkedOrgProfilesBatch instead of a raw partner-display RPC", async () => {
@@ -148,5 +157,67 @@ describe("getOrgProfileSnapshot partner-display reuse", () => {
     expect(snapshot?.total_trips).toBe(686);
     expect(snapshot?.vehicle_count).toBe(2);
     expect(snapshot?.indent_count).toBe(13994);
+  });
+
+  it("fills trip/vehicle/indent from the single RPC when batch stats are null", async () => {
+    mockGetLinkedOrgProfilesBatch.mockResolvedValue({
+      "org-target": {
+        organizationName: "Demo Login 1",
+        contactPerson: "DEMO LOGIN",
+        phone: "+918787878787",
+        // Batch branding row with no numeric stats (live hotfix shape).
+      },
+    });
+    mockRpc.mockImplementation(async (fn: string) => {
+      if (fn === "get_connection_partner_display") {
+        return {
+          data: {
+            organizationName: "Demo Login 1",
+            phone: "+918787878787",
+            tripCount: 2,
+            vehicleCount: 1,
+            networkIndentCount: 0,
+            averageRating: null,
+            ratingCount: 0,
+          },
+          error: null,
+        };
+      }
+      return { data: null, error: null };
+    });
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "organizations") {
+        return thenableQuery({
+          data: {
+            id: "org-target",
+            name: "Demo Login 1",
+            avatar_seed: "user-10",
+            logo_url: null,
+            city: "Chennai",
+            state: "Tamil Nadu",
+            address_line: null,
+            owner_id: "user-1",
+            profile_sector: null,
+            profile_website: null,
+            gstin: null,
+            operating_model: null,
+            created_at: "2026-08-01T00:00:00.000Z",
+            verification_status: "unverified",
+          },
+          error: null,
+        });
+      }
+      return thenableQuery({ data: null, error: null });
+    });
+
+    const { error, snapshot } = await getOrgProfileSnapshot("org-viewer", "org-target");
+    expect(error).toBeNull();
+    expect(mockRpc).toHaveBeenCalledWith("get_connection_partner_display", {
+      p_linked_organization_id: "org-target",
+    });
+    expect(snapshot?.total_trips).toBe(2);
+    expect(snapshot?.vehicle_count).toBe(1);
+    expect(snapshot?.indent_count).toBe(0);
+    expect(snapshot?.phone).toBe("+918787878787");
   });
 });

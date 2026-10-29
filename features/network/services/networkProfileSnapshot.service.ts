@@ -373,13 +373,23 @@ export async function getOrgProfileSnapshot(
   const connRes = { data: connFwdRes.data ?? connRevRes.data };
 
   const partnerBatch = orgDisplayToPartnerBatchRow(partnerProfiles[targetOrgId]);
+  // Some environments return branding from the batch RPC but NULL trip /
+  // vehicle / indent / rating stats (hotfixed batch). Treat that as incomplete
+  // and fill from the single partner-display RPC, which still computes counts.
+  const batchStatsMissing =
+    partnerBatch != null &&
+    typeof partnerBatch.tripCount !== "number" &&
+    typeof partnerBatch.vehicleCount !== "number" &&
+    typeof partnerBatch.networkIndentCount !== "number" &&
+    typeof partnerBatch.averageRating !== "number";
 
   let partnerProfile: PartnerDisplaySingleRow | null = null;
-  const hasSession = partnerBatch
+  const needsSinglePartnerDisplay = !partnerBatch || batchStatsMissing;
+  const hasSession = !needsSinglePartnerDisplay
     ? true
     : Boolean((await supabase().auth.getSession()).data.session?.access_token);
   // Batch returns {} without a session; don't fall back to the single RPC as anon (42501).
-  if (!partnerBatch && hasSession) {
+  if (needsSinglePartnerDisplay && hasSession) {
     const partnerProfileRes = await supabase().rpc("get_connection_partner_display", {
       p_linked_organization_id: targetOrgId,
     });

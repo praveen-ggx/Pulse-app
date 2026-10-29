@@ -148,7 +148,10 @@ export type ComplianceQueueResult = {
   isError: boolean;
   error: Error | null;
   isFetching: boolean;
-  refetch: () => void;
+  /** Last SUCCESSFUL pipeline read (ms epoch); 0 before the first one. Failed refreshes leave it. */
+  dataUpdatedAt: number;
+  /** Manual full refresh; a call while one is in flight is ignored. */
+  refetch: () => Promise<void>;
 };
 
 /**
@@ -192,7 +195,11 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
       return preserveNewerWrites(rows, current, protectedTripIds(log, startedAt, previous, current));
     },
     enabled: !!orgId && tripsQuery.isSuccess,
-    staleTime: 15_000,
+    // Every refetch re-reads documents/flags/events/ledger for the whole pipeline
+    // (~360 trips, 6 tables). At 15s, focus refetches made this the top DB load
+    // (prod 2026-10-29: 4.6k trip_documents reads, ~1,035s/day). Writes patch the
+    // cache and trips realtime patches POD/settlement, so 2 min is enough.
+    staleTime: 2 * 60_000,
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: true,
     select: selectSummaries,
@@ -240,11 +247,19 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
   const isError = tripsQuery.isError || summariesQuery.isError;
   const error = (tripsQuery.error ?? summariesQuery.error) as Error | null;
 
-  const refetch = () => {
+  const refreshingRef = useRef<Promise<void> | null>(null);
+  const refetch = useCallback((): Promise<void> => {
+    if (refreshingRef.current) return refreshingRef.current;
     fullRefreshRef.current = true;
-    void tripsQuery.refetch();
-    void summariesQuery.refetch();
-  };
+    const run = Promise.all([tripsQuery.refetch(), summariesQuery.refetch()]).then(
+      () => undefined,
+      () => undefined,
+    );
+    refreshingRef.current = run.finally(() => {
+      refreshingRef.current = null;
+    });
+    return refreshingRef.current;
+  }, [tripsQuery, summariesQuery]);
 
   return {
     data: {
@@ -260,6 +275,7 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
     isError,
     error,
     isFetching,
+    dataUpdatedAt: summariesQuery.dataUpdatedAt,
     refetch,
   };
 }

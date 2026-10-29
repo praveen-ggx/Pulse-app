@@ -4,9 +4,14 @@ const mockFrom = jest.fn();
 const mockStorageUpload = jest.fn();
 const mockPublish = jest.fn().mockResolvedValue(undefined);
 
+const mockAuditInsert = jest.fn(async () => ({ error: null }));
+
 jest.mock('@/lib/supabase', () => ({
   supabase: () => ({
     from: mockFrom,
+    auth: {
+      getUser: async () => ({ data: { user: { id: 'user-1' } }, error: null }),
+    },
     storage: { from: () => ({ upload: mockStorageUpload }) },
   }),
 }));
@@ -66,6 +71,7 @@ const flushPromises = () => new Promise((resolve) => setImmediate(resolve));
 beforeEach(() => {
   jest.clearAllMocks();
   mockStorageUpload.mockResolvedValue({ error: null });
+  mockAuditInsert.mockResolvedValue({ error: null });
 });
 
 describe('uploadTripDocument — PODUploaded event', () => {
@@ -93,6 +99,9 @@ describe('uploadTripDocument — PODUploaded event', () => {
       if (table === 'trip_workflow_events') {
         return workflowEventInsertBuilder();
       }
+      if (table === 'document_audit_log') {
+        return { insert: mockAuditInsert };
+      }
       throw new Error(`unexpected table: ${table}`);
     });
 
@@ -102,6 +111,18 @@ describe('uploadTripDocument — PODUploaded event', () => {
 
     await flushPromises();
 
+    expect(mockAuditInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'created',
+        entity_type: 'trip_document',
+        entity_id: 'trip-1',
+        metadata: expect.objectContaining({
+          trip_document_id: 'doc-1',
+          document_type: 'pod',
+          file_name: 'pod.jpg',
+        }),
+      }),
+    );
     expect(mockPublish).toHaveBeenCalledTimes(1);
     const published = mockPublish.mock.calls[0][0];
     expect(published.name).toBe('PODUploaded');
@@ -137,6 +158,9 @@ describe('uploadTripDocument — PODUploaded event', () => {
       }
       if (table === 'trip_workflow_events') {
         return workflowEventInsertBuilder();
+      }
+      if (table === 'document_audit_log') {
+        return { insert: mockAuditInsert };
       }
       throw new Error(`unexpected table: ${table}`);
     });
@@ -178,6 +202,9 @@ describe('uploadTripDocument — PODUploaded event', () => {
       if (table === 'trip_workflow_events') {
         return workflowEventInsertBuilder();
       }
+      if (table === 'document_audit_log') {
+        return { insert: mockAuditInsert };
+      }
       throw new Error(`unexpected table: ${table}`);
     });
 
@@ -204,6 +231,12 @@ describe('uploadTripDocument — PODUploaded event', () => {
           },
           error: null,
         });
+      }
+      if (table === 'document_audit_log') {
+        return { insert: mockAuditInsert };
+      }
+      if (table === 'trips') {
+        return tripsLookupBuilder({ data: { organization_id: 'org-1' }, error: null });
       }
       throw new Error(`unexpected table: ${table}`);
     });

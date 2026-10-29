@@ -58,13 +58,10 @@ import {
   COMPLIANCE_FINANCE_DOCUMENT_TYPES,
   COMPLIANCE_VEHICLE_DOCUMENT_TYPES,
   REQUIRED_COMPLIANCE_DOCUMENT_TYPES,
-  REQUIRED_DRIVER_DOCUMENT_TYPES,
-  REQUIRED_VEHICLE_DOCUMENT_TYPES,
   documentRequiresExpiry,
   type ComplianceStage,
   type ComplianceTripSummary,
 } from "@/features/tripCompliance/tripCompliance.types";
-import { isEntityDocumentSlotVerified } from "@/features/tripCompliance/utils/complianceChecklist.util";
 import {
   formatComplianceTimestamp,
   isComplianceVerifiedRejected,
@@ -78,6 +75,7 @@ import {
   deriveFinanceDocumentRows,
   deriveTripVaultReviewRows,
   financeVaultDetailLine,
+  retargetCompliancePreviewKey,
   labelForDocType,
   labelForFinanceDocType,
   mergeFinanceBankDocsFromSupplier,
@@ -86,18 +84,28 @@ import {
 import {
   compliancePreviewSourceForRow,
   compliancePreviewSourceForVaultFile,
+  vaultChooserSourceForComplianceRow,
 } from "@/features/tripCompliance/utils/compliancePreviewSource.util";
 import { deriveComplianceQueueReadiness } from "@/features/tripCompliance/utils/complianceReadiness.util";
 import {
   applyOptimisticDecision,
+  canModerateComplianceRow,
+  canShowSingleRowDecline,
+  complianceDecisionButtonState,
   complianceGroupReviewState,
   complianceReviewDecisionActions,
   complianceRowDeclineReason,
   complianceTabMarkedApproved,
   recordOptimisticDecision,
+  singleComplianceRowDeclineIds,
   type ComplianceGroupReviewState,
   type OptimisticComplianceDecision,
 } from "@/features/tripCompliance/utils/complianceReviewActions.util";
+import {
+  canShowSingleRowReplace,
+  mustReplaceRejectedTripDocument,
+  replaceTripFileOptions,
+} from "@/features/tripCompliance/utils/complianceRowReplace.util";
 import {
   complianceVaultDocNumbers,
   isActiveFinanceReject,
@@ -105,10 +113,10 @@ import {
   isComplianceDeclineActive,
   isComplianceHoldAwaitingResubmit,
   isFinanceDeclinedTrip,
+  explainResubmitBlocked,
+  isResubmitBlockedByMissingDocs,
   isResubmittedFinanceReject,
-  missingOrRejectedRequiredTripDocs,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
-import { groundOpsTransitDocLabel } from "@/features/tripCompliance/utils/groundOpsTransitGate.util";
 import { HubTripLrUpdateModal } from "@/features/trips/components/HubTripLrUpdateModal";
 import { parseLrFieldValues } from "@/features/trips/services/lrDocumentOcr.util";
 import {
@@ -124,9 +132,20 @@ import {
   groupDeclinedReasonLines,
   mergeDeclinedDocumentReasons,
 } from "@/features/tripCompliance/utils/complianceDeclineReason.util";
+import type { DocumentAuditMilestoneRow } from "@/features/tripCompliance/utils/complianceCardActivity.util";
+import {
+  dedupeResubmitChangeItems,
+  formatResubmitChangeItemLine,
+  formatResubmitChangeLogBlock,
+  mergeResubmitChangeLog,
+  resubmitChangeLogFromAudits,
+  resubmitChangeLogFromLiveDocs,
+  type ResubmitChangeLog,
+} from "@/features/tripCompliance/utils/complianceResubmitChangeLog.util";
 import { fetchSupplierBankProofBundle } from "@/features/tripCompliance/utils/supplierBankProof.util";
 import { classifyTripDocument, readTypedDetails } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
 import { ewayValidTillEnd } from "@/features/trips/services/ewayBillFields.util";
+import { supabase } from "@/lib/supabase";
 
 /** Stages whose bank card stays as it was (no beneficiary / branch, no live refresh). */
 const PRE_VERIFIED_STAGES: ReadonlySet<ComplianceStage> = new Set(["pending_for_docs", "compliance_pending"]);
@@ -180,7 +199,7 @@ import { getTripExecutionModel } from "@/features/trips/domain/tripExecutionMode
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { lrReceiptForTrip } from "@/features/trips/utils/lrReceiptStatus.util";
 import { splitHubRouteLocationDisplay } from "@/features/trips/utils/tripLocationDisplay.util";
-import { markVehicleDocumentVerified } from "@/features/vehicles/services/vehicleDocuments.service";
+import { approveComplianceVehicleDocument } from "@/features/tripCompliance/services/complianceVehicleApprove.service";
 import { isVehicleComplianceDocType } from "@/features/vehicles/utils/vehicleDocuments.util";
 import { formatIndianVehicleNumber } from "@/lib/format";
 import { ROUTES } from "@/lib/routes";
@@ -452,18 +471,20 @@ function vaultPreviewForRow(
 ): VaultChooserPreview | null {
   const storagePath = vaultPreviewPath(row);
   if (!storagePath) return null;
+  const pathName = storagePath.split("/").pop()?.split("?")[0]?.trim() || "";
+  const entityFileName =
+    row.entityDoc?.notes?.trim() ||
+    (/^[^/]+\.[a-z0-9]+$/i.test(pathName) ? pathName : "") ||
+    fallbackName;
   return {
     storagePath,
-    fileName: row.doc?.file_name ?? fallbackName,
+    fileName: row.doc?.file_name ?? entityFileName,
     mimeHint: row.doc?.mime_type,
-    source:
-      row.entityDoc?.source === "supplier-kyc"
-        ? "supplier-kyc"
-        : row.entityDoc
-          ? "compliance"
-          : "trip",
+    // Must follow the row's real bucket (vehicle-vault RC ≠ compliance-documents).
+    source: vaultChooserSourceForComplianceRow(row),
     organizationId,
     entityId: row.entityDoc?.entity_id ?? tripId,
+    docType: row.type,
   };
 }
 
@@ -1871,6 +1892,7 @@ export function DocumentScreen({
   resolving = false,
   documentKey = null,
   documentVersion = null,
+  emptyHint = null,
 }: {
   visible: boolean;
   uri: string | null;
@@ -1891,6 +1913,7 @@ export function DocumentScreen({
   resolving?: boolean;
   documentKey?: string | null;
   documentVersion?: string | null;
+  emptyHint?: string | null;
 }) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -2563,7 +2586,9 @@ export function DocumentScreen({
             </View>
               ) : (
                 <View style={styles.screenLoading}>
-                  <Text style={styles.screenLoadingText}>No preview available for this document.</Text>
+                  <Text style={styles.screenLoadingText}>
+                    {emptyHint ?? "No preview available for this document."}
+                  </Text>
           </View>
               )}
         </View>
@@ -2879,6 +2904,7 @@ export function ComplianceDocumentWorkspace({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewEpoch, setPreviewEpoch] = useState(0);
   const [previewMime, setPreviewMime] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [busy, setBusy] = useState(false);
   const [uploadingFinanceType, setUploadingFinanceType] = useState<string | null>(null);
@@ -2889,15 +2915,19 @@ export function ComplianceDocumentWorkspace({
     index: number;
     type: string;
   } | null>(null);
-  const [_fileActionKey, setFileActionKey] = useState<string | null>(null);
+  const [fileActionKey, setFileActionKey] = useState<string | null>(null);
   /** Files dialog to reopen when the full-screen viewer opened from it closes. */
   const filesModalReturnRef = useRef<string | null>(null);
   const [declineOpen, setDeclineOpen] = useState(false);
+  const [rowDeclineTarget, setRowDeclineTarget] = useState<ComplianceDocRow | null>(null);
   const [approveConfirm, setApproveConfirm] = useState<ComplianceReviewGroup | null>(null);
   const [tripDeclineOpen, setTripDeclineOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [resubmitting, setResubmitting] = useState(false);
   const [resubmitOpen, setResubmitOpen] = useState(false);
+  /** File upload/delete log since hold/reject — loaded when Resubmit modal opens. */
+  const [resubmitChangeLog, setResubmitChangeLog] = useState<ResubmitChangeLog | null>(null);
+  const [resubmitChangeLogReady, setResubmitChangeLogReady] = useState(false);
   const [flagOpen, setFlagOpen] = useState(false);
   const [podOpen, setPodOpen] = useState(false);
   const [_podLogRound, _setPodLogRound] = useState(0);
@@ -3269,6 +3299,7 @@ export function ComplianceDocumentWorkspace({
     setDocIndex(0);
     resetPreviewView();
     setDeclineOpen(false);
+    setRowDeclineTarget(null);
     setRejectOpen(false);
     setExpiryPrompt((prev) => {
       prev?.resolve(null);
@@ -3309,9 +3340,8 @@ export function ComplianceDocumentWorkspace({
           return typed.key;
         }
       }
-      if (prev && pool.some((row) => row.key === prev)) return prev;
-      const byType = prev ? pool.find((row) => row.type === prev) : null;
-      if (byType) return byType.key;
+      const retargeted = retargetCompliancePreviewKey(pool, prev);
+      if (retargeted) return retargeted;
       const firstWithFile = pool.find(hasFile);
       const firstMissing = pool.find((row) => row.status === "missing");
       return firstWithFile?.key ?? firstMissing?.key ?? pool[0]?.key ?? null;
@@ -3325,8 +3355,7 @@ export function ComplianceDocumentWorkspace({
     docFilter,
   ]);
 
-  const activePreviewPath =
-    activeRow?.doc?.storage_path ?? activeRow?.entityDoc?.storage_path ?? null;
+  const activePreviewPath = activeRow ? vaultPreviewPath(activeRow) : null;
   const activePreviewSource = compliancePreviewSourceForRow(activeRow);
   const activePreviewEntityId =
     activeRow?.entityDoc?.entity_id ??
@@ -3343,6 +3372,7 @@ export function ComplianceDocumentWorkspace({
     if (!activePreviewPath || !activePreviewHasBinary || !canViewDocuments || !organizationId) {
       setPreviewUrl(null);
       setPreviewMime(null);
+      setPreviewError(null);
       setLoadingPreview(false);
       return;
     }
@@ -3350,11 +3380,13 @@ export function ComplianceDocumentWorkspace({
     if (cached) {
       setPreviewUrl(cached.url);
       setPreviewMime(cached.mime);
+      setPreviewError(null);
       setLoadingPreview(false);
       return;
     }
     let cancelled = false;
     setLoadingPreview(true);
+    setPreviewError(null);
     void signCompliancePreviewUrl({
       storagePath: activePreviewPath,
       source: activePreviewSource,
@@ -3367,6 +3399,11 @@ export function ComplianceDocumentWorkspace({
       const mime = guessCompliancePreviewMime(activePreviewPath, activePreviewMimeHint);
       if (url) {
         writePreviewCache(previewCacheRef.current, activePreviewPath, url, mime);
+        setPreviewError(null);
+      } else {
+        setPreviewError(
+          "Could not load this file. If it was just replaced, select it again or reopen the trip.",
+        );
       }
       setPreviewUrl(url);
       setPreviewMime(mime);
@@ -3393,7 +3430,7 @@ export function ComplianceDocumentWorkspace({
     if (!canViewDocuments || !organizationId || previewable.length < 2) return;
     const nextRow = previewable[(docIndex + 1) % previewable.length];
     if (nextRow?.doc && !classifyTripDocument(nextRow.doc).hasBinary) return;
-    const path = nextRow?.doc?.storage_path ?? nextRow?.entityDoc?.storage_path ?? null;
+    const path = nextRow ? vaultPreviewPath(nextRow) : null;
     if (!path || readPreviewCache(previewCacheRef.current, path)) return;
     let cancelled = false;
     void signCompliancePreviewUrl({
@@ -3494,9 +3531,15 @@ export function ComplianceDocumentWorkspace({
     }
     if (row.entityDoc?.source === "vehicle-vault" && summary.trip.vehicle_id) {
       const vehicleId = summary.trip.vehicle_id;
-        const marked = await markVehicleDocumentVerified(organizationId, vehicleId, row.type);
-        if (marked.error) {
-          alertMessage("Couldn't approve document", marked.error.message);
+      const marked = await approveComplianceVehicleDocument({
+        orgId: organizationId,
+        vehicleId,
+        docType: row.type,
+        actorId,
+        vehicleDocuments: summary.vehicleDocuments,
+      });
+      if (marked.error) {
+        alertMessage("Couldn't approve document", marked.error.message);
         return false;
       }
       if (sync) onChanged({ type: "vehicleDocuments", vehicleId });
@@ -3563,17 +3606,23 @@ export function ComplianceDocumentWorkspace({
         );
       return false;
     }
+    const entityDoc = row.entityDoc;
     if (
-      row.entityDoc?.id &&
-      row.entityDoc.source !== "driver-kyc" &&
-      (row.entityDoc.entity_type === "vehicle" || row.entityDoc.entity_type === "driver")
+      entityDoc?.id &&
+      entityDoc.source !== "driver-kyc" &&
+      (entityDoc.entity_type === "vehicle" || entityDoc.entity_type === "driver")
     ) {
-        const { error } = await rejectDocument(row.entityDoc.id, note);
+        const { error } = await rejectDocument(entityDoc.id, note);
         if (error) {
           alertMessage("Couldn't decline document", error.message);
         return false;
         }
-        onChanged(entityDocumentChange(row.entityDoc));
+        onChanged(
+          entityDocumentChange({
+            entity_type: entityDoc.entity_type,
+            entity_id: entityDoc.entity_id,
+          }),
+        );
       return true;
     }
         alertMessage("Couldn't decline document", "This document can't be declined from this preview.");
@@ -3734,6 +3783,58 @@ export function ComplianceDocumentWorkspace({
       setBusy(false);
     }
   };
+
+  const declineSingleRow = async (reason: string) => {
+    if (!summary || busy || !rowDeclineTarget) return;
+    if (!ensureCanModerate("Can't decline", "Decline")) return;
+    const note = reason.trim();
+    if (!note) {
+      alertMessage("Can't decline", "A rejection reason is required.");
+      return;
+    }
+    const displayed = applyOptimisticDecision(
+      rowDeclineTarget,
+      localDecisionByKey[optimisticKey(reviewScope, rowDeclineTarget.key)],
+    );
+    const ids = singleComplianceRowDeclineIds(displayed, listRows, reviewScope);
+    const selectedId = displayed.doc?.id ?? displayed.entityDoc?.id;
+    if (ids.length !== 1 || !selectedId || ids[0] !== selectedId) {
+      setRowDeclineTarget(null);
+      return;
+    }
+    setRowDeclineTarget(null);
+    setBusy(true);
+    try {
+      if (await writeDecline(displayed, note)) {
+        setLocalDecisionByKey((prev) => ({
+          ...prev,
+          [optimisticKey(reviewScope, displayed.key)]: recordOptimisticDecision(displayed, "rejected", note),
+        }));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const approveSingleRow = async (row: ComplianceDocRow) => {
+    if (!summary || busy) return;
+    if (!ensureCanModerate("Can't approve", "Approve")) return;
+    const displayed = applyOptimisticDecision(row, localDecisionByKey[optimisticKey(reviewScope, row.key)]);
+    if (!complianceReviewDecisionActions(displayed).canApprove) return;
+    setBusy(true);
+    try {
+      if (await writeApproval(displayed)) {
+        setLocalDecisionByKey((prev) => ({
+          ...prev,
+          [optimisticKey(reviewScope, displayed.key)]: recordOptimisticDecision(displayed, "verified"),
+        }));
+        void autoVerifyIfRequiredApproved([displayed.key]);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const docTitle = activeRow
     ? isFinanceMode
       ? labelForFinanceDocType(activeRow.type)
@@ -3759,6 +3860,33 @@ export function ComplianceDocumentWorkspace({
       typedLines?.find((line) => /valid/i.test(line.label))?.value ??
       null,
   });
+  const activeDecisionRow = activeRow
+    ? applyOptimisticDecision(activeRow, localDecisionByKey[optimisticKey(reviewScope, activeRow.key)])
+    : null;
+  const showRowDecline = Boolean(
+    activeDecisionRow &&
+      canShowSingleRowDecline({
+        canVerify,
+        hideDocumentDecisions,
+        row: activeDecisionRow,
+        scope: reviewScope,
+      }),
+  );
+  const showRowApprove = Boolean(
+    canVerify &&
+      !hideDocumentDecisions &&
+      activeDecisionRow &&
+      canModerateComplianceRow(activeDecisionRow, reviewScope) &&
+      complianceReviewDecisionActions(activeDecisionRow).canApprove,
+  );
+  const showRowReplace = Boolean(
+    activeDecisionRow &&
+      canShowSingleRowReplace({
+        canEditFiles,
+        row: activeDecisionRow,
+      }),
+  );
+  const rowDecisionButtons = complianceDecisionButtonState(activeDecisionRow);
   const financeBankSelected =
     isFinanceMode && checklistSelectedRow?.type === "bank_docs";
   const showBankPayeeDetails = Boolean(summary && !PRE_VERIFIED_STAGES.has(summary.stage));
@@ -3886,56 +4014,99 @@ export function ComplianceDocumentWorkspace({
       !summary.advanceBeforeVerification,
   );
   /**
-   * Resubmit needs every required file on file: LR / E-way / Invoice present
-   * and not rejected (also enforced by resubmit_trip_compliance), and for a
-   * hold the vehicle / driver files too (stage leaves pending_for_docs).
+   * Resubmit needs LR / E-way / Invoice present and not rejected (DB gate).
+   * On a Compliance Hold, required vehicle / driver files must also be attached
+   * — a replace/upload is enough; missing expiry no longer blocks Resubmit.
    */
-  /** Required vehicle / driver docs that keep the trip in Pending Docs, with the reason. */
-  function resubmitEntityBlockers(current: ComplianceTripSummary): string[] {
-    const check = (
-      types: readonly string[],
-      rows: readonly ComplianceTripSummary["vehicleDocuments"][number][],
-    ) =>
-      types.flatMap((type) => {
-        const onFile = rows.filter(
-          (doc) =>
-            doc.doc_type === type &&
-            !!doc.storage_path &&
-            !["rejected", "replaced", "expired"].includes(doc.status),
-        );
-        const label = groundOpsTransitDocLabel(type);
-        if (onFile.length === 0) return [`${label} (missing)`];
-        if (onFile.some((doc) => isEntityDocumentSlotVerified(doc, new Date(), doc.doc_type))) return [];
-        if (documentRequiresExpiry(type) && onFile.every((doc) => !doc.expiry_date?.trim())) {
-          return [`${label} (expiry date missing — Add expiry)`];
-        }
-        return [`${label} (expired)`];
-      });
-    return [
-      ...check(REQUIRED_VEHICLE_DOCUMENT_TYPES, current.vehicleDocuments ?? []),
-      ...check(REQUIRED_DRIVER_DOCUMENT_TYPES, current.driverDocuments ?? []),
-    ];
-  }
-  /** Names the required documents that block Resubmit (e.g. "LR (rejected)"). */
-  const resubmitBlockingDocsLabel = summary
-    ? missingOrRejectedRequiredTripDocs(summary)
-        .map((type) => {
-          const rejected = summary.documents.some(
-            (doc) => doc.document_type === type && doc.status === "rejected",
-          );
-          return `${groundOpsTransitDocLabel(type)} (${rejected ? "rejected — replace it" : "missing"})`;
-        })
-        .concat(resubmitEntityBlockers(summary))
-        .join(", ")
-    : "";
-  // Judge the files themselves, not `summary.stage`: for hold fixers the screen
-  // routes every held trip to "pending_for_docs" so it shows in Document Upload,
-  // which would block Resubmit exactly when every file is on it.
+  const resubmitBlockedExplain = summary ? explainResubmitBlocked(summary) : null;
   const resubmitBlockedByMissingDocs = Boolean(
-    summary &&
-      (missingOrRejectedRequiredTripDocs(summary).length > 0 ||
-        resubmitEntityBlockers(summary).length > 0),
+    summary && isResubmitBlockedByMissingDocs(summary),
   );
+
+  const resubmitSinceIso = summary?.complianceDeclinedAt?.trim() || "";
+  const resubmitTripId = summary?.trip.id ?? "";
+  const resubmitOrgId = organizationId || summary?.trip.organization_id || "";
+
+  useEffect(() => {
+    if (!resubmitOpen || !summary || !resubmitTripId) {
+      setResubmitChangeLog(null);
+      setResubmitChangeLogReady(false);
+      return;
+    }
+    if (!resubmitSinceIso) {
+      setResubmitChangeLog({ sinceIso: "", items: [] });
+      setResubmitChangeLogReady(true);
+      return;
+    }
+    let cancelled = false;
+    setResubmitChangeLogReady(false);
+    const entityIds = [
+      resubmitTripId,
+      summary.trip.vehicle_id,
+      summary.trip.driver_id,
+      ...summary.documents.map((doc) => doc.id),
+      ...summary.vehicleDocuments.map((doc) => doc.id),
+      ...summary.driverDocuments.map((doc) => doc.id),
+    ].filter((id): id is string => Boolean(id));
+    const live = resubmitChangeLogFromLiveDocs({
+      sinceIso: resubmitSinceIso,
+      tripDocuments: summary.documents,
+      entityDocuments: [...summary.vehicleDocuments, ...summary.driverDocuments],
+    });
+
+    void (async () => {
+      let audits: DocumentAuditMilestoneRow[] = [];
+      if (resubmitOrgId && entityIds.length > 0) {
+        const { data, error } = await supabase()
+          .from("document_audit_log")
+          .select(
+            "id, document_id, action, actor_id, created_at, entity_id, entity_type, notes, metadata",
+          )
+          .eq("organization_id", resubmitOrgId)
+          .in("entity_id", entityIds)
+          .gte("created_at", resubmitSinceIso)
+          .order("created_at", { ascending: true })
+          .limit(120);
+        if (!error && data) {
+          audits = data as DocumentAuditMilestoneRow[];
+        }
+      }
+      if (cancelled) return;
+      setResubmitChangeLog(
+        mergeResubmitChangeLog(
+          resubmitSinceIso,
+          resubmitChangeLogFromAudits(audits, resubmitSinceIso),
+          live,
+        ),
+      );
+      setResubmitChangeLogReady(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // Live docs + decline time drive the log; reopen refreshes when Resubmit opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- summary identity churns; use concrete keys
+  }, [
+    resubmitOpen,
+    resubmitOrgId,
+    resubmitSinceIso,
+    resubmitTripId,
+    summary?.documents,
+    summary?.driverDocuments,
+    summary?.trip.driver_id,
+    summary?.trip.vehicle_id,
+    summary?.vehicleDocuments,
+  ]);
+  /** Ground Ops resubmit note (includes change log) for Compliance / Finance verify. */
+  const reviewerResubmitNote =
+    summary?.complianceResubmitNote?.trim() &&
+    summary.complianceResubmittedAt &&
+    summary.complianceDeclinedAt &&
+    Date.parse(summary.complianceResubmittedAt) >= Date.parse(summary.complianceDeclinedAt)
+      ? summary.complianceResubmitNote.trim()
+      : "";
+
   const showMarkVerified = Boolean(
     !isCompliancePendingStage &&
       !showFinanceDeclineReVerify &&
@@ -3980,6 +4151,45 @@ export function ComplianceDocumentWorkspace({
   /** Upload / Replace in place: file picker → vault write → refetch. No review sheet. */
   /** LR upload dialog (shared with the Trips hub) for the selected trip. */
   const [lrDialogOpen, setLrDialogOpen] = useState(false);
+  /**
+   * Replace one trip file in place: same row, new file, status back to
+   * pending, old version kept in the audit log. No second row is created.
+   */
+  const replaceTripFile = useCallback(
+    async (row: ComplianceDocRow) => {
+      const replaceOptions = replaceTripFileOptions(row);
+      if (!summary || !row.doc || !actorId || !replaceOptions) return;
+      if (replaceOptions.replaceDocumentId !== row.doc.id) return;
+      setFileActionKey(row.key);
+      try {
+        const file = await pickComplianceVaultFile(row.type);
+        if (!file) return;
+        const { error } = await uploadTripDocument(
+          summary.trip.id,
+          actorId,
+          file,
+          row.type as TripDocumentType,
+          row.doc.document_number ?? undefined,
+          { ...replaceOptions, organizationId },
+        );
+        if (error) {
+          alertMessage("Couldn't replace file", error.message);
+          return;
+        }
+        setCategoryPreview(null);
+        invalidateCompliancePreviewCache([row.doc.storage_path]);
+        previewCacheRef.current.clear();
+        setPreviewUrl(null);
+        setPreviewEpoch((value) => value + 1);
+        onChanged({ type: "tripDocuments", tripId: summary.trip.id });
+      } catch (err) {
+        alertMessage("Couldn't replace file", err instanceof Error ? err.message : "Replace failed. Try again.");
+      } finally {
+        setFileActionKey(null);
+      }
+    },
+    [actorId, onChanged, organizationId, summary],
+  );
   const uploadVaultDocument = useCallback(
     async (row: ComplianceDocRow) => {
       if (!summary) return;
@@ -3988,6 +4198,10 @@ export function ComplianceDocumentWorkspace({
         return;
       }
       if (uploadingFinanceType) return;
+      if (mustReplaceRejectedTripDocument(row)) {
+        await replaceTripFile(row);
+        return;
+      }
       if (groundOpsDocumentLock && !isFinanceMode && tab === "trip" && hasFile(row)) {
         const lock = groundOpsDocumentLockReason({
           trip: {
@@ -4121,6 +4335,7 @@ export function ComplianceDocumentWorkspace({
       onChanged,
       organizationId,
       promptExpiryDate,
+      replaceTripFile,
       summary,
       resetPreviewView,
       tab,
@@ -4229,40 +4444,6 @@ export function ComplianceDocumentWorkspace({
         } as TripDocumentRow)
       : null;
 
-  /**
-   * Replace one trip file in place: same row, new file, status back to
-   * pending, old version kept in the audit log. No second row is created.
-   */
-  const _replaceTripFile = async (row: ComplianceDocRow) => {
-    if (!summary || !row.doc || !actorId) return;
-    setFileActionKey(row.key);
-    try {
-      const file = await pickComplianceVaultFile(row.type);
-      if (!file) return;
-      const { error } = await uploadTripDocument(
-        summary.trip.id,
-        actorId,
-        file,
-        row.type as TripDocumentType,
-        row.doc.document_number ?? undefined,
-        { replaceDocumentId: row.doc.id, organizationId },
-      );
-      if (error) {
-        alertMessage("Couldn't replace file", error.message);
-        return;
-      }
-      invalidateCompliancePreviewCache([row.doc.storage_path]);
-      previewCacheRef.current.clear();
-      setPreviewUrl(null);
-      setPreviewEpoch((value) => value + 1);
-      onChanged({ type: "tripDocuments", tripId: summary.trip.id });
-    } catch (err) {
-      alertMessage("Couldn't replace file", err instanceof Error ? err.message : "Replace failed. Try again.");
-    } finally {
-      setFileActionKey(null);
-    }
-  };
-
   const removeTripFile = async (row: ComplianceDocRow, label: string) => {
     const old = tripDocumentForDelete(row);
     if (!summary || !old) return;
@@ -4298,7 +4479,12 @@ export function ComplianceDocumentWorkspace({
         alertMessage("Couldn't remove file", error.message);
         return;
       }
-      onChanged(entityDocumentChange(doc));
+      onChanged(
+        entityDocumentChange({
+          entity_type: doc.entity_type,
+          entity_id: doc.entity_id,
+        }),
+      );
     } finally {
       setFileActionKey(null);
     }
@@ -4400,6 +4586,26 @@ export function ComplianceDocumentWorkspace({
       reviewScope === "trip"
         ? complianceVaultDocNumbers(summary?.documents ?? [], displayRow.type)
         : [];
+    // Memo sits with finance commercials — surface supplier rate on the card.
+    const memoSupplierRateFact =
+      displayRow.type === "memo" && !hideCommercials && summary?.trip
+        ? (() => {
+            const commercial = summary.trip as TripCommercialFacts;
+            if (commercial.supplier_rate_basis === "per_mt") {
+              const perMt = supplierRatePerMtLabel(commercial);
+              return {
+                label: "Supplier rate",
+                value: perMt !== "—" ? `${perMt}/MT` : formatTripInr(commercial.supplier_rate),
+              };
+            }
+            return {
+              label: "Supplier rate",
+              value: formatTripInr(
+                supplierCostTotal(commercial) ?? commercial.supplier_rate,
+              ),
+            };
+          })()
+        : null;
     const typePreviews = typeFiles
       .map((item) => vaultPreviewForRow(item, organizationId, summary?.trip.id ?? null, rowLabel))
       .filter((item): item is VaultChooserPreview => Boolean(item));
@@ -4443,10 +4649,9 @@ export function ComplianceDocumentWorkspace({
           entityType={entityType}
           required={displayRow.required}
           actionText={
-            vaultNumbers.length > 0
-              ? vaultNumbers.join(" · ")
-              : undefined
+            vaultNumbers.length > 0 ? vaultNumbers.join(" · ") : undefined
           }
+          detailFact={memoSupplierRateFact}
           expiryDate={expiryIso}
           needsExpiry={documentRequiresExpiry(displayRow.type)}
           preview={typePreviews[0] ?? null}
@@ -4475,6 +4680,11 @@ export function ComplianceDocumentWorkspace({
             if (mobileExclusive) setMobileDocPane("list");
           }}
           onAdd={() => void uploadVaultDocument(row)}
+          onReplace={
+            canEditFiles && mustReplaceRejectedTripDocument(displayRow)
+              ? () => void replaceTripFile(displayRow)
+              : undefined
+          }
           onOpenFull={(index) => {
             const target = typeFiles[index] ?? displayRow;
             previewChecklistRow(target);
@@ -5235,6 +5445,19 @@ export function ComplianceDocumentWorkspace({
                         </Pressable>
                         ) : null}
                       </View>
+                      {reviewerResubmitNote &&
+                      (showPendingTripActions || showFinanceDeclineReVerify || showMarkVerified) ? (
+                        <View
+                          style={styles.reviewerResubmitNote}
+                          accessibilityRole="summary"
+                          accessibilityLabel={`Ground Ops resubmit note. ${reviewerResubmitNote}`}
+                        >
+                          <Text style={styles.reviewerResubmitNoteLabel}>
+                            Ground Ops resubmit note
+                          </Text>
+                          <Text style={styles.reviewerResubmitNoteText}>{reviewerResubmitNote}</Text>
+                        </View>
+                      ) : null}
                       {(showPendingTripActions || showFinanceDeclineReVerify) &&
                       onMarkComplianceVerified &&
                       summary ? (
@@ -5322,35 +5545,57 @@ export function ComplianceDocumentWorkspace({
                       </View>
                       ) : null}
                       {showResubmit && summary && onResubmitCompliance ? (
-                        <View style={styles.checklistPreviewTripActions}>
-                    <TouchableOpacity
-                      style={[
-                              styles.verifyTripBtn,
-                              (resubmitting || resubmitBlockedByMissingDocs) && styles.btnDisabled,
-                            ]}
-                            activeOpacity={0.85}
-                            disabled={resubmitting}
-                            onPress={() => {
-                              if (resubmitBlockedByMissingDocs) {
-                                alertMessage(
-                                  "Upload missing documents first",
-                                  resubmitBlockingDocsLabel
-                                    ? `Upload or replace: ${resubmitBlockingDocsLabel}. Then Resubmit.`
-                                    : "Some required Trip, Vehicle or Driver documents are missing or rejected. Upload or replace them, then Resubmit.",
-                                );
-                                return;
+                        <View style={styles.resubmitActionBlock}>
+                          {resubmitBlockedExplain ? (
+                            <View
+                              style={styles.resubmitBlockedBanner}
+                              accessibilityRole="text"
+                              accessibilityLabel={`Resubmit disabled. ${resubmitBlockedExplain.why}. ${resubmitBlockedExplain.action}`}
+                            >
+                              <Text style={styles.resubmitBlockedWhy}>
+                                Resubmit disabled — {resubmitBlockedExplain.why}
+                              </Text>
+                              <Text style={styles.resubmitBlockedAction}>
+                                Action required: {resubmitBlockedExplain.action}
+                              </Text>
+                            </View>
+                          ) : null}
+                          <View style={styles.checklistPreviewTripActions}>
+                            <TouchableOpacity
+                              style={[
+                                styles.verifyTripBtn,
+                                (resubmitting || resubmitBlockedByMissingDocs) &&
+                                  styles.btnDisabled,
+                              ]}
+                              activeOpacity={0.85}
+                              disabled={resubmitting}
+                              onPress={() => {
+                                if (resubmitBlockedExplain) {
+                                  alertMessage(
+                                    "Resubmit disabled",
+                                    `${resubmitBlockedExplain.why}.\n\nAction required: ${resubmitBlockedExplain.action}`,
+                                  );
+                                  return;
+                                }
+                                setResubmitOpen(true);
+                              }}
+                              accessibilityRole="button"
+                              accessibilityLabel={
+                                resubmitBlockedExplain
+                                  ? `Resubmit disabled. ${resubmitBlockedExplain.why}. ${resubmitBlockedExplain.action}`
+                                  : "Resubmit trip for review"
                               }
-                              setResubmitOpen(true);
-                            }}
-                      accessibilityRole="button"
-                            accessibilityLabel="Resubmit trip for review"
-                          >
-                            {resubmitting ? (
-                              <ActivityIndicator size="small" color={Theme.cardWhite} />
-                            ) : (
-                              <Text style={styles.verifyTripBtnText}>Resubmit</Text>
-                            )}
-                          </TouchableOpacity>
+                              accessibilityState={{
+                                disabled: resubmitting || resubmitBlockedByMissingDocs,
+                              }}
+                            >
+                              {resubmitting ? (
+                                <ActivityIndicator size="small" color={Theme.cardWhite} />
+                              ) : (
+                                <Text style={styles.verifyTripBtnText}>Resubmit</Text>
+                              )}
+                            </TouchableOpacity>
+                          </View>
                         </View>
                       ) : null}
                     </View>
@@ -5395,6 +5640,7 @@ export function ComplianceDocumentWorkspace({
                   return (
                     <>
                 {previewingDocument ? (
+                  <>
                   <View style={styles.previewNav}>
                     {mobileExclusive ? (
                       <TouchableOpacity
@@ -5466,6 +5712,62 @@ export function ComplianceDocumentWorkspace({
                       </Pressable>
               </View>
                   </View>
+                  {showRowDecline || showRowApprove || showRowReplace ? (
+                    <View style={styles.rowDecisionBar}>
+                      {showRowReplace ? (
+                        <TouchableOpacity
+                          style={[styles.reviewGroupApprove, (busy || Boolean(fileActionKey)) && styles.btnDisabled]}
+                          activeOpacity={0.85}
+                          disabled={busy || Boolean(fileActionKey)}
+                          onPress={() => {
+                            if (activeDecisionRow) void replaceTripFile(activeDecisionRow);
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Replace ${docTitle}`}
+                        >
+                          <Text style={styles.reviewGroupApproveText}>Replace</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      {showRowDecline ? (
+                        <TouchableOpacity
+                          style={[
+                            styles.reviewGroupDecline,
+                            rowDecisionButtons.declineActive && styles.reviewGroupDeclineActive,
+                            busy && styles.btnDisabled,
+                          ]}
+                          activeOpacity={0.85}
+                          disabled={busy}
+                          onPress={() => activeDecisionRow && setRowDeclineTarget(activeDecisionRow)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Decline ${docTitle}`}
+                        >
+                          <Text
+                            style={[
+                              styles.reviewGroupDeclineText,
+                              rowDecisionButtons.declineActive && styles.reviewGroupDeclineTextActive,
+                            ]}
+                          >
+                            {rowDecisionButtons.declineLabel}
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      {showRowApprove ? (
+                        <TouchableOpacity
+                          style={[styles.reviewGroupApprove, busy && styles.btnDisabled]}
+                          activeOpacity={0.85}
+                          disabled={busy}
+                          onPress={() => {
+                            if (activeDecisionRow) void approveSingleRow(activeDecisionRow);
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Approve ${docTitle}`}
+                        >
+                          <Text style={styles.reviewGroupApproveText}>{rowDecisionButtons.approveLabel}</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  ) : null}
+                  </>
                 ) : null}
                 <View style={[styles.checklistPreviewBody, styles.checklistPreviewBodyMobile]}>
                   {checklistPreviewMode === "trip" && summary ? (
@@ -5655,16 +5957,20 @@ export function ComplianceDocumentWorkspace({
                   ) : (
                     <View style={styles.checklistPreviewEmpty}>
                       <Text style={styles.checklistPreviewEmptyTitle}>
-                        {checklistSelectedRow
-                              ? `${
-                                  isFinanceMode
-                                    ? labelForFinanceDocType(checklistSelectedRow.type)
-                                    : labelForDocType(checklistSelectedRow.type)
-                                } has no file to preview`
-                          : "Select a document to preview"}
+                        {previewError
+                          ? previewError
+                          : checklistSelectedRow
+                            ? `${
+                                isFinanceMode
+                                  ? labelForFinanceDocType(checklistSelectedRow.type)
+                                  : labelForDocType(checklistSelectedRow.type)
+                              } has no file to preview`
+                            : "Select a document to preview"}
                       </Text>
                       <Text style={styles.checklistPreviewEmptyHint}>
-                            Tap the eye icon on an uploaded document, or use Trip Detail / Advance Payment.
+                        {previewError
+                          ? "Try the eye icon again, or reopen this trip."
+                          : "Tap the eye icon on an uploaded document, or use Trip Detail / Advance Payment."}
                       </Text>
                     </View>
                   )}
@@ -5716,12 +6022,13 @@ export function ComplianceDocumentWorkspace({
           uri={previewUrl}
           isPdf={isPdf}
           title={docTitle}
-          documentKey={activePreviewPath}
+          documentKey={`${activeRow?.key ?? ""}:${activePreviewPath ?? ""}`}
           documentVersion={
             activeRow?.entityDoc?.created_at ??
             activeRow?.doc?.uploaded_at ??
             String(previewEpoch)
           }
+          emptyHint={previewError}
         presentation="page"
         onClose={() => {
           setScreenOpen(false);
@@ -5781,6 +6088,27 @@ export function ComplianceDocumentWorkspace({
           await declineWithReason(reason);
         }}
       />
+      <ComplianceDeclineModal
+        visible={rowDeclineTarget != null}
+        title={`Decline ${
+          rowDeclineTarget
+            ? isFinanceMode || (COMPLIANCE_FINANCE_DOCUMENT_TYPES as readonly string[]).includes(rowDeclineTarget.type)
+              ? labelForFinanceDocType(rowDeclineTarget.type)
+              : labelForDocType(rowDeclineTarget.type)
+            : "document"
+        }`}
+        presets={complianceDeclineSectionsForScope(reviewScope)}
+        submitLabel="Decline"
+        tripLabel={
+          summary
+            ? getTripDisplayNumber(summary.trip, summary.trip.organization_id ?? null)
+            : "Trip"
+        }
+        onCancel={() => setRowDeclineTarget(null)}
+        onSubmit={async (reason) => {
+          await declineSingleRow(reason);
+        }}
+      />
       <VaultCategoryPreviewModal
         visible={Boolean(categoryPreview)}
         files={categoryPreview?.files ?? []}
@@ -5794,7 +6122,15 @@ export function ComplianceDocumentWorkspace({
           if (mobileExclusive) setMobileDocPane("list");
         }}
         onAdd={
-          canEditFiles && categoryPreview
+          canEditFiles && categoryPreview && !mustReplaceRejectedTripDocument(
+            listRows.find(
+              (item) => item.key === categoryPreview.files[categoryPreview.index]?.id,
+            ) ??
+              listRows.find(
+                (item) =>
+                  item.doc?.id === categoryPreview.files[categoryPreview.index]?.documentId,
+              ),
+          )
             ? () => {
                 const addLock = complianceTypeAddLockReason(categoryPreview.type);
                 if (addLock) {
@@ -5806,6 +6142,21 @@ export function ComplianceDocumentWorkspace({
                   displayListRows.find((item) => item.type === categoryPreview.type);
                 if (row) void uploadVaultDocument(row);
               }
+            : undefined
+        }
+        onReplace={
+          canEditFiles && categoryPreview
+            ? (() => {
+                const currentFile = categoryPreview.files[categoryPreview.index];
+                const row =
+                  listRows.find((item) => item.key === currentFile?.id) ??
+                  listRows.find(
+                    (item) =>
+                      Boolean(currentFile?.documentId) && item.doc?.id === currentFile?.documentId,
+                  );
+                if (!row || !mustReplaceRejectedTripDocument(row)) return undefined;
+                return () => void replaceTripFile(row);
+              })()
             : undefined
         }
         onDelete={
@@ -5918,6 +6269,21 @@ export function ComplianceDocumentWorkspace({
             ? {
                 label: isComplianceHoldAwaitingResubmit(summary) ? "Hold reason" : "Reject reason",
                 text: summary.complianceDeclineReason.trim(),
+              }
+            : null
+        }
+        changeLogLoading={resubmitOpen && !resubmitChangeLogReady}
+        changeLog={
+          resubmitChangeLogReady
+            ? {
+                title: "Changes since hold / reject",
+                items: dedupeResubmitChangeItems(resubmitChangeLog?.items ?? []).map((item) => ({
+                  kind: item.kind,
+                  text: formatResubmitChangeItemLine(item),
+                })),
+                noteBlock: resubmitChangeLog
+                  ? formatResubmitChangeLogBlock(resubmitChangeLog)
+                  : "",
               }
             : null
         }
@@ -7371,13 +7737,17 @@ const _TripListRow = React.memo(function TripListRow({
           </Text>
           ) : null}
           {resubmitNote ? (
-            <Text style={styles.resubmitNoteLine} numberOfLines={2}>
-              {`Resubmitted: ${resubmitNote}`}
-          </Text>
+            <View
+              style={styles.resubmitNoteBlock}
+              accessibilityLabel={`Resubmitted. ${resubmitNote}`}
+            >
+              <Text style={styles.resubmitNoteLabel}>Resubmitted</Text>
+              <Text style={styles.resubmitNoteLine}>{resubmitNote}</Text>
+            </View>
           ) : waitingNote ? (
             <Text style={styles.resubmitNoteLine} numberOfLines={1}>
               Waiting for Ground Ops to resubmit
-          </Text>
+            </Text>
           ) : null}
           {summary.financeFlaggedAt && !podOnly ? (
             <Text style={styles.rejectReasonLine} numberOfLines={2}>
@@ -7719,6 +8089,20 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: Theme.complianceStageDocsFg,
     lineHeight: 13,
+  },
+  resubmitNoteBlock: {
+    gap: 2,
+    marginTop: 2,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    borderRadius: 6,
+    backgroundColor: Theme.positiveMuted,
+  },
+  resubmitNoteLabel: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: Theme.positive,
+    textTransform: "uppercase",
   },
   resubmitNoteLine: {
     fontSize: 10,
@@ -8843,6 +9227,57 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
     width: "100%",
     gap: 8,
+  },
+  resubmitActionBlock: {
+    alignSelf: "stretch",
+    width: "100%",
+    gap: 8,
+  },
+  resubmitBlockedBanner: {
+    alignSelf: "stretch",
+    width: "100%",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: Theme.warningMuted,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.warning,
+    gap: 4,
+  },
+  resubmitBlockedWhy: {
+    color: Theme.textPrimaryDark,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 18,
+  },
+  resubmitBlockedAction: {
+    color: Theme.textSecondary,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  reviewerResubmitNote: {
+    alignSelf: "stretch",
+    width: "100%",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: Theme.positiveMuted,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.positive,
+    gap: 4,
+    marginBottom: 8,
+  },
+  reviewerResubmitNoteLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: Theme.positive,
+    textTransform: "uppercase",
+  },
+  reviewerResubmitNoteText: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: Theme.textPrimaryDark,
+    lineHeight: 17,
   },
   tabApprovedBadge: {
     height: 16,
@@ -10364,6 +10799,14 @@ const styles = StyleSheet.create({
   },
   reviewGroupApproveText: {
     ...complianceActionButtonStyles.primaryText,
+  },
+  rowDecisionBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingBottom: 10,
   },
   reviewGroupApprovedPill: {
     ...complianceActionButtonStyles.primary,

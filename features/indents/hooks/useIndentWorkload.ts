@@ -3,22 +3,32 @@ import {
   countIndentWorkload,
   listIndentWorkload,
 } from "@/features/indents/services/indentWorkload.service";
-import { indentWorkloadBounds } from "@/features/indents/utils/indentWorkload.util";
+import {
+  indentWorkloadBounds,
+  type IndentWorkloadRange,
+} from "@/features/indents/utils/indentWorkload.util";
 import { STALE } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
 
 /**
  * Trips hub indent workload: exact counts plus the matching rows. Under the
  * `indents.all(orgId)` prefix, so existing indent / trip invalidations refresh it.
+ * `range` (hub date pill) narrows the live set to that range ("all" = any date);
+ * null = current workload.
  */
-export function useIndentWorkload(orgId: string | null, opts?: { listEnabled?: boolean }) {
+export function useIndentWorkload(
+  orgId: string | null,
+  opts?: { listEnabled?: boolean; range?: IndentWorkloadRange | null },
+) {
   const bounds = indentWorkloadBounds();
   const today = bounds?.today ?? "";
+  const range = opts?.range ?? null;
+  const rangeKey = range === "all" ? "all" : range ? `${range.from}..${range.to}` : "now";
   const enabled = Boolean(orgId && bounds);
   const counts = useQuery({
-    queryKey: queryKeys.indents.workloadCounts(orgId ?? "", today),
+    queryKey: queryKeys.indents.workloadCounts(orgId ?? "", today, rangeKey),
     queryFn: async () => {
-      const res = await countIndentWorkload(orgId!, bounds!);
+      const res = await countIndentWorkload(orgId!, bounds!, range);
       if (res.error || !res.counts) throw res.error ?? new Error("indent workload count unavailable");
       return res.counts;
     },
@@ -26,9 +36,9 @@ export function useIndentWorkload(orgId: string | null, opts?: { listEnabled?: b
     staleTime: STALE.moderate,
   });
   const list = useQuery({
-    queryKey: queryKeys.indents.workloadList(orgId ?? "", today),
+    queryKey: queryKeys.indents.workloadList(orgId ?? "", today, rangeKey),
     queryFn: async () => {
-      const res = await listIndentWorkload(orgId!, bounds!);
+      const res = await listIndentWorkload(orgId!, bounds!, range);
       if (res.error) throw res.error;
       return { indents: res.indents, truncated: res.truncated };
     },

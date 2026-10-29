@@ -633,7 +633,9 @@ export function InvoicingExecuteScreen({
   }, [scopedTrips]);
 
   const selectedTrips = useMemo(() => {
-    return selectedTripIds.map((id) => tripsById.get(id)).filter(Boolean);
+    return selectedTripIds
+      .map((id) => tripsById.get(id))
+      .filter((trip): trip is InvoicingTripView => Boolean(trip));
   }, [tripsById, selectedTripIds]);
 
   const previewTrips = useMemo(() => {
@@ -731,20 +733,25 @@ export function InvoicingExecuteScreen({
   );
   const manualClientRow =
     manualFetchedClients.find((row) => row.id === selectedClientId) ?? null;
+  /** A client with no trips has no list label; fall back to its saved name. */
+  const manualClientName =
+    activeClientLabel ?? manualClientRow?.name ?? manualClientRow?.legal_name ?? null;
   const manualDraftModel = useMemo(() => {
-    if (composeMode !== "manual" || !issuer || !selectedClientId) return null;
+    if (composeMode !== "manual" || !issuer || !selectedClientId || !manualClientName) return null;
     const gstRate = Number(manualLines[0]?.taxRate ?? 18);
     return buildInvoiceDraftModelFromManualLines({
       issuer,
       client: {
         client_id: selectedClientId,
-        legal_name: manualClientRow?.legal_name ?? activeClientLabel,
-        display_name: manualClientRow?.name ?? activeClientLabel,
+        legal_name: manualClientRow?.legal_name ?? manualClientName,
+        display_name: manualClientRow?.name ?? manualClientName,
         gstin: manualClientRow?.gstin ?? null,
         pan: manualClientRow?.pan ?? null,
         billing_address: manualClientRow?.billing_address ?? null,
         state: manualClientRow?.state ?? null,
         email: manualClientRow?.email ?? null,
+        contact_person: manualClientRow?.contact_person ?? null,
+        phone: manualClientRow?.phone ?? null,
       },
       lines: manualBuiltLines,
       previewDate: manualInvoiceDate,
@@ -754,10 +761,10 @@ export function InvoicingExecuteScreen({
       gstRate: Number.isFinite(gstRate) ? gstRate : 18,
     });
   }, [
-    activeClientLabel,
     composeMode,
     issuer,
     manualBuiltLines,
+    manualClientName,
     manualClientRow,
     manualInvoiceDate,
     manualLines,
@@ -799,7 +806,7 @@ export function InvoicingExecuteScreen({
 
   const persistManualInvoice = useCallback(
     async (mode: "draft" | "issue") => {
-      if (!orgId || !selectedClientId || !manualDraftModel || !activeWorkspace) {
+      if (!orgId || !selectedClientId || !manualClientName || !manualDraftModel || !activeWorkspace) {
         Alert.alert("Manual Invoice", "Select a client and add valid lines.");
         return;
       }
@@ -820,7 +827,7 @@ export function InvoicingExecuteScreen({
         const shared = {
           orgId,
           clientId: selectedClientId,
-          clientName: activeClientLabel,
+          clientName: manualClientName,
           subtotal: manualDraftModel.tax.taxable_base,
           gstRate: manualDraftModel.tax.gst_rate,
           sgstAmount: manualDraftModel.tax.sgst_amount,
@@ -833,7 +840,7 @@ export function InvoicingExecuteScreen({
           issuerSnapshot: buildInvoiceIssuerSnapshot(activeWorkspace),
           clientSnapshot: {
             client_id: selectedClientId,
-            legal_name: manualDraftModel.client.legal_name ?? activeClientLabel,
+            legal_name: manualDraftModel.client.legal_name ?? manualClientName,
             gstin: manualDraftModel.client.gstin,
             pan: manualDraftModel.client.pan,
             billing_address: manualDraftModel.client.billing_address,
@@ -874,10 +881,10 @@ export function InvoicingExecuteScreen({
       }
     },
     [
-      activeClientLabel,
       activeWorkspace,
       manualBuiltLines,
       manualBusy,
+      manualClientName,
       manualDraftId,
       manualDraftModel,
       manualPo,
@@ -2657,7 +2664,7 @@ export function InvoicingExecuteScreen({
                 Boolean(buildBlockedReason)) &&
                 styles.footerBtnDisabled,
             ]}
-            onPress={handleCreateInvoice}
+            onPress={() => void handleCreateInvoice()}
             disabled={
               selectionSummary.invoiceableCount === 0 ||
               Boolean(buildBlockedReason)

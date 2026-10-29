@@ -1,5 +1,5 @@
 import type { IndentCancelReasonId } from "@/features/indents/utils/indentCancelReason.util";
-import type { TripMetricId } from "@/features/trips/utils/tripHubMetrics";
+import type { TripMetricId } from "@/features/trips/utils/hubMetrics.model";
 
 export type OrgHubMetrics = {
   tripsTotal: number;

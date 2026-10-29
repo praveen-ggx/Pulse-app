@@ -18,7 +18,7 @@ const DL_CLEAN = /[\s-]/g;
  *   standard  — TN01 20200001234 (2 letters · 2 digits · 4-digit year · 7-8 digits)
  *   rtoLetter — TN29 Z19940001713 (2 letters · 2 digits · 1 letter · 4-digit year · 7 digits)
  *   other     — older cards still in use (Telangana/AP):
- *               DLFAP12810371208 (DLF · 2-letter state · 9-13 digits) or
+ *               DLFAP12810371208 / DLFAP029126912005OD (DLF · 2-letter state · 9-13 digits · optional letters) or
  *               1043/HW/1997OD (number / RTO letters / year + optional letters; slashes auto-added)
  */
 export type IndianDlFormat = "standard" | "rtoLetter" | "other";
@@ -36,13 +36,16 @@ export const INDIAN_DL_FORMATS: readonly {
 const DL_FORMAT_PATTERNS: Record<IndianDlFormat, RegExp> = {
   standard: /^[A-Z]{2}[0-9]{2}[0-9]{4}[0-9]{7,8}$/,
   rtoLetter: /^[A-Z]{2}[0-9]{2}[A-Z][0-9]{4}[0-9]{7}$/,
-  other: /^(?:DLF[A-Z]{2}[0-9]{9,13}|[0-9]{1,7}\/[A-Z]{1,4}\/[0-9]{4}[A-Z]{0,3})$/,
+  other: /^(?:DLF[A-Z]{2}[0-9]{9,13}[A-Z]{0,3}|[0-9]{1,7}\/[A-Z]{1,4}\/[0-9]{4}[A-Z]{0,3})$/,
 };
+
+/** Longest old / smart card: DLF + 2 letters + 13 digits + 3 letters. */
+export const INDIAN_DL_OTHER_MAX_LENGTH = 21;
 
 const DL_FORMAT_MAX_LENGTH: Record<IndianDlFormat, number> = {
   standard: 16,
   rtoLetter: 16,
-  other: 18,
+  other: INDIAN_DL_OTHER_MAX_LENGTH,
 };
 
 /** Positions (0-based) that take a letter; every other position takes a digit. */
@@ -91,7 +94,7 @@ export function getIndianDlFormatHint(
   format: IndianDlFormat = "standard",
 ): string {
   if (format === "other") {
-    return "Old card: 1043/HW/1997OD (slashes added for you) or smart card: DLFAP12810371208";
+    return "Old card: 1043/HW/1997OD (slashes added for you) or smart card: DLFAP029126912005OD";
   }
   if (format === "rtoLetter") {
     if (normalizedLen < 2) return "Enter 2 letters (state code, e.g. TN)";

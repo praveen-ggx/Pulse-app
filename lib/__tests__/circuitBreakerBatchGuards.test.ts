@@ -67,7 +67,8 @@ describe("complete chain: origin-down → circuit OPEN → no PostgREST", () => 
 
     expect(mockSupabase).not.toHaveBeenCalled();
     expect(stories).toEqual({ error: null, byIndentId: {} });
-    expect(offers).toEqual({ error: null, counts: {} });
+    expect(offers.counts).toEqual({});
+    expect(offers.error).toBeInstanceOf(Error);
     expect(byIds).toEqual({ error: null, locations: [] });
     expect(byNames).toEqual({ error: null, locations: [] });
     expect(adjustments).toEqual(new Map());
@@ -113,7 +114,9 @@ describe("circuit-open guards on each 2026-09-22 batch producer", () => {
   it("getIndentOfferCountsForOwnerIndents (Give Load direct_quotes) fails fast with no Supabase request", async () => {
     const result = await getIndentOfferCountsForOwnerIndents("org-1", ["indent-1"]);
     expect(mockSupabase).not.toHaveBeenCalled();
-    expect(result).toEqual({ error: null, counts: {} });
+    expect(result.counts).toEqual({});
+    // Error, not "0 offers": a skipped read must not cache as an empty count.
+    expect(result.error).toBeInstanceOf(Error);
   });
 
   it("getOrganizationLocationsByIds (Connections screen) fails fast with no Supabase request", async () => {

@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   ActivityIndicator,
   Keyboard,
@@ -203,8 +210,11 @@ export function CreateTripDesktopWizard({
     Boolean(clientForPickup?.linked_organization_id);
   const { data: clientWarehouses = [], isLoading: warehousesLoading } =
     useClientWarehousesQuery(organizationId, state.clientId);
-  const { data: contractLanes = [], isLoading: lanesLoading } =
-    useClientLaneRatesQuery(organizationId, state.clientId, debouncedLaneSearch);
+  const {
+    data: contractLanes = [],
+    isLoading: lanesLoading,
+    isPlaceholderData: lanesPlaceholder,
+  } = useClientLaneRatesQuery(organizationId, state.clientId, debouncedLaneSearch);
   const { data: linkedOrgLocations = [], isLoading: linkedLocLoading } =
     useLinkedClientOrgLocationsQuery(
       organizationId,
@@ -256,6 +266,7 @@ export function CreateTripDesktopWizard({
       setters.setClientSelection(client.id, client.name);
       // Fresh client → clear prior pickup / lane so warehouse chips can be chosen anew.
       setters.setPickupArea("");
+      setters.setLaneId(null);
       setSelectedLaneId(null);
       setLaneSearch("");
       setClientListExpanded(false);
@@ -265,6 +276,7 @@ export function CreateTripDesktopWizard({
 
   const handleClearClient = useCallback(() => {
     setters.setClientSelection(null, "");
+    setters.setLaneId(null);
     setSelectedLaneId(null);
     setLaneSearch("");
     setClientListExpanded(true);
@@ -306,8 +318,15 @@ export function CreateTripDesktopWizard({
     setters.setSaleUnitRate("");
   }, [setters]);
 
+  const laneGateActiveRef = useRef(laneGateActive);
+  laneGateActiveRef.current = laneGateActive;
   const handleLaneGateActiveChange = useCallback(
     (active: boolean) => {
+      // Skip both local state and parent callback when unchanged — parent
+      // setState(true) every tick was a loop source even when local was guarded.
+      if (laneGateActiveRef.current === active) return;
+      // Sync now so a second flip before re-render compares against this one.
+      laneGateActiveRef.current = active;
       setLaneGateActive(active);
       onLaneGateActiveChange?.(active);
     },
@@ -380,12 +399,20 @@ export function CreateTripDesktopWizard({
     onRequestChangeLane?.();
   }, [onRequestChangeLane]);
 
+  const lastContractLockedRef = useRef<boolean | null>(null);
   useEffect(() => {
-    onContractLaneLockedChange?.(Boolean(selectedLaneId));
+    const locked = Boolean(selectedLaneId);
+    if (lastContractLockedRef.current === locked) return;
+    lastContractLockedRef.current = locked;
+    onContractLaneLockedChange?.(locked);
   }, [selectedLaneId, onContractLaneLockedChange]);
 
   useEffect(() => {
-    if (state.laneId && state.laneId !== selectedLaneId) {
+    if (!state.laneId) {
+      if (selectedLaneId != null) setSelectedLaneId(null);
+      return;
+    }
+    if (state.laneId !== selectedLaneId) {
       setSelectedLaneId(state.laneId);
     }
   }, [state.laneId, selectedLaneId]);
@@ -619,6 +646,7 @@ export function CreateTripDesktopWizard({
           onClearClient={handleClearClient}
           contractLanes={contractLanes}
           contractLanesLoading={lanesLoading}
+          contractLanesPlaceholder={lanesPlaceholder}
           selectedLaneId={selectedLaneId}
           onSelectLane={handleSelectLane}
           onClearLane={handleClearLane}

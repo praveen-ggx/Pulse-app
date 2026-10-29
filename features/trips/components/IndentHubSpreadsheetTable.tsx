@@ -1,6 +1,7 @@
 import Theme from "@/constants/Theme";
 import type { IndentRow } from "@/features/indents/services/indents.service";
 import { getIndentDisplayNumber } from "@/features/indents/services/indents.service";
+import { isIndentPickupPassed } from "@/features/indents/utils/indentWorkload.util";
 import {
   indentHubLaneLabel,
   indentHubTableDate,
@@ -81,6 +82,7 @@ export function IndentHubSpreadsheetTable({
             bidCountById?.[indent.id] ?? 0,
           );
           const failed = status === "FAILED";
+          const pickupPassed = isIndentPickupPassed(indent);
           const supplier =
             supplierNameById?.[indent.id] ||
             String((indent as { assigned_supplier_name?: string | null }).assigned_supplier_name ?? "").trim() ||
@@ -143,6 +145,11 @@ export function IndentHubSpreadsheetTable({
                 <Text style={[styles.statusText, failed && styles.statusFailed]} numberOfLines={1}>
                   {status}
                 </Text>
+                {pickupPassed ? (
+                  <Text style={styles.pickupPassedText} numberOfLines={1}>
+                    PICKUP PASSED
+                  </Text>
+                ) : null}
               </View>
               <View style={[styles.cell, styles.colMore]}>
                 {onOpenActivity ? (
@@ -259,6 +266,13 @@ const styles = StyleSheet.create({
   },
   statusFailed: {
     color: Theme.negative,
+  },
+  pickupPassedText: {
+    marginTop: 2,
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+    color: Theme.warning,
   },
   laneTip: {
     position: "absolute",

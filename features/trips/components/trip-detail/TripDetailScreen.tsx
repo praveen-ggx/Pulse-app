@@ -43,6 +43,8 @@ import {
   simulateGroundOpsPickupStatus,
   type GroundOpsPickupTarget,
 } from "@/features/trips/services/groundOpsPickup.service";
+import { groundOpsPickupMovedTo } from "@/features/trips/utils/groundOpsPickupStale.util";
+import { alertMessage } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import { loadCompliancePipelineInputs } from "@/features/tripCompliance/services/compliancePipelineSync.service";
 import { GroundOpsTransitChecklist } from "@/features/trips/components/trip-detail/GroundOpsTransitChecklist";
 import {
@@ -4380,7 +4382,14 @@ export default function TripDetailScreen({
       }
       const result = await simulateGroundOpsPickupStatus(trip.id, target);
       if (!result.ok) {
-        if (result.missingDocumentTypes?.length) {
+        // The trip already moved on elsewhere (driver / Trip Ops): retrying the
+        // same step can only fail again, so refresh and close instead.
+        const movedTo = groundOpsPickupMovedTo(result.error);
+        if (movedTo) {
+          detail.handleRefresh();
+          setSimConfirmStep(null);
+          alertMessage("Trip already updated", `This trip is already ${movedTo.replace(/_/g, " ")}. Showing the latest status.`);
+        } else if (result.missingDocumentTypes?.length) {
           setGroundOpsMissingDocs(result.missingDocumentTypes);
         } else {
           setSimError(result.error);

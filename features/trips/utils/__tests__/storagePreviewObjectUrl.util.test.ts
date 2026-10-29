@@ -65,20 +65,37 @@ describe("openStoragePreview", () => {
     expect(String(opened.url)).not.toContain("signed");
   });
 
-  it("does not report a signed URL when the download and the signed fetch both fail", async () => {
+  it("does not invent a signed URL when download says missing and none was provided", async () => {
     mockDownload.mockResolvedValue({ data: null, error: { message: "Object not found", statusCode: 404 } });
-    mockCreateSignedUrl.mockResolvedValue({ data: { signedUrl: "https://signed.example/missing" }, error: null });
-    (globalThis.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 404, statusText: "Not Found" });
 
     const opened = await openStoragePreview({
       bucket: "trip-documents",
       path: "trip/lr/missing.jpg",
-      signedUrl: "https://signed.example/missing",
     });
 
     expect(opened).toEqual({ ok: false, kind: "missing" });
     expect(storagePreviewFailureMessage("missing")).toMatch(/missing/i);
     expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(mockCreateSignedUrl).not.toHaveBeenCalled();
+  });
+
+  it("falls back to a caller-provided signed URL when download mis-reports missing", async () => {
+    mockDownload.mockResolvedValue({ data: null, error: { message: "Object not found", statusCode: 404 } });
+    (globalThis.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      blob: async () => blob("from-signed"),
+    });
+
+    const opened = await openStoragePreview({
+      bucket: "compliance-documents",
+      path: "org/vehicle/v1/insurance_abc.jpeg",
+      signedUrl: "https://signed.example/insurance",
+    });
+
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    expect(opened.url).toBe("blob:1");
+    expect(globalThis.fetch).toHaveBeenCalledWith("https://signed.example/insurance");
     expect(mockCreateSignedUrl).not.toHaveBeenCalled();
   });
 

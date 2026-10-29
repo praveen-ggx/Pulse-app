@@ -1,5 +1,6 @@
 import {
   complianceStoragePathCandidates,
+  findViewerVehicleEntityDoc,
   mergeComplianceEntityDocs,
   normalizeTripDocumentType,
   normalizeVaultVehicleNumber,
@@ -211,5 +212,49 @@ describe("mergeComplianceEntityDocs", () => {
     const merged = mergeComplianceEntityDocs(entity, vault);
     expect(merged.find((row) => row.id === "entity-ins")?.expiry_date).toBe("2027-08-15");
     expect(merged.find((row) => row.id === "vault-ins")?.storage_path).toBe("vault/ins.pdf");
+  });
+});
+
+describe("findViewerVehicleEntityDoc", () => {
+  const vaultRc: ComplianceEntityDocument = {
+    id: "deae4a65-ee57-4222-9adf-e36796558f4b-rc",
+    entity_type: "vehicle",
+    entity_id: "deae4a65-ee57-4222-9adf-e36796558f4b",
+    doc_type: "rc",
+    status: "pending",
+    storage_path: "owner/v1/rc.jpeg",
+    expiry_date: null,
+    verified_at: null,
+    notes: null,
+    created_at: "2026-10-27T00:00:00.000Z",
+    source: "vehicle-vault",
+  };
+  const entityIns: ComplianceEntityDocument = {
+    id: "44f3d73f-2e91-4196-b1a5-d8d17518b38d",
+    entity_type: "vehicle",
+    entity_id: "deae4a65-ee57-4222-9adf-e36796558f4b",
+    doc_type: "insurance",
+    status: "pending",
+    storage_path: "viewer/vehicle/v1/insurance.jpeg",
+    expiry_date: "2027-03-30",
+    verified_at: null,
+    notes: null,
+    created_at: "2026-10-27T13:21:11.000Z",
+    source: "entity",
+  };
+
+  it("skips synthetic vault ids and returns the viewer-org entity copy", () => {
+    expect(findViewerVehicleEntityDoc([vaultRc, entityIns], "insurance")?.id).toBe(entityIns.id);
+    expect(findViewerVehicleEntityDoc([vaultRc, entityIns], "rc")).toBeNull();
+  });
+
+  it("prefers a pending copy over an already-verified one", () => {
+    const verified: ComplianceEntityDocument = {
+      ...entityIns,
+      id: "b8f2a4f5-14b6-4948-a167-a6126203c992",
+      status: "verified",
+      created_at: "2026-10-28T00:00:00.000Z",
+    };
+    expect(findViewerVehicleEntityDoc([verified, entityIns], "insurance")?.id).toBe(entityIns.id);
   });
 });

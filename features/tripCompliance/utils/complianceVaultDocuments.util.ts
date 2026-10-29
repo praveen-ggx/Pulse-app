@@ -184,3 +184,33 @@ export function mergeComplianceEntityDocs(
   }
   return Array.from(byKey.values());
 }
+
+const ENTITY_DOC_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Viewer-org `entity_documents` copy for a partner truck slot.
+ * Vault rows use synthetic ids (`{vehicleId}-rc`) and cannot be approved
+ * with `verifyDocument`.
+ */
+export function findViewerVehicleEntityDoc(
+  docs: readonly Pick<
+    ComplianceEntityDocument,
+    "id" | "entity_type" | "doc_type" | "source" | "status" | "created_at"
+  >[],
+  docType: string,
+): (typeof docs)[number] | null {
+  const type = docType.trim().toLowerCase();
+  const matches = docs.filter(
+    (doc) =>
+      doc.entity_type === "vehicle" &&
+      doc.doc_type === type &&
+      (doc.source ?? "entity") === "entity" &&
+      ENTITY_DOC_UUID_RE.test(doc.id) &&
+      doc.status !== "replaced",
+  );
+  if (matches.length === 0) return null;
+  const unverified = matches.filter((doc) => doc.status !== "verified");
+  const pool = unverified.length > 0 ? unverified : matches;
+  return [...pool].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0] ?? null;
+}

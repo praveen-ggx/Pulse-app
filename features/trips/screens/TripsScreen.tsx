@@ -30,6 +30,12 @@ import { useOptionalAuth } from "@/contexts/AuthContext";
 import { useTabBarAwareScrollProps } from "@/contexts/DemoTabBarScrollContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useOptionalOrganization } from "@/contexts/OrganizationContext";
+import { downloadTripIndentReportExcel } from "@/features/trips/utils/tripIndentReportExport.util";
+import {
+  buildTripIndentReport,
+  loadTripIndentReportCatalog,
+  TRIP_INDENT_REPORT_MAX_ENTITY_ROWS,
+} from "@/features/trips/services/tripIndentReport.service";
 import { shouldShowAggregateTripKindPill } from "@/features/drivers/utils/driverUtils.util";
 import { toReportIsoDate } from "@/features/finance/lib/ledgerReportTable.util";
 import type { LedgerRow } from "@/features/finance/services/finance.service";
@@ -219,6 +225,7 @@ import { useLinkedOrgProfileMap } from "@/lib/useLinkedOrgProfileMap";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import { useMemberCapabilities } from "@/lib/useMemberCapabilities";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
+import { Download } from "lucide-react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -503,6 +510,9 @@ export default function TripsScreen() {
   const [customDateFrom, setCustomDateFrom] = useState<string | null>(null);
   const [customDateTo, setCustomDateTo] = useState<string | null>(null);
   const [tripLedgerExportOpen, setTripLedgerExportOpen] = useState(false);
+  const [tripReportDownloading, setTripReportDownloading] = useState(false);
+  /** Domain flags — finance gates cost columns on Trip Report export. */
+  const memberDomains = useMemberCapabilities();
   const [activeHistoryMetricTab, setActiveHistoryMetricTab] =
     useState<HistoryTripMetricId | null>(
       restoredHubItem?.historyMetricTab
@@ -692,8 +702,10 @@ export default function TripsScreen() {
   // owns that have not yet been allocated to a trip. Allocation is read from
   // the trips this screen already fetches (`trips.indent_id`), not a new query.
   const { data: allIndents = [] } = useIndentsQuery(orgId);
-  // Indent tile = live workload (exact server counts; hub date pills ignored).
-  const indentWorkload = useIndentWorkload(orgId);
+  // Indent tile = live workload (exact server counts). The hub date pill picks the
+  // live range ("All" = every open indent), past pickups included; needs-trip ignores it.
+  const indentWorkloadRange = hubDateBounds ?? "all";
+  const indentWorkload = useIndentWorkload(orgId, { range: indentWorkloadRange });
   const indentCodeSearchQuery = searchQuery.trim();
   const { data: indentCodeSearchHits = [] } = useTripsIndentCodeSearch(
     orgId,
@@ -733,11 +745,16 @@ export default function TripsScreen() {
     const bounds = indentWorkload.bounds;
     if (!bounds) return byId;
     for (const indent of indentWorkload.indents ?? allIndents) {
-      const kind = classifyIndentWorkload(indent, indentIdsWithTrip.has(indent.id), bounds);
+      const kind = classifyIndentWorkload(
+        indent,
+        indentIdsWithTrip.has(indent.id),
+        bounds,
+        indentWorkloadRange,
+      );
       if (kind) byId.set(indent.id, kind);
     }
     return byId;
-  }, [allIndents, indentIdsWithTrip, indentWorkload.bounds, indentWorkload.indents]);
+  }, [allIndents, indentWorkloadRange, indentIdsWithTrip, indentWorkload.bounds, indentWorkload.indents]);
   const unallocatedIndents = useMemo(
     () =>
       (indentWorkload.indents ?? allIndents).filter(
@@ -757,7 +774,7 @@ export default function TripsScreen() {
       orgId,
     ],
   );
-  // Workload is "now": the hub date pills do not filter it.
+  // Date pills already applied by the workload query / classifier above.
   const dateFilteredUnallocatedIndents = unallocatedIndents;
   const liveIndents = useMemo(
     () => unallocatedIndents.filter((i) => indentWorkloadKindById.get(i.id) === "live"),
@@ -803,6 +820,10 @@ export default function TripsScreen() {
     if (!orgId) return [];
     return failedCandidateIndents.filter((indent) => {
       if ((indent.organization_id ?? "") !== orgId) return false;
+      // allIndents (merged in above) holds every status, not just failed ones —
+      // re-check here or non-failed indents (awarded, bidding, etc.) leak into
+      // the Failed tab's list and count.
+      if (!isIndentFailedStatus(indent.status)) return false;
       if (
         !indentMatchesHubDateFilter(indent, dateRangeFilter, {
           customFrom: customDateFrom,
@@ -2161,6 +2182,67 @@ export default function TripsScreen() {
     ],
   );
 
+  /** Full Trip Ops catalog (not the current page / toolbar filter) → Excel. */
+  const handleDownloadTripReport = useCallback(async () => {
+    if (!orgId || tripReportDownloading) return;
+    setTripReportDownloading(true);
+    try {
+      const catalog = await loadTripIndentReportCatalog(orgId, hubTrips, allIndents);
+      if (catalog.error) {
+        showAppAlert(
+          "Export failed",
+          catalog.error.message || "Could not load trips and indents for the report.",
+        );
+        return;
+      }
+      const driverPhoneByTripId = await loadDriverPhonesByTripId(catalog.trips);
+      const { error, rows, warnings } = await buildTripIndentReport({
+        orgId,
+        trips: catalog.trips,
+        indents: catalog.indents,
+        partyMetaByTripId: tripHubPartyMetaByTripId,
+        driverPhoneByTripId,
+        stageLabelForTrip: getStageLabelForTrip,
+      });
+      if (error) {
+        showAppAlert("Export failed", error.message || "Could not build the trip report.");
+        return;
+      }
+      const notes: string[] = [...warnings];
+      if (catalog.truncated) {
+        const cap = TRIP_INDENT_REPORT_MAX_ENTITY_ROWS.toLocaleString("en-IN");
+        notes.unshift(
+          `Export capped at ${cap} trips and ${cap} indents. Additional rows were not included.`,
+        );
+      }
+      await downloadTripIndentReportExcel(rows, {
+        companyName: currentOrganization?.name ?? undefined,
+        includeCosts: memberDomains.finance,
+        notes,
+      });
+      if (notes.length > 0) {
+        showAppAlert(
+          "Trip Report downloaded with notes",
+          notes.join("\n\n"),
+        );
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      showAppAlert("Export failed", message || "Could not download the trip report.");
+    } finally {
+      setTripReportDownloading(false);
+    }
+  }, [
+    orgId,
+    tripReportDownloading,
+    hubTrips,
+    allIndents,
+    tripHubPartyMetaByTripId,
+    getStageLabelForTrip,
+    currentOrganization?.name,
+    memberDomains.finance,
+  ]);
+
   const { data: inTransitPingByTripId = {} } = useTripHubInTransitPings(
     orgId,
     showCompletedList ? [] : tripsByStatus,
@@ -2318,7 +2400,6 @@ export default function TripsScreen() {
   ]);
 
   /** Trip Ops members without Finance export the ops sheet instead of the ledger. */
-  const memberDomains = useMemberCapabilities();
   const useOpsTripExport = memberDomains.tripops && !memberDomains.finance;
   const opsExportTripIds = useMemo(
     () => (useOpsTripExport ? filtered.map((t) => t.id) : []),
@@ -2992,8 +3073,13 @@ export default function TripsScreen() {
       ? {
           page: tripsTablePageSafe,
           pageSize: tripsTablePageSize,
-          offset: hubListPageSlice.tripOffset,
-          limit: hubListPageSlice.tripLimit,
+          // Indent tab feeds indents (as rows) into the table, so page by the indent slice.
+          offset: hubShowsIndentList
+            ? hubListPageSlice.indentOffset
+            : hubListPageSlice.tripOffset,
+          limit: hubShowsIndentList
+            ? hubListPageSlice.indentLimit
+            : hubListPageSlice.tripLimit,
         }
       : undefined;
 
@@ -3102,6 +3188,30 @@ export default function TripsScreen() {
     return <SceneLoadingSplash variant="preparing" message={tr("loading")} />;
   }
 
+  const tripsReportButton = canAccess ? (
+    <View
+      {...(Platform.OS === "web"
+        ? ({ title: "Download Trip Report" } as object)
+        : null)}
+    >
+      <PulsePillButton
+        size="compact"
+        icon={
+          <Download
+            size={12}
+            color={Theme.buttonDarkText}
+            strokeWidth={2.4}
+          />
+        }
+        loading={tripReportDownloading}
+        disabled={tripReportDownloading || !orgId}
+        onPress={() => void handleDownloadTripReport()}
+        accessibilityLabel="Download Trip Report"
+        style={[styles.tripsAddButtonOnChrome, styles.tripsReportIconButton]}
+      />
+    </View>
+  ) : null;
+
   const tripsAddButton = canUnifiedAdd ? (
     <PulsePillButton
       label="Add"
@@ -3112,6 +3222,14 @@ export default function TripsScreen() {
       style={styles.tripsAddButtonOnChrome}
     />
   ) : null;
+
+  const tripsHeaderActions =
+    tripsReportButton || tripsAddButton ? (
+      <View style={styles.tripsHeaderActionsRow}>
+        {tripsReportButton}
+        {tripsAddButton}
+      </View>
+    ) : null;
 
   return (
     <HubScreenShell
@@ -3339,7 +3457,7 @@ export default function TripsScreen() {
                         />
                       ))}
                     </ScrollView>
-                    {tripsAddButton}
+                    {tripsHeaderActions}
                   </View>
                   <View style={hubChrome.tabDivider} />
                 </>
@@ -3503,7 +3621,7 @@ export default function TripsScreen() {
                           </TouchableOpacity>
                         </View>
                       ) : null}
-                      {tripsAddButton}
+                      {tripsHeaderActions}
                     </View>
                   </View>
                 </View>
@@ -4788,6 +4906,17 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     flexShrink: 0,
     alignSelf: "center",
+  },
+  /** Same compact height as Add; square padding so only the download icon shows. */
+  tripsReportIconButton: {
+    minWidth: 32,
+    paddingHorizontal: 8,
+  },
+  tripsHeaderActionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 0,
+    gap: 4,
   },
   tripsFilterHeaderCompact: {
     flexDirection: "column",

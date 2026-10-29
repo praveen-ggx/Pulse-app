@@ -1,9 +1,19 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import {
+  ELR_SOURCE_DOCUMENT_TYPES,
   emptyElrCompletionDraft,
   type ElrCompletionDraft,
 } from "@/features/trips/services/elrCompletion.util";
+
+/** Choice fields only take one of their options; anything else stays empty. */
+const CHOICE_OPTIONS: Partial<Record<keyof ElrCompletionDraft, readonly string[]>> = {
+  consignorGst: ["registered", "unregistered"],
+  consigneeGst: ["registered", "unregistered"],
+  transporterGst: ["registered", "unregistered"],
+  weightUnit: ["kg", "tons"],
+  sourceDocumentType: ELR_SOURCE_DOCUMENT_TYPES.map((type) => type.id),
+};
 
 const keyFor = (tripId: string) => `elr-draft:v1:${tripId.trim()}`;
 
@@ -17,7 +27,10 @@ export function parseElrDraft(raw: string | null): ElrCompletionDraft | null {
     const next = { ...base };
     for (const key of Object.keys(base) as Array<keyof ElrCompletionDraft>) {
       const value = parsed[key];
-      if (typeof value === "string") next[key] = value;
+      if (typeof value !== "string") continue;
+      const options = CHOICE_OPTIONS[key];
+      if (options && !options.includes(value)) continue;
+      (next as Record<keyof ElrCompletionDraft, string>)[key] = value;
     }
     return next;
   } catch {

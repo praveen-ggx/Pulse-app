@@ -22,6 +22,17 @@ import {
 } from "@/features/trips/services/elrDraft.storage";
 
 describe("E-LR draft storage", () => {
+  it("keeps valid choices and drops unknown ones", () => {
+    const parsed = parseElrDraft(
+      JSON.stringify({ weightUnit: "tons", consignorGst: "maybe", consigneeName: "Harbour Stores" }),
+    );
+    expect(parsed).toMatchObject({
+      weightUnit: "tons",
+      consignorGst: "",
+      consigneeName: "Harbour Stores",
+    });
+  });
+
   it("round-trips an incomplete draft and can discard it", async () => {
     const draft = {
       ...emptyElrCompletionDraft(),

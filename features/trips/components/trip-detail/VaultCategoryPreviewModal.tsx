@@ -63,8 +63,17 @@ type Props = {
   files: VaultCategoryPreviewFile[];
   index: number;
   onIndexChange: (index: number) => void;
+  /** Dismiss without treating the preview as confirmed (header X / Cancel). */
   onClose: () => void;
+  /**
+   * Add another file from the draft strip thumb only — never the footer Submit.
+   * Submit confirms the current files and returns to the previous stage.
+   */
   onAdd?: () => void;
+  /** Optional side-effect before closing on Submit (defaults to onClose only). */
+  onSubmit?: () => void;
+  /** Rejected file: footer shows Replace (same row, new file) instead of Submit. */
+  onReplace?: () => void;
   onDelete?: (file: VaultCategoryPreviewFile) => void;
   onResolveUrl?: (file: VaultCategoryPreviewFile) => Promise<string | null>;
   onSaveExpiry?: (file: VaultCategoryPreviewFile, isoDate: string) => void;
@@ -94,6 +103,8 @@ export function VaultCategoryPreviewModal({
   onIndexChange,
   onClose,
   onAdd,
+  onSubmit,
+  onReplace,
   onDelete,
   onResolveUrl,
   onSaveExpiry,
@@ -338,8 +349,8 @@ export function VaultCategoryPreviewModal({
               <VaultDraftPreviewBlock
                 items={items}
                 selectedId={current?.id ?? null}
-                showHint={Boolean(onAdd)}
-                showAddThumb={Boolean(onAdd)}
+                showHint={Boolean(onAdd) && !onReplace}
+                showAddThumb={Boolean(onAdd) && !onReplace}
                 onSelect={(id) => {
                   const next = files.findIndex((file) => file.id === id);
                   if (next >= 0) onIndexChange(next);
@@ -382,9 +393,27 @@ export function VaultCategoryPreviewModal({
                 style={HUG}
               />
             ) : null}
-            {onAdd ? (
-              <RegistryPrimaryButton label="Add" onPress={onAdd} style={HUG} />
-            ) : null}
+            {onReplace ? (
+              <RegistryPrimaryButton label="Replace" onPress={onReplace} style={HUG} />
+            ) : (
+              <RegistryPrimaryButton
+                label="Submit"
+                onPress={() => {
+                  // Persist in-progress expiry edit, then confirm and leave preview.
+                  if (
+                    editingExpiry &&
+                    current &&
+                    /^\d{4}-\d{2}-\d{2}$/.test(draftExpiry)
+                  ) {
+                    onSaveExpiry?.(current, draftExpiry);
+                    setEditingExpiry(false);
+                  }
+                  onSubmit?.();
+                  onClose();
+                }}
+                style={HUG}
+              />
+            )}
           </View>
         </View>
       </View>

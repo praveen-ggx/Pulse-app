@@ -7,13 +7,20 @@ import { PartyAvatar } from "@/components/PartyAvatar";
 import { TinyEmptyLottie } from "@/components/TinyEmptyLottie";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
+import { signCompliancePreviewUrl } from "@/features/tripCompliance/services/complianceDocumentView.service";
+import { isPdfTripDoc } from "@/features/trips/components/trip-detail/tripDocTypes";
+import {
+  vaultChooserSignSource,
+  type VaultChooserPreviewSource,
+} from "@/features/trips/components/trip-detail/VaultChooserNotifyRow";
+import { VaultFullDocumentModal } from "@/features/trips/components/trip-detail/VaultFullDocumentModal";
 import {
   formatTripActivityRelativeTime,
   tripActivityMonthYearLabel,
   tripActivityYearFromIso,
 } from "@/lib/trips/formatTripActivityTime.util";
 import { TRIP_ACTIVITY_LOTTIE } from "@/lib/trips/tripActivityLottieAssets";
-import type { TripAuditFilterTab } from "@/lib/trips/tripAuditLog.types";
+import type { TripAuditFilterTab, TripAuditLogDocPreview } from "@/lib/trips/tripAuditLog.types";
 import type { TripAuditLogEntry } from "@/lib/trips/tripAuditLog.types";
 import Feather from "@expo/vector-icons/Feather";
 import { X } from "lucide-react-native";
@@ -62,6 +69,8 @@ export type TripAuditLogContentProps = {
   tabs?: TripAuditFilterTab[];
   initialTab?: TripAuditFilterTab;
   emptyBody?: string;
+  /** Used to sign vehicle / compliance Storage paths for Activity previews. */
+  organizationId?: string | null;
 };
 
 type TimelineRow =
@@ -179,9 +188,11 @@ function ActivityUserAvatar({
 function TimelineEntryRow({
   entry,
   index,
+  onOpenPreview,
 }: {
   entry: TripAuditLogEntry;
   index: number;
+  onOpenPreview?: (preview: TripAuditLogDocPreview) => void;
 }) {
   const entrance = useRef(new Animated.Value(0)).current;
   const relativeTime = formatTripActivityRelativeTime(entry.at);
@@ -207,6 +218,7 @@ function TimelineEntryRow({
     extraLines.join(" · ") ||
     peopleLine ||
     (detailTitle && entry.detail && entry.detail !== detailTitle ? entry.detail : undefined);
+  const canPreview = Boolean(entry.preview?.storagePath?.trim() && onOpenPreview);
 
   useEffect(() => {
     Animated.timing(entrance, {
@@ -237,12 +249,21 @@ function TimelineEntryRow({
         actionText={actionPhrase(entry)}
         highlightText={entry.headlineTarget}
         detailTitle={detailTitle}
-        detailSubtitle={detailSubtitle}
+        detailSubtitle={
+          canPreview
+            ? [detailSubtitle, "Tap to preview"].filter(Boolean).join(" · ")
+            : detailSubtitle
+        }
         detail={!detailTitle ? entry.detail : undefined}
         timeLabel={relativeTime}
         contextLabel={entry.contextLabel ?? entry.categoryLabel}
         tags={[{ label: entry.categoryLabel }]}
         avatarSlot={<ActivityUserAvatar avatar={entry.actorAvatar} size={36} />}
+        onPress={
+          canPreview && entry.preview
+            ? () => onOpenPreview?.(entry.preview!)
+            : undefined
+        }
       />
     </Animated.View>
   );
@@ -298,6 +319,7 @@ export function TripAuditLogContent({
   tabs,
   initialTab = "all",
   emptyBody,
+  organizationId = null,
 }: TripAuditLogContentProps) {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -309,9 +331,42 @@ export function TripAuditLogContent({
   );
   const [filterTab, setFilterTab] = useState<TripAuditFilterTab>(initialTab);
   const [activeYear, setActiveYear] = useState<number | null>(null);
+  const [preview, setPreview] = useState<{
+    uri: string | null;
+    loading: boolean;
+    fileName: string;
+    storagePath: string;
+    isPdf: boolean;
+  } | null>(null);
   useEffect(() => {
     if (!visibleTabs.some((tab) => tab.id === filterTab)) setFilterTab("all");
   }, [filterTab, visibleTabs]);
+
+  const openDocPreview = (doc: TripAuditLogDocPreview) => {
+    const storagePath = doc.storagePath.trim();
+    if (!storagePath) return;
+    const fileName = String(doc.fileName ?? "").trim() || storagePath.split("/").pop() || "Document";
+    const isPdf = isPdfTripDoc({
+      fileName,
+      storagePath,
+    });
+    setPreview({ uri: null, loading: true, fileName, storagePath, isPdf });
+    void signCompliancePreviewUrl({
+      storagePath,
+      source: vaultChooserSignSource(
+        (doc.source ?? "trip") as VaultChooserPreviewSource,
+      ),
+      organizationId: doc.organizationId ?? organizationId,
+      entityId: doc.entityId ?? null,
+      docType: doc.docType ?? null,
+    }).then((uri) => {
+      setPreview((current) =>
+        current && current.storagePath === storagePath
+          ? { ...current, uri, loading: false }
+          : current,
+      );
+    });
+  };
 
   const tabbedEntries = useMemo(
     () => entries.filter((entry) => matchesTab(entry, filterTab)),
@@ -472,6 +527,7 @@ export function TripAuditLogContent({
                     key={row.key}
                     entry={row.entry}
                     index={entryIndex}
+                    onOpenPreview={openDocPreview}
                   />
                 );
               })}
@@ -498,6 +554,16 @@ export function TripAuditLogContent({
           />
         ) : null}
       </View>
+
+      <VaultFullDocumentModal
+        visible={Boolean(preview)}
+        uri={preview?.loading ? null : preview?.uri ?? null}
+        isPdf={Boolean(preview?.isPdf)}
+        title={preview?.fileName || "Document"}
+        documentKey={preview?.storagePath}
+        documentVersion={preview?.fileName}
+        onClose={() => setPreview(null)}
+      />
     </View>
   );
 }

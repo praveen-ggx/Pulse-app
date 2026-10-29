@@ -18,14 +18,8 @@ import type { TripRow } from "@/features/trips/services/trips.service";
  * real trip rows. The indent key stays 0 on trip rails; it is not mixed
  * into Active / All / History trip metrics.
  */
-export type TripMetricId =
-  | "indent"
-  | "unassigned"
-  | "assigned"
-  | "loading"
-  | "in_transit"
-  | "unloading"
-  | "delivered_docs_pending";
+import type { TripMetricId } from "@/features/trips/utils/hubMetrics.model";
+export type { TripMetricId };
 
 export const TRIP_METRIC_ORDER: TripMetricId[] = [
   "indent",

@@ -13,9 +13,13 @@ import { parseEwayFieldEntries } from "@/features/trips/services/ewayBillFields.
 import { lrNumbersFromDocumentNumber } from "@/features/trips/utils/hardCopyPodLrSelection.util";
 import {
   REQUIRED_COMPLIANCE_DOCUMENT_TYPES,
+  REQUIRED_DRIVER_DOCUMENT_TYPES,
+  REQUIRED_VEHICLE_DOCUMENT_TYPES,
   type ComplianceDocumentRow,
+  type ComplianceEntityDocument,
   type ComplianceTripSummary,
 } from "@/features/tripCompliance/tripCompliance.types";
+import { groundOpsTransitDocLabel } from "@/features/tripCompliance/utils/groundOpsTransitGate.util";
 import { classifyTripDocument } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
 import {
   deriveComplianceDocumentRows,
@@ -319,6 +323,128 @@ export function missingOrRejectedRequiredTripDocs(summary: ComplianceTripSummary
  */
 export function missingRequiredResubmitFiles(summary: ComplianceTripSummary): string[] {
   return missingOrRejectedRequiredTripDocs(summary);
+}
+
+/** Rejected / replaced only — calendar-expired and status `expired` still count as on file. */
+const RESUBMIT_NOT_ATTACHED = new Set(["rejected", "replaced"]);
+
+/**
+ * Vehicle / driver files for a Compliance Hold Resubmit.
+ * Attachment-only: a storage path on the slot that is not rejected / replaced.
+ * Missing expiry and calendar-expired dates do not block — the Document Upload
+ * row still shows "On file", and Compliance checks expiry after Resubmit.
+ */
+export function resubmitEntityAttachmentBlockers(
+  summary: ComplianceTripSummary,
+): string[] {
+  const check = (
+    types: readonly string[],
+    rows: readonly Pick<
+      ComplianceEntityDocument,
+      "doc_type" | "status" | "expiry_date" | "storage_path"
+    >[],
+  ) =>
+    types.flatMap((type) => {
+      const label = groundOpsTransitDocLabel(type);
+      const attached = rows.filter(
+        (doc) =>
+          doc.doc_type === type &&
+          Boolean(doc.storage_path?.trim()) &&
+          !RESUBMIT_NOT_ATTACHED.has(doc.status),
+      );
+      if (attached.length > 0) return [];
+      const rejectedOnFile = rows.some(
+        (doc) =>
+          doc.doc_type === type &&
+          doc.status === "rejected" &&
+          Boolean(doc.storage_path?.trim()),
+      );
+      return [
+        rejectedOnFile
+          ? `${label} (rejected — replace it)`
+          : `${label} (missing)`,
+      ];
+    });
+  return [
+    ...check(REQUIRED_VEHICLE_DOCUMENT_TYPES, summary.vehicleDocuments ?? []),
+    ...check(REQUIRED_DRIVER_DOCUMENT_TYPES, summary.driverDocuments ?? []),
+  ];
+}
+
+/** Per-doc blockers for Resubmit (trip +, on hold vehicle/driver). */
+export function resubmitBlockingDocItems(summary: ComplianceTripSummary): string[] {
+  const trip = missingOrRejectedRequiredTripDocs(summary).map((type) => {
+    const rejected = summary.documents.some(
+      (doc) => doc.document_type === type && doc.status === "rejected",
+    );
+    return `${groundOpsTransitDocLabel(type)} (${rejected ? "rejected — replace it" : "missing"})`;
+  });
+  const entity = isComplianceHoldAwaitingResubmit(summary)
+    ? resubmitEntityAttachmentBlockers(summary)
+    : [];
+  return [...trip, ...entity];
+}
+
+/** Human labels for Resubmit gate (trip +, on hold, vehicle/driver). */
+export function resubmitBlockingDocsLabel(summary: ComplianceTripSummary): string {
+  return resubmitBlockingDocItems(summary).join(", ");
+}
+
+export type ResubmitBlockedExplain = {
+  why: string;
+  action: string;
+  items: string[];
+};
+
+/** Copy for a disabled Resubmit control — why it is locked and what to do. */
+export function explainResubmitBlocked(
+  summary: ComplianceTripSummary,
+): ResubmitBlockedExplain | null {
+  const items = resubmitBlockingDocItems(summary);
+  if (items.length === 0) return null;
+  const rejected = items.filter((item) => /rejected/i.test(item));
+  const missing = items.filter((item) => !/rejected/i.test(item));
+  const parts: string[] = [];
+  if (rejected.length > 0) {
+    parts.push(
+      rejected.length === 1
+        ? `${rejected[0].replace(/\s*\(.*?\)\s*$/, "")} was rejected`
+        : `${rejected.length} documents were rejected`,
+    );
+  }
+  if (missing.length > 0) {
+    parts.push(
+      missing.length === 1
+        ? `${missing[0].replace(/\s*\(.*?\)\s*$/, "")} is missing`
+        : `${missing.length} required documents are missing`,
+    );
+  }
+  return {
+    why: parts.join("; ") || "Required documents are incomplete",
+    action:
+      rejected.length > 0 && missing.length > 0
+        ? `Replace rejected files and upload missing ones: ${items.join(", ")}. Then Resubmit.`
+        : rejected.length > 0
+          ? `Replace: ${items.join(", ")}. Then Resubmit.`
+          : `Upload: ${items.join(", ")}. Then Resubmit.`,
+    items,
+  };
+}
+
+/**
+ * Client Resubmit gate. Trip LR / E-way / Invoice match the database.
+ * Vehicle / driver attachment is hold-only (app-side); finance reject does not
+ * require re-checking the vault.
+ */
+export function isResubmitBlockedByMissingDocs(summary: ComplianceTripSummary): boolean {
+  if (missingRequiredResubmitFiles(summary).length > 0) return true;
+  if (
+    isComplianceHoldAwaitingResubmit(summary) &&
+    resubmitEntityAttachmentBlockers(summary).length > 0
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /** Active finance reject. Shown on Document Upload → Declined by finance. */

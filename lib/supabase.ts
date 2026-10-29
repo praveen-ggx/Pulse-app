@@ -16,6 +16,7 @@
  * Never call createClient() again elsewhere; import supabase() from this module.
  */
 import { createClient, processLock, type SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
@@ -488,7 +489,7 @@ export async function getAccessToken(): Promise<string | null> {
 export const SUPABASE_CONFIG_MISSING_MESSAGE =
   'Missing Supabase config. Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY to .env in the project root, then restart: npx expo start';
 
-function getSupabase(): SupabaseClient {
+function getSupabase(): SupabaseClient<Database> {
   if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error(SUPABASE_CONFIG_MISSING_MESSAGE);
   }
@@ -511,7 +512,7 @@ function getSupabase(): SupabaseClient {
   const authStorage = createAuthStorage();
 
 
-  const c = createClient(supabaseUrl, supabaseAnonKey, {
+  const c = createClient<Database>(supabaseUrl, supabaseAnonKey, {
     auth: {
       storage: authStorage,
       autoRefreshToken: true,
@@ -541,9 +542,9 @@ function getSupabase(): SupabaseClient {
   return c;
 }
 
-let client: SupabaseClient | null = null;
+let client: SupabaseClient<Database> | null = null;
 
-export function supabase(): SupabaseClient {
+export function supabase(): SupabaseClient<Database> {
   if (!client) {
     client = getSupabase();
     configurePlatformDb(() => client);

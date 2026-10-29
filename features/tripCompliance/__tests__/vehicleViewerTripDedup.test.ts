@@ -125,9 +125,9 @@ describe("fetchVehicleDocumentsForTrips — vault RPC", () => {
   });
 
   it("empty vault documents are resolved — no plate fallback, no re-fetch", async () => {
-    mockVaultRows = [{ trip_id: "t1", vehicle_id: "v9", vehicle_number: "MH12XY0001", documents: {} }];
+    mockVaultRows = [{ trip_id: "t1", vehicle_id: "00000000-0000-4000-8000-000000000009", vehicle_number: "MH12XY0001", documents: {} }];
     const trips = [
-      trip("t1", { vehicle_id: "v9", vehicle_display_number: "MH12XY0001" }),
+      trip("t1", { vehicle_id: "00000000-0000-4000-8000-000000000009", vehicle_display_number: "MH12XY0001" }),
       // Same plate, no vehicle link: the RPC already resolved that plate, so still no fallback.
       trip("t2", { vehicle_display_number: "MH12XY0001" }),
     ];

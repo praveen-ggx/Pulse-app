@@ -104,10 +104,13 @@ export function classifyTripDocument(doc: ClassifiableTripDocument | null | unde
     present: kind !== "empty",
   });
 
-  if (doc.source_entity_document_id || path.startsWith(REFERENCE_PATH_PREFIX)) return result("reference");
+  if (path.startsWith(REFERENCE_PATH_PREFIX)) return result("reference");
   if (/^https?:\/\//i.test(path)) return result("url");
   if (isTypedDetailsMarker(doc)) return result(hasDetails ? "details" : "empty");
+  // A real object path after reject → replace is the current file. A leftover
+  // `source_entity_document_id` from vault reuse must not hide it.
   if (isValidObjectPath(path)) return result("file");
+  if (doc.source_entity_document_id) return result("reference");
   return result(hasDetails ? "details" : "empty");
 }
 

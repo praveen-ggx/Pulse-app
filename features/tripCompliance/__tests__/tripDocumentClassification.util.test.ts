@@ -111,7 +111,13 @@ const fixtures = {
     source_entity_document_id: "ent-1",
     status: "verified",
   }),
-  referenceByIdOnly: doc({ id: "reference-id", storage_path: "anything", source_entity_document_id: "ent-2" }),
+  referenceByIdOnly: doc({ id: "reference-id", storage_path: "", source_entity_document_id: "ent-2" }),
+  replacedWithLeftoverPin: doc({
+    id: "replaced-file",
+    storage_path: "trip-1/invoice/new-scan.pdf",
+    source_entity_document_id: "ent-old",
+    status: "pending",
+  }),
   url: doc({ id: "url", storage_path: "https://cdn.example.com/lr.pdf" }),
 };
 
@@ -158,6 +164,15 @@ describe("classifyTripDocument — every intake shape", () => {
     expect(classifyTripDocument(fixtures.reference).kind).toBe("reference");
     expect(classifyTripDocument(fixtures.referenceByIdOnly).kind).toBe("reference");
     expect(classifyTripDocument(fixtures.reference).hasBinary).toBe(true);
+  });
+
+  it("reject → replace with a real file is a file even if the old vault pin remains", () => {
+    expect(classifyTripDocument(fixtures.replacedWithLeftoverPin)).toEqual({
+      kind: "file",
+      hasBinary: true,
+      hasDetails: false,
+      present: true,
+    });
   });
 
   it("external URL → url", () => {

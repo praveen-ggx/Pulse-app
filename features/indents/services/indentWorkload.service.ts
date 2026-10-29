@@ -6,6 +6,7 @@ import {
   indentWorkloadOrFilter,
   type IndentWorkloadBounds,
   type IndentWorkloadKind,
+  type IndentWorkloadRange,
 } from "@/features/indents/utils/indentWorkload.util";
 import { supabase } from "@/lib/supabase";
 
@@ -37,12 +38,13 @@ function workloadQuery(
 export async function countIndentWorkload(
   orgId: string,
   bounds: IndentWorkloadBounds,
+  range?: IndentWorkloadRange | null,
 ): Promise<{ error: Error | null; counts: Record<IndentWorkloadKind, number> | null }> {
   const kinds: IndentWorkloadKind[] = ["live", "needs_trip"];
   const results = await Promise.all(
     kinds.map((kind) =>
       workloadQuery(orgId, `id, ${LINKED_TRIP_EMBED}`, { count: "exact", head: true }).or(
-        indentWorkloadOrFilter(kind, bounds),
+        indentWorkloadOrFilter(kind, bounds, range),
       ),
     ),
   );
@@ -63,8 +65,9 @@ export async function countIndentWorkload(
 export async function listIndentWorkload(
   orgId: string,
   bounds: IndentWorkloadBounds,
+  range?: IndentWorkloadRange | null,
 ): Promise<{ error: Error | null; indents: IndentRow[]; truncated: boolean }> {
-  const filter = `${indentWorkloadOrFilter("live", bounds)},${indentWorkloadOrFilter(
+  const filter = `${indentWorkloadOrFilter("live", bounds, range)},${indentWorkloadOrFilter(
     "needs_trip",
     bounds,
   )}`;

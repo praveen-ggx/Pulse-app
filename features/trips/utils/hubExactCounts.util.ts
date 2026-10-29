@@ -7,32 +7,20 @@ import {
     isTripCancelledForHub,
     type TripMetricId
 } from "@/features/trips/utils/tripHubMetrics";
+import type {
+  HubTripFact,
+  OrgHubCountSource,
+} from "@/features/trips/utils/hubMetrics.model";
 import {
     tripDayMatchesHubDateFilter,
     type TripHubDateFilter,
 } from "@/lib/dateRangePresets";
 
-export type HubTripFact = {
-  id: string;
-  status: string | null;
-  driver_id: string | null;
-  indent_id: string | null;
-  pickup_date: string | null;
-  created_at: string | null;
-};
-
-export type HubIndentFact = {
-  id: string;
-  status: string | null;
-  pickup_date: string | null;
-  created_at: string | null;
-};
-
-export type OrgHubCountSource = {
-  trips: HubTripFact[];
-  documentTripIds: string[];
-  indents: HubIndentFact[];
-};
+export type {
+  HubIndentFact,
+  HubTripFact,
+  OrgHubCountSource,
+} from "@/features/trips/utils/hubMetrics.model";
 
 export type OrgHubExactCounts = {
   metrics: Record<TripMetricId, number>;

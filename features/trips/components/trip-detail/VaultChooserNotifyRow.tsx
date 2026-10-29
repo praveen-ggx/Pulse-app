@@ -4,6 +4,11 @@
 import Theme from "@/constants/Theme";
 import { signCompliancePreviewUrl } from "@/features/tripCompliance/services/complianceDocumentView.service";
 import { isInlinePreviewUri } from "@/features/trips/utils/storagePreviewObjectUrl.util";
+import {
+  DocumentUploadAttributionRow,
+  documentUploadAttributionHasContent,
+  type DocumentUploadAttribution,
+} from "@/features/trips/components/trip-detail/DocumentUploadAttributionRow";
 import { isPdfTripDoc } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { VaultDocThumb } from "@/features/trips/components/trip-detail/VaultDocThumb";
 import { VaultFullDocumentModal } from "@/features/trips/components/trip-detail/VaultFullDocumentModal";
@@ -65,6 +70,8 @@ type Props = {
    * Aligns like Valid till: label left, tabular value right.
    */
   detailFact?: { label: string; value: string } | null;
+  /** Uploader avatar + name + timestamp under the document number. */
+  uploadAttribution?: DocumentUploadAttribution | null;
   required?: boolean;
   /** ISO date (YYYY-MM-DD or timestamp) shown as Valid till. */
   expiryDate?: string | null;
@@ -255,6 +262,7 @@ export function VaultChooserNotifyRow({
   previews,
   actionText,
   detailFact = null,
+  uploadAttribution = null,
   required,
   expiryDate,
   needsExpiry = false,
@@ -328,6 +336,13 @@ export function VaultChooserNotifyRow({
             <Text style={styles.number} numberOfLines={1} ellipsizeMode="tail" selectable>
               {numberLine}
             </Text>
+          ) : null}
+          {documentUploadAttributionHasContent(uploadAttribution) ? (
+            <DocumentUploadAttributionRow
+              {...uploadAttribution!}
+              size={22}
+              compact
+            />
           ) : null}
           {showDetailFact ? (
             <View style={styles.detailFactRow} accessibilityRole="text">

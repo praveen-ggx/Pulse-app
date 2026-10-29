@@ -3,6 +3,11 @@
  */
 import Theme from "@/constants/Theme";
 import {
+  DocumentUploadAttributionRow,
+  documentUploadAttributionHasContent,
+  type DocumentUploadAttribution,
+} from "@/features/trips/components/trip-detail/DocumentUploadAttributionRow";
+import {
   VaultCardLrStylePreview,
   type VaultPreviewSignContext,
 } from "@/features/trips/components/trip-detail/VaultCardLrStylePreview";
@@ -28,6 +33,7 @@ export function TripMobileVaultCategoryRow({
   onPreview,
   onAdd,
   sign,
+  resolveUploadAttribution,
 }: {
   doc: TripDocItem;
   statusLabel: string;
@@ -37,11 +43,20 @@ export function TripMobileVaultCategoryRow({
   onPreview: (fileIndex: number) => void;
   onAdd: () => void;
   sign?: VaultPreviewSignContext;
+  resolveUploadAttribution?: (
+    file: TripDocFile | null,
+    doc: TripDocItem,
+  ) => DocumentUploadAttribution | null;
 }) {
   const [selectedFile, setSelectedFile] = useState<TripDocFile | null>(null);
   const meta = uploading
     ? "Uploading…"
     : error ?? formatSelectedVaultFileMeta(selectedFile, statusLabel, doc);
+  const uploadAttribution =
+    !uploading && !error
+      ? resolveUploadAttribution?.(selectedFile, doc) ?? null
+      : null;
+  const showUploadLog = documentUploadAttributionHasContent(uploadAttribution);
   return (
     <View style={styles.card} accessibilityLabel={doc.label}>
       <View style={styles.header}>
@@ -59,6 +74,13 @@ export function TripMobileVaultCategoryRow({
           >
             {meta}
           </Text>
+          {showUploadLog ? (
+            <DocumentUploadAttributionRow
+              {...uploadAttribution!}
+              size={22}
+              compact
+            />
+          ) : null}
         </View>
       </View>
       <VaultCardLrStylePreview
@@ -68,6 +90,7 @@ export function TripMobileVaultCategoryRow({
         onPressFile={onPreview}
         onSelectedFile={setSelectedFile}
         sign={sign}
+        uploadAttribution={uploadAttribution}
       />
     </View>
   );

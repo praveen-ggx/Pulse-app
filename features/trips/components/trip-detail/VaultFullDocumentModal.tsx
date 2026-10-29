@@ -2,6 +2,11 @@
  * Full-screen document viewer — same overlay as the vault category sheet.
  */
 import Theme from "@/constants/Theme";
+import {
+  DocumentUploadAttributionRow,
+  documentUploadAttributionHasContent,
+  type DocumentUploadAttribution,
+} from "@/features/trips/components/trip-detail/DocumentUploadAttributionRow";
 import { TripVaultFilePreview } from "@/features/trips/components/trip-detail/TripVaultFilePreview";
 import Feather from "@expo/vector-icons/Feather";
 import { Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
@@ -21,6 +26,7 @@ export function VaultFullDocumentModal({
   documentVersion,
   navLabel,
   headerFacts,
+  uploadAttribution = null,
   canNavigate = false,
   onPrev,
   onNext,
@@ -35,6 +41,8 @@ export function VaultFullDocumentModal({
   navLabel?: string | null;
   /** LR / invoice / Valid till — same facts as the document card. */
   headerFacts?: string | null;
+  /** Uploader avatar + name + timestamp under the document title. */
+  uploadAttribution?: DocumentUploadAttribution | null;
   canNavigate?: boolean;
   onPrev?: () => void;
   onNext?: () => void;
@@ -79,6 +87,9 @@ export function VaultFullDocumentModal({
               <Text style={styles.meta} numberOfLines={1}>
                 {headerFacts}
               </Text>
+            ) : null}
+            {documentUploadAttributionHasContent(uploadAttribution) ? (
+              <DocumentUploadAttributionRow {...uploadAttribution!} size={26} light />
             ) : null}
             {navLabel ? (
               <Text style={styles.meta} numberOfLines={1}>

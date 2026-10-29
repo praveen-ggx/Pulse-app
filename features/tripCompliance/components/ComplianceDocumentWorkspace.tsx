@@ -184,10 +184,23 @@ import { type HardCopyPodLrOption } from "@/features/trips/components/trip-detai
 import { ComplianceHardCopyPodSheet } from "@/features/tripCompliance/components/ComplianceHardCopyPodSheet";
 import { PodVerificationPane } from "@/features/tripCompliance/components/PodVerificationPane";
 import {
+  DocumentUploadAttributionRow,
+  documentUploadAttributionHasContent,
+  type DocumentUploadAttribution,
+} from "@/features/trips/components/trip-detail/DocumentUploadAttributionRow";
+import {
   formatDocumentHeaderFacts,
   formatInvoiceVaultNumberLabel,
   formatLrVaultNumberLabel,
 } from "@/features/trips/components/trip-detail/tripDocTypes";
+import {
+  displayMapFromProfiles,
+  resolveActivityUserProfiles,
+} from "@/lib/trips/hydrateTripActivityActors.util";
+import {
+  resolveTripActivityUserLabel,
+  type TripActivityUserProfile,
+} from "@/lib/trips/buildTripAuditLog.util";
 import { TripVaultFilePreview } from "@/features/trips/components/trip-detail/TripVaultFilePreview";
 import { VaultCategoryPreviewModal } from "@/features/trips/components/trip-detail/VaultCategoryPreviewModal";
 import type { VaultCategoryPreviewFile } from "@/features/trips/components/trip-detail/vaultCategoryPreview.types";
@@ -500,10 +513,56 @@ function localVaultFilePreviewUri(file: { uri?: string; arrayBuffer: ArrayBuffer
   }
 }
 
+function complianceUploadActor(row: ComplianceDocRow): {
+  uploadedAt: string | null;
+  uploadedById: string | null;
+} {
+  return {
+    uploadedAt: row.doc?.uploaded_at ?? row.entityDoc?.created_at ?? null,
+    uploadedById: row.doc?.uploaded_by ?? row.entityDoc?.created_by ?? null,
+  };
+}
+
+function profileDisplayName(profile?: TripActivityUserProfile | null): string {
+  if (!profile) return "";
+  return (
+    profile.full_name?.trim() ||
+    profile.phone?.trim() ||
+    profile.email?.trim() ||
+    ""
+  );
+}
+
+function attributionFromUploader(
+  uploadedAt: string | null | undefined,
+  uploadedById: string | null | undefined,
+  profiles: Record<string, TripActivityUserProfile>,
+  currentUserId?: string | null,
+): DocumentUploadAttribution {
+  const id = String(uploadedById ?? "").trim();
+  const profile = id ? profiles[id] : undefined;
+  const labeled = resolveTripActivityUserLabel(
+    id,
+    currentUserId,
+    displayMapFromProfiles(profiles),
+    "",
+    profiles,
+  )
+    .replace(/\s*\(you\)$/i, "")
+    .trim();
+  return {
+    uploadedAt: uploadedAt ?? null,
+    uploadedByName: labeled || profileDisplayName(profile) || null,
+    uploadedByAvatarUrl: profile?.avatar_url ?? null,
+    uploadedByAvatarSeed: profile?.avatar_seed ?? null,
+  };
+}
+
 function compliancePreviewFileFromRow(
   row: ComplianceDocRow,
   label: string,
   canDelete: boolean,
+  uploaderProfiles: Record<string, TripActivityUserProfile> = {},
 ): VaultCategoryPreviewFile {
   const isTripFile = Boolean(row.doc);
   const entityDoc = row.entityDoc;
@@ -515,6 +574,12 @@ function compliancePreviewFileFromRow(
     entityDoc != null &&
     !isTripFile &&
     (entityDoc.entity_type === "supplier" || entityDoc.source === "supplier-kyc");
+  const { uploadedAt, uploadedById } = complianceUploadActor(row);
+  const attribution = attributionFromUploader(
+    uploadedAt,
+    uploadedById,
+    uploaderProfiles,
+  );
   return {
     id: row.key,
     fileName: row.doc?.file_name?.trim() || entityDoc?.notes?.trim() || label,
@@ -535,6 +600,10 @@ function compliancePreviewFileFromRow(
     complianceType,
     driverKind,
     expiryDate: entityDoc?.expiry_date ?? null,
+    uploadedAt: attribution.uploadedAt,
+    uploadedByName: attribution.uploadedByName,
+    uploadedByAvatarUrl: attribution.uploadedByAvatarUrl,
+    uploadedByAvatarSeed: attribution.uploadedByAvatarSeed,
   };
 }
 
@@ -1887,6 +1956,7 @@ export function DocumentScreen({
   onNext,
   navLabel = null,
   headerFacts = null,
+  uploadAttribution = null,
   canNavigate = false,
   typedLines = null,
   resolving = false,
@@ -1906,6 +1976,8 @@ export function DocumentScreen({
   navLabel?: string | null;
   /** LR / invoice / Valid till — same facts as the document card. */
   headerFacts?: string | null;
+  /** Uploader avatar + name + timestamp under the document title. */
+  uploadAttribution?: DocumentUploadAttribution | null;
   canNavigate?: boolean;
   /** Details-only docs (e.g. typed E-way) — no binary file. */
   typedLines?: { label: string; value: string }[] | null;
@@ -2325,6 +2397,9 @@ export function DocumentScreen({
                 <Text style={styles.screenSubtitle} numberOfLines={1}>
                   {headerFacts}
                 </Text>
+              ) : null}
+              {documentUploadAttributionHasContent(uploadAttribution) ? (
+                <DocumentUploadAttributionRow {...uploadAttribution!} size={26} />
               ) : null}
             </View>
             <View style={styles.screenTools}>
@@ -2915,6 +2990,9 @@ export function ComplianceDocumentWorkspace({
     index: number;
     type: string;
   } | null>(null);
+  const [uploaderProfiles, setUploaderProfiles] = useState<
+    Record<string, TripActivityUserProfile>
+  >({});
   const [fileActionKey, setFileActionKey] = useState<string | null>(null);
   /** Files dialog to reopen when the full-screen viewer opened from it closes. */
   const filesModalReturnRef = useRef<string | null>(null);
@@ -2953,6 +3031,45 @@ export function ComplianceDocumentWorkspace({
   const podRequestSeen = useRef(0);
 
   const summary = summaries.find((item) => item.trip.id === selectedId) ?? summaries[0] ?? null;
+
+  useEffect(() => {
+    if (!summary) {
+      setUploaderProfiles({});
+      return;
+    }
+    const ids = [
+      ...(summary.documents ?? []).map((doc) => doc.uploaded_by),
+      ...(summary.vehicleDocuments ?? []).map((doc) => doc.created_by),
+      ...(summary.driverDocuments ?? []).map((doc) => doc.created_by),
+    ]
+      .map((id) => String(id ?? "").trim())
+      .filter(Boolean);
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) {
+      setUploaderProfiles({});
+      return;
+    }
+    const orgId =
+      summary.trip.organization_id ?? organizationId ?? null;
+    let cancelled = false;
+    void resolveActivityUserProfiles({
+      userIds: unique,
+      organizationId: orgId,
+    }).then((profiles) => {
+      if (cancelled) return;
+      setUploaderProfiles(profiles);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    organizationId,
+    summary?.trip.id,
+    summary?.trip.organization_id,
+    summary?.documents,
+    summary?.vehicleDocuments,
+    summary?.driverDocuments,
+  ]);
   const showLogHardCopyPod =
     showHardCopyPodLog && summary != null && tripAppearsInAwaitingPod(summary);
   const selectedPodReceived =
@@ -3887,6 +4004,12 @@ export function ComplianceDocumentWorkspace({
       }),
   );
   const rowDecisionButtons = complianceDecisionButtonState(activeDecisionRow);
+  const activeUpload = activeRow ? complianceUploadActor(activeRow) : null;
+  const previewUploadAttribution = attributionFromUploader(
+    activeUpload?.uploadedAt,
+    activeUpload?.uploadedById,
+    uploaderProfiles,
+  );
   const financeBankSelected =
     isFinanceMode && checklistSelectedRow?.type === "bank_docs";
   const showBankPayeeDetails = Boolean(summary && !PRE_VERIFIED_STAGES.has(summary.stage));
@@ -4245,7 +4368,12 @@ export function ComplianceDocumentWorkspace({
         const existingPreview = listRows
           .filter((item) => item.type === row.type && hasFile(item))
           .map((item) =>
-            compliancePreviewFileFromRow(item, rowLabel, canEditFiles && !uploadingFinanceType),
+            compliancePreviewFileFromRow(
+              item,
+              rowLabel,
+              canEditFiles && !uploadingFinanceType,
+              uploaderProfiles,
+            ),
           );
         const drafts: VaultCategoryPreviewFile[] = files.map((file, index) => ({
           id: `draft-${Date.now()}-${index}`,
@@ -4405,7 +4533,9 @@ export function ComplianceDocumentWorkspace({
       : labelForDocType(categoryPreviewType);
     const next = listRows
       .filter((item) => item.type === categoryPreviewType && hasFile(item))
-      .map((item) => compliancePreviewFileFromRow(item, label, canEditFiles));
+      .map((item) =>
+        compliancePreviewFileFromRow(item, label, canEditFiles, uploaderProfiles),
+      );
     setCategoryPreview((current) => {
       if (!current || current.type !== categoryPreviewType) return current;
       const drafts = current.files.filter((file) => String(file.id).startsWith("draft-"));
@@ -4652,6 +4782,21 @@ export function ComplianceDocumentWorkspace({
             vaultNumbers.length > 0 ? vaultNumbers.join(" · ") : undefined
           }
           detailFact={memoSupplierRateFact}
+          uploadAttribution={
+            rowHasFile
+              ? (() => {
+                  const actor = complianceUploadActor(displayRow);
+                  const attribution = attributionFromUploader(
+                    actor.uploadedAt,
+                    actor.uploadedById,
+                    uploaderProfiles,
+                  );
+                  return documentUploadAttributionHasContent(attribution)
+                    ? attribution
+                    : null;
+                })()
+              : null
+          }
           expiryDate={expiryIso}
           needsExpiry={documentRequiresExpiry(displayRow.type)}
           preview={typePreviews[0] ?? null}
@@ -4670,7 +4815,12 @@ export function ComplianceDocumentWorkspace({
             if (!canOpenRowFiles) return;
             setCategoryPreview({
               files: typeFiles.map((item) =>
-                compliancePreviewFileFromRow(item, rowLabel, canEditFiles),
+                compliancePreviewFileFromRow(
+                  item,
+                  rowLabel,
+                  canEditFiles,
+                  uploaderProfiles,
+                ),
               ),
               index: 0,
               type: displayRow.type,
@@ -5663,6 +5813,14 @@ export function ComplianceDocumentWorkspace({
                           {previewHeaderFacts}
                         </Text>
                       ) : null}
+                      {documentUploadAttributionHasContent(
+                        previewUploadAttribution,
+                      ) ? (
+                        <DocumentUploadAttributionRow
+                          {...previewUploadAttribution}
+                          size={24}
+                        />
+                      ) : null}
                       {previewable.length > 0 ? (
                         <Text style={styles.previewNavMeta} numberOfLines={1}>
                           {previewOrdinal} of {previewable.length}
@@ -6041,6 +6199,11 @@ export function ComplianceDocumentWorkspace({
         typedLines={typedLines}
         resolving={loadingPreview}
         headerFacts={previewHeaderFacts || null}
+        uploadAttribution={
+          documentUploadAttributionHasContent(previewUploadAttribution)
+            ? previewUploadAttribution
+            : null
+        }
         navLabel={
           previewable.length > 0
             ? `${Math.max(

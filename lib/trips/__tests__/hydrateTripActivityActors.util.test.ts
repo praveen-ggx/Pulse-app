@@ -2,6 +2,7 @@ import {
   applyDocumentActorsToMilestones,
   displayMapFromProfiles,
   mergeLedgerCreatedBy,
+  resolveActivityUserProfiles,
 } from "@/lib/trips/hydrateTripActivityActors.util";
 import type { LedgerRow } from "@/features/finance/services/finance.service";
 import type { TripAuditMilestone } from "@/lib/trips/buildTripAuditLog.util";
@@ -64,5 +65,16 @@ describe("hydrateTripActivityActors", () => {
       u1: "Dhira Ashok",
       u2: "888",
     });
+  });
+
+  it("keeps seeded activity profiles when no user ids are requested", async () => {
+    const profiles = await resolveActivityUserProfiles({
+      userIds: [],
+      seedProfiles: {
+        u1: { full_name: "Sivakozhunthu", avatar_seed: "user-3" },
+      },
+    });
+    expect(profiles.u1?.full_name).toBe("Sivakozhunthu");
+    expect(profiles.u1?.avatar_seed).toBe("user-3");
   });
 });

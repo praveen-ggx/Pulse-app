@@ -29,7 +29,10 @@ import {
   composeComplianceActorDetail,
   type ComplianceActorDetail,
 } from "@/features/tripCompliance/utils/complianceDocumentActivity.util";
-import { isTypedDetailsMarker } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
+import {
+  classifyTripDocument,
+  isTypedDetailsMarker,
+} from "@/features/tripCompliance/utils/tripDocumentClassification.util";
 import { Platform } from "react-native";
 
 export type ComplianceViewSource =
@@ -96,6 +99,10 @@ async function paintCompliancePreviewUrl(
   signed: string | null,
 ): Promise<string | null> {
   if (isInlinePreviewUri(path)) return path;
+  // getVehicleDocumentViewUrl / getComplianceDocumentSignedUrl may already return a
+  // blob: URL. Re-downloading under the wrong bucket (vehicle vs compliance) yields
+  // "missing" on web and wipes a working preview — trust the materialized URI.
+  if (isInlinePreviewUri(signed)) return signed;
   if (/^https?:\/\//i.test(path)) {
     const parsed = parseComplianceStorageRef(path);
     if (parsed.kind === "url") return parsed.value;
@@ -201,7 +208,10 @@ async function signCompliancePreviewUrlUncached(input: {
   if (isTypedDetailsMarker({ storage_path: raw, file_name: raw })) {
     return null;
   }
-  if (input.sourceEntityDocumentId || isVehicleDocumentReferencePath(raw)) {
+  if (
+    isVehicleDocumentReferencePath(raw) ||
+    (input.sourceEntityDocumentId && classifyTripDocument({ storage_path: raw, file_name: raw }).kind !== "file")
+  ) {
     const signed = await resolveTripDocumentPreviewUrl({
       storagePath: raw,
       sourceEntityDocumentId: input.sourceEntityDocumentId,
@@ -242,13 +252,40 @@ async function signCompliancePreviewUrlUncached(input: {
           objectPath = entityPath;
           const { url } = await getComplianceDocumentSignedUrl(entityPath);
           signed = url ?? (await getVehicleDocumentViewUrl(entityPath));
+          if (isInlinePreviewUri(signed)) return signed;
           return paintCompliancePreviewUrl(objectPath, url ? "entity" : "vehicle-vault", signed);
         }
       }
     } else if (source === "entity" || source === "compliance" || source === "supplier-kyc") {
       const { url } = await getComplianceDocumentSignedUrl(path);
       if (url) return url;
-      signed = null;
+      // Fallbacks: org-rewritten compliance path, then vehicle-documents (vault
+      // path stored on an entity row, or cross-org Ground Ops copy).
+      if (orgId) {
+        const rewritten = rewriteStoragePathOrg(path, orgId);
+        if (rewritten) {
+          const again = await getComplianceDocumentSignedUrl(rewritten);
+          if (again.url) return again.url;
+        }
+      }
+      signed = await getVehicleDocumentViewUrl(path);
+      if (isInlinePreviewUri(signed)) return signed;
+      if (signed) return paintCompliancePreviewUrl(path, "vehicle-vault", signed);
+      if (orgId && input.entityId && input.docType) {
+        const entityPath = await lookupEntityDocumentStoragePath({
+          organizationId: orgId,
+          entityId: input.entityId,
+          docType: input.docType,
+        });
+        if (entityPath && entityPath !== path) {
+          const lookup = await getComplianceDocumentSignedUrl(entityPath);
+          if (lookup.url) return lookup.url;
+          const vault = await getVehicleDocumentViewUrl(entityPath);
+          if (isInlinePreviewUri(vault)) return vault;
+          if (vault) return paintCompliancePreviewUrl(entityPath, "vehicle-vault", vault);
+        }
+      }
+      return null;
     } else if (source === "driver-kyc") {
       const { data } = await supabase().storage.from("driver-documents").createSignedUrl(path, 3600);
       signed = data?.signedUrl ?? null;
@@ -257,6 +294,7 @@ async function signCompliancePreviewUrlUncached(input: {
       if (tripUrl) return tripUrl;
       return null;
     }
+    if (isInlinePreviewUri(signed)) return signed;
     return paintCompliancePreviewUrl(objectPath, source, signed);
   } catch {
     return null;

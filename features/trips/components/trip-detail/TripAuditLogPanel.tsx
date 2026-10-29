@@ -427,6 +427,7 @@ export function TripAuditLogPanel({
       shellStyle={styles.panelFullBleed}
       tabs={tabs}
       initialTab="all"
+      organizationId={organizationId ?? trip.organization_id ?? null}
       emptyBody={
         scope === "compliance"
           ? "Document uploads, deletions, and compliance checks will appear here with the workspace member who did them."

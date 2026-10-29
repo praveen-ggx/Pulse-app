@@ -48,6 +48,14 @@ import type {
   EntityType,
 } from "../types/compliance.types";
 
+/** Postgres `uuid` columns reject empty/non-uuid → PostgREST HTTP 400. */
+const ENTITY_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isEntityUuid(value: string | null | undefined): value is string {
+  return typeof value === "string" && ENTITY_UUID_RE.test(value.trim());
+}
+
 // ── Row contracts ───────────────────────────────────────────────────────────
 
 export interface DocumentRow {
@@ -189,6 +197,10 @@ export async function getDocumentsByEntity(
   entityId: string,
   signal?: AbortSignal,
 ): Promise<{ error: Error | null; documents: DocumentRow[] }> {
+  // Empty / non-uuid `entity_id` → Postgres 22P02 → PostgREST HTTP 400.
+  if (!orgId || !isEntityUuid(entityId)) {
+    return { error: null, documents: [] };
+  }
   const query = supabase()
     .from("entity_documents")
     .select("*")
@@ -208,6 +220,10 @@ export async function getDocumentsByEntity(
 /**
  * Batched entity-document read for a page of vehicles/drivers — one query,
  * not one round-trip per card. Used by the Compliance work queue.
+ *
+ * Chunked + paged: a single `.in(entity_id, …)` with hundreds of UUIDs blows
+ * the PostgREST URL limit (≈800 → HTTP 400), and an unpaged select silently
+ * stops at max_rows (1000) without an error.
  */
 export async function getDocumentsForEntities(
   orgId: string,
@@ -215,26 +231,26 @@ export async function getDocumentsForEntities(
   entityTypes: EntityType[] = ["vehicle", "driver"],
 ): Promise<{ error: Error | null; documents: DocumentRow[] }> {
   if (!orgId || entityIds.length === 0) return { error: null, documents: [] };
-  // Chunked + paged: one select stopped at PostgREST max_rows (1000) without an error.
-  const results = await Promise.all(
-    chunkIdsForRead(entityIds).map((chunk) =>
-      readAllPages((afterId, limit) => {
-        let q = supabase()
-          .from("entity_documents")
-          .select("*")
-          .eq("organization_id", orgId)
-          .in("entity_type", entityTypes)
-          .in("entity_id", chunk)
-          .neq("status", "replaced");
-        if (afterId) q = q.gt("id", afterId);
-        return q.order("id", { ascending: true }).limit(limit);
-      }),
-    ),
-  );
-  const failed = results.find((result) => result.error);
-  if (failed) return { error: failed.error as unknown as Error, documents: [] };
+  const idChunks = chunkIdsForRead(entityIds.filter(isEntityUuid));
+  if (idChunks.length === 0) return { error: null, documents: [] };
+  // Sequential chunks: Promise.all of every id-chunk filled the client fetch
+  // queue and left Compliance Verification on the first-load spinner.
   const byId = new Map<string, DocumentRow>();
-  for (const result of results) for (const row of result.data as DocumentRow[]) byId.set(row.id, row);
+  for (const chunk of idChunks) {
+    const result = await readAllPages((afterId, limit) => {
+      let q = supabase()
+        .from("entity_documents")
+        .select("*")
+        .eq("organization_id", orgId)
+        .in("entity_type", entityTypes)
+        .in("entity_id", chunk)
+        .neq("status", "replaced");
+      if (afterId) q = q.gt("id", afterId);
+      return q.order("id", { ascending: true }).limit(limit);
+    });
+    if (result.error) return { error: result.error as unknown as Error, documents: [] };
+    for (const row of result.data as DocumentRow[]) byId.set(row.id, row);
+  }
   return { error: null, documents: Array.from(byId.values()) };
 }
 

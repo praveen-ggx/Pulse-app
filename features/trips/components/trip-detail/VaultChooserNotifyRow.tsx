@@ -18,7 +18,14 @@ const WEB_COPY =
     ? ({ whiteSpace: "pre-wrap" as const, letterSpacing: 0 })
     : {};
 
-export type VaultChooserPreviewSource = "trip" | "vehicle" | "compliance" | "supplier-kyc";
+export type VaultChooserPreviewSource =
+  | "trip"
+  | "vehicle"
+  | "vehicle-vault"
+  | "compliance"
+  | "entity"
+  | "driver-kyc"
+  | "supplier-kyc";
 
 export type VaultChooserPreview = {
   storagePath?: string | null;
@@ -28,7 +35,21 @@ export type VaultChooserPreview = {
   source?: VaultChooserPreviewSource;
   organizationId?: string | null;
   entityId?: string | null;
+  /** Helps vehicle-vault → entity_documents fallback when the vault object is missing. */
+  docType?: string | null;
 };
+
+/** Map card preview source → Storage signer used by signCompliancePreviewUrl. */
+export function vaultChooserSignSource(
+  source: VaultChooserPreviewSource | null | undefined,
+): "trip" | "vehicle-vault" | "compliance" | "entity" | "driver-kyc" | "supplier-kyc" {
+  if (source === "vehicle" || source === "vehicle-vault") return "vehicle-vault";
+  if (source === "supplier-kyc") return "supplier-kyc";
+  if (source === "driver-kyc") return "driver-kyc";
+  if (source === "entity") return "entity";
+  if (source === "compliance") return "compliance";
+  return "trip";
+}
 
 type Props = {
   label: string;
@@ -39,6 +60,11 @@ type Props = {
   preview?: VaultChooserPreview | null;
   /** LR / invoice / e-way number, shown under the title. */
   actionText?: string;
+  /**
+   * Label · value row under the title (e.g. Memo supplier rate).
+   * Aligns like Valid till: label left, tabular value right.
+   */
+  detailFact?: { label: string; value: string } | null;
   required?: boolean;
   /** ISO date (YYYY-MM-DD or timestamp) shown as Valid till. */
   expiryDate?: string | null;
@@ -126,16 +152,10 @@ function ChooserQuoteDoc({
     setPending(true);
     void signCompliancePreviewUrl({
       storagePath: path,
-      source:
-        preview.source === "vehicle"
-          ? "vehicle-vault"
-          : preview.source === "supplier-kyc"
-            ? "supplier-kyc"
-            : preview.source === "compliance"
-              ? "compliance"
-              : "trip",
+      source: vaultChooserSignSource(preview.source),
       organizationId: preview.organizationId,
       entityId: preview.entityId,
+      docType: preview.docType,
     }).then((signed) => {
       if (cancelled) return;
       setUri(signed);
@@ -144,7 +164,14 @@ function ChooserQuoteDoc({
     return () => {
       cancelled = true;
     };
-  }, [preview.entityId, preview.organizationId, preview.previewUri, preview.source, preview.storagePath]);
+  }, [
+    preview.docType,
+    preview.entityId,
+    preview.organizationId,
+    preview.previewUri,
+    preview.source,
+    preview.storagePath,
+  ]);
 
   if (!pending && !uri) return null;
 
@@ -225,6 +252,7 @@ export function VaultChooserNotifyRow({
   preview = null,
   previews,
   actionText,
+  detailFact = null,
   required,
   expiryDate,
   needsExpiry = false,
@@ -241,11 +269,18 @@ export function VaultChooserNotifyRow({
   const showDoc = onFile && allPreviews.length > 0;
   const fileCount = allPreviews.length;
   const numberLine = actionText?.trim() || "";
+  const factLabel = detailFact?.label?.trim() || "";
+  const factValue = detailFact?.value?.trim() || "";
+  const showDetailFact = Boolean(factLabel && factValue);
   const expiryIso = normalizeExpiryIso(expiryDate);
   const expiryLine = expiryIso ? formatCardExpiry(expiryIso) : "";
   const showExpiry = Boolean(expiryLine) || (needsExpiry && onFile);
   const caption = redundantMeta(meta, onFile) || meta.trim() === numberLine ? "" : meta.trim();
-  const headerFacts = [numberLine, expiryLine ? `Valid till ${expiryLine}` : ""]
+  const headerFacts = [
+    numberLine,
+    showDetailFact ? `${factLabel} ${factValue}` : "",
+    expiryLine ? `Valid till ${expiryLine}` : "",
+  ]
     .filter(Boolean)
     .join(" · ");
   const onFileLabel = fileCount > 1 ? `${fileCount} on file` : "On file";
@@ -260,7 +295,9 @@ export function VaultChooserNotifyRow({
 
   return (
     <Pressable
-      accessibilityLabel={`${label}${numberLine ? ` ${numberLine}` : ""}`}
+      accessibilityLabel={`${label}${numberLine ? ` ${numberLine}` : ""}${
+        showDetailFact ? ` ${factLabel} ${factValue}` : ""
+      }`}
       onPress={showDoc ? () => previewFile(0) : undefined}
       disabled={!showDoc}
       style={styles.card}
@@ -288,6 +325,20 @@ export function VaultChooserNotifyRow({
             <Text style={styles.number} numberOfLines={1} ellipsizeMode="tail" selectable>
               {numberLine}
             </Text>
+          ) : null}
+          {showDetailFact ? (
+            <View style={styles.detailFactRow} accessibilityRole="text">
+              <Text style={[styles.detailFactLabel, WEB_COPY]} numberOfLines={1}>
+                {factLabel}
+              </Text>
+              <Text
+                style={[styles.detailFactValue, WEB_COPY]}
+                numberOfLines={1}
+                selectable
+              >
+                {factValue}
+              </Text>
+            </View>
           ) : null}
           {showExpiry ? (
             <Pressable
@@ -510,6 +561,39 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     letterSpacing: 0.1,
     color: Theme.textMuted,
+  },
+  detailFactRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    minWidth: 0,
+    minHeight: 18,
+    marginTop: 2,
+  },
+  detailFactLabel: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "600",
+    letterSpacing: 0,
+    color: Theme.textMuted,
+    includeFontPadding: false,
+    textAlignVertical: "center",
+  },
+  detailFactValue: {
+    flexShrink: 0,
+    maxWidth: "58%",
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "700",
+    letterSpacing: 0,
+    fontVariant: ["tabular-nums"],
+    color: Theme.textPrimaryDark,
+    includeFontPadding: false,
+    textAlignVertical: "center",
+    textAlign: "right",
   },
   expiryRow: {
     flexDirection: "row",

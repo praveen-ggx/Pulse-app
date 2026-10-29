@@ -1,4 +1,5 @@
 import {
+  enrichDocumentAuditRows,
   milestoneFromDocumentAudit,
   milestoneFromWorkflowEvent,
   milestonesFromTripDocument,
@@ -19,6 +20,7 @@ function asMilestone(item: ComplianceCardMilestone): TripAuditMilestone {
     contextLabel: item.contextLabel,
     lane: item.lane,
     category: item.category,
+    preview: item.preview ?? null,
   };
 }
 
@@ -67,13 +69,17 @@ export async function listTripActivityMilestones(
   const entityIds = [
     tripId,
     indentId,
+    String(trip.vehicle_id ?? "").trim(),
+    String(trip.driver_id ?? "").trim(),
     ...documents.map((doc) => String(doc.id ?? "").trim()),
   ].filter(Boolean);
 
   const audits = orgId
     ? await supabase()
         .from("document_audit_log")
-        .select("id, action, actor_id, created_at, entity_id, notes, metadata")
+        .select(
+          "id, document_id, action, actor_id, created_at, entity_id, entity_type, notes, metadata",
+        )
         .eq("organization_id", orgId)
         .in("entity_id", entityIds)
         .order("created_at", { ascending: false })
@@ -81,9 +87,28 @@ export async function listTripActivityMilestones(
     : { data: [], error: null };
 
   const merged = new Map<string, TripAuditMilestone>();
+  /** Live create milestones superseded by durable `document_audit_log` create rows. */
+  const auditedCreateDocIds = new Set<string>();
+  if (!audits.error) {
+    for (const row of audits.data ?? []) {
+      const action = String((row as { action?: string | null }).action ?? "")
+        .trim()
+        .toLowerCase();
+      if (action !== "created" && action !== "uploaded") continue;
+      const meta = (row as { metadata?: Record<string, unknown> | null }).metadata;
+      const docId = String(meta?.trip_document_id ?? "").trim();
+      if (docId) auditedCreateDocIds.add(docId);
+    }
+  }
 
   for (const doc of documents) {
     for (const item of milestonesFromTripDocument(doc)) {
+      if (
+        auditedCreateDocIds.has(String(doc.id ?? "").trim()) &&
+        item.id.startsWith("vault-upload-")
+      ) {
+        continue;
+      }
       mergeMilestone(merged, asMilestone(item));
     }
   }
@@ -94,10 +119,10 @@ export async function listTripActivityMilestones(
     }
   }
   if (!audits.error) {
-    for (const row of audits.data ?? []) {
-      const mile = milestoneFromDocumentAudit(
-        row as Parameters<typeof milestoneFromDocumentAudit>[0],
-      );
+    for (const row of enrichDocumentAuditRows(
+      (audits.data ?? []) as Parameters<typeof milestoneFromDocumentAudit>[0][],
+    )) {
+      const mile = milestoneFromDocumentAudit(row);
       if (mile) mergeMilestone(merged, asMilestone(mile));
     }
   }

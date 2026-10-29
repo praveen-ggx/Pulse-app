@@ -90,75 +90,54 @@ type RawTripDocRow = {
   source_entity_document_id?: string | null;
 };
 
-type TripDocRowsResult = { data: RawTripDocRow[] | null; error: { message: string } | null };
+const TRIP_DOC_SELECT_STATUS =
+  "id, trip_id, document_type, file_name, storage_path, uploaded_at, uploaded_by, status, verified_by, verified_at, rejection_reason, mime_type, document_number";
+const TRIP_DOC_SELECT_STATUS_AND_SOURCE = `${TRIP_DOC_SELECT_STATUS}, source_entity_document_id`;
+const TRIP_DOC_SELECT_BASE =
+  "id, trip_id, document_type, file_name, storage_path, uploaded_at, uploaded_by";
 
-/**
- * Every trip_documents row for `tripIds`. One unpaged request silently stopped at
- * 1000 rows (HTTP 206) and trips past the cut showed "No file in this slot yet".
- * Keyset pages on id (see readAllPages); chunks are disjoint and rows are still
- * de-duplicated by id. Any page error fails the whole read — never a partial set.
- */
-async function fetchAllTripDocumentRows(select: string, tripIds: string[]): Promise<TripDocRowsResult> {
-  const results = await Promise.all(
-    chunkIdsForRead(tripIds).map(
-      (chunk): Promise<TripDocRowsResult> =>
-        readAllPages((afterId, limit) => {
-          let q = supabase().from("trip_documents").select(select).in("trip_id", chunk);
-          if (afterId) q = q.gt("id", afterId);
-          return q
-            .order("id", { ascending: true })
-            .limit(limit)
-            .then(({ data, error }) => ({ data: data as unknown as RawTripDocRow[] | null, error }));
-        }),
-    ),
+async function readTripDocumentsSelect(
+  tripIds: string[],
+  select: string,
+): Promise<{ data: RawTripDocRow[]; error: { message: string; code?: string } | null }> {
+  const { data, error } = await readAllPages<RawTripDocRow, { message: string; code?: string }>(
+    (afterId, limit) => {
+      let q = supabase().from("trip_documents").select(select).in("trip_id", tripIds);
+      if (afterId) q = q.gt("id", afterId);
+      return q.order("id", { ascending: true }).limit(limit);
+    },
   );
-  const failed = results.find((result) => result.error);
-  if (failed) return failed;
-  const byId = new Map<string, RawTripDocRow>();
-  for (const result of results) for (const row of result.data ?? []) byId.set(row.id, row);
-  return { data: Array.from(byId.values()), error: null };
+  return { data, error };
+}
+
+async function readTripDocumentsChunk(tripIds: string[]): Promise<RawTripDocRow[]> {
+  let result = await readTripDocumentsSelect(tripIds, TRIP_DOC_SELECT_STATUS_AND_SOURCE);
+  if (result.error && isMissingColumnOrRelation(result.error)) {
+    const withoutSource = await readTripDocumentsSelect(tripIds, TRIP_DOC_SELECT_STATUS);
+    result = {
+      data: withoutSource.data.map((row) => ({ ...row, source_entity_document_id: null })),
+      error: withoutSource.error,
+    };
+  }
+  if (result.error && isMissingColumnOrRelation(result.error)) {
+    const fallback = await readTripDocumentsSelect(tripIds, TRIP_DOC_SELECT_BASE);
+    if (fallback.error) throw new Error(fallback.error.message);
+    return fallback.data.map((row) => ({ ...row, status: "pending" as const }));
+  }
+  if (result.error) throw new Error(result.error.message);
+  return result.data;
 }
 
 export async function fetchTripDocumentsForTrips(
   tripIds: string[],
 ): Promise<Map<string, ComplianceDocumentRow[]>> {
   const byTrip = new Map<string, ComplianceDocumentRow[]>();
-  const ids = Array.from(new Set(tripIds.filter(Boolean)));
-  if (ids.length === 0) return byTrip;
+  const chunks = chunkIdsForRead(tripIds);
+  if (chunks.length === 0) return byTrip;
 
-  const SELECT_WITH_STATUS =
-    "id, trip_id, document_type, file_name, storage_path, uploaded_at, uploaded_by, status, verified_by, verified_at, rejection_reason, mime_type, document_number";
-  const SELECT_WITH_STATUS_AND_SOURCE = `${SELECT_WITH_STATUS}, source_entity_document_id`;
-
-  let rows: RawTripDocRow[] = [];
-  const withSource = await fetchAllTripDocumentRows(SELECT_WITH_STATUS_AND_SOURCE, ids);
-
-  let withStatus: TripDocRowsResult = withSource;
-
-  if (withStatus.error && isMissingColumnOrRelation(withStatus.error)) {
-    const withoutSource = await fetchAllTripDocumentRows(SELECT_WITH_STATUS, ids);
-    withStatus = {
-      data: (withoutSource.data ?? []).map((r) => ({
-        ...r,
-        source_entity_document_id: null,
-      })),
-      error: withoutSource.error,
-    };
-  }
-
-  if (withStatus.error && isMissingColumnOrRelation(withStatus.error)) {
-    // Pre-migration fallback: no verification columns yet, treat every
-    // uploaded document as 'pending' so the UI still renders sensibly.
-    const fallback = await fetchAllTripDocumentRows(
-      "id, trip_id, document_type, file_name, storage_path, uploaded_at, uploaded_by",
-      ids,
-    );
-    if (fallback.error) throw new Error(fallback.error.message);
-    rows = (fallback.data ?? []).map((r) => ({ ...r, status: "pending" as const }));
-  } else if (withStatus.error) {
-    throw new Error(withStatus.error.message);
-  } else {
-    rows = (withStatus.data ?? []) as RawTripDocRow[];
+  const rows: RawTripDocRow[] = [];
+  for (const chunk of chunks) {
+    rows.push(...(await readTripDocumentsChunk(chunk)));
   }
 
   for (const r of rows) {

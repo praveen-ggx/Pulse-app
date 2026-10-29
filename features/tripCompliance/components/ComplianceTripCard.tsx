@@ -314,6 +314,13 @@ export function ComplianceTripCard({
   /** Decline is active only while the trip is not compliance verified. */
   const declinedAt = !fullyVerified && !hideDeclineNotice ? summary.complianceDeclinedAt : null;
   const declineReason = summary.complianceDeclineReason?.trim() || "No reason recorded";
+  const resubmitNote =
+    summary.complianceResubmitNote?.trim() &&
+    summary.complianceResubmittedAt &&
+    summary.complianceDeclinedAt &&
+    Date.parse(summary.complianceResubmittedAt) >= Date.parse(summary.complianceDeclinedAt)
+      ? summary.complianceResubmitNote.trim()
+      : "";
 
   const clientName = asLabel(trip.client_name);
   const clientFb = trip.client_id
@@ -503,6 +510,20 @@ export function ComplianceTripCard({
               <Text style={styles.expiryAlertBody} numberOfLines={2}>
                 {declineReason}
               </Text>
+            </View>
+          ) : null}
+
+          {resubmitNote ? (
+            <View
+              style={styles.resubmitNoteBox}
+              testID={`compliance-card-resubmit-note-${trip.id}`}
+              accessible
+              accessibilityLabel={`Ground Ops resubmit note. ${resubmitNote}`}
+            >
+              <Text style={styles.resubmitNoteTitle} numberOfLines={1}>
+                Resubmitted · Ground Ops
+              </Text>
+              <Text style={styles.resubmitNoteBody}>{resubmitNote}</Text>
             </View>
           ) : null}
 
@@ -1178,6 +1199,30 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
   expiryAlertBody: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: Theme.textSecondary,
+    lineHeight: 13,
+  },
+  resubmitNoteBox: {
+    gap: 2,
+    paddingTop: 6,
+    paddingHorizontal: 8,
+    paddingBottom: 6,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderLeftWidth: 3,
+    backgroundColor: Theme.positiveMuted,
+    borderColor: Theme.positiveMuted,
+    borderLeftColor: Theme.positive,
+  },
+  resubmitNoteTitle: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: Theme.positive,
+    lineHeight: 14,
+  },
+  resubmitNoteBody: {
     fontSize: 10,
     fontWeight: "600",
     color: Theme.textSecondary,

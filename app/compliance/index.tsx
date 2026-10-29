@@ -136,6 +136,7 @@ import {
 } from "@/lib/queries/useRealtimeInvalidation";
 import { useSuppliersQuery } from "@/lib/queries/useSuppliersQuery";
 import { ROUTES } from "@/lib/routes";
+import { isSupabaseQueueRejectedError } from "@/lib/supabaseHttp.util";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import { useOptionalActiveWorkspace } from "@/contexts/ActiveWorkspaceContext";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -2064,7 +2065,11 @@ export default function ComplianceScreen() {
         </View>
       ) : isError ? (
         <View style={styles.emptyFill}>
-          <Text style={styles.message}>{(error as Error)?.message ?? "Couldn't load Compliance."}</Text>
+          <Text style={styles.message}>
+            {isSupabaseQueueRejectedError(error)
+              ? "Too many requests are in progress. Wait a moment and retry."
+              : (error as Error)?.message ?? "Couldn't load Compliance."}
+          </Text>
           <TouchableOpacity style={styles.reportBtn} onPress={() => void refetch()}>
             <Text style={styles.reportBtnText}>Retry</Text>
           </TouchableOpacity>

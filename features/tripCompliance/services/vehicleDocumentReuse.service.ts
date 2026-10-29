@@ -272,14 +272,19 @@ export interface TripDocumentPreviewInput {
 export async function resolveTripDocumentPreviewUrl(
   input: TripDocumentPreviewInput,
 ): Promise<string | null> {
+  const storagePath = (input.storagePath ?? "").trim();
   const sourceId = (input.sourceEntityDocumentId ?? "").trim();
+  // After reject → replace, the row keeps a new trip-documents object path and
+  // may still carry the old vault pin. Preview the current file, not the pin.
+  if (storagePath && !isVehicleDocumentReferencePath(storagePath)) {
+    return tryGetDocumentViewUrl(storagePath);
+  }
   if (sourceId) {
     const { resolved } = await resolveVehicleDocumentSource(sourceId, {
       organizationId: input.organizationId,
     });
     return resolved?.url ?? null;
   }
-  const storagePath = (input.storagePath ?? "").trim();
   if (!storagePath) return null;
   if (isVehicleDocumentReferencePath(storagePath)) return null;
   return tryGetDocumentViewUrl(storagePath);

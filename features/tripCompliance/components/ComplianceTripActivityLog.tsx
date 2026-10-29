@@ -8,6 +8,7 @@ import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompli
 import {
   backfillMilestoneActors,
   complianceCardMilestones,
+  enrichDocumentAuditRows,
   milestoneFromDocumentAudit,
   milestoneFromWorkflowEvent,
 } from "@/features/tripCompliance/utils/complianceCardActivity.util";
@@ -59,7 +60,15 @@ export function ComplianceTripActivityLog({
       ...(card?.vehicleDocuments.map((doc) => doc.id) ?? []),
       ...(card?.driverDocuments.map((doc) => doc.id) ?? []),
     ].filter(Boolean);
-    const entityIds = [tripId, ...liveDocIds];
+    // entity_documents audits use vehicle/driver id as entity_id (not the doc id).
+    const entityIds = [
+      tripId,
+      activeTrip.vehicle_id,
+      activeTrip.driver_id,
+      card?.trip.vehicle_id,
+      card?.trip.driver_id,
+      ...liveDocIds,
+    ].filter((id): id is string => Boolean(id));
     void (async () => {
       const [pod, tx, events, audits] = await Promise.all([
         fetchTripHardCopyPodState(tripId),
@@ -80,7 +89,9 @@ export function ComplianceTripActivityLog({
         orgId
           ? supabase()
               .from("document_audit_log")
-              .select("id, action, actor_id, created_at, entity_id, notes, metadata")
+              .select(
+                "id, document_id, action, actor_id, created_at, entity_id, entity_type, notes, metadata",
+              )
               .eq("organization_id", orgId)
               .in("entity_id", entityIds)
               .order("created_at", { ascending: false })
@@ -110,7 +121,9 @@ export function ComplianceTripActivityLog({
       setDocumentAuditMiles(
         audits.error
           ? []
-          : ((audits.data ?? []) as Parameters<typeof milestoneFromDocumentAudit>[0][])
+          : enrichDocumentAuditRows(
+              (audits.data ?? []) as Parameters<typeof milestoneFromDocumentAudit>[0][],
+            )
               .map(milestoneFromDocumentAudit)
               .filter((item): item is NonNullable<typeof item> => item != null),
       );
@@ -144,7 +157,21 @@ export function ComplianceTripActivityLog({
         merged.set(key, { ...prev, actorUserId: item.actorUserId });
       }
     };
-    for (const item of card ? complianceCardMilestones(card) : []) add(item);
+    const auditedCreates = new Set(
+      documentAuditMiles
+        .filter((item) => item?.title.startsWith("created "))
+        .map((item) => `${item!.title}|${item!.detail}`),
+    );
+    for (const item of card ? complianceCardMilestones(card) : []) {
+      // Prefer durable create audits over live upload milestones (same file).
+      if (
+        item.id.startsWith("doc-upload-") &&
+        auditedCreates.has(`${item.title}|${item.detail}`)
+      ) {
+        continue;
+      }
+      add(item);
+    }
     for (const item of documentAuditMiles) add(item);
     for (const item of workflowMiles) add(item);
     return backfillMilestoneActors(

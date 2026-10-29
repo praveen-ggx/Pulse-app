@@ -18,11 +18,14 @@ import {
   isFinanceDeclinedForPendingDocs,
   isComplianceAwaitingResubmit,
   isFinanceFlagged,
+  explainResubmitBlocked,
+  isResubmitBlockedByMissingDocs,
   missingOrRejectedRequiredTripDocs,
   missingRequiredResubmitFiles,
   isFinanceDeclinedTrip,
   isResubmittedFinanceReject,
   isPendingDocsComplianceHold,
+  resubmitEntityAttachmentBlockers,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
 
 // Local-date noon so "today"/"yesterday" are unambiguous in any TZ.
@@ -529,6 +532,181 @@ describe("finance reject queue routing", () => {
     );
     expect(files).toEqual([]);
     expect(files).not.toContain("aadhaar");
+  });
+
+  it("allows Resubmit after vehicle/driver files are replaced even without expiry dates", () => {
+    const entity = (
+      doc_type: string,
+      entity_type: "vehicle" | "driver" = "vehicle",
+      status: "pending" | "rejected" = "pending",
+    ) => ({
+      id: `${doc_type}-${status}`,
+      entity_type,
+      entity_id: "e1",
+      doc_type,
+      status,
+      storage_path: `vault/${doc_type}.pdf`,
+      expiry_date: null,
+      verified_at: null,
+      notes: null,
+      created_at: "2026-10-01",
+    });
+    const hold = summary({
+      stage: "pending_for_docs",
+      complianceDeclinedAt: "2026-10-12T07:00:00Z",
+      documents: [
+        doc({ document_type: "lr", status: "pending" }),
+        doc({ document_type: "eway_bill", status: "pending" }),
+        doc({ document_type: "invoice", status: "pending" }),
+      ],
+      vehicleDocuments: [
+        entity("rc", "vehicle", "rejected"),
+        entity("rc", "vehicle", "pending"),
+        entity("insurance"),
+        entity("fitness"),
+      ],
+      driverDocuments: [entity("license", "driver")],
+    });
+    expect(resubmitEntityAttachmentBlockers(hold)).toEqual([]);
+    expect(isResubmitBlockedByMissingDocs(hold)).toBe(false);
+  });
+
+  it("allows Resubmit when Insurance is on file even if the calendar expiry has passed", () => {
+    // Document Upload still shows "On file" / Valid till; Compliance checks expiry after Resubmit.
+    const hold = summary({
+      stage: "pending_for_docs",
+      complianceDeclinedAt: "2026-10-12T07:00:00Z",
+      documents: [
+        doc({ document_type: "lr", status: "pending" }),
+        doc({ document_type: "eway_bill", status: "pending" }),
+        doc({ document_type: "invoice", status: "pending" }),
+      ],
+      vehicleDocuments: [
+        {
+          id: "rc",
+          entity_type: "vehicle",
+          entity_id: "e1",
+          doc_type: "rc",
+          status: "pending",
+          storage_path: "vault/rc.pdf",
+          expiry_date: "2027-01-01",
+          verified_at: null,
+          notes: null,
+          created_at: "2026-10-01",
+        },
+        {
+          id: "ins",
+          entity_type: "vehicle",
+          entity_id: "e1",
+          doc_type: "insurance",
+          status: "pending",
+          storage_path: "vault/ins.pdf",
+          expiry_date: "2026-10-22",
+          verified_at: null,
+          notes: null,
+          created_at: "2026-10-20",
+        },
+        {
+          id: "fc",
+          entity_type: "vehicle",
+          entity_id: "e1",
+          doc_type: "fitness",
+          status: "pending",
+          storage_path: "vault/fc.pdf",
+          expiry_date: "2027-10-21",
+          verified_at: null,
+          notes: null,
+          created_at: "2026-10-01",
+        },
+      ],
+      driverDocuments: [
+        {
+          id: "lic",
+          entity_type: "driver",
+          entity_id: "d1",
+          doc_type: "license",
+          status: "pending",
+          storage_path: "vault/lic.pdf",
+          expiry_date: null,
+          verified_at: null,
+          notes: null,
+          created_at: "2026-10-01",
+        },
+      ],
+    });
+    expect(resubmitEntityAttachmentBlockers(hold)).toEqual([]);
+    expect(isResubmitBlockedByMissingDocs(hold)).toBe(false);
+    expect(explainResubmitBlocked(hold)).toBeNull();
+  });
+
+  it("blocks Resubmit on hold when a required vehicle file is still only rejected", () => {
+    const hold = summary({
+      stage: "pending_for_docs",
+      complianceDeclinedAt: "2026-10-12T07:00:00Z",
+      documents: [
+        doc({ document_type: "lr", status: "pending" }),
+        doc({ document_type: "eway_bill", status: "pending" }),
+        doc({ document_type: "invoice", status: "pending" }),
+      ],
+      vehicleDocuments: [
+        {
+          id: "rc-rej",
+          entity_type: "vehicle",
+          entity_id: "e1",
+          doc_type: "rc",
+          status: "rejected",
+          storage_path: "vault/rc.pdf",
+          expiry_date: "2027-01-01",
+          verified_at: null,
+          notes: "bad scan",
+          created_at: "2026-10-01",
+        },
+        {
+          id: "ins",
+          entity_type: "vehicle",
+          entity_id: "e1",
+          doc_type: "insurance",
+          status: "pending",
+          storage_path: "vault/ins.pdf",
+          expiry_date: null,
+          verified_at: null,
+          notes: null,
+          created_at: "2026-10-01",
+        },
+        {
+          id: "fc",
+          entity_type: "vehicle",
+          entity_id: "e1",
+          doc_type: "fitness",
+          status: "pending",
+          storage_path: "vault/fc.pdf",
+          expiry_date: null,
+          verified_at: null,
+          notes: null,
+          created_at: "2026-10-01",
+        },
+      ],
+      driverDocuments: [
+        {
+          id: "lic",
+          entity_type: "driver",
+          entity_id: "d1",
+          doc_type: "license",
+          status: "pending",
+          storage_path: "vault/lic.pdf",
+          expiry_date: null,
+          verified_at: null,
+          notes: null,
+          created_at: "2026-10-01",
+        },
+      ],
+    });
+    expect(resubmitEntityAttachmentBlockers(hold)).toContain("RC (rejected — replace it)");
+    expect(isResubmitBlockedByMissingDocs(hold)).toBe(true);
+    expect(explainResubmitBlocked(hold)).toMatchObject({
+      why: expect.stringMatching(/RC was rejected/i),
+      action: expect.stringMatching(/Replace:.*RC/i),
+    });
   });
 
   it("marks a pre-verify hold on Document Upload and on Compliance Verification", () => {

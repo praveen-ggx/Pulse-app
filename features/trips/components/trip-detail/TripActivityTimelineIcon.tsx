@@ -59,6 +59,15 @@ function iconForEntry(
     };
   }
 
+  if (category === "compliance") {
+    return {
+      name: "shield",
+      color: "#047857",
+      bg: "rgba(16,185,129,0.12)",
+      border: "rgba(16,185,129,0.24)",
+    };
+  }
+
   if (category === "trip") {
     return {
       name: "flag",

@@ -136,10 +136,13 @@ async function loadWebBlob(bucket: string, path: string, signedUrl?: string | nu
     downloadKind = "failed";
   }
 
-  // A missing object is already decided. Signing/fetching it only adds Storage 400s.
-  if (downloadKind === "missing") return { kind: "missing" };
+  const knownSigned = (signedUrl ?? "").trim();
+  // Skip a fresh sign+fetch only when download already said missing AND the
+  // caller did not hand us a signed URL. Compliance-page uploads often succeed
+  // at createSignedUrl while .download() mis-reports missing under RLS.
+  if (downloadKind === "missing" && !knownSigned) return { kind: "missing" };
 
-  const signed = (signedUrl ?? "").trim() || (await signedUrlFor(bucket, path));
+  const signed = knownSigned || (await signedUrlFor(bucket, path));
   if (!signed) return { kind: downloadKind };
   const fetched = await blobFromSignedUrl(signed);
   if ("blob" in fetched) return fetched;

@@ -25,6 +25,22 @@ export type TripAuditLogPerson = {
   avatar: RegistryNotificationAvatar;
 };
 
+export type TripAuditLogDocPreview = {
+  storagePath: string;
+  fileName?: string | null;
+  source?:
+    | "trip"
+    | "vehicle"
+    | "vehicle-vault"
+    | "compliance"
+    | "entity"
+    | "driver-kyc"
+    | "supplier-kyc";
+  organizationId?: string | null;
+  entityId?: string | null;
+  docType?: string | null;
+};
+
 export type TripAuditLogEntry = {
   id: string;
   at: string;
@@ -42,4 +58,6 @@ export type TripAuditLogEntry = {
   headlineTarget?: string;
   /** Other people involved (driver, party, previous assignee). */
   people?: TripAuditLogPerson[];
+  /** Open the uploaded file from Activity when present. */
+  preview?: TripAuditLogDocPreview | null;
 };

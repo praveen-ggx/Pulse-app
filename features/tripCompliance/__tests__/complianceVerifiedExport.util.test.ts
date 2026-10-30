@@ -274,6 +274,36 @@ describe("latestDocNumber / exportLrNumber", () => {
     (empty as { hardCopyPod: { lrNumbers: string[] } }).hardCopyPod = { lrNumbers: ["  LR-99  "] };
     expect(exportLrNumber(empty)).toBe("LR-99");
   });
+
+  const lrDoc = (document_number: string) =>
+    [
+      {
+        id: "lr1",
+        trip_id: "trip-1",
+        document_type: "lr",
+        document_number,
+        uploaded_at: "2026-10-23T12:27:08Z",
+      },
+    ] as ComplianceTripSummary["documents"];
+
+  it("reads vault LR JSON, including a typed range", () => {
+    expect(latestDocNumber(lrDoc('{"lrNumber":"AH2851","date":"12-Oct-26","invoice":""}'), "lr")).toBe("AH2851");
+    expect(latestDocNumber(lrDoc('{"lrNumber":"AJ2021-2022","date":"17-Oct-26","invoice":""}'), "lr")).toBe(
+      "AJ2021-2022",
+    );
+  });
+
+  it("reads the LR number from a generated E-LR, never the raw JSON", () => {
+    const elr = JSON.stringify({ kind: "e_lr", snapshot: { lrNumber: "ELR-0042" } });
+    expect(latestDocNumber(lrDoc(elr), "lr")).toBe("ELR-0042");
+    expect(latestDocNumber(lrDoc('{"date":"12-Oct-26"}'), "lr")).toBe("");
+  });
+
+  it("Advance Verification LR No falls back to the POD LR list", () => {
+    const empty = summary({ documents: [] });
+    (empty as { hardCopyPod: { lrNumbers: string[] } }).hardCopyPod = { lrNumbers: ["AH2568"] };
+    expect(buildVerifiedExportCsvRow(empty)["LR No"]).toBe("AH2568");
+  });
 });
 
 describe("verifiedAdvanceColumnLabel", () => {

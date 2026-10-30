@@ -31,6 +31,31 @@ export function complianceReviewDecisionActions(row: ComplianceDocRow): { canApp
   };
 }
 
+/**
+ * Per-document Decline targets exactly one uploaded row. Group and trip
+ * Decline stay separate — siblings are never included.
+ */
+export function singleComplianceRowDeclineIds(
+  selected: ComplianceDocRow,
+  _siblings: ComplianceDocRow[],
+  scope: "trip" | "vehicle" | "driver",
+): string[] {
+  if (!canModerateComplianceRow(selected, scope)) return [];
+  if (!complianceReviewDecisionActions(selected).canDecline) return [];
+  const id = selected.doc?.id ?? selected.entityDoc?.id;
+  return id ? [id] : [];
+}
+
+export function canShowSingleRowDecline(input: {
+  canVerify: boolean;
+  hideDocumentDecisions: boolean;
+  row: ComplianceDocRow;
+  scope: "trip" | "vehicle" | "driver";
+}): boolean {
+  if (!input.canVerify || input.hideDocumentDecisions) return false;
+  return singleComplianceRowDeclineIds(input.row, [], input.scope).length === 1;
+}
+
 /** Footer labels/styles for the active preview doc (includes optimistic overlay). */
 export function complianceDecisionButtonState(row: ComplianceDocRow | null | undefined): {
   approveLabel: "Approve" | "Approved";

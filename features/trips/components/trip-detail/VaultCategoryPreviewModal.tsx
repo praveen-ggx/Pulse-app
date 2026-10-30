@@ -5,6 +5,10 @@ import { DocumentDateCalendar } from "@/components/DocumentDateCalendar";
 import Theme from "@/constants/Theme";
 import { documentRequiresExpiry } from "@/features/tripCompliance/tripCompliance.types";
 import {
+  DocumentUploadAttributionRow,
+  documentUploadAttributionHasContent,
+} from "@/features/trips/components/trip-detail/DocumentUploadAttributionRow";
+import {
   formatDocumentHeaderFacts,
   formatLrVaultNumberLabel,
 } from "@/features/trips/components/trip-detail/tripDocTypes";
@@ -63,8 +67,17 @@ type Props = {
   files: VaultCategoryPreviewFile[];
   index: number;
   onIndexChange: (index: number) => void;
+  /** Dismiss without treating the preview as confirmed (header X / Cancel). */
   onClose: () => void;
+  /**
+   * Add another file from the draft strip thumb only — never the footer Submit.
+   * Submit confirms the current files and returns to the previous stage.
+   */
   onAdd?: () => void;
+  /** Optional side-effect before closing on Submit (defaults to onClose only). */
+  onSubmit?: () => void;
+  /** Rejected file: footer shows Replace (same row, new file) instead of Submit. */
+  onReplace?: () => void;
   onDelete?: (file: VaultCategoryPreviewFile) => void;
   onResolveUrl?: (file: VaultCategoryPreviewFile) => Promise<string | null>;
   onSaveExpiry?: (file: VaultCategoryPreviewFile, isoDate: string) => void;
@@ -94,6 +107,8 @@ export function VaultCategoryPreviewModal({
   onIndexChange,
   onClose,
   onAdd,
+  onSubmit,
+  onReplace,
   onDelete,
   onResolveUrl,
   onSaveExpiry,
@@ -108,6 +123,12 @@ export function VaultCategoryPreviewModal({
   const safeIndex = Math.max(0, Math.min(index, Math.max(0, files.length - 1)));
   const current = files[safeIndex] ?? null;
   const category = current?.categoryLabel || "Document";
+  const uploadAttribution = {
+    uploadedByName: current?.uploadedByName,
+    uploadedAt: current?.uploadedAt,
+    uploadedByAvatarUrl: current?.uploadedByAvatarUrl,
+    uploadedByAvatarSeed: current?.uploadedByAvatarSeed,
+  };
   const headerExpiryIso = current?.expiryDate?.trim() || "";
   const headerExpiry = prettyPreviewExpiry(headerExpiryIso);
   const showHeaderExpiry =
@@ -119,7 +140,6 @@ export function VaultCategoryPreviewModal({
       : formatLrVaultNumberLabel(current?.documentNumber) ||
         current?.documentNumber?.trim() ||
         "";
-  const showHeaderFacts = Boolean(headerNumber) || showHeaderExpiry;
   const canEditExpiry =
     Boolean(onSaveExpiry) &&
     (documentRequiresExpiry(current?.complianceType ?? current?.driverKind ?? "") ||
@@ -237,49 +257,50 @@ export function VaultCategoryPreviewModal({
                 <Text style={styles.category} numberOfLines={1}>
                   {category}
                 </Text>
+                {headerNumber ? (
+                  <Text style={styles.headerNumber} numberOfLines={1}>
+                    {headerNumber}
+                  </Text>
+                ) : null}
+                {documentUploadAttributionHasContent(uploadAttribution) ? (
+                  <DocumentUploadAttributionRow {...uploadAttribution} size={26} />
+                ) : null}
                 <Text style={styles.meta} numberOfLines={1}>
                   {files.length > 0
                     ? `${safeIndex + 1} of ${files.length}`
                     : "No document"}
                 </Text>
               </View>
-              {showHeaderFacts ? (
+              {showHeaderExpiry ? (
                 <View style={styles.headerFacts}>
-                  {headerNumber ? (
-                    <Text style={styles.headerNumber} numberOfLines={1}>
-                      {headerNumber}
-                    </Text>
-                  ) : null}
-                  {showHeaderExpiry ? (
-                    <Pressable
-                      onPress={
-                        canEditExpiry
-                          ? () => {
-                              setDraftExpiry(headerExpiryIso || defaultExpiryIso());
-                              setEditingExpiry(true);
-                            }
-                          : undefined
-                      }
-                      disabled={!canEditExpiry}
-                      style={styles.headerExpiryRow}
-                      accessibilityRole={canEditExpiry ? "button" : undefined}
-                      accessibilityLabel="Valid till date, edit"
+                  <Pressable
+                    onPress={
+                      canEditExpiry
+                        ? () => {
+                            setDraftExpiry(headerExpiryIso || defaultExpiryIso());
+                            setEditingExpiry(true);
+                          }
+                        : undefined
+                    }
+                    disabled={!canEditExpiry}
+                    style={styles.headerExpiryRow}
+                    accessibilityRole={canEditExpiry ? "button" : undefined}
+                    accessibilityLabel="Valid till date, edit"
+                  >
+                    <Text style={styles.expiryLabel}>Valid till</Text>
+                    <Text
+                      style={[
+                        styles.headerExpiryValue,
+                        !headerExpiry && styles.expiryEmpty,
+                      ]}
+                      numberOfLines={1}
                     >
-                      <Text style={styles.expiryLabel}>Valid till</Text>
-                      <Text
-                        style={[
-                          styles.headerExpiryValue,
-                          !headerExpiry && styles.expiryEmpty,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {headerExpiry || "Add date"}
-                      </Text>
-                      {canEditExpiry ? (
-                        <Text style={styles.expiryEdit}>Edit</Text>
-                      ) : null}
-                    </Pressable>
-                  ) : null}
+                      {headerExpiry || "Add date"}
+                    </Text>
+                    {canEditExpiry ? (
+                      <Text style={styles.expiryEdit}>Edit</Text>
+                    ) : null}
+                  </Pressable>
                 </View>
               ) : null}
             </View>
@@ -338,8 +359,8 @@ export function VaultCategoryPreviewModal({
               <VaultDraftPreviewBlock
                 items={items}
                 selectedId={current?.id ?? null}
-                showHint={Boolean(onAdd)}
-                showAddThumb={Boolean(onAdd)}
+                showHint={Boolean(onAdd) && !onReplace}
+                showAddThumb={Boolean(onAdd) && !onReplace}
                 onSelect={(id) => {
                   const next = files.findIndex((file) => file.id === id);
                   if (next >= 0) onIndexChange(next);
@@ -382,9 +403,27 @@ export function VaultCategoryPreviewModal({
                 style={HUG}
               />
             ) : null}
-            {onAdd ? (
-              <RegistryPrimaryButton label="Add" onPress={onAdd} style={HUG} />
-            ) : null}
+            {onReplace ? (
+              <RegistryPrimaryButton label="Replace" onPress={onReplace} style={HUG} />
+            ) : (
+              <RegistryPrimaryButton
+                label="Submit"
+                onPress={() => {
+                  // Persist in-progress expiry edit, then confirm and leave preview.
+                  if (
+                    editingExpiry &&
+                    current &&
+                    /^\d{4}-\d{2}-\d{2}$/.test(draftExpiry)
+                  ) {
+                    onSaveExpiry?.(current, draftExpiry);
+                    setEditingExpiry(false);
+                  }
+                  onSubmit?.();
+                  onClose();
+                }}
+                style={HUG}
+              />
+            )}
           </View>
         </View>
       </View>
@@ -401,6 +440,11 @@ export function VaultCategoryPreviewModal({
         category: current?.category,
         expiryDate: current?.expiryDate,
       })}
+      uploadAttribution={
+        documentUploadAttributionHasContent(uploadAttribution)
+          ? uploadAttribution
+          : null
+      }
       navLabel={
         files.length > 1 ? `${safeIndex + 1} of ${files.length}` : null
       }

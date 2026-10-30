@@ -374,6 +374,18 @@ describe("resolveTripDocumentPreviewUrl", () => {
     expect(mockFrom).not.toHaveBeenCalled();
   });
 
+  it("previews the replacement trip file, not the leftover rejected vault pin", async () => {
+    mockTryGetDocumentViewUrl.mockResolvedValue("https://signed.example/new-invoice.pdf");
+    const url = await resolveTripDocumentPreviewUrl({
+      storagePath: "trip-1/invoice/new-scan.pdf",
+      sourceEntityDocumentId: "rejected-entity-id",
+      organizationId: "org-1",
+    });
+    expect(url).toBe("https://signed.example/new-invoice.pdf");
+    expect(mockTryGetDocumentViewUrl).toHaveBeenCalledWith("trip-1/invoice/new-scan.pdf");
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
   it("fails safely when the pinned entity_documents row is missing", async () => {
     mockFrom.mockReturnValue(chainMock({ data: null, error: null }));
     const url = await resolveTripDocumentPreviewUrl({

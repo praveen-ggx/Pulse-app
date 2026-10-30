@@ -10,8 +10,25 @@ import type {
   ComplianceTripSummary,
 } from "@/features/tripCompliance/tripCompliance.types";
 import { labelForDocType } from "@/features/tripCompliance/utils/complianceDocumentRows.util";
+import { vaultChooserSourceForEntityDoc } from "@/features/tripCompliance/utils/compliancePreviewSource.util";
 
 export type ComplianceCardLane = "document" | "activity";
+
+export type ComplianceCardDocPreview = {
+  storagePath: string;
+  fileName?: string | null;
+  source?:
+    | "trip"
+    | "vehicle"
+    | "vehicle-vault"
+    | "compliance"
+    | "entity"
+    | "driver-kyc"
+    | "supplier-kyc";
+  organizationId?: string | null;
+  entityId?: string | null;
+  docType?: string | null;
+};
 
 export type ComplianceCardMilestone = {
   id: string;
@@ -22,7 +39,18 @@ export type ComplianceCardMilestone = {
   contextLabel: string;
   lane: ComplianceCardLane;
   category?: "compliance" | "status" | "trip" | "document" | "payment";
+  /** When set, Activity can open the uploaded file. */
+  preview?: ComplianceCardDocPreview | null;
 };
+
+function fileNameFromStoragePath(path: string | null | undefined): string {
+  const base = String(path ?? "")
+    .split("?")[0]
+    ?.split("/")
+    .pop()
+    ?.trim();
+  return base && /\.[a-z0-9]+$/i.test(base) ? base : "";
+}
 
 function push(
   items: ComplianceCardMilestone[],
@@ -36,6 +64,7 @@ export function milestonesFromTripDocument(doc: {
   id: string;
   document_type?: string | null;
   file_name?: string | null;
+  storage_path?: string | null;
   uploaded_at?: string | null;
   uploaded_by?: string | null;
   status?: string | null;
@@ -47,15 +76,24 @@ export function milestonesFromTripDocument(doc: {
   const kind = labelForDocType(doc.document_type ?? "other");
   const fileName = String(doc.file_name ?? "").trim();
   if (doc.uploaded_at) {
+    const storagePath = String(doc.storage_path ?? "").trim();
     push(items, {
       id: `vault-upload-${doc.id}`,
       at: doc.uploaded_at,
-      title: `uploaded ${kind}`,
+      title: `created ${kind}`,
       actorUserId: doc.uploaded_by ?? null,
       detail: fileName || kind,
-      contextLabel: "Document Upload",
+      contextLabel: "Document Created",
       lane: "document",
       category: "document",
+      preview: storagePath
+        ? {
+            storagePath,
+            fileName: fileName || null,
+            source: "trip",
+            docType: doc.document_type ?? null,
+          }
+        : null,
     });
   }
   if (doc.verified_at && doc.status === "verified") {
@@ -88,15 +126,31 @@ export function milestonesFromTripDocument(doc: {
 function entityDocMilestones(doc: ComplianceEntityDocument): ComplianceCardMilestone[] {
   const items: ComplianceCardMilestone[] = [];
   const kind = labelForDocType(doc.doc_type);
+  const storagePath = String(doc.storage_path ?? "").trim();
+  const fileName =
+    doc.notes?.trim() || fileNameFromStoragePath(storagePath) || "";
+  const detail = fileName || [doc.entity_type, kind].filter(Boolean).join(" · ");
+  const preview: ComplianceCardDocPreview | null = storagePath
+    ? {
+        storagePath,
+        fileName: fileName || kind,
+        // Vehicle RC tagged source=entity still often lives in vehicle-documents.
+        source: vaultChooserSourceForEntityDoc(doc),
+        entityId: doc.entity_id,
+        docType: doc.doc_type,
+      }
+    : null;
   if (doc.created_at) {
     push(items, {
       id: `entity-upload-${doc.id}`,
       at: doc.created_at,
-      title: `uploaded ${kind}`,
+      title: `created ${kind}`,
       actorUserId: doc.created_by ?? null,
-      detail: [doc.entity_type, kind].filter(Boolean).join(" · "),
-      contextLabel: "Document Upload",
+      detail,
+      contextLabel: "Document Created",
       lane: "document",
+      category: "document",
+      preview,
     });
   }
   if (doc.verified_at && doc.status === "verified") {
@@ -105,9 +159,11 @@ function entityDocMilestones(doc: ComplianceEntityDocument): ComplianceCardMiles
       at: doc.verified_at,
       title: `verified ${kind}`,
       actorUserId: doc.verified_by ?? null,
-      detail: [doc.entity_type, kind].filter(Boolean).join(" · "),
+      detail,
       contextLabel: "Document Verification",
       lane: "document",
+      category: "document",
+      preview,
     });
   }
   return items;
@@ -120,14 +176,24 @@ export function complianceCardMilestones(summary: ComplianceTripSummary): Compli
   for (const doc of summary.documents) {
     const kind = labelForDocType(doc.document_type ?? "other");
     if (doc.uploaded_at) {
+      const storagePath = String(doc.storage_path ?? "").trim();
       push(items, {
         id: `doc-upload-${doc.id}`,
         at: doc.uploaded_at,
-        title: `uploaded ${kind}`,
+        title: `created ${kind}`,
         actorUserId: doc.uploaded_by ?? null,
         detail: doc.file_name,
-        contextLabel: "Document Upload",
+        contextLabel: "Document Created",
         lane: "document",
+        category: "document",
+        preview: storagePath
+          ? {
+              storagePath,
+              fileName: doc.file_name,
+              source: "trip",
+              docType: doc.document_type ?? null,
+            }
+          : null,
       });
     }
     if (doc.verified_at && doc.status === "verified") {
@@ -460,10 +526,13 @@ export function backfillMilestoneActors(
 
 export type DocumentAuditMilestoneRow = {
   id?: string;
+  document_id?: string | null;
   action?: string | null;
   actor_id?: string | null;
   created_at?: string | null;
   entity_id?: string | null;
+  /** Column on document_audit_log — vehicle RC uses entity_type=vehicle. */
+  entity_type?: string | null;
   notes?: string | null;
   metadata?: Record<string, unknown> | null;
 };
@@ -477,6 +546,50 @@ function auditFileName(metadata: Record<string, unknown> | null | undefined): st
   return "";
 }
 
+function auditDocId(row: DocumentAuditMilestoneRow): string {
+  return String(
+    row.document_id ?? row.metadata?.document_id ?? row.metadata?.trip_document_id ?? "",
+  ).trim();
+}
+
+function metadataHasDocLabel(metadata: Record<string, unknown> | null | undefined): boolean {
+  if (!metadata) return false;
+  return Boolean(
+    String(metadata.doc_type ?? metadata.document_type ?? "").trim() ||
+      String(metadata.storage_path ?? metadata.old_storage_path ?? "").trim() ||
+      auditFileName(metadata),
+  );
+}
+
+/**
+ * Older entity_documents INSERT audits have no metadata. Pair them with later
+ * update/delete rows for the same document_id so Activity still shows
+ * "created RC" after the file is gone.
+ */
+export function enrichDocumentAuditRows(
+  rows: DocumentAuditMilestoneRow[],
+): DocumentAuditMilestoneRow[] {
+  const metaByDocId = new Map<string, Record<string, unknown>>();
+  for (const row of rows) {
+    const docId = auditDocId(row);
+    if (!docId || !metadataHasDocLabel(row.metadata)) continue;
+    const prev = metaByDocId.get(docId) ?? {};
+    metaByDocId.set(docId, { ...prev, ...row.metadata });
+  }
+  return rows.map((row) => {
+    const action = String(row.action ?? "").trim().toLowerCase();
+    if (action !== "created" && action !== "uploaded") return row;
+    if (metadataHasDocLabel(row.metadata)) return row;
+    const docId = auditDocId(row);
+    const borrowed = docId ? metaByDocId.get(docId) : null;
+    if (!borrowed) return row;
+    return {
+      ...row,
+      metadata: { ...borrowed, ...(row.metadata ?? {}) },
+    };
+  });
+}
+
 export function milestoneFromDocumentAudit(
   row: DocumentAuditMilestoneRow,
 ): ComplianceCardMilestone | null {
@@ -484,11 +597,15 @@ export function milestoneFromDocumentAudit(
   const action = String(row.action ?? "").trim().toLowerCase();
   if (!at || !action) return null;
   const fileName = auditFileName(row.metadata);
-  const kind = fileName || "document";
+  const docType = String(
+    row.metadata?.document_type ?? row.metadata?.doc_type ?? "",
+  ).trim();
+  // Prefer doc-type label ("LR") so delete matches upload/verify wording.
+  const kind = (docType ? labelForDocType(docType) : "") || fileName || "document";
   const replacedWith = String(row.metadata?.new_file_name ?? "").trim();
   const titleByAction: Record<string, string> = {
-    created: `uploaded ${kind}`,
-    uploaded: `uploaded ${kind}`,
+    created: `created ${kind}`,
+    uploaded: `created ${kind}`,
     updated: `edited ${kind}`,
     verified: `verified ${kind}`,
     rejected: `rejected ${kind}`,
@@ -497,8 +614,8 @@ export function milestoneFromDocumentAudit(
     downloaded: `downloaded ${kind}`,
   };
   const contextByAction: Record<string, string> = {
-    created: "Document Upload",
-    uploaded: "Document Upload",
+    created: "Document Created",
+    uploaded: "Document Created",
     updated: "Document Edited",
     verified: "Document Verification",
     rejected: "Document Verification",
@@ -506,6 +623,53 @@ export function milestoneFromDocumentAudit(
     deleted: "Document Deleted",
     downloaded: "Document Download",
   };
+  const storagePath = String(
+    row.metadata?.storage_path ??
+      row.metadata?.old_storage_path ??
+      row.metadata?.new_storage_path ??
+      "",
+  ).trim();
+  // Still-bare creates (no sibling update/delete to borrow from) stay hidden —
+  // live entity milestones cover in-flight uploads.
+  if (
+    (action === "created" || action === "uploaded") &&
+    !storagePath &&
+    !docType &&
+    !fileName
+  ) {
+    return null;
+  }
+  const entityType = String(
+    row.entity_type ?? row.metadata?.entity_type ?? "",
+  )
+    .trim()
+    .toLowerCase();
+  const metaSource = String(row.metadata?.source ?? "")
+    .trim()
+    .toLowerCase();
+  const isTripAudit =
+    entityType === "trip" ||
+    entityType === "trip_document" ||
+    metaSource === "workspace_vehicle_document";
+  const previewSource: ComplianceCardDocPreview["source"] = isTripAudit
+    ? "trip"
+    : vaultChooserSourceForEntityDoc({
+        source:
+          metaSource === "vehicle-vault" ||
+          metaSource === "driver-kyc" ||
+          metaSource === "supplier-kyc" ||
+          metaSource === "entity"
+            ? (metaSource as ComplianceEntityDocument["source"])
+            : undefined,
+        entity_type:
+          entityType === "vehicle" ||
+          entityType === "driver" ||
+          entityType === "supplier"
+            ? entityType
+            : undefined,
+        doc_type: docType || null,
+        storage_path: storagePath || null,
+      });
   return {
     id: `doc-audit-${row.id ?? `${action}-${row.entity_id ?? "x"}`}-${at}`,
     at,
@@ -518,9 +682,19 @@ export function milestoneFromDocumentAudit(
             .join(" · ") || kind
         : action === "deleted"
           ? row.notes?.trim() || fileName || "Document removed from this trip"
-          : row.notes?.trim() || fileName || kind,
+          : row.notes?.trim() || fileName || fileNameFromStoragePath(storagePath) || kind,
     contextLabel: contextByAction[action] ?? "Document",
     lane: "document",
     category: "document",
+    preview:
+      storagePath && action !== "deleted"
+        ? {
+            storagePath,
+            fileName: fileName || fileNameFromStoragePath(storagePath) || null,
+            source: previewSource,
+            entityId: row.entity_id ?? null,
+            docType: docType || null,
+          }
+        : null,
   };
 }

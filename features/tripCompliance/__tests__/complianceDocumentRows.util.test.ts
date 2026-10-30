@@ -8,6 +8,7 @@ import {
   complianceProgress,
   labelForDocType,
   requirementScopeLabel,
+  retargetCompliancePreviewKey,
 } from "@/features/tripCompliance/utils/complianceDocumentRows.util";
 import {
   COMPLIANCE_DRIVER_DOCUMENT_TYPES,
@@ -383,6 +384,54 @@ describe("deriveEntityComplianceRows", () => {
     expect(insurance[1]?.entityDoc?.id).toBe("ins-new");
     expect(insurance[1]?.required).toBe(false);
     expect(insurance[1]?.status).toBe("pending");
+  });
+
+  it("after reject + resubmit, previews the new pending file not the rejected original", () => {
+    const rows = deriveEntityComplianceRows(COMPLIANCE_VEHICLE_DOCUMENT_TYPES, [
+      entityDoc({
+        id: "rc-rejected",
+        doc_type: "rc",
+        status: "rejected",
+        expiry_date: "2027-01-01",
+        storage_path: "org/v1/rc-old.jpeg",
+        created_at: "2026-10-01T00:00:00Z",
+      }),
+      entityDoc({
+        id: "rc-new",
+        doc_type: "rc",
+        status: "pending",
+        expiry_date: null,
+        storage_path: "org/v1/rc-new.jpeg",
+        created_at: "2026-10-28T00:00:00Z",
+      }),
+    ]);
+    const rc = rows.filter((r) => r.type === "rc");
+    expect(rc[0]?.entityDoc?.id).toBe("rc-new");
+    expect(rc[0]?.entityDoc?.storage_path).toBe("org/v1/rc-new.jpeg");
+    expect(rc[1]?.entityDoc?.id).toBe("rc-rejected");
+  });
+});
+
+describe("retargetCompliancePreviewKey", () => {
+  it("moves preview off a rejected extra onto the resubmitted file", () => {
+    const rows = deriveComplianceDocumentRows([
+      doc({
+        id: "lr-old",
+        document_type: "lr",
+        status: "rejected",
+        storage_path: "trip-1/lr/old.pdf",
+        uploaded_at: "2026-10-01T00:00:00Z",
+      }),
+      doc({
+        id: "lr-new",
+        document_type: "lr",
+        status: "pending",
+        storage_path: "trip-1/lr/new.pdf",
+        uploaded_at: "2026-10-28T00:00:00Z",
+      }),
+    ]);
+    expect(retargetCompliancePreviewKey(rows, "lr:lr-old")).toBe("lr:lr-new");
+    expect(retargetCompliancePreviewKey(rows, "lr:lr-new")).toBe("lr:lr-new");
   });
 });
 

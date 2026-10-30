@@ -319,6 +319,22 @@ export function matchesTripAuditTab(
 
 export type TripAuditLogScope = "all" | "compliance";
 
+export type TripAuditDocPreview = {
+  storagePath: string;
+  fileName?: string | null;
+  source?:
+    | "trip"
+    | "vehicle"
+    | "vehicle-vault"
+    | "compliance"
+    | "entity"
+    | "driver-kyc"
+    | "supplier-kyc";
+  organizationId?: string | null;
+  entityId?: string | null;
+  docType?: string | null;
+};
+
 export type TripAuditMilestone = {
   id: string;
   at: string;
@@ -328,6 +344,7 @@ export type TripAuditMilestone = {
   contextLabel?: string;
   lane?: "document" | "activity";
   category?: TripAuditLogCategory;
+  preview?: TripAuditDocPreview | null;
 };
 
 function activityFamily(title: string): string {
@@ -758,6 +775,13 @@ export function buildTripAuditLog(params: {
       contextLabel: mile.contextLabel ?? "Compliance",
       detail,
       detailLines: detail ? [detail] : undefined,
+      preview: mile.preview?.storagePath
+        ? {
+            ...mile.preview,
+            organizationId:
+              mile.preview.organizationId ?? trip.organization_id ?? null,
+          }
+        : null,
     });
   }
 

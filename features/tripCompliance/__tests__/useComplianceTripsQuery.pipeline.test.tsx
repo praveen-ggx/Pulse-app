@@ -141,7 +141,7 @@ it("window focus refetch is incremental and shows no loading state", async () =>
   const settledAt = loadingHistory.length;
 
   const realNow = Date.now;
-  jest.spyOn(Date, "now").mockImplementation(() => realNow() + 60_000); // past staleTime
+  jest.spyOn(Date, "now").mockImplementation(() => realNow() + 3 * 60_000); // past staleTime (2 min)
   await act(async () => {
     focusManager.setFocused(false);
     focusManager.setFocused(true);
@@ -339,5 +339,45 @@ describe("race: writers outside the Phase 2 write log (lib hard-copy POD patch)"
       await refetch;
     });
     expect(qc.getQueryData<ComplianceTripInputs[]>(key)?.[0].documents[0].status).toBe("verified");
+  });
+});
+
+describe("manual refresh", () => {
+  it("runs one FULL read even when tapped twice, and advances dataUpdatedAt", async () => {
+    const { hook } = setup("org-manual-refresh");
+    await waitFor(() => expect(hook.result.current.query.summaries).toHaveLength(2));
+    const before = hook.result.current.query.dataUpdatedAt;
+    expect(before).toBeGreaterThan(0);
+
+    const realNow = Date.now;
+    jest.spyOn(Date, "now").mockImplementation(() => realNow() + 10_000);
+    await act(async () => {
+      const first = hook.result.current.query.refetch();
+      const second = hook.result.current.query.refetch();
+      await Promise.all([first, second]);
+    });
+    (Date.now as jest.Mock).mockRestore();
+
+    expect(mockLoad).toHaveBeenCalledTimes(2); // initial + ONE manual refresh
+    expect(mockLoad.mock.calls[1][2]).toEqual({ full: true, viewerOrgId: "org-manual-refresh" });
+    expect(mockTripsRefetch).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(hook.result.current.query.dataUpdatedAt).toBeGreaterThan(before));
+  });
+
+  it("a failed refresh keeps the last successful time and the cached rows", async () => {
+    const { hook } = setup("org-failed-refresh");
+    await waitFor(() => expect(hook.result.current.query.summaries).toHaveLength(2));
+    const before = hook.result.current.query.dataUpdatedAt;
+
+    mockLoad.mockImplementationOnce(async () => {
+      throw new Error("statement timeout");
+    });
+    await act(async () => {
+      await hook.result.current.query.refetch();
+    });
+
+    await waitFor(() => expect(hook.result.current.query.isError).toBe(true));
+    expect(hook.result.current.query.dataUpdatedAt).toBe(before);
+    expect(hook.result.current.query.summaries).toHaveLength(2);
   });
 });

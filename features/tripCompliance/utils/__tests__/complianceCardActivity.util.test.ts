@@ -1,6 +1,7 @@
 import {
   backfillMilestoneActors,
   complianceCardMilestones,
+  enrichDocumentAuditRows,
   milestoneFromDocumentAudit,
   milestoneFromWorkflowEvent,
   milestonesFromTripDocument,
@@ -70,13 +71,16 @@ describe("complianceCardMilestones", () => {
       }),
     );
     expect(items.map((item) => item.title)).toEqual([
-      "uploaded LR",
+      "created LR",
       "verified LR",
       "verified compliance",
     ]);
-    expect(items.find((item) => item.title === "uploaded LR")?.lane).toBe("document");
+    expect(items.find((item) => item.title === "created LR")?.lane).toBe("document");
     expect(items.find((item) => item.title === "verified compliance")?.lane).toBe("activity");
-    expect(items.some((item) => item.title.includes("created"))).toBe(false);
+    // Trip lifecycle "created" stays out — document create wording is intentional.
+    expect(items.some((item) => item.title === "created" || /^created trip/i.test(item.title))).toBe(
+      false,
+    );
   });
 });
 
@@ -175,11 +179,12 @@ describe("milestonesFromTripDocument", () => {
       }),
     ).toEqual([
       expect.objectContaining({
-        title: "uploaded LR",
+        title: "created LR",
         actorUserId: "user-priya",
         detail: "lr.pdf",
         lane: "document",
         category: "document",
+        contextLabel: "Document Created",
       }),
       expect.objectContaining({
         title: "verified LR",
@@ -207,6 +212,20 @@ describe("milestoneFromDocumentAudit", () => {
     });
     expect(
       milestoneFromDocumentAudit({
+        id: "a1-lr",
+        action: "deleted",
+        actor_id: "user-del",
+        created_at: "2026-10-24T12:01:00.000Z",
+        metadata: { document_type: "lr", file_name: "lr.pdf" },
+      }),
+    ).toMatchObject({
+      title: "deleted LR",
+      actorUserId: "user-del",
+      lane: "document",
+      category: "document",
+    });
+    expect(
+      milestoneFromDocumentAudit({
         id: "a2",
         action: "replaced",
         actor_id: "user-rep",
@@ -225,8 +244,22 @@ describe("milestoneFromDocumentAudit", () => {
         metadata: { file_name: "lr.pdf" },
       }),
     ).toMatchObject({
-      title: "uploaded lr.pdf",
+      title: "created lr.pdf",
       lane: "document",
+      contextLabel: "Document Created",
+    });
+    expect(
+      milestoneFromDocumentAudit({
+        action: "created",
+        actor_id: "user-add",
+        created_at: "2026-10-24T12:00:00.000Z",
+        metadata: { document_type: "memo", file_name: "memo.jpg" },
+      }),
+    ).toMatchObject({
+      title: "created Memo",
+      actorUserId: "user-add",
+      lane: "document",
+      contextLabel: "Document Created",
     });
     expect(
       milestoneFromDocumentAudit({
@@ -237,6 +270,137 @@ describe("milestoneFromDocumentAudit", () => {
     ).toMatchObject({
       title: "edited lr.pdf",
       contextLabel: "Document Edited",
+    });
+  });
+
+  it("skips bare entity_documents INSERT audits that have no file metadata", () => {
+    expect(
+      milestoneFromDocumentAudit({
+        action: "created",
+        entity_type: "vehicle",
+        entity_id: "v1",
+        created_at: "2026-10-29T16:00:00.000Z",
+        metadata: null,
+      }),
+    ).toBeNull();
+  });
+
+  it("recovers bare create audits from a sibling delete for the same document", () => {
+    const enriched = enrichDocumentAuditRows([
+      {
+        id: "del",
+        document_id: null,
+        action: "deleted",
+        actor_id: "satham",
+        entity_type: "vehicle",
+        entity_id: "v1",
+        created_at: "2026-10-29T16:27:00.000Z",
+        metadata: {
+          document_id: "doc-rc-1",
+          doc_type: "rc",
+          storage_path: "org/vehicle/v1/rc_abc.jpeg",
+        },
+      },
+      {
+        id: "add",
+        document_id: "doc-rc-1",
+        action: "created",
+        actor_id: "satham",
+        entity_type: "vehicle",
+        entity_id: "v1",
+        created_at: "2026-10-29T16:20:00.000Z",
+        metadata: null,
+      },
+    ]);
+    expect(
+      milestoneFromDocumentAudit(enriched.find((row) => row.id === "add")!),
+    ).toMatchObject({
+      title: "created RC",
+      actorUserId: "satham",
+      contextLabel: "Document Created",
+      preview: {
+        storagePath: "org/vehicle/v1/rc_abc.jpeg",
+        source: "entity",
+        docType: "rc",
+      },
+    });
+  });
+
+  it("signs vault-shaped RC audit paths as vehicle-vault", () => {
+    expect(
+      milestoneFromDocumentAudit({
+        action: "updated",
+        entity_type: "vehicle",
+        entity_id: "v1",
+        created_at: "2026-10-29T16:05:00.000Z",
+        metadata: {
+          doc_type: "rc",
+          storage_path: "org/v1/rc.jpeg",
+          file_name: "TS34T1786 RC.jpeg",
+        },
+      }),
+    ).toMatchObject({
+      title: "edited RC",
+      preview: {
+        storagePath: "org/v1/rc.jpeg",
+        source: "vehicle-vault",
+        docType: "rc",
+        entityId: "v1",
+      },
+    });
+  });
+
+  it("signs compliance-page RC audit paths as entity (compliance-documents)", () => {
+    expect(
+      milestoneFromDocumentAudit({
+        action: "updated",
+        entity_type: "vehicle",
+        entity_id: "v1",
+        created_at: "2026-10-29T16:05:00.000Z",
+        metadata: {
+          doc_type: "rc",
+          storage_path: "org/vehicle/v1/rc_abc.jpeg",
+          file_name: "TS34T1786 RC.jpeg",
+        },
+      }),
+    ).toMatchObject({
+      preview: {
+        storagePath: "org/vehicle/v1/rc_abc.jpeg",
+        source: "entity",
+        docType: "rc",
+      },
+    });
+  });
+});
+
+describe("complianceCardMilestones vehicle RC preview", () => {
+  it("attaches an entity preview for compliance-page RC uploads", () => {
+    const items = complianceCardMilestones(
+      summary({
+        vehicleDocuments: [
+          {
+            id: "rc1",
+            entity_type: "vehicle",
+            entity_id: "v1",
+            doc_type: "rc",
+            status: "pending",
+            storage_path: "org/vehicle/v1/rc_abc.jpeg",
+            expiry_date: null,
+            verified_at: null,
+            notes: "TS34T1786 RC.jpeg",
+            created_at: "2026-10-29T16:00:00.000Z",
+            created_by: "u9",
+            source: "entity",
+          },
+        ],
+      }),
+    );
+    const upload = items.find((item) => item.title === "created RC");
+    expect(upload?.preview).toMatchObject({
+      storagePath: "org/vehicle/v1/rc_abc.jpeg",
+      source: "entity",
+      entityId: "v1",
+      docType: "rc",
     });
   });
 });

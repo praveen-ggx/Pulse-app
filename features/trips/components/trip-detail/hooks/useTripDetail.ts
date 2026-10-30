@@ -1576,6 +1576,13 @@ export function useTripDetail({
             otherSlot.uploadedAt ??
             bankSlot.uploadedAt ??
             null,
+          uploadedBy:
+            lrSlot.uploadedBy ??
+            invoiceSlot.uploadedBy ??
+            memoSlot.uploadedBy ??
+            otherSlot.uploadedBy ??
+            bankSlot.uploadedBy ??
+            null,
         };
       })(),
       buildSlotCard(

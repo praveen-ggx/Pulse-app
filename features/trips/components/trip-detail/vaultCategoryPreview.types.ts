@@ -15,6 +15,12 @@ export type VaultCategoryPreviewFile = {
   expiryDate?: string | null;
   /** LR / invoice number for this copy. */
   documentNumber?: string | null;
+  /** When this file was uploaded / created (ISO). */
+  uploadedAt?: string | null;
+  /** Resolved display name for the uploader (not a raw user id). */
+  uploadedByName?: string | null;
+  uploadedByAvatarUrl?: string | null;
+  uploadedByAvatarSeed?: string | null;
 };
 
 export type VaultCategoryPreviewSession = {

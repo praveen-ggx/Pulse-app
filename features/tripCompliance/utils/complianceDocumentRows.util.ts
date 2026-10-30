@@ -53,7 +53,11 @@ export function labelForFinanceDocType(type: string): string {
   return FINANCE_DOC_TYPE_LABEL[type] ?? labelForDocType(type);
 }
 
-export type ComplianceDocRowStatus = ComplianceDocumentStatus | "missing" | "expired";
+export type ComplianceDocRowStatus =
+  | ComplianceDocumentStatus
+  | "missing"
+  | "expired"
+  | "replaced";
 
 export type ComplianceDocRow = {
   key: string;
@@ -224,7 +228,7 @@ function rowsForTripTypes(
 }
 
 function latestEntityDoc(documents: ComplianceEntityDocument[]): ComplianceEntityDocument | null {
-  const usable = documents.filter((doc) => doc.status !== "replaced");
+  const usable = documents.filter((doc) => doc.status !== "replaced" && doc.status !== "rejected");
   const list = usable.length > 0 ? usable : documents;
   if (list.length === 0) return null;
   // Prefer verified (or active) rows that carry an expiry — a newer pending
@@ -316,6 +320,34 @@ export function deriveComplianceDocumentRows(documents: ComplianceDocumentRow[])
     ...rowsForTripTypes(REQUIRED_COMPLIANCE_DOCUMENT_TYPES, REQUIRED_COMPLIANCE_DOCUMENT_TYPES, documents),
     ...rowsForTripTypes(COMPLIANCE_TRIP_OTHER_DOCUMENT_TYPES, [], documents),
   ];
+}
+
+/** Rejected / replaced extras stay listed; preview must not stay pinned to them. */
+export function isStaleCompliancePreviewRow(
+  row: Pick<ComplianceDocRow, "status" | "doc" | "entityDoc">,
+): boolean {
+  if (row.status === "rejected" || row.status === "replaced") return true;
+  if (row.doc?.status === "rejected") return true;
+  const entityStatus = row.entityDoc?.status;
+  return entityStatus === "rejected" || entityStatus === "replaced";
+}
+
+export function retargetCompliancePreviewKey(
+  pool: ComplianceDocRow[],
+  prevKey: string | null,
+): string | null {
+  const prev = prevKey ? pool.find((row) => row.key === prevKey) : null;
+  if (prev && !isStaleCompliancePreviewRow(prev)) return prev.key;
+  const type = prev?.type;
+  if (!type) return null;
+  return (
+    pool.find(
+      (row) =>
+        row.type === type &&
+        !isStaleCompliancePreviewRow(row) &&
+        (row.doc != null || Boolean(row.entityDoc?.storage_path)),
+    )?.key ?? null
+  );
 }
 
 /**

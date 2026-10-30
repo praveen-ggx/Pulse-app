@@ -609,6 +609,104 @@ async function recordTripDocumentReplacedAudit(params: {
   }
 }
 
+/**
+ * Trip Activity looks up `document_audit_log` by `entity_id ∈ { tripId, live doc ids }`.
+ * Create + delete are keyed on `trip_id` so both survive after the row is gone
+ * (live "uploaded" milestones disappear with the row). Best-effort.
+ */
+async function resolveTripOrgAndActor(
+  tripId: string,
+  organizationIdHint?: string | null,
+): Promise<{ organizationId: string; actorId: string | null } | null> {
+  let organizationId = organizationIdHint?.trim() || null;
+  const authPromise = supabase().auth.getUser();
+  if (!organizationId) {
+    const { data: trip, error: tripError } = await supabase()
+      .from("trips")
+      .select("organization_id")
+      .eq("id", tripId)
+      .maybeSingle();
+    organizationId = !tripError
+      ? (trip as { organization_id?: string | null } | null)?.organization_id ?? null
+      : null;
+  }
+  if (!organizationId) return null;
+  const auth = await authPromise;
+  return { organizationId, actorId: auth.data?.user?.id ?? null };
+}
+
+async function recordTripDocumentCreatedAudit(
+  doc: TripDocumentRow,
+  organizationIdHint?: string | null,
+): Promise<void> {
+  const tripId = String(doc.trip_id ?? "").trim();
+  if (!tripId || doc.id.startsWith("storage-")) return;
+  try {
+    const resolved = await resolveTripOrgAndActor(tripId, organizationIdHint);
+    if (!resolved) return;
+    const fileName = String(doc.file_name ?? "").trim();
+    const documentType = String(doc.document_type ?? "").trim();
+    await supabase().from("document_audit_log").insert({
+      document_id: null,
+      organization_id: resolved.organizationId,
+      entity_type: "trip_document",
+      entity_id: tripId,
+      action: "created",
+      actor_id: resolved.actorId ?? doc.uploaded_by ?? null,
+      old_status: null,
+      new_status: doc.status ?? "pending",
+      notes: fileName ? `Added ${fileName} to this trip.` : "Document added to this trip.",
+      metadata: {
+        trip_document_id: doc.id,
+        document_type: documentType || null,
+        file_name: fileName || null,
+        storage_path: doc.storage_path,
+        document_number: doc.document_number ?? null,
+        uploaded_by: doc.uploaded_by,
+        uploaded_at: doc.uploaded_at,
+      },
+    });
+  } catch (err) {
+    if (__DEV__) console.warn("[tripDocuments] recordTripDocumentCreatedAudit failed:", err);
+  }
+}
+
+async function recordTripDocumentDeletedAudit(doc: TripDocumentRow): Promise<void> {
+  const tripId = String(doc.trip_id ?? "").trim();
+  if (!tripId) return;
+  try {
+    const resolved = await resolveTripOrgAndActor(tripId);
+    if (!resolved) return;
+    const fileName = String(doc.file_name ?? "").trim();
+    const documentType = String(doc.document_type ?? "").trim();
+
+    await supabase().from("document_audit_log").insert({
+      document_id: null,
+      organization_id: resolved.organizationId,
+      entity_type: "trip_document",
+      // Trip id so Activity still finds this after the row is gone.
+      entity_id: tripId,
+      action: "deleted",
+      actor_id: resolved.actorId,
+      old_status: doc.status ?? null,
+      new_status: null,
+      notes: fileName ? `Removed ${fileName} from this trip.` : "Document removed from this trip.",
+      metadata: {
+        trip_document_id: doc.id,
+        document_type: documentType || null,
+        file_name: fileName || null,
+        old_file_name: fileName || null,
+        storage_path: doc.storage_path,
+        document_number: doc.document_number ?? null,
+        uploaded_by: doc.uploaded_by,
+        uploaded_at: doc.uploaded_at,
+      },
+    });
+  } catch (err) {
+    if (__DEV__) console.warn("[tripDocuments] recordTripDocumentDeletedAudit failed:", err);
+  }
+}
+
 type UploadTripDocumentOptions = {
   stopId?: string | null;
   replaceExistingOfType?: boolean;
@@ -723,24 +821,37 @@ async function uploadTripDocumentRow(
       return { doc: null, error: new Error("This file no longer exists. Refresh and try again.") };
     }
     if (existing?.id && !String(existing.id).startsWith("storage-")) {
-      const { data: updated, error: updateError } = await supabase()
+      const replacePatch = {
+        file_name: file.fileName,
+        storage_path: path,
+        mime_type: file.mimeType || null,
+        size_bytes: byteLength,
+        uploaded_by: uploadedBy,
+        document_number: trimmedDocumentNumber,
+        status: "pending",
+        verified_by: null,
+        verified_at: null,
+        rejection_reason: null,
+        source_entity_document_id: null,
+        ...(stopId ? { stop_id: stopId } : {}),
+      };
+      let { data: updated, error: updateError } = await supabase()
         .from("trip_documents")
-        .update({
-          file_name: file.fileName,
-          storage_path: path,
-          mime_type: file.mimeType || null,
-          size_bytes: byteLength,
-          uploaded_by: uploadedBy,
-          document_number: trimmedDocumentNumber,
-          status: "pending",
-          verified_by: null,
-          verified_at: null,
-          rejection_reason: null,
-          ...(stopId ? { stop_id: stopId } : {}),
-        })
+        .update(replacePatch)
         .eq("id", existing.id)
         .select(tripDocSelect)
         .single();
+      if (updateError && isMissingTripDocumentsColumn(updateError)) {
+        const { source_entity_document_id: _pin, ...legacyPatch } = replacePatch;
+        const retried = await supabase()
+          .from("trip_documents")
+          .update(legacyPatch)
+          .eq("id", existing.id)
+          .select(tripDocSelect)
+          .single();
+        updated = retried.data;
+        updateError = retried.error;
+      }
       if (updateError) {
         return { doc: null, error: new Error(updateError.message) };
       }
@@ -827,6 +938,8 @@ async function uploadTripDocumentRow(
     ...(row as TripDocumentRow),
     document_type: ((row as TripDocumentRow).document_type ?? documentType) as TripDocumentType,
   } as TripDocumentRow;
+  // Durable create event — live milestones vanish when the row is deleted.
+  void recordTripDocumentCreatedAudit(insertedDoc, options?.organizationId);
   if (documentType === "pod") {
     publishPodUploadedEvent(tripId, insertedDoc, options?.organizationId);
   }
@@ -879,11 +992,14 @@ export async function uploadTripChatImage(
 /**
  * Remove a POD file from storage and the trip_documents row (when present).
  * Synthetic IDs from storage fallback list still delete by storage_path only.
+ * Writes a `document_audit_log` 'deleted' row (who / when) for Trip Activity.
  */
 export async function deleteTripDocument(doc: TripDocumentRow): Promise<{ error: Error | null }> {
   // Row first: when the database refuses (approved / locked document), the file
   // must stay, or the row would point at a file that no longer exists.
   const synthetic = doc.id.startsWith("storage-") || doc.id.startsWith("storage-meta-");
+  // Snapshot audit before the row disappears so Activity keeps who deleted / when.
+  await recordTripDocumentDeletedAudit(doc);
   if (!synthetic) {
     const { data: deleted, error: dbErr } = await supabase()
       .from("trip_documents")

@@ -560,7 +560,18 @@ function NetworkScreenInner() {
     const snap = profileSnapshotQ.data;
     const nodeOrgId = profileTargetId;
     if (!snap || !nodeOrgId || snap.id !== nodeOrgId) return;
-    setSelectedProfileStats({ totalTrips: snap.total_trips ?? 0 });
+    setSelectedProfileStats((prev) => {
+      const nextTrips = snap.total_trips;
+      // Prefer a real count from the snapshot; keep a previously seeded
+      // positive count when the snapshot still reports 0 (incomplete batch).
+      if (typeof nextTrips === "number" && nextTrips > 0) {
+        return { totalTrips: nextTrips };
+      }
+      if (typeof prev.totalTrips === "number" && prev.totalTrips > 0) {
+        return prev;
+      }
+      return { totalTrips: typeof nextTrips === "number" ? nextTrips : 0 };
+    });
     setSelectedProfileNode((prev) => {
       if (!prev || prev.id !== nodeOrgId) return prev;
       const next = {

@@ -1,12 +1,14 @@
 import {
   applyOptimisticDecision,
   canModerateComplianceRow,
+  canShowSingleRowDecline,
   complianceGroupDecisionActions,
   complianceGroupReviewState,
   complianceReviewDecisionActions,
   complianceTabMarkedApproved,
   complianceDecisionButtonState,
   recordOptimisticDecision,
+  singleComplianceRowDeclineIds,
 } from "@/features/tripCompliance/utils/complianceReviewActions.util";
 import type { ComplianceDocRow } from "@/features/tripCompliance/utils/complianceDocumentRows.util";
 import type { ComplianceDocumentRow } from "@/features/tripCompliance/tripCompliance.types";
@@ -50,6 +52,83 @@ describe("complianceReviewDecisionActions", () => {
   it("locks Approve as done once verified (Decline still reverses), and Approve on rejected", () => {
     expect(complianceReviewDecisionActions(row({ status: "verified" }))).toEqual({ canApprove: false, canDecline: true });
     expect(complianceReviewDecisionActions(row({ status: "rejected" }))).toEqual({ canApprove: true, canDecline: false });
+  });
+
+  it("declines only the selected other row and leaves bank, LR, and invoice untouched", () => {
+    const other = row({
+      status: "pending",
+      key: "other",
+      type: "other",
+      required: false,
+      doc: {
+        id: "b7cbfe36-b6df-4459-976d-1c7d6af7d40f",
+        trip_id: "t1",
+        document_type: "other",
+        file_name: "RESUBMIT-TEST-1.png",
+        storage_path: "t1/other/a.png",
+        uploaded_at: "2026-10-29",
+        status: "pending",
+        verified_by: null,
+        verified_at: null,
+        rejection_reason: null,
+      },
+    });
+    const siblings = [
+      row({
+        status: "verified",
+        key: "bank_docs",
+        type: "bank_docs",
+        required: false,
+        doc: {
+          id: "bank-1",
+          trip_id: "t1",
+          document_type: "bank_docs",
+          file_name: "bank.pdf",
+          storage_path: "t1/bank.pdf",
+          uploaded_at: "2026-10-29",
+          status: "verified",
+          verified_by: null,
+          verified_at: null,
+          rejection_reason: null,
+        },
+      }),
+      row({ status: "verified", key: "lr", type: "lr", required: true }),
+      row({
+        status: "verified",
+        key: "invoice",
+        type: "invoice",
+        required: true,
+        doc: {
+          id: "inv-1",
+          trip_id: "t1",
+          document_type: "invoice",
+          file_name: "inv.png",
+          storage_path: "t1/inv.png",
+          uploaded_at: "2026-10-29",
+          status: "verified",
+          verified_by: null,
+          verified_at: null,
+          rejection_reason: null,
+        },
+      }),
+    ];
+    expect(singleComplianceRowDeclineIds(other, siblings, "trip")).toEqual([
+      "b7cbfe36-b6df-4459-976d-1c7d6af7d40f",
+    ]);
+    expect(canShowSingleRowDecline({ canVerify: true, hideDocumentDecisions: false, row: other, scope: "trip" })).toBe(
+      true,
+    );
+    expect(canShowSingleRowDecline({ canVerify: true, hideDocumentDecisions: true, row: other, scope: "trip" })).toBe(
+      false,
+    );
+    expect(canShowSingleRowDecline({ canVerify: false, hideDocumentDecisions: false, row: other, scope: "trip" })).toBe(
+      false,
+    );
+  });
+
+  it("does not invent a decline target for a missing optional document", () => {
+    const missingOther = row({ status: "missing", key: "other", type: "other", required: false, doc: null });
+    expect(singleComplianceRowDeclineIds(missingOther, [], "trip")).toEqual([]);
   });
 
   it("maps footer button labels from the active doc status", () => {

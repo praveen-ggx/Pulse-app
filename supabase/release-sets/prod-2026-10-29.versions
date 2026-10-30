@@ -1,0 +1,19 @@
+# Release 2026-10-29 (Vasanthgogox V1.0.1): the three migrations this release needs on prod.
+# 1. restore_partner_display_batch_stats: get_connection_partner_display_batch body (Vasanth PR #52, already in prod code).
+# 2. entity_documents_audit_insert_metadata: entity_documents_audit_trigger body (Vasanth Compliance Resubmit).
+# 3. compliance_resubmit_attachment_only: compliance_missing_required_files(uuid), execute revoked from public/anon/authenticated (Vasanth Compliance Resubmit).
+# Function bodies only (CREATE OR REPLACE + grants); no table, column or data changes.
+#
+# Apply only via: npm run db:push-set -- prod-2026-10-29   (dry-run first; apply needs Vasanth's GO)
+# Never via plain `supabase db push` / `npm run db:push`.
+#
+# Excluded on purpose: the network_pool_bid_commits migration (withdraw-network-quotes set, not in this release),
+# and the older prod-catch-up exclusions pinned in prodCatchupReleaseSet.test.ts.
+#
+# Verify before applying:  npx jest supabase/migrations/__tests__/prodRelease20261029Set.test.ts
+# sha256 aa11215421d0f5110824cb94d31b4b3336e20362918d0574c0369306f2680f52  20271029153000_restore_partner_display_batch_stats.sql
+20271029153000
+# sha256 c6cdd73b2ec883342ecfb331053af1bccd93bb71aeeaad57ce537807e37df14d  20271029174500_entity_documents_audit_insert_metadata.sql
+20271029174500
+# sha256 8f02529d9c758a36374394d4e7efdc56e86a8fec00e6d56060fa96bbb7427dba  20271029223000_compliance_resubmit_attachment_only.sql
+20271029223000

@@ -1,6 +1,9 @@
 import {
+  compliancePreviewSourceForEntityDoc,
   compliancePreviewSourceForRow,
   compliancePreviewSourceForVaultFile,
+  vaultChooserSourceForComplianceRow,
+  vaultChooserSourceForEntityDoc,
 } from "../compliancePreviewSource.util";
 import type { ComplianceDocRow } from "../complianceDocumentRows.util";
 
@@ -134,5 +137,78 @@ describe("compliancePreviewSourceForVaultFile", () => {
         categoryLabel: "Bank Docs",
       }),
     ).toBe("supplier-kyc");
+  });
+
+  it("signs compliance-page vehicle uploads (entity path) from compliance-documents", () => {
+    expect(
+      compliancePreviewSourceForRow(
+        row({
+          entityDoc: {
+            id: "rc-entity",
+            entity_type: "vehicle",
+            entity_id: "v1",
+            doc_type: "rc",
+            status: "pending",
+            storage_path: "org/vehicle/v1/rc_abc.jpeg",
+            expiry_date: null,
+            verified_at: null,
+            notes: "TS34T1786 RC.jpeg",
+            created_at: "2026-10-29",
+            source: "entity",
+          },
+        }),
+      ),
+    ).toBe("entity");
+    expect(
+      vaultChooserSourceForComplianceRow(
+        row({
+          entityDoc: {
+            id: "rc-entity",
+            entity_type: "vehicle",
+            entity_id: "v1",
+            doc_type: "rc",
+            status: "pending",
+            storage_path: "org/vehicle/v1/rc_abc.jpeg",
+            expiry_date: null,
+            verified_at: null,
+            notes: "TS34T1786 RC.jpeg",
+            created_at: "2026-10-29",
+            source: "entity",
+          },
+        }),
+      ),
+    ).toBe("entity");
+  });
+
+  it("keeps Asset Vault vehicle files on the vehicle-vault signer", () => {
+    expect(
+      compliancePreviewSourceForEntityDoc({
+        source: "vehicle-vault",
+        entity_type: "vehicle",
+        doc_type: "insurance",
+        storage_path: "org/v1/insurance.jpeg",
+      }),
+    ).toBe("vehicle-vault");
+    expect(
+      vaultChooserSourceForEntityDoc({
+        source: "vehicle-vault",
+        doc_type: "rc",
+        storage_path: "org/v1/Screenshot.png",
+      }),
+    ).toBe("vehicle-vault");
+    expect(
+      compliancePreviewSourceForVaultFile({
+        complianceType: "rc",
+        deleteKind: "vehicle_compliance",
+        storagePath: "org/v1/rc.jpeg",
+      }),
+    ).toBe("vehicle-vault");
+    expect(
+      compliancePreviewSourceForVaultFile({
+        complianceType: "rc",
+        deleteKind: "vehicle_compliance",
+        storagePath: "org/vehicle/v1/rc_abc.jpeg",
+      }),
+    ).toBe("entity");
   });
 });

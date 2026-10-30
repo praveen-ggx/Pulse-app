@@ -136,9 +136,11 @@ import {
 } from "@/lib/queries/useRealtimeInvalidation";
 import { useSuppliersQuery } from "@/lib/queries/useSuppliersQuery";
 import { ROUTES } from "@/lib/routes";
+import { isSupabaseQueueRejectedError } from "@/lib/supabaseHttp.util";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import { useOptionalActiveWorkspace } from "@/contexts/ActiveWorkspaceContext";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { ComplianceRefreshButton } from "@/features/tripCompliance/components/ComplianceRefreshButton";
 import { Download, FileText, LayoutGrid, Package, Search, Table2, Wallet } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View, type LayoutChangeEvent, type NativeSyntheticEvent, type NativeScrollEvent, type TextStyle, type ViewStyle } from "react-native";
@@ -428,6 +430,8 @@ export default function ComplianceScreen() {
     isLoading,
     isError,
     error,
+    isFetching: complianceRefreshing,
+    dataUpdatedAt: complianceUpdatedAt,
     refetch,
   } = useComplianceTripsQuery();
   // Ground Ops / TripOps fix holds but can't verify: their held trips show in
@@ -1972,6 +1976,14 @@ export default function ComplianceScreen() {
       canExport={mobileCanExport}
       onExport={onMobileExport}
       exportLabel="Export Report"
+      refreshControl={
+        <ComplianceRefreshButton
+          compact
+          updatedAt={complianceUpdatedAt}
+          refreshing={complianceRefreshing}
+          onRefresh={() => void refetch()}
+        />
+      }
     />
   );
 
@@ -2053,7 +2065,11 @@ export default function ComplianceScreen() {
         </View>
       ) : isError ? (
         <View style={styles.emptyFill}>
-          <Text style={styles.message}>{(error as Error)?.message ?? "Couldn't load Compliance."}</Text>
+          <Text style={styles.message}>
+            {isSupabaseQueueRejectedError(error)
+              ? "Too many requests are in progress. Wait a moment and retry."
+              : (error as Error)?.message ?? "Couldn't load Compliance."}
+          </Text>
           <TouchableOpacity style={styles.reportBtn} onPress={() => void refetch()}>
             <Text style={styles.reportBtnText}>Retry</Text>
           </TouchableOpacity>
@@ -2357,7 +2373,13 @@ export default function ComplianceScreen() {
             </TouchableOpacity>
           </View>
         </View>
-        <View style={styles.footerCenter} />
+        <View style={styles.footerCenter}>
+          <ComplianceRefreshButton
+            updatedAt={complianceUpdatedAt}
+            refreshing={complianceRefreshing}
+            onRefresh={() => void refetch()}
+          />
+        </View>
         <View style={[styles.footerSide, styles.footerSideEnd]}>
           {viewMode === "table" && !isAdvanceProcessedStage && !isVerifiedStage ? (
             <TouchableOpacity
@@ -3099,7 +3121,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   footerSideEnd: { justifyContent: "flex-end" },
-  footerCenter: { width: 160 },
+  footerCenter: { width: 160, alignItems: "center" },
   exportToast: {
     position: "absolute",
     left: 16,

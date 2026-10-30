@@ -33,6 +33,7 @@ export function ComplianceMobileChrome({
   canExport,
   onExport,
   exportLabel = "Export",
+  refreshControl,
 }: {
   search: string;
   onSearchChange: (value: string) => void;
@@ -47,6 +48,7 @@ export function ComplianceMobileChrome({
   canExport?: boolean;
   onExport?: () => void;
   exportLabel?: string;
+  refreshControl?: ReactNode;
 }) {
   return (
     <View style={styles.chrome} accessibilityRole="header">
@@ -54,6 +56,7 @@ export function ComplianceMobileChrome({
         title="Compliance"
         action={
           <View style={styles.headerActions}>
+            {refreshControl}
             {canExport && onExport ? (
               <TouchableOpacity
                 onPress={onExport}

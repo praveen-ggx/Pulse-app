@@ -17,7 +17,7 @@ import type { PartyEntityType } from "@/lib/partyAvatarDisplay";
 import Feather from "@expo/vector-icons/Feather";
 import { FileText, Pencil } from "lucide-react-native";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 const SHOP = HUB_MOBILE_COMMERCE_REF;
 
@@ -45,6 +45,8 @@ export type VaultChooserPreview = {
   entityId?: string | null;
   /** Helps vehicle-vault → entity_documents fallback when the vault object is missing. */
   docType?: string | null;
+  /** Short caption on cluster thumbs (LR, RC, DL). */
+  label?: string | null;
 };
 
 /** Map card preview source → Storage signer used by signCompliancePreviewUrl. */
@@ -82,6 +84,8 @@ type Props = {
   needsExpiry?: boolean;
   /** All active files for this type. Falls back to `preview` when omitted. */
   previews?: VaultChooserPreview[];
+  /** Highlight this file in the tiny strip (cluster cards). */
+  selectedPreviewIndex?: number;
   onPreview?: () => void;
   /** Tap a specific file when more than one is on file. */
   onPreviewAt?: (index: number) => void;
@@ -96,6 +100,19 @@ type Props = {
   onReplace?: () => void;
   /** Retail-clean card chrome for Compliance mobile detail. */
   appearance?: "default" | "shop";
+  /** Hide View / Add / Replace / Edit under the upload log. */
+  hideShopActions?: boolean;
+  /** Larger hero when this card is the document-detail preview. */
+  shopSize?: "card" | "pane";
+  /** Empty type slots on the cluster strip (LR / RC / DL still to upload). */
+  pendingThumbs?: { key: string; label: string }[];
+  /** Highlight this pending type on the strip. */
+  selectedPendingKey?: string | null;
+  onPendingThumb?: (key: string) => void;
+  /** Thumb rail for the document-detail pane. */
+  shopRail?: boolean;
+  /** Horizontal filmstrip (mobile). Vertical rail is the desktop default. */
+  shopRailHorizontal?: boolean;
 };
 
 function normalizeExpiryIso(raw?: string | null): string | null {
@@ -115,6 +132,13 @@ function formatCardExpiry(iso: string): string {
 
 const WEB_POINTER = Platform.OS === "web" ? ({ cursor: "pointer" } as const) : null;
 
+function shopThumbCaptionLabel(item: VaultChooserPreview): string {
+  const raw = (item.label ?? item.docType ?? "").trim();
+  if (!raw) return "";
+  if (/\d/.test(raw) || raw.includes("\n")) return raw;
+  return raw.toUpperCase();
+}
+
 function isCardPreviewable(item: VaultChooserPreview): boolean {
   if (item.previewUri?.trim()) return true;
   const path = item.storagePath?.trim() ?? "";
@@ -133,6 +157,7 @@ function ChooserQuoteDoc({
   tiled = false,
   headerFacts = null,
   hero = false,
+  mini = false,
 }: {
   preview: VaultChooserPreview;
   onPress: () => void;
@@ -141,6 +166,8 @@ function ChooserQuoteDoc({
   headerFacts?: string | null;
   /** Tall centered preview for retail Order Details–style cards. */
   hero?: boolean;
+  /** Compact strip thumb. */
+  mini?: boolean;
 }) {
   const readyUri = preview.previewUri?.trim() || "";
   const [uri, setUri] = useState<string | null>(readyUri || null);
@@ -202,9 +229,10 @@ function ChooserQuoteDoc({
   return (
     <View
       style={[
-        tiled && !hero && styles.quoteCell,
+        tiled && !hero && !mini && styles.quoteCell,
         styles.quoteDoc,
         hero && styles.quoteDocHero,
+        mini && styles.quoteDocMini,
         WEB_POINTER,
       ]}
     >
@@ -222,7 +250,7 @@ function ChooserQuoteDoc({
             uri={uri}
             isPdf={pdf}
             fileName={preview.fileName}
-            sizing="cover"
+            sizing={hero ? "fit" : "cover"}
             style={styles.quoteImage}
           />
         ) : (
@@ -231,7 +259,7 @@ function ChooserQuoteDoc({
           </View>
         )}
       </Pressable>
-      {uri ? (
+      {uri && !mini ? (
         <Pressable
           onPress={(event) => {
             event?.stopPropagation?.();
@@ -249,7 +277,7 @@ function ChooserQuoteDoc({
           accessibilityRole="button"
           accessibilityLabel={`View full ${title}`}
         >
-          <Feather name="eye" size={hero ? 14 : 12} color={hero ? SHOP.ink : Theme.actionBtnInk} />
+          <Feather name="eye" size={hero ? 16 : 12} color={hero ? SHOP.ink : Theme.actionBtnInk} />
         </Pressable>
       ) : null}
       <VaultFullDocumentModal
@@ -269,6 +297,7 @@ function ChooserQuoteDoc({
 function redundantMeta(meta: string, onFile: boolean): boolean {
   const value = meta.trim().toLowerCase();
   if (!value) return true;
+  if (/^\d+\s*\/\s*\d+\s+on file$/.test(value)) return true;
   return value === "on file" || value === "not uploaded" || value === (onFile ? "on file" : "not uploaded");
 }
 
@@ -279,6 +308,7 @@ export function VaultChooserNotifyRow({
   canUpload,
   preview = null,
   previews,
+  selectedPreviewIndex = 0,
   actionText,
   detailFact = null,
   uploadAttribution = null,
@@ -293,8 +323,16 @@ export function VaultChooserNotifyRow({
   onAdd,
   onReplace,
   appearance = "default",
+  hideShopActions = false,
+  shopSize = "card",
+  pendingThumbs = [],
+  selectedPendingKey = null,
+  onPendingThumb,
+  shopRail = false,
+  shopRailHorizontal = false,
 }: Props) {
   const shop = appearance === "shop";
+  const shopPane = shop && shopSize === "pane";
   const allPreviews = (
     previews && previews.length > 0 ? previews : preview ? [preview] : []
   ).filter(isCardPreviewable);
@@ -351,49 +389,145 @@ export function VaultChooserNotifyRow({
     ].filter(Boolean);
     const showView = onFile && Boolean(onOpenFull || openEditor);
     const showEdit = onFile && Boolean(openEditor && onOpenFull);
+    const heroIndex =
+      selectedPreviewIndex >= 0 && selectedPreviewIndex < allPreviews.length
+        ? selectedPreviewIndex
+        : 0;
+    const heroPreview = allPreviews[heroIndex];
+    const showHero = shopPane && !shopRail;
+    const showStrip = allPreviews.length > 0 || pendingThumbs.length > 0;
+    const thumbItems = (
+      <>
+        {allPreviews.map((item, index) => {
+          const caption = shopThumbCaptionLabel(item);
+          const selected = index === heroIndex;
+          return (
+            <Pressable
+              key={`${item.storagePath ?? item.previewUri ?? item.fileName ?? "file"}-${index}`}
+              onPress={() => previewFile(index)}
+              style={[
+                styles.shopThumb,
+                shopRail && styles.shopThumbRailItem,
+                selected && styles.shopThumbSelected,
+              ]}
+              accessibilityRole="button"
+              accessibilityState={{ selected }}
+              accessibilityLabel={`Preview ${caption || item.fileName || label}`}
+            >
+              <ChooserQuoteDoc mini preview={item} onPress={() => previewFile(index)} />
+              {caption ? (
+                <View style={styles.shopThumbCaption}>
+                  <Text
+                    style={[styles.shopThumbCaptionText, WEB_COPY]}
+                    numberOfLines={2}
+                  >
+                    {caption}
+                  </Text>
+                </View>
+              ) : null}
+            </Pressable>
+          );
+        })}
+        {pendingThumbs.map((item) => {
+          const selected = item.key === selectedPendingKey;
+          return (
+            <Pressable
+              key={`pending-${item.key}`}
+              onPress={() => onPendingThumb?.(item.key)}
+              style={[
+                styles.shopThumb,
+                shopRail && styles.shopThumbRailItem,
+                styles.shopThumbPending,
+                selected && styles.shopThumbSelected,
+              ]}
+              accessibilityRole="button"
+              accessibilityState={{ selected }}
+              accessibilityLabel={`Pending ${item.label || label}`}
+            >
+              <View style={styles.shopThumbPendingBody}>
+                <FileText size={14} color={SHOP.muted} strokeWidth={1.7} />
+              </View>
+              {item.label ? (
+                <View style={styles.shopThumbCaption}>
+                  <Text
+                    style={[styles.shopThumbCaptionText, WEB_COPY]}
+                    numberOfLines={2}
+                  >
+                    {item.label}
+                  </Text>
+                </View>
+              ) : null}
+            </Pressable>
+          );
+        })}
+      </>
+    );
+    if (shopRail) {
+      if (shopRailHorizontal) {
+        return (
+          <ScrollView
+            horizontal
+            nestedScrollEnabled
+            showsHorizontalScrollIndicator={false}
+            style={styles.shopThumbFilmScroll}
+            contentContainerStyle={styles.shopThumbFilm}
+            accessibilityLabel={a11yLabel}
+          >
+            {thumbItems}
+          </ScrollView>
+        );
+      }
+      return (
+        <ScrollView
+          nestedScrollEnabled
+          showsVerticalScrollIndicator={false}
+          style={styles.shopThumbRailScroll}
+          contentContainerStyle={styles.shopThumbRail}
+          accessibilityLabel={a11yLabel}
+        >
+          {thumbItems}
+        </ScrollView>
+      );
+    }
     return (
       <View style={[styles.card, styles.cardShop]} accessibilityLabel={a11yLabel}>
-        <View style={styles.shopHeroBand}>
-          {showDoc && allPreviews.length === 1 ? (
-            <View style={styles.shopHeroFrame}>
-              <ChooserQuoteDoc
-                hero
-                preview={allPreviews[0]}
-                onPress={() => previewFile(0)}
-                onOpenFull={onOpenFull ? () => onOpenFull(0) : undefined}
-                headerFacts={headerFacts || null}
-              />
-            </View>
-          ) : showDoc ? (
-            <View style={styles.quoteGridShop}>
-              {allPreviews.map((item, index) => (
-                <View
-                  key={`${item.storagePath ?? item.previewUri ?? item.fileName ?? "file"}-${index}`}
-                  style={styles.shopHeroFrameTiled}
-                >
-                  <ChooserQuoteDoc
-                    preview={item}
-                    hero
-                    onPress={() => previewFile(index)}
-                    onOpenFull={onOpenFull ? () => onOpenFull(index) : undefined}
-                    headerFacts={headerFacts || null}
-                  />
-                </View>
-              ))}
-            </View>
-          ) : (
-            <Pressable
-              onPress={canUpload ? onAdd : undefined}
-              disabled={!canUpload}
-              style={[styles.emptyQuote, styles.emptyQuoteShopHero]}
-              accessibilityRole={canUpload ? "button" : "none"}
-              accessibilityLabel={`${label} has no file yet`}
-            >
-              <FileText size={16} color={SHOP.muted} strokeWidth={1.6} />
-              <Text style={[styles.emptyQuoteText, styles.emptyQuoteTextShop]}>No file yet</Text>
-            </Pressable>
-          )}
-        </View>
+        {showHero ? (
+          <View style={styles.shopHeroBand}>
+            {showDoc && heroPreview ? (
+              <View style={[styles.shopHeroFrame, styles.shopHeroFramePane]}>
+                <ChooserQuoteDoc
+                  hero
+                  preview={heroPreview}
+                  onPress={() => previewFile(heroIndex)}
+                  onOpenFull={onOpenFull ? () => onOpenFull(heroIndex) : undefined}
+                  headerFacts={headerFacts || null}
+                />
+              </View>
+            ) : (
+              <Pressable
+                onPress={canUpload ? onAdd : undefined}
+                disabled={!canUpload}
+                style={[styles.emptyQuote, styles.emptyQuoteShopHero]}
+                accessibilityRole={canUpload ? "button" : "none"}
+                accessibilityLabel={`${label} has no file yet`}
+              >
+                <FileText size={16} color={SHOP.muted} strokeWidth={1.6} />
+                <Text style={[styles.emptyQuoteText, styles.emptyQuoteTextShop]}>No file yet</Text>
+              </Pressable>
+            )}
+          </View>
+        ) : null}
+
+        {showStrip ? (
+          <ScrollView
+            horizontal
+            nestedScrollEnabled
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.shopThumbStrip}
+          >
+            {thumbItems}
+          </ScrollView>
+        ) : null}
 
         <View style={styles.shopMetaBlock}>
           <Text style={[styles.shopBrand, WEB_COPY]} numberOfLines={1}>
@@ -428,7 +562,7 @@ export function VaultChooserNotifyRow({
               <View style={styles.shopStatusLog}>
                 <DocumentUploadAttributionRow
                   {...uploadAttribution!}
-                  size={22}
+                  size={16}
                   compact
                   hideWhen
                 />
@@ -437,7 +571,7 @@ export function VaultChooserNotifyRow({
           </View>
         </View>
 
-        {showView || canUpload || showEdit ? (
+        {hideShopActions ? null : showView || canUpload || showEdit ? (
           <View style={styles.shopActionsRow}>
             {showView ? (
               <Pressable
@@ -971,10 +1105,10 @@ const styles = StyleSheet.create({
   statusTextOn: { color: Theme.complianceStageSuccessFg },
   statusTextOff: { color: Theme.complianceStagePendingFg },
   cardShop: {
-    paddingTop: 10,
-    paddingBottom: 10,
-    paddingHorizontal: 10,
-    gap: 8,
+    paddingTop: 8,
+    paddingBottom: 8,
+    paddingHorizontal: 8,
+    gap: 6,
     borderRadius: 10,
     borderColor: SHOP.hairline,
     backgroundColor: Theme.cardWhite,
@@ -985,13 +1119,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   shopHeroFrame: {
-    width: 88,
-    height: 116,
-    borderRadius: 8,
+    width: 176,
+    height: 232,
+    borderRadius: 12,
     overflow: "hidden",
     backgroundColor: "#F7F7F8",
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: SHOP.hairline,
+  },
+  shopHeroFramePane: {
+    width: 176,
+    height: 232,
+    borderRadius: 12,
   },
   shopHeroFrameTiled: {
     width: 64,
@@ -1009,11 +1148,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#F7F7F8",
   },
   quoteEyeHero: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    right: 6,
-    bottom: 6,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    right: 10,
+    bottom: 10,
   },
   quoteGridShop: {
     flexDirection: "row",
@@ -1022,9 +1161,9 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   emptyQuoteShopHero: {
-    width: 88,
-    height: 116,
-    minHeight: 116,
+    width: 176,
+    height: 232,
+    minHeight: 232,
     borderRadius: 8,
     borderColor: SHOP.hairline,
     backgroundColor: "#FAFAFB",
@@ -1043,23 +1182,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   shopBrand: {
-    fontSize: 13,
-    lineHeight: 17,
+    fontSize: 11,
+    lineHeight: 14,
     fontWeight: "700",
     color: SHOP.ink,
     letterSpacing: -0.15,
     textAlign: "center",
   },
   shopMetaLine: {
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 9,
+    lineHeight: 12,
     fontWeight: "500",
     color: SHOP.muted,
     textAlign: "center",
   },
   shopStatusCard: {
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 0,
   },
@@ -1080,24 +1219,24 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   shopStatusKicker: {
-    fontSize: 9,
-    lineHeight: 12,
+    fontSize: 8,
+    lineHeight: 10,
     fontWeight: "600",
     color: SHOP.muted,
     textTransform: "uppercase",
     letterSpacing: 0.3,
   },
   shopStatusDate: {
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 10,
+    lineHeight: 13,
     fontWeight: "700",
     color: SHOP.success,
     letterSpacing: -0.1,
   },
   shopStatusDateMuted: {
     color: SHOP.warning,
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 10,
+    lineHeight: 13,
   },
   shopStatusLog: {
     flexGrow: 0,
@@ -1114,7 +1253,7 @@ const styles = StyleSheet.create({
   },
   shopActionBtn: {
     flex: 1,
-    minHeight: 32,
+    minHeight: 24,
     borderRadius: 8,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "#D4D5D9",
@@ -1125,8 +1264,8 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   shopActionText: {
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 10,
+    lineHeight: 12,
     fontWeight: "600",
     color: SHOP.ink,
   },
@@ -1142,6 +1281,84 @@ const styles = StyleSheet.create({
     lineHeight: 13,
     color: SHOP.muted,
     textAlign: "center",
+  },
+  shopThumbStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingHorizontal: 2,
+  },
+  shopThumbFilmScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
+    alignSelf: "stretch",
+  },
+  shopThumbFilm: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  shopThumbRailScroll: {
+    flex: 1,
+    minHeight: 0,
+    alignSelf: "stretch",
+  },
+  shopThumbRail: {
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  shopThumbRailItem: {
+    width: 52,
+    height: 70,
+  },
+  shopThumb: {
+    width: 56,
+    height: 72,
+    borderRadius: 10,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: SHOP.hairline,
+    backgroundColor: Theme.compliancePageBg,
+  },
+  shopThumbSelected: {
+    borderColor: Theme.actionBtnInk,
+  },
+  shopThumbPending: {
+    borderStyle: "dashed",
+    backgroundColor: "#FAFAFB",
+  },
+  shopThumbPendingBody: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingBottom: 14,
+  },
+  shopThumbCaption: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingVertical: 2,
+    backgroundColor: Theme.cardWhite,
+  },
+  shopThumbCaptionText: {
+    fontSize: 7,
+    lineHeight: 9,
+    fontWeight: "700",
+    color: SHOP.ink,
+    textAlign: "center",
+    letterSpacing: 0,
+  },
+  quoteDocMini: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 0,
+    backgroundColor: Theme.compliancePageBg,
   },
   expiryEditShop: { color: SHOP.link },
 });

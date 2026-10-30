@@ -1,6 +1,6 @@
 /**
  * Driver identity docs shown on Trip Asset Vault (License + Aadhaar).
- * Persisted on entity_documents (same store Compliance uses for driver slots).
+ * Merges trip entity_documents with driver-app KYC (`driver_kyc_documents`).
  */
 
 export type DriverIdentityDocType = "license" | "aadhaar";
@@ -30,6 +30,7 @@ export type DriverIdentityFile = {
   expiryDate?: string | null;
   fileName?: string | null;
   kind: DriverIdentityDocType;
+  source?: "entity" | "driver-kyc";
 };
 
 export type DriverIdentityDocuments = Partial<
@@ -40,6 +41,7 @@ export type DriverIdentityDocuments = Partial<
       url: string;
       expiryDate?: string | null;
       fileName?: string | null;
+      source?: "entity" | "driver-kyc";
     }
   >
 > & {
@@ -61,13 +63,20 @@ export function isDriverIdentityDocType(value: string): value is DriverIdentityD
 export function driverFilesForDocType(
   docs: DriverIdentityDocuments | null | undefined,
   docType: DriverIdentityDocType,
-): { url: string; fileName: string; documentId?: string; expiryDate?: string | null }[] {
+): {
+  url: string;
+  fileName: string;
+  documentId?: string;
+  expiryDate?: string | null;
+  source?: "entity" | "driver-kyc";
+}[] {
   const slot = docs?.[docType];
   const files: {
     url: string;
     fileName: string;
     documentId?: string;
     expiryDate?: string | null;
+    source?: "entity" | "driver-kyc";
   }[] = [];
   const slotUrl = slot?.url?.trim() ?? "";
   if (slotUrl) {
@@ -76,6 +85,7 @@ export function driverFilesForDocType(
       fileName: slot?.fileName?.trim() || DRIVER_IDENTITY_LABELS[docType],
       documentId: slot?.id,
       expiryDate: slot?.expiryDate ?? null,
+      source: slot?.source,
     });
   }
   for (const extra of docs?.extras ?? []) {
@@ -87,6 +97,7 @@ export function driverFilesForDocType(
       fileName: extra.fileName?.trim() || DRIVER_IDENTITY_LABELS[docType],
       documentId: extra.id,
       expiryDate: extra.expiryDate ?? slot?.expiryDate ?? null,
+      source: extra.source,
     });
   }
   return files;

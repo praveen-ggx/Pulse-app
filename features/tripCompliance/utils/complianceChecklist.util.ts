@@ -1,8 +1,10 @@
 import {
   COMPLIANCE_DRIVER_DOCUMENT_TYPES,
+  COMPLIANCE_FINANCE_DOCUMENT_TYPES,
   COMPLIANCE_TRIP_OTHER_DOCUMENT_TYPES,
   COMPLIANCE_VEHICLE_DOCUMENT_TYPES,
   REQUIRED_COMPLIANCE_DOCUMENT_TYPES,
+  REQUIRED_COMPLIANCE_FINANCE_DOCUMENT_TYPES,
   REQUIRED_DRIVER_DOCUMENT_TYPES,
   REQUIRED_VEHICLE_DOCUMENT_TYPES,
   documentRequiresExpiry,
@@ -183,10 +185,18 @@ export function buildComplianceChecklist(input: {
       REQUIRED_DRIVER_DOCUMENT_TYPES,
       driverVerified,
     ),
+    buildGroup(
+      "finance",
+      "Finance",
+      COMPLIANCE_FINANCE_DOCUMENT_TYPES,
+      REQUIRED_COMPLIANCE_FINANCE_DOCUMENT_TYPES,
+      tripVerified,
+    ),
   ];
 
-  const verified = groups.reduce((sum, group) => sum + group.verified, 0);
-  const total = groups.reduce((sum, group) => sum + group.total, 0);
+  const core = groups.slice(0, 3);
+  const verified = core.reduce((sum, group) => sum + group.verified, 0);
+  const total = core.reduce((sum, group) => sum + group.total, 0);
   return { groups, verified, total, tone: checklistTone(verified, total) };
 }
 
@@ -199,11 +209,12 @@ export function emptyComplianceChecklist(): ComplianceChecklist {
  * group slot counts no longer match LR/e-way/invoice, vehicle, and driver.
  */
 export function isCurrentComplianceChecklist(checklist: ComplianceChecklist | null | undefined): boolean {
-  if (!checklist?.groups || checklist.groups.length !== 3 || !checklist.tone) return false;
+  if (!checklist?.groups || checklist.groups.length !== 4 || !checklist.tone) return false;
   return (
     checklist.groups[0]?.slots.length === REQUIRED_COMPLIANCE_DOCUMENT_TYPES.length &&
     checklist.groups[1]?.slots.length === COMPLIANCE_VEHICLE_DOCUMENT_TYPES.length &&
     checklist.groups[2]?.slots.length === COMPLIANCE_DRIVER_DOCUMENT_TYPES.length &&
+    checklist.groups[3]?.slots.length === COMPLIANCE_FINANCE_DOCUMENT_TYPES.length &&
     checklist.groups[1]?.total === REQUIRED_VEHICLE_DOCUMENT_TYPES.length &&
     checklist.groups[2]?.total === REQUIRED_DRIVER_DOCUMENT_TYPES.length
   );
@@ -240,13 +251,14 @@ export function complianceGroupOnFileCount(
   group: ComplianceChecklistGroup,
   tripDocuments: ComplianceDocumentRow[] = [],
 ): { onFile: number; total: number } {
-  if (group.key === "trip") {
+  if (group.key === "trip" || group.key === "finance") {
     const onFileTypes = new Set(
       tripDocuments.filter((doc) => isTripVaultDocumentOnFile(doc)).map((doc) => doc.document_type),
     );
+    const types = group.key === "finance" ? COMPLIANCE_FINANCE_DOCUMENT_TYPES : TRIP_SUMMARY_DOCUMENT_TYPES;
     return {
-      onFile: TRIP_SUMMARY_DOCUMENT_TYPES.filter((type) => onFileTypes.has(type)).length,
-      total: TRIP_SUMMARY_DOCUMENT_TYPES.length,
+      onFile: types.filter((type) => onFileTypes.has(type)).length,
+      total: types.length,
     };
   }
   return {

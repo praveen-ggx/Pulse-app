@@ -106,7 +106,9 @@ export function compliancePreviewSourceForVaultFile(
   if (file.category === "bank_docs" || file.categoryLabel === "Bank Docs") {
     return "supplier-kyc";
   }
-  if (file.driverKind) return "compliance";
+  if (file.driverKind) {
+    return isComplianceEntityStoragePath(file.storagePath) ? "compliance" : "driver-kyc";
+  }
   if (file.deleteKind === "vehicle_extra") return "vehicle-vault";
   if (file.complianceType || file.deleteKind === "vehicle_compliance") {
     // Compliance-page upload → compliance-documents; Asset Vault → vehicle-documents.

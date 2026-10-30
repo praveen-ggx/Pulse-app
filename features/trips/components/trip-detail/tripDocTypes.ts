@@ -403,6 +403,10 @@ export function formatDocumentHeaderFacts(input: {
             ? formatLrVaultNumberLabel(raw)
             : raw;
       if (labeled) parts.push(labeled);
+      if (category === "lr" || category === "elr") {
+        const lrDate = formatLrVaultDateLabel(parseLrFieldValues(raw).date);
+        if (lrDate) parts.push(lrDate);
+      }
     }
   }
   const expiry = formatDocumentExpiryLong(input.expiryDate);

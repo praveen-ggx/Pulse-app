@@ -44,6 +44,7 @@ import {
   type PodChargeWorkflowFlags,
 } from "@/features/debit-control/utils/podChargeWorkflow.util";
 import { podDebitIdentifiedFromPayload } from "@/features/debit-control/utils/podExceptionDebit.util";
+import { listDriverVaultKycDocuments } from "@/features/drivers/services/driverKycDocuments.service";
 import { decodeCourierLrRemarks, lrReceiptForTrip } from "@/features/trips/utils/lrReceiptStatus.util";
 import {
   isCompletedTripStatus,
@@ -762,60 +763,24 @@ async function fetchDriverKycDocumentsForTrips(
   const driverIds = Array.from(new Set(trips.map((trip) => trip.driver_id).filter((id): id is string => Boolean(id))));
   if (driverIds.length === 0) return byDriver;
 
-  const { data: driverRows, error: driverError } = await supabase()
-    .from("drivers")
-    .select("id, user_id")
-    .in("id", driverIds);
-  if (driverError) {
-    if (isMissingColumnOrRelation(driverError)) return byDriver;
-    return byDriver;
-  }
-
-  const userIdByDriverId = new Map<string, string>();
-  const userIds: string[] = [];
-  for (const row of driverRows ?? []) {
-    if (!row.user_id) continue;
-    userIdByDriverId.set(row.id, row.user_id);
-    userIds.push(row.user_id);
-  }
-  for (const driverId of driverIds) {
-    if (!userIdByDriverId.has(driverId)) userIds.push(driverId);
-  }
-  const uniqueUserIds = Array.from(new Set(userIds));
-  if (uniqueUserIds.length === 0) return byDriver;
-
-  const { data: kycRows, error: kycError } = await supabase()
-    .from("driver_kyc_documents")
-    .select("id, driver_user_id, doc_type, status, storage_path, verified_at, rejection_notes, created_at")
-    .in("driver_user_id", uniqueUserIds)
-    .in("doc_type", ["license", "aadhaar"])
-    .is("deleted_at", null);
-  if (kycError) {
-    if (isMissingColumnOrRelation(kycError)) return byDriver;
-    return byDriver;
-  }
-
-  const driverIdByUserId = new Map<string, string>();
-  for (const [driverId, userId] of userIdByDriverId) driverIdByUserId.set(userId, driverId);
-
-  for (const row of kycRows ?? []) {
-    const driverId = driverIdByUserId.get(row.driver_user_id) ?? row.driver_user_id;
-    const mapped: ComplianceEntityDocument = {
-      id: row.id,
-      entity_type: "driver",
-      entity_id: driverId,
-      doc_type: row.doc_type,
-      status: row.status,
-      storage_path: row.storage_path,
-      expiry_date: null,
-      verified_at: row.verified_at,
-      notes: row.rejection_notes,
-      created_at: row.created_at,
-      source: "driver-kyc",
-    };
-    const list = byDriver.get(driverId) ?? [];
-    list.push(mapped);
-    byDriver.set(driverId, list);
+  const { byDriverId } = await listDriverVaultKycDocuments(driverIds);
+  for (const [driverId, rows] of byDriverId) {
+    byDriver.set(
+      driverId,
+      rows.map((row) => ({
+        id: row.id,
+        entity_type: "driver" as const,
+        entity_id: driverId,
+        doc_type: row.doc_type,
+        status: row.status,
+        storage_path: row.storage_path,
+        expiry_date: null,
+        verified_at: row.verified_at,
+        notes: row.rejection_notes,
+        created_at: row.created_at,
+        source: "driver-kyc" as const,
+      })),
+    );
   }
   return byDriver;
 }

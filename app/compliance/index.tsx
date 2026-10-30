@@ -1804,7 +1804,7 @@ export default function ComplianceScreen() {
     verifiedSlice,
   ]);
 
-  const openComplianceCard = useCallback((tripId: string, tab: "trip" | "vehicle" | "driver" = "trip") => {
+  const openComplianceCard = useCallback((tripId: string, tab: "trip" | "vehicle" | "driver" | "finance" = "trip") => {
     setCardTripId(tripId);
     setCardFocus({ tab, token: Date.now() });
     setViewMode("card");

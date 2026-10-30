@@ -119,6 +119,21 @@ describe("compliancePreviewSourceForRow", () => {
       }),
     ).toBe("trip");
   });
+
+  it("signs driver-app KYC identity files from driver-documents", () => {
+    expect(
+      compliancePreviewSourceForVaultFile({
+        driverKind: "aadhaar",
+        storagePath: "user-1/aadhaar-123.jpg",
+      }),
+    ).toBe("driver-kyc");
+    expect(
+      compliancePreviewSourceForVaultFile({
+        driverKind: "license",
+        storagePath: "org/driver/d1/license.jpeg",
+      }),
+    ).toBe("compliance");
+  });
 });
 
 describe("compliancePreviewSourceForVaultFile", () => {

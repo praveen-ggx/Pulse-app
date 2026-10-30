@@ -92,6 +92,8 @@ type Props = {
   /** Full document viewer with next / previous across files. */
   onOpenFull?: (index: number) => void;
   onAdd: () => void;
+  /** Replace the rejected trip file in place. When set, Add is hidden. */
+  onReplace?: () => void;
   /** Retail-clean card chrome for Compliance mobile detail. */
   appearance?: "default" | "shop";
 };
@@ -289,6 +291,7 @@ export function VaultChooserNotifyRow({
   onEdit,
   onOpenFull,
   onAdd,
+  onReplace,
   appearance = "default",
 }: Props) {
   const shop = appearance === "shop";
@@ -450,7 +453,17 @@ export function VaultChooserNotifyRow({
                 <Text style={styles.shopActionText}>View</Text>
               </Pressable>
             ) : null}
-            {canUpload ? (
+            {canUpload && onReplace ? (
+              <Pressable
+                onPress={onReplace}
+                style={styles.shopActionBtn}
+                accessibilityRole="button"
+                accessibilityLabel={`Replace ${label}`}
+              >
+                <Feather name="refresh-cw" size={11} color={SHOP.ink} />
+                <Text style={styles.shopActionText}>Replace</Text>
+              </Pressable>
+            ) : canUpload ? (
               <Pressable
                 onPress={onAdd}
                 style={styles.shopActionBtn}
@@ -607,7 +620,20 @@ export function VaultChooserNotifyRow({
               <Pencil size={12} color={Theme.actionBtnInk} strokeWidth={2} />
             </Pressable>
           ) : null}
-          {canUpload ? (
+          {canUpload && onReplace ? (
+            <Pressable
+              onPress={(event) => {
+                event?.stopPropagation?.();
+                onReplace();
+              }}
+              style={styles.addBtn}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={`Replace ${label}`}
+            >
+              <Text style={[styles.addBtnText, WEB_COPY]}>Replace</Text>
+            </Pressable>
+          ) : canUpload ? (
             <Pressable
               onPress={(event) => {
                 event?.stopPropagation?.();

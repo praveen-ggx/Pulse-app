@@ -1,7 +1,6 @@
 /**
  * Asset Vault — shop Order Details cards in a row. Image opens preview; plus uploads.
  */
-import { Theme } from "@/constants/Theme";
 import { DRIVER_IDENTITY_TYPE_HINT } from "@/features/drivers/utils/driverIdentityDocuments.util";
 import {
   EwayBillLrStrip,

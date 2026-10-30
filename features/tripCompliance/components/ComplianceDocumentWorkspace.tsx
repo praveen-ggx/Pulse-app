@@ -2749,7 +2749,7 @@ export function ComplianceDocumentWorkspace({
   onUndoFinanceVerify,
   financeVerifySubmitting = false,
   defaultPreview = "document",
-  defaultFinanceList = false,
+  defaultFinanceList: _defaultFinanceList = false,
   hideDocumentDecisions = false,
   hideDocumentPanes = false,
   selectedTripId = null,

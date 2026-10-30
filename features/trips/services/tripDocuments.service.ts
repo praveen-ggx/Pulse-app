@@ -6,7 +6,10 @@
  * document_type discriminates business concepts: 'pod' | 'manifest' | 'invoice' | 'eway_bill' | 'loading_slip'.
  * Fallback when DB is unavailable: list storage prefix {tripId}/ and infer type from path segment.
  */
-import { previewPrivateObject } from "@/features/trips/utils/storagePreviewObjectUrl.util";
+import {
+  canMaterializeStoragePreview,
+  previewPrivateObject,
+} from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import { supabase } from "@/lib/supabase";
 import { getPlatformEventBus } from "@/lib/platform/events/InProcessEventBus";
 import { recordTripWorkflowEvent } from "@/features/trips/services/tripWorkflow.service";
@@ -15,8 +18,7 @@ import { listOcrJobsForTripDocuments } from "@/features/ocr/services/ocrJob.serv
 import { runWithConcurrencyLimit } from "@/features/trips/services/tripDocumentLrPod.service";
 import { parseLrFieldsFromOcrJob, parseLrFieldValues, preferredLrDocumentNumber, serializeLrFieldValues, LR_FIELDS_FILE_NAME, lrFieldsStoragePath, isLrFieldsMetaPath } from "@/features/trips/services/lrDocumentOcr.util";
 import {
-  findOrgDuplicateLrNumberForTrip,
-  findOrgDuplicateLrNumbersForTrip,
+  checkOrgDuplicateLrNumbersForTrip,
   invalidateOrgLrIndexForTrip,
 } from "@/features/trips/services/orgLrDuplicate.service";
 import {
@@ -271,7 +273,9 @@ export async function tryGetDocumentViewUrl(
   if (isVehicleDocumentReferenceStoragePath(storagePath) || isDetailsMarkerPath(storagePath)) {
     return null;
   }
-  const signed = await tripDocSignedUrls.getUrl(storagePath);
+  // Web paints a downloaded Blob and signs only if that download fails, so a
+  // pre-signed URL is an unused Storage call there. Native viewers use it.
+  const signed = canMaterializeStoragePreview() ? null : await tripDocSignedUrls.getUrl(storagePath);
   const preview = await previewPrivateObject(BUCKET, storagePath, signed);
   return preview.url;
 }
@@ -288,7 +292,11 @@ export async function getDocumentViewUrls(
   const physical = storagePaths.filter(
     (path) => !isVehicleDocumentReferenceStoragePath(path) && !isDetailsMarkerPath(path),
   );
-  const signed = physical.length > 0 ? await tripDocSignedUrls.getUrls(physical) : {};
+  // Web downloads each object (see tryGetDocumentViewUrl) — skip the batch sign there.
+  const signed =
+    physical.length > 0 && !canMaterializeStoragePreview()
+      ? await tripDocSignedUrls.getUrls(physical)
+      : {};
   const byPath: Record<string, string | null> = {};
   await Promise.all(
     storagePaths.map(async (path) => {
@@ -754,10 +762,12 @@ async function uploadTripDocumentRow(
   if (documentType === "lr") {
     const lrNumber = lrNumberFromStoredDocumentNumber(documentNumber);
     if (lrNumber) {
-      const duplicate = await findOrgDuplicateLrNumberForTrip({
-        tripId,
-        lrNumber,
-      });
+      let duplicate: Awaited<ReturnType<typeof checkOrgDuplicateLrNumbersForTrip>>;
+      try {
+        duplicate = await checkOrgDuplicateLrNumbersForTrip({ tripId, lrNumbers: [lrNumber] });
+      } catch (e) {
+        return { doc: null, error: e instanceof Error ? e : new Error(String(e)) };
+      }
       if (duplicate) {
         return { doc: null, error: new Error(ORG_LR_DUPLICATE_MESSAGE) };
       }
@@ -1075,10 +1085,12 @@ export async function updateTripDocumentNumber(
     const docType = String((row as { document_type?: string } | null)?.document_type ?? "");
     if (tripId && docType === "lr") {
       lrTripId = tripId;
-      const duplicate = await findOrgDuplicateLrNumberForTrip({
-        tripId,
-        lrNumber,
-      });
+      let duplicate: Awaited<ReturnType<typeof checkOrgDuplicateLrNumbersForTrip>>;
+      try {
+        duplicate = await checkOrgDuplicateLrNumbersForTrip({ tripId, lrNumbers: [lrNumber] });
+      } catch (e) {
+        return e instanceof Error ? e : new Error(String(e));
+      }
       if (duplicate) return new Error(ORG_LR_DUPLICATE_MESSAGE);
     }
   }
@@ -1205,10 +1217,12 @@ async function writeTripLrNumbers(input: {
 }): Promise<{ error: Error | null; lrNumbers: string[] }> {
   const lrNumbers = uniqueExpandedLrNumbers(input.lrInput);
   // One org index for the whole range — a range like 100-150 used to run 51 full sweeps.
-  const duplicate = await findOrgDuplicateLrNumbersForTrip({
-    tripId: input.tripId,
-    lrNumbers,
-  });
+  let duplicate: Awaited<ReturnType<typeof checkOrgDuplicateLrNumbersForTrip>>;
+  try {
+    duplicate = await checkOrgDuplicateLrNumbersForTrip({ tripId: input.tripId, lrNumbers });
+  } catch (e) {
+    return { error: e instanceof Error ? e : new Error(String(e)), lrNumbers: [] };
+  }
   if (duplicate) {
     return { error: new Error(ORG_LR_DUPLICATE_MESSAGE), lrNumbers: [] };
   }

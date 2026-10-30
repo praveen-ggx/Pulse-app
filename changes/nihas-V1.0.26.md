@@ -85,3 +85,29 @@ department-manager-rbac. Not applied anywhere yet.
   allow / deny cases (cross-dept, Finance / Team grants, self, admin,
   inactive, other org, anon, scope in / out, direct table writes).
 - Not run against preprod; not clicked through in the app.
+
+## Sync with V1 a7b4a39f (2026-10-30)
+
+### What broke / root cause
+- PR #55 conflicted with V1's new Compliance preview work (uploader names,
+  explicit Replace-in-place for rejected trip documents). V1's three new
+  Replace buttons used the plain edit check, so Sourcing could have replaced
+  any rejected document, not only the Memo.
+
+### What
+- Rebased on V1 a7b4a39f; kept V1's uploader names and rejected-document
+  rule, and the per-document Sourcing check on preview edit / add.
+- Replace (decision bar, files dialog, category preview) now uses the same
+  per-document check, so Sourcing can replace only the Memo. Other roles
+  unchanged.
+
+### Areas
+features/tripCompliance/components/ComplianceDocumentWorkspace.tsx.
+
+### Migrations
+None new. 20261029171316 is now applied on preprod (2026-10-29), not prod.
+
+### Tested
+- Typecheck, lint, cycles, lib-files, navigation policy, full Jest and
+  git diff --check after the rebase (results in the PR).
+- Not clicked through in the app.

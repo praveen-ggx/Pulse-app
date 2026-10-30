@@ -169,8 +169,10 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
   const qc = useQueryClient();
   const tripsQuery = useComplianceTripCatalogQuery(orgId || null);
 
-  // Ground Ops also see Assigned trips (reached pickup / upload before loading).
-  const includeAssigned = useOptionalActiveWorkspace()?.memberPlatformRole === "ground_ops";
+  // Ground Ops and Sourcing also see Assigned trips (upload before loading;
+  // Sourcing uploads the Memo only before the trip is in transit).
+  const memberPlatformRole = useOptionalActiveWorkspace()?.memberPlatformRole;
+  const includeAssigned = memberPlatformRole === "ground_ops" || memberPlatformRole === "sourcing";
   const pipelineTrips = useMemo(
     () => selectCompliancePipelineTrips(tripsQuery.data ?? [], { includeAssigned }),
     [tripsQuery.data, includeAssigned],

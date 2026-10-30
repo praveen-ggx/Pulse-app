@@ -331,8 +331,10 @@ export async function lookupUserByPhone(phone: string): Promise<{
 export type TeamInviteAccess = {
   surfaces: MemberSurfaceMap;
   isDepartmentManager?: boolean;
-  /** Ground Ops only — which warehouses' trips they see. */
+  /** Ground Ops / Sourcing — which warehouses' trips they see. */
   warehouseIds?: string[];
+  /** Sourcing only — which clients' indents and trips they see. */
+  clientIds?: string[];
 };
 
 /** Same write shape as Edit member (buildMemberPermissions) when access is given. */
@@ -347,13 +349,16 @@ function invitePermissions(
         orgCaps,
         surfaces: access.surfaces,
         isDepartmentManager: access.isDepartmentManager,
+        clientIds: access.clientIds,
       })
     : buildTeamInvitePermissions(platformRole, undefined, orgCaps);
 }
 
-/** Ground Ops warehouses chosen on the invite (empty for every other role). */
+/** Ground Ops / Sourcing warehouses chosen on the invite (empty for every other role). */
 function inviteWarehouseIds(platformRole: PlatformTeamRole, access?: TeamInviteAccess): string[] {
-  return platformRole === "ground_ops" ? (access?.warehouseIds ?? []) : [];
+  return platformRole === "ground_ops" || platformRole === "sourcing"
+    ? (access?.warehouseIds ?? [])
+    : [];
 }
 
 export async function inviteTeamMember(
@@ -649,11 +654,46 @@ export async function updateMemberPermissions(
   }
 }
 
-/** Detect the set_member_surfaces_as_manager RPC's scope rejections for a friendly message. */
+/** Detect the department-manager RPCs' scope rejections for a friendly message. */
 export function looksLikeNotDepartmentManagerError(message: string): boolean {
-  return /not_department_manager|cross_department|cannot_edit_admin|cannot_edit_self/i.test(
+  return /not_department_manager|cross_department|cannot_edit_admin|cannot_edit_self|not_allowed|target_not_editable/i.test(
     message,
   );
+}
+
+/**
+ * Ground Ops / Sourcing manager: set a teammate's warehouses (and Sourcing
+ * clients) within the manager's own scope, via set_member_scope_as_manager.
+ * The server rejects ids outside the manager's scope and keeps the teammate's
+ * owner-assigned ones outside it.
+ */
+export async function updateMemberScopeAsManager(
+  memberId: string,
+  warehouseIds: string[],
+  clientIds: string[],
+): Promise<{ error: Error | null }> {
+  try {
+    const { error } = await supabase().rpc("set_member_scope_as_manager", {
+      p_member_id: memberId,
+      p_warehouse_ids: warehouseIds,
+      p_client_ids: clientIds,
+    });
+    if (error) {
+      if (/warehouse_out_of_scope|client_out_of_scope/i.test(error.message)) {
+        return { error: new Error("You can only assign your own clients and warehouses.") };
+      }
+      if (looksLikeNotDepartmentManagerError(error.message)) {
+        return {
+          error: new Error("You can only edit permissions for members in your own department."),
+        };
+      }
+      return { error: new Error(error.message) };
+    }
+    invalidateSharedOrganizationMembers();
+    return { error: null };
+  } catch (e) {
+    return { error: e instanceof Error ? e : new Error(String(e)) };
+  }
 }
 
 /**

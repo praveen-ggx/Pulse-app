@@ -73,6 +73,7 @@ import { TripVaultFilePreview } from "@/features/trips/components/trip-detail/Tr
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { useOptionalActiveWorkspace } from "@/contexts/ActiveWorkspaceContext";
+import { useSourcingScope } from "@/features/organization/hooks/useSourcingScope";
 import { getGroundOpsDocUploadEnabled } from "@/features/organization/services/organization.service";
 import { useDocumentPreview } from "@/features/chat/components/DocumentPreviewModal";
 import { ChatDocumentThreadPreview } from "@/features/chat/components/ChatDocumentThreadPreview";
@@ -797,6 +798,11 @@ export default function TripDetailScreen({
   const canManageHardCopyPod = canSurface("trip_compliance.pod.manage");
   const { memberPlatformRole } = useOptionalActiveWorkspace() ?? {};
   const isGroundOpsOnly = memberPlatformRole === "ground_ops";
+  // Sourcing follows the trip read-only: no E-LR (it carries freight), no
+  // document upload. Other actions are already surface-gated.
+  const isSourcingOnly = memberPlatformRole === "sourcing";
+  // Sourcing opens only trips of their assigned clients / warehouses (app-side).
+  const sourcingScope = useSourcingScope(currentOrganization?.id ?? null);
   const groundOpsDocUploadQuery = useQuery({
     queryKey: ["q", "org", currentOrganization?.id ?? "", "ground-ops-doc-upload"],
     enabled: isGroundOpsOnly && !!currentOrganization?.id,
@@ -3880,7 +3886,16 @@ export default function TripDetailScreen({
     return <CenteredLoadingView message="Loading trip…" />;
   }
 
-  if (!detail.canViewDetail) {
+  if (sourcingScope.active && sourcingScope.isLoading) {
+    return <CenteredLoadingView message="Loading trip…" />;
+  }
+
+  if (
+    !detail.canViewDetail ||
+    (sourcingScope.active &&
+      !!detail.trip &&
+      sourcingScope.filterTrips([detail.trip]).length === 0)
+  ) {
     return (
       <View style={styles.errorWrap}>
         <Text style={styles.errorText}>
@@ -5219,13 +5234,15 @@ export default function TripDetailScreen({
       } satisfies TripDocItem);
     void handleVaultUpload(doc);
   };
-  const canUploadTripDocs = viewerCanUploadTripDocuments({
-    viewerOrganizationId: currentOrganization?.id,
-    tripOrganizationId: trip.organization_id,
-    clientOrganizationId: detail.clientPartyRes?.orgId,
-    supplierOrganizationId: detail.supplierPartyRes?.orgId,
-    groundOpsBlocked: isGroundOpsOnly && !groundOpsDocUploadEnabled,
-  });
+  const canUploadTripDocs =
+    !isSourcingOnly &&
+    viewerCanUploadTripDocuments({
+      viewerOrganizationId: currentOrganization?.id,
+      tripOrganizationId: trip.organization_id,
+      clientOrganizationId: detail.clientPartyRes?.orgId,
+      supplierOrganizationId: detail.supplierPartyRes?.orgId,
+      groundOpsBlocked: isGroundOpsOnly && !groundOpsDocUploadEnabled,
+    });
 
   const canUploadThisVaultDoc = (doc: (typeof detail.computedTripDocs)[number]) =>
     canMutateTripVaultDoc({
@@ -6068,6 +6085,7 @@ export default function TripDetailScreen({
                   </Text>
                 </TouchableOpacity>
               ) : null}
+              {isSourcingOnly ? null : (
               <ElrTripDetailAction
                 uploadedBy={detail.currentUserId}
                 knownDocuments={detail.tripDocumentsReady ? detail.tripDocuments : undefined}
@@ -6098,6 +6116,7 @@ export default function TripDetailScreen({
                   tripStatus: trip.status,
                 }}
               />
+              )}
               <TouchableOpacity
                 style={neoStyles.auditBtn}
                 activeOpacity={0.85}
@@ -6210,6 +6229,7 @@ export default function TripDetailScreen({
             </TouchableOpacity>
             <Text style={styles.navMobileTitle}>Trips</Text>
             <View style={styles.navMobileRightActions}>
+              {isSourcingOnly ? null : (
               <ElrTripDetailAction
                 uploadedBy={detail.currentUserId}
                 knownDocuments={detail.tripDocumentsReady ? detail.tripDocuments : undefined}
@@ -6240,6 +6260,7 @@ export default function TripDetailScreen({
                   tripStatus: trip.status,
                 }}
               />
+              )}
               <TouchableOpacity
                 style={styles.navHelpBtn}
                 activeOpacity={0.85}

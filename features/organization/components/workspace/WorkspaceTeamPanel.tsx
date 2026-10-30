@@ -7,7 +7,10 @@ import { TeamMembersView } from "@/features/organization/components/TeamMembersV
 import { WorkspaceDetailLayout } from "@/features/organization/components/workspace/WorkspaceDetailLayout";
 import { WORKSPACE_PANEL_TITLES } from "@/features/organization/components/workspace/workspacePanelTypes";
 import { useOrgRole } from "@/lib/hooks/useOrgRole";
-import { useInvalidateOrgMembers } from "@/lib/queries/useOrgMembersQuery";
+import {
+  useInvalidateOrgMembers,
+  useViewerManagerDepartment,
+} from "@/lib/queries/useOrgMembersQuery";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import type { OrgMember } from "@/types/organization";
 import { ShieldCheck, UserPlus2, Users } from "lucide-react-native";
@@ -31,6 +34,7 @@ export function WorkspaceTeamPanel({ onBack }: Props) {
   // Invite RPCs accept owner/admin only — never show a button that fails.
   const canInvite = canManage && (isOwner || isAdmin) && canSurface("team.invite");
   const invalidate = useInvalidateOrgMembers(orgId);
+  const managerDepartment = useViewerManagerDepartment(orgId, user?.uid ?? null);
 
   const [view, setView] = useState<TeamView>("roster");
   const [editMemberId, setEditMemberId] = useState<string | null>(null);
@@ -139,6 +143,7 @@ export function WorkspaceTeamPanel({ onBack }: Props) {
           onInvite={canInvite ? openInvite : undefined}
           onEditMember={(member: OrgMember) => setEditMemberId(member.id)}
           initialSubTab={focusPending ? "pending" : undefined}
+          managerDepartment={managerDepartment}
         />
       )}
     </WorkspaceDetailLayout>

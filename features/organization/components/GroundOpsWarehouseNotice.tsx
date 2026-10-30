@@ -7,17 +7,20 @@ import { Warehouse } from "lucide-react-native";
 import { StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-export function GroundOpsWarehouseNotice() {
+export function GroundOpsWarehouseNotice({ sourcing = false }: { sourcing?: boolean } = {}) {
   const insets = useSafeAreaInsets();
   return (
     <View style={[styles.root, { paddingTop: insets.top + 24 }]}>
       <View style={styles.icon}>
         <Warehouse size={26} color={Theme.textPrimary} strokeWidth={2} />
       </View>
-      <Text style={styles.title}>No warehouse assigned</Text>
+      <Text style={styles.title}>
+        {sourcing ? "No client or warehouse assigned" : "No warehouse assigned"}
+      </Text>
       <Text style={styles.body}>
-        You see trips only for the warehouses assigned to you. Ask your admin to
-        assign your warehouse.
+        {sourcing
+          ? "You see indents and trips only for the clients and warehouses assigned to you. Ask your admin to assign them."
+          : "You see trips only for the warehouses assigned to you. Ask your admin to assign your warehouse."}
       </Text>
     </View>
   );

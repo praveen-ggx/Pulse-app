@@ -25,19 +25,28 @@ import {
   removeMember,
   transferOwnership,
   updateMemberPermissions,
+  updateMemberScopeAsManager,
   updateMemberSurfacesAsManager,
 } from "@/features/organization/services/members.service";
 import {
   getMemberWarehouseIds,
+  listOrgWarehouses,
   setMemberWarehouseIds,
 } from "@/features/organization/services/memberWarehouses.service";
+import { sourcingClientIdsFromPermissions } from "@/features/organization/utils/sourcingScope.util";
 import {
   buildMemberPermissions,
   memberDisplayRoleLabel,
-  platformRoleFromMember,
   type TeamInvitePermissions,
 } from "@/features/organization/utils/teamInviteRoles.util";
-import { normalizeSurfaces } from "@/lib/memberSurfaces";
+import {
+  managerCanEditMember,
+  managerDepartmentOf,
+  managerEditableSurfaceIds,
+  normalizeSurfaces,
+  type MemberSurfaceId,
+  type MemberSurfaceMap,
+} from "@/lib/memberSurfaces";
 import { useOrgRole } from "@/lib/hooks/useOrgRole";
 import { useAuth } from "@/contexts/AuthContext";
 import { useInvalidateOrgMembers, useOrgMembersQuery } from "@/lib/queries/useOrgMembersQuery";
@@ -111,20 +120,64 @@ export function MemberPermissionsPanel({ memberId, onBack, embedded = false }: P
     return perms?.platformRole ?? null;
   }, [viewer]);
 
-  const targetDepartment = member ? platformRoleFromMember(member) : null;
 
   // A department manager can only edit surfaces for a member in their own
   // department, never role/domains/the manager flag, and never an owner/admin.
   // The owner keeps full edit rights regardless of department.
+  // Same rules as the server (can_manage_member / set_member_surfaces_as_manager).
+  const viewerIsManagerOnly =
+    !isOwner && viewerIsDepartmentManager && managerDepartmentOf(viewer) !== null;
   const canEditAsManager =
-    !isOwner &&
-    viewerIsDepartmentManager &&
+    viewerIsManagerOnly &&
     !!member &&
     member.id !== viewer?.id &&
-    member.role !== "owner" &&
-    member.role !== "admin" &&
-    viewerDepartment !== null &&
-    targetDepartment === viewerDepartment;
+    managerCanEditMember(viewerDepartment, viewer?.user_id, member);
+  /** Toggles a manager may switch: exactly their department's preset. */
+  const managerEditableIds = useMemo<ReadonlySet<MemberSurfaceId> | null>(
+    () => (canEditAsManager ? new Set(managerEditableSurfaceIds(viewerDepartment)) : null),
+    [canEditAsManager, viewerDepartment],
+  );
+  /** Ground Ops / Sourcing managers also assign scope, from their own scope only. */
+  const managerScoped =
+    canEditAsManager && (viewerDepartment === "ground_ops" || viewerDepartment === "sourcing");
+  const managerOwnWarehouses = useQuery({
+    queryKey: ["member-warehouses", viewer?.id ?? null],
+    enabled: managerScoped && !!viewer,
+    queryFn: async () => {
+      const { error: whError, warehouseIds } = await getMemberWarehouseIds(viewer!.id);
+      if (whError) throw whError;
+      return warehouseIds;
+    },
+  });
+  const orgWarehouseOptions = useQuery({
+    queryKey: ["org-warehouse-options", orgId],
+    enabled: managerScoped && !!orgId,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const { error: whError, warehouses } = await listOrgWarehouses(orgId as string);
+      if (whError) throw whError;
+      return warehouses;
+    },
+  });
+  const managerScope = useMemo(() => {
+    if (!managerScoped) return null;
+    const clientIds = new Set(
+      viewerDepartment === "sourcing" ? sourcingClientIdsFromPermissions(viewer?.permissions) : [],
+    );
+    const own = new Set(managerOwnWarehouses.data ?? []);
+    const warehouseIds = new Set(
+      (orgWarehouseOptions.data ?? [])
+        .filter((w) => own.has(w.id) || (!!w.clientId && clientIds.has(w.clientId)))
+        .map((w) => w.id),
+    );
+    return { clientIds, warehouseIds };
+  }, [
+    managerScoped,
+    viewerDepartment,
+    viewer?.permissions,
+    managerOwnWarehouses.data,
+    orgWarehouseOptions.data,
+  ]);
 
   const draft = useMemberAccessDraft(accessSnapshotFromRole("tripops", orgCaps), orgCaps);
   const { reset: resetDraft } = draft;
@@ -166,11 +219,12 @@ export function MemberPermissionsPanel({ memberId, onBack, embedded = false }: P
     setError(null);
     try {
       if (canEditAsManager) {
-        // Manager path: surfaces only, via the department-scoped RPC.
-        const { error: saveError } = await updateMemberSurfacesAsManager(
-          member.id,
-          normalizeSurfaces(draft.surfaces, orgCaps),
-        );
+        // Manager path: only the department's own toggles (the server rejects
+        // any other key), via the department-scoped RPC.
+        const normalized = normalizeSurfaces(draft.surfaces, orgCaps);
+        const allowed: MemberSurfaceMap = {};
+        for (const id of managerEditableIds ?? []) allowed[id] = normalized[id] === true;
+        const { error: saveError } = await updateMemberSurfacesAsManager(member.id, allowed);
         if (saveError) {
           setError(
             looksLikeNotDepartmentManagerError(saveError.message)
@@ -178,6 +232,20 @@ export function MemberPermissionsPanel({ memberId, onBack, embedded = false }: P
               : saveError.message,
           );
           return;
+        }
+        if (managerScope) {
+          // Only ids inside the manager's own scope are sent; the teammate's
+          // other (owner-assigned) ones are kept by the server.
+          const { error: scopeError } = await updateMemberScopeAsManager(
+            member.id,
+            draft.warehouseIds.filter((id) => managerScope.warehouseIds.has(id)),
+            draft.clientIds.filter((id) => managerScope.clientIds.has(id)),
+          );
+          if (scopeError) {
+            setError(`Access saved, but scope didn't: ${scopeError.message}`);
+            return;
+          }
+          void queryClient.invalidateQueries({ queryKey: ["member-warehouses", member.id] });
         }
       } else {
         const { error: saveError } = await updateMemberPermissions(
@@ -187,6 +255,7 @@ export function MemberPermissionsPanel({ memberId, onBack, embedded = false }: P
             surfaces: draft.surfaces,
             isDepartmentManager: draft.isDepartmentManager,
             orgCaps,
+            clientIds: draft.clientIds,
           }),
         );
         if (saveError) {
@@ -197,10 +266,12 @@ export function MemberPermissionsPanel({ memberId, onBack, embedded = false }: P
           );
           return;
         }
-        // Warehouses only scope Ground Ops; any other role keeps none.
+        // Warehouses scope Ground Ops (RLS) and Sourcing (app-side); any other role keeps none.
         const { error: whError } = await setMemberWarehouseIds(
           member.id,
-          draft.platformRole === "ground_ops" ? draft.warehouseIds : [],
+          draft.platformRole === "ground_ops" || draft.platformRole === "sourcing"
+            ? draft.warehouseIds
+            : [],
         );
         if (whError) {
           setError(`Access saved, but warehouses didn't: ${whError.message}`);
@@ -219,11 +290,14 @@ export function MemberPermissionsPanel({ memberId, onBack, embedded = false }: P
     member,
     canEdit,
     canEditAsManager,
+    managerEditableIds,
+    managerScope,
     dirty,
     draft.surfaces,
     draft.platformRole,
     draft.isDepartmentManager,
     draft.warehouseIds,
+    draft.clientIds,
     orgCaps,
     queryClient,
     invalidate,
@@ -302,6 +376,22 @@ export function MemberPermissionsPanel({ memberId, onBack, embedded = false }: P
 
   if (isLoading && !member) {
     return <CenteredLoadingView />;
+  }
+
+  // A Department manager reaching another department's member (direct link,
+  // stale roster) sees nothing of them.
+  if (member && viewerIsManagerOnly && !canEditAsManager) {
+    return (
+      <View style={[styles.root, { paddingTop: insets.top }]}>
+        <Header onBack={onBack} />
+        <View style={styles.empty}>
+          <Text style={styles.emptyTitle}>Not in your department</Text>
+          <Text style={styles.emptyBody}>
+            You can manage active members of your own department only.
+          </Text>
+        </View>
+      </View>
+    );
   }
 
   if (!member) {
@@ -445,6 +535,9 @@ export function MemberPermissionsPanel({ memberId, onBack, embedded = false }: P
         canEditRole={canEditRolePreset}
         canEditSurfaces={canEdit}
         canAssignManager={canEditRolePreset}
+        editableSurfaceIds={managerEditableIds}
+        canEditScope={canEditRolePreset || managerScoped}
+        scopeLimit={managerScope}
         busy={busy}
         wide={widePresets}
         onError={setError}

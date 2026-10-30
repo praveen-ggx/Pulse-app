@@ -20589,6 +20589,14 @@ export type Database = {
         Args: { p_member_id: string; p_permissions: Json; p_role: string }
         Returns: Json
       }
+      set_member_scope_as_manager: {
+        Args: {
+          p_client_ids: string[]
+          p_member_id: string
+          p_warehouse_ids: string[]
+        }
+        Returns: Json
+      }
       set_member_surfaces_as_manager: {
         Args: { p_member_id: string; p_surfaces: Json }
         Returns: Json

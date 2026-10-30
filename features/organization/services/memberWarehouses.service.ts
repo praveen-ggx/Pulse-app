@@ -12,6 +12,8 @@ export type OrgWarehouseOption = {
   name: string;
   city: string | null;
   clientName: string | null;
+  /** Owning client (null for the client-picker shape). */
+  clientId?: string | null;
 };
 
 /** Every live client warehouse in the org, for the Ground Ops picker. */
@@ -20,7 +22,7 @@ export async function listOrgWarehouses(
 ): Promise<{ error: Error | null; warehouses: OrgWarehouseOption[] }> {
   const { data, error } = await supabase()
     .from("client_warehouses")
-    .select("id, name, city, clients(name)")
+    .select("id, name, city, client_id, clients(name)")
     .eq("organization_id", orgId)
     .is("deleted_at", null)
     .order("name", { ascending: true });
@@ -29,14 +31,43 @@ export async function listOrgWarehouses(
     id: string;
     name: string;
     city: string | null;
+    client_id: string | null;
     clients: { name: string | null } | { name: string | null }[] | null;
   }[];
   return {
     error: null,
     warehouses: rows.map((r) => {
       const client = Array.isArray(r.clients) ? r.clients[0] : r.clients;
-      return { id: r.id, name: r.name, city: r.city, clientName: client?.name ?? null };
+      return {
+        id: r.id,
+        name: r.name,
+        city: r.city,
+        clientName: client?.name ?? null,
+        clientId: r.client_id,
+      };
     }),
+  };
+}
+
+/** Every live client in the org, shaped for the Sourcing client picker. */
+export async function listOrgClientOptions(
+  orgId: string,
+): Promise<{ error: Error | null; clients: OrgWarehouseOption[] }> {
+  const { data, error } = await supabase()
+    .from("clients")
+    .select("id, name")
+    .eq("organization_id", orgId)
+    .is("deleted_at", null)
+    .order("name", { ascending: true });
+  if (error) return { error: new Error(error.message), clients: [] };
+  return {
+    error: null,
+    clients: ((data ?? []) as { id: string; name: string | null }[]).map((r) => ({
+      id: r.id,
+      name: r.name?.trim() || "Unnamed client",
+      city: null,
+      clientName: "Clients",
+    })),
   };
 }
 

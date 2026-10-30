@@ -433,7 +433,9 @@ export function ElrTripDetailAction({
             >
               <Text style={styles.btnText}>View E-LR</Text>
             </TouchableOpacity>
-            <Text style={styles.hint}>{status.hint}</Text>
+            {status.hint && status.hint !== "View E-LR" ? (
+              <Text style={styles.hint}>{status.hint}</Text>
+            ) : null}
             <View style={styles.subActions}>
               <TouchableOpacity onPress={() => void openCompletion()} accessibilityRole="button">
                 <Text style={styles.subActionText}>Edit E-LR</Text>
@@ -462,7 +464,9 @@ export function ElrTripDetailAction({
                 <Text style={styles.btnText}>{label}</Text>
               )}
             </TouchableOpacity>
-            <Text style={styles.hint}>{status.hint}</Text>
+            {status.hint && status.hint !== label ? (
+              <Text style={styles.hint}>{status.hint}</Text>
+            ) : null}
             {hasDraft && missingCount > 0 ? (
               <Text style={styles.hint}>{missingCount} required fields remaining</Text>
             ) : null}
@@ -643,7 +647,7 @@ export function ElrTripDetailAction({
 
 const styles = StyleSheet.create({
   block: {
-    alignItems: "flex-end",
+    alignItems: "center",
     justifyContent: "center",
     maxWidth: 200,
     gap: 2,

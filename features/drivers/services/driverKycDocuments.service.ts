@@ -155,6 +155,58 @@ export const MANDATORY_DRIVER_KYC_DOC_TYPES: readonly DriverKycDocType[] = [
   'selfie',
 ];
 
+/** Identity slots shared with trip / compliance vaults (not PAN / selfie). */
+export const DRIVER_VAULT_KYC_DOC_TYPES: readonly DriverKycDocType[] = ['license', 'aadhaar'];
+
+export async function listDriverVaultKycDocuments(
+  driverIds: string[],
+): Promise<{
+  byDriverId: Map<string, DriverKycDocument[]>;
+}> {
+  const byDriverId = new Map<string, DriverKycDocument[]>();
+  const ids = Array.from(new Set(driverIds.map((id) => id.trim()).filter(Boolean)));
+  if (ids.length === 0) return { byDriverId };
+
+  const { data: driverRows, error: driverError } = await supabase()
+    .from('drivers')
+    .select('id, user_id')
+    .in('id', ids);
+  if (driverError) return { byDriverId };
+
+  const userIdByDriverId = new Map<string, string>();
+  const queryUserIds: string[] = [];
+  for (const row of driverRows ?? []) {
+    if (row.user_id) {
+      userIdByDriverId.set(row.id, row.user_id);
+      queryUserIds.push(row.user_id);
+    }
+  }
+  for (const driverId of ids) {
+    if (!userIdByDriverId.has(driverId)) queryUserIds.push(driverId);
+  }
+  const uniqueUserIds = Array.from(new Set(queryUserIds));
+  if (uniqueUserIds.length === 0) return { byDriverId };
+
+  const { data: kycRows, error: kycError } = await supabase()
+    .from('driver_kyc_documents')
+    .select(DOC_SELECT)
+    .in('driver_user_id', uniqueUserIds)
+    .in('doc_type', [...DRIVER_VAULT_KYC_DOC_TYPES])
+    .is('deleted_at', null);
+  if (kycError || !kycRows?.length) return { byDriverId };
+
+  const driverIdByUserId = new Map<string, string>();
+  for (const [driverId, userId] of userIdByDriverId) driverIdByUserId.set(userId, driverId);
+
+  for (const row of kycRows as DriverKycDocument[]) {
+    const driverId = driverIdByUserId.get(row.driver_user_id) ?? row.driver_user_id;
+    const list = byDriverId.get(driverId) ?? [];
+    list.push(row);
+    byDriverId.set(driverId, list);
+  }
+  return { byDriverId };
+}
+
 export interface DriverKycDocRequirement {
   doc_type: DriverKycDocType;
   label: string;

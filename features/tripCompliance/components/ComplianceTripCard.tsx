@@ -3,7 +3,6 @@
  * route, party chips, docs checklist). Same summary data and callbacks.
  */
 import { PartyAvatar } from "@/components/PartyAvatar";
-import { HUB_CARD_HEAD_AVATAR, HUB_CARD_PARTY_CHIP_AVATAR } from "@/components/hub/hubGridCardLayout";
 import { HUB_MOBILE_TICKET_REF } from "@/components/hub/hubMobileTicketTokens";
 import { FinanceTxnTypography } from "@/constants/FinanceTxnTypography";
 import Theme from "@/constants/Theme";
@@ -31,6 +30,7 @@ import {
 } from "@/features/tripCompliance/utils/complianceReadiness.util";
 import { splitHubRouteLocationDisplay } from "@/features/trips/utils/tripLocationDisplay.util";
 import { formatIndianVehicleNumber } from "@/lib/format";
+import { driverAvatarSeedFromId } from "@/lib/partyAvatarDisplay";
 import { ComplianceActivityLogButton } from "@/features/tripCompliance/components/ComplianceTripActivityLog";
 import { Check, Eye } from "lucide-react-native";
 import React, { useMemo, useState } from "react";
@@ -48,6 +48,7 @@ const REF = HUB_MOBILE_TICKET_REF;
 const ROUTE_PIN_SIZE = 6;
 const HEAD_AVATAR = 34;
 const CHIP_AVATAR = 22;
+const STRIP_AVATAR = 16;
 
 type HoverPressState = { pressed: boolean; hovered?: boolean };
 
@@ -67,6 +68,24 @@ function isHovered(state: HoverPressState): boolean {
   return Boolean(state.hovered) || state.pressed;
 }
 
+export type ComplianceTripCardPartyVisual = {
+  name?: string;
+  avatarUrl?: string | null;
+  avatarSeed?: string | null;
+  organizationImageUrl?: string | null;
+  initialsColorSeed?: string;
+  isIntegrated?: boolean;
+};
+
+export type ComplianceTripCardParties = {
+  client?: ComplianceTripCardPartyVisual;
+  supplier?: ComplianceTripCardPartyVisual | null;
+  driver?: {
+    avatarUrl?: string | null;
+    avatarSeed?: string | null;
+  };
+};
+
 export type ComplianceTripCardProps = {
   summary: ComplianceTripSummary;
   onReviewDocuments: (group: ComplianceChecklistGroup["key"]) => void;
@@ -82,6 +101,14 @@ export type ComplianceTripCardProps = {
   /** Trips-hub ticket density (mobile list). */
   compact?: boolean;
   selected?: boolean;
+  /** Ticket = list card. Strip = Document Details header (chips + parties). */
+  layout?: "ticket" | "strip";
+  /** Sit inside the Document Details nav with no extra card chrome. */
+  flush?: boolean;
+  /** Compact header chips that keep their own width (mobile filmstrip). */
+  dense?: boolean;
+  supplierName?: string | null;
+  parties?: ComplianceTripCardParties | null;
 };
 
 function asLabel(value: unknown): string {
@@ -156,36 +183,76 @@ function RouteLeg({
 function PartyChip({
   name,
   entityType,
+  avatarUrl,
   avatarSeed,
+  initialsColorSeed,
+  organizationImageUrl,
+  isIntegrated,
   alignEnd,
-  showAvatar = true,
   compact = false,
+  dense = false,
+  vehiclePlate,
 }: {
   name: string;
-  entityType: "vehicle" | "driver";
-  avatarSeed: string;
+  entityType: "supplier" | "driver" | "vehicle";
+  avatarUrl?: string | null;
+  avatarSeed?: string | null;
+  initialsColorSeed?: string;
+  organizationImageUrl?: string | null;
+  isIntegrated?: boolean;
   alignEnd?: boolean;
-  showAvatar?: boolean;
   compact?: boolean;
+  dense?: boolean;
+  vehiclePlate?: string | null;
 }) {
   const label = formatPartyName(name);
+  const plate = (vehiclePlate ?? "").trim();
+  const stacked = Boolean(plate);
   return (
-    <View style={[styles.chip, alignEnd && styles.chipEnd]}>
-      {showAvatar ? (
-        <PartyAvatar
-          name={label}
-          initialsColorSeed={avatarSeed}
-          entityType={entityType}
-          size={compact ? HUB_CARD_PARTY_CHIP_AVATAR : CHIP_AVATAR}
-        />
-      ) : null}
-      <View style={[styles.chipCopy, alignEnd && styles.chipCopyEnd]}>
+    <View
+      style={[
+        styles.chip,
+        alignEnd && styles.chipEnd,
+        stacked ? styles.chipStacked : styles.chipSingle,
+      ]}
+    >
+      <PartyAvatar
+        name={label}
+        initialsColorSeed={initialsColorSeed}
+        organizationImageUrl={organizationImageUrl}
+        avatarUrl={avatarUrl}
+        avatarSeed={avatarSeed}
+        entityType={entityType}
+        isIntegrated={isIntegrated}
+        size={dense || compact ? STRIP_AVATAR : CHIP_AVATAR}
+      />
+      <View
+        style={[
+          styles.chipCopy,
+          alignEnd && styles.chipCopyEnd,
+          stacked ? styles.chipCopyStacked : styles.chipCopySingle,
+        ]}
+      >
         <Text
-          style={[styles.chipName, compact && styles.chipNameCompact, alignEnd && styles.chipNameEnd]}
+          style={[
+            styles.chipName,
+            compact && styles.chipNameCompact,
+            dense && styles.chipNameDense,
+            alignEnd && styles.chipNameEnd,
+          ]}
           numberOfLines={1}
         >
           {label}
         </Text>
+        {stacked ? (
+          <Text
+            style={[styles.chipPlate, dense && styles.chipPlateDense, alignEnd && styles.chipNameEnd]}
+            numberOfLines={1}
+            accessibilityLabel={`Vehicle ${plate}`}
+          >
+            {plate}
+          </Text>
+        ) : null}
       </View>
     </View>
   );
@@ -196,12 +263,16 @@ function ChecklistGroupTile({
   countLabel,
   onPress,
   compact = false,
+  pills = false,
+  dense = false,
   align = "center",
 }: {
   group: ComplianceChecklistGroup;
   countLabel: string;
   onPress?: () => void;
   compact?: boolean;
+  pills?: boolean;
+  dense?: boolean;
   align?: "start" | "center" | "end";
 }) {
   const tone = groupToneVisual(group.tone);
@@ -231,16 +302,18 @@ function ChecklistGroupTile({
     </>
   );
 
-  const tileStyle = compact
-    ? [
-        styles.groupMetric,
-        align === "start" && styles.groupMetricStart,
-        align === "end" && styles.groupMetricEnd,
-      ]
-    : [
-        styles.groupTile,
-        requiredComplete && { backgroundColor: tone.bg, borderColor: tone.fg },
-      ];
+  const tileStyle = pills
+    ? [styles.groupPill, dense && styles.groupPillDense]
+    : compact
+      ? [
+          styles.groupMetric,
+          align === "start" && styles.groupMetricStart,
+          align === "end" && styles.groupMetricEnd,
+        ]
+      : [
+          styles.groupTile,
+          requiredComplete && { backgroundColor: tone.bg, borderColor: tone.fg },
+        ];
   const compactContent = (
     <View style={styles.groupMetricInner}>
       <Text style={styles.groupMetricLabel} numberOfLines={1}>
@@ -288,6 +361,11 @@ export function ComplianceTripCard({
   onOpenActivityLog,
   compact = false,
   selected = false,
+  layout = "ticket",
+  flush = false,
+  dense = false,
+  supplierName = null,
+  parties = null,
 }: ComplianceTripCardProps) {
   const [hovered, setHovered] = useState(false);
   const trip = summary.trip;
@@ -322,20 +400,31 @@ export function ComplianceTripCard({
       ? summary.complianceResubmitNote.trim()
       : "";
 
-  const clientName = asLabel(trip.client_name);
-  const clientFb = trip.client_id
-    ? `client-entity:${String(trip.client_id).trim()}`
-    : `client-trip:${trip.id}`;
+  const isStrip = layout === "strip";
+  const clientName = asLabel(parties?.client?.name || trip.client_name);
+  const clientFb =
+    parties?.client?.initialsColorSeed ||
+    (trip.client_id
+      ? `client-entity:${String(trip.client_id).trim()}`
+      : `client-trip:${trip.id}`);
   const vehicleRaw = trip.vehicle_display_number?.trim() || "";
   const vehicleLabel =
-    formatIndianVehicleNumber(vehicleRaw).trim() || vehicleRaw || "Unassigned";
+    formatIndianVehicleNumber(vehicleRaw).trim() || vehicleRaw || "";
   const driverLabel = trip.driver_display_name?.trim() || "Unassigned";
-  const vehicleFb = trip.vehicle_id
-    ? `vehicle-entity:${String(trip.vehicle_id).trim()}`
-    : `vehicle-trip:${trip.id}`;
+  const supplierLabel =
+    (parties?.supplier?.name || supplierName || trip.supplier_name || "").trim() ||
+    "Unassigned";
   const driverFb = trip.driver_id
     ? `driver-entity:${String(trip.driver_id).trim()}`
     : `driver-trip:${trip.id}`;
+  const driverSeed =
+    parties?.driver?.avatarSeed ||
+    (trip.driver_id ? driverAvatarSeedFromId(String(trip.driver_id)) : null);
+  const supplierFb =
+    parties?.supplier?.initialsColorSeed ||
+    (trip.supplier_id
+      ? String(trip.supplier_id).trim()
+      : `supplier-trip:${trip.id}`);
   const headStatusUpper = asLabel(
     showPaymentPill ? payment.label : verification.label,
   ).toUpperCase();
@@ -377,25 +466,39 @@ export function ComplianceTripCard({
   return (
     <View style={styles.cardWrapCompact} {...webHover}>
       <Pressable
-        onPress={openDetails}
+        onPress={isStrip ? undefined : openDetails}
         style={(state: HoverPressState) => [
           styles.cardCompact,
+          isStrip && styles.cardStrip,
+          flush && styles.cardFlush,
           WEB_TRANSITION,
-          WEB_POINTER,
-          (hovered || selected || isHovered(state)) && styles.cardHover,
-          selected && styles.cardSelected,
+          !isStrip && WEB_POINTER,
+          !isStrip && (hovered || selected || isHovered(state)) && styles.cardHover,
+          !isStrip && selected && styles.cardSelected,
         ]}
         accessibilityRole="none"
         accessibilityLabel={`${tripId} ${clientName}, ${asLabel(origin)} to ${asLabel(dest)}`}
       >
-        <View style={[styles.body, compact && styles.bodyCompact]}>
-          <View style={styles.head}>
+        <View
+          style={[
+            styles.body,
+            compact && styles.bodyCompact,
+            isStrip && styles.bodyStrip,
+            flush && styles.bodyFlush,
+          ]}
+        >
+          {isStrip ? null : (
+          <View style={[styles.head, compact && styles.headCompact]}>
             <View style={styles.headLeft}>
               <PartyAvatar
                 name={clientName}
                 initialsColorSeed={clientFb}
+                organizationImageUrl={parties?.client?.organizationImageUrl}
+                avatarUrl={parties?.client?.avatarUrl}
+                avatarSeed={parties?.client?.avatarSeed}
                 entityType="client"
-                size={compact ? HUB_CARD_HEAD_AVATAR : HEAD_AVATAR}
+                isIntegrated={parties?.client?.isIntegrated}
+                size={compact ? 28 : HEAD_AVATAR}
               />
               <View style={styles.headText}>
                 <Text style={[styles.brand, compact && styles.brandCompact]} numberOfLines={2}>
@@ -439,7 +542,9 @@ export function ComplianceTripCard({
               </Text>
             </View>
           </View>
+          )}
 
+          {isStrip ? null : (
           <View style={styles.route}>
             <RouteLeg location={origin} variant="origin" align="left" />
             <View style={[styles.routeMid, tripStatusLabel ? styles.routeMidWithStatus : null]}>
@@ -452,30 +557,47 @@ export function ComplianceTripCard({
             </View>
             <RouteLeg location={dest} variant="dest" align="right" />
           </View>
+          )}
 
-          <View style={styles.divider} />
+          {isStrip ? null : <View style={styles.divider} />}
 
+          {isStrip ? null : (
           <View style={[styles.partyRow, compact && styles.partyRowCompact]}>
             <PartyChip
-              name={vehicleLabel}
-              entityType="vehicle"
-              avatarSeed={vehicleFb}
-              showAvatar
+              name={supplierLabel}
+              entityType="supplier"
+              avatarUrl={parties?.supplier?.avatarUrl}
+              avatarSeed={parties?.supplier?.avatarSeed}
+              initialsColorSeed={supplierFb}
+              organizationImageUrl={parties?.supplier?.organizationImageUrl}
+              isIntegrated={parties?.supplier?.isIntegrated}
               compact={compact}
+              dense={compact}
             />
             <PartyChip
               name={driverLabel}
               entityType="driver"
-              avatarSeed={driverFb}
+              avatarUrl={parties?.driver?.avatarUrl}
+              avatarSeed={driverSeed}
+              initialsColorSeed={driverFb}
               alignEnd
-              showAvatar={false}
               compact={compact}
+              dense={compact}
+              vehiclePlate={vehicleLabel || null}
             />
           </View>
+          )}
         </View>
 
-        <View style={[styles.complianceBody, compact && styles.complianceBodyCompact]}>
-          <View style={[styles.groupRow, styles.groupRowCompact]}>
+        <View
+          style={[
+            styles.complianceBody,
+            compact && styles.complianceBodyCompact,
+            isStrip && styles.complianceBodyStrip,
+            flush && styles.complianceBodyFlush,
+          ]}
+        >
+          <View style={[styles.groupRow, isStrip ? styles.groupRowPills : styles.groupRowCompact, dense && styles.groupRowPillsDense]}>
             {checklist.groups.map((group, index) => {
               const onFile = complianceGroupOnFileCount(group, summary.documents);
               return (
@@ -483,6 +605,8 @@ export function ComplianceTripCard({
                   key={group.key}
                   group={group}
                   compact
+                  pills={isStrip}
+                  dense={dense}
                   align={
                     index === 0
                       ? "start"
@@ -497,7 +621,7 @@ export function ComplianceTripCard({
             })}
           </View>
 
-          {declinedAt ? (
+          {isStrip ? null : declinedAt ? (
             <View
               style={styles.expiryAlertBox}
               testID={`compliance-card-declined-${trip.id}`}
@@ -513,7 +637,7 @@ export function ComplianceTripCard({
             </View>
           ) : null}
 
-          {resubmitNote ? (
+          {isStrip ? null : resubmitNote ? (
             <View
               style={styles.resubmitNoteBox}
               testID={`compliance-card-resubmit-note-${trip.id}`}
@@ -527,7 +651,7 @@ export function ComplianceTripCard({
             </View>
           ) : null}
 
-          {readiness.expiredVehicleDocs.length > 0 ? (
+          {isStrip ? null : readiness.expiredVehicleDocs.length > 0 ? (
             <View
               style={styles.expiryAlertBox}
               accessibilityRole="alert"
@@ -551,6 +675,7 @@ export function ComplianceTripCard({
             </View>
           ) : null}
 
+          {isStrip ? null : (
           <View
             style={[
               styles.blockerBox,
@@ -615,6 +740,7 @@ export function ComplianceTripCard({
               </View>
             ) : null}
           </View>
+          )}
         </View>
 
         {false && showCardFooter ? (
@@ -689,6 +815,33 @@ const styles = StyleSheet.create({
   cardSelected: {
     borderColor: Theme.actionBtnInk,
   },
+  cardStrip: {
+    borderRadius: 8,
+    borderColor: "#EAEAEC",
+    ...Platform.select({
+      web: { boxShadow: "none" } as ViewStyle,
+      default: { elevation: 0, shadowOpacity: 0 },
+    }),
+  },
+  cardFlush: {
+    borderWidth: 0,
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    ...Platform.select({
+      web: { boxShadow: "none" } as ViewStyle,
+      default: { elevation: 0, shadowOpacity: 0 },
+    }),
+  },
+  bodyFlush: {
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
+  },
+  complianceBodyFlush: {
+    paddingHorizontal: 0,
+    paddingBottom: 0,
+    paddingTop: 0,
+  },
   cardCompact: {
     width: "100%",
     minWidth: 0,
@@ -716,9 +869,14 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
   },
   bodyCompact: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 14,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 8,
+  },
+  bodyStrip: {
+    paddingHorizontal: 8,
+    paddingTop: 6,
+    paddingBottom: 2,
   },
   bodyPressed: { opacity: 0.98 },
   head: {
@@ -727,6 +885,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 8,
     marginBottom: 12,
+  },
+  headCompact: {
+    marginBottom: 8,
+    gap: 6,
   },
   headLeft: {
     flex: 1,
@@ -751,8 +913,8 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   brandCompact: {
-    fontSize: 12,
-    lineHeight: 15,
+    fontSize: 11,
+    lineHeight: 14,
     fontWeight: "600",
     fontStyle: "normal",
     letterSpacing: -0.1,
@@ -826,11 +988,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   payBtnText: {
-    fontSize: 10,
-    lineHeight: 12,
-    fontWeight: "700",
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: "400",
     color: Theme.buttonPrimaryText,
-    letterSpacing: 0.2,
+    letterSpacing: 0,
   },
   headStatusPill: {
     flexShrink: 1,
@@ -942,8 +1104,8 @@ const styles = StyleSheet.create({
   divider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: REF.hairline,
-    marginTop: 12,
-    marginBottom: 10,
+    marginTop: 8,
+    marginBottom: 8,
   },
   partyRow: {
     flexDirection: "row",
@@ -953,19 +1115,39 @@ const styles = StyleSheet.create({
     minHeight: CHIP_AVATAR,
   },
   partyRowCompact: {
-    alignItems: "flex-start",
-    minHeight: HUB_CARD_PARTY_CHIP_AVATAR,
-    marginTop: 6,
+    alignItems: "center",
+    minHeight: STRIP_AVATAR,
+    marginTop: 2,
+  },
+  partyRowStrip: {
+    alignItems: "center",
+    minHeight: STRIP_AVATAR,
+    marginTop: 0,
+    gap: 8,
   },
   chip: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
     minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+    overflow: "hidden",
   },
-  chipEnd: { justifyContent: "flex-end" },
-  chipCopy: { flex: 1, minWidth: 0, justifyContent: "center" },
+  chipSingle: {
+    alignItems: "center",
+  },
+  chipStacked: {
+    alignItems: "center",
+  },
+  chipEnd: {
+    flexDirection: "row-reverse",
+    justifyContent: "flex-start",
+  },
+  chipCopy: { flex: 1, minWidth: 0, justifyContent: "center", overflow: "hidden" },
+  chipCopySingle: { justifyContent: "center" },
+  chipCopyStacked: { justifyContent: "center" },
   chipCopyEnd: { alignItems: "flex-end" },
   chipName: {
     ...FinanceTxnTypography.partyTitle,
@@ -983,6 +1165,27 @@ const styles = StyleSheet.create({
     color: REF.ink,
   },
   chipNameEnd: { textAlign: "right" },
+  chipNameDense: {
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: "600",
+  },
+  chipPlate: {
+    marginTop: 1,
+    alignSelf: "stretch",
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: "600",
+    letterSpacing: 0.3,
+    color: Theme.textMuted,
+    fontVariant: ["tabular-nums"],
+  },
+  chipPlateDense: {
+    marginTop: 0,
+    fontSize: 8,
+    lineHeight: 10,
+    letterSpacing: 0.2,
+  },
   complianceBody: {
     flexGrow: 1,
     paddingHorizontal: 14,
@@ -991,9 +1194,15 @@ const styles = StyleSheet.create({
   },
   complianceBodyCompact: {
     flexGrow: 0,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    gap: 8,
+    paddingHorizontal: 12,
+    paddingBottom: 8,
+    gap: 6,
+  },
+  complianceBodyStrip: {
+    paddingHorizontal: 8,
+    paddingBottom: 8,
+    paddingTop: 0,
+    gap: 6,
   },
   groupRow: {
     flexDirection: "row",
@@ -1004,9 +1213,43 @@ const styles = StyleSheet.create({
   groupRowCompact: {
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
+    gap: 6,
     paddingTop: 2,
     minHeight: 22,
+  },
+  groupRowPills: {
+    alignItems: "stretch",
+    justifyContent: "space-between",
+    gap: 6,
+    paddingTop: 2,
+  },
+  groupRowPillsDense: {
+    justifyContent: "flex-start",
+    gap: 6,
+    paddingTop: 0,
+  },
+  groupPill: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    minHeight: 28,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#D4D5D9",
+    backgroundColor: Theme.cardWhite,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+  },
+  groupPillDense: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: "auto",
+    minHeight: 22,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
   groupMetric: {
     flex: 1,
@@ -1025,19 +1268,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 4,
-    minHeight: 22,
+    minHeight: 16,
     minWidth: 0,
   },
   groupMetricLabel: {
-    fontSize: 10,
-    lineHeight: 13,
+    fontSize: 9,
+    lineHeight: 12,
     fontWeight: "400",
     color: REF.muted,
     flexShrink: 1,
   },
   groupMetricCount: {
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 10,
+    lineHeight: 12,
     fontWeight: "600",
     color: REF.inkMid,
     fontVariant: ["tabular-nums"],
@@ -1103,6 +1346,23 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     borderRadius: 8,
   },
+  blockerBoxStrip: {
+    gap: 0,
+    paddingTop: 3,
+    paddingHorizontal: 8,
+    paddingBottom: 3,
+    borderRadius: 8,
+  },
+  payLabelStrip: {
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "400",
+  },
+  payBtnStrip: {
+    minHeight: 24,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
   blockerBoxBlocked: {
     backgroundColor: Theme.complianceStageDocsBg,
     borderColor: Theme.complianceStageDocsBg,
@@ -1115,14 +1375,14 @@ const styles = StyleSheet.create({
   },
   payLabel: {
     flexShrink: 0,
-    fontSize: 11,
-    fontWeight: "700",
-    lineHeight: 14,
+    fontSize: 9,
+    fontWeight: "400",
+    lineHeight: 12,
   },
   payLabelCompact: {
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: "600",
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "400",
   },
   payReady: { color: Theme.complianceStageSuccessFg },
   payBlocked: { color: Theme.complianceStageDocsFg },
@@ -1181,10 +1441,10 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   expiryAlertBox: {
-    gap: 2,
-    paddingTop: 6,
+    gap: 1,
+    paddingTop: 5,
     paddingHorizontal: 8,
-    paddingBottom: 6,
+    paddingBottom: 5,
     borderRadius: 8,
     borderWidth: StyleSheet.hairlineWidth,
     borderLeftWidth: 3,
@@ -1193,16 +1453,16 @@ const styles = StyleSheet.create({
     borderLeftColor: Theme.teslaRed,
   },
   expiryAlertTitle: {
-    fontSize: 11,
-    fontWeight: "800",
+    fontSize: 9,
+    fontWeight: "400",
     color: Theme.teslaRed,
-    lineHeight: 14,
+    lineHeight: 12,
   },
   expiryAlertBody: {
-    fontSize: 10,
-    fontWeight: "600",
+    fontSize: 9,
+    fontWeight: "400",
     color: Theme.textSecondary,
-    lineHeight: 13,
+    lineHeight: 12,
   },
   resubmitNoteBox: {
     gap: 2,
@@ -1217,16 +1477,16 @@ const styles = StyleSheet.create({
     borderLeftColor: Theme.positive,
   },
   resubmitNoteTitle: {
-    fontSize: 11,
-    fontWeight: "800",
+    fontSize: 9,
+    fontWeight: "400",
     color: Theme.positive,
-    lineHeight: 14,
+    lineHeight: 12,
   },
   resubmitNoteBody: {
-    fontSize: 10,
-    fontWeight: "600",
+    fontSize: 9,
+    fontWeight: "400",
     color: Theme.textSecondary,
-    lineHeight: 13,
+    lineHeight: 12,
   },
   expiryWarnBox: {
     gap: 2,
@@ -1241,15 +1501,15 @@ const styles = StyleSheet.create({
     borderLeftColor: Theme.complianceStagePendingFg,
   },
   expiryWarnTitle: {
-    fontSize: 11,
-    fontWeight: "800",
+    fontSize: 9,
+    fontWeight: "400",
     color: Theme.complianceStagePendingFg,
-    lineHeight: 14,
+    lineHeight: 12,
   },
   expiryWarnBody: {
-    fontSize: 10,
-    fontWeight: "600",
+    fontSize: 9,
+    fontWeight: "400",
     color: Theme.textSecondary,
-    lineHeight: 13,
+    lineHeight: 12,
   },
 });

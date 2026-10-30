@@ -9662,7 +9662,7 @@ export default function TripDetailScreen({
                   const slotPreviews = typeFiles.map((file) => ({
                     storagePath: file.url,
                     fileName: file.fileName,
-                    source: "compliance" as const,
+                    source: (file.source === "driver-kyc" ? "driver-kyc" : "compliance") as const,
                     organizationId:
                       detail.trip?.organization_id ?? currentOrganization?.id,
                     entityId: detail.trip?.driver_id,

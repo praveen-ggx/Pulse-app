@@ -58,8 +58,8 @@ export type ComplianceChecklistSlot = {
 };
 
 export type ComplianceChecklistGroup = {
-  key: "trip" | "vehicle" | "driver";
-  label: "Trip" | "Vehicle" | "Driver";
+  key: "trip" | "vehicle" | "driver" | "finance";
+  label: "Trip" | "Vehicle" | "Driver" | "Finance";
   slots: ComplianceChecklistSlot[];
   verified: number;
   total: number;
@@ -67,7 +67,12 @@ export type ComplianceChecklistGroup = {
 };
 
 export type ComplianceChecklist = {
-  groups: [ComplianceChecklistGroup, ComplianceChecklistGroup, ComplianceChecklistGroup];
+  groups: [
+    ComplianceChecklistGroup,
+    ComplianceChecklistGroup,
+    ComplianceChecklistGroup,
+    ComplianceChecklistGroup,
+  ];
   verified: number;
   total: number;
   tone: ComplianceChecklistTone;

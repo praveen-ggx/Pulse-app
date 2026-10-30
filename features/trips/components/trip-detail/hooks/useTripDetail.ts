@@ -16,6 +16,7 @@ import {
     getDriverById,
     getDriverProfileDisplay,
 } from "@/features/drivers/services/drivers.service";
+import { listDriverVaultKycDocuments } from "@/features/drivers/services/driverKycDocuments.service";
 import {
   DRIVER_IDENTITY_TYPE_HINT,
   DRIVER_IDENTITY_UPLOAD_ORDER,
@@ -2095,7 +2096,7 @@ export function useTripDetail({
     };
   }, [trip, currentOrganization?.id]);
 
-  // Driver License / Aadhaar for Asset Vault — entity_documents for assigned driver.
+  // Driver License / Aadhaar: trip entity_documents plus driver-app KYC.
   useEffect(() => {
     let cancelled = false;
     const driverId = trip?.driver_id?.trim() || null;
@@ -2104,52 +2105,89 @@ export function useTripDetail({
       setDriverIdentityDocs(null);
       return;
     }
-    void getDocumentsByEntity(orgId, "driver", driverId).then((res) => {
+    void Promise.all([
+      getDocumentsByEntity(orgId, "driver", driverId),
+      listDriverVaultKycDocuments([driverId]),
+    ]).then(([res, kyc]) => {
       if (cancelled) return;
-      if (res.error) {
-        setDriverIdentityDocs(null);
-        return;
-      }
+      const entityDocs = res.error ? [] : res.documents;
       const bestByType = new Map<
         "license" | "aadhaar",
-        { id: string; url: string; expiryDate?: string | null; fileName?: string | null; createdAt: string }
+        {
+          id: string;
+          url: string;
+          expiryDate?: string | null;
+          fileName?: string | null;
+          createdAt: string;
+          source: "entity" | "driver-kyc";
+        }
       >();
       const extras: DriverIdentityDocuments["extras"] = [];
-      for (const row of res.documents) {
-        if (!isDriverIdentityDocType(row.doc_type)) continue;
-        if (row.status === "rejected" || row.status === "replaced") continue;
-        const path = row.storage_path?.trim();
-        if (!path) continue;
-        const nextFile = {
-          id: row.id,
-          url: path,
-          expiryDate: row.expiry_date,
-          fileName: row.doc_label,
-          createdAt: row.created_at ?? "",
-        };
-        const prev = bestByType.get(row.doc_type);
+      const ingest = (
+        kind: "license" | "aadhaar",
+        nextFile: {
+          id: string;
+          url: string;
+          expiryDate?: string | null;
+          fileName?: string | null;
+          createdAt: string;
+          source: "entity" | "driver-kyc";
+        },
+      ) => {
+        const prev = bestByType.get(kind);
         if (!prev) {
-          bestByType.set(row.doc_type, nextFile);
-          continue;
+          bestByType.set(kind, nextFile);
+          return;
         }
+        if (prev.url === nextFile.url) return;
         if (prev.createdAt >= nextFile.createdAt) {
           extras.push({
             id: nextFile.id,
             url: nextFile.url,
             expiryDate: nextFile.expiryDate,
             fileName: nextFile.fileName,
-            kind: row.doc_type,
+            kind,
+            source: nextFile.source,
           });
-          continue;
+          return;
         }
         extras.push({
           id: prev.id,
           url: prev.url,
           expiryDate: prev.expiryDate,
           fileName: prev.fileName,
-          kind: row.doc_type,
+          kind,
+          source: prev.source,
         });
-        bestByType.set(row.doc_type, nextFile);
+        bestByType.set(kind, nextFile);
+      };
+      for (const row of entityDocs) {
+        if (!isDriverIdentityDocType(row.doc_type)) continue;
+        if (row.status === "rejected" || row.status === "replaced") continue;
+        const path = row.storage_path?.trim();
+        if (!path) continue;
+        ingest(row.doc_type, {
+          id: row.id,
+          url: path,
+          expiryDate: row.expiry_date,
+          fileName: row.doc_label,
+          createdAt: row.created_at ?? "",
+          source: "entity",
+        });
+      }
+      for (const row of kyc.byDriverId.get(driverId) ?? []) {
+        if (!isDriverIdentityDocType(row.doc_type)) continue;
+        if (row.status === "rejected") continue;
+        const path = row.storage_path?.trim();
+        if (!path) continue;
+        ingest(row.doc_type, {
+          id: row.id,
+          url: path,
+          expiryDate: null,
+          fileName: row.file_name,
+          createdAt: row.updated_at || row.created_at,
+          source: "driver-kyc",
+        });
       }
       const next: DriverIdentityDocuments = {};
       for (const [docType, value] of bestByType) {
@@ -2158,6 +2196,7 @@ export function useTripDetail({
           url: value.url,
           expiryDate: value.expiryDate,
           fileName: value.fileName,
+          source: value.source,
         };
       }
       if (extras.length > 0) next.extras = extras;

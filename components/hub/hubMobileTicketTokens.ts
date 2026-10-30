@@ -46,6 +46,6 @@ export const hubMobileListCanvasStyles = StyleSheet.create({
   },
   cardWrap: {
     width: "100%",
-    marginBottom: 12,
+    marginBottom: 8,
   },
 });

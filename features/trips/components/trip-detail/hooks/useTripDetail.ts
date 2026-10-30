@@ -2251,8 +2251,25 @@ export function useTripDetail({
           }
         }
         if (trip.supplier_id) {
-          const supplier = bundle.supplier_detail?.supplier;
+          let supplier: { avatar_url?: string | null; avatar_seed?: string | null } | null =
+            bundle.supplier_detail?.supplier ?? null;
           const linked = bundle.supplier_detail?.linked_org;
+          // Light bundle (completed trip on narrow web) ships no supplier_detail
+          // and trips has no supplier_name, so the card showed "Awaiting data".
+          if (!supplier) {
+            const { supplier: row } = await getSupplierById(ownerOrg, trip.supplier_id);
+            if (cancelled) return;
+            const name = row ? pickSupplierDisplayName(row) : null;
+            if (row && !isMissingSupplierLabel(name)) {
+              supplier = row;
+              setPartnerName(name);
+              setSupplierPartyRes({
+                name,
+                integrated: isIntegratedSupplierRow(row),
+                orgId: nStr(row.linked_organization_id),
+              });
+            }
+          }
           const fields = emptyTripPartyAvatarFields();
           fields.avatarUrl = nStr(supplier?.avatar_url);
           fields.avatarSeed = nStr(supplier?.avatar_seed);

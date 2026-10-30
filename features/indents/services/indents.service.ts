@@ -1178,6 +1178,17 @@ export async function updateIndent(
     if (blocked) return { error: new Error(blocked), indent: null };
   }
 
+  // cancel_reason is only for cancelled/expired. Clearing on award/reopen keeps
+  // Needs trip creation exclusive of Failed (DB trigger mirrors this).
+  const nextStatus = String(updates.status ?? "").trim().toLowerCase();
+  if (
+    nextStatus === "awarded" ||
+    nextStatus === "open" ||
+    nextStatus === "broadcast"
+  ) {
+    payload.cancel_reason = null;
+  }
+
   const { data, error } = await supabase()
     .from("indents")
     .update(payload)

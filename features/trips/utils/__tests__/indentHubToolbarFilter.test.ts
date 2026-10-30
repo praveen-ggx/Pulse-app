@@ -191,6 +191,49 @@ describe("filterFailedHubIndents", () => {
       ),
     ).toEqual([]);
   });
+
+  it("drops awarded indents even when a leftover cancel_reason remains", () => {
+    expect(
+      filterFailedHubIndents(
+        [
+          indent({
+            id: "awarded-leftover",
+            status: "awarded",
+            cancel_reason: "client_cancelled",
+            updated_at: "2026-10-29T12:00:00Z",
+          }),
+        ],
+        {
+          orgId: "org",
+          dateRangeFilter: "all",
+          searchQuery: "",
+        },
+      ),
+    ).toEqual([]);
+  });
+
+  it("prefers a newer awarded workload copy over a stale Failed remote row", () => {
+    const staleFailed = indent({
+      id: "a",
+      status: "cancelled",
+      cancel_reason: "client_cancelled",
+      updated_at: "2026-10-12T00:00:00Z",
+    });
+    const awarded = indent({
+      id: "a",
+      status: "awarded",
+      cancel_reason: "client_cancelled",
+      updated_at: "2026-10-29T12:00:00Z",
+    });
+    const merged = mergeIndentsByLatestUpdate([staleFailed], [], [awarded]);
+    expect(
+      filterFailedHubIndents(merged, {
+        orgId: "org",
+        dateRangeFilter: "all",
+        searchQuery: "",
+      }),
+    ).toEqual([]);
+  });
 });
 
 describe("countFailedHubReasons", () => {
@@ -207,6 +250,28 @@ describe("countFailedHubReasons", () => {
       indent_expired: 1,
       no_rates_available: 0,
       wrong_entry: 2,
+    });
+  });
+
+  it("does not count leftover cancel_reason on awarded indents", () => {
+    expect(
+      countFailedHubReasons([
+        indent({
+          id: "awarded",
+          status: "awarded",
+          cancel_reason: "client_cancelled",
+        }),
+        indent({
+          id: "cancelled",
+          status: "cancelled",
+          cancel_reason: "client_cancelled",
+        }),
+      ]),
+    ).toEqual({
+      client_cancelled: 1,
+      indent_expired: 0,
+      no_rates_available: 0,
+      wrong_entry: 0,
     });
   });
 });

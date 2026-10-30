@@ -16,6 +16,7 @@ import { splitHubRouteLocationDisplay } from "@/features/trips/utils/tripLocatio
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { formatIndianVehicleNumber } from "@/lib/format";
 import { parseLrFieldValues } from "@/features/trips/services/lrDocumentOcr.util";
+import { readStoredElrSnapshot } from "@/features/trips/services/elrSnapshot.util";
 import { readStoredInvoiceNumber } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { isComplianceVerifiedRejected } from "@/features/tripCompliance/utils/complianceCardVisual.util";
 import * as XLSX from "xlsx";
@@ -136,6 +137,9 @@ function numberFromDocument(
   const raw = (documents.document_number ?? "").trim();
   if (!raw) return "";
   if (type === "lr") {
+    const elr = readStoredElrSnapshot(raw)?.lrNumber?.trim();
+    if (elr) return elr;
+    if (raw.startsWith("{")) return parseLrFieldValues(raw).lrNumber?.trim() ?? "";
     return parseLrFieldValues(raw).lrNumber?.trim() || raw.replace(/^lr\s*no\.?\s*/i, "").trim();
   }
   return readStoredInvoiceNumber(raw) || raw.replace(/^invoice\s*no\.?\s*/i, "").trim();
@@ -257,7 +261,7 @@ export function buildVerifiedExportCsvRow(
     "Beneficiary Name": enrichment.beneficiaryName?.trim() || "",
     "IFSC No": blank(enrichment.ifsc),
     "Branch Name": blank(enrichment.branchName),
-    "LR No": latestDocNumber(summary.documents, "lr"),
+    "LR No": exportLrNumber(summary),
     Customer: customer,
     Supplier: supplierLabel,
     Source: source,

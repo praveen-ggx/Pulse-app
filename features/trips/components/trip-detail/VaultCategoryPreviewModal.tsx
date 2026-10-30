@@ -357,6 +357,7 @@ export function VaultCategoryPreviewModal({
               <Text style={styles.empty}>No files to preview</Text>
             ) : (
               <VaultDraftPreviewBlock
+                density="shop"
                 items={items}
                 selectedId={current?.id ?? null}
                 showHint={Boolean(onAdd) && !onReplace}

@@ -8,9 +8,8 @@ import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompli
 import {
   backfillMilestoneActors,
   complianceCardMilestones,
-  enrichDocumentAuditRows,
-  milestoneFromDocumentAudit,
   milestoneFromWorkflowEvent,
+  milestonesFromDocumentAuditRows,
 } from "@/features/tripCompliance/utils/complianceCardActivity.util";
 import { TripAuditLogPanel } from "@/features/trips/components/trip-detail/TripAuditLogPanel";
 import {
@@ -46,7 +45,7 @@ export function ComplianceTripActivityLog({
     ReturnType<typeof milestoneFromWorkflowEvent>[]
   >([]);
   const [documentAuditMiles, setDocumentAuditMiles] = useState<
-    ReturnType<typeof milestoneFromDocumentAudit>[]
+    ReturnType<typeof milestonesFromDocumentAuditRows>
   >([]);
 
   useEffect(() => {
@@ -75,7 +74,7 @@ export function ComplianceTripActivityLog({
         supabase()
           .from("transactions")
           .select(
-            "id, organization_id, trip_id, party_name, description, amount_in, amount_out, transaction_date, created_at, contact_id, contact_type, ledger_entity_type, ledger_flow_type, ledger_category, payment_reference, created_by",
+            "id, organization_id, trip_id, trip_number, party_name, description, amount_in, amount_out, transaction_date, created_at, contact_id, contact_type, vehicle_number, driver_name, ledger_entity_type, ledger_flow_type, ledger_category, payment_reference, created_by",
           )
           .eq("trip_id", tripId)
           .order("transaction_date", { ascending: false })
@@ -121,11 +120,11 @@ export function ComplianceTripActivityLog({
       setDocumentAuditMiles(
         audits.error
           ? []
-          : enrichDocumentAuditRows(
-              (audits.data ?? []) as Parameters<typeof milestoneFromDocumentAudit>[0][],
-            )
-              .map(milestoneFromDocumentAudit)
-              .filter((item): item is NonNullable<typeof item> => item != null),
+          : milestonesFromDocumentAuditRows(
+              (audits.data ?? []) as Parameters<
+                typeof milestonesFromDocumentAuditRows
+              >[0],
+            ),
       );
       setLoading(false);
     })();
@@ -133,11 +132,15 @@ export function ComplianceTripActivityLog({
       cancelled = true;
     };
   }, [
+    activeTrip?.driver_id,
     activeTrip?.id,
     activeTrip?.organization_id,
+    activeTrip?.vehicle_id,
     card?.driverDocuments,
     card?.documents,
+    card?.trip.driver_id,
     card?.trip.organization_id,
+    card?.trip.vehicle_id,
     card?.vehicleDocuments,
     organizationId,
     visible,

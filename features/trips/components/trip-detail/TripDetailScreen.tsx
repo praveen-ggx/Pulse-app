@@ -38,7 +38,7 @@ import {
   resolveTripActivityUserLabel,
   type TripActivityUserProfile,
 } from "@/lib/trips/buildTripAuditLog.util";
-import { CompactValidTillCalendar, EwayBillLrStrip, buildEwayBillStripRows } from "@/features/trips/components/trip-detail/EwayBillVaultTab";
+import { CompactValidTillCalendar, buildEwayBillStripRows } from "@/features/trips/components/trip-detail/EwayBillVaultTab";
 import { ElrTripDetailAction } from "@/features/trips/components/trip-detail/ElrTripDetailAction";
 import { HubTripLrUpdateModal } from "@/features/trips/components/HubTripLrUpdateModal";
 import { VaultChooserNotifyRow } from "@/features/trips/components/trip-detail/VaultChooserNotifyRow";
@@ -75,7 +75,6 @@ import { useOrganization } from "@/contexts/OrganizationContext";
 import { useOptionalActiveWorkspace } from "@/contexts/ActiveWorkspaceContext";
 import { getGroundOpsDocUploadEnabled } from "@/features/organization/services/organization.service";
 import { useDocumentPreview } from "@/features/chat/components/DocumentPreviewModal";
-import { ChatDocumentThreadPreview } from "@/features/chat/components/ChatDocumentThreadPreview";
 import { releaseStoragePreviewUrl } from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import {
   pushTripLedgerQuickEntry,
@@ -1669,6 +1668,11 @@ export default function TripDetailScreen({
         ? await loadTripActivityActorHydration({
             tripId,
             organizationId: orgId,
+            entityIds: [
+              detail.trip?.vehicle_id,
+              detail.trip?.driver_id,
+              detail.trip?.supplier_id,
+            ],
             extraUserIds: [...unique, detail.currentUserId],
           })
         : {
@@ -5343,6 +5347,7 @@ export default function TripDetailScreen({
             onPreview={() => previewTripDetailsSlot(slot.id)}
             onEdit={() => previewTripDetailsSlot(slot.id)}
             onAdd={() => uploadTripDetailsSlot(slot.id)}
+            appearance="shop"
           />
         );
       })}
@@ -5401,6 +5406,7 @@ export default function TripDetailScreen({
             }
             onPreview={() => previewDriverPodFile(file)}
             onAdd={uploadDriverPod}
+            appearance="shop"
           />
         );
       })}
@@ -9605,6 +9611,7 @@ export default function TripDetailScreen({
                           : undefined
                       }
                       onAdd={() => chooseVehicleDocKind(docType)}
+                      appearance="shop"
                     />
                   );
                 })}
@@ -9703,6 +9710,7 @@ export default function TripDetailScreen({
                           : undefined
                       }
                       onAdd={() => chooseDriverDocKind(docType)}
+                      appearance="shop"
                     />
                   );
                 })}

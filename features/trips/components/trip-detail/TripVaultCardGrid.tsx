@@ -1,7 +1,6 @@
 /**
- * Asset Vault — four cards in a row. Image opens preview; plus uploads.
+ * Asset Vault — shop Order Details cards in a row. Image opens preview; plus uploads.
  */
-import { Theme } from "@/constants/Theme";
 import { DRIVER_IDENTITY_TYPE_HINT } from "@/features/drivers/utils/driverIdentityDocuments.util";
 import {
   EwayBillLrStrip,
@@ -9,17 +8,10 @@ import {
   type EwayFieldValues,
 } from "@/features/trips/components/trip-detail/EwayBillVaultTab";
 import { neoStyles } from "@/features/trips/components/trip-detail/TripDetailScreen.styles";
+import type { DocumentUploadAttribution } from "@/features/trips/components/trip-detail/DocumentUploadAttributionRow";
+import { TripMobileVaultCategoryRow } from "@/features/trips/components/trip-detail/TripMobileVaultCategoryRow";
+import type { VaultPreviewSignContext } from "@/features/trips/components/trip-detail/VaultCardLrStylePreview";
 import {
-  DocumentUploadAttributionRow,
-  documentUploadAttributionHasContent,
-  type DocumentUploadAttribution,
-} from "@/features/trips/components/trip-detail/DocumentUploadAttributionRow";
-import {
-  VaultCardLrStylePreview,
-  type VaultPreviewSignContext,
-} from "@/features/trips/components/trip-detail/VaultCardLrStylePreview";
-import {
-  formatSelectedVaultFileMeta,
   isDriverIdentityVaultDoc,
   isDriverPodVaultDoc,
   isEwayBillVaultDoc,
@@ -29,13 +21,7 @@ import {
   vaultDocHasPreviewableFile,
 } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { VEHICLE_COMPLIANCE_TYPE_HINT } from "@/features/vehicles/utils/vehicleDocuments.util";
-import { useState } from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
-
-const WEB_COPY =
-  Platform.OS === "web"
-    ? ({ whiteSpace: "pre-wrap", letterSpacing: 0 } as const)
-    : ({ letterSpacing: 0 } as const);
+import { StyleSheet, View } from "react-native";
 
 type Props = {
   docs: TripDocItem[];
@@ -86,78 +72,6 @@ function cardStatus(
   return doc.status;
 }
 
-function VaultGridCard({
-  doc,
-  statusLabel,
-  failure,
-  isUploadingThis,
-  previewDisabled,
-  showAdd,
-  onAdd,
-  onOpen,
-  sign,
-  resolveUploadAttribution,
-}: {
-  doc: TripDocItem;
-  statusLabel: string;
-  failure: string | null;
-  isUploadingThis: boolean;
-  previewDisabled: boolean;
-  showAdd: boolean;
-  onAdd: () => void;
-  onOpen: (doc: TripDocItem, fileIndex?: number) => void;
-  sign?: VaultPreviewSignContext;
-  resolveUploadAttribution?: (
-    file: TripDocFile | null,
-    doc: TripDocItem,
-  ) => DocumentUploadAttribution | null;
-}) {
-  const [selectedFile, setSelectedFile] = useState<TripDocFile | null>(null);
-  const meta = isUploadingThis
-    ? "Uploading…"
-    : failure ?? formatSelectedVaultFileMeta(selectedFile, statusLabel, doc);
-  const uploadAttribution =
-    !isUploadingThis && !failure
-      ? resolveUploadAttribution?.(selectedFile, doc) ?? null
-      : null;
-  const showUploadLog = documentUploadAttributionHasContent(uploadAttribution);
-  return (
-    <View style={[neoStyles.vaultCard, neoStyles.vaultCardQuarter, styles.card]}>
-      <View style={[styles.header, showUploadLog && styles.headerWithUpload]}>
-        <Text style={[styles.title, WEB_COPY]} numberOfLines={1}>
-          {doc.label}
-        </Text>
-        <Text
-          style={[styles.meta, WEB_COPY, failure ? styles.metaFail : null]}
-          numberOfLines={1}
-        >
-          {meta}
-        </Text>
-        {showUploadLog ? (
-          <DocumentUploadAttributionRow
-            {...uploadAttribution!}
-            size={20}
-            compact
-          />
-        ) : null}
-      </View>
-      <View style={styles.preview}>
-        <VaultCardLrStylePreview
-          doc={doc}
-          disabled={previewDisabled}
-          onAdd={showAdd ? onAdd : undefined}
-          onPressFile={(index) => {
-            if (!previewDisabled) onOpen(doc, index);
-          }}
-          onSelectedFile={setSelectedFile}
-          sign={sign}
-          uploadAttribution={uploadAttribution}
-        />
-      </View>
-    </View>
-  );
-}
-
 export function TripVaultCardGrid({
   docs,
   uploadingDocId,
@@ -181,31 +95,33 @@ export function TripVaultCardGrid({
   return (
     <View style={[neoStyles.vaultGrid, neoStyles.vaultGridFour]}>
       <View style={styles.cardRow}>
-      {cards.map((doc) => {
-        const isUploadingThis = uploadingDocId === doc.id;
-        const dialog = opensVaultDialog(doc);
-        const previewReady = vaultDocHasPreviewableFile(doc);
-        const showAdd = canUpload(doc);
-        const statusLabel = cardStatus(doc, vehicleSummary, driverSummary);
-        const failure =
-          uploadError?.slotId === doc.id ? uploadError.message : null;
-        const previewDisabled = isUploadingThis || (!previewReady && !dialog);
-        return (
-          <VaultGridCard
-            key={doc.id}
-            doc={doc}
-            statusLabel={statusLabel}
-            failure={failure}
-            isUploadingThis={isUploadingThis}
-            previewDisabled={previewDisabled}
-            showAdd={showAdd}
-            onAdd={() => onAdd(doc)}
-            onOpen={onOpen}
-            sign={sign}
-            resolveUploadAttribution={resolveUploadAttribution}
-          />
-        );
-      })}
+        {cards.map((doc) => {
+          const isUploadingThis = uploadingDocId === doc.id;
+          const dialog = opensVaultDialog(doc);
+          const previewReady = vaultDocHasPreviewableFile(doc);
+          const showAdd = canUpload(doc);
+          const statusLabel = cardStatus(doc, vehicleSummary, driverSummary);
+          const failure =
+            uploadError?.slotId === doc.id ? uploadError.message : null;
+          const previewDisabled = isUploadingThis || (!previewReady && !dialog);
+          return (
+            <View key={doc.id} style={styles.cardCell}>
+              <TripMobileVaultCategoryRow
+                doc={doc}
+                statusLabel={statusLabel}
+                error={failure}
+                uploading={isUploadingThis}
+                canAdd={showAdd}
+                onPreview={(index) => {
+                  if (!previewDisabled) onOpen(doc, index);
+                }}
+                onAdd={() => onAdd(doc)}
+                sign={sign}
+                resolveUploadAttribution={resolveUploadAttribution}
+              />
+            </View>
+          );
+        })}
       </View>
       <View style={neoStyles.vaultEwayWrap}>
         <EwayBillLrStrip
@@ -226,50 +142,14 @@ const styles = StyleSheet.create({
     width: "100%",
     flexDirection: "row",
     alignItems: "stretch",
+    flexWrap: "wrap",
     gap: 12,
   },
-  card: {
+  cardCell: {
     flexGrow: 1,
     flexShrink: 1,
-    flexBasis: 0,
+    flexBasis: 220,
     maxWidth: "100%",
-    minWidth: 0,
-    minHeight: 248,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    alignItems: "stretch",
-    justifyContent: "flex-start",
-    gap: 10,
-  },
-  header: {
-    width: "100%",
-    minHeight: 38,
-    gap: 2,
-    alignItems: "stretch",
-  },
-  headerWithUpload: {
-    minHeight: 72,
-  },
-  title: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "600",
-    letterSpacing: 0.2,
-    color: Theme.textPrimaryDark,
-  },
-  meta: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "500",
-    letterSpacing: 0.15,
-    color: Theme.textSecondary,
-  },
-  metaFail: {
-    color: Theme.negative,
-  },
-  preview: {
-    flex: 1,
-    minHeight: 200,
-    width: "100%",
+    minWidth: 200,
   },
 });

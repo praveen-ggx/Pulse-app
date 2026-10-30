@@ -93,6 +93,7 @@ export function VaultCardLrStylePreview({
   disabled = false,
   sign,
   uploadAttribution = null,
+  density = "card",
 }: {
   doc: TripDocItem;
   onPressFile: (index: number) => void;
@@ -102,6 +103,7 @@ export function VaultCardLrStylePreview({
   sign?: VaultPreviewSignContext;
   /** Uploader log for the full-screen viewer opened from this card. */
   uploadAttribution?: DocumentUploadAttribution | null;
+  density?: "dialog" | "card" | "shop";
 }) {
   const files = useMemo(() => filesFromDoc(doc), [doc]);
   const fileFingerprint = useMemo(
@@ -201,7 +203,7 @@ export function VaultCardLrStylePreview({
       <VaultDraftPreviewBlock
         items={items}
         selectedId={selectedId}
-        density="card"
+        density={density}
         showHint={false}
         showAddThumb={Boolean(onAdd) && !disabled}
         emptyLabel={`Add ${doc.label}`}

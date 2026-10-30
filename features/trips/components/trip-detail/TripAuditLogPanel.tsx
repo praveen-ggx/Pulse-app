@@ -20,6 +20,7 @@ import {
   displayMapFromProfiles,
   loadTripActivityActorHydration,
   mergeLedgerCreatedBy,
+  resolveActivityUserProfiles,
   type TripActivityActorHydration,
 } from "@/lib/trips/hydrateTripActivityActors.util";
 import {
@@ -96,7 +97,10 @@ function collectActivityUserIds(
   add(hardCopyActorId);
   for (const row of assignmentAuditRows) add(row.changed_by);
   for (const tx of transactions) add(tx.created_by);
-  for (const mile of milestones) add(mile.actorUserId);
+  for (const mile of milestones) {
+    add(mile.actorUserId);
+    add(mile.originActorUserId);
+  }
   for (const item of timelineRows) {
     if (item.kind === "status") add(item.actorUserId);
   }
@@ -193,11 +197,18 @@ export function TripAuditLogPanel({
     .filter(Boolean)
     .join(",");
 
+  const entityIdsKey = [trip.vehicle_id, trip.driver_id, trip.supplier_id]
+    .map((id) => String(id ?? "").trim())
+    .filter(Boolean)
+    .join(",");
+
   useEffect(() => {
     if (!visible) return;
     let cancelled = false;
     void loadTripActivityActorHydration({
       tripId: trip.id,
+      organizationId: organizationId ?? trip.organization_id,
+      entityIds: entityIdsKey ? entityIdsKey.split(",") : [],
       extraUserIds: knownUserIdsKey.split(","),
     }).then((hydration) => {
       if (!cancelled) setActorHydration(hydration);
@@ -205,7 +216,14 @@ export function TripAuditLogPanel({
     return () => {
       cancelled = true;
     };
-  }, [visible, trip.id, knownUserIdsKey]);
+  }, [
+    visible,
+    trip.id,
+    trip.organization_id,
+    organizationId,
+    knownUserIdsKey,
+    entityIdsKey,
+  ]);
 
   const mergedMilestones = useMemo(() => {
     const byId = new Map<string, TripAuditMilestone>();
@@ -303,7 +321,17 @@ export function TripAuditLogPanel({
       for (const [id, profile] of Object.entries(actorHydration.profiles)) {
         rememberProfile(id, profile);
       }
-      for (const [id, name] of Object.entries(displayMapFromProfiles(actorHydration.profiles))) {
+
+      // Canonical Activity name path: profiles table + org roster RPC.
+      const resolved = await resolveActivityUserProfiles({
+        userIds: activityUserIds,
+        organizationId: orgId,
+        seedProfiles: profileMap,
+      });
+      for (const [id, profile] of Object.entries(resolved)) {
+        rememberProfile(id, profile);
+      }
+      for (const [id, name] of Object.entries(displayMapFromProfiles(profileMap))) {
         if (name) displayMap[id] = name;
       }
 
@@ -311,7 +339,7 @@ export function TripAuditLogPanel({
         const { members } = await getOrganizationMembers(orgId);
         for (const member of members) {
           const uid = String(member.user_id ?? "").trim();
-          if (!uid) continue;
+          if (!uid || !activityUserIds.includes(uid)) continue;
           rememberProfile(uid, {
             full_name:
               member.full_name?.trim() ||
@@ -323,6 +351,9 @@ export function TripAuditLogPanel({
             avatar_url: member.avatar_url ?? null,
             avatar_seed: member.avatar_seed ?? null,
           });
+        }
+        for (const [id, name] of Object.entries(displayMapFromProfiles(profileMap))) {
+          if (name) displayMap[id] = name;
         }
       }
 
@@ -346,6 +377,7 @@ export function TripAuditLogPanel({
               avatar_url: profileMap[id]?.avatar_url ?? null,
               avatar_seed: profileMap[id]?.avatar_seed ?? null,
             });
+            displayMap[id] = detail.name;
           }
         }
       }

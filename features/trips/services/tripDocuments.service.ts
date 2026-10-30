@@ -40,7 +40,7 @@ const BUCKET = "trip-documents";
 const VEHICLE_DOCUMENT_REF_PREFIX = "ref:vehicle-document:";
 
 const TRIP_DOCUMENTS_SELECT =
-  "id, trip_id, file_name, storage_path, mime_type, size_bytes, uploaded_at, uploaded_by, document_type, document_number, ocr_job_id, status";
+  "id, trip_id, file_name, storage_path, mime_type, size_bytes, uploaded_at, uploaded_by, document_type, document_number, ocr_job_id, status, verified_by, verified_at, rejection_reason";
 const TRIP_DOCUMENTS_SELECT_WITH_SOURCE = `${TRIP_DOCUMENTS_SELECT}, source_entity_document_id`;
 
 function isVehicleDocumentReferenceStoragePath(storagePath: string | null | undefined): boolean {
@@ -150,6 +150,10 @@ export interface TripDocumentRow {
   document_date?: string | null;
   /** Compliance review state: pending / verified / rejected. */
   status?: string | null;
+  /** Workspace member who verified/rejected (Activity actor). */
+  verified_by?: string | null;
+  verified_at?: string | null;
+  rejection_reason?: string | null;
   /**
    * Exact `entity_documents.id` when this row is reused workspace-vehicle
    * evidence. Null for a normal trip-documents upload. Authoritative pin —

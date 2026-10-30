@@ -1,6 +1,7 @@
 /**
  * Narrow-screen vault — stacked category cards + e-way feed.
  */
+import { HUB_MOBILE_LIST_CANVAS_BG } from "@/components/hub/hubMobileTicketTokens";
 import Theme from "@/constants/Theme";
 import Layout from "@/constants/Layout";
 import { DRIVER_IDENTITY_TYPE_HINT } from "@/features/drivers/utils/driverIdentityDocuments.util";
@@ -158,7 +159,7 @@ export const TripMobileVaultPanel = memo(function TripMobileVaultPanel({
 const styles = StyleSheet.create({
   root: {
     width: "100%",
-    backgroundColor: Theme.screenBackground,
+    backgroundColor: HUB_MOBILE_LIST_CANVAS_BG,
   },
   hint: {
     paddingHorizontal: Layout.screenPaddingHorizontal,

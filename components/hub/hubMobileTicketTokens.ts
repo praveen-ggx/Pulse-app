@@ -1,5 +1,6 @@
 /**
  * Shared ticket-card tokens for Trips + Load Center (indents) mobile hub cards.
+ * Commerce tokens mirror clean retail order-card hierarchy (status → product → actions).
  */
 import Theme from "@/constants/Theme";
 import { StyleSheet } from "react-native";
@@ -15,7 +16,23 @@ export const HUB_MOBILE_TICKET_REF = {
 } as const;
 
 /** Soft page canvas so white ticket cards lift clearly. */
-export const HUB_MOBILE_LIST_CANVAS_BG = "#F0F2F5";
+export const HUB_MOBILE_LIST_CANVAS_BG = "#F5F5F6";
+
+/** Retail-clean accents for Compliance mobile list + document detail. */
+export const HUB_MOBILE_COMMERCE_REF = {
+  ink: "#282C3F",
+  muted: "#94969F",
+  hairline: "#EAEAEC",
+  success: "#03A685",
+  successSoft: "#E5F6F1",
+  warning: "#F5A623",
+  warningSoft: "#FFF6E5",
+  danger: "#E11B23",
+  dangerSoft: "#FDECEC",
+  link: "#FF3F6C",
+  cardRadius: 12,
+  canvas: HUB_MOBILE_LIST_CANVAS_BG,
+} as const;
 
 export const hubMobileListCanvasStyles = StyleSheet.create({
   list: {
@@ -29,6 +46,6 @@ export const hubMobileListCanvasStyles = StyleSheet.create({
   },
   cardWrap: {
     width: "100%",
-    marginBottom: 14,
+    marginBottom: 12,
   },
 });

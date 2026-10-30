@@ -49,11 +49,16 @@ export function indentStatusForCancelReason(
   return reason === "indent_expired" ? "expired" : "cancelled";
 }
 
-/** Failed-filter bucket. A stored reason wins; a bare expired status is Indent expired. */
+/**
+ * Failed-filter bucket. Only cancelled/expired indents count — leftover
+ * `cancel_reason` on awarded/open must not look like Failed.
+ * A stored reason wins; a bare expired status is Indent expired.
+ */
 export function indentFailedCategory(indent: {
   status?: string | null;
   cancel_reason?: string | null;
 }): IndentFailedCategory | null {
+  if (!isIndentFailedStatus(indent.status)) return null;
   const id = indentCancelReasonId(indent.cancel_reason);
   if (id) return id;
   const raw = String(indent.cancel_reason ?? "").trim();

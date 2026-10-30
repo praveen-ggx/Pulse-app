@@ -34,7 +34,6 @@ import { downloadTripIndentReportExcel } from "@/features/trips/utils/tripIndent
 import {
   buildTripIndentReport,
   loadTripIndentReportCatalog,
-  TRIP_INDENT_REPORT_MAX_ENTITY_ROWS,
 } from "@/features/trips/services/tripIndentReport.service";
 import { shouldShowAggregateTripKindPill } from "@/features/drivers/utils/driverUtils.util";
 import { toReportIsoDate } from "@/features/finance/lib/ledgerReportTable.util";
@@ -808,12 +807,12 @@ export default function TripsScreen() {
           (i.organization_id ?? "") === (orgId ?? "") &&
           indentWorkloadKindById.has(i.id) &&
           isIndentUnallocated(i, indentIdsWithTrip) &&
-          !isIndentFailedStatus(i.status) &&
-          !failedIndentsRemote.some((failed) => failed.id === i.id),
+          // Status only — do not drop awarded rows just because a stale Failed
+          // query still lists the same id from before the award.
+          !isIndentFailedStatus(i.status),
       ),
     [
       allIndents,
-      failedIndentsRemote,
       indentIdsWithTrip,
       indentWorkload.indents,
       indentWorkloadKindById,
@@ -856,11 +855,18 @@ export default function TripsScreen() {
     return byIndent;
   }, [extraStopRows]);
   // The full list is capped (newest FINITE_LIST_CAP), so older failures come
-  // from their own query (failedIndentsRemote, Indent tab only). Per id, keep
-  // whichever copy was updated last.
+  // from their own query (failedIndentsRemote, Indent tab only). Merge the
+  // live/needs-trip workload too — an award refreshes workload before the
+  // Failed cache, and without it a stale cancelled copy can sit in Failed
+  // while the same id is already in Needs trip creation.
   const failedCandidateIndents = useMemo(
-    () => mergeIndentsByLatestUpdate(failedIndentsRemote, allIndents),
-    [failedIndentsRemote, allIndents],
+    () =>
+      mergeIndentsByLatestUpdate(
+        failedIndentsRemote,
+        allIndents,
+        indentWorkload.indents ?? [],
+      ),
+    [failedIndentsRemote, allIndents, indentWorkload.indents],
   );
   const failedStageIndents = useMemo(() => {
     if (!orgId) return [];
@@ -2228,12 +2234,25 @@ export default function TripsScreen() {
     ],
   );
 
-  /** Full Trip Ops catalog (not the current page / toolbar filter) → Excel. */
+  /**
+   * Trip Ops Excel export — same date bounds as the hub pills (All time →
+   * HUB_ALL_TIME_BOUNDS), Asset/Aggregate scope, and finance-gated money columns.
+   */
   const handleDownloadTripReport = useCallback(async () => {
     if (!orgId || tripReportDownloading) return;
     setTripReportDownloading(true);
     try {
-      const catalog = await loadTripIndentReportCatalog(orgId, hubTrips, allIndents);
+      const catalog = await loadTripIndentReportCatalog(
+        orgId,
+        hubTrips,
+        allIndents,
+        {
+          dateBounds: hubDateBounds ?? HUB_ALL_TIME_BOUNDS,
+          dateFilter: dateRangeFilter,
+          customFrom: customDateFrom,
+          customTo: customDateTo,
+        },
+      );
       if (catalog.error) {
         showAppAlert(
           "Export failed",
@@ -2241,11 +2260,13 @@ export default function TripsScreen() {
         );
         return;
       }
-      const driverPhoneByTripId = await loadDriverPhonesByTripId(catalog.trips);
+      const scopedTrips = sourcingScope.filterTrips(catalog.trips);
+      const scopedIndents = sourcingScope.filterIndents(catalog.indents);
+      const driverPhoneByTripId = await loadDriverPhonesByTripId(scopedTrips);
       const { error, rows, warnings } = await buildTripIndentReport({
         orgId,
-        trips: catalog.trips,
-        indents: catalog.indents,
+        trips: scopedTrips,
+        indents: scopedIndents,
         partyMetaByTripId: tripHubPartyMetaByTripId,
         driverPhoneByTripId,
         stageLabelForTrip: getStageLabelForTrip,
@@ -2254,13 +2275,7 @@ export default function TripsScreen() {
         showAppAlert("Export failed", error.message || "Could not build the trip report.");
         return;
       }
-      const notes: string[] = [...warnings];
-      if (catalog.truncated) {
-        const cap = TRIP_INDENT_REPORT_MAX_ENTITY_ROWS.toLocaleString("en-IN");
-        notes.unshift(
-          `Export capped at ${cap} trips and ${cap} indents. Additional rows were not included.`,
-        );
-      }
+      const notes: string[] = [...catalog.notes, ...warnings];
       await downloadTripIndentReportExcel(rows, {
         companyName: currentOrganization?.name ?? undefined,
         includeCosts: memberDomains.finance,
@@ -2283,6 +2298,11 @@ export default function TripsScreen() {
     tripReportDownloading,
     hubTrips,
     allIndents,
+    hubDateBounds,
+    dateRangeFilter,
+    customDateFrom,
+    customDateTo,
+    sourcingScope,
     tripHubPartyMetaByTripId,
     getStageLabelForTrip,
     currentOrganization?.name,
@@ -3255,7 +3275,7 @@ export default function TripsScreen() {
         icon={
           <Download
             size={12}
-            color={Theme.buttonDarkText}
+            color={Theme.buttonPrimaryText}
             strokeWidth={2.4}
           />
         }

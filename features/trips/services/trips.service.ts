@@ -150,7 +150,11 @@ export interface TripRow {
   client_price: number;
   /** Client freight rate basis when unit pricing applies. */
   sale_rate_basis?: "per_mt" | "per_trip" | null;
+  /** Client unit rate when sale_rate_basis is set (e.g. per MT). */
+  sale_unit_rate?: number | null;
   supplier_rate: number;
+  /** Supplier freight rate basis when unit pricing applies. */
+  supplier_rate_basis?: "per_mt" | "per_trip" | string | null;
   margin: number;
   platform_fee: number;
   driver_commission: number;
@@ -1550,11 +1554,27 @@ async function getOrgHubMetricsFallback(
         .not("driver_id", "is", null),
     ),
     headCount(() => indent().in("status", ["cancelled", "expired"])),
-    headCount(() => indent().eq("cancel_reason", "client_cancelled")),
-    headCount(() => indent().eq("cancel_reason", "indent_expired")),
+    headCount(() =>
+      indent()
+        .in("status", ["cancelled", "expired"])
+        .eq("cancel_reason", "client_cancelled"),
+    ),
+    headCount(() =>
+      indent()
+        .in("status", ["cancelled", "expired"])
+        .eq("cancel_reason", "indent_expired"),
+    ),
     headCount(() => indent().eq("status", "expired")),
-    headCount(() => indent().eq("cancel_reason", "no_rates_available")),
-    headCount(() => indent().eq("cancel_reason", "wrong_entry")),
+    headCount(() =>
+      indent()
+        .in("status", ["cancelled", "expired"])
+        .eq("cancel_reason", "no_rates_available"),
+    ),
+    headCount(() =>
+      indent()
+        .in("status", ["cancelled", "expired"])
+        .eq("cancel_reason", "wrong_entry"),
+    ),
     headCount(() =>
       indent().not("status", "in", '("completed","cancelled","closed","expired")'),
     ),

@@ -30,10 +30,12 @@ export const TRIP_INDENT_REPORT_COLUMNS = [
   { key: "supplierCost", label: "Supplier Cost" },
   { key: "status", label: "Status" },
   { key: "createdBy", label: "Created By" },
+  { key: "indentId", label: "Indent ID" },
   { key: "pulseId", label: "Pulse ID" },
   { key: "tripId", label: "Trip ID" },
 ] as const;
 
+/** Money columns — finance members only. */
 const COST_COLUMN_KEYS = new Set<string>(["clientCost", "supplierCost"]);
 
 /** Drop Client/Supplier Cost unless the member has finance access. */
@@ -96,17 +98,39 @@ export function resolveIndentType(input: {
   return "ADHOC";
 }
 
+/** Hub dates use Asia/Kolkata — keep Excel timestamps on the same calendar. */
 export function formatReportDateTime(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (!Number.isFinite(d.getTime())) return "";
   return d.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
     day: "2-digit",
     month: "short",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/**
+ * Human Indent ID for the report — operational / display codes only.
+ * Never the UUID.
+ */
+export function resolveIndentId(input: {
+  tripIndentNumber?: string | null;
+  tripSourceIndentCode?: string | null;
+  indentNumber?: string | null;
+  indentCode?: string | null;
+  indentOperationalCode?: string | null;
+}): string {
+  return (
+    blank(input.tripIndentNumber) ||
+    blank(input.tripSourceIndentCode) ||
+    blank(input.indentOperationalCode) ||
+    blank(input.indentCode) ||
+    blank(input.indentNumber)
+  );
 }
 
 /** Indent weight is stored in kg; trip load_tons is MT. Prefer capacity string. */
@@ -218,6 +242,13 @@ export function buildTripReportRow(
     supplierCost: formatMoney(trip.supplier_rate),
     status: enrichment.stageLabelForTrip?.(trip) || blank(trip.status) || "",
     createdBy: creatorId ? blank(enrichment.creatorNameByUserId?.[creatorId]) : "",
+    indentId: resolveIndentId({
+      tripIndentNumber: trip.indent_number,
+      tripSourceIndentCode: trip.source_indent_code,
+      indentNumber: indent?.indent_number,
+      indentCode: indent?.indent_code,
+      indentOperationalCode: indent?.indent_operational_code,
+    }),
     pulseId: resolvePulseId({
       tripOperationalCode: trip.trip_operational_code,
       tripCode: trip.trip_code,
@@ -258,6 +289,11 @@ export function buildIndentReportRow(
     ),
     status: indentLifecycleStatus(indent.status),
     createdBy: creatorId ? blank(enrichment.creatorNameByUserId?.[creatorId]) : "",
+    indentId: resolveIndentId({
+      indentNumber: indent.indent_number,
+      indentCode: indent.indent_code,
+      indentOperationalCode: indent.indent_operational_code,
+    }),
     pulseId: resolvePulseId({
       indentOperationalCode: indent.indent_operational_code,
       indentCode: indent.indent_code,

@@ -4,6 +4,7 @@ import {
   buildTripIndentReportRows,
   formatTonnageCapacity,
   indentIdsCoveredByTrips,
+  resolveIndentId,
   resolveIndentType,
   resolvePulseId,
   tripIndentReportColumnsForAccess,
@@ -163,8 +164,48 @@ describe("tripIndentReport.model", () => {
     const withoutCosts = tripIndentReportColumnsForAccess(false);
     expect(withCosts).toHaveLength(TRIP_INDENT_REPORT_COLUMNS.length);
     expect(withCosts.some((c) => c.key === "clientCost")).toBe(true);
+    expect(withCosts.some((c) => c.key === "indentId")).toBe(true);
+    expect(withCosts.some((c) => c.key === "clientRate")).toBe(false);
+    expect(withCosts.some((c) => c.key === "vendorRate")).toBe(false);
     expect(withoutCosts.some((c) => c.key === "clientCost")).toBe(false);
     expect(withoutCosts.some((c) => c.key === "supplierCost")).toBe(false);
+    expect(withoutCosts.some((c) => c.key === "indentId")).toBe(true);
     expect(withoutCosts).toHaveLength(TRIP_INDENT_REPORT_COLUMNS.length - 2);
+  });
+
+  it("resolves Indent ID from display codes (never UUID)", () => {
+    expect(
+      resolveIndentId({
+        tripIndentNumber: "IND-42",
+        indentOperationalCode: "GGV234ABCIND000042",
+      }),
+    ).toBe("IND-42");
+    expect(
+      resolveIndentId({
+        indentOperationalCode: "GGV234ABCIND000042",
+        indentCode: "GGV234-IND-042",
+      }),
+    ).toBe("GGV234ABCIND000042");
+  });
+
+  it("includes Indent ID with Client Cost and Supplier Cost on trip rows", () => {
+    const rows = buildTripIndentReportRows(
+      [
+        trip({
+          id: "t1",
+          indent_id: "i1",
+          indent_number: "IND-7",
+          client_price: 20000,
+          supplier_rate: 17000,
+        }),
+      ],
+      [indent({ id: "i1", indent_code: "GGV-IND-7" })],
+      {},
+      "org-1",
+    );
+    expect(rows[0]?.indentId).toBe("IND-7");
+    expect(rows[0]?.clientCost).toBe(20000);
+    expect(rows[0]?.supplierCost).toBe(17000);
+    expect(rows[0]?.tripId).toBeTruthy();
   });
 });

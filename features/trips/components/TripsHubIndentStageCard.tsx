@@ -6,7 +6,10 @@ import {
   getIndentDisplayNumber,
   type IndentRow,
 } from "@/features/indents";
-import { indentCancelReasonLabel } from "@/features/indents/utils/indentCancelReason.util";
+import {
+  indentCancelReasonLabel,
+  isIndentFailedStatus,
+} from "@/features/indents/utils/indentCancelReason.util";
 import { isIndentPickupPassed } from "@/features/indents/utils/indentWorkload.util";
 import { TripsHubMobileTripCard } from "@/features/trips/components/TripsHubMobileTripCard";
 import type { TripRow } from "@/features/trips/services/trips.service";
@@ -79,7 +82,11 @@ export function TripsHubIndentStageCard({
   clientIntegrated?: boolean;
 }) {
   const stageLabel = indentHubLifecycleStatus(indent.status, bidCount);
-  const cancelReason = indentCancelReasonLabel(indent.cancel_reason);
+  // cancel_reason is only meaningful on cancelled/expired — leftover reasons on
+  // awarded rows must not paint Failed tags onto Needs trip creation cards.
+  const cancelReason = isIndentFailedStatus(indent.status)
+    ? indentCancelReasonLabel(indent.cancel_reason)
+    : null;
   const originTags = [
     ...indentHubSourceTags(indent.circulation_target),
     ...(cancelReason ? [cancelReason.toUpperCase()] : []),

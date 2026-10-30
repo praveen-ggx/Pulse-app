@@ -1,7 +1,6 @@
 import {
-  enrichDocumentAuditRows,
-  milestoneFromDocumentAudit,
   milestoneFromWorkflowEvent,
+  milestonesFromDocumentAuditRows,
   milestonesFromTripDocument,
   type ComplianceCardMilestone,
 } from "@/features/tripCompliance/utils/complianceCardActivity.util";
@@ -17,10 +16,13 @@ function asMilestone(item: ComplianceCardMilestone): TripAuditMilestone {
     title: item.title,
     actorUserId: item.actorUserId,
     detail: item.detail,
+    detailLines: item.detailLines,
     contextLabel: item.contextLabel,
     lane: item.lane,
     category: item.category,
     preview: item.preview ?? null,
+    originActorUserId: item.originActorUserId,
+    originAt: item.originAt,
   };
 }
 
@@ -119,11 +121,10 @@ export async function listTripActivityMilestones(
     }
   }
   if (!audits.error) {
-    for (const row of enrichDocumentAuditRows(
-      (audits.data ?? []) as Parameters<typeof milestoneFromDocumentAudit>[0][],
+    for (const mile of milestonesFromDocumentAuditRows(
+      (audits.data ?? []) as Parameters<typeof milestonesFromDocumentAuditRows>[0],
     )) {
-      const mile = milestoneFromDocumentAudit(row);
-      if (mile) mergeMilestone(merged, asMilestone(mile));
+      mergeMilestone(merged, asMilestone(mile));
     }
   }
 

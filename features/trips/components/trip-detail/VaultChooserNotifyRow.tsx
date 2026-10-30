@@ -1,6 +1,7 @@
 /**
  * Vault document card — title, number, and a preview that fills the frame.
  */
+import { HUB_MOBILE_COMMERCE_REF } from "@/components/hub/hubMobileTicketTokens";
 import Theme from "@/constants/Theme";
 import { signCompliancePreviewUrl } from "@/features/tripCompliance/services/complianceDocumentView.service";
 import { isInlinePreviewUri } from "@/features/trips/utils/storagePreviewObjectUrl.util";
@@ -17,6 +18,8 @@ import Feather from "@expo/vector-icons/Feather";
 import { FileText, Pencil } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+
+const SHOP = HUB_MOBILE_COMMERCE_REF;
 
 const WEB_COPY =
   Platform.OS === "web"
@@ -89,8 +92,8 @@ type Props = {
   /** Full document viewer with next / previous across files. */
   onOpenFull?: (index: number) => void;
   onAdd: () => void;
-  /** Replace the rejected trip file in place. When set, Add is hidden. */
-  onReplace?: () => void;
+  /** Retail-clean card chrome for Compliance mobile detail. */
+  appearance?: "default" | "shop";
 };
 
 function normalizeExpiryIso(raw?: string | null): string | null {
@@ -127,12 +130,15 @@ function ChooserQuoteDoc({
   onOpenFull,
   tiled = false,
   headerFacts = null,
+  hero = false,
 }: {
   preview: VaultChooserPreview;
   onPress: () => void;
   onOpenFull?: () => void;
   tiled?: boolean;
   headerFacts?: string | null;
+  /** Tall centered preview for retail Order Details–style cards. */
+  hero?: boolean;
 }) {
   const readyUri = preview.previewUri?.trim() || "";
   const [uri, setUri] = useState<string | null>(readyUri || null);
@@ -192,7 +198,14 @@ function ChooserQuoteDoc({
   const title = preview.fileName?.trim() || "Document";
 
   return (
-    <View style={[tiled && styles.quoteCell, styles.quoteDoc, WEB_POINTER]}>
+    <View
+      style={[
+        tiled && !hero && styles.quoteCell,
+        styles.quoteDoc,
+        hero && styles.quoteDocHero,
+        WEB_POINTER,
+      ]}
+    >
       <Pressable
         onPress={(event) => {
           event?.stopPropagation?.();
@@ -226,11 +239,15 @@ function ChooserQuoteDoc({
             }
             setFullOpen(true);
           }}
-          style={({ pressed }) => [styles.quoteEye, pressed && styles.quoteEyePressed]}
+          style={({ pressed }) => [
+            styles.quoteEye,
+            hero && styles.quoteEyeHero,
+            pressed && styles.quoteEyePressed,
+          ]}
           accessibilityRole="button"
           accessibilityLabel={`View full ${title}`}
         >
-          <Feather name="eye" size={12} color={Theme.actionBtnInk} />
+          <Feather name="eye" size={hero ? 14 : 12} color={hero ? SHOP.ink : Theme.actionBtnInk} />
         </Pressable>
       ) : null}
       <VaultFullDocumentModal
@@ -272,8 +289,9 @@ export function VaultChooserNotifyRow({
   onEdit,
   onOpenFull,
   onAdd,
-  onReplace,
+  appearance = "default",
 }: Props) {
+  const shop = appearance === "shop";
   const allPreviews = (
     previews && previews.length > 0 ? previews : preview ? [preview] : []
   ).filter(isCardPreviewable);
@@ -304,11 +322,190 @@ export function VaultChooserNotifyRow({
     openEditor?.();
   };
 
+  const a11yLabel = `${label}${numberLine ? ` ${numberLine}` : ""}${
+    showDetailFact ? ` ${factLabel} ${factValue}` : ""
+  }`;
+
+  if (shop) {
+    const uploadedWhen = String(uploadAttribution?.uploadedAt ?? "").trim();
+    const uploadedDate = uploadedWhen ? new Date(uploadedWhen) : null;
+    const uploadedLabel =
+      uploadedDate && !Number.isNaN(uploadedDate.getTime())
+        ? uploadedDate.toLocaleString("en-GB", {
+            day: "numeric",
+            month: "short",
+            hour: "numeric",
+            minute: "2-digit",
+          })
+        : onFile
+          ? "On file"
+          : "Awaiting upload";
+    const metaBits = [
+      required === true ? "Required" : required === false ? "Optional" : null,
+      onFile ? onFileLabel : "Pending",
+      numberLine || null,
+      showDetailFact ? `${factLabel} ${factValue}` : null,
+    ].filter(Boolean);
+    const showView = onFile && Boolean(onOpenFull || openEditor);
+    const showEdit = onFile && Boolean(openEditor && onOpenFull);
+    return (
+      <View style={[styles.card, styles.cardShop]} accessibilityLabel={a11yLabel}>
+        <View style={styles.shopHeroBand}>
+          {showDoc && allPreviews.length === 1 ? (
+            <View style={styles.shopHeroFrame}>
+              <ChooserQuoteDoc
+                hero
+                preview={allPreviews[0]}
+                onPress={() => previewFile(0)}
+                onOpenFull={onOpenFull ? () => onOpenFull(0) : undefined}
+                headerFacts={headerFacts || null}
+              />
+            </View>
+          ) : showDoc ? (
+            <View style={styles.quoteGridShop}>
+              {allPreviews.map((item, index) => (
+                <View
+                  key={`${item.storagePath ?? item.previewUri ?? item.fileName ?? "file"}-${index}`}
+                  style={styles.shopHeroFrameTiled}
+                >
+                  <ChooserQuoteDoc
+                    preview={item}
+                    hero
+                    onPress={() => previewFile(index)}
+                    onOpenFull={onOpenFull ? () => onOpenFull(index) : undefined}
+                    headerFacts={headerFacts || null}
+                  />
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Pressable
+              onPress={canUpload ? onAdd : undefined}
+              disabled={!canUpload}
+              style={[styles.emptyQuote, styles.emptyQuoteShopHero]}
+              accessibilityRole={canUpload ? "button" : "none"}
+              accessibilityLabel={`${label} has no file yet`}
+            >
+              <FileText size={16} color={SHOP.muted} strokeWidth={1.6} />
+              <Text style={[styles.emptyQuoteText, styles.emptyQuoteTextShop]}>No file yet</Text>
+            </Pressable>
+          )}
+        </View>
+
+        <View style={styles.shopMetaBlock}>
+          <Text style={[styles.shopBrand, WEB_COPY]} numberOfLines={1}>
+            {label}
+          </Text>
+          {metaBits.length > 0 ? (
+            <Text style={styles.shopMetaLine} numberOfLines={1}>
+              {metaBits.join(" · ")}
+            </Text>
+          ) : null}
+        </View>
+
+        <View
+          style={[
+            styles.shopStatusCard,
+            onFile ? styles.shopStatusCardOn : styles.shopStatusCardOff,
+          ]}
+        >
+          <View style={styles.shopStatusRow}>
+            <View style={styles.shopStatusCopy}>
+              <Text style={styles.shopStatusKicker}>
+                {onFile ? "Uploaded" : "Status"}
+              </Text>
+              <Text
+                style={[styles.shopStatusDate, !onFile && styles.shopStatusDateMuted]}
+                numberOfLines={1}
+              >
+                {uploadedLabel}
+              </Text>
+            </View>
+            {documentUploadAttributionHasContent(uploadAttribution) ? (
+              <View style={styles.shopStatusLog}>
+                <DocumentUploadAttributionRow
+                  {...uploadAttribution!}
+                  size={22}
+                  compact
+                  hideWhen
+                />
+              </View>
+            ) : null}
+          </View>
+        </View>
+
+        {showView || canUpload || showEdit ? (
+          <View style={styles.shopActionsRow}>
+            {showView ? (
+              <Pressable
+                onPress={() => {
+                  if (onOpenFull) onOpenFull(0);
+                  else openEditor?.();
+                }}
+                style={styles.shopActionBtn}
+                accessibilityRole="button"
+                accessibilityLabel={`View ${label}`}
+              >
+                <Feather name="eye" size={11} color={SHOP.ink} />
+                <Text style={styles.shopActionText}>View</Text>
+              </Pressable>
+            ) : null}
+            {canUpload ? (
+              <Pressable
+                onPress={onAdd}
+                style={styles.shopActionBtn}
+                accessibilityRole="button"
+                accessibilityLabel={`Add ${label}`}
+              >
+                <Feather name="plus" size={11} color={SHOP.ink} />
+                <Text style={styles.shopActionText}>Add</Text>
+              </Pressable>
+            ) : null}
+            {showEdit ? (
+              <Pressable
+                onPress={openEditor}
+                style={styles.shopActionBtn}
+                accessibilityRole="button"
+                accessibilityLabel={`Edit ${label}`}
+              >
+                <Pencil size={10} color={SHOP.ink} strokeWidth={2} />
+                <Text style={styles.shopActionText}>Edit</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+
+        {showExpiry ? (
+          <Pressable
+            onPress={onEditExpiry}
+            disabled={!onEditExpiry}
+            style={styles.shopExpiryRow}
+            accessibilityRole={onEditExpiry ? "button" : "none"}
+            accessibilityLabel={
+              expiryLine
+                ? `Valid till ${expiryLine}${onEditExpiry ? ", edit" : ""}`
+                : "Add expiry date"
+            }
+          >
+            <Text style={styles.expiryLabel}>Valid till</Text>
+            <Text style={[styles.expiryValue, !expiryLine && styles.expiryMissing]} numberOfLines={1}>
+              {expiryLine || "Add date"}
+            </Text>
+            {onEditExpiry ? <Text style={[styles.expiryEdit, styles.expiryEditShop]}>Edit</Text> : null}
+          </Pressable>
+        ) : null}
+        {caption ? (
+          <Text style={styles.shopCaption} numberOfLines={1}>
+            {caption}
+          </Text>
+        ) : null}
+      </View>
+    );
+  }
+
   return (
     <Pressable
-      accessibilityLabel={`${label}${numberLine ? ` ${numberLine}` : ""}${
-        showDetailFact ? ` ${factLabel} ${factValue}` : ""
-      }`}
+      accessibilityLabel={a11yLabel}
       onPress={showDoc ? () => previewFile(0) : undefined}
       disabled={!showDoc}
       style={styles.card}
@@ -338,22 +535,14 @@ export function VaultChooserNotifyRow({
             </Text>
           ) : null}
           {documentUploadAttributionHasContent(uploadAttribution) ? (
-            <DocumentUploadAttributionRow
-              {...uploadAttribution!}
-              size={22}
-              compact
-            />
+            <DocumentUploadAttributionRow {...uploadAttribution!} size={22} compact />
           ) : null}
           {showDetailFact ? (
             <View style={styles.detailFactRow} accessibilityRole="text">
               <Text style={[styles.detailFactLabel, WEB_COPY]} numberOfLines={1}>
                 {factLabel}
               </Text>
-              <Text
-                style={[styles.detailFactValue, WEB_COPY]}
-                numberOfLines={1}
-                selectable
-              >
+              <Text style={[styles.detailFactValue, WEB_COPY]} numberOfLines={1} selectable>
                 {factValue}
               </Text>
             </View>
@@ -371,10 +560,7 @@ export function VaultChooserNotifyRow({
               }
             >
               <Text style={styles.expiryLabel}>Valid till</Text>
-              <Text
-                style={[styles.expiryValue, !expiryLine && styles.expiryMissing]}
-                numberOfLines={1}
-              >
+              <Text style={[styles.expiryValue, !expiryLine && styles.expiryMissing]} numberOfLines={1}>
                 {expiryLine || "Add date"}
               </Text>
               {onEditExpiry ? <Text style={styles.expiryEdit}>Edit</Text> : null}
@@ -387,67 +573,54 @@ export function VaultChooserNotifyRow({
           ) : null}
         </View>
         <View style={styles.headerActions}>
-            <View style={[styles.statusPill, onFile ? styles.statusOnFile : styles.statusPending]}>
-              <View style={[styles.statusDot, onFile ? styles.statusDotOn : styles.statusDotOff]} />
-              <Text style={[styles.statusText, onFile ? styles.statusTextOn : styles.statusTextOff, WEB_COPY]}>
-                {onFile ? onFileLabel : "Pending"}
-              </Text>
-            </View>
-            {onFile && onOpenFull ? (
-              <Pressable
-                onPress={(event) => {
-                  event?.stopPropagation?.();
-                  onOpenFull(0);
-                }}
-                style={styles.editBtn}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel={`View full ${label}`}
-              >
-                <Feather name="eye" size={12} color={Theme.actionBtnInk} />
-              </Pressable>
-            ) : null}
-            {onFile && openEditor ? (
-              <Pressable
-                onPress={(event) => {
-                  event?.stopPropagation?.();
-                  openEditor();
-                }}
-                style={styles.editBtn}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel={`Edit ${label}`}
-              >
-                <Pencil size={12} color={Theme.actionBtnInk} strokeWidth={2} />
-              </Pressable>
-            ) : null}
-            {canUpload && onReplace ? (
-              <Pressable
-                onPress={(event) => {
-                  event?.stopPropagation?.();
-                  onReplace();
-                }}
-                style={styles.addBtn}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel={`Replace ${label}`}
-              >
-                <Text style={[styles.addBtnText, WEB_COPY]}>Replace</Text>
-              </Pressable>
-            ) : canUpload ? (
-              <Pressable
-                onPress={(event) => {
-                  event?.stopPropagation?.();
-                  onAdd();
-                }}
-                style={styles.addBtn}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel={`Add ${label}`}
-              >
-                <Text style={[styles.addBtnText, WEB_COPY]}>Add</Text>
-              </Pressable>
-            ) : null}
+          <View style={[styles.statusPill, onFile ? styles.statusOnFile : styles.statusPending]}>
+            <View style={[styles.statusDot, onFile ? styles.statusDotOn : styles.statusDotOff]} />
+            <Text style={[styles.statusText, onFile ? styles.statusTextOn : styles.statusTextOff, WEB_COPY]}>
+              {onFile ? onFileLabel : "Pending"}
+            </Text>
+          </View>
+          {onFile && onOpenFull ? (
+            <Pressable
+              onPress={(event) => {
+                event?.stopPropagation?.();
+                onOpenFull(0);
+              }}
+              style={styles.editBtn}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={`View full ${label}`}
+            >
+              <Feather name="eye" size={12} color={Theme.actionBtnInk} />
+            </Pressable>
+          ) : null}
+          {onFile && openEditor ? (
+            <Pressable
+              onPress={(event) => {
+                event?.stopPropagation?.();
+                openEditor();
+              }}
+              style={styles.editBtn}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={`Edit ${label}`}
+            >
+              <Pencil size={12} color={Theme.actionBtnInk} strokeWidth={2} />
+            </Pressable>
+          ) : null}
+          {canUpload ? (
+            <Pressable
+              onPress={(event) => {
+                event?.stopPropagation?.();
+                onAdd();
+              }}
+              style={styles.addBtn}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={`Add ${label}`}
+            >
+              <Text style={[styles.addBtnText, WEB_COPY]}>Add</Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
 
@@ -771,4 +944,178 @@ const styles = StyleSheet.create({
   },
   statusTextOn: { color: Theme.complianceStageSuccessFg },
   statusTextOff: { color: Theme.complianceStagePendingFg },
+  cardShop: {
+    paddingTop: 10,
+    paddingBottom: 10,
+    paddingHorizontal: 10,
+    gap: 8,
+    borderRadius: 10,
+    borderColor: SHOP.hairline,
+    backgroundColor: Theme.cardWhite,
+  },
+  shopHeroBand: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shopHeroFrame: {
+    width: 88,
+    height: 116,
+    borderRadius: 8,
+    overflow: "hidden",
+    backgroundColor: "#F7F7F8",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: SHOP.hairline,
+  },
+  shopHeroFrameTiled: {
+    width: 64,
+    height: 84,
+    borderRadius: 8,
+    overflow: "hidden",
+    backgroundColor: "#F7F7F8",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: SHOP.hairline,
+  },
+  quoteDocHero: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 0,
+    backgroundColor: "#F7F7F8",
+  },
+  quoteEyeHero: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    right: 6,
+    bottom: 6,
+  },
+  quoteGridShop: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 6,
+  },
+  emptyQuoteShopHero: {
+    width: 88,
+    height: 116,
+    minHeight: 116,
+    borderRadius: 8,
+    borderColor: SHOP.hairline,
+    backgroundColor: "#FAFAFB",
+    gap: 6,
+    alignSelf: "center",
+  },
+  emptyQuoteTextShop: {
+    color: SHOP.muted,
+    fontSize: 10,
+    textAlign: "center",
+  },
+  shopMetaBlock: {
+    width: "100%",
+    alignItems: "center",
+    gap: 1,
+    paddingHorizontal: 4,
+  },
+  shopBrand: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "700",
+    color: SHOP.ink,
+    letterSpacing: -0.15,
+    textAlign: "center",
+  },
+  shopMetaLine: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "500",
+    color: SHOP.muted,
+    textAlign: "center",
+  },
+  shopStatusCard: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 0,
+  },
+  shopStatusCardOn: {
+    backgroundColor: SHOP.successSoft,
+  },
+  shopStatusCardOff: {
+    backgroundColor: SHOP.warningSoft,
+  },
+  shopStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  shopStatusCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 0,
+  },
+  shopStatusKicker: {
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "600",
+    color: SHOP.muted,
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+  },
+  shopStatusDate: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+    color: SHOP.success,
+    letterSpacing: -0.1,
+  },
+  shopStatusDateMuted: {
+    color: SHOP.warning,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  shopStatusLog: {
+    flexGrow: 0,
+    flexShrink: 1,
+    maxWidth: "48%",
+    minWidth: 96,
+    alignItems: "flex-end",
+    justifyContent: "center",
+  },
+  shopActionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  shopActionBtn: {
+    flex: 1,
+    minHeight: 32,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#D4D5D9",
+    backgroundColor: Theme.cardWhite,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  shopActionText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+    color: SHOP.ink,
+  },
+  shopExpiryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingTop: 0,
+  },
+  shopCaption: {
+    fontSize: 10,
+    lineHeight: 13,
+    color: SHOP.muted,
+    textAlign: "center",
+  },
+  expiryEditShop: { color: SHOP.link },
 });

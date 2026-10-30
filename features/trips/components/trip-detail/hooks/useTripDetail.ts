@@ -3931,7 +3931,7 @@ export function useTripDetail({
       if (!tripId) return;
       patchTripDetailBundleCache(queryClient, tripId, (old) => {
         if (!old || old.trip.id !== row.id) return old;
-        return { ...old, trip: { ...old.trip, ...row } as typeof old.trip };
+        return { ...old, trip: { ...old.trip, ...row } };
       });
     },
     [tripId, queryClient],
@@ -4020,20 +4020,6 @@ export function useTripDetail({
 
     // Documents
     tripDocuments,
-    tripDocumentsReady: !loading,
-    tripDocumentsFailed: Boolean(error),
-    // The screen also handles "missing" | "unauthorized" | "expired" once the
-    // preview loader reports them; today it only distinguishes failed vs not.
-    docPreviewFailure: (docPreviewError ? "unknown" : null) as
-      | "missing"
-      | "unauthorized"
-      | "expired"
-      | "unknown"
-      | null,
-    retryDocPreview: () => {
-      setDocPreviewError(false);
-      setDocPreviewUrl(null);
-    },
     loadTripDocuments,
     ensureTripDocumentsForViewer,
     ensureVehicleDocs,

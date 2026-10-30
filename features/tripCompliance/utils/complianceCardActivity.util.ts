@@ -36,11 +36,17 @@ export type ComplianceCardMilestone = {
   title: string;
   actorUserId?: string | null;
   detail: string;
+  /** Extra Activity card lines (e.g. deleted file name + create provenance). */
+  detailLines?: string[];
   contextLabel: string;
   lane: ComplianceCardLane;
   category?: "compliance" | "status" | "trip" | "document" | "payment";
   /** When set, Activity can open the uploaded file. */
   preview?: ComplianceCardDocPreview | null;
+  /** For deleted docs: who first uploaded/created this document_id. */
+  originActorUserId?: string | null;
+  /** For deleted docs: when that create/upload happened. */
+  originAt?: string | null;
 };
 
 function fileNameFromStoragePath(path: string | null | undefined): string {
@@ -479,25 +485,49 @@ export function milestoneFromWorkflowEvent(row: {
 const ACTOR_NEARBY_MS = 3 * 60_000;
 const ACTOR_LEDGER_MS = 20 * 60_000;
 
+function milestoneVerb(title: string): string {
+  return String(title ?? "")
+    .trim()
+    .split(/\s+/)[0]
+    ?.toLowerCase() || "";
+}
+
+type ActorStamp = {
+  at: number;
+  userId: string;
+  lane: ComplianceCardLane;
+  verb: string;
+};
+
 /** Copy a nearby event's user onto rows that stored the action but not who did it. */
 export function backfillMilestoneActors(
   items: readonly ComplianceCardMilestone[],
   extras: readonly { at: string; userId: string | null | undefined }[] = [],
 ): ComplianceCardMilestone[] {
-  const fromItems: { at: number; userId: string }[] = [];
+  const fromItems: ActorStamp[] = [];
   const fromExtras: { at: number; userId: string }[] = [];
-  const remember = (
-    into: { at: number; userId: string }[],
+  const rememberItem = (item: ComplianceCardMilestone) => {
+    const id = String(item.actorUserId ?? "").trim();
+    const time = Date.parse(String(item.at ?? ""));
+    if (!id || !Number.isFinite(time)) return;
+    fromItems.push({
+      at: time,
+      userId: id,
+      lane: item.lane,
+      verb: milestoneVerb(item.title),
+    });
+  };
+  const rememberExtra = (
     at: string | null | undefined,
     userId: string | null | undefined,
   ) => {
     const id = String(userId ?? "").trim();
     const time = Date.parse(String(at ?? ""));
     if (!id || !Number.isFinite(time)) return;
-    into.push({ at: time, userId: id });
+    fromExtras.push({ at: time, userId: id });
   };
-  for (const item of items) remember(fromItems, item.at, item.actorUserId);
-  for (const extra of extras) remember(fromExtras, extra.at, extra.userId);
+  for (const item of items) rememberItem(item);
+  for (const extra of extras) rememberExtra(extra.at, extra.userId);
 
   const nearest = (
     at: string,
@@ -517,9 +547,23 @@ export function backfillMilestoneActors(
 
   return items.map((item) => {
     if (item.actorUserId) return item;
+    const verb = milestoneVerb(item.title);
+    const sameLane = fromItems.filter((row) => row.lane === item.lane);
+    const sameVerb = sameLane.filter((row) => row.verb === verb);
+    /**
+     * Never copy Compliance/activity actors onto Document verifies — that made
+     * every nearby “verified DL/Insurance” show the trip verifier’s name.
+     * Prefer same verb + lane, then same lane (except verify/reject), and only
+     * use ledger extras for activity-lane gaps.
+     */
     const userId =
-      nearest(item.at, fromItems, ACTOR_NEARBY_MS) ??
-      nearest(item.at, fromExtras, ACTOR_LEDGER_MS);
+      nearest(item.at, sameVerb, ACTOR_NEARBY_MS) ??
+      (verb === "verified" || verb === "rejected"
+        ? null
+        : nearest(item.at, sameLane, ACTOR_NEARBY_MS)) ??
+      (item.lane === "activity"
+        ? nearest(item.at, fromExtras, ACTOR_LEDGER_MS)
+        : null);
     return userId ? { ...item, actorUserId: userId } : item;
   });
 }
@@ -564,7 +608,8 @@ function metadataHasDocLabel(metadata: Record<string, unknown> | null | undefine
 /**
  * Older entity_documents INSERT audits have no metadata. Pair them with later
  * update/delete rows for the same document_id so Activity still shows
- * "created RC" after the file is gone.
+ * "created RC" after the file is gone. Also backfill delete rows that lack a
+ * file name from the create/upload sibling.
  */
 export function enrichDocumentAuditRows(
   rows: DocumentAuditMilestoneRow[],
@@ -578,15 +623,38 @@ export function enrichDocumentAuditRows(
   }
   return rows.map((row) => {
     const action = String(row.action ?? "").trim().toLowerCase();
-    if (action !== "created" && action !== "uploaded") return row;
-    if (metadataHasDocLabel(row.metadata)) return row;
     const docId = auditDocId(row);
     const borrowed = docId ? metaByDocId.get(docId) : null;
     if (!borrowed) return row;
-    return {
-      ...row,
-      metadata: { ...borrowed, ...(row.metadata ?? {}) },
-    };
+    if (action === "created" || action === "uploaded") {
+      if (metadataHasDocLabel(row.metadata)) return row;
+      return {
+        ...row,
+        metadata: { ...borrowed, ...(row.metadata ?? {}) },
+      };
+    }
+    if (action === "deleted") {
+      const hasName =
+        Boolean(auditFileName(row.metadata)) ||
+        Boolean(
+          fileNameFromStoragePath(
+            String(
+              row.metadata?.storage_path ??
+                row.metadata?.old_storage_path ??
+                row.metadata?.new_storage_path ??
+                "",
+            ),
+          ),
+        );
+      if (hasName && String(row.metadata?.doc_type ?? row.metadata?.document_type ?? "").trim()) {
+        return row;
+      }
+      return {
+        ...row,
+        metadata: { ...borrowed, ...(row.metadata ?? {}) },
+      };
+    }
+    return row;
   });
 }
 
@@ -681,7 +749,10 @@ export function milestoneFromDocumentAudit(
             .filter(Boolean)
             .join(" · ") || kind
         : action === "deleted"
-          ? row.notes?.trim() || fileName || "Document removed from this trip"
+          ? fileName ||
+            fileNameFromStoragePath(storagePath) ||
+            row.notes?.trim() ||
+            "Document removed from this trip"
           : row.notes?.trim() || fileName || fileNameFromStoragePath(storagePath) || kind,
     contextLabel: contextByAction[action] ?? "Document",
     lane: "document",
@@ -697,4 +768,58 @@ export function milestoneFromDocumentAudit(
           }
         : null,
   };
+}
+
+/**
+ * Map audit rows to Activity milestones. Deleted rows show the file name and
+ * carry create provenance (who / when) for a tiny secondary line in the UI.
+ */
+export function milestonesFromDocumentAuditRows(
+  rows: DocumentAuditMilestoneRow[],
+): ComplianceCardMilestone[] {
+  const enriched = enrichDocumentAuditRows(rows);
+  const createByDocId = new Map<string, DocumentAuditMilestoneRow>();
+  for (const row of enriched) {
+    const action = String(row.action ?? "").trim().toLowerCase();
+    if (action !== "created" && action !== "uploaded") continue;
+    const docId = auditDocId(row);
+    if (!docId) continue;
+    const prev = createByDocId.get(docId);
+    const at = String(row.created_at ?? "").trim();
+    const prevAt = String(prev?.created_at ?? "").trim();
+    if (!prev || (at && (!prevAt || at < prevAt))) {
+      createByDocId.set(docId, row);
+    }
+  }
+  const out: ComplianceCardMilestone[] = [];
+  for (const row of enriched) {
+    const mile = milestoneFromDocumentAudit(row);
+    if (!mile) continue;
+    const action = String(row.action ?? "").trim().toLowerCase();
+    if (action !== "deleted") {
+      out.push(mile);
+      continue;
+    }
+    const create = createByDocId.get(auditDocId(row));
+    const fileLabel =
+      mile.detail && mile.detail !== "Document removed from this trip"
+        ? mile.detail
+        : auditFileName(row.metadata) ||
+          fileNameFromStoragePath(
+            String(
+              row.metadata?.storage_path ??
+                row.metadata?.old_storage_path ??
+                "",
+            ),
+          ) ||
+          mile.detail;
+    out.push({
+      ...mile,
+      detail: fileLabel,
+      detailLines: fileLabel ? [fileLabel] : undefined,
+      originActorUserId: create?.actor_id ?? null,
+      originAt: create?.created_at ?? null,
+    });
+  }
+  return out;
 }

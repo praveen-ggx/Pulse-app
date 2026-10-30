@@ -2896,6 +2896,9 @@ export function ComplianceDocumentWorkspace({
   /** Open the supplier page from the supplier name. */
   onOpenSupplier?: (supplierId: string) => void;
 }) {
+  // Order Details / shop chrome — same on desktop split and mobile stack.
+  // mobileExclusive only controls list↔preview navigation, not visual language.
+  const commerceLayout = true;
   const listRef = useRef<ScrollView>(null);
   const listViewportH = useRef(0);
   const listContentH = useRef(0);
@@ -4778,6 +4781,7 @@ export function ComplianceDocumentWorkspace({
           canUpload={canEditFiles && !uploadingFinanceType && !complianceTypeAddLockReason(displayRow.type)}
           entityType={entityType}
           required={displayRow.required}
+          appearance={commerceLayout ? "shop" : "default"}
           actionText={
             vaultNumbers.length > 0 ? vaultNumbers.join(" · ") : undefined
           }
@@ -5790,144 +5794,195 @@ export function ComplianceDocumentWorkspace({
                   return (
                     <>
                 {previewingDocument ? (
-                  <>
-                  <View style={styles.previewNav}>
-                    {mobileExclusive ? (
-                      <TouchableOpacity
-                        onPress={() => setMobileDocPane("list")}
-                        style={styles.previewNavBack}
-                        accessibilityRole="button"
-                        accessibilityLabel="Back to documents"
-                      >
-                        <FontAwesome name="chevron-left" size={16} color="#212121" />
-                      </TouchableOpacity>
-                    ) : (
-                      <View style={styles.previewNavBack} />
-                    )}
-                    <View style={styles.previewNavCopy}>
-                      <Text style={styles.previewNavTitle} numberOfLines={1}>
-                        {docTitle}
-                  </Text>
-                      {previewHeaderFacts ? (
-                        <Text style={styles.previewNavMeta} numberOfLines={1}>
-                          {previewHeaderFacts}
-                        </Text>
-                      ) : null}
-                      {documentUploadAttributionHasContent(
-                        previewUploadAttribution,
-                      ) ? (
-                        <DocumentUploadAttributionRow
-                          {...previewUploadAttribution}
-                          size={24}
-                        />
-                      ) : null}
-                      {previewable.length > 0 ? (
-                        <Text style={styles.previewNavMeta} numberOfLines={1}>
-                          {previewOrdinal} of {previewable.length}
-                        </Text>
-                      ) : null}
-                </View>
-                    <View style={styles.previewNavTools}>
-                      <Pressable
-                        style={[styles.previewNavTool, !toolsEnabled && styles.previewToolBtnDisabled]}
-                        onPress={() => {
-                          setRotation((value) => (value + 90) % 360);
-                          setZoom(1);
-                          setToolLabel("rotate");
-                        }}
-                        disabled={!toolsEnabled}
-                        accessibilityRole="button"
-                        accessibilityLabel="Rotate"
-                      >
-                        <RotateCwSquare size={16} color={toolColor} strokeWidth={2.1} />
-                      </Pressable>
-                      <Pressable
-                        style={[styles.previewNavTool, !toolsEnabled && styles.previewToolBtnDisabled]}
-                        onPress={() => setZoom((value) => clampPreviewZoom(value - 0.25))}
-                        disabled={!toolsEnabled}
-                        accessibilityRole="button"
-                        accessibilityLabel="Zoom out"
-                      >
-                        <Minus size={16} color={toolColor} />
-                      </Pressable>
-                      <Pressable
-                        style={[styles.previewNavTool, !toolsEnabled && styles.previewToolBtnDisabled]}
-                        onPress={() => setZoom((value) => clampPreviewZoom(value + 0.25))}
-                        disabled={!toolsEnabled}
-                        accessibilityRole="button"
-                        accessibilityLabel="Zoom in"
-                      >
-                        <Plus size={16} color={toolColor} />
-                      </Pressable>
-                      <Pressable
-                        style={[styles.previewNavTool, !canExpand && styles.previewToolBtnDisabled]}
-                        onPress={() => setScreenOpen(true)}
-                        disabled={!canExpand}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Open ${docTitle} full screen`}
-                      >
-                        <Maximize2 size={16} color={expandColor} />
-                      </Pressable>
-              </View>
-                  </View>
-                  {showRowDecline || showRowApprove || showRowReplace ? (
-                    <View style={styles.rowDecisionBar}>
-                      {showRowReplace ? (
+                  <View>
+                    <View style={[styles.previewNav, commerceLayout && styles.previewNavShop]}>
+                      {mobileExclusive ? (
                         <TouchableOpacity
-                          style={[styles.reviewGroupApprove, (busy || Boolean(fileActionKey)) && styles.btnDisabled]}
-                          activeOpacity={0.85}
-                          disabled={busy || Boolean(fileActionKey)}
-                          onPress={() => {
-                            if (activeDecisionRow) void replaceTripFile(activeDecisionRow);
-                          }}
+                          onPress={() => setMobileDocPane("list")}
+                          style={styles.previewNavBack}
                           accessibilityRole="button"
-                          accessibilityLabel={`Replace ${docTitle}`}
+                          accessibilityLabel="Back to documents"
                         >
-                          <Text style={styles.reviewGroupApproveText}>Replace</Text>
+                          <FontAwesome name="chevron-left" size={16} color="#282C3F" />
                         </TouchableOpacity>
-                      ) : null}
-                      {showRowDecline ? (
-                        <TouchableOpacity
+                      ) : (
+                        <View style={styles.previewNavBack} />
+                      )}
+                      <View style={styles.previewNavCopy}>
+                        <Text
                           style={[
-                            styles.reviewGroupDecline,
-                            rowDecisionButtons.declineActive && styles.reviewGroupDeclineActive,
-                            busy && styles.btnDisabled,
+                            styles.previewNavTitle,
+                            commerceLayout && styles.previewNavTitleShop,
                           ]}
-                          activeOpacity={0.85}
-                          disabled={busy}
-                          onPress={() => activeDecisionRow && setRowDeclineTarget(activeDecisionRow)}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Decline ${docTitle}`}
+                          numberOfLines={1}
                         >
-                          <Text
+                          {commerceLayout ? "Document Details" : docTitle}
+                        </Text>
+                        {commerceLayout ? null : (
+                          <>
+                            {previewHeaderFacts ? (
+                              <Text style={styles.previewNavMeta} numberOfLines={1}>
+                                {previewHeaderFacts}
+                              </Text>
+                            ) : null}
+                            {documentUploadAttributionHasContent(previewUploadAttribution) ? (
+                              <DocumentUploadAttributionRow
+                                {...previewUploadAttribution}
+                                size={24}
+                              />
+                            ) : null}
+                            {previewable.length > 0 ? (
+                              <Text style={styles.previewNavMeta} numberOfLines={1}>
+                                {previewOrdinal} of {previewable.length}
+                              </Text>
+                            ) : null}
+                          </>
+                        )}
+                      </View>
+                      {commerceLayout ? (
+                        <Pressable
+                          style={[
+                            styles.previewHelpPill,
+                            !canExpand && styles.previewToolBtnDisabled,
+                          ]}
+                          onPress={() => setScreenOpen(true)}
+                          disabled={!canExpand}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Open ${docTitle} full screen`}
+                        >
+                          <Maximize2 size={12} color={expandColor} />
+                          <Text style={styles.previewHelpPillText}>Full</Text>
+                        </Pressable>
+                      ) : (
+                        <View style={styles.previewNavTools}>
+                          <Pressable
                             style={[
-                              styles.reviewGroupDeclineText,
-                              rowDecisionButtons.declineActive && styles.reviewGroupDeclineTextActive,
+                              styles.previewNavTool,
+                              !toolsEnabled && styles.previewToolBtnDisabled,
                             ]}
+                            onPress={() => {
+                              setRotation((value) => (value + 90) % 360);
+                              setZoom(1);
+                              setToolLabel("rotate");
+                            }}
+                            disabled={!toolsEnabled}
+                            accessibilityRole="button"
+                            accessibilityLabel="Rotate"
                           >
-                            {rowDecisionButtons.declineLabel}
-                          </Text>
-                        </TouchableOpacity>
-                      ) : null}
-                      {showRowApprove ? (
-                        <TouchableOpacity
-                          style={[styles.reviewGroupApprove, busy && styles.btnDisabled]}
-                          activeOpacity={0.85}
-                          disabled={busy}
-                          onPress={() => {
-                            if (activeDecisionRow) void approveSingleRow(activeDecisionRow);
-                          }}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Approve ${docTitle}`}
-                        >
-                          <Text style={styles.reviewGroupApproveText}>{rowDecisionButtons.approveLabel}</Text>
-                        </TouchableOpacity>
-                      ) : null}
+                            <RotateCwSquare size={16} color={toolColor} strokeWidth={2.1} />
+                          </Pressable>
+                          <Pressable
+                            style={[
+                              styles.previewNavTool,
+                              !toolsEnabled && styles.previewToolBtnDisabled,
+                            ]}
+                            onPress={() => setZoom((value) => clampPreviewZoom(value - 0.25))}
+                            disabled={!toolsEnabled}
+                            accessibilityRole="button"
+                            accessibilityLabel="Zoom out"
+                          >
+                            <Minus size={16} color={toolColor} />
+                          </Pressable>
+                          <Pressable
+                            style={[
+                              styles.previewNavTool,
+                              !toolsEnabled && styles.previewToolBtnDisabled,
+                            ]}
+                            onPress={() => setZoom((value) => clampPreviewZoom(value + 0.25))}
+                            disabled={!toolsEnabled}
+                            accessibilityRole="button"
+                            accessibilityLabel="Zoom in"
+                          >
+                            <Plus size={16} color={toolColor} />
+                          </Pressable>
+                          <Pressable
+                            style={[
+                              styles.previewNavTool,
+                              !canExpand && styles.previewToolBtnDisabled,
+                            ]}
+                            onPress={() => setScreenOpen(true)}
+                            disabled={!canExpand}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Open ${docTitle} full screen`}
+                          >
+                            <Maximize2 size={16} color={expandColor} />
+                          </Pressable>
+                        </View>
+                      )}
                     </View>
-                  ) : null}
-                  </>
+                    {showRowDecline || showRowApprove || showRowReplace ? (
+                      <View style={styles.rowDecisionBar}>
+                        {showRowReplace ? (
+                          <TouchableOpacity
+                            style={[
+                              styles.reviewGroupApprove,
+                              (busy || Boolean(fileActionKey)) && styles.btnDisabled,
+                            ]}
+                            activeOpacity={0.85}
+                            disabled={busy || Boolean(fileActionKey)}
+                            onPress={() => {
+                              if (activeDecisionRow) void replaceTripFile(activeDecisionRow);
+                            }}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Replace ${docTitle}`}
+                          >
+                            <Text style={styles.reviewGroupApproveText}>Replace</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                        {showRowDecline ? (
+                          <TouchableOpacity
+                            style={[
+                              styles.reviewGroupDecline,
+                              rowDecisionButtons.declineActive &&
+                                styles.reviewGroupDeclineActive,
+                              busy && styles.btnDisabled,
+                            ]}
+                            activeOpacity={0.85}
+                            disabled={busy}
+                            onPress={() =>
+                              activeDecisionRow && setRowDeclineTarget(activeDecisionRow)
+                            }
+                            accessibilityRole="button"
+                            accessibilityLabel={`Decline ${docTitle}`}
+                          >
+                            <Text
+                              style={[
+                                styles.reviewGroupDeclineText,
+                                rowDecisionButtons.declineActive &&
+                                  styles.reviewGroupDeclineTextActive,
+                              ]}
+                            >
+                              {rowDecisionButtons.declineLabel}
+                            </Text>
+                          </TouchableOpacity>
+                        ) : null}
+                        {showRowApprove ? (
+                          <TouchableOpacity
+                            style={[styles.reviewGroupApprove, busy && styles.btnDisabled]}
+                            activeOpacity={0.85}
+                            disabled={busy}
+                            onPress={() => {
+                              if (activeDecisionRow) void approveSingleRow(activeDecisionRow);
+                            }}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Approve ${docTitle}`}
+                          >
+                            <Text style={styles.reviewGroupApproveText}>
+                              {rowDecisionButtons.approveLabel}
+                            </Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                    ) : null}
+                  </View>
                 ) : null}
-                <View style={[styles.checklistPreviewBody, styles.checklistPreviewBodyMobile]}>
+                <View
+                  style={[
+                    styles.checklistPreviewBody,
+                    styles.checklistPreviewBodyMobile,
+                    commerceLayout && styles.checklistPreviewBodyShop,
+                  ]}
+                >
                   {checklistPreviewMode === "trip" && summary ? (
                     <ScrollView
                       style={styles.tripDetailsScroll}
@@ -6015,6 +6070,283 @@ export function ComplianceDocumentWorkspace({
                     <View style={styles.checklistPreviewEmpty}>
                       <Text style={styles.checklistPreviewEmptyTitle}>{vaultCopy.unassignedTitle}</Text>
                       <Text style={styles.checklistPreviewEmptyHint}>{vaultCopy.unassignedHint}</Text>
+                    </View>
+                  ) : commerceLayout ? (
+                    <View style={styles.previewStageRow}>
+                      {typedLines && canViewDocuments && !previewUrl ? (
+                        <TypedDetailsPreview
+                          title={docTitle}
+                          lines={typedLines}
+                          insetForSideNav={showSideNav && !mobileExclusive}
+                          bindScrollRails={!screenOpen}
+                        />
+                      ) : previewUrl || showSupplierBankPanel ? (
+                        <View style={styles.checklistBankPreviewWrapShop}>
+                          <View
+                            style={[
+                              styles.shopPreviewHeroBand,
+                              !mobileExclusive && styles.shopPreviewHeroBandDesktop,
+                            ]}
+                          >
+                            {previewUrl ? (
+                              <View
+                                style={[
+                                  styles.checklistBankPreviewDocShop,
+                                  !mobileExclusive && styles.checklistBankPreviewDocShopDesktop,
+                                ]}
+                              >
+                                <OriginalDocumentPreview
+                                  uri={previewUrl}
+                                  isPdf={isPdf}
+                                  zoom={zoom}
+                                  rotation={rotation}
+                                  label={docTitle}
+                                  onZoomChange={setZoom}
+                                />
+                              </View>
+                            ) : (
+                              <View
+                                style={[
+                                  styles.shopPreviewHeroEmpty,
+                                  !mobileExclusive && styles.shopPreviewHeroEmptyDesktop,
+                                ]}
+                              >
+                                <FileText size={28} color="#94969F" strokeWidth={1.6} />
+                                <Text style={styles.shopPreviewSub}>No preview available</Text>
+                              </View>
+                            )}
+                          </View>
+                          <View style={styles.shopPreviewFooter}>
+                            <View style={styles.shopPreviewMeta}>
+                              <Text style={styles.shopPreviewBrand} numberOfLines={1}>
+                                {docTitle}
+                              </Text>
+                              {(() => {
+                                const tripLabel = summary?.trip
+                                  ? getTripDisplayNumber(
+                                      summary.trip,
+                                      summary.trip.organization_id ?? null,
+                                    )
+                                  : "";
+                                const pageLabel =
+                                  previewable.length > 0
+                                    ? `${previewOrdinal} of ${previewable.length}`
+                                    : "";
+                                const idLine = [
+                                  previewHeaderFacts || null,
+                                  pageLabel,
+                                  tripLabel ? `# ${tripLabel}` : "",
+                                ]
+                                  .filter(Boolean)
+                                  .join("  ·  ");
+                                return idLine ? (
+                                  <Text style={styles.shopPreviewId} numberOfLines={1}>
+                                    {idLine}
+                                  </Text>
+                                ) : null;
+                              })()}
+                            </View>
+                            <View style={styles.shopPreviewStatusShell}>
+                              <View
+                                style={[
+                                  styles.shopPreviewStatusCard,
+                                  !(checklistSelectedRow && hasFile(checklistSelectedRow)) &&
+                                    styles.shopPreviewStatusCardPending,
+                                ]}
+                              >
+                                <View style={styles.shopPreviewStatusRow}>
+                                  <View style={styles.shopPreviewStatusCopy}>
+                                    <Text style={styles.shopPreviewStatusKicker}>
+                                      {checklistSelectedRow && hasFile(checklistSelectedRow)
+                                        ? "On file since"
+                                        : "Status"}
+                                    </Text>
+                                    <Text
+                                      style={[
+                                        styles.shopPreviewStatusDate,
+                                        !(checklistSelectedRow && hasFile(checklistSelectedRow)) &&
+                                          styles.shopPreviewStatusDateMuted,
+                                      ]}
+                                      numberOfLines={1}
+                                    >
+                                      {(() => {
+                                        const uploadedAt = String(
+                                          previewUploadAttribution?.uploadedAt ?? "",
+                                        ).trim();
+                                        const when = uploadedAt ? new Date(uploadedAt) : null;
+                                        if (when && !Number.isNaN(when.getTime())) {
+                                          return when.toLocaleString("en-GB", {
+                                            day: "numeric",
+                                            month: "short",
+                                            year: "numeric",
+                                          });
+                                        }
+                                        return checklistSelectedRow &&
+                                          hasFile(checklistSelectedRow)
+                                          ? "On file"
+                                          : "Awaiting upload";
+                                      })()}
+                                    </Text>
+                                  </View>
+                                  {documentUploadAttributionHasContent(previewUploadAttribution) ? (
+                                    <View style={styles.shopPreviewStatusLog}>
+                                      <DocumentUploadAttributionRow
+                                        {...previewUploadAttribution}
+                                        size={22}
+                                        compact
+                                        hideWhen
+                                      />
+                                    </View>
+                                  ) : null}
+                                </View>
+                                <View style={styles.shopPreviewActions}>
+                                  <Pressable
+                                    style={[
+                                      styles.shopPreviewActionBtn,
+                                      !toolsEnabled && styles.previewToolBtnDisabled,
+                                    ]}
+                                    onPress={() => {
+                                      setRotation((value) => (value + 90) % 360);
+                                      setZoom(1);
+                                      setToolLabel("rotate");
+                                    }}
+                                    disabled={!toolsEnabled}
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Rotate"
+                                  >
+                                    <RotateCwSquare
+                                      size={13}
+                                      color="#282C3F"
+                                      strokeWidth={2.1}
+                                    />
+                                    <Text style={styles.shopPreviewActionText}>Rotate</Text>
+                                  </Pressable>
+                                  <Pressable
+                                    style={[
+                                      styles.shopPreviewActionBtn,
+                                      !canExpand && styles.previewToolBtnDisabled,
+                                    ]}
+                                    onPress={() => setScreenOpen(true)}
+                                    disabled={!canExpand}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Open ${docTitle} full screen`}
+                                  >
+                                    <Maximize2 size={13} color="#282C3F" />
+                                    <Text style={styles.shopPreviewActionText}>Full view</Text>
+                                  </Pressable>
+                                </View>
+                              </View>
+                            </View>
+                            {showSupplierBankPanel ? (
+                              <ScrollView
+                                style={styles.shopBankPanelScroll}
+                                contentContainerStyle={[
+                                  styles.checklistBankDetailsContent,
+                                  styles.shopBankPanel,
+                                ]}
+                                showsVerticalScrollIndicator={false}
+                              >
+                                <View style={styles.bankCardHeader}>
+                                  <View style={styles.bankCardHeaderCopy}>
+                                    <Text style={styles.checklistBankDetailsTitle}>
+                                      Bank account
+                                    </Text>
+                                    <Text style={styles.checklistBankDetailsHint} numberOfLines={1}>
+                                      Payout account from {supplierLabelForBank}
+                                    </Text>
+                                  </View>
+                                  {supplierBankProof?.detailLine ? (
+                                    <Text style={styles.bankCardMeta} numberOfLines={2}>
+                                      {supplierBankProof.detailLine}
+                                    </Text>
+                                  ) : null}
+                                </View>
+                                {supplierBankLoading &&
+                                supplierBankAccountRows.length === 0 ? (
+                                  <ActivityIndicator
+                                    color={Theme.textPrimaryDark}
+                                    style={{ marginVertical: 12 }}
+                                  />
+                                ) : (
+                                  <View style={styles.bankFieldsGrid}>
+                                    {supplierBankAccountRows.map((row) => (
+                                      <View key={row.label} style={styles.bankFieldCell}>
+                                        <Text style={styles.bankFieldLabel}>{row.label}</Text>
+                                        <Text style={styles.bankFieldValue} numberOfLines={1}>
+                                          {row.value}
+                                        </Text>
+                                      </View>
+                                    ))}
+                                    {supplierBankAccountRows.length === 0 ? (
+                                      <Text style={styles.checklistBankDetailsHint}>
+                                        No payout account on file yet. Save bank details on the
+                                        supplier profile.
+                                      </Text>
+                                    ) : null}
+                                  </View>
+                                )}
+                                <View style={styles.bankProofSection}>
+                                  <Text style={styles.bankProofLabel}>Proof document</Text>
+                                  <View style={styles.bankProofRow}>
+                                    <View style={styles.bankProofCopy}>
+                                      <Text style={styles.bankProofTitle} numberOfLines={1}>
+                                        {supplierBankProof?.fileName?.trim() ||
+                                          (previewUrl ? "Bank proof" : "No proof uploaded")}
+                                      </Text>
+                                      {supplierBankVerified ? (
+                                        <View style={styles.bankVerifiedChip}>
+                                          <Text style={styles.bankVerifiedChipText}>Verified</Text>
+                                        </View>
+                                      ) : supplierBankProof?.previewPath ? (
+                                        <View style={styles.bankPendingChip}>
+                                          <Text style={styles.bankPendingChipText}>On file</Text>
+                                        </View>
+                                      ) : null}
+                                    </View>
+                                    <Text style={styles.bankProofHint} numberOfLines={1}>
+                                      Synced from supplier Banking
+                                    </Text>
+                                  </View>
+                                </View>
+                              </ScrollView>
+                            ) : null}
+                          </View>
+                        </View>
+                      ) : loadingPreview ? (
+                        <View style={styles.checklistPreviewEmpty}>
+                          <ActivityIndicator color={Theme.textPrimaryDark} />
+                          <Text style={styles.checklistPreviewLoadingText}>Loading document…</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.checklistPreviewEmpty}>
+                          <Text style={styles.checklistPreviewEmptyTitle}>
+                            {previewError
+                              ? previewError
+                              : checklistSelectedRow
+                                ? `${
+                                    isFinanceMode
+                                      ? labelForFinanceDocType(checklistSelectedRow.type)
+                                      : labelForDocType(checklistSelectedRow.type)
+                                  } has no file to preview`
+                                : "Select a document to preview"}
+                          </Text>
+                          <Text style={styles.checklistPreviewEmptyHint}>
+                            {previewError
+                              ? "Try the eye icon again, or reopen this trip."
+                              : "Tap the eye icon on an uploaded document, or use Trip Detail / Advance Payment."}
+                          </Text>
+                        </View>
+                      )}
+                      {showSideNav && !mobileExclusive ? (
+                        <>
+                          <View style={styles.docSideNavOverlayLeft} pointerEvents="box-none">
+                            <DocSideNavButton direction="prev" onPress={goPrev} tone="light" />
+                          </View>
+                          <View style={styles.docSideNavOverlayRight} pointerEvents="box-none">
+                            <DocSideNavButton direction="next" onPress={goNext} tone="light" />
+                          </View>
+                        </>
+                      ) : null}
                     </View>
                   ) : (
                     <View style={styles.previewStageRow}>
@@ -9309,13 +9641,14 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
   },
   checklistVaultRow: {
-    borderRadius: 12,
+    borderRadius: 10,
     overflow: "hidden",
+    marginBottom: 8,
   },
   checklistExpiryBtn: {
     alignSelf: "flex-start",
-    marginLeft: 12,
-    marginBottom: 8,
+    marginLeft: 10,
+    marginBottom: 6,
   },
   checklistVaultRowHover: {
     backgroundColor: Theme.complianceSelectedWash,
@@ -11003,4 +11336,236 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   verifyNoticeText: { flex: 1, minWidth: 0, fontSize: 11, fontWeight: "600", color: Theme.positive },
+
+  // Shop / Order Details document preview (ported from hub 7a9551ef)
+  checklistPreviewBodyShop: {
+    flex: 1,
+    minHeight: 0,
+    backgroundColor: "#F5F5F6",
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
+  },
+  previewNavShop: {
+    minHeight: 48,
+    paddingTop: 6,
+    paddingBottom: 6,
+    backgroundColor: Theme.cardWhite,
+    borderBottomColor: "#EAEAEC",
+  },
+  previewNavTitleShop: {
+    fontSize: 15,
+    lineHeight: 20,
+    letterSpacing: -0.2,
+    color: "#282C3F",
+  },
+  previewHelpPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    minHeight: 28,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#EAEAEC",
+    backgroundColor: Theme.cardWhite,
+  },
+  previewHelpPillText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#282C3F",
+  },
+  checklistBankPreviewWrapShop: {
+    flex: 1,
+    minHeight: 0,
+    width: "100%",
+    gap: 0,
+  },
+  shopPreviewHeroBand: {
+    flex: 1,
+    minHeight: 220,
+    width: "100%",
+    alignItems: "stretch",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 8,
+    backgroundColor: "#F5F5F6",
+  },
+  shopPreviewHeroBandDesktop: {
+    minHeight: 320,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
+  },
+  checklistBankPreviewDocShop: {
+    flex: 1,
+    alignSelf: "stretch",
+    width: "100%",
+    minHeight: 200,
+    borderRadius: 10,
+    overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#EAEAEC",
+    backgroundColor: Theme.cardWhite,
+  },
+  checklistBankPreviewDocShopDesktop: {
+    minHeight: 280,
+    borderRadius: 12,
+  },
+  shopPreviewHeroEmpty: {
+    flex: 1,
+    alignSelf: "stretch",
+    width: "100%",
+    minHeight: 200,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#EAEAEC",
+    backgroundColor: Theme.cardWhite,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  shopPreviewHeroEmptyDesktop: {
+    minHeight: 280,
+    borderRadius: 12,
+  },
+  shopPreviewFooter: {
+    flexShrink: 0,
+    width: "100%",
+    backgroundColor: Theme.cardWhite,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#EAEAEC",
+    paddingBottom: 8,
+  },
+  shopPreviewMeta: {
+    alignItems: "center",
+    gap: 2,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 4,
+  },
+  shopPreviewBrand: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "700",
+    color: "#282C3F",
+    letterSpacing: -0.15,
+    textAlign: "center",
+  },
+  shopPreviewSub: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "500",
+    color: "#94969F",
+    textAlign: "center",
+  },
+  shopPreviewId: {
+    marginTop: 0,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "500",
+    color: "#94969F",
+    textAlign: "center",
+  },
+  shopPreviewStatusShell: {
+    width: "100%",
+    paddingHorizontal: 12,
+    paddingTop: 6,
+    paddingBottom: 4,
+  },
+  shopPreviewStatusCard: {
+    width: "100%",
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 0,
+    backgroundColor: "#E5F6F1",
+  },
+  shopPreviewStatusCardPending: {
+    backgroundColor: "#FFF6E5",
+  },
+  shopBankPanelScroll: {
+    maxHeight: 220,
+    marginTop: 4,
+  },
+  shopPreviewStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  shopPreviewStatusCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 0,
+  },
+  shopPreviewStatusKicker: {
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "600",
+    color: "#94969F",
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+  },
+  shopPreviewStatusDate: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+    color: "#03A685",
+    letterSpacing: -0.1,
+  },
+  shopPreviewStatusDateMuted: {
+    color: "#F5A623",
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  shopPreviewStatusSub: {
+    marginTop: 0,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "500",
+    color: "#696B79",
+  },
+  shopPreviewStatusLog: {
+    flexGrow: 0,
+    flexShrink: 1,
+    maxWidth: "48%",
+    minWidth: 96,
+    alignItems: "flex-end",
+    justifyContent: "center",
+  },
+  shopPreviewActions: {
+    width: "100%",
+    flexDirection: "row",
+    gap: 6,
+  },
+  shopPreviewActionBtn: {
+    flex: 1,
+    minHeight: 32,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#D4D5D9",
+    backgroundColor: Theme.cardWhite,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  shopPreviewActionText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+    color: "#282C3F",
+  },
+  shopBankPanel: {
+    marginHorizontal: 12,
+    marginTop: 8,
+    marginBottom: 4,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#EAEAEC",
+    backgroundColor: Theme.cardWhite,
+    overflow: "hidden",
+  },
 });

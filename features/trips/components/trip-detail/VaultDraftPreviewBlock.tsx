@@ -34,7 +34,7 @@ type Props = {
   selectedId: string | null;
   busy?: boolean;
   emptyLabel?: string;
-  density?: "dialog" | "card";
+  density?: "dialog" | "card" | "shop";
   showHint?: boolean;
   showAddThumb?: boolean;
   onSelect: (id: string) => void;
@@ -62,91 +62,122 @@ export function VaultDraftPreviewBlock({
   onRetrySign,
 }: Props) {
   const selected = items.find((item) => item.id === selectedId) ?? items[0] ?? null;
-  const card = density === "card";
+  const card = density === "card" || density === "shop";
+  const shop = density === "shop";
 
   const openFull = onOpenFull ?? onHeroPress;
   const addThumb = showAddThumb ? (
     <Pressable
       onPress={onAdd}
       disabled={busy}
-      style={({ pressed }) => [styles.addThumb, card && styles.addThumbCard, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.addThumb,
+        card && styles.addThumbCard,
+        shop && styles.addThumbShop,
+        pressed && styles.pressed,
+      ]}
       accessibilityRole="button"
       accessibilityLabel="Add more copies"
     >
-      <Feather name="plus" size={card ? 14 : 16} color={Theme.actionBtnInk} />
-      <Text style={styles.addThumbText}>Add</Text>
+      <Feather name="plus" size={shop ? 12 : card ? 14 : 16} color={Theme.actionBtnInk} />
+      <Text style={[styles.addThumbText, shop && styles.addThumbTextShop]}>Add</Text>
     </Pressable>
   ) : null;
 
   if (items.length === 0) {
     return (
-      <View style={[styles.wrap, card && styles.wrapCard]}>
-        <Pressable
-          onPress={onAdd}
-          disabled={busy}
-          style={({ pressed }) => [
-            card ? styles.hero : styles.dropzone,
-            card && styles.heroCard,
-            card && styles.heroEmpty,
-            pressed && styles.pressed,
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel={emptyLabel}
-        >
-          <Feather name="upload" size={card ? 18 : 16} color={Theme.textMuted} />
-          <Text style={[styles.dropzoneText, card && styles.dropzoneTextCard]} numberOfLines={2}>
-            {emptyLabel}
-          </Text>
-        </Pressable>
-        {card ? <View style={styles.thumbsTrack}>{addThumb}</View> : null}
+      <View style={[styles.wrap, card && styles.wrapCard, shop && styles.wrapShop]}>
+        <View style={shop ? styles.heroBandShop : undefined}>
+          <Pressable
+            onPress={onAdd}
+            disabled={busy}
+            style={({ pressed }) => [
+              card ? styles.hero : styles.dropzone,
+              card && styles.heroCard,
+              shop && styles.heroShop,
+              card && styles.heroEmpty,
+              shop && styles.heroEmptyShop,
+              pressed && styles.pressed,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={emptyLabel}
+          >
+            <Feather name="upload" size={shop ? 16 : card ? 18 : 16} color={Theme.textMuted} />
+            <Text
+              style={[styles.dropzoneText, card && styles.dropzoneTextCard, shop && styles.dropzoneTextShop]}
+              numberOfLines={2}
+            >
+              {emptyLabel}
+            </Text>
+          </Pressable>
+        </View>
+        {card ? (
+          <View style={[styles.thumbsTrack, shop && styles.thumbsTrackShop]}>
+            <View style={shop ? styles.thumbsShopInner : undefined}>{addThumb}</View>
+          </View>
+        ) : null}
         {showHint ? <Text style={styles.fileHint}>{VAULT_DOC_LIMIT_HINT}</Text> : null}
       </View>
     );
   }
 
   return (
-    <View style={[styles.wrap, card && styles.wrapCard]}>
-      <View style={[styles.hero, card && styles.heroCard]}>
-        <VaultDocThumb
-          uri={selected?.previewUri}
-          isPdf={isPdfTripDoc({
-            fileName: selected?.fileName,
-            storagePath: selected?.storagePath,
-          })}
-          fileName={selected?.fileName}
-          style={styles.heroImage}
-          documentKey={previewIdentity(selected).documentKey}
-          documentVersion={previewIdentity(selected).documentVersion}
-          lazy={false}
-          priority={2}
-          onRetrySign={onRetrySign}
-        />
-        {openFull ? (
-          <Pressable
-            onPress={openFull}
-            disabled={busy}
-            style={({ pressed }) => [styles.heroEye, pressed && styles.pressed]}
-            accessibilityRole="button"
-            accessibilityLabel={`View full ${selected?.fileName || "document"}`}
-          >
-            <Feather name="eye" size={16} color={Theme.actionBtnInk} />
-          </Pressable>
-        ) : null}
+    <View style={[styles.wrap, card && styles.wrapCard, shop && styles.wrapShop]}>
+      <View style={shop ? styles.heroBandShop : undefined}>
+        <View style={[styles.hero, card && styles.heroCard, shop && styles.heroShop]}>
+          <VaultDocThumb
+            uri={selected?.previewUri}
+            isPdf={isPdfTripDoc({
+              fileName: selected?.fileName,
+              storagePath: selected?.storagePath,
+            })}
+            fileName={selected?.fileName}
+            style={styles.heroImage}
+            documentKey={previewIdentity(selected).documentKey}
+            documentVersion={previewIdentity(selected).documentVersion}
+            lazy={false}
+            priority={2}
+            onRetrySign={onRetrySign}
+          />
+          {openFull ? (
+            <Pressable
+              onPress={openFull}
+              disabled={busy}
+              style={({ pressed }) => [
+                styles.heroEye,
+                shop && styles.heroEyeShop,
+                pressed && styles.pressed,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={`View full ${selected?.fileName || "document"}`}
+            >
+              <Feather name="eye" size={shop ? 12 : 16} color={Theme.actionBtnInk} />
+            </Pressable>
+          ) : null}
+        </View>
       </View>
       <ScrollView
         horizontal
         nestedScrollEnabled
         showsHorizontalScrollIndicator={false}
-        style={card ? styles.thumbsTrack : undefined}
-        contentContainerStyle={styles.thumbs}
+        style={card ? [styles.thumbsTrack, shop && styles.thumbsTrackShop] : undefined}
+        contentContainerStyle={[styles.thumbs, shop && styles.thumbsShop]}
       >
         {items.map((item) => {
           const active = item.id === selected?.id;
           return (
-            <View key={item.id} style={[styles.thumbWrap, card && styles.thumbWrapCard]}>
+            <View
+              key={item.id}
+              style={[styles.thumbWrap, card && styles.thumbWrapCard, shop && styles.thumbWrapShop]}
+            >
               <Pressable
                 onPress={() => onSelect(item.id)}
-                style={[styles.thumb, card && styles.thumbCard, active && styles.thumbActive]}
+                style={[
+                  styles.thumb,
+                  card && styles.thumbCard,
+                  shop && styles.thumbShop,
+                  active && styles.thumbActive,
+                ]}
                 accessibilityRole="button"
                 accessibilityLabel={`Preview ${item.fileName}`}
                 accessibilityState={{ selected: active }}
@@ -197,17 +228,81 @@ const styles = StyleSheet.create({
   wrapCard: {
     gap: 10,
   },
+  wrapShop: {
+    gap: 6,
+    alignItems: "center",
+  },
   dropzoneCard: {
     minHeight: 88,
+  },
+  heroBandShop: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
   },
   heroCard: {
     height: 148,
     borderRadius: 10,
   },
+  heroShop: {
+    width: 88,
+    height: 116,
+    borderRadius: 8,
+    alignSelf: "center",
+  },
   heroEmpty: {
     borderStyle: "dashed",
     gap: 8,
     paddingHorizontal: 12,
+  },
+  heroEmptyShop: {
+    width: 88,
+    height: 116,
+  },
+  dropzoneTextShop: {
+    fontSize: 10,
+    lineHeight: 13,
+  },
+  heroEyeShop: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    right: 6,
+    bottom: 6,
+  },
+  thumbsTrackShop: {
+    height: 56,
+    width: "100%",
+  },
+  thumbsShop: {
+    justifyContent: "center",
+    minHeight: 52,
+    gap: 8,
+    paddingTop: 0,
+  },
+  thumbsShopInner: {
+    flexDirection: "row",
+    justifyContent: "center",
+  },
+  thumbWrapShop: {
+    width: 40,
+    height: 48,
+    paddingTop: 4,
+    paddingRight: 4,
+  },
+  thumbShop: {
+    width: 36,
+    height: 44,
+    borderRadius: 8,
+  },
+  addThumbShop: {
+    marginTop: 4,
+    width: 36,
+    height: 44,
+    borderRadius: 8,
+  },
+  addThumbTextShop: {
+    fontSize: 8,
   },
   dropzone: {
     minHeight: 72,

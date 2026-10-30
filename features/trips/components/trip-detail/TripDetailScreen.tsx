@@ -1669,6 +1669,11 @@ export default function TripDetailScreen({
         ? await loadTripActivityActorHydration({
             tripId,
             organizationId: orgId,
+            entityIds: [
+              detail.trip?.vehicle_id,
+              detail.trip?.driver_id,
+              detail.trip?.supplier_id,
+            ],
             extraUserIds: [...unique, detail.currentUserId],
           })
         : {
@@ -5343,6 +5348,7 @@ export default function TripDetailScreen({
             onPreview={() => previewTripDetailsSlot(slot.id)}
             onEdit={() => previewTripDetailsSlot(slot.id)}
             onAdd={() => uploadTripDetailsSlot(slot.id)}
+            appearance="shop"
           />
         );
       })}
@@ -5401,6 +5407,7 @@ export default function TripDetailScreen({
             }
             onPreview={() => previewDriverPodFile(file)}
             onAdd={uploadDriverPod}
+            appearance="shop"
           />
         );
       })}
@@ -9605,6 +9612,7 @@ export default function TripDetailScreen({
                           : undefined
                       }
                       onAdd={() => chooseVehicleDocKind(docType)}
+                      appearance="shop"
                     />
                   );
                 })}
@@ -9703,6 +9711,7 @@ export default function TripDetailScreen({
                           : undefined
                       }
                       onAdd={() => chooseDriverDocKind(docType)}
+                      appearance="shop"
                     />
                   );
                 })}

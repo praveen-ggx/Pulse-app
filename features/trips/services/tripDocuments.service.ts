@@ -6,10 +6,7 @@
  * document_type discriminates business concepts: 'pod' | 'manifest' | 'invoice' | 'eway_bill' | 'loading_slip'.
  * Fallback when DB is unavailable: list storage prefix {tripId}/ and infer type from path segment.
  */
-import {
-  canMaterializeStoragePreview,
-  previewPrivateObject,
-} from "@/features/trips/utils/storagePreviewObjectUrl.util";
+import { previewPrivateObject } from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import { supabase } from "@/lib/supabase";
 import { getPlatformEventBus } from "@/lib/platform/events/InProcessEventBus";
 import { recordTripWorkflowEvent } from "@/features/trips/services/tripWorkflow.service";
@@ -18,7 +15,8 @@ import { listOcrJobsForTripDocuments } from "@/features/ocr/services/ocrJob.serv
 import { runWithConcurrencyLimit } from "@/features/trips/services/tripDocumentLrPod.service";
 import { parseLrFieldsFromOcrJob, parseLrFieldValues, preferredLrDocumentNumber, serializeLrFieldValues, LR_FIELDS_FILE_NAME, lrFieldsStoragePath, isLrFieldsMetaPath } from "@/features/trips/services/lrDocumentOcr.util";
 import {
-  checkOrgDuplicateLrNumbersForTrip,
+  findOrgDuplicateLrNumberForTrip,
+  findOrgDuplicateLrNumbersForTrip,
   invalidateOrgLrIndexForTrip,
 } from "@/features/trips/services/orgLrDuplicate.service";
 import {
@@ -40,7 +38,7 @@ const BUCKET = "trip-documents";
 const VEHICLE_DOCUMENT_REF_PREFIX = "ref:vehicle-document:";
 
 const TRIP_DOCUMENTS_SELECT =
-  "id, trip_id, file_name, storage_path, mime_type, size_bytes, uploaded_at, uploaded_by, document_type, document_number, ocr_job_id, status";
+  "id, trip_id, file_name, storage_path, mime_type, size_bytes, uploaded_at, uploaded_by, document_type, document_number, ocr_job_id, status, verified_by, verified_at, rejection_reason";
 const TRIP_DOCUMENTS_SELECT_WITH_SOURCE = `${TRIP_DOCUMENTS_SELECT}, source_entity_document_id`;
 
 function isVehicleDocumentReferenceStoragePath(storagePath: string | null | undefined): boolean {
@@ -150,6 +148,10 @@ export interface TripDocumentRow {
   document_date?: string | null;
   /** Compliance review state: pending / verified / rejected. */
   status?: string | null;
+  /** Workspace member who verified/rejected (Activity actor). */
+  verified_by?: string | null;
+  verified_at?: string | null;
+  rejection_reason?: string | null;
   /**
    * Exact `entity_documents.id` when this row is reused workspace-vehicle
    * evidence. Null for a normal trip-documents upload. Authoritative pin —
@@ -269,9 +271,7 @@ export async function tryGetDocumentViewUrl(
   if (isVehicleDocumentReferenceStoragePath(storagePath) || isDetailsMarkerPath(storagePath)) {
     return null;
   }
-  // Web paints a downloaded Blob and signs only if that download fails, so a
-  // pre-signed URL is an unused Storage call there. Native viewers use it.
-  const signed = canMaterializeStoragePreview() ? null : await tripDocSignedUrls.getUrl(storagePath);
+  const signed = await tripDocSignedUrls.getUrl(storagePath);
   const preview = await previewPrivateObject(BUCKET, storagePath, signed);
   return preview.url;
 }
@@ -288,11 +288,7 @@ export async function getDocumentViewUrls(
   const physical = storagePaths.filter(
     (path) => !isVehicleDocumentReferenceStoragePath(path) && !isDetailsMarkerPath(path),
   );
-  // Web downloads each object (see tryGetDocumentViewUrl) — skip the batch sign there.
-  const signed =
-    physical.length > 0 && !canMaterializeStoragePreview()
-      ? await tripDocSignedUrls.getUrls(physical)
-      : {};
+  const signed = physical.length > 0 ? await tripDocSignedUrls.getUrls(physical) : {};
   const byPath: Record<string, string | null> = {};
   await Promise.all(
     storagePaths.map(async (path) => {
@@ -758,12 +754,10 @@ async function uploadTripDocumentRow(
   if (documentType === "lr") {
     const lrNumber = lrNumberFromStoredDocumentNumber(documentNumber);
     if (lrNumber) {
-      let duplicate: Awaited<ReturnType<typeof checkOrgDuplicateLrNumbersForTrip>>;
-      try {
-        duplicate = await checkOrgDuplicateLrNumbersForTrip({ tripId, lrNumbers: [lrNumber] });
-      } catch (e) {
-        return { doc: null, error: e instanceof Error ? e : new Error(String(e)) };
-      }
+      const duplicate = await findOrgDuplicateLrNumberForTrip({
+        tripId,
+        lrNumber,
+      });
       if (duplicate) {
         return { doc: null, error: new Error(ORG_LR_DUPLICATE_MESSAGE) };
       }
@@ -1081,12 +1075,10 @@ export async function updateTripDocumentNumber(
     const docType = String((row as { document_type?: string } | null)?.document_type ?? "");
     if (tripId && docType === "lr") {
       lrTripId = tripId;
-      let duplicate: Awaited<ReturnType<typeof checkOrgDuplicateLrNumbersForTrip>>;
-      try {
-        duplicate = await checkOrgDuplicateLrNumbersForTrip({ tripId, lrNumbers: [lrNumber] });
-      } catch (e) {
-        return e instanceof Error ? e : new Error(String(e));
-      }
+      const duplicate = await findOrgDuplicateLrNumberForTrip({
+        tripId,
+        lrNumber,
+      });
       if (duplicate) return new Error(ORG_LR_DUPLICATE_MESSAGE);
     }
   }
@@ -1213,12 +1205,10 @@ async function writeTripLrNumbers(input: {
 }): Promise<{ error: Error | null; lrNumbers: string[] }> {
   const lrNumbers = uniqueExpandedLrNumbers(input.lrInput);
   // One org index for the whole range — a range like 100-150 used to run 51 full sweeps.
-  let duplicate: Awaited<ReturnType<typeof checkOrgDuplicateLrNumbersForTrip>>;
-  try {
-    duplicate = await checkOrgDuplicateLrNumbersForTrip({ tripId: input.tripId, lrNumbers });
-  } catch (e) {
-    return { error: e instanceof Error ? e : new Error(String(e)), lrNumbers: [] };
-  }
+  const duplicate = await findOrgDuplicateLrNumbersForTrip({
+    tripId: input.tripId,
+    lrNumbers,
+  });
   if (duplicate) {
     return { error: new Error(ORG_LR_DUPLICATE_MESSAGE), lrNumbers: [] };
   }

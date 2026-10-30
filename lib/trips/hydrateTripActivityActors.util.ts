@@ -177,6 +177,8 @@ export async function resolveActivityUserProfiles(input: {
 export async function loadTripActivityActorHydration(input: {
   tripId: string;
   organizationId?: string | null;
+  /** Vehicle / driver / supplier ids — used to hydrate entity_documents actors. */
+  entityIds?: Array<string | null | undefined>;
   extraUserIds?: Array<string | null | undefined>;
 }): Promise<TripActivityActorHydration> {
   const tripId = trimId(input.tripId);
@@ -188,7 +190,11 @@ export async function loadTripActivityActorHydration(input: {
   };
   if (!tripId) return empty;
 
-  const [tx, docs] = await Promise.all([
+  const entityIds = [
+    ...new Set((input.entityIds ?? []).map(trimId).filter(Boolean)),
+  ];
+
+  const [tx, docs, entityDocs] = await Promise.all([
     supabase()
       .from("transactions")
       .select("id, created_by")
@@ -199,6 +205,13 @@ export async function loadTripActivityActorHydration(input: {
       .select("id, uploaded_by, verified_by")
       .eq("trip_id", tripId)
       .limit(200),
+    entityIds.length > 0
+      ? supabase()
+          .from("entity_documents")
+          .select("id, created_by, verified_by")
+          .in("entity_id", entityIds)
+          .limit(200)
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   const createdByByTxId: Record<string, string> = {};
@@ -216,6 +229,15 @@ export async function loadTripActivityActorHydration(input: {
     const uploadedBy = trimId(row.uploaded_by);
     const verifiedBy = trimId(row.verified_by);
     if (uploadedBy) uploadedByByDocId[id] = uploadedBy;
+    if (verifiedBy) verifiedByByDocId[id] = verifiedBy;
+  }
+  for (const row of entityDocs.data ?? []) {
+    const id = trimId(row.id);
+    if (!id) continue;
+    const createdBy = trimId(row.created_by);
+    const verifiedBy = trimId(row.verified_by);
+    // entity milestones use created_by as upload actor (entity-upload-*).
+    if (createdBy) uploadedByByDocId[id] = createdBy;
     if (verifiedBy) verifiedByByDocId[id] = verifiedBy;
   }
 

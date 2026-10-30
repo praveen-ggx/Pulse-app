@@ -341,10 +341,14 @@ export type TripAuditMilestone = {
   title: string;
   actorUserId?: string | null;
   detail: string;
+  detailLines?: string[];
   contextLabel?: string;
   lane?: "document" | "activity";
   category?: TripAuditLogCategory;
   preview?: TripAuditDocPreview | null;
+  /** Deleted docs: who first created/uploaded this document. */
+  originActorUserId?: string | null;
+  originAt?: string | null;
 };
 
 function activityFamily(title: string): string {
@@ -758,6 +762,21 @@ export function buildTripAuditLog(params: {
       mile.category ??
       (mile.lane === "document" ? "document" : "status");
     const detail = mile.detail?.trim() || "";
+    const lines = [...(mile.detailLines ?? [])].map((line) => line.trim()).filter(Boolean);
+    if (mile.originAt) {
+      const originWho = resolveTripActivityUserLabel(
+        mile.originActorUserId,
+        currentUserId,
+        userDisplayById,
+        "Workspace member",
+        userProfileById,
+      );
+      const originLine = `Created by ${originWho} · ${formatAuditTimestamp(mile.originAt)}`;
+      if (!lines.includes(originLine)) lines.push(originLine);
+    }
+    if (detail && !lines.includes(detail)) {
+      lines.unshift(detail);
+    }
     entries.push({
       id: mile.id,
       at: mile.at,
@@ -767,14 +786,14 @@ export function buildTripAuditLog(params: {
       recordedAtLabel: formatAuditTimestamp(mile.at),
       recordedBy: actor,
       actorAvatar: resolveActivityActorAvatar(
-        actor,
+        actor.replace(/\s*\(you\)$/i, ""),
         mile.actorUserId,
         userProfileById,
         "client",
       ),
       contextLabel: mile.contextLabel ?? "Compliance",
-      detail,
-      detailLines: detail ? [detail] : undefined,
+      detail: lines[0] ?? detail,
+      detailLines: lines.length > 0 ? lines : undefined,
       preview: mile.preview?.storagePath
         ? {
             ...mile.preview,

@@ -188,13 +188,18 @@ describe('hub date "All"', () => {
     ).toBeNull();
   });
 
-  it("needs_trip = every awarded indent (overrides the 7-day default)", () => {
-    expect(indentWorkloadOrFilter("needs_trip", TODAY_29, "all")).toBe("status.in.(awarded)");
+  it("needs_trip keeps the 7-day window on All (dated pills widen it)", () => {
+    expect(indentWorkloadOrFilter("needs_trip", TODAY_29, "all")).toBe(
+      "and(status.in.(awarded),or(pickup_date.gte.2026-10-22,pickup_date.is.null))",
+    );
     expect(
       classifyIndentWorkload({ status: "awarded", pickup_date: "2026-09-15" }, false, TODAY_29, "all"),
-    ).toBe("needs_trip");
+    ).toBeNull();
     expect(
       classifyIndentWorkload({ status: "awarded", pickup_date: "2026-10-23" }, false, TODAY_29, "all"),
+    ).toBe("needs_trip");
+    expect(
+      classifyIndentWorkload({ status: "awarded", pickup_date: null }, false, TODAY_29, "all"),
     ).toBe("needs_trip");
   });
 });

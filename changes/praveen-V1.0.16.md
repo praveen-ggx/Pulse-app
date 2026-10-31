@@ -1,7 +1,7 @@
 # praveen V1.0.16
 
 ## What
-- Needs trip creation respects the hub date pill: no pill keeps the today−7 rolling window; **All** / **This month** (and other dated pills) override it and show awarded indents missing a trip in that range (fixes IND002935-style drop-offs).
+- Needs trip creation respects dated hub pills (**This month**, custom, etc.) so awarded indents in that range still show (fixes IND002935). Default **All** pill keeps the today−7 needs_trip window (does not list every awarded indent).
 - Indent search on Trip Ops auto-selects the matching stage tab (Pending / Bids received / Needs trip creation / Failed), highlights the best match, and shows **No matching indent found** when nothing matches.
 - Live bids no longer show the generic **"Supplier"** label when `get_direct_quotes_with_bidder_names` falls back to the `direct_quotes` table: resolve missing bidder names via `org_display_name`.
 - Trip Ops search for a Trip ID auto-selects the matching stage card (Unassigned / Assigned / Loading / In transit / Unloading / Delivered), highlights the trip, and leaves Live Indents when the hit is a trip — not an indent.
@@ -10,7 +10,7 @@
 - Trip Report download is role-based: **Sales** keeps the Sales indent sheet (Indent ID + costs); **TripOps-only** downloads the classic ops Excel (TRIP ID / LR NO / CLIENT / stage times) with the same field mapping as Trips Export.
 
 ## Why
-- Hub date pill already drove live indents, but needs_trip ignored it and always used today−7 — so awarded loads like IND002935 (pickup Oct 23) vanished from Needs trip creation while still waiting for a trip.
+- Hub date pill already drove live indents, but needs_trip ignored it and always used today−7 — so awarded loads like IND002935 (pickup Oct 23) vanished from Needs trip creation on dated pills. Widening needs_trip on **All** would dump hundreds of old awards on the default view — keep All at today−7.
 - Searching an indent required clicking each stage manually to find where it sat.
 - Review Hub Live bids used `bidder_organization_name ?? "Supplier"`. The pressure fallback loads nameless table rows (RLS blocks `organizations`), so the real bidder org name never reached the card.
 - Searching a Trip ID while Live Indents was selected showed “No trips match” because stage auto-nav only existed for indents.

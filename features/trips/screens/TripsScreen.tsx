@@ -741,8 +741,8 @@ export default function TripsScreen() {
     () => sourcingScope.filterIndents(allIndentsRaw),
     [sourcingScope, allIndentsRaw],
   );
-  // Indent tile = exact server counts. Hub date pill drives both live and needs_trip
-  // ("All" = any date; dated pill = that range). No pill → hook uses the 7-day default.
+  // Indent tile = exact server counts. Hub opens on "All" (`hubDateBounds` null →
+  // "all"): live = any date; needs_trip keeps today−7. Dated pills widen both.
   const indentWorkloadRange = hubDateBounds ?? "all";
   const indentWorkloadRaw = useIndentWorkload(orgId, { range: indentWorkloadRange });
   const indentWorkload = useMemo(

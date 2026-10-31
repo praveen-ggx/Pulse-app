@@ -16,8 +16,9 @@ import {
  * - live: every `broadcast` / `open` indent whose pickup day — or IST created day
  *   when pickup is empty — is in the range (past pickups show "PICKUP PASSED");
  *   "All" = every `broadcast` / `open` indent, any date.
- * - needs_trip: same range rules for `awarded` (overrides the 7-day default);
- *   "All" = every `awarded` indent with no linked trip.
+ * - needs_trip: dated pills use the same range for `awarded` (overrides the
+ *   7-day default — e.g. This month still shows IND002935). "All" keeps the
+ *   7-day window so the default hub view does not list every awarded indent.
  *
  * `pending` / `draft` / `quoted` are deliberately not live until their business
  * meaning is confirmed. Linked-trip exclusion only sees trips the viewer can read
@@ -100,8 +101,10 @@ export function classifyIndentWorkload(
     return day == null || day >= bounds.today ? "live" : null;
   }
   if ((NEEDS_TRIP_INDENT_STATUSES as readonly string[]).includes(status)) {
-    if (range === "all") return "needs_trip";
-    if (range) return classifyDatedWorkload(indent, range, "needs_trip");
+    // "All" keeps the rolling 7-day window; only dated pills widen it.
+    if (range && range !== "all") {
+      return classifyDatedWorkload(indent, range, "needs_trip");
+    }
     return day == null || day >= bounds.needsTripFrom ? "needs_trip" : null;
   }
   return null;
@@ -133,6 +136,10 @@ export function indentWorkloadOrFilter(
   const statuses =
     kind === "live" ? LIVE_INDENT_STATUSES : NEEDS_TRIP_INDENT_STATUSES;
   if (range === "all") {
+    // Live: every status row. Needs_trip: keep today−7 (do not list all awards).
+    if (kind === "needs_trip") {
+      return `and(status.in.(${statuses.join(",")}),or(pickup_date.gte.${bounds.needsTripFrom},pickup_date.is.null))`;
+    }
     return `status.in.(${statuses.join(",")})`;
   }
   if (range) {

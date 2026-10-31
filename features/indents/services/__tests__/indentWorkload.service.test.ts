@@ -92,7 +92,9 @@ describe("hub date range", () => {
     "and(pickup_date.gte.2026-10-26,pickup_date.lte.2026-11-01)," +
     'and(pickup_date.is.null,created_at.gte."2026-10-26T00:00:00+05:30",' +
     'created_at.lt."2026-11-02T00:00:00+05:30")))';
-  const ALL_NEEDS_TRIP = "status.in.(awarded)";
+  // "All" keeps the rolling needs_trip window — not every awarded indent.
+  const ALL_NEEDS_TRIP =
+    "and(status.in.(awarded),or(pickup_date.gte.2026-10-21,pickup_date.is.null))";
 
   it("counts dated live and needs_trip server-side; scoping kept", async () => {
     mockNextResults = [{ count: 7 }, { count: 31 }];
@@ -111,7 +113,7 @@ describe("hub date range", () => {
     }
   });
 
-  it('"All" counts every broadcast / open and every awarded indent; scoping kept', async () => {
+  it('"All" counts every broadcast / open; needs_trip stays on the 7-day window', async () => {
     mockNextResults = [{ count: 320 }, { count: 31 }];
     const res = await countIndentWorkload("org-1", BOUNDS, "all");
     expect(res.counts).toEqual({ live: 320, needs_trip: 31 });

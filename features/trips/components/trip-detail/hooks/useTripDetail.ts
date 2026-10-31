@@ -289,15 +289,18 @@ function buildSlotCard(
       uploadedBy: row.uploaded_by ?? null,
     };
   });
-  const storedFields = rows
-    .map((row) => parseLrFieldValues(row.document_number))
-    .find((fields) => fields.lrNumber || fields.date || fields.invoice);
-  const ewayRaw = isEwaySlot
-    ? rows.find((row) => parseEwayFieldEntries(row.document_number).length > 0)
-        ?.document_number ??
-      rows.find((row) => row.document_number?.trim())?.document_number ??
-      null
-    : null;
+  const lrFieldsRow = rows.find((row) => {
+    const fields = parseLrFieldValues(row.document_number);
+    return fields.lrNumber || fields.date || fields.invoice;
+  });
+  const storedFields = lrFieldsRow
+    ? parseLrFieldValues(lrFieldsRow.document_number)
+    : undefined;
+  const ewayRow = isEwaySlot
+    ? rows.find((row) => parseEwayFieldEntries(row.document_number).length > 0) ??
+      rows.find((row) => row.document_number?.trim())
+    : undefined;
+  const ewayRaw = ewayRow?.document_number ?? null;
   const documentNumber = isEwaySlot
     ? ewayRaw?.trim() || null
     : storedFields?.lrNumber || null;
@@ -330,6 +333,10 @@ function buildSlotCard(
       : storedFields?.invoice || null,
     uploadedAt: latest.uploaded_at ?? rows[0]?.uploaded_at ?? null,
     uploadedBy: latest.uploaded_by ?? rows[0]?.uploaded_by ?? null,
+    // Review state of the row whose number the card shows.
+    reviewStatus: (isEwaySlot ? ewayRow : lrFieldsRow ?? latest)?.status ?? null,
+    rejectionReason:
+      (isEwaySlot ? ewayRow : lrFieldsRow ?? latest)?.rejection_reason ?? null,
   };
 }
 
@@ -1568,6 +1575,8 @@ export function useTripDetail({
           files: files.length > 0 ? files : undefined,
           documentNumber: lrSlot.documentNumber,
           documentDate: lrSlot.documentDate,
+          reviewStatus: lrSlot.reviewStatus,
+          rejectionReason: lrSlot.rejectionReason,
           invoiceNumber:
             invoiceSlot.invoiceNumber ||
             invoiceSlot.documentNumber ||

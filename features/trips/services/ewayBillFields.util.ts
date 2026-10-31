@@ -34,6 +34,9 @@ export type EwayBillStripRow = {
   previewUri?: string | null;
   previewFileName?: string | null;
   previewMime?: string | null;
+  /** Compliance review state of the e-way bill document: pending / verified / rejected. */
+  reviewStatus?: string | null;
+  rejectionReason?: string | null;
 };
 
 export const EMPTY_EWAY_FIELD_VALUES: EwayFieldValues = {
@@ -277,6 +280,10 @@ export function buildEwayBillStripRows(params: {
     updatedAt: ewayDoc?.uploadedAt ?? null,
     updatedById: ewayDoc?.uploadedBy ?? null,
   };
+  const review = {
+    reviewStatus: ewayDoc?.reviewStatus ?? null,
+    rejectionReason: ewayDoc?.rejectionReason ?? null,
+  };
   const toRow = (
     fields: EwayFieldValues,
     index: number,
@@ -306,10 +313,11 @@ export function buildEwayBillStripRows(params: {
     previewUri: fileLog?.previewUri ?? null,
     previewFileName: fileLog?.fileName ?? null,
     previewMime: fileLog?.type ?? null,
+    ...review,
   });
 
   if (entries.length > 0) {
-    return entries.map((fields, index) =>
+    const entryRows = entries.map((fields, index) =>
       toRow(
         fields,
         index,
@@ -318,6 +326,19 @@ export function buildEwayBillStripRows(params: {
         files[index],
       ),
     );
+    // Files uploaded beyond the saved entries still get their own row.
+    const extraRows = files
+      .slice(entries.length)
+      .map((file, offset) =>
+        toRow(
+          { ...EMPTY_EWAY_FIELD_VALUES },
+          entries.length + offset,
+          file.id,
+          true,
+          file,
+        ),
+      );
+    return [...entryRows, ...extraRows];
   }
 
   if (files.length === 0) {
@@ -327,6 +348,7 @@ export function buildEwayBillStripRows(params: {
         id: ewayDoc ? `${baseId}-entry-0` : EMPTY_STRIP_ROW.id,
         updatedAt: latestLog.updatedAt,
         updatedById: latestLog.updatedById,
+        ...review,
       },
     ];
   }

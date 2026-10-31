@@ -13,6 +13,7 @@ import {
   vaultDocDateToIso,
   vaultDocHasPreviewableFile,
   vaultPickerRejectionMessage,
+  vaultDocRejectionLabel,
 } from "../tripDocTypes";
 
 describe("isPdfTripDoc", () => {
@@ -351,5 +352,26 @@ describe("formatDocumentUploadAttribution", () => {
         uploadedAt: null,
       }),
     ).toBe("");
+  });
+});
+
+describe("vaultDocRejectionLabel", () => {
+  it("shows the reviewer's reason when rejected", () => {
+    expect(
+      vaultDocRejectionLabel({
+        reviewStatus: "rejected",
+        rejectionReason: " Different client name ",
+      }),
+    ).toBe("Rejected · Different client name");
+  });
+
+  it("says Rejected when no reason was given", () => {
+    expect(vaultDocRejectionLabel({ reviewStatus: "rejected" })).toBe("Rejected");
+  });
+
+  it("stays quiet for pending, verified or unknown", () => {
+    expect(vaultDocRejectionLabel({ reviewStatus: "pending" })).toBeNull();
+    expect(vaultDocRejectionLabel({ reviewStatus: "verified", rejectionReason: "x" })).toBeNull();
+    expect(vaultDocRejectionLabel(null)).toBeNull();
   });
 });

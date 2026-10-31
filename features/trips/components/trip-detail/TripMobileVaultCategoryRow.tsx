@@ -13,6 +13,7 @@ import {
 } from "@/features/trips/components/trip-detail/VaultCardLrStylePreview";
 import {
   formatSelectedVaultFileMeta,
+  vaultDocRejectionLabel,
   type TripDocFile,
   type TripDocItem,
 } from "@/features/trips/components/trip-detail/tripDocTypes";
@@ -57,6 +58,7 @@ export function TripMobileVaultCategoryRow({
       ? resolveUploadAttribution?.(selectedFile, doc) ?? null
       : null;
   const showUploadLog = documentUploadAttributionHasContent(uploadAttribution);
+  const rejection = vaultDocRejectionLabel(doc);
   return (
     <View style={styles.card} accessibilityLabel={doc.label}>
       <View style={styles.header}>
@@ -74,6 +76,14 @@ export function TripMobileVaultCategoryRow({
           >
             {meta}
           </Text>
+          {rejection ? (
+            <Text
+              style={[styles.meta, WEB_COPY, styles.metaError]}
+              numberOfLines={2}
+            >
+              {rejection}
+            </Text>
+          ) : null}
           {showUploadLog ? (
             <DocumentUploadAttributionRow
               {...uploadAttribution!}

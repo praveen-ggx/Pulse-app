@@ -139,8 +139,64 @@ describe("buildEwayBillStripRows", () => {
         previewUri: null,
         previewFileName: null,
         previewMime: null,
+        reviewStatus: null,
+        rejectionReason: null,
       },
     ]);
+  });
+
+  it("carries a compliance rejection onto each row", () => {
+    const rows = buildEwayBillStripRows({
+      ewayDoc: {
+        id: "eway_bill",
+        label: "Eway Bill",
+        type: "PDF",
+        status: "Uploaded",
+        documentNumber: serializeEwayFieldValues({
+          ewayNo: "102594941830",
+          createdDate: "2026-10-27",
+          validTill: "2026-10-31",
+          docNo: "RGP2600001768",
+        }),
+        reviewStatus: "rejected",
+        rejectionReason: "Eway bill is cancelled",
+      },
+    });
+    expect(rows[0]).toMatchObject({
+      ewayNo: "102594941830",
+      reviewStatus: "rejected",
+      rejectionReason: "Eway bill is cancelled",
+    });
+  });
+
+  it("keeps a row for a second uploaded file with no saved details", () => {
+    const rows = buildEwayBillStripRows({
+      ewayDoc: {
+        id: "eway_bill",
+        label: "Eway Bill",
+        type: "PDF",
+        status: "Uploaded",
+        documentNumber: serializeEwayFieldValues({
+          ewayNo: "102594941830",
+          createdDate: "2026-10-27",
+          validTill: "2026-10-31",
+          docNo: "",
+        }),
+        files: [
+          { id: "file-1", label: "Eway Bill", type: "PDF", storagePath: "trip-1/eway_bill/a.pdf" },
+          { id: "file-2", label: "Eway Bill", type: "PDF", storagePath: "trip-1/eway_bill/b.pdf" },
+        ],
+      },
+    });
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ id: "file-1", ewayNo: "102594941830" });
+    expect(rows[1]).toMatchObject({
+      id: "file-2",
+      entryIndex: 1,
+      ewayNo: "—",
+      canView: true,
+      previewPath: "trip-1/eway_bill/b.pdf",
+    });
   });
 
   it("does not copy the LR number into e-way columns", () => {

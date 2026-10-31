@@ -1,7 +1,8 @@
 /**
- * Trip & Indent Excel report — column contract, row uniqueness, and field mapping.
+ * Sales Trip & Indent Excel report — column contract, row uniqueness, and field mapping.
  *
  * Export page: Trip Operations hub (`TripsScreen` / Trips hub toolbar), next to Add Trip.
+ * Sales members get this sheet. TripOps-only members get `tripOpsReport` instead.
  *
  * Row uniqueness:
  * - One row per trip in the org catalog.
@@ -12,6 +13,22 @@
 
 import type { IndentRow } from "@/features/indents/services/indents.service";
 import type { TripRow } from "@/features/trips/services/trips.service";
+
+/** Who is downloading — Sales → this report; TripOps → classic ops sheet. */
+export type TripIndentReportAudience = "sales" | "tripops";
+
+/**
+ * Prefer the Sales indent report when the member has the sales domain.
+ * TripOps-only members download the classic ops sheet (`tripOpsReport`).
+ */
+export function resolveTripIndentReportAudience(access: {
+  sales: boolean;
+  tripops: boolean;
+}): TripIndentReportAudience {
+  if (access.sales) return "sales";
+  if (access.tripops) return "tripops";
+  return "tripops";
+}
 
 export const TRIP_INDENT_REPORT_COLUMNS = [
   { key: "customerName", label: "Customer Name" },

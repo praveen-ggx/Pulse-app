@@ -7,6 +7,7 @@ import {
   resolveIndentId,
   resolveIndentType,
   resolvePulseId,
+  resolveTripIndentReportAudience,
   tripIndentReportColumnsForAccess,
   tripIndentReportFileName,
   TRIP_INDENT_REPORT_COLUMNS,
@@ -171,6 +172,21 @@ describe("tripIndentReport.model", () => {
     expect(withoutCosts.some((c) => c.key === "supplierCost")).toBe(false);
     expect(withoutCosts.some((c) => c.key === "indentId")).toBe(true);
     expect(withoutCosts).toHaveLength(TRIP_INDENT_REPORT_COLUMNS.length - 2);
+  });
+
+  it("resolves report audience from member domains (Sales wins when both)", () => {
+    expect(resolveTripIndentReportAudience({ sales: true, tripops: false })).toBe(
+      "sales",
+    );
+    expect(resolveTripIndentReportAudience({ sales: false, tripops: true })).toBe(
+      "tripops",
+    );
+    expect(resolveTripIndentReportAudience({ sales: true, tripops: true })).toBe(
+      "sales",
+    );
+    expect(resolveTripIndentReportAudience({ sales: false, tripops: false })).toBe(
+      "tripops",
+    );
   });
 
   it("resolves Indent ID from display codes (never UUID)", () => {

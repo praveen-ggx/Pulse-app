@@ -11,7 +11,6 @@ import {
   resolveComplianceDocumentationCharge,
   type ComplianceDocumentChargeConfig,
 } from "@/features/tripCompliance/utils/compliancePaymentAmount.util";
-import { formatComplianceTimestamp } from "@/features/tripCompliance/utils/complianceCardVisual.util";
 import { splitHubRouteLocationDisplay } from "@/features/trips/utils/tripLocationDisplay.util";
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { formatIndianVehicleNumber } from "@/lib/format";
@@ -19,6 +18,7 @@ import { parseLrFieldValues } from "@/features/trips/services/lrDocumentOcr.util
 import { readStoredElrSnapshot } from "@/features/trips/services/elrSnapshot.util";
 import { readStoredInvoiceNumber } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { isComplianceVerifiedRejected } from "@/features/tripCompliance/utils/complianceCardVisual.util";
+import INDIA_LOCATIONS from "@/lib/data/indiaLocations.json";
 import * as XLSX from "xlsx";
 
 export const VERIFIED_EXPORT_CSV_HEADERS = [
@@ -36,6 +36,7 @@ export const VERIFIED_EXPORT_CSV_HEADERS = [
   "Supplier",
   "Source",
   "Destination",
+  "Region",
   "Truck No",
   "Truck Type",
   "Driver name",
@@ -110,18 +111,20 @@ function formatPercent(value: number | null | undefined): string {
   return String(Math.round(value * 10) / 10);
 }
 
-function formatLoadingDate(iso: string | null | undefined): string {
+const EXPORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** Finance's sheet format: "26-Oct-2026". */
+function formatExportDate(iso: string | null | undefined): string {
   if (!iso) return "";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) {
-    // Date-only strings (YYYY-MM-DD) — avoid UTC shift by parsing parts.
-    const m = iso.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (!m) return blank(iso);
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    return `${Number(m[3])} ${months[Number(m[2]) - 1]} ${m[1]}`;
+  // Date-only strings (YYYY-MM-DD) — avoid UTC shift by parsing parts.
+  const dateOnly = iso.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) {
+    return `${dateOnly[3]}-${EXPORT_MONTHS[Number(dateOnly[2]) - 1]}-${dateOnly[1]}`;
   }
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return blank(iso);
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${day}-${EXPORT_MONTHS[date.getMonth()]}-${date.getFullYear()}`;
 }
 
 function matchesExportDocType(documentType: string | null | undefined, type: "lr" | "invoice"): boolean {
@@ -193,12 +196,109 @@ function marginValues(trip: CommercialTrip): { margin: number | null; percent: n
   return { margin, percent };
 }
 
-function placeLabel(raw: string | null | undefined): string {
-  const split = splitHubRouteLocationDisplay(raw ?? "");
+/** State → region, same zones as lib/data/indiaLocations.json (Northeast counted as East). */
+const STATE_REGION: Record<string, "North" | "South" | "East" | "West"> = {
+  "andaman and nicobar islands": "South",
+  "andhra pradesh": "South",
+  "arunachal pradesh": "East",
+  assam: "East",
+  bihar: "East",
+  chandigarh: "North",
+  chhattisgarh: "West",
+  "dadra and nagar haveli": "West",
+  "daman and diu": "West",
+  delhi: "North",
+  goa: "West",
+  gujarat: "West",
+  haryana: "North",
+  "himachal pradesh": "North",
+  "jammu and kashmir": "North",
+  jharkhand: "East",
+  karnataka: "South",
+  kerala: "South",
+  ladakh: "North",
+  lakshadweep: "South",
+  "madhya pradesh": "West",
+  maharashtra: "West",
+  manipur: "East",
+  meghalaya: "East",
+  mizoram: "East",
+  nagaland: "East",
+  odisha: "East",
+  puducherry: "South",
+  punjab: "North",
+  rajasthan: "North",
+  sikkim: "East",
+  "tamil nadu": "South",
+  telangana: "South",
+  tripura: "East",
+  "uttar pradesh": "North",
+  uttarakhand: "North",
+  "west bengal": "East",
+};
+
+type ExportRegion = (typeof STATE_REGION)[string];
+
+function normalizePlaceKey(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/&/g, "and");
+}
+
+let cityRegionCache: Map<string, ExportRegion | null> | null = null;
+
+/** City → region from indiaLocations.json; null when one name sits in two regions. */
+function cityRegion(city: string): ExportRegion | null {
+  if (!cityRegionCache) {
+    cityRegionCache = new Map();
+    for (const row of INDIA_LOCATIONS as { city: string; state: string }[]) {
+      const key = normalizePlaceKey(row.city);
+      const region = STATE_REGION[normalizePlaceKey(row.state)] ?? null;
+      const seen = cityRegionCache.get(key);
+      cityRegionCache.set(key, seen === undefined || seen === region ? region : null);
+    }
+  }
+  return cityRegionCache.get(normalizePlaceKey(city)) ?? null;
+}
+
+/**
+ * "Bhandara · Bhandara, Maharashtra · Bhandara, Maharashtra · 441904" → "Bhandara, Maharashtra".
+ * Plain "City, State" values pass through unchanged.
+ */
+function primaryPlaceText(raw: string | null | undefined): string {
+  const value = (raw ?? "").trim();
+  if (!value.includes("·")) return value;
+  const segments = value.split("·").map((part) => part.trim()).filter(Boolean);
+  return segments.find((part) => part.includes(",")) ?? segments[0] ?? "";
+}
+
+function placeParts(raw: string | null | undefined): { city: string; state: string } {
+  const split = splitHubRouteLocationDisplay(primaryPlaceText(raw));
   const city = split.city?.trim() || "";
-  const state = split.state?.trim() || "";
-  if (city && state) return `${city}, ${state}`;
+  return { city: city === "—" ? "" : city, state: split.state?.trim() || "" };
+}
+
+/** City only ("Gowdavalli"), falling back to the state or raw text when no city is found. */
+function placeLabel(raw: string | null | undefined): string {
+  const { city, state } = placeParts(raw);
   return city || state || blank(raw);
+}
+
+/** Region from the state; else any part naming a state or a known city ("Puducherry", "Oragadam, Chennai"). */
+export function regionForPlace(raw: string | null | undefined): string {
+  const { city, state } = placeParts(raw);
+  const fromState = STATE_REGION[normalizePlaceKey(state)];
+  if (fromState) return fromState;
+  const parts = [city, ...primaryPlaceText(raw).split(",")].map((part) => part.trim()).filter(Boolean);
+  for (const part of parts) {
+    const region = STATE_REGION[normalizePlaceKey(part)] ?? cityRegion(part);
+    if (region) return region;
+  }
+  return "";
 }
 
 /**
@@ -217,6 +317,7 @@ export function buildVerifiedExportCsvRow(
     "";
   const customer = blank(trip.client_name);
   const source = placeLabel(trip.pickup_area);
+  const region = regionForPlace(trip.pickup_area);
   const destination = placeLabel(trip.drop_location ?? trip.drop_area);
   const truckNo =
     formatIndianVehicleNumber(trip.vehicle_display_number?.trim() || "").trim() ||
@@ -251,11 +352,8 @@ export function buildVerifiedExportCsvRow(
       : summary.financeFlaggedAt
         ? "Flagged for Compliance"
         : COMPLIANCE_STAGE_FILTER_LABEL.compliance_verified,
-    "Loading date": formatLoadingDate(trip.pickup_date),
-    "Intransit date":
-      formatComplianceTimestamp(trip.started_at) === "—"
-        ? ""
-        : formatComplianceTimestamp(trip.started_at),
+    "Loading date": formatExportDate(trip.pickup_date),
+    "Intransit date": formatExportDate(trip.started_at),
     "Client sales invoice No": latestDocNumber(summary.documents, "invoice"),
     "Account No": blank(enrichment.accountNumber),
     "Beneficiary Name": enrichment.beneficiaryName?.trim() || "",
@@ -266,6 +364,7 @@ export function buildVerifiedExportCsvRow(
     Supplier: supplierLabel,
     Source: source,
     Destination: destination,
+    Region: region,
     "Truck No": truckNo,
     "Truck Type": blank(enrichment.truckType),
     "Driver name": driverName,
@@ -283,8 +382,9 @@ export function buildVerifiedExportCsvRow(
 
 /** Money / percent columns stay real numbers so Excel can sum and sort them. */
 const VERIFIED_EXPORT_NUMERIC_COLUMNS: Partial<Record<VerifiedExportCsvHeader, string>> = {
-  "C Price": "#,##0.00",
-  "S Price": "#,##0.00",
+  // Finance asked for Excel's "General" format on these two only.
+  "C Price": "General",
+  "S Price": "General",
   Advance: "#,##0.00",
   "Documentation charges": "#,##0.00",
   TDS: "#,##0.00",
@@ -292,6 +392,23 @@ const VERIFIED_EXPORT_NUMERIC_COLUMNS: Partial<Record<VerifiedExportCsvHeader, s
   Margin: "#,##0.00",
   "Margin %": "0.0",
 };
+
+/** Date columns go to Excel as real dates shown as "26-Oct-2026", so they sort and filter by date. */
+const VERIFIED_EXPORT_DATE_COLUMNS: ReadonlySet<VerifiedExportCsvHeader> = new Set([
+  "Loading date",
+  "Intransit date",
+]);
+const EXCEL_DATE_FORMAT = "dd-mmm-yyyy";
+
+/** "26-Oct-2026" → Excel date serial; null for anything else. */
+function excelDateSerial(value: string): number | null {
+  const m = value.match(/^(\d{2})-([A-Za-z]{3})-(\d{4})$/);
+  if (!m) return null;
+  const month = EXPORT_MONTHS.indexOf(m[2]);
+  if (month < 0) return null;
+  const utc = Date.UTC(Number(m[3]), month, Number(m[1]));
+  return Math.round((utc - Date.UTC(1899, 11, 30)) / 86_400_000);
+}
 
 function excelColumnName(index: number): string {
   let n = index + 1;
@@ -318,7 +435,7 @@ function headerLabel(header: VerifiedExportCsvHeader, advancePercents?: readonly
 }
 
 /**
- * Excel sheet for the Verified report. Every non-money column is written as a
+ * Excel sheet for the Verified report. Every non-money, non-date column is written as a
  * text cell ("@"), so Account No / IFSC / phone / LR keep leading zeros and
  * full length instead of turning into 1.23E+15.
  */
@@ -341,7 +458,11 @@ export function buildVerifiedExportWorksheet(
       const ref = `${excelColumnName(c)}${r + 2}`;
       const numberFormat = VERIFIED_EXPORT_NUMERIC_COLUMNS[header];
       const num = numberFormat ? Number(raw) : Number.NaN;
-      if (numberFormat && Number.isFinite(num)) {
+      const dateSerial = VERIFIED_EXPORT_DATE_COLUMNS.has(header) ? excelDateSerial(raw) : null;
+      if (dateSerial != null) {
+        sheet[ref] = { t: "n", v: dateSerial, z: EXCEL_DATE_FORMAT };
+        widths[c] = Math.max(widths[c], raw.length);
+      } else if (numberFormat && Number.isFinite(num)) {
         sheet[ref] = { t: "n", v: num, z: numberFormat };
         widths[c] = Math.max(widths[c], num.toLocaleString("en-IN").length + 3);
       } else {

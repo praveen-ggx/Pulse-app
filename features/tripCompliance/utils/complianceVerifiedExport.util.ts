@@ -18,6 +18,7 @@ import { parseLrFieldValues } from "@/features/trips/services/lrDocumentOcr.util
 import { readStoredElrSnapshot } from "@/features/trips/services/elrSnapshot.util";
 import { readStoredInvoiceNumber } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { isComplianceVerifiedRejected } from "@/features/tripCompliance/utils/complianceCardVisual.util";
+import INDIA_LOCATIONS from "@/lib/data/indiaLocations.json";
 import * as XLSX from "xlsx";
 
 export const VERIFIED_EXPORT_CSV_HEADERS = [
@@ -236,8 +237,47 @@ const STATE_REGION: Record<string, "North" | "South" | "East" | "West"> = {
   "west bengal": "East",
 };
 
+type ExportRegion = (typeof STATE_REGION)[string];
+
+function normalizePlaceKey(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/&/g, "and");
+}
+
+let cityRegionCache: Map<string, ExportRegion | null> | null = null;
+
+/** City → region from indiaLocations.json; null when one name sits in two regions. */
+function cityRegion(city: string): ExportRegion | null {
+  if (!cityRegionCache) {
+    cityRegionCache = new Map();
+    for (const row of INDIA_LOCATIONS as { city: string; state: string }[]) {
+      const key = normalizePlaceKey(row.city);
+      const region = STATE_REGION[normalizePlaceKey(row.state)] ?? null;
+      const seen = cityRegionCache.get(key);
+      cityRegionCache.set(key, seen === undefined || seen === region ? region : null);
+    }
+  }
+  return cityRegionCache.get(normalizePlaceKey(city)) ?? null;
+}
+
+/**
+ * "Bhandara · Bhandara, Maharashtra · Bhandara, Maharashtra · 441904" → "Bhandara, Maharashtra".
+ * Plain "City, State" values pass through unchanged.
+ */
+function primaryPlaceText(raw: string | null | undefined): string {
+  const value = (raw ?? "").trim();
+  if (!value.includes("·")) return value;
+  const segments = value.split("·").map((part) => part.trim()).filter(Boolean);
+  return segments.find((part) => part.includes(",")) ?? segments[0] ?? "";
+}
+
 function placeParts(raw: string | null | undefined): { city: string; state: string } {
-  const split = splitHubRouteLocationDisplay(raw ?? "");
+  const split = splitHubRouteLocationDisplay(primaryPlaceText(raw));
   const city = split.city?.trim() || "";
   return { city: city === "—" ? "" : city, state: split.state?.trim() || "" };
 }
@@ -248,9 +288,17 @@ function placeLabel(raw: string | null | undefined): string {
   return city || state || blank(raw);
 }
 
+/** Region from the state; else any part naming a state or a known city ("Puducherry", "Oragadam, Chennai"). */
 export function regionForPlace(raw: string | null | undefined): string {
-  const state = placeParts(raw).state.toLowerCase().replace(/\s+/g, " ").replace(/&/g, "and");
-  return STATE_REGION[state] ?? "";
+  const { city, state } = placeParts(raw);
+  const fromState = STATE_REGION[normalizePlaceKey(state)];
+  if (fromState) return fromState;
+  const parts = [city, ...primaryPlaceText(raw).split(",")].map((part) => part.trim()).filter(Boolean);
+  for (const part of parts) {
+    const region = STATE_REGION[normalizePlaceKey(part)] ?? cityRegion(part);
+    if (region) return region;
+  }
+  return "";
 }
 
 /**
@@ -345,6 +393,23 @@ const VERIFIED_EXPORT_NUMERIC_COLUMNS: Partial<Record<VerifiedExportCsvHeader, s
   "Margin %": "0.0",
 };
 
+/** Date columns go to Excel as real dates shown as "26-Oct-2026", so they sort and filter by date. */
+const VERIFIED_EXPORT_DATE_COLUMNS: ReadonlySet<VerifiedExportCsvHeader> = new Set([
+  "Loading date",
+  "Intransit date",
+]);
+const EXCEL_DATE_FORMAT = "dd-mmm-yyyy";
+
+/** "26-Oct-2026" → Excel date serial; null for anything else. */
+function excelDateSerial(value: string): number | null {
+  const m = value.match(/^(\d{2})-([A-Za-z]{3})-(\d{4})$/);
+  if (!m) return null;
+  const month = EXPORT_MONTHS.indexOf(m[2]);
+  if (month < 0) return null;
+  const utc = Date.UTC(Number(m[3]), month, Number(m[1]));
+  return Math.round((utc - Date.UTC(1899, 11, 30)) / 86_400_000);
+}
+
 function excelColumnName(index: number): string {
   let n = index + 1;
   let name = "";
@@ -370,7 +435,7 @@ function headerLabel(header: VerifiedExportCsvHeader, advancePercents?: readonly
 }
 
 /**
- * Excel sheet for the Verified report. Every non-money column is written as a
+ * Excel sheet for the Verified report. Every non-money, non-date column is written as a
  * text cell ("@"), so Account No / IFSC / phone / LR keep leading zeros and
  * full length instead of turning into 1.23E+15.
  */
@@ -393,7 +458,11 @@ export function buildVerifiedExportWorksheet(
       const ref = `${excelColumnName(c)}${r + 2}`;
       const numberFormat = VERIFIED_EXPORT_NUMERIC_COLUMNS[header];
       const num = numberFormat ? Number(raw) : Number.NaN;
-      if (numberFormat && Number.isFinite(num)) {
+      const dateSerial = VERIFIED_EXPORT_DATE_COLUMNS.has(header) ? excelDateSerial(raw) : null;
+      if (dateSerial != null) {
+        sheet[ref] = { t: "n", v: dateSerial, z: EXCEL_DATE_FORMAT };
+        widths[c] = Math.max(widths[c], raw.length);
+      } else if (numberFormat && Number.isFinite(num)) {
         sheet[ref] = { t: "n", v: num, z: numberFormat };
         widths[c] = Math.max(widths[c], num.toLocaleString("en-IN").length + 3);
       } else {

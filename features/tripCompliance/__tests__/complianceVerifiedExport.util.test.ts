@@ -239,6 +239,29 @@ describe("complianceVerifiedExport.util", () => {
     expect(regionForPlace("Unknown place")).toBe("");
   });
 
+  it("finds the region from a state-less source and the dotted location format", () => {
+    expect(regionForPlace("Puducherry")).toBe("South");
+    expect(regionForPlace("Oragadam, Chennai")).toBe("South");
+    expect(regionForPlace("Patiala · Patiala, Punjab · Patiala, Punjab · 140417")).toBe("North");
+    const row = buildVerifiedExportCsvRow(
+      summary({
+        trip: { pickup_area: "Bhandara · Bhandara, Maharashtra · Bhandara, Maharashtra · 441904" },
+      }),
+    );
+    expect(row.Source).toBe("Bhandara");
+    expect(row.Region).toBe("West");
+  });
+
+  it("writes Loading / Intransit dates as real Excel dates", () => {
+    const row = buildVerifiedExportCsvRow(summary({}));
+    const sheet = buildVerifiedExportWorkbook([row]).Sheets["Verified Report"];
+    const col = (header: (typeof VERIFIED_EXPORT_CSV_HEADERS)[number]) =>
+      XLSX.utils.encode_col(VERIFIED_EXPORT_CSV_HEADERS.indexOf(header));
+    // 23-Sep-2026 = Excel serial 46288.
+    expect(sheet[`${col("Loading date")}2`]).toMatchObject({ t: "n", v: 46288, z: "dd-mmm-yyyy" });
+    expect(sheet[`${col("Intransit date")}2`]).toMatchObject({ t: "n", v: 46288, z: "dd-mmm-yyyy" });
+  });
+
   it("writes driver numbers in the Driver Profile format", () => {
     expect(formatExportPhone("+919876567000")).toBe("+919876567000");
     expect(formatExportPhone("9876567000")).toBe("+919876567000");

@@ -3,6 +3,7 @@ import {
   buildVerifiedExportWorkbook,
   exportLrNumber,
   formatExportPhone,
+  regionForPlace,
   latestDocNumber,
   verifiedExportRowsToCsv,
   VERIFIED_EXPORT_CSV_HEADERS,
@@ -91,6 +92,7 @@ describe("complianceVerifiedExport.util", () => {
       "Supplier",
       "Source",
       "Destination",
+      "Region",
       "Truck No",
       "Truck Type",
       "Driver name",
@@ -139,7 +141,8 @@ describe("complianceVerifiedExport.util", () => {
     });
 
     expect(row["Verification status"]).toBe("Advance Verification");
-    expect(row["Loading date"]).toBe("23 Sep 2026");
+    expect(row["Loading date"]).toBe("23-Sep-2026");
+    expect(row["Intransit date"]).toBe("23-Sep-2026");
     expect(row["Client sales invoice No"]).toBe("INV-901");
     expect(row["LR No"]).toBe("3277");
     expect(row["Account No"]).toBe("123456789012");
@@ -148,8 +151,9 @@ describe("complianceVerifiedExport.util", () => {
     expect(row["Branch Name"]).toBe("Salt Lake");
     expect(row.Customer).toBe("Sunflag");
     expect(row.Supplier).toBe("Gogox Logistics");
-    expect(row.Source).toContain("Durgapur");
-    expect(row.Destination).toContain("Kolkata");
+    expect(row.Source).toBe("Durgapur");
+    expect(row.Destination).toBe("Kolkata");
+    expect(row.Region).toBe("East");
     expect(row["Truck Type"]).toBe("32 FT");
     expect(row["Driver No."]).toBe("+919876543210");
     expect(row["C Price"]).toBe("100000");
@@ -210,6 +214,29 @@ describe("complianceVerifiedExport.util", () => {
     expect(sheet[`${col("LR No")}2`]).toMatchObject({ t: "s", v: "3277" });
     expect(sheet[`${col("Final Advance")}2`]).toMatchObject({ t: "n", v: 70400 });
     expect(sheet["!ref"]).toBe(`A1:${col("Margin %")}2`);
+
+    const built = workbook.Sheets["Verified Report"];
+    expect(built[`${col("C Price")}2`]).toMatchObject({ t: "n", v: 100000, z: "General" });
+    expect(built[`${col("S Price")}2`]).toMatchObject({ t: "n", v: 80000, z: "General" });
+    expect(built[`${col("Advance")}2`]).toMatchObject({ t: "n", z: "#,##0.00" });
+  });
+
+  it("maps the source state to a region and pads single-digit days", () => {
+    const row = buildVerifiedExportCsvRow(
+      summary({
+        trip: {
+          pickup_area: "Gowdavalli, Telangana",
+          drop_location: "Siddipet, Telangana",
+          pickup_date: "2026-10-06",
+        },
+      }),
+    );
+    expect(row.Source).toBe("Gowdavalli");
+    expect(row.Destination).toBe("Siddipet");
+    expect(row.Region).toBe("South");
+    expect(row["Loading date"]).toBe("06-Oct-2026");
+    expect(regionForPlace("Guwahati, Assam")).toBe("East");
+    expect(regionForPlace("Unknown place")).toBe("");
   });
 
   it("writes driver numbers in the Driver Profile format", () => {
@@ -234,7 +261,7 @@ describe("complianceVerifiedExport.util", () => {
     const lines = csv.split("\n");
     expect(lines[0].startsWith("TRIP ID,Verification status,Loading date")).toBe(true);
     expect(lines[1]).toContain('"Acme, Logistics"');
-    expect(lines[1]).toContain('"Durgapur, West Bengal"');
+    expect(lines[1]).toContain(",Durgapur,Kolkata,East,");
   });
 });
 

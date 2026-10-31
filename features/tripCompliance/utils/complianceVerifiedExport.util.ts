@@ -11,7 +11,6 @@ import {
   resolveComplianceDocumentationCharge,
   type ComplianceDocumentChargeConfig,
 } from "@/features/tripCompliance/utils/compliancePaymentAmount.util";
-import { formatComplianceTimestamp } from "@/features/tripCompliance/utils/complianceCardVisual.util";
 import { splitHubRouteLocationDisplay } from "@/features/trips/utils/tripLocationDisplay.util";
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { formatIndianVehicleNumber } from "@/lib/format";
@@ -36,6 +35,7 @@ export const VERIFIED_EXPORT_CSV_HEADERS = [
   "Supplier",
   "Source",
   "Destination",
+  "Region",
   "Truck No",
   "Truck Type",
   "Driver name",
@@ -110,18 +110,20 @@ function formatPercent(value: number | null | undefined): string {
   return String(Math.round(value * 10) / 10);
 }
 
-function formatLoadingDate(iso: string | null | undefined): string {
+const EXPORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** Finance's sheet format: "26-Oct-2026". */
+function formatExportDate(iso: string | null | undefined): string {
   if (!iso) return "";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) {
-    // Date-only strings (YYYY-MM-DD) — avoid UTC shift by parsing parts.
-    const m = iso.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (!m) return blank(iso);
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    return `${Number(m[3])} ${months[Number(m[2]) - 1]} ${m[1]}`;
+  // Date-only strings (YYYY-MM-DD) — avoid UTC shift by parsing parts.
+  const dateOnly = iso.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) {
+    return `${dateOnly[3]}-${EXPORT_MONTHS[Number(dateOnly[2]) - 1]}-${dateOnly[1]}`;
   }
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return blank(iso);
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${day}-${EXPORT_MONTHS[date.getMonth()]}-${date.getFullYear()}`;
 }
 
 function matchesExportDocType(documentType: string | null | undefined, type: "lr" | "invoice"): boolean {
@@ -193,12 +195,62 @@ function marginValues(trip: CommercialTrip): { margin: number | null; percent: n
   return { margin, percent };
 }
 
-function placeLabel(raw: string | null | undefined): string {
+/** State → region, same zones as lib/data/indiaLocations.json (Northeast counted as East). */
+const STATE_REGION: Record<string, "North" | "South" | "East" | "West"> = {
+  "andaman and nicobar islands": "South",
+  "andhra pradesh": "South",
+  "arunachal pradesh": "East",
+  assam: "East",
+  bihar: "East",
+  chandigarh: "North",
+  chhattisgarh: "West",
+  "dadra and nagar haveli": "West",
+  "daman and diu": "West",
+  delhi: "North",
+  goa: "West",
+  gujarat: "West",
+  haryana: "North",
+  "himachal pradesh": "North",
+  "jammu and kashmir": "North",
+  jharkhand: "East",
+  karnataka: "South",
+  kerala: "South",
+  ladakh: "North",
+  lakshadweep: "South",
+  "madhya pradesh": "West",
+  maharashtra: "West",
+  manipur: "East",
+  meghalaya: "East",
+  mizoram: "East",
+  nagaland: "East",
+  odisha: "East",
+  puducherry: "South",
+  punjab: "North",
+  rajasthan: "North",
+  sikkim: "East",
+  "tamil nadu": "South",
+  telangana: "South",
+  tripura: "East",
+  "uttar pradesh": "North",
+  uttarakhand: "North",
+  "west bengal": "East",
+};
+
+function placeParts(raw: string | null | undefined): { city: string; state: string } {
   const split = splitHubRouteLocationDisplay(raw ?? "");
   const city = split.city?.trim() || "";
-  const state = split.state?.trim() || "";
-  if (city && state) return `${city}, ${state}`;
+  return { city: city === "—" ? "" : city, state: split.state?.trim() || "" };
+}
+
+/** City only ("Gowdavalli"), falling back to the state or raw text when no city is found. */
+function placeLabel(raw: string | null | undefined): string {
+  const { city, state } = placeParts(raw);
   return city || state || blank(raw);
+}
+
+export function regionForPlace(raw: string | null | undefined): string {
+  const state = placeParts(raw).state.toLowerCase().replace(/\s+/g, " ").replace(/&/g, "and");
+  return STATE_REGION[state] ?? "";
 }
 
 /**
@@ -217,6 +269,7 @@ export function buildVerifiedExportCsvRow(
     "";
   const customer = blank(trip.client_name);
   const source = placeLabel(trip.pickup_area);
+  const region = regionForPlace(trip.pickup_area);
   const destination = placeLabel(trip.drop_location ?? trip.drop_area);
   const truckNo =
     formatIndianVehicleNumber(trip.vehicle_display_number?.trim() || "").trim() ||
@@ -251,11 +304,8 @@ export function buildVerifiedExportCsvRow(
       : summary.financeFlaggedAt
         ? "Flagged for Compliance"
         : COMPLIANCE_STAGE_FILTER_LABEL.compliance_verified,
-    "Loading date": formatLoadingDate(trip.pickup_date),
-    "Intransit date":
-      formatComplianceTimestamp(trip.started_at) === "—"
-        ? ""
-        : formatComplianceTimestamp(trip.started_at),
+    "Loading date": formatExportDate(trip.pickup_date),
+    "Intransit date": formatExportDate(trip.started_at),
     "Client sales invoice No": latestDocNumber(summary.documents, "invoice"),
     "Account No": blank(enrichment.accountNumber),
     "Beneficiary Name": enrichment.beneficiaryName?.trim() || "",
@@ -266,6 +316,7 @@ export function buildVerifiedExportCsvRow(
     Supplier: supplierLabel,
     Source: source,
     Destination: destination,
+    Region: region,
     "Truck No": truckNo,
     "Truck Type": blank(enrichment.truckType),
     "Driver name": driverName,
@@ -283,8 +334,9 @@ export function buildVerifiedExportCsvRow(
 
 /** Money / percent columns stay real numbers so Excel can sum and sort them. */
 const VERIFIED_EXPORT_NUMERIC_COLUMNS: Partial<Record<VerifiedExportCsvHeader, string>> = {
-  "C Price": "#,##0.00",
-  "S Price": "#,##0.00",
+  // Finance asked for Excel's "General" format on these two only.
+  "C Price": "General",
+  "S Price": "General",
   Advance: "#,##0.00",
   "Documentation charges": "#,##0.00",
   TDS: "#,##0.00",

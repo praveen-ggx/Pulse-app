@@ -3101,6 +3101,12 @@ export function useTripDetail({
 
   // ── Effects ───────────────────────────────────────────────────────────────
 
+  // A trip with no files never overwrites the list (bundle and table reads keep
+  // `prev` when empty), so drop the previous trip's files before the seed below.
+  useEffect(() => {
+    setTripDocuments([]);
+  }, [tripId]);
+
   // Phase 3b: seed all state from bundle on initial mount and on bundle cache refresh.
   // Individual load effects below are guarded by bundleActive so they do not
   // fire their own DB calls when the bundle path is active.

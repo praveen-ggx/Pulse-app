@@ -27,6 +27,7 @@ import {
   type TripDocFile,
   type TripDocItem,
   vaultDocHasPreviewableFile,
+  vaultDocRejectionLabel,
 } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { VEHICLE_COMPLIANCE_TYPE_HINT } from "@/features/vehicles/utils/vehicleDocuments.util";
 import { useState } from "react";
@@ -121,6 +122,7 @@ function VaultGridCard({
       ? resolveUploadAttribution?.(selectedFile, doc) ?? null
       : null;
   const showUploadLog = documentUploadAttributionHasContent(uploadAttribution);
+  const rejection = vaultDocRejectionLabel(doc);
   return (
     <View style={[neoStyles.vaultCard, neoStyles.vaultCardQuarter, styles.card]}>
       <View style={[styles.header, showUploadLog && styles.headerWithUpload]}>
@@ -133,6 +135,11 @@ function VaultGridCard({
         >
           {meta}
         </Text>
+        {rejection ? (
+          <Text style={[styles.meta, WEB_COPY, styles.metaFail]} numberOfLines={2}>
+            {rejection}
+          </Text>
+        ) : null}
         {showUploadLog ? (
           <DocumentUploadAttributionRow
             {...uploadAttribution!}

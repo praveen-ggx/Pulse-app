@@ -14,6 +14,7 @@ import {
   formatVaultDocDate,
   isPdfTripDoc,
   vaultDocDateToIso,
+  vaultDocRejectionLabel,
 } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { VaultDocThumb } from "@/features/trips/components/trip-detail/VaultDocThumb";
 import { isInlinePreviewUri } from "@/features/trips/utils/storagePreviewObjectUrl.util";
@@ -364,6 +365,7 @@ function ewayStatusPill(
   expiry: string | null,
   expiryTone: ReturnType<typeof ewayExpiryTone>,
 ): { label: string; tone: RegistryStatusTone } {
+  if (vaultDocRejectionLabel(row)) return { label: "Rejected", tone: "danger" };
   if (expiryTone === "expired") return { label: "Expired", tone: "danger" };
   if (expiry) return { label: "Expiring", tone: "warning" };
   if (row.canView || (row.ewayNo && row.ewayNo !== "—")) {
@@ -471,7 +473,7 @@ export function EwayBillLrStrip({
       return existingEntries.filter((_, index) => index !== editingIndex);
     }
     if (editingIndex === "new") return [...existingEntries, draft];
-    if (existingEntries.length === 0) return [draft];
+    if (editingIndex >= existingEntries.length) return [...existingEntries, draft];
     return existingEntries.map((entry, index) =>
       index === editingIndex ? draft : entry,
     );
@@ -527,6 +529,7 @@ export function EwayBillLrStrip({
                 detailTitle={hasNumber ? row.ewayNo : "E-way bill"}
                 detailSubtitle={
                   [
+                    vaultDocRejectionLabel(row),
                     row.docNo !== "—" ? row.docNo : null,
                     row.validTill !== "—" ? `Valid till ${row.validTill}` : null,
                     expiry,
@@ -563,7 +566,7 @@ export function EwayBillLrStrip({
                     ) : null}
                     {showUpload ? (
                       <RegistryPrimaryButton
-                        label="Upload"
+                        label={vaultDocRejectionLabel(row) ? "Re-upload" : "Upload"}
                         onPress={() => onUpload?.(row.id)}
                         style={HUG_BTN}
                       />
@@ -608,6 +611,14 @@ export function EwayBillLrStrip({
                     <Text style={styles.cell} numberOfLines={1}>
                       {row.ewayNo}
                     </Text>
+                    {vaultDocRejectionLabel(row) ? (
+                      <Text
+                        style={[styles.expiryText, styles.expiryExpired]}
+                        numberOfLines={2}
+                      >
+                        {vaultDocRejectionLabel(row)}
+                      </Text>
+                    ) : null}
                     {ewayUpdateTimeLabel(row.updatedAt) || resolveUpdaterName(row) ? (
                       <Text style={styles.logMeta} numberOfLines={2}>
                         {[

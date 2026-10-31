@@ -3358,7 +3358,7 @@ export default function TripDetailScreen({
       if (!tripIdForSave) return false;
       const uploadedBy = detail.currentUserId;
       if (!uploadedBy) {
-        Alert.alert("Could not save", "Sign in to save e-way bill details.");
+        showAppAlert("Could not save", "Sign in to save e-way bill details.");
         return false;
       }
       const { error } = await tripDocumentsService.upsertEwayBillFields({
@@ -3367,7 +3367,7 @@ export default function TripDetailScreen({
         values,
       });
       if (error) {
-        Alert.alert("Could not save", error.message);
+        showAppAlert("Could not save", error.message);
         return false;
       }
       await detail.loadTripDocuments();

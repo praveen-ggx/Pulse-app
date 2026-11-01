@@ -104,7 +104,12 @@ export function compliancePreviewSourceForVaultFile(
 ): ComplianceViewSource {
   if (!file) return "trip";
   if (file.category === "bank_docs" || file.categoryLabel === "Bank Docs") {
-    return "supplier-kyc";
+    // A trip upload (`{tripId}/bank_docs/…`) lives in trip-documents; only the merged
+    // supplier cheque (`{org}/supplier/{id}/…`) is supplier KYC. Approved trip files
+    // carry no deleteKind, so the path decides too.
+    const tripUpload =
+      file.deleteKind === "trip" || /^[^/]+\/bank_docs\//.test(file.storagePath?.trim() ?? "");
+    return tripUpload ? "trip" : "supplier-kyc";
   }
   if (file.driverKind) {
     return isComplianceEntityStoragePath(file.storagePath) ? "compliance" : "driver-kyc";

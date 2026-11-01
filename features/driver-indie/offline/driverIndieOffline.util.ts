@@ -6,7 +6,7 @@ export function isDriverIndieTransportError(error: unknown): boolean {
       : error && typeof error === "object" && "message" in error
         ? String((error as { message: unknown }).message ?? "")
         : String(error ?? "");
-  return /failed to fetch|network request failed|network error|offline|timeout|timed out|internet|unreachable|econn|enotfound|etimedout|typeerror/i.test(
+  return /failed to fetch|network request failed|network error|offline|timeout|timed out|internet|unreachable|econn|enotfound|etimedout|typeerror|service unavailable|\b503\b/i.test(
     message,
   );
 }

@@ -225,6 +225,11 @@ export default function DriverCapturePaymentScreen() {
           : useIndieBook
             ? "driver_indie"
             : "employer",
+        receivableId: useSelfBook
+          ? selfReceivableId
+          : useIndieBook
+            ? indieReceivableId
+            : null,
         driverId,
         createdBy: profile?.uid ?? null,
         tripDisplay,
@@ -248,6 +253,7 @@ export default function DriverCapturePaymentScreen() {
     amountNum,
     canSubmit,
     driverId,
+    indieReceivableId,
     lane,
     modeId,
     onBack,
@@ -255,6 +261,7 @@ export default function DriverCapturePaymentScreen() {
     profile?.uid,
     reference,
     router,
+    selfReceivableId,
     trip,
     tripDisplay,
     useIndieBook,

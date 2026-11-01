@@ -6,6 +6,8 @@ const mockFindRef = jest.fn();
 const mockCreateLedger = jest.fn();
 const mockGetReceivable = jest.fn();
 const mockCollectSelf = jest.fn();
+const mockGetIndie = jest.fn();
+const mockCollectIndie = jest.fn();
 
 jest.mock("@/features/marketplace/services/exchangePayments.service", () => ({
   claimExchangePayment: (...args: unknown[]) => mockClaim(...args),
@@ -21,12 +23,19 @@ jest.mock("@/features/dco-self/services/dcoSelfReceivable.service", () => ({
   collectDcoSelfReceivable: (...args: unknown[]) => mockCollectSelf(...args),
 }));
 
+jest.mock("@/features/driver-indie/services/driverIndieReceivable.service", () => ({
+  getDriverIndieReceivableForTrip: (...args: unknown[]) => mockGetIndie(...args),
+  collectDriverIndieReceivable: (...args: unknown[]) => mockCollectIndie(...args),
+}));
+
 beforeEach(() => {
   mockClaim.mockReset();
   mockFindRef.mockReset();
   mockCreateLedger.mockReset();
   mockGetReceivable.mockReset();
   mockCollectSelf.mockReset();
+  mockGetIndie.mockReset();
+  mockCollectIndie.mockReset();
 });
 
 const base = {
@@ -117,5 +126,25 @@ describe("captureDriverTripPayment", () => {
       }),
     );
     expect(mockCreateLedger).not.toHaveBeenCalled();
+  });
+
+  it("uses a screen-resolved indie receivableId without re-fetching (offline-safe)", async () => {
+    mockCollectIndie.mockResolvedValue({ error: null, replayed: false, pending: true });
+
+    const { error } = await captureDriverTripPayment({
+      ...base,
+      lane: "shipper",
+      book: "driver_indie",
+      receivableId: "indie-recv-cached",
+    });
+
+    expect(error).toBeNull();
+    expect(mockGetIndie).not.toHaveBeenCalled();
+    expect(mockCollectIndie).toHaveBeenCalledWith(
+      expect.objectContaining({
+        receivableId: "indie-recv-cached",
+        amount: 2500,
+      }),
+    );
   });
 });

@@ -29,6 +29,8 @@ export async function captureDriverTripPayment(input: {
   paidOn?: string | null;
   lane: DriverCaptureLane;
   book?: "dco_self" | "driver_indie" | "employer";
+  /** Prefer the receivable already resolved on the capture screen (offline-safe). */
+  receivableId?: string | null;
   driverId: string;
   createdBy: string | null;
   tripDisplay: string;
@@ -69,17 +71,22 @@ async function collectIndieOnce(
     paymentModeId: string;
     reference?: string | null;
     paidOn?: string | null;
+    receivableId?: string | null;
   },
   amount: number,
   key: string,
 ): Promise<{ error: Error | null }> {
-  const found = await getDriverIndieReceivableForTrip(input.trip.id);
-  if (found.error) return { error: found.error };
-  if (!found.receivable?.id) {
+  let receivableId = String(input.receivableId ?? "").trim();
+  if (!receivableId) {
+    const found = await getDriverIndieReceivableForTrip(input.trip.id);
+    if (found.error) return { error: found.error };
+    receivableId = String(found.receivable?.id ?? "").trim();
+  }
+  if (!receivableId) {
     return { error: new Error("Issue the receivable before collecting.") };
   }
   const { error } = await collectDriverIndieReceivable({
-    receivableId: found.receivable.id,
+    receivableId,
     amount,
     paymentMode: input.paymentModeId,
     idempotencyKey: key,
@@ -95,17 +102,22 @@ async function collectSelfOnce(
     paymentModeId: string;
     reference?: string | null;
     paidOn?: string | null;
+    receivableId?: string | null;
   },
   amount: number,
   key: string,
 ): Promise<{ error: Error | null }> {
-  const found = await getDcoSelfReceivableForTrip(input.trip.id);
-  if (found.error) return { error: found.error };
-  if (!found.receivable?.id) {
+  let receivableId = String(input.receivableId ?? "").trim();
+  if (!receivableId) {
+    const found = await getDcoSelfReceivableForTrip(input.trip.id);
+    if (found.error) return { error: found.error };
+    receivableId = String(found.receivable?.id ?? "").trim();
+  }
+  if (!receivableId) {
     return { error: new Error("Issue the receivable before collecting.") };
   }
   const { error } = await collectDcoSelfReceivable({
-    receivableId: found.receivable.id,
+    receivableId,
     amount,
     paymentMode: input.paymentModeId,
     idempotencyKey: key,

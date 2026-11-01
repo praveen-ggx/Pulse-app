@@ -2,7 +2,6 @@ import React, {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useRef,
   type ReactNode,
@@ -30,6 +29,7 @@ import type { DriverChatMessagesPage } from '@/features/chat/utils/driverChatMes
 import { useQueryClient } from '@tanstack/react-query';
 import { getLinkedDriversForCurrentUser } from '@/features/drivers/services/drivers.service';
 import { getTripOperationalDisplay } from "@/features/operations/display";
+import { driverConversationUnreadCount } from "@/features/chat/utils/driverChatUnread.util";
 
 /**
  * Accepts either a full `TripRow` or a `trips_driver_view` row — the driver path
@@ -75,7 +75,6 @@ interface DriverChatContextType {
   driverIds: string[];
   isLoading: boolean;
   sendMessage: (conversationId: string, organizationId: string, content: string) => Promise<void>;
-  markAsRead: (conversationId: string) => Promise<void>;
   getTotalUnreadCount: () => number;
   refreshConversations: () => Promise<TripConversation[]>;
   ensureDriverTripConversation: (tripId: string) => Promise<{ convId: string; orgId: string } | null>;
@@ -108,8 +107,6 @@ export function DriverChatProvider({
   const uid = (profile as { uid?: string })?.uid ?? null;
   const queryClient = useQueryClient();
 
-  const markReadTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  const pendingMarkReadRef = useRef<Set<string>>(new Set());
   const ensureConvInFlightRef = useRef<
     Map<string, Promise<{ convId: string; orgId: string } | null>>
   >(new Map());
@@ -288,46 +285,12 @@ export function DriverChatProvider({
     [uid, profile, queryClient, patchConversationListPreview],
   );
 
-  const markAsRead = useCallback(
-    async (conversationId: string) => {
-      if (!driverIdsKey) return;
-      queryClient.setQueryData<TripConversation[]>(
-        driverChatConversationsQueryKey(driverIdsKey),
-        (old) =>
-          (old ?? []).map((c) =>
-            c.id === conversationId ? { ...c, unread_dispatcher_count: 0 } : c,
-          ),
-      );
-      pendingMarkReadRef.current.add(conversationId);
-      const existing = markReadTimerRef.current.get(conversationId);
-      if (existing) clearTimeout(existing);
-      markReadTimerRef.current.set(
-        conversationId,
-        setTimeout(() => {
-          markReadTimerRef.current.delete(conversationId);
-          pendingMarkReadRef.current.delete(conversationId);
-          void chatService.markConversationRead(conversationId).catch(() => {});
-        }, 2000),
-      );
-    },
-    [driverIdsKey, queryClient],
-  );
-
-  useEffect(
-    () => () => {
-      markReadTimerRef.current.forEach((t) => clearTimeout(t));
-      markReadTimerRef.current.clear();
-      const pending = Array.from(pendingMarkReadRef.current);
-      pendingMarkReadRef.current.clear();
-      for (const id of pending) {
-        void chatService.markConversationRead(id).catch(() => {});
-      }
-    },
-    [],
-  );
+  // No driver mark-read: `mark_conversation_read` is the dispatcher's RPC — it zeroes
+  // unread_dispatcher_count and marks the driver's own messages read. A driver read
+  // state needs its own column + RPC (deferred with the schema freeze).
 
   const getTotalUnreadCount = useCallback(
-    () => conversations.reduce((sum, c) => sum + (c.unread_dispatcher_count ?? 0), 0),
+    () => conversations.reduce((sum, c) => sum + driverConversationUnreadCount(c), 0),
     [conversations],
   );
 
@@ -342,7 +305,6 @@ export function DriverChatProvider({
       driverIds,
       isLoading,
       sendMessage,
-      markAsRead,
       getTotalUnreadCount,
       refreshConversations,
       ensureDriverTripConversation,
@@ -352,7 +314,6 @@ export function DriverChatProvider({
       driverIds,
       isLoading,
       sendMessage,
-      markAsRead,
       getTotalUnreadCount,
       refreshConversations,
       ensureDriverTripConversation,

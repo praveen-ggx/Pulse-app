@@ -18372,6 +18372,16 @@ export type Database = {
           slug: string
         }[]
       }
+      ensure_dco_workspace: {
+        Args: never
+        Returns: {
+          id: string
+          name: string
+          owner_id: string
+          operating_model: string
+          slug: string
+        }[]
+      }
       get_partner_trip_ids_for_shared_ledger_focus: {
         Args: { org_id: string; partner_key: string; viewer_trip_id: string }
         Returns: string[]

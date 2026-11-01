@@ -1,6 +1,6 @@
 /**
  * Driver app layout (route group). When user has role=driver they land here after login.
- * Tabs: Dashboard, Trip, History, Earnings. Trip chat opens from trip detail (hidden route).
+ * Tabs: Dashboard, Trip, Trips, Earnings. Trip chat opens from trip detail (hidden route).
  * Not to be confused with app/driver/ which is for dispatchers (e.g. /driver/[id] = driver detail).
  */
 import { AppLoadingSplash } from '@/components/AppLoadingSplash';
@@ -54,8 +54,31 @@ function DriverTabsNavigator() {
       <Tabs.Screen name="index" options={{ title: 'Dashboard' }} />
       <Tabs.Screen name="stories" options={{ title: 'Loads', href: null }} />
       <Tabs.Screen name="control" options={{ title: 'Trip', href: null }} />
-      <Tabs.Screen name="trip-history" options={{ title: 'History' }} />
+      <Tabs.Screen name="trip-history" options={{ title: 'Trips' }} />
       <Tabs.Screen name="wallet" options={{ title: 'Transactions' }} />
+      <Tabs.Screen
+        name="receivable"
+        options={{
+          title: 'Receivable',
+          href: null,
+          tabBarStyle: { display: 'none' },
+        }}
+      />
+      <Tabs.Screen
+        name="add-client"
+        options={{
+          title: 'Add client',
+          tabBarStyle: { display: 'none' },
+        }}
+      />
+      <Tabs.Screen
+        name="capture-payment"
+        options={{
+          title: 'Capture payment',
+          href: null,
+          tabBarStyle: { display: 'none' },
+        }}
+      />
       {/* Not listed in DriverTabBar TAB_CONFIG; omit href: null so router.push / query params work on web */}
       <Tabs.Screen
         name="chat"

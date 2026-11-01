@@ -7,7 +7,7 @@ import {
   correctDriverIndieReceivable,
   upsertDriverIndieParty,
 } from "@/features/driver-indie/services/driverIndieReceivable.service";
-import { showAppAlert } from "@/lib/showAppAlert";
+import { showAppAlert } from "@/lib/appAlert";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,

@@ -60,6 +60,7 @@ function formatSectionLabel(dateStr: string): string {
 type Props = {
   entries: DriverLedgerRow[];
   orgNameById: Record<string, string>;
+  tripNumberById?: Record<string, string>;
   colors: {
     text: string;
     textMuted: string;
@@ -72,9 +73,9 @@ type Props = {
   isDark: boolean;
 };
 
-export function DriverSelfLedgerPanel({ entries, orgNameById, colors, isDark }: Props) {
 export function DriverSelfLedgerPanel({ entries, orgNameById, tripNumberById, colors, isDark }: Props) {
   const [preview, setPreview] = useState<DriverLedgerReceiptPreview | null>(null);
+  const sections = useMemo(() => {
     const sorted = [...entries].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     );
@@ -191,7 +192,6 @@ export function DriverSelfLedgerPanel({ entries, orgNameById, tripNumberById, co
                 orgNameById[String(entry.organization_id ?? '')]?.trim() || 'Self / fleet';
               const amountLabel = `${isCredit ? '+' : '−'} ₹${abs.toLocaleString('en-IN')}`;
               const isLast = idx === rows.length - 1;
-              return (
               const tripId = String(entry.trip_id ?? '').trim();
               const tripDisplay = tripId
                 ? tripNumberById?.[tripId] ?? tripId.slice(0, 8).toUpperCase()
@@ -224,6 +224,7 @@ export function DriverSelfLedgerPanel({ entries, orgNameById, tripNumberById, co
                       }),
                     })
                   }
+                  style={[
                     styles.row,
                     !isLast && {
                       borderBottomWidth: StyleSheet.hairlineWidth,
@@ -272,7 +273,6 @@ export function DriverSelfLedgerPanel({ entries, orgNameById, tripNumberById, co
                   >
                     {amountLabel}
                   </Text>
-                </View>
                 </TouchableOpacity>
               );
             })}
@@ -285,6 +285,7 @@ export function DriverSelfLedgerPanel({ entries, orgNameById, tripNumberById, co
         receipt={preview}
         onClose={() => setPreview(null)}
       />
+    </View>
   );
 }
 

@@ -17,7 +17,15 @@ import {
   type DcoSelfReceivableListRow,
   type DcoSelfReceivableVersion,
 } from "@/features/dco-self/services/dcoSelfReceivable.service";
+import {
+  listDriverIndieCollections,
+  listDriverIndieParties,
+  listDriverIndieReceivableBook,
+  listDriverIndieReceivableVersions,
+} from "@/features/driver-indie/services/driverIndieReceivable.service";
+import { DriverPartyBookActions } from "@/features/drivers/components/DriverPartyBookActions";
 import { buildDriverPartyReceivablesFromBook } from "@/features/drivers/utils/driverPartyReceivables.util";
+import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import {
   buildDriverTripNumberMap,
   getDriverTripDisplayNumber,
@@ -65,6 +73,9 @@ export default function DriverPartyReceivableScreen() {
   const { partyId: partyIdParam } = useLocalSearchParams<{ partyId?: string }>();
   const partyId = decodePartyId(partyIdParam);
   const { profile } = useAuth();
+  const { canManageDcoSelfBook, canManageIndieBook } = useDriverOperatingModeQuery();
+  const bookKind =
+    canManageDcoSelfBook ? "dco_self" : canManageIndieBook ? "driver_indie" : null;
 
   const [loading, setLoading] = useState(true);
   const [trips, setTrips] = useState<tripsService.TripRow[]>([]);
@@ -72,6 +83,7 @@ export default function DriverPartyReceivableScreen() {
   const [linkedDrivers, setLinkedDrivers] = useState<driversService.DriverRow[]>([]);
   const [bookRows, setBookRows] = useState<DcoSelfReceivableListRow[]>([]);
   const [bookName, setBookName] = useState<string | null>(null);
+  const [bookPhone, setBookPhone] = useState<string | null>(null);
   const [bookVersions, setBookVersions] = useState<DcoSelfReceivableVersion[]>([]);
   const [bookCollections, setBookCollections] = useState<DcoSelfCollection[]>([]);
 
@@ -88,50 +100,100 @@ export default function DriverPartyReceivableScreen() {
       if (drivers.length === 0) {
         setTrips([]);
         setReceivedByTripId({});
-        return;
+      } else {
+        const driverIds = drivers.map((d) => d.id);
+        const [tRes, ledgerRes] = await Promise.all([
+          tripsService.getDriverUiTripsByDriverIds(driverIds),
+          driversService.getDriverLedgerByDriverIds(driverIds),
+        ]);
+        setTrips(tRes.trips ?? []);
+        const byTrip: Record<string, number> = {};
+        for (const entry of ledgerRes.entries ?? []) {
+          const tid = entry.trip_id?.trim() || null;
+          if (!tid || entry.type !== "settlement") continue;
+          byTrip[tid] = (byTrip[tid] ?? 0) + (Number(entry.amount) || 0);
+        }
+        setReceivedByTripId(byTrip);
       }
-      const driverIds = drivers.map((d) => d.id);
-      const [tRes, ledgerRes] = await Promise.all([
-        tripsService.getDriverUiTripsByDriverIds(driverIds),
-        driversService.getDriverLedgerByDriverIds(driverIds),
-      ]);
-      setTrips(tRes.trips ?? []);
-      const byTrip: Record<string, number> = {};
-      for (const entry of ledgerRes.entries ?? []) {
-        const tid = entry.trip_id?.trim() || null;
-        if (!tid || entry.type !== "settlement") continue;
-        byTrip[tid] = (byTrip[tid] ?? 0) + (Number(entry.amount) || 0);
-      }
-      setReceivedByTripId(byTrip);
       const uuid =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(partyId);
-      if (uuid) {
+      if (uuid && bookKind === "dco_self") {
         const [book, parties] = await Promise.all([listDcoSelfReceivableBook(), listDcoSelfParties()]);
         const lines = (book.rows ?? []).filter((row) => row.receivable.party_b_id === partyId);
         setBookRows(lines);
-        setBookName(parties.parties.find((row) => row.id === partyId)?.name ?? null);
-        const first = lines[0]?.receivable.id;
-        if (first) {
-          const [versions, collections] = await Promise.all([
-            listDcoSelfReceivableVersions(first),
-            listDcoSelfCollections(first),
+        const party = parties.parties.find((row) => row.id === partyId) ?? null;
+        setBookName(party?.name ?? null);
+        setBookPhone(party?.phone ?? null);
+        const versions: DcoSelfReceivableVersion[] = [];
+        const collections: DcoSelfCollection[] = [];
+        for (const line of lines) {
+          const [v, c] = await Promise.all([
+            listDcoSelfReceivableVersions(line.receivable.id),
+            listDcoSelfCollections(line.receivable.id),
           ]);
-          setBookVersions(versions.versions);
-          setBookCollections(collections.rows);
-        } else {
-          setBookVersions([]);
-          setBookCollections([]);
+          versions.push(...v.versions);
+          collections.push(...c.rows);
         }
+        setBookVersions(versions);
+        setBookCollections(collections);
+      } else if (uuid && bookKind === "driver_indie") {
+        const [book, parties] = await Promise.all([
+          listDriverIndieReceivableBook(),
+          listDriverIndieParties(),
+        ]);
+        const lines = (book.rows ?? [])
+          .filter((row) => row.receivable.party_id === partyId)
+          .map((row) => ({
+            receivable: {
+              id: row.receivable.id,
+              workspace_id: row.receivable.owner_user_id,
+              party_b_id: row.receivable.party_id,
+              billed_amount: row.receivable.billed_amount,
+              billed_version: row.receivable.billed_version,
+              status: row.receivable.status,
+              operational_trip_id: row.receivable.operational_trip_id,
+              party_a_label: row.receivable.party_label,
+              issued_at: row.receivable.issued_at,
+            },
+            collected: row.collected,
+            outstanding: row.outstanding,
+          }));
+        setBookRows(lines);
+        const party = parties.parties.find((row) => row.id === partyId) ?? null;
+        setBookName(party?.name ?? null);
+        setBookPhone(party?.phone ?? null);
+        const versions: DcoSelfReceivableVersion[] = [];
+        const collections: DcoSelfCollection[] = [];
+        for (const line of lines) {
+          const [v, c] = await Promise.all([
+            listDriverIndieReceivableVersions(line.receivable.id),
+            listDriverIndieCollections(line.receivable.id),
+          ]);
+          versions.push(
+            ...v.versions.map((row) => ({
+              id: row.id,
+              receivable_id: row.receivable_id,
+              version: row.version,
+              billed_amount: row.billed_amount,
+              reason: row.reason,
+              created_at: row.created_at,
+            })),
+          );
+          collections.push(...c.rows);
+        }
+        setBookVersions(versions);
+        setBookCollections(collections);
       } else {
         setBookRows([]);
         setBookName(null);
+        setBookPhone(null);
         setBookVersions([]);
         setBookCollections([]);
       }
     } finally {
       setLoading(false);
     }
-  }, [profile?.uid]);
+  }, [bookKind, partyId, profile?.uid]);
 
   useEffect(() => {
     void load();
@@ -267,8 +329,37 @@ export default function DriverPartyReceivableScreen() {
         </View>
       </View>
 
+      {bookKind && partyId ? (
+        <DriverPartyBookActions
+          book={bookKind}
+          partyId={partyId}
+          partyName={bookName || party?.name || "Party"}
+          partyPhone={bookPhone}
+          receivableId={bookRows[0]?.receivable.id ?? null}
+          currentBilled={bookRows[0]?.receivable.billed_amount ?? party?.billed ?? 0}
+          onChanged={() => void load()}
+        />
+      ) : null}
+
       {bookRows.length > 0 ? (
         <>
+          <Text style={styles.sectionTitle}>Receivable lines</Text>
+          <View style={styles.table}>
+            {bookRows.map((row, idx) => (
+              <View
+                key={row.receivable.id}
+                style={[styles.row, idx < bookRows.length - 1 && styles.rowBorder]}
+              >
+                <Text style={styles.missionId}>
+                  {inr(row.receivable.billed_amount)} billed · {inr(row.collected)} received ·{" "}
+                  {inr(row.outstanding)} due
+                  {row.receivable.operational_trip_id
+                    ? ` · trip ${row.receivable.operational_trip_id.slice(0, 8)}`
+                    : ""}
+                </Text>
+              </View>
+            ))}
+          </View>
           <Text style={styles.sectionTitle}>Billed versions</Text>
           <View style={styles.table}>
             {bookVersions.length === 0 ? (

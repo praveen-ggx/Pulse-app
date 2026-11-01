@@ -1,7 +1,20 @@
 import {
   acknowledgeDcoSelfOutbox,
+  cancelDcoSelfOutbox,
+  listPendingDcoSelfOutbox,
+  markDcoSelfOutboxAttempted,
+  rejectDcoSelfOutbox,
   rememberDcoSelfOutbox,
 } from "@/features/dco-self/offline/dcoSelfOutbox";
+import { isDcoSelfTransportError } from "@/features/dco-self/offline/dcoSelfOffline.util";
+import {
+  cancelLocalDcoSelfTripTag,
+  listLocalDcoSelfTripTags,
+  mergeDcoSelfParties,
+  rememberLocalDcoSelfParty,
+  rememberLocalDcoSelfTripTag,
+} from "@/features/dco-self/offline/dcoSelfLocalBook";
+import { flushDcoSelfOutbox } from "@/features/dco-self/offline/dcoSelfSync";
 import { supabase } from "@/lib/supabase";
 
 export type DcoSelfParty = {
@@ -55,15 +68,40 @@ function rpcError(message: string): Error {
 export async function upsertDcoSelfParty(input: {
   name: string;
   phone?: string | null;
-}): Promise<{ error: Error | null; party: DcoSelfParty | null }> {
+}): Promise<{ error: Error | null; party: DcoSelfParty | null; pending?: boolean }> {
+  const name = String(input.name ?? "").trim();
+  if (!name) return { error: new Error("Enter a party name."), party: null };
+  const local = await rememberLocalDcoSelfParty(input);
+  const queued = await rememberDcoSelfOutbox({
+    kind: "upsert_party",
+    payload: {
+      localPartyId: local.localId,
+      partyBId: local.id,
+      name,
+      phone: input.phone ?? "",
+    },
+  });
+  await markDcoSelfOutboxAttempted(queued.id);
   const { data, error } = await supabase().rpc("upsert_dco_self_party" as never, {
-    p_name: input.name,
+    p_name: name,
     p_phone: input.phone ?? null,
   } as never);
-  if (error) return { error: rpcError(error.message), party: null };
+  if (error) {
+    if (isDcoSelfTransportError(error)) {
+      return { error: null, party: local, pending: true };
+    }
+    await rejectDcoSelfOutbox(queued.id, error.message);
+    return { error: rpcError(error.message), party: local, pending: true };
+  }
   const row = data as { id?: string; name?: string; phone?: string | null } | null;
-  if (!row?.id) return { error: new Error("Could not save party."), party: null };
-  return { error: null, party: { id: row.id, name: row.name || input.name, phone: row.phone } };
+  if (row?.id) await acknowledgeDcoSelfOutbox(queued.id);
+  return {
+    error: row?.id ? null : new Error("Could not save party."),
+    party: row?.id
+      ? { id: row.id, name: row.name || name, phone: row.phone }
+      : local,
+    pending: !row?.id,
+  };
 }
 
 export async function listDcoSelfParties(): Promise<{
@@ -74,15 +112,55 @@ export async function listDcoSelfParties(): Promise<{
     .from("dco_self_parties" as never)
     .select("id, name, phone")
     .order("created_at", { ascending: false });
-  if (error) return { error: rpcError(error.message), parties: [] };
-  return {
-    error: null,
-    parties: ((data as DcoSelfParty[] | null) ?? []).map((row) => ({
-      id: String(row.id),
-      name: String(row.name ?? "Party"),
-      phone: row.phone ?? null,
-    })),
-  };
+  if (error) {
+    if (isDcoSelfTransportError(error)) {
+      return { error: null, parties: await mergeDcoSelfParties([]) };
+    }
+    return { error: rpcError(error.message), parties: await mergeDcoSelfParties([]) };
+  }
+  const server = ((data as DcoSelfParty[] | null) ?? []).map((row) => ({
+    id: String(row.id),
+    name: String(row.name ?? "Party"),
+    phone: row.phone ?? null,
+  }));
+  return { error: null, parties: await mergeDcoSelfParties(server) };
+}
+
+/** Tag Party B on a trip without issuing Due. Local until Party B syncs. */
+export async function tagDcoSelfTrip(input: {
+  tripId: string;
+  partyBId: string;
+  partyName: string;
+}): Promise<{ error: Error | null; pending: boolean }> {
+  const tripId = String(input.tripId ?? "").trim();
+  const partyBId = String(input.partyBId ?? "").trim();
+  if (!tripId) return { error: new Error("Missing trip."), pending: false };
+  if (!partyBId) return { error: new Error("Select Party B."), pending: false };
+  await rememberLocalDcoSelfTripTag({
+    tripId,
+    partyBId,
+    partyName: input.partyName,
+  });
+  await rememberDcoSelfOutbox({
+    kind: "tag",
+    payload: { tripId, partyBId, name: input.partyName },
+  });
+  const flushed = await flushDcoSelfOutbox();
+  const tag = (await listLocalDcoSelfTripTags()).find((row) => row.tripId === tripId);
+  if (tag?.syncStatus === "rejected") {
+    return { error: new Error(tag.lastError || "Could not sync tag."), pending: true };
+  }
+  return { error: null, pending: flushed.offline || tag?.syncStatus !== "synced" };
+}
+
+export async function cancelDcoSelfTripTag(tripId: string): Promise<void> {
+  const pending = await listPendingDcoSelfOutbox();
+  await Promise.all(
+    pending
+      .filter((item) => item.kind === "tag" && String(item.payload.tripId ?? "") === tripId)
+      .map((item) => cancelDcoSelfOutbox(item.id)),
+  );
+  await cancelLocalDcoSelfTripTag(tripId);
 }
 
 export async function issueDcoSelfReceivable(input: {
@@ -91,7 +169,12 @@ export async function issueDcoSelfReceivable(input: {
   idempotencyKey: string;
   tripId?: string | null;
   partyALabel?: string | null;
-}): Promise<{ error: Error | null; receivableId: string | null; replayed: boolean }> {
+}): Promise<{
+  error: Error | null;
+  receivableId: string | null;
+  replayed: boolean;
+  pending?: boolean;
+}> {
   const remembered = await rememberDcoSelfOutbox({
     kind: "issue",
     idempotencyKey: input.idempotencyKey,
@@ -99,8 +182,10 @@ export async function issueDcoSelfReceivable(input: {
       partyBId: input.partyBId,
       billed: Math.round(input.billed),
       tripId: input.tripId ?? "",
+      partyALabel: input.partyALabel ?? "",
     },
   });
+  await markDcoSelfOutboxAttempted(remembered.id);
   const { data, error } = await supabase().rpc("issue_dco_self_receivable" as never, {
     p_party_b_id: input.partyBId,
     p_billed: Math.round(input.billed),
@@ -108,7 +193,13 @@ export async function issueDcoSelfReceivable(input: {
     p_trip_id: input.tripId ?? null,
     p_party_a_label: input.partyALabel ?? null,
   } as never);
-  if (error) return { error: rpcError(error.message), receivableId: null, replayed: false };
+  if (error) {
+    if (isDcoSelfTransportError(error)) {
+      return { error: null, receivableId: null, replayed: false, pending: true };
+    }
+    await rejectDcoSelfOutbox(remembered.id, error.message);
+    return { error: rpcError(error.message), receivableId: null, replayed: false, pending: true };
+  }
   await acknowledgeDcoSelfOutbox(remembered.id);
   const row = data as { id?: string; replayed?: boolean } | null;
   return { error: null, receivableId: row?.id ?? null, replayed: row?.replayed === true };
@@ -121,7 +212,7 @@ export async function collectDcoSelfReceivable(input: {
   idempotencyKey: string;
   reference?: string | null;
   paidOn?: string | null;
-}): Promise<{ error: Error | null; replayed: boolean }> {
+}): Promise<{ error: Error | null; replayed: boolean; pending?: boolean }> {
   const remembered = await rememberDcoSelfOutbox({
     kind: "collect",
     idempotencyKey: input.idempotencyKey,
@@ -133,6 +224,7 @@ export async function collectDcoSelfReceivable(input: {
       paidOn: input.paidOn ?? "",
     },
   });
+  await markDcoSelfOutboxAttempted(remembered.id);
   const { data, error } = await supabase().rpc("collect_dco_self_receivable" as never, {
     p_receivable_id: input.receivableId,
     p_amount: Math.round(input.amount),
@@ -141,10 +233,25 @@ export async function collectDcoSelfReceivable(input: {
     p_reference: input.reference ?? null,
     p_paid_on: input.paidOn ?? null,
   } as never);
-  if (error) return { error: rpcError(error.message), replayed: false };
+  if (error) {
+    if (isDcoSelfTransportError(error)) {
+      return { error: null, replayed: false, pending: true };
+    }
+    await rejectDcoSelfOutbox(remembered.id, error.message);
+    return { error: rpcError(error.message), replayed: false, pending: true };
+  }
   await acknowledgeDcoSelfOutbox(remembered.id);
   const row = data as { replayed?: boolean } | null;
   return { error: null, replayed: row?.replayed === true };
+}
+
+export async function listPendingDcoSelfCollections(receivableId?: string | null) {
+  const pending = await listPendingDcoSelfOutbox();
+  return pending.filter((item) => {
+    if (item.kind !== "collect") return false;
+    if (!receivableId) return true;
+    return String(item.payload.receivableId ?? "") === receivableId;
+  });
 }
 
 export type DcoSelfReceivableVersion = {
@@ -224,16 +331,42 @@ export async function correctDcoSelfReceivable(input: {
   billed: number;
   idempotencyKey: string;
   reason?: string | null;
-}): Promise<{ error: Error | null; replayed: boolean }> {
+}): Promise<{ error: Error | null; replayed: boolean; pending?: boolean }> {
+  const remembered = await rememberDcoSelfOutbox({
+    kind: "correct",
+    idempotencyKey: input.idempotencyKey,
+    payload: {
+      receivableId: input.receivableId,
+      billed: Math.round(input.billed),
+      reason: input.reason ?? "",
+    },
+  });
+  await markDcoSelfOutboxAttempted(remembered.id);
   const { data, error } = await supabase().rpc("correct_dco_self_receivable" as never, {
     p_receivable_id: input.receivableId,
     p_billed: Math.round(input.billed),
-    p_idempotency_key: input.idempotencyKey,
+    p_idempotency_key: remembered.idempotencyKey,
     p_reason: input.reason ?? null,
   } as never);
-  if (error) return { error: rpcError(error.message), replayed: false };
+  if (error) {
+    if (isDcoSelfTransportError(error)) {
+      return { error: null, replayed: false, pending: true };
+    }
+    await rejectDcoSelfOutbox(remembered.id, error.message);
+    return { error: rpcError(error.message), replayed: false, pending: true };
+  }
+  await acknowledgeDcoSelfOutbox(remembered.id);
   const row = data as { replayed?: boolean } | null;
   return { error: null, replayed: row?.replayed === true };
+}
+
+export async function updateDcoSelfParty(input: {
+  partyBId: string;
+  name: string;
+  phone?: string | null;
+}): Promise<{ error: Error | null; party: DcoSelfParty | null; pending?: boolean }> {
+  // Same upsert RPC; server matches by name/phone within workspace.
+  return upsertDcoSelfParty({ name: input.name, phone: input.phone });
 }
 
 export async function listDcoSelfCollections(receivableId: string): Promise<{
@@ -259,6 +392,41 @@ export function outstandingForReceivable(
 
 export function dcoSelfIssueKey(tripId: string): string {
   return `dco-self-issue:${tripId.trim()}`;
+}
+
+export type DcoSelfFinanceReceivableRow = {
+  receivable_id: string;
+  party_b_id: string;
+  party_name: string;
+  billed_amount: number;
+  collected: number;
+  outstanding: number;
+  status: string;
+  operational_trip_id: string | null;
+  party_a_label: string | null;
+  issued_at: string | null;
+  billed_version: number;
+};
+
+/** Finance read helper — caller Self workspace only; empty when not eligible. */
+export async function listDcoSelfFinanceReceivables(): Promise<{
+  error: Error | null;
+  rows: DcoSelfFinanceReceivableRow[];
+}> {
+  const { data, error } = await supabase().rpc(
+    "list_dco_self_finance_receivables" as never,
+  );
+  if (error) return { error: rpcError(error.message), rows: [] };
+  return {
+    error: null,
+    rows: ((data as DcoSelfFinanceReceivableRow[] | null) ?? []).map((row) => ({
+      ...row,
+      billed_amount: Math.round(Number(row.billed_amount) || 0),
+      collected: Math.round(Number(row.collected) || 0),
+      outstanding: Math.round(Number(row.outstanding) || 0),
+      billed_version: Math.round(Number(row.billed_version) || 0),
+    })),
+  };
 }
 
 export async function getDcoSelfReceivableForTrip(tripId: string): Promise<{

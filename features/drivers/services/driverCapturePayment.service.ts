@@ -3,6 +3,10 @@ import {
   getDcoSelfReceivableForTrip,
 } from "@/features/dco-self/services/dcoSelfReceivable.service";
 import {
+  collectDriverIndieReceivable,
+  getDriverIndieReceivableForTrip,
+} from "@/features/driver-indie/services/driverIndieReceivable.service";
+import {
   createDriverLedgerEntry,
   findDriverLedgerByReference,
 } from "@/features/drivers/services/drivers.service";
@@ -24,7 +28,7 @@ export async function captureDriverTripPayment(input: {
   reference?: string | null;
   paidOn?: string | null;
   lane: DriverCaptureLane;
-  book?: "dco_self" | "employer";
+  book?: "dco_self" | "driver_indie" | "employer";
   driverId: string;
   createdBy: string | null;
   tripDisplay: string;
@@ -48,13 +52,41 @@ export async function captureDriverTripPayment(input: {
       ? claimMarketplaceOnce(input, amount, key)
       : input.book === "dco_self"
         ? collectSelfOnce(input, amount, key)
-        : insertLedgerOnce(input, amount, key);
+        : input.book === "driver_indie"
+          ? collectIndieOnce(input, amount, key)
+          : insertLedgerOnce(input, amount, key);
   inFlight.set(key, run);
   try {
     return await run;
   } finally {
     if (inFlight.get(key) === run) inFlight.delete(key);
   }
+}
+
+async function collectIndieOnce(
+  input: {
+    trip: Pick<TripRow, "id">;
+    paymentModeId: string;
+    reference?: string | null;
+    paidOn?: string | null;
+  },
+  amount: number,
+  key: string,
+): Promise<{ error: Error | null }> {
+  const found = await getDriverIndieReceivableForTrip(input.trip.id);
+  if (found.error) return { error: found.error };
+  if (!found.receivable?.id) {
+    return { error: new Error("Issue the receivable before collecting.") };
+  }
+  const { error } = await collectDriverIndieReceivable({
+    receivableId: found.receivable.id,
+    amount,
+    paymentMode: input.paymentModeId,
+    idempotencyKey: key,
+    reference: input.reference ?? null,
+    paidOn: input.paidOn ?? null,
+  });
+  return { error };
 }
 
 async function collectSelfOnce(

@@ -18,8 +18,18 @@ import {
   dcoSelfIssueKey,
   issueDcoSelfReceivable,
   listDcoSelfParties,
+  tagDcoSelfTrip,
   upsertDcoSelfParty,
 } from "@/features/dco-self/services/dcoSelfReceivable.service";
+import { useDcoSelfOutboxFlush } from "@/features/dco-self/hooks/useDcoSelfOutboxFlush";
+import {
+  driverIndieIssueKey,
+  issueDriverIndieReceivable,
+  listDriverIndieParties,
+  tagDriverIndieTrip,
+  upsertDriverIndieParty,
+} from "@/features/driver-indie/services/driverIndieReceivable.service";
+import { useDriverIndieOutboxFlush } from "@/features/driver-indie/hooks/useDriverIndieOutboxFlush";
 import { ensureDcoWorkspace } from "@/features/organization/services/organization.service";
 import {
   driverBodySecondary,
@@ -57,7 +67,15 @@ function param(value: string | string[] | undefined): string {
 
 export default function DriverAddClientScreen() {
   const onBack = useSafeBack(ROUTES.driverWalletSelf());
-  const { canAddDcoShippers, canTagOfflineParty, isLoading: modeLoading } = useDriverOperatingModeQuery();
+  const {
+    canAddDcoShippers,
+    canManageDcoSelfBook,
+    canManageIndieBook,
+    canTagOfflineParty,
+    isLoading: modeLoading,
+  } = useDriverOperatingModeQuery();
+  useDcoSelfOutboxFlush(canManageDcoSelfBook);
+  useDriverIndieOutboxFlush(canManageIndieBook);
   const queryClient = useQueryClient();
   const params = useLocalSearchParams<{ tripId?: string; partyName?: string }>();
   const tripId = param(params.tripId);
@@ -118,6 +136,13 @@ export default function DriverAddClientScreen() {
     setLoading(true);
     setWorkspaceError(null);
     try {
+      if (canManageIndieBook && !canManageDcoSelfBook) {
+        setOrg(null);
+        const { error, parties } = await listDriverIndieParties();
+        if (error) setWorkspaceError(error.message);
+        setExistingParties(parties);
+        return;
+      }
       const { organization, error: ensureError } = await ensureDcoWorkspace();
       if (!organization?.id) {
         setOrg(null);
@@ -136,7 +161,7 @@ export default function DriverAddClientScreen() {
     } finally {
       setLoading(false);
     }
-  }, [canTagOfflineParty]);
+  }, [canManageDcoSelfBook, canManageIndieBook, canTagOfflineParty]);
 
   useEffect(() => {
     void loadOrg();
@@ -157,23 +182,49 @@ export default function DriverAddClientScreen() {
   const finishWithClient = useCallback(
     async (client: { id: string; name: string }, billed?: number | null) => {
       if (!tripId) return { error: null as Error | null };
-      const amount = billed != null && billed > 0 ? billed : currentBilled;
-      if (amount <= 0) {
-        return { error: new Error("Enter the amount due before issuing.") };
+      // Tag never creates Due. Issue only when an amount is explicitly provided.
+      if (canManageIndieBook && !canManageDcoSelfBook) {
+        const tagged = await tagDriverIndieTrip({
+          tripId,
+          partyId: client.id,
+          partyName: client.name,
+        });
+        if (tagged.error) return { error: tagged.error };
+        const amount = billed != null && billed > 0 ? billed : 0;
+        if (amount > 0) {
+          const issued = await issueDriverIndieReceivable({
+            partyId: client.id,
+            billed: amount,
+            idempotencyKey: driverIndieIssueKey(tripId),
+            tripId,
+            partyLabel: client.name,
+          });
+          if (issued.error) return { error: issued.error };
+        }
+      } else {
+        const tagged = await tagDcoSelfTrip({
+          tripId,
+          partyBId: client.id,
+          partyName: client.name,
+        });
+        if (tagged.error) return { error: tagged.error };
+        const amount = billed != null && billed > 0 ? billed : 0;
+        if (amount > 0) {
+          const issued = await issueDcoSelfReceivable({
+            partyBId: client.id,
+            billed: amount,
+            idempotencyKey: dcoSelfIssueKey(tripId),
+            tripId,
+            partyALabel: client.name,
+          });
+          if (issued.error) return { error: issued.error };
+        }
       }
-      const { error } = await issueDcoSelfReceivable({
-        partyBId: client.id,
-        billed: amount,
-        idempotencyKey: dcoSelfIssueKey(tripId),
-        tripId,
-        partyALabel: client.name,
-      });
-      if (error) return { error };
       await queryClient.invalidateQueries({ queryKey: ["q", "trips"] });
       await queryClient.invalidateQueries({ queryKey: queryKeys.trips.detail(tripId) });
       return { error: null as Error | null };
     },
-    [currentBilled, queryClient, tripId],
+    [canManageDcoSelfBook, canManageIndieBook, queryClient, tripId],
   );
 
   const handleClose = useCallback(() => {
@@ -208,11 +259,15 @@ export default function DriverAddClientScreen() {
 
   const handleComplete = useCallback(
     async (data: AddClientFormData) => {
-      const { error, party } = await upsertDcoSelfParty({
-        name: data.organizationName || data.contactPerson || "Party",
-        phone: data.phone,
-      });
-      if (error || !party) throw error ?? new Error("Could not save party.");
+      const name = data.organizationName || data.contactPerson || "Party";
+      const created =
+        canManageIndieBook && !canManageDcoSelfBook
+          ? await upsertDriverIndieParty({ name, phone: data.phone })
+          : await upsertDcoSelfParty({ name, phone: data.phone });
+      if (created.error || !created.party) {
+        throw created.error ?? new Error("Could not save party.");
+      }
+      const party = created.party;
       setCreatedSuccess(true);
       if (tripId && !isShipperParty(party.name)) {
         beginTag(party);
@@ -222,7 +277,14 @@ export default function DriverAddClientScreen() {
         setSuccessParty(party);
       }
     },
-    [beginTag, finishWithClient, isShipperParty, tripId],
+    [
+      beginTag,
+      canManageDcoSelfBook,
+      canManageIndieBook,
+      finishWithClient,
+      isShipperParty,
+      tripId,
+    ],
   );
 
   const searchInviteeByPhone = useCallback(

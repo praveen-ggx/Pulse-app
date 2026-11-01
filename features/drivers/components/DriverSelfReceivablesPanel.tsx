@@ -19,11 +19,16 @@ import {
   listDcoSelfReceivableBook,
 } from "@/features/dco-self/services/dcoSelfReceivable.service";
 import {
+  listDriverIndieParties,
+  listDriverIndieReceivableBook,
+} from "@/features/driver-indie/services/driverIndieReceivable.service";
+import {
   type DriverPartyReceivable,
   buildDriverPartyReceivablesFromBook,
   summarizeDriverPartyReceivables,
 } from "@/features/drivers/utils/driverPartyReceivables.util";
 import { useAuth } from "@/contexts/AuthContext";
+import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { queryKeys } from "@/lib/queryKeys";
 import { ROUTES } from "@/lib/routes";
@@ -53,7 +58,7 @@ type Props = {
   isFleetDispatched: (trip: TripRow) => boolean;
   colors: Colors;
   isDark: boolean;
-  audience?: "dco" | "offline";
+  audience?: "dco" | "offline" | "indie";
 };
 
 export function DriverSelfReceivablesPanel({
@@ -67,11 +72,47 @@ export function DriverSelfReceivablesPanel({
 }: Props) {
   const router = useRouter();
   const { profile } = useAuth();
-  const useBook = audience === "dco";
+  const { canManageDcoSelfBook, canManageIndieBook } = useDriverOperatingModeQuery();
+  const bookKind =
+    audience === "indie" || (audience === "dco" && canManageIndieBook && !canManageDcoSelfBook)
+      ? "indie"
+      : audience === "dco" && canManageDcoSelfBook
+        ? "dco"
+        : "trip";
+  const useBook = bookKind !== "trip";
   const bookQuery = useQuery({
-    queryKey: queryKeys.driverApp.dcoSelfReceivables(profile?.uid ?? ""),
+    queryKey: [
+      ...queryKeys.driverApp.dcoSelfReceivables(profile?.uid ?? ""),
+      bookKind,
+    ],
     enabled: useBook && !!profile?.uid,
     queryFn: async () => {
+      if (bookKind === "indie") {
+        const [book, parties] = await Promise.all([
+          listDriverIndieReceivableBook(),
+          listDriverIndieParties(),
+        ]);
+        if (book.error) throw book.error;
+        if (parties.error) throw parties.error;
+        return {
+          rows: book.rows.map((row) => ({
+            receivable: {
+              id: row.receivable.id,
+              workspace_id: row.receivable.owner_user_id,
+              party_b_id: row.receivable.party_id,
+              billed_amount: row.receivable.billed_amount,
+              billed_version: row.receivable.billed_version,
+              status: row.receivable.status,
+              operational_trip_id: row.receivable.operational_trip_id,
+              party_a_label: row.receivable.party_label,
+              issued_at: row.receivable.issued_at,
+            },
+            collected: row.collected,
+            outstanding: row.outstanding,
+          })),
+          parties: parties.parties,
+        };
+      }
       const [book, parties] = await Promise.all([listDcoSelfReceivableBook(), listDcoSelfParties()]);
       if (book.error) throw book.error;
       if (parties.error) throw parties.error;
@@ -191,7 +232,7 @@ export function DriverSelfReceivablesPanel({
         >
           {partyRows.map((row, idx) => {
             const unpaid = row.due > 0;
-            const isLast = idx === rows.length - 1;
+            const isLast = idx === partyRows.length - 1;
             const avatar = avatarByPartyId[row.id] ?? EMPTY_DRIVER_PARTY_AVATAR;
             return (
               <TouchableOpacity

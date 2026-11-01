@@ -84,9 +84,7 @@ export function canManageOwnerVehicles(m: DriverOperatingMode): boolean {
 }
 
 /**
- * Shipper CRM (add/pick offline client) is DCO-only. A plain driver has two
- * trip books — fleet employer assignments and their own offline work — and
- * never creates parties.
+ * DCO Self shipper CRM / Party B book. Employees and independents never get this.
  */
 export function canAddDcoShippers(m: DriverOperatingMode): boolean {
   return canManageOwnerVehicles(m);
@@ -97,9 +95,25 @@ export function canManageDcoSelfBook(m: DriverOperatingMode): boolean {
   return canAddDcoShippers(m);
 }
 
-/** Offline party issue: DCO Self only. Employees and independents stay on the employer book. */
+/**
+ * Independent DRIVER book — separate from DCO Self and employer ledger.
+ * Plain DRIVER who is not an active fleet employee.
+ */
+export function canManageIndieBook(m: DriverOperatingMode): boolean {
+  return m.mode === 'DRIVER' && !m.isEmployeeDriver;
+}
+
+/**
+ * Offline customer tagging / capture entry.
+ * DCO → Self book. Independent DRIVER → indie book. Employees attribute to employer.
+ */
 export function canTagOfflineParty(m: DriverOperatingMode): boolean {
-  return canManageDcoSelfBook(m);
+  return canManageDcoSelfBook(m) || canManageIndieBook(m);
+}
+
+/** Fleet employee attribution path (Control / History). */
+export function canAttributeToEmployer(m: DriverOperatingMode): boolean {
+  return m.mode === 'DRIVER' && m.isEmployeeDriver;
 }
 
 type RelationshipRow = {

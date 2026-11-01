@@ -1,8 +1,15 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const STORAGE_KEY = "pulse.dco_self_outbox.v1";
+/** v2 — party_b_id / paymentMode payloads. Do not read PR #65 v1 drafts. */
+const STORAGE_KEY = "pulse.dco_self_outbox.v2";
 
-export type DcoSelfOutboxKind = "issue" | "correct" | "collect";
+export type DcoSelfOutboxKind =
+  | "upsert_party"
+  | "tag"
+  | "issue"
+  | "correct"
+  | "collect"
+  | "exchange_claim";
 
 export type DcoSelfOutboxItem = {
   id: string;
@@ -12,14 +19,27 @@ export type DcoSelfOutboxItem = {
   createdAt: string;
   lastAttemptAt: string | null;
   acknowledgedAt: string | null;
+  lastError: string | null;
+};
+
+const KIND_ORDER: Record<DcoSelfOutboxKind, number> = {
+  upsert_party: 0,
+  tag: 1,
+  issue: 2,
+  correct: 3,
+  collect: 4,
+  exchange_claim: 5,
 };
 
 function fingerprint(kind: DcoSelfOutboxKind, payload: Record<string, unknown>): string {
   return [
     kind,
     String(payload.partyBId ?? ""),
+    String(payload.localPartyId ?? ""),
     String(payload.receivableId ?? ""),
     String(payload.tripId ?? ""),
+    String(payload.name ?? ""),
+    String(payload.phone ?? ""),
     String(payload.amount ?? ""),
     String(payload.billed ?? ""),
     String(payload.paymentMode ?? ""),
@@ -65,17 +85,71 @@ export async function rememberDcoSelfOutbox(input: {
     createdAt: new Date().toISOString(),
     lastAttemptAt: null,
     acknowledgedAt: null,
+    lastError: null,
   };
   items.push(next);
   await writeAll(items);
   return next;
 }
 
+export async function markDcoSelfOutboxAttempted(id: string): Promise<void> {
+  const items = await readAll();
+  await writeAll(
+    items.map((item) =>
+      item.id === id ? { ...item, lastAttemptAt: new Date().toISOString() } : item,
+    ),
+  );
+}
+
 export async function acknowledgeDcoSelfOutbox(id: string): Promise<void> {
   const items = await readAll();
   await writeAll(
     items.map((item) =>
-      item.id === id ? { ...item, acknowledgedAt: new Date().toISOString() } : item,
+      item.id === id
+        ? { ...item, acknowledgedAt: new Date().toISOString(), lastError: null }
+        : item,
     ),
   );
+}
+
+export async function rejectDcoSelfOutbox(id: string, message: string): Promise<void> {
+  const items = await readAll();
+  await writeAll(
+    items.map((item) =>
+      item.id === id
+        ? { ...item, lastAttemptAt: new Date().toISOString(), lastError: message }
+        : item,
+    ),
+  );
+}
+
+export async function cancelDcoSelfOutbox(id: string): Promise<void> {
+  const items = await readAll();
+  await writeAll(items.filter((item) => item.id !== id));
+}
+
+export async function updateDcoSelfOutboxPayload(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<DcoSelfOutboxItem | null> {
+  const items = await readAll();
+  let updated: DcoSelfOutboxItem | null = null;
+  await writeAll(
+    items.map((item) => {
+      if (item.id !== id || item.acknowledgedAt) return item;
+      updated = { ...item, payload, lastError: null };
+      return updated;
+    }),
+  );
+  return updated;
+}
+
+export async function listPendingDcoSelfOutbox(): Promise<DcoSelfOutboxItem[]> {
+  const items = await readAll();
+  return items
+    .filter((item) => !item.acknowledgedAt)
+    .sort(
+      (a, b) =>
+        KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || a.createdAt.localeCompare(b.createdAt),
+    );
 }

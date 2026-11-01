@@ -1810,6 +1810,10 @@ export default function DriverWalletScreen() {
     return { count: items.length, earned: Math.round(earned), pending: Math.round(pending) };
   }, [offlineJourneyItems]);
 
+  const openOfflineTrips = useCallback(() => {
+    router.push({ pathname: '/(driver)/trip-history', params: { type: 'offline' } } as Parameters<typeof router.push>[0]);
+  }, [router]);
+
   const openOfflineReceivable = useCallback(() => {
     const first = selfPartyReceivables[0];
     const untagged = selfPartyReceivables.find((row) => row.id === UNTAGGED_PARTY_ID);
@@ -1818,8 +1822,8 @@ export default function DriverWalletScreen() {
       router.push(ROUTES.driverPartyReceivable(target.id) as Parameters<typeof router.push>[0]);
       return;
     }
-    router.push({ pathname: '/(driver)/trip-history', params: { type: 'offline' } } as Parameters<typeof router.push>[0]);
-  }, [router, selfPartyReceivables]);
+    openOfflineTrips();
+  }, [openOfflineTrips, router, selfPartyReceivables]);
 
   const pastLinkedDrivers = useMemo(
     () =>
@@ -3255,10 +3259,10 @@ export default function DriverWalletScreen() {
           >
             <TouchableOpacity
               style={styles.offlineTripsHeader}
-              onPress={openOfflineReceivable}
+              onPress={openOfflineTrips}
               activeOpacity={0.85}
               accessibilityRole="button"
-              accessibilityLabel="Offline trips receivables"
+              accessibilityLabel="Offline trip history"
             >
               <View style={styles.fleetCardTopLeft}>
                 <View
@@ -3392,7 +3396,9 @@ export default function DriverWalletScreen() {
                 { backgroundColor: '#3730a3', shadowColor: isDark ? '#000' : 'rgba(55,48,163,0.35)' },
               ]}
               activeOpacity={0.85}
-              onPress={openOfflineReceivable}
+              onPress={openOfflineTrips}
+              accessibilityRole="button"
+              accessibilityLabel="View offline trips"
             >
               <View style={styles.fleetPrimaryButtonLeft}>
                 <View style={[styles.fleetPrimaryRing, { borderColor: '#818cf8' }]}>
@@ -3401,6 +3407,35 @@ export default function DriverWalletScreen() {
                 <Text style={[styles.fleetPrimaryButtonText, { color: Theme.textOnPrimary }]}>View offline trips</Text>
               </View>
               <FontAwesome name="chevron-right" size={12} color={Theme.textOnPrimary} style={styles.fleetPrimaryButtonArrow} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.fleetPrimaryButtonNew,
+                {
+                  marginTop: 8,
+                  backgroundColor: isDark ? 'rgba(16,185,129,0.22)' : 'rgba(16,185,129,0.12)',
+                  shadowColor: isDark ? '#000' : 'rgba(16,185,129,0.18)',
+                },
+              ]}
+              activeOpacity={0.85}
+              onPress={openOfflineReceivable}
+              accessibilityRole="button"
+              accessibilityLabel="View receivable history"
+            >
+              <View style={styles.fleetPrimaryButtonLeft}>
+                <View style={[styles.fleetPrimaryRing, { borderColor: Theme.driverEmerald }]}>
+                  <View style={[styles.fleetPrimaryRingDot, { backgroundColor: Theme.driverEmerald }]} />
+                </View>
+                <Text style={[styles.fleetPrimaryButtonText, { color: isDark ? Theme.textOnPrimary : Theme.driverEmerald }]}>
+                  View receivable history
+                </Text>
+              </View>
+              <FontAwesome
+                name="chevron-right"
+                size={12}
+                color={isDark ? Theme.textOnPrimary : Theme.driverEmerald}
+                style={styles.fleetPrimaryButtonArrow}
+              />
             </TouchableOpacity>
           </View>
 

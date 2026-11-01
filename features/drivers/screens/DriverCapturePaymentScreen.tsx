@@ -63,7 +63,8 @@ export default function DriverCapturePaymentScreen() {
   const router = useRouter();
   const onBack = useSafeBack(ROUTES.driverWalletSelf());
   const { profile } = useAuth();
-  const { canManageDcoSelfBook, canTagOfflineParty } = useDriverOperatingModeQuery();
+  const { canManageDcoSelfBook, canManageIndieBook, canTagOfflineParty } =
+    useDriverOperatingModeQuery();
   const params = useLocalSearchParams<{
     tripId?: string;
     due?: string;
@@ -85,6 +86,7 @@ export default function DriverCapturePaymentScreen() {
   const [driverId, setDriverId] = useState<string | null>(null);
   const [isFleetLinked, setIsFleetLinked] = useState(false);
   const [selfReceivableId, setSelfReceivableId] = useState<string | null>(null);
+  const [indieReceivableId, setIndieReceivableId] = useState<string | null>(null);
   const [amount, setAmount] = useState(
     dueHint > 0 ? formatLedgerAmountInput(dueHint) : "",
   );
@@ -130,13 +132,22 @@ export default function DriverCapturePaymentScreen() {
       if (nextTrip?.id && canManageDcoSelfBook) {
         const found = await getDcoSelfReceivableForTrip(nextTrip.id);
         setSelfReceivableId(found.receivable?.id ?? null);
+        setIndieReceivableId(null);
+      } else if (nextTrip?.id && canManageIndieBook) {
+        const { getDriverIndieReceivableForTrip } = await import(
+          "@/features/driver-indie/services/driverIndieReceivable.service"
+        );
+        const found = await getDriverIndieReceivableForTrip(nextTrip.id);
+        setIndieReceivableId(found.receivable?.id ?? null);
+        setSelfReceivableId(null);
       } else {
         setSelfReceivableId(null);
+        setIndieReceivableId(null);
       }
     } finally {
       setLoading(false);
     }
-  }, [canManageDcoSelfBook, profile?.uid, tripId]);
+  }, [canManageDcoSelfBook, canManageIndieBook, profile?.uid, tripId]);
 
   useEffect(() => {
     void load();
@@ -162,17 +173,22 @@ export default function DriverCapturePaymentScreen() {
           ? tripReceivablePartyName(trip)
           : partyHint || (trip ? tripReceivablePartyName(trip) : "Party");
   const useSelfBook = canManageDcoSelfBook && lane === "shipper";
+  const useIndieBook = canManageIndieBook && !canManageDcoSelfBook && lane === "shipper";
   const needsPartyTag =
     canTagOfflineParty &&
     lane === "shipper" &&
     !!trip &&
-    (useSelfBook ? !selfReceivableId : !isTripTaggedToParty(trip));
+    (useSelfBook
+      ? !selfReceivableId
+      : useIndieBook
+        ? !indieReceivableId
+        : !isTripTaggedToParty(trip));
   const amountNum = Math.round(Number(String(amount).replace(/,/g, "")) || 0);
   const cap = dueHint > 0 ? dueHint : amountNum;
   const isCash = modeId === "CASH";
   const canSubmit =
     !!trip &&
-    (useSelfBook || !!driverId) &&
+    (useSelfBook || useIndieBook || !!driverId) &&
     !needsPartyTag &&
     amountNum > 0 &&
     (dueHint <= 0 || amountNum <= dueHint) &&
@@ -197,7 +213,11 @@ export default function DriverCapturePaymentScreen() {
         reference,
         paidOn,
         lane,
-        book: useSelfBook ? "dco_self" : "employer",
+        book: useSelfBook
+          ? "dco_self"
+          : useIndieBook
+            ? "driver_indie"
+            : "employer",
         driverId,
         createdBy: profile?.uid ?? null,
         tripDisplay,
@@ -230,6 +250,7 @@ export default function DriverCapturePaymentScreen() {
     router,
     trip,
     tripDisplay,
+    useIndieBook,
     useSelfBook,
   ]);
 

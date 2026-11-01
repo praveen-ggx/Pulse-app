@@ -2,7 +2,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import {
   DEFAULT_DRIVER_OPERATING_MODE,
   canAddDcoShippers,
+  canAttributeToEmployer,
   canManageDcoSelfBook,
+  canManageIndieBook,
   canTagOfflineParty,
   canManageOwnerVehicles,
   isDcoOperatingMode,
@@ -55,6 +57,8 @@ export function useDriverOperatingModeQuery(userId?: string | null) {
     canManageOwnerVehicles: ready && canManageOwnerVehicles(operatingMode),
     canAddDcoShippers: ready && canAddDcoShippers(operatingMode),
     canManageDcoSelfBook: ready && canManageDcoSelfBook(operatingMode),
+    canManageIndieBook: ready && canManageIndieBook(operatingMode),
+    canAttributeToEmployer: ready && canAttributeToEmployer(operatingMode),
     canTagOfflineParty: ready && canTagOfflineParty(operatingMode),
     marketplaceAllowed: ready && operatingMode.marketplaceAllowed,
     invalidate,

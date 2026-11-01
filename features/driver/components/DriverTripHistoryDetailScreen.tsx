@@ -21,12 +21,14 @@ import { withWebSafeShadows } from "@/lib/platformViewStyle.util";
 import { getOptimalRoute } from "@/lib/routingService";
 import * as tripDocumentsService from "@/features/trips/services/tripDocuments.service";
 import * as driversService from "@/features/drivers/services/drivers.service";
+import * as salaryRequestsService from "@/features/drivers/services/salaryRequests.service";
 import * as tripsService from "@/features/trips/services/trips.service";
 import {
   isTripTaggedToParty,
   tripNeedsPartyTag,
   tripReceivablePartyName,
 } from "@/features/drivers/utils/driverPartyReceivables.util";
+import { resolveDriverTripPayoutTerms } from "@/features/drivers/utils/driverUtils.util";
 import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import { ROUTES } from "@/lib/routes";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
@@ -49,6 +51,7 @@ import {
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  Alert,
   ScrollView,
   Image,
   Share,
@@ -272,6 +275,10 @@ export function DriverTripHistoryDetailScreen({
 
   const { canTagOfflineParty } = useDriverOperatingModeQuery();
   const [linkedDriversFull, setLinkedDriversFull] = useState<driversService.DriverRow[]>([]);
+  const [attrSalaryRequests, setAttrSalaryRequests] = useState<
+    salaryRequestsService.SalaryRequestRow[]
+  >([]);
+  const [attributeLoading, setAttributeLoading] = useState(false);
 
   const tripRef = useRef<tripsService.TripRow | null>(null);
   tripRef.current = trip;
@@ -325,6 +332,14 @@ export function DriverTripHistoryDetailScreen({
         if (!mounted || inv.error) return;
         setInvites(inv.invites);
       });
+      const activeRows = allRows.filter((r) => !r.left_at);
+      if (activeRows.length > 0) {
+        void salaryRequestsService
+          .getSalaryRequestsByDriverIds(activeRows.map((r) => r.id))
+          .then((sRes) => {
+            if (mounted) setAttrSalaryRequests(sRes.requests ?? []);
+          });
+      }
     });
     return () => {
       mounted = false;
@@ -528,6 +543,80 @@ export function DriverTripHistoryDetailScreen({
     return historyEmployerOrgIdSet.has(String(trip.organization_id ?? ""));
   }, [trip, historyCurrentEmployer, historyEmployerOrgIdSet]);
 
+  const isTripHistoryAttributed = useMemo(() => {
+    if (!historyCurrentEmployer || !trip) return false;
+    return attrSalaryRequests.some(
+      (r) =>
+        r.request_type === "trip_based" &&
+        String(r.organization_id ?? "") === historyCurrentEmployer.orgId &&
+        (r.trip_ids ?? []).includes(trip.id),
+    );
+  }, [attrSalaryRequests, historyCurrentEmployer, trip]);
+
+  const handleHistoryAttributeTrip = useCallback(async () => {
+    if (!historyCurrentEmployer || !trip) return;
+    setAttributeLoading(true);
+    try {
+      const driverRow = linkedDriversFull.find(
+        (d) => d.id === historyCurrentEmployer.driverRowId,
+      );
+      const invite = invites.find(
+        (i) =>
+          String(i.status ?? "").toLowerCase() === "accepted" &&
+          String(i.from_organization_id ?? "") === historyCurrentEmployer.orgId,
+      );
+      const { hasAgreedPayoutTerms, commissionDetail } = resolveDriverTripPayoutTerms(trip, {
+        commissionPercent: invite?.commission_percent ?? driverRow?.commission_percent ?? null,
+        commissionPerKm: invite?.commission_per_km ?? driverRow?.commission_per_km ?? null,
+        payableAmount: invite?.payable_amount ?? driverRow?.payable_amount ?? null,
+      });
+      if (!hasAgreedPayoutTerms || commissionDetail.amount <= 0) {
+        Alert.alert(
+          "No agreed payout terms",
+          "This trip has no agreed payout terms and can't be attributed.",
+        );
+        return;
+      }
+      const earnings = Math.round(commissionDetail.amount);
+      const tripDate = trip.pickup_date ?? trip.started_at ?? trip.created_at ?? "";
+      const tripDateStr = tripDate
+        ? new Date(tripDate).toLocaleDateString("en-IN", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+          })
+        : "";
+      const tripRef = getDriverTripDisplayNumber(trip, driverTripNumberById);
+      const attrNote = [`Fleet trip · ${tripRef}`, tripDateStr, `₹${earnings.toLocaleString("en-IN")}`]
+        .filter(Boolean)
+        .join(" · ");
+      const { error } = await salaryRequestsService.createSalaryRequest(
+        historyCurrentEmployer.driverRowId,
+        historyCurrentEmployer.orgId,
+        "trip_based",
+        earnings,
+        { tripIds: [trip.id], note: attrNote, createdBy: profile?.uid ?? null },
+      );
+      if (error) {
+        Alert.alert("Error", error.message);
+      } else {
+        Alert.alert("Trip attributed", `Sent to ${historyCurrentEmployer.orgName} for review.`);
+        void salaryRequestsService
+          .getSalaryRequestsByDriverIds(linkedDriversFull.map((d) => d.id))
+          .then((sRes) => setAttrSalaryRequests(sRes.requests ?? []));
+      }
+    } finally {
+      setAttributeLoading(false);
+    }
+  }, [
+    historyCurrentEmployer,
+    trip,
+    driverTripNumberById,
+    linkedDriversFull,
+    invites,
+    profile?.uid,
+  ]);
+
   const onBack = () => {
     if (router.canGoBack()) router.back();
     else router.replace("/(driver)/trip-history");
@@ -551,7 +640,10 @@ export function DriverTripHistoryDetailScreen({
     !isTripHistoryFleet && isTripTaggedToParty(trip)
       ? tripReceivablePartyName(trip)
       : null;
-  const showTagPartyBar = detailTab === "settlement" && needsOfflinePartyTag;
+  const showHistoryAttributionBar =
+    detailTab === "settlement" && !isTripHistoryFleet && !!historyCurrentEmployer;
+  const showTagPartyBar =
+    detailTab === "settlement" && needsOfflinePartyTag && !showHistoryAttributionBar;
 
   return (
     <View
@@ -677,7 +769,7 @@ export function DriverTripHistoryDetailScreen({
                     Layout.modalBottomPadding +
                     insets.bottom +
                     Layout.tabBarDockHeight +
-                    (showTagPartyBar ? 88 : 0),
+                    (showTagPartyBar || showHistoryAttributionBar ? 88 : 0),
                   paddingTop: 16,
                 },
               ]}
@@ -1236,6 +1328,47 @@ export function DriverTripHistoryDetailScreen({
                 </>
               ) : null}
             </ScrollView>
+
+            {showHistoryAttributionBar ? (
+              <View
+                style={[
+                  histAttrStyles.stickyWrap,
+                  {
+                    bottom: Layout.tabBarDockHeight + 8,
+                    backgroundColor: colors.surface,
+                    borderTopColor: colors.border,
+                  },
+                ]}
+              >
+                <Text style={[histAttrStyles.label, { color: colors.textMuted }]}>
+                  Fleet attribution
+                </Text>
+                {isTripHistoryAttributed ? (
+                  <View style={histAttrStyles.doneBadge}>
+                    <FontAwesome name="check-circle" size={14} color="#d97706" />
+                    <Text style={histAttrStyles.doneBadgeText}>
+                      Sent to {historyCurrentEmployer?.orgName} for review
+                    </Text>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={[histAttrStyles.btn, { backgroundColor: "#fffbeb", borderColor: "#d97706" }]}
+                    onPress={() => void handleHistoryAttributeTrip()}
+                    disabled={attributeLoading}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Attribute to employer"
+                  >
+                    <FontAwesome name="building" size={13} color="#d97706" />
+                    <Text style={[histAttrStyles.btnText, { color: "#d97706" }]}>
+                      {attributeLoading
+                        ? "Attributing…"
+                        : `Attribute to ${historyCurrentEmployer?.orgName}`}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            ) : null}
 
             {showTagPartyBar ? (
               <View

@@ -257,6 +257,12 @@ export const SUPABASE_CIRCUIT_COOLDOWN_MS = 45_000;
 
 let circuitOpenUntilMs = 0;
 let halfOpenProbeInFlight = false;
+/** Bumped per admitted probe so a request can only release the probe it holds. */
+let probeGeneration = 0;
+/** NetInfo-reported device connectivity; null = unknown (treated as online). */
+let deviceOnline: boolean | null = null;
+let lastExpeditedProbeAtMs = 0;
+const circuitClosedListeners = new Set<() => void>();
 
 export type SupabaseHttpMetrics = {
   inFlight: number;
@@ -306,8 +312,20 @@ export function noteSupabaseOriginDown(code?: string): void {
 }
 
 export function noteSupabaseHealthy(): void {
+  const wasOpen = circuitOpenUntilMs !== 0;
   circuitOpenUntilMs = 0;
   halfOpenProbeInFlight = false;
+  if (wasOpen) {
+    for (const listener of circuitClosedListeners) listener();
+  }
+}
+
+/** Runs once each time the circuit closes after being open. Returns an unsubscribe. */
+export function onSupabaseCircuitClosed(listener: () => void): () => void {
+  circuitClosedListeners.add(listener);
+  return () => {
+    circuitClosedListeners.delete(listener);
+  };
 }
 
 /**
@@ -335,7 +353,24 @@ export function admitSupabaseRequest(now = Date.now()): SupabaseCircuitAdmission
     return 'reject';
   }
   halfOpenProbeInFlight = true;
+  probeGeneration += 1;
   return 'probe';
+}
+
+/** Generation of the probe admitted last; read right after admitSupabaseRequest(). */
+export function currentSupabaseProbeGeneration(): number {
+  return probeGeneration;
+}
+
+/**
+ * Let go of a probe without a verdict (aborted, timed out, queue-rejected, device
+ * offline). The circuit stays latched and the next request probes. Without this a
+ * probe that never got a response held `halfOpenProbeInFlight` forever and every
+ * request failed fast until something called resetSupabaseCircuit().
+ */
+export function releaseSupabaseCircuitProbe(generation: number): void {
+  if (generation !== probeGeneration) return;
+  halfOpenProbeInFlight = false;
 }
 
 export function finishSupabaseCircuitProbe(ok: boolean): void {
@@ -381,13 +416,54 @@ export function noteSupabaseOriginDownIfClientTimeout(
  */
 export function noteSupabaseOriginDownIfTransportFailure(error: unknown): boolean {
   if (!isBrowserTransportFailure(error)) return false;
+  // RN reports a dead zone as "Network request failed" — that is the device, not
+  // the origin. Opening the shared circuit would fail every request for 45s after
+  // the signal returns.
+  if (isDeviceKnownOffline()) return false;
   noteSupabaseOriginDown();
+  return true;
+}
+
+/** Fed from NetInfo by NetworkProvider. null = unknown. */
+export function setSupabaseDeviceConnectivity(online: boolean | null): void {
+  deviceOnline = online;
+}
+
+export function isDeviceKnownOffline(): boolean {
+  return deviceOnline === false;
+}
+
+export function deviceOfflineError(): Error {
+  const err = new Error("You're offline. Check your connection and try again.");
+  err.name = "DeviceOfflineError";
+  return err;
+}
+
+export function isDeviceOfflineError(error: unknown): boolean {
+  return (error as { name?: unknown } | null)?.name === "DeviceOfflineError";
+}
+
+/** Minimum gap between reconnect-driven probes, so a flapping network cannot storm. */
+export const SUPABASE_EXPEDITED_PROBE_MIN_INTERVAL_MS = 5_000;
+
+/**
+ * Device came back online while the circuit is open: end the cooldown early so the
+ * next request is the single half-open probe. Does not close the circuit — only a
+ * successful probe does. Returns true when the caller should send that probe.
+ */
+export function expediteSupabaseCircuitProbe(now = Date.now()): boolean {
+  if (circuitOpenUntilMs === 0) return false;
+  if (halfOpenProbeInFlight) return false;
+  if (now - lastExpeditedProbeAtMs < SUPABASE_EXPEDITED_PROBE_MIN_INTERVAL_MS) return false;
+  lastExpeditedProbeAtMs = now;
+  circuitOpenUntilMs = Math.min(circuitOpenUntilMs, now);
   return true;
 }
 
 export function resetSupabaseCircuit(): void {
   circuitOpenUntilMs = 0;
   halfOpenProbeInFlight = false;
+  lastExpeditedProbeAtMs = 0;
 }
 
 export function supabaseCircuitOpenError(): Error {

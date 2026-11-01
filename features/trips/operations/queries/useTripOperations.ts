@@ -92,7 +92,9 @@ import {
   enqueueFuelPhoto,
   enqueueTollMetadata,
   enqueueTollPhoto,
+  newOperationsQueueItemId,
 } from "../offline/outbox";
+import { isRecoverableOperationsSaveError } from "../shared/operationsSaveError.util";
 import { supabase } from "@/lib/supabase";
 import { throwIfCancelled, withAbortSignal } from "@/lib/supabaseAbort.util";
 import { getTripExecutionModel } from "@/features/trips/domain/tripExecutionModel";
@@ -386,8 +388,11 @@ export function useSaveTripFuelEntry() {
         operatingMode: input.operatingMode ?? null,
       };
 
+      // One id per save: the online insert's idempotency_key and the outbox item id.
+      const queueItemId = newOperationsQueueItemId();
+
       if (!isOnline) {
-        await enqueueFuelMetadata(basePayload);
+        await enqueueFuelMetadata(basePayload, queueItemId);
         if (input.billPhotoLocalUri) {
           await enqueueFuelPhoto({
             tripId: input.tripId,
@@ -425,9 +430,16 @@ export function useSaveTripFuelEntry() {
         }
       }
 
-      const save = await createTripFuelEntry({ ...basePayload, billStoragePath, ocrJobId: input.ocrJobId ?? null });
+      const save = await createTripFuelEntry({
+        ...basePayload,
+        billStoragePath,
+        ocrJobId: input.ocrJobId ?? null,
+        queueItemId,
+      });
       if (save.error) {
-        await enqueueFuelMetadata(basePayload);
+        // Permission / validation / business errors would fail on every replay.
+        if (!isRecoverableOperationsSaveError(save.error)) throw save.error;
+        await enqueueFuelMetadata(basePayload, queueItemId);
         return { queued: true };
       }
       return { queued: false };
@@ -490,8 +502,11 @@ export function useSaveTripTollEntry() {
         operatingMode: input.operatingMode ?? null,
       };
 
+      // One id per save: the online insert's idempotency_key and the outbox item id.
+      const queueItemId = newOperationsQueueItemId();
+
       if (!isOnline) {
-        await enqueueTollMetadata(basePayload);
+        await enqueueTollMetadata(basePayload, queueItemId);
         if (input.receiptLocalUri) {
           await enqueueTollPhoto({
             tripId: input.tripId,
@@ -529,9 +544,16 @@ export function useSaveTripTollEntry() {
         }
       }
 
-      const save = await createTripTollEntry({ ...basePayload, receiptStoragePath, ocrJobId: input.ocrJobId ?? null });
+      const save = await createTripTollEntry({
+        ...basePayload,
+        receiptStoragePath,
+        ocrJobId: input.ocrJobId ?? null,
+        queueItemId,
+      });
       if (save.error) {
-        await enqueueTollMetadata(basePayload);
+        // Permission / validation / business errors would fail on every replay.
+        if (!isRecoverableOperationsSaveError(save.error)) throw save.error;
+        await enqueueTollMetadata(basePayload, queueItemId);
         return { queued: true };
       }
       return { queued: false };

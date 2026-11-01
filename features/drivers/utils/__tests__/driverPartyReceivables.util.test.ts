@@ -4,6 +4,7 @@ import {
   UNTAGGED_PARTY_ID,
   buildDriverPartyReceivables,
   isTripTaggedToParty,
+  canTagPartyOnTrip,
   tripNeedsPartyTag,
   partyAvatarLookup,
   summarizeDriverPartyReceivables,
@@ -252,6 +253,25 @@ describe("tripReceivablePartyName", () => {
     });
     expect(tripReceivablePartyName(market)).toBe("Pulse Shipper Co");
     expect(tripNeedsPartyTag(market)).toBe(false);
+  });
+});
+
+describe("canTagPartyOnTrip", () => {
+  it("is only true on the offline book — never marketplace or fleet", () => {
+    expect(
+      canTagPartyOnTrip(trip({ id: "off", source: "manual", operating_mode: "DCO" })),
+    ).toBe(true);
+    expect(
+      canTagPartyOnTrip(
+        trip({ id: "m", source: "market_bid", operating_mode: "DCO" }),
+      ),
+    ).toBe(false);
+    expect(
+      canTagPartyOnTrip(
+        trip({ id: "fleet", source: "indent", operating_mode: "FLEET" }),
+        true,
+      ),
+    ).toBe(false);
   });
 });
 

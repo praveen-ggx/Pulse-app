@@ -696,15 +696,6 @@ export default function DriverTripsScreen() {
     [rpcAssignerUserIdByTripId, assignmentActorByTripId],
   );
 
-  const acceptedInviteOrgIds = useMemo(() => {
-    return new Set(
-      invites
-        .filter((i) => String(i.status ?? "").toLowerCase() === "accepted")
-        .map((i) => String(i.from_organization_id ?? "").trim())
-        .filter((orgId) => orgId.length > 0),
-    );
-  }, [invites]);
-
   /** Real agreed payout terms for this trip's driver+org (invite takes precedence over the roster row). */
   const payoutTermsForTrip = useCallback(
     (trip: tripsService.TripRow) => {
@@ -728,33 +719,25 @@ export default function DriverTripsScreen() {
     [linkedDriverRows, invites],
   );
 
-  const salaryRelationshipOrgIds = useMemo(() => {
-    const set = new Set<string>();
-    linkedDriverRows.forEach((row) => {
-      const orgId = String(row.organization_id ?? "").trim();
-      if (!orgId) return;
-      const hasPayTerms =
-        (row.payable_amount != null && Number(row.payable_amount) > 0) ||
-        (row.commission_percent != null && Number(row.commission_percent) > 0) ||
-        (row.commission_per_km != null && Number(row.commission_per_km) > 0);
-      if (hasPayTerms) set.add(orgId);
-    });
-    return set;
-  }, [linkedDriverRows]);
-
   const isFleetDispatchedTrip = useCallback(
     (trip: tripsService.TripRow): boolean => {
       const tripOrgId = String(trip.organization_id ?? "").trim();
       if (!tripOrgId) return false;
-      const hasSalaryRelationship = salaryRelationshipOrgIds.has(tripOrgId);
-      if (!hasSalaryRelationship) return false;
-      if (acceptedInviteOrgIds.has(tripOrgId)) return true;
+      if (String(trip.source ?? "").trim() === "market_bid") return false;
       return linkedDriverRows.some((row) => {
         if (String(row.organization_id ?? "").trim() !== tripOrgId) return false;
-        return driversService.isActiveFleetRelationshipDriver(row);
+        if (row.tracking_only === true) return false;
+        if (String(row.relationship_origin ?? "").trim().toLowerCase() === "market_award") {
+          return false;
+        }
+        return (
+          driversService.isActiveFleetRelationshipDriver(row) ||
+          row.relationship_status === "disconnected" ||
+          (row.left_at != null && String(row.left_at).trim() !== "")
+        );
       });
     },
-    [acceptedInviteOrgIds, salaryRelationshipOrgIds, linkedDriverRows],
+    [linkedDriverRows],
   );
 
   const assignerPayloadByTripId = useMemo(() => {
@@ -1038,7 +1021,7 @@ export default function DriverTripsScreen() {
               assigner={assignerPayload}
               mutedColor={colors.textMuted}
               textColor={colors.text}
-              needsTag={tripNeedsPartyTag(item)}
+              needsTag={tripNeedsPartyTag(item, isFleetTrip)}
               taggedParty={
                 tripHistoryLane(item) === "offline" && isTripTaggedToParty(item)
                   ? tripReceivablePartyName(item)

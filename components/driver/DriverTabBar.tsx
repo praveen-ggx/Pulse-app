@@ -48,7 +48,7 @@ function AnimatedTabIcon({ selected, children }: { selected: boolean; children: 
 export const TAB_CONFIG = [
   { name: 'index', label: 'Dashboard', icon: 'crosshairs' as const },
   { name: 'available-loads', label: 'Market', icon: 'shopping-bag' as const },
-  { name: 'trip-history', label: 'History', icon: 'history' as const },
+  { name: 'trip-history', label: 'Trips', icon: 'history' as const },
   { name: 'wallet', label: 'Earnings', icon: 'wallet' as const },
 ];
 

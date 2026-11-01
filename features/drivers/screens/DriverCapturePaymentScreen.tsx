@@ -22,7 +22,6 @@ import {
   isTripTaggedToParty,
   tripReceivablePartyName,
 } from "@/features/drivers/utils/driverPartyReceivables.util";
-import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import * as tripsService from "@/features/trips/services/trips.service";
 import { formatLedgerAmountInput } from "@/lib/format";
 import { PAYMENT_MODES } from "@/lib/paymentModes";
@@ -62,7 +61,6 @@ export default function DriverCapturePaymentScreen() {
   const router = useRouter();
   const onBack = useSafeBack(ROUTES.driverWalletSelf());
   const { profile } = useAuth();
-  const { canAddDcoShippers } = useDriverOperatingModeQuery();
   const params = useLocalSearchParams<{
     tripId?: string;
     due?: string;
@@ -147,7 +145,7 @@ export default function DriverCapturePaymentScreen() {
     ? tripReceivablePartyName(trip)
     : partyHint || (trip ? tripReceivablePartyName(trip) : "Party");
   const needsPartyTag =
-    canAddDcoShippers && lane === "shipper" && !!trip && !isTripTaggedToParty(trip);
+    lane === "shipper" && !!trip && !isTripTaggedToParty(trip);
   const amountNum = Math.round(Number(String(amount).replace(/,/g, "")) || 0);
   const cap = dueHint > 0 ? dueHint : amountNum;
   const isCash = modeId === "CASH";

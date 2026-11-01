@@ -65,12 +65,12 @@ const styles = StyleSheet.create({
   },
   cta: {
     minHeight: 44,
-    borderRadius: 10,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   ctaText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
   },
 });

@@ -1,8 +1,16 @@
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import Theme from "@/constants/Theme";
 import { useDriverTheme, useDriverThemeColors } from "@/contexts/DriverThemeContext";
+import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
+import {
+  canTagPartyOnTrip,
+  isTripTaggedToParty,
+  tripReceivablePartyName,
+} from "@/features/drivers/utils/driverPartyReceivables.util";
+import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import { DriverTripExpenseLogSection } from "@/features/driver/components/DriverTripExpenseLogSection";
 import { TripPaymentAmountGrid } from "@/features/driver/components/TripPaymentAmountGrid";
+import { driverCaptureLaneForTrip } from "@/features/drivers/utils/driverCapturePayment.util";
 import { useDriverTripSettlement } from "@/features/driver/hooks/useDriverTripSettlement";
 import { ExchangePaymentsPanel } from "@/features/marketplace/components/ExchangePaymentsPanel";
 import { useExchangeTripSummaryQuery } from "@/features/marketplace/hooks/useExchangeTripPayments";
@@ -27,7 +35,7 @@ import {
   Sparkles,
   Wallet,
 } from "lucide-react-native";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   StyleSheet,
@@ -41,6 +49,7 @@ type TripDetailSettlementPanelProps = {
   /** Employer-linked fleet trip (history Fleet Trips rule). */
   isFleetLinked?: boolean;
   initialSelectedExpenseId?: string | null;
+  onPartyTagged?: () => void;
 };
 
 function inr(v: number): string {
@@ -81,11 +90,14 @@ export function TripDetailSettlementPanel({
   trip,
   isFleetLinked,
   initialSelectedExpenseId,
+  onPartyTagged,
 }: TripDetailSettlementPanelProps) {
   const colors = useDriverThemeColors();
   const { theme } = useDriverTheme();
   const isDark = theme === "dark";
   const router = useRouter();
+  const [collectFromOpen, setCollectFromOpen] = useState(false);
+  const { canAddDcoShippers } = useDriverOperatingModeQuery();
   const {
     settlementView,
     loading,
@@ -162,7 +174,56 @@ export function TripDetailSettlementPanel({
   const pill = tonePillStyle(settlementView.statusTone, isDark);
   const showCommissionHero = !settlementView.isSalary && !isExchangeReceivable;
   const showRequestFromFleet = settlementView.isFleetLinked && !isExchangeReceivable;
-
+  const captureDue = Math.max(
+    0,
+    Math.round(settlementView.status === "settled" ? 0 : settlementView.outstandingAmount),
+  );
+  const captureLane = driverCaptureLaneForTrip(trip, !!settlementView.isFleetLinked);
+  const isMarketplaceTrip = captureLane === "marketplace" || isExchangeReceivable;
+  const taggedToParty = isTripTaggedToParty(trip);
+  const taggedPartyName = taggedToParty ? tripReceivablePartyName(trip) : null;
+  const marketplaceShipper =
+    String(settlementView.fleetName ?? "").trim() ||
+    tripReceivablePartyName(trip);
+  const isOfflineReceivable = canTagPartyOnTrip(trip, !!settlementView.isFleetLinked);
+  const revenueFrom = isMarketplaceTrip
+    ? marketplaceShipper
+    : isOfflineReceivable
+      ? taggedPartyName ?? "Tag a party first"
+      : String(settlementView.fleetName ?? "").trim() || "Fleet";
+  const showDcoPartyActions =
+    isOfflineReceivable &&
+    !settlementView.isSalary;
+  const showCollect =
+    showDcoPartyActions &&
+    taggedToParty &&
+    settlementView.status !== "settled";
+  const showMarketplaceCollect =
+    canAddDcoShippers &&
+    isMarketplaceTrip &&
+    !settlementView.isSalary &&
+    settlementView.status !== "settled";
+  const openCollect = () => {
+    if (!taggedPartyName) return;
+    router.push(
+      ROUTES.driverCapturePayment({
+        tripId: trip.id,
+        due: captureDue > 0 ? captureDue : undefined,
+        lane: captureLane === "fleet" ? "shipper" : captureLane,
+        partyName: taggedPartyName,
+      }) as Href,
+    );
+  };
+  const openMarketplaceCollect = () => {
+    router.push(
+      ROUTES.driverCapturePayment({
+        tripId: trip.id,
+        due: captureDue > 0 ? captureDue : undefined,
+        lane: "marketplace",
+        partyName: marketplaceShipper,
+      }) as Href,
+    );
+  };
   const earningTitle = settlementView.isSalary
     ? "Salary"
     : settlementView.commissionApplies
@@ -193,6 +254,58 @@ export function TripDetailSettlementPanel({
 
   return (
     <View style={{ marginBottom: 12 }}>
+      {showMarketplaceCollect ? (
+        <View style={[panelStyles.partyCard, { marginBottom: 12 }]}>
+          <Text style={panelStyles.partyKicker}>Collect from shipper</Text>
+          <Text style={panelStyles.partyName} numberOfLines={1}>
+            {marketplaceShipper}
+          </Text>
+          <TouchableOpacity
+            style={panelStyles.collectBtn}
+            onPress={openMarketplaceCollect}
+            accessibilityRole="button"
+            accessibilityLabel={`Collect from ${marketplaceShipper}`}
+          >
+            <Text style={panelStyles.collectBtnText} numberOfLines={1}>
+              Collect
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
+      {showDcoPartyActions ? (
+        <View style={[panelStyles.partyCard, { marginBottom: 12 }]}>
+          <Text style={panelStyles.partyKicker}>
+            {taggedToParty ? "Bill to" : "Tag a party first"}
+          </Text>
+          <Text style={panelStyles.partyName} numberOfLines={1}>
+            {taggedToParty ? taggedPartyName : "Shipper or middleman"}
+          </Text>
+          <View style={{ gap: 8 }}>
+            {showCollect ? (
+              <TouchableOpacity
+                style={panelStyles.collectBtn}
+                onPress={openCollect}
+                accessibilityRole="button"
+                accessibilityLabel={`Collect from ${taggedPartyName}`}
+              >
+                <Text style={panelStyles.collectBtnText}>Collect</Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
+              style={showCollect ? panelStyles.tagBtn : panelStyles.collectBtn}
+              onPress={() => setCollectFromOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel={taggedToParty ? "Change party" : "Tag party"}
+            >
+              <Text style={showCollect ? panelStyles.tagBtnText : panelStyles.collectBtnText}>
+                {taggedToParty ? "Change party" : "Tag party"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
+
       {isExchangeReceivable ? <ExchangePaymentsPanel tripId={trip.id} /> : null}
 
       {settlementView.status === "incomplete" && !isExchangeReceivable ? (
@@ -206,7 +319,7 @@ export function TripDetailSettlementPanel({
           ]}
         >
           <Text style={[panelStyles.incompleteText, { color: colors.textMuted }]}>
-            Trip pay settles offline with your fleet after the trip is complete.
+            You can collect a partial payment now. Remaining pay can settle after the trip is complete.
           </Text>
         </View>
       ) : null}
@@ -255,7 +368,7 @@ export function TripDetailSettlementPanel({
                 </Text>
               </View>
               <Text style={[panelStyles.fleetLine, { color: colors.textMuted }]}>
-                {settlementView.fleetName} · Offline settlement
+                Revenue from {revenueFrom}
               </Text>
             </View>
 
@@ -461,8 +574,8 @@ export function TripDetailSettlementPanel({
             )}
           </TouchableOpacity>
           <Text style={[panelStyles.offlineHint, { color: colors.textMuted }]}>
-            Payment is handled offline with your fleet. Use this to request or follow up —
-            there is no in-app mark as paid.
+            Request from fleet to follow up, or capture payment when you receive it —
+            same as Finance capture payment.
           </Text>
         </>
       ) : null}
@@ -575,6 +688,18 @@ export function TripDetailSettlementPanel({
         </Text>
         <ChevronRight size={14} color={colors.textMuted} />
       </TouchableOpacity>
+
+      {showDcoPartyActions ? (
+        <DriverCollectFromSheet
+          visible={collectFromOpen}
+          trip={trip}
+          due={captureDue}
+          lane={captureLane}
+          assignerName={settlementView.fleetName}
+          onClose={() => setCollectFromOpen(false)}
+          onTagged={() => onPartyTagged?.()}
+        />
+      ) : null}
     </View>
   );
 }
@@ -616,6 +741,56 @@ const panelStyles = StyleSheet.create({
     marginTop: 6,
     fontSize: 11,
     fontWeight: "500",
+  },
+  partyCard: {
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.surfaceBorder,
+    backgroundColor: Theme.cardWhite,
+    padding: 14,
+    gap: 10,
+  },
+  partyKicker: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+  },
+  partyName: {
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: -0.2,
+    color: Theme.textPrimary,
+    marginTop: -4,
+  },
+  collectBtn: {
+    minHeight: 48,
+    borderRadius: 14,
+    backgroundColor: Theme.actionBtnInk,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+  },
+  collectBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Theme.buttonDarkText,
+  },
+  tagBtn: {
+    minHeight: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Theme.surfaceBorder,
+    backgroundColor: Theme.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+  },
+  tagBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Theme.textPrimary,
   },
   offlineHint: {
     fontSize: 10,

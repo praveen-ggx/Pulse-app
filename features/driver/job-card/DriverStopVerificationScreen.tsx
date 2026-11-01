@@ -217,8 +217,8 @@ const styles = StyleSheet.create({
   scroll: {
     paddingHorizontal: Layout.screenPaddingHorizontal,
     paddingTop: 8,
-    paddingBottom: 24,
-    gap: 12,
+    paddingBottom: 28,
+    gap: 14,
   },
   card: {
     borderRadius: JOB_CARD_RADIUS,
@@ -248,7 +248,7 @@ const styles = StyleSheet.create({
   },
   done: { gap: 2 },
   doneTitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
   },
   nextKicker: {

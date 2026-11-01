@@ -20,6 +20,10 @@ import {
   tripReceivablePartyName,
 } from "@/features/drivers/utils/driverPartyReceivables.util";
 import {
+  partyMatchesAssigner,
+  sortTagPartyOptions,
+} from "@/features/drivers/utils/driverPartyTagRecommend.util";
+import {
   ensureDcoWorkspace,
   getOrganizationsForUser,
 } from "@/features/organization/services/organization.service";
@@ -75,7 +79,7 @@ export function DriverCollectFromSheet({
   const router = useRouter();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
-  const { canAddDcoShippers } = useDriverOperatingModeQuery();
+  const { canAddDcoShippers, canTagOfflineParty, isDco } = useDriverOperatingModeQuery();
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [parties, setParties] = useState<PartyOption[]>([]);
@@ -85,13 +89,22 @@ export function DriverCollectFromSheet({
   const [billedForTag, setBilledForTag] = useState<number | null>(null);
   const [successParty, setSuccessParty] = useState<{ id: string; name: string } | null>(null);
 
+  const fleetAssignerName = useMemo(() => {
+    return (
+      String(assignerName ?? "").trim() ||
+      String(trip.organization_name ?? "").trim() ||
+      ""
+    );
+  }, [assignerName, trip.organization_name]);
+
   const currentName = useMemo(() => {
+    if (fleetAssignerName) return fleetAssignerName;
     if (isTripTaggedToParty(trip)) {
       const tagged = tripReceivablePartyName(trip);
       if (tagged && tagged !== "Untagged") return tagged;
     }
-    return String(assignerName ?? "").trim() || "Shipper";
-  }, [assignerName, trip]);
+    return "Shipper";
+  }, [fleetAssignerName, trip]);
 
   const taggedPartyId = useMemo(() => {
     const fromClient = String(trip.client_id ?? "").trim();
@@ -100,22 +113,28 @@ export function DriverCollectFromSheet({
   }, [trip.client_id, trip.notes]);
 
   const loadParties = useCallback(async () => {
-    if (!canAddDcoShippers) {
+    if (!canTagOfflineParty && !canAddDcoShippers) {
       setParties([]);
       return;
     }
     setLoading(true);
     try {
-      const { organization } = await ensureDcoWorkspace();
-      let orgId = organization?.id ?? null;
-      if (!orgId) {
+      let orgId: string | null = null;
+      let workspaceUnavailable = false;
+      if (canAddDcoShippers) {
+        const { organization, error } = await ensureDcoWorkspace();
+        orgId = organization?.id ?? null;
+        workspaceUnavailable = /not enabled on this environment|cannot create your shipper book/i.test(
+          error?.message ?? "",
+        );
+      }
+      if (!orgId && !workspaceUnavailable) {
         const listed = await getOrganizationsForUser();
         orgId = listed.organizations[0]?.id ?? null;
       }
       const rows: ClientRow[] = orgId
         ? ((await getClientsByOrganization(orgId)).clients ?? [])
         : [];
-      const assignerKey = currentName.trim().toLowerCase();
       const mapped: PartyOption[] = rows.map((row) => {
         const name = row.name || row.contact_person || "Shipper";
         return {
@@ -123,19 +142,14 @@ export function DriverCollectFromSheet({
           name,
           phone: row.phone,
           linkedToTrip: !!taggedPartyId && row.id === taggedPartyId,
-          matchesAssigner: name.trim().toLowerCase() === assignerKey,
+          matchesAssigner: partyMatchesAssigner(name, fleetAssignerName || currentName),
         };
       });
-      mapped.sort((a, b) => {
-        if (a.linkedToTrip !== b.linkedToTrip) return a.linkedToTrip ? -1 : 1;
-        if (a.matchesAssigner !== b.matchesAssigner) return a.matchesAssigner ? -1 : 1;
-        return a.name.localeCompare(b.name);
-      });
-      setParties(mapped);
+      setParties(sortTagPartyOptions(mapped, !isDco));
     } finally {
       setLoading(false);
     }
-  }, [canAddDcoShippers, currentName, taggedPartyId]);
+  }, [canAddDcoShippers, canTagOfflineParty, currentName, fleetAssignerName, isDco, taggedPartyId]);
 
   useEffect(() => {
     if (visible) void loadParties();
@@ -229,7 +243,14 @@ export function DriverCollectFromSheet({
           </View>
           <Text style={styles.kicker}>Tag party</Text>
           <Text style={styles.title}>Who do you bill?</Text>
-          {assignerToAdd ? (
+          {!isDco && fleetAssignerName ? (
+            <View style={styles.assignerChip}>
+              <Text style={styles.assignerKicker}>Recommended · Fleet</Text>
+              <Text style={styles.assignerName} numberOfLines={1}>
+                {fleetAssignerName}
+              </Text>
+            </View>
+          ) : assignerToAdd ? (
             <View style={styles.assignerChip}>
               <Text style={styles.assignerKicker}>Assigned by</Text>
               <Text style={styles.assignerName} numberOfLines={1}>
@@ -264,7 +285,11 @@ export function DriverCollectFromSheet({
                 parties.map((party) => (
                   <TouchableOpacity
                     key={party.id}
-                    style={[styles.row, party.linkedToTrip && styles.rowActive]}
+                    style={[
+                      styles.row,
+                      party.linkedToTrip && styles.rowActive,
+                      !isDco && party.matchesAssigner && !party.linkedToTrip && styles.rowRecommended,
+                    ]}
                     onPress={() => void handlePick(party)}
                     disabled={!!busyId}
                     accessibilityRole="button"
@@ -285,7 +310,9 @@ export function DriverCollectFromSheet({
                         {party.linkedToTrip
                           ? "Tagged to this trip"
                           : party.matchesAssigner
-                            ? "Matches assigned-by"
+                            ? isDco
+                              ? "Matches assigned-by"
+                              : "Recommended · Fleet"
                             : party.phone?.trim() || "Saved in Self"}
                       </Text>
                     </View>
@@ -304,7 +331,7 @@ export function DriverCollectFromSheet({
                 ))
               )}
 
-              {canAddDcoShippers ? (
+              {canTagOfflineParty ? (
                 <View style={styles.addBlock}>
                   {assignerToAdd ? (
                     <TouchableOpacity
@@ -478,6 +505,10 @@ const styles = StyleSheet.create({
   rowActive: {
     borderColor: Theme.driverEmeraldBorder,
     backgroundColor: Theme.driverEmeraldMuted,
+  },
+  rowRecommended: {
+    borderColor: Theme.primaryLight,
+    backgroundColor: Theme.brandBlueSoft,
   },
   rowName: {
     ...driverUIBold,

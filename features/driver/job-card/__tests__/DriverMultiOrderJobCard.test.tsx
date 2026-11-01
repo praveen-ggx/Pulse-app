@@ -310,6 +310,19 @@ describe('DriverMultiOrderJobCard', () => {
     expect(onToggleCollapse).toHaveBeenCalledTimes(1);
   });
 
+  it('puts expense on the current-stop card', () => {
+    const onExpense = jest.fn();
+    const { getByLabelText } = render(
+      <DriverMultiOrderJobCard
+        trip={trip()}
+        onExpense={onExpense}
+        stopExecution={execution({ stops: [pickup, dropA], currentStop: pickup, nextStop: dropA })}
+      />,
+    );
+    fireEvent.press(getByLabelText('Add trip expense'));
+    expect(onExpense).toHaveBeenCalledTimes(1);
+  });
+
   it('expands product lines from memory without another commerce read', () => {
     mockUseDriverCommerceMission.mockReturnValue(missionWithOrders([{
       stopId: 'pu-1',

@@ -63,6 +63,7 @@ import {
   DRIVER_PAY_NA_LABEL,
   isAggregateTrip,
 } from '@/features/drivers/utils/driverUtils.util';
+import { canTagPartyOnTrip } from '@/features/drivers/utils/driverPartyReceivables.util';
 import { formatINR } from '@/lib/format';
 import { formatEstimatedDuration } from '@/lib/formatEstimatedDuration';
 import * as tripDocumentsService from '@/features/trips/services/tripDocuments.service';
@@ -85,7 +86,8 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
+import { ROUTES } from '@/lib/routes';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -301,6 +303,9 @@ export interface DriverTripFlowCardProps {
   edgeToEdge?: boolean;
   /** Structured assigner (matches JobRequestCard hero). */
   assignedBy?: JobCardAssignerPayload | null;
+  onAssignerPress?: () => void;
+  /** Employer-dispatched trip — hide offline party tagging. */
+  isFleetLinked?: boolean;
   /**
    * Visual mode.
    * - "card": default rounded card frame (used elsewhere)
@@ -318,6 +323,8 @@ export interface DriverTripFlowCardProps {
   onShowRouteOnMap?: (stopId?: string | null) => void;
   /** Incremented by the map "View details" control to open the order sheet. */
   deliveryDetailsNonce?: number;
+  /** Opens trip expense capture from the job card. */
+  onExpense?: () => void;
 }
 
 function fmtKm(km: number): string {
@@ -412,6 +419,8 @@ export function DriverTripFlowCard({
   onTripCompleted,
   edgeToEdge = false,
   assignedBy = null,
+  onAssignerPress,
+  isFleetLinked = false,
   variant = 'card',
   skipStopExecution = false,
 }: DriverTripFlowCardProps) {
@@ -441,7 +450,7 @@ export function DriverTripFlowCard({
 
   // Owner Vehicle Link — DCO explicit vehicle selection for this trip.
   // Never auto-selected, including when the DCO has exactly one vehicle.
-  const { canManageOwnerVehicles } = useDriverOperatingModeQuery(profile?.uid);
+  const { canManageOwnerVehicles, canTagOfflineParty } = useDriverOperatingModeQuery(profile?.uid);
   const { vehicles: ownerVehicles, isLoading: ownerVehiclesLoading } =
     useOwnerVehiclesQuery(profile?.uid);
   const [vehiclePickerOpen, setVehiclePickerOpen] = useState(false);
@@ -1728,6 +1737,22 @@ export function DriverTripFlowCard({
           earnings={earnings}
           earningsLabel={earningsLabel}
           assignedBy={assignedBy}
+          onAssignerPress={
+            canTagOfflineParty && canTagPartyOnTrip(localTrip, isFleetLinked)
+              ? onAssignerPress ??
+                (() => {
+                  router.push(
+                    ROUTES.driverAddClient({
+                      tripId: localTrip.id,
+                      partyName:
+                        assignedBy?.orgName?.trim() ||
+                        assignedBy?.linePrimary?.trim() ||
+                        undefined,
+                    }) as Href,
+                  );
+                })
+              : undefined
+          }
           showHeroAssigner={showHeroAssigner}
           target={stageTarget}
           pickupLabel={pickupLabel}

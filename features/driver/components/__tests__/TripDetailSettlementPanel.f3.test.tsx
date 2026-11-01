@@ -11,6 +11,9 @@ import type { TripRow } from "@/features/trips/services/trips.service";
 jest.mock("expo-router", () => ({
   useRouter: () => ({ push: jest.fn() }),
 }));
+jest.mock("@/lib/queries/useDriverOperatingModeQuery", () => ({
+  useDriverOperatingModeQuery: () => ({ canAddDcoShippers: false }),
+}));
 jest.mock("@/contexts/DriverThemeContext", () => ({
   useDriverTheme: () => ({ theme: "light" }),
   useDriverThemeColors: () =>

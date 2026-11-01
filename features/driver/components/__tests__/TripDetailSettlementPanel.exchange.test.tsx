@@ -11,6 +11,9 @@ const mockSummaryQuery = jest.fn();
 jest.mock("expo-router", () => ({
   useRouter: () => ({ push: jest.fn() }),
 }));
+jest.mock("@/lib/queries/useDriverOperatingModeQuery", () => ({
+  useDriverOperatingModeQuery: () => ({ canAddDcoShippers: false }),
+}));
 jest.mock("@/contexts/DriverThemeContext", () => ({
   useDriverTheme: () => ({ theme: "light" }),
   useDriverThemeColors: () => new Proxy({}, { get: () => "#000000" }),

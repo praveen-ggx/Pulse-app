@@ -6,7 +6,7 @@ import Theme from "@/constants/Theme";
 import type { JobCardAssignerPayload } from "@/features/trips/utils/driverAssignerDisplay.util";
 import { Clock, MapPin, Navigation, Truck } from "lucide-react-native";
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 export const FLOW_EMERALD = Theme.driverEmerald;
 export const FLOW_EMERALD_DARK = Theme.driverEmeraldDark;
@@ -89,16 +89,32 @@ export function HeroKindBadge({
 export function HeroAssignerBlock({
   assigner,
   assignedByLine,
+  onPress,
 }: {
   assigner: JobCardAssignerPayload | null;
   assignedByLine?: string | null;
+  onPress?: () => void;
 }) {
+  const wrap = (child: React.ReactNode) =>
+    onPress ? (
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel="Add or choose this shipper as your client"
+        hitSlop={8}
+      >
+        {child}
+      </Pressable>
+    ) : (
+      <>{child}</>
+    );
+
   if (assigner) {
     const primary = assigner.linePrimary.trim();
     const secondary = assigner.lineSecondary.trim();
     if (!primary && !secondary) return null;
 
-    return (
+    return wrap(
       <View style={sheetStyles.heroAssignerBlock}>
         <View style={sheetStyles.heroAssignerRow}>
           <PartyAvatar
@@ -115,7 +131,7 @@ export function HeroAssignerBlock({
           />
           <View style={sheetStyles.heroAssignerTextCol}>
             <Text style={sheetStyles.heroAssignLabel} numberOfLines={1}>
-              Assigned by
+              {onPress ? "Assigned by · add client" : "Assigned by"}
             </Text>
             {primary ? (
               <Text style={sheetStyles.heroAssignPrimary} numberOfLines={1}>
@@ -129,19 +145,19 @@ export function HeroAssignerBlock({
             ) : null}
           </View>
         </View>
-      </View>
+      </View>,
     );
   }
 
   const line = assignedByLine?.trim();
   if (!line) return null;
 
-  return (
+  return wrap(
     <View style={sheetStyles.heroAssignerBlock}>
       <Text style={sheetStyles.heroAssignPrimary} numberOfLines={2}>
         {line}
       </Text>
-    </View>
+    </View>,
   );
 }
 

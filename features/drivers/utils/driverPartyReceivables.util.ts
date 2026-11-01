@@ -35,13 +35,25 @@ export function isTripTaggedToParty(
   return parseDcoPartyTagFromNotes(trip?.notes) != null;
 }
 
-/** Offline DCO trips only. Marketplace always bills the listing shipper — never tag. */
+/**
+ * Tag / retag is only for the driver's own offline book.
+ * Marketplace (DCO) and fleet (employer) trips are already integrated — no tag.
+ */
+export function canTagPartyOnTrip(
+  trip: Pick<TripRow, "source" | "operating_mode"> | null | undefined,
+  isFleetDispatched = false,
+): boolean {
+  if (!trip) return false;
+  return receivableLaneForTrip(trip, isFleetDispatched) === "offline";
+}
+
+/** Offline trips only. Marketplace always bills the listing shipper — never tag. */
 export function tripNeedsPartyTag(
   trip: Pick<TripRow, "source" | "operating_mode" | "client_id" | "notes"> | null | undefined,
   isFleetDispatched = false,
 ): boolean {
   if (!trip) return false;
-  if (receivableLaneForTrip(trip, isFleetDispatched) !== "offline") return false;
+  if (!canTagPartyOnTrip(trip, isFleetDispatched)) return false;
   return !isTripTaggedToParty(trip);
 }
 

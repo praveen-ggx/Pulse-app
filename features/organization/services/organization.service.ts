@@ -256,6 +256,12 @@ async function joinDcoWorkspaceMembership(organization: CurrentOrganization): Pr
   return { error: null, organization };
 }
 
+const ENSURE_DCO_WORKSPACE_UNAVAILABLE =
+  "DCO shipper book is not enabled on this environment yet. Point the app at preprod, or wait for the production migration. You can still save an offline shipper with name and phone.";
+
+/** Session cache: once PostgREST 404s the RPC, do not re-hit the network this boot. */
+let ensureDcoWorkspaceMissing = false;
+
 /**
  * Approved DCO: create/return the caller-owned workspace used for clients.
  * No-op if they already own an org. Requires `ensure_dco_workspace` RPC.
@@ -264,6 +270,9 @@ export async function ensureDcoWorkspace(): Promise<{
   error: Error | null;
   organization: CurrentOrganization | null;
 }> {
+  if (ensureDcoWorkspaceMissing) {
+    return { error: new Error(ENSURE_DCO_WORKSPACE_UNAVAILABLE), organization: null };
+  }
   const { data, error } = await supabase().rpc("ensure_dco_workspace" as never);
   if (error) {
     const message = error.message ?? "";
@@ -289,10 +298,12 @@ export async function ensureDcoWorkspace(): Promise<{
       }
     }
     if (isMissingRpcError(error)) {
+      // RPC not on this environment (prod lag / pre-release). Do not seed or
+      // upsert organization_members here — that path hammers RLS and can 500/503
+      // when membership policies recurse. Callers fall through to offline parties.
+      ensureDcoWorkspaceMissing = true;
       return {
-        error: new Error(
-          "DCO is approved, but this environment cannot create your shipper book yet. Refresh after it is enabled — you can save an offline shipper with name and phone, then complete GST later.",
-        ),
+        error: new Error(ENSURE_DCO_WORKSPACE_UNAVAILABLE),
         organization: null,
       };
     }

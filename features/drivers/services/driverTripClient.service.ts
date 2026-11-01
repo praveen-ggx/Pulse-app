@@ -32,35 +32,44 @@ export async function tagTripWithDcoClient(
   const name = client.name.trim() || "Shipper";
   const billed = Math.max(0, Math.round(Number(opts?.billed) || 0));
   const db = supabase();
+  const localOnly = String(client.id ?? "").trim().startsWith("local:");
 
-  const rpc = await db.rpc("tag_dco_trip_party", {
-    p_trip_id: id,
-    p_client_id: client.id,
-  });
-  if (!rpc.error && billed <= 0) return { error: null };
+  // Device-local parties never hit the Self RPC / clients FK path.
+  if (!localOnly) {
+    const rpc = await db.rpc("tag_dco_trip_party", {
+      p_trip_id: id,
+      p_client_id: client.id,
+    });
+    if (!rpc.error && billed <= 0) return { error: null };
 
-  const rpcMsg = rpc.error?.message ?? "";
-  const rpcMissing =
-    !!rpc.error &&
-    (rpc.error.code === "PGRST202" ||
-      rpc.error.code === "42883" ||
-      rpcMsg.toLowerCase().includes("tag_dco_trip_party"));
+    const rpcMsg = rpc.error?.message ?? "";
+    const rpcMissing =
+      !!rpc.error &&
+      (rpc.error.code === "PGRST202" ||
+        rpc.error.code === "42883" ||
+        rpcMsg.toLowerCase().includes("tag_dco_trip_party"));
 
-  if (rpc.error && !rpcMissing && !rpcMsg.includes("driver_direct_trip_write_denied")) {
-    return { error: mapTagError(rpcMsg) };
-  }
+    if (rpc.error && !rpcMissing && !rpcMsg.includes("driver_direct_trip_write_denied")) {
+      return { error: mapTagError(rpcMsg) };
+    }
 
-  const patch: Record<string, unknown> = {
-    client_id: client.id,
-    client_name: name,
-  };
-  if (billed > 0) patch.supplier_rate = billed;
+    const patch: Record<string, unknown> = {
+      client_id: client.id,
+      client_name: name,
+    };
+    if (billed > 0) patch.supplier_rate = billed;
 
-  const direct = await db.from("trips").update(patch).eq("id", id);
-  if (!direct.error) return { error: null };
+    const direct = await db.from("trips").update(patch).eq("id", id);
+    if (!direct.error) return { error: null };
 
-  if (!String(direct.error.message ?? "").includes("driver_direct_trip_write_denied")) {
-    return { error: mapTagError(direct.error.message) };
+    if (!String(direct.error.message ?? "").includes("driver_direct_trip_write_denied")) {
+      // Fall through to notes for FK / column denies on environments without the RPC.
+      const soft =
+        /foreign key|invalid input syntax|column|permission|rls|policy/i.test(
+          String(direct.error.message ?? ""),
+        );
+      if (!soft) return { error: mapTagError(direct.error.message) };
+    }
   }
 
   const existing = await db.from("trips").select("notes").eq("id", id).maybeSingle();

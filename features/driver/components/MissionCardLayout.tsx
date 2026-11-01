@@ -31,6 +31,7 @@ export interface MissionCardLayoutProps {
   /** Defaults to EST. EARNINGS; PAY N/A when ₹ is not applicable. */
   earningsLabel?: string;
   assignedBy?: JobCardAssignerPayload | null;
+  onAssignerPress?: () => void;
   showHeroAssigner: boolean;
   /** Which stop this stage is oriented toward — drives the destination heading. Null once completed. */
   target: 'pickup' | 'drop' | null;

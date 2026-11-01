@@ -227,8 +227,8 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: JOB_CARD_RADIUS,
     paddingHorizontal: 14,
-    paddingTop: 14,
-    paddingBottom: 10,
+    paddingTop: 12,
+    paddingBottom: 8,
   },
   titleRow: {
     flexDirection: 'row',
@@ -238,9 +238,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   title: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
-    letterSpacing: -0.1,
+    letterSpacing: 0.2,
   },
   viewAll: {
     minHeight: 28,

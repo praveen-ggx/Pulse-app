@@ -195,7 +195,7 @@ export default function DriverWalletScreen() {
   const { avatarUri } = useDriverAvatarUri();
   const {
     isDco,
-    canAddDcoShippers,
+    canTagOfflineParty,
     operatingMode,
     invalidate: invalidateOperatingMode,
   } = useDriverOperatingModeQuery(profile?.uid ?? null);
@@ -403,7 +403,7 @@ export default function DriverWalletScreen() {
     [trips, receivedByTripId, isFleetDispatchedTrip],
   );
   const addClientPartyActions = useMemo((): PartySpeedDialAction[] => {
-    if (!canAddDcoShippers) return [];
+    if (!canTagOfflineParty) return [];
     return [
       {
         id: 'customers',
@@ -413,7 +413,7 @@ export default function DriverWalletScreen() {
         onPress: () => router.push(ROUTES.driverAddClient()),
       },
     ];
-  }, [canAddDcoShippers]);
+  }, [canTagOfflineParty]);
 
   const sortedLedgerEntries = useMemo(() => {
     return [...ledgerEntries].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -3221,8 +3221,10 @@ export default function DriverWalletScreen() {
             );
           })()}
 
-          {/* ── OPEN TRIPS (direct / clients) ── */}
-          <Text style={[styles.transactionHistoryTitle, { color: colors.text, marginTop: 16 }]}>Open trips</Text>
+          {/* ── OFFLINE TRIPS (direct / clients) ── */}
+          <Text style={[styles.transactionHistoryTitle, { color: colors.text, marginTop: 16 }]}>
+            Offline trips
+          </Text>
           <View
             style={[
               styles.fleetCard,
@@ -3245,29 +3247,31 @@ export default function DriverWalletScreen() {
                     },
                   ]}
                 >
-                  <FontAwesome name="road" size={14} color="#4D3636" />
+                  <FontAwesome name="road" size={14} color={Theme.primary} />
                 </View>
                 <View style={styles.fleetCardBody}>
                   <Text style={[styles.fleetCardTitle, { color: colors.text }]} numberOfLines={1}>
-                    Direct assignments
+                    Offline trips
                   </Text>
-                  <Text style={[styles.fleetMetaText, { color: colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
+                  <Text style={[styles.fleetOfflineMeta, { color: colors.textMuted }]} numberOfLines={1}>
                     {directTripStats.count} trip{directTripStats.count !== 1 ? 's' : ''} · not from any employer
                   </Text>
                 </View>
               </View>
-              <View
-                style={[
-                  styles.fleetStatusPillNew,
-                  {
-                    backgroundColor: isDark ? 'rgba(99,102,241,0.15)' : 'rgba(99,102,241,0.08)',
-                    borderColor: isDark ? 'rgba(99,102,241,0.30)' : 'rgba(99,102,241,0.18)',
-                  },
-                ]}
-              >
-                <Text style={[styles.fleetStatusTextNew, { color: '#4D3636' }]}>
-                  ₹{directTripStats.pending.toLocaleString('en-IN')} due
-                </Text>
+              <View style={styles.fleetTopRight}>
+                <View
+                  style={[
+                    styles.fleetStatusPillNew,
+                    {
+                      backgroundColor: isDark ? 'rgba(99,102,241,0.15)' : 'rgba(99,102,241,0.08)',
+                      borderColor: isDark ? 'rgba(99,102,241,0.30)' : 'rgba(99,102,241,0.18)',
+                    },
+                  ]}
+                >
+                  <Text style={[styles.fleetStatusTextNew, { color: Theme.primary }]}>
+                    ₹{directTripStats.pending.toLocaleString('en-IN')} due
+                  </Text>
+                </View>
               </View>
             </View>
 
@@ -3295,7 +3299,7 @@ export default function DriverWalletScreen() {
                       directTripStats.pending > 0
                         ? isDark
                           ? 'rgba(129,140,248,0.65)'
-                          : '#4D3636'
+                          : Theme.primary
                         : isDark
                           ? colors.borderSubtle
                           : 'rgba(226,232,240,0.8)',
@@ -3312,7 +3316,7 @@ export default function DriverWalletScreen() {
                         directTripStats.pending > 0
                           ? isDark
                             ? '#a5b4fc'
-                            : '#4D3636'
+                            : Theme.primary
                           : colors.textMuted,
                     },
                   ]}
@@ -3334,7 +3338,7 @@ export default function DriverWalletScreen() {
                 <View style={[styles.fleetPrimaryRing, { borderColor: '#818cf8' }]}>
                   <View style={[styles.fleetPrimaryRingDot, { backgroundColor: '#818cf8' }]} />
                 </View>
-                <Text style={[styles.fleetPrimaryButtonText, { color: Theme.textOnPrimary }]}>View open trips</Text>
+                <Text style={[styles.fleetPrimaryButtonText, { color: Theme.textOnPrimary }]}>View offline trips</Text>
               </View>
               <FontAwesome name="chevron-right" size={12} color={Theme.textOnPrimary} style={styles.fleetPrimaryButtonArrow} />
             </TouchableOpacity>
@@ -3485,6 +3489,7 @@ export default function DriverWalletScreen() {
           isDark={isDark}
           showMonthPnl={isDco}
           tripExpenses={tripExpenses}
+          isFleetDispatched={isFleetDispatchedTrip}
         />
       ) : (
         <View style={[styles.ledgerSection, { paddingHorizontal: 12 }]}>
@@ -3708,7 +3713,7 @@ export default function DriverWalletScreen() {
       onClose={() => setLedgerReceiptPreview(null)}
     />
 
-    {canAddDcoShippers && mainTab === 'fleet' && addClientPartyActions.length > 0 ? (
+    {canTagOfflineParty && mainTab === 'fleet' && addClientPartyActions.length > 0 ? (
       <PartySpeedDialFab
         actions={addClientPartyActions}
         bottom={layout.fabBottom()}
@@ -4419,9 +4424,15 @@ const styles = StyleSheet.create({
   fleetCardTopRowNew: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 8,
     gap: 8,
+  },
+  fleetOfflineMeta: {
+    fontSize: 11,
+    fontWeight: '500',
+    letterSpacing: -0.1,
+    marginTop: 2,
   },
   fleetCardTopLeft: {
     flexDirection: 'row',

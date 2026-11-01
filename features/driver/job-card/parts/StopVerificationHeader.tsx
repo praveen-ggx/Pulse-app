@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: Layout.screenPaddingHorizontal,
     paddingVertical: 8,
-    minHeight: 60,
+    minHeight: 52,
     gap: 12,
   },
   back: {

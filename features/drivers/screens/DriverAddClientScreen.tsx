@@ -15,6 +15,10 @@ import {
   getConnectionInviteeByPhone,
 } from "@/features/connections/services/connectionRequests.service";
 import { DriverTagPartyDialogs } from "@/features/drivers/components/DriverTagPartyDialogs";
+import {
+  listDriverOfflineParties,
+  rememberDriverOfflineParty,
+} from "@/features/drivers/offline/driverOfflineParty";
 import { tagTripWithDcoClient } from "@/features/drivers/services/driverTripClient.service";
 import {
   ensureDcoWorkspace,
@@ -27,6 +31,10 @@ import {
 } from "@/constants/DriverTypography";
 import Theme from "@/constants/Theme";
 import { tripReceivableBilled } from "@/features/drivers/utils/driverPartyReceivables.util";
+import {
+  partyMatchesAssigner,
+  sortTagPartyOptions,
+} from "@/features/drivers/utils/driverPartyTagRecommend.util";
 import { queryKeys } from "@/lib/queryKeys";
 import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import { useTripDetailQuery } from "@/lib/queries/useTripsQuery";
@@ -56,7 +64,8 @@ function param(value: string | string[] | undefined): string {
 
 export default function DriverAddClientScreen() {
   const onBack = useSafeBack(ROUTES.driverWalletSelf());
-  const { canAddDcoShippers, isLoading: modeLoading } = useDriverOperatingModeQuery();
+  const { canAddDcoShippers, canTagOfflineParty, isDco, isLoading: modeLoading } =
+    useDriverOperatingModeQuery();
   const queryClient = useQueryClient();
   const params = useLocalSearchParams<{ tripId?: string; partyName?: string }>();
   const tripId = param(params.tripId);
@@ -110,47 +119,94 @@ export default function DriverAddClientScreen() {
   );
 
   const loadOrg = useCallback(async () => {
-    if (!canAddDcoShippers) {
+    if (modeLoading) {
+      return;
+    }
+    if (!canTagOfflineParty) {
       setLoading(false);
       return;
     }
     setLoading(true);
     setWorkspaceError(null);
     try {
-      const { organization, error: ensureError } = await ensureDcoWorkspace();
-      let next = organization?.id ? organization : null;
-      if (!next?.id) {
+      let ensureError: Error | null = null;
+      let next: CurrentOrganization | null = null;
+      if (canAddDcoShippers) {
+        const ensured = await ensureDcoWorkspace();
+        ensureError = ensured.error ?? null;
+        next = ensured.organization?.id ? ensured.organization : null;
+      }
+      const workspaceUnavailable = /not enabled on this environment|cannot create your shipper book/i.test(
+        ensureError?.message ?? "",
+      );
+      if (!next?.id && !workspaceUnavailable) {
         const { organizations, error: listError } = await getOrganizationsForUser();
         next = organizations[0] ?? null;
         if (!next?.id) {
           setOrg(null);
+          const softUnavailable = /not enabled on this environment|cannot create your shipper book/i.test(
+            ensureError?.message ?? "",
+          );
           setWorkspaceError(
-            ensureError?.message ?? listError?.message ?? DCO_NO_WORKSPACE,
+            softUnavailable
+              ? null
+              : ensureError?.message ?? listError?.message ?? DCO_NO_WORKSPACE,
+          );
+          const local = await listDriverOfflineParties();
+          setExistingParties(
+            local.map((row) => ({
+              id: row.id,
+              name: row.name,
+              phone: row.phone,
+            })),
           );
           return;
         }
       }
+      if (!next?.id) {
+        // Offline Self tagging still works without a server workspace.
+        // Do not block the picker with a red environment banner.
+        setOrg(null);
+        setWorkspaceError(null);
+        const local = await listDriverOfflineParties();
+        setExistingParties(
+          local.map((row) => ({
+            id: row.id,
+            name: row.name,
+            phone: row.phone,
+          })),
+        );
+        return;
+      }
       setOrg(next);
-      const { clients: rows } = await getClientsByOrganization(next.id);
-      setExistingParties(
-        rows.map((row) => ({
-          id: row.id,
-          name: row.name || row.contact_person || "Shipper",
-          phone: row.phone,
-        })),
-      );
+      const [{ clients: rows }, local] = await Promise.all([
+        getClientsByOrganization(next.id),
+        listDriverOfflineParties(),
+      ]);
+      const serverRows = rows.map((row) => ({
+        id: row.id,
+        name: row.name || row.contact_person || "Shipper",
+        phone: row.phone,
+      }));
+      const serverIds = new Set(serverRows.map((row) => row.id));
+      setExistingParties([
+        ...local
+          .filter((row) => !serverIds.has(row.id))
+          .map((row) => ({ id: row.id, name: row.name, phone: row.phone })),
+        ...serverRows,
+      ]);
     } finally {
       setLoading(false);
     }
-  }, [canAddDcoShippers]);
+  }, [canAddDcoShippers, canTagOfflineParty, modeLoading]);
 
   useEffect(() => {
     void loadOrg();
   }, [loadOrg]);
 
   useEffect(() => {
-    if (!modeLoading && !canAddDcoShippers) onBack();
-  }, [modeLoading, canAddDcoShippers, onBack]);
+    if (!modeLoading && !canTagOfflineParty) onBack();
+  }, [modeLoading, canTagOfflineParty, onBack]);
 
   const matchingSavedParty = useMemo(() => {
     const key = partyName.trim().toLowerCase();
@@ -159,6 +215,18 @@ export default function DriverAddClientScreen() {
       existingParties.find((row) => row.name.trim().toLowerCase() === key) ?? null
     );
   }, [existingParties, partyName]);
+
+  const sortedExistingParties = useMemo(
+    () =>
+      sortTagPartyOptions(
+        existingParties.map((row) => ({
+          ...row,
+          matchesAssigner: partyMatchesAssigner(row.name, partyName),
+        })),
+        !isDco,
+      ),
+    [existingParties, isDco, partyName],
+  );
 
   const finishWithClient = useCallback(
     async (client: { id: string; name: string }, billed?: number | null) => {
@@ -208,7 +276,31 @@ export default function DriverAddClientScreen() {
 
   const handleComplete = useCallback(
     async (data: AddClientFormData) => {
-      if (!org?.id) throw new Error(workspaceError ?? DCO_NO_WORKSPACE);
+      const displayName =
+        data.organizationName?.trim() || data.contactPerson?.trim() || "Party";
+
+      if (!org?.id) {
+        const local = await rememberDriverOfflineParty({
+          name: displayName,
+          phone: data.phone,
+        });
+        const created = { id: local.id, name: local.name };
+        setExistingParties((prev) =>
+          prev.some((row) => row.id === created.id)
+            ? prev
+            : [created, ...prev],
+        );
+        setCreatedSuccess(true);
+        if (tripId && !isShipperParty(created.name)) {
+          beginTag(created);
+        } else {
+          const tagged = await finishWithClient(created);
+          if (tagged.error) throw tagged.error;
+          setSuccessParty(created);
+        }
+        return;
+      }
+
       const { error, client } = await createClient(org.id, {
         contact_person: data.contactPerson,
         phone: data.phone,
@@ -231,7 +323,7 @@ export default function DriverAddClientScreen() {
       }
       await queryClient.refetchQueries({ queryKey: queryKeys.clients.all(org.id) });
     },
-    [beginTag, finishWithClient, isShipperParty, org?.id, queryClient, tripId, workspaceError],
+    [beginTag, finishWithClient, isShipperParty, org?.id, queryClient, tripId],
   );
 
   const searchInviteeByPhone = useCallback(
@@ -268,13 +360,23 @@ export default function DriverAddClientScreen() {
       onClose={tripId ? () => setShowCreate(false) : handleClose}
       onComplete={handleComplete}
       organizationId={org?.id ?? null}
-      noOrganizationMessage={org?.id ? null : workspaceError ?? DCO_NO_WORKSPACE}
+      noOrganizationMessage={
+        org?.id
+          ? null
+          : workspaceError && !/not enabled on this environment/i.test(workspaceError)
+            ? workspaceError
+            : null
+      }
+      allowOfflineWithoutOrganization={!org?.id}
       onRefreshOrganization={loadOrg}
       searchInviteeByPhone={searchInviteeByPhone}
       onSendInvitation={handleSendInvitation}
       successEntity="client"
       initialOrganizationName={matchingSavedParty ? "" : partyName}
       showSuccessOnComplete={!tripId}
+      existingParties={sortedExistingParties}
+      onSelectExistingParty={handlePickExisting}
+      existingPartyBusyId={pickingId}
     />
   );
 
@@ -321,7 +423,7 @@ export default function DriverAddClientScreen() {
     />
   );
 
-  if (modeLoading || !canAddDcoShippers || loading) {
+  if (modeLoading || !canTagOfflineParty || loading) {
     return <CenteredLoadingView message="Loading…" color={Theme.primary} />;
   }
 
@@ -352,7 +454,7 @@ export default function DriverAddClientScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {existingParties.map((row) => {
+        {sortedExistingParties.map((row) => {
           const busy = pickingId === row.id;
           return (
             <TouchableOpacity
@@ -375,7 +477,9 @@ export default function DriverAddClientScreen() {
                   {row.name}
                 </Text>
                 <Text style={styles.rowMeta} numberOfLines={1}>
-                  {row.phone?.trim() || "Saved party"}
+                  {!isDco && row.matchesAssigner
+                    ? "Recommended · Fleet"
+                    : row.phone?.trim() || "Saved party"}
                 </Text>
               </View>
               {busy ? (

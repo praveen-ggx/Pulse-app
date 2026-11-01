@@ -84,12 +84,19 @@ export function canManageOwnerVehicles(m: DriverOperatingMode): boolean {
 }
 
 /**
- * Shipper CRM (add/pick offline client) is DCO-only. A plain driver has two
- * trip books — fleet employer assignments and their own offline work — and
- * never creates parties.
+ * DCO workspace shipper CRM (marketplace collect, DCO Self book). A plain
+ * driver never gets this — they tag offline trips through canTagOfflineParty.
  */
 export function canAddDcoShippers(m: DriverOperatingMode): boolean {
   return canManageOwnerVehicles(m);
+}
+
+/**
+ * Tag / capture on the driver's own offline book. Granted to a working
+ * DRIVER and to an eligible DCO. Suspended / employment-conflict stay closed.
+ */
+export function canTagOfflineParty(m: DriverOperatingMode): boolean {
+  return m.mode === 'DRIVER' || canManageOwnerVehicles(m);
 }
 
 type RelationshipRow = {

@@ -1059,12 +1059,12 @@ function TypedDetailsPreview({
         <View style={styles.typedPreviewChips}>
           <View style={styles.typedChip}>
             <Text style={styles.typedChipText}>
-              {entryCount > 1
+            {entryCount > 1
                 ? `${entryCount} bills`
-                : lines.length > 0
-                  ? `${lines.length} fields`
+              : lines.length > 0
+                ? `${lines.length} fields`
                   : "Empty"}
-            </Text>
+          </Text>
           </View>
           <View style={[styles.typedChip, styles.typedChipMuted]}>
             <Text style={styles.typedChipText}>No file</Text>
@@ -1179,12 +1179,12 @@ function TypedDetailsPreview({
                           >
                             {validity.label}
                           </Text>
-                        </View>
-                      ) : null}
+                    </View>
+                  ) : null}
                     </View>
                   ) : null}
                   <View style={styles.typedFactGrid}>
-                    {bodyLines.map((line, index) => (
+                  {bodyLines.map((line, index) => (
                       <View
                         key={`${group.key}-${line.label}-${index}`}
                         style={[
@@ -1205,7 +1205,7 @@ function TypedDetailsPreview({
                           {line.value}
                         </Text>
                       </View>
-                    ))}
+                  ))}
                   </View>
                   </View>
                 </View>
@@ -2077,54 +2077,54 @@ function OriginalDocumentPreview({
     >
       <View
         style={styles.previewPanSurface}
-        onStartShouldSetResponder={() => true}
-        onMoveShouldSetResponder={() => true}
-        onResponderGrant={(event) => {
-          dragMoved.current = false;
-          setDragging(true);
-          drag.current = {
-            x: event.nativeEvent.pageX,
-            y: event.nativeEvent.pageY,
-            panX: viewRef.current.panX,
-            panY: viewRef.current.panY,
-          };
-        }}
-        onResponderMove={(event) => {
-          if (!drag.current) return;
-          if (
-            Math.hypot(event.nativeEvent.pageX - drag.current.x, event.nativeEvent.pageY - drag.current.y) > 4
-          ) {
-            dragMoved.current = true;
-          }
-          const next = clampLocalPan(
-            drag.current.panX + event.nativeEvent.pageX - drag.current.x,
-            drag.current.panY + event.nativeEvent.pageY - drag.current.y,
-          );
-          viewRef.current.panX = next.x;
-          viewRef.current.panY = next.y;
-          if (Platform.OS === "web") {
-            const el = mediaRef.current as unknown as HTMLElement | null;
-            const frame = frameRef.current;
-            if (el?.style) {
+      onStartShouldSetResponder={() => true}
+      onMoveShouldSetResponder={() => true}
+      onResponderGrant={(event) => {
+        dragMoved.current = false;
+        setDragging(true);
+        drag.current = {
+          x: event.nativeEvent.pageX,
+          y: event.nativeEvent.pageY,
+          panX: viewRef.current.panX,
+          panY: viewRef.current.panY,
+        };
+      }}
+      onResponderMove={(event) => {
+        if (!drag.current) return;
+        if (
+          Math.hypot(event.nativeEvent.pageX - drag.current.x, event.nativeEvent.pageY - drag.current.y) > 4
+        ) {
+          dragMoved.current = true;
+        }
+        const next = clampLocalPan(
+          drag.current.panX + event.nativeEvent.pageX - drag.current.x,
+          drag.current.panY + event.nativeEvent.pageY - drag.current.y,
+        );
+        viewRef.current.panX = next.x;
+        viewRef.current.panY = next.y;
+        if (Platform.OS === "web") {
+          const el = mediaRef.current as unknown as HTMLElement | null;
+          const frame = frameRef.current;
+          if (el?.style) {
               el.style.transform = cssPreviewTransform(
                 next,
                 viewRef.current.zoom,
                 frame.rotation,
                 frame.display ?? undefined,
               );
-            }
           }
-          setPan(next);
-        }}
-        onResponderRelease={() => {
-          drag.current = null;
-          setDragging(false);
-        }}
-        onResponderTerminate={() => {
-          drag.current = null;
-          setDragging(false);
-        }}
-      >
+        }
+        setPan(next);
+      }}
+      onResponderRelease={() => {
+        drag.current = null;
+        setDragging(false);
+      }}
+      onResponderTerminate={() => {
+        drag.current = null;
+        setDragging(false);
+      }}
+    >
       {imageLoading && !isPdf ? (
         <View style={styles.previewLoadingOverlay} pointerEvents="none">
           <ActivityIndicator color={Theme.textPrimaryDark} />
@@ -2150,17 +2150,17 @@ function OriginalDocumentPreview({
               },
             ]}
           >
-          {isPdf ? (
-            <TripVaultFilePreview
-              uri={uri}
-              isPdf
+            {isPdf ? (
+              <TripVaultFilePreview
+                uri={uri}
+                isPdf
                 showToolbar={false}
                 zoom={1}
                 sizing="fit"
                 interactive={false}
                 style={StyleSheet.absoluteFillObject}
-              accessibilityLabel={label}
-            />
+                accessibilityLabel={label}
+              />
           ) : cropBox && natural && display ? (
               <View
                 style={{
@@ -2180,10 +2180,10 @@ function OriginalDocumentPreview({
               </View>
             ) : (
               <ExpoImage
-              source={{ uri }}
+                source={{ uri }}
                 style={StyleSheet.absoluteFillObject}
                 contentFit="contain"
-              accessibilityLabel={label}
+                accessibilityLabel={label}
               />
             )}
           </View>
@@ -2366,7 +2366,7 @@ export function DocumentScreen({
 
   const applyView = useCallback(
     (nextScale: number, nextPan: { x: number; y: number }, size = frame, rot = rotation) => {
-    const zoom = clampPreviewZoom(nextScale);
+      const zoom = clampPreviewZoom(nextScale);
       const box = mediaLayoutForRotation(size.width, size.height, rot);
       const panNext = clampScreenPan(
         nextPan.x,
@@ -2704,7 +2704,7 @@ export function DocumentScreen({
         accessibilityViewIsModal
       >
         {!fullPage ? (
-        <Pressable style={styles.screenBackdrop} onPress={onClose} accessibilityLabel="Close document preview" />
+          <Pressable style={styles.screenBackdrop} onPress={onClose} accessibilityLabel="Close document preview" />
         ) : null}
         <View
           style={[
@@ -2754,42 +2754,42 @@ export function DocumentScreen({
             <View style={[styles.screenTools, fullPage && styles.screenToolsPage]}>
               {showPdfPageTools ? (
                 <View style={[styles.previewZoomCluster, styles.previewPageCluster]}>
-                <Pressable
+                  <Pressable
                     style={[styles.previewZoomBtn, atFirstPage && styles.previewToolBtnDisabled]}
-                  onPress={() => {
-                    setPage((value) => Math.max(1, value - 1));
-                    setPan({ x: 0, y: 0 });
-                  }}
-                  disabled={atFirstPage}
-                  accessibilityRole="button"
-                  accessibilityLabel="Previous page"
-                  accessibilityState={{ disabled: atFirstPage }}
-                  {...(Platform.OS === "web" ? { title: "Previous page" } : {})}
-                >
+                    onPress={() => {
+                      setPage((value) => Math.max(1, value - 1));
+                      setPan({ x: 0, y: 0 });
+                    }}
+                    disabled={atFirstPage}
+                    accessibilityRole="button"
+                    accessibilityLabel="Previous page"
+                    accessibilityState={{ disabled: atFirstPage }}
+                    {...(Platform.OS === "web" ? { title: "Previous page" } : {})}
+                  >
                     <ChevronLeft size={14} color={atFirstPage ? Theme.textMuted : Theme.textPrimaryDark} />
-                </Pressable>
+                  </Pressable>
                   <Text style={[styles.previewZoomLabel, styles.previewPageLabel]} accessibilityLabel={pageCount ? `Page ${page} of ${pageCount}` : `Page ${page}`}>
                     {pageCount ? `${page} / ${pageCount}` : `Page ${page}`}
-                </Text>
-                <Pressable
+                  </Text>
+                  <Pressable
                     style={[styles.previewZoomBtn, atLastPage && styles.previewToolBtnDisabled]}
-                  onPress={() => {
-                    setPage((value) => Math.min(pageLimit, value + 1));
-                    setPan({ x: 0, y: 0 });
-                  }}
-                  disabled={atLastPage}
-                  accessibilityRole="button"
-                  accessibilityLabel="Next page"
-                  accessibilityState={{ disabled: atLastPage }}
-                  {...(Platform.OS === "web" ? { title: "Next page" } : {})}
-                >
+                    onPress={() => {
+                      setPage((value) => Math.min(pageLimit, value + 1));
+                      setPan({ x: 0, y: 0 });
+                    }}
+                    disabled={atLastPage}
+                    accessibilityRole="button"
+                    accessibilityLabel="Next page"
+                    accessibilityState={{ disabled: atLastPage }}
+                    {...(Platform.OS === "web" ? { title: "Next page" } : {})}
+                  >
                     <ChevronRight size={14} color={atLastPage ? Theme.textMuted : Theme.textPrimaryDark} />
-                </Pressable>
-              </View>
-            ) : null}
+                  </Pressable>
+                </View>
+              ) : null}
               {showImage || showPdf ? (
                 <>
-              <Pressable
+                  <Pressable
                     style={[
                       styles.previewRotateBtn,
                       styles.previewToolBtnNamed,
@@ -2823,13 +2823,13 @@ export function DocumentScreen({
                   <View style={[styles.previewZoomCluster, fullPage && styles.previewToolOnDark]}>
                     <Pressable
                       style={styles.previewZoomBtn}
-                onPress={() => applyView(scale - 0.25, pan)}
-                accessibilityRole="button"
-                accessibilityLabel="Zoom out"
-                {...(Platform.OS === "web" ? { title: "Zoom out" } : {})}
-              >
+                      onPress={() => applyView(scale - 0.25, pan)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Zoom out"
+                      {...(Platform.OS === "web" ? { title: "Zoom out" } : {})}
+                    >
                       <Minus size={14} color={fullPage ? Theme.cardWhite : Theme.textPrimaryDark} />
-              </Pressable>
+                    </Pressable>
                     <Text
                       style={[
                         styles.previewZoomLabel,
@@ -2837,17 +2837,17 @@ export function DocumentScreen({
                       ]}
                       accessibilityLabel={`Zoom ${Math.round(scale * 100)} percent`}
                     >
-                {Math.round(scale * 100)}%
-              </Text>
-              <Pressable
+                      {Math.round(scale * 100)}%
+                    </Text>
+                    <Pressable
                       style={styles.previewZoomBtn}
-                onPress={() => applyView(scale + 0.25, pan)}
-                accessibilityRole="button"
-                accessibilityLabel="Zoom in"
-                {...(Platform.OS === "web" ? { title: "Zoom in" } : {})}
-              >
+                      onPress={() => applyView(scale + 0.25, pan)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Zoom in"
+                      {...(Platform.OS === "web" ? { title: "Zoom in" } : {})}
+                    >
                       <Plus size={14} color={fullPage ? Theme.cardWhite : Theme.textPrimaryDark} />
-              </Pressable>
+                    </Pressable>
                   </View>
                 </>
               ) : null}
@@ -2864,8 +2864,8 @@ export function DocumentScreen({
             </View>
           </View>
           <View style={[styles.screenStageRow, fullPage && styles.screenStageRowPage]}>
-          <View
-            ref={stageRef}
+            <View
+              ref={stageRef}
               style={[
                 styles.screenStage,
                 fullPage && styles.screenStagePage,
@@ -2888,10 +2888,10 @@ export function DocumentScreen({
                       ? "Rotated image. Scroll or drag to pan. Use side arrows for the next document."
                       : "Image preview. Scroll to zoom. Drag to pan when zoomed or rotated."
               }
-            onLayout={(event) => {
-              const { width, height } = event.nativeEvent.layout;
-              setFrame((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
-            }}
+              onLayout={(event) => {
+                const { width, height } = event.nativeEvent.layout;
+                setFrame((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
+              }}
               // Native: keep responders. Web pan uses pointer events above (more reliable when rotated).
               {...(Platform.OS !== "web"
                 ? {
@@ -2914,19 +2914,19 @@ export function DocumentScreen({
                       if (!showImage && !pdfViewOwned) return;
                       schedulePan(
                         clampScreenPan(
-                drag.current.panX + event.nativeEvent.pageX - drag.current.x,
-                drag.current.panY + event.nativeEvent.pageY - drag.current.y,
-                viewRef.current.scale,
-                frame.width,
-                frame.height,
+                          drag.current.panX + event.nativeEvent.pageX - drag.current.x,
+                          drag.current.panY + event.nativeEvent.pageY - drag.current.y,
+                          viewRef.current.scale,
+                          frame.width,
+                          frame.height,
                           mediaBox.width,
                           mediaBox.height,
                           viewRef.current.rotation,
                         ),
-              );
+                      );
                     },
                     onResponderRelease: () => {
-              drag.current = null;
+                      drag.current = null;
                     },
                   }
                 : null)}
@@ -2939,7 +2939,7 @@ export function DocumentScreen({
                   darkCanvas={fullPage}
                 />
               ) : showPdf && uri ? (
-            <View
+                <View
                   ref={screenMediaRef}
                   style={[
                     mediaBox.width > 0
@@ -2957,15 +2957,15 @@ export function DocumentScreen({
                   // Rotated: stage owns wheel/drag. Upright: iframe keeps native scroll.
                   pointerEvents={pdfViewOwned ? "box-none" : "auto"}
                 >
-                <TripVaultFilePreview
-                  uri={uri}
-                  isPdf
+                  <TripVaultFilePreview
+                    uri={uri}
+                    isPdf
                     // Hide Chrome PDF chrome — its built-in rotate breaks smooth scroll.
                     // Use the header Rotate control instead. Upright files still
                     // use the live iframe (previewTier=full + scrollbar) so pages
                     // can be scrolled, same as vault preview.
-                  showToolbar={false}
-                  sizing="fit"
+                    showToolbar={false}
+                    sizing="fit"
                     zoom={pdfViewOwned ? 1 : scale}
                     page={showPdfPageTools ? page : undefined}
                     scrollbar={!pdfViewOwned}
@@ -2973,9 +2973,9 @@ export function DocumentScreen({
                     previewTier={pdfViewOwned ? "thumb" : "full"}
                     documentKey={documentKey}
                     documentVersion={documentVersion}
-                  style={styles.screenFile}
-                  accessibilityLabel={title}
-                />
+                    style={styles.screenFile}
+                    accessibilityLabel={title}
+                  />
                 </View>
               ) : showImage && uri ? (
                 <>
@@ -3028,15 +3028,15 @@ export function DocumentScreen({
                 <View style={styles.screenLoading}>
                   <ActivityIndicator size="large" color={Theme.textOnDark} />
                   <Text style={styles.screenLoadingText}>Loading document…</Text>
-            </View>
+                </View>
               ) : (
                 <View style={styles.screenLoading}>
                   <Text style={styles.screenLoadingText}>
                     {emptyHint ?? "No preview available for this document."}
                   </Text>
-          </View>
+                </View>
               )}
-        </View>
+            </View>
             {/* Inside the stage row so arrows stay above the rotated media hit-target. */}
             {(showImage || showPdf) ? (
               <View
@@ -3115,17 +3115,17 @@ export function DocumentScreen({
                     onPress={() => onPrev?.()}
                     tone={fullPage ? "dark" : "light"}
                   />
-      </View>
+                </View>
                 <View style={[styles.docSideNavOverlayRight, styles.docSideNavOverlayScreen]} pointerEvents="box-none">
                   <DocSideNavButton
                     direction="next"
                     onPress={() => onNext?.()}
                     tone={fullPage ? "dark" : "light"}
                   />
-        </View>
+                </View>
               </>
             ) : null}
-      </View>
+          </View>
           {showTyped ? (
             <PreviewPanFooter label={navLabel ?? "Entered details"} />
           ) : navLabel ? (
@@ -3594,7 +3594,7 @@ export function ComplianceDocumentWorkspace({
       setSupplierBankProof(cached);
       setSupplierBankLoading(false);
     } else {
-      setSupplierBankLoading(true);
+    setSupplierBankLoading(true);
     }
     const stage = summary.stage;
     void fetchSupplierBankProofBundle(orgId, supplierId)
@@ -3864,10 +3864,10 @@ export function ComplianceDocumentWorkspace({
   const activeRow = !showDocumentShell || showEntityUnassigned
     ? null
     : checklistSelectedRow && vaultPreviewPath(checklistSelectedRow)
-        ? checklistSelectedRow
+      ? checklistSelectedRow
         : checklistSelectedRow
           ? newestPreviewableRow(listRows, checklistSelectedRow.type)
-          : null;
+      : null;
   useEffect(() => {
     if (!chargeFocusToken || !chargeFocusTripId) return;
     if (appliedChargeFocus.current === chargeFocusToken) return;
@@ -3928,7 +3928,7 @@ export function ComplianceDocumentWorkspace({
       onSelectedTripChange?.(tripId);
       setDocFilter("all");
       setChecklistPreviewMode(defaultPreview);
-    setDocIndex(0);
+      setDocIndex(0);
       resetPreviewView();
       // Debit control: no side pane — tapping a trip opens Log hard copy POD.
       if (hideDocumentPanes && showHardCopyPodLog) setPodOpen(true);
@@ -4180,20 +4180,20 @@ export function ComplianceDocumentWorkspace({
     const tripId = summary.trip.id;
 
     if (reviewScope === "trip") {
-        if (!row.doc) {
-          alertMessage("Couldn't approve document", "This trip document has no uploaded file.");
+      if (!row.doc) {
+        alertMessage("Couldn't approve document", "This trip document has no uploaded file.");
         return false;
-        }
-        const { error } = await setTripDocumentVerification({
-          document: row.doc,
-          organizationId,
-          actorId,
-          status: "verified",
-        });
-        if (error) {
-          alertMessage("Couldn't approve document", error.message);
+      }
+      const { error } = await setTripDocumentVerification({
+        document: row.doc,
+        organizationId,
+        actorId,
+        status: "verified",
+      });
+      if (error) {
+        alertMessage("Couldn't approve document", error.message);
         return false;
-        }
+      }
       if (sync) {
         onChanged({ type: "tripDocumentDecision", tripId, documentId: row.doc.id, status: "verified", actorId });
       }
@@ -4220,9 +4220,9 @@ export function ComplianceDocumentWorkspace({
       row.entityDoc.source !== "driver-kyc" &&
       (row.entityDoc.entity_type === "vehicle" || row.entityDoc.entity_type === "driver")
     ) {
-        const { error } = await verifyDocument(row.entityDoc.id, actorId);
-        if (error) {
-          alertMessage("Couldn't approve document", error.message);
+      const { error } = await verifyDocument(row.entityDoc.id, actorId);
+      if (error) {
+        alertMessage("Couldn't approve document", error.message);
         return false;
       }
       if (sync) {
@@ -4244,36 +4244,36 @@ export function ComplianceDocumentWorkspace({
     if (!summary || !actorId) return false;
     const tripId = summary.trip.id;
     if (reviewScope === "trip") {
-        if (!row.doc) {
-          alertMessage("Couldn't decline document", "This trip document has no uploaded file.");
+      if (!row.doc) {
+        alertMessage("Couldn't decline document", "This trip document has no uploaded file.");
         return false;
-        }
-        const { error } = await setTripDocumentVerification({
-          document: row.doc,
-          organizationId,
-          actorId,
-          status: "rejected",
-          rejectionReason: note,
-        });
-        if (error) {
-          alertMessage("Couldn't decline document", error.message);
+      }
+      const { error } = await setTripDocumentVerification({
+        document: row.doc,
+        organizationId,
+        actorId,
+        status: "rejected",
+        rejectionReason: note,
+      });
+      if (error) {
+        alertMessage("Couldn't decline document", error.message);
         return false;
-        }
-        onChanged({
-          type: "tripDocumentDecision",
-          tripId,
-          documentId: row.doc.id,
-          status: "rejected",
-          actorId,
-          rejectionReason: note,
-        });
+      }
+      onChanged({
+        type: "tripDocumentDecision",
+        tripId,
+        documentId: row.doc.id,
+        status: "rejected",
+        actorId,
+        rejectionReason: note,
+      });
       return true;
     }
     if (row.entityDoc?.source === "vehicle-vault") {
-        alertMessage(
-          "Couldn't decline document",
-          "Replace this file from the vehicle vault, or upload a new copy.",
-        );
+      alertMessage(
+        "Couldn't decline document",
+        "Replace this file from the vehicle vault, or upload a new copy.",
+      );
       return false;
     }
     const entityDoc = row.entityDoc;
@@ -4283,10 +4283,10 @@ export function ComplianceDocumentWorkspace({
       (entityDoc.entity_type === "vehicle" || entityDoc.entity_type === "driver")
     ) {
         const { error } = await rejectDocument(entityDoc.id, note);
-        if (error) {
-          alertMessage("Couldn't decline document", error.message);
+      if (error) {
+        alertMessage("Couldn't decline document", error.message);
         return false;
-        }
+      }
         onChanged(
           entityDocumentChange({
             entity_type: entityDoc.entity_type,
@@ -4295,7 +4295,7 @@ export function ComplianceDocumentWorkspace({
         );
       return true;
     }
-        alertMessage("Couldn't decline document", "This document can't be declined from this preview.");
+    alertMessage("Couldn't decline document", "This document can't be declined from this preview.");
     return false;
   };
 
@@ -4417,8 +4417,8 @@ export function ComplianceDocumentWorkspace({
     const note = reason.trim();
     if (!note) {
       alertMessage("Can't decline", "A rejection reason is required.");
-        return;
-      }
+      return;
+    }
 
     const targets = groupActionableRows(target).filter(
       (row) =>
@@ -5280,8 +5280,8 @@ export function ComplianceDocumentWorkspace({
     const rowLabel =
       isFinanceMode ||
       (COMPLIANCE_FINANCE_DOCUMENT_TYPES as readonly string[]).includes(displayRow.type)
-        ? labelForFinanceDocType(displayRow.type)
-        : labelForDocType(displayRow.type);
+      ? labelForFinanceDocType(displayRow.type)
+      : labelForDocType(displayRow.type);
     // One row per type; every file of the type opens in the files dialog.
     const typeFiles = listRows
       .filter((item) => item.type === displayRow.type && hasFile(item))
@@ -5349,10 +5349,10 @@ export function ComplianceDocumentWorkspace({
     ]
       .filter((part): part is string => Boolean(part))
       .join(" · ");
-  return (
-      <View
+    return (
+              <View
         key={displayRow.key}
-        style={[
+                style={[
           styles.checklistVaultRow,
           selected && styles.checklistVaultRowSelected,
         ]}
@@ -5429,30 +5429,30 @@ export function ComplianceDocumentWorkspace({
           }}
         />
         {canEditFiles && needsExpiry && canSetEntityExpiry(displayRow) ? (
-          <Pressable
-            style={(state: HoverPressState) => [
-              styles.missingUploadBtn,
+            <Pressable
+              style={(state: HoverPressState) => [
+                styles.missingUploadBtn,
               styles.checklistExpiryBtn,
-              WEB_POINTER,
-              WEB_TRANSITION,
+                WEB_POINTER,
+                WEB_TRANSITION,
               savingExpiryKey === displayRow.key && styles.btnDisabled,
               isHovered(state) && !savingExpiryKey && styles.missingUploadBtnHover,
-            ]}
+              ]}
             disabled={Boolean(savingExpiryKey)}
             onPress={() => void addEntityExpiry(displayRow)}
-            accessibilityRole="button"
+              accessibilityRole="button"
             accessibilityLabel={`Add expiry date for ${rowLabel}`}
             accessibilityState={{ busy: savingExpiryKey === displayRow.key }}
           >
             {savingExpiryKey === displayRow.key ? (
               <ActivityIndicator size="small" color={Theme.buttonDarkText} />
             ) : null}
-            <Text style={styles.missingUploadBtnText}>
+              <Text style={styles.missingUploadBtnText}>
               {savingExpiryKey === displayRow.key ? "Saving…" : "Add expiry"}
-            </Text>
-          </Pressable>
-        ) : null}
-      </View>
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
     );
   };
 
@@ -5647,9 +5647,9 @@ export function ComplianceDocumentWorkspace({
               {declining ? (
                 <ActivityIndicator size="small" color={Theme.actionBtnInk} />
               ) : (
-                <Text style={[styles.reviewGroupDeclineText, declined && styles.reviewGroupDeclineTextActive]}>
-                  {declined ? "Declined" : "Decline"}
-                </Text>
+                  <Text style={[styles.reviewGroupDeclineText, declined && styles.reviewGroupDeclineTextActive]}>
+                    {declined ? "Declined" : "Decline"}
+                  </Text>
               )}
             </TouchableOpacity>
             <TouchableOpacity
@@ -5665,7 +5665,7 @@ export function ComplianceDocumentWorkspace({
               {approving ? (
                 <ActivityIndicator size="small" color={Theme.buttonDarkText} />
               ) : (
-                <Text style={styles.reviewGroupApproveText}>Approve</Text>
+                  <Text style={styles.reviewGroupApproveText}>Approve</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -5820,7 +5820,7 @@ export function ComplianceDocumentWorkspace({
                 summary={item}
                   compact
                   selected={!mobileExclusive && item.trip.id === summary?.trip.id}
-                  supplierName={supplierNameByTripId[item.trip.id] ?? null}
+                supplierName={supplierNameByTripId[item.trip.id] ?? null}
                   parties={partyAvatarByTripId[item.trip.id]}
                   onReviewDocuments={(group) => {
                     selectListTrip(item.trip.id);
@@ -5954,9 +5954,9 @@ export function ComplianceDocumentWorkspace({
                 title="No trip selected"
                 hint="Select a trip to review its charges."
               />
-                </View>
-            )}
-          </View>
+            </View>
+          )}
+        </View>
       ) : showHardCopyPodLog && !hideDocumentPanes ? (
         <View style={[styles.detailColumn, stacked && styles.detailColumnStacked]}>
           {detailHeader}
@@ -5983,16 +5983,16 @@ export function ComplianceDocumentWorkspace({
                 title="No trip selected"
                 hint="Select an Awaiting POD trip to log its hard copy POD."
               />
-              </View>
-          )}
             </View>
+          )}
+          </View>
         </View>
       ) : hideDocumentPanes ? null : (
       <View style={[styles.previewPane, mobileExclusive && styles.podLogPaneMobile]}>
         <View style={styles.stage}>
           {showDocumentShell ? (
-            <View
-                      style={[
+                        <View
+                          style={[
                 styles.checklistStage,
                 stacked && styles.checklistStageStacked,
                 mobileExclusive && styles.checklistStageMobile,
@@ -6015,7 +6015,7 @@ export function ComplianceDocumentWorkspace({
                       : (
                         <ScrollView
                           scrollEnabled
-                          style={[
+                            style={[
                   styles.checklistListPane,
                   splitEnabled && styles.checklistListPaneSplit,
                   stacked && styles.checklistListPaneStacked,
@@ -6038,26 +6038,26 @@ export function ComplianceDocumentWorkspace({
                         ] as const
                       ).map((item) => {
                         const active = docFilter === item.key;
-              return (
-                <Pressable
-                  key={item.key}
+                      return (
+                        <Pressable
+                          key={item.key}
                             onPress={() => applyDocFilter(item.key)}
-                            style={(state: HoverPressState) => [
+                          style={(state: HoverPressState) => [
                               styles.docScopeTab,
                               active && styles.docScopeTabActive,
-                              WEB_POINTER,
+                            WEB_POINTER,
                               isHovered(state) && !active && styles.docScopeTabHover,
-                            ]}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: active }}
+                          ]}
+                          accessibilityRole="tab"
+                          accessibilityState={{ selected: active }}
                             accessibilityLabel={`Show ${item.label} documents`}
-                          >
-                            <Text
+                        >
+                          <Text
                               style={[styles.docScopeTabText, active && styles.docScopeTabTextActive]}
-                              numberOfLines={1}
-                            >
-                              {item.label}
-                      </Text>
+                            numberOfLines={1}
+                          >
+                            {item.label}
+                          </Text>
                 </Pressable>
               );
             })}
@@ -6068,8 +6068,8 @@ export function ComplianceDocumentWorkspace({
                     <Text style={styles.missingTitle}>{vaultCopy.unassignedTitle}</Text>
                     <Text style={[styles.missingHint, styles.missingHintMobile]}>
                       {vaultCopy.unassignedHint}
-                </Text>
-              </View>
+                              </Text>
+                            </View>
             ) : (
               <>
                     <View style={[styles.missingHeader, styles.missingHeaderMobile]}>
@@ -6077,15 +6077,15 @@ export function ComplianceDocumentWorkspace({
                         <Text style={styles.missingTitle}>
                           {isFinanceMode ? "Trip details" : "Documents to upload"}
                         </Text>
-                        <View
-                      style={[
+                            <View
+                              style={[
                             styles.missingCountChip,
                             documentsMissing && styles.missingCountChipNeed,
                             documentsOnFile && styles.missingCountChipReady,
-                          ]}
-                    >
-                      <Text
-                        style={[
+                              ]}
+                            >
+                              <Text
+                                style={[
                               styles.missingCountChipText,
                               documentsMissing && styles.missingCountChipTextNeed,
                               documentsOnFile && styles.missingCountChipTextReady,
@@ -6093,31 +6093,31 @@ export function ComplianceDocumentWorkspace({
                         numberOfLines={1}
                       >
                             {listMissingRows.length > 0
-                              ? `${listMissingRows.length} to upload`
-                        : `${uploadedCount} on file`}
+                            ? `${listMissingRows.length} to upload`
+                            : `${uploadedCount} on file`}
                       </Text>
+                    </View>
                   </View>
-                </View>
                       <Text
-                          style={[
+                        style={[
                           styles.missingSubtitle,
                           documentsOnFile && styles.missingSubtitleReady,
                           documentsMissing && styles.missingSubtitleMissing,
                         ]}
                         numberOfLines={2}
                       >
-                    {missingHeadline}
-                  </Text>
+                        {missingHeadline}
+                      </Text>
                           <Text
                     style={[styles.missingHint, styles.missingHintMobile]}
                     numberOfLines={2}
                   >
-                    {missingSubline}
-                  </Text>
-                </View>
+                        {missingSubline}
+                      </Text>
+                    </View>
                     {verifyNotice ? (
                       <View
-                            style={[
+                        style={[
                           styles.verifyNotice,
                           verifyNotice.tone === "success" && styles.verifyNoticeSuccess,
                         ]}
@@ -6132,9 +6132,9 @@ export function ComplianceDocumentWorkspace({
                         )}
                         <Text style={styles.verifyNoticeText} numberOfLines={2}>
                           {verifyNotice.text}
-                          </Text>
-                        </View>
-                      ) : null}
+                        </Text>
+                      </View>
+                    ) : null}
                 <View
                   style={[
                     styles.checklistDocsContent,
@@ -6144,29 +6144,29 @@ export function ComplianceDocumentWorkspace({
                     {commerceLayout
                       ? renderVaultCategoryClusters()
                       : showGroupedReview
-                      ? (["required", "optional"] as const).map((group) => {
-                          const requiredTypes = new Set(
-                            listRows.filter((row) => row.required).map((row) => row.type),
-                          );
-                          const groupRows = listRows.filter((row) => {
-                            const withRequiredType = requiredTypes.has(row.type);
-                            return group === "required" ? withRequiredType : !withRequiredType;
-                          });
-                          if (groupRows.length === 0) return null;
-                      return (
-                            <View
-                              key={group}
-                              style={[styles.reviewGroup, group === "optional" && styles.reviewGroupSpaced]}
-                            >
-                              {renderReviewGroupHeader(group, groupRows.length)}
-                              {firstRowPerType(groupRows).map(renderChecklistRow)}
-                            </View>
-                          );
-                        })
-                      : firstRowPerType(listRows).map(renderChecklistRow)}
-                </View>
+                        ? (["required", "optional"] as const).map((group) => {
+                            const requiredTypes = new Set(
+                              listRows.filter((row) => row.required).map((row) => row.type),
+                            );
+                            const groupRows = listRows.filter((row) => {
+                              const withRequiredType = requiredTypes.has(row.type);
+                              return group === "required" ? withRequiredType : !withRequiredType;
+                            });
+                            if (groupRows.length === 0) return null;
+                            return (
+                              <View
+                                key={group}
+                                style={[styles.reviewGroup, group === "optional" && styles.reviewGroupSpaced]}
+                              >
+                                {renderReviewGroupHeader(group, groupRows.length)}
+                                {firstRowPerType(groupRows).map(renderChecklistRow)}
+                              </View>
+                            );
+                          })
+                        : firstRowPerType(listRows).map(renderChecklistRow)}
+                    </View>
                     <View
-                      style={[
+                            style={[
                         styles.checklistPreviewActionsSection,
                         mobileExclusive && styles.checklistPreviewActionsSectionMobile,
                       ]}
@@ -6180,9 +6180,9 @@ export function ComplianceDocumentWorkspace({
                         >
                           <Text style={styles.reviewerResubmitNoteLabel}>
                             Ground Ops resubmit note
-                          </Text>
+                            </Text>
                           <Text style={styles.reviewerResubmitNoteText}>{reviewerResubmitNote}</Text>
-                        </View>
+                      </View>
                       ) : null}
                       {(showPendingTripActions || showFinanceDeclineReVerify) &&
                       onMarkComplianceVerified &&
@@ -6247,11 +6247,11 @@ export function ComplianceDocumentWorkspace({
                             {`Finance flag: ${summary.financeFlagNote?.trim() || "no note"}`}
                           </Text>
                           {onRejectCompliance ? (
-                    <TouchableOpacity
+                            <TouchableOpacity
                               style={styles.declineTripBtn}
                               activeOpacity={0.85}
                               onPress={() => setRejectOpen(true)}
-                      accessibilityRole="button"
+                              accessibilityRole="button"
                               accessibilityLabel="Reject trip compliance"
                             >
                               <Text style={styles.declineTripBtnText}>Reject</Text>
@@ -6266,9 +6266,9 @@ export function ComplianceDocumentWorkspace({
                               accessibilityLabel="Clear finance flag"
                             >
                               <Text style={styles.verifyTripBtnText}>Clear flag</Text>
-                    </TouchableOpacity>
+                            </TouchableOpacity>
                           ) : null}
-                      </View>
+                        </View>
                       ) : null}
                       {showResubmit && summary && onResubmitCompliance ? (
                         <View style={styles.resubmitActionBlock}>
@@ -6286,26 +6286,26 @@ export function ComplianceDocumentWorkspace({
                               </Text>
                             </View>
                           ) : null}
-                          <View style={styles.checklistPreviewTripActions}>
-                            <TouchableOpacity
-                              style={[
-                                styles.verifyTripBtn,
+                        <View style={styles.checklistPreviewTripActions}>
+                          <TouchableOpacity
+                            style={[
+                              styles.verifyTripBtn,
                                 (resubmitting || resubmitBlockedByMissingDocs) &&
                                   styles.btnDisabled,
-                              ]}
-                              activeOpacity={0.85}
-                              disabled={resubmitting}
-                              onPress={() => {
+                            ]}
+                            activeOpacity={0.85}
+                            disabled={resubmitting}
+                            onPress={() => {
                                 if (resubmitBlockedExplain) {
-                                  alertMessage(
+                                alertMessage(
                                     "Resubmit disabled",
                                     `${resubmitBlockedExplain.why}.\n\nAction required: ${resubmitBlockedExplain.action}`,
-                                  );
-                                  return;
-                                }
-                                setResubmitOpen(true);
-                              }}
-                              accessibilityRole="button"
+                                );
+                                return;
+                              }
+                              setResubmitOpen(true);
+                            }}
+                            accessibilityRole="button"
                               accessibilityLabel={
                                 resubmitBlockedExplain
                                   ? `Resubmit disabled. ${resubmitBlockedExplain.why}. ${resubmitBlockedExplain.action}`
@@ -6314,13 +6314,13 @@ export function ComplianceDocumentWorkspace({
                               accessibilityState={{
                                 disabled: resubmitting || resubmitBlockedByMissingDocs,
                               }}
-                            >
-                              {resubmitting ? (
-                                <ActivityIndicator size="small" color={Theme.cardWhite} />
-                              ) : (
-                                <Text style={styles.verifyTripBtnText}>Resubmit</Text>
-                              )}
-                            </TouchableOpacity>
+                          >
+                            {resubmitting ? (
+                              <ActivityIndicator size="small" color={Theme.cardWhite} />
+                            ) : (
+                              <Text style={styles.verifyTripBtnText}>Resubmit</Text>
+                            )}
+                          </TouchableOpacity>
                           </View>
                         </View>
                       ) : null}
@@ -6441,7 +6441,7 @@ export function ComplianceDocumentWorkspace({
                               : checklistPreviewMode === "trip"
                                 ? "Trip Detail"
                                 : "Advance Payment"}
-                        </Text>
+                    </Text>
                         )}
                         {commerceLayout || !previewingDocument ? null : (
                           <>
@@ -6474,7 +6474,7 @@ export function ComplianceDocumentWorkspace({
                         </View>
                       ) : null}
                       <View style={[styles.previewModeSwitch, mobileExclusive && styles.previewModeSwitchMobile]}>
-                        <Pressable
+                      <Pressable
                           style={(state: HoverPressState) => {
                             const active = checklistPreviewMode === "document";
                             return [
@@ -6498,7 +6498,7 @@ export function ComplianceDocumentWorkspace({
                           accessibilityLabel="Preview documents"
                         >
                           <Text
-                            style={[
+                        style={[
                               styles.previewModeChipText,
                               mobileExclusive && styles.previewModeChipTextMobile,
                               checklistPreviewMode === "document" && styles.previewModeChipTextSelected,
@@ -6578,73 +6578,73 @@ export function ComplianceDocumentWorkspace({
                           <Pressable
                             style={[
                               styles.previewNavTool,
-                              !toolsEnabled && styles.previewToolBtnDisabled,
-                            ]}
-                            onPress={() => {
-                              setRotation((value) => (value + 90) % 360);
-                              setZoom(1);
+                          !toolsEnabled && styles.previewToolBtnDisabled,
+                        ]}
+                        onPress={() => {
+                          setRotation((value) => (value + 90) % 360);
+                          setZoom(1);
                               setPreviewFit("width");
-                              setToolLabel("rotate");
-                            }}
-                            disabled={!toolsEnabled}
-                            accessibilityRole="button"
-                            accessibilityLabel="Rotate"
-                          >
+                          setToolLabel("rotate");
+                        }}
+                        disabled={!toolsEnabled}
+                        accessibilityRole="button"
+                        accessibilityLabel="Rotate"
+                      >
                             <RotateCwSquare size={16} color={toolColor} strokeWidth={2.1} />
-                          </Pressable>
-                          <Pressable
+                      </Pressable>
+                        <Pressable
                             style={[
                               styles.previewNavTool,
                               originalPreviewActive && styles.previewNavToolActive,
                               !toolsEnabled && styles.previewToolBtnDisabled,
                             ]}
                             onPress={showOriginalPreview}
-                            disabled={!toolsEnabled}
-                            accessibilityRole="button"
+                          disabled={!toolsEnabled}
+                          accessibilityRole="button"
                             accessibilityLabel="Original"
                             accessibilityState={{ selected: originalPreviewActive }}
-                          >
+                        >
                             <Scan size={16} color={toolColor} strokeWidth={2.1} />
-                          </Pressable>
-                          <Pressable
+                        </Pressable>
+                        <Pressable
                             style={[
                               styles.previewNavTool,
                               !toolsEnabled && styles.previewToolBtnDisabled,
                             ]}
                             onPress={() => setZoom((value) => clampPreviewZoom(value - 0.25))}
-                            disabled={!toolsEnabled}
-                            accessibilityRole="button"
+                          disabled={!toolsEnabled}
+                          accessibilityRole="button"
                             accessibilityLabel="Zoom out"
-                          >
+                        >
                             <Minus size={16} color={toolColor} />
-                          </Pressable>
-                          <Pressable
-                            style={[
+                        </Pressable>
+                      <Pressable
+                        style={[
                               styles.previewNavTool,
-                              !toolsEnabled && styles.previewToolBtnDisabled,
-                            ]}
+                          !toolsEnabled && styles.previewToolBtnDisabled,
+                        ]}
                             onPress={() => setZoom((value) => clampPreviewZoom(value + 0.25))}
-                            disabled={!toolsEnabled}
-                            accessibilityRole="button"
+                        disabled={!toolsEnabled}
+                        accessibilityRole="button"
                             accessibilityLabel="Zoom in"
-                          >
+                      >
                             <Plus size={16} color={toolColor} />
-                          </Pressable>
-                          <Pressable
+                      </Pressable>
+                      <Pressable
                             style={[
                               styles.previewNavTool,
                               !canExpand && styles.previewToolBtnDisabled,
                             ]}
-                            onPress={() => setScreenOpen(true)}
-                            disabled={!canExpand}
-                            accessibilityRole="button"
-                            accessibilityLabel={`Open ${docTitle} full screen`}
-                          >
+                        onPress={() => setScreenOpen(true)}
+                        disabled={!canExpand}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open ${docTitle} full screen`}
+                      >
                             <Maximize2 size={16} color={expandColor} />
-                          </Pressable>
-                        </View>
+                      </Pressable>
+                    </View>
                       ) : null}
-                      </View>
+                  </View>
                     </View>
                     {previewingDocument &&
                     (showRowDecline || showRowApprove || showRowReplace) ? (
@@ -6665,7 +6665,7 @@ export function ComplianceDocumentWorkspace({
                           >
                             <Text style={styles.reviewGroupApproveText}>Replace</Text>
                           </TouchableOpacity>
-                        ) : null}
+                ) : null}
                         {showRowDecline ? (
                           <TouchableOpacity
                             style={[
@@ -6725,19 +6725,19 @@ export function ComplianceDocumentWorkspace({
                       contentContainerStyle={styles.tripDetailsScrollContent}
                       keyboardShouldPersistTaps="handled"
                     >
-                    <ChecklistTripDetailsPanel
-                      summary={summary}
-                      truckType={
-                        summary.trip.vehicle_id
-                          ? truckTypeByVehicleId[summary.trip.vehicle_id] ?? null
-                          : null
-                      }
-                      supplierName={supplierNameByTripId[summary.trip.id] ?? null}
+                      <ChecklistTripDetailsPanel
+                        summary={summary}
+                        truckType={
+                          summary.trip.vehicle_id
+                            ? truckTypeByVehicleId[summary.trip.vehicle_id] ?? null
+                            : null
+                        }
+                        supplierName={supplierNameByTripId[summary.trip.id] ?? null}
                         onOpenDocumentUpload={openDocumentUploadFromDetails}
                       hideCommercials={hideCommercials}
                         onOpenTrip={onOpenTrip}
                         onOpenSupplier={onOpenSupplier}
-                    />
+                      />
                     </ScrollView>
                   ) : checklistPreviewMode === "advance" && summary && !compliancePendingView && !hideCommercials ? (
                     <ScrollView
@@ -7521,15 +7521,15 @@ export function ComplianceDocumentWorkspace({
                             </View>
                           ) : null}
                           {showSupplierBankPanel ? (
-                    <ScrollView
+                            <ScrollView
                               style={
                                 previewUrl
                                   ? styles.checklistBankDetailsScroll
                                   : styles.checklistBankDetailsScrollSolo
                               }
                               contentContainerStyle={styles.checklistBankDetailsContent}
-                      showsVerticalScrollIndicator={false}
-                    >
+                              showsVerticalScrollIndicator={false}
+                            >
                               <View style={styles.bankCardHeader}>
                                 <View style={styles.bankCardHeaderCopy}>
                                   <Text style={styles.checklistBankDetailsTitle}>Bank account</Text>
@@ -7554,8 +7554,8 @@ export function ComplianceDocumentWorkspace({
                                       <Text style={styles.bankFieldValue} numberOfLines={2}>
                                         {row.value}
                                       </Text>
-                        </View>
-                      ))}
+                                    </View>
+                                  ))}
                                   {supplierBankAccountRows.length === 0 ? (
                                     <Text style={styles.checklistBankDetailsHint}>
                                       No payout account on file yet. Save bank details on the supplier profile.
@@ -7586,51 +7586,51 @@ export function ComplianceDocumentWorkspace({
                                   </Text>
                                 </View>
                               </View>
-                    </ScrollView>
+                            </ScrollView>
                           ) : null}
                         </View>
                   ) : loadingPreview ? (
                     <View style={styles.checklistPreviewEmpty}>
                       <ActivityIndicator color={Theme.textPrimaryDark} />
                       <Text style={styles.checklistPreviewLoadingText}>Loading document…</Text>
-                    </View>
-                  ) : (
-                    <View style={styles.checklistPreviewEmpty}>
-                      <Text style={styles.checklistPreviewEmptyTitle}>
+                        </View>
+                      ) : (
+                        <View style={styles.checklistPreviewEmpty}>
+                          <Text style={styles.checklistPreviewEmptyTitle}>
                         {previewError
                           ? previewError
                           : checklistSelectedRow
-                            ? `${
-                                isFinanceMode
-                                  ? labelForFinanceDocType(checklistSelectedRow.type)
-                                  : labelForDocType(checklistSelectedRow.type)
-                              } has no file to preview`
-                            : "Select a document to preview"}
-                      </Text>
-                      <Text style={styles.checklistPreviewEmptyHint}>
+                              ? `${
+                                  isFinanceMode
+                                    ? labelForFinanceDocType(checklistSelectedRow.type)
+                                    : labelForDocType(checklistSelectedRow.type)
+                                } has no file to preview`
+                              : "Select a document to preview"}
+                          </Text>
+                          <Text style={styles.checklistPreviewEmptyHint}>
                         {previewError
                           ? "Try the eye icon again, or reopen this trip."
                           : "Tap the eye icon on an uploaded document, or use Trip Detail / Advance Payment."}
-                      </Text>
-                    </View>
-                  )}
+                          </Text>
+                        </View>
+                      )}
                       {showSideNav ? (
                         <>
                           <View style={styles.docSideNavOverlayLeft} pointerEvents="box-none">
                             <DocSideNavButton direction="prev" onPress={goPrev} tone="light" />
-                </View>
+                          </View>
                           <View style={styles.docSideNavOverlayRight} pointerEvents="box-none">
                             <DocSideNavButton direction="next" onPress={goNext} tone="light" />
-              </View>
+                          </View>
                         </>
                       ) : null}
-            </View>
+                    </View>
                   )}
-            </View>
+                </View>
                     </>
                   );
                 })()}
-                  </View>
+              </View>
                   )
                 }
               />
@@ -7654,14 +7654,14 @@ export function ComplianceDocumentWorkspace({
               </Text>
             </View>
           </View>
-            ) : null}
-        </View>
-        )}
-        <DocumentScreen
-          visible={screenOpen}
-          uri={previewUrl}
-          isPdf={isPdf}
-          title={docTitle}
+        ) : null}
+      </View>
+      )}
+      <DocumentScreen
+        visible={screenOpen}
+        uri={previewUrl}
+        isPdf={isPdf}
+        title={docTitle}
           documentKey={`${activeRow?.key ?? ""}:${activePreviewPath ?? ""}`}
           documentVersion={
             activeRow?.entityDoc?.created_at ??
@@ -7812,16 +7812,16 @@ export function ComplianceDocumentWorkspace({
                     if (!current) return current;
                     const next = current.files.filter((item) => item.id !== file.id);
                     if (next.length === 0) return null;
-                    return {
+          return {
                       ...current,
                       files: next,
                       index: Math.min(current.index, next.length - 1),
-                    };
-                  });
+          };
+        });
                   return;
                 }
                 const row = listRows.find((item) => item.key === file.id);
-                if (!row) return;
+              if (!row) return;
                 const fileLock = complianceFileLockReason(row);
                 if (fileLock) {
                   alertMessage("Document locked", fileLock);
@@ -8157,12 +8157,12 @@ function TripDetailSection({
             <TripDetailAnimatedIcon>
               <Icon size={11} color={iconColor} strokeWidth={2.1} />
             </TripDetailAnimatedIcon>
-                  </View>
+          </View>
         ) : null}
         <Text style={styles.tripDetailSectionTitle} numberOfLines={1}>
           {title}
-                  </Text>
-                </View>
+        </Text>
+      </View>
       <View
         style={[
           factLayout === "list" ? styles.tripFactList : styles.tripFactGrid,
@@ -8792,9 +8792,9 @@ function ChecklistTripDetailsPanel({
                       );
                     })}
                   </View>
-          </View>
-        ))}
-      </View>
+                </View>
+              ))}
+            </View>
           ) : (
             <Text style={styles.tripDetailMissingEmpty}>{selectedDocEmpty}</Text>
           )}
@@ -8935,16 +8935,16 @@ function ChecklistAdvancePaymentPanel({
       <View style={styles.checklistAdvanceLead}>
         <View style={styles.checklistAdvanceHeadRow}>
           <View style={styles.checklistAdvanceHeadCopy}>
-            <Text style={styles.checklistInfoTitle}>Advance payment</Text>
-            <Text style={styles.checklistInfoHint} numberOfLines={2}>
-              {showInlineForm
-                ? "Review the calculation and confirm to post through Finance"
-                : showReviewForm
-                  ? "Check the values, then Approve Advance"
-                  : "Payment status for this trip's compliance advance"}
-            </Text>
+        <Text style={styles.checklistInfoTitle}>Advance payment</Text>
+        <Text style={styles.checklistInfoHint} numberOfLines={2}>
+          {showInlineForm
+            ? "Review the calculation and confirm to post through Finance"
+            : showReviewForm
+              ? "Check the values, then Approve Advance"
+              : "Payment status for this trip's compliance advance"}
+        </Text>
           </View>
-          {!advance ? (
+        {!advance ? (
             <View
               style={[
                 styles.checklistAdvanceStatusPill,
@@ -8975,8 +8975,8 @@ function ChecklistAdvancePaymentPanel({
               >
                 {statusLabel}
               </Text>
-            </View>
-          ) : null}
+          </View>
+        ) : null}
         </View>
       </View>
 
@@ -9028,7 +9028,7 @@ function ChecklistAdvancePaymentPanel({
             onFlag={onFlag}
             onPreviewMemo={onPreviewMemo}
           />
-            </View>
+        </View>
       ) : null}
 
       {flagged ? (
@@ -9049,7 +9049,7 @@ function ChecklistAdvancePaymentPanel({
               <Text style={styles.checklistPayBtnText}>Clear flag</Text>
             </TouchableOpacity>
           ) : null}
-            </View>
+        </View>
       ) : null}
 
       {showReviewForm ? (
@@ -9067,14 +9067,14 @@ function ChecklistAdvancePaymentPanel({
             onFinanceVerify={onFinanceVerify}
             financeVerifySubmitting={financeVerifySubmitting}
             onPreviewMemo={onPreviewMemo}
-              />
-            </View>
+          />
+        </View>
       ) : null}
 
       {!showInlineForm && !showReviewForm && (showPayFallback || onReject || showFinanceVerify) ? (
         <View style={styles.checklistAdvanceActionsRow}>
           {onReject ? (
-        <TouchableOpacity
+            <TouchableOpacity
               style={styles.checklistAdvanceRejectBtn}
               activeOpacity={0.8}
               onPress={onReject}
@@ -9087,7 +9087,7 @@ function ChecklistAdvancePaymentPanel({
           {showFinanceVerify ? (
             <TouchableOpacity
               style={[styles.checklistPayBtn, styles.checklistAdvancePayFallback]}
-          activeOpacity={0.85}
+              activeOpacity={0.85}
               onPress={onFinanceVerify}
               disabled={financeVerifySubmitting}
               accessibilityRole="button"
@@ -9104,12 +9104,12 @@ function ChecklistAdvancePaymentPanel({
               style={[styles.checklistPayBtn, styles.checklistAdvancePayFallback]}
               activeOpacity={0.85}
               onPress={() => onOpenPayModal?.(summary)}
-          accessibilityRole="button"
-          accessibilityLabel="Pay advance"
-        >
-          <Text style={styles.checklistPayBtnText}>Pay advance</Text>
-        </TouchableOpacity>
-      ) : null}
+              accessibilityRole="button"
+              accessibilityLabel="Pay advance"
+            >
+              <Text style={styles.checklistPayBtnText}>Pay advance</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       ) : null}
 
@@ -9320,7 +9320,7 @@ const _TripListRow = React.memo(function TripListRow({
     >
       {selected && !isRejected ? <View style={styles.rowSelectedBar} /> : null}
       <View style={styles.rowHead}>
-        <Pressable
+          <Pressable
           onPress={canOpenParty ? openPartyProfile : undefined}
           disabled={!canOpenParty}
           style={(state: HoverPressState) => [
@@ -9332,21 +9332,21 @@ const _TripListRow = React.memo(function TripListRow({
           ]}
           hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
           accessibilityRole={canOpenParty ? "link" : "none"}
-          accessibilityLabel={
+            accessibilityLabel={
             canOpenParty ? `Open ${headerName} ${partyEntityType} details` : undefined
-          }
+            }
           accessibilityState={{ disabled: !canOpenParty }}
           {...webStopBubble}
-        >
+          >
           <View style={styles.avatarWrap}>
             <View style={styles.avatarCore}>
-        <PartyAvatar
-          name={headerName}
+            <PartyAvatar
+              name={headerName}
                 entityType={partyEntityType}
                 size={LIST_CARD_AVATAR}
                 shape="circle"
                 isIntegrated={partyIntegrated}
-          initialsColorSeed={headerSeed}
+              initialsColorSeed={headerSeed}
                 avatarUrl={partyAvatarUrl}
                 avatarSeed={partyAvatarSeed}
                 organizationImageUrl={partyOrgImageUrl}
@@ -9365,20 +9365,20 @@ const _TripListRow = React.memo(function TripListRow({
         <View style={styles.rowPartyBlock}>
           <View style={styles.nameRow}>
             <View style={styles.rowNameHit}>
-              <Text
-                style={[
-                  styles.client,
-                  selected && styles.clientSelected,
-                  isRejected && styles.clientRejected,
-                ]}
+            <Text
+              style={[
+                styles.client,
+                selected && styles.clientSelected,
+                isRejected && styles.clientRejected,
+              ]}
                 numberOfLines={2}
-              >
+            >
                 {headerName}
                 <Text style={styles.headlineAction}>
                   {`  ${isAsset ? "Asset trip" : "Aggregate trip"}`}
-                </Text>
             </Text>
-          </View>
+              </Text>
+            </View>
             {onOpenActivityLog ? (
               <View {...webStopBubble}>
                 <ComplianceActivityLogButton
@@ -9388,21 +9388,21 @@ const _TripListRow = React.memo(function TripListRow({
                     onOpenActivityLog();
                   }}
                 />
-        </View>
-            ) : null}
-      </View>
+            </View>
+          ) : null}
+            </View>
           {metaParts.length > 0 ? (
             <Text style={[styles.rowMetaLine, selected && styles.tripIdSelected]} numberOfLines={1}>
               {metaParts.join(" · ")}
             </Text>
           ) : null}
 
-          {declineRemark ? (
-            <Text style={styles.rejectReasonLine} numberOfLines={2}>
-              {declineRemark}
-          </Text>
-          ) : null}
-          {resubmitNote ? (
+      {declineRemark ? (
+        <Text style={styles.rejectReasonLine} numberOfLines={2}>
+          {declineRemark}
+        </Text>
+      ) : null}
+      {resubmitNote ? (
             <View
               style={styles.resubmitNoteBlock}
               accessibilityLabel={`Resubmitted. ${resubmitNote}`}
@@ -9410,16 +9410,16 @@ const _TripListRow = React.memo(function TripListRow({
               <Text style={styles.resubmitNoteLabel}>Resubmitted</Text>
               <Text style={styles.resubmitNoteLine}>{resubmitNote}</Text>
             </View>
-          ) : waitingNote ? (
-            <Text style={styles.resubmitNoteLine} numberOfLines={1}>
-              Waiting for Ground Ops to resubmit
-            </Text>
-          ) : null}
-          {summary.financeFlaggedAt && !podOnly ? (
-            <Text style={styles.rejectReasonLine} numberOfLines={2}>
-              {`Finance flag: ${summary.financeFlagNote?.trim() || "no note"}`}
-          </Text>
-          ) : null}
+      ) : waitingNote ? (
+        <Text style={styles.resubmitNoteLine} numberOfLines={1}>
+          Waiting for Ground Ops to resubmit
+        </Text>
+      ) : null}
+      {summary.financeFlaggedAt && !podOnly ? (
+        <Text style={styles.rejectReasonLine} numberOfLines={2}>
+          {`Finance flag: ${summary.financeFlagNote?.trim() || "no note"}`}
+        </Text>
+      ) : null}
         </View>
       </View>
 
@@ -9451,29 +9451,29 @@ const _TripListRow = React.memo(function TripListRow({
           </Text>
         </View>
               ) : null}
-            </View>
-            {showLrReceipt ? (
-              <View style={styles.lrReceipt}>
-                <Text
-                  style={[styles.lrReceiptLine, selected && styles.lrReceiptLineSelected]}
-                  numberOfLines={1}
-                >
-                  <Text style={[styles.lrReceiptLabel, selected && styles.lrReceiptLabelSelected]}>
-                    Received LRs{" "}
-                  </Text>
-                  {lrReceipt.received.join(", ") || "—"}
-                </Text>
-                <Text
-                  style={[styles.lrReceiptLine, selected && styles.lrReceiptLineSelected]}
-                  numberOfLines={1}
-                >
-                  <Text style={[styles.lrReceiptLabel, selected && styles.lrReceiptLabelSelected]}>
-                    Pending LRs{" "}
-                  </Text>
-                  {lrReceipt.pending.join(", ") || "—"}
+      </View>
+      {showLrReceipt ? (
+        <View style={styles.lrReceipt}>
+          <Text
+            style={[styles.lrReceiptLine, selected && styles.lrReceiptLineSelected]}
+            numberOfLines={1}
+          >
+            <Text style={[styles.lrReceiptLabel, selected && styles.lrReceiptLabelSelected]}>
+              Received LRs{" "}
+            </Text>
+            {lrReceipt.received.join(", ") || "—"}
+          </Text>
+          <Text
+            style={[styles.lrReceiptLine, selected && styles.lrReceiptLineSelected]}
+            numberOfLines={1}
+          >
+            <Text style={[styles.lrReceiptLabel, selected && styles.lrReceiptLabelSelected]}>
+              Pending LRs{" "}
+            </Text>
+            {lrReceipt.pending.join(", ") || "—"}
           </Text>
         </View>
-            ) : null}
+      ) : null}
             <View style={styles.rowFooter}>
               <View style={styles.rowFooterPills}>
                 {tripStatus ? (
@@ -9483,8 +9483,8 @@ const _TripListRow = React.memo(function TripListRow({
                   >
                     <Text style={[styles.statusText, { color: tripStatus.tone.fg }]} numberOfLines={1}>
                       {tripStatus.label}
-                    </Text>
-                  </View>
+          </Text>
+        </View>
                 ) : null}
                 {debitStatus ? (
                   <View
@@ -9493,8 +9493,8 @@ const _TripListRow = React.memo(function TripListRow({
                   >
                     <Text style={[styles.statusText, { color: debitStatus.tone.fg }]} numberOfLines={1}>
                       {debitStatus.label}
-                    </Text>
-                  </View>
+          </Text>
+        </View>
                 ) : null}
                 {podOnly ? null : (
                   <>
@@ -9505,14 +9505,14 @@ const _TripListRow = React.memo(function TripListRow({
                       >
                         <Text style={[styles.statusText, { color: Theme.complianceStagePendingFg }]} numberOfLines={1}>
                           Resubmitted
-                        </Text>
-                      </View>
+          </Text>
+        </View>
                     ) : null}
                     <View style={[styles.statusPill, { backgroundColor: verification.tone.bg }]}>
                       <Text style={[styles.statusText, { color: verification.tone.fg }]} numberOfLines={1}>
                         {verification.label}
-                      </Text>
-                    </View>
+          </Text>
+        </View>
                   </>
                 )}
                 <View style={[styles.modelTag, isAsset ? styles.modelTagAsset : styles.modelTagAggregate]}>
@@ -11444,10 +11444,10 @@ const styles = StyleSheet.create({
         rowGap: 6,
       } as ViewStyle,
       default: {
-        flexDirection: "row",
-        flexWrap: "wrap",
-        alignContent: "flex-start",
-        alignItems: "flex-start",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignContent: "flex-start",
+    alignItems: "flex-start",
       },
     }),
   },

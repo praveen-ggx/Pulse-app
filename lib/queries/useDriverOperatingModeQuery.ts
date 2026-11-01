@@ -3,6 +3,7 @@ import {
   DEFAULT_DRIVER_OPERATING_MODE,
   canAddDcoShippers,
   canManageOwnerVehicles,
+  canTagOfflineParty,
   isDcoOperatingMode,
   type DriverOperatingMode,
 } from '@/features/drivers/domain/driverOperatingMode';
@@ -45,11 +46,17 @@ export function useDriverOperatingModeQuery(userId?: string | null) {
   }, [queryClient, uid]);
 
   const operatingMode = query.data ?? DEFAULT_DRIVER_OPERATING_MODE;
+  const modeReady = query.isSuccess;
   return {
     ...query,
     operatingMode,
     isDco: isDcoOperatingMode(operatingMode),
     canManageOwnerVehicles: canManageOwnerVehicles(operatingMode),
+    canAddDcoShippers: modeReady && canAddDcoShippers(operatingMode),
+    // Offline tag/capture must stay visible while mode is loading. Default
+    // mode is DRIVER, which grants tagging; we only hide after a confirmed
+    // suspended / employment-conflict answer.
+    canTagOfflineParty: canTagOfflineParty(operatingMode),
     marketplaceAllowed: operatingMode.marketplaceAllowed,
     invalidate,
   };

@@ -108,6 +108,7 @@ import { supabase } from "@/lib/supabase";
 import { withWebSafeShadows } from "@/lib/platformViewStyle.util";
 import * as driverLocationService from "@/features/driver/services/driverLocation.service";
 import * as driversService from "@/features/drivers/services/drivers.service";
+import { canTagPartyOnTrip } from "@/features/drivers/utils/driverPartyReceivables.util";
 import {
     buildRouteFetchKey,
     getOptimalRoute,
@@ -151,6 +152,7 @@ import * as ExpoLocation from "expo-location";
 import { startForegroundPositionWatch } from "@/lib/safeForegroundPositionWatch";
 import { useRouter, type Href } from "expo-router";
 import { ROUTES } from "@/lib/routes";
+import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import {
   Fragment,
   useCallback,
@@ -289,6 +291,7 @@ export default function DriverRadarScreen() {
   const jobRequestSheetMuted = isDark ? Theme.textOnDarkMuted : Theme.textMuted;
   const { profile } = useAuth();
   const uid = profile?.uid ?? null;
+  const { canTagOfflineParty } = useDriverOperatingModeQuery(uid);
   const invalidateDriverHome = useInvalidateDriverHomeDashboard();
   const refreshDashboard = useCallback(() => {
     if (uid) void invalidateDriverHome(uid);
@@ -1575,6 +1578,22 @@ export default function DriverRadarScreen() {
   // matches Finance Hub labor — but NEVER invent ₹ for supplier-mediated
   // (aggregate) assignments: shipper→supplier rate ≠ driver pay until
   // Driver-cum-Owner earnings are defined.
+  const incomingFleetLinked = useMemo(() => {
+    if (!effectiveFirstIncoming) return false;
+    const tripOrgId = String(effectiveFirstIncoming.organization_id ?? "").trim();
+    if (!tripOrgId) return false;
+    if (String(effectiveFirstIncoming.source ?? "").trim() === "market_bid") return false;
+    return linkedDriversQuery.activeLinkedDrivers.some((row) => {
+      if (String(row.organization_id ?? "").trim() !== tripOrgId) return false;
+      if (row.tracking_only === true) return false;
+      return driversService.isActiveFleetRelationshipDriver(row);
+    });
+  }, [effectiveFirstIncoming, linkedDriversQuery.activeLinkedDrivers]);
+  const incomingIsOfflineParty = canTagPartyOnTrip(
+    effectiveFirstIncoming,
+    incomingFleetLinked,
+  );
+
   const acceptedInviteForOrg =
     effectiveFirstIncoming &&
     (invites.find(
@@ -2430,13 +2449,12 @@ export default function DriverRadarScreen() {
   })();
   const sheetSnapPoints = useMemo(() => {
     if (canPeekSheetForMap && commerceOnMap) {
-      const peek = 112;
-      const mid = Math.round(screenHeight * 0.52);
-      const expanded = Math.max(
-        mid + 120,
-        screenHeight - insets.top - 88 - driverSheetBottomInset,
+      const peek = 96;
+      const dashboard = Math.max(
+        peek + 200,
+        screenHeight - insets.top - 72 - driverSheetBottomInset,
       );
-      return [peek, mid, expanded];
+      return [peek, dashboard];
     }
     if (canPeekSheetForMap) {
       const maxExpanded = Math.min(
@@ -5023,6 +5041,15 @@ export default function DriverRadarScreen() {
           <>
             <DriverJobCard
               trip={activeMission}
+              isFleetLinked={linkedDriversQuery.activeLinkedDrivers.some((row) => {
+                const tripOrgId = String(activeMission.organization_id ?? "").trim();
+                if (!tripOrgId || String(activeMission.source ?? "").trim() === "market_bid") {
+                  return false;
+                }
+                if (String(row.organization_id ?? "").trim() !== tripOrgId) return false;
+                if (row.tracking_only === true) return false;
+                return driversService.isActiveFleetRelationshipDriver(row);
+              })}
               commissionAmount={activeMissionCommission}
               assignedBy={activeFlowAssigner}
               distanceToTargetKm={distanceToTargetKmGlobal}
@@ -5062,6 +5089,9 @@ export default function DriverRadarScreen() {
                     onToggleCollapse: expandMissionSheetFromPeek,
                   }
                 : {})}
+              onExpense={() => {
+                router.push(ROUTES.tripOtherExpenseEntry(activeMission.id) as Href);
+              }}
             />
           </>
         ) : effectiveFirstIncoming &&
@@ -5071,6 +5101,7 @@ export default function DriverRadarScreen() {
           <>
             <DriverJobCard
               trip={effectiveFirstIncoming}
+              isFleetLinked={incomingFleetLinked}
               commissionAmount={newAssignmentCommission}
               assignedBy={jobCardAssigner}
               distanceToTargetKm={distanceToTargetKmGlobal}
@@ -5110,6 +5141,11 @@ export default function DriverRadarScreen() {
                     onToggleCollapse: expandMissionSheetFromPeek,
                   }
                 : {})}
+              onExpense={() => {
+                router.push(
+                  ROUTES.tripOtherExpenseEntry(effectiveFirstIncoming.id) as Href,
+                );
+              }}
             />
           </>
         ) : assignmentFeedback === "accepted" ? (
@@ -5369,6 +5405,21 @@ export default function DriverRadarScreen() {
             variant={mapSheet ? "page" : "card"}
             assignedBy={jobCardAssigner}
             assignedByLine={assignerLineForJobCard}
+            onAssignerPress={
+              canTagOfflineParty && incomingIsOfflineParty
+                ? () => {
+                    router.push(
+                      ROUTES.driverAddClient({
+                        tripId: String(effectiveFirstIncoming.id),
+                        partyName:
+                          jobCardAssigner?.orgName?.trim() ||
+                          jobCardAssigner?.linePrimary?.trim() ||
+                          undefined,
+                      }) as Href,
+                    );
+                  }
+                : undefined
+            }
             OtpInputComponent={mapSheet ? OtpInputComponent : undefined}
             onOtpFocus={
               mapSheet

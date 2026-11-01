@@ -249,6 +249,8 @@ type Props = {
   tripExpenses?: { tripId: string; amount: number; kind?: string }[];
   /** Show spent + margin on the month hero (DCO trip costs). */
   showMonthPnl?: boolean;
+  /** Employer-dispatched trips must not show Tag. */
+  isFleetDispatched?: (trip: TripRow) => boolean;
 };
 
 export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel({
@@ -269,6 +271,7 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
   isDark,
   tripExpenses = [],
   showMonthPnl = false,
+  isFleetDispatched,
 }: Props) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -376,7 +379,8 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
       const received = Math.round(receivedByTripId[trip.id] ?? 0);
       const spent = Math.round(spentByTripId[String(trip.id)] ?? 0);
       const pending = Math.max(0, earned - received);
-      const needsTag = showMonthPnl && tripNeedsPartyTag(trip);
+      const needsTag =
+        showMonthPnl && tripNeedsPartyTag(trip, isFleetDispatched?.(trip) === true);
       const meta = tripMeta(trip);
       const route =
         [meta.from.trim(), meta.to.trim()].filter(Boolean).join(" → ") ||
@@ -418,7 +422,15 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
         spent: Math.round(b.spent),
       }))
       .sort((a, b) => (a.dayKey < b.dayKey ? 1 : -1));
-  }, [scopedTrips, tripEarnings, receivedByTripId, tripMeta, spentByTripId, showMonthPnl]);
+  }, [
+    scopedTrips,
+    tripEarnings,
+    receivedByTripId,
+    tripMeta,
+    spentByTripId,
+    showMonthPnl,
+    isFleetDispatched,
+  ]);
 
   const displayDayBuckets = useMemo(() => {
     if (!dueOnly && !selectMode) return dayBuckets;

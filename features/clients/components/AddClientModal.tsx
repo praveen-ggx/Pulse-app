@@ -70,6 +70,11 @@ interface AddClientModalProps {
   organizationId?: string | null;
   /** When set, shown at top of form and submit is disabled (e.g. no organization loaded). */
   noOrganizationMessage?: string | null;
+  /**
+   * When true with noOrganizationMessage, the banner stays visible but submit
+   * stays enabled so the parent can save a device-local offline shipper.
+   */
+  allowOfflineWithoutOrganization?: boolean;
   /** Called when user taps Refresh to retry loading organization. */
   onRefreshOrganization?: () => void;
   /** When provided, enables "Search by phone" to find an existing org and send connection invite. */
@@ -100,6 +105,7 @@ export function AddClientModal({
   visible,
   organizationId,
   noOrganizationMessage,
+  allowOfflineWithoutOrganization = false,
   onRefreshOrganization,
   searchInviteeByPhone,
   onSendInvitation,
@@ -171,7 +177,8 @@ export function AddClientModal({
     }
   };
 
-  const blockedByNoOrg = noOrganizationMessage != null;
+  const blockedByNoOrg =
+    noOrganizationMessage != null && !allowOfflineWithoutOrganization;
   const phoneError = phone.trim() ? validatePhone(phone.trim()) : null;
   const hasOfflineName =
     organizationName.trim().length > 0 || contactPerson.trim().length > 0;
@@ -406,9 +413,23 @@ export function AddClientModal({
       </View>
       {noOrganizationMessage ? (
         <View style={styles.ledgerNoOrgBanner}>
-          <Text style={[styles.ledgerErrorText, { color: Theme.negative }]}>
+          <Text
+            style={[
+              styles.ledgerErrorText,
+              {
+                color: allowOfflineWithoutOrganization
+                  ? Theme.warning
+                  : Theme.negative,
+              },
+            ]}
+          >
             {noOrganizationMessage}
           </Text>
+          {allowOfflineWithoutOrganization ? (
+            <Text style={[styles.ledgerErrorText, { color: Theme.textSecondary, marginTop: 6 }]}>
+              You can still save name and phone offline on this device.
+            </Text>
+          ) : null}
           {onRefreshOrganization ? (
             <TouchableOpacity
               style={styles.ledgerRefreshBtn}
@@ -695,9 +716,28 @@ export function AddClientModal({
 
             {noOrganizationMessage ? (
               <View style={styles.screenStatusCard}>
-                <Text style={[styles.screenStatusText, { color: Theme.negative }]}>
+                <Text
+                  style={[
+                    styles.screenStatusText,
+                    {
+                      color: allowOfflineWithoutOrganization
+                        ? Theme.warning
+                        : Theme.negative,
+                    },
+                  ]}
+                >
                   {noOrganizationMessage}
                 </Text>
+                {allowOfflineWithoutOrganization ? (
+                  <Text
+                    style={[
+                      styles.screenStatusText,
+                      { color: Theme.textSecondary, marginTop: 8 },
+                    ]}
+                  >
+                    You can still save name and phone offline on this device.
+                  </Text>
+                ) : null}
                 {onRefreshOrganization ? (
                   <TouchableOpacity
                     style={styles.screenRefreshButton}

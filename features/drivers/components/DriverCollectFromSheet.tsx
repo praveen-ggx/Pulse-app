@@ -163,7 +163,8 @@ export function DriverCollectFromSheet({
     if (visible) void loadParties();
   }, [visible, loadParties]);
 
-  const currentBilled = useMemo(() => tripReceivableBilled(trip), [trip]);
+  // Issued receivable only — never trip mirrors / client_price prefills.
+  const currentBilled = useMemo(() => tripReceivableBilled(trip, null), [trip]);
 
   const handlePick = useCallback((party: PartyOption) => {
     if (busyId || !party.id) return;
@@ -182,20 +183,14 @@ export function DriverCollectFromSheet({
     );
   }, [busyId, currentBilled]);
 
+  /**
+   * Always tags. Issues a receivable only when the user explicitly entered an amount
+   * (`billedForTag`). Tagging alone never fabricates Due.
+   */
   const handleConfirmTag = useCallback(async () => {
     if (!pendingParty?.id || busyId) return;
     setBusyId(pendingParty.id);
     try {
-      const billed =
-        billedForTag != null && billedForTag > 0
-          ? billedForTag
-          : currentBilled != null && currentBilled > 0
-            ? currentBilled
-            : 0;
-      if (billed <= 0) {
-        showAppAlert("Could not issue receivable", "Enter the amount due before issuing.");
-        return;
-      }
       if (useIndieBook) {
         const tagged = await tagDriverIndieTrip({
           tripId: trip.id,
@@ -206,16 +201,19 @@ export function DriverCollectFromSheet({
           showAppAlert("Could not tag party", tagged.error.message);
           return;
         }
-        const issued = await issueDriverIndieReceivable({
-          partyId: pendingParty.id,
-          billed,
-          idempotencyKey: driverIndieIssueKey(trip.id),
-          tripId: trip.id,
-          partyLabel: pendingParty.name,
-        });
-        if (issued.error) {
-          showAppAlert("Could not tag party", issued.error.message);
-          return;
+        const amount = billedForTag != null && billedForTag > 0 ? billedForTag : 0;
+        if (amount > 0) {
+          const issued = await issueDriverIndieReceivable({
+            partyId: pendingParty.id,
+            billed: amount,
+            idempotencyKey: driverIndieIssueKey(trip.id),
+            tripId: trip.id,
+            partyLabel: pendingParty.name,
+          });
+          if (issued.error) {
+            showAppAlert("Could not issue receivable", issued.error.message);
+            return;
+          }
         }
       } else {
         const tagged = await tagDcoSelfTrip({
@@ -227,16 +225,19 @@ export function DriverCollectFromSheet({
           showAppAlert("Could not tag party", tagged.error.message);
           return;
         }
-        const issued = await issueDcoSelfReceivable({
-          partyBId: pendingParty.id,
-          billed,
-          idempotencyKey: dcoSelfIssueKey(trip.id),
-          tripId: trip.id,
-          partyALabel: pendingParty.name,
-        });
-        if (issued.error) {
-          showAppAlert("Could not tag party", issued.error.message);
-          return;
+        const amount = billedForTag != null && billedForTag > 0 ? billedForTag : 0;
+        if (amount > 0) {
+          const issued = await issueDcoSelfReceivable({
+            partyBId: pendingParty.id,
+            billed: amount,
+            idempotencyKey: dcoSelfIssueKey(trip.id),
+            tripId: trip.id,
+            partyALabel: pendingParty.name,
+          });
+          if (issued.error) {
+            showAppAlert("Could not issue receivable", issued.error.message);
+            return;
+          }
         }
       }
       await queryClient.invalidateQueries({ queryKey: ["q", "trips"] });
@@ -244,11 +245,11 @@ export function DriverCollectFromSheet({
       setSuccessParty({ id: pendingParty.id, name: pendingParty.name });
       setPendingParty(null);
       setReceivableParty(null);
-      setBilledForTag(billedForTag);
+      setBilledForTag(null);
     } finally {
       setBusyId(null);
     }
-  }, [billedForTag, busyId, currentBilled, pendingParty, queryClient, trip.id, useIndieBook]);
+  }, [billedForTag, busyId, pendingParty, queryClient, trip.id, useIndieBook]);
 
   const handleSuccessOk = useCallback(() => {
     const tagged = successParty;

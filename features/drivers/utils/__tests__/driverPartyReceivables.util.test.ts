@@ -48,6 +48,7 @@ describe("tripReceivableBilled", () => {
           supplier_rate: 12000,
           client_price: 40000,
         }),
+        null,
       ),
     ).toBeNull();
   });
@@ -61,11 +62,12 @@ describe("tripReceivableBilled", () => {
           supplier_rate: 0,
           client_price: 8500,
         }),
+        null,
       ),
     ).toBeNull();
   });
 
-  it("uses dco_party_billed without changing supplier_rate meaning", () => {
+  it("does not treat dco_party_billed alone as an issued receivable", () => {
     expect(
       tripReceivableBilled(
         trip({
@@ -75,11 +77,12 @@ describe("tripReceivableBilled", () => {
           client_price: 40000,
           dco_party_billed: 18500,
         }),
+        null,
       ),
-    ).toBe(18500);
+    ).toBeNull();
   });
 
-  it("does not populate billed from notes JSON when dco_party_billed is missing", () => {
+  it("does not populate billed from notes JSON", () => {
     expect(
       tripReceivableBilled(
         trip({
@@ -93,11 +96,12 @@ describe("tripReceivableBilled", () => {
             billed: 18500,
           }),
         }),
+        null,
       ),
     ).toBeNull();
   });
 
-  it("prefers an authoritative receivable over trip column and notes", () => {
+  it("uses an authoritative receivable over trip column and notes", () => {
     expect(
       tripReceivableBilled(
         trip({
@@ -116,15 +120,17 @@ describe("tripReceivableBilled", () => {
     ).toBe(18500);
   });
 
-  it("keeps zero and missing distinguishable", () => {
+  it("keeps zero and missing distinguishable on the receivable", () => {
     expect(
       tripReceivableBilled(
-        trip({ id: "z", operating_mode: "DCO", dco_party_billed: 0 }),
+        trip({ id: "z", operating_mode: "DCO", dco_party_billed: 999 }),
+        { billed_amount: 0 },
       ),
     ).toBe(0);
     expect(
       tripReceivableBilled(
-        trip({ id: "m", operating_mode: "DCO", dco_party_billed: null }),
+        trip({ id: "m", operating_mode: "DCO", dco_party_billed: 999 }),
+        null,
       ),
     ).toBeNull();
   });
@@ -198,13 +204,14 @@ describe("buildDriverPartyReceivables", () => {
       received: 2000,
       due: 6000,
     });
+    // Trip-list path has no issued receivable → billed unavailable (not client_price / mirror).
     expect(rows[1]).toMatchObject({
       kind: "shipper",
       name: "Mohana Logistics",
       trips: 2,
-      billed: 12000,
+      billed: 0,
       received: 4000,
-      due: 8000,
+      unavailableBilledTrips: 2,
     });
   });
 
@@ -219,6 +226,7 @@ describe("buildDriverPartyReceivables", () => {
         billed: 100,
         received: 40,
         due: 60,
+        unavailableBilledTrips: 0,
       },
       {
         id: "shipper:c-1",
@@ -229,6 +237,7 @@ describe("buildDriverPartyReceivables", () => {
         billed: 100,
         received: 60,
         due: 40,
+        unavailableBilledTrips: 0,
       },
     ]);
     expect(summary).toEqual({
@@ -267,13 +276,16 @@ describe("tripsForDriverParty", () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]?.trip.id).toBe("m1");
     expect(lines[0]?.due).toBe(4000);
+    expect(lines[0]?.billedAvailable).toBe(true);
   });
 
-  it("lists only that shipper's trips", () => {
+  it("lists only that shipper's trips without fabricating billed", () => {
     const lines = tripsForDriverParty(trips, { s1: 2500 }, fleet, "shipper:c-1");
     expect(lines.map((l) => l.trip.id)).toEqual(["s1"]);
     expect(lines[0]?.received).toBe(2500);
-    expect(lines[0]?.due).toBe(7500);
+    expect(lines[0]?.billed).toBeNull();
+    expect(lines[0]?.billedAvailable).toBe(false);
+    expect(lines[0]?.due).toBe(0);
   });
 });
 
@@ -375,15 +387,21 @@ describe("untagged offline AR", () => {
       () => false,
     );
     expect(rows.map((r) => r.id)).toEqual([UNTAGGED_PARTY_ID, "shipper:c-mid"]);
-    // Untagged has no DCO Self billed source — client_price must not invent AR.
+    // No issued receivable on trip-list path — mirrors / client_price must not invent AR.
     expect(rows[0]).toMatchObject({
       name: "Untagged",
       subtitle: "Tag a shipper or middleman",
       trips: 1,
       billed: 0,
       due: 0,
+      unavailableBilledTrips: 1,
     });
-    expect(rows[1]).toMatchObject({ name: "Middleman Co", trips: 1, billed: 10000 });
+    expect(rows[1]).toMatchObject({
+      name: "Middleman Co",
+      trips: 1,
+      billed: 0,
+      unavailableBilledTrips: 1,
+    });
   });
 });
 

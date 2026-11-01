@@ -104,10 +104,11 @@ export default function DriverAddClientScreen() {
   const [successParty, setSuccessParty] = useState<{ id: string; name: string } | null>(null);
   const [createdSuccess, setCreatedSuccess] = useState(false);
   const tripQuery = useTripDetailQuery(tripId || null);
-  const currentBilled = useMemo(
-    () => (tripQuery.data ? tripReceivableBilled(tripQuery.data) : null) ?? 0,
-    [tripQuery.data],
-  );
+  const currentBilled = useMemo(() => {
+    // Prefill only from an issued receivable — never trip mirrors / client_price.
+    if (!tripQuery.data) return null;
+    return tripReceivableBilled(tripQuery.data, null);
+  }, [tripQuery.data]);
   const isShipperParty = useCallback(
     (name: string) => {
       const keys = [
@@ -132,7 +133,9 @@ export default function DriverAddClientScreen() {
       setBilledForTag(null);
       setPendingParty(null);
       setReceivableParty(row);
-      setReceivableAmount(currentBilled > 0 ? String(currentBilled) : "");
+      setReceivableAmount(
+        currentBilled != null && currentBilled > 0 ? String(currentBilled) : "",
+      );
     },
     [currentBilled, isShipperParty],
   );

@@ -1,9 +1,9 @@
 /**
  * DCO Self billed amount resolution.
  *
- * Authoritative source: DCO Self receivable `billed_amount`.
- * Trip column `dco_party_billed` is a non-notes mirror when present.
- * Never parse `trips.notes`, never substitute earnings or `client_price`.
+ * Authoritative source: issued `dco_self_receivables.billed_amount` only.
+ * `trips.dco_party_billed` and `trips.notes` are never financial sources.
+ * Never substitute earnings or `client_price`.
  */
 
 function roundMoney(value: unknown): number | null {
@@ -23,8 +23,8 @@ export function dcoSelfReceivableBilledAmount(
 
 /**
  * Dedicated DCO Self billed amount for a trip.
- * Prefer an authoritative receivable when provided; otherwise use `dco_party_billed` only.
- * Returns null when unavailable (distinct from zero).
+ * Requires an authoritative receivable. Without it → unavailable (null).
+ * `dco_party_billed` / notes are ignored so tagging alone cannot fabricate billed.
  */
 export function tripPartyBilledAmount(
   trip: {
@@ -33,10 +33,7 @@ export function tripPartyBilledAmount(
   } | null | undefined,
   receivable?: { billed_amount?: number | null } | null,
 ): number | null {
-  if (receivable !== undefined) {
-    return dcoSelfReceivableBilledAmount(receivable);
-  }
-  // Intentionally ignore trips.notes (including pulse-dco-party JSON billed).
-  void trip?.notes;
-  return roundMoney(trip?.dco_party_billed);
+  void trip;
+  if (receivable === undefined) return null;
+  return dcoSelfReceivableBilledAmount(receivable);
 }

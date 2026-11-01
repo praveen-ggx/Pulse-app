@@ -377,7 +377,11 @@ export default function DriverPartyReceivableScreen() {
           partyName={bookName || party?.name || "Party"}
           partyPhone={bookPhone}
           receivableId={bookRows[0]?.receivable.id ?? null}
-          currentBilled={bookRows[0]?.receivable.billed_amount ?? party?.billed ?? 0}
+          currentBilled={
+            bookRows[0]?.receivable.billed_amount != null
+              ? Number(bookRows[0].receivable.billed_amount)
+              : 0
+          }
           onChanged={() => void load()}
         />
       ) : null}

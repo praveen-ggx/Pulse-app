@@ -24,9 +24,12 @@ export type DriverPartyReceivable = {
   name: string;
   subtitle: string;
   trips: number;
+  /** Sum of issued billed amounts only (unavailable trips contribute nothing). */
   billed: number;
   received: number;
   due: number;
+  /** Trips lacking an issued receivable billed amount. */
+  unavailableBilledTrips: number;
 };
 
 export const MARKETPLACE_PARTY_ID = "marketplace";
@@ -52,9 +55,11 @@ export function tripNeedsPartyTag(
 
 export type DriverPartyTripLine = {
   trip: TripRow;
-  billed: number;
+  /** Issued billed amount; null = not issued / unavailable (not a financial zero). */
+  billed: number | null;
   received: number;
   due: number;
+  billedAvailable: boolean;
 };
 
 export function shipperPartyIdForTrip(trip: TripRow): string {
@@ -113,8 +118,8 @@ export function partyAvatarLookup(
 
 /**
  * Trip billed amount for receivable UI.
- * - DCO Self / offline: only `dco_party_billed` or an authoritative receivable (via
- *   `tripPartyBilledAmount`). Never notes JSON, driver earnings, or `client_price`.
+ * - DCO Self / offline: issued `dco_self_receivables` only (via `tripPartyBilledAmount`).
+ *   Never notes, `dco_party_billed`, earnings, or `client_price`.
  * - Marketplace Exchange: listing economics may still use agreed rate / client_price.
  * Returns null when DCO Self billed amount is unavailable (distinct from zero).
  */
@@ -122,14 +127,12 @@ export function tripReceivableBilled(
   trip: TripRow,
   receivable?: { billed_amount?: number | null } | null,
 ): number | null {
-  const fromDcoBook = tripPartyBilledAmount(trip, receivable);
-  if (fromDcoBook != null) return fromDcoBook;
   if (String(trip.source ?? "").trim() === "market_bid") {
     const agreed = tripEarningsDetailForDriver(trip);
     if (agreed.amount > 0) return agreed.amount;
     return Math.max(0, Math.round(Number(trip.client_price ?? 0) || 0));
   }
-  return null;
+  return tripPartyBilledAmount(trip, receivable);
 }
 
 function shipperPartyKey(trip: TripRow): { id: string; name: string } {
@@ -165,32 +168,42 @@ export function buildDriverPartyReceivables(
   let marketTrips = 0;
   const shippers = new Map<
     string,
-    { name: string; trips: number; billed: number; received: number }
+    {
+      name: string;
+      trips: number;
+      billed: number;
+      received: number;
+      unavailableBilledTrips: number;
+    }
   >();
 
   for (const trip of trips) {
     const lane = receivableLaneForTrip(trip, isFleetDispatched(trip));
     if (lane === "fleet") continue;
-    const billed = tripReceivableBilled(trip) ?? 0;
+    const billedRaw = tripReceivableBilled(trip);
     const received = Math.max(0, Math.round(Number(receivedByTripId[trip.id] ?? 0) || 0));
     if (lane === "marketplace") {
       marketTrips += 1;
-      marketBilled += billed;
+      marketBilled += billedRaw ?? 0;
       marketReceived += received;
       continue;
     }
     const party = shipperPartyKey(trip);
+    const billedAvailable = billedRaw != null;
+    const billed = billedAvailable ? billedRaw : 0;
     const prev = shippers.get(party.id);
     if (prev) {
       prev.trips += 1;
       prev.billed += billed;
       prev.received += received;
+      if (!billedAvailable) prev.unavailableBilledTrips += 1;
     } else {
       shippers.set(party.id, {
         name: party.name,
         trips: 1,
         billed,
         received,
+        unavailableBilledTrips: billedAvailable ? 0 : 1,
       });
     }
   }
@@ -206,6 +219,7 @@ export function buildDriverPartyReceivables(
       billed: marketBilled,
       received: marketReceived,
       due: Math.max(0, marketBilled - marketReceived),
+      unavailableBilledTrips: 0,
     });
   }
 
@@ -222,6 +236,7 @@ export function buildDriverPartyReceivables(
       billed: row.billed,
       received: row.received,
       due: Math.max(0, row.billed - row.received),
+      unavailableBilledTrips: row.unavailableBilledTrips,
     }))
     .sort((a, b) => {
       if (a.id === UNTAGGED_PARTY_ID) return -1;
@@ -247,13 +262,14 @@ export function tripsForDriverParty(
         ? lane === "marketplace"
         : lane !== "marketplace" && shipperPartyKey(trip).id === partyId;
     if (!match) continue;
-    const billed = tripReceivableBilled(trip) ?? 0;
+    const billed = tripReceivableBilled(trip);
     const received = Math.max(0, Math.round(Number(receivedByTripId[trip.id] ?? 0) || 0));
     lines.push({
       trip,
       billed,
       received,
-      due: Math.max(0, billed - received),
+      due: billed == null ? 0 : Math.max(0, billed - received),
+      billedAvailable: billed != null,
     });
   }
   lines.sort((a, b) => {
@@ -299,6 +315,7 @@ export function buildDriverPartyReceivablesFromBook(
       prev.billed += billed;
       prev.received += received;
       prev.due += due;
+      prev.unavailableBilledTrips = prev.unavailableBilledTrips ?? 0;
     } else {
       byParty.set(partyId, {
         id: partyId,
@@ -309,6 +326,7 @@ export function buildDriverPartyReceivablesFromBook(
         billed,
         received,
         due,
+        unavailableBilledTrips: 0,
       });
     }
   }

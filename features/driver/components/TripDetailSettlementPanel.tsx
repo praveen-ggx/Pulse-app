@@ -14,6 +14,8 @@ import {
 import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import { ExchangePaymentsPanel } from "@/features/marketplace/components/ExchangePaymentsPanel";
 import { useExchangeTripSummaryQuery } from "@/features/marketplace/hooks/useExchangeTripPayments";
+import { getDcoSelfReceivableForTrip } from "@/features/dco-self/services/dcoSelfReceivable.service";
+import { getDriverIndieReceivableForTrip } from "@/features/driver-indie/services/driverIndieReceivable.service";
 import { isDcoOperatingTrip } from "@/features/trips/domain/tripDcoOperating";
 import type { DriverTripSettlementTone } from "@/features/driver/tripSettlement/driverTripSettlement.util";
 import { tripHistoryDetailStyles as styles } from "@/features/driver/tripHistory/tripHistoryDetail.styles";
@@ -24,6 +26,7 @@ import {
   toVerificationSnapshot,
 } from "@/features/trips/verification/selectors/verificationSelectors";
 import { ROUTES, tripExpenseEntryEditRoute } from "@/lib/routes";
+import { useQuery } from "@tanstack/react-query";
 import { type Href, useRouter } from "expo-router";
 import {
   Activity,
@@ -96,8 +99,30 @@ export function TripDetailSettlementPanel({
   const isDark = theme === "dark";
   const router = useRouter();
   const { settlementView, loading } = useDriverTripSettlement(trip, { isFleetLinked });
-  const { canTagOfflineParty } = useDriverOperatingModeQuery();
+  const { canTagOfflineParty, canManageDcoSelfBook, canManageIndieBook } =
+    useDriverOperatingModeQuery();
   const [collectFromOpen, setCollectFromOpen] = useState(false);
+  const selfReceivableQuery = useQuery({
+    queryKey: ["driver-settlement-self-receivable", trip.id, canManageDcoSelfBook],
+    enabled: !!trip.id && !!canManageDcoSelfBook,
+    queryFn: async () => {
+      const found = await getDcoSelfReceivableForTrip(trip.id);
+      return found.receivable;
+    },
+  });
+  const indieReceivableQuery = useQuery({
+    queryKey: ["driver-settlement-indie-receivable", trip.id, canManageIndieBook],
+    enabled: !!trip.id && !!canManageIndieBook && !canManageDcoSelfBook,
+    queryFn: async () => {
+      const found = await getDriverIndieReceivableForTrip(trip.id);
+      return found.receivable;
+    },
+  });
+  const issuedReceivable = canManageDcoSelfBook
+    ? selfReceivableQuery.data
+    : canManageIndieBook
+      ? indieReceivableQuery.data
+      : null;
 
   const summaryQuery = useTripOperationsSummary(trip.id, { includeMaintenance: false });
   const exchangeQuery = useExchangeTripSummaryQuery(
@@ -175,14 +200,24 @@ export function TripDetailSettlementPanel({
   const offlinePartyName = taggedOfflineParty
     ? tripReceivablePartyName(trip)
     : "";
-  // DCO Self billed amount: receivable / dco_party_billed only — never earnings or client_price.
-  const offlineBilled = tripReceivableBilled(trip) ?? 0;
+  // Authoritative issued receivable only — never notes / dco_party_billed / earnings / client_price.
+  const offlineBilled = tripReceivableBilled(
+    trip,
+    issuedReceivable
+      ? { billed_amount: issuedReceivable.billed_amount }
+      : null,
+  );
+  const offlineBilledAvailable = offlineBilled != null;
   const offlineReceived = Math.max(
     0,
     Math.round(Number(settlementView.receivedAmount ?? 0) || 0) ||
-      Math.max(0, offlineBilled - settlementView.outstandingAmount),
+      (offlineBilledAvailable
+        ? Math.max(0, offlineBilled - settlementView.outstandingAmount)
+        : 0),
   );
-  const offlineOutstanding = Math.max(0, offlineBilled - offlineReceived);
+  const offlineOutstanding = offlineBilledAvailable
+    ? Math.max(0, offlineBilled - offlineReceived)
+    : 0;
   const showCaptureCommission =
     !isExchangeReceivable &&
     !settlementView.isSalary &&
@@ -191,7 +226,7 @@ export function TripDetailSettlementPanel({
     settlementView.commissionApplies &&
     settlementView.outstandingAmount > 0;
   const showOfflinePartyCapture =
-    isOfflinePartyTrip && offlineOutstanding > 0;
+    isOfflinePartyTrip && offlineBilledAvailable && offlineOutstanding > 0;
   const showRequestSalary =
     settlementView.isSalary && settlementView.isFleetLinked && !isExchangeReceivable;
   const fleetPartyName = String(settlementView.fleetName ?? "").trim() || "Fleet";
@@ -292,37 +327,43 @@ export function TripDetailSettlementPanel({
             </View>
 
             <View style={{ marginTop: 12 }}>
-              <TripPaymentAmountGrid
-                expectedAmount={
-                  isOfflinePartyTrip ? offlineBilled : settlementView.expectedAmount
-                }
-                paymentAmount={
-                  isOfflinePartyTrip ? offlineReceived : settlementView.amount
-                }
-                outstandingAmount={
-                  isOfflinePartyTrip
-                    ? offlineOutstanding
-                    : settlementView.outstandingAmount
-                }
-                writeOffAmount={settlementView.writeOffAmount}
-                hasPaymentShortfall={settlementView.hasPaymentShortfall}
-                expectedLabel={
-                  isOfflinePartyTrip
-                    ? "Trip earning"
-                    : settlementView.commissionApplies
-                      ? "Commission"
-                      : "Trip earning"
-                }
-                mode={
-                  settlementView.status === "settled"
-                    ? "settled"
-                    : settlementView.status === "fleet_marked"
-                      ? "fleet_marked"
-                      : "pending"
-                }
-                colors={colors}
-                isDark={isDark}
-              />
+              {isOfflinePartyTrip && !offlineBilledAvailable ? (
+                <Text style={[panelStyles.incompleteText, { color: colors.textMuted }]}>
+                  Receivable not issued — billed amount unavailable.
+                </Text>
+              ) : (
+                <TripPaymentAmountGrid
+                  expectedAmount={
+                    isOfflinePartyTrip ? (offlineBilled as number) : settlementView.expectedAmount
+                  }
+                  paymentAmount={
+                    isOfflinePartyTrip ? offlineReceived : settlementView.amount
+                  }
+                  outstandingAmount={
+                    isOfflinePartyTrip
+                      ? offlineOutstanding
+                      : settlementView.outstandingAmount
+                  }
+                  writeOffAmount={settlementView.writeOffAmount}
+                  hasPaymentShortfall={settlementView.hasPaymentShortfall}
+                  expectedLabel={
+                    isOfflinePartyTrip
+                      ? "Billed"
+                      : settlementView.commissionApplies
+                        ? "Commission"
+                        : "Trip earning"
+                  }
+                  mode={
+                    settlementView.status === "settled"
+                      ? "settled"
+                      : settlementView.status === "fleet_marked"
+                        ? "fleet_marked"
+                        : "pending"
+                  }
+                  colors={colors}
+                  isDark={isDark}
+                />
+              )}
             </View>
             {showCaptureCommission ? (
               <View style={panelStyles.captureWrap}>

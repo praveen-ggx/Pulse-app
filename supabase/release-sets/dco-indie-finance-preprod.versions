@@ -1,0 +1,8 @@
+# Preprod dry-run allowlist only: indie book + DCO Self finance visibility + tag no-notes-finance.
+# Do NOT include 20271102003100 (already realized on preprod via compat; do not replay).
+# sha256 b0e299984e9c35641f03b17d92671aed3106f14bdfb2ca396fa2f9564591f476 20271102114500_driver_indie_financial_book.sql
+20271102114500
+# sha256 94acae74e73c114acf626e028feddc40c6b1d4620ef4fb7d65bc325fbb370819 20271102120000_dco_self_finance_visibility.sql
+20271102120000
+# sha256 f5ab54071671618349d24e6f0364c6ae8352f90eb7bde5f01e03580aa197ca1d 20271102134500_tag_dco_trip_party_no_notes_finance.sql
+20271102134500

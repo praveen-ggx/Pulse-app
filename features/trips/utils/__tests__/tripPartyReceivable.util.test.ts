@@ -3,8 +3,8 @@ import {
   tripPartyBilledAmount,
 } from "../tripPartyReceivable.util";
 
-describe("tripPartyBilledAmount", () => {
-  it("uses authoritative DCO Self receivable billed_amount when provided", () => {
+describe("tripPartyBilledAmount — receivable is exclusive SOT", () => {
+  it("uses authoritative issued receivable billed_amount", () => {
     expect(
       tripPartyBilledAmount(
         {
@@ -20,12 +20,16 @@ describe("tripPartyBilledAmount", () => {
     expect(tripPartyBilledAmount({ dco_party_billed: 5000 }, { billed_amount: 0 })).toBe(0);
   });
 
-  it("returns null when receivable is missing (distinct from zero)", () => {
-    expect(tripPartyBilledAmount({ dco_party_billed: null }, null)).toBeNull();
+  it("returns unavailable when receivable is missing (null), even if dco_party_billed is set", () => {
+    expect(tripPartyBilledAmount({ dco_party_billed: 18500 }, null)).toBeNull();
     expect(dcoSelfReceivableBilledAmount(null)).toBeNull();
   });
 
-  it("does not parse notes JSON billed / dco_party_billed markers", () => {
+  it("returns unavailable when receivable argument is omitted — dco_party_billed alone is not issued", () => {
+    expect(tripPartyBilledAmount({ dco_party_billed: 18500 })).toBeNull();
+  });
+
+  it("does not parse notes JSON billed markers", () => {
     expect(
       tripPartyBilledAmount({
         dco_party_billed: null,
@@ -40,10 +44,18 @@ describe("tripPartyBilledAmount", () => {
         dco_party_billed: 0,
         notes: '<!--pulse-dco-party:{"id":"c-2","name":"Ajio","billed":18500}-->',
       }),
-    ).toBe(0);
+    ).toBeNull();
   });
 
-  it("reads the trip column when no receivable is supplied", () => {
-    expect(tripPartyBilledAmount({ dco_party_billed: 18500 })).toBe(18500);
+  it("ignores trip object entirely when receivable is provided", () => {
+    expect(
+      tripPartyBilledAmount(
+        {
+          dco_party_billed: 99999,
+          notes: '<!--pulse-dco-party:{"id":"x","name":"Y","billed":1}-->',
+        } as { dco_party_billed: number; notes: string; client_price?: number },
+        { billed_amount: 250 },
+      ),
+    ).toBe(250);
   });
 });

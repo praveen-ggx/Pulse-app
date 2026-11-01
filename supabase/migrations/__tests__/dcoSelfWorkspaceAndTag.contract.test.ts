@@ -8,6 +8,7 @@ function readMigration(name: string): string {
 const ENSURE = readMigration("20271101154500_ensure_dco_workspace.sql");
 const QUALIFY = readMigration("20271101184600_ensure_dco_workspace_qualify_returning_id.sql");
 const TAG = readMigration("20271101222100_tag_dco_trip_party.sql");
+const TAG_NO_NOTES = readMigration("20271102134500_tag_dco_trip_party_no_notes_finance.sql");
 
 describe("ensure_dco_workspace migrations", () => {
   it.each([
@@ -39,7 +40,8 @@ describe("tag_dco_trip_party isolation", () => {
     expect(TAG).not.toMatch(/is_org_staff/);
   });
 
-  it("persists billed on dco_party_billed and never writes supplier_rate", () => {
+  it("historical intro: persists billed on dco_party_billed and never writes supplier_rate", () => {
+    // Immutable applied history — superseded by 20271102134500 forward migration.
     expect(TAG).toMatch(/ADD COLUMN IF NOT EXISTS dco_party_billed numeric/);
     expect(TAG).toMatch(/dco_party_billed = v_billed/);
     expect(TAG).toMatch(/p_billed numeric DEFAULT NULL/);
@@ -51,5 +53,29 @@ describe("tag_dco_trip_party isolation", () => {
     expect(TAG).toMatch(/SECURITY DEFINER/);
     expect(TAG).toMatch(/REVOKE ALL ON FUNCTION public\.tag_dco_trip_party\(uuid, uuid, numeric\) FROM PUBLIC/);
     expect(TAG).toMatch(/GRANT EXECUTE ON FUNCTION public\.tag_dco_trip_party\(uuid, uuid, numeric\) TO authenticated/);
+  });
+});
+
+describe("tag_dco_trip_party no-notes-finance forward migration", () => {
+  it("stops writing notes financial markers and clears dco_party_billed", () => {
+    expect(TAG_NO_NOTES).toMatch(/dco_party_billed = NULL/);
+    expect(TAG_NO_NOTES).toMatch(/'dco_party_billed', NULL/);
+    expect(TAG_NO_NOTES).toMatch(/billed_ignored/);
+    expect(TAG_NO_NOTES).not.toMatch(/v_marker\s*:=/);
+    expect(TAG_NO_NOTES).not.toMatch(/dco_party_billed = v_billed/);
+    expect(TAG_NO_NOTES).toMatch(/regexp_replace\([\s\S]*pulse-dco-party/);
+    expect(TAG_NO_NOTES).not.toMatch(/supplier_rate\s*=/);
+  });
+
+  it("keeps Party B auth gates and least-privilege execute", () => {
+    expect(TAG_NO_NOTES).toMatch(/is_dco_eligible\(v_uid\)/);
+    expect(TAG_NO_NOTES).toMatch(/d\.user_id = v_uid/);
+    expect(TAG_NO_NOTES).toMatch(/dco_tag_marketplace_denied/);
+    expect(TAG_NO_NOTES).toMatch(/dco_tag_fleet_denied/);
+    expect(TAG_NO_NOTES).toMatch(/dco_self_workspace_id\(v_uid\)/);
+    expect(TAG_NO_NOTES).toMatch(/SECURITY DEFINER/);
+    expect(TAG_NO_NOTES).toMatch(
+      /GRANT EXECUTE ON FUNCTION public\.tag_dco_trip_party\(uuid, uuid, numeric\) TO authenticated/,
+    );
   });
 });

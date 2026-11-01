@@ -52,6 +52,13 @@ jest.mock("@/features/trips/operations/queries/useTripOperations", () => ({
 jest.mock("@react-navigation/native", () => ({ useFocusEffect: () => {} }));
 jest.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ invalidateQueries: jest.fn() }),
+  useQuery: () => ({ data: null, isLoading: false }),
+}));
+jest.mock("@/features/dco-self/services/dcoSelfReceivable.service", () => ({
+  getDcoSelfReceivableForTrip: jest.fn(async () => ({ receivable: null })),
+}));
+jest.mock("@/features/driver-indie/services/driverIndieReceivable.service", () => ({
+  getDriverIndieReceivableForTrip: jest.fn(async () => ({ receivable: null })),
 }));
 jest.mock("@/features/marketplace/hooks/useExchangeTripPayments", () => ({
   useExchangeTripSummaryQuery: (tripId: string | null) => mockSummaryQuery(tripId),

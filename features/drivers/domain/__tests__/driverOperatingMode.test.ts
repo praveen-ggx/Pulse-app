@@ -10,6 +10,8 @@ import {
   driverHistoryLaneLabel,
   driverHistoryTabsForMode,
   driverJobSource,
+  driverOfflinePartyBookKicker,
+  driverWalletBookTabLabel,
   isDcoOperatingMode,
   parseDriverOperatingMode,
   splitEmployerRelationships,
@@ -53,6 +55,20 @@ describe('parseDriverOperatingMode', () => {
     expect(canManageDcoSelfBook(m)).toBe(false);
     expect(canTagOfflineParty(m)).toBe(true);
     expect(canAttributeToEmployer(m)).toBe(false);
+    expect(driverWalletBookTabLabel(m)).toBe('Independent');
+    expect(driverOfflinePartyBookKicker(m)).toBe('Saved customers');
+  });
+
+  it('wallet book labels stay mode-aware without changing destinations', () => {
+    expect(driverWalletBookTabLabel(serverMode({ mode: 'DCO', marketplace_allowed: true }))).toBe(
+      'Self',
+    );
+    expect(
+      driverWalletBookTabLabel(serverMode({ mode: 'DRIVER', is_employee_driver: true })),
+    ).toBe('Fleet');
+    expect(
+      driverOfflinePartyBookKicker(serverMode({ mode: 'DCO', marketplace_allowed: true })),
+    ).toBe('Saved in Self');
   });
 
   it('DCO Self and indie books are mutually exclusive', () => {

@@ -116,6 +116,23 @@ export function canAttributeToEmployer(m: DriverOperatingMode): boolean {
   return m.mode === 'DRIVER' && m.isEmployeeDriver;
 }
 
+/**
+ * Wallet primary book tab / header label — terminology only, not a destination change.
+ * DCO Self → "Self"; independent DRIVER → "Independent"; fleet employee → "Fleet".
+ */
+export function driverWalletBookTabLabel(m: DriverOperatingMode): string {
+  if (canManageDcoSelfBook(m)) return 'Self';
+  if (canManageIndieBook(m)) return 'Independent';
+  return 'Fleet';
+}
+
+/** Short copy for saved-party lists (Add Client / tag picker). */
+export function driverOfflinePartyBookKicker(m: DriverOperatingMode): string {
+  if (canManageDcoSelfBook(m)) return 'Saved in Self';
+  if (canManageIndieBook(m)) return 'Saved customers';
+  return 'Saved parties';
+}
+
 type RelationshipRow = {
   left_at?: string | null;
   relationship_status?: string | null;

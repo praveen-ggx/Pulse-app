@@ -34,6 +34,7 @@ import { useDriverAvatar } from '@/contexts/DriverAvatarContext';
 import { useDriverTheme, useDriverThemeColors } from '@/contexts/DriverThemeContext';
 import { DriverSelfAvatar } from '@/components/driver/DriverSelfAvatar';
 import { useDriverAvatarUri } from '@/lib/avatarUpload';
+import { driverWalletBookTabLabel } from '@/features/drivers/domain/driverOperatingMode';
 import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
 import { confirmDialog } from '@/lib/confirmDialog';
 import {
@@ -198,10 +199,13 @@ export default function DriverWalletScreen() {
   const { avatarUri } = useDriverAvatarUri();
   const {
     isDco,
+    canManageIndieBook,
+    canManageDcoSelfBook,
     canTagOfflineParty,
     operatingMode,
     invalidate: invalidateOperatingMode,
   } = useDriverOperatingModeQuery(profile?.uid ?? null);
+  const walletBookLabel = driverWalletBookTabLabel(operatingMode);
   const [_driver, setDriver] = useState<driversService.DriverRow | null>(null);
   const [linkedDrivers, setLinkedDrivers] = useState<driversService.DriverRow[]>([]);
   const [invites, setInvites] = useState<driversService.DriverInviteRow[]>([]);
@@ -2633,7 +2637,7 @@ export default function DriverWalletScreen() {
           <View style={styles.headerTextWrap}>
             <DriverBrandMark color={colors.textMuted} />
             <Text style={[styles.welcomeTitle, { color: colors.text }]} numberOfLines={1}>
-              {mainTab === "earnings" ? "Earnings" : mainTab === "cash" ? "Transactions" : isDco ? "Self" : "Fleet"}
+              {mainTab === "earnings" ? "Earnings" : mainTab === "cash" ? "Transactions" : walletBookLabel}
             </Text>
           </View>
         </View>
@@ -2764,12 +2768,16 @@ export default function DriverWalletScreen() {
           onPress={() => setMainTab('fleet')}
           activeOpacity={0.92}
         >
-          <FontAwesome name={isDco ? 'user' : 'users'} size={12} color={mainTab === 'fleet' ? colors.emerald : colors.textMuted} />
+          <FontAwesome
+            name={canManageDcoSelfBook || canManageIndieBook ? 'user' : 'users'}
+            size={12}
+            color={mainTab === 'fleet' ? colors.emerald : colors.textMuted}
+          />
           <Text
             style={[styles.mainTabText, mainTab === 'fleet' ? { color: colors.emerald } : { color: colors.textMuted }]}
             numberOfLines={1}
           >
-            {isDco ? 'Self' : 'Fleet'}
+            {walletBookLabel}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -3819,12 +3827,15 @@ export default function DriverWalletScreen() {
       onClose={() => setLedgerReceiptPreview(null)}
     />
 
-    {canTagOfflineParty && isDco && mainTab === 'fleet' && addClientPartyActions.length > 0 ? (
+    {canTagOfflineParty &&
+    (canManageDcoSelfBook || canManageIndieBook) &&
+    mainTab === 'fleet' &&
+    addClientPartyActions.length > 0 ? (
       <PartySpeedDialFab
         actions={addClientPartyActions}
         bottom={layout.fabBottom()}
-        addPartyLabel="Add party"
-        closeLabel="Close add party"
+        addPartyLabel={canManageIndieBook && !canManageDcoSelfBook ? 'Add customer' : 'Add party'}
+        closeLabel={canManageIndieBook && !canManageDcoSelfBook ? 'Close add customer' : 'Close add party'}
       />
     ) : null}
 

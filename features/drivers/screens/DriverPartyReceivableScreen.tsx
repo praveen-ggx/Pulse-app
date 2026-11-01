@@ -38,7 +38,6 @@ import {
   type DriverPartyAvatarFields,
 } from "@/features/drivers/utils/driverPartyAvatar.util";
 import {
-  UNTAGGED_PARTY_ID,
   buildDriverPartyReceivables,
   isTripTaggedToParty,
   tripNeedsPartyTag,
@@ -73,7 +72,11 @@ export default function DriverPartyReceivableScreen() {
   const { partyId: partyIdParam } = useLocalSearchParams<{ partyId?: string }>();
   const partyId = decodePartyId(partyIdParam);
   const { profile } = useAuth();
-  const { canManageDcoSelfBook, canManageIndieBook } = useDriverOperatingModeQuery();
+  const {
+    canManageDcoSelfBook,
+    canManageIndieBook,
+    modeLoading,
+  } = useDriverOperatingModeQuery();
   const bookKind =
     canManageDcoSelfBook ? "dco_self" : canManageIndieBook ? "driver_indie" : null;
 
@@ -88,7 +91,14 @@ export default function DriverPartyReceivableScreen() {
   const [bookCollections, setBookCollections] = useState<DcoSelfCollection[]>([]);
 
   const load = useCallback(async () => {
+    // Do not load (or clear) book rows until operating mode has settled —
+    // otherwise indie/DCO briefly look empty and navigation races home.
+    if (modeLoading) return;
     if (!profile?.uid) {
+      setLoading(false);
+      return;
+    }
+    if (!partyId) {
       setLoading(false);
       return;
     }
@@ -193,7 +203,7 @@ export default function DriverPartyReceivableScreen() {
     } finally {
       setLoading(false);
     }
-  }, [bookKind, partyId, profile?.uid]);
+  }, [bookKind, modeLoading, partyId, profile?.uid]);
 
   useEffect(() => {
     void load();
@@ -269,18 +279,49 @@ export default function DriverPartyReceivableScreen() {
     };
   }, [partyTrips]);
 
-  if (loading) {
+  if (modeLoading || loading) {
     return <CenteredLoadingView message="Loading…" color={Theme.primary} />;
   }
 
-  const isMarketplace = party?.kind === "marketplace";
-  const kicker = isMarketplace ? "Pulse Exchange" : "Shipper · Client";
+  if (!partyId) {
+    return (
+      <DetailPageLayout title="Receivable" onBack={onBack} titleAlign="left">
+        <Text style={styles.empty}>Choose a customer from Wallet to open their receivable.</Text>
+      </DetailPageLayout>
+    );
+  }
+
+  // Stay on this route for unknown / unauthorized party ids — never bounce to home.
+  if (!party) {
+    const bookHint =
+      bookKind === "driver_indie"
+        ? "independent-driver book"
+        : bookKind === "dco_self"
+          ? "DCO Self book"
+          : "wallet";
+    return (
+      <DetailPageLayout title="Receivable" onBack={onBack} titleAlign="left" onRefresh={load} refreshing={loading}>
+        <Text style={styles.empty}>
+          This receivable is not available in your {bookHint}.
+        </Text>
+      </DetailPageLayout>
+    );
+  }
+
+  const isMarketplace = party.kind === "marketplace";
+  const kicker = isMarketplace
+    ? "Pulse Exchange"
+    : bookKind === "driver_indie"
+      ? "Independent · Customer"
+      : bookKind === "dco_self"
+        ? "Self · Party B"
+        : "Shipper · Client";
   const entityType = isMarketplace ? "supplier" : "client";
   const captureLane = isMarketplace ? "marketplace" : "shipper";
 
   return (
     <DetailPageLayout
-      title={party?.name ?? "Receivable"}
+      title={party.name}
       titleAlign="left"
       titleSubline={
         <Text style={styles.kicker}>{kicker}</Text>
@@ -289,10 +330,10 @@ export default function DriverPartyReceivableScreen() {
       onRefresh={load}
       refreshing={loading}
       rightAction={
-        <View style={styles.headerAvatar} accessibilityLabel={`${party?.name ?? "Party"} avatar`}>
+        <View style={styles.headerAvatar} accessibilityLabel={`${party.name} avatar`}>
           <EntityAvatar
-            name={party?.name ?? "Party"}
-            initialsColorSeed={party?.id ?? partyId}
+            name={party.name}
+            initialsColorSeed={party.id}
             avatarUrl={avatar.avatarUrl}
             avatarSeed={avatar.avatarSeed}
             organizationImageUrl={avatar.organizationImageUrl}

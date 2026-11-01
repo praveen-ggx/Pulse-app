@@ -30,8 +30,11 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { Redirect, Tabs } from 'expo-router';
 import { DEFAULT_DISPATCHER_ROUTE } from '@/lib/routes';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Platform, StyleSheet } from 'react-native';
+
+/** Wait for AuthContext DB profile merge before bouncing JWT-stale "user" roles. */
+const WRONG_ROLE_HYDRATION_GRACE_MS = 2500;
 
 function DriverTabsNavigator() {
   return (
@@ -122,9 +125,11 @@ export default function DriverAppLayout() {
   const fontsReady = fontsLoaded || fontError != null;
 
   // ✅ Keep roleVerified from deepak/main
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, refreshSession } = useAuth();
   const queryClient = useQueryClient();
   const linkedDriversSyncedRef = useRef(false);
+  const [wrongRoleArmed, setWrongRoleArmed] = useState(false);
+  const roleRefreshAttemptedRef = useRef(false);
 
   useEffect(() => {
     void hydrateDriverSignupSuccessFlag();
@@ -135,6 +140,20 @@ export default function DriverAppLayout() {
     void consumePendingDriverInviteAfterAuth();
   }, [loading, user, profile?.role]);
 
+  // Deep links remount auth from JWT metadata. If metadata lags public.profiles
+  // (or vice versa), refresh once so DB hydration can resolve driver role before
+  // we bounce to the organisation shell.
+  useEffect(() => {
+    if (loading || !user || !profile) return;
+    if (profile.role === 'driver') {
+      roleRefreshAttemptedRef.current = false;
+      return;
+    }
+    if (roleRefreshAttemptedRef.current) return;
+    roleRefreshAttemptedRef.current = true;
+    void refreshSession();
+  }, [loading, user, profile, refreshSession]);
+
   useEffect(() => {
     if (fontError && __DEV__ && Platform.OS === 'web') {
       console.warn(
@@ -144,16 +163,49 @@ export default function DriverAppLayout() {
     }
   }, [fontError]);
 
+  // JWT session metadata can lag behind public.profiles.role (QA role flips,
+  // admin updates). Auth merges DB profile asynchronously — give it a short
+  // grace window before treating a non-driver JWT/session profile as final,
+  // otherwise deep links like /capture-payment and /receivable/:id flash the
+  // organisation /trips shell then bounce.
+  useEffect(() => {
+    if (loading || !user || !profile) {
+      setWrongRoleArmed(false);
+      return;
+    }
+    if (profile.role === 'driver') {
+      setWrongRoleArmed(false);
+      return;
+    }
+    setWrongRoleArmed(false);
+    const timer = setTimeout(() => setWrongRoleArmed(true), WRONG_ROLE_HYDRATION_GRACE_MS);
+    return () => clearTimeout(timer);
+  }, [loading, user, profile]);
+
   // A resolved non-driver has no business in this group — never gate on it.
   // Gating would render the splash with no exit (this layout has no redirect of
   // its own), which is how a driver -> logout -> login-as-user hung on
   // "Loading..." forever. Send them to their own shell instead.
-  const wrongRole = !loading && Boolean(user) && Boolean(profile) && profile?.role !== 'driver';
+  const wrongRole =
+    wrongRoleArmed &&
+    !loading &&
+    Boolean(user) &&
+    Boolean(profile) &&
+    profile?.role !== 'driver';
 
   // ✅ Gate includes fonts + auth checks — waiting states only, never wrongRole.
+  // While grace is running for a non-driver session profile, keep the splash so
+  // deep links do not paint the dispatcher shell.
+  const awaitingRoleHydration =
+    !loading &&
+    Boolean(user) &&
+    Boolean(profile) &&
+    profile.role !== 'driver' &&
+    !wrongRoleArmed;
   const gate =
     !wrongRole &&
-    (!fontsReady ||
+    (awaitingRoleHydration ||
+      !fontsReady ||
       loading ||
       !user ||
       !profile ||

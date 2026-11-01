@@ -63,8 +63,12 @@ export default function DriverCapturePaymentScreen() {
   const router = useRouter();
   const onBack = useSafeBack(ROUTES.driverWalletSelf());
   const { profile } = useAuth();
-  const { canManageDcoSelfBook, canManageIndieBook, canTagOfflineParty } =
-    useDriverOperatingModeQuery();
+  const {
+    canManageDcoSelfBook,
+    canManageIndieBook,
+    canTagOfflineParty,
+    modeLoading,
+  } = useDriverOperatingModeQuery();
   const params = useLocalSearchParams<{
     tripId?: string;
     due?: string;
@@ -97,6 +101,8 @@ export default function DriverCapturePaymentScreen() {
   const [paidOn, setPaidOn] = useState(todayISO());
 
   const load = useCallback(async () => {
+    // Resolve operating mode before choosing Self / indie / employer / exchange path.
+    if (modeLoading) return;
     if (!tripId || !profile?.uid) {
       setLoading(false);
       return;
@@ -129,6 +135,7 @@ export default function DriverCapturePaymentScreen() {
             return driversService.isActiveFleetRelationshipDriver(row);
           }),
       );
+      // Mutual exclusion: DCO Self XOR indie book; never both.
       if (nextTrip?.id && canManageDcoSelfBook) {
         const found = await getDcoSelfReceivableForTrip(nextTrip.id);
         setSelfReceivableId(found.receivable?.id ?? null);
@@ -147,7 +154,7 @@ export default function DriverCapturePaymentScreen() {
     } finally {
       setLoading(false);
     }
-  }, [canManageDcoSelfBook, canManageIndieBook, profile?.uid, tripId]);
+  }, [canManageDcoSelfBook, canManageIndieBook, modeLoading, profile?.uid, tripId]);
 
   useEffect(() => {
     void load();
@@ -254,7 +261,7 @@ export default function DriverCapturePaymentScreen() {
     useSelfBook,
   ]);
 
-  if (loading) {
+  if (modeLoading || loading) {
     return <CenteredLoadingView message="Loading…" color={Theme.primary} />;
   }
 

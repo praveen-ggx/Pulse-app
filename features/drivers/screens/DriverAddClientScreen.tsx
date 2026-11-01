@@ -39,6 +39,7 @@ import {
 import Theme from "@/constants/Theme";
 import { tripReceivableBilled } from "@/features/drivers/utils/driverPartyReceivables.util";
 import { queryKeys } from "@/lib/queryKeys";
+import { driverOfflinePartyBookKicker } from "@/features/drivers/domain/driverOperatingMode";
 import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import { useTripDetailQuery } from "@/lib/queries/useTripsQuery";
 import { ROUTES } from "@/lib/routes";
@@ -72,10 +73,13 @@ export default function DriverAddClientScreen() {
     canManageDcoSelfBook,
     canManageIndieBook,
     canTagOfflineParty,
-    isLoading: modeLoading,
+    modeLoading,
+    operatingMode,
   } = useDriverOperatingModeQuery();
   useDcoSelfOutboxFlush(canManageDcoSelfBook);
   useDriverIndieOutboxFlush(canManageIndieBook);
+  const useIndieBook = canManageIndieBook && !canManageDcoSelfBook;
+  const partyBookKicker = driverOfflinePartyBookKicker(operatingMode);
   const queryClient = useQueryClient();
   const params = useLocalSearchParams<{ tripId?: string; partyName?: string }>();
   const tripId = param(params.tripId);
@@ -129,6 +133,8 @@ export default function DriverAddClientScreen() {
   );
 
   const loadOrg = useCallback(async () => {
+    // Wait until operating mode has settled — never treat "still loading" as deny.
+    if (modeLoading) return;
     if (!canTagOfflineParty) {
       setLoading(false);
       return;
@@ -136,11 +142,17 @@ export default function DriverAddClientScreen() {
     setLoading(true);
     setWorkspaceError(null);
     try {
+      // Independent DRIVER book only — never ensure DCO workspace / Self RPCs.
       if (canManageIndieBook && !canManageDcoSelfBook) {
         setOrg(null);
         const { error, parties } = await listDriverIndieParties();
         if (error) setWorkspaceError(error.message);
         setExistingParties(parties);
+        return;
+      }
+      if (!canManageDcoSelfBook) {
+        setOrg(null);
+        setExistingParties([]);
         return;
       }
       const { organization, error: ensureError } = await ensureDcoWorkspace();
@@ -161,14 +173,16 @@ export default function DriverAddClientScreen() {
     } finally {
       setLoading(false);
     }
-  }, [canManageDcoSelfBook, canManageIndieBook, canTagOfflineParty]);
+  }, [canManageDcoSelfBook, canManageIndieBook, canTagOfflineParty, modeLoading]);
 
   useEffect(() => {
     void loadOrg();
   }, [loadOrg]);
 
   useEffect(() => {
-    if (!modeLoading && !canTagOfflineParty) onBack();
+    // Only leave after mode is resolved and the caller is neither indie nor DCO.
+    if (modeLoading) return;
+    if (!canTagOfflineParty) onBack();
   }, [modeLoading, canTagOfflineParty, onBack]);
 
   const matchingSavedParty = useMemo(() => {
@@ -377,7 +391,11 @@ export default function DriverAddClientScreen() {
     />
   );
 
-  if (modeLoading || !canTagOfflineParty || loading) {
+  if (modeLoading || loading) {
+    return <CenteredLoadingView message="Loading…" color={Theme.primary} />;
+  }
+
+  if (!canTagOfflineParty) {
     return <CenteredLoadingView message="Loading…" color={Theme.primary} />;
   }
 
@@ -397,10 +415,11 @@ export default function DriverAddClientScreen() {
   return (
     <>
     <DetailPageLayout title="Select party" onBack={onBack} titleAlign="left">
-      <Text style={styles.kicker}>Saved in Self</Text>
+      <Text style={styles.kicker}>{partyBookKicker}</Text>
       <Text style={styles.hint}>
-        Tap a party to tag this trip. Details are already on file — only add a new
-        party if they are not in this list.
+        {useIndieBook
+          ? "Tap a customer to tag this trip. Add a new customer if they are not in this list."
+          : "Tap a party to tag this trip. Details are already on file — only add a new party if they are not in this list."}
       </Text>
       {workspaceError ? <Text style={styles.error}>{workspaceError}</Text> : null}
       <ScrollView

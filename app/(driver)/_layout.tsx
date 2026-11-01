@@ -59,11 +59,18 @@ function DriverTabsNavigator() {
       <Tabs.Screen name="control" options={{ title: 'Trip', href: null }} />
       <Tabs.Screen name="trip-history" options={{ title: 'Trips' }} />
       <Tabs.Screen name="wallet" options={{ title: 'Transactions' }} />
+      {/*
+        Deep-link / query-param screens: do NOT set href: null.
+        On Expo web, href: null drops the route from the linking table so a
+        cold open of /capture-payment?tripId=… or /receivable/:id remounts the
+        first tab (Dashboard) instead of the target screen. Hide from the dock
+        via custom DriverTabBar (TAB_CONFIG) + tabBarStyle display:none only.
+        Same pattern as chat / add-client.
+      */}
       <Tabs.Screen
         name="receivable"
         options={{
           title: 'Receivable',
-          href: null,
           tabBarStyle: { display: 'none' },
         }}
       />
@@ -78,11 +85,9 @@ function DriverTabsNavigator() {
         name="capture-payment"
         options={{
           title: 'Capture payment',
-          href: null,
           tabBarStyle: { display: 'none' },
         }}
       />
-      {/* Not listed in DriverTabBar TAB_CONFIG; omit href: null so router.push / query params work on web */}
       <Tabs.Screen
         name="chat"
         options={{

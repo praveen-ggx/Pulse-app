@@ -87,6 +87,7 @@ import {
 import { tripHistoryDetailStyles as styles } from "@/features/driver/tripHistory/tripHistoryDetail.styles";
 import { TripDetailSettlementPanel } from "@/features/driver/components/TripDetailSettlementPanel";
 import { DriverDocumentGalleryPreview } from "@/features/driver/components/DriverDocumentGalleryPreview";
+import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
 import { useTripVerificationSync } from "@/features/trips/verification";
 import { DriverTripOperationsTab } from "@/features/driver/components/DriverTripOperationsTab";
 import { useRegisterDriverContextTrip } from "@/contexts/DriverTripOpsContext";
@@ -180,6 +181,7 @@ export function DriverTripHistoryDetailScreen({
   const [detailPodViewUrls, setDetailPodViewUrls] = useState<Record<string, string>>({});
   const detailPodUrlRequestedRef = useRef<Set<string>>(new Set());
   const [podPreviewIndex, setPodPreviewIndex] = useState<number | null>(null);
+  const [collectFromOpen, setCollectFromOpen] = useState(false);
   const resolveDetailPodPreview = useCallback(
     async (doc: tripDocumentsService.TripDocumentRow): Promise<string | null> => {
       const cached = detailPodViewUrls[doc.id];
@@ -864,14 +866,18 @@ export function DriverTripHistoryDetailScreen({
                     {needsOfflinePartyTag || taggedOfflineParty ? (
                       <TouchableOpacity
                         style={styles.tdHeroTagRow}
-                        onPress={() =>
-                          router.push(
-                            ROUTES.driverAddClient({
-                              tripId: trip.id,
-                              partyName: trip.client_name || undefined,
-                            }) as Href,
-                          )
-                        }
+                        onPress={() => {
+                          if (taggedOfflineParty) {
+                            router.push(
+                              ROUTES.driverAddClient({
+                                tripId: trip.id,
+                                partyName: trip.client_name || undefined,
+                              }) as Href,
+                            );
+                            return;
+                          }
+                          setCollectFromOpen(true);
+                        }}
                         activeOpacity={0.85}
                         accessibilityRole="button"
                         accessibilityLabel={
@@ -1386,14 +1392,7 @@ export function DriverTripHistoryDetailScreen({
                 </Text>
                 <TouchableOpacity
                   style={histAttrStyles.btn}
-                  onPress={() =>
-                    router.push(
-                      ROUTES.driverAddClient({
-                        tripId: trip.id,
-                        partyName: trip.client_name || undefined,
-                      }) as Href,
-                    )
-                  }
+                  onPress={() => setCollectFromOpen(true)}
                   activeOpacity={0.8}
                   accessibilityRole="button"
                   accessibilityLabel="Tag party"
@@ -1402,6 +1401,18 @@ export function DriverTripHistoryDetailScreen({
                   <Text style={histAttrStyles.btnText}>Tag party</Text>
                 </TouchableOpacity>
               </View>
+            ) : null}
+
+            {trip && canTagOfflineParty ? (
+              <DriverCollectFromSheet
+                visible={collectFromOpen}
+                trip={trip}
+                due={0}
+                lane="shipper"
+                assignerName={assignerDisplay}
+                onClose={() => setCollectFromOpen(false)}
+                onTagged={() => void loadTrip(() => true)}
+              />
             ) : null}
 
             <DriverDocumentGalleryPreview

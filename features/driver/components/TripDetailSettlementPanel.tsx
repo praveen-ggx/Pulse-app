@@ -4,6 +4,7 @@ import { useDriverTheme, useDriverThemeColors } from "@/contexts/DriverThemeCont
 import { DriverTripExpenseLogSection } from "@/features/driver/components/DriverTripExpenseLogSection";
 import { TripPaymentAmountGrid } from "@/features/driver/components/TripPaymentAmountGrid";
 import { DriverCapturePaymentButton } from "@/features/drivers/components/DriverCapturePaymentButton";
+import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
 import { useDriverTripSettlement } from "@/features/driver/hooks/useDriverTripSettlement";
 import {
   isTripTaggedToParty,
@@ -34,7 +35,7 @@ import {
   Sparkles,
   Wallet,
 } from "lucide-react-native";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   StyleSheet,
   Text,
@@ -47,6 +48,7 @@ type TripDetailSettlementPanelProps = {
   /** Employer-linked fleet trip (history Fleet Trips rule). */
   isFleetLinked?: boolean;
   initialSelectedExpenseId?: string | null;
+  onPartyTagged?: () => void;
 };
 
 function inr(v: number): string {
@@ -87,6 +89,7 @@ export function TripDetailSettlementPanel({
   trip,
   isFleetLinked,
   initialSelectedExpenseId,
+  onPartyTagged,
 }: TripDetailSettlementPanelProps) {
   const colors = useDriverThemeColors();
   const { theme } = useDriverTheme();
@@ -94,6 +97,7 @@ export function TripDetailSettlementPanel({
   const router = useRouter();
   const { settlementView, loading } = useDriverTripSettlement(trip, { isFleetLinked });
   const { canTagOfflineParty } = useDriverOperatingModeQuery();
+  const [collectFromOpen, setCollectFromOpen] = useState(false);
 
   const summaryQuery = useTripOperationsSummary(trip.id, { includeMaintenance: false });
   const exchangeQuery = useExchangeTripSummaryQuery(
@@ -339,14 +343,7 @@ export function TripDetailSettlementPanel({
                 {canTagOfflineParty && !taggedOfflineParty ? (
                   <TouchableOpacity
                     style={panelStyles.tagPartyBtn}
-                    onPress={() =>
-                      router.push(
-                        ROUTES.driverAddClient({
-                          tripId: trip.id,
-                          partyName: trip.client_name || undefined,
-                        }) as Href,
-                      )
-                    }
+                    onPress={() => setCollectFromOpen(true)}
                     accessibilityRole="button"
                     accessibilityLabel="Tag party"
                   >
@@ -653,6 +650,18 @@ export function TripDetailSettlementPanel({
         </Text>
         <ChevronRight size={14} color={colors.textMuted} />
       </TouchableOpacity>
+
+      {canTagOfflineParty && isOfflinePartyTrip ? (
+        <DriverCollectFromSheet
+          visible={collectFromOpen}
+          trip={trip}
+          due={offlineOutstanding}
+          lane="shipper"
+          assignerName={String(trip.client_name ?? "").trim() || fleetPartyName}
+          onClose={() => setCollectFromOpen(false)}
+          onTagged={() => onPartyTagged?.()}
+        />
+      ) : null}
     </View>
   );
 }

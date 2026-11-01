@@ -67,7 +67,6 @@ function param(value: string | string[] | undefined): string {
 }
 
 export default function DriverAddClientScreen() {
-  const onBack = useSafeBack(ROUTES.driverWalletSelf());
   const {
     canAddDcoShippers,
     canManageDcoSelfBook,
@@ -84,6 +83,12 @@ export default function DriverAddClientScreen() {
   const params = useLocalSearchParams<{ tripId?: string; partyName?: string }>();
   const tripId = param(params.tripId);
   const partyName = param(params.partyName);
+  // Prefer driver trip detail when opened from Tag Party; wallet Self as last resort.
+  const onBack = useSafeBack(
+    tripId
+      ? (`/driver-trip/${encodeURIComponent(tripId)}` as const)
+      : ROUTES.driverWalletSelf(),
+  );
   const [loading, setLoading] = useState(true);
   const [org, setOrg] = useState<CurrentOrganization | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
@@ -193,6 +198,13 @@ export default function DriverAddClientScreen() {
     );
   }, [existingParties, partyName]);
 
+  // "Add {assigner} as party" deep-link: open create prefilled; back returns to the list.
+  useEffect(() => {
+    if (loading || modeLoading) return;
+    if (!partyName.trim() || matchingSavedParty) return;
+    setShowCreate(true);
+  }, [loading, matchingSavedParty, modeLoading, partyName]);
+
   const finishWithClient = useCallback(
     async (client: { id: string; name: string }, billed?: number | null) => {
       if (!tripId) return { error: null as Error | null };
@@ -244,6 +256,15 @@ export default function DriverAddClientScreen() {
   const handleClose = useCallback(() => {
     onBack();
   }, [onBack]);
+
+  /** Create form back: return to party list when one exists; otherwise leave the screen. */
+  const handleFormClose = useCallback(() => {
+    if (tripId && showCreate && existingParties.length > 0) {
+      setShowCreate(false);
+      return;
+    }
+    handleClose();
+  }, [existingParties.length, handleClose, showCreate, tripId]);
 
   const handlePickExisting = useCallback((row: { id: string; name: string }) => {
     if (pickingId) return;
@@ -332,7 +353,7 @@ export default function DriverAddClientScreen() {
 
   const createForm = (
     <AddClientModal
-      onClose={tripId ? () => setShowCreate(false) : handleClose}
+      onClose={handleFormClose}
       onComplete={handleComplete}
       organizationId={org?.id ?? null}
       noOrganizationMessage={

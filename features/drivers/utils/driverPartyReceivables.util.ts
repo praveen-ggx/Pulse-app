@@ -10,6 +10,10 @@ import {
 import { parseDcoPartyTagFromNotes } from "@/features/drivers/utils/dcoTripPartyTag.util";
 import { tripEarningsDetailForDriver } from "@/features/drivers/utils/driverUtils.util";
 import { tripPartyBilledAmount } from "@/features/trips/utils/tripPartyReceivable.util";
+import type {
+  DcoSelfParty,
+  DcoSelfReceivableListRow,
+} from "@/features/dco-self/services/dcoSelfReceivable.service";
 import type { TripRow } from "@/features/trips/services/trips.service";
 
 export type DriverReceivableKind = "marketplace" | "shipper";
@@ -262,4 +266,38 @@ export function summarizeDriverPartyReceivables(rows: DriverPartyReceivable[]): 
   const due = Math.max(0, billed - received);
   const collectionPercent = billed > 0 ? Math.round((received / billed) * 100) : 0;
   return { billed, received, due, collectionPercent };
+}
+
+export function buildDriverPartyReceivablesFromBook(
+  rows: DcoSelfReceivableListRow[],
+  parties: DcoSelfParty[],
+): DriverPartyReceivable[] {
+  const names = new Map(parties.map((party) => [party.id, party.name]));
+  const byParty = new Map<string, DriverPartyReceivable>();
+  for (const row of rows) {
+    if (row.receivable.status === "void" || row.receivable.status === "draft") continue;
+    const partyId = row.receivable.party_b_id;
+    const billed = Math.round(Number(row.receivable.billed_amount) || 0);
+    const received = Math.round(Number(row.collected) || 0);
+    const due = Math.max(0, billed - received);
+    const prev = byParty.get(partyId);
+    if (prev) {
+      prev.trips += 1;
+      prev.billed += billed;
+      prev.received += received;
+      prev.due += due;
+    } else {
+      byParty.set(partyId, {
+        id: partyId,
+        kind: "shipper",
+        name: names.get(partyId) || row.receivable.party_a_label || "Party",
+        subtitle: "DCO Self receivable",
+        trips: 1,
+        billed,
+        received,
+        due,
+      });
+    }
+  }
+  return [...byParty.values()].sort((a, b) => b.due - a.due || b.billed - a.billed || a.name.localeCompare(b.name));
 }

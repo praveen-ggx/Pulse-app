@@ -15,11 +15,19 @@ import {
   type DriverPartyAvatarFields,
 } from "@/features/drivers/utils/driverPartyAvatar.util";
 import {
+  listDcoSelfParties,
+  listDcoSelfReceivableBook,
+} from "@/features/dco-self/services/dcoSelfReceivable.service";
+import {
   type DriverPartyReceivable,
+  buildDriverPartyReceivablesFromBook,
   summarizeDriverPartyReceivables,
 } from "@/features/drivers/utils/driverPartyReceivables.util";
+import { useAuth } from "@/contexts/AuthContext";
 import type { TripRow } from "@/features/trips/services/trips.service";
+import { queryKeys } from "@/lib/queryKeys";
 import { ROUTES } from "@/lib/routes";
+import { useQuery } from "@tanstack/react-query";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
@@ -58,7 +66,26 @@ export function DriverSelfReceivablesPanel({
   audience = "dco",
 }: Props) {
   const router = useRouter();
-  const summary = useMemo(() => summarizeDriverPartyReceivables(rows), [rows]);
+  const { profile } = useAuth();
+  const useBook = audience === "dco";
+  const bookQuery = useQuery({
+    queryKey: queryKeys.driverApp.dcoSelfReceivables(profile?.uid ?? ""),
+    enabled: useBook && !!profile?.uid,
+    queryFn: async () => {
+      const [book, parties] = await Promise.all([listDcoSelfReceivableBook(), listDcoSelfParties()]);
+      if (book.error) throw book.error;
+      if (parties.error) throw parties.error;
+      return { rows: book.rows, parties: parties.parties };
+    },
+  });
+  const partyRows = useMemo(
+    () =>
+      useBook
+        ? buildDriverPartyReceivablesFromBook(bookQuery.data?.rows ?? [], bookQuery.data?.parties ?? [])
+        : rows,
+    [bookQuery.data, rows, useBook],
+  );
+  const summary = useMemo(() => summarizeDriverPartyReceivables(partyRows), [partyRows]);
   const hairline = isDark ? colors.borderSubtle ?? colors.border : Theme.borderLight;
   const [avatarByPartyId, setAvatarByPartyId] = useState<
     Record<string, DriverPartyAvatarFields>
@@ -86,7 +113,7 @@ export function DriverSelfReceivablesPanel({
       <Text style={[styles.sub, { color: colors.textMuted }]}>
         {audience === "offline"
           ? "Tag a party on an offline trip, then collect — same receivables view as DCO Self."
-          : "Marketplace Exchange and shipper (client) dues — same party view as Finance."}
+          : "Outstanding = current billed \u2212 collections. Organisation payable is not shown here."}
       </Text>
 
       <View style={styles.summaryRow}>
@@ -138,7 +165,7 @@ export function DriverSelfReceivablesPanel({
         </Text>
       </View>
 
-      {rows.length === 0 ? (
+      {partyRows.length === 0 ? (
         <View
           style={[
             styles.emptyCard,
@@ -152,7 +179,7 @@ export function DriverSelfReceivablesPanel({
           <Text style={[styles.emptyBody, { color: colors.textMuted }]}>
             {audience === "offline"
               ? "Offline trips tagged to a party appear here with billed, received, and due."
-              : "Marketplace awards and trips tagged to a Self party appear here with billed, received, and due."}
+              : "Issued DCO Self receivables appear here with billed, collected, and outstanding."}
           </Text>
         </View>
       ) : (
@@ -162,7 +189,7 @@ export function DriverSelfReceivablesPanel({
             { backgroundColor: colors.surface, borderColor: hairline },
           ]}
         >
-          {rows.map((row, idx) => {
+          {partyRows.map((row, idx) => {
             const unpaid = row.due > 0;
             const isLast = idx === rows.length - 1;
             const avatar = avatarByPartyId[row.id] ?? EMPTY_DRIVER_PARTY_AVATAR;

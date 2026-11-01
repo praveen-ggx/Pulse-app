@@ -3,6 +3,7 @@ import {
   MARKETPLACE_PARTY_ID,
   UNTAGGED_PARTY_ID,
   buildDriverPartyReceivables,
+  buildDriverPartyReceivablesFromBook,
   isTripTaggedToParty,
   tripNeedsPartyTag,
   partyAvatarLookup,
@@ -360,5 +361,55 @@ describe("partyAvatarLookup", () => {
         trip({ id: "s1", organization_id: orgId }),
       ]),
     ).toEqual({ clientId: null, orgId });
+  });
+});
+
+describe("buildDriverPartyReceivablesFromBook", () => {
+  it("rolls issued receivables by Party B and ignores drafts", () => {
+    const built = buildDriverPartyReceivablesFromBook(
+      [
+        {
+          receivable: {
+            id: "r1",
+            workspace_id: "ws",
+            party_b_id: "p1",
+            billed_amount: 55000,
+            billed_version: 1,
+            status: "issued",
+            operational_trip_id: "t1",
+            party_a_label: null,
+            issued_at: "2026-11-01",
+          },
+          collected: 20000,
+          outstanding: 35000,
+        },
+        {
+          receivable: {
+            id: "r2",
+            workspace_id: "ws",
+            party_b_id: "p1",
+            billed_amount: 1000,
+            billed_version: 1,
+            status: "draft",
+            operational_trip_id: null,
+            party_a_label: null,
+            issued_at: null,
+          },
+          collected: 0,
+          outstanding: 1000,
+        },
+      ],
+      [{ id: "p1", name: "Ajio" }],
+    );
+    expect(built).toEqual([
+      expect.objectContaining({
+        id: "p1",
+        name: "Ajio",
+        billed: 55000,
+        received: 20000,
+        due: 35000,
+        trips: 1,
+      }),
+    ]);
   });
 });

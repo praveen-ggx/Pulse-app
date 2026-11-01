@@ -9,6 +9,16 @@ import { DriverCapturePaymentButton } from "@/features/drivers/components/Driver
 import Theme from "@/constants/Theme";
 import { useAuth } from "@/contexts/AuthContext";
 import {
+  listDcoSelfCollections,
+  listDcoSelfParties,
+  listDcoSelfReceivableBook,
+  listDcoSelfReceivableVersions,
+  type DcoSelfCollection,
+  type DcoSelfReceivableListRow,
+  type DcoSelfReceivableVersion,
+} from "@/features/dco-self/services/dcoSelfReceivable.service";
+import { buildDriverPartyReceivablesFromBook } from "@/features/drivers/utils/driverPartyReceivables.util";
+import {
   buildDriverTripNumberMap,
   getDriverTripDisplayNumber,
 } from "@/features/driver/utils/driverTripSequence.util";
@@ -60,6 +70,10 @@ export default function DriverPartyReceivableScreen() {
   const [trips, setTrips] = useState<tripsService.TripRow[]>([]);
   const [receivedByTripId, setReceivedByTripId] = useState<Record<string, number>>({});
   const [linkedDrivers, setLinkedDrivers] = useState<driversService.DriverRow[]>([]);
+  const [bookRows, setBookRows] = useState<DcoSelfReceivableListRow[]>([]);
+  const [bookName, setBookName] = useState<string | null>(null);
+  const [bookVersions, setBookVersions] = useState<DcoSelfReceivableVersion[]>([]);
+  const [bookCollections, setBookCollections] = useState<DcoSelfCollection[]>([]);
 
   const load = useCallback(async () => {
     if (!profile?.uid) {
@@ -89,6 +103,31 @@ export default function DriverPartyReceivableScreen() {
         byTrip[tid] = (byTrip[tid] ?? 0) + (Number(entry.amount) || 0);
       }
       setReceivedByTripId(byTrip);
+      const uuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(partyId);
+      if (uuid) {
+        const [book, parties] = await Promise.all([listDcoSelfReceivableBook(), listDcoSelfParties()]);
+        const lines = (book.rows ?? []).filter((row) => row.receivable.party_b_id === partyId);
+        setBookRows(lines);
+        setBookName(parties.parties.find((row) => row.id === partyId)?.name ?? null);
+        const first = lines[0]?.receivable.id;
+        if (first) {
+          const [versions, collections] = await Promise.all([
+            listDcoSelfReceivableVersions(first),
+            listDcoSelfCollections(first),
+          ]);
+          setBookVersions(versions.versions);
+          setBookCollections(collections.rows);
+        } else {
+          setBookVersions([]);
+          setBookCollections([]);
+        }
+      } else {
+        setBookRows([]);
+        setBookName(null);
+        setBookVersions([]);
+        setBookCollections([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -111,12 +150,18 @@ export default function DriverPartyReceivableScreen() {
     [linkedDrivers],
   );
 
+  const bookParty = useMemo(
+    () => buildDriverPartyReceivablesFromBook(bookRows, [{ id: partyId, name: bookName || "Party" }])[0] ?? null,
+    [bookName, bookRows, partyId],
+  );
   const party = useMemo(
     () =>
+      bookParty ??
       buildDriverPartyReceivables(trips, receivedByTripId, isFleetDispatched).find(
         (row) => row.id === partyId,
-      ) ?? null,
-    [trips, receivedByTripId, isFleetDispatched, partyId],
+      ) ??
+      null,
+    [bookParty, trips, receivedByTripId, isFleetDispatched, partyId],
   );
 
   const partyTrips = useMemo(
@@ -221,6 +266,41 @@ export default function DriverPartyReceivableScreen() {
           </View>
         </View>
       </View>
+
+      {bookRows.length > 0 ? (
+        <>
+          <Text style={styles.sectionTitle}>Billed versions</Text>
+          <View style={styles.table}>
+            {bookVersions.length === 0 ? (
+              <Text style={styles.empty}>No billed versions.</Text>
+            ) : (
+              bookVersions.map((row, idx) => (
+                <View key={row.id} style={[styles.row, idx < bookVersions.length - 1 && styles.rowBorder]}>
+                  <Text style={styles.missionId}>
+                    v{row.version} · {inr(row.billed_amount)}
+                    {row.reason ? ` · ${row.reason}` : ""}
+                  </Text>
+                </View>
+              ))
+            )}
+          </View>
+          <Text style={styles.sectionTitle}>Collections</Text>
+          <View style={styles.table}>
+            {bookCollections.length === 0 ? (
+              <Text style={styles.empty}>No collections yet.</Text>
+            ) : (
+              bookCollections.map((row, idx) => (
+                <View key={row.id} style={[styles.row, idx < bookCollections.length - 1 && styles.rowBorder]}>
+                  <Text style={styles.missionId}>
+                    {inr(row.amount)} · {row.payment_mode}
+                    {row.paid_on ? ` · ${row.paid_on}` : ""}
+                  </Text>
+                </View>
+              ))
+            )}
+          </View>
+        </>
+      ) : null}
 
       <Text style={styles.sectionTitle}>Receivables</Text>
       <View style={styles.table}>

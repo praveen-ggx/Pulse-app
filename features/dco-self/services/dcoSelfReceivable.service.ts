@@ -1,3 +1,7 @@
+import {
+  acknowledgeDcoSelfOutbox,
+  rememberDcoSelfOutbox,
+} from "@/features/dco-self/offline/dcoSelfOutbox";
 import { supabase } from "@/lib/supabase";
 
 export type DcoSelfParty = {
@@ -88,14 +92,24 @@ export async function issueDcoSelfReceivable(input: {
   tripId?: string | null;
   partyALabel?: string | null;
 }): Promise<{ error: Error | null; receivableId: string | null; replayed: boolean }> {
+  const remembered = await rememberDcoSelfOutbox({
+    kind: "issue",
+    idempotencyKey: input.idempotencyKey,
+    payload: {
+      partyBId: input.partyBId,
+      billed: Math.round(input.billed),
+      tripId: input.tripId ?? "",
+    },
+  });
   const { data, error } = await supabase().rpc("issue_dco_self_receivable" as never, {
     p_party_b_id: input.partyBId,
     p_billed: Math.round(input.billed),
-    p_idempotency_key: input.idempotencyKey,
+    p_idempotency_key: remembered.idempotencyKey,
     p_trip_id: input.tripId ?? null,
     p_party_a_label: input.partyALabel ?? null,
   } as never);
   if (error) return { error: rpcError(error.message), receivableId: null, replayed: false };
+  await acknowledgeDcoSelfOutbox(remembered.id);
   const row = data as { id?: string; replayed?: boolean } | null;
   return { error: null, receivableId: row?.id ?? null, replayed: row?.replayed === true };
 }
@@ -108,18 +122,45 @@ export async function collectDcoSelfReceivable(input: {
   reference?: string | null;
   paidOn?: string | null;
 }): Promise<{ error: Error | null; replayed: boolean }> {
+  const remembered = await rememberDcoSelfOutbox({
+    kind: "collect",
+    idempotencyKey: input.idempotencyKey,
+    payload: {
+      receivableId: input.receivableId,
+      amount: Math.round(input.amount),
+      paymentMode: input.paymentMode,
+      reference: input.reference ?? "",
+      paidOn: input.paidOn ?? "",
+    },
+  });
   const { data, error } = await supabase().rpc("collect_dco_self_receivable" as never, {
     p_receivable_id: input.receivableId,
     p_amount: Math.round(input.amount),
     p_payment_mode: input.paymentMode,
-    p_idempotency_key: input.idempotencyKey,
+    p_idempotency_key: remembered.idempotencyKey,
     p_reference: input.reference ?? null,
     p_paid_on: input.paidOn ?? null,
   } as never);
   if (error) return { error: rpcError(error.message), replayed: false };
+  await acknowledgeDcoSelfOutbox(remembered.id);
   const row = data as { replayed?: boolean } | null;
   return { error: null, replayed: row?.replayed === true };
 }
+
+export type DcoSelfReceivableVersion = {
+  id: string;
+  receivable_id: string;
+  version: number;
+  billed_amount: number;
+  reason: string | null;
+  created_at: string;
+};
+
+export type DcoSelfReceivableListRow = {
+  receivable: DcoSelfReceivable;
+  collected: number;
+  outstanding: number;
+};
 
 export async function listDcoSelfReceivables(): Promise<{
   error: Error | null;
@@ -133,6 +174,66 @@ export async function listDcoSelfReceivables(): Promise<{
     .order("created_at", { ascending: false });
   if (error) return { error: rpcError(error.message), rows: [] };
   return { error: null, rows: (data as DcoSelfReceivable[] | null) ?? [] };
+}
+
+export async function listDcoSelfReceivableBook(): Promise<{
+  error: Error | null;
+  rows: DcoSelfReceivableListRow[];
+}> {
+  const listed = await listDcoSelfReceivables();
+  if (listed.error) return { error: listed.error, rows: [] };
+  const { data, error } = await supabase()
+    .from("dco_self_collections" as never)
+    .select("receivable_id, amount");
+  if (error) return { error: rpcError(error.message), rows: [] };
+  const collectedById = new Map<string, number>();
+  for (const row of (data as Array<{ receivable_id: string; amount: number }> | null) ?? []) {
+    const id = String(row.receivable_id);
+    collectedById.set(id, (collectedById.get(id) ?? 0) + Math.max(0, Math.round(Number(row.amount) || 0)));
+  }
+  return {
+    error: null,
+    rows: listed.rows
+      .filter((row) => row.status !== "void")
+      .map((receivable) => {
+        const collected = collectedById.get(receivable.id) ?? 0;
+        return {
+          receivable,
+          collected,
+          outstanding: outstandingForReceivable(receivable.billed_amount, [{ amount: collected }]),
+        };
+      }),
+  };
+}
+
+export async function listDcoSelfReceivableVersions(receivableId: string): Promise<{
+  error: Error | null;
+  versions: DcoSelfReceivableVersion[];
+}> {
+  const { data, error } = await supabase()
+    .from("dco_self_receivable_versions" as never)
+    .select("id, receivable_id, version, billed_amount, reason, created_at")
+    .eq("receivable_id", receivableId)
+    .order("version", { ascending: true });
+  if (error) return { error: rpcError(error.message), versions: [] };
+  return { error: null, versions: (data as DcoSelfReceivableVersion[] | null) ?? [] };
+}
+
+export async function correctDcoSelfReceivable(input: {
+  receivableId: string;
+  billed: number;
+  idempotencyKey: string;
+  reason?: string | null;
+}): Promise<{ error: Error | null; replayed: boolean }> {
+  const { data, error } = await supabase().rpc("correct_dco_self_receivable" as never, {
+    p_receivable_id: input.receivableId,
+    p_billed: Math.round(input.billed),
+    p_idempotency_key: input.idempotencyKey,
+    p_reason: input.reason ?? null,
+  } as never);
+  if (error) return { error: rpcError(error.message), replayed: false };
+  const row = data as { replayed?: boolean } | null;
+  return { error: null, replayed: row?.replayed === true };
 }
 
 export async function listDcoSelfCollections(receivableId: string): Promise<{

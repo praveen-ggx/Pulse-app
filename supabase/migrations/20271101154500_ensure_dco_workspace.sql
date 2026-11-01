@@ -1,9 +1,43 @@
 SET LOCAL lock_timeout = '5s';
 
--- Approved DCOs are person-owned (dco_profiles / dco_payees) and never get an
--- org at signup (profiles.role = 'driver'). Clients still require
--- organization_id. This RPC lazily creates the DCO's own ASSET_BASED workspace
--- (owner membership, not driver) so Add client / shipper CRM can run.
+-- DCO Self workspace: one caller-owned ASSET_BASED org with no other active
+-- members and no employee-driver roster. Fleet / HYBRID / staffed orgs are
+-- never reused. This file is the first definition; it must stay valid on a
+-- fresh replay (no RETURNS TABLE / RETURNING id clash).
+
+CREATE OR REPLACE FUNCTION public.dco_self_workspace_id(p_user_id uuid)
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+  SELECT o.id
+  FROM public.organizations o
+  WHERE p_user_id IS NOT NULL
+    AND o.owner_id = p_user_id
+    AND o.operating_model = 'ASSET_BASED'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM public.organization_members om
+      WHERE om.organization_id = o.id
+        AND om.user_id IS DISTINCT FROM p_user_id
+        AND om.status = 'active'
+    )
+    AND NOT EXISTS (
+      SELECT 1
+      FROM public.drivers d
+      WHERE d.organization_id = o.id
+        AND d.left_at IS NULL
+        AND d.relationship_status = 'active_employee'
+    )
+  ORDER BY o.created_at ASC NULLS LAST
+  LIMIT 1;
+$$;
+
+REVOKE ALL ON FUNCTION public.dco_self_workspace_id(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.dco_self_workspace_id(uuid) FROM anon;
+REVOKE ALL ON FUNCTION public.dco_self_workspace_id(uuid) FROM authenticated;
 
 CREATE OR REPLACE FUNCTION public.ensure_dco_workspace()
 RETURNS TABLE (
@@ -17,6 +51,7 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
+#variable_conflict use_column
 DECLARE
   v_uid uuid := auth.uid();
   v_org_id uuid;
@@ -30,12 +65,7 @@ BEGIN
     RAISE EXCEPTION 'dco_workspace_denied: DCO must be approved and not holding an active fleet-employee seat.';
   END IF;
 
-  SELECT o.id
-    INTO v_org_id
-  FROM public.organizations o
-  WHERE o.owner_id = v_uid
-  ORDER BY o.created_at ASC
-  LIMIT 1;
+  v_org_id := public.dco_self_workspace_id(v_uid);
 
   IF v_org_id IS NULL THEN
     SELECT COALESCE(
@@ -47,9 +77,9 @@ BEGIN
     FROM public.profiles p
     WHERE p.id = v_uid;
 
-    INSERT INTO public.organizations (owner_id, name, operating_model)
-    VALUES (v_uid, COALESCE(v_name, 'DCO workspace'), 'ASSET_BASED')
-    RETURNING id INTO v_org_id;
+    v_org_id := gen_random_uuid();
+    INSERT INTO public.organizations (id, owner_id, name, operating_model)
+    VALUES (v_org_id, v_uid, COALESCE(v_name, 'DCO workspace'), 'ASSET_BASED');
   END IF;
 
   INSERT INTO public.organization_members (organization_id, user_id, role, status)
@@ -70,5 +100,8 @@ REVOKE ALL ON FUNCTION public.ensure_dco_workspace() FROM anon;
 GRANT EXECUTE ON FUNCTION public.ensure_dco_workspace() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.ensure_dco_workspace() TO service_role;
 
+COMMENT ON FUNCTION public.dco_self_workspace_id(uuid) IS
+  'Oldest caller-owned ASSET_BASED org with no other active members and no employee roster. Internal; not granted to clients.';
+
 COMMENT ON FUNCTION public.ensure_dco_workspace() IS
-  'Approved DCO: return (or create) the caller-owned workspace org used for clients. Does not change dco_profiles / dco_payees identity.';
+  'Approved DCO: return or create the caller-owned Self workspace. Never reuses a staffed fleet/business org. Qualifies organizations.id so RETURNS TABLE OUT params do not clash.';

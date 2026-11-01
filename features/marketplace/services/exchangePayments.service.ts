@@ -100,37 +100,42 @@ export function newExchangeIdempotencyKey(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-const pendingClaimKeys = new Map<string, string>();
-
-function claimFingerprint(orgId: string, input: Omit<ClaimExchangePaymentInput, "idempotencyKey">): string {
+/** Same logical payment always yields the same Exchange idempotency key. */
+export function stableExchangeIdempotencyKey(
+  orgId: string,
+  input: Omit<ClaimExchangePaymentInput, "idempotencyKey">,
+): string {
   return [
-    orgId,
-    input.tripId,
-    Math.round(input.amount * 100),
+    "exchange-claim",
+    orgId.trim(),
+    input.tripId.trim(),
+    String(Math.round(Number(input.amount) || 0)),
     input.paymentMode,
     (input.paymentReference ?? "").trim().toLowerCase(),
     (input.paidOn ?? "").slice(0, 10),
-  ].join("|");
+  ].join(":");
 }
 
+const pendingClaims = new Map<string, Promise<{ error: Error | null; payment: ExchangePaymentRow | null }>>();
+
 /**
- * Claims from a form that has no key of its own (Finance). Resubmitting the same
- * payment reuses its key until the claim succeeds, so a retry or double-tap
- * returns the first claim instead of recording a second one.
+ * Claims from a form that has no key of its own (Finance). The same payment
+ * always reuses one deterministic key, including timeout-after-commit retries.
  */
 export async function claimExchangePaymentOnce(
   orgId: string,
   input: Omit<ClaimExchangePaymentInput, "idempotencyKey">,
 ): Promise<{ error: Error | null; payment: ExchangePaymentRow | null }> {
-  const fingerprint = claimFingerprint(orgId, input);
-  let key = pendingClaimKeys.get(fingerprint);
-  if (!key) {
-    key = newExchangeIdempotencyKey();
-    pendingClaimKeys.set(fingerprint, key);
+  const key = stableExchangeIdempotencyKey(orgId, input);
+  const pending = pendingClaims.get(key);
+  if (pending) return pending;
+  const run = claimExchangePayment({ ...input, idempotencyKey: key });
+  pendingClaims.set(key, run);
+  try {
+    return await run;
+  } finally {
+    if (pendingClaims.get(key) === run) pendingClaims.delete(key);
   }
-  const result = await claimExchangePayment({ ...input, idempotencyKey: key });
-  if (!result.error && pendingClaimKeys.get(fingerprint) === key) pendingClaimKeys.delete(fingerprint);
-  return result;
 }
 
 export function isExchangeClaimOverdue(

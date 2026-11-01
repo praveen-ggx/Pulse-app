@@ -48,6 +48,32 @@ export function applyDcoPartyTagToNotes(
   return stripped ? `${stripped}\n${marker}` : marker;
 }
 
+export function offlinePartyId(name: string, phone?: string | null): string {
+  const digits = String(phone ?? "").replace(/\D/g, "");
+  if (digits.length >= 8) return `offline:${digits}`;
+  const slug = name.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+  return `offline:${slug || "party"}`;
+}
+
+export function offlinePartiesFromTrips(
+  trips: Array<{ client_id?: string | null; client_name?: string | null; notes?: string | null }>,
+): Array<{ id: string; name: string; phone?: string | null }> {
+  const byId = new Map<string, { id: string; name: string; phone?: string | null }>();
+  for (const trip of trips) {
+    const noted = parseDcoPartyTagFromNotes(trip.notes);
+    if (noted?.id) {
+      byId.set(noted.id, { id: noted.id, name: noted.name });
+      continue;
+    }
+    const clientId = String(trip.client_id ?? "").trim();
+    const clientName = String(trip.client_name ?? "").trim();
+    if (clientId && clientName) {
+      byId.set(clientId, { id: clientId, name: clientName });
+    }
+  }
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export function stripDcoPartyTagFromNotes(
   notes: string | null | undefined,
 ): string {

@@ -242,7 +242,7 @@ export default function DriverPartyReceivableScreen() {
               partyName &&
               partyName !== "Shipper" &&
               partyName !== "Untagged";
-            const needsTag = tripNeedsPartyTag(line.trip, false);
+            const needsTag = tripNeedsPartyTag(line.trip, isFleetDispatched(line.trip));
             const rowAvatar =
               tripAvatarById[line.trip.id] ?? (isMarketplace ? EMPTY_DRIVER_PARTY_AVATAR : avatar);
             const route =

@@ -9,6 +9,7 @@ import {
 } from "@/features/drivers/domain/driverOperatingMode";
 import { parseDcoPartyTagFromNotes } from "@/features/drivers/utils/dcoTripPartyTag.util";
 import { tripEarningsDetailForDriver } from "@/features/drivers/utils/driverUtils.util";
+import { tripPartyBilledAmount } from "@/features/trips/utils/tripPartyReceivable.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 
 export type DriverReceivableKind = "marketplace" | "shipper";
@@ -107,8 +108,8 @@ export function partyAvatarLookup(
 }
 
 export function tripReceivableBilled(trip: TripRow): number {
-  const noted = parseDcoPartyTagFromNotes(trip.notes)?.billed;
-  if (noted && noted > 0) return noted;
+  const tagged = tripPartyBilledAmount(trip);
+  if (tagged != null) return tagged;
   const agreed = tripEarningsDetailForDriver(trip);
   if (agreed.amount > 0) return agreed.amount;
   return Math.max(0, Math.round(Number(trip.client_price ?? 0) || 0));

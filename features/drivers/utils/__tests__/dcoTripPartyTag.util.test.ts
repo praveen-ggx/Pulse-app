@@ -1,5 +1,7 @@
 import {
   applyDcoPartyTagToNotes,
+  offlinePartiesFromTrips,
+  offlinePartyId,
   parseDcoPartyTagFromNotes,
   stripDcoPartyTagFromNotes,
 } from "../dcoTripPartyTag.util";
@@ -28,6 +30,22 @@ describe("dcoTripPartyTag notes marker", () => {
       name: "Ajio testing",
       billed: 18500,
     });
+  });
+
+  it("builds a stable offline party id from phone", () => {
+    expect(offlinePartyId("Ravi", "98765 43210")).toBe("offline:9876543210");
+  });
+
+  it("collects unique tagged parties from trips", () => {
+    const parties = offlinePartiesFromTrips([
+      { notes: applyDcoPartyTagToNotes(null, { id: "offline:1", name: "Ravi" }) },
+      { client_id: "c-2", client_name: "Ajio" },
+      { notes: applyDcoPartyTagToNotes(null, { id: "offline:1", name: "Ravi" }) },
+    ]);
+    expect(parties).toEqual([
+      { id: "c-2", name: "Ajio" },
+      { id: "offline:1", name: "Ravi" },
+    ]);
   });
 
   it("replaces an existing tag", () => {

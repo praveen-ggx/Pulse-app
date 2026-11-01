@@ -45,6 +45,7 @@ type Props = {
   isFleetDispatched: (trip: TripRow) => boolean;
   colors: Colors;
   isDark: boolean;
+  audience?: "dco" | "offline";
 };
 
 export function DriverSelfReceivablesPanel({
@@ -54,6 +55,7 @@ export function DriverSelfReceivablesPanel({
   isFleetDispatched,
   colors,
   isDark,
+  audience = "dco",
 }: Props) {
   const router = useRouter();
   const summary = useMemo(() => summarizeDriverPartyReceivables(rows), [rows]);
@@ -82,7 +84,9 @@ export function DriverSelfReceivablesPanel({
     <View style={styles.wrap}>
       <Text style={[styles.title, { color: colors.text }]}>Receivables</Text>
       <Text style={[styles.sub, { color: colors.textMuted }]}>
-        Marketplace Exchange and shipper (client) dues — same party view as Finance.
+        {audience === "offline"
+          ? "Tag a party on an offline trip, then collect — same receivables view as DCO Self."
+          : "Marketplace Exchange and shipper (client) dues — same party view as Finance."}
       </Text>
 
       <View style={styles.summaryRow}>
@@ -146,8 +150,9 @@ export function DriverSelfReceivablesPanel({
             No receivables yet
           </Text>
           <Text style={[styles.emptyBody, { color: colors.textMuted }]}>
-            Marketplace awards and trips tagged to a Self party appear here with
-            billed, received, and due.
+            {audience === "offline"
+              ? "Offline trips tagged to a party appear here with billed, received, and due."
+              : "Marketplace awards and trips tagged to a Self party appear here with billed, received, and due."}
           </Text>
         </View>
       ) : (

@@ -11,6 +11,9 @@ const mockSummaryQuery = jest.fn();
 jest.mock("expo-router", () => ({
   useRouter: () => ({ push: jest.fn() }),
 }));
+jest.mock("@/lib/queries/useDriverOperatingModeQuery", () => ({
+  useDriverOperatingModeQuery: () => ({ canTagOfflineParty: true }),
+}));
 jest.mock("@/contexts/DriverThemeContext", () => ({
   useDriverTheme: () => ({ theme: "light" }),
   useDriverThemeColors: () => new Proxy({}, { get: () => "#000000" }),
@@ -34,6 +37,7 @@ jest.mock("@/features/driver/hooks/useDriverTripSettlement", () => ({
       otherIncomeAmount: 0,
       deductionsAmount: 0,
       fleetName: "Shipper A",
+      canMarkAsPaid: true,
     },
     loading: false,
     requestPaymentLoading: false,
@@ -92,5 +96,9 @@ describe("TripDetailSettlementPanel — Marketplace DCO on Pulse Exchange", () =
     expect(mockSummaryQuery).toHaveBeenCalledWith(null);
     expect(screen.queryByText("exchange:trip-1")).toBeNull();
     expect(screen.getByText("Expected payout")).toBeTruthy();
+    expect(screen.getByText("Capture commission")).toBeTruthy();
+    expect(screen.getByText("Commission from Shipper A")).toBeTruthy();
+    expect(screen.queryByText("Request from fleet owner")).toBeNull();
+    expect(screen.queryByText(/settle offline with fleet/i)).toBeNull();
   });
 });

@@ -10,8 +10,11 @@ import {
   driverUISemiBold,
 } from "@/constants/DriverTypography";
 import Theme from "@/constants/Theme";
-import { getClientsByOrganization, type ClientRow } from "@/features/clients/services/clients.service";
-import { tagTripWithDcoClient } from "@/features/drivers/services/driverTripClient.service";
+import {
+  dcoSelfIssueKey,
+  issueDcoSelfReceivable,
+  listDcoSelfParties,
+} from "@/features/dco-self/services/dcoSelfReceivable.service";
 import { type DriverCaptureLane } from "@/features/drivers/utils/driverCapturePayment.util";
 import { parseDcoPartyTagFromNotes } from "@/features/drivers/utils/dcoTripPartyTag.util";
 import {
@@ -19,10 +22,7 @@ import {
   tripReceivableBilled,
   tripReceivablePartyName,
 } from "@/features/drivers/utils/driverPartyReceivables.util";
-import {
-  ensureDcoWorkspace,
-  getOrganizationsForUser,
-} from "@/features/organization/services/organization.service";
+import { ensureDcoWorkspace } from "@/features/organization/services/organization.service";
 import { DriverTagPartyDialogs } from "@/features/drivers/components/DriverTagPartyDialogs";
 import { showAppAlert } from "@/lib/appAlert";
 import { queryKeys } from "@/lib/queryKeys";
@@ -75,7 +75,7 @@ export function DriverCollectFromSheet({
   const router = useRouter();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
-  const { canAddDcoShippers } = useDriverOperatingModeQuery();
+  const { canTagOfflineParty } = useDriverOperatingModeQuery();
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [parties, setParties] = useState<PartyOption[]>([]);
@@ -100,24 +100,17 @@ export function DriverCollectFromSheet({
   }, [trip.client_id, trip.notes]);
 
   const loadParties = useCallback(async () => {
-    if (!canAddDcoShippers) {
+    if (!canTagOfflineParty) {
       setParties([]);
       return;
     }
     setLoading(true);
     try {
-      const { organization } = await ensureDcoWorkspace();
-      let orgId = organization?.id ?? null;
-      if (!orgId) {
-        const listed = await getOrganizationsForUser();
-        orgId = listed.organizations[0]?.id ?? null;
-      }
-      const rows: ClientRow[] = orgId
-        ? ((await getClientsByOrganization(orgId)).clients ?? [])
-        : [];
+      await ensureDcoWorkspace();
+      const { parties: rows } = await listDcoSelfParties();
       const assignerKey = currentName.trim().toLowerCase();
       const mapped: PartyOption[] = rows.map((row) => {
-        const name = row.name || row.contact_person || "Shipper";
+        const name = row.name || "Shipper";
         return {
           id: row.id,
           name,
@@ -135,7 +128,7 @@ export function DriverCollectFromSheet({
     } finally {
       setLoading(false);
     }
-  }, [canAddDcoShippers, currentName, taggedPartyId]);
+  }, [canTagOfflineParty, currentName, taggedPartyId]);
 
   useEffect(() => {
     if (visible) void loadParties();
@@ -162,14 +155,19 @@ export function DriverCollectFromSheet({
     if (!pendingParty?.id || busyId) return;
     setBusyId(pendingParty.id);
     try {
-      const { error } = await tagTripWithDcoClient(
-        trip.id,
-        {
-          id: pendingParty.id,
-          name: pendingParty.name,
-        },
-        billedForTag != null && billedForTag > 0 ? { billed: billedForTag } : undefined,
-      );
+      const billed =
+        billedForTag != null && billedForTag > 0 ? billedForTag : currentBilled;
+      if (billed <= 0) {
+        showAppAlert("Could not issue receivable", "Enter the amount due before issuing.");
+        return;
+      }
+      const { error } = await issueDcoSelfReceivable({
+        partyBId: pendingParty.id,
+        billed,
+        idempotencyKey: dcoSelfIssueKey(trip.id),
+        tripId: trip.id,
+        partyALabel: pendingParty.name,
+      });
       if (error) {
         showAppAlert("Could not tag party", error.message);
         return;
@@ -183,7 +181,7 @@ export function DriverCollectFromSheet({
     } finally {
       setBusyId(null);
     }
-  }, [billedForTag, busyId, pendingParty, queryClient, trip.id]);
+  }, [billedForTag, busyId, currentBilled, pendingParty, queryClient, trip.id]);
 
   const handleSuccessOk = useCallback(() => {
     const tagged = successParty;
@@ -304,7 +302,7 @@ export function DriverCollectFromSheet({
                 ))
               )}
 
-              {canAddDcoShippers ? (
+              {canTagOfflineParty ? (
                 <View style={styles.addBlock}>
                   {assignerToAdd ? (
                     <TouchableOpacity

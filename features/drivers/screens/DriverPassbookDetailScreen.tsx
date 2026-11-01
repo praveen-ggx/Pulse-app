@@ -1365,6 +1365,7 @@ export default function DriverPassbookDetailScreen() {
                                 due={Math.round(headerAmount)}
                                 lane="fleet"
                                 partyName={item.provider}
+                                label="Capture commission"
                               />
                             </View>
                           ) : null}

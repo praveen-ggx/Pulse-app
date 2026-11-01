@@ -33,7 +33,6 @@ import { ROUTES } from "@/lib/routes";
 import { preloadDriverChatTrip } from "@/lib/preloadDriverChatWarmup";
 import { useSafeBack } from "@/lib/useSafeBack";
 import * as driversService from "@/features/drivers/services/drivers.service";
-import * as salaryRequestsService from "@/features/drivers/services/salaryRequests.service";
 import { getOptimalRoute } from "@/lib/routingService";
 import * as tripDocumentsService from "@/features/trips/services/tripDocuments.service";
 import * as tripsService from "@/features/trips/services/trips.service";
@@ -183,8 +182,6 @@ export default function DriverControlScreen() {
   const [linkedDriverIds, setLinkedDriverIds] = useState<string[]>([]);
   const [linkedDriversLoaded, setLinkedDriversLoaded] = useState(false);
   const [linkedDriversFull, setLinkedDriversFull] = useState<driversService.DriverRow[]>([]);
-  const [attributeSalaryRequests, setAttributeSalaryRequests] = useState<salaryRequestsService.SalaryRequestRow[]>([]);
-  const [attributeLoading, setAttributeLoading] = useState(false);
 
   const [viewingPodUrl, setViewingPodUrl] = useState<string | null>(null);
   const [viewingPodLoading, setViewingPodLoading] = useState(false);
@@ -205,9 +202,6 @@ export default function DriverControlScreen() {
           tripsService.isTripCompleted(t),
         ).length;
         setCompletedTripsCount(count);
-      });
-      void salaryRequestsService.getSalaryRequestsByDriverIds(drivers.map((d) => d.id)).then((sRes) => {
-        setAttributeSalaryRequests(sRes.requests ?? []);
       });
     });
   }, [profile?.uid]);
@@ -365,59 +359,6 @@ export default function DriverControlScreen() {
     if (!d) return null;
     return { orgId: String(d.organization_id ?? ''), driverRowId: d.id };
   }, [linkedDriversFull, employerOrgIdSet]);
-
-  const isControlTripAttributed = useMemo(() => {
-    if (!controlCurrentEmployer || !trip?.id) return false;
-    const eid = controlCurrentEmployer.orgId;
-    return attributeSalaryRequests.some(
-      (r) =>
-        r.request_type === 'trip_based' &&
-        String(r.organization_id ?? '') === eid &&
-        (r.trip_ids ?? []).includes(trip.id),
-    );
-  }, [attributeSalaryRequests, controlCurrentEmployer, trip?.id]);
-
-  const handleAttributeControlTrip = useCallback(async () => {
-    if (!controlCurrentEmployer || !trip) return;
-    setAttributeLoading(true);
-    try {
-      const earningsDetail = tripEarningsDetailForDriver(trip);
-      // A trip with no agreed commission/salary terms has nothing real to
-      // request — don't let the legacy 10% guess become the amount on an
-      // actual salary_request the fleet owner reviews.
-      if (earningsDetail.amount <= 0 || earningsDetail.isEstimated) {
-        Alert.alert(
-          'No agreed rate',
-          'This trip has no agreed commission or salary terms on file, so an amount cannot be requested automatically. Ask your fleet to set terms first.',
-        );
-        return;
-      }
-      const earnings = Math.round(earningsDetail.amount);
-      const tripDate = trip.pickup_date ?? trip.started_at ?? trip.created_at ?? '';
-      const tripDateStr = tripDate
-        ? new Date(tripDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-        : '';
-      const tripRef = getDriverTripDisplayNumber(trip, driverTripNumberById);
-      const attrNote = [`Fleet trip · ${tripRef}`, tripDateStr, `₹${earnings.toLocaleString('en-IN')}`]
-        .filter(Boolean).join(' · ');
-      const { error } = await salaryRequestsService.createSalaryRequest(
-        controlCurrentEmployer.driverRowId,
-        controlCurrentEmployer.orgId,
-        'trip_based',
-        earnings,
-        { tripIds: [trip.id], note: attrNote, createdBy: profile?.uid ?? null },
-      );
-      if (error) {
-        Alert.alert('Error', error.message);
-      } else {
-        Alert.alert('Trip attributed', 'Sent to your employer for review.');
-        void salaryRequestsService.getSalaryRequestsByDriverIds(linkedDriversFull.map((d) => d.id))
-          .then((sRes) => setAttributeSalaryRequests(sRes.requests ?? []));
-      }
-    } finally {
-      setAttributeLoading(false);
-    }
-  }, [controlCurrentEmployer, trip, driverTripNumberById, linkedDriversFull, profile?.uid]);
 
   if (loading) {
     return <CenteredLoadingView message="Loading…" />;
@@ -897,28 +838,6 @@ export default function DriverControlScreen() {
                     {formatINR(Math.max(0, Number(commission ?? 0) || 0))}
                   </Text>
                 </View>
-              </View>
-            )}
-            {!isControlTripFleet && !tripIsAggregate && controlCurrentEmployer && (
-              <View style={[styles.cardRow, { borderTopColor: colors.border }]}>
-                {isControlTripAttributed ? (
-                  <View style={[styles.attributedBadge, { backgroundColor: '#fef3c7', borderColor: '#d97706' }]}>
-                    <FontAwesome name="check-circle" size={13} color="#d97706" />
-                    <Text style={[styles.attributedBadgeText, { color: '#d97706' }]}>Sent to employer for review</Text>
-                  </View>
-                ) : (
-                  <TouchableOpacity
-                    style={[styles.attributeBtn, { borderColor: '#d97706', backgroundColor: '#fffbeb' }]}
-                    onPress={handleAttributeControlTrip}
-                    disabled={attributeLoading}
-                    activeOpacity={0.8}
-                  >
-                    <FontAwesome name="building" size={13} color="#d97706" />
-                    <Text style={[styles.attributeBtnText, { color: '#d97706' }]}>
-                      {attributeLoading ? 'Attributing…' : 'Attribute to employer'}
-                    </Text>
-                  </TouchableOpacity>
-                )}
               </View>
             )}
             {step === "reached" && (

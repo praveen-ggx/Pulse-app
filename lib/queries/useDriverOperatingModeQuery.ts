@@ -2,6 +2,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import {
   DEFAULT_DRIVER_OPERATING_MODE,
   canAddDcoShippers,
+  canManageDcoSelfBook,
+  canTagOfflineParty,
   canManageOwnerVehicles,
   isDcoOperatingMode,
   type DriverOperatingMode,
@@ -45,12 +47,16 @@ export function useDriverOperatingModeQuery(userId?: string | null) {
   }, [queryClient, uid]);
 
   const operatingMode = query.data ?? DEFAULT_DRIVER_OPERATING_MODE;
+  const ready = query.isSuccess;
   return {
     ...query,
     operatingMode,
     isDco: isDcoOperatingMode(operatingMode),
-    canManageOwnerVehicles: canManageOwnerVehicles(operatingMode),
-    marketplaceAllowed: operatingMode.marketplaceAllowed,
+    canManageOwnerVehicles: ready && canManageOwnerVehicles(operatingMode),
+    canAddDcoShippers: ready && canAddDcoShippers(operatingMode),
+    canManageDcoSelfBook: ready && canManageDcoSelfBook(operatingMode),
+    canTagOfflineParty: ready && canTagOfflineParty(operatingMode),
+    marketplaceAllowed: ready && operatingMode.marketplaceAllowed,
     invalidate,
   };
 }

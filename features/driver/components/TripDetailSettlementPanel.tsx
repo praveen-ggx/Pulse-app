@@ -3,7 +3,14 @@ import Theme from "@/constants/Theme";
 import { useDriverTheme, useDriverThemeColors } from "@/contexts/DriverThemeContext";
 import { DriverTripExpenseLogSection } from "@/features/driver/components/DriverTripExpenseLogSection";
 import { TripPaymentAmountGrid } from "@/features/driver/components/TripPaymentAmountGrid";
+import { DriverCapturePaymentButton } from "@/features/drivers/components/DriverCapturePaymentButton";
 import { useDriverTripSettlement } from "@/features/driver/hooks/useDriverTripSettlement";
+import {
+  isTripTaggedToParty,
+  tripReceivableBilled,
+  tripReceivablePartyName,
+} from "@/features/drivers/utils/driverPartyReceivables.util";
+import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import { ExchangePaymentsPanel } from "@/features/marketplace/components/ExchangePaymentsPanel";
 import { useExchangeTripSummaryQuery } from "@/features/marketplace/hooks/useExchangeTripPayments";
 import { isDcoOperatingTrip } from "@/features/trips/domain/tripDcoOperating";
@@ -29,7 +36,6 @@ import {
 } from "lucide-react-native";
 import { useCallback, useMemo } from "react";
 import {
-  ActivityIndicator,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -86,12 +92,8 @@ export function TripDetailSettlementPanel({
   const { theme } = useDriverTheme();
   const isDark = theme === "dark";
   const router = useRouter();
-  const {
-    settlementView,
-    loading,
-    requestPaymentLoading,
-    requestPayment,
-  } = useDriverTripSettlement(trip, { isFleetLinked });
+  const { settlementView, loading } = useDriverTripSettlement(trip, { isFleetLinked });
+  const { canTagOfflineParty } = useDriverOperatingModeQuery();
 
   const summaryQuery = useTripOperationsSummary(trip.id, { includeMaintenance: false });
   const exchangeQuery = useExchangeTripSummaryQuery(
@@ -160,8 +162,42 @@ export function TripDetailSettlementPanel({
   }
 
   const pill = tonePillStyle(settlementView.statusTone, isDark);
+  const isOfflinePartyTrip =
+    !settlementView.isSalary &&
+    !isExchangeReceivable &&
+    !settlementView.isFleetLinked;
   const showCommissionHero = !settlementView.isSalary && !isExchangeReceivable;
-  const showRequestFromFleet = settlementView.isFleetLinked && !isExchangeReceivable;
+  const taggedOfflineParty = isTripTaggedToParty(trip);
+  const offlinePartyName = taggedOfflineParty
+    ? tripReceivablePartyName(trip)
+    : "";
+  const offlineBilled = Math.max(
+    tripReceivableBilled(trip),
+    settlementView.expectedAmount,
+  );
+  const offlineReceived = Math.max(
+    0,
+    Math.round(Number(settlementView.receivedAmount ?? 0) || 0) ||
+      Math.max(0, offlineBilled - settlementView.outstandingAmount),
+  );
+  const offlineOutstanding = Math.max(0, offlineBilled - offlineReceived);
+  const showCaptureCommission =
+    !isExchangeReceivable &&
+    !settlementView.isSalary &&
+    !settlementView.isEstimated &&
+    settlementView.isFleetLinked &&
+    settlementView.commissionApplies &&
+    settlementView.outstandingAmount > 0;
+  const showOfflinePartyCapture =
+    isOfflinePartyTrip && offlineOutstanding > 0;
+  const showRequestSalary =
+    settlementView.isSalary && settlementView.isFleetLinked && !isExchangeReceivable;
+  const fleetPartyName = String(settlementView.fleetName ?? "").trim() || "Fleet";
+  const heroPartyLine = settlementView.isFleetLinked
+    ? `Commission from ${fleetPartyName}`
+    : taggedOfflineParty
+      ? `Revenue from ${offlinePartyName}`
+      : "Tag a party first";
 
   const earningTitle = settlementView.isSalary
     ? "Salary"
@@ -171,23 +207,15 @@ export function TripDetailSettlementPanel({
   const earningSub = settlementView.isSalary
     ? "Paid offline with salary cycle"
     : settlementView.commissionApplies
-      ? "Agreed trip commission — settle offline with fleet"
+      ? "Agreed trip commission — capture when the fleet pays you"
       : settlementView.isEstimated
-        ? "Estimate — confirm rate offline with fleet"
-        : "Amount to settle offline with fleet";
+        ? "Estimate — confirm rate with fleet before capturing"
+        : "No agreed commission on this trip";
   const earningValue = settlementView.isSalary
     ? "SALARY"
     : inr(settlementView.expectedAmount);
 
-  const onRequestFromFleet = () => {
-    if (settlementView.isSalary) {
-      router.push("/(driver)/salary-request" as Href);
-      return;
-    }
-    if (settlementView.expectedAmount > 0 && !settlementView.isEstimated) {
-      void requestPayment();
-      return;
-    }
+  const onRequestSalary = () => {
     router.push("/(driver)/salary-request" as Href);
   };
 
@@ -206,7 +234,9 @@ export function TripDetailSettlementPanel({
           ]}
         >
           <Text style={[panelStyles.incompleteText, { color: colors.textMuted }]}>
-            Trip pay settles offline with your fleet after the trip is complete.
+            {isOfflinePartyTrip
+              ? "Tag the collecting party, then capture payment when they pay you."
+              : "You can capture the agreed commission when the fleet pays you, even if the trip is still in progress."}
           </Text>
         </View>
       ) : null}
@@ -255,17 +285,32 @@ export function TripDetailSettlementPanel({
                 </Text>
               </View>
               <Text style={[panelStyles.fleetLine, { color: colors.textMuted }]}>
-                {settlementView.fleetName} · Offline settlement
+                {heroPartyLine}
               </Text>
             </View>
 
             <View style={{ marginTop: 12 }}>
               <TripPaymentAmountGrid
-                expectedAmount={settlementView.expectedAmount}
-                paymentAmount={settlementView.amount}
-                outstandingAmount={settlementView.outstandingAmount}
+                expectedAmount={
+                  isOfflinePartyTrip ? offlineBilled : settlementView.expectedAmount
+                }
+                paymentAmount={
+                  isOfflinePartyTrip ? offlineReceived : settlementView.amount
+                }
+                outstandingAmount={
+                  isOfflinePartyTrip
+                    ? offlineOutstanding
+                    : settlementView.outstandingAmount
+                }
                 writeOffAmount={settlementView.writeOffAmount}
                 hasPaymentShortfall={settlementView.hasPaymentShortfall}
+                expectedLabel={
+                  isOfflinePartyTrip
+                    ? "Trip earning"
+                    : settlementView.commissionApplies
+                      ? "Commission"
+                      : "Trip earning"
+                }
                 mode={
                   settlementView.status === "settled"
                     ? "settled"
@@ -277,6 +322,48 @@ export function TripDetailSettlementPanel({
                 isDark={isDark}
               />
             </View>
+            {showCaptureCommission ? (
+              <View style={panelStyles.captureWrap}>
+                <DriverCapturePaymentButton
+                  tripId={trip.id}
+                  due={settlementView.outstandingAmount}
+                  lane="fleet"
+                  partyName={fleetPartyName}
+                  block
+                  label="Capture commission"
+                />
+              </View>
+            ) : null}
+            {showOfflinePartyCapture ? (
+              <View style={panelStyles.captureWrap}>
+                {canTagOfflineParty && !taggedOfflineParty ? (
+                  <TouchableOpacity
+                    style={panelStyles.tagPartyBtn}
+                    onPress={() =>
+                      router.push(
+                        ROUTES.driverAddClient({
+                          tripId: trip.id,
+                          partyName: trip.client_name || undefined,
+                        }) as Href,
+                      )
+                    }
+                    accessibilityRole="button"
+                    accessibilityLabel="Tag party"
+                  >
+                    <Text style={panelStyles.tagPartyBtnText}>Tag party</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <DriverCapturePaymentButton
+                    tripId={trip.id}
+                    due={offlineOutstanding}
+                    lane="shipper"
+                    partyName={offlinePartyName}
+                    block
+                    label="Capture payment"
+                  />
+                )}
+              </View>
+            ) : null}
           </View>
         </View>
       ) : null}
@@ -432,7 +519,7 @@ export function TripDetailSettlementPanel({
         </View>
       </View>
 
-      {showRequestFromFleet ? (
+      {showRequestSalary ? (
         <>
           <TouchableOpacity
             style={[
@@ -444,25 +531,16 @@ export function TripDetailSettlementPanel({
               },
             ]}
             activeOpacity={0.85}
-            onPress={onRequestFromFleet}
-            disabled={requestPaymentLoading}
+            onPress={onRequestSalary}
           >
-            {requestPaymentLoading ? (
-              <ActivityIndicator size="small" color={colors.emerald} />
-            ) : (
-              <>
-                <Text style={[styles.tdQueryBtnText, { color: colors.textMuted }]}>
-                  {settlementView.isSalary
-                    ? "Request salary from fleet"
-                    : "Request from fleet owner"}
-                </Text>
-                <ChevronRight size={14} color={colors.textMuted} />
-              </>
-            )}
+            <Text style={[styles.tdQueryBtnText, { color: colors.textMuted }]}>
+              Request salary from fleet
+            </Text>
+            <ChevronRight size={14} color={colors.textMuted} />
           </TouchableOpacity>
           <Text style={[panelStyles.offlineHint, { color: colors.textMuted }]}>
-            Payment is handled offline with your fleet. Use this to request or follow up —
-            there is no in-app mark as paid.
+            Salary is paid on the fleet cycle. Request it here; commission trips use
+            Capture commission instead.
           </Text>
         </>
       ) : null}
@@ -595,6 +673,22 @@ const panelStyles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "500",
     lineHeight: 15,
+  },
+  captureWrap: {
+    marginTop: 12,
+  },
+  tagPartyBtn: {
+    height: 44,
+    minHeight: 44,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.actionBtnInk,
+  },
+  tagPartyBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Theme.buttonDarkText,
   },
   statusPill: {
     flexDirection: "row",

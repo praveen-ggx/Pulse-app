@@ -89,6 +89,8 @@ interface AddClientModalProps {
   existingPartyBusyId?: string | null;
   /** When false, parent owns the success UI after create. */
   showSuccessOnComplete?: boolean;
+  /** DCO Self only. User App / Finance still require both company and contact. */
+  allowSinglePartyName?: boolean;
 }
 
 const MIN_PHONE_LENGTH_FOR_SEARCH = 8;
@@ -111,6 +113,7 @@ export function AddClientModal({
   onSelectExistingParty,
   existingPartyBusyId = null,
   showSuccessOnComplete = true,
+  allowSinglePartyName = false,
 }: AddClientModalProps) {
   const { t } = useLanguage();
   const insets = useSafeAreaInsets();
@@ -175,12 +178,15 @@ export function AddClientModal({
   const phoneError = phone.trim() ? validatePhone(phone.trim()) : null;
   const hasOfflineName =
     organizationName.trim().length > 0 || contactPerson.trim().length > 0;
+  const hasRequiredNames = allowSinglePartyName
+    ? hasOfflineName
+    : organizationName.trim().length > 0 && contactPerson.trim().length > 0;
   const canSubmit =
     !blockedByNoOrg &&
     !driverRegisteredAtPhone &&
     !sameOrgMemberAtPhone &&
     !lookupFailed &&
-    hasOfflineName &&
+    hasRequiredNames &&
     phone.trim().length > 0 &&
     !phoneError &&
     !submitting;

@@ -5,7 +5,10 @@ import { DriverWalletEarningsPanel } from '@/features/drivers/components/DriverW
 import { DriverSelfLedgerPanel } from '@/features/drivers/components/DriverSelfLedgerPanel';
 import { DriverSelfReceivablesPanel } from '@/features/drivers/components/DriverSelfReceivablesPanel';
 import { DriverPreDcoFleetHistoryView } from '@/features/drivers/components/DriverPreDcoFleetHistoryView';
-import { buildDriverPartyReceivables } from '@/features/drivers/utils/driverPartyReceivables.util';
+import {
+  UNTAGGED_PARTY_ID,
+  buildDriverPartyReceivables,
+} from '@/features/drivers/utils/driverPartyReceivables.util';
 import { listDriverTripExpensesByTripIds } from '@/features/drivers/services/driverTripExpenses.service';
 import {
   buildDriverWalletTransactions,
@@ -195,7 +198,7 @@ export default function DriverWalletScreen() {
   const { avatarUri } = useDriverAvatarUri();
   const {
     isDco,
-    canAddDcoShippers,
+    canTagOfflineParty,
     operatingMode,
     invalidate: invalidateOperatingMode,
   } = useDriverOperatingModeQuery(profile?.uid ?? null);
@@ -403,7 +406,7 @@ export default function DriverWalletScreen() {
     [trips, receivedByTripId, isFleetDispatchedTrip],
   );
   const addClientPartyActions = useMemo((): PartySpeedDialAction[] => {
-    if (!canAddDcoShippers) return [];
+    if (!canTagOfflineParty) return [];
     return [
       {
         id: 'customers',
@@ -413,7 +416,7 @@ export default function DriverWalletScreen() {
         onPress: () => router.push(ROUTES.driverAddClient()),
       },
     ];
-  }, [canAddDcoShippers]);
+  }, [canTagOfflineParty]);
 
   const sortedLedgerEntries = useMemo(() => {
     return [...ledgerEntries].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -1748,6 +1751,7 @@ export default function DriverWalletScreen() {
         fleetOrgName: provider,
         driverTripNumberById,
         tripCompleted: true,
+        isFleetLinked: isFleetOwnerTrip,
       });
 
       const status: 'Pending' | 'Action Required' | 'Settled' =
@@ -1792,14 +1796,30 @@ export default function DriverWalletScreen() {
   );
 
   // Direct assignment trips — not created by any linked fleet employer.
+  const offlineJourneyItems = useMemo(
+    () => tripJourneyItems.filter((item) => !item.isFleetOwnerTrip),
+    [tripJourneyItems],
+  );
+
   const directTripStats = useMemo(() => {
-    const items = tripJourneyItems.filter((item) => !item.isFleetOwnerTrip);
+    const items = offlineJourneyItems;
     const earned = items.reduce((sum, item) => sum + item.amount, 0);
     const pending = items
       .filter((item) => item.status !== 'Settled')
       .reduce((sum, item) => sum + item.outstandingAmount, 0);
     return { count: items.length, earned: Math.round(earned), pending: Math.round(pending) };
-  }, [tripJourneyItems]);
+  }, [offlineJourneyItems]);
+
+  const openOfflineReceivable = useCallback(() => {
+    const first = selfPartyReceivables[0];
+    const untagged = selfPartyReceivables.find((row) => row.id === UNTAGGED_PARTY_ID);
+    const target = untagged ?? first;
+    if (target) {
+      router.push(ROUTES.driverPartyReceivable(target.id) as Parameters<typeof router.push>[0]);
+      return;
+    }
+    router.push({ pathname: '/(driver)/trip-history', params: { type: 'offline' } } as Parameters<typeof router.push>[0]);
+  }, [router, selfPartyReceivables]);
 
   const pastLinkedDrivers = useMemo(
     () =>
@@ -3221,8 +3241,8 @@ export default function DriverWalletScreen() {
             );
           })()}
 
-          {/* ── OPEN TRIPS (direct / clients) ── */}
-          <Text style={[styles.transactionHistoryTitle, { color: colors.text, marginTop: 16 }]}>Open trips</Text>
+          {/* ── OFFLINE TRIPS (direct / clients) ── */}
+          <Text style={[styles.transactionHistoryTitle, { color: colors.text, marginTop: 16 }]}>Offline trips</Text>
           <View
             style={[
               styles.fleetCard,
@@ -3233,7 +3253,13 @@ export default function DriverWalletScreen() {
               },
             ]}
           >
-            <View style={styles.fleetCardTopRowNew}>
+            <TouchableOpacity
+              style={styles.offlineTripsHeader}
+              onPress={openOfflineReceivable}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Offline trips receivables"
+            >
               <View style={styles.fleetCardTopLeft}>
                 <View
                   style={[
@@ -3249,27 +3275,27 @@ export default function DriverWalletScreen() {
                 </View>
                 <View style={styles.fleetCardBody}>
                   <Text style={[styles.fleetCardTitle, { color: colors.text }]} numberOfLines={1}>
-                    Direct assignments
+                    Offline trips
                   </Text>
-                  <Text style={[styles.fleetMetaText, { color: colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
-                    {directTripStats.count} trip{directTripStats.count !== 1 ? 's' : ''} · not from any employer
+                  <Text style={[styles.offlineTripsMeta, { color: colors.textMuted }]} numberOfLines={1}>
+                    {directTripStats.count} trip{directTripStats.count !== 1 ? 's' : ''}
                   </Text>
                 </View>
               </View>
               <View
                 style={[
-                  styles.fleetStatusPillNew,
+                  styles.offlineDueChip,
                   {
                     backgroundColor: isDark ? 'rgba(99,102,241,0.15)' : 'rgba(99,102,241,0.08)',
                     borderColor: isDark ? 'rgba(99,102,241,0.30)' : 'rgba(99,102,241,0.18)',
                   },
                 ]}
               >
-                <Text style={[styles.fleetStatusTextNew, { color: '#4D3636' }]}>
+                <Text style={[styles.offlineDueChipText, { color: '#4D3636' }]} numberOfLines={1}>
                   ₹{directTripStats.pending.toLocaleString('en-IN')} due
                 </Text>
               </View>
-            </View>
+            </TouchableOpacity>
 
             <View style={styles.fleetStatsGridNew}>
               <View
@@ -3322,22 +3348,72 @@ export default function DriverWalletScreen() {
               </View>
             </View>
 
+            {offlineJourneyItems.length > 0 ? (
+              <View style={styles.offlineTripList}>
+                {offlineJourneyItems.slice(0, 6).map((item) => (
+                  <TouchableOpacity
+                    key={item.trip.id}
+                    style={[
+                      styles.offlineTripRow,
+                      { borderColor: isDark ? colors.borderSubtle : 'rgba(226,232,240,0.9)' },
+                    ]}
+                    onPress={() => router.push(`/driver-trip/${item.trip.id}` as Parameters<typeof router.push>[0])}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${item.from} to ${item.to}`}
+                  >
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={[styles.offlineTripRoute, { color: colors.text }]} numberOfLines={1}>
+                        {item.from} → {item.to}
+                      </Text>
+                      <Text style={[styles.offlineTripMeta, { color: colors.textMuted }]} numberOfLines={1}>
+                        {item.provider} · {item.status}
+                      </Text>
+                    </View>
+                    <Text
+                      style={[
+                        styles.offlineTripAmt,
+                        { color: item.outstandingAmount > 0 ? Theme.negative : colors.emerald },
+                      ]}
+                    >
+                      ₹{Math.round(item.outstandingAmount || item.amount).toLocaleString('en-IN')}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : (
+              <Text style={[styles.offlineTripEmpty, { color: colors.textMuted }]}>
+                No offline trips yet
+              </Text>
+            )}
+
             <TouchableOpacity
               style={[
                 styles.fleetPrimaryButtonNew,
                 { backgroundColor: '#3730a3', shadowColor: isDark ? '#000' : 'rgba(55,48,163,0.35)' },
               ]}
               activeOpacity={0.85}
-              onPress={() => router.push({ pathname: '/(driver)/trip-history', params: { type: 'offline' } } as Parameters<typeof router.push>[0])}
+              onPress={openOfflineReceivable}
             >
               <View style={styles.fleetPrimaryButtonLeft}>
                 <View style={[styles.fleetPrimaryRing, { borderColor: '#818cf8' }]}>
                   <View style={[styles.fleetPrimaryRingDot, { backgroundColor: '#818cf8' }]} />
                 </View>
-                <Text style={[styles.fleetPrimaryButtonText, { color: Theme.textOnPrimary }]}>View open trips</Text>
+                <Text style={[styles.fleetPrimaryButtonText, { color: Theme.textOnPrimary }]}>View offline trips</Text>
               </View>
               <FontAwesome name="chevron-right" size={12} color={Theme.textOnPrimary} style={styles.fleetPrimaryButtonArrow} />
             </TouchableOpacity>
+          </View>
+
+          <View style={{ marginTop: 16 }}>
+            <DriverSelfReceivablesPanel
+              rows={selfPartyReceivables}
+              trips={trips}
+              receivedByTripId={receivedByTripId}
+              isFleetDispatched={isFleetDispatchedTrip}
+              colors={colors}
+              isDark={isDark}
+              audience="offline"
+            />
           </View>
 
           {/* ── CAREER HISTORY ── */}
@@ -3708,7 +3784,7 @@ export default function DriverWalletScreen() {
       onClose={() => setLedgerReceiptPreview(null)}
     />
 
-    {canAddDcoShippers && mainTab === 'fleet' && addClientPartyActions.length > 0 ? (
+    {canTagOfflineParty && isDco && mainTab === 'fleet' && addClientPartyActions.length > 0 ? (
       <PartySpeedDialFab
         actions={addClientPartyActions}
         bottom={layout.fabBottom()}
@@ -4422,6 +4498,63 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
     gap: 8,
+  },
+  offlineTripsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 10,
+  },
+  offlineTripsMeta: {
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  offlineDueChip: {
+    flexShrink: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    maxWidth: '42%',
+  },
+  offlineDueChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  offlineTripList: {
+    gap: 8,
+    marginBottom: 12,
+  },
+  offlineTripRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 44,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  offlineTripRoute: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  offlineTripMeta: {
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  offlineTripAmt: {
+    fontSize: 12,
+    fontWeight: '700',
+    flexShrink: 0,
+  },
+  offlineTripEmpty: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginBottom: 12,
   },
   fleetCardTopLeft: {
     flexDirection: 'row',

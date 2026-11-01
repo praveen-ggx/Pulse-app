@@ -1,9 +1,43 @@
 SET LOCAL lock_timeout = '5s';
 
--- RETURNS TABLE (id, name, ...) creates OUT variables with those names.
--- `RETURNING id` and unqualified `name` then clash with organizations columns
--- (42702 column reference "id" is ambiguous). Prefer table columns and
--- never RETURNING an unqualified id.
+-- Historical second file: the first cut used RETURNING id INTO a RETURNS TABLE
+-- OUT param (42702). Fresh replay now gets a valid function from
+-- 20271101154500. This replace is identical so applying 154500-only is no
+-- longer a broken intermediate, and applying both stays idempotent.
+
+CREATE OR REPLACE FUNCTION public.dco_self_workspace_id(p_user_id uuid)
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+  SELECT o.id
+  FROM public.organizations o
+  WHERE p_user_id IS NOT NULL
+    AND o.owner_id = p_user_id
+    AND o.operating_model = 'ASSET_BASED'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM public.organization_members om
+      WHERE om.organization_id = o.id
+        AND om.user_id IS DISTINCT FROM p_user_id
+        AND om.status = 'active'
+    )
+    AND NOT EXISTS (
+      SELECT 1
+      FROM public.drivers d
+      WHERE d.organization_id = o.id
+        AND d.left_at IS NULL
+        AND d.relationship_status = 'active_employee'
+    )
+  ORDER BY o.created_at ASC NULLS LAST
+  LIMIT 1;
+$$;
+
+REVOKE ALL ON FUNCTION public.dco_self_workspace_id(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.dco_self_workspace_id(uuid) FROM anon;
+REVOKE ALL ON FUNCTION public.dco_self_workspace_id(uuid) FROM authenticated;
 
 CREATE OR REPLACE FUNCTION public.ensure_dco_workspace()
 RETURNS TABLE (
@@ -31,12 +65,7 @@ BEGIN
     RAISE EXCEPTION 'dco_workspace_denied: DCO must be approved and not holding an active fleet-employee seat.';
   END IF;
 
-  SELECT o.id
-    INTO v_org_id
-  FROM public.organizations o
-  WHERE o.owner_id = v_uid
-  ORDER BY o.created_at ASC
-  LIMIT 1;
+  v_org_id := public.dco_self_workspace_id(v_uid);
 
   IF v_org_id IS NULL THEN
     SELECT COALESCE(
@@ -72,4 +101,4 @@ GRANT EXECUTE ON FUNCTION public.ensure_dco_workspace() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.ensure_dco_workspace() TO service_role;
 
 COMMENT ON FUNCTION public.ensure_dco_workspace() IS
-  'Approved DCO: return (or create) the caller-owned workspace org used for clients. Qualifies organizations.id so RETURNS TABLE OUT params do not clash.';
+  'Approved DCO: return or create the caller-owned Self workspace. Never reuses a staffed fleet/business org.';

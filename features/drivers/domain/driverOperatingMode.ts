@@ -92,6 +92,16 @@ export function canAddDcoShippers(m: DriverOperatingMode): boolean {
   return canManageOwnerVehicles(m);
 }
 
+/** DCO Self book (parties, issue, collect). Same gate as shipper CRM. */
+export function canManageDcoSelfBook(m: DriverOperatingMode): boolean {
+  return canAddDcoShippers(m);
+}
+
+/** Offline party issue: DCO Self only. Employees and independents stay on the employer book. */
+export function canTagOfflineParty(m: DriverOperatingMode): boolean {
+  return canManageDcoSelfBook(m);
+}
+
 type RelationshipRow = {
   left_at?: string | null;
   relationship_status?: string | null;

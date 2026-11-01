@@ -411,7 +411,7 @@ export function buildDriverTripSettlementView(input: {
       capturedAtRaw: settlementLedgerEarly?.created_at ?? null,
       transactionId: settlementLedgerEarly?.id ?? trip.id,
       canRequestPayment: false,
-      canMarkAsPaid: outstandingAmount > 0,
+      canMarkAsPaid: outstandingAmount > 0 && !isEstimated,
       canVerifyFleetPayment: false,
       canShareReceipt: receivedAmt > 0,
     };
@@ -503,8 +503,11 @@ export function buildDriverTripSettlementView(input: {
     // request or mark-as-paid action.
     canRequestPayment: (status === "pending" || status === "action_required") && !isEstimated,
     canMarkAsPaid:
-      (status === "pending" || status === "action_required") &&
-      paymentDiff.outstandingAmount > 0,
+      (status === "pending" ||
+        status === "action_required" ||
+        status === "fleet_marked") &&
+      paymentDiff.outstandingAmount > 0 &&
+      !isEstimated,
     canVerifyFleetPayment: status === "fleet_marked",
     canShareReceipt: status === "settled",
   };

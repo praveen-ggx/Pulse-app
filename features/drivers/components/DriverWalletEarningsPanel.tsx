@@ -1550,6 +1550,7 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
                                   lane="fleet"
                                   partyName={line.meta.fleetName}
                                   block
+                                  label="Capture commission"
                                 />
                                 <Pressable
                                   onPress={() => openFollowUp(line)}

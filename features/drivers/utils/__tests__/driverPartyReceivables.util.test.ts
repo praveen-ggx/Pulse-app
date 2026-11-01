@@ -64,6 +64,20 @@ describe("tripReceivableBilled", () => {
     ).toBe(8500);
   });
 
+  it("uses dco_party_billed without changing supplier_rate meaning", () => {
+    expect(
+      tripReceivableBilled(
+        trip({
+          id: "t-col",
+          operating_mode: "DCO",
+          supplier_rate: 12000,
+          client_price: 40000,
+          dco_party_billed: 18500,
+        }),
+      ),
+    ).toBe(18500);
+  });
+
   it("prefers the tagged middleman receivable over supplier_rate", () => {
     expect(
       tripReceivableBilled(

@@ -357,6 +357,7 @@ export function DriverPreDcoFleetHistoryView({
                   lane="fleet"
                   partyName={line.orgName}
                   compact
+                  label="Capture commission"
                 />
               ) : null}
             </TouchableOpacity>

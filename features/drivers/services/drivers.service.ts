@@ -28,6 +28,7 @@ const DRIVER_COLUMNS = [
 const DRIVER_LEDGER_COLUMNS = [
   "id", "organization_id", "driver_id", "trip_id", "type",
   "amount", "currency", "description", "created_at", "created_by",
+  "reference_type", "reference_id",
 ].join(",");
 
 export interface CreateDriverServiceData {
@@ -2159,6 +2160,8 @@ export interface DriverLedgerRow {
   description: string | null;
   created_at: string;
   created_by: string | null;
+  reference_type?: string | null;
+  reference_id?: string | null;
 }
 
 /**
@@ -2174,6 +2177,8 @@ export async function createDriverLedgerEntry(
     tripId?: string | null;
     createdBy?: string | null;
     description?: string | null;
+    referenceType?: string | null;
+    referenceId?: string | null;
   },
 ): Promise<{ error: Error | null; row: DriverLedgerRow | null }> {
   if (amount <= 0)
@@ -2188,14 +2193,48 @@ export async function createDriverLedgerEntry(
     trip_id: options?.tripId ?? null,
     created_by: options?.createdBy ?? null,
     description: options?.description ?? null,
+    reference_type: options?.referenceType ?? null,
+    reference_id: options?.referenceId ?? null,
   };
   const { data, error } = await supabase()
     .from("driver_ledger")
     .insert(payload)
     .select()
     .single();
-  if (error) return { error: new Error(error.message), row: null };
+  if (error) {
+    const duplicate =
+      error.code === "23505" ||
+      /driver_ledger_dco_capture_uidx|duplicate key/i.test(error.message ?? "");
+    if (duplicate && options?.referenceId) {
+      const existing = await findDriverLedgerByReference(
+        orgId,
+        options.referenceType ?? "dco_capture",
+        options.referenceId,
+      );
+      if (existing.row) return existing;
+    }
+    return { error: new Error(error.message), row: null };
+  }
   return { error: null, row: data as DriverLedgerRow };
+}
+
+export async function findDriverLedgerByReference(
+  orgId: string,
+  referenceType: string,
+  referenceId: string,
+): Promise<{ error: Error | null; row: DriverLedgerRow | null }> {
+  const type = referenceType.trim();
+  const key = referenceId.trim();
+  if (!orgId || !type || !key) return { error: null, row: null };
+  const { data, error } = await supabase()
+    .from("driver_ledger")
+    .select(DRIVER_LEDGER_COLUMNS)
+    .eq("organization_id", orgId)
+    .eq("reference_type", type)
+    .eq("reference_id", key)
+    .maybeSingle();
+  if (error) return { error: new Error(error.message), row: null };
+  return { error: null, row: (data as DriverLedgerRow | null) ?? null };
 }
 
 /**

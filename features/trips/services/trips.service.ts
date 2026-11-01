@@ -917,6 +917,8 @@ const DRIVER_TRIP_FALLBACK_COLUMNS = [
   "drop_lat",
   "drop_lon",
   "notes",
+  "client_id",
+  "client_name",
   "vehicle_id",
   "started_at",
   "created_at",

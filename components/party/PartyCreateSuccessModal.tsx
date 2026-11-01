@@ -77,6 +77,8 @@ export interface PartyCreateSuccessModalProps {
   visible: boolean;
   kind: PartyCreateSuccessKind;
   invited?: boolean;
+  title?: string;
+  message?: string;
   onOk: () => void;
 }
 
@@ -84,10 +86,14 @@ export const PartyCreateSuccessModal = memo(function PartyCreateSuccessModal({
   visible,
   kind,
   invited = false,
+  title: titleOverride,
+  message: messageOverride,
   onOk,
 }: PartyCreateSuccessModalProps) {
   const insets = useSafeAreaInsets();
-  const { title, message } = successCopy(kind, invited);
+  const copy = successCopy(kind, invited);
+  const title = titleOverride ?? copy.title;
+  const message = messageOverride ?? copy.message;
   const source = animationFor(kind, invited);
 
   return (

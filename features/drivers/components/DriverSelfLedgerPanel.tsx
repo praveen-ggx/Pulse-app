@@ -8,11 +8,17 @@ import {
   driverUISemiBold,
 } from '@/constants/DriverTypography';
 import Theme from '@/constants/Theme';
+import { DriverLedgerReceiptPreviewModal, type DriverLedgerReceiptPreview } from '@/features/drivers/components/DriverLedgerReceiptPreviewModal';
 import type { DriverLedgerRow } from '@/features/drivers/services/drivers.service';
+import {
+  buildDriverLedgerReceiptDetails,
+  deriveDriverPaymentMode,
+  extractDriverPaymentUtr,
+} from '@/features/driver/tripSettlement/driverTripSettlement.util';
 import { phonePeMetaDate } from '@/features/driver/utils/driverGpayTransactions.util';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const LEDGER_TYPE_LABELS: Record<string, string> = {
   settlement: 'Settlement',
@@ -67,7 +73,8 @@ type Props = {
 };
 
 export function DriverSelfLedgerPanel({ entries, orgNameById, colors, isDark }: Props) {
-  const sections = useMemo(() => {
+export function DriverSelfLedgerPanel({ entries, orgNameById, tripNumberById, colors, isDark }: Props) {
+  const [preview, setPreview] = useState<DriverLedgerReceiptPreview | null>(null);
     const sorted = [...entries].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     );
@@ -185,9 +192,38 @@ export function DriverSelfLedgerPanel({ entries, orgNameById, colors, isDark }: 
               const amountLabel = `${isCredit ? '+' : '−'} ₹${abs.toLocaleString('en-IN')}`;
               const isLast = idx === rows.length - 1;
               return (
-                <View
+              const tripId = String(entry.trip_id ?? '').trim();
+              const tripDisplay = tripId
+                ? tripNumberById?.[tripId] ?? tripId.slice(0, 8).toUpperCase()
+                : null;
+              const paymentMode = deriveDriverPaymentMode(desc) ?? '—';
+              const reference = extractDriverPaymentUtr(desc) ?? '—';
+              return (
+                <TouchableOpacity
                   key={entry.id}
-                  style={[
+                  activeOpacity={0.82}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${typeLabel} ${amountLabel}`}
+                  onPress={() =>
+                    setPreview({
+                      statusLabel: isCredit ? 'Payment received' : 'Payment sent',
+                      title: typeLabel,
+                      amount: abs,
+                      isIn: isCredit,
+                      partyAvatar: {
+                        name: orgName,
+                        entityType: 'supplier',
+                        initialsColorSeed: String(entry.organization_id ?? orgName),
+                      },
+                      details: buildDriverLedgerReceiptDetails({
+                        paymentDateRaw: entry.created_at,
+                        partyName: orgName,
+                        tripDisplay,
+                        paymentMode,
+                        reference,
+                      }),
+                    })
+                  }
                     styles.row,
                     !isLast && {
                       borderBottomWidth: StyleSheet.hairlineWidth,
@@ -237,12 +273,18 @@ export function DriverSelfLedgerPanel({ entries, orgNameById, colors, isDark }: 
                     {amountLabel}
                   </Text>
                 </View>
+                </TouchableOpacity>
               );
             })}
           </View>
         </View>
       ))}
-    </View>
+
+      <DriverLedgerReceiptPreviewModal
+        visible={!!preview}
+        receipt={preview}
+        onClose={() => setPreview(null)}
+      />
   );
 }
 

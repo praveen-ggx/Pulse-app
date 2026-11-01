@@ -1,6 +1,10 @@
 import {
   DEFAULT_DRIVER_OPERATING_MODE,
+  canAddDcoShippers,
   canManageOwnerVehicles,
+  driverHistoryLane,
+  driverHistoryLaneLabel,
+  driverHistoryTabsForMode,
   driverJobSource,
   isDcoOperatingMode,
   parseDriverOperatingMode,
@@ -23,6 +27,7 @@ describe('parseDriverOperatingMode', () => {
     const m = serverMode({ mode: 'DRIVER', is_employee_driver: true });
     expect(m.marketplaceAllowed).toBe(false);
     expect(isDcoOperatingMode(m)).toBe(false);
+    expect(canAddDcoShippers(m)).toBe(false);
   });
 
   it('C: an approved DCO without an active vehicle has no Marketplace access', () => {
@@ -40,6 +45,7 @@ describe('parseDriverOperatingMode', () => {
     });
     expect(m.marketplaceAllowed).toBe(true);
     expect(m.hasActiveVehicle).toBe(true);
+    expect(canAddDcoShippers(m)).toBe(true);
   });
 
   it('L: removing the vehicle leaves a DCO (not an employee) without Marketplace', () => {
@@ -102,8 +108,14 @@ describe('single owner-operator concept (DCO = Driver-come-Owner = Fleet Owner)'
 
   it('suspended or still-employed DCOs cannot manage owner vehicles (mirrors is_dco_eligible)', () => {
     expect(canManageOwnerVehicles(serverMode({ mode: 'DCO_SUSPENDED', dco_status: 'SUSPENDED' }))).toBe(false);
+    expect(canAddDcoShippers(serverMode({ mode: 'DCO_SUSPENDED', dco_status: 'SUSPENDED' }))).toBe(false);
     expect(
       canManageOwnerVehicles(
+        serverMode({ mode: 'DCO_EMPLOYMENT_CONFLICT', dco_status: 'APPROVED', is_employee_driver: true }),
+      ),
+    ).toBe(false);
+    expect(
+      canAddDcoShippers(
         serverMode({ mode: 'DCO_EMPLOYMENT_CONFLICT', dco_status: 'APPROVED', is_employee_driver: true }),
       ),
     ).toBe(false);
@@ -214,5 +226,32 @@ describe('driverJobSource', () => {
     expect(driverJobSource({ source: 'market_bid', operating_mode: 'DCO' })).not.toBe(
       'business_assigned',
     );
+  });
+});
+
+describe('driverHistoryLane / driverHistoryTabsForMode', () => {
+  it('Marketplace conversion is always the marketplace lane', () => {
+    expect(driverHistoryLane({ source: 'market_bid' }, true)).toBe('marketplace');
+    expect(driverHistoryLane({ source: 'market_bid' }, false)).toBe('marketplace');
+  });
+
+  it('shipper phone assignment (not fleet, not market) is offline', () => {
+    expect(driverHistoryLane({ source: 'manual', operating_mode: 'DCO' }, false)).toBe('offline');
+    expect(driverHistoryLane({ source: null, operating_mode: 'FLEET' }, false)).toBe('offline');
+  });
+
+  it('connected fleet-employer assignment is fleet when not a market award', () => {
+    expect(driverHistoryLane({ source: 'indent' }, true)).toBe('fleet');
+  });
+
+  it('DCO history chips are Offline + Marketplace; employee chips are Fleet + Offline', () => {
+    expect(driverHistoryTabsForMode(true)).toEqual(['offline', 'marketplace']);
+    expect(driverHistoryTabsForMode(false)).toEqual(['fleet', 'offline']);
+  });
+
+  it('labels DCO as offline/marketplace and employee as offline/fleet', () => {
+    expect(driverHistoryLaneLabel('marketplace')).toBe('Marketplace trip');
+    expect(driverHistoryLaneLabel('offline')).toBe('Offline trip');
+    expect(driverHistoryLaneLabel('fleet')).toBe('Fleet trip');
   });
 });

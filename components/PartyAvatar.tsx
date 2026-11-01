@@ -250,7 +250,7 @@ export function PartyAvatar({
           styles.initialsText,
           {
             fontSize: size * 0.3,
-            lineHeight: size * 0.36,
+            lineHeight: size * 0.3,
             color: initialsColor,
           },
         ]}
@@ -296,5 +296,7 @@ const styles = StyleSheet.create({
     fontWeight: "400",
     letterSpacing: 0.3,
     textAlign: "center",
+    includeFontPadding: false,
+    textAlignVertical: "center",
   },
 });

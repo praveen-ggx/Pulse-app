@@ -190,6 +190,134 @@ export async function getOrganizationsForUser(): Promise<{
   }
 }
 
+/** Insert the DCO-owned org row. Membership is added by ensure_dco_workspace (DEFINER). */
+async function seedDcoOrganizationRow(): Promise<{
+  error: Error | null;
+  organization: CurrentOrganization | null;
+}> {
+  const sb = supabase();
+  const { data: sessionData, error: sessionError } = await sb.auth.getSession();
+  const uid = sessionData.session?.user?.id ?? null;
+  if (sessionError || !uid) {
+    return { error: new Error("Not signed in"), organization: null };
+  }
+
+  const { data: profile } = await sb
+    .from("profiles")
+    .select("company_name, full_name")
+    .eq("id", uid)
+    .maybeSingle();
+  const fullName = String(profile?.full_name ?? "").trim();
+  const company = String(profile?.company_name ?? "").trim();
+  const workspaceName = company || (fullName ? `${fullName}'s workspace` : "DCO workspace");
+  const orgId = uuidv7();
+
+  const inserted = await sb.from("organizations").insert({
+    id: orgId,
+    owner_id: uid,
+    name: workspaceName,
+    operating_model: "ASSET_BASED",
+  });
+  if (inserted.error) {
+    return { error: new Error(inserted.error.message), organization: null };
+  }
+
+  return {
+    error: null,
+    organization: mapToCurrentOrganization({
+      id: orgId,
+      name: workspaceName,
+      operating_model: "ASSET_BASED",
+    }),
+  };
+}
+
+async function joinDcoWorkspaceMembership(organization: CurrentOrganization): Promise<{
+  error: Error | null;
+  organization: CurrentOrganization | null;
+}> {
+  const sb = supabase();
+  const { data: sessionData } = await sb.auth.getSession();
+  const uid = sessionData.session?.user?.id ?? null;
+  if (!uid) return { error: new Error("Not signed in"), organization: null };
+
+  const member = await sb.from("organization_members").upsert(
+    {
+      organization_id: organization.id,
+      user_id: uid,
+      role: "owner",
+      status: "active",
+    },
+    { onConflict: "organization_id,user_id" },
+  );
+  if (member.error) {
+    return { error: new Error(member.error.message), organization: null };
+  }
+  return { error: null, organization };
+}
+
+/**
+ * Approved DCO: create/return the caller-owned workspace used for clients.
+ * No-op if they already own an org. Requires `ensure_dco_workspace` RPC.
+ */
+export async function ensureDcoWorkspace(): Promise<{
+  error: Error | null;
+  organization: CurrentOrganization | null;
+}> {
+  const { data, error } = await supabase().rpc("ensure_dco_workspace" as never);
+  if (error) {
+    const message = error.message ?? "";
+    if (/ambiguous/i.test(message) || error.code === "42702") {
+      const seeded = await seedDcoOrganizationRow();
+      const retry = await supabase().rpc("ensure_dco_workspace" as never);
+      if (!retry.error) {
+        const retryRow = Array.isArray(retry.data) ? retry.data[0] : retry.data;
+        if (retryRow?.id) {
+          return {
+            error: null,
+            organization: mapToCurrentOrganization({
+              id: retryRow.id,
+              name: retryRow.name ?? null,
+              operating_model: retryRow.operating_model,
+            }),
+          };
+        }
+      }
+      if (seeded.organization) {
+        const fallback = await joinDcoWorkspaceMembership(seeded.organization);
+        if (fallback.organization?.id) return fallback;
+      }
+    }
+    if (isMissingRpcError(error)) {
+      return {
+        error: new Error(
+          "DCO is approved, but this environment cannot create your shipper book yet. Refresh after it is enabled — you can save an offline shipper with name and phone, then complete GST later.",
+        ),
+        organization: null,
+      };
+    }
+    if (/dco_workspace_denied/i.test(message)) {
+      return {
+        error: new Error(
+          "Leave any active fleet-employee seat, then add shippers from your DCO workspace.",
+        ),
+        organization: null,
+      };
+    }
+    return { error: new Error(message), organization: null };
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.id) return { error: null, organization: null };
+  return {
+    error: null,
+    organization: mapToCurrentOrganization({
+      id: row.id,
+      name: row.name ?? null,
+      operating_model: row.operating_model,
+    }),
+  };
+}
+
 export type OrganizationLocation = {
   id: string;
   name?: string | null;

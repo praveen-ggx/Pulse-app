@@ -177,7 +177,9 @@ export function DriverCollectFromSheet({
     setBilledForTag(null);
     setPendingParty(null);
     setReceivableParty(party);
-    setReceivableAmount(currentBilled > 0 ? String(currentBilled) : "");
+    setReceivableAmount(
+      currentBilled != null && currentBilled > 0 ? String(currentBilled) : "",
+    );
   }, [busyId, currentBilled]);
 
   const handleConfirmTag = useCallback(async () => {
@@ -185,7 +187,11 @@ export function DriverCollectFromSheet({
     setBusyId(pendingParty.id);
     try {
       const billed =
-        billedForTag != null && billedForTag > 0 ? billedForTag : currentBilled;
+        billedForTag != null && billedForTag > 0
+          ? billedForTag
+          : currentBilled != null && currentBilled > 0
+            ? currentBilled
+            : 0;
       if (billed <= 0) {
         showAppAlert("Could not issue receivable", "Enter the amount due before issuing.");
         return;

@@ -105,7 +105,7 @@ export default function DriverAddClientScreen() {
   const [createdSuccess, setCreatedSuccess] = useState(false);
   const tripQuery = useTripDetailQuery(tripId || null);
   const currentBilled = useMemo(
-    () => (tripQuery.data ? tripReceivableBilled(tripQuery.data) : 0),
+    () => (tripQuery.data ? tripReceivableBilled(tripQuery.data) : null) ?? 0,
     [tripQuery.data],
   );
   const isShipperParty = useCallback(

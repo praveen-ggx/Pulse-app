@@ -111,12 +111,25 @@ export function partyAvatarLookup(
   return { clientId: tripClientId, orgId: tripOrgId };
 }
 
-export function tripReceivableBilled(trip: TripRow): number {
-  const tagged = tripPartyBilledAmount(trip);
-  if (tagged != null) return tagged;
-  const agreed = tripEarningsDetailForDriver(trip);
-  if (agreed.amount > 0) return agreed.amount;
-  return Math.max(0, Math.round(Number(trip.client_price ?? 0) || 0));
+/**
+ * Trip billed amount for receivable UI.
+ * - DCO Self / offline: only `dco_party_billed` or an authoritative receivable (via
+ *   `tripPartyBilledAmount`). Never notes JSON, driver earnings, or `client_price`.
+ * - Marketplace Exchange: listing economics may still use agreed rate / client_price.
+ * Returns null when DCO Self billed amount is unavailable (distinct from zero).
+ */
+export function tripReceivableBilled(
+  trip: TripRow,
+  receivable?: { billed_amount?: number | null } | null,
+): number | null {
+  const fromDcoBook = tripPartyBilledAmount(trip, receivable);
+  if (fromDcoBook != null) return fromDcoBook;
+  if (String(trip.source ?? "").trim() === "market_bid") {
+    const agreed = tripEarningsDetailForDriver(trip);
+    if (agreed.amount > 0) return agreed.amount;
+    return Math.max(0, Math.round(Number(trip.client_price ?? 0) || 0));
+  }
+  return null;
 }
 
 function shipperPartyKey(trip: TripRow): { id: string; name: string } {
@@ -158,7 +171,7 @@ export function buildDriverPartyReceivables(
   for (const trip of trips) {
     const lane = receivableLaneForTrip(trip, isFleetDispatched(trip));
     if (lane === "fleet") continue;
-    const billed = tripReceivableBilled(trip);
+    const billed = tripReceivableBilled(trip) ?? 0;
     const received = Math.max(0, Math.round(Number(receivedByTripId[trip.id] ?? 0) || 0));
     if (lane === "marketplace") {
       marketTrips += 1;
@@ -234,7 +247,7 @@ export function tripsForDriverParty(
         ? lane === "marketplace"
         : lane !== "marketplace" && shipperPartyKey(trip).id === partyId;
     if (!match) continue;
-    const billed = tripReceivableBilled(trip);
+    const billed = tripReceivableBilled(trip) ?? 0;
     const received = Math.max(0, Math.round(Number(receivedByTripId[trip.id] ?? 0) || 0));
     lines.push({
       trip,

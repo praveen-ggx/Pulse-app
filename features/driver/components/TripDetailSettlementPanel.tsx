@@ -175,10 +175,8 @@ export function TripDetailSettlementPanel({
   const offlinePartyName = taggedOfflineParty
     ? tripReceivablePartyName(trip)
     : "";
-  const offlineBilled = Math.max(
-    tripReceivableBilled(trip),
-    settlementView.expectedAmount,
-  );
+  // DCO Self billed amount: receivable / dco_party_billed only — never earnings or client_price.
+  const offlineBilled = tripReceivableBilled(trip) ?? 0;
   const offlineReceived = Math.max(
     0,
     Math.round(Number(settlementView.receivedAmount ?? 0) || 0) ||

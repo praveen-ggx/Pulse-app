@@ -39,7 +39,7 @@ function trip(partial: Partial<TripRow> & { id: string }): TripRow {
 }
 
 describe("tripReceivableBilled", () => {
-  it("uses DCO agreed supplier_rate before client_price", () => {
+  it("does not use driver-agreed earnings (supplier_rate) for DCO Self billed amount", () => {
     expect(
       tripReceivableBilled(
         trip({
@@ -49,10 +49,10 @@ describe("tripReceivableBilled", () => {
           client_price: 40000,
         }),
       ),
-    ).toBe(12000);
+    ).toBeNull();
   });
 
-  it("falls back to client_price when no DCO settlement amount", () => {
+  it("does not use trips.client_price for DCO Self billed amount", () => {
     expect(
       tripReceivableBilled(
         trip({
@@ -62,7 +62,7 @@ describe("tripReceivableBilled", () => {
           client_price: 8500,
         }),
       ),
-    ).toBe(8500);
+    ).toBeNull();
   });
 
   it("uses dco_party_billed without changing supplier_rate meaning", () => {
@@ -79,7 +79,7 @@ describe("tripReceivableBilled", () => {
     ).toBe(18500);
   });
 
-  it("prefers the tagged middleman receivable over supplier_rate", () => {
+  it("does not populate billed from notes JSON when dco_party_billed is missing", () => {
     expect(
       tripReceivableBilled(
         trip({
@@ -94,7 +94,53 @@ describe("tripReceivableBilled", () => {
           }),
         }),
       ),
+    ).toBeNull();
+  });
+
+  it("prefers an authoritative receivable over trip column and notes", () => {
+    expect(
+      tripReceivableBilled(
+        trip({
+          id: "t4",
+          operating_mode: "DCO",
+          dco_party_billed: 1000,
+          client_price: 40000,
+          notes: applyDcoPartyTagToNotes(null, {
+            id: "c-2",
+            name: "Ajio testing",
+            billed: 99999,
+          }),
+        }),
+        { billed_amount: 18500 },
+      ),
     ).toBe(18500);
+  });
+
+  it("keeps zero and missing distinguishable", () => {
+    expect(
+      tripReceivableBilled(
+        trip({ id: "z", operating_mode: "DCO", dco_party_billed: 0 }),
+      ),
+    ).toBe(0);
+    expect(
+      tripReceivableBilled(
+        trip({ id: "m", operating_mode: "DCO", dco_party_billed: null }),
+      ),
+    ).toBeNull();
+  });
+
+  it("still allows marketplace listing economics (Exchange, not DCO Self book)", () => {
+    expect(
+      tripReceivableBilled(
+        trip({
+          id: "m1",
+          source: "market_bid",
+          operating_mode: "DCO",
+          supplier_rate: 5000,
+          client_price: 9000,
+        }),
+      ),
+    ).toBe(5000);
   });
 });
 
@@ -121,6 +167,7 @@ describe("buildDriverPartyReceivables", () => {
           client_id: "c-1",
           client_name: "Mohana Logistics",
           client_price: 10000,
+          dco_party_billed: 10000,
         }),
         trip({
           id: "s2",
@@ -129,6 +176,7 @@ describe("buildDriverPartyReceivables", () => {
           client_id: "c-1",
           client_name: "Mohana Logistics",
           client_price: 2000,
+          dco_party_billed: 2000,
         }),
         trip({
           id: "fleet-1",
@@ -210,6 +258,7 @@ describe("tripsForDriverParty", () => {
       client_id: "c-1",
       client_name: "Mohana Logistics",
       client_price: 10000,
+      dco_party_billed: 10000,
     }),
   ];
 
@@ -319,18 +368,20 @@ describe("untagged offline AR", () => {
           client_id: "c-mid",
           client_name: "Middleman Co",
           client_price: 10000,
+          dco_party_billed: 10000,
         }),
       ],
       {},
       () => false,
     );
     expect(rows.map((r) => r.id)).toEqual([UNTAGGED_PARTY_ID, "shipper:c-mid"]);
+    // Untagged has no DCO Self billed source — client_price must not invent AR.
     expect(rows[0]).toMatchObject({
       name: "Untagged",
       subtitle: "Tag a shipper or middleman",
       trips: 1,
-      billed: 25000,
-      due: 25000,
+      billed: 0,
+      due: 0,
     });
     expect(rows[1]).toMatchObject({ name: "Middleman Co", trips: 1, billed: 10000 });
   });

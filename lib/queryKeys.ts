@@ -275,6 +275,8 @@ export const queryKeys = {
     /** Server-resolved Driver vs DCO operating mode (get_my_driver_operating_mode). */
     driverOperatingMode: (userId: string) =>
       ["q", "driver-app", userId, "driver-operating-mode"] as const,
+    dcoSelfReceivables: (userId: string) =>
+      ["q", "driver-app", userId, "dco-self-receivables"] as const,
     /** Personal owner vehicles (Phase 1b). */
     ownerVehicles: (userId: string) =>
       ["q", "driver-app", userId, "owner-vehicles"] as const,

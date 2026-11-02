@@ -357,6 +357,7 @@ export function VaultCategoryPreviewModal({
               <Text style={styles.empty}>No files to preview</Text>
             ) : (
               <VaultDraftPreviewBlock
+                density="shop"
                 items={items}
                 selectedId={current?.id ?? null}
                 showHint={Boolean(onAdd) && !onReplace}
@@ -396,6 +397,16 @@ export function VaultCategoryPreviewModal({
 
           <View style={styles.footer}>
             <RegistryGhostButton label="Close" onPress={onClose} style={HUG} />
+            {onAdd ? (
+              <RegistryGhostButton label="Add more" onPress={onAdd} style={HUG} />
+            ) : null}
+            {canEditExpiry ? (
+              <RegistryGhostButton
+                label="Edit"
+                onPress={() => setEditingExpiry(true)}
+                style={HUG}
+              />
+            ) : null}
             {onDelete && current?.deleteKind ? (
               <RegistryGhostButton
                 label="Delete"

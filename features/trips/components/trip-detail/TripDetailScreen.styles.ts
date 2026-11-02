@@ -482,7 +482,7 @@ export const neoStyles = StyleSheet.create({
   manifestNavActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 18,
+    gap: 12,
   },
   manifestPhoneBtn: {
     flexDirection: "row",

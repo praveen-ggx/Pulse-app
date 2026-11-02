@@ -119,6 +119,21 @@ describe("compliancePreviewSourceForRow", () => {
       }),
     ).toBe("trip");
   });
+
+  it("signs driver-app KYC identity files from driver-documents", () => {
+    expect(
+      compliancePreviewSourceForVaultFile({
+        driverKind: "aadhaar",
+        storagePath: "user-1/aadhaar-123.jpg",
+      }),
+    ).toBe("driver-kyc");
+    expect(
+      compliancePreviewSourceForVaultFile({
+        driverKind: "license",
+        storagePath: "org/driver/d1/license.jpeg",
+      }),
+    ).toBe("compliance");
+  });
 });
 
 describe("compliancePreviewSourceForVaultFile", () => {
@@ -137,6 +152,37 @@ describe("compliancePreviewSourceForVaultFile", () => {
         categoryLabel: "Bank Docs",
       }),
     ).toBe("supplier-kyc");
+  });
+
+  it("signs the merged supplier cheque from supplier KYC", () => {
+    expect(
+      compliancePreviewSourceForVaultFile({
+        category: "bank_docs",
+        categoryLabel: "Bank Docs",
+        storagePath: "org-1/supplier/sup-1/cancelled_cheque_abc.jpg",
+      }),
+    ).toBe("supplier-kyc");
+  });
+
+  it("signs a trip-uploaded Bank Docs file from the trip vault", () => {
+    expect(
+      compliancePreviewSourceForVaultFile({
+        category: "bank_docs",
+        categoryLabel: "Bank Docs",
+        deleteKind: "trip",
+        storagePath: "trip-1/bank_docs/1f7442fc.jpg",
+      }),
+    ).toBe("trip");
+  });
+
+  it("signs an approved trip Bank Docs upload (no deleteKind) from the trip vault", () => {
+    expect(
+      compliancePreviewSourceForVaultFile({
+        category: "bank_docs",
+        categoryLabel: "Bank Docs",
+        storagePath: "893fcbe8-429e-44f9-86ae-3c8125bb0846/bank_docs/1f7442fc.jpg",
+      }),
+    ).toBe("trip");
   });
 
   it("signs compliance-page vehicle uploads (entity path) from compliance-documents", () => {

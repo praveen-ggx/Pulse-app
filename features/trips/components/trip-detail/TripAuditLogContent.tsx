@@ -120,7 +120,7 @@ function JourneyHero({
       <View style={styles.journeyHeroIcon}>
         <TinyEmptyLottie
           source={TRIP_ACTIVITY_LOTTIE.trip}
-          size={28}
+          size={22}
           speed={0.8}
           renderScale={1.4}
         />
@@ -258,7 +258,8 @@ function TimelineEntryRow({
         timeLabel={relativeTime}
         contextLabel={entry.contextLabel ?? entry.categoryLabel}
         tags={[{ label: entry.categoryLabel }]}
-        avatarSlot={<ActivityUserAvatar avatar={entry.actorAvatar} size={36} />}
+        compact
+        avatarSlot={<ActivityUserAvatar avatar={entry.actorAvatar} size={28} />}
         onPress={
           canPreview && entry.preview
             ? () => onOpenPreview?.(entry.preview!)
@@ -600,17 +601,17 @@ const styles = StyleSheet.create({
     paddingRight: 8,
   },
   headerTitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "600",
     color: METRONIC.ink,
     letterSpacing: -0.15,
   },
   headerSubtitle: {
     marginTop: 2,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "400",
     color: METRONIC.muted,
-    lineHeight: 17,
+    lineHeight: 15,
   },
   closeBtn: {
     width: Layout.minTouchTargetSize,
@@ -654,7 +655,7 @@ const styles = StyleSheet.create({
     minWidth: 56,
   },
   tabText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "400",
     color: METRONIC.muted,
   },
@@ -722,23 +723,23 @@ const styles = StyleSheet.create({
   journeyHero: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
     marginHorizontal: Layout.screenPaddingHorizontal,
     marginBottom: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: METRONIC.border,
     backgroundColor: Theme.cardWhite,
   },
   journeyHeroIcon: {
-    width: 36,
-    height: 36,
+    width: 28,
+    height: 28,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
-    borderRadius: 8,
+    borderRadius: 7,
     backgroundColor: METRONIC.quoteBg,
   },
   journeyHeroBody: {
@@ -747,19 +748,19 @@ const styles = StyleSheet.create({
     gap: 1,
   },
   journeyHeroRef: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "500",
     color: METRONIC.ink,
   },
   journeyHeroRoute: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "400",
     color: METRONIC.sub,
-    lineHeight: 15,
+    lineHeight: 13,
   },
   journeyHeroMeta: {
     marginTop: 1,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "400",
     color: METRONIC.muted,
   },
@@ -781,7 +782,7 @@ const styles = StyleSheet.create({
     borderColor: METRONIC.border,
   },
   monthHeaderText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "500",
     letterSpacing: 0.4,
     textTransform: "uppercase",

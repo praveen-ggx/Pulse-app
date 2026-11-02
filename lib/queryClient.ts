@@ -26,6 +26,7 @@ import {
   isPermanentHttpClientError,
   isServiceUnavailableError,
   isSupabaseCircuitOpen,
+  onSupabaseCircuitClosed,
 } from '@/lib/supabaseHttp.util';
 import { isPermanentSchemaOrRlsError } from '@/lib/queryRetry';
 
@@ -61,8 +62,18 @@ function attachPlatformCacheMetrics(client: QueryClient): void {
   let stormLogged = false;
 
   const origInvalidate = client.invalidateQueries.bind(client);
+  // Invalidations are dropped while the circuit is open (no point refetching into a
+  // down origin). Remember that one was dropped and refresh active queries once when
+  // the circuit closes, so screens don't stay stale after recovery.
+  let droppedWhileOpen = false;
+  onSupabaseCircuitClosed(() => {
+    if (!droppedWhileOpen) return;
+    droppedWhileOpen = false;
+    void origInvalidate({ refetchType: 'active' });
+  });
   (client as unknown as { invalidateQueries: typeof origInvalidate }).invalidateQueries = function (...args) {
     if (isSupabaseCircuitOpen()) {
+      droppedWhileOpen = true;
       return Promise.resolve();
     }
     recordInvalidateQueries();
@@ -308,6 +319,10 @@ export function makeQueryClient() {
       },
       mutations: {
         retry: 0,
+        // NetworkProvider drives onlineManager from NetInfo. Mutations still run while
+        // offline so each one decides — e.g. fuel/toll queue to the offline outbox —
+        // instead of silently pausing until reconnect.
+        networkMode: 'always',
       },
     },
   });

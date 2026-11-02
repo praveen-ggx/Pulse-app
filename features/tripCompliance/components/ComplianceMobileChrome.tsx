@@ -1,4 +1,5 @@
 import {
+  HUB_MOBILE_COMMERCE_REF,
   HubMobileScreenHeader,
   HubMobileSearchRow,
   HubMobileUnderlineTab,
@@ -11,6 +12,8 @@ import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { Download, Package, Wallet } from "lucide-react-native";
 import React, { type ReactNode } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+
+const SHOP = HUB_MOBILE_COMMERCE_REF;
 
 export type ComplianceMobileStageItem = {
   id: ComplianceQueueFilter;
@@ -164,9 +167,11 @@ const styles = StyleSheet.create({
   chrome: {
     ...hubChrome.shell,
     paddingHorizontal: Layout.screenPaddingHorizontal,
-    paddingTop: 2,
-    paddingBottom: 4,
-    backgroundColor: Theme.screenBackground,
+    paddingTop: 4,
+    paddingBottom: 6,
+    backgroundColor: Theme.cardWhite,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: SHOP.hairline,
   },
   tabRow: {
     alignItems: "center",
@@ -179,13 +184,16 @@ const styles = StyleSheet.create({
   headerAction: {
     width: 34,
     height: 34,
-    borderRadius: 10,
+    borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: Theme.surface,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: SHOP.hairline,
   },
   headerActionPrimary: {
-    backgroundColor: Theme.actionBtnInk,
+    backgroundColor: SHOP.ink,
+    borderColor: SHOP.ink,
   },
   subFilter: {
     marginTop: 2,
@@ -197,13 +205,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 0,
-    minHeight: 52,
+    minHeight: 56,
     paddingHorizontal: 14,
-    paddingTop: 6,
-    paddingBottom: 6,
-    backgroundColor: Theme.screenBackground,
+    paddingTop: 8,
+    paddingBottom: 8,
+    backgroundColor: Theme.cardWhite,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Theme.borderLight,
+    borderBottomColor: SHOP.hairline,
   },
   backBtn: {
     width: 36,
@@ -220,13 +228,13 @@ const styles = StyleSheet.create({
   reviewTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#212121",
-    letterSpacing: -0.2,
+    color: SHOP.ink,
+    letterSpacing: -0.3,
   },
   reviewSubtitle: {
-    marginTop: 1,
+    marginTop: 2,
     fontSize: 12,
     fontWeight: "500",
-    color: "#9E9E9E",
+    color: SHOP.muted,
   },
 });

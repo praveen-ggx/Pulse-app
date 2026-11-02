@@ -79,20 +79,27 @@ export const NumericEntryRecipientHero = memo(function NumericEntryRecipientHero
         dense && styles.rootDense,
       ]}
     >
-      {party.mark === "pool" ? (
-        <PoolIndentMark size={avatarSize} />
-      ) : (
-        <PartyAvatar
-          name={party.name}
-          avatarUrl={party.avatarUrl ?? null}
-          avatarSeed={party.avatarSeed ?? null}
-          organizationImageUrl={party.organizationImageUrl ?? null}
-          organizationAvatarSeed={party.organizationAvatarSeed ?? null}
-          entityType={party.entityType ?? "client"}
-          size={avatarSize}
-          shape="circle"
-        />
-      )}
+      <View
+        style={[
+          styles.avatarSlot,
+          { width: avatarSize, height: avatarSize },
+        ]}
+      >
+        {party.mark === "pool" ? (
+          <PoolIndentMark size={avatarSize} />
+        ) : (
+          <PartyAvatar
+            name={party.name}
+            avatarUrl={party.avatarUrl ?? null}
+            avatarSeed={party.avatarSeed ?? null}
+            organizationImageUrl={party.organizationImageUrl ?? null}
+            organizationAvatarSeed={party.organizationAvatarSeed ?? null}
+            entityType={party.entityType ?? "client"}
+            size={avatarSize}
+            shape="circle"
+          />
+        )}
+      </View>
       {caption && !nameInline ? (
         <Text
           style={[
@@ -178,10 +185,16 @@ const styles = StyleSheet.create({
     gap: 6,
     width: "100%",
   },
+  avatarSlot: {
+    alignSelf: "center",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
   rootCompact: {
     paddingTop: 6,
     paddingBottom: 2,
-    gap: 4,
+    gap: 8,
   },
   rootDense: {
     paddingTop: 2,

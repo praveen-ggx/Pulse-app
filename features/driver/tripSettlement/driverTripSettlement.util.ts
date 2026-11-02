@@ -1,3 +1,4 @@
+import type { LedgerEntryReceiptDetailRow } from "@/components/ledger/LedgerEntryReceiptCard";
 import {
   isAggregateTrip,
   tripEarningsDetailForDriver,
@@ -5,6 +6,7 @@ import {
 } from "@/features/drivers/utils/driverUtils.util";
 import { getDriverTripDisplayNumber } from "@/features/driver/utils/driverTripSequence.util";
 import type { DriverLedgerRow } from "@/features/drivers/services/drivers.service";
+import { formatLedgerReceiptDate } from "@/features/finance/utils/ledgerTransactionReceipt.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 
 export type DriverTripPaymentStatus =
@@ -123,13 +125,18 @@ export function computeTripPaymentDifference(input: {
 
   const writeOffAmount = hasPaymentShortfall ? expected - activePaymentAmount : 0;
 
+  const creditedTowardExpected =
+    received > 0
+      ? received
+      : input.hasFleetPending && fleetMarked != null
+        ? fleetMarked
+        : 0;
+
   const outstandingAmount = input.isSettled
     ? 0
-    : input.hasFleetPending && fleetMarked != null
-      ? Math.max(0, expected - fleetMarked)
-      : expected;
+    : Math.max(0, expected - creditedTowardExpected);
 
-  const partialPaymentAccepted = input.isSettled && received > 0 && received < expected;
+  const partialPaymentAccepted = received > 0 && received < expected;
 
   return {
     activePaymentAmount,
@@ -178,13 +185,34 @@ export function extractDriverPaymentUtr(raw?: string | null): string | null {
 }
 
 export function deriveDriverPaymentMode(raw?: string | null): string | null {
-  const s = (raw ?? "").toLowerCase();
+  const s = (raw ?? "").trim();
   if (!s) return null;
-  if (s.includes("upi")) return "UPI";
-  if (s.includes("bank") || s.includes("neft") || s.includes("rtgs") || s.includes("imps")) {
+
+  const modeToken = s.match(/\bMode\s*:\s*([A-Za-z][A-Za-z_/ -]{0,24})/i)?.[1]?.trim();
+  if (modeToken) {
+    const id = modeToken.toUpperCase();
+    if (id.includes("UPI")) return "UPI";
+    if (id.includes("CHEQUE") || id === "CHECK") return "CHEQUE";
+    if (
+      id.includes("BANK") ||
+      id.includes("NEFT") ||
+      id.includes("RTGS") ||
+      id.includes("IMPS")
+    ) {
+      return "BANK TRANSFER";
+    }
+    if (id === "CASH" || id.startsWith("CASH ")) return "CASH";
+    return id;
+  }
+
+  const lower = s.toLowerCase();
+  if (/\bupi\b/.test(lower)) return "UPI";
+  if (/\b(neft|rtgs|imps|bank transfer)\b/.test(lower) || /\bbank\b/.test(lower)) {
     return "BANK TRANSFER";
   }
-  if (s.includes("cash")) return "CASH";
+  if (/\bcheque\b/.test(lower)) return "CHEQUE";
+  // Instrument only — never treat "cash in" / "cash balance" as cash mode.
+  if (/\b(paid in cash|cash payment|mode\s*:\s*cash)\b/.test(lower)) return "CASH";
   return null;
 }
 
@@ -348,44 +376,48 @@ export function buildDriverTripSettlementView(input: {
     };
   }
 
+  const { receivedByTripId, latestCreditLedgerByTripId, latestFleetPaidPendingLedgerByTripId } =
+    indexDriverLedgerForTrips(ledgerEntries);
+
+  const receivedAmt = receivedByTripId[trip.id] ?? 0;
+  const settlementLedgerEarly = latestCreditLedgerByTripId[trip.id] ?? null;
+
   if (!tripCompleted) {
+    const outstandingAmount = Math.max(0, expectedAmount - receivedAmt);
+    const partial = receivedAmt > 0 && outstandingAmount > 0;
     return {
       status: "incomplete",
-      statusLabel: "Trip not completed",
-      statusTone: "muted",
+      statusLabel: partial ? "Trip not completed · Partial collected" : "Trip not completed",
+      statusTone: partial ? "warning" : "muted",
       amount: expectedAmount,
       expectedAmount,
       isEstimated,
       ...earningsFlags,
       fleetMarkedAmount: null,
-      receivedAmount: null,
-      outstandingAmount: expectedAmount,
+      receivedAmount: receivedAmt > 0 ? receivedAmt : null,
+      outstandingAmount,
       writeOffAmount: 0,
       hasPaymentShortfall: false,
-      partialPaymentAccepted: false,
+      partialPaymentAccepted: partial,
       isSalary: false,
       fleetName: fleetOrgName,
       displayId,
       from,
       to,
-      settlementLedger: null,
+      settlementLedger: settlementLedgerEarly,
       fleetPendingLedger: null,
-      paymentMode: null,
-      utr: null,
-      capturedAtRaw: null,
-      transactionId: null,
+      paymentMode: deriveDriverPaymentMode(settlementLedgerEarly?.description),
+      utr: extractDriverPaymentUtr(settlementLedgerEarly?.description),
+      capturedAtRaw: settlementLedgerEarly?.created_at ?? null,
+      transactionId: settlementLedgerEarly?.id ?? trip.id,
       canRequestPayment: false,
-      canMarkAsPaid: false,
+      canMarkAsPaid: outstandingAmount > 0 && !isEstimated,
       canVerifyFleetPayment: false,
-      canShareReceipt: false,
+      canShareReceipt: receivedAmt > 0,
     };
   }
 
-  const { receivedByTripId, latestCreditLedgerByTripId, latestFleetPaidPendingLedgerByTripId } =
-    indexDriverLedgerForTrips(ledgerEntries);
-
-  const receivedAmt = receivedByTripId[trip.id] ?? 0;
-  const isSettled = receivedAmt > 0;
+  const isSettled = expectedAmount > 0 ? receivedAmt >= expectedAmount : receivedAmt > 0;
   const fleetPendingLedger = latestFleetPaidPendingLedgerByTripId[trip.id] ?? null;
   const hasFleetPending = !!fleetPendingLedger && !isSettled;
   const fleetMarkedAmount = hasFleetPending
@@ -414,6 +446,10 @@ export function buildDriverTripSettlementView(input: {
       ? `${paidSubLabel(settlementLedger?.description)} · Partial`
       : paidSubLabel(settlementLedger?.description);
     statusTone = "success";
+  } else if (receivedAmt > 0) {
+    status = "pending";
+    statusLabel = "Partial collected";
+    statusTone = "warning";
   } else if (hasFleetPending) {
     status = "fleet_marked";
     statusLabel = paymentDiff.hasPaymentShortfall
@@ -466,8 +502,43 @@ export function buildDriverTripSettlementView(input: {
     // don't let the legacy 10% guess become the basis of an actual payment
     // request or mark-as-paid action.
     canRequestPayment: (status === "pending" || status === "action_required") && !isEstimated,
-    canMarkAsPaid: (status === "pending" || status === "action_required") && !isEstimated,
+    canMarkAsPaid:
+      (status === "pending" ||
+        status === "action_required" ||
+        status === "fleet_marked") &&
+      paymentDiff.outstandingAmount > 0 &&
+      !isEstimated,
     canVerifyFleetPayment: status === "fleet_marked",
     canShareReceipt: status === "settled",
   };
+}
+
+export function buildDriverLedgerReceiptDetails(opts: {
+  paymentDateRaw?: string | null;
+  partyName: string;
+  tripDisplay?: string | null;
+  paymentMode?: string | null;
+  reference?: string | null;
+  route?: string | null;
+  dateLabel?: string;
+  category?: string | null;
+}): LedgerEntryReceiptDetailRow[] {
+  const details: LedgerEntryReceiptDetailRow[] = [
+    {
+      label: (opts.dateLabel ?? "").trim() || "Payment date",
+      value: formatLedgerReceiptDate(opts.paymentDateRaw),
+    },
+    { label: "Party", value: (opts.partyName ?? "").trim() || "—" },
+  ];
+  const category = (opts.category ?? "").trim();
+  if (category) details.push({ label: "Category", value: category });
+  const trip = (opts.tripDisplay ?? "").trim();
+  if (trip) details.push({ label: "Trip", value: trip });
+  const route = (opts.route ?? "").trim();
+  if (route) details.push({ label: "Route", value: route });
+  details.push(
+    { label: "Payment mode", value: (opts.paymentMode ?? "").trim() || "—" },
+    { label: "Reference", value: (opts.reference ?? "").trim() || "—" },
+  );
+  return details;
 }

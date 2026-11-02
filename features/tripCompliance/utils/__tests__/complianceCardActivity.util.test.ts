@@ -3,6 +3,7 @@ import {
   complianceCardMilestones,
   enrichDocumentAuditRows,
   milestoneFromDocumentAudit,
+  milestonesFromDocumentAuditRows,
   milestoneFromWorkflowEvent,
   milestonesFromTripDocument,
 } from "@/features/tripCompliance/utils/complianceCardActivity.util";
@@ -207,6 +208,7 @@ describe("milestoneFromDocumentAudit", () => {
       }),
     ).toMatchObject({
       title: "deleted pod.jpg",
+      detail: "pod.jpg",
       actorUserId: "user-del",
       lane: "document",
     });
@@ -283,6 +285,48 @@ describe("milestoneFromDocumentAudit", () => {
         metadata: null,
       }),
     ).toBeNull();
+  });
+
+  it("shows deleted file name and create provenance from the sibling create", () => {
+    const miles = milestonesFromDocumentAuditRows([
+      {
+        id: "del",
+        document_id: "doc-ins-1",
+        action: "deleted",
+        actor_id: "satham",
+        entity_type: "vehicle",
+        entity_id: "v1",
+        created_at: "2026-10-29T18:18:00.000Z",
+        notes: "Document removed from this trip",
+        metadata: {
+          document_id: "doc-ins-1",
+          doc_type: "insurance",
+        },
+      },
+      {
+        id: "add",
+        document_id: "doc-ins-1",
+        action: "created",
+        actor_id: "uploader",
+        entity_type: "vehicle",
+        entity_id: "v1",
+        created_at: "2026-10-29T17:52:00.000Z",
+        metadata: {
+          document_id: "doc-ins-1",
+          doc_type: "insurance",
+          file_name: "insurance_abc.pdf",
+          storage_path: "org/vehicle/v1/insurance_abc.pdf",
+        },
+      },
+    ]);
+    const deleted = miles.find((m) => m.title === "deleted Insurance");
+    expect(deleted).toMatchObject({
+      title: "deleted Insurance",
+      detail: "insurance_abc.pdf",
+      detailLines: ["insurance_abc.pdf"],
+      originActorUserId: "uploader",
+      originAt: "2026-10-29T17:52:00.000Z",
+    });
   });
 
   it("recovers bare create audits from a sibling delete for the same document", () => {
@@ -406,29 +450,62 @@ describe("complianceCardMilestones vehicle RC preview", () => {
 });
 
 describe("backfillMilestoneActors", () => {
-  it("copies a nearby named actor onto an unnamed upload", () => {
+  it("copies a nearby same-lane actor onto an unnamed upload", () => {
     const filled = backfillMilestoneActors(
       [
         {
-          id: "pod",
+          id: "create",
           at: "2026-10-25T14:25:00.000Z",
-          title: "logged hard copy POD",
+          title: "created POD",
           actorUserId: "user-priya",
-          detail: "Hard copy dispatched by courier",
-          contextLabel: "Awaiting POD",
-          lane: "activity",
+          detail: "pulse.hard-copy.jpeg",
+          contextLabel: "Document Created",
+          lane: "document",
         },
         {
           id: "file",
           at: "2026-10-25T14:25:20.000Z",
-          title: "uploaded POD",
-          detail: "pulse.hard-copy.jpeg",
-          contextLabel: "Document Upload",
+          title: "created POD",
+          detail: "pulse.hard-copy-2.jpeg",
+          contextLabel: "Document Created",
           lane: "document",
         },
       ],
       [{ at: "2026-10-25T13:17:00.000Z", userId: "user-cost" }],
     );
     expect(filled[1]?.actorUserId).toBe("user-priya");
+  });
+
+  it("does not copy compliance verifier onto nearby document verifies", () => {
+    const filled = backfillMilestoneActors([
+      {
+        id: "compliance",
+        at: "2026-10-25T15:13:00.000Z",
+        title: "verified compliance",
+        actorUserId: "user-vaishnave",
+        detail: "Trip marked compliance verified",
+        contextLabel: "Compliance Verification",
+        lane: "activity",
+      },
+      {
+        id: "dl",
+        at: "2026-10-25T15:13:05.000Z",
+        title: "verified Driving License",
+        detail: "license.jpg",
+        contextLabel: "Document Verification",
+        lane: "document",
+      },
+      {
+        id: "ins",
+        at: "2026-10-25T15:13:08.000Z",
+        title: "verified Insurance",
+        detail: "insurance.jpg",
+        contextLabel: "Document Verification",
+        lane: "document",
+      },
+    ]);
+    expect(filled[0]?.actorUserId).toBe("user-vaishnave");
+    expect(filled[1]?.actorUserId).toBeFalsy();
+    expect(filled[2]?.actorUserId).toBeFalsy();
   });
 });

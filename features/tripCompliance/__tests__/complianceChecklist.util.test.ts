@@ -66,8 +66,11 @@ describe("buildComplianceChecklist", () => {
       "road_tax",
     ]);
     expect(checklist.groups[2].slots.map((s) => s.type)).toEqual(["license", "aadhaar"]);
+    expect(checklist.groups[3].slots.map((s) => s.type)).toEqual(["memo", "other", "bank_docs"]);
     expect(checklist.groups[1].total).toBe(3);
     expect(checklist.groups[2].total).toBe(1);
+    expect(checklist.groups[3].total).toBe(1);
+    expect(checklist.groups).toHaveLength(4);
     expect(checklist.total).toBe(7);
     expect(checklist.verified).toBe(0);
     expect(checklist.tone).toBe("danger");
@@ -155,7 +158,8 @@ describe("buildComplianceChecklist", () => {
     const checklist = buildComplianceChecklist({ tripDocuments, vehicleDocuments, driverDocuments });
     expect(checklist.verified).toBe(7);
     expect(checklist.tone).toBe("success");
-    expect(checklist.groups.every((group) => group.tone === "success")).toBe(true);
+    expect(checklist.groups.slice(0, 3).every((group) => group.tone === "success")).toBe(true);
+    expect(checklist.groups[3].tone).not.toBe("success");
   });
 });
 
@@ -209,6 +213,10 @@ describe("complianceGroupOnFileCount", () => {
     expect(requiredTrip.groups[1].tone).toBe("success");
     expect(complianceGroupOnFileCount(requiredTrip.groups[2])).toEqual({ onFile: 1, total: 2 });
     expect(requiredTrip.groups[2].tone).toBe("success");
+    expect(complianceGroupOnFileCount(requiredTrip.groups[3], [...tripRequired, tripOptional])).toEqual({
+      onFile: 0,
+      total: 3,
+    });
 
     const optionalTripDocs = ["pod", "memo"].map((type) => tripDoc(type));
     const optionalOnly = buildComplianceChecklist({
@@ -285,7 +293,7 @@ describe("ensureComplianceChecklist", () => {
   it("returns the current slot counts when summary is empty", () => {
     const checklist = ensureComplianceChecklist(undefined);
     expect(checklist.tone).toBe("danger");
-    expect(checklist.groups).toHaveLength(3);
+    expect(checklist.groups).toHaveLength(4);
     expect(checklist.total).toBe(7);
   });
 });

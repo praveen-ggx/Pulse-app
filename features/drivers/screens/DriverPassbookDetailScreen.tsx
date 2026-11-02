@@ -3,6 +3,12 @@
  * Data from trips + driver_ledger for the current user's driver link to this org.
  */
 import { LoadingIndicator } from "@/components/LoadingIndicator";
+import { DriverLedgerReceiptPreviewModal, type DriverLedgerReceiptPreview } from "@/features/drivers/components/DriverLedgerReceiptPreviewModal";
+import { DriverCapturePaymentButton } from "@/features/drivers/components/DriverCapturePaymentButton";
+import {
+  buildDriverLedgerReceiptDetails,
+  deriveDriverPaymentMode,
+} from "@/features/driver/tripSettlement/driverTripSettlement.util";
 import { FinanceTxnTypography } from '@/constants/FinanceTxnTypography';
 import Layout from '@/constants/Layout';
 import Theme from '@/constants/Theme';
@@ -358,14 +364,7 @@ export default function DriverPassbookDetailScreen() {
     [],
   );
 
-  const derivePaymentMode = useCallback((raw?: string | null) => {
-    const s = (raw ?? '').toLowerCase();
-    if (!s) return null;
-    if (s.includes('upi')) return 'UPI';
-    if (s.includes('bank') || s.includes('neft') || s.includes('rtgs') || s.includes('imps')) return 'BANK TRANSFER';
-    if (s.includes('cash')) return 'CASH';
-    return null;
-  }, []);
+  const derivePaymentMode = useCallback((raw?: string | null) => deriveDriverPaymentMode(raw), []);
 
   const [driver, setDriver] = useState<driversService.DriverRow | null>(null);
   const [invites, setInvites] = useState<driversService.DriverInviteRow[]>([]);
@@ -376,7 +375,7 @@ export default function DriverPassbookDetailScreen() {
   const [journeySearch, setJourneySearch] = useState('');
   const [journeyFilter, setJourneyFilter] = useState<'all' | 'pending' | 'fleet_marked' | 'settled'>('all');
   const [claimAllLoading, setClaimAllLoading] = useState(false);
-  const [expandedCashTripId, setExpandedCashTripId] = useState<string | null>(null);
+  const [ledgerReceiptPreview, setLedgerReceiptPreview] = useState<DriverLedgerReceiptPreview | null>(null);
   const [whatsAppReminderMessage, setWhatsAppReminderMessage] = useState<string | null>(null);
   const [markPaidLoadingTripId, setMarkPaidLoadingTripId] = useState<string | null>(null);
 
@@ -1146,9 +1145,9 @@ export default function DriverPassbookDetailScreen() {
           onPress={() => setEarningsMainTab('cash')}
           activeOpacity={0.8}
         >
-          <FontAwesome name="credit-card" size={12} color={earningsMainTab === 'cash' ? colors.emerald : colors.textMuted} />
+          <FontAwesome name="arrow-down" size={12} color={earningsMainTab === 'cash' ? colors.emerald : colors.textMuted} />
           <Text style={[styles.mainTabText, earningsMainTab === 'cash' ? { color: colors.emerald } : { color: colors.textMuted }]}>
-            Cash
+            Transactions
           </Text>
         </TouchableOpacity>
       </View>
@@ -1157,7 +1156,7 @@ export default function DriverPassbookDetailScreen() {
         <SearchBar
           value={journeySearch}
           onChangeText={setJourneySearch}
-          placeholder={earningsMainTab === 'trips' ? 'Search trips...' : 'Search settlements...'}
+          placeholder={earningsMainTab === 'trips' ? 'Search trips...' : 'Search cash in...'}
         />
 
         {earningsMainTab === 'trips' && (
@@ -1359,6 +1358,17 @@ export default function DriverPassbookDetailScreen() {
                               </Text>
                             </View>
                           </View>
+                          {pendingSettlement && !hasFleetPending ? (
+                            <View style={styles.tripActionWrap}>
+                              <DriverCapturePaymentButton
+                                tripId={trip.id}
+                                due={Math.round(headerAmount)}
+                                lane="fleet"
+                                partyName={item.provider}
+                                label="Capture commission"
+                              />
+                            </View>
+                          ) : null}
                           {pendingSettlement && hasFleetPending ? (
                             <View style={styles.tripActionWrap}>
                               <View
@@ -1399,12 +1409,12 @@ export default function DriverPassbookDetailScreen() {
         </View>
       ) : (
         <View style={[styles.ledgerSection, { paddingHorizontal: Layout.screenPaddingHorizontal }]}>
-          <Text style={[styles.transactionHistoryTitle, { color: colors.text }]}>Cash settlements</Text>
+          <Text style={[styles.transactionHistoryTitle, { color: colors.text }]}>Transactions</Text>
           {filteredCashSections.length === 0 ? (
             <View style={[styles.ledgerCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <View style={[styles.ledgerEmpty, { borderBottomWidth: 0 }]}>
                 <FontAwesome name="search" size={32} color={colors.textMuted} />
-                <Text style={[styles.ledgerEmptyText, { color: colors.textMuted }]}>No settlements found</Text>
+                <Text style={[styles.ledgerEmptyText, { color: colors.textMuted }]}>No cash in yet</Text>
               </View>
             </View>
           ) : (
@@ -1427,7 +1437,6 @@ export default function DriverPassbookDetailScreen() {
                       const receivedAmt = receivedByTripId[trip.id] ?? 0;
                       const listDivider = isDark ? colors.borderSubtle : Theme.borderMedium;
                       const isLastTrip = idx === trips.length - 1;
-                      const txnExpanded = expandedCashTripId === `cash-${trip.id}`;
                       const fleetName = orgName;
                       const fleetAvatarUri = fleetOrgAvatarUri;
                       const ledger = latestCreditLedgerByTripId[trip.id];
@@ -1447,7 +1456,76 @@ export default function DriverPassbookDetailScreen() {
                             style={styles.cashPremiumRowTouch}
                             activeOpacity={0.8}
                             onPress={() =>
-                              setExpandedCashTripId((prev) => (prev === `cash-${trip.id}` ? null : `cash-${trip.id}`))
+                              setLedgerReceiptPreview({
+                                statusLabel: "Payment received",
+                                title: "Transaction",
+                                amount: receivedAmt,
+                                isIn: true,
+                                partyAvatar: {
+                                  name: fleetName,
+                                  entityType: "supplier",
+                                  organizationImageUrl:
+                                    orgBrandingById[orgId]?.logoUrl ??
+                                    orgBrandingById[orgId]?.avatarUrl ??
+                                    null,
+                                  organizationAvatarSeed:
+                                    orgBrandingById[orgId]?.avatarSeed ?? null,
+                                  initialsColorSeed: orgId,
+                                },
+                                details: buildDriverLedgerReceiptDetails({
+                                  paymentDateRaw:
+                                    ledger?.created_at ??
+                                    trip.completed_at ??
+                                    trip.updated_at ??
+                                    trip.created_at,
+                                  partyName: fleetName,
+                                  tripDisplay: tripRef,
+                                  paymentMode,
+                                  reference: utr && utr !== "—" ? utr : "—",
+                                  route: routeSummary,
+                                }),
+                                secondaryAction: {
+                                  label: "Share",
+                                  onPress: () => {
+                                    const msg = buildSettlementShareMessage({
+                                      fleetName,
+                                      tripId: tripRef,
+                                      amount: receivedAmt,
+                                      transactionId: String(txnId),
+                                      utr: String(utr),
+                                    });
+                                    Share.share({ message: msg }).catch(() => {});
+                                  },
+                                },
+                                tripAction: {
+                                  label: "View trip",
+                                  onPress: () => {
+                                    setLedgerReceiptPreview(null);
+                                    router.push(`/driver-trip/${trip.id}` as never);
+                                  },
+                                },
+                                primaryAction: {
+                                  label: "PDF receipt",
+                                  onPress: () => {
+                                    void shareCashReceiptPdf({
+                                      title: "SETTLEMENT RECEIVED",
+                                      amount: receivedAmt,
+                                      transactionId: String(txnId ?? "—"),
+                                      utr: String(utr ?? "—"),
+                                      paymentMode: String(paymentMode ?? "—"),
+                                      capturedAt: String(capturedAt ?? "—"),
+                                      reference: String(tripRef ?? "—"),
+                                      settledTo: String(fleetName ?? "—"),
+                                      route: routeSummary || null,
+                                    }).catch((e) => {
+                                      const message =
+                                        e instanceof Error ? e.message : "Could not generate receipt.";
+                                      if (Platform.OS === "web") window.alert(message);
+                                      else Alert.alert("Receipt failed", message);
+                                    });
+                                  },
+                                },
+                              })
                             }
                           >
                             <View style={styles.cashPremiumLeft}>
@@ -1497,153 +1575,12 @@ export default function DriverPassbookDetailScreen() {
                                 </View>
                               </View>
                               <FontAwesome
-                                name="chevron-down"
+                                name="chevron-right"
                                 size={10}
                                 color={colors.textMuted}
-                                style={txnExpanded ? styles.cashPremiumChevronExpanded : undefined}
                               />
                             </View>
                           </TouchableOpacity>
-
-                          {txnExpanded && (
-                            <View style={styles.cashPremiumReceiptWrap}>
-                              <View
-                                style={[
-                                  styles.cashPremiumReceiptCard,
-                                  {
-                                    backgroundColor: colors.surface,
-                                    borderColor: isDark ? colors.borderSubtle : '#e2e8f0',
-                                  },
-                                ]}
-                              >
-                                <View style={styles.cashPremiumReceiptHero}>
-                                  <View style={[styles.cashPremiumReceiptIcon, { backgroundColor: colors.emeraldMuted }]}>
-                                    <FontAwesome name="check" size={22} color={colors.emerald} />
-                                  </View>
-                                  <Text style={[styles.cashPremiumReceiptEyebrow, { color: colors.emerald }]}>SETTLEMENT RECEIVED</Text>
-                                  <Text style={[styles.cashPremiumReceiptAmount, { color: colors.text }]}>
-                                    ₹{receivedAmt.toLocaleString('en-IN')}
-                                  </Text>
-                                </View>
-
-                                <View style={[styles.cashPremiumReceiptMeta, { borderTopColor: isDark ? colors.borderSubtle : '#e2e8f0' }]}>
-                                  <View style={styles.cashPremiumReceiptMetaRow}>
-                                    <Text style={[styles.cashPremiumReceiptMetaLabel, { color: colors.textMuted }]}>Transaction ID</Text>
-                                    <Text
-                                      style={[styles.cashPremiumReceiptMetaValue, { color: colors.text }]}
-                                      numberOfLines={1}
-                                      ellipsizeMode="middle"
-                                    >
-                                      {txnId}
-                                    </Text>
-                                  </View>
-                                  <View style={styles.cashPremiumReceiptMetaRow}>
-                                    <Text style={[styles.cashPremiumReceiptMetaLabel, { color: colors.textMuted }]}>UTR</Text>
-                                    <Text
-                                      style={[styles.cashPremiumReceiptMetaValue, { color: colors.text }]}
-                                      numberOfLines={1}
-                                      ellipsizeMode="middle"
-                                    >
-                                      {utr}
-                                    </Text>
-                                  </View>
-                                  <View style={styles.cashPremiumReceiptMetaRow}>
-                                    <Text style={[styles.cashPremiumReceiptMetaLabel, { color: colors.textMuted }]}>Payment mode</Text>
-                                    <Text style={[styles.cashPremiumReceiptMetaValue, { color: colors.text }]} numberOfLines={1}>
-                                      {paymentMode}
-                                    </Text>
-                                  </View>
-                                  <View style={styles.cashPremiumReceiptMetaRow}>
-                                    <Text style={[styles.cashPremiumReceiptMetaLabel, { color: colors.textMuted }]}>Captured at</Text>
-                                    <Text style={[styles.cashPremiumReceiptMetaValue, { color: colors.text }]} numberOfLines={1}>
-                                      {capturedAt}
-                                    </Text>
-                                  </View>
-                                  <View style={styles.cashPremiumReceiptMetaRow}>
-                                    <Text style={[styles.cashPremiumReceiptMetaLabel, { color: colors.textMuted }]}>Reference</Text>
-                                    <Text
-                                      style={[styles.cashPremiumReceiptMetaValue, { color: colors.text }]}
-                                      numberOfLines={1}
-                                      ellipsizeMode="middle"
-                                    >
-                                      {tripRef}
-                                    </Text>
-                                  </View>
-                                  <View style={styles.cashPremiumReceiptMetaRow}>
-                                    <Text style={[styles.cashPremiumReceiptMetaLabel, { color: colors.textMuted }]}>Settled to</Text>
-                                    <View style={styles.cashPremiumReceiptBankRow}>
-                                      <FontAwesome name="university" size={12} color={colors.textMuted} />
-                                      <Text
-                                        style={[styles.cashPremiumReceiptMetaValue, { color: colors.text }]}
-                                        numberOfLines={1}
-                                        ellipsizeMode="tail"
-                                      >
-                                        {fleetName}
-                                      </Text>
-                                    </View>
-                                  </View>
-                                  {routeSummary ? (
-                                    <View style={styles.cashPremiumReceiptMetaRow}>
-                                      <Text style={[styles.cashPremiumReceiptMetaLabel, { color: colors.textMuted }]}>Route</Text>
-                                      <Text style={[styles.cashPremiumReceiptMetaValue, { color: colors.text }]} numberOfLines={1}>
-                                        {routeSummary}
-                                      </Text>
-                                    </View>
-                                  ) : null}
-                                </View>
-
-                                <View style={styles.cashPremiumReceiptActions}>
-                                  <TouchableOpacity
-                                    style={[
-                                      styles.cashPremiumReceiptButtonSecondary,
-                                      {
-                                        backgroundColor: isDark ? colors.surfaceElevated : '#f8fafc',
-                                        borderColor: isDark ? colors.borderSubtle : '#e2e8f0',
-                                      },
-                                    ]}
-                                    activeOpacity={0.85}
-                                    onPress={() => {
-                                      const msg = buildSettlementShareMessage({
-                                        fleetName,
-                                        tripId: tripRef,
-                                        amount: receivedAmt,
-                                        transactionId: String(txnId),
-                                        utr: String(utr),
-                                      });
-                                      Share.share({ message: msg }).catch(() => {});
-                                    }}
-                                  >
-                                    <FontAwesome name="share-square-o" size={13} color={colors.textMuted} />
-                                    <Text style={[styles.cashPremiumReceiptButtonSecondaryText, { color: colors.textMuted }]}>Share</Text>
-                                  </TouchableOpacity>
-                                  <TouchableOpacity
-                                    style={[styles.cashPremiumReceiptButtonPrimary, { backgroundColor: colors.emerald }]}
-                                    activeOpacity={0.85}
-                                    onPress={() =>
-                                      shareCashReceiptPdf({
-                                        title: 'SETTLEMENT RECEIVED',
-                                        amount: receivedAmt,
-                                        transactionId: String(txnId ?? '—'),
-                                        utr: String(utr ?? '—'),
-                                        paymentMode: String(paymentMode ?? '—'),
-                                        capturedAt: String(capturedAt ?? '—'),
-                                        reference: String(tripRef ?? '—'),
-                                        settledTo: String(fleetName ?? '—'),
-                                        route: routeSummary || null,
-                                      }).catch((e) => {
-                                        const message = e instanceof Error ? e.message : 'Could not generate receipt.';
-                                        if (Platform.OS === 'web') window.alert(message);
-                                        else Alert.alert('Receipt failed', message);
-                                      })
-                                    }
-                                  >
-                                    <FontAwesome name="file-pdf-o" size={13} color={colors.textOnPrimary} />
-                                    <Text style={styles.cashPremiumReceiptButtonPrimaryText}>PDF receipt</Text>
-                                  </TouchableOpacity>
-                                </View>
-                              </View>
-                            </View>
-                          )}
                         </View>
                       );
                     })}
@@ -1824,6 +1761,11 @@ export default function DriverPassbookDetailScreen() {
         </Pressable>
       </Pressable>
     </Modal>
+    <DriverLedgerReceiptPreviewModal
+      visible={!!ledgerReceiptPreview}
+      receipt={ledgerReceiptPreview}
+      onClose={() => setLedgerReceiptPreview(null)}
+    />
     <ThemedConfirmModal
       variant="positive"
       visible={!!markPaidConfirmState}
@@ -2471,6 +2413,7 @@ const styles = StyleSheet.create({
   tripActionWrap: {
     marginTop: 12,
     gap: 10,
+    alignItems: "flex-end",
   },
   tripActionHint: {
     borderWidth: 1,

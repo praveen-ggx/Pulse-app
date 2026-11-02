@@ -1,5 +1,6 @@
 import { CustomersTab } from "@/features/clients/components/CustomersTab";
 import { ExchangeTripsLaneCard } from "@/features/marketplace/components/ExchangeTripsLaneCard";
+import { DcoSelfFinanceReceivablesPanel } from "@/features/finance/components/DcoSelfFinanceReceivablesPanel";
 import { StyleSheet, View } from "react-native";
 import type { FinanceTabBodyProps } from "../FinanceTabBody.types";
 
@@ -58,7 +59,12 @@ export function FinanceCustomersTab(props: FinanceTabBodyProps) {
         tripPartyMap={tripPartyMap}
         ledgerRows={filteredLedgerForDisplay}
         tripDetailsMap={tripDetailsMap}
-        topContent={topContent}
+        topContent={
+          <>
+            <DcoSelfFinanceReceivablesPanel />
+            {topContent}
+          </>
+        }
         refreshing={refreshing}
         onRefresh={onRefresh}
         bottomInset={bottomInset}

@@ -16,6 +16,7 @@ export const COMPLIANCE_STATUS_META: Record<
   pending: { label: "Pending", glyph: "◷", color: Theme.warning, bg: Theme.complianceDocNeedBg },
   verified: { label: "Verified", glyph: "✓", color: Theme.complianceDocOkFg, bg: Theme.complianceDocOkBg },
   rejected: { label: "Rejected", glyph: "!", color: Theme.teslaRed, bg: Theme.complianceDocNeedBg },
+  replaced: { label: "Replaced", glyph: "↻", color: Theme.textSecondary, bg: Theme.complianceDocNeedBg },
   expired: { label: "Expired", glyph: "!", color: Theme.teslaRed, bg: Theme.complianceDocNeedBg },
 };
 

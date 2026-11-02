@@ -83,6 +83,32 @@ export const ROUTES = {
   driverDcoStatus: () => '/(driver)/dco-status' as const,
   /** Driver wallet, Self tab (DCO self ledger + linked fleets to disconnect). */
   driverWalletSelf: () => '/(driver)/wallet?tab=self' as const,
+  driverPartyReceivable: (partyId: string) =>
+    `/(driver)/receivable/${encodeURIComponent(partyId)}` as const,
+  driverAddClient: (opts?: { tripId?: string; partyName?: string }) => {
+    const params = new URLSearchParams();
+    if (opts?.tripId?.trim()) params.set("tripId", opts.tripId.trim());
+    if (opts?.partyName?.trim()) params.set("partyName", opts.partyName.trim());
+    const q = params.toString();
+    return (q ? `/(driver)/add-client?${q}` : "/(driver)/add-client");
+  },
+  driverCapturePayment: (opts: {
+    tripId: string;
+    due?: number;
+    lane?: "fleet" | "shipper" | "marketplace";
+    partyName?: string;
+    mode?: string;
+    reference?: string;
+  }) => {
+    const params = new URLSearchParams();
+    params.set("tripId", opts.tripId);
+    if (opts.due != null && opts.due > 0) params.set("due", String(Math.round(opts.due)));
+    if (opts.lane) params.set("lane", opts.lane);
+    if (opts.partyName) params.set("partyName", opts.partyName);
+    if (opts.mode) params.set("mode", opts.mode);
+    if (opts.reference) params.set("reference", opts.reference);
+    return `/(driver)/capture-payment?${params.toString()}` as const;
+  },
   /** My Fleet list (DCO personal owner vehicles). */
   driverMyFleet: () => '/(driver)/my-fleet' as const,
   driverMyFleetAdd: () => '/(driver)/my-fleet/add' as const,

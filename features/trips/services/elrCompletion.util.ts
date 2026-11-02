@@ -733,7 +733,7 @@ export function elrTripStatusCopy(
     return { action: "Generate E-LR", hint: "E-LR details required" };
   }
   if (phase === "start") {
-    return { action: "Generate E-LR", hint: "Generate E-LR" };
+    return { action: "Generate E-LR", hint: "" };
   }
   return { action: "Generate E-LR", hint: "E-LR details required" };
 }

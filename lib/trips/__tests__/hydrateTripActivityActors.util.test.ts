@@ -44,15 +44,23 @@ describe("hydrateTripActivityActors", () => {
         detail: "pod.jpg",
         lane: "document",
       },
+      {
+        id: "entity-verified-ent-9",
+        at: "2026-10-28T05:13:00.000Z",
+        title: "verified Driving License",
+        detail: "license.jpg",
+        lane: "document",
+      },
     ];
     const filled = applyDocumentActorsToMilestones(
       miles,
       { "doc-1": "user-upload", "doc-2": "user-other" },
-      { "doc-1": "user-verify" },
+      { "doc-1": "user-verify", "ent-9": "user-dl-verifier" },
     );
     expect(filled[0]?.actorUserId).toBe("user-upload");
     expect(filled[1]?.actorUserId).toBe("user-verify");
     expect(filled[2]?.actorUserId).toBe("keep-me");
+    expect(filled[3]?.actorUserId).toBe("user-dl-verifier");
   });
 
   it("builds workspace display names from profiles", () => {

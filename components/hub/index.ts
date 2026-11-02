@@ -18,6 +18,7 @@ export { HubMobileSearchRow } from "./HubMobileSearchRow";
 export { HubMobileListCanvas } from "./HubMobileListCanvas";
 export {
   HUB_MOBILE_TICKET_REF,
+  HUB_MOBILE_COMMERCE_REF,
   HUB_MOBILE_LIST_CANVAS_BG,
   hubMobileListCanvasStyles,
 } from "./hubMobileTicketTokens";

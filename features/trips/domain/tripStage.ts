@@ -42,7 +42,16 @@ export function getTripStageTarget(stage: TripStage): TripStageTarget {
  * places lookup by area name when the DB row has no coordinates.
  */
 export function getTripStopCoordinate(
-  trip: TripRow,
+  trip: Pick<
+    TripRow,
+    | "pickup_lat"
+    | "pickup_lon"
+    | "drop_lat"
+    | "drop_lon"
+    | "pickup_area"
+    | "drop_location"
+    | "drop_area"
+  >,
   target: "pickup" | "drop",
 ): { latitude: number; longitude: number } | null {
   const latitude = Number(target === "pickup" ? trip.pickup_lat : trip.drop_lat);

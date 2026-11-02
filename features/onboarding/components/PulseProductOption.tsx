@@ -1,5 +1,14 @@
 import { memo } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type PressableStateCallbackType,
+} from 'react-native';
+
+type PressableHoverState = PressableStateCallbackType & { hovered?: boolean };
 
 import Theme from '@/constants/Theme';
 import { PulseBrandMark } from '@/components/brand/PulseBrandMark';
@@ -32,7 +41,7 @@ export const PulseProductOption = memo(function PulseProductOption({
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed, hovered }) => [
+      style={({ pressed, hovered }: PressableHoverState) => [
         styles.card,
         compact && styles.cardCompact,
         (pressed || (Platform.OS === 'web' && hovered)) && styles.cardPressed,

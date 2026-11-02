@@ -512,7 +512,7 @@ export default function ComplianceScreen() {
   const [cardTripId, setCardTripId] = useState<string | null>(null);
   const [chargeFocus, setChargeFocus] = useState<{ tripId: string; token: number } | null>(null);
   const [cardFocus, setCardFocus] = useState<{
-    tab: "trip" | "vehicle" | "driver";
+    tab: "trip" | "vehicle" | "driver" | "finance";
     token: number;
   } | null>(null);
   const [awaitingPodSubview, setAwaitingPodSubview] = useState<AwaitingPodSubview>("all");
@@ -1817,7 +1817,7 @@ export default function ComplianceScreen() {
     verifiedSlice,
   ]);
 
-  const openComplianceCard = useCallback((tripId: string, tab: "trip" | "vehicle" | "driver" = "trip") => {
+  const openComplianceCard = useCallback((tripId: string, tab: "trip" | "vehicle" | "driver" | "finance" = "trip") => {
     setCardTripId(tripId);
     setCardFocus({ tab, token: Date.now() });
     setViewMode("card");

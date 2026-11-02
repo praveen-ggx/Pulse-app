@@ -1,26 +1,31 @@
+import { HUB_MOBILE_COMMERCE_REF } from "@/components/hub/hubMobileTicketTokens";
+import {
+  LedgerProtocolStripModeTile,
+  ledgerPaymentModeVisual,
+} from "@/components/ledger/ledgerPaymentVisuals";
+import { LedgerSyncPalette } from "@/constants/LedgerSyncPalette";
 import Theme from "@/constants/Theme";
+import { getDocumentChargeConfig } from "@/features/organization/services/documentCharges.service";
+import { formatSlabRange } from "@/features/organization/utils/documentChargeSlabs.util";
+import {
+  getVendorOnboardingProfile,
+  listSupplierTdsRates,
+} from "@/features/suppliers/services/supplierVendorOnboarding.service";
+import { financialYearOf } from "@/features/suppliers/utils/supplierVendorOnboarding.util";
+import {
+  getSupplierById,
+  getSupplierDetails,
+} from "@/features/suppliers/services/suppliers.service";
 import {
   guessCompliancePreviewMime,
   signCompliancePreviewUrl,
 } from "@/features/tripCompliance/services/complianceDocumentView.service";
-import type { ComplianceLedgerCategory } from "@/features/tripCompliance/services/tripComplianceWrite.service";
 import {
   fetchOrganizationPayoutAccounts,
   type OrganizationPayoutAccount,
 } from "@/features/tripCompliance/services/tripComplianceRead.service";
+import type { ComplianceLedgerCategory } from "@/features/tripCompliance/services/tripComplianceWrite.service";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
-import {
-  isCashPaymentMode,
-  normalizeComplianceUtr,
-  validateComplianceUtr,
-} from "@/features/tripCompliance/utils/compliancePaymentReference.util";
-import {
-  toComplianceTransactionDateInput,
-  validateComplianceTransactionDate,
-} from "@/features/tripCompliance/utils/compliancePaymentDate.util";
-import { alertMessage } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
-import { getDocumentChargeConfig } from "@/features/organization/services/documentCharges.service";
-import { formatSlabRange } from "@/features/organization/utils/documentChargeSlabs.util";
 import {
   COMPLIANCE_DEFAULT_ADVANCE_PERCENT,
   computeCompliancePaymentAmount,
@@ -29,17 +34,22 @@ import {
   resolveComplianceTdsRate,
   type ComplianceDocumentChargeConfig,
 } from "@/features/tripCompliance/utils/compliancePaymentAmount.util";
-import { classifyTripDocument } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
+import {
+  toComplianceTransactionDateInput,
+  validateComplianceTransactionDate,
+} from "@/features/tripCompliance/utils/compliancePaymentDate.util";
+import {
+  isCashPaymentMode,
+  normalizeComplianceUtr,
+  validateComplianceUtr,
+} from "@/features/tripCompliance/utils/compliancePaymentReference.util";
 import { formatTruckTypeWithSize } from "@/features/tripCompliance/utils/complianceTruckType.util";
+import { alertMessage } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import {
-  getVendorOnboardingProfile,
-  listSupplierTdsRates,
-} from "@/features/suppliers/services/supplierVendorOnboarding.service";
-import {
-  getSupplierById,
-  getSupplierDetails,
-} from "@/features/suppliers/services/suppliers.service";
-import { financialYearOf } from "@/features/suppliers/utils/supplierVendorOnboarding.util";
+  COMPLIANCE_ACTION_BTN,
+  complianceActionButtonStyles,
+} from "@/features/tripCompliance/utils/complianceActionButton.util";
+import { classifyTripDocument } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
 import {
   getTripDisplayNumber,
   type TripRow,
@@ -50,7 +60,7 @@ import {
 } from "@/features/vehicles/services/vehicles.service";
 import { PAYMENT_MODES } from "@/lib/paymentModes";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { Calendar, Eye } from "lucide-react-native";
+import { Banknote, Calendar, Clock, Eye, Hash, Route } from "lucide-react-native";
 import React, { createElement, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -65,6 +75,8 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+
+const SHOP = HUB_MOBILE_COMMERCE_REF;
 
 type PaymentTripFacts = TripRow & {
   sale_unit_rate?: number | null;
@@ -123,12 +135,45 @@ function baseFreightAmount(
   return total;
 }
 
-const INLINE_TWO_COLUMN_MIN_WIDTH = 380;
+const INLINE_TWO_COLUMN_MIN_WIDTH = 640;
 /** Modal sheet uses the same side-by-side card layout as Advance Payment (reference). */
 const MODAL_MAX_WIDTH = 760;
 const MODAL_TWO_COLUMN_MIN_WIDTH = 560;
 /** Inline action buttons are drawn 36pt tall; keep the touch target at 44pt. */
 const INLINE_ACTION_HIT_SLOP = { top: 4, bottom: 4, left: 0, right: 0 };
+
+function LedgerSectionHead({
+  icon,
+  iconTone = "mode",
+  title,
+  hint,
+}: {
+  icon: React.ReactNode;
+  iconTone?: "mode" | "ref" | "date" | "amount" | "trip";
+  title: string;
+  hint?: string;
+}) {
+  return (
+    <View style={styles.ledgerHead}>
+      <View
+        style={[
+          styles.ledgerIcon,
+          iconTone === "mode" && styles.ledgerIconMode,
+          iconTone === "ref" && styles.ledgerIconRef,
+          iconTone === "date" && styles.ledgerIconDate,
+          iconTone === "amount" && styles.ledgerIconAmount,
+          iconTone === "trip" && styles.ledgerIconTrip,
+        ]}
+      >
+        {icon}
+      </View>
+      <View style={styles.ledgerHeadText}>
+        <Text style={styles.ledgerEyebrow}>{title}</Text>
+        {hint ? <Text style={styles.ledgerHint}>{hint}</Text> : null}
+      </View>
+    </View>
+  );
+}
 
 function FactRow({
   label,
@@ -166,7 +211,7 @@ function FactRow({
           compact && styles.factValueCompact,
           compact && emphasize && styles.factValueEmphasizeCompact,
         ]}
-        numberOfLines={compact ? 1 : 2}
+        numberOfLines={3}
       >
         {value}
       </Text>
@@ -712,8 +757,20 @@ export function CompliancePaymentConfirmModal({
     </Text>
   );
 
+  const todayIso = toComplianceTransactionDateInput(new Date().toISOString());
+  const yesterdayDate = new Date();
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  const yesterdayIso = toComplianceTransactionDateInput(yesterdayDate.toISOString());
+  const txnIso = txnDisplayToIso(txnDateText);
+
   const factsCard = (
-    <View style={[styles.factCard, isInline && styles.factCardInline]}>
+    <View style={[styles.factCard, isInline && styles.factCardInline, styles.ledgerCard]}>
+      <LedgerSectionHead
+        icon={<Route size={15} color={Theme.primary} strokeWidth={2.2} />}
+        iconTone="trip"
+        title="Trip"
+        hint="Settlement context for this ledger post"
+      />
       <FactRow compact={isInline} label="Supplier" value={supplierLabel?.trim() || "—"} />
       <FactRow compact={isInline} label="Customer name" value={trip?.client_name?.trim() || "—"} />
       <FactRow compact={isInline} label="Truck type" value={truckType?.trim() || "—"} />
@@ -747,7 +804,7 @@ export function CompliancePaymentConfirmModal({
               <ActivityIndicator size="small" color={Theme.textPrimaryDark} />
             ) : (
               <>
-                <Eye size={isInline ? 12 : 13} color={Theme.textPrimaryDark} strokeWidth={2.2} />
+                <Eye size={isInline ? 12 : 13} color={SHOP.ink} strokeWidth={2.2} />
                 <Text style={[styles.eyeText, isInline && styles.eyeTextInline]}>Preview</Text>
               </>
             )}
@@ -758,11 +815,13 @@ export function CompliancePaymentConfirmModal({
   );
 
   const calcCard = (
-    <View style={[styles.calcCard, isInline && styles.calcCardInline]}>
-      <Text style={[styles.calcTitle, isInline && styles.calcTitleInline]}>Amount calculation</Text>
-      <Text style={[styles.calcHint, isInline && styles.calcHintInline]} numberOfLines={isInline ? 1 : undefined}>
-        (Base freight × {percentLabel}) − Documentation charges − TDS
-      </Text>
+    <View style={[styles.calcCard, isInline && styles.calcCardInline, styles.ledgerCard]}>
+      <LedgerSectionHead
+        icon={<Banknote size={15} color={Theme.darkGreen} strokeWidth={2.2} />}
+        iconTone="amount"
+        title="Amount calculation"
+        hint={`(Base freight × ${percentLabel}) − Documentation charges − TDS`}
+      />
 
       <View style={[styles.calcRow, isInline && styles.calcRowInline]}>
         <Text style={[styles.calcLabel, styles.calcLabelGrow, isInline && styles.calcLabelInline]}>Base freight</Text>
@@ -790,7 +849,7 @@ export function CompliancePaymentConfirmModal({
       <View style={[styles.calcRowTds, isInline && styles.calcRowTdsInline]}>
         <View style={styles.calcLabelBlock}>
           <Text style={[styles.calcLabel, isInline && styles.calcLabelInline]}>Documentation charges</Text>
-          <Text style={[styles.calcMeta, isInline && styles.calcMetaInline]} numberOfLines={1}>
+          <Text style={[styles.calcMeta, isInline && styles.calcMetaInline]} numberOfLines={2}>
             {docChargeLoading ? "Fetching charge slabs…" : docChargeMeta}
           </Text>
         </View>
@@ -852,21 +911,27 @@ export function CompliancePaymentConfirmModal({
 
       <View style={[styles.amountResult, isInline && styles.amountResultInline]}>
         <View style={styles.amountResultCopy}>
-          <Text style={[styles.amountResultLabel, isInline && styles.amountResultLabelInline]}>
-            {isAdvance ? "Final advance payable (₹)" : "Final balance payable (₹)"}
+          <Text
+            style={[styles.amountResultLabel, isInline && styles.amountResultLabelInline]}
+            numberOfLines={1}
+          >
+            {isAdvance ? "Final advance payable" : "Final balance payable"}
           </Text>
-          <Text style={styles.amountResultHint} numberOfLines={1}>
+          <Text style={styles.amountResultHint} numberOfLines={2}>
             {tdsHasRate
               ? "Auto-calculated · TDS from vendor vault"
               : "Auto-calculated · editable % above"}
           </Text>
         </View>
-        <Text
-          style={[styles.amountResultValue, isInline && styles.amountResultValueInline]}
-          numberOfLines={1}
-        >
-          {formatInr(computedAmount)}
-        </Text>
+        <View style={styles.amountHeroValue}>
+          <Text style={styles.amountRupee}>₹</Text>
+          <Text
+            style={[styles.amountResultValue, isInline && styles.amountResultValueInline]}
+            numberOfLines={1}
+          >
+            {computedAmount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+          </Text>
+        </View>
       </View>
     </View>
   );
@@ -883,85 +948,117 @@ export function CompliancePaymentConfirmModal({
   );
 
   const modeField = (
-    <View style={[styles.field, isInline && styles.fieldInline]}>
-      <Text style={[styles.label, isInline && styles.labelInline]}>Payment mode</Text>
-      <View style={styles.modeRow}>
-        {PAYMENT_MODES.slice(0, 4).map((item) => {
-          const selected = modeId === item.id;
-          return (
-            <Pressable
-              key={item.id}
-              onPress={() => setModeId(item.id)}
-              style={[styles.modeChip, isInline && styles.modeChipInline, selected && styles.modeChipOn]}
-              disabled={submitting}
-              accessibilityRole="button"
-              accessibilityState={{ selected }}
-            >
-              <Text
-                style={[styles.modeChipText, isInline && styles.modeChipTextInline, selected && styles.modeChipTextOn]}
-                numberOfLines={1}
-              >
-                {item.name}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-      <View style={styles.paymentInputsRow}>
-        <View style={styles.paymentInputCell}>
-          <Text style={[styles.label, isInline && styles.labelInline]}>{isCash ? "UTR / reference (optional)" : "UTR / reference *"}</Text>
+    <View style={[styles.field, styles.ledgerCard, isInline && styles.fieldInline]}>
+      <View style={styles.paymentBody}>
+        <LedgerSectionHead
+          icon={<Banknote size={15} color={Theme.darkGreen} strokeWidth={2.2} />}
+          iconTone="mode"
+          title="Payment mode"
+          hint="How this money moved"
+        />
+        <View style={styles.modeTileRow}>
+          {PAYMENT_MODES.slice(0, 4).map((item) => (
+            <View key={item.id} style={styles.modeTileCell}>
+              <LedgerProtocolStripModeTile
+                modeId={item.id}
+                label={ledgerPaymentModeVisual(item.id).shortLabel}
+                selected={modeId === item.id}
+                variant={isInline ? "compact" : "desktop"}
+                onPress={() => {
+                  if (!submitting) setModeId(item.id);
+                }}
+              />
+            </View>
+          ))}
+        </View>
+        <LedgerSectionHead
+          icon={<Hash size={15} color={Theme.primary} strokeWidth={2.2} />}
+          iconTone="ref"
+          title="Reference / UTR"
+          hint={isCash ? "Optional for cash payments" : "NEFT / UPI / bank transaction reference"}
+        />
+        <View style={[styles.ledgerInputWrap, !!utrText && !!utrError && styles.textFieldError]}>
           <TextInput
-            style={[styles.textField, isInline && styles.textFieldInline, !!utrText && !!utrError && styles.textFieldError]}
+            style={styles.ledgerInput}
             value={utrText}
             onChangeText={(text) => setUtrText(normalizeComplianceUtr(text))}
             editable={!submitting}
             autoCapitalize="characters"
             autoCorrect={false}
-            placeholder="Bank UTR"
-            placeholderTextColor={Theme.textMuted}
+            placeholder={isCash ? "UTR or reference (optional)" : "Enter UTR or bank reference"}
+            placeholderTextColor={LedgerSyncPalette.muted}
             accessibilityLabel="UTR / reference number"
           />
-          {utrText && utrError ? <Text style={styles.fieldError}>{utrError}</Text> : null}
         </View>
-        <View style={styles.paymentInputCell}>
-          <Text style={[styles.label, isInline && styles.labelInline]}>Transaction date *</Text>
-          <TxnDateInput
-            value={txnDateText}
-            onChange={setTxnDateText}
+        {utrText && utrError ? <Text style={styles.fieldError}>{utrError}</Text> : null}
+        <LedgerSectionHead
+          icon={<Clock size={15} color={LedgerSyncPalette.ink} strokeWidth={2.2} />}
+          iconTone="date"
+          title="Sync date"
+          hint="When this payment was made"
+        />
+        <View style={styles.dateInlineRow}>
+          <Pressable
+            onPress={() => !submitting && setTxnDateText(txnIsoToDisplay(todayIso))}
+            style={[styles.datePreset, txnIso === todayIso && styles.datePresetOn]}
             disabled={submitting}
-            hasError={!!txnDateText && !!txnDateError}
-            compact={isInline}
-          />
-          {txnDateText.length >= 10 && txnDateError ? <Text style={styles.fieldError}>{txnDateError}</Text> : null}
-        </View>
-      </View>
-      {payoutAccounts.length > 0 ? (
-        <>
-          <Text style={[styles.label, isInline && styles.labelInline]}>Paid from (optional)</Text>
-          <View style={[styles.modeRow, styles.wrapRow]}>
-            {payoutAccounts.map((item) => {
-              const selected = paidFromId === item.id;
-              return (
-                <Pressable
-                  key={item.id}
-                  onPress={() => setPaidFromId(selected ? null : item.id)}
-                  style={[styles.modeChip, isInline && styles.modeChipInline, selected && styles.modeChipOn]}
-                  disabled={submitting}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                >
-                  <Text
-                    style={[styles.modeChipText, isInline && styles.modeChipTextInline, selected && styles.modeChipTextOn]}
-                    numberOfLines={1}
-                  >
-                    {item.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
+            accessibilityRole="button"
+            accessibilityLabel="Today"
+          >
+            <Text style={[styles.datePresetText, txnIso === todayIso && styles.datePresetTextOn]}>
+              Today
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => !submitting && setTxnDateText(txnIsoToDisplay(yesterdayIso))}
+            style={[styles.datePreset, txnIso === yesterdayIso && styles.datePresetOn]}
+            disabled={submitting}
+            accessibilityRole="button"
+            accessibilityLabel="Yesterday"
+          >
+            <Text style={[styles.datePresetText, txnIso === yesterdayIso && styles.datePresetTextOn]}>
+              Yesterday
+            </Text>
+          </Pressable>
+          <View style={styles.dateFieldGrow}>
+            <TxnDateInput
+              value={txnDateText}
+              onChange={setTxnDateText}
+              disabled={submitting}
+              hasError={!!txnDateText && !!txnDateError}
+              compact={isInline}
+            />
           </View>
-        </>
-      ) : null}
+        </View>
+        {txnDateText.length >= 10 && txnDateError ? <Text style={styles.fieldError}>{txnDateError}</Text> : null}
+        {payoutAccounts.length > 0 ? (
+          <>
+            <Text style={styles.paidFromLabel}>Paid from (optional)</Text>
+            <View style={[styles.modeRow, styles.wrapRow]}>
+              {payoutAccounts.map((item) => {
+                const selected = paidFromId === item.id;
+                return (
+                  <Pressable
+                    key={item.id}
+                    onPress={() => setPaidFromId(selected ? null : item.id)}
+                    style={[styles.paidFromChip, selected && styles.paidFromChipOn]}
+                    disabled={submitting}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                  >
+                    <Text
+                      style={[styles.paidFromChipText, selected && styles.paidFromChipTextOn]}
+                      numberOfLines={1}
+                    >
+                      {item.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </>
+        ) : null}
+      </View>
     </View>
   );
 
@@ -1075,7 +1172,12 @@ export function CompliancePaymentConfirmModal({
         style={styles.inlineRoot}
         onLayout={(event) => setInlineWidth(event.nativeEvent.layout.width)}
       >
-        {introText}
+        {readOnly ? null : (
+        <View style={styles.inlineHeader}>
+          <Text style={styles.inlineTitle}>Confirm payment</Text>
+          {introText}
+        </View>
+        )}
         {/* Values scroll instead of being clipped on smaller screens; actions stay pinned. */}
         <ScrollView
           style={styles.inlineScroll}
@@ -1152,28 +1254,28 @@ const styles = StyleSheet.create({
     }),
   },
   sheetContent: {
-    paddingHorizontal: 20,
-    paddingTop: 18,
-    paddingBottom: 18,
-    gap: 14,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 16,
+    gap: 12,
   },
-  modalHeader: { gap: 6 },
+  modalHeader: { gap: 4 },
   title: {
     fontSize: 18,
     fontWeight: "700",
-    letterSpacing: -0.2,
-    color: Theme.textPrimaryDark,
+    letterSpacing: -0.3,
+    color: SHOP.ink,
   },
   body: {
     fontSize: 12,
-    fontWeight: "400",
-    color: Theme.textMuted,
-    lineHeight: 17,
+    fontWeight: "500",
+    color: SHOP.muted,
+    lineHeight: 16,
   },
   bodyInline: {
     flexShrink: 0,
-    fontSize: 10,
-    lineHeight: 13,
+    fontSize: 11,
+    lineHeight: 14,
   },
   inlineRoot: {
     flex: 1,
@@ -1181,12 +1283,147 @@ const styles = StyleSheet.create({
     width: "100%",
     minWidth: 0,
     paddingTop: 2,
+    paddingBottom: 0,
+    gap: 6,
+    backgroundColor: "transparent",
+  },
+  inlineHeader: {
+    flexShrink: 0,
+    gap: 2,
+    paddingHorizontal: 2,
+  },
+  inlineTitle: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+    color: LedgerSyncPalette.ink,
+  },
+  ledgerCard: {
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 10,
+    gap: 10,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.cardWhite,
+    overflow: "hidden",
+  },
+  ledgerHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 0,
     paddingBottom: 2,
+  },
+  ledgerHeadText: { flex: 1, minWidth: 0, gap: 2 },
+  ledgerIcon: {
+    width: 34,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  ledgerIconMode: { backgroundColor: "rgba(16,185,129,0.08)" },
+  ledgerIconRef: { backgroundColor: "rgba(99,102,241,0.08)" },
+  ledgerIconDate: { backgroundColor: LedgerSyncPalette.page },
+  ledgerIconAmount: { backgroundColor: "rgba(16,185,129,0.08)" },
+  ledgerIconTrip: { backgroundColor: Theme.primaryLight },
+  ledgerEyebrow: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: LedgerSyncPalette.ink,
+    letterSpacing: -0.1,
+  },
+  ledgerHint: {
+    fontSize: 10,
+    fontWeight: "500",
+    color: LedgerSyncPalette.muted,
+    lineHeight: 14,
+  },
+  modeTileRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
     gap: 6,
   },
-  columns: { gap: 12 },
+  modeTileCell: { flex: 1, minWidth: 0 },
+  ledgerInputWrap: {
+    backgroundColor: LedgerSyncPalette.page,
+    paddingHorizontal: 12,
+    paddingVertical: 2,
+  },
+  ledgerInput: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: LedgerSyncPalette.ink,
+    paddingVertical: 10,
+    ...(Platform.OS === "web" ? { outlineStyle: "none" } : null),
+  } as never,
+  dateInlineRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  datePreset: {
+    height: 32,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: LedgerSyncPalette.page,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: LedgerSyncPalette.border,
+  },
+  datePresetOn: {
+    backgroundColor: LedgerSyncPalette.ink,
+    borderColor: LedgerSyncPalette.ink,
+  },
+  datePresetText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: LedgerSyncPalette.ink,
+  },
+  datePresetTextOn: { color: Theme.cardWhite },
+  dateFieldGrow: { flexGrow: 1, flexBasis: 160, minWidth: 140 },
+  paidFromLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: LedgerSyncPalette.muted,
+  },
+  paidFromChip: {
+    height: 28,
+    paddingHorizontal: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: LedgerSyncPalette.page,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: LedgerSyncPalette.border,
+  },
+  paidFromChipOn: {
+    borderColor: LedgerSyncPalette.ink,
+    backgroundColor: Theme.cardWhite,
+  },
+  paidFromChipText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: LedgerSyncPalette.muted,
+  },
+  paidFromChipTextOn: { color: LedgerSyncPalette.ink },
+  amountHeroValue: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 2,
+    flexShrink: 0,
+  },
+  amountRupee: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Theme.darkGreen,
+  },
+  columns: { gap: 8 },
   columnsWide: { flexDirection: "row", alignItems: "stretch" },
-  columnsInline: { gap: 8 },
+  columnsInline: { gap: 6 },
   column: { minWidth: 0 },
   columnWide: { flex: 1, flexBasis: 0 },
   columnInline: { minWidth: 0 },
@@ -1194,161 +1431,167 @@ const styles = StyleSheet.create({
   inlineScrollContent: { gap: 6, paddingBottom: 4 },
   factCard: {
     flexGrow: 1,
-    borderRadius: 12,
-    backgroundColor: Theme.compliancePageBg,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    gap: 2,
+    borderRadius: 0,
+    borderWidth: 0,
+    borderColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.cardWhite,
+    overflow: "hidden",
+    paddingBottom: 4,
   },
   factCardInline: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    gap: 0,
+    paddingBottom: 2,
   },
   factRow: {
-    minHeight: 32,
+    minHeight: 28,
     flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
+    alignItems: "flex-start",
+    gap: 8,
+    paddingHorizontal: 2,
+    paddingVertical: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.complianceTripCardBorder,
   },
   factRowCompact: {
-    minHeight: 24,
+    minHeight: 22,
     gap: 8,
+    paddingVertical: 2,
   },
   factRowEmphasize: {
-    minHeight: 36,
-    marginTop: 2,
-    marginBottom: 2,
-    paddingVertical: 4,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.complianceCardBorder,
+    minHeight: 26,
+    backgroundColor: "#FAFBFC",
   },
   factRowEmphasizeCompact: {
-    minHeight: 26,
-    marginTop: 0,
-    marginBottom: 0,
-    paddingVertical: 2,
+    minHeight: 24,
   },
   factLabel: {
     flexShrink: 0,
-    width: 118,
-    fontSize: 12,
-    fontWeight: "500",
-    color: Theme.textMuted,
+    width: 92,
+    paddingTop: 1,
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "600",
+    letterSpacing: 0.25,
+    textTransform: "uppercase",
+    color: SHOP.muted,
   },
   factLabelCompact: {
-    width: 84,
     fontSize: 9,
     lineHeight: 12,
   },
   factLabelEmphasize: {
     fontWeight: "600",
-    color: Theme.textPrimaryDark,
+    color: SHOP.ink,
   },
   factValue: {
     flex: 1,
     minWidth: 0,
-    fontSize: 13,
-    fontWeight: "700",
-    color: Theme.textPrimaryDark,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "500",
+    color: SHOP.ink,
     textAlign: "right",
   },
   factValueEmphasize: {
-    fontSize: 14,
-    fontWeight: "800",
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "700",
     color: Theme.darkGreen,
   },
   factValueCompact: {
-    fontSize: 10,
-    fontWeight: "600",
-    lineHeight: 13,
+    fontSize: 11,
+    fontWeight: "500",
+    lineHeight: 14,
   },
   factValueEmphasizeCompact: {
-    fontSize: 11,
+    fontSize: 12,
+    lineHeight: 15,
     fontWeight: "700",
+    color: Theme.darkGreen,
   },
   docAction: { flex: 1, minWidth: 0, alignItems: "flex-end" },
   eyeBtn: {
-    height: 30,
-    paddingHorizontal: 10,
-    borderRadius: 8,
+    ...complianceActionButtonStyles.ghost,
+    minWidth: 0,
+    paddingHorizontal: 8,
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 5,
-    backgroundColor: Theme.cardWhite,
-    borderWidth: 1,
-    borderColor: Theme.complianceCardBorder,
+    gap: 4,
   },
   eyeBtnInline: {
-    height: 26,
-    paddingHorizontal: 8,
+    minHeight: 24,
+    paddingHorizontal: 10,
   },
   eyeBtnDisabled: { opacity: 0.45 },
-  eyeText: { fontSize: 11, fontWeight: "600", color: Theme.textPrimaryDark },
+  eyeText: { ...complianceActionButtonStyles.ghostText },
   eyeTextInline: { fontSize: 10, lineHeight: 12 },
   calcCard: {
     flexGrow: 1,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Theme.complianceCardBorder,
+    borderRadius: 0,
+    borderWidth: 0,
+    borderColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.cardWhite,
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 14,
-    gap: 8,
+    overflow: "hidden",
+    paddingBottom: 8,
+    gap: 0,
   },
   calcCardInline: {
-    paddingHorizontal: 10,
-    paddingTop: 8,
-    paddingBottom: 8,
-    gap: 4,
+    paddingBottom: 4,
   },
   calcTitle: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
     letterSpacing: 0.4,
-    color: Theme.textPrimaryDark,
+    color: SHOP.ink,
     textTransform: "uppercase",
   },
   calcTitleInline: {
-    fontSize: 10,
-    lineHeight: 13,
+    fontSize: 11,
+    lineHeight: 14,
     letterSpacing: 0.3,
   },
   calcHint: {
     fontSize: 10,
-    fontWeight: "400",
-    color: Theme.textMuted,
-    marginTop: -4,
-    lineHeight: 14,
+    fontWeight: "500",
+    color: SHOP.muted,
+    lineHeight: 13,
+    paddingHorizontal: 10,
+    paddingTop: 6,
+    paddingBottom: 2,
   },
   calcHintInline: {
-    marginTop: 0,
-    lineHeight: 13,
+    fontSize: 9,
+    lineHeight: 12,
+    paddingTop: 4,
+    paddingBottom: 1,
   },
   calcRow: {
-    minHeight: 34,
+    minHeight: 26,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
+    gap: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: SHOP.hairline,
   },
   calcRowInline: {
-    minHeight: 26,
+    minHeight: 24,
+    paddingVertical: 2,
   },
   calcRowTds: {
-    minHeight: 42,
+    minHeight: 32,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
-    paddingVertical: 2,
+    gap: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: SHOP.hairline,
   },
   calcRowTdsInline: {
-    minHeight: 30,
-    paddingVertical: 0,
+    minHeight: 28,
+    paddingVertical: 2,
   },
   calcLabelBlock: {
     flex: 1,
@@ -1356,9 +1599,9 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   calcLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "500",
-    color: Theme.textMuted,
+    color: SHOP.muted,
   },
   calcLabelInline: {
     fontSize: 10,
@@ -1371,7 +1614,7 @@ const styles = StyleSheet.create({
   calcMeta: {
     fontSize: 10,
     fontWeight: "500",
-    color: Theme.textSecondary,
+    color: SHOP.muted,
     letterSpacing: 0.1,
   },
   calcMetaInline: {
@@ -1379,9 +1622,9 @@ const styles = StyleSheet.create({
     lineHeight: 12,
   },
   calcValue: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "700",
-    color: Theme.textPrimaryDark,
+    color: SHOP.ink,
     textAlign: "right",
   },
   calcValueInline: {
@@ -1390,9 +1633,9 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   calcValueMuted: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "600",
-    color: Theme.textSecondary,
+    color: SHOP.muted,
     textAlign: "right",
   },
   tdsValueBlock: {
@@ -1405,10 +1648,8 @@ const styles = StyleSheet.create({
   tdsRateChip: {
     paddingHorizontal: 7,
     paddingVertical: 3,
-    borderRadius: 6,
+    borderRadius: 999,
     backgroundColor: Theme.positiveMuted,
-    borderWidth: 1,
-    borderColor: Theme.positiveMutedDarkBorder,
   },
   tdsRateChipText: {
     fontSize: 10,
@@ -1418,66 +1659,69 @@ const styles = StyleSheet.create({
   },
   tdsAmountValue: {
     minWidth: 68,
-    color: Theme.textPrimaryDark,
+    color: SHOP.ink,
   },
   pctField: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    height: 34,
-    minWidth: 92,
+    height: 28,
+    width: 76,
     paddingHorizontal: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: Theme.complianceCardBorder,
-    backgroundColor: Theme.compliancePageBg,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: SHOP.hairline,
+    backgroundColor: "#F7F7F8",
   },
   pctFieldInline: {
-    height: 28,
-    minWidth: 80,
+    height: 26,
+    width: 72,
     paddingHorizontal: 8,
   },
   pctInput: {
     flex: 1,
-    minWidth: 36,
+    minWidth: 28,
     paddingVertical: 0,
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "700",
-    color: Theme.textPrimaryDark,
+    color: SHOP.ink,
     textAlign: "right",
   },
   pctInputInline: {
-    fontSize: 12,
-    lineHeight: 15,
+    fontSize: 11,
+    lineHeight: 14,
   },
   pctSuffix: {
     fontSize: 12,
     fontWeight: "700",
-    color: Theme.textMuted,
+    color: SHOP.muted,
   },
   pctSuffixInline: {
-    fontSize: 10,
-    lineHeight: 12,
+    fontSize: 11,
+    lineHeight: 14,
   },
   amountResult: {
     marginTop: 4,
-    paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Theme.complianceCardBorder,
+    marginHorizontal: 0,
+    marginBottom: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 0,
+    backgroundColor: LedgerSyncPalette.emeraldSoft,
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
   },
   amountResultInline: {
-    marginTop: 2,
-    paddingTop: 8,
+    marginTop: 4,
+    paddingVertical: 6,
   },
   amountResultCopy: { flex: 1, minWidth: 0, gap: 2 },
   amountResultLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
-    color: Theme.textPrimaryDark,
+    color: SHOP.ink,
     letterSpacing: 0.1,
   },
   amountResultLabelInline: {
@@ -1486,52 +1730,72 @@ const styles = StyleSheet.create({
   },
   amountResultHint: {
     fontSize: 10,
-    fontWeight: "400",
-    color: Theme.textMuted,
+    fontWeight: "500",
+    color: SHOP.muted,
   },
   amountResultValue: {
-    fontSize: 22,
+    fontSize: 16,
     fontWeight: "800",
-    letterSpacing: -0.4,
+    letterSpacing: -0.3,
     color: Theme.darkGreen,
   },
   amountResultValueInline: {
     fontSize: 14,
     lineHeight: 18,
   },
-  field: { gap: 8 },
-  fieldInline: { flexShrink: 0, gap: 4 },
-  label: { fontSize: 12, fontWeight: "600", color: Theme.textMuted },
+  field: { gap: 6 },
+  fieldInline: {
+    flexShrink: 0,
+    gap: 10,
+    padding: 0,
+    overflow: "hidden",
+    borderRadius: 0,
+    borderWidth: 0,
+    backgroundColor: Theme.cardWhite,
+  },
+  paymentBody: {
+    gap: 10,
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 2,
+  },
+  label: { fontSize: 11, fontWeight: "600", color: SHOP.muted },
   labelInline: { fontSize: 10, lineHeight: 13 },
-  modeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  wrapRow: { flexWrap: "wrap" },
-  paymentInputsRow: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
-  paymentInputCell: { flexGrow: 1, flexBasis: 180, gap: 4 },
-  textField: {
-    minHeight: 44,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: Theme.borderInput,
+  modeRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  modeRowInline: {
+    padding: 3,
     borderRadius: 8,
+    backgroundColor: Theme.liquidPillBg,
+    gap: 3,
+  },
+  wrapRow: { flexWrap: "wrap" },
+  paymentInputsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  paymentInputCell: { flexGrow: 1, flexBasis: 220, minWidth: 160, gap: 6 },
+  textField: {
+    minHeight: 36,
+    paddingHorizontal: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: SHOP.hairline,
+    borderRadius: 10,
     fontSize: 14,
-    color: Theme.textPrimaryDark,
-    backgroundColor: Theme.backgroundInput,
+    color: SHOP.ink,
+    backgroundColor: Theme.cardWhite,
   },
   textFieldInline: {
     minHeight: 32,
-    paddingHorizontal: 10,
-    fontSize: 12,
-    lineHeight: 16,
+    paddingHorizontal: 8,
+    fontSize: 11,
+    lineHeight: 14,
   },
   dateShell: {
-    minHeight: 44,
+    minHeight: 36,
     flexDirection: "row",
     alignItems: "center",
     paddingLeft: 12,
-    borderWidth: 1,
-    borderColor: Theme.borderInput,
-    borderRadius: 8,
-    backgroundColor: Theme.backgroundInput,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: SHOP.hairline,
+    borderRadius: 10,
+    backgroundColor: Theme.cardWhite,
   },
   dateShellInline: {
     minHeight: 32,
@@ -1539,15 +1803,15 @@ const styles = StyleSheet.create({
   dateText: {
     flex: 1,
     minWidth: 0,
-    minHeight: 42,
-    fontSize: 14,
-    color: Theme.textPrimaryDark,
+    minHeight: 34,
+    fontSize: 13,
+    color: SHOP.ink,
     ...(Platform.OS === "web" ? { outlineStyle: "none" } : null),
   } as never,
   dateTextInline: {
     minHeight: 30,
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 11,
+    lineHeight: 14,
   },
   dateIconBtn: {
     width: 44,
@@ -1565,121 +1829,110 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  dateSheetTitle: { fontSize: 15, fontWeight: "700", color: Theme.textPrimaryDark },
-  dateSheetMuted: { fontSize: 15, color: Theme.textMuted },
-  dateSheetDone: { fontSize: 15, fontWeight: "700", color: Theme.textPrimaryDark },
-  textFieldError: { borderColor: Theme.destructive },
-  fieldError: { fontSize: 11, color: Theme.destructive },
+  dateSheetTitle: { fontSize: 15, fontWeight: "700", color: SHOP.ink },
+  dateSheetMuted: { fontSize: 15, color: SHOP.muted },
+  dateSheetDone: { fontSize: 15, fontWeight: "700", color: SHOP.ink },
+  textFieldError: { borderColor: SHOP.danger },
+  fieldError: { fontSize: 11, color: SHOP.danger },
   modeChip: {
     flex: 1,
     minWidth: 0,
-    height: 40,
+    height: 26,
     paddingHorizontal: 6,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: Theme.complianceCardBorder,
-    backgroundColor: Theme.cardWhite,
+    borderRadius: 6,
+    borderWidth: 0,
+    backgroundColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
   },
   modeChipInline: {
-    height: 32,
-    borderRadius: 8,
+    height: 24,
+    borderRadius: 6,
   },
   modeChipOn: {
-    backgroundColor: Theme.buttonDark,
-    borderColor: Theme.buttonDark,
+    backgroundColor: "#282C3F",
   },
   modeChipText: {
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: "600",
-    color: Theme.textMuted,
+    color: "#696B79",
     textAlign: "center",
+    letterSpacing: -0.1,
   },
   modeChipTextInline: {
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 10,
+    lineHeight: 12,
   },
-  modeChipTextOn: { color: Theme.buttonDarkText },
+  modeChipTextOn: { color: Theme.cardWhite },
   actionsBar: {
     alignItems: "center",
-    paddingTop: 14,
+    paddingTop: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Theme.complianceCardBorder,
+    borderTopColor: SHOP.hairline,
   },
   actionsBarInline: {
     flexShrink: 0,
     paddingTop: 8,
+    paddingHorizontal: 2,
+    paddingBottom: 2,
+    borderWidth: 0,
+    backgroundColor: "transparent",
   },
   actions: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
+    justifyContent: "flex-end",
+    gap: 8,
+    width: "100%",
   },
-  actionsWithSecondary: { gap: 12 },
+  actionsWithSecondary: { gap: 8 },
   rejectBtn: {
-    minWidth: 104,
-    height: 40,
-    paddingHorizontal: 18,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: Theme.complianceStageDocsFg,
-    backgroundColor: Theme.cardWhite,
-    alignItems: "center",
-    justifyContent: "center",
+    ...complianceActionButtonStyles.ghost,
+    flexGrow: 0,
+    flexShrink: 0,
+    minWidth: 72,
+    borderColor: Theme.complianceGroupDangerDot,
   },
   rejectBtnInline: {
-    height: 36,
-    minWidth: 96,
-    paddingHorizontal: 16,
+    minHeight: COMPLIANCE_ACTION_BTN.height,
   },
   rejectBtnPressed: { opacity: 0.8 },
   rejectText: {
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: 0.2,
-    color: Theme.complianceStageDocsFg,
+    ...complianceActionButtonStyles.ghostText,
+    color: SHOP.danger,
   },
   rejectTextInline: {
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 10,
+    lineHeight: 12,
   },
   cancelBtn: {
-    minWidth: 104,
-    height: 40,
-    paddingHorizontal: 18,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: Theme.complianceCardBorder,
-    backgroundColor: Theme.cardWhite,
-    alignItems: "center",
-    justifyContent: "center",
+    ...complianceActionButtonStyles.ghost,
+    flexGrow: 0,
+    flexShrink: 0,
   },
-  cancelText: { fontSize: 13, fontWeight: "600", color: Theme.textPrimaryDark },
+  cancelText: { ...complianceActionButtonStyles.ghostText },
   confirmBtn: {
-    minWidth: 168,
-    height: 40,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-    backgroundColor: Theme.positive,
-    alignItems: "center",
-    justifyContent: "center",
+    ...complianceActionButtonStyles.primary,
+    flexGrow: 0,
+    flexShrink: 0,
+    minWidth: 128,
+    minHeight: 36,
+    paddingHorizontal: 16,
+    backgroundColor: LedgerSyncPalette.ink,
   },
   confirmBtnInline: {
-    height: 36,
-    minWidth: 148,
-    paddingHorizontal: 16,
+    minHeight: 32,
   },
   confirmBtnDisabled: { opacity: 0.45 },
   confirmText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: Theme.buttonDarkText,
+    ...complianceActionButtonStyles.primaryText,
     textAlign: "center",
+    fontSize: 12,
+    fontWeight: "700",
   },
   confirmTextInline: {
     fontSize: 11,
     lineHeight: 14,
+    fontWeight: "700",
   },
 });

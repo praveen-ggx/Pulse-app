@@ -190,6 +190,62 @@ export async function getOrganizationsForUser(): Promise<{
   }
 }
 
+function mapDcoSelfWorkspace(row: {
+  id?: string | null;
+  name?: string | null;
+  operating_model?: string | null;
+} | null): CurrentOrganization | null {
+  if (!row?.id) return null;
+  if (String(row.operating_model ?? "").trim() !== "ASSET_BASED") return null;
+  return mapToCurrentOrganization({
+    id: row.id,
+    name: row.name ?? null,
+    operating_model: "ASSET_BASED",
+  });
+}
+
+/**
+ * Approved DCO: create/return the caller-owned Self workspace used for clients.
+ * Server RPC is the only writer. No browser org insert and no "first membership" fallback.
+ */
+export async function ensureDcoWorkspace(): Promise<{
+  error: Error | null;
+  organization: CurrentOrganization | null;
+}> {
+  const { data, error } = await supabase().rpc("ensure_dco_workspace" as never);
+  if (error) {
+    const message = error.message ?? "";
+    if (isMissingRpcError(error) || error.code === "42702" || /ambiguous/i.test(message)) {
+      return {
+        error: new Error(
+          "DCO is approved, but this environment cannot create your shipper book yet. Refresh after it is enabled — you can save an offline shipper with name and phone, then complete GST later.",
+        ),
+        organization: null,
+      };
+    }
+    if (/dco_workspace_denied/i.test(message)) {
+      return {
+        error: new Error(
+          "Leave any active fleet-employee seat, then add shippers from your DCO workspace.",
+        ),
+        organization: null,
+      };
+    }
+    return { error: new Error(message), organization: null };
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  const organization = mapDcoSelfWorkspace(row);
+  if (!organization) {
+    return {
+      error: new Error(
+        "Could not open a DCO Self workspace. A staffed fleet organization is not reused as Self.",
+      ),
+      organization: null,
+    };
+  }
+  return { error: null, organization };
+}
+
 export type OrganizationLocation = {
   id: string;
   name?: string | null;

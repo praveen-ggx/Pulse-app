@@ -1,6 +1,6 @@
 /**
  * Driver app layout (route group). When user has role=driver they land here after login.
- * Tabs: Dashboard, Trip, History, Earnings. Trip chat opens from trip detail (hidden route).
+ * Tabs: Dashboard, Trip, Trips, Earnings. Trip chat opens from trip detail (hidden route).
  * Not to be confused with app/driver/ which is for dispatchers (e.g. /driver/[id] = driver detail).
  */
 import { AppLoadingSplash } from '@/components/AppLoadingSplash';
@@ -30,8 +30,11 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { Redirect, Tabs } from 'expo-router';
 import { DEFAULT_DISPATCHER_ROUTE } from '@/lib/routes';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Platform, StyleSheet } from 'react-native';
+
+/** Wait for AuthContext DB profile merge before bouncing JWT-stale "user" roles. */
+const WRONG_ROLE_HYDRATION_GRACE_MS = 2500;
 
 function DriverTabsNavigator() {
   return (
@@ -54,9 +57,37 @@ function DriverTabsNavigator() {
       <Tabs.Screen name="index" options={{ title: 'Dashboard' }} />
       <Tabs.Screen name="stories" options={{ title: 'Loads', href: null }} />
       <Tabs.Screen name="control" options={{ title: 'Trip', href: null }} />
-      <Tabs.Screen name="trip-history" options={{ title: 'History' }} />
+      <Tabs.Screen name="trip-history" options={{ title: 'Trips' }} />
       <Tabs.Screen name="wallet" options={{ title: 'Transactions' }} />
-      {/* Not listed in DriverTabBar TAB_CONFIG; omit href: null so router.push / query params work on web */}
+      {/*
+        Deep-link / query-param screens: do NOT set href: null.
+        On Expo web, href: null drops the route from the linking table so a
+        cold open of /capture-payment?tripId=… or /receivable/:id remounts the
+        first tab (Dashboard) instead of the target screen. Hide from the dock
+        via custom DriverTabBar (TAB_CONFIG) + tabBarStyle display:none only.
+        Same pattern as chat / add-client.
+      */}
+      <Tabs.Screen
+        name="receivable"
+        options={{
+          title: 'Receivable',
+          tabBarStyle: { display: 'none' },
+        }}
+      />
+      <Tabs.Screen
+        name="add-client"
+        options={{
+          title: 'Add client',
+          tabBarStyle: { display: 'none' },
+        }}
+      />
+      <Tabs.Screen
+        name="capture-payment"
+        options={{
+          title: 'Capture payment',
+          tabBarStyle: { display: 'none' },
+        }}
+      />
       <Tabs.Screen
         name="chat"
         options={{
@@ -99,9 +130,11 @@ export default function DriverAppLayout() {
   const fontsReady = fontsLoaded || fontError != null;
 
   // ✅ Keep roleVerified from deepak/main
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, refreshSession } = useAuth();
   const queryClient = useQueryClient();
   const linkedDriversSyncedRef = useRef(false);
+  const [wrongRoleArmed, setWrongRoleArmed] = useState(false);
+  const roleRefreshAttemptedRef = useRef(false);
 
   useEffect(() => {
     void hydrateDriverSignupSuccessFlag();
@@ -112,6 +145,20 @@ export default function DriverAppLayout() {
     void consumePendingDriverInviteAfterAuth();
   }, [loading, user, profile?.role]);
 
+  // Deep links remount auth from JWT metadata. If metadata lags public.profiles
+  // (or vice versa), refresh once so DB hydration can resolve driver role before
+  // we bounce to the organisation shell.
+  useEffect(() => {
+    if (loading || !user || !profile) return;
+    if (profile.role === 'driver') {
+      roleRefreshAttemptedRef.current = false;
+      return;
+    }
+    if (roleRefreshAttemptedRef.current) return;
+    roleRefreshAttemptedRef.current = true;
+    void refreshSession();
+  }, [loading, user, profile, refreshSession]);
+
   useEffect(() => {
     if (fontError && __DEV__ && Platform.OS === 'web') {
       console.warn(
@@ -121,20 +168,54 @@ export default function DriverAppLayout() {
     }
   }, [fontError]);
 
+  // JWT session metadata can lag behind public.profiles.role (QA role flips,
+  // admin updates). Auth merges DB profile asynchronously — give it a short
+  // grace window before treating a non-driver JWT/session profile as final,
+  // otherwise deep links like /capture-payment and /receivable/:id flash the
+  // organisation /trips shell then bounce.
+  useEffect(() => {
+    if (loading || !user || !profile) {
+      setWrongRoleArmed(false);
+      return;
+    }
+    if (profile.role === 'driver') {
+      setWrongRoleArmed(false);
+      return;
+    }
+    setWrongRoleArmed(false);
+    const timer = setTimeout(() => setWrongRoleArmed(true), WRONG_ROLE_HYDRATION_GRACE_MS);
+    return () => clearTimeout(timer);
+  }, [loading, user, profile]);
+
   // A resolved non-driver has no business in this group — never gate on it.
   // Gating would render the splash with no exit (this layout has no redirect of
   // its own), which is how a driver -> logout -> login-as-user hung on
   // "Loading..." forever. Send them to their own shell instead.
-  const wrongRole = !loading && Boolean(user) && Boolean(profile) && profile?.role !== 'driver';
+  const wrongRole =
+    wrongRoleArmed &&
+    !loading &&
+    Boolean(user) &&
+    Boolean(profile) &&
+    profile?.role !== 'driver';
 
   // ✅ Gate includes fonts + auth checks — waiting states only, never wrongRole.
+  // While grace is running for a non-driver session profile, keep the splash so
+  // deep links do not paint the dispatcher shell.
+  const profileRole = profile?.role ?? null;
+  const awaitingRoleHydration =
+    !loading &&
+    Boolean(user) &&
+    profileRole != null &&
+    profileRole !== 'driver' &&
+    !wrongRoleArmed;
   const gate =
     !wrongRole &&
-    (!fontsReady ||
+    (awaitingRoleHydration ||
+      !fontsReady ||
       loading ||
       !user ||
-      !profile ||
-      profile.role !== 'driver');
+      profileRole == null ||
+      profileRole !== 'driver');
 
   // Phase 0 perf: session origin when driver shell becomes interactive.
   useEffect(() => {

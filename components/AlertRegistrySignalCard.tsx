@@ -195,12 +195,13 @@ export function AlertRegistrySignalCard({
   avatarSlot,
 }: AlertRegistrySignalCardProps) {
   const showDetailCard = Boolean(detailTitle || detailSubtitle || detail || detailMedia);
-  const avatarSize = compact && variant === "tile" ? COMPACT_AVATAR_SIZE : AVATAR_SIZE;
+  const avatarSize = compact ? COMPACT_AVATAR_SIZE : AVATAR_SIZE;
 
   const content = (
     <View
       style={[
         styles.row,
+        compact && styles.rowCompact,
         variant === "tile" && styles.rowTile,
         compact && variant === "tile" && styles.rowTileCompact,
         mode === "completed" && styles.rowCompleted,
@@ -211,18 +212,18 @@ export function AlertRegistrySignalCard({
         isUnread={isUnread}
         mode={mode}
         size={avatarSize}
-        compact={compact && variant === "tile"}
+        compact={compact}
         avatarSlot={avatarSlot}
       />
 
-      <View style={[styles.body, compact && variant === "tile" && styles.bodyCompact]}>
+      <View style={[styles.body, compact && styles.bodyCompact]}>
         <View style={styles.headlineRow}>
           <View style={[styles.headlineCol, !headerEnd && styles.headlineColFull]}>
             <Text
               style={[
                 styles.headline,
                 WEB_COPY,
-                compact && variant === "tile" && styles.headlineCompact,
+                compact && styles.headlineCompact,
               ]}
               numberOfLines={compact ? 2 : 4}
             >
@@ -244,7 +245,7 @@ export function AlertRegistrySignalCard({
         </View>
 
         <Text
-          style={[styles.metaLine, WEB_COPY, compact && variant === "tile" && styles.metaLineCompact]}
+          style={[styles.metaLine, WEB_COPY, compact && styles.metaLineCompact]}
           numberOfLines={1}
         >
           {timeLabel}
@@ -255,7 +256,7 @@ export function AlertRegistrySignalCard({
           <View
             style={[
               styles.detailCard,
-              compact && variant === "tile" && styles.detailCardCompact,
+              compact && styles.detailCardCompact,
             ]}
           >
             {detailMedia ? <View style={styles.detailMedia}>{detailMedia}</View> : null}
@@ -264,7 +265,7 @@ export function AlertRegistrySignalCard({
                 style={[
                   styles.detailTitle,
                   WEB_COPY,
-                  compact && variant === "tile" && styles.detailTitleCompact,
+                  compact && styles.detailTitleCompact,
                 ]}
                 numberOfLines={2}
               >
@@ -276,7 +277,7 @@ export function AlertRegistrySignalCard({
                 style={[
                   styles.detailSubtitle,
                   WEB_COPY,
-                  compact && variant === "tile" && styles.detailSubtitleCompact,
+                  compact && styles.detailSubtitleCompact,
                 ]}
                 numberOfLines={2}
               >
@@ -359,6 +360,11 @@ const stylesDef = {
     borderBottomColor: METRONIC.border,
     backgroundColor: "transparent",
   }),
+  rowCompact: view({
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+  }),
   rowCompleted: view({
     backgroundColor: "#FCFCFD",
   }),
@@ -428,8 +434,8 @@ const stylesDef = {
     color: METRONIC.primaryBtn,
   }),
   headlineCompact: text({
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 11,
+    lineHeight: 15,
   }),
   headerEnd: view({
     flexShrink: 0,
@@ -457,8 +463,8 @@ const stylesDef = {
     color: METRONIC.muted,
   }),
   metaLineCompact: text({
-    fontSize: 11,
-    lineHeight: 15,
+    fontSize: 10,
+    lineHeight: 13,
   }),
   metaContext: text({
     color: "#78829D",
@@ -492,7 +498,8 @@ const stylesDef = {
   }),
   detailTitleCompact: text({
     fontSize: 11,
-    lineHeight: 15,
+    lineHeight: 14,
+    fontWeight: "500",
   }),
   detailSubtitle: text({
     fontSize: 12,
@@ -501,10 +508,10 @@ const stylesDef = {
     color: "#78829D",
   }),
   detailSubtitleCompact: text({
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "500",
-    color: METRONIC.link,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "400",
+    color: "#78829D",
   }),
   detailBody: text({
     fontSize: 12,

@@ -3,6 +3,7 @@ import {
   canMutateTripVaultDoc,
   viewerCanUploadTripDocuments,
   formatDocumentUploadAttribution,
+  formatDocumentHeaderFacts,
   formatLrVaultDateLabel,
   formatLrVaultNumberLabel,
   formatSelectedVaultFileMeta,
@@ -306,6 +307,30 @@ describe("formatLrVaultNumberLabel", () => {
           invoice: "INV-12",
         }),
       ),
+    ).toBe("LR No. AI3583");
+  });
+});
+
+describe("formatDocumentHeaderFacts", () => {
+  it("shows the updated LR number and date on preview", () => {
+    expect(
+      formatDocumentHeaderFacts({
+        documentNumber: JSON.stringify({
+          lrNumber: "AI3583",
+          date: "03-09-2026",
+          invoice: "INV-12",
+        }),
+        category: "lr",
+      }),
+    ).toBe("LR No. AI3583 · LR date 03-Sep-26");
+  });
+
+  it("omits the date when it has not been entered", () => {
+    expect(
+      formatDocumentHeaderFacts({
+        documentNumber: "AI3583",
+        category: "lr",
+      }),
     ).toBe("LR No. AI3583");
   });
 });

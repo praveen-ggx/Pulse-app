@@ -30,7 +30,7 @@ import { dumpStartupMetrics, markStartupPhase } from '@/lib/startupMetrics';
 import { isColdStartResolved, shouldShowBootOverlay, isPublicAuthRoute } from '@/lib/bootGate';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { pe } from '@/lib/platformViewStyle.util';
-import { Platform, StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View, type ViewStyle } from 'react-native';
 import { usePathname } from 'expo-router';
 import { hydrateSignupFlowFlags } from '@/lib/onboarding/businessSignupBranding.util';
 
@@ -116,8 +116,10 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     zIndex: 9999,
     elevation: 9999,
-    ...(Platform.OS === 'web' ? { position: 'fixed' as const } : null),
-  },
+    ...(Platform.OS === 'web'
+      ? ({ position: 'fixed' } as unknown as ViewStyle)
+      : null),
+  } as ViewStyle,
   splash: {
     flex: 1,
   },

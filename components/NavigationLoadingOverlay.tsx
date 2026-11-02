@@ -15,6 +15,7 @@ import {
   StyleSheet,
   useWindowDimensions,
   View,
+  type ViewStyle,
 } from 'react-native';
 
 const MIN_VISIBLE_MS = 120;
@@ -129,8 +130,10 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     zIndex: ROOT_TAB_BAR_Z - 1,
     elevation: ROOT_TAB_BAR_Z - 1,
-    ...(Platform.OS === 'web' ? { position: 'fixed' as const } : null),
-  },
+    ...(Platform.OS === 'web'
+      ? ({ position: 'fixed' } as unknown as ViewStyle)
+      : null),
+  } as ViewStyle,
   splash: {
     flex: 1,
   },

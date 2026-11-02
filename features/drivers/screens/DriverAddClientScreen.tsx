@@ -6,6 +6,11 @@ import { CenteredLoadingView } from "@/components/CenteredLoadingView";
 import { DetailPageLayout } from "@/components/DetailPageLayout";
 import { EntityAvatar } from "@/components/EntityAvatar";
 import {
+  EMPTY_DRIVER_PARTY_AVATAR,
+  resolveClientPartyAvatarMap,
+  type DriverPartyAvatarFields,
+} from "@/features/drivers/utils/driverPartyAvatar.util";
+import {
   AddClientModal,
   type AddClientFormData,
 } from "@/features/clients/components/AddClientModal";
@@ -34,6 +39,7 @@ import { tripReceivableBilled } from "@/features/drivers/utils/driverPartyReceiv
 import {
   partyMatchesAssigner,
   sortTagPartyOptions,
+  tagPartyListDetail,
 } from "@/features/drivers/utils/driverPartyTagRecommend.util";
 import { queryKeys } from "@/lib/queryKeys";
 import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
@@ -74,12 +80,26 @@ export default function DriverAddClientScreen() {
   const [org, setOrg] = useState<CurrentOrganization | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [existingParties, setExistingParties] = useState<
-    Array<{ id: string; name: string; phone?: string | null }>
+    Array<{
+      id: string;
+      name: string;
+      phone?: string | null;
+      contactPerson?: string | null;
+      linkedOrganizationId?: string | null;
+      avatar?: DriverPartyAvatarFields;
+    }>
   >([]);
   const [pickingId, setPickingId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [pendingParty, setPendingParty] = useState<{ id: string; name: string } | null>(null);
-  const [receivableParty, setReceivableParty] = useState<{ id: string; name: string } | null>(null);
+  const [receivableParty, setReceivableParty] = useState<{
+    id: string;
+    name: string;
+    phone?: string | null;
+    contactPerson?: string | null;
+    linkedOrganizationId?: string | null;
+    avatar?: DriverPartyAvatarFields;
+  } | null>(null);
   const [receivableAmount, setReceivableAmount] = useState("");
   const [billedForTag, setBilledForTag] = useState<number | null>(null);
   const [successParty, setSuccessParty] = useState<{ id: string; name: string } | null>(null);
@@ -89,33 +109,21 @@ export default function DriverAddClientScreen() {
     () => (tripQuery.data ? tripReceivableBilled(tripQuery.data) : 0),
     [tripQuery.data],
   );
-  const isShipperParty = useCallback(
-    (name: string) => {
-      const keys = [
-        partyName,
-        String(tripQuery.data?.client_name ?? ""),
-      ]
-        .map((value) => value.trim().toLowerCase())
-        .filter(Boolean);
-      const key = name.trim().toLowerCase();
-      return !!key && keys.includes(key);
-    },
-    [partyName, tripQuery.data?.client_name],
-  );
   const beginTag = useCallback(
-    (row: { id: string; name: string }) => {
-      if (isShipperParty(row.name)) {
-        setBilledForTag(null);
-        setReceivableParty(null);
-        setPendingParty(row);
-        return;
-      }
+    (row: {
+      id: string;
+      name: string;
+      phone?: string | null;
+      contactPerson?: string | null;
+      linkedOrganizationId?: string | null;
+      avatar?: DriverPartyAvatarFields;
+    }) => {
       setBilledForTag(null);
       setPendingParty(null);
       setReceivableParty(row);
       setReceivableAmount(currentBilled > 0 ? String(currentBilled) : "");
     },
-    [currentBilled, isShipperParty],
+    [currentBilled],
   );
 
   const loadOrg = useCallback(async () => {
@@ -183,10 +191,14 @@ export default function DriverAddClientScreen() {
         getClientsByOrganization(next.id),
         listDriverOfflineParties(),
       ]);
+      const avatars = rows.length ? await resolveClientPartyAvatarMap(rows) : {};
       const serverRows = rows.map((row) => ({
         id: row.id,
         name: row.name || row.contact_person || "Shipper",
         phone: row.phone,
+        contactPerson: row.contact_person,
+        linkedOrganizationId: row.linked_organization_id,
+        avatar: avatars[row.id] ?? EMPTY_DRIVER_PARTY_AVATAR,
       }));
       const serverIds = new Set(serverRows.map((row) => row.id));
       setExistingParties([
@@ -295,8 +307,8 @@ export default function DriverAddClientScreen() {
             : [created, ...prev],
         );
         setCreatedSuccess(true);
-        if (tripId && !isShipperParty(created.name)) {
-          beginTag(created);
+        if (tripId) {
+          beginTag({ ...created, phone: data.phone, contactPerson: data.contactPerson });
         } else {
           const tagged = await finishWithClient(created);
           if (tagged.error) throw tagged.error;
@@ -317,8 +329,12 @@ export default function DriverAddClientScreen() {
           name: client.name || data.organizationName || data.contactPerson,
         };
         setCreatedSuccess(true);
-        if (tripId && !isShipperParty(created.name)) {
-          beginTag(created);
+        if (tripId) {
+          beginTag({
+            ...created,
+            phone: data.phone,
+            contactPerson: data.contactPerson,
+          });
         } else {
           const tagged = await finishWithClient(created);
           if (tagged.error) throw tagged.error;
@@ -327,7 +343,7 @@ export default function DriverAddClientScreen() {
       }
       await queryClient.refetchQueries({ queryKey: queryKeys.clients.all(org.id) });
     },
-    [beginTag, finishWithClient, isShipperParty, org?.id, queryClient, tripId],
+    [beginTag, finishWithClient, org?.id, queryClient, tripId],
   );
 
   const searchInviteeByPhone = useCallback(
@@ -359,9 +375,17 @@ export default function DriverAddClientScreen() {
     [org?.id, workspaceError],
   );
 
+  const closeCreateForm = useCallback(() => {
+    if (tripId && showCreate && existingParties.length > 0) {
+      setShowCreate(false);
+      return;
+    }
+    handleClose();
+  }, [existingParties.length, handleClose, showCreate, tripId]);
+
   const createForm = (
     <AddClientModal
-      onClose={tripId ? () => setShowCreate(false) : handleClose}
+      onClose={closeCreateForm}
       onComplete={handleComplete}
       organizationId={org?.id ?? null}
       noOrganizationMessage={
@@ -393,7 +417,20 @@ export default function DriverAddClientScreen() {
       billedAmount={billedForTag}
       receivable={
         receivableParty
-          ? { partyName: receivableParty.name, amount: receivableAmount }
+          ? {
+              partyName: receivableParty.name,
+              amount: receivableAmount,
+              subtitle: tagPartyListDetail({
+                phone: receivableParty.phone,
+                contactPerson: receivableParty.contactPerson,
+                linkedOrganizationId: receivableParty.linkedOrganizationId,
+              }),
+              avatarUrl: receivableParty.avatar?.avatarUrl,
+              avatarSeed: receivableParty.avatar?.avatarSeed,
+              organizationImageUrl: receivableParty.avatar?.organizationImageUrl,
+              organizationAvatarSeed: receivableParty.avatar?.organizationAvatarSeed,
+              isIntegrated: receivableParty.avatar?.isIntegrated,
+            }
           : null
       }
       onChangeReceivableAmount={setReceivableAmount}
@@ -472,7 +509,12 @@ export default function DriverAddClientScreen() {
               <EntityAvatar
                 name={row.name}
                 initialsColorSeed={row.id}
+                avatarUrl={row.avatar?.avatarUrl}
+                avatarSeed={row.avatar?.avatarSeed}
+                organizationImageUrl={row.avatar?.organizationImageUrl}
+                organizationAvatarSeed={row.avatar?.organizationAvatarSeed}
                 entityType="client"
+                isIntegrated={row.avatar?.isIntegrated}
                 size={40}
                 showIntegrationBadge={false}
               />
@@ -481,9 +523,13 @@ export default function DriverAddClientScreen() {
                   {row.name}
                 </Text>
                 <Text style={styles.rowMeta} numberOfLines={1}>
-                  {!isDco && row.matchesAssigner
-                    ? "Recommended · Fleet"
-                    : row.phone?.trim() || "Saved party"}
+                  {tagPartyListDetail({
+                    phone: row.phone,
+                    contactPerson: row.contactPerson,
+                    linkedOrganizationId: row.linkedOrganizationId,
+                    matchesAssigner: row.matchesAssigner,
+                    recommendFleet: !isDco,
+                  })}
                 </Text>
               </View>
               {busy ? (

@@ -1,3 +1,5 @@
+import { resolveWizardContactPhone } from "@/features/clients/utils/clientContactDisplay.util";
+
 /** Normalize party / assigner names for match (case, spacing). */
 export function normalizePartyName(name: string | null | undefined): string {
   return String(name ?? "")
@@ -41,4 +43,29 @@ export function sortTagPartyOptions<T extends SortableParty>(
     }
     return a.name.localeCompare(b.name);
   });
+}
+
+/** Picker subtitle. Never surface linked-org placeholder phones or raw UUIDs. */
+export function tagPartyListDetail(input: {
+  phone?: string | null;
+  contactPerson?: string | null;
+  linkedOrganizationId?: string | null;
+  matchesAssigner?: boolean;
+  linkedToTrip?: boolean;
+  recommendFleet?: boolean;
+}): string {
+  if (input.linkedToTrip) return "Tagged to this trip";
+  const phone = resolveWizardContactPhone(input.phone);
+  const contact = String(input.contactPerson ?? "").trim();
+  const identity =
+    contact && phone && contact.toLowerCase() !== phone.toLowerCase()
+      ? `${contact} · ${phone}`
+      : phone || contact || (input.linkedOrganizationId ? "Linked on Pulse" : "Saved in Self");
+  if (input.recommendFleet && input.matchesAssigner && identity === "Saved in Self") {
+    return "Recommended · Fleet";
+  }
+  if (input.recommendFleet && input.matchesAssigner) {
+    return `Recommended · Fleet · ${identity}`;
+  }
+  return identity;
 }

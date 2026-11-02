@@ -20,6 +20,7 @@ export interface NumericEntryPartyPreview {
   avatarSeed?: string | null;
   organizationImageUrl?: string | null;
   organizationAvatarSeed?: string | null;
+  isIntegrated?: boolean;
 }
 
 export function NumericEntryPartyBanner({
@@ -36,6 +37,7 @@ export function NumericEntryPartyBanner({
         organizationImageUrl={party.organizationImageUrl ?? null}
         organizationAvatarSeed={party.organizationAvatarSeed ?? null}
         entityType={party.entityType ?? "client"}
+        isIntegrated={party.isIntegrated}
         size={40}
       />
       <View style={styles.textCol}>

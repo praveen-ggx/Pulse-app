@@ -95,6 +95,7 @@ export const NumericEntryRecipientHero = memo(function NumericEntryRecipientHero
             organizationImageUrl={party.organizationImageUrl ?? null}
             organizationAvatarSeed={party.organizationAvatarSeed ?? null}
             entityType={party.entityType ?? "client"}
+            isIntegrated={party.isIntegrated}
             size={avatarSize}
             shape="circle"
           />

@@ -593,9 +593,6 @@ export function TripAssignmentBlock({
           setPhoneError(saveErr.message);
           return;
         }
-        if (nextVehiclePlate) {
-          paintVehicleAssignment(nextVehiclePlate, trip.vehicle_id ?? null);
-        }
         onUpdated();
         closeAssignModal();
         if (fullPageFlow) onFlowComplete?.();

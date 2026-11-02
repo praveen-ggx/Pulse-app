@@ -6,6 +6,7 @@ import { CenteredLoadingView } from "@/components/CenteredLoadingView";
 import { DetailPageLayout } from "@/components/DetailPageLayout";
 import { EntityAvatar } from "@/components/EntityAvatar";
 import { DriverCapturePaymentButton } from "@/features/drivers/components/DriverCapturePaymentButton";
+import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
 import Theme from "@/constants/Theme";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -29,9 +30,9 @@ import {
 import * as tripsService from "@/features/trips/services/trips.service";
 import { ROUTES } from "@/lib/routes";
 import { useSafeBack } from "@/lib/useSafeBack";
-import { type Href, useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { Tag } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 function inr(n: number): string {
@@ -59,13 +60,15 @@ export default function DriverPartyReceivableScreen() {
   const [trips, setTrips] = useState<tripsService.TripRow[]>([]);
   const [receivedByTripId, setReceivedByTripId] = useState<Record<string, number>>({});
   const [linkedDrivers, setLinkedDrivers] = useState<driversService.DriverRow[]>([]);
+  const [tagTrip, setTagTrip] = useState<tripsService.TripRow | null>(null);
+  const hasLoadedRef = useRef(false);
 
   const load = useCallback(async () => {
     if (!profile?.uid) {
       setLoading(false);
       return;
     }
-    setLoading(true);
+    if (!hasLoadedRef.current) setLoading(true);
     try {
       const driversRes = await driversService.getLinkedDriversForCurrentUser(profile.uid);
       const drivers = driversRes.drivers ?? [];
@@ -89,13 +92,17 @@ export default function DriverPartyReceivableScreen() {
       }
       setReceivedByTripId(byTrip);
     } finally {
+      hasLoadedRef.current = true;
       setLoading(false);
     }
   }, [profile?.uid]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      if (tagTrip) return;
+      void load();
+    }, [load, tagTrip]),
+  );
 
   const isFleetDispatched = useCallback(
     (trip: tripsService.TripRow) => {
@@ -298,12 +305,7 @@ export default function DriverPartyReceivableScreen() {
                 <View style={styles.actionCol}>
                   {needsTag ? (
                     <Pressable
-                      onPress={() =>
-                        router.push({
-                          pathname: "/(driver)/add-client",
-                          params: { tripId: line.trip.id },
-                        } as Href)
-                      }
+                      onPress={() => setTagTrip(line.trip)}
                       hitSlop={8}
                       accessibilityRole="button"
                       accessibilityLabel={`Tag party for ${tripNo}`}
@@ -330,6 +332,19 @@ export default function DriverPartyReceivableScreen() {
           })
         )}
       </View>
+      {tagTrip ? (
+        <DriverCollectFromSheet
+          visible
+          trip={tagTrip}
+          due={Math.max(0, partyTrips.find((line) => line.trip.id === tagTrip.id)?.due ?? 0)}
+          lane={captureLane === "marketplace" ? "marketplace" : "shipper"}
+          onClose={() => setTagTrip(null)}
+          onTagged={() => {
+            setTagTrip(null);
+            void load();
+          }}
+        />
+      ) : null}
     </DetailPageLayout>
   );
 }

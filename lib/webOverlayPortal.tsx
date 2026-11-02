@@ -14,10 +14,10 @@ import { Platform, type ViewStyle } from "react-native";
 /** Above RN Web Modal (~9999) and RegistryWebDrawer (5001). */
 export const WEB_OVERLAY_Z = 20000;
 
-export const webFixedFill = (
+export const webFixedFill: ViewStyle =
   Platform.OS === "web"
     ? {
-        position: "fixed" as const,
+        position: "fixed",
         top: 0,
         left: 0,
         right: 0,
@@ -26,8 +26,7 @@ export const webFixedFill = (
         width: "100%",
         height: "100%",
       }
-    : {}
-) as ViewStyle;
+    : {};
 
 /**
  * Parent of the nearest open RN Web modal (`role="dialog"`). That node is the

@@ -64,7 +64,7 @@ export const CreateTripSheetSearchInput = forwardRef<
   const [focused, setFocused] = useState(false);
   const webCursor =
     Platform.OS === "web"
-      ? ({ cursor: "text" } as unknown as TextStyle)
+      ? ({ cursor: "text" } as TextStyle)
       : undefined;
 
   return (

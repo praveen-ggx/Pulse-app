@@ -33,10 +33,7 @@ type Props = {
   insetBottom?: number;
 };
 
-const webFixed =
-  Platform.OS === "web"
-    ? ({ position: "fixed" } as unknown as ViewStyle)
-    : {};
+const webFixed = Platform.OS === "web" ? ({ position: "fixed" } as ViewStyle) : {};
 
 export function RegistryWebDrawer({
   visible,

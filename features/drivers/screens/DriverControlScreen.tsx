@@ -55,7 +55,6 @@ import {
     Text,
     TouchableOpacity,
     View,
-    type ViewStyle,
 } from "react-native";
 import { Pressable as HoldPressable } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -90,11 +89,10 @@ function parseTripCoordinate(value: unknown): number | null {
 }
 
 const HOLD_PRESS_RETENTION = 100;
-/** Web-only CSS props — cast for RN ViewStyle (CI types omit touchAction/userSelect). */
 const holdCompleteWebStyle = {
-  touchAction: "none",
-  userSelect: "none",
-} as unknown as ViewStyle;
+  touchAction: "none" as "none" | "auto" | "manipulation",
+  userSelect: "none" as "none" | "auto" | "text" | "contain" | "all",
+};
 
 export default function DriverControlScreen() {
   const insets = useSafeAreaInsets();

@@ -13,6 +13,7 @@ import {
   buildDriverTripNumberMap,
   getDriverTripDisplayNumber,
 } from "@/features/driver/utils/driverTripSequence.util";
+import { receivedByTripFromDriverBooks } from "@/features/drivers/services/driverCapturePayment.service";
 import * as driversService from "@/features/drivers/services/drivers.service";
 import {
   EMPTY_DRIVER_PARTY_AVATAR,
@@ -89,6 +90,10 @@ export default function DriverPartyReceivableScreen() {
         const tid = entry.trip_id?.trim() || null;
         if (!tid || entry.type !== "settlement") continue;
         byTrip[tid] = (byTrip[tid] ?? 0) + (Number(entry.amount) || 0);
+      }
+      const bookReceived = await receivedByTripFromDriverBooks();
+      for (const [tripId, amount] of Object.entries(bookReceived)) {
+        byTrip[tripId] = (byTrip[tripId] ?? 0) + amount;
       }
       setReceivedByTripId(byTrip);
     } finally {

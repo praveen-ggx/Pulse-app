@@ -9,6 +9,7 @@ import { SmartInput } from "@/components/mobile-input";
 import Theme from "@/constants/Theme";
 import { useAuth } from "@/contexts/AuthContext";
 import { getDcoSelfReceivableForTrip } from "@/features/dco-self/services/dcoSelfReceivable.service";
+import { DriverCaptureConfirmModal } from "@/features/drivers/components/DriverCaptureConfirmModal";
 import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
 import { captureDriverTripPayment } from "@/features/drivers/services/driverCapturePayment.service";
 import * as driversService from "@/features/drivers/services/drivers.service";
@@ -104,6 +105,8 @@ export default function DriverCapturePaymentScreen() {
   const [reference, setReference] = useState(referenceHint);
   const [paidOn, setPaidOn] = useState(todayISO());
   const [tagOpen, setTagOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [recorded, setRecorded] = useState<{ title: string; message: string } | null>(null);
 
   const load = useCallback(async () => {
     // Resolve operating mode before choosing Self / indie / employer / exchange path.
@@ -186,15 +189,12 @@ export default function DriverCapturePaymentScreen() {
           : partyHint || (trip ? tripReceivablePartyName(trip) : "Party");
   const useSelfBook = canManageDcoSelfBook && lane === "shipper";
   const useIndieBook = canManageIndieBook && !canManageDcoSelfBook && lane === "shipper";
+  // A notes tag is enough to collect. The receivable is opened on submit.
   const needsPartyTag =
     canTagOfflineParty &&
     lane === "shipper" &&
     !!trip &&
-    (useSelfBook
-      ? !selfReceivableId
-      : useIndieBook
-        ? !indieReceivableId
-        : !isTripTaggedToParty(trip));
+    !isTripTaggedToParty(trip);
   const amountNum = Math.round(Number(String(amount).replace(/,/g, "")) || 0);
   const cap = dueHint > 0 ? dueHint : amountNum;
   const isCash = modeId === "CASH";
@@ -215,7 +215,7 @@ export default function DriverCapturePaymentScreen() {
         : "Shipper · Client";
 
   const submit = useCallback(async () => {
-    if (!trip || !driverId || !canSubmit) return;
+    if (!trip || !canSubmit) return;
     setSubmitting(true);
     try {
       const { error } = await captureDriverTripPayment({
@@ -230,12 +230,13 @@ export default function DriverCapturePaymentScreen() {
           : useIndieBook
             ? "driver_indie"
             : "employer",
+        partyName,
         receivableId: useSelfBook
           ? selfReceivableId
           : useIndieBook
             ? indieReceivableId
             : null,
-        driverId,
+        driverId: driverId ?? "",
         createdBy: profile?.uid ?? null,
         tripDisplay,
       });
@@ -245,14 +246,13 @@ export default function DriverCapturePaymentScreen() {
       }
       await queryClient.invalidateQueries({ queryKey: ["q", "trips"] });
       await queryClient.invalidateQueries({ queryKey: queryKeys.trips.detail(trip.id) });
-      showAppAlert(
-        lane === "marketplace" ? "Sent for confirmation" : "Payment recorded",
-        lane === "marketplace"
-          ? "The shipper confirms it in Exchange; then it counts as received."
-          : `${tripDisplay} · ${inr(amountNum)} captured.`,
-      );
-      if (router.canGoBack()) router.back();
-      else onBack();
+      setRecorded({
+        title: lane === "marketplace" ? "Sent for confirmation" : "Payment recorded",
+        message:
+          lane === "marketplace"
+            ? "The shipper confirms it in Exchange. It counts as received after that."
+            : `${tripDisplay} · ${inr(amountNum)} from ${partyName} is saved.`,
+      });
     } finally {
       setSubmitting(false);
     }
@@ -260,15 +260,14 @@ export default function DriverCapturePaymentScreen() {
     amountNum,
     canSubmit,
     driverId,
+    partyName,
     indieReceivableId,
     lane,
     modeId,
-    onBack,
     paidOn,
     profile?.uid,
     queryClient,
     reference,
-    router,
     selfReceivableId,
     trip,
     tripDisplay,
@@ -430,7 +429,9 @@ export default function DriverCapturePaymentScreen() {
 
       <TouchableOpacity
         style={[styles.submit, !canSubmit && styles.submitDisabled]}
-        onPress={() => void submit()}
+        onPress={() => {
+          if (canSubmit) setConfirmOpen(true);
+        }}
         disabled={!canSubmit}
         activeOpacity={0.88}
         accessibilityRole="button"
@@ -443,9 +444,30 @@ export default function DriverCapturePaymentScreen() {
             Collect {amountNum > 0 ? inr(Math.min(amountNum, cap || amountNum)) : lane === "fleet" ? "commission" : "payment"}
           </Text>
         )}
-      </TouchableOpacity>
-    </DetailPageLayout>
-  );
+        </TouchableOpacity>
+      <DriverCaptureConfirmModal
+        visible={confirmOpen || !!recorded}
+        phase={recorded ? "success" : "confirm"}
+        amountLabel={inr(Math.min(amountNum, cap || amountNum))}
+        partyName={partyName}
+        tripDisplay={tripDisplay}
+        modeLabel={CAPTURE_MODES.find((mode) => mode.id === modeId)?.name ?? modeId}
+        reference={reference}
+        paidOn={paidOn}
+        confirming={submitting}
+        successTitle={recorded?.title ?? "Payment recorded"}
+        successMessage={recorded?.message ?? ""}
+        onCancel={() => setConfirmOpen(false)}
+        onConfirm={() => void submit()}
+        onDone={() => {
+          setConfirmOpen(false);
+          setRecorded(null);
+          if (router.canGoBack()) router.back();
+          else onBack();
+        }}
+      />
+      </DetailPageLayout>
+    );
 }
 
 const styles = StyleSheet.create({

@@ -274,7 +274,7 @@ export default function DriverCapturePaymentScreen() {
 
   if (!tripId || !trip) {
     return (
-      <DetailPageLayout title="Collect payment" onBack={onBack} titleAlign="left">
+      <DetailPageLayout title="Collect payment" onBack={onBack}>
         <Text style={styles.empty}>This trip is not available.</Text>
       </DetailPageLayout>
     );
@@ -283,7 +283,7 @@ export default function DriverCapturePaymentScreen() {
   return (
     <DetailPageLayout
       title={lane === "fleet" ? "Collect commission" : "Collect payment"}
-      titleAlign="left"
+     
       onBack={onBack}
       titleSubline={<Text style={styles.kicker}>{kicker}</Text>}
     >

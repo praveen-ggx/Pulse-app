@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { DcoSelfParty } from "@/features/dco-self/services/dcoSelfReceivable.service";
+import type { DcoSelfParty } from "@/features/dco-self/types/dcoSelfReceivable.types";
 
 const PARTIES_KEY = "pulse.dco_self_local_parties.v2";
 const TAGS_KEY = "pulse.dco_self_local_tags.v2";

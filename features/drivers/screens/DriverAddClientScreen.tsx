@@ -438,7 +438,7 @@ export default function DriverAddClientScreen() {
 
   return (
     <>
-    <DetailPageLayout title="Select party" onBack={onBack} titleAlign="left">
+    <DetailPageLayout title="Select party" onBack={onBack}>
       <Text style={styles.kicker}>{partyBookKicker}</Text>
       <Text style={styles.hint}>
         {useIndieBook

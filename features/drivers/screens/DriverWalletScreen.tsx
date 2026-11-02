@@ -417,10 +417,10 @@ export default function DriverWalletScreen() {
         label: 'Add client',
         icon: 'building',
         accessibilityLabel: 'Add client',
-        onPress: () => router.push(ROUTES.driverAddClient()),
+        onPress: () => router.push(ROUTES.driverAddClient() as never),
       },
     ];
-  }, [canTagOfflineParty]);
+  }, [canTagOfflineParty, router]);
 
   const sortedLedgerEntries = useMemo(() => {
     return [...ledgerEntries].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -2011,7 +2011,18 @@ export default function DriverWalletScreen() {
 
   /** All former (and leftover current) fleet employers — DCO history preview. */
   const preDcoFleetHistoryCards = useMemo(() => {
-    const past = pastEmployerFleetCards
+    const past: Array<{
+      orgId: string;
+      orgName: string;
+      driverId: string;
+      earned: number;
+      pending: number;
+      received: number;
+      tripsCompleted: number;
+      joinedAt: string;
+      leftAt: string | null;
+      isCurrent: boolean;
+    }> = pastEmployerFleetCards
       .filter((past) => {
         const row = pastLinkedDrivers.find((d) => d.id === past.driverId);
         return row?.tracking_only !== true;
@@ -2035,8 +2046,8 @@ export default function DriverWalletScreen() {
           received,
           tripsCompleted: past.tripsCompleted,
           joinedAt: past.joinedAt,
-          leftAt: past.leftAt,
-          isCurrent: false as const,
+          leftAt: past.leftAt ?? null,
+          isCurrent: false,
         };
       })
       .filter((row) => row.orgId.length > 0);

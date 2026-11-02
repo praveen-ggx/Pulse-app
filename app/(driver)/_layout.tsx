@@ -201,11 +201,12 @@ export default function DriverAppLayout() {
   // ✅ Gate includes fonts + auth checks — waiting states only, never wrongRole.
   // While grace is running for a non-driver session profile, keep the splash so
   // deep links do not paint the dispatcher shell.
+  const profileRole = profile?.role ?? null;
   const awaitingRoleHydration =
     !loading &&
     Boolean(user) &&
-    Boolean(profile) &&
-    profile.role !== 'driver' &&
+    profileRole != null &&
+    profileRole !== 'driver' &&
     !wrongRoleArmed;
   const gate =
     !wrongRole &&
@@ -213,8 +214,8 @@ export default function DriverAppLayout() {
       !fontsReady ||
       loading ||
       !user ||
-      !profile ||
-      profile.role !== 'driver');
+      profileRole == null ||
+      profileRole !== 'driver');
 
   // Phase 0 perf: session origin when driver shell becomes interactive.
   useEffect(() => {

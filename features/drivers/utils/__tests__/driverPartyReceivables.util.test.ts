@@ -148,6 +148,52 @@ describe("tripReceivableBilled", () => {
       ),
     ).toBe(5000);
   });
+
+  it("does not invent Independent DRIVER AR from earnings without an issued receivable", () => {
+    expect(
+      tripReceivableBilled(
+        trip({
+          id: "indie-1",
+          source: "manual",
+          operating_mode: "DRIVER",
+          supplier_rate: 4500,
+          client_price: 8000,
+          dco_party_billed: 9999,
+        }),
+        null,
+      ),
+    ).toBeNull();
+  });
+
+  it("uses an Independent DRIVER issued receivable (not DCO-only path)", () => {
+    expect(
+      tripReceivableBilled(
+        trip({
+          id: "indie-2",
+          source: "manual",
+          operating_mode: "DRIVER",
+          supplier_rate: 4500,
+        }),
+        { billed_amount: 4500 },
+      ),
+    ).toBe(4500);
+  });
+
+  it("does not invent fleet-employee offline AR from earnings or DCO mirrors", () => {
+    expect(
+      tripReceivableBilled(
+        trip({
+          id: "fleet-off-1",
+          source: "indent",
+          operating_mode: "FLEET",
+          supplier_rate: 3200,
+          client_price: 7000,
+          dco_party_billed: 3200,
+        }),
+        null,
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("buildDriverPartyReceivables", () => {
@@ -203,6 +249,7 @@ describe("buildDriverPartyReceivables", () => {
       billed: 8000,
       received: 2000,
       due: 6000,
+      billedComplete: true,
     });
     // Trip-list path has no issued receivable → billed unavailable (not client_price / mirror).
     expect(rows[1]).toMatchObject({
@@ -212,6 +259,8 @@ describe("buildDriverPartyReceivables", () => {
       billed: 0,
       received: 4000,
       unavailableBilledTrips: 2,
+      billedComplete: false,
+      due: null,
     });
   });
 
@@ -227,6 +276,7 @@ describe("buildDriverPartyReceivables", () => {
         received: 40,
         due: 60,
         unavailableBilledTrips: 0,
+        billedComplete: true,
       },
       {
         id: "shipper:c-1",
@@ -238,6 +288,7 @@ describe("buildDriverPartyReceivables", () => {
         received: 60,
         due: 40,
         unavailableBilledTrips: 0,
+        billedComplete: true,
       },
     ]);
     expect(summary).toEqual({
@@ -245,7 +296,30 @@ describe("buildDriverPartyReceivables", () => {
       received: 100,
       due: 100,
       collectionPercent: 50,
+      billedComplete: true,
+      unavailableBilledTrips: 0,
     });
+  });
+
+  it("marks incomplete party totals without inventing outstanding", () => {
+    const summary = summarizeDriverPartyReceivables([
+      {
+        id: "shipper:c-1",
+        kind: "shipper",
+        name: "Shipper",
+        subtitle: "",
+        trips: 2,
+        billed: 50000,
+        received: 10000,
+        due: null,
+        unavailableBilledTrips: 3,
+        billedComplete: false,
+      },
+    ]);
+    expect(summary.billedComplete).toBe(false);
+    expect(summary.due).toBeNull();
+    expect(summary.collectionPercent).toBeNull();
+    expect(summary.unavailableBilledTrips).toBe(3);
   });
 });
 
@@ -393,14 +467,17 @@ describe("untagged offline AR", () => {
       subtitle: "Tag a shipper or middleman",
       trips: 1,
       billed: 0,
-      due: 0,
+      due: null,
       unavailableBilledTrips: 1,
+      billedComplete: false,
     });
     expect(rows[1]).toMatchObject({
       name: "Middleman Co",
       trips: 1,
       billed: 0,
+      due: null,
       unavailableBilledTrips: 1,
+      billedComplete: false,
     });
   });
 });
@@ -478,6 +555,8 @@ describe("buildDriverPartyReceivablesFromBook", () => {
         received: 20000,
         due: 35000,
         trips: 1,
+        billedComplete: true,
+        unavailableBilledTrips: 0,
       }),
     ]);
   });

@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { DriverIndieParty } from "@/features/driver-indie/services/driverIndieReceivable.service";
+import type { DriverIndieParty } from "@/features/driver-indie/types/driverIndieReceivable.types";
 
 const PARTIES_KEY = "pulse.driver_indie_local_parties.v1";
 const TAGS_KEY = "pulse.driver_indie_local_tags.v1";

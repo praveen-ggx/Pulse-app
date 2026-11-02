@@ -67,6 +67,12 @@ describe("tag_dco_trip_party no-notes-finance forward migration", () => {
     expect(TAG_NO_NOTES).not.toMatch(/supplier_rate\s*=/);
   });
 
+  it("drops the legacy two-argument overload", () => {
+    expect(TAG_NO_NOTES).toMatch(
+      /DROP FUNCTION IF EXISTS public\.tag_dco_trip_party\(uuid, uuid\);/,
+    );
+  });
+
   it("keeps Party B auth gates and least-privilege execute", () => {
     expect(TAG_NO_NOTES).toMatch(/is_dco_eligible\(v_uid\)/);
     expect(TAG_NO_NOTES).toMatch(/d\.user_id = v_uid/);

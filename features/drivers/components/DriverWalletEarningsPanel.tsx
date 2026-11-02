@@ -1627,7 +1627,7 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
         onRequestClose={closeFollowUp}
         statusBarTranslucent
       >
-        <View style={styles.fullPageRoot}>
+        <View style={styles.fullPage}>
           <View
             style={[
               styles.fullPage,

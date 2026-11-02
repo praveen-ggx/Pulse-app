@@ -115,3 +115,6 @@ REVOKE ALL ON FUNCTION public.tag_dco_trip_party(uuid, uuid, numeric) FROM PUBLI
 REVOKE ALL ON FUNCTION public.tag_dco_trip_party(uuid, uuid, numeric) FROM anon;
 GRANT EXECUTE ON FUNCTION public.tag_dco_trip_party(uuid, uuid, numeric) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.tag_dco_trip_party(uuid, uuid, numeric) TO service_role;
+
+-- Security: remove the legacy 2-arg overload if it still exists (no trip-ownership check).
+DROP FUNCTION IF EXISTS public.tag_dco_trip_party(uuid, uuid);

@@ -165,16 +165,28 @@ export function DriverSelfReceivablesPanel({
           ]}
         >
           <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>
-            Total outstanding
+            {summary.billedComplete ? "Total outstanding" : "Outstanding (incomplete)"}
           </Text>
-          <Text
-            style={[
-              styles.summaryOutstanding,
-              { color: summary.due > 0 ? Theme.negative : colors.emerald },
-            ]}
-          >
-            {inr(summary.due)}
-          </Text>
+          {summary.billedComplete && summary.due != null ? (
+            <Text
+              style={[
+                styles.summaryOutstanding,
+                { color: summary.due > 0 ? Theme.negative : colors.emerald },
+              ]}
+            >
+              {inr(summary.due)}
+            </Text>
+          ) : (
+            <Text style={[styles.summaryOutstanding, { color: colors.textMuted }]}>
+              Unavailable
+            </Text>
+          )}
+          {!summary.billedComplete ? (
+            <Text style={[styles.collectionHint, { color: colors.textMuted }]}>
+              {summary.unavailableBilledTrips} trip
+              {summary.unavailableBilledTrips === 1 ? "" : "s"} not issued
+            </Text>
+          ) : null}
         </View>
         <View
           style={[
@@ -186,10 +198,11 @@ export function DriverSelfReceivablesPanel({
             Collection
           </Text>
           <Text style={[styles.collectionValue, { color: colors.emerald }]}>
-            {summary.collectionPercent}%
+            {summary.collectionPercent != null ? `${summary.collectionPercent}%` : "—"}
           </Text>
           <Text style={[styles.collectionHint, { color: colors.textMuted }]}>
-            {inr(summary.received)} of {inr(summary.billed)}
+            {inr(summary.received)} of{" "}
+            {summary.billedComplete ? inr(summary.billed) : `${inr(summary.billed)} (partial)`}
           </Text>
         </View>
       </View>
@@ -231,9 +244,12 @@ export function DriverSelfReceivablesPanel({
           ]}
         >
           {partyRows.map((row, idx) => {
-            const unpaid = row.due > 0;
+            const unpaid = row.billedComplete && (row.due ?? 0) > 0;
             const isLast = idx === partyRows.length - 1;
             const avatar = avatarByPartyId[row.id] ?? EMPTY_DRIVER_PARTY_AVATAR;
+            const billedLabel = row.billedComplete
+              ? `Sales ${inr(row.billed)}`
+              : `Partial billed ${inr(row.billed)} · ${row.unavailableBilledTrips} not issued`;
             return (
               <TouchableOpacity
                 key={row.id}
@@ -244,7 +260,11 @@ export function DriverSelfReceivablesPanel({
                 onPress={() => router.push(ROUTES.driverPartyReceivable(row.id))}
                 activeOpacity={0.82}
                 accessibilityRole="button"
-                accessibilityLabel={`${row.name}, ${row.trips} trips, ${inr(row.due)} outstanding`}
+                accessibilityLabel={
+                  row.billedComplete
+                    ? `${row.name}, ${row.trips} trips, ${inr(row.due ?? 0)} outstanding`
+                    : `${row.name}, ${row.trips} trips, partial billed total, outstanding unavailable`
+                }
               >
                 <EntityAvatar
                   name={row.name}
@@ -265,22 +285,31 @@ export function DriverSelfReceivablesPanel({
                   <Text style={[styles.partySub, { color: colors.textMuted }]} numberOfLines={1}>
                     {row.subtitle}
                     {" · "}
-                    Sales {inr(row.billed)}
+                    {billedLabel}
                   </Text>
                 </View>
                 <View style={styles.tripsPill}>
                   <Text style={[styles.tripsPillText, { color: colors.text }]}>{row.trips}</Text>
                 </View>
                 <View style={styles.amtCol}>
-                  <Text
-                    style={[
-                      styles.dueValue,
-                      { color: unpaid ? Theme.negative : colors.emerald },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {inr(row.due)}
-                  </Text>
+                  {row.billedComplete && row.due != null ? (
+                    <Text
+                      style={[
+                        styles.dueValue,
+                        { color: unpaid ? Theme.negative : colors.emerald },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {inr(row.due)}
+                    </Text>
+                  ) : (
+                    <Text
+                      style={[styles.dueValue, { color: colors.textMuted }]}
+                      numberOfLines={1}
+                    >
+                      Unavailable
+                    </Text>
+                  )}
                   <Text style={[styles.receivedLine, { color: colors.textMuted }]} numberOfLines={1}>
                     Received {inr(row.received)}
                   </Text>

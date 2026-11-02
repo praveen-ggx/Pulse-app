@@ -9,7 +9,11 @@ import {
 } from "@/features/drivers/domain/driverOperatingMode";
 import { parseDcoPartyTagFromNotes } from "@/features/drivers/utils/dcoTripPartyTag.util";
 import { tripEarningsDetailForDriver } from "@/features/drivers/utils/driverUtils.util";
-import { tripPartyBilledAmount } from "@/features/trips/utils/tripPartyReceivable.util";
+import { isDcoOperatingTrip } from "@/features/trips/domain/tripDcoOperating";
+import {
+  dcoSelfReceivableBilledAmount,
+  tripPartyBilledAmount,
+} from "@/features/trips/utils/tripPartyReceivable.util";
 import type {
   DcoSelfParty,
   DcoSelfReceivableListRow,
@@ -27,9 +31,15 @@ export type DriverPartyReceivable = {
   /** Sum of issued billed amounts only (unavailable trips contribute nothing). */
   billed: number;
   received: number;
-  due: number;
+  /**
+   * Outstanding only when `billedComplete`. Null means the balance is not
+   * definitive — never treat as ₹0 settled.
+   */
+  due: number | null;
   /** Trips lacking an issued receivable billed amount. */
   unavailableBilledTrips: number;
+  /** True only when every included trip has an available issued billed amount. */
+  billedComplete: boolean;
 };
 
 export const MARKETPLACE_PARTY_ID = "marketplace";
@@ -118,10 +128,12 @@ export function partyAvatarLookup(
 
 /**
  * Trip billed amount for receivable UI.
- * - DCO Self / offline: issued `dco_self_receivables` only (via `tripPartyBilledAmount`).
+ * - Marketplace Exchange (`market_bid`): listing economics (agreed rate / client_price).
+ * - DCO Self offline (`operating_mode=DCO`): issued `dco_self_receivables` only.
  *   Never notes, `dco_party_billed`, earnings, or `client_price`.
- * - Marketplace Exchange: listing economics may still use agreed rate / client_price.
- * Returns null when DCO Self billed amount is unavailable (distinct from zero).
+ * - Independent DRIVER / fleet-employee offline: own sources (issued book receivable
+ *   when provided; otherwise driver-agreed earnings / client_price). Never DCO mirrors.
+ * Returns null when billed amount is unavailable (distinct from zero).
  */
 export function tripReceivableBilled(
   trip: TripRow,
@@ -132,7 +144,17 @@ export function tripReceivableBilled(
     if (agreed.amount > 0) return agreed.amount;
     return Math.max(0, Math.round(Number(trip.client_price ?? 0) || 0));
   }
-  return tripPartyBilledAmount(trip, receivable);
+
+  if (isDcoOperatingTrip(trip)) {
+    return tripPartyBilledAmount(trip, receivable);
+  }
+
+  // Independent DRIVER / fleet-employee offline: their own book receivable only.
+  // Never fall through to DCO mirrors, notes, or estimated earnings as AR.
+  if (receivable !== undefined) {
+    return dcoSelfReceivableBilledAmount(receivable);
+  }
+  return null;
 }
 
 function shipperPartyKey(trip: TripRow): { id: string; name: string } {
@@ -210,6 +232,7 @@ export function buildDriverPartyReceivables(
 
   const rows: DriverPartyReceivable[] = [];
   if (marketTrips > 0) {
+    const marketDue = Math.max(0, marketBilled - marketReceived);
     rows.push({
       id: MARKETPLACE_PARTY_ID,
       kind: "marketplace",
@@ -218,30 +241,37 @@ export function buildDriverPartyReceivables(
       trips: marketTrips,
       billed: marketBilled,
       received: marketReceived,
-      due: Math.max(0, marketBilled - marketReceived),
+      due: marketDue,
       unavailableBilledTrips: 0,
+      billedComplete: true,
     });
   }
 
   const shipperRows = [...shippers.entries()]
-    .map(([id, row]) => ({
-      id,
-      kind: "shipper" as const,
-      name: row.name,
-      subtitle:
-        id === UNTAGGED_PARTY_ID
-          ? "Tag a shipper or middleman"
-          : "Shipper · client receivable",
-      trips: row.trips,
-      billed: row.billed,
-      received: row.received,
-      due: Math.max(0, row.billed - row.received),
-      unavailableBilledTrips: row.unavailableBilledTrips,
-    }))
+    .map(([id, row]) => {
+      const billedComplete = row.unavailableBilledTrips === 0;
+      return {
+        id,
+        kind: "shipper" as const,
+        name: row.name,
+        subtitle:
+          id === UNTAGGED_PARTY_ID
+            ? "Tag a shipper or middleman"
+            : "Shipper · client receivable",
+        trips: row.trips,
+        billed: row.billed,
+        received: row.received,
+        due: billedComplete ? Math.max(0, row.billed - row.received) : null,
+        unavailableBilledTrips: row.unavailableBilledTrips,
+        billedComplete,
+      };
+    })
     .sort((a, b) => {
       if (a.id === UNTAGGED_PARTY_ID) return -1;
       if (b.id === UNTAGGED_PARTY_ID) return 1;
-      return b.due - a.due || b.billed - a.billed || a.name.localeCompare(b.name);
+      const dueA = a.due ?? -1;
+      const dueB = b.due ?? -1;
+      return dueB - dueA || b.billed - a.billed || a.name.localeCompare(b.name);
     });
 
   return [...rows, ...shipperRows];
@@ -264,12 +294,13 @@ export function tripsForDriverParty(
     if (!match) continue;
     const billed = tripReceivableBilled(trip);
     const received = Math.max(0, Math.round(Number(receivedByTripId[trip.id] ?? 0) || 0));
+    const billedAvailable = billed != null;
     lines.push({
       trip,
       billed,
       received,
-      due: billed == null ? 0 : Math.max(0, billed - received),
-      billedAvailable: billed != null,
+      due: billedAvailable ? Math.max(0, billed - received) : 0,
+      billedAvailable,
     });
   }
   lines.sort((a, b) => {
@@ -283,18 +314,29 @@ export function tripsForDriverParty(
 export function summarizeDriverPartyReceivables(rows: DriverPartyReceivable[]): {
   billed: number;
   received: number;
-  due: number;
-  collectionPercent: number;
+  due: number | null;
+  collectionPercent: number | null;
+  billedComplete: boolean;
+  unavailableBilledTrips: number;
 } {
   let billed = 0;
   let received = 0;
+  let unavailableBilledTrips = 0;
+  let billedComplete = true;
   for (const row of rows) {
     billed += row.billed;
     received += row.received;
+    unavailableBilledTrips += row.unavailableBilledTrips;
+    if (!row.billedComplete) billedComplete = false;
   }
-  const due = Math.max(0, billed - received);
-  const collectionPercent = billed > 0 ? Math.round((received / billed) * 100) : 0;
-  return { billed, received, due, collectionPercent };
+  return {
+    billed,
+    received,
+    due: billedComplete ? Math.max(0, billed - received) : null,
+    collectionPercent: billedComplete && billed > 0 ? Math.round((received / billed) * 100) : null,
+    billedComplete,
+    unavailableBilledTrips,
+  };
 }
 
 export function buildDriverPartyReceivablesFromBook(
@@ -314,8 +356,9 @@ export function buildDriverPartyReceivablesFromBook(
       prev.trips += 1;
       prev.billed += billed;
       prev.received += received;
-      prev.due += due;
+      prev.due = (prev.due ?? 0) + due;
       prev.unavailableBilledTrips = prev.unavailableBilledTrips ?? 0;
+      prev.billedComplete = true;
     } else {
       byParty.set(partyId, {
         id: partyId,
@@ -327,8 +370,11 @@ export function buildDriverPartyReceivablesFromBook(
         received,
         due,
         unavailableBilledTrips: 0,
+        billedComplete: true,
       });
     }
   }
-  return [...byParty.values()].sort((a, b) => b.due - a.due || b.billed - a.billed || a.name.localeCompare(b.name));
+  return [...byParty.values()].sort(
+    (a, b) => (b.due ?? -1) - (a.due ?? -1) || b.billed - a.billed || a.name.localeCompare(b.name),
+  );
 }

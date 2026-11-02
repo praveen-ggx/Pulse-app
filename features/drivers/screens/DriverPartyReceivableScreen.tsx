@@ -285,7 +285,7 @@ export default function DriverPartyReceivableScreen() {
 
   if (!partyId) {
     return (
-      <DetailPageLayout title="Receivable" onBack={onBack} titleAlign="left">
+      <DetailPageLayout title="Receivable" onBack={onBack}>
         <Text style={styles.empty}>Choose a customer from Wallet to open their receivable.</Text>
       </DetailPageLayout>
     );
@@ -300,7 +300,7 @@ export default function DriverPartyReceivableScreen() {
           ? "DCO Self book"
           : "wallet";
     return (
-      <DetailPageLayout title="Receivable" onBack={onBack} titleAlign="left" onRefresh={load} refreshing={loading}>
+      <DetailPageLayout title="Receivable" onBack={onBack} onRefresh={load} refreshing={loading}>
         <Text style={styles.empty}>
           This receivable is not available in your {bookHint}.
         </Text>
@@ -322,7 +322,7 @@ export default function DriverPartyReceivableScreen() {
   return (
     <DetailPageLayout
       title={party.name}
-      titleAlign="left"
+     
       titleSubline={
         <Text style={styles.kicker}>{kicker}</Text>
       }
@@ -348,7 +348,17 @@ export default function DriverPartyReceivableScreen() {
     >
       <View style={styles.scorecard}>
         <Text style={styles.scoreLabel}>Financial overview</Text>
+        <Text style={styles.scoreBilledLabel}>
+          {party?.billedComplete === false ? "Partial billed total" : "Billed"}
+        </Text>
         <Text style={styles.scoreBilled}>{inr(party?.billed ?? 0)}</Text>
+        {party?.billedComplete === false ? (
+          <Text style={styles.scorePartialHint}>
+            {party.unavailableBilledTrips} trip
+            {party.unavailableBilledTrips === 1 ? "" : "s"} with receivable not issued —
+            outstanding is not definitive.
+          </Text>
+        ) : null}
         <View style={styles.scoreGrid}>
           <View style={styles.scoreCell}>
             <Text style={styles.scoreGridLabel}>Received</Text>
@@ -358,14 +368,18 @@ export default function DriverPartyReceivableScreen() {
           </View>
           <View style={styles.scoreCell}>
             <Text style={styles.scoreGridLabel}>Due</Text>
-            <Text
-              style={[
-                styles.scoreAmt,
-                { color: (party?.due ?? 0) > 0 ? Theme.negative : Theme.positive },
-              ]}
-            >
-              {inr(party?.due ?? 0)}
-            </Text>
+            {party?.billedComplete === false || party?.due == null ? (
+              <Text style={[styles.scoreAmt, { color: Theme.textMuted }]}>Unavailable</Text>
+            ) : (
+              <Text
+                style={[
+                  styles.scoreAmt,
+                  { color: party.due > 0 ? Theme.negative : Theme.positive },
+                ]}
+              >
+                {inr(party.due)}
+              </Text>
+            )}
           </View>
         </View>
       </View>
@@ -503,14 +517,18 @@ export default function DriverPartyReceivableScreen() {
                     </Text>
                   </View>
                   <Text style={[styles.amt, { color: Theme.positive }]}>{inr(line.received)}</Text>
-                  <Text
-                    style={[
-                      styles.amt,
-                      { color: line.due > 0 ? Theme.negative : Theme.positive },
-                    ]}
-                  >
-                    {inr(line.due)}
-                  </Text>
+                  {line.billedAvailable ? (
+                    <Text
+                      style={[
+                        styles.amt,
+                        { color: line.due > 0 ? Theme.negative : Theme.positive },
+                      ]}
+                    >
+                      {inr(line.due)}
+                    </Text>
+                  ) : (
+                    <Text style={[styles.amt, { color: Theme.textMuted }]}>Not issued</Text>
+                  )}
                 </Pressable>
                 <View style={styles.actionCol}>
                   {needsTag ? (
@@ -581,12 +599,24 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
+  scoreBilledLabel: {
+    marginTop: 6,
+    fontSize: 11,
+    fontWeight: "600",
+    color: Theme.textMuted,
+  },
   scoreBilled: {
-    marginTop: 4,
+    marginTop: 2,
     fontSize: 22,
     fontWeight: "700",
     letterSpacing: -0.4,
     color: Theme.textPrimaryDark,
+  },
+  scorePartialHint: {
+    marginTop: 4,
+    fontSize: 12,
+    lineHeight: 16,
+    color: Theme.textMuted,
   },
   scoreGrid: {
     flexDirection: "row",

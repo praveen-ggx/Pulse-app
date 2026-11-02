@@ -1,4 +1,4 @@
-import { readFileSync } from "fs";
+import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 
 function readMigration(name: string): string {
@@ -9,6 +9,7 @@ const ENSURE = readMigration("20271101154500_ensure_dco_workspace.sql");
 const QUALIFY = readMigration("20271101184600_ensure_dco_workspace_qualify_returning_id.sql");
 const TAG = readMigration("20271101222100_tag_dco_trip_party.sql");
 const TAG_NO_NOTES = readMigration("20271102134500_tag_dco_trip_party_no_notes_finance.sql");
+const DROP_LEGACY_TAG = readMigration("20271102141500_drop_legacy_tag_dco_trip_party_overload.sql");
 
 describe("ensure_dco_workspace migrations", () => {
   it.each([
@@ -83,5 +84,26 @@ describe("tag_dco_trip_party no-notes-finance forward migration", () => {
     expect(TAG_NO_NOTES).toMatch(
       /GRANT EXECUTE ON FUNCTION public\.tag_dco_trip_party\(uuid, uuid, numeric\) TO authenticated/,
     );
+  });
+});
+
+describe("legacy tag_dco_trip_party(uuid, uuid) overload removal (forward migration)", () => {
+  it("drops the unchecked 2-arg overload idempotently", () => {
+    expect(DROP_LEGACY_TAG).toMatch(
+      /DROP FUNCTION IF EXISTS public\.tag_dco_trip_party\(uuid, uuid\);/,
+    );
+  });
+
+  it("does not drop or redefine the checked 3-arg function", () => {
+    expect(DROP_LEGACY_TAG).not.toMatch(/tag_dco_trip_party\(uuid, uuid, numeric\)/);
+    expect(DROP_LEGACY_TAG).not.toMatch(/CREATE (OR REPLACE )?FUNCTION/i);
+  });
+
+  it("applies after the 3-arg replacement, as its own version", () => {
+    const files = readdirSync(join(__dirname, "..")).filter((f) => f.endsWith(".sql")).sort();
+    const replacement = files.indexOf("20271102134500_tag_dco_trip_party_no_notes_finance.sql");
+    const drop = files.indexOf("20271102141500_drop_legacy_tag_dco_trip_party_overload.sql");
+    expect(replacement).toBeGreaterThan(-1);
+    expect(drop).toBeGreaterThan(replacement);
   });
 });

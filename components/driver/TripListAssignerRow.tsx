@@ -130,7 +130,7 @@ export function TripListAssignerRow({
               >
                 Untagged
               </Text>
-              <Text style={[styles.note, endSlot && styles.noteMid, { color: mutedColor }]} numberOfLines={2}>
+              <Text style={[styles.note, endSlot ? styles.noteMid : null, { color: mutedColor }]} numberOfLines={2}>
                 Tag the party to track the AR
               </Text>
             </View>

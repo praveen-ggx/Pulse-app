@@ -162,13 +162,28 @@ import {
 import { indentRowToHubTrip } from "@/features/trips/utils/indentHubTableTrip.util";
 import {
   collectIndentHubSearchMatches,
+  isStrongIndentHubSearchScore,
   pickIndentHubSearchStage,
 } from "@/features/trips/utils/indentHubSearchStage.util";
 import {
   bestTripHubSearchMatch,
   collectTripHubSearchMatches,
+  isStrongTripHubSearchScore,
   pickTripHubSearchStage,
+  tripHubSearchStageForTrip,
 } from "@/features/trips/utils/tripHubSearchStage.util";
+import {
+  preferTripHubSearchHint,
+  type HubSearchStageHint,
+} from "@/features/trips/utils/hubSearchStageView.util";
+import {
+  buildHubSearchScopedCounts,
+  filterIndentsForHubStructuralSearch,
+  filterTripsForHubStructuralSearch,
+  hubIndentViewShowsStructuralMatch,
+  hubTripViewShowsStructuralMatch,
+  resolveHubStructuralSearchMode,
+} from "@/features/trips/utils/hubSearchScopedCounts.util";
 import {
     indentMatchesHubDateFilter,
     indentMatchesHubSearch,
@@ -708,7 +723,6 @@ export default function TripsScreen() {
   const {
     hits: hubSearchHitsRaw,
     needle: hubSearchNeedle,
-    isFetching: hubSearchFetching,
   } = useTripsHubSearch(orgId, searchQuery);
   const hubSearchHits = useMemo(
     () => sourcingScope.filterTrips(hubSearchHitsRaw),
@@ -1003,7 +1017,7 @@ export default function TripsScreen() {
       }),
     [searchQuery, hubTrips, orgId],
   );
-  const indentSearchHighlightId = useMemo(() => {
+  const indentSearchBestMatch = useMemo(() => {
     if (!searchQuery.trim() || indentHubSearchMatches.length === 0) return null;
     const stage = pickIndentHubSearchStage(indentHubSearchMatches);
     if (!stage) return null;
@@ -1012,95 +1026,200 @@ export default function TripsScreen() {
       if (row.stage !== stage) continue;
       if (!best || row.score > best.score) best = row;
     }
-    return best?.indentId ?? null;
+    return best;
   }, [searchQuery, indentHubSearchMatches]);
-  const tripSearchHighlightId = useMemo(() => {
+  const tripSearchBestMatch = useMemo(() => {
     if (!searchQuery.trim() || tripHubSearchMatches.length === 0) return null;
     const stage = pickTripHubSearchStage(tripHubSearchMatches);
-    return bestTripHubSearchMatch(tripHubSearchMatches, stage)?.tripId ?? null;
+    return bestTripHubSearchMatch(tripHubSearchMatches, stage);
   }, [searchQuery, tripHubSearchMatches]);
-  const lastHubSearchNavRef = useRef("");
-  useEffect(() => {
-    const q = searchQuery.trim();
-    if (q.length < 2) {
-      lastHubSearchNavRef.current = "";
-      return;
-    }
+  /**
+   * Structural Indent/Trip ID / Vehicle search: stage ownership + scoped counts.
+   * Highlights matching stages and filters lists — never auto-switches tabs.
+   */
+  const hubSearchStageHint = useMemo((): HubSearchStageHint | null => {
+    if (searchQuery.trim().length < 2) return null;
     const tripStage = pickTripHubSearchStage(tripHubSearchMatches);
     const indentStage = pickIndentHubSearchStage(indentHubSearchMatches);
-    const bestTrip = bestTripHubSearchMatch(tripHubSearchMatches, tripStage);
-    let bestIndentScore = 0;
-    if (indentStage) {
-      for (const row of indentHubSearchMatches) {
-        if (row.stage !== indentStage) continue;
-        if (row.score > bestIndentScore) bestIndentScore = row.score;
-      }
-    }
-    if (!tripStage && !indentStage) {
-      // Server / code lookup still in flight — wait before treating as a miss.
-      if (hubSearchFetching || indentCodeSearchFetching) return;
-      return;
-    }
-    // Strong trip-code hits (exact / includes) win over indent text matches so a
-    // Trip ID search leaves Live Indents and opens the trip's real rail stage.
-    const preferTrip =
-      tripStage != null &&
-      bestTrip != null &&
-      (indentStage == null ||
-        bestTrip.score >= 80 ||
-        bestTrip.score > bestIndentScore);
-    if (preferTrip && tripStage && bestTrip) {
-      const key = `trip|${q.toLowerCase()}|${tripStage}|${bestTrip.tripId}`;
-      if (lastHubSearchNavRef.current === key) return;
-      lastHubSearchNavRef.current = key;
-      setTripFilter("Active");
-      setIndentFailedReason(null);
-      setIndentStatusTag(null);
-      setActiveHistoryMetricTab(null);
-      setActiveMetricTab(tripStage);
-      return;
-    }
-    if (!indentStage) return;
-    const key = `indent|${q.toLowerCase()}|${indentStage}`;
-    if (lastHubSearchNavRef.current === key) return;
-    lastHubSearchNavRef.current = key;
-    setTripFilter("Active");
-    setActiveMetricTab("indent");
-    setIndentFailedReason(null);
-    setIndentStatusTag(indentStage);
+    const bestTrip = tripSearchBestMatch;
+    const bestIndent = indentSearchBestMatch;
+    const tripHint: HubSearchStageHint | null =
+      tripStage && bestTrip
+        ? {
+            kind: "trip",
+            stage: tripStage,
+            id: bestTrip.tripId,
+            strong: isStrongTripHubSearchScore(bestTrip.score),
+          }
+        : null;
+    const indentHint: HubSearchStageHint | null =
+      indentStage && bestIndent
+        ? {
+            kind: "indent",
+            stage: indentStage,
+            id: bestIndent.indentId,
+            strong: isStrongIndentHubSearchScore(bestIndent.score),
+          }
+        : null;
+    return preferTripHubSearchHint({ trip: tripHint, indent: indentHint });
   }, [
     searchQuery,
     tripHubSearchMatches,
     indentHubSearchMatches,
-    hubSearchFetching,
-    indentCodeSearchFetching,
+    tripSearchBestMatch,
+    indentSearchBestMatch,
   ]);
+  const hubTripsById = useMemo(() => {
+    const map = new Map<string, (typeof hubTrips)[number]>();
+    for (const trip of hubTrips) map.set(trip.id, trip);
+    return map;
+  }, [hubTrips]);
+  const hubStructuralSearchMode = useMemo(
+    () =>
+      resolveHubStructuralSearchMode({
+        query: searchQuery,
+        tripMatches: tripHubSearchMatches,
+        indentMatches: indentHubSearchMatches,
+        tripsById: hubTripsById,
+        organizationId: orgId,
+      }),
+    [
+      searchQuery,
+      tripHubSearchMatches,
+      indentHubSearchMatches,
+      hubTripsById,
+      orgId,
+    ],
+  );
+  const hubSearchScoped = useMemo(
+    () =>
+      buildHubSearchScopedCounts({
+        mode: hubStructuralSearchMode,
+        query: searchQuery,
+        tripMatches: tripHubSearchMatches,
+        indentMatches: indentHubSearchMatches,
+        tripsById: hubTripsById,
+        organizationId: orgId,
+      }),
+    [
+      hubStructuralSearchMode,
+      searchQuery,
+      tripHubSearchMatches,
+      indentHubSearchMatches,
+      hubTripsById,
+      orgId,
+    ],
+  );
+  const hubStructuralSearchActive = hubSearchScoped.mode !== "off";
+  const indentSearchHighlightId =
+    hubSearchScoped.mode === "indent_id"
+      ? [...hubSearchScoped.matchingIndentIds][0] ?? null
+      : hubSearchStageHint?.kind === "indent"
+        ? hubSearchStageHint.id
+        : null;
+  const tripSearchHighlightId =
+    hubSearchScoped.mode === "trip_id"
+      ? [...hubSearchScoped.matchingTripIds][0] ?? null
+      : null;
+  const searchMatchedTripMetricIds = hubStructuralSearchActive
+    ? hubSearchScoped.highlightedTripMetrics
+    : null;
+  const searchMatchedTripMetricId =
+    !hubStructuralSearchActive &&
+    hubSearchStageHint?.strong &&
+    hubSearchStageHint.kind === "trip"
+      ? hubSearchStageHint.stage
+      : null;
+  const searchMatchedIndentMetric =
+    hubStructuralSearchActive && hubSearchScoped.metricCounts.indent > 0
+      ? ("indent" as const)
+      : !hubStructuralSearchActive &&
+          hubSearchStageHint?.strong &&
+          hubSearchStageHint.kind === "indent"
+        ? ("indent" as const)
+        : null;
+  const searchMatchedIndentStatusTag = hubStructuralSearchActive
+    ? null
+    : hubSearchStageHint?.strong && hubSearchStageHint.kind === "indent"
+      ? hubSearchStageHint.stage
+      : null;
+  const searchMatchedIndentStatusTags = hubStructuralSearchActive
+    ? hubSearchScoped.highlightedIndentTags
+    : null;
+  const searchMatchedHistoryTab =
+    hubStructuralSearchActive
+      ? hubSearchScoped.historyCount > 0
+      : !!hubSearchStageHint?.strong &&
+        hubSearchStageHint.kind === "trip" &&
+        hubSearchStageHint.stage === "delivered_docs_pending";
+  const searchMatchedActiveTab = hubStructuralSearchActive
+    ? hubSearchScoped.mode === "indent_id" ||
+      hubSearchScoped.activeAllCount > 0
+    : !!hubSearchStageHint?.strong &&
+      (hubSearchStageHint.kind === "indent" ||
+        (hubSearchStageHint.kind === "trip" &&
+          hubSearchStageHint.stage !== "delivered_docs_pending"));
   // Default list = live indents (the tile). "Needs trip creation" (awarded tag) is its own list.
   const indentStageIndents = useMemo(() => {
+    let list: IndentRow[];
     if (activeMetricTab === "indent" && indentStatusTag === "failed") {
-      if (!indentFailedReason) return failedStageIndents;
-      return failedStageIndents.filter(
-        (indent) => indentCancelReasonId(indent.cancel_reason) === indentFailedReason,
-      );
-    }
-    if (activeMetricTab !== "indent" || indentStatusTag == null) {
-      return visibleUnallocatedIndents.filter(
+      list = !indentFailedReason
+        ? failedStageIndents
+        : failedStageIndents.filter(
+            (indent) =>
+              indentCancelReasonId(indent.cancel_reason) === indentFailedReason,
+          );
+    } else if (activeMetricTab !== "indent" || indentStatusTag == null) {
+      list = visibleUnallocatedIndents.filter(
         (indent) => indentWorkloadKindById.get(indent.id) === "live",
       );
+    } else {
+      list = visibleUnallocatedIndents.filter(
+        (indent) => indentWorkloadTagFor(indent) === indentStatusTag,
+      );
     }
-    return visibleUnallocatedIndents.filter(
-      (indent) => indentWorkloadTagFor(indent) === indentStatusTag,
-    );
+    if (hubStructuralSearchActive) {
+      const viewCanShow = hubIndentViewShowsStructuralMatch({
+        mode: hubSearchScoped.mode,
+        activeMetricTab,
+        indentStatusTag,
+        matchingStages: hubSearchScoped.highlightedIndentTags,
+      });
+      list = filterIndentsForHubStructuralSearch({
+        mode: hubSearchScoped.mode,
+        list,
+        matchingIndentIds: hubSearchScoped.matchingIndentIds,
+        viewCanShowIndents: viewCanShow,
+      });
+      if (
+        viewCanShow &&
+        list.length === 0 &&
+        hubSearchScoped.matchingIndentIds.size > 0
+      ) {
+        const pool =
+          indentStatusTag === "failed" ? failedStageIndents : unallocatedIndents;
+        list = pool.filter((indent) =>
+          hubSearchScoped.matchingIndentIds.has(indent.id),
+        );
+      }
+    }
+    return list;
   }, [
     activeMetricTab,
     indentStatusTag,
     indentFailedReason,
     failedStageIndents,
     visibleUnallocatedIndents,
+    unallocatedIndents,
     indentWorkloadKindById,
     indentWorkloadTagFor,
+    hubStructuralSearchActive,
+    hubSearchScoped,
   ]);
   const indentStatusTagCounts = useMemo(() => {
+    if (hubStructuralSearchActive) {
+      return { ...hubSearchScoped.indentTagCounts };
+    }
     const counts: Record<IndentHubStatusTag, number> = {
       pending: 0,
       bids: 0,
@@ -1122,19 +1241,31 @@ export default function TripsScreen() {
     hubMetrics,
     needsTripIndentCount,
     searchQuery,
+    hubStructuralSearchActive,
+    hubSearchScoped,
   ]);
   const indentStageToolbarCountLabel =
     indentStatusTag === "failed"
-      ? `Showing ${indentStageIndents.length} of ${hubMetrics?.indentFailed ?? failedStageIndents.length}`
+      ? `Showing ${indentStageIndents.length} of ${
+          hubStructuralSearchActive
+            ? indentStatusTagCounts.failed
+            : (hubMetrics?.indentFailed ?? failedStageIndents.length)
+        }`
       : hubShowingCountLabel({
           shown: indentStageIndents.length,
           total:
-            indentStatusTag === "awarded"
-              ? needsTripIndentCount
-              : indentStatusTag == null
-                ? liveIndentCount
-                : indentStatusTagCounts[indentStatusTag],
-          partial: indentWorkload.listTruncated || indentWorkload.listError,
+            hubStructuralSearchActive
+              ? indentStatusTag == null
+                ? hubSearchScoped.metricCounts.indent
+                : indentStatusTagCounts[indentStatusTag]
+              : indentStatusTag === "awarded"
+                ? needsTripIndentCount
+                : indentStatusTag == null
+                  ? liveIndentCount
+                  : indentStatusTagCounts[indentStatusTag],
+          partial:
+            !hubStructuralSearchActive &&
+            (indentWorkload.listTruncated || indentWorkload.listError),
         });
   const canViewIndentPools = canSurface("tripops.indents.view");
   const canSelectPoolIndents = canSurface("tripops.indents.allocate");
@@ -1182,6 +1313,9 @@ export default function TripsScreen() {
         kind: "status" as const,
         label: `Pending ${indentStatusTagCounts.pending}`,
         selected: indentStatusTag === "pending",
+        searchMatch:
+          searchMatchedIndentStatusTags?.has("pending") === true ||
+          searchMatchedIndentStatusTag === "pending",
         accessibilityLabel: "Pending, waiting for bid",
         onPress: () => {
           setIndentFailedReason(null);
@@ -1195,6 +1329,9 @@ export default function TripsScreen() {
         kind: "status" as const,
         label: `Bids received ${indentStatusTagCounts.bids}`,
         selected: indentStatusTag === "bids",
+        searchMatch:
+          searchMatchedIndentStatusTags?.has("bids") === true ||
+          searchMatchedIndentStatusTag === "bids",
         accessibilityLabel: "Bids received, receiving bids",
         onPress: () => {
           setIndentFailedReason(null);
@@ -1208,6 +1345,9 @@ export default function TripsScreen() {
         kind: "status" as const,
         label: `Needs trip creation ${indentStatusTagCounts.awarded}`,
         selected: indentStatusTag === "awarded",
+        searchMatch:
+          searchMatchedIndentStatusTags?.has("awarded") === true ||
+          searchMatchedIndentStatusTag === "awarded",
         accessibilityLabel: "Awarded, needs trip creation",
         onPress: () => {
           setIndentFailedReason(null);
@@ -1219,8 +1359,11 @@ export default function TripsScreen() {
       {
         id: "failed",
         kind: "status" as const,
-        label: `Failed ${hubMetrics?.indentFailed ?? failedStageIndents.length}`,
+        label: `Failed ${indentStatusTagCounts.failed}`,
         selected: indentStatusTag === "failed",
+        searchMatch:
+          searchMatchedIndentStatusTags?.has("failed") === true ||
+          searchMatchedIndentStatusTag === "failed",
         accessibilityLabel:
           indentStatusTag === "failed"
             ? "Failed, tap again to clear"
@@ -1251,13 +1394,14 @@ export default function TripsScreen() {
     ],
     [
       failedReasonCounts,
-      failedStageIndents.length,
-      hubMetrics?.indentFailed,
       indentFailedReason,
       indentStatusTag,
       indentStatusTagCounts.awarded,
       indentStatusTagCounts.bids,
       indentStatusTagCounts.pending,
+      indentStatusTagCounts.failed,
+      searchMatchedIndentStatusTag,
+      searchMatchedIndentStatusTags,
     ],
   );
   const indentHubActionOrgId =
@@ -1646,10 +1790,17 @@ export default function TripsScreen() {
     [hubScopedTrips],
   );
 
-  const metricCounts = useMemo(
-    () => ({ ...openHubRailCounts, indent: liveIndentCount }),
-    [liveIndentCount, openHubRailCounts],
-  );
+  const metricCounts = useMemo(() => {
+    if (hubStructuralSearchActive) {
+      return { ...hubSearchScoped.metricCounts };
+    }
+    return { ...openHubRailCounts, indent: liveIndentCount };
+  }, [
+    hubStructuralSearchActive,
+    hubSearchScoped,
+    liveIndentCount,
+    openHubRailCounts,
+  ]);
 
   const transactionsByTripId = useMemo(() => {
     const map = new Map<string, LedgerRow[]>();
@@ -1723,92 +1874,121 @@ export default function TripsScreen() {
     }
 
     if (q) {
-      const qDigits = hubSearchPhoneDigits(q);
-      list = list.filter((t) => {
-        // Server search already matched it (LR, driver phone, client master, …).
-        if (hubSearchHitIds.has(t.id)) return true;
-        if (
-          tripMatchesHubSearch(t, q, {
-            organizationId: orgId,
-            clientName:
-              shipperNameByTripId[t.id] ??
-              (t.organization_id !== orgId ? "" : t.client_name ?? ""),
-            supplierName: t.supplier_name,
-            lrLabel:
-              hubLrPreviewByTripId[t.id.trim().toLowerCase()] ||
-              searchLrNumbersByTripId[t.id.trim().toLowerCase()] ||
-              "",
-            elrLabel: "",
-          })
-        ) {
-          return true;
-        }
-        const displayName = (
-          shipperNameByTripId[t.id] ??
-          (t.organization_id !== orgId ? "" : t.client_name ?? "")
-        ).toLowerCase();
-        const clientMaster = (
-          t.organization_id === orgId && t.client_id
-            ? clientById.get(t.client_id)?.name ?? ""
-            : ""
-        ).toLowerCase();
-        const driverPhone = (
-          searchDriverPhoneByTripId[t.id] ??
-          driverPhoneById.get((t.driver_id ?? "").trim().toLowerCase()) ??
-          ""
-        ).replace(/\D/g, "");
-        const pillMeta = tripKindPillMetaByTripId.get(t.id);
-        const supplierShown = (pillMeta?.displaySupplierName ?? "").toLowerCase();
-        const driverShown = (pillMeta?.displayDriverName ?? "").toLowerCase();
-        const refs = [
-          t.booking_ref,
-          t.trip_code,
-          t.trip_operational_code,
-          t.driver_display_trip_id,
-          t.indent_reference_code,
-          t.source_indent_code,
-          t.indent_number,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        const pickup = (t.pickup_area ?? "").toLowerCase();
-        const drop = (t.drop_location ?? "").toLowerCase();
-        const tripRef = `${t.trip_number ?? ""} ${t.display_trip_id ?? ""}`
-          .trim()
-          .toLowerCase();
-        // Allocated indents have no card of their own, so their codes match the trip.
-        const indentRef = t.indent_id ? indentCodesByIndentId.get(t.indent_id) ?? "" : "";
-        const lrNos = (
-          searchLrNumbersByTripId[t.id.trim().toLowerCase()] ?? ""
-        ).toLowerCase();
-        const qCompact = q.replace(/\s+/g, "");
-        const ewayNos = (
-          searchEwayNumbersByTripId[t.id.trim().toLowerCase()] ?? ""
-        ).toLowerCase();
-        const vehicleNo = (t.vehicle_display_number ?? "")
-          .toLowerCase()
-          .replace(/\s+/g, "");
-        const driver = (t.driver_display_name ?? "").toLowerCase();
-        const supplier = (t.supplier_name ?? "").toLowerCase();
-        return (
-          displayName.includes(q) ||
-          pickup.includes(q) ||
-          drop.includes(q) ||
-          tripRef.includes(q) ||
-          indentRef.includes(q) ||
-          lrNos.includes(q) ||
-          (qCompact.length > 0 && vehicleNo.includes(qCompact)) ||
-          driver.includes(q) ||
-          supplier.includes(q) ||
-          clientMaster.includes(q) ||
-          supplierShown.includes(q) ||
-          driverShown.includes(q) ||
-          refs.includes(q) ||
-          (qCompact.length > 0 && ewayNos.includes(qCompact)) ||
-          (qDigits.length >= 4 && driverPhone.includes(qDigits))
-        );
-      });
+      // Structural Indent/Trip ID / Vehicle: matching records only on their
+      // stages. Never auto-switch tabs. Clear search restores full lists.
+      if (hubStructuralSearchActive) {
+        const viewCanShow = hubTripViewShowsStructuralMatch({
+          mode: hubSearchScoped.mode,
+          tripFilter,
+          activeMetricTab,
+          matchingTripMetrics: hubSearchScoped.highlightedTripMetrics,
+        });
+        list = filterTripsForHubStructuralSearch({
+          mode: hubSearchScoped.mode,
+          list,
+          matchingTripIds: hubSearchScoped.matchingTripIds,
+          hubTrips,
+          viewCanShowTrips: viewCanShow,
+          tripBelongsOnView: (trip) => {
+            if (showCompletedList || activeMetricTab === "delivered_docs_pending") {
+              return (
+                tripHubSearchStageForTrip(trip) === "delivered_docs_pending"
+              );
+            }
+            if (activeMetricTab === "all") {
+              return tripHubSearchStageForTrip(trip) !== "delivered_docs_pending";
+            }
+            return tripHubSearchStageForTrip(trip) === activeMetricTab;
+          },
+        });
+      } else {
+        const qDigits = hubSearchPhoneDigits(q);
+        list = list.filter((t) => {
+          // Server search already matched it (LR, driver phone, client master, …).
+          if (hubSearchHitIds.has(t.id)) return true;
+          if (
+            tripMatchesHubSearch(t, q, {
+              organizationId: orgId,
+              clientName:
+                shipperNameByTripId[t.id] ??
+                (t.organization_id !== orgId ? "" : t.client_name ?? ""),
+              supplierName: t.supplier_name,
+              lrLabel:
+                hubLrPreviewByTripId[t.id.trim().toLowerCase()] ||
+                searchLrNumbersByTripId[t.id.trim().toLowerCase()] ||
+                "",
+              elrLabel: "",
+            })
+          ) {
+            return true;
+          }
+          const displayName = (
+            shipperNameByTripId[t.id] ??
+            (t.organization_id !== orgId ? "" : t.client_name ?? "")
+          ).toLowerCase();
+          const clientMaster = (
+            t.organization_id === orgId && t.client_id
+              ? clientById.get(t.client_id)?.name ?? ""
+              : ""
+          ).toLowerCase();
+          const driverPhone = (
+            searchDriverPhoneByTripId[t.id] ??
+            driverPhoneById.get((t.driver_id ?? "").trim().toLowerCase()) ??
+            ""
+          ).replace(/\D/g, "");
+          const pillMeta = tripKindPillMetaByTripId.get(t.id);
+          const supplierShown = (pillMeta?.displaySupplierName ?? "").toLowerCase();
+          const driverShown = (pillMeta?.displayDriverName ?? "").toLowerCase();
+          const refs = [
+            t.booking_ref,
+            t.trip_code,
+            t.trip_operational_code,
+            t.driver_display_trip_id,
+            t.indent_reference_code,
+            t.source_indent_code,
+            t.indent_number,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          const pickup = (t.pickup_area ?? "").toLowerCase();
+          const drop = (t.drop_location ?? "").toLowerCase();
+          const tripRef = `${t.trip_number ?? ""} ${t.display_trip_id ?? ""}`
+            .trim()
+            .toLowerCase();
+          // Allocated indents have no card of their own, so their codes match the trip.
+          const indentRef = t.indent_id ? indentCodesByIndentId.get(t.indent_id) ?? "" : "";
+          const lrNos = (
+            searchLrNumbersByTripId[t.id.trim().toLowerCase()] ?? ""
+          ).toLowerCase();
+          const qCompact = q.replace(/\s+/g, "");
+          const ewayNos = (
+            searchEwayNumbersByTripId[t.id.trim().toLowerCase()] ?? ""
+          ).toLowerCase();
+          const vehicleNo = (t.vehicle_display_number ?? "")
+            .toLowerCase()
+            .replace(/\s+/g, "");
+          const driver = (t.driver_display_name ?? "").toLowerCase();
+          const supplier = (t.supplier_name ?? "").toLowerCase();
+          return (
+            displayName.includes(q) ||
+            pickup.includes(q) ||
+            drop.includes(q) ||
+            tripRef.includes(q) ||
+            indentRef.includes(q) ||
+            lrNos.includes(q) ||
+            (qCompact.length > 0 && vehicleNo.includes(qCompact)) ||
+            driver.includes(q) ||
+            supplier.includes(q) ||
+            clientMaster.includes(q) ||
+            supplierShown.includes(q) ||
+            driverShown.includes(q) ||
+            refs.includes(q) ||
+            (qCompact.length > 0 && ewayNos.includes(qCompact)) ||
+            (qDigits.length >= 4 && driverPhone.includes(qDigits))
+          );
+        });
+      }
     }
 
     let sorted = [...list];
@@ -1840,6 +2020,7 @@ export default function TripsScreen() {
   }, [
     tripsByStatus,
     historyTripsForDelivered,
+    hubTrips,
     activeMetricTab,
     supplyFilter,
     attributionFilter,
@@ -1847,6 +2028,10 @@ export default function TripsScreen() {
     searchQuery,
     indentCodesByIndentId,
     hubSearchHitIds,
+    hubStructuralSearchActive,
+    hubSearchScoped,
+    tripFilter,
+    orgId,
     clientById,
     driverPhoneById,
     searchDriverPhoneByTripId,
@@ -2828,10 +3013,16 @@ export default function TripsScreen() {
     hardPodTripIds,
   ]);
 
-  const tripMainTabCounts = useMemo(
-    () => hubTabTripCounts(hubScopedTrips),
-    [hubScopedTrips],
-  );
+  const tripMainTabCounts = useMemo(() => {
+    if (hubStructuralSearchActive) {
+      return {
+        active: hubSearchScoped.activeAllCount,
+        history: hubSearchScoped.historyCount,
+        cancelled: 0,
+      };
+    }
+    return hubTabTripCounts(hubScopedTrips);
+  }, [hubStructuralSearchActive, hubSearchScoped, hubScopedTrips]);
 
   const formatMainTabLabel = useCallback(
     (label: string, count: number) =>
@@ -2846,6 +3037,7 @@ export default function TripsScreen() {
         label: tr("active"),
         count: tripMainTabCounts.active,
         isActive: tripFilter === "Active",
+        searchMatch: searchMatchedActiveTab,
         onPress: () => {
           lastOpenedTabSearchDoneRef.current = lastOpenedTripId;
           setTripFilter("Active");
@@ -2857,13 +3049,22 @@ export default function TripsScreen() {
         label: tr("history"),
         count: tripMainTabCounts.history,
         isActive: tripFilter === "History",
+        // Completed trips: highlight History (and Delivered rail) without auto-nav.
+        searchMatch: searchMatchedHistoryTab,
         onPress: () => {
           lastOpenedTabSearchDoneRef.current = lastOpenedTripId;
           setTripFilter("History");
         },
       },
     ],
-    [tr, tripFilter, tripMainTabCounts, lastOpenedTripId],
+    [
+      tr,
+      tripFilter,
+      tripMainTabCounts,
+      lastOpenedTripId,
+      searchMatchedActiveTab,
+      searchMatchedHistoryTab,
+    ],
   );
 
   const subTabs = useMemo(
@@ -2945,7 +3146,11 @@ export default function TripsScreen() {
           gradient: [Theme.financeCardSlateFrom, "#1e293b"] as [string, string],
           accent: Theme.textSecondary,
           // Separate needs-trip count beside the tile; never added to the live total.
-          micro: `${tr("tripMetricNeedsTripCreation")} · ${needsTripIndentCount}`,
+          micro: `${tr("tripMetricNeedsTripCreation")} · ${
+            hubStructuralSearchActive
+              ? hubSearchScoped.indentTagCounts.awarded
+              : needsTripIndentCount
+          }`,
         },
         unassigned: {
           icon: "user-times",
@@ -3004,7 +3209,12 @@ export default function TripsScreen() {
           micro: string;
         }
       >,
-    [tr, needsTripIndentCount],
+    [
+      tr,
+      needsTripIndentCount,
+      hubStructuralSearchActive,
+      hubSearchScoped.indentTagCounts.awarded,
+    ],
   );
 
   const activeMetricIdsForRail = useMemo(
@@ -3014,8 +3224,11 @@ export default function TripsScreen() {
   // ALL = open trips on the rail only. Completed trips belong on History.
   // Indent cards stay on the Indent tile and are not added here.
   const activeAllCount = useMemo(
-    () => hubActiveAllTripCount(openHubRailCounts),
-    [openHubRailCounts],
+    () =>
+      hubStructuralSearchActive
+        ? hubSearchScoped.activeAllCount
+        : hubActiveAllTripCount(openHubRailCounts),
+    [hubStructuralSearchActive, hubSearchScoped, openHubRailCounts],
   );
   // "Showing X of Y": Y is the current tab's total (or the selected History card's
   // count), X the filtered list. activeMetricTab stays "all" on History, so key on
@@ -3690,6 +3903,7 @@ export default function TripsScreen() {
                           key={tab.id}
                           label={formatMainTabLabel(tab.label, tab.count)}
                           isActive={tab.isActive}
+                          searchMatch={tab.searchMatch}
                           onPress={tab.onPress}
                           accessibilityLabel={`${tab.label}, ${tab.count} trips`}
                         />
@@ -3780,7 +3994,11 @@ export default function TripsScreen() {
                             onPress={tab.onPress}
                             accessibilityRole="tab"
                             accessibilityState={{ selected: tab.isActive }}
-                            accessibilityLabel={`${tab.label}, ${tab.count} trips`}
+                            accessibilityLabel={
+                              tab.searchMatch && !tab.isActive
+                                ? `${tab.label}, ${tab.count} trips, matches search`
+                                : `${tab.label}, ${tab.count} trips`
+                            }
                           >
                             <Text
                               style={[
@@ -3788,6 +4006,9 @@ export default function TripsScreen() {
                                 chatChrome.tabPillLabelHug,
                                 styles.tripsFilterTabLabelCompact,
                                 tab.isActive && chatChrome.tabPillLabelActive,
+                                !tab.isActive && tab.searchMatch
+                                  ? { fontWeight: "700" as const }
+                                  : null,
                               ]}
                             >
                               {formatMainTabLabel(tab.label, tab.count)}
@@ -3888,6 +4109,11 @@ export default function TripsScreen() {
                         label={`${copy.title} (${count})`}
                         isActive={active}
                         compact
+                        searchMatch={
+                          searchMatchedTripMetricIds?.has(metricId) === true ||
+                          metricId === searchMatchedTripMetricId ||
+                          metricId === searchMatchedIndentMetric
+                        }
                         onPress={() => setActiveMetricTab(metricId)}
                         accessibilityLabel={`${copy.title}, ${count} trips`}
                       />
@@ -3899,6 +4125,14 @@ export default function TripsScreen() {
                   metricOrder={activeMetricIdsForRail}
                   activeMetricTab={activeMetricTab}
                   onSelectMetric={setActiveMetricTab}
+                  searchMatchedMetricId={
+                    searchMatchedTripMetricId ?? searchMatchedIndentMetric
+                  }
+                  searchMatchedMetricIds={
+                    searchMatchedTripMetricIds as
+                      | ReadonlySet<ActiveMetricTabId>
+                      | null
+                  }
                   getCount={(id) =>
                     id === "all" ? activeAllCount : metricCounts[id]
                   }

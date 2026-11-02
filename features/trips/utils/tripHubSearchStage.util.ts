@@ -9,8 +9,11 @@ import {
 import type { TripMetricId } from "@/features/trips/utils/hubMetrics.model";
 import { tripMatchesHubSearch } from "@/features/trips/utils/tripHubSearch.util";
 
-/** Active-rail stages a trip-id search can jump to (includes Delivered / History). */
+/** Active-rail stages a trip-id search can jump to (includes Delivered / completed). */
 export type TripHubSearchStage = Exclude<TripMetricId, "indent">;
+
+/** Exact / includes code score — exclusive list shows only this trip. */
+export const TRIP_HUB_SEARCH_STRONG_SCORE = 80;
 
 const STAGE_TIEBREAK: TripHubSearchStage[] = [
   "unassigned",
@@ -20,6 +23,10 @@ const STAGE_TIEBREAK: TripHubSearchStage[] = [
   "unloading",
   "delivered_docs_pending",
 ];
+
+export function isStrongTripHubSearchScore(score: number): boolean {
+  return score >= TRIP_HUB_SEARCH_STRONG_SCORE;
+}
 
 /**
  * Stage card for one trip on Trip Ops.
@@ -35,8 +42,8 @@ export function tripHubSearchStageForTrip(
   return hubActiveRailMetric(trip, tripIdsWithAnyDocument as Set<string>);
 }
 
-/** Higher = better match for auto-navigation (exact trip code beats fuzzy text). */
-export function scoreTripHubSearchMatch(
+/** Exact / includes trip-code score only (not vehicle / client text). */
+export function scoreTripCodeHubSearchMatch(
   trip: TripRow,
   query: string,
   organizationId?: string | null,
@@ -55,6 +62,29 @@ export function scoreTripHubSearchMatch(
     .filter(Boolean);
   if (codes.some((c) => c === q)) return 100;
   if (codes.some((c) => c.includes(q))) return 80;
+  return 0;
+}
+
+/** Higher = better match (trip code > vehicle plate > client text). */
+export function scoreTripHubSearchMatch(
+  trip: TripRow,
+  query: string,
+  organizationId?: string | null,
+): number {
+  const q = query.trim().toLowerCase();
+  if (!q) return 0;
+  const codeScore = scoreTripCodeHubSearchMatch(trip, query, organizationId);
+  if (codeScore > 0) return codeScore;
+  const vehicle =
+    trip.vehicle_display_number ??
+    (trip as { vehicle_number?: string | null }).vehicle_number ??
+    "";
+  const qFold = q.replace(/[\s\-_.]/g, "");
+  const vFold = String(vehicle).toLowerCase().replace(/[\s\-_.]/g, "");
+  if (qFold.length >= 3 && vFold) {
+    if (vFold === qFold) return 100;
+    if (vFold.includes(qFold) || qFold.includes(vFold)) return 85;
+  }
   if (!tripMatchesHubSearch(trip, q, { organizationId })) return 0;
   const client = String(trip.client_name ?? "").trim().toLowerCase();
   if (client && client === q) return 40;

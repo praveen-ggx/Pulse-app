@@ -1121,6 +1121,8 @@ export type TripsHubTableViewProps = {
     accessibilityLabel?: string;
     /** Reason chips expand under Failed and use the failed tone. */
     kind?: "status" | "reason";
+    /** Indent/Trip ID search owns this stage — ring without selecting. */
+    searchMatch?: boolean;
   }>;
   /**
    * Controlled hub search. When set, the parent has already filtered `trips` by it
@@ -1520,6 +1522,7 @@ export function TripsHubTableView({
     trailing?: ReactNode,
   ) => {
     const tone = indentStatusTagTone(tag.id);
+    const searchMatch = Boolean(tag.searchMatch) && !tag.selected;
     return (
       <TouchableOpacity
         key={tag.id}
@@ -1528,14 +1531,23 @@ export function TripsHubTableView({
           tag.kind === "reason" && styles.indentReasonTag,
           {
             backgroundColor: tag.selected ? tone.selectedBg : tone.bg,
-            borderColor: tag.selected ? tone.selectedBorder : tone.border,
+            borderColor: tag.selected
+              ? tone.selectedBorder
+              : searchMatch
+                ? Theme.primary
+                : tone.border,
+            borderWidth: searchMatch ? 2 : undefined,
           },
         ]}
         onPress={tag.onPress}
         activeOpacity={0.85}
         accessibilityRole="button"
         accessibilityState={{ selected: tag.selected }}
-        accessibilityLabel={tag.accessibilityLabel ?? tag.label}
+        accessibilityLabel={
+          searchMatch
+            ? `${tag.accessibilityLabel ?? tag.label}, matches search`
+            : (tag.accessibilityLabel ?? tag.label)
+        }
       >
         <View
           style={[

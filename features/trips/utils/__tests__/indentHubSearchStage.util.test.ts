@@ -2,6 +2,7 @@ import type { IndentRow } from "@/features/indents/services/indents.service";
 import {
   collectIndentHubSearchMatches,
   indentHubSearchStageForIndent,
+  isStrongIndentHubSearchScore,
   pickIndentHubSearchStage,
   scoreIndentHubSearchMatch,
 } from "@/features/trips/utils/indentHubSearchStage.util";
@@ -127,5 +128,24 @@ describe("collectIndentHubSearchMatches", () => {
     expect(scoreIndentHubSearchMatch(indent({ id: "x", client_name: "Apollo" }), "apollo")).toBe(
       40,
     );
+  });
+
+  it("treats code matches as strong (exclusive list) and client text as weak", () => {
+    expect(isStrongIndentHubSearchScore(100)).toBe(true);
+    expect(isStrongIndentHubSearchScore(80)).toBe(true);
+    expect(isStrongIndentHubSearchScore(40)).toBe(false);
+    expect(
+      isStrongIndentHubSearchScore(
+        scoreIndentHubSearchMatch(
+          indent({ id: "x", indent_number: "SAT812GOGIND003250" }),
+          "SAT812GOGIND003250",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isStrongIndentHubSearchScore(
+        scoreIndentHubSearchMatch(indent({ id: "y", client_name: "Apollo" }), "apollo"),
+      ),
+    ).toBe(false);
   });
 });

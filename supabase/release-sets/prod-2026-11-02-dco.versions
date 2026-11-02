@@ -1,0 +1,44 @@
+# DCO Self + indie driver financial books (Vasanth PRs #62–#64, #67 on his repo).
+# 8 chained migrations: ensure_dco_workspace → qualify fix → tag party →
+# financial book (4 tables + RPCs) → indie book (4 tables + RPCs) →
+# finance visibility → tag no-notes forward → drop legacy overload.
+#
+# Dependency chain: 1→2→3→4,5,7→6→8 — apply in listed (ascending) order.
+# Functions and tables only; all CREATE OR REPLACE / IF NOT EXISTS / IF EXISTS.
+# No destructive DDL; re-applying a completed set is safe (idempotent).
+#
+# OPERATOR NOTES:
+#   Migration #3 (20271101222100) adds a nullable `dco_party_billed numeric` column
+#   to `trips` with no default — metadata-only on PG 11+ (no table rewrite, brief lock).
+#   It also creates a UNIQUE INDEX on `driver_ledger` (NOT CONCURRENTLY) which holds
+#   a ShareLock for the duration of the index build. Apply during a low-traffic window.
+#   Before applying, check table size:
+#     SELECT pg_size_pretty(pg_total_relation_size('driver_ledger'::regclass));
+#
+# Prerequisite: prod must already have 20271029223000 (compliance_resubmit, applied via prod-2026-10-29).
+# Apply Nihas sets (department-manager-rbac, clear-cancel-reason-on-award) before or alongside —
+# they are independent but should be applied in this release.
+#
+# Apply only via: npm run db:push-set -- prod-2026-11-02-dco   (dry-run first; prod apply needs Vasanth's GO)
+# Never via plain `supabase db push` / `npm run db:push`.
+#
+# Verify before applying:
+#   npx jest supabase/migrations/__tests__/prodDcoSelfDriverBooks.set.test.ts \
+#            supabase/migrations/__tests__/dcoSelfWorkspaceAndTag.contract.test.ts \
+#            supabase/migrations/__tests__/dcoSelfFinancialBook.contract.test.ts
+# sha256 fcb327601b5d11aa79b6cc3634324210663eea62d9db7e59c7390a4a28ce8035  20271101154500_ensure_dco_workspace.sql
+20271101154500
+# sha256 62421339d745b57bde21bfab085fde9e58b5db4976f33c619e042229e2751ac5  20271101184600_ensure_dco_workspace_qualify_returning_id.sql
+20271101184600
+# sha256 fec6499b46462021f2b3756cb0f222237e2f0f5772515418ae3aad40e5d14c9b  20271101222100_tag_dco_trip_party.sql
+20271101222100
+# sha256 87e82b092f8b7384d548e9b43aba091b132926cc6a8cfc551396fa900d28de54  20271102003100_dco_self_financial_book.sql
+20271102003100
+# sha256 b0e299984e9c35641f03b17d92671aed3106f14bdfb2ca396fa2f9564591f476  20271102114500_driver_indie_financial_book.sql
+20271102114500
+# sha256 94acae74e73c114acf626e028feddc40c6b1d4620ef4fb7d65bc325fbb370819  20271102120000_dco_self_finance_visibility.sql
+20271102120000
+# sha256 29916c0eaf63aa14573be1bde07d08225abc28bf15b1576bf5bf19347cbd7774  20271102134500_tag_dco_trip_party_no_notes_finance.sql
+20271102134500
+# sha256 90bd81b453c29df753eea36d7f405e79d0453849d2f7f26b645251b9393f9d41  20271102141500_drop_legacy_tag_dco_trip_party_overload.sql
+20271102141500

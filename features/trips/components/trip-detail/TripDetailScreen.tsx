@@ -4593,6 +4593,11 @@ export default function TripDetailScreen({
       return;
     }
     if (!simConfirmStep || !canTripSimulate) return;
+    const currentStatus = String(trip.status ?? "").toLowerCase();
+    if (currentStatus === "completed" || currentStatus === "cancelled") {
+      setSimError(`Trip is already ${currentStatus} — refresh the page.`);
+      return;
+    }
     simulateAbortRef.current?.abort();
     const abort = new AbortController();
     simulateAbortRef.current = abort;

@@ -13,9 +13,12 @@ jest.mock("@/features/marketplace/services/exchangePayments.service", () => ({
   claimExchangePayment: (...args: unknown[]) => mockClaim(...args),
 }));
 
+const mockGetLedger = jest.fn();
+
 jest.mock("@/features/drivers/services/drivers.service", () => ({
   findDriverLedgerByReference: (...args: unknown[]) => mockFindRef(...args),
   createDriverLedgerEntry: (...args: unknown[]) => mockCreateLedger(...args),
+  getDriverLedgerByTripId: (...args: unknown[]) => mockGetLedger(...args),
 }));
 
 jest.mock("@/features/dco-self/services/dcoSelfReceivable.service", () => ({
@@ -32,6 +35,11 @@ beforeEach(() => {
   mockClaim.mockReset();
   mockFindRef.mockReset();
   mockCreateLedger.mockReset();
+  mockGetLedger.mockReset();
+  mockGetLedger.mockResolvedValue({
+    error: null,
+    entries: [{ id: "led-1", type: "settlement", amount: 2500 }],
+  });
   mockGetReceivable.mockReset();
   mockCollectSelf.mockReset();
   mockGetIndie.mockReset();

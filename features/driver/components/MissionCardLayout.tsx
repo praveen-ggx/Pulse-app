@@ -31,6 +31,8 @@ export interface MissionCardLayoutProps {
   /** Defaults to EST. EARNINGS; PAY N/A when ₹ is not applicable. */
   earningsLabel?: string;
   assignedBy?: JobCardAssignerPayload | null;
+  /** Opens the party sheet from the assigner block when the trip still needs a party. */
+  onAssignerPress?: () => void;
   showHeroAssigner: boolean;
   /** Which stop this stage is oriented toward — drives the destination heading. Null once completed. */
   target: 'pickup' | 'drop' | null;
@@ -66,6 +68,7 @@ export function MissionCardLayout({
   earnings,
   earningsLabel = "EST. EARNINGS",
   assignedBy = null,
+  onAssignerPress,
   showHeroAssigner,
   target,
   pickupLabel,
@@ -151,7 +154,19 @@ export function MissionCardLayout({
           {showHeroAssigner && assignedBy ? (
             <>
               <View style={styles.heroColDivider} />
-              <HeroAssignerBlock assigner={assignedBy} />
+              {onAssignerPress ? (
+                <Pressable
+                  onPress={onAssignerPress}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Tag the party"
+                  style={{ flex: 1 }}
+                >
+                  <HeroAssignerBlock assigner={assignedBy} />
+                </Pressable>
+              ) : (
+                <HeroAssignerBlock assigner={assignedBy} />
+              )}
             </>
           ) : null}
         </View>

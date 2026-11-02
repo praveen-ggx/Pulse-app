@@ -4,6 +4,7 @@
  */
 import { NativeHtmlWebView } from "@/components/NativeHtmlWebView";
 import { DriverCapturePaymentButton } from "@/features/drivers/components/DriverCapturePaymentButton";
+import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
 import {
   driverBodySecondary,
   driverUIBold,
@@ -21,7 +22,6 @@ import {
 import { tripNeedsPartyTag } from "@/features/drivers/utils/driverPartyReceivables.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { LinearGradient } from "expo-linear-gradient";
-import { type Href, useRouter } from "expo-router";
 import {
   ArrowRight,
   Bell,
@@ -270,8 +270,8 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
   tripExpenses = [],
   showMonthPnl = false,
 }: Props) {
-  const router = useRouter();
   const insets = useSafeAreaInsets();
+  const [tagTrip, setTagTrip] = useState<TripRow | null>(null);
   const [monthKey, setMonthKey] = useState(() => monthKeyFromDate(new Date()));
   const [fleetOrgId, setFleetOrgId] = useState<string>("all");
   const [expandedDayKey, setExpandedDayKey] = useState<string | null>(null);
@@ -1382,13 +1382,10 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
                                 <Pressable
                                   onPress={(event) => {
                                     event?.stopPropagation?.();
-                                    router.push({
-                                      pathname: "/(driver)/add-client",
-                                      params: {
-                                        tripId,
-                                        partyName: fleetLabel,
-                                      },
-                                    } as Href);
+                                    const trip = scopedTrips.find(
+                                      (row) => String(row.id) === tripId,
+                                    );
+                                    if (trip) setTagTrip(trip);
                                   }}
                                   hitSlop={10}
                                   accessibilityRole="button"
@@ -1862,6 +1859,16 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
         ) : null}
         </View>
       </Modal>
+      {tagTrip ? (
+        <DriverCollectFromSheet
+          visible
+          trip={tagTrip}
+          due={0}
+          assignerName={tripMeta(tagTrip).fleetName}
+          onClose={() => setTagTrip(null)}
+          onTagged={() => setTagTrip(null)}
+        />
+      ) : null}
     </View>
   );
 });

@@ -1575,6 +1575,17 @@ export default function DriverRadarScreen() {
   // matches Finance Hub labor — but NEVER invent ₹ for supplier-mediated
   // (aggregate) assignments: shipper→supplier rate ≠ driver pay until
   // Driver-cum-Owner earnings are defined.
+  const incomingFleetLinked = useMemo(() => {
+    if (!effectiveFirstIncoming) return false;
+    const tripOrgId = String(effectiveFirstIncoming.organization_id ?? "").trim();
+    if (!tripOrgId) return false;
+    if (String(effectiveFirstIncoming.source ?? "").trim() === "market_bid") return false;
+    return linkedDriversQuery.activeLinkedDrivers.some((row) => {
+      if (String(row.organization_id ?? "").trim() !== tripOrgId) return false;
+      if (row.tracking_only === true) return false;
+      return driversService.isActiveFleetRelationshipDriver(row);
+    });
+  }, [effectiveFirstIncoming, linkedDriversQuery.activeLinkedDrivers]);
   const acceptedInviteForOrg =
     effectiveFirstIncoming &&
     (invites.find(
@@ -5023,6 +5034,15 @@ export default function DriverRadarScreen() {
           <>
             <DriverJobCard
               trip={activeMission}
+              isFleetLinked={linkedDriversQuery.activeLinkedDrivers.some((row) => {
+                const tripOrgId = String(activeMission.organization_id ?? "").trim();
+                if (!tripOrgId || String(activeMission.source ?? "").trim() === "market_bid") {
+                  return false;
+                }
+                if (String(row.organization_id ?? "").trim() !== tripOrgId) return false;
+                if (row.tracking_only === true) return false;
+                return driversService.isActiveFleetRelationshipDriver(row);
+              })}
               commissionAmount={activeMissionCommission}
               assignedBy={activeFlowAssigner}
               distanceToTargetKm={distanceToTargetKmGlobal}
@@ -5071,6 +5091,7 @@ export default function DriverRadarScreen() {
           <>
             <DriverJobCard
               trip={effectiveFirstIncoming}
+              isFleetLinked={incomingFleetLinked}
               commissionAmount={newAssignmentCommission}
               assignedBy={jobCardAssigner}
               distanceToTargetKm={distanceToTargetKmGlobal}

@@ -689,7 +689,7 @@ export function TripDetailSettlementPanel({
         <ChevronRight size={14} color={colors.textMuted} />
       </TouchableOpacity>
 
-      {showDcoPartyActions ? (
+      {showDcoPartyActions && collectFromOpen ? (
         <DriverCollectFromSheet
           visible={collectFromOpen}
           trip={trip}

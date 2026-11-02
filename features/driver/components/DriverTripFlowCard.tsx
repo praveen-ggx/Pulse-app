@@ -63,6 +63,8 @@ import {
   DRIVER_PAY_NA_LABEL,
   isAggregateTrip,
 } from '@/features/drivers/utils/driverUtils.util';
+import { DriverCollectFromSheet } from '@/features/drivers/components/DriverCollectFromSheet';
+import { canTagPartyOnTrip } from '@/features/drivers/utils/driverPartyReceivables.util';
 import { formatINR } from '@/lib/format';
 import { formatEstimatedDuration } from '@/lib/formatEstimatedDuration';
 import * as tripDocumentsService from '@/features/trips/services/tripDocuments.service';
@@ -302,6 +304,10 @@ export interface DriverTripFlowCardProps {
   edgeToEdge?: boolean;
   /** Structured assigner (matches JobRequestCard hero). */
   assignedBy?: JobCardAssignerPayload | null;
+  /** Opens the same party sheet as the trip list when this trip still needs a party. */
+  onAssignerPress?: () => void;
+  /** True when the assigning organisation is this driver's active fleet seat. */
+  isFleetLinked?: boolean;
   /**
    * Visual mode.
    * - "card": default rounded card frame (used elsewhere)
@@ -413,6 +419,8 @@ export function DriverTripFlowCard({
   onTripCompleted,
   edgeToEdge = false,
   assignedBy = null,
+  onAssignerPress,
+  isFleetLinked = false,
   variant = 'card',
   skipStopExecution = false,
 }: DriverTripFlowCardProps) {
@@ -442,7 +450,7 @@ export function DriverTripFlowCard({
 
   // Owner Vehicle Link — DCO explicit vehicle selection for this trip.
   // Never auto-selected, including when the DCO has exactly one vehicle.
-  const { canManageOwnerVehicles } = useDriverOperatingModeQuery(profile?.uid);
+  const { canManageOwnerVehicles, canTagOfflineParty } = useDriverOperatingModeQuery(profile?.uid);
   const { vehicles: ownerVehicles, isLoading: ownerVehiclesLoading } =
     useOwnerVehiclesQuery(profile?.uid);
   const [vehiclePickerOpen, setVehiclePickerOpen] = useState(false);
@@ -450,6 +458,7 @@ export function DriverTripFlowCard({
   const [vehiclePickerBusy, setVehiclePickerBusy] = useState(false);
   const [vehiclePickerError, setVehiclePickerError] = useState<string | null>(null);
   const [shipperFeedbackOpen, setShipperFeedbackOpen] = useState(false);
+  const [partyTagOpen, setPartyTagOpen] = useState(false);
 
   const openVehiclePicker = useCallback(() => {
     setVehiclePickerSelectedId(localTrip.owner_vehicle_id ?? null);
@@ -1729,6 +1738,11 @@ export function DriverTripFlowCard({
           earnings={earnings}
           earningsLabel={earningsLabel}
           assignedBy={assignedBy}
+          onAssignerPress={
+            canTagOfflineParty && canTagPartyOnTrip(localTrip, isFleetLinked)
+              ? onAssignerPress ?? (() => setPartyTagOpen(true))
+              : undefined
+          }
           showHeroAssigner={showHeroAssigner}
           target={stageTarget}
           pickupLabel={pickupLabel}
@@ -2415,6 +2429,19 @@ export function DriverTripFlowCard({
           </Pressable>
         </Pressable>
       </Modal>
+      {partyTagOpen ? (
+        <DriverCollectFromSheet
+          visible
+          trip={localTrip}
+          due={0}
+          assignerName={assignedBy?.orgName?.trim() || assignedBy?.linePrimary?.trim() || null}
+          onClose={() => setPartyTagOpen(false)}
+          onTagged={() => {
+            setPartyTagOpen(false);
+            onRefresh?.();
+          }}
+        />
+      ) : null}
       <DriverShipperFeedbackModal
         visible={shipperFeedbackOpen}
         onClose={() => setShipperFeedbackOpen(false)}

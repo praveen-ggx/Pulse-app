@@ -8,6 +8,7 @@ import {
 import { SmartInput } from "@/components/mobile-input";
 import Theme from "@/constants/Theme";
 import { useAuth } from "@/contexts/AuthContext";
+import { getDcoSelfReceivableForTrip } from "@/features/dco-self/services/dcoSelfReceivable.service";
 import { captureDriverTripPayment } from "@/features/drivers/services/driverCapturePayment.service";
 import * as driversService from "@/features/drivers/services/drivers.service";
 import {
@@ -62,7 +63,12 @@ export default function DriverCapturePaymentScreen() {
   const router = useRouter();
   const onBack = useSafeBack(ROUTES.driverWalletSelf());
   const { profile } = useAuth();
-  const { canAddDcoShippers } = useDriverOperatingModeQuery();
+  const {
+    canManageDcoSelfBook,
+    canManageIndieBook,
+    canTagOfflineParty,
+    modeLoading,
+  } = useDriverOperatingModeQuery();
   const params = useLocalSearchParams<{
     tripId?: string;
     due?: string;
@@ -83,6 +89,8 @@ export default function DriverCapturePaymentScreen() {
   const [trip, setTrip] = useState<tripsService.TripRow | null>(null);
   const [driverId, setDriverId] = useState<string | null>(null);
   const [isFleetLinked, setIsFleetLinked] = useState(false);
+  const [selfReceivableId, setSelfReceivableId] = useState<string | null>(null);
+  const [indieReceivableId, setIndieReceivableId] = useState<string | null>(null);
   const [amount, setAmount] = useState(
     dueHint > 0 ? formatLedgerAmountInput(dueHint) : "",
   );
@@ -93,6 +101,8 @@ export default function DriverCapturePaymentScreen() {
   const [paidOn, setPaidOn] = useState(todayISO());
 
   const load = useCallback(async () => {
+    // Resolve operating mode before choosing Self / indie / employer / exchange path.
+    if (modeLoading) return;
     if (!tripId || !profile?.uid) {
       setLoading(false);
       return;
@@ -125,10 +135,26 @@ export default function DriverCapturePaymentScreen() {
             return driversService.isActiveFleetRelationshipDriver(row);
           }),
       );
+      // Mutual exclusion: DCO Self XOR indie book; never both.
+      if (nextTrip?.id && canManageDcoSelfBook) {
+        const found = await getDcoSelfReceivableForTrip(nextTrip.id);
+        setSelfReceivableId(found.receivable?.id ?? null);
+        setIndieReceivableId(null);
+      } else if (nextTrip?.id && canManageIndieBook) {
+        const { getDriverIndieReceivableForTrip } = await import(
+          "@/features/driver-indie/services/driverIndieReceivable.service"
+        );
+        const found = await getDriverIndieReceivableForTrip(nextTrip.id);
+        setIndieReceivableId(found.receivable?.id ?? null);
+        setSelfReceivableId(null);
+      } else {
+        setSelfReceivableId(null);
+        setIndieReceivableId(null);
+      }
     } finally {
       setLoading(false);
     }
-  }, [profile?.uid, tripId]);
+  }, [canManageDcoSelfBook, canManageIndieBook, modeLoading, profile?.uid, tripId]);
 
   useEffect(() => {
     void load();
@@ -143,17 +169,33 @@ export default function DriverCapturePaymentScreen() {
   );
   const tripDisplay = trip ? getDriverTripDisplayNumber(trip, tripNumbers) : "Trip";
   const taggedParty = trip && isTripTaggedToParty(trip);
-  const partyName = taggedParty
-    ? tripReceivablePartyName(trip)
-    : partyHint || (trip ? tripReceivablePartyName(trip) : "Party");
+  const partyName =
+    lane === "marketplace"
+      ? partyHint || "Pulse Exchange"
+      : lane === "fleet"
+        ? partyHint ||
+          String(trip?.organization_name ?? "").trim() ||
+          "Fleet"
+        : taggedParty
+          ? tripReceivablePartyName(trip)
+          : partyHint || (trip ? tripReceivablePartyName(trip) : "Party");
+  const useSelfBook = canManageDcoSelfBook && lane === "shipper";
+  const useIndieBook = canManageIndieBook && !canManageDcoSelfBook && lane === "shipper";
   const needsPartyTag =
-    canAddDcoShippers && lane === "shipper" && !!trip && !isTripTaggedToParty(trip);
+    canTagOfflineParty &&
+    lane === "shipper" &&
+    !!trip &&
+    (useSelfBook
+      ? !selfReceivableId
+      : useIndieBook
+        ? !indieReceivableId
+        : !isTripTaggedToParty(trip));
   const amountNum = Math.round(Number(String(amount).replace(/,/g, "")) || 0);
   const cap = dueHint > 0 ? dueHint : amountNum;
   const isCash = modeId === "CASH";
   const canSubmit =
     !!trip &&
-    !!driverId &&
+    (useSelfBook || useIndieBook || !!driverId) &&
     !needsPartyTag &&
     amountNum > 0 &&
     (dueHint <= 0 || amountNum <= dueHint) &&
@@ -164,7 +206,7 @@ export default function DriverCapturePaymentScreen() {
     lane === "marketplace"
       ? "Pulse Exchange"
       : lane === "fleet"
-        ? "Fleet settlement"
+        ? "Trip commission"
         : "Shipper · Client";
 
   const submit = useCallback(async () => {
@@ -178,6 +220,16 @@ export default function DriverCapturePaymentScreen() {
         reference,
         paidOn,
         lane,
+        book: useSelfBook
+          ? "dco_self"
+          : useIndieBook
+            ? "driver_indie"
+            : "employer",
+        receivableId: useSelfBook
+          ? selfReceivableId
+          : useIndieBook
+            ? indieReceivableId
+            : null,
         driverId,
         createdBy: profile?.uid ?? null,
         tripDisplay,
@@ -201,6 +253,7 @@ export default function DriverCapturePaymentScreen() {
     amountNum,
     canSubmit,
     driverId,
+    indieReceivableId,
     lane,
     modeId,
     onBack,
@@ -208,17 +261,20 @@ export default function DriverCapturePaymentScreen() {
     profile?.uid,
     reference,
     router,
+    selfReceivableId,
     trip,
     tripDisplay,
+    useIndieBook,
+    useSelfBook,
   ]);
 
-  if (loading) {
+  if (modeLoading || loading) {
     return <CenteredLoadingView message="Loading…" color={Theme.primary} />;
   }
 
   if (!tripId || !trip) {
     return (
-      <DetailPageLayout title="Collect payment" onBack={onBack} titleAlign="left">
+      <DetailPageLayout title="Collect payment" onBack={onBack}>
         <Text style={styles.empty}>This trip is not available.</Text>
       </DetailPageLayout>
     );
@@ -226,8 +282,8 @@ export default function DriverCapturePaymentScreen() {
 
   return (
     <DetailPageLayout
-      title="Collect payment"
-      titleAlign="left"
+      title={lane === "fleet" ? "Collect commission" : "Collect payment"}
+     
       onBack={onBack}
       titleSubline={<Text style={styles.kicker}>{kicker}</Text>}
     >
@@ -237,7 +293,9 @@ export default function DriverCapturePaymentScreen() {
             Tag a shipper or middleman on this trip before collecting.
           </Text>
         ) : (
-          <Text style={styles.heroLabel}>Revenue from {partyName}</Text>
+          <Text style={styles.heroLabel}>
+            {lane === "fleet" ? `Commission from ${partyName}` : `Revenue from ${partyName}`}
+          </Text>
         )}
         <SmartInput
           type="currency"
@@ -368,7 +426,7 @@ export default function DriverCapturePaymentScreen() {
           <ActivityIndicator size="small" color={Theme.buttonPrimaryText} />
         ) : (
           <Text style={styles.submitText}>
-            Collect {amountNum > 0 ? inr(Math.min(amountNum, cap || amountNum)) : "payment"}
+            Collect {amountNum > 0 ? inr(Math.min(amountNum, cap || amountNum)) : lane === "fleet" ? "commission" : "payment"}
           </Text>
         )}
       </TouchableOpacity>

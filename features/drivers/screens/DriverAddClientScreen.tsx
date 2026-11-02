@@ -9,17 +9,28 @@ import {
   AddClientModal,
   type AddClientFormData,
 } from "@/features/clients/components/AddClientModal";
-import { createClient, getClientsByOrganization } from "@/features/clients/services/clients.service";
 import {
   createConnectionRequest,
   getConnectionInviteeByPhone,
 } from "@/features/connections/services/connectionRequests.service";
 import { DriverTagPartyDialogs } from "@/features/drivers/components/DriverTagPartyDialogs";
-import { tagTripWithDcoClient } from "@/features/drivers/services/driverTripClient.service";
 import {
-  ensureDcoWorkspace,
-  getOrganizationsForUser,
-} from "@/features/organization/services/organization.service";
+  dcoSelfIssueKey,
+  issueDcoSelfReceivable,
+  listDcoSelfParties,
+  tagDcoSelfTrip,
+  upsertDcoSelfParty,
+} from "@/features/dco-self/services/dcoSelfReceivable.service";
+import { useDcoSelfOutboxFlush } from "@/features/dco-self/hooks/useDcoSelfOutboxFlush";
+import {
+  driverIndieIssueKey,
+  issueDriverIndieReceivable,
+  listDriverIndieParties,
+  tagDriverIndieTrip,
+  upsertDriverIndieParty,
+} from "@/features/driver-indie/services/driverIndieReceivable.service";
+import { useDriverIndieOutboxFlush } from "@/features/driver-indie/hooks/useDriverIndieOutboxFlush";
+import { ensureDcoWorkspace } from "@/features/organization/services/organization.service";
 import {
   driverBodySecondary,
   driverUIBold,
@@ -28,6 +39,7 @@ import {
 import Theme from "@/constants/Theme";
 import { tripReceivableBilled } from "@/features/drivers/utils/driverPartyReceivables.util";
 import { queryKeys } from "@/lib/queryKeys";
+import { driverOfflinePartyBookKicker } from "@/features/drivers/domain/driverOperatingMode";
 import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import { useTripDetailQuery } from "@/lib/queries/useTripsQuery";
 import { ROUTES } from "@/lib/routes";
@@ -55,12 +67,28 @@ function param(value: string | string[] | undefined): string {
 }
 
 export default function DriverAddClientScreen() {
-  const onBack = useSafeBack(ROUTES.driverWalletSelf());
-  const { canAddDcoShippers, isLoading: modeLoading } = useDriverOperatingModeQuery();
+  const {
+    canAddDcoShippers,
+    canManageDcoSelfBook,
+    canManageIndieBook,
+    canTagOfflineParty,
+    modeLoading,
+    operatingMode,
+  } = useDriverOperatingModeQuery();
+  useDcoSelfOutboxFlush(canManageDcoSelfBook);
+  useDriverIndieOutboxFlush(canManageIndieBook);
+  const useIndieBook = canManageIndieBook && !canManageDcoSelfBook;
+  const partyBookKicker = driverOfflinePartyBookKicker(operatingMode);
   const queryClient = useQueryClient();
   const params = useLocalSearchParams<{ tripId?: string; partyName?: string }>();
   const tripId = param(params.tripId);
   const partyName = param(params.partyName);
+  // Prefer driver trip detail when opened from Tag Party; wallet Self as last resort.
+  const onBack = useSafeBack(
+    tripId
+      ? (`/driver-trip/${encodeURIComponent(tripId)}` as const)
+      : ROUTES.driverWalletSelf(),
+  );
   const [loading, setLoading] = useState(true);
   const [org, setOrg] = useState<CurrentOrganization | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
@@ -76,10 +104,11 @@ export default function DriverAddClientScreen() {
   const [successParty, setSuccessParty] = useState<{ id: string; name: string } | null>(null);
   const [createdSuccess, setCreatedSuccess] = useState(false);
   const tripQuery = useTripDetailQuery(tripId || null);
-  const currentBilled = useMemo(
-    () => (tripQuery.data ? tripReceivableBilled(tripQuery.data) : 0),
-    [tripQuery.data],
-  );
+  const currentBilled = useMemo(() => {
+    // Prefill only from an issued receivable — never trip mirrors / client_price.
+    if (!tripQuery.data) return null;
+    return tripReceivableBilled(tripQuery.data, null);
+  }, [tripQuery.data]);
   const isShipperParty = useCallback(
     (name: string) => {
       const keys = [
@@ -104,53 +133,65 @@ export default function DriverAddClientScreen() {
       setBilledForTag(null);
       setPendingParty(null);
       setReceivableParty(row);
-      setReceivableAmount(currentBilled > 0 ? String(currentBilled) : "");
+      setReceivableAmount(
+        currentBilled != null && currentBilled > 0 ? String(currentBilled) : "",
+      );
     },
     [currentBilled, isShipperParty],
   );
 
   const loadOrg = useCallback(async () => {
-    if (!canAddDcoShippers) {
+    // Wait until operating mode has settled — never treat "still loading" as deny.
+    if (modeLoading) return;
+    if (!canTagOfflineParty) {
       setLoading(false);
       return;
     }
     setLoading(true);
     setWorkspaceError(null);
     try {
-      const { organization, error: ensureError } = await ensureDcoWorkspace();
-      let next = organization?.id ? organization : null;
-      if (!next?.id) {
-        const { organizations, error: listError } = await getOrganizationsForUser();
-        next = organizations[0] ?? null;
-        if (!next?.id) {
-          setOrg(null);
-          setWorkspaceError(
-            ensureError?.message ?? listError?.message ?? DCO_NO_WORKSPACE,
-          );
-          return;
-        }
+      // Independent DRIVER book only — never ensure DCO workspace / Self RPCs.
+      if (canManageIndieBook && !canManageDcoSelfBook) {
+        setOrg(null);
+        const { error, parties } = await listDriverIndieParties();
+        if (error) setWorkspaceError(error.message);
+        setExistingParties(parties);
+        return;
       }
-      setOrg(next);
-      const { clients: rows } = await getClientsByOrganization(next.id);
-      setExistingParties(
-        rows.map((row) => ({
-          id: row.id,
-          name: row.name || row.contact_person || "Shipper",
-          phone: row.phone,
-        })),
-      );
+      if (!canManageDcoSelfBook) {
+        setOrg(null);
+        setExistingParties([]);
+        return;
+      }
+      const { organization, error: ensureError } = await ensureDcoWorkspace();
+      if (!organization?.id) {
+        setOrg(null);
+        setExistingParties([]);
+        setWorkspaceError(ensureError?.message ?? DCO_NO_WORKSPACE);
+        return;
+      }
+      setOrg(organization);
+      const { error, parties } = await listDcoSelfParties();
+      if (error) {
+        setWorkspaceError(error.message);
+        setExistingParties([]);
+        return;
+      }
+      setExistingParties(parties);
     } finally {
       setLoading(false);
     }
-  }, [canAddDcoShippers]);
+  }, [canManageDcoSelfBook, canManageIndieBook, canTagOfflineParty, modeLoading]);
 
   useEffect(() => {
     void loadOrg();
   }, [loadOrg]);
 
   useEffect(() => {
-    if (!modeLoading && !canAddDcoShippers) onBack();
-  }, [modeLoading, canAddDcoShippers, onBack]);
+    // Only leave after mode is resolved and the caller is neither indie nor DCO.
+    if (modeLoading) return;
+    if (!canTagOfflineParty) onBack();
+  }, [modeLoading, canTagOfflineParty, onBack]);
 
   const matchingSavedParty = useMemo(() => {
     const key = partyName.trim().toLowerCase();
@@ -160,25 +201,73 @@ export default function DriverAddClientScreen() {
     );
   }, [existingParties, partyName]);
 
+  // "Add {assigner} as party" deep-link: open create prefilled; back returns to the list.
+  useEffect(() => {
+    if (loading || modeLoading) return;
+    if (!partyName.trim() || matchingSavedParty) return;
+    setShowCreate(true);
+  }, [loading, matchingSavedParty, modeLoading, partyName]);
+
   const finishWithClient = useCallback(
     async (client: { id: string; name: string }, billed?: number | null) => {
       if (!tripId) return { error: null as Error | null };
-      const { error } = await tagTripWithDcoClient(
-        tripId,
-        client,
-        billed != null && billed > 0 ? { billed } : undefined,
-      );
-      if (error) return { error };
+      // Tag never creates Due. Issue only when an amount is explicitly provided.
+      if (canManageIndieBook && !canManageDcoSelfBook) {
+        const tagged = await tagDriverIndieTrip({
+          tripId,
+          partyId: client.id,
+          partyName: client.name,
+        });
+        if (tagged.error) return { error: tagged.error };
+        const amount = billed != null && billed > 0 ? billed : 0;
+        if (amount > 0) {
+          const issued = await issueDriverIndieReceivable({
+            partyId: client.id,
+            billed: amount,
+            idempotencyKey: driverIndieIssueKey(tripId),
+            tripId,
+            partyLabel: client.name,
+          });
+          if (issued.error) return { error: issued.error };
+        }
+      } else {
+        const tagged = await tagDcoSelfTrip({
+          tripId,
+          partyBId: client.id,
+          partyName: client.name,
+        });
+        if (tagged.error) return { error: tagged.error };
+        const amount = billed != null && billed > 0 ? billed : 0;
+        if (amount > 0) {
+          const issued = await issueDcoSelfReceivable({
+            partyBId: client.id,
+            billed: amount,
+            idempotencyKey: dcoSelfIssueKey(tripId),
+            tripId,
+            partyALabel: client.name,
+          });
+          if (issued.error) return { error: issued.error };
+        }
+      }
       await queryClient.invalidateQueries({ queryKey: ["q", "trips"] });
       await queryClient.invalidateQueries({ queryKey: queryKeys.trips.detail(tripId) });
       return { error: null as Error | null };
     },
-    [queryClient, tripId],
+    [canManageDcoSelfBook, canManageIndieBook, queryClient, tripId],
   );
 
   const handleClose = useCallback(() => {
     onBack();
   }, [onBack]);
+
+  /** Create form back: return to party list when one exists; otherwise leave the screen. */
+  const handleFormClose = useCallback(() => {
+    if (tripId && showCreate && existingParties.length > 0) {
+      setShowCreate(false);
+      return;
+    }
+    handleClose();
+  }, [existingParties.length, handleClose, showCreate, tripId]);
 
   const handlePickExisting = useCallback((row: { id: string; name: string }) => {
     if (pickingId) return;
@@ -208,30 +297,32 @@ export default function DriverAddClientScreen() {
 
   const handleComplete = useCallback(
     async (data: AddClientFormData) => {
-      if (!org?.id) throw new Error(workspaceError ?? DCO_NO_WORKSPACE);
-      const { error, client } = await createClient(org.id, {
-        contact_person: data.contactPerson,
-        phone: data.phone,
-        organization_name: data.organizationName || undefined,
-      });
-      if (error) throw error;
-      if (client?.id) {
-        const created = {
-          id: client.id,
-          name: client.name || data.organizationName || data.contactPerson,
-        };
-        setCreatedSuccess(true);
-        if (tripId && !isShipperParty(created.name)) {
-          beginTag(created);
-        } else {
-          const tagged = await finishWithClient(created);
-          if (tagged.error) throw tagged.error;
-          setSuccessParty(created);
-        }
+      const name = data.organizationName || data.contactPerson || "Party";
+      const created =
+        canManageIndieBook && !canManageDcoSelfBook
+          ? await upsertDriverIndieParty({ name, phone: data.phone })
+          : await upsertDcoSelfParty({ name, phone: data.phone });
+      if (created.error || !created.party) {
+        throw created.error ?? new Error("Could not save party.");
       }
-      await queryClient.refetchQueries({ queryKey: queryKeys.clients.all(org.id) });
+      const party = created.party;
+      setCreatedSuccess(true);
+      if (tripId && !isShipperParty(party.name)) {
+        beginTag(party);
+      } else {
+        const tagged = await finishWithClient(party);
+        if (tagged.error) throw tagged.error;
+        setSuccessParty(party);
+      }
     },
-    [beginTag, finishWithClient, isShipperParty, org?.id, queryClient, tripId, workspaceError],
+    [
+      beginTag,
+      canManageDcoSelfBook,
+      canManageIndieBook,
+      finishWithClient,
+      isShipperParty,
+      tripId,
+    ],
   );
 
   const searchInviteeByPhone = useCallback(
@@ -265,16 +356,19 @@ export default function DriverAddClientScreen() {
 
   const createForm = (
     <AddClientModal
-      onClose={tripId ? () => setShowCreate(false) : handleClose}
+      onClose={handleFormClose}
       onComplete={handleComplete}
       organizationId={org?.id ?? null}
-      noOrganizationMessage={org?.id ? null : workspaceError ?? DCO_NO_WORKSPACE}
+      noOrganizationMessage={
+        canAddDcoShippers && !org?.id ? workspaceError ?? DCO_NO_WORKSPACE : null
+      }
       onRefreshOrganization={loadOrg}
       searchInviteeByPhone={searchInviteeByPhone}
       onSendInvitation={handleSendInvitation}
       successEntity="client"
       initialOrganizationName={matchingSavedParty ? "" : partyName}
       showSuccessOnComplete={!tripId}
+      allowSinglePartyName
     />
   );
 
@@ -321,7 +415,11 @@ export default function DriverAddClientScreen() {
     />
   );
 
-  if (modeLoading || !canAddDcoShippers || loading) {
+  if (modeLoading || loading) {
+    return <CenteredLoadingView message="Loading…" color={Theme.primary} />;
+  }
+
+  if (!canTagOfflineParty) {
     return <CenteredLoadingView message="Loading…" color={Theme.primary} />;
   }
 
@@ -340,11 +438,12 @@ export default function DriverAddClientScreen() {
 
   return (
     <>
-    <DetailPageLayout title="Select party" onBack={onBack} titleAlign="left">
-      <Text style={styles.kicker}>Saved in Self</Text>
+    <DetailPageLayout title="Select party" onBack={onBack}>
+      <Text style={styles.kicker}>{partyBookKicker}</Text>
       <Text style={styles.hint}>
-        Tap a party to tag this trip. Details are already on file — only add a new
-        party if they are not in this list.
+        {useIndieBook
+          ? "Tap a customer to tag this trip. Add a new customer if they are not in this list."
+          : "Tap a party to tag this trip. Details are already on file — only add a new party if they are not in this list."}
       </Text>
       {workspaceError ? <Text style={styles.error}>{workspaceError}</Text> : null}
       <ScrollView

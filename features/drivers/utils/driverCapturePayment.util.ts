@@ -35,13 +35,38 @@ export function toExchangePaymentMode(modeId: string): "CASH" | "UPI" | "BANK" |
   return EXCHANGE_MODES.has(id) ? (id as "CASH" | "UPI" | "BANK" | "CHEQUE") : "CASH";
 }
 
+export function stableDriverCaptureKey(input: {
+  lane: DriverCaptureLane | string;
+  tripId: string;
+  amount: number;
+  paymentModeId: string;
+  reference?: string | null;
+  paidOn?: string | null;
+}): string {
+  return [
+    "dco-capture",
+    String(input.lane ?? "").trim().toLowerCase(),
+    String(input.tripId ?? "").trim(),
+    String(Math.round(Number(input.amount) || 0)),
+    String(input.paymentModeId ?? "").trim().toUpperCase(),
+    String(input.reference ?? "").trim().toLowerCase(),
+    String(input.paidOn ?? "").trim().slice(0, 10),
+  ].join(":");
+}
+
 export function buildDriverCaptureDescription(input: {
   tripDisplay: string;
   paymentModeId: string;
   reference?: string | null;
   paidOn?: string | null;
+  lane?: DriverCaptureLane | string;
 }): string {
-  const parts = [`Trip ${input.tripDisplay}`.trim()];
+  const lane = String(input.lane ?? "").trim().toLowerCase();
+  const parts = [
+    lane === "fleet"
+      ? `Commission ${input.tripDisplay}`.trim()
+      : `Trip ${input.tripDisplay}`.trim(),
+  ];
   const mode = driverCaptureModeLabel(input.paymentModeId);
   if (mode) parts.push(`Mode: ${mode}`);
   const utr = String(input.reference ?? "").trim();

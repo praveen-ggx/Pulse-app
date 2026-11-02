@@ -189,10 +189,13 @@ export function DriverPreDcoFleetHistoryView({
           </View>
         ) : (
           fleets.map((fleet) => {
+            const branding = orgAvatarById[fleet.orgId];
             const uri = resolveDriverOrgAvatarUri({
               orgId: fleet.orgId,
               orgName: fleet.orgName,
-              branding: orgAvatarById[fleet.orgId],
+              logoUrl: branding?.logoUrl,
+              avatarUrl: branding?.avatarUrl,
+              avatarSeed: branding?.avatarSeed,
             });
             return (
               <View
@@ -357,6 +360,7 @@ export function DriverPreDcoFleetHistoryView({
                   lane="fleet"
                   partyName={line.orgName}
                   compact
+                  label="Capture commission"
                 />
               ) : null}
             </TouchableOpacity>

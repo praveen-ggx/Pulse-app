@@ -129,12 +129,12 @@ describe("Exchange RPC wrappers", () => {
     });
   });
 
-  it("claimExchangePaymentOnce reuses one key until the claim succeeds", async () => {
+  it("claimExchangePaymentOnce keeps one deterministic key across timeout and retry", async () => {
     const input = { tripId: "trip-1", amount: 1200, paymentMode: "UPI" as const, paymentReference: "UTR5", paidOn: "2026-10-05" };
     mockRpc
       .mockResolvedValueOnce({ data: null, error: { message: "network timeout" } })
       .mockResolvedValueOnce({ data: { id: "xp-9", status: "claimed" }, error: null })
-      .mockResolvedValueOnce({ data: { id: "xp-10", status: "claimed" }, error: null });
+      .mockResolvedValueOnce({ data: { id: "xp-9", status: "claimed" }, error: null });
 
     await claimExchangePaymentOnce("org-1", input);
     await claimExchangePaymentOnce("org-1", { ...input, paymentReference: " utr5 " });
@@ -142,7 +142,7 @@ describe("Exchange RPC wrappers", () => {
 
     const keys = mockRpc.mock.calls.map(([, args]) => (args as { p_idempotency_key: string }).p_idempotency_key);
     expect(keys[1]).toBe(keys[0]);
-    expect(keys[2]).not.toBe(keys[1]);
+    expect(keys[2]).toBe(keys[0]);
   });
 
   it("claimExchangePaymentOnce shares the key between concurrent submits", async () => {
@@ -152,8 +152,8 @@ describe("Exchange RPC wrappers", () => {
     await Promise.all([claimExchangePaymentOnce("org-1", input), claimExchangePaymentOnce("org-1", input)]);
 
     const keys = mockRpc.mock.calls.map(([, args]) => (args as { p_idempotency_key: string }).p_idempotency_key);
-    expect(keys).toHaveLength(2);
-    expect(keys[1]).toBe(keys[0]);
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).toBe("exchange-claim:org-1:trip-2:500:CASH::2026-10-05");
   });
 
   it("claimExchangePaymentOnce gives different payments different keys", async () => {

@@ -133,6 +133,8 @@ export interface TripRow {
    * Independent of execution_type and trip_payout_mode. See isDcoOperatingTrip().
    */
   operating_mode?: "FLEET" | "DCO" | string | null;
+  /** DCO Self tagged receivable. Independent of supplier_rate. */
+  dco_party_billed?: number | null;
   /** DCO payee when operating_mode is DCO. Mutually exclusive with supplier_id. */
   dco_payee_id?: string | null;
   /** Explicit, dispatcher-captured execution model for a subcontracted trip. NULL = infer via getTripExecutionModel()'s legacy heuristic. Immutable once started_at is set. */

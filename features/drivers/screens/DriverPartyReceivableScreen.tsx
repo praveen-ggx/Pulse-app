@@ -9,6 +9,24 @@ import { DriverCapturePaymentButton } from "@/features/drivers/components/Driver
 import Theme from "@/constants/Theme";
 import { useAuth } from "@/contexts/AuthContext";
 import {
+  listDcoSelfCollections,
+  listDcoSelfParties,
+  listDcoSelfReceivableBook,
+  listDcoSelfReceivableVersions,
+  type DcoSelfCollection,
+  type DcoSelfReceivableListRow,
+  type DcoSelfReceivableVersion,
+} from "@/features/dco-self/services/dcoSelfReceivable.service";
+import {
+  listDriverIndieCollections,
+  listDriverIndieParties,
+  listDriverIndieReceivableBook,
+  listDriverIndieReceivableVersions,
+} from "@/features/driver-indie/services/driverIndieReceivable.service";
+import { DriverPartyBookActions } from "@/features/drivers/components/DriverPartyBookActions";
+import { buildDriverPartyReceivablesFromBook } from "@/features/drivers/utils/driverPartyReceivables.util";
+import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
+import {
   buildDriverTripNumberMap,
   getDriverTripDisplayNumber,
 } from "@/features/driver/utils/driverTripSequence.util";
@@ -20,7 +38,6 @@ import {
   type DriverPartyAvatarFields,
 } from "@/features/drivers/utils/driverPartyAvatar.util";
 import {
-  UNTAGGED_PARTY_ID,
   buildDriverPartyReceivables,
   isTripTaggedToParty,
   tripNeedsPartyTag,
@@ -55,14 +72,33 @@ export default function DriverPartyReceivableScreen() {
   const { partyId: partyIdParam } = useLocalSearchParams<{ partyId?: string }>();
   const partyId = decodePartyId(partyIdParam);
   const { profile } = useAuth();
+  const {
+    canManageDcoSelfBook,
+    canManageIndieBook,
+    modeLoading,
+  } = useDriverOperatingModeQuery();
+  const bookKind =
+    canManageDcoSelfBook ? "dco_self" : canManageIndieBook ? "driver_indie" : null;
 
   const [loading, setLoading] = useState(true);
   const [trips, setTrips] = useState<tripsService.TripRow[]>([]);
   const [receivedByTripId, setReceivedByTripId] = useState<Record<string, number>>({});
   const [linkedDrivers, setLinkedDrivers] = useState<driversService.DriverRow[]>([]);
+  const [bookRows, setBookRows] = useState<DcoSelfReceivableListRow[]>([]);
+  const [bookName, setBookName] = useState<string | null>(null);
+  const [bookPhone, setBookPhone] = useState<string | null>(null);
+  const [bookVersions, setBookVersions] = useState<DcoSelfReceivableVersion[]>([]);
+  const [bookCollections, setBookCollections] = useState<DcoSelfCollection[]>([]);
 
   const load = useCallback(async () => {
+    // Do not load (or clear) book rows until operating mode has settled —
+    // otherwise indie/DCO briefly look empty and navigation races home.
+    if (modeLoading) return;
     if (!profile?.uid) {
+      setLoading(false);
+      return;
+    }
+    if (!partyId) {
       setLoading(false);
       return;
     }
@@ -74,25 +110,100 @@ export default function DriverPartyReceivableScreen() {
       if (drivers.length === 0) {
         setTrips([]);
         setReceivedByTripId({});
-        return;
+      } else {
+        const driverIds = drivers.map((d) => d.id);
+        const [tRes, ledgerRes] = await Promise.all([
+          tripsService.getDriverUiTripsByDriverIds(driverIds),
+          driversService.getDriverLedgerByDriverIds(driverIds),
+        ]);
+        setTrips(tRes.trips ?? []);
+        const byTrip: Record<string, number> = {};
+        for (const entry of ledgerRes.entries ?? []) {
+          const tid = entry.trip_id?.trim() || null;
+          if (!tid || entry.type !== "settlement") continue;
+          byTrip[tid] = (byTrip[tid] ?? 0) + (Number(entry.amount) || 0);
+        }
+        setReceivedByTripId(byTrip);
       }
-      const driverIds = drivers.map((d) => d.id);
-      const [tRes, ledgerRes] = await Promise.all([
-        tripsService.getDriverUiTripsByDriverIds(driverIds),
-        driversService.getDriverLedgerByDriverIds(driverIds),
-      ]);
-      setTrips(tRes.trips ?? []);
-      const byTrip: Record<string, number> = {};
-      for (const entry of ledgerRes.entries ?? []) {
-        const tid = entry.trip_id?.trim() || null;
-        if (!tid || entry.type !== "settlement") continue;
-        byTrip[tid] = (byTrip[tid] ?? 0) + (Number(entry.amount) || 0);
+      const uuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(partyId);
+      if (uuid && bookKind === "dco_self") {
+        const [book, parties] = await Promise.all([listDcoSelfReceivableBook(), listDcoSelfParties()]);
+        const lines = (book.rows ?? []).filter((row) => row.receivable.party_b_id === partyId);
+        setBookRows(lines);
+        const party = parties.parties.find((row) => row.id === partyId) ?? null;
+        setBookName(party?.name ?? null);
+        setBookPhone(party?.phone ?? null);
+        const versions: DcoSelfReceivableVersion[] = [];
+        const collections: DcoSelfCollection[] = [];
+        for (const line of lines) {
+          const [v, c] = await Promise.all([
+            listDcoSelfReceivableVersions(line.receivable.id),
+            listDcoSelfCollections(line.receivable.id),
+          ]);
+          versions.push(...v.versions);
+          collections.push(...c.rows);
+        }
+        setBookVersions(versions);
+        setBookCollections(collections);
+      } else if (uuid && bookKind === "driver_indie") {
+        const [book, parties] = await Promise.all([
+          listDriverIndieReceivableBook(),
+          listDriverIndieParties(),
+        ]);
+        const lines = (book.rows ?? [])
+          .filter((row) => row.receivable.party_id === partyId)
+          .map((row) => ({
+            receivable: {
+              id: row.receivable.id,
+              workspace_id: row.receivable.owner_user_id,
+              party_b_id: row.receivable.party_id,
+              billed_amount: row.receivable.billed_amount,
+              billed_version: row.receivable.billed_version,
+              status: row.receivable.status,
+              operational_trip_id: row.receivable.operational_trip_id,
+              party_a_label: row.receivable.party_label,
+              issued_at: row.receivable.issued_at,
+            },
+            collected: row.collected,
+            outstanding: row.outstanding,
+          }));
+        setBookRows(lines);
+        const party = parties.parties.find((row) => row.id === partyId) ?? null;
+        setBookName(party?.name ?? null);
+        setBookPhone(party?.phone ?? null);
+        const versions: DcoSelfReceivableVersion[] = [];
+        const collections: DcoSelfCollection[] = [];
+        for (const line of lines) {
+          const [v, c] = await Promise.all([
+            listDriverIndieReceivableVersions(line.receivable.id),
+            listDriverIndieCollections(line.receivable.id),
+          ]);
+          versions.push(
+            ...v.versions.map((row) => ({
+              id: row.id,
+              receivable_id: row.receivable_id,
+              version: row.version,
+              billed_amount: row.billed_amount,
+              reason: row.reason,
+              created_at: row.created_at,
+            })),
+          );
+          collections.push(...c.rows);
+        }
+        setBookVersions(versions);
+        setBookCollections(collections);
+      } else {
+        setBookRows([]);
+        setBookName(null);
+        setBookPhone(null);
+        setBookVersions([]);
+        setBookCollections([]);
       }
-      setReceivedByTripId(byTrip);
     } finally {
       setLoading(false);
     }
-  }, [profile?.uid]);
+  }, [bookKind, modeLoading, partyId, profile?.uid]);
 
   useEffect(() => {
     void load();
@@ -111,12 +222,18 @@ export default function DriverPartyReceivableScreen() {
     [linkedDrivers],
   );
 
+  const bookParty = useMemo(
+    () => buildDriverPartyReceivablesFromBook(bookRows, [{ id: partyId, name: bookName || "Party" }])[0] ?? null,
+    [bookName, bookRows, partyId],
+  );
   const party = useMemo(
     () =>
+      bookParty ??
       buildDriverPartyReceivables(trips, receivedByTripId, isFleetDispatched).find(
         (row) => row.id === partyId,
-      ) ?? null,
-    [trips, receivedByTripId, isFleetDispatched, partyId],
+      ) ??
+      null,
+    [bookParty, trips, receivedByTripId, isFleetDispatched, partyId],
   );
 
   const partyTrips = useMemo(
@@ -162,19 +279,50 @@ export default function DriverPartyReceivableScreen() {
     };
   }, [partyTrips]);
 
-  if (loading) {
+  if (modeLoading || loading) {
     return <CenteredLoadingView message="Loading…" color={Theme.primary} />;
   }
 
-  const isMarketplace = party?.kind === "marketplace";
-  const kicker = isMarketplace ? "Pulse Exchange" : "Shipper · Client";
+  if (!partyId) {
+    return (
+      <DetailPageLayout title="Receivable" onBack={onBack}>
+        <Text style={styles.empty}>Choose a customer from Wallet to open their receivable.</Text>
+      </DetailPageLayout>
+    );
+  }
+
+  // Stay on this route for unknown / unauthorized party ids — never bounce to home.
+  if (!party) {
+    const bookHint =
+      bookKind === "driver_indie"
+        ? "independent-driver book"
+        : bookKind === "dco_self"
+          ? "DCO Self book"
+          : "wallet";
+    return (
+      <DetailPageLayout title="Receivable" onBack={onBack} onRefresh={load} refreshing={loading}>
+        <Text style={styles.empty}>
+          This receivable is not available in your {bookHint}.
+        </Text>
+      </DetailPageLayout>
+    );
+  }
+
+  const isMarketplace = party.kind === "marketplace";
+  const kicker = isMarketplace
+    ? "Pulse Exchange"
+    : bookKind === "driver_indie"
+      ? "Independent · Customer"
+      : bookKind === "dco_self"
+        ? "Self · Party B"
+        : "Shipper · Client";
   const entityType = isMarketplace ? "supplier" : "client";
   const captureLane = isMarketplace ? "marketplace" : "shipper";
 
   return (
     <DetailPageLayout
-      title={party?.name ?? "Receivable"}
-      titleAlign="left"
+      title={party.name}
+     
       titleSubline={
         <Text style={styles.kicker}>{kicker}</Text>
       }
@@ -182,10 +330,10 @@ export default function DriverPartyReceivableScreen() {
       onRefresh={load}
       refreshing={loading}
       rightAction={
-        <View style={styles.headerAvatar} accessibilityLabel={`${party?.name ?? "Party"} avatar`}>
+        <View style={styles.headerAvatar} accessibilityLabel={`${party.name} avatar`}>
           <EntityAvatar
-            name={party?.name ?? "Party"}
-            initialsColorSeed={party?.id ?? partyId}
+            name={party.name}
+            initialsColorSeed={party.id}
             avatarUrl={avatar.avatarUrl}
             avatarSeed={avatar.avatarSeed}
             organizationImageUrl={avatar.organizationImageUrl}
@@ -200,7 +348,17 @@ export default function DriverPartyReceivableScreen() {
     >
       <View style={styles.scorecard}>
         <Text style={styles.scoreLabel}>Financial overview</Text>
+        <Text style={styles.scoreBilledLabel}>
+          {party?.billedComplete === false ? "Partial billed total" : "Billed"}
+        </Text>
         <Text style={styles.scoreBilled}>{inr(party?.billed ?? 0)}</Text>
+        {party?.billedComplete === false ? (
+          <Text style={styles.scorePartialHint}>
+            {party.unavailableBilledTrips} trip
+            {party.unavailableBilledTrips === 1 ? "" : "s"} with receivable not issued —
+            outstanding is not definitive.
+          </Text>
+        ) : null}
         <View style={styles.scoreGrid}>
           <View style={styles.scoreCell}>
             <Text style={styles.scoreGridLabel}>Received</Text>
@@ -210,17 +368,89 @@ export default function DriverPartyReceivableScreen() {
           </View>
           <View style={styles.scoreCell}>
             <Text style={styles.scoreGridLabel}>Due</Text>
-            <Text
-              style={[
-                styles.scoreAmt,
-                { color: (party?.due ?? 0) > 0 ? Theme.negative : Theme.positive },
-              ]}
-            >
-              {inr(party?.due ?? 0)}
-            </Text>
+            {party?.billedComplete === false || party?.due == null ? (
+              <Text style={[styles.scoreAmt, { color: Theme.textMuted }]}>Unavailable</Text>
+            ) : (
+              <Text
+                style={[
+                  styles.scoreAmt,
+                  { color: party.due > 0 ? Theme.negative : Theme.positive },
+                ]}
+              >
+                {inr(party.due)}
+              </Text>
+            )}
           </View>
         </View>
       </View>
+
+      {bookKind && partyId ? (
+        <DriverPartyBookActions
+          book={bookKind}
+          partyId={partyId}
+          partyName={bookName || party?.name || "Party"}
+          partyPhone={bookPhone}
+          receivableId={bookRows[0]?.receivable.id ?? null}
+          currentBilled={
+            bookRows[0]?.receivable.billed_amount != null
+              ? Number(bookRows[0].receivable.billed_amount)
+              : 0
+          }
+          onChanged={() => void load()}
+        />
+      ) : null}
+
+      {bookRows.length > 0 ? (
+        <>
+          <Text style={styles.sectionTitle}>Receivable lines</Text>
+          <View style={styles.table}>
+            {bookRows.map((row, idx) => (
+              <View
+                key={row.receivable.id}
+                style={[styles.row, idx < bookRows.length - 1 && styles.rowBorder]}
+              >
+                <Text style={styles.missionId}>
+                  {inr(row.receivable.billed_amount)} billed · {inr(row.collected)} received ·{" "}
+                  {inr(row.outstanding)} due
+                  {row.receivable.operational_trip_id
+                    ? ` · trip ${row.receivable.operational_trip_id.slice(0, 8)}`
+                    : ""}
+                </Text>
+              </View>
+            ))}
+          </View>
+          <Text style={styles.sectionTitle}>Billed versions</Text>
+          <View style={styles.table}>
+            {bookVersions.length === 0 ? (
+              <Text style={styles.empty}>No billed versions.</Text>
+            ) : (
+              bookVersions.map((row, idx) => (
+                <View key={row.id} style={[styles.row, idx < bookVersions.length - 1 && styles.rowBorder]}>
+                  <Text style={styles.missionId}>
+                    v{row.version} · {inr(row.billed_amount)}
+                    {row.reason ? ` · ${row.reason}` : ""}
+                  </Text>
+                </View>
+              ))
+            )}
+          </View>
+          <Text style={styles.sectionTitle}>Collections</Text>
+          <View style={styles.table}>
+            {bookCollections.length === 0 ? (
+              <Text style={styles.empty}>No collections yet.</Text>
+            ) : (
+              bookCollections.map((row, idx) => (
+                <View key={row.id} style={[styles.row, idx < bookCollections.length - 1 && styles.rowBorder]}>
+                  <Text style={styles.missionId}>
+                    {inr(row.amount)} · {row.payment_mode}
+                    {row.paid_on ? ` · ${row.paid_on}` : ""}
+                  </Text>
+                </View>
+              ))
+            )}
+          </View>
+        </>
+      ) : null}
 
       <Text style={styles.sectionTitle}>Receivables</Text>
       <View style={styles.table}>
@@ -242,7 +472,7 @@ export default function DriverPartyReceivableScreen() {
               partyName &&
               partyName !== "Shipper" &&
               partyName !== "Untagged";
-            const needsTag = tripNeedsPartyTag(line.trip, false);
+            const needsTag = tripNeedsPartyTag(line.trip, isFleetDispatched(line.trip));
             const rowAvatar =
               tripAvatarById[line.trip.id] ?? (isMarketplace ? EMPTY_DRIVER_PARTY_AVATAR : avatar);
             const route =
@@ -287,14 +517,18 @@ export default function DriverPartyReceivableScreen() {
                     </Text>
                   </View>
                   <Text style={[styles.amt, { color: Theme.positive }]}>{inr(line.received)}</Text>
-                  <Text
-                    style={[
-                      styles.amt,
-                      { color: line.due > 0 ? Theme.negative : Theme.positive },
-                    ]}
-                  >
-                    {inr(line.due)}
-                  </Text>
+                  {line.billedAvailable ? (
+                    <Text
+                      style={[
+                        styles.amt,
+                        { color: line.due > 0 ? Theme.negative : Theme.positive },
+                      ]}
+                    >
+                      {inr(line.due)}
+                    </Text>
+                  ) : (
+                    <Text style={[styles.amt, { color: Theme.textMuted }]}>Not issued</Text>
+                  )}
                 </Pressable>
                 <View style={styles.actionCol}>
                   {needsTag ? (
@@ -365,12 +599,24 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
+  scoreBilledLabel: {
+    marginTop: 6,
+    fontSize: 11,
+    fontWeight: "600",
+    color: Theme.textMuted,
+  },
   scoreBilled: {
-    marginTop: 4,
+    marginTop: 2,
     fontSize: 22,
     fontWeight: "700",
     letterSpacing: -0.4,
     color: Theme.textPrimaryDark,
+  },
+  scorePartialHint: {
+    marginTop: 4,
+    fontSize: 12,
+    lineHeight: 16,
+    color: Theme.textMuted,
   },
   scoreGrid: {
     flexDirection: "row",

@@ -15,11 +15,24 @@ import {
   type DriverPartyAvatarFields,
 } from "@/features/drivers/utils/driverPartyAvatar.util";
 import {
+  listDcoSelfParties,
+  listDcoSelfReceivableBook,
+} from "@/features/dco-self/services/dcoSelfReceivable.service";
+import {
+  listDriverIndieParties,
+  listDriverIndieReceivableBook,
+} from "@/features/driver-indie/services/driverIndieReceivable.service";
+import {
   type DriverPartyReceivable,
+  buildDriverPartyReceivablesFromBook,
   summarizeDriverPartyReceivables,
 } from "@/features/drivers/utils/driverPartyReceivables.util";
+import { useAuth } from "@/contexts/AuthContext";
+import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import type { TripRow } from "@/features/trips/services/trips.service";
+import { queryKeys } from "@/lib/queryKeys";
 import { ROUTES } from "@/lib/routes";
+import { useQuery } from "@tanstack/react-query";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
@@ -45,6 +58,7 @@ type Props = {
   isFleetDispatched: (trip: TripRow) => boolean;
   colors: Colors;
   isDark: boolean;
+  audience?: "dco" | "offline" | "indie";
 };
 
 export function DriverSelfReceivablesPanel({
@@ -54,9 +68,65 @@ export function DriverSelfReceivablesPanel({
   isFleetDispatched,
   colors,
   isDark,
+  audience = "dco",
 }: Props) {
   const router = useRouter();
-  const summary = useMemo(() => summarizeDriverPartyReceivables(rows), [rows]);
+  const { profile } = useAuth();
+  const { canManageDcoSelfBook, canManageIndieBook } = useDriverOperatingModeQuery();
+  const bookKind =
+    audience === "indie" || (audience === "dco" && canManageIndieBook && !canManageDcoSelfBook)
+      ? "indie"
+      : audience === "dco" && canManageDcoSelfBook
+        ? "dco"
+        : "trip";
+  const useBook = bookKind !== "trip";
+  const bookQuery = useQuery({
+    queryKey: [
+      ...queryKeys.driverApp.dcoSelfReceivables(profile?.uid ?? ""),
+      bookKind,
+    ],
+    enabled: useBook && !!profile?.uid,
+    queryFn: async () => {
+      if (bookKind === "indie") {
+        const [book, parties] = await Promise.all([
+          listDriverIndieReceivableBook(),
+          listDriverIndieParties(),
+        ]);
+        if (book.error) throw book.error;
+        if (parties.error) throw parties.error;
+        return {
+          rows: book.rows.map((row) => ({
+            receivable: {
+              id: row.receivable.id,
+              workspace_id: row.receivable.owner_user_id,
+              party_b_id: row.receivable.party_id,
+              billed_amount: row.receivable.billed_amount,
+              billed_version: row.receivable.billed_version,
+              status: row.receivable.status,
+              operational_trip_id: row.receivable.operational_trip_id,
+              party_a_label: row.receivable.party_label,
+              issued_at: row.receivable.issued_at,
+            },
+            collected: row.collected,
+            outstanding: row.outstanding,
+          })),
+          parties: parties.parties,
+        };
+      }
+      const [book, parties] = await Promise.all([listDcoSelfReceivableBook(), listDcoSelfParties()]);
+      if (book.error) throw book.error;
+      if (parties.error) throw parties.error;
+      return { rows: book.rows, parties: parties.parties };
+    },
+  });
+  const partyRows = useMemo(
+    () =>
+      useBook
+        ? buildDriverPartyReceivablesFromBook(bookQuery.data?.rows ?? [], bookQuery.data?.parties ?? [])
+        : rows,
+    [bookQuery.data, rows, useBook],
+  );
+  const summary = useMemo(() => summarizeDriverPartyReceivables(partyRows), [partyRows]);
   const hairline = isDark ? colors.borderSubtle ?? colors.border : Theme.borderLight;
   const [avatarByPartyId, setAvatarByPartyId] = useState<
     Record<string, DriverPartyAvatarFields>
@@ -82,7 +152,9 @@ export function DriverSelfReceivablesPanel({
     <View style={styles.wrap}>
       <Text style={[styles.title, { color: colors.text }]}>Receivables</Text>
       <Text style={[styles.sub, { color: colors.textMuted }]}>
-        Marketplace Exchange and shipper (client) dues — same party view as Finance.
+        {audience === "offline"
+          ? "Tag a party on an offline trip, then collect — same receivables view as DCO Self."
+          : "Outstanding = current billed \u2212 collections. Organisation payable is not shown here."}
       </Text>
 
       <View style={styles.summaryRow}>
@@ -93,16 +165,28 @@ export function DriverSelfReceivablesPanel({
           ]}
         >
           <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>
-            Total outstanding
+            {summary.billedComplete ? "Total outstanding" : "Outstanding (incomplete)"}
           </Text>
-          <Text
-            style={[
-              styles.summaryOutstanding,
-              { color: summary.due > 0 ? Theme.negative : colors.emerald },
-            ]}
-          >
-            {inr(summary.due)}
-          </Text>
+          {summary.billedComplete && summary.due != null ? (
+            <Text
+              style={[
+                styles.summaryOutstanding,
+                { color: summary.due > 0 ? Theme.negative : colors.emerald },
+              ]}
+            >
+              {inr(summary.due)}
+            </Text>
+          ) : (
+            <Text style={[styles.summaryOutstanding, { color: colors.textMuted }]}>
+              Unavailable
+            </Text>
+          )}
+          {!summary.billedComplete ? (
+            <Text style={[styles.collectionHint, { color: colors.textMuted }]}>
+              {summary.unavailableBilledTrips} trip
+              {summary.unavailableBilledTrips === 1 ? "" : "s"} not issued
+            </Text>
+          ) : null}
         </View>
         <View
           style={[
@@ -114,10 +198,11 @@ export function DriverSelfReceivablesPanel({
             Collection
           </Text>
           <Text style={[styles.collectionValue, { color: colors.emerald }]}>
-            {summary.collectionPercent}%
+            {summary.collectionPercent != null ? `${summary.collectionPercent}%` : "—"}
           </Text>
           <Text style={[styles.collectionHint, { color: colors.textMuted }]}>
-            {inr(summary.received)} of {inr(summary.billed)}
+            {inr(summary.received)} of{" "}
+            {summary.billedComplete ? inr(summary.billed) : `${inr(summary.billed)} (partial)`}
           </Text>
         </View>
       </View>
@@ -134,7 +219,7 @@ export function DriverSelfReceivablesPanel({
         </Text>
       </View>
 
-      {rows.length === 0 ? (
+      {partyRows.length === 0 ? (
         <View
           style={[
             styles.emptyCard,
@@ -146,8 +231,9 @@ export function DriverSelfReceivablesPanel({
             No receivables yet
           </Text>
           <Text style={[styles.emptyBody, { color: colors.textMuted }]}>
-            Marketplace awards and trips tagged to a Self party appear here with
-            billed, received, and due.
+            {audience === "offline"
+              ? "Offline trips tagged to a party appear here with billed, received, and due."
+              : "Issued DCO Self receivables appear here with billed, collected, and outstanding."}
           </Text>
         </View>
       ) : (
@@ -157,10 +243,13 @@ export function DriverSelfReceivablesPanel({
             { backgroundColor: colors.surface, borderColor: hairline },
           ]}
         >
-          {rows.map((row, idx) => {
-            const unpaid = row.due > 0;
-            const isLast = idx === rows.length - 1;
+          {partyRows.map((row, idx) => {
+            const unpaid = row.billedComplete && (row.due ?? 0) > 0;
+            const isLast = idx === partyRows.length - 1;
             const avatar = avatarByPartyId[row.id] ?? EMPTY_DRIVER_PARTY_AVATAR;
+            const billedLabel = row.billedComplete
+              ? `Sales ${inr(row.billed)}`
+              : `Partial billed ${inr(row.billed)} · ${row.unavailableBilledTrips} not issued`;
             return (
               <TouchableOpacity
                 key={row.id}
@@ -171,7 +260,11 @@ export function DriverSelfReceivablesPanel({
                 onPress={() => router.push(ROUTES.driverPartyReceivable(row.id))}
                 activeOpacity={0.82}
                 accessibilityRole="button"
-                accessibilityLabel={`${row.name}, ${row.trips} trips, ${inr(row.due)} outstanding`}
+                accessibilityLabel={
+                  row.billedComplete
+                    ? `${row.name}, ${row.trips} trips, ${inr(row.due ?? 0)} outstanding`
+                    : `${row.name}, ${row.trips} trips, partial billed total, outstanding unavailable`
+                }
               >
                 <EntityAvatar
                   name={row.name}
@@ -192,22 +285,31 @@ export function DriverSelfReceivablesPanel({
                   <Text style={[styles.partySub, { color: colors.textMuted }]} numberOfLines={1}>
                     {row.subtitle}
                     {" · "}
-                    Sales {inr(row.billed)}
+                    {billedLabel}
                   </Text>
                 </View>
                 <View style={styles.tripsPill}>
                   <Text style={[styles.tripsPillText, { color: colors.text }]}>{row.trips}</Text>
                 </View>
                 <View style={styles.amtCol}>
-                  <Text
-                    style={[
-                      styles.dueValue,
-                      { color: unpaid ? Theme.negative : colors.emerald },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {inr(row.due)}
-                  </Text>
+                  {row.billedComplete && row.due != null ? (
+                    <Text
+                      style={[
+                        styles.dueValue,
+                        { color: unpaid ? Theme.negative : colors.emerald },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {inr(row.due)}
+                    </Text>
+                  ) : (
+                    <Text
+                      style={[styles.dueValue, { color: colors.textMuted }]}
+                      numberOfLines={1}
+                    >
+                      Unavailable
+                    </Text>
+                  )}
                   <Text style={[styles.receivedLine, { color: colors.textMuted }]} numberOfLines={1}>
                     Received {inr(row.received)}
                   </Text>

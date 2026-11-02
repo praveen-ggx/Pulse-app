@@ -1,5 +1,14 @@
 import { memo } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type PressableStateCallbackType,
+} from 'react-native';
+
+type PressableHoverState = PressableStateCallbackType & { hovered?: boolean };
 import { ChevronRight } from 'lucide-react-native';
 
 import { WEB_TOP_NAV_ICON } from '@/components/demo/webTopNavIcon.tokens';
@@ -22,7 +31,7 @@ export const PulseAccessOption = memo(function PulseAccessOption({
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed, hovered }) => [
+      style={({ pressed, hovered }: PressableHoverState) => [
         styles.row,
         compact && styles.rowCompact,
         (pressed || (Platform.OS === 'web' && hovered)) && styles.rowPressed,

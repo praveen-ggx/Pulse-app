@@ -1,11 +1,17 @@
 import {
   DEFAULT_DRIVER_OPERATING_MODE,
   canAddDcoShippers,
+  canAttributeToEmployer,
+  canManageDcoSelfBook,
+  canManageIndieBook,
+  canTagOfflineParty,
   canManageOwnerVehicles,
   driverHistoryLane,
   driverHistoryLaneLabel,
   driverHistoryTabsForMode,
   driverJobSource,
+  driverOfflinePartyBookKicker,
+  driverWalletBookTabLabel,
   isDcoOperatingMode,
   parseDriverOperatingMode,
   splitEmployerRelationships,
@@ -28,6 +34,47 @@ describe('parseDriverOperatingMode', () => {
     expect(m.marketplaceAllowed).toBe(false);
     expect(isDcoOperatingMode(m)).toBe(false);
     expect(canAddDcoShippers(m)).toBe(false);
+    expect(canManageIndieBook(m)).toBe(false);
+    expect(canAttributeToEmployer(m)).toBe(true);
+    expect(canTagOfflineParty(m)).toBe(false);
+    expect(canTagOfflineParty(serverMode({ mode: "DCO", marketplace_allowed: true }))).toBe(true);
+    expect(canTagOfflineParty(serverMode({ mode: "DCO_VEHICLE_REQUIRED" }))).toBe(true);
+    expect(canTagOfflineParty(serverMode({ mode: "DCO_SUSPENDED", dco_status: "SUSPENDED" }))).toBe(
+      false,
+    );
+    expect(
+      canTagOfflineParty(
+        serverMode({ mode: "DCO_EMPLOYMENT_CONFLICT", dco_status: "APPROVED", is_employee_driver: true }),
+      ),
+    ).toBe(false);
+  });
+
+  it('independent DRIVER gets indie book, not DCO Self or employer attribution', () => {
+    const m = serverMode({ mode: 'DRIVER', is_employee_driver: false });
+    expect(canManageIndieBook(m)).toBe(true);
+    expect(canManageDcoSelfBook(m)).toBe(false);
+    expect(canTagOfflineParty(m)).toBe(true);
+    expect(canAttributeToEmployer(m)).toBe(false);
+    expect(driverWalletBookTabLabel(m)).toBe('Independent');
+    expect(driverOfflinePartyBookKicker(m)).toBe('Saved customers');
+  });
+
+  it('wallet book labels stay mode-aware without changing destinations', () => {
+    expect(driverWalletBookTabLabel(serverMode({ mode: 'DCO', marketplace_allowed: true }))).toBe(
+      'Self',
+    );
+    expect(
+      driverWalletBookTabLabel(serverMode({ mode: 'DRIVER', is_employee_driver: true })),
+    ).toBe('Fleet');
+    expect(
+      driverOfflinePartyBookKicker(serverMode({ mode: 'DCO', marketplace_allowed: true })),
+    ).toBe('Saved in Self');
+  });
+
+  it('DCO Self and indie books are mutually exclusive', () => {
+    const dco = serverMode({ mode: 'DCO', marketplace_allowed: true });
+    expect(canManageDcoSelfBook(dco)).toBe(true);
+    expect(canManageIndieBook(dco)).toBe(false);
   });
 
   it('C: an approved DCO without an active vehicle has no Marketplace access', () => {

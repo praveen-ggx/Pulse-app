@@ -499,7 +499,7 @@ export default function ComplianceScreen() {
   const [cardTripId, setCardTripId] = useState<string | null>(null);
   const [chargeFocus, setChargeFocus] = useState<{ tripId: string; token: number } | null>(null);
   const [cardFocus, setCardFocus] = useState<{
-    tab: "trip" | "vehicle" | "driver";
+    tab: "trip" | "vehicle" | "driver" | "finance";
     token: number;
   } | null>(null);
   const [awaitingPodSubview, setAwaitingPodSubview] = useState<AwaitingPodSubview>("all");

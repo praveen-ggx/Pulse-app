@@ -21,6 +21,9 @@ describe('isPastIndexBootPath', () => {
     expect(isPastIndexBootPath('/vehicle/abc')).toBe(true);
     expect(isPastIndexBootPath('/trips')).toBe(true);
     expect(isPastIndexBootPath('/finance')).toBe(true);
+    expect(isPastIndexBootPath('/capture-payment')).toBe(true);
+    expect(isPastIndexBootPath('/receivable/untagged')).toBe(true);
+    expect(isPastIndexBootPath('/add-client')).toBe(true);
   });
 });
 
@@ -29,6 +32,12 @@ describe('resolveWebRefreshHref', () => {
     expect(resolveWebRefreshHref('/', '/trip/abc', '?tab=docs')).toBe(
       '/trip/abc?tab=docs',
     );
+  });
+
+  it('preserves cold driver capture-payment deep links with query params', () => {
+    expect(
+      resolveWebRefreshHref('/', '/capture-payment', '?tripId=abc&lane=shipper'),
+    ).toBe('/capture-payment?tripId=abc&lane=shipper');
   });
 
   it('does nothing when Expo is already on the browser path', () => {

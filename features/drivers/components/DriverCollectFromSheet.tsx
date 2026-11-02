@@ -1,7 +1,7 @@
 /**
- * DCO Self — tag this offline trip to a saved shipper or middleman.
- * Tagging is what rolls the trip into that party's AR. Collect is a
- * separate step and uses the tagged party.
+ * Tag this offline trip to a saved party.
+ * Independent DRIVER → indie book. DCO → Self book.
+ * Tagging rolls the trip into that party's AR; collect is a separate step.
  */
 import { EntityAvatar } from "@/components/EntityAvatar";
 import {
@@ -10,8 +10,18 @@ import {
   driverUISemiBold,
 } from "@/constants/DriverTypography";
 import Theme from "@/constants/Theme";
-import { getClientsByOrganization, type ClientRow } from "@/features/clients/services/clients.service";
-import { tagTripWithDcoClient } from "@/features/drivers/services/driverTripClient.service";
+import {
+  dcoSelfIssueKey,
+  issueDcoSelfReceivable,
+  listDcoSelfParties,
+  tagDcoSelfTrip,
+} from "@/features/dco-self/services/dcoSelfReceivable.service";
+import {
+  driverIndieIssueKey,
+  issueDriverIndieReceivable,
+  listDriverIndieParties,
+  tagDriverIndieTrip,
+} from "@/features/driver-indie/services/driverIndieReceivable.service";
 import { type DriverCaptureLane } from "@/features/drivers/utils/driverCapturePayment.util";
 import { parseDcoPartyTagFromNotes } from "@/features/drivers/utils/dcoTripPartyTag.util";
 import {
@@ -19,10 +29,7 @@ import {
   tripReceivableBilled,
   tripReceivablePartyName,
 } from "@/features/drivers/utils/driverPartyReceivables.util";
-import {
-  ensureDcoWorkspace,
-  getOrganizationsForUser,
-} from "@/features/organization/services/organization.service";
+import { ensureDcoWorkspace } from "@/features/organization/services/organization.service";
 import { DriverTagPartyDialogs } from "@/features/drivers/components/DriverTagPartyDialogs";
 import { showAppAlert } from "@/lib/appAlert";
 import { queryKeys } from "@/lib/queryKeys";
@@ -75,7 +82,13 @@ export function DriverCollectFromSheet({
   const router = useRouter();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
-  const { canAddDcoShippers } = useDriverOperatingModeQuery();
+  const {
+    canManageDcoSelfBook,
+    canManageIndieBook,
+    canTagOfflineParty,
+    modeLoading,
+  } = useDriverOperatingModeQuery();
+  const useIndieBook = canManageIndieBook && !canManageDcoSelfBook;
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [parties, setParties] = useState<PartyOption[]>([]);
@@ -100,24 +113,26 @@ export function DriverCollectFromSheet({
   }, [trip.client_id, trip.notes]);
 
   const loadParties = useCallback(async () => {
-    if (!canAddDcoShippers) {
+    // Wait for mode — never treat "still loading" as an empty indie book.
+    if (modeLoading) return;
+    if (!canTagOfflineParty) {
       setParties([]);
       return;
     }
     setLoading(true);
     try {
-      const { organization } = await ensureDcoWorkspace();
-      let orgId = organization?.id ?? null;
-      if (!orgId) {
-        const listed = await getOrganizationsForUser();
-        orgId = listed.organizations[0]?.id ?? null;
+      let rows: Array<{ id: string; name: string; phone?: string | null }> = [];
+      if (useIndieBook) {
+        const listed = await listDriverIndieParties();
+        rows = listed.parties ?? [];
+      } else if (canManageDcoSelfBook) {
+        await ensureDcoWorkspace();
+        const listed = await listDcoSelfParties();
+        rows = listed.parties ?? [];
       }
-      const rows: ClientRow[] = orgId
-        ? ((await getClientsByOrganization(orgId)).clients ?? [])
-        : [];
       const assignerKey = currentName.trim().toLowerCase();
       const mapped: PartyOption[] = rows.map((row) => {
-        const name = row.name || row.contact_person || "Shipper";
+        const name = row.name || (useIndieBook ? "Customer" : "Shipper");
         return {
           id: row.id,
           name,
@@ -135,13 +150,21 @@ export function DriverCollectFromSheet({
     } finally {
       setLoading(false);
     }
-  }, [canAddDcoShippers, currentName, taggedPartyId]);
+  }, [
+    canManageDcoSelfBook,
+    canTagOfflineParty,
+    currentName,
+    modeLoading,
+    taggedPartyId,
+    useIndieBook,
+  ]);
 
   useEffect(() => {
     if (visible) void loadParties();
   }, [visible, loadParties]);
 
-  const currentBilled = useMemo(() => tripReceivableBilled(trip), [trip]);
+  // Issued receivable only — never trip mirrors / client_price prefills.
+  const currentBilled = useMemo(() => tripReceivableBilled(trip, null), [trip]);
 
   const handlePick = useCallback((party: PartyOption) => {
     if (busyId || !party.id) return;
@@ -155,35 +178,78 @@ export function DriverCollectFromSheet({
     setBilledForTag(null);
     setPendingParty(null);
     setReceivableParty(party);
-    setReceivableAmount(currentBilled > 0 ? String(currentBilled) : "");
+    setReceivableAmount(
+      currentBilled != null && currentBilled > 0 ? String(currentBilled) : "",
+    );
   }, [busyId, currentBilled]);
 
+  /**
+   * Always tags. Issues a receivable only when the user explicitly entered an amount
+   * (`billedForTag`). Tagging alone never fabricates Due.
+   */
   const handleConfirmTag = useCallback(async () => {
     if (!pendingParty?.id || busyId) return;
     setBusyId(pendingParty.id);
     try {
-      const { error } = await tagTripWithDcoClient(
-        trip.id,
-        {
-          id: pendingParty.id,
-          name: pendingParty.name,
-        },
-        billedForTag != null && billedForTag > 0 ? { billed: billedForTag } : undefined,
-      );
-      if (error) {
-        showAppAlert("Could not tag party", error.message);
-        return;
+      if (useIndieBook) {
+        const tagged = await tagDriverIndieTrip({
+          tripId: trip.id,
+          partyId: pendingParty.id,
+          partyName: pendingParty.name,
+        });
+        if (tagged.error) {
+          showAppAlert("Could not tag party", tagged.error.message);
+          return;
+        }
+        const amount = billedForTag != null && billedForTag > 0 ? billedForTag : 0;
+        if (amount > 0) {
+          const issued = await issueDriverIndieReceivable({
+            partyId: pendingParty.id,
+            billed: amount,
+            idempotencyKey: driverIndieIssueKey(trip.id),
+            tripId: trip.id,
+            partyLabel: pendingParty.name,
+          });
+          if (issued.error) {
+            showAppAlert("Could not issue receivable", issued.error.message);
+            return;
+          }
+        }
+      } else {
+        const tagged = await tagDcoSelfTrip({
+          tripId: trip.id,
+          partyBId: pendingParty.id,
+          partyName: pendingParty.name,
+        });
+        if (tagged.error) {
+          showAppAlert("Could not tag party", tagged.error.message);
+          return;
+        }
+        const amount = billedForTag != null && billedForTag > 0 ? billedForTag : 0;
+        if (amount > 0) {
+          const issued = await issueDcoSelfReceivable({
+            partyBId: pendingParty.id,
+            billed: amount,
+            idempotencyKey: dcoSelfIssueKey(trip.id),
+            tripId: trip.id,
+            partyALabel: pendingParty.name,
+          });
+          if (issued.error) {
+            showAppAlert("Could not issue receivable", issued.error.message);
+            return;
+          }
+        }
       }
       await queryClient.invalidateQueries({ queryKey: ["q", "trips"] });
       await queryClient.invalidateQueries({ queryKey: queryKeys.trips.detail(trip.id) });
       setSuccessParty({ id: pendingParty.id, name: pendingParty.name });
       setPendingParty(null);
       setReceivableParty(null);
-      setBilledForTag(billedForTag);
+      setBilledForTag(null);
     } finally {
       setBusyId(null);
     }
-  }, [billedForTag, busyId, pendingParty, queryClient, trip.id]);
+  }, [billedForTag, busyId, pendingParty, queryClient, trip.id, useIndieBook]);
 
   const handleSuccessOk = useCallback(() => {
     const tagged = successParty;
@@ -238,12 +304,13 @@ export function DriverCollectFromSheet({
             </View>
           ) : (
             <Text style={styles.hint}>
-              Tag a shipper or middleman from Self. This trip then shows under that party’s
-              receivables.
+              {useIndieBook
+                ? "Tag a saved customer. This trip then shows under that customer’s receivables."
+                : "Tag a shipper or middleman from Self. This trip then shows under that party’s receivables."}
             </Text>
           )}
 
-          {loading ? (
+          {loading || modeLoading ? (
             <ActivityIndicator style={{ marginVertical: 28 }} color={Theme.primary} />
           ) : (
             <ScrollView
@@ -252,12 +319,18 @@ export function DriverCollectFromSheet({
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              <Text style={styles.sectionLabel}>Your parties</Text>
+              <Text style={styles.sectionLabel}>
+                {useIndieBook ? "Your customers" : "Your parties"}
+              </Text>
               {parties.length === 0 ? (
                 <View style={styles.emptyCard}>
-                  <Text style={styles.emptyTitle}>No parties yet</Text>
+                  <Text style={styles.emptyTitle}>
+                    {useIndieBook ? "No customers yet" : "No parties yet"}
+                  </Text>
                   <Text style={styles.empty}>
-                    Add the shipper or middleman, then tag this trip.
+                    {useIndieBook
+                      ? "Add the customer, then tag this trip."
+                      : "Add the shipper or middleman, then tag this trip."}
                   </Text>
                 </View>
               ) : (
@@ -286,7 +359,8 @@ export function DriverCollectFromSheet({
                           ? "Tagged to this trip"
                           : party.matchesAssigner
                             ? "Matches assigned-by"
-                            : party.phone?.trim() || "Saved in Self"}
+                            : party.phone?.trim() ||
+                              (useIndieBook ? "Saved customer" : "Saved in Self")}
                       </Text>
                     </View>
                     {busyId === party.id ? (
@@ -304,7 +378,7 @@ export function DriverCollectFromSheet({
                 ))
               )}
 
-              {canAddDcoShippers ? (
+              {canTagOfflineParty ? (
                 <View style={styles.addBlock}>
                   {assignerToAdd ? (
                     <TouchableOpacity

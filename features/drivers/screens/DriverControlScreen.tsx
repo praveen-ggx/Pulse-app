@@ -183,7 +183,9 @@ export default function DriverControlScreen() {
   const [linkedDriverIds, setLinkedDriverIds] = useState<string[]>([]);
   const [linkedDriversLoaded, setLinkedDriversLoaded] = useState(false);
   const [linkedDriversFull, setLinkedDriversFull] = useState<driversService.DriverRow[]>([]);
-  const [attributeSalaryRequests, setAttributeSalaryRequests] = useState<salaryRequestsService.SalaryRequestRow[]>([]);
+  const [attributeSalaryRequests, setAttributeSalaryRequests] = useState<
+    salaryRequestsService.SalaryRequestRow[]
+  >([]);
   const [attributeLoading, setAttributeLoading] = useState(false);
 
   const [viewingPodUrl, setViewingPodUrl] = useState<string | null>(null);
@@ -371,8 +373,8 @@ export default function DriverControlScreen() {
     const eid = controlCurrentEmployer.orgId;
     return attributeSalaryRequests.some(
       (r) =>
-        r.request_type === 'trip_based' &&
-        String(r.organization_id ?? '') === eid &&
+        r.request_type === "trip_based" &&
+        String(r.organization_id ?? "") === eid &&
         (r.trip_ids ?? []).includes(trip.id),
     );
   }, [attributeSalaryRequests, controlCurrentEmployer, trip?.id]);
@@ -382,42 +384,51 @@ export default function DriverControlScreen() {
     setAttributeLoading(true);
     try {
       const earningsDetail = tripEarningsDetailForDriver(trip);
-      // A trip with no agreed commission/salary terms has nothing real to
-      // request — don't let the legacy 10% guess become the amount on an
-      // actual salary_request the fleet owner reviews.
       if (earningsDetail.amount <= 0 || earningsDetail.isEstimated) {
         Alert.alert(
-          'No agreed rate',
-          'This trip has no agreed commission or salary terms on file, so an amount cannot be requested automatically. Ask your fleet to set terms first.',
+          "No agreed rate",
+          "This trip has no agreed commission or salary terms on file, so an amount cannot be requested automatically. Ask your fleet to set terms first.",
         );
         return;
       }
       const earnings = Math.round(earningsDetail.amount);
-      const tripDate = trip.pickup_date ?? trip.started_at ?? trip.created_at ?? '';
+      const tripDate = trip.pickup_date ?? trip.started_at ?? trip.created_at ?? "";
       const tripDateStr = tripDate
-        ? new Date(tripDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-        : '';
+        ? new Date(tripDate).toLocaleDateString("en-IN", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+          })
+        : "";
       const tripRef = getDriverTripDisplayNumber(trip, driverTripNumberById);
-      const attrNote = [`Fleet trip · ${tripRef}`, tripDateStr, `₹${earnings.toLocaleString('en-IN')}`]
-        .filter(Boolean).join(' · ');
+      const attrNote = [`Fleet trip · ${tripRef}`, tripDateStr, `₹${earnings.toLocaleString("en-IN")}`]
+        .filter(Boolean)
+        .join(" · ");
       const { error } = await salaryRequestsService.createSalaryRequest(
         controlCurrentEmployer.driverRowId,
         controlCurrentEmployer.orgId,
-        'trip_based',
+        "trip_based",
         earnings,
         { tripIds: [trip.id], note: attrNote, createdBy: profile?.uid ?? null },
       );
       if (error) {
-        Alert.alert('Error', error.message);
+        Alert.alert("Error", error.message);
       } else {
-        Alert.alert('Trip attributed', 'Sent to your employer for review.');
-        void salaryRequestsService.getSalaryRequestsByDriverIds(linkedDriversFull.map((d) => d.id))
+        Alert.alert("Trip attributed", "Sent to your employer for review.");
+        void salaryRequestsService
+          .getSalaryRequestsByDriverIds(linkedDriversFull.map((d) => d.id))
           .then((sRes) => setAttributeSalaryRequests(sRes.requests ?? []));
       }
     } finally {
       setAttributeLoading(false);
     }
-  }, [controlCurrentEmployer, trip, driverTripNumberById, linkedDriversFull, profile?.uid]);
+  }, [
+    controlCurrentEmployer,
+    trip,
+    driverTripNumberById,
+    linkedDriversFull,
+    profile?.uid,
+  ]);
 
   if (loading) {
     return <CenteredLoadingView message="Loading…" />;
@@ -899,28 +910,40 @@ export default function DriverControlScreen() {
                 </View>
               </View>
             )}
-            {!isControlTripFleet && !tripIsAggregate && controlCurrentEmployer && (
+            {!isControlTripFleet && !tripIsAggregate && controlCurrentEmployer ? (
               <View style={[styles.cardRow, { borderTopColor: colors.border }]}>
                 {isControlTripAttributed ? (
-                  <View style={[styles.attributedBadge, { backgroundColor: '#fef3c7', borderColor: '#d97706' }]}>
+                  <View
+                    style={[
+                      styles.attributedBadge,
+                      { backgroundColor: "#fef3c7", borderColor: "#d97706" },
+                    ]}
+                  >
                     <FontAwesome name="check-circle" size={13} color="#d97706" />
-                    <Text style={[styles.attributedBadgeText, { color: '#d97706' }]}>Sent to employer for review</Text>
+                    <Text style={[styles.attributedBadgeText, { color: "#d97706" }]}>
+                      Sent to employer for review
+                    </Text>
                   </View>
                 ) : (
                   <TouchableOpacity
-                    style={[styles.attributeBtn, { borderColor: '#d97706', backgroundColor: '#fffbeb' }]}
-                    onPress={handleAttributeControlTrip}
+                    style={[
+                      styles.attributeBtn,
+                      { borderColor: "#d97706", backgroundColor: "#fffbeb" },
+                    ]}
+                    onPress={() => void handleAttributeControlTrip()}
                     disabled={attributeLoading}
                     activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Attribute to employer"
                   >
                     <FontAwesome name="building" size={13} color="#d97706" />
-                    <Text style={[styles.attributeBtnText, { color: '#d97706' }]}>
-                      {attributeLoading ? 'Attributing…' : 'Attribute to employer'}
+                    <Text style={[styles.attributeBtnText, { color: "#d97706" }]}>
+                      {attributeLoading ? "Attributing…" : "Attribute to employer"}
                     </Text>
                   </TouchableOpacity>
                 )}
               </View>
-            )}
+            ) : null}
             {step === "reached" && (
               <View style={[styles.cardRow, { borderTopColor: colors.border }]}>
                 <Text
@@ -1305,7 +1328,7 @@ export default function DriverControlScreen() {
                     android_ripple={{ color: "transparent" }}
                     style={[
                       styles.holdBtnWrap,
-                      Platform.OS === "web" && holdCompleteWebStyle,
+                      Platform.OS === "web" ? holdCompleteWebStyle : null,
                     ]}
                   >
                     <View
@@ -1565,7 +1588,7 @@ export default function DriverControlScreen() {
                     android_ripple={{ color: "transparent" }}
                     style={[
                       styles.holdBtnWrap,
-                      Platform.OS === "web" && holdCompleteWebStyle,
+                      Platform.OS === "web" ? holdCompleteWebStyle : null,
                     ]}
                   >
                     <View

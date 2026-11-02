@@ -1550,6 +1550,7 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
                                   lane="fleet"
                                   partyName={line.meta.fleetName}
                                   block
+                                  label="Capture commission"
                                 />
                                 <Pressable
                                   onPress={() => openFollowUp(line)}
@@ -1626,7 +1627,7 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
         onRequestClose={closeFollowUp}
         statusBarTranslucent
       >
-        <View style={styles.fullPageRoot}>
+        <View style={styles.fullPage}>
           <View
             style={[
               styles.fullPage,

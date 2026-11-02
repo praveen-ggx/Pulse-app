@@ -1038,7 +1038,7 @@ export default function DriverTripsScreen() {
               assigner={assignerPayload}
               mutedColor={colors.textMuted}
               textColor={colors.text}
-              needsTag={tripNeedsPartyTag(item)}
+              needsTag={tripNeedsPartyTag(item, tripHistoryLane(item) === "fleet")}
               taggedParty={
                 tripHistoryLane(item) === "offline" && isTripTaggedToParty(item)
                   ? tripReceivablePartyName(item)

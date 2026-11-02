@@ -5,7 +5,7 @@ import path from "path";
 const migrations = path.join(__dirname, "..");
 const setFile = path.join(migrations, "../release-sets/prod-2026-11-02-dco.versions");
 
-// DCO Self + indie driver financial books: the eight migrations, in apply order.
+// DCO Self + indie driver financial books: the nine migrations, in apply order.
 const APPROVED = [
   "20271101154500",
   "20271101184600",
@@ -15,6 +15,7 @@ const APPROVED = [
   "20271102120000",
   "20271102134500",
   "20271102141500",
+  "20271102183000",
 ];
 
 // Never applied to any database (team workflow), plus the frozen file.

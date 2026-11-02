@@ -1,9 +1,10 @@
 # DCO Self + indie driver financial books (Vasanth PRs #62–#64, #67 on his repo).
-# 8 chained migrations: ensure_dco_workspace → qualify fix → tag party →
+# 9 chained migrations: ensure_dco_workspace → qualify fix → tag party →
 # financial book (4 tables + RPCs) → indie book (4 tables + RPCs) →
-# finance visibility → tag no-notes forward → drop legacy overload.
+# finance visibility → tag no-notes forward → drop legacy overload →
+# issue trip scope (workspace/driver/DCO-mode check, one active receivable per trip).
 #
-# Dependency chain: 1→2→3→4,5,7→6→8 — apply in listed (ascending) order.
+# Dependency chain: 1→2→3→4,5,7→6→8→9 (9 needs 4) — apply in listed (ascending) order.
 # Functions and tables only; all CREATE OR REPLACE / IF NOT EXISTS / IF EXISTS.
 # No destructive DDL; re-applying a completed set is safe (idempotent).
 #
@@ -25,7 +26,9 @@
 # Verify before applying:
 #   npx jest supabase/migrations/__tests__/prodDcoSelfDriverBooks.set.test.ts \
 #            supabase/migrations/__tests__/dcoSelfWorkspaceAndTag.contract.test.ts \
-#            supabase/migrations/__tests__/dcoSelfFinancialBook.contract.test.ts
+#            supabase/migrations/__tests__/dcoSelfFinancialBook.contract.test.ts \
+#            supabase/migrations/__tests__/dcoSelfIssueTripScope.contract.test.ts
+# DB guards (disposable or approved database only): supabase/tests/dco_self_issue_trip_scope_guards.sql
 # sha256 fcb327601b5d11aa79b6cc3634324210663eea62d9db7e59c7390a4a28ce8035  20271101154500_ensure_dco_workspace.sql
 20271101154500
 # sha256 62421339d745b57bde21bfab085fde9e58b5db4976f33c619e042229e2751ac5  20271101184600_ensure_dco_workspace_qualify_returning_id.sql
@@ -42,3 +45,5 @@
 20271102134500
 # sha256 90bd81b453c29df753eea36d7f405e79d0453849d2f7f26b645251b9393f9d41  20271102141500_drop_legacy_tag_dco_trip_party_overload.sql
 20271102141500
+# sha256 29746f19b02617705eed10f9b480bec2513d2c2268e42b48f201f444ec2408fa  20271102183000_dco_self_issue_trip_scope.sql
+20271102183000

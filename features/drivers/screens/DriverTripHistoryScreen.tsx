@@ -17,8 +17,19 @@ import {
     getDriverTripDisplayNumber,
 } from "@/features/driver/utils/driverTripSequence.util";
 import * as driversService from "@/features/drivers/services/drivers.service";
-import * as salaryRequestsService from "@/features/drivers/services/salaryRequests.service";
+import {
+    driverHistoryLane,
+    driverHistoryLaneLabel,
+    driverHistoryTabsForMode,
+    type DriverHistoryTabId,
+} from "@/features/drivers/domain/driverOperatingMode";
+import {
+    isTripTaggedToParty,
+    tripNeedsPartyTag,
+    tripReceivablePartyName,
+} from "@/features/drivers/utils/driverPartyReceivables.util";
 import { isAggregateTrip, isRosterTrip, resolveDriverTripPayoutTerms } from "@/features/drivers/utils/driverUtils.util";
+import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import { getLatestAssignmentAuditByTripIds } from "@/features/trips/services/trip-assignment-audit.service";
 import * as tripsService from "@/features/trips/services/trips.service";
 import {
@@ -138,15 +149,14 @@ function formatDate(dateStr: string | null) {
     .toUpperCase();
 }
 
-function formatDistance(distance: string | number | null | undefined): string {
-  if (distance == null || distance === "") return "—";
+function formatDistance(distance: string | number | null | undefined): string | null {
+  if (distance == null || distance === "") return null;
   const n =
     typeof distance === "string"
       ? parseFloat(distance.replace(/[^0-9.]/g, ""))
       : Number(distance);
-  if (Number.isNaN(n) || n < 0) return "—";
-  const formatted = Math.round(n).toLocaleString("en-IN");
-  return `${formatted} KM`;
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return `${Math.round(n).toLocaleString("en-IN")} KM`;
 }
 
 function splitLocationPrimarySecondary(location: string | null | undefined): {
@@ -272,6 +282,8 @@ export default function DriverTripsScreen() {
   const isDark = theme === "dark";
   const router = useRouter();
   const { profile } = useAuth();
+  const { isDco } = useDriverOperatingModeQuery(profile?.uid ?? null);
+  const historyTabs = driverHistoryTabsForMode(isDco);
   const { avatarUri } = useDriverAvatarUri();
   const [driver, setDriver] = useState<driversService.DriverRow | null>(null);
   const [linkedDriverRows, setLinkedDriverRows] = useState<driversService.DriverRow[]>([]);
@@ -319,20 +331,35 @@ export default function DriverTripsScreen() {
   const [pressedCardId, setPressedCardId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [tripView, setTripView] = useState<"active" | "history">("active");
-  const [tripsSubTab, setTripsSubTab] = useState<"all" | "fleet" | "open" | "attributed" | "market">("all");
-  const [salaryRequests, setSalaryRequests] = useState<salaryRequestsService.SalaryRequestRow[]>([]);
+  const [tripsSubTab, setTripsSubTab] = useState<DriverHistoryTabId>(
+    isDco ? "offline" : "fleet",
+  );
   const historyParams = useLocalSearchParams<{ type?: string }>();
+
+  useEffect(() => {
+    if (!historyTabs.includes(tripsSubTab)) {
+      setTripsSubTab(historyTabs[0] ?? "offline");
+    }
+  }, [historyTabs, tripsSubTab]);
 
   useEffect(() => {
     const type =
       typeof historyParams.type === "string"
         ? historyParams.type
         : historyParams.type?.[0];
-    if (type === "all" || type === "fleet" || type === "open" || type === "attributed") {
-      setTripsSubTab(type);
-      if (type !== "all") setTripView("history");
+    const mapped: DriverHistoryTabId | null =
+      type === "fleet" || type === "offline" || type === "marketplace"
+        ? type
+        : type === "market"
+          ? "marketplace"
+          : type === "open"
+            ? "offline"
+            : null;
+    if (mapped && historyTabs.includes(mapped)) {
+      setTripsSubTab(mapped);
+      setTripView("history");
     }
-  }, [historyParams.type]);
+  }, [historyParams.type, historyTabs]);
 
   const historyFocusedRef = useRef(false);
   const historyLoadGen = useRef(0);
@@ -370,9 +397,8 @@ export default function DriverTripsScreen() {
         Promise.all([
           tripsService.getDriverUiTripsByDriverIds(driverIds, { signal: ac.signal }),
           driversService.getDriverInvitesReceived(),
-          salaryRequestsService.getSalaryRequestsByDriverIds(driverIds),
         ])
-          .then(([tRes, invitesRes, salaryRes]) => {
+          .then(([tRes, invitesRes]) => {
             if (stale()) return;
             if (tRes.error && __DEV__) {
               console.warn("[trip-history] getDriverUiTripsByDriverIds:", tRes.error.message);
@@ -382,7 +408,6 @@ export default function DriverTripsScreen() {
             }
             setTrips(tRes.error ? [] : (tRes.trips ?? []));
             setInvites(invitesRes.error ? [] : (invitesRes.invites ?? []));
-            setSalaryRequests(salaryRes.error ? [] : (salaryRes.requests ?? []));
             setLoading(false);
             initialLoadDoneRef.current = true;
             isRefreshingRef.current = false;
@@ -393,7 +418,6 @@ export default function DriverTripsScreen() {
             if (__DEV__) console.warn("[trip-history] trips/invites fetch failed:", e);
             setTrips([]);
             setInvites([]);
-            setSalaryRequests([]);
             setLoading(false);
             initialLoadDoneRef.current = true;
             isRefreshingRef.current = false;
@@ -402,7 +426,6 @@ export default function DriverTripsScreen() {
       } else {
         setTrips([]);
         setInvites([]);
-        setSalaryRequests([]);
         setLoading(false);
         initialLoadDoneRef.current = true;
         isRefreshingRef.current = false;
@@ -810,19 +833,11 @@ export default function DriverTripsScreen() {
     () => buildDriverTripNumberMap(trips),
     [trips],
   );
-  const fleetAttributedApprovedTripIds = useMemo(() => {
-    const set = new Set<string>();
-    salaryRequests.forEach((r) => {
-      const status = String(r.status ?? "").toLowerCase();
-      if (
-        r.request_type === "trip_based" &&
-        (status === "approved" || status === "paid")
-      ) {
-        (r.trip_ids ?? []).forEach((id) => set.add(id));
-      }
-    });
-    return set;
-  }, [salaryRequests]);
+  const tripHistoryLane = useCallback(
+    (trip: tripsService.TripRow) =>
+      driverHistoryLane(trip, isFleetDispatchedTrip(trip)),
+    [isFleetDispatchedTrip],
+  );
 
   const filteredTrips = useMemo(() => {
     let list = [...trips];
@@ -831,16 +846,9 @@ export default function DriverTripsScreen() {
       tripView === "history" ? isCompleted(trip.status) : !isCompleted(trip.status),
     );
 
-    // Type filters (fleet / open / attributed) apply to History only —
-    // Active shows every in-progress trip.
-    if (tripView === "history" && tripsSubTab !== "all") {
-      list = list.filter((trip) => {
-        const isFleet = isFleetDispatchedTrip(trip);
-        if (tripsSubTab === "fleet") return isFleet;
-        if (tripsSubTab === "open") return !isFleet;
-        if (tripsSubTab === "market") return trip.source === "market_bid";
-        return fleetAttributedApprovedTripIds.has(trip.id);
-      });
+    // History chips only: DCO = Offline + Marketplace; employee = Fleet + Offline.
+    if (tripView === "history") {
+      list = list.filter((trip) => tripHistoryLane(trip) === tripsSubTab);
     }
 
     const q = searchQuery.trim().toLowerCase();
@@ -874,8 +882,7 @@ export default function DriverTripsScreen() {
     tripsSubTab,
     searchQuery,
     driverTripNumberById,
-    isFleetDispatchedTrip,
-    fleetAttributedApprovedTripIds,
+    tripHistoryLane,
   ]);
   const historyTripsCount = useMemo(
     () => trips.filter((trip) => isCompleted(trip.status)).length,
@@ -890,40 +897,34 @@ export default function DriverTripsScreen() {
     [trips],
   );
   const fleetTripsCount = useMemo(
-    () => tripsInHistoryView.filter((trip) => isFleetDispatchedTrip(trip)).length,
-    [tripsInHistoryView, isFleetDispatchedTrip],
+    () => tripsInHistoryView.filter((trip) => tripHistoryLane(trip) === "fleet").length,
+    [tripsInHistoryView, tripHistoryLane],
   );
-  const openTripsCount = useMemo(
-    () => tripsInHistoryView.filter((trip) => !isFleetDispatchedTrip(trip)).length,
-    [tripsInHistoryView, isFleetDispatchedTrip],
+  const offlineTripsCount = useMemo(
+    () => tripsInHistoryView.filter((trip) => tripHistoryLane(trip) === "offline").length,
+    [tripsInHistoryView, tripHistoryLane],
   );
-  const attributedTripsCount = useMemo(
+  const marketplaceTripsCount = useMemo(
     () =>
-      tripsInHistoryView.filter((trip) => fleetAttributedApprovedTripIds.has(trip.id))
-        .length,
-    [tripsInHistoryView, fleetAttributedApprovedTripIds],
-  );
-  const marketTripsCount = useMemo(
-    () => tripsInHistoryView.filter((trip) => trip.source === "market_bid").length,
-    [tripsInHistoryView],
+      tripsInHistoryView.filter((trip) => tripHistoryLane(trip) === "marketplace").length,
+    [tripsInHistoryView, tripHistoryLane],
   );
   const poolCountForTab =
     tripView === "active"
       ? activeTripsCount
-      : tripsSubTab === "all"
-        ? historyTripsCount
-        : tripsSubTab === "fleet"
-          ? fleetTripsCount
-          : tripsSubTab === "open"
-            ? openTripsCount
-            : tripsSubTab === "market"
-              ? marketTripsCount
-              : attributedTripsCount;
+      : tripsSubTab === "fleet"
+        ? fleetTripsCount
+        : tripsSubTab === "marketplace"
+          ? marketplaceTripsCount
+          : offlineTripsCount;
 
   const renderItem = ({ item }: { item: tripsService.TripRow }) => {
     const completed = isCompleted(item.status);
     const badgeLabel = getTripStageBadgeLabel(item);
     const isFleetTrip = isFleetDispatchedTrip(item);
+    const historyLane = driverHistoryLane(item, isFleetTrip);
+    const laneLabel = driverHistoryLaneLabel(historyLane);
+    const distanceLabel = formatDistance(item.distance);
     const pickupParts = splitLocationPrimarySecondary(item.pickup_area);
     const dropParts = splitLocationPrimarySecondary(item.drop_location);
     const corridorHint = [pickupParts.secondary, dropParts.secondary].filter(Boolean).join(" · ");
@@ -995,11 +996,25 @@ export default function DriverTripsScreen() {
                   {corridorHint}
                 </Text>
               ) : null}
-              <TripListAssignerRow
-                assigner={assignerPayload}
-                mutedColor={colors.textMuted}
-                textColor={colors.text}
-              />
+              <View style={styles.cardRefLaneRow}>
+                <Text
+                  style={[
+                    styles.tripTypeBadge,
+                    historyLane === "marketplace"
+                      ? styles.tripTypeBadgeMarket
+                      : historyLane === "fleet"
+                        ? styles.tripTypeBadgeFleet
+                        : styles.tripTypeBadgeOffline,
+                  ]}
+                >
+                  {laneLabel}
+                </Text>
+                {distanceLabel ? (
+                  <Text style={[styles.manifestValue, { color: colors.textMuted }]}>
+                    {distanceLabel}
+                  </Text>
+                ) : null}
+              </View>
             </View>
             <View
               style={[
@@ -1019,54 +1034,41 @@ export default function DriverTripsScreen() {
           <View
             style={[styles.cardRefBottom, { borderTopColor: isDark ? colors.borderSubtle : "#f8fafc" }]}
           >
-            <View style={styles.cardRefBottomLeft}>
-              <Text
-                style={[
-                  styles.manifestLabel,
-                  isDark
-                    ? { color: colors.text, opacity: 0.85 }
-                    : { color: colors.textMuted },
-                ]}
-              >
-                Distance
-              </Text>
-              <View style={styles.cardRefDistanceRow}>
-                <Text style={[styles.manifestValue, { color: colors.text }]}>
-                  {formatDistance(item.distance)}
-                </Text>
-                <Text
-                  style={[
-                    styles.tripTypeBadge,
-                    isFleetTrip
-                      ? styles.tripTypeBadgeFleet
-                      : styles.tripTypeBadgeOpen,
-                  ]}
-                >
-                  {isFleetTrip ? "FLEET TRIP" : "OPEN TRIP"}
-                </Text>
-              </View>
-            </View>
-            <View style={styles.yieldWrapRef}>
-              <Text
-                style={[
-                  styles.yieldLabelRef,
-                  isDark
-                    ? { color: colors.text, opacity: 0.85 }
-                    : { color: colors.textMuted },
-                ]}
-              >
-                Yield
-              </Text>
-              <Text
-                style={[
-                  styles.yieldValueRef,
-                  styles.yieldValueRefLarge,
-                  { color: completed ? colors.emerald : colors.textMuted },
-                ]}
-              >
-                {getEarning(item)}
-              </Text>
-            </View>
+            <TripListAssignerRow
+              assigner={assignerPayload}
+              mutedColor={colors.textMuted}
+              textColor={colors.text}
+              needsTag={tripNeedsPartyTag(item)}
+              taggedParty={
+                tripHistoryLane(item) === "offline" && isTripTaggedToParty(item)
+                  ? tripReceivablePartyName(item)
+                  : null
+              }
+              style={styles.cardRefAssignerFooter}
+              endSlot={
+                <View style={styles.yieldWrapRef}>
+                  <Text
+                    style={[
+                      styles.yieldLabelRef,
+                      isDark
+                        ? { color: colors.text, opacity: 0.85 }
+                        : { color: colors.textMuted },
+                    ]}
+                  >
+                    Yield
+                  </Text>
+                  <Text
+                    style={[
+                      styles.yieldValueRef,
+                      { color: completed ? colors.emerald : colors.textMuted },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {getEarning(item)}
+                  </Text>
+                </View>
+              }
+            />
           </View>
         </AnimatedCardScale>
       </TouchableOpacity>
@@ -1141,7 +1143,9 @@ export default function DriverTripsScreen() {
               <Text style={[styles.creditsSubtitle, { color: colors.textMuted }]}>
                 {tripView === "active"
                   ? "In-progress trips"
-                  : "Completed trips · fleet / open / attributed"}
+                  : isDco
+                    ? "Completed trips · offline / marketplace"
+                    : "Completed trips · fleet / offline"}
               </Text>
             </View>
             <View
@@ -1278,46 +1282,32 @@ export default function DriverTripsScreen() {
                   {(
                     [
                       {
-                        id: "all" as const,
-                        label: "All",
-                        icon: "list" as const,
-                        count: historyTripsCount,
-                      },
-                      {
                         id: "fleet" as const,
                         label: "Fleet",
                         icon: "building" as const,
                         count: fleetTripsCount,
                       },
                       {
-                        id: "open" as const,
-                        label: "Open",
-                        icon: "road" as const,
-                        count: openTripsCount,
+                        id: "offline" as const,
+                        label: "Offline",
+                        icon: "phone" as const,
+                        count: offlineTripsCount,
                       },
                       {
-                        id: "attributed" as const,
-                        label: "Attributed",
-                        icon: "check-circle" as const,
-                        count: attributedTripsCount,
-                      },
-                      {
-                        id: "market" as const,
-                        label: "Market",
+                        id: "marketplace" as const,
+                        label: "Marketplace",
                         icon: "shopping-bag" as const,
-                        count: marketTripsCount,
+                        count: marketplaceTripsCount,
                       },
                     ] as const
-                  ).map((tab) => {
+                  )
+                    .filter((tab) => historyTabs.includes(tab.id))
+                    .map((tab) => {
                     const active = tripsSubTab === tab.id;
                     const accent =
-                      tab.id === "fleet"
-                        ? colors.emerald
-                        : tab.id === "open"
-                          ? Theme.textPrimaryDark
-                          : tab.id === "attributed"
-                            ? Theme.warning
-                            : colors.emerald;
+                      tab.id === "offline"
+                        ? Theme.textPrimaryDark
+                        : colors.emerald;
                     return (
                       <TouchableOpacity
                         key={tab.id}
@@ -1327,37 +1317,21 @@ export default function DriverTripsScreen() {
                             styles.tripsSubTabBtnActive,
                             {
                               backgroundColor:
-                                tab.id === "fleet"
+                                tab.id === "offline"
                                   ? isDark
+                                    ? "rgba(15,23,42,0.16)"
+                                    : "rgba(15,23,42,0.06)"
+                                  : isDark
                                     ? "rgba(4,120,87,0.18)"
-                                    : Theme.driverEmeraldMuted
-                                  : tab.id === "open"
-                                    ? isDark
-                                      ? "rgba(15,23,42,0.16)"
-                                      : "rgba(15,23,42,0.06)"
-                                    : tab.id === "attributed"
-                                      ? isDark
-                                        ? "rgba(245,158,11,0.18)"
-                                        : "rgba(245,158,11,0.10)"
-                                      : isDark
-                                        ? "rgba(4,120,87,0.14)"
-                                        : Theme.driverEmeraldMuted,
+                                    : Theme.driverEmeraldMuted,
                               borderColor:
-                                tab.id === "fleet"
+                                tab.id === "offline"
                                   ? isDark
+                                    ? "rgba(148,163,184,0.35)"
+                                    : "rgba(148,163,184,0.45)"
+                                  : isDark
                                     ? "rgba(4,120,87,0.35)"
-                                    : Theme.driverEmeraldBorderSoft
-                                  : tab.id === "open"
-                                    ? isDark
-                                      ? "rgba(148,163,184,0.35)"
-                                      : "rgba(148,163,184,0.45)"
-                                    : tab.id === "attributed"
-                                      ? isDark
-                                        ? "rgba(245,158,11,0.35)"
-                                        : "rgba(245,158,11,0.24)"
-                                      : isDark
-                                        ? "rgba(4,120,87,0.28)"
-                                        : Theme.driverEmeraldBorderSoft,
+                                    : Theme.driverEmeraldBorderSoft,
                             },
                           ],
                         ]}
@@ -1469,13 +1443,11 @@ export default function DriverTripsScreen() {
                     ? "No trips yet"
                     : tripsSubTab === "fleet"
                       ? "No fleet trips found"
-                      : tripsSubTab === "open"
-                        ? "No open trips found"
-                        : tripsSubTab === "attributed"
-                          ? "No attributed trips found"
-                          : tripsSubTab === "market"
-                            ? "No Market trips found"
-                            : "No trips found"}
+                      : tripsSubTab === "marketplace"
+                        ? "No marketplace trips found"
+                        : tripsSubTab === "offline"
+                          ? "No offline trips found"
+                          : "No trips found"}
                 </Text>
               </View>
             )
@@ -1599,7 +1571,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   tripsSubTabText: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: "700",
     letterSpacing: 0.2,
     flexShrink: 1,
@@ -1845,19 +1817,21 @@ const styles = StyleSheet.create({
     letterSpacing: 0.9,
     lineHeight: 11,
   },
-  cardRefBottom: {
+  cardRefLaneRow: {
+    marginTop: 8,
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  cardRefAssignerFooter: {
+    marginTop: 0,
+  },
+  cardRefBottom: {
     paddingTop: 12,
     marginTop: 3,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: TRIP_CARD_REF.divider,
-  },
-  cardRefBottomLeft: {
-    flex: 1,
-    minWidth: 0,
-    paddingRight: 10,
   },
   cardRefDistanceRow: {
     flexDirection: "row",
@@ -1896,39 +1870,39 @@ const styles = StyleSheet.create({
   },
   tripTypeBadgeFleet: {
     color: Theme.driverEmeraldDark,
-    backgroundColor: "rgba(16,185,129,0.10)",
-    borderColor: "rgba(16,185,129,0.30)",
+    backgroundColor: Theme.driverEmeraldMuted,
+    borderColor: Theme.driverEmeraldBorder,
   },
-  tripTypeBadgeOpen: {
-    color: "#4D3636",
-    backgroundColor: "rgba(99,102,241,0.10)",
-    borderColor: "rgba(99,102,241,0.30)",
+  tripTypeBadgeMarket: {
+    color: Theme.primary,
+    backgroundColor: Theme.brandBlueWash,
+    borderColor: Theme.brandBlueRing,
+  },
+  tripTypeBadgeOffline: {
+    color: Theme.primary,
+    backgroundColor: Theme.surface,
+    borderColor: Theme.surfaceBorder,
   },
   yieldWrapRef: {
     alignItems: "flex-end",
-    justifyContent: "flex-end",
+    justifyContent: "center",
     minWidth: 0,
-    flexShrink: 0,
-    minHeight: 42,
+    gap: 1,
   },
   yieldLabelRef: {
     fontSize: 8,
     fontWeight: "700",
-    color: TRIP_CARD_REF.label,
-    letterSpacing: 1.2,
+    letterSpacing: 0.55,
     textTransform: "uppercase",
-    marginBottom: 3,
-    lineHeight: 11,
+    lineHeight: 10,
     textAlign: "right",
   },
   yieldValueRef: {
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "800",
+    letterSpacing: -0.25,
     lineHeight: 16,
-  },
-  yieldValueRefLarge: {
-    fontSize: 16,
-    letterSpacing: -0.35,
+    textAlign: "right",
   },
   yieldValueCompleted: { color: TRIP_CARD_REF.emeraldYield },
   yieldValueMuted: { color: TRIP_CARD_REF.muted },

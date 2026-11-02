@@ -76,6 +76,12 @@ export interface LedgerEntryReceiptCardProps {
   details: LedgerEntryReceiptDetailRow[];
   primaryAction?: { label: string; onPress: () => void };
   secondaryAction?: { label: string; onPress: () => void };
+  /** Extra Close / dismiss control (compact receipt row). */
+  dismissAction?: { label: string; onPress: () => void };
+  /** View trip — compact receipts sit it on the first action row. */
+  tripAction?: { label: string; onPress: () => void };
+  /** Share + PDF (or Close + Done) as compact buttons on one row. */
+  compactActions?: boolean;
   /** Party avatar shown between the hero glyph and the status pill. */
   partyAvatar?: LedgerEntryReceiptPartyAvatar;
   style?: StyleProp<ViewStyle>;
@@ -193,28 +199,131 @@ export const LedgerEntryReceiptCard = memo(function LedgerEntryReceiptCard(
 
       <LedgerEntryReceiptDetailTable rows={props.details} />
 
-      {props.secondaryAction || props.primaryAction ? (
+      {props.dismissAction ||
+      props.tripAction ||
+      props.secondaryAction ||
+      props.primaryAction ? (
         <View style={styles.actions}>
-          {props.secondaryAction ? (
-            <Pressable
-              style={({ pressed }) => [styles.ghostBtn, pressed && styles.pressed]}
-              onPress={props.secondaryAction.onPress}
-              accessibilityRole="button"
-              accessibilityLabel={props.secondaryAction.label}
-            >
-              <Text style={styles.ghostBtnText}>{props.secondaryAction.label}</Text>
-            </Pressable>
+          {props.compactActions && props.tripAction ? (
+            <View style={styles.actionsRow}>
+              {props.dismissAction ? (
+                <Pressable
+                  hitSlop={8}
+                  style={({ pressed }) => [
+                    styles.ghostBtn,
+                    styles.ghostBtnCompact,
+                    pressed && styles.pressed,
+                  ]}
+                  onPress={props.dismissAction.onPress}
+                  accessibilityRole="button"
+                  accessibilityLabel={props.dismissAction.label}
+                >
+                  <Text style={[styles.ghostBtnText, styles.ghostBtnTextCompact]} numberOfLines={1}>
+                    {props.dismissAction.label}
+                  </Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                hitSlop={8}
+                style={({ pressed }) => [
+                  styles.ghostBtn,
+                  styles.ghostBtnCompact,
+                  pressed && styles.pressed,
+                ]}
+                onPress={props.tripAction.onPress}
+                accessibilityRole="button"
+                accessibilityLabel={props.tripAction.label}
+              >
+                <Text style={[styles.ghostBtnText, styles.ghostBtnTextCompact]} numberOfLines={1}>
+                  {props.tripAction.label}
+                </Text>
+              </Pressable>
+            </View>
           ) : null}
-          {props.primaryAction ? (
-            <Pressable
-              style={({ pressed }) => [styles.primaryBtn, pressed && styles.primaryBtnPressed]}
-              onPress={props.primaryAction.onPress}
-              accessibilityRole="button"
-              accessibilityLabel={props.primaryAction.label}
-            >
-              <Text style={styles.primaryBtnText}>{props.primaryAction.label}</Text>
-            </Pressable>
-          ) : null}
+          <View style={[styles.actionsRowInner, props.compactActions && styles.actionsRow]}>
+            {(!props.compactActions || !props.tripAction) && props.dismissAction ? (
+              <Pressable
+                hitSlop={8}
+                style={({ pressed }) => [
+                  styles.ghostBtn,
+                  props.compactActions && styles.ghostBtnCompact,
+                  pressed && styles.pressed,
+                ]}
+                onPress={props.dismissAction.onPress}
+                accessibilityRole="button"
+                accessibilityLabel={props.dismissAction.label}
+              >
+                <Text
+                  style={[
+                    styles.ghostBtnText,
+                    props.compactActions && styles.ghostBtnTextCompact,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {props.dismissAction.label}
+                </Text>
+              </Pressable>
+            ) : null}
+            {!props.compactActions && props.tripAction ? (
+              <Pressable
+                hitSlop={8}
+                style={({ pressed }) => [styles.ghostBtn, pressed && styles.pressed]}
+                onPress={props.tripAction.onPress}
+                accessibilityRole="button"
+                accessibilityLabel={props.tripAction.label}
+              >
+                <Text style={styles.ghostBtnText} numberOfLines={1}>
+                  {props.tripAction.label}
+                </Text>
+              </Pressable>
+            ) : null}
+            {props.secondaryAction ? (
+              <Pressable
+                hitSlop={8}
+                style={({ pressed }) => [
+                  styles.ghostBtn,
+                  props.compactActions && styles.ghostBtnCompact,
+                  pressed && styles.pressed,
+                ]}
+                onPress={props.secondaryAction.onPress}
+                accessibilityRole="button"
+                accessibilityLabel={props.secondaryAction.label}
+              >
+                <Text
+                  style={[
+                    styles.ghostBtnText,
+                    props.compactActions && styles.ghostBtnTextCompact,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {props.secondaryAction.label}
+                </Text>
+              </Pressable>
+            ) : null}
+            {props.primaryAction ? (
+              <Pressable
+                hitSlop={8}
+                style={({ pressed }) => [
+                  styles.primaryBtn,
+                  props.compactActions && styles.primaryBtnCompact,
+                  pressed && styles.primaryBtnPressed,
+                ]}
+                onPress={props.primaryAction.onPress}
+                accessibilityRole="button"
+                accessibilityLabel={props.primaryAction.label}
+              >
+                <Text
+                  style={[
+                    styles.primaryBtnText,
+                    props.compactActions && styles.primaryBtnTextCompact,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {props.primaryAction.label}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
       ) : null}
       </View>
@@ -459,14 +568,38 @@ const styles = StyleSheet.create({
     width: "100%",
     alignSelf: "stretch",
   },
+  actionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  actionsRowInner: {
+    width: "100%",
+  },
   ghostBtn: {
     alignItems: "center",
     paddingVertical: 6,
+  },
+  ghostBtnCompact: {
+    flex: 1,
+    minHeight: 32,
+    minWidth: 0,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: LEDGER_RECEIPT.border,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    justifyContent: "center",
   },
   ghostBtnText: {
     fontSize: 13,
     fontWeight: "500",
     color: LEDGER_RECEIPT.subtle,
+  },
+  ghostBtnTextCompact: {
+    fontSize: 10,
+    fontWeight: "600",
+    letterSpacing: 0.2,
   },
   primaryBtn: {
     backgroundColor: LEDGER_RECEIPT.primaryBtn,
@@ -478,6 +611,16 @@ const styles = StyleSheet.create({
     width: "100%",
     alignSelf: "stretch",
   },
+  primaryBtnCompact: {
+    flex: 1,
+    width: undefined,
+    minWidth: 0,
+    alignSelf: "auto",
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    minHeight: 32,
+  },
   primaryBtnPressed: {
     opacity: 0.92,
   },
@@ -487,6 +630,10 @@ const styles = StyleSheet.create({
     color: LEDGER_RECEIPT.primaryBtnText,
     letterSpacing: 0.6,
     textTransform: "uppercase",
+  },
+  primaryBtnTextCompact: {
+    fontSize: 10,
+    letterSpacing: 0.3,
   },
   pressed: {
     opacity: 0.88,

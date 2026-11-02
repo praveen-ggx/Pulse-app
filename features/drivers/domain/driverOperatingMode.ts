@@ -83,6 +83,15 @@ export function canManageOwnerVehicles(m: DriverOperatingMode): boolean {
   return m.mode === 'DCO' || m.mode === 'DCO_VEHICLE_REQUIRED';
 }
 
+/**
+ * Shipper CRM (add/pick offline client) is DCO-only. A plain driver has two
+ * trip books — fleet employer assignments and their own offline work — and
+ * never creates parties.
+ */
+export function canAddDcoShippers(m: DriverOperatingMode): boolean {
+  return canManageOwnerVehicles(m);
+}
+
 type RelationshipRow = {
   left_at?: string | null;
   relationship_status?: string | null;
@@ -131,4 +140,28 @@ export function driverJobSource(trip: {
   if (String(trip.source ?? '').trim() === 'market_bid') return 'marketplace_award';
   if (isDcoOperatingTrip(trip)) return 'dco_direct';
   return 'business_assigned';
+}
+
+/** History chips: DCO = Offline + Marketplace; connected employee = Fleet + Offline. */
+export type DriverHistoryLane = 'marketplace' | 'offline' | 'fleet';
+export type DriverHistoryTabId = 'offline' | 'marketplace' | 'fleet';
+
+export function driverHistoryLane(
+  trip: { source?: string | null; operating_mode?: string | null },
+  isFleetDispatched: boolean,
+): DriverHistoryLane {
+  if (driverJobSource(trip) === 'marketplace_award') return 'marketplace';
+  if (isFleetDispatched) return 'fleet';
+  return 'offline';
+}
+
+/** Card chip: DCO sees Offline / Marketplace; employee sees Offline / Fleet. */
+export function driverHistoryLaneLabel(lane: DriverHistoryLane): string {
+  if (lane === "marketplace") return "Marketplace trip";
+  if (lane === "fleet") return "Fleet trip";
+  return "Offline trip";
+}
+
+export function driverHistoryTabsForMode(isDco: boolean): readonly DriverHistoryTabId[] {
+  return isDco ? (['offline', 'marketplace'] as const) : (['fleet', 'offline'] as const);
 }

@@ -266,10 +266,11 @@ export function FullscreenNumericEntry({
                   ? undefined
                   : label
               }
-              // Stack “Spend” above shipper when we have route/date hero lines.
+              // One-line “Paying Rohit” only. Longer labels stay under a centered avatar.
               nameInline={
                 !partyPreview.heroLine &&
-                partyPreview.name.trim().toLowerCase() !== label.trim().toLowerCase()
+                partyPreview.name.trim().toLowerCase() !== label.trim().toLowerCase() &&
+                label.trim().split(/\s+/).length <= 2
               }
               compact
             />

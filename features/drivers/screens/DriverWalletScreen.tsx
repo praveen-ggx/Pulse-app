@@ -1,7 +1,19 @@
 import { DriverBrandMark } from '@/components/driver/DriverBrandMark';
+import { PartySpeedDialFab, type PartySpeedDialAction } from '@/components/PartySpeedDialFab';
 import { SearchBar } from '@/components/SearchBar';
 import { DriverWalletEarningsPanel } from '@/features/drivers/components/DriverWalletEarningsPanel';
 import { DriverSelfLedgerPanel } from '@/features/drivers/components/DriverSelfLedgerPanel';
+import { DriverSelfReceivablesPanel } from '@/features/drivers/components/DriverSelfReceivablesPanel';
+import { DriverPreDcoFleetHistoryView } from '@/features/drivers/components/DriverPreDcoFleetHistoryView';
+import { buildDriverPartyReceivables } from '@/features/drivers/utils/driverPartyReceivables.util';
+import { listDriverTripExpensesByTripIds } from '@/features/drivers/services/driverTripExpenses.service';
+import {
+  buildDriverWalletTransactions,
+  filterDriverWalletTransactions,
+  groupDriverWalletTransactions,
+  walletTxnPartyFallback,
+  type DriverWalletTxn,
+} from '@/features/drivers/utils/driverWalletTransactions.util';
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { ThemedConfirmModal } from '@/components/ThemedConfirmModal';
 import {
@@ -38,15 +50,19 @@ import {
   tripEarningsForDriver,
 } from '@/features/drivers/utils/driverUtils.util';
 import {
+  buildDriverLedgerReceiptDetails,
   buildDriverTripSettlementView,
   buildMarkPaidConfirmMessage,
   deriveDriverPaymentMode,
   extractDriverPaymentUtr,
 } from "@/features/driver/tripSettlement/driverTripSettlement.util";
+import { DriverLedgerReceiptPreviewModal, type DriverLedgerReceiptPreview } from "@/features/drivers/components/DriverLedgerReceiptPreviewModal";
 import { resolveDriverOrgAvatarUri } from '@/features/drivers/utils/resolveDriverOrgAvatar.util';
 import { fetchOrgBrandingByIds, type OrgBrandingRow } from '@/lib/orgBrandingFetch';
 import { buildDriverInviteSalaryLines } from '@/features/drivers/utils/driverInviteOffer.util';
 import { usePreventScreenCapture } from '@/lib/usePreventScreenCapture';
+import { useLayoutInsets } from '@/lib/layoutInsets';
+import { ROUTES } from '@/lib/routes';
 import * as driversService from '@/features/drivers/services/drivers.service';
 import * as salaryRequestsService from '@/features/drivers/services/salaryRequests.service';
 import * as tripsService from '@/features/trips/services/trips.service';
@@ -58,13 +74,14 @@ import { injectPulseWatermarkIntoHtml } from '@/lib/reportWatermark.util';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Sharing from 'expo-sharing';
-import { Sparkles, Wallet } from 'lucide-react-native';
+import { History, Sparkles, Wallet } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
     Image,
     Linking,
+    Modal,
     Platform,
     ScrollView,
     Share,
@@ -171,12 +188,14 @@ export default function DriverWalletScreen() {
   // Note: We intentionally do not deep-link to the Trip tab from Wallet.
   // The Wallet screen should remain self-contained and not steal focus/navigation.
   const { profile } = useAuth();
+  const layout = useLayoutInsets();
   const fleetConnectionRevision =
     useOptionalDriverInviteModal()?.fleetConnectionRevision ?? 0;
   useDriverAvatar();
   const { avatarUri } = useDriverAvatarUri();
   const {
     isDco,
+    canAddDcoShippers,
     operatingMode,
     invalidate: invalidateOperatingMode,
   } = useDriverOperatingModeQuery(profile?.uid ?? null);
@@ -188,19 +207,21 @@ export default function DriverWalletScreen() {
     Record<string, OrgBrandingRow>
   >({});
   const [ledgerEntries, setLedgerEntries] = useState<driversService.DriverLedgerRow[]>([]);
+  const [tripExpenses, setTripExpenses] = useState<
+    Awaited<ReturnType<typeof listDriverTripExpensesByTripIds>>["entries"]
+  >([]);
   const [salaryRequests, setSalaryRequests] = useState<salaryRequestsService.SalaryRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [_refreshing, setRefreshing] = useState(false);
   const isRefreshingRef = useRef(false);
   const initialLoadDoneRef = useRef(false);
   const [transactionFilter, _setTransactionFilter] = useState<'all' | 'pending' | 'received'>('all');
-  /** Expand/collapse transaction detail (trip id or null). No redirect. */
-  const [expandedTripId, setExpandedTripId] = useState<string | null>(null);
-  const [, setExpandedTripReceiptId] = useState<string | null>(null);
+  const [ledgerReceiptPreview, setLedgerReceiptPreview] = useState<DriverLedgerReceiptPreview | null>(null);
   const [markPaidLoadingTripId, setMarkPaidLoadingTripId] = useState<string | null>(null);
   const [requestPaymentLoadingTripId, setRequestPaymentLoadingTripId] = useState<string | null>(null);
   const [earningsPdfSharingTripId, setEarningsPdfSharingTripId] = useState<string | null>(null);
   const [claimAllLoading, setClaimAllLoading] = useState(false);
+  const [formerFleetHistoryOpen, setFormerFleetHistoryOpen] = useState(false);
 
   const [mainTab, setMainTab] = useState<'fleet' | 'cash' | 'earnings'>('fleet');
   const walletParams = useLocalSearchParams<{ tab?: string }>();
@@ -272,6 +293,7 @@ export default function DriverWalletScreen() {
 
       if (drivers.length === 0) {
         setSalaryRequests([]);
+        setTripExpenses([]);
         setLoading(false);
         initialLoadDoneRef.current = true;
         isRefreshingRef.current = false;
@@ -294,6 +316,14 @@ export default function DriverWalletScreen() {
       setTrips(tRes.trips ?? []);
       setLedgerEntries(ledgerRes.entries ?? []);
       setSalaryRequests(salaryReqRes.requests ?? []);
+      if (isDco) {
+        const expenseRes = await listDriverTripExpensesByTripIds(
+          (tRes.trips ?? []).map((trip) => trip.id),
+        );
+        setTripExpenses(expenseRes.entries ?? []);
+      } else {
+        setTripExpenses([]);
+      }
       setLoading(false);
       initialLoadDoneRef.current = true;
       isRefreshingRef.current = false;
@@ -305,7 +335,7 @@ export default function DriverWalletScreen() {
       isRefreshingRef.current = false;
       setRefreshing(false);
     }
-  }, [profile?.uid]);
+  }, [profile?.uid, isDco]);
 
   useEffect(() => {
     load();
@@ -354,6 +384,36 @@ export default function DriverWalletScreen() {
     }
     return { receivedByTripId: byTrip, nonTripLedgerEntries: nonTrip };
   }, [ledgerEntries]);
+
+  const isFleetDispatchedTrip = useCallback(
+    (trip: tripsService.TripRow) => {
+      const tripOrgId = String(trip.organization_id ?? '').trim();
+      if (!tripOrgId) return false;
+      return linkedDrivers.some((row) => {
+        if (String(row.organization_id ?? '').trim() !== tripOrgId) return false;
+        if (row.tracking_only === true) return false;
+        return driversService.isActiveFleetRelationshipDriver(row);
+      });
+    },
+    [linkedDrivers],
+  );
+
+  const selfPartyReceivables = useMemo(
+    () => buildDriverPartyReceivables(trips, receivedByTripId, isFleetDispatchedTrip),
+    [trips, receivedByTripId, isFleetDispatchedTrip],
+  );
+  const addClientPartyActions = useMemo((): PartySpeedDialAction[] => {
+    if (!canAddDcoShippers) return [];
+    return [
+      {
+        id: 'customers',
+        label: 'Add client',
+        icon: 'building',
+        accessibilityLabel: 'Add client',
+        onPress: () => router.push(ROUTES.driverAddClient()),
+      },
+    ];
+  }, [canAddDcoShippers]);
 
   const sortedLedgerEntries = useMemo(() => {
     return [...ledgerEntries].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -417,24 +477,6 @@ export default function DriverWalletScreen() {
     // Settlement credits only (used for "received"/"settled" UI).
     return sortedLedgerEntries.filter((entry) => entry.type === 'settlement' && (Number(entry.amount) || 0) > 0);
   }, [sortedLedgerEntries]);
-
-  const latestCreditLedgerByTripId = useMemo(() => {
-    const byTrip: Record<string, driversService.DriverLedgerRow> = {};
-    for (let i = 0; i < receivedLedgerEntries.length; i++) {
-      const e = receivedLedgerEntries[i];
-      const tid = e.trip_id?.trim() || '';
-      if (!tid) continue;
-      const prev = byTrip[tid];
-      if (!prev) {
-        byTrip[tid] = e;
-        continue;
-      }
-      const prevT = new Date(prev.created_at).getTime();
-      const nextT = new Date(e.created_at).getTime();
-      if (nextT > prevT) byTrip[tid] = e;
-    }
-    return byTrip;
-  }, [receivedLedgerEntries]);
 
   const hasFleetPaidPendingToken = useCallback((raw?: string | null) => {
     const s = (raw ?? '').trim();
@@ -508,14 +550,7 @@ export default function DriverWalletScreen() {
     return m?.[1] ?? null;
   }, []);
 
-  const derivePaymentMode = useCallback((raw?: string | null) => {
-    const s = (raw ?? '').toLowerCase();
-    if (!s) return null;
-    if (s.includes('upi')) return 'UPI';
-    if (s.includes('bank') || s.includes('neft') || s.includes('rtgs') || s.includes('imps')) return 'BANK TRANSFER';
-    if (s.includes('cash')) return 'CASH';
-    return null;
-  }, []);
+  const derivePaymentMode = useCallback((raw?: string | null) => deriveDriverPaymentMode(raw), []);
 
   const buildCashReceiptHtml = useCallback((p: {
     title: string;
@@ -1946,6 +1981,114 @@ export default function DriverWalletScreen() {
     });
   }, [pastLinkedDrivers, completedTrips, invites, orgNameById]);
 
+  /** All former (and leftover current) fleet employers — DCO history preview. */
+  const preDcoFleetHistoryCards = useMemo(() => {
+    const past = pastEmployerFleetCards
+      .filter((past) => {
+        const row = pastLinkedDrivers.find((d) => d.id === past.driverId);
+        return row?.tracking_only !== true;
+      })
+      .map((past) => {
+        const fleetTrips = completedTrips.filter(
+          (t) =>
+            String(t.organization_id ?? '') === String(past.orgId ?? '') &&
+            String(t.driver_id ?? '') === String(past.driverId ?? ''),
+        );
+        const received = Math.round(
+          fleetTrips.reduce((sum, t) => sum + (Number(receivedByTripId[t.id] ?? 0) || 0), 0),
+        );
+        const pending = Math.max(0, past.earned - received);
+        return {
+          orgId: String(past.orgId ?? ''),
+          orgName: past.orgName,
+          driverId: past.driverId,
+          earned: past.earned,
+          pending,
+          received,
+          tripsCompleted: past.tripsCompleted,
+          joinedAt: past.joinedAt,
+          leftAt: past.leftAt,
+          isCurrent: false as const,
+        };
+      })
+      .filter((row) => row.orgId.length > 0);
+
+    if (isDco && currentEmployer?.orgId) {
+      const orgId = String(currentEmployer.orgId ?? '');
+      if (orgId && !past.some((row) => row.orgId === orgId)) {
+        const joinedAt =
+          linkedDrivers.find(
+            (d) => !d.left_at && String(d.organization_id ?? '') === orgId,
+          )?.created_at ?? new Date().toISOString();
+        past.unshift({
+          orgId,
+          orgName: currentEmployer.orgName,
+          driverId: String(currentEmployer.driverId ?? ''),
+          earned: currentEmployer.earned,
+          pending: currentEmployer.pending,
+          received: currentEmployer.received,
+          tripsCompleted: currentEmployer.tripsCompleted,
+          joinedAt,
+          leftAt: null,
+          isCurrent: true,
+        });
+      }
+    }
+    return past;
+  }, [
+    pastEmployerFleetCards,
+    pastLinkedDrivers,
+    completedTrips,
+    receivedByTripId,
+    isDco,
+    currentEmployer,
+    linkedDrivers,
+  ]);
+
+  const preDcoFleetHistoryTrips = useMemo(() => {
+    const key = new Set(
+      preDcoFleetHistoryCards.flatMap((f) => [`${f.orgId}:${f.driverId}`, f.orgId]),
+    );
+    const nameByOrg = new Map(preDcoFleetHistoryCards.map((f) => [f.orgId, f.orgName]));
+    return [...completedTrips]
+      .filter((t) => {
+        const orgId = String(t.organization_id ?? '');
+        const driverId = String(t.driver_id ?? '');
+        return key.has(`${orgId}:${driverId}`) || key.has(orgId);
+      })
+      .sort((a, b) => {
+        const da = new Date(a.completed_at ?? a.updated_at ?? a.created_at).getTime();
+        const db = new Date(b.completed_at ?? b.updated_at ?? b.created_at).getTime();
+        return db - da;
+      })
+      .slice(0, 80)
+      .map((t) => {
+        const earned = gatedTripEarnings(t);
+        const received = Math.round(Number(receivedByTripId[t.id] ?? 0) || 0);
+        const pending = Math.max(0, earned - received);
+        const orgId = String(t.organization_id ?? '');
+        return {
+          tripId: t.id,
+          displayId: getDriverTripDisplayNumber(t, driverTripNumberById),
+          orgName: nameByOrg.get(orgId) ?? orgNameById[orgId] ?? 'Fleet',
+          route: `${t.pickup_area ?? ''} → ${t.drop_location ?? ''}`.trim(),
+          earned,
+          received,
+          pending,
+          dateLabel: formatTransactionDateSection(
+            t.completed_at ?? t.updated_at ?? t.created_at,
+          ),
+        };
+      });
+  }, [
+    preDcoFleetHistoryCards,
+    completedTrips,
+    gatedTripEarnings,
+    receivedByTripId,
+    driverTripNumberById,
+    orgNameById,
+  ]);
+
   /** Trip IDs the driver has attributed to their current employer via trip_based salary requests. */
   const _fleetAttributedTripIds = useMemo(() => {
     const set = new Set<string>();
@@ -2278,48 +2421,49 @@ export default function DriverWalletScreen() {
     return Array.from(map.entries()).map(([sectionLabel, items]) => ({ sectionLabel, items }));
   }, [filteredTripJourneyItems]);
 
-  const filteredCashTrips = useMemo(() => {
-    const search = journeySearch.trim().toLowerCase();
-    return receivedTrips.filter((trip) => {
-      const orgName =
-        salaryRequestOrgOptions.find((o) => String(o.orgId ?? '') === String(trip.organization_id ?? ''))?.orgName ?? 'Fleet';
-      const haystack = [
-        getDriverTripDisplayNumber(trip, driverTripNumberById),
-        trip.pickup_area ?? '',
-        trip.drop_location ?? '',
-        orgName,
-      ]
-        .join(' ')
-        .toLowerCase();
-      return search.length === 0 || haystack.includes(search);
-    });
-  }, [receivedTrips, journeySearch, salaryRequestOrgOptions]);
+  const tripsById = useMemo(() => {
+    const map: Record<string, tripsService.TripRow> = {};
+    for (const trip of trips) map[trip.id] = trip;
+    return map;
+  }, [trips]);
 
-  const filteredCashSections = useMemo(() => {
-    const list = [...filteredCashTrips]
-      .sort((a, b) => {
-        const da = new Date(a.completed_at ?? a.updated_at ?? a.created_at).getTime();
-        const db = new Date(b.completed_at ?? b.updated_at ?? b.created_at).getTime();
-        return db - da;
-      })
-      .slice(0, 50);
+  const walletTransactions = useMemo(
+    () =>
+      buildDriverWalletTransactions({
+        settlements: receivedLedgerEntries,
+        expenses: tripExpenses,
+        tripsById,
+        tripDisplay: (trip, tripId) =>
+          trip ? getDriverTripDisplayNumber(trip, driverTripNumberById) : tripId ? tripId.slice(0, 8) : "Trip",
+        partyNameForTrip: (trip) => {
+          const orgId = String(trip?.organization_id ?? "");
+          const orgName =
+            orgNameById[orgId] ??
+            salaryRequestOrgOptions.find((o) => String(o.orgId ?? "") === orgId)?.orgName ??
+            "Party";
+          return walletTxnPartyFallback(trip, orgName);
+        },
+        includeExpenses: isDco,
+      }),
+    [
+      driverTripNumberById,
+      isDco,
+      orgNameById,
+      receivedLedgerEntries,
+      salaryRequestOrgOptions,
+      tripExpenses,
+      tripsById,
+    ],
+  );
 
-    const bySection: { sectionLabel: string; trips: typeof list }[] = [];
-    let current = '';
-    let bucket: typeof list = [];
-    for (const trip of list) {
-      const label = formatTransactionDateSection(trip.completed_at ?? trip.updated_at ?? trip.created_at ?? '');
-      if (label !== current) {
-        if (bucket.length) bySection.push({ sectionLabel: current, trips: bucket });
-        current = label;
-        bucket = [trip];
-      } else {
-        bucket.push(trip);
-      }
-    }
-    if (bucket.length) bySection.push({ sectionLabel: current, trips: bucket });
-    return bySection;
-  }, [filteredCashTrips]);
+  const filteredTxnSections = useMemo(
+    () =>
+      groupDriverWalletTransactions(
+        filterDriverWalletTransactions(walletTransactions, journeySearch),
+        formatTransactionDateSection,
+      ),
+    [journeySearch, walletTransactions],
+  );
 
   /** Request payment for this trip: route user to Salary Request screen. */
   const _openSalaryRequestForTrip = useCallback(
@@ -2327,7 +2471,7 @@ export default function DriverWalletScreen() {
       // Keep Wallet self-contained: route to existing Salary Request flow.
       // (Salary Request screen already supports trip-based requests.)
       router.push('/(driver)/salary-request');
-      setExpandedTripId(null);
+      setLedgerReceiptPreview(null);
     },
     [router]
   );
@@ -2386,8 +2530,7 @@ export default function DriverWalletScreen() {
       if (row) {
         setLedgerEntries(prev => [row!, ...prev]);
       }
-      setExpandedTripId(null);
-      setExpandedTripReceiptId(null);
+      setLedgerReceiptPreview(null);
       load();
 
       const tripDisplay = getDriverTripDisplayNumber(trip, driverTripNumberById);
@@ -2465,16 +2608,40 @@ export default function DriverWalletScreen() {
           </TouchableOpacity>
           <View style={styles.headerTextWrap}>
             <DriverBrandMark color={colors.textMuted} />
-            <Text style={[styles.welcomeTitle, { color: colors.text }]} numberOfLines={1}>Cash</Text>
+            <Text style={[styles.welcomeTitle, { color: colors.text }]} numberOfLines={1}>
+              {mainTab === "earnings" ? "Earnings" : mainTab === "cash" ? "Transactions" : isDco ? "Self" : "Fleet"}
+            </Text>
           </View>
         </View>
       </View>
 
       <View style={styles.creditsSection}>
-        <Text style={[styles.creditsTitle, { color: EMERALD_500 }]}>SALARY.</Text>
+        <View style={styles.creditsTitleRow}>
+          <Text style={[styles.creditsTitle, { color: EMERALD_500, flex: 1, minWidth: 0 }]}>SALARY.</Text>
+          {isDco ? (
+            <TouchableOpacity
+              style={[
+                styles.formerFleetHistoryBtn,
+                {
+                  backgroundColor: isDark ? colors.surfaceElevated : Theme.driverEmeraldMuted,
+                  borderColor: isDark ? colors.borderSubtle : Theme.driverEmeraldBorderSoft,
+                },
+              ]}
+              onPress={() => setFormerFleetHistoryOpen(true)}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Pre-DCO fleet earnings history"
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <History size={14} color={colors.emerald} strokeWidth={2.2} />
+              <Text style={[styles.formerFleetHistoryLabel, { color: colors.emerald }]}>History</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
         <Text style={[styles.creditsSubtitle, { color: GRAY_700 }]}>Financial audit & settlements.</Text>
       </View>
 
+      {!isDco ? (
       <View style={styles.walletCardWrap}>
         <TouchableOpacity
           activeOpacity={0.85}
@@ -2551,6 +2718,7 @@ export default function DriverWalletScreen() {
         </LinearGradient>
         </TouchableOpacity>
       </View>
+      ) : null}
 
       <View
         style={[
@@ -2573,7 +2741,10 @@ export default function DriverWalletScreen() {
           activeOpacity={0.92}
         >
           <FontAwesome name={isDco ? 'user' : 'users'} size={12} color={mainTab === 'fleet' ? colors.emerald : colors.textMuted} />
-          <Text style={[styles.mainTabText, mainTab === 'fleet' ? { color: colors.emerald } : { color: colors.textMuted }]}>
+          <Text
+            style={[styles.mainTabText, mainTab === 'fleet' ? { color: colors.emerald } : { color: colors.textMuted }]}
+            numberOfLines={1}
+          >
             {isDco ? 'Self' : 'Fleet'}
           </Text>
         </TouchableOpacity>
@@ -2589,7 +2760,12 @@ export default function DriverWalletScreen() {
           activeOpacity={0.92}
         >
           <FontAwesome name="line-chart" size={12} color={mainTab === 'earnings' ? colors.emerald : colors.textMuted} />
-          <Text style={[styles.mainTabText, mainTab === 'earnings' ? { color: colors.emerald } : { color: colors.textMuted }]}>Earnings</Text>
+          <Text
+            style={[styles.mainTabText, mainTab === 'earnings' ? { color: colors.emerald } : { color: colors.textMuted }]}
+            numberOfLines={1}
+          >
+            Earnings
+          </Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[
@@ -2602,8 +2778,13 @@ export default function DriverWalletScreen() {
           onPress={() => setMainTab('cash')}
           activeOpacity={0.92}
         >
-          <FontAwesome name="credit-card" size={12} color={mainTab === 'cash' ? colors.emerald : colors.textMuted} />
-          <Text style={[styles.mainTabText, mainTab === 'cash' ? { color: colors.emerald } : { color: colors.textMuted }]}>Cash</Text>
+          <FontAwesome name="list-alt" size={12} color={mainTab === 'cash' ? colors.emerald : colors.textMuted} />
+          <Text
+            style={[styles.mainTabText, mainTab === 'cash' ? { color: colors.emerald } : { color: colors.textMuted }]}
+            numberOfLines={1}
+          >
+            Transactions
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -2614,7 +2795,7 @@ export default function DriverWalletScreen() {
             onChangeText={setJourneySearch}
             style={styles.tripsSearchBar}
             inputProps={{ style: styles.tripsSearchInput }}
-            placeholder="Search settlements..."
+            placeholder="Search transactions..."
           />
 
         </View>
@@ -2722,9 +2903,18 @@ export default function DriverWalletScreen() {
                 ))}
               </View>
             ) : null}
+            <DriverSelfReceivablesPanel
+              rows={selfPartyReceivables}
+              trips={trips}
+              receivedByTripId={receivedByTripId}
+              isFleetDispatched={isFleetDispatchedTrip}
+              colors={colors}
+              isDark={isDark}
+            />
             <DriverSelfLedgerPanel
               entries={ledgerEntries}
               orgNameById={orgNameById}
+              tripNumberById={driverTripNumberById}
               colors={colors}
               isDark={isDark}
             />
@@ -3138,7 +3328,7 @@ export default function DriverWalletScreen() {
                 { backgroundColor: '#3730a3', shadowColor: isDark ? '#000' : 'rgba(55,48,163,0.35)' },
               ]}
               activeOpacity={0.85}
-              onPress={() => router.push({ pathname: '/(driver)/trip-history', params: { type: 'open' } } as Parameters<typeof router.push>[0])}
+              onPress={() => router.push({ pathname: '/(driver)/trip-history', params: { type: 'offline' } } as Parameters<typeof router.push>[0])}
             >
               <View style={styles.fleetPrimaryButtonLeft}>
                 <View style={[styles.fleetPrimaryRing, { borderColor: '#818cf8' }]}>
@@ -3256,7 +3446,6 @@ export default function DriverWalletScreen() {
             orgId: String(f.orgId ?? ''),
             orgName: f.orgName,
           })).filter((f) => f.orgId.length > 0)}
-          ledgerEntries={ledgerEntries}
           tripEarnings={gatedTripEarnings}
           hasAgreedPayoutTerms={hasAgreedPayoutTermsForTrip}
           receivedByTripId={receivedByTripId}
@@ -3294,20 +3483,22 @@ export default function DriverWalletScreen() {
           onSharePaymentPdf={shareEarningsFollowUpPdf}
           colors={colors}
           isDark={isDark}
+          showMonthPnl={isDco}
+          tripExpenses={tripExpenses}
         />
       ) : (
         <View style={[styles.ledgerSection, { paddingHorizontal: 12 }]}>
-          <Text style={[styles.transactionHistoryTitle, { color: colors.text }]}>Cash settlements</Text>
-          {filteredCashSections.length === 0 ? (
+          <Text style={[styles.transactionHistoryTitle, { color: colors.text }]}>Transactions</Text>
+          {filteredTxnSections.length === 0 ? (
             <View style={[styles.ledgerCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <View style={[styles.ledgerEmpty, { borderBottomWidth: 0 }]}>
                 <FontAwesome name="search" size={32} color={colors.textMuted} />
-                <Text style={[styles.ledgerEmptyText, { color: colors.textMuted }]}>No settlements found</Text>
+                <Text style={[styles.ledgerEmptyText, { color: colors.textMuted }]}>No transactions yet</Text>
               </View>
             </View>
           ) : (
             <View style={styles.cashPremiumWrap}>
-              {filteredCashSections.map(({ sectionLabel, trips }) => (
+              {filteredTxnSections.map(({ sectionLabel, rows }) => (
                 <View key={sectionLabel} style={styles.cashPremiumSection}>
                   <Text style={[styles.cashPremiumSectionLabel, { color: colors.textMuted }]}>{sectionLabel}</Text>
                   <View
@@ -3319,34 +3510,32 @@ export default function DriverWalletScreen() {
                       },
                     ]}
                   >
-                    {trips.map((trip, idx) => {
-                      const routeSummary = [trip.pickup_area?.trim(), trip.drop_location?.trim()]
-                        .filter(Boolean)
-                        .join(' → ');
-                      const tripRef = getDriverTripDisplayNumber(trip, driverTripNumberById);
-                      const receivedAmt = receivedByTripId[trip.id] ?? 0;
+                    {rows.map((txn: DriverWalletTxn, idx: number) => {
+                      const trip = txn.tripId ? tripsById[txn.tripId] : undefined;
+                      const routeSummary = trip
+                        ? [trip.pickup_area?.trim(), trip.drop_location?.trim()].filter(Boolean).join(" → ")
+                        : "";
+                      const tripRef = txn.tripRef;
+                      const receivedAmt = txn.amount;
                       const listDivider = isDark ? colors.borderSubtle : Theme.borderMedium;
-                      const isLastTrip = idx === trips.length - 1;
-                      const txnExpanded = expandedTripId === `cash-${trip.id}`;
-                      const cashOrgId = String(trip.organization_id ?? '');
-                      const fleetName =
-                        orgNameById[cashOrgId] ??
-                        salaryRequestOrgOptions.find((o) => String(o.orgId ?? '') === cashOrgId)?.orgName ??
-                        'Fleet';
+                      const isLastTrip = idx === rows.length - 1;
+                      const cashOrgId = String(trip?.organization_id ?? "");
+                      const fleetName = txn.title;
                       const cashOrgAvatar = orgAvatarById[cashOrgId];
                       const fleetAvatarUri = resolveDriverOrgAvatarUri({
                         orgId: cashOrgId,
                         orgName: fleetName,
                         branding: cashOrgAvatar,
                       });
-                      const ledger = latestCreditLedgerByTripId[trip.id];
-                      const paymentMode = derivePaymentMode(ledger?.description) ?? '—';
-                      const utr = extractUtr(ledger?.description) ?? '—';
-                      const capturedAt = phonePeMetaDate(ledger?.created_at ?? trip.completed_at ?? trip.updated_at ?? trip.created_at);
-                      const txnId = ledger?.id ?? tripRef;
+                      const ledger = txn.ledger;
+                      const paymentMode = derivePaymentMode(ledger?.description) ?? "—";
+                      const utr = extractUtr(ledger?.description) ?? "—";
+                      const capturedAt = phonePeMetaDate(txn.at);
+                      const txnId = ledger?.id ?? txn.id;
+                      const isOut = txn.kind === "out";
                       return (
                         <View
-                          key={trip.id}
+                          key={txn.id}
                           style={[
                             styles.cashPremiumRow,
                             !isLastTrip && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: listDivider },
@@ -3355,7 +3544,78 @@ export default function DriverWalletScreen() {
                           <TouchableOpacity
                             style={styles.cashPremiumRowTouch}
                             activeOpacity={0.8}
-                            onPress={() => setExpandedTripId((prev) => (prev === `cash-${trip.id}` ? null : `cash-${trip.id}`))}
+                            onPress={() => {
+                              const partyName = isOut
+                                ? walletTxnPartyFallback(trip, fleetName)
+                                : fleetName;
+                              const openTrip = txn.tripId
+                                ? () => {
+                                    setLedgerReceiptPreview(null);
+                                    router.push(`/driver-trip/${txn.tripId}` as never);
+                                  }
+                                : undefined;
+                              setLedgerReceiptPreview({
+                                statusLabel: isOut ? "Expense" : "Payment received",
+                                title: "Transaction",
+                                amount: receivedAmt,
+                                isIn: !isOut,
+                                partyAvatar: {
+                                  name: partyName,
+                                  entityType: "supplier",
+                                  organizationImageUrl:
+                                    cashOrgAvatar?.logoUrl ?? cashOrgAvatar?.avatarUrl ?? null,
+                                  organizationAvatarSeed: cashOrgAvatar?.avatarSeed ?? null,
+                                  initialsColorSeed: cashOrgId || txn.id,
+                                },
+                                details: buildDriverLedgerReceiptDetails({
+                                  paymentDateRaw: ledger?.created_at ?? txn.at,
+                                  partyName,
+                                  tripDisplay: tripRef,
+                                  paymentMode: isOut ? "—" : paymentMode,
+                                  reference: isOut ? "—" : utr && utr !== "—" ? utr : "—",
+                                  route: routeSummary,
+                                  dateLabel: isOut ? "Expense date" : "Payment date",
+                                  category: isOut ? txn.title : null,
+                                }),
+                                tripAction: openTrip
+                                  ? { label: "View trip", onPress: openTrip }
+                                  : undefined,
+                                secondaryAction: {
+                                  label: "Share",
+                                  onPress: () => {
+                                    const msg = buildSettlementShareMessage({
+                                      fleetName: partyName,
+                                      tripId: tripRef,
+                                      amount: receivedAmt,
+                                      transactionId: String(txnId),
+                                      utr: String(isOut ? "—" : utr),
+                                    });
+                                    Share.share({ message: msg }).catch(() => {});
+                                  },
+                                },
+                                primaryAction: {
+                                  label: "PDF receipt",
+                                  onPress: () => {
+                                    void shareCashReceiptPdf({
+                                      title: isOut ? "TRIP EXPENSE" : "SETTLEMENT RECEIVED",
+                                      amount: receivedAmt,
+                                      transactionId: String(txnId ?? "—"),
+                                      utr: String(isOut ? "—" : utr ?? "—"),
+                                      paymentMode: String(isOut ? "—" : paymentMode ?? "—"),
+                                      capturedAt: String(capturedAt ?? "—"),
+                                      reference: String(tripRef ?? "—"),
+                                      settledTo: String(partyName ?? "—"),
+                                      route: routeSummary || null,
+                                    }).catch((e) => {
+                                      const message =
+                                        e instanceof Error ? e.message : "Could not generate receipt.";
+                                      if (Platform.OS === "web") window.alert(message);
+                                      else Alert.alert("Receipt failed", message);
+                                    });
+                                  },
+                                },
+                              });
+                            }}
                           >
                               <View style={styles.cashPremiumLeft}>
                               <View
@@ -3380,7 +3640,11 @@ export default function DriverWalletScreen() {
                                   />
                                 </View>
                                 <View style={[styles.cashPremiumAvatarBadge, { backgroundColor: colors.surface }]}>
-                                  <FontAwesome name="arrow-down" size={10} color={colors.emerald} />
+                                  <FontAwesome
+                                    name={isOut ? "arrow-up" : "arrow-down"}
+                                    size={10}
+                                    color={isOut ? Theme.negative : colors.emerald}
+                                  />
                                 </View>
                               </View>
                               <View style={styles.cashPremiumBody}>
@@ -3388,167 +3652,44 @@ export default function DriverWalletScreen() {
                                   {fleetName}
                                 </Text>
                                 <Text style={[styles.cashPremiumMethod, { color: colors.textMuted }]} numberOfLines={1}>
-                                  {tripRef} • {phonePeMetaDate(trip.completed_at ?? trip.updated_at ?? trip.created_at)}
+                                  {tripRef} • {phonePeMetaDate(txn.at)}
                                 </Text>
                               </View>
                             </View>
 
                             <View style={styles.cashPremiumRightWrap}>
                               <View style={styles.cashPremiumRight}>
-                                <Text style={[styles.cashPremiumAmount, { color: colors.emerald }]}>
-                                  +₹{receivedAmt.toLocaleString('en-IN')}
+                                <Text
+                                  style={[
+                                    styles.cashPremiumAmount,
+                                    { color: isOut ? Theme.negative : colors.emerald },
+                                  ]}
+                                >
+                                  {isOut ? "-" : "+"}₹{receivedAmt.toLocaleString("en-IN")}
                                 </Text>
                                 <View style={styles.cashPremiumStatusRow}>
-                                  <FontAwesome name="check-circle" size={8} color={colors.emerald} />
-                                  <Text style={[styles.cashPremiumStatus, { color: colors.emerald }]}>SUCCESS</Text>
+                                  <FontAwesome
+                                    name={isOut ? "minus-circle" : "check-circle"}
+                                    size={8}
+                                    color={isOut ? Theme.negative : colors.emerald}
+                                  />
+                                  <Text
+                                    style={[
+                                      styles.cashPremiumStatus,
+                                      { color: isOut ? Theme.negative : colors.emerald },
+                                    ]}
+                                  >
+                                    {isOut ? "EXPENSE" : "SUCCESS"}
+                                  </Text>
                                 </View>
                               </View>
                               <FontAwesome
-                                name="chevron-down"
+                                name="chevron-right"
                                 size={10}
                                 color={colors.textMuted}
-                                style={txnExpanded ? styles.cashPremiumChevronExpanded : undefined}
                               />
                             </View>
                           </TouchableOpacity>
-
-                          {txnExpanded && (
-                            <View style={styles.cashPremiumReceiptWrap}>
-                              <View
-                                style={[
-                                  styles.cashPremiumReceiptCard,
-                                  {
-                                    backgroundColor: colors.surface,
-                                    borderColor: isDark ? colors.borderSubtle : '#e2e8f0',
-                                  },
-                                ]}
-                              >
-                                <View style={styles.cashPremiumReceiptHero}>
-                                  <View style={[styles.cashPremiumReceiptIcon, { backgroundColor: colors.emeraldMuted }]}>
-                                    <FontAwesome name="check" size={22} color={colors.emerald} />
-                                  </View>
-                                  <Text style={[styles.cashPremiumReceiptEyebrow, { color: colors.emerald }]}>SETTLEMENT RECEIVED</Text>
-                                  <Text style={[styles.cashPremiumReceiptAmount, { color: colors.text }]}>₹{receivedAmt.toLocaleString('en-IN')}</Text>
-                                </View>
-
-                                <View style={[styles.cashPremiumReceiptMeta, { borderTopColor: isDark ? colors.borderSubtle : '#e2e8f0' }]}>
-                                  <View style={styles.cashPremiumReceiptMetaRow}>
-                                    <Text style={[styles.cashPremiumReceiptMetaLabel, { color: colors.textMuted }]}>Transaction ID</Text>
-                                  <Text
-                                    style={[styles.cashPremiumReceiptMetaValue, { color: colors.text }]}
-                                    numberOfLines={1}
-                                    ellipsizeMode="middle"
-                                  >
-                                    {txnId}
-                                  </Text>
-                                  </View>
-                                  <View style={styles.cashPremiumReceiptMetaRow}>
-                                  <Text style={[styles.cashPremiumReceiptMetaLabel, { color: colors.textMuted }]}>UTR</Text>
-                                  <Text
-                                    style={[styles.cashPremiumReceiptMetaValue, { color: colors.text }]}
-                                    numberOfLines={1}
-                                    ellipsizeMode="middle"
-                                  >
-                                    {utr}
-                                  </Text>
-                                  </View>
-                                  <View style={styles.cashPremiumReceiptMetaRow}>
-                                  <Text style={[styles.cashPremiumReceiptMetaLabel, { color: colors.textMuted }]}>Payment mode</Text>
-                                  <Text style={[styles.cashPremiumReceiptMetaValue, { color: colors.text }]} numberOfLines={1}>
-                                    {paymentMode}
-                                  </Text>
-                                </View>
-                                <View style={styles.cashPremiumReceiptMetaRow}>
-                                  <Text style={[styles.cashPremiumReceiptMetaLabel, { color: colors.textMuted }]}>Captured at</Text>
-                                  <Text style={[styles.cashPremiumReceiptMetaValue, { color: colors.text }]} numberOfLines={1}>
-                                    {capturedAt}
-                                  </Text>
-                                </View>
-                                <View style={styles.cashPremiumReceiptMetaRow}>
-                                  <Text style={[styles.cashPremiumReceiptMetaLabel, { color: colors.textMuted }]}>Reference</Text>
-                                  <Text
-                                    style={[styles.cashPremiumReceiptMetaValue, { color: colors.text }]}
-                                    numberOfLines={1}
-                                    ellipsizeMode="middle"
-                                  >
-                                    {tripRef}
-                                  </Text>
-                                </View>
-                                <View style={styles.cashPremiumReceiptMetaRow}>
-                                  <Text style={[styles.cashPremiumReceiptMetaLabel, { color: colors.textMuted }]}>Settled to</Text>
-                                    <View style={styles.cashPremiumReceiptBankRow}>
-                                      <FontAwesome name="university" size={12} color={colors.textMuted} />
-                                    <Text
-                                      style={[styles.cashPremiumReceiptMetaValue, { color: colors.text }]}
-                                      numberOfLines={1}
-                                      ellipsizeMode="tail"
-                                    >
-                                      {fleetName}
-                                    </Text>
-                                    </View>
-                                  </View>
-                                  {routeSummary ? (
-                                    <View style={styles.cashPremiumReceiptMetaRow}>
-                                      <Text style={[styles.cashPremiumReceiptMetaLabel, { color: colors.textMuted }]}>Route</Text>
-                                      <Text style={[styles.cashPremiumReceiptMetaValue, { color: colors.text }]} numberOfLines={1}>
-                                        {routeSummary}
-                                      </Text>
-                                    </View>
-                                  ) : null}
-                                </View>
-
-                                <View style={styles.cashPremiumReceiptActions}>
-                                  <TouchableOpacity
-                                    style={[
-                                      styles.cashPremiumReceiptButtonSecondary,
-                                      {
-                                        backgroundColor: isDark ? colors.surfaceElevated : '#f8fafc',
-                                        borderColor: isDark ? colors.borderSubtle : '#e2e8f0',
-                                      },
-                                    ]}
-                                    activeOpacity={0.85}
-                                    onPress={() => {
-                                      const msg = buildSettlementShareMessage({
-                                        fleetName,
-                                        tripId: tripRef,
-                                        amount: receivedAmt,
-                                        transactionId: String(txnId),
-                                        utr: String(utr),
-                                      });
-                                      Share.share({ message: msg }).catch(() => {});
-                                    }}
-                                  >
-                                    <FontAwesome name="share-square-o" size={13} color={colors.textMuted} />
-                                    <Text style={[styles.cashPremiumReceiptButtonSecondaryText, { color: colors.textMuted }]}>Share</Text>
-                                  </TouchableOpacity>
-                                  <TouchableOpacity
-                                    style={[styles.cashPremiumReceiptButtonPrimary, { backgroundColor: colors.emerald }]}
-                                    activeOpacity={0.85}
-                                    onPress={() =>
-                                      shareCashReceiptPdf({
-                                        title: 'SETTLEMENT RECEIVED',
-                                        amount: receivedAmt,
-                                        transactionId: String(txnId ?? '—'),
-                                        utr: String(utr ?? '—'),
-                                        paymentMode: String(paymentMode ?? '—'),
-                                        capturedAt: String(capturedAt ?? '—'),
-                                        reference: String(tripRef ?? '—'),
-                                        settledTo: String(fleetName ?? '—'),
-                                        route: routeSummary || null,
-                                      }).catch((e) => {
-                                        const message = e instanceof Error ? e.message : 'Could not generate receipt.';
-                                        if (Platform.OS === 'web') window.alert(message);
-                                        else Alert.alert('Receipt failed', message);
-                                      })
-                                    }
-                                  >
-                                    <FontAwesome name="file-pdf-o" size={13} color={colors.textOnPrimary} />
-                                    <Text style={styles.cashPremiumReceiptButtonPrimaryText}>PDF receipt</Text>
-                                  </TouchableOpacity>
-                                </View>
-                              </View>
-                            </View>
-                          )}
                         </View>
                       );
                     })}
@@ -3560,6 +3701,48 @@ export default function DriverWalletScreen() {
         </View>
       )}
     </ScrollView>
+
+    <DriverLedgerReceiptPreviewModal
+      visible={!!ledgerReceiptPreview}
+      receipt={ledgerReceiptPreview}
+      onClose={() => setLedgerReceiptPreview(null)}
+    />
+
+    {canAddDcoShippers && mainTab === 'fleet' && addClientPartyActions.length > 0 ? (
+      <PartySpeedDialFab
+        actions={addClientPartyActions}
+        bottom={layout.fabBottom()}
+        addPartyLabel="Add party"
+        closeLabel="Close add party"
+      />
+    ) : null}
+
+    <Modal
+      visible={formerFleetHistoryOpen}
+      animationType="slide"
+      presentationStyle="fullScreen"
+      onRequestClose={() => setFormerFleetHistoryOpen(false)}
+    >
+      <DriverPreDcoFleetHistoryView
+        colors={colors}
+        isDark={isDark}
+        fleets={preDcoFleetHistoryCards}
+        trips={preDcoFleetHistoryTrips}
+        orgAvatarById={orgAvatarById}
+        onClose={() => setFormerFleetHistoryOpen(false)}
+        onOpenPassbook={(orgId, orgName) => {
+          setFormerFleetHistoryOpen(false);
+          router.push({
+            pathname: `/(driver)/passbook/${orgId}`,
+            params: { orgName, from: 'wallet' },
+          } as Parameters<typeof router.push>[0]);
+        }}
+        onOpenTrip={(tripId) => {
+          setFormerFleetHistoryOpen(false);
+          router.push(`/driver-trip/${tripId}`);
+        }}
+      />
+    </Modal>
 
     <ThemedConfirmModal
       variant="positive"
@@ -3680,6 +3863,85 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 14,
   },
+  creditsTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  formerFleetHistoryBtn: {
+    minHeight: 32,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  formerFleetHistoryLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  formerFleetModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15,23,42,0.45)',
+    justifyContent: 'flex-end',
+  },
+  formerFleetSheet: {
+    marginHorizontal: 12,
+    marginBottom: 12,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    gap: 10,
+  },
+  formerFleetSheetHead: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 4,
+  },
+  formerFleetSheetTitle: {
+    ...driverUISemiBold,
+    fontSize: 15,
+  },
+  formerFleetSheetSub: {
+    ...driverBodySecondary,
+    fontSize: 11,
+    marginTop: 2,
+    lineHeight: 15,
+  },
+  formerFleetCloseBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  formerFleetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    minHeight: 56,
+  },
+  formerFleetName: {
+    ...driverUISemiBold,
+    fontSize: 13,
+  },
+  formerFleetMeta: {
+    ...driverBodySecondary,
+    fontSize: 10,
+    marginTop: 2,
+  },
+  formerFleetDue: {
+    ...driverUISemiBold,
+    fontSize: 13,
+    letterSpacing: -0.2,
+  },
   creditsTitle: {
     fontSize: 42,
     fontWeight: '900',
@@ -3794,13 +4056,14 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   mainTabsWrap: {
-    marginTop: 12,
+    marginTop: 8,
     marginHorizontal: Layout.screenPaddingHorizontal,
     flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 22,
-    padding: 4,
-    gap: 4,
+    borderRadius: 18,
+    padding: 3,
+    gap: 3,
     overflow: 'hidden',
     ...Platform.select({
       ios: {
@@ -3816,12 +4079,14 @@ const styles = StyleSheet.create({
   },
   mainTab: {
     flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 6,
-    minHeight: 36,
-    borderRadius: 16,
+    gap: 5,
+    minHeight: 32,
+    paddingHorizontal: 4,
+    borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'transparent',
   },
@@ -3839,9 +4104,10 @@ const styles = StyleSheet.create({
     }),
   },
   mainTabText: {
+    flexShrink: 1,
     fontSize: 9,
     fontWeight: '800',
-    letterSpacing: 0.8,
+    letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
   tripsItalicText: {

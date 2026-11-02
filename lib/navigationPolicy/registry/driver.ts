@@ -17,6 +17,27 @@ export const DRIVER_POLICIES: readonly PolicyRecord[] = [
     onDeny: { type: 'experience_home', experience: 'driver' },
   },
   {
+    id: 'driver.party-receivable',
+    pattern: '/(driver)/receivable/:partyId',
+    experience: 'driver',
+    priority: 80,
+    onDeny: { type: 'experience_home', experience: 'driver' },
+  },
+  {
+    id: 'driver.add-client',
+    pattern: '/(driver)/add-client',
+    experience: 'driver',
+    priority: 90,
+    onDeny: { type: 'experience_home', experience: 'driver' },
+  },
+  {
+    id: 'driver.capture-payment',
+    pattern: '/(driver)/capture-payment',
+    experience: 'driver',
+    priority: 90,
+    onDeny: { type: 'experience_home', experience: 'driver' },
+  },
+  {
     id: 'driver.stories',
     pattern: '/(driver)/stories',
     experience: 'driver',

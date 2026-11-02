@@ -1,6 +1,7 @@
 import { useAuth } from '@/contexts/AuthContext';
 import {
   DEFAULT_DRIVER_OPERATING_MODE,
+  canAddDcoShippers,
   canManageOwnerVehicles,
   isDcoOperatingMode,
   type DriverOperatingMode,

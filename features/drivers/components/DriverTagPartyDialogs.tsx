@@ -12,6 +12,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 export type TagReceivableDraft = {
   partyName: string;
   amount: string;
+  subtitle?: string;
+  avatarUrl?: string | null;
+  avatarSeed?: string | null;
+  organizationImageUrl?: string | null;
+  organizationAvatarSeed?: string | null;
+  isIntegrated?: boolean;
 };
 
 type Props = {
@@ -164,12 +170,21 @@ export function DriverTagPartyDialogs({
         label="Collect from"
         contextLine={
           partyName
-            ? `${partyName} is not the shipper. Set the receivable this trip should show under their AR.`
+            ? `Enter the collection receivable for ${partyName}. This is the amount that shows under their AR for this trip.`
             : "Set the receivable for this party."
         }
         partyPreview={
           partyName
-            ? { name: partyName, subtitle: "Middleman receivable", entityType: "client" }
+            ? {
+                name: partyName,
+                subtitle: receivable?.subtitle || "Shipper · client receivable",
+                entityType: "client",
+                avatarUrl: receivable?.avatarUrl,
+                avatarSeed: receivable?.avatarSeed,
+                organizationImageUrl: receivable?.organizationImageUrl,
+                organizationAvatarSeed: receivable?.organizationAvatarSeed,
+                isIntegrated: receivable?.isIntegrated,
+              }
             : undefined
         }
         type="currency"

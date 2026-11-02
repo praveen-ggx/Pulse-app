@@ -5,6 +5,11 @@
  */
 import { EntityAvatar } from "@/components/EntityAvatar";
 import {
+  EMPTY_DRIVER_PARTY_AVATAR,
+  resolveClientPartyAvatarMap,
+  type DriverPartyAvatarFields,
+} from "@/features/drivers/utils/driverPartyAvatar.util";
+import {
   driverBodySecondary,
   driverUIBold,
   driverUISemiBold,
@@ -22,6 +27,7 @@ import {
 import {
   partyMatchesAssigner,
   sortTagPartyOptions,
+  tagPartyListDetail,
 } from "@/features/drivers/utils/driverPartyTagRecommend.util";
 import {
   ensureDcoWorkspace,
@@ -53,8 +59,11 @@ type PartyOption = {
   id: string;
   name: string;
   phone?: string | null;
+  contactPerson?: string | null;
+  linkedOrganizationId?: string | null;
   linkedToTrip?: boolean;
   matchesAssigner?: boolean;
+  avatar: DriverPartyAvatarFields;
 };
 
 type Props = {
@@ -135,14 +144,18 @@ export function DriverCollectFromSheet({
       const rows: ClientRow[] = orgId
         ? ((await getClientsByOrganization(orgId)).clients ?? [])
         : [];
+      const avatars = rows.length ? await resolveClientPartyAvatarMap(rows) : {};
       const mapped: PartyOption[] = rows.map((row) => {
         const name = row.name || row.contact_person || "Shipper";
         return {
           id: row.id,
           name,
           phone: row.phone,
+          contactPerson: row.contact_person,
+          linkedOrganizationId: row.linked_organization_id,
           linkedToTrip: !!taggedPartyId && row.id === taggedPartyId,
           matchesAssigner: partyMatchesAssigner(name, fleetAssignerName || currentName),
+          avatar: avatars[row.id] ?? EMPTY_DRIVER_PARTY_AVATAR,
         };
       });
       setParties(sortTagPartyOptions(mapped, !isDco));
@@ -159,13 +172,6 @@ export function DriverCollectFromSheet({
 
   const handlePick = useCallback((party: PartyOption) => {
     if (busyId || !party.id) return;
-    const isShipper = party.matchesAssigner === true;
-    if (isShipper) {
-      setBilledForTag(null);
-      setReceivableParty(null);
-      setPendingParty(party);
-      return;
-    }
     setBilledForTag(null);
     setPendingParty(null);
     setReceivableParty(party);
@@ -230,11 +236,12 @@ export function DriverCollectFromSheet({
     return alreadySaved ? null : name;
   }, [currentName, parties]);
 
-  if (!visible && !pendingParty && !receivableParty && !successParty) return null;
+  const flowOpen = !!(pendingParty || receivableParty || successParty);
+  if (!visible && !flowOpen) return null;
 
   return (
     <>
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible && !flowOpen} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
         <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
@@ -298,7 +305,12 @@ export function DriverCollectFromSheet({
                     <EntityAvatar
                       name={party.name}
                       initialsColorSeed={party.id}
+                      avatarUrl={party.avatar.avatarUrl}
+                      avatarSeed={party.avatar.avatarSeed}
+                      organizationImageUrl={party.avatar.organizationImageUrl}
+                      organizationAvatarSeed={party.avatar.organizationAvatarSeed}
                       entityType="client"
+                      isIntegrated={party.avatar.isIntegrated}
                       size={40}
                       showIntegrationBadge={false}
                     />
@@ -307,13 +319,14 @@ export function DriverCollectFromSheet({
                         {party.name}
                       </Text>
                       <Text style={styles.rowMeta} numberOfLines={1}>
-                        {party.linkedToTrip
-                          ? "Tagged to this trip"
-                          : party.matchesAssigner
-                            ? isDco
-                              ? "Matches assigned-by"
-                              : "Recommended · Fleet"
-                            : party.phone?.trim() || "Saved in Self"}
+                        {tagPartyListDetail({
+                          phone: party.phone,
+                          contactPerson: party.contactPerson,
+                          linkedOrganizationId: party.linkedOrganizationId,
+                          matchesAssigner: party.matchesAssigner,
+                          linkedToTrip: party.linkedToTrip,
+                          recommendFleet: !isDco,
+                        })}
                       </Text>
                     </View>
                     {busyId === party.id ? (
@@ -373,7 +386,20 @@ export function DriverCollectFromSheet({
       billedAmount={billedForTag}
       receivable={
         receivableParty
-          ? { partyName: receivableParty.name, amount: receivableAmount }
+          ? {
+              partyName: receivableParty.name,
+              amount: receivableAmount,
+              subtitle: tagPartyListDetail({
+                phone: receivableParty.phone,
+                contactPerson: receivableParty.contactPerson,
+                linkedOrganizationId: receivableParty.linkedOrganizationId,
+              }),
+              avatarUrl: receivableParty.avatar.avatarUrl,
+              avatarSeed: receivableParty.avatar.avatarSeed,
+              organizationImageUrl: receivableParty.avatar.organizationImageUrl,
+              organizationAvatarSeed: receivableParty.avatar.organizationAvatarSeed,
+              isIntegrated: receivableParty.avatar.isIntegrated,
+            }
           : null
       }
       onChangeReceivableAmount={setReceivableAmount}

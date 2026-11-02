@@ -220,11 +220,11 @@ async function insertLedgerOnce(
     if (visible) return { error: null };
   }
 
-  const rpc = await supabase().rpc("driver_record_trip_settlement", {
+  const rpc = await supabase().rpc("driver_record_trip_settlement" as never, {
     p_trip_id: input.trip.id,
     p_amount: amount,
     p_description: description,
-  });
+  } as never);
   const rpcMsg = String(rpc.error?.message ?? "").toLowerCase();
   const rpcUnavailable =
     !!rpc.error &&

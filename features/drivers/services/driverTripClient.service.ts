@@ -42,10 +42,10 @@ async function writeDriverTripNotes(
   nextNotes: string,
 ): Promise<{ error: Error | null }> {
   const db = supabase();
-  const rpc = await db.rpc("driver_save_offline_trip_notes", {
+  const rpc = await db.rpc("driver_save_offline_trip_notes" as never, {
     p_trip_id: tripId,
     p_notes: nextNotes,
-  });
+  } as never);
   if (!rpc.error) return { error: null };
   if (!rpcMissing(rpc.error, "driver_save_offline_trip_notes")) {
     return { error: mapTagError(rpc.error.message) };

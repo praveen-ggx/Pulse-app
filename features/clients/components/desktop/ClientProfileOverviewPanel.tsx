@@ -63,8 +63,8 @@ function HighlightRow({
   }
   return (
     <View style={[styles.kvRow, last && styles.kvRowLast]}>
-      <Text style={styles.kvLabel}>{label}</Text>
-      <Text style={styles.kvValue} numberOfLines={3}>{value}</Text>
+      <Text style={[styles.kvLabel, ov.kvLabel]}>{label}</Text>
+      <Text style={[styles.kvValue, ov.kvValue]} numberOfLines={3}>{value}</Text>
     </View>
   );
 }
@@ -303,12 +303,12 @@ export function ClientProfileOverviewPanel({ bundle, orgId, clientId, onRefresh,
   );
 
   return (
-    <View style={[styles.detailsBody, compact && mobile.detailsBodyCompact]}>
+    <View style={[styles.detailsBody, ov.canvas, compact && mobile.detailsBodyCompact]}>
       {compact && !highlightsEditing && !kamEditing && !commercialEditing ? (
         <PartyProfileIntelSections entity={publicEntity} />
       ) : null}
-      <View style={[styles.splitRow, compact && mobile.splitColumn]}>
-        <View style={[styles.sidebar, compact && mobile.sidebarFull]}>
+      <View style={[styles.splitRow, ov.pageRow, compact && mobile.splitColumn]}>
+        <View style={[styles.sidebar, ov.sideCol, compact && mobile.sidebarFull]}>
           {highlightsEditing ? (
             <View style={styles.card}>
               <View style={ov.cardTitleRow}>
@@ -481,7 +481,7 @@ export function ClientProfileOverviewPanel({ bundle, orgId, clientId, onRefresh,
 
           <View style={styles.card}>
             <View style={ov.cardTitleRow}>
-              <Text style={styles.cardTitle}>KAM & billing</Text>
+              <Text style={[styles.cardTitle, styles.cardTitleInline]}>KAM & billing</Text>
               {canEdit && !kamEditing ? (
                 <Pressable onPress={() => setKamEditing(true)} hitSlop={8}>
                   <Text style={ov.editLink}>Edit</Text>
@@ -536,10 +536,10 @@ export function ClientProfileOverviewPanel({ bundle, orgId, clientId, onRefresh,
           ) : null}
         </View>
 
-        <View style={[styles.mainCol, compact && mobile.mainColFull]}>
+        <View style={[styles.mainCol, ov.mainCol, compact && mobile.mainColFull]}>
           <View style={styles.card}>
             <View style={ov.cardTitleRow}>
-              <Text style={styles.cardTitle}>Commercial snapshot</Text>
+              <Text style={[styles.cardTitle, styles.cardTitleInline]}>Commercial snapshot</Text>
               {canEdit && !commercialEditing ? (
                 <Pressable onPress={() => setCommercialEditing(true)} hitSlop={8}>
                   <Text style={ov.editLink}>Edit</Text>
@@ -596,12 +596,17 @@ export function ClientProfileOverviewPanel({ bundle, orgId, clientId, onRefresh,
                   { label: "Projected revenue", value: numINR(c.projected_contract_revenue) },
                   { label: "Payment terms", value: str(c.payment_terms_label) },
                   { label: "Invoice frequency", value: str(c.invoice_frequency_label) },
-                ].map((item) => (
-                  <View key={item.label} style={[ov.snapshotCell, compact && mobile.snapshotCellFull]}>
-                    <Text style={ov.snapshotLabel}>{item.label}</Text>
-                    <Text style={ov.snapshotValue}>{item.value}</Text>
-                  </View>
-                ))}
+                ].map((item) => {
+                  const empty = item.value === "—" || item.value === "-";
+                  return (
+                    <View key={item.label} style={[ov.snapshotCell, compact && ov.snapshotCellCompact]}>
+                      <Text style={ov.snapshotLabel} numberOfLines={1}>{item.label}</Text>
+                      <Text style={[ov.snapshotValue, empty && ov.snapshotEmpty]} numberOfLines={1}>
+                        {item.value}
+                      </Text>
+                    </View>
+                  );
+                })}
               </View>
             )}
           </View>
@@ -609,15 +614,16 @@ export function ClientProfileOverviewPanel({ bundle, orgId, clientId, onRefresh,
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Company profile</Text>
             <Text style={styles.sectionHeading}>Headquarter</Text>
-            <View style={[styles.headquarterRow, compact && mobile.headquarterStack]}>
-              <View style={[{ flex: 1, minWidth: 0 }, compact && mobile.mapFrameFull]}>
+            <View style={[ov.hqRow, compact && mobile.headquarterStack]}>
+              <View style={[ov.mapSlot, compact && mobile.mapFrameFull]}>
                 <NetworkDesktopHeadquarterMap
                   orgName={tradeName}
                   addressLabel={mapAddress}
                   coordinate={null}
+                  style={ov.mapFill}
                 />
               </View>
-              <View style={[styles.contactList, compact && mobile.contactListFull]}>
+              <View style={[ov.contactSlot, compact && mobile.contactListFull]}>
                 <LinkRow icon={Globe} value={String(c.website ?? "—")} />
                 <LinkRow icon={Mail} value={String(c.email ?? "—")} />
                 <LinkRow icon={Phone} value={formatClientPhoneDisplay(String(c.phone ?? ""))} />
@@ -637,6 +643,52 @@ export function ClientProfileOverviewPanel({ bundle, orgId, clientId, onRefresh,
 }
 
 const ov = {
+  canvas: {
+    backgroundColor: Theme.surface,
+  },
+  pageRow: {
+    alignItems: "flex-start" as const,
+    flexWrap: "nowrap" as const,
+    gap: 16,
+  },
+  kvLabel: {
+    width: 112,
+  },
+  kvValue: {
+    textAlign: "right" as const,
+  },
+  sideCol: {
+    width: "34%" as const,
+    minWidth: 280,
+    maxWidth: 420,
+  },
+  mainCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  hqRow: {
+    flexDirection: "row" as const,
+    alignItems: "stretch" as const,
+    gap: 16,
+    marginTop: 4,
+  },
+  mapSlot: {
+    flex: 1.15,
+    minWidth: 0,
+    height: 168,
+    overflow: "hidden" as const,
+    borderRadius: 10,
+  },
+  mapFill: {
+    width: "100%" as const,
+    height: "100%" as const,
+  },
+  contactSlot: {
+    flex: 0.85,
+    minWidth: 168,
+    justifyContent: "flex-start" as const,
+    gap: 10,
+  },
   cardTitleRow: {
     flexDirection: "row" as const,
     alignItems: "center" as const,
@@ -757,25 +809,38 @@ const ov = {
     gap: 10,
   },
   snapshotCell: {
-    flex: 1,
-    minWidth: 140,
-    padding: 14,
+    flexGrow: 1,
+    flexBasis: "46%" as const,
+    maxWidth: "49%" as const,
+    minWidth: 0,
+    minHeight: 76,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: METRONIC.border,
     backgroundColor: "#F9FAFB",
-    gap: 4,
+    justifyContent: "center" as const,
+    gap: 6,
   },
   snapshotLabel: {
     fontSize: 10,
-    fontWeight: "700" as const,
+    fontWeight: "500" as const,
     color: METRONIC.muted,
     textTransform: "uppercase" as const,
-    letterSpacing: 0.4,
+    letterSpacing: 0.5,
   },
   snapshotValue: {
-    fontSize: 15,
-    fontWeight: "800" as const,
+    fontSize: 16,
+    fontWeight: "500" as const,
     color: METRONIC.text,
+  },
+  snapshotEmpty: {
+    color: METRONIC.muted,
+    fontWeight: "400" as const,
+  },
+  snapshotCellCompact: {
+    maxWidth: "100%" as const,
+    flexBasis: "100%" as const,
   },
 };

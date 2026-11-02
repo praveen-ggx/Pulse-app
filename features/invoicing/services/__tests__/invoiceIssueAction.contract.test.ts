@@ -10,6 +10,10 @@ describe("Invoice Issue action ownership (F1)", () => {
     join(__dirname, "../../components/InvoicePreviewPanel.tsx"),
     "utf8",
   );
+  const documentSrc = readFileSync(
+    join(__dirname, "../../components/PulseInvoiceDocument.tsx"),
+    "utf8",
+  );
   const queriesSrc = readFileSync(
     join(__dirname, "../../../../lib/queries/useInvoicingExecuteQueries.ts"),
     "utf8",
@@ -24,8 +28,9 @@ describe("Invoice Issue action ownership (F1)", () => {
   );
 
   it("Issue button exists in the execute-owned preview panel", () => {
-    expect(panelSrc).toMatch(/accessibilityLabel="Issue Invoice"/);
-    expect(panelSrc).toMatch(/Issue Invoice/);
+    expect(documentSrc).toMatch(/accessibilityLabel="Issue Invoice"/);
+    expect(documentSrc).toMatch(/Issue Invoice/);
+    expect(panelSrc).toMatch(/onIssue=\{readOnly \? undefined : handleIssueInvoice\}/);
     expect(executeSrc).toMatch(/isTripInvoiceable=\{isTripInvoiceable\}/);
     expect(executeSrc).toMatch(/evaluateFinanceWorkflowTrip|workflowForInvoiceTrip/);
     expect(executeSrc).not.toMatch(/isTripInvoiceable=\{\(\) => true\}/);
@@ -57,7 +62,8 @@ describe("Invoice Issue action ownership (F1)", () => {
   it("double submission is prevented with pending + in-flight guard", () => {
     expect(executeSrc).toMatch(/issueInFlight\.current \|\| issueMutation\.isPending/);
     expect(executeSrc).toMatch(/isIssuing=\{issueMutation\.isPending\}/);
-    expect(panelSrc).toMatch(/disabled=\{issueBlocked\}/);
+    expect(panelSrc).toMatch(/issueDisabled=\{issueBlocked\}/);
+    expect(documentSrc).toMatch(/disabled=\{issueDisabled\}/);
   });
 
   it("successful issue invalidates issued invoices", () => {

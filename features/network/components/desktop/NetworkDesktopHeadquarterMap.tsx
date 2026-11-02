@@ -54,7 +54,7 @@ export function NetworkDesktopHeadquarterMap({
         <MapPin size={32} color="#50CD89" strokeWidth={2} />
       )}
       <View style={styles.mapPinBubble} pointerEvents="none">
-        <Text style={styles.mapPinBubbleText}>
+        <Text style={styles.mapPinBubbleText} numberOfLines={2}>
           Registered office · {orgName}
         </Text>
         <Text style={styles.mapPinBubbleSub} numberOfLines={2}>

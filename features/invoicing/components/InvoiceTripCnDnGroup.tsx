@@ -45,6 +45,9 @@ function NoteRow({
       </View>
       <Text style={styles.reason} numberOfLines={2}>
         {(adj.reason ?? "").trim() || (isCn ? "Credit note" : "Debit note")}
+        {String(adj.mission_key ?? "").toUpperCase().includes("PODCNDN")
+          ? " · Compliance"
+          : " · Finance"}
       </Text>
       <Text style={[styles.amount, isCn ? styles.amountCn : styles.amountDn]}>
         {isCn ? "−" : "+"}
@@ -68,9 +71,15 @@ export function InvoiceTripCnDnGroup({
   showBreakdown?: boolean;
 }) {
   const grouped = groupInvoiceRevenueCnDn(adjustments);
+  const costNotes = adjustments.filter(
+    (adj) => adj.type === "cost" && !String(adj.voided_at ?? "").trim(),
+  );
   const revised = invoiceTripAdjustedAmount(trip.amount, adjustments);
   const hasNotes =
-    grouped.creditNotes.length + grouped.debitNotes.length + grouped.voided.length >
+    grouped.creditNotes.length +
+      grouped.debitNotes.length +
+      grouped.voided.length +
+      costNotes.length >
     0;
 
   return (
@@ -93,8 +102,8 @@ export function InvoiceTripCnDnGroup({
         <>
           {!hasNotes ? (
             <Text style={styles.empty}>
-              No sale credit or debit notes on this trip. Add a CN/DN to revise
-              invoice revenue — it posts to finance the same way as Trip Detail.
+              No credit or debit notes on this trip. A note added here is the
+              same note in Trip Finance and Compliance.
             </Text>
           ) : (
             <>
@@ -110,6 +119,14 @@ export function InvoiceTripCnDnGroup({
                 <View style={styles.group}>
                   <Text style={styles.groupLabel}>Debit notes</Text>
                   {grouped.debitNotes.map((adj) => (
+                    <NoteRow key={adj.id} adj={adj} onEdit={onEdit} />
+                  ))}
+                </View>
+              ) : null}
+              {costNotes.length > 0 ? (
+                <View style={styles.group}>
+                  <Text style={styles.groupLabel}>Cost notes</Text>
+                  {costNotes.map((adj) => (
                     <NoteRow key={adj.id} adj={adj} onEdit={onEdit} />
                   ))}
                 </View>

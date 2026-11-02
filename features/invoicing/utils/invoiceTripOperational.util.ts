@@ -17,6 +17,23 @@ export function displayOperationalField(value: string | null | undefined): strin
   return trimmed || "—";
 }
 
+/** Trip list secondary line: prefer LR, else serial trip number, never the internal id alone. */
+export function tripListLrLabel(trip: {
+  id?: string | null;
+  lr_number?: string | null;
+  trip_number?: string | null;
+}): string {
+  const id = (trip.id ?? "").trim();
+  const lr = (trip.lr_number ?? "").trim();
+  const serial = (trip.trip_number ?? "").trim();
+  const number =
+    (lr && lr !== id ? lr : "") ||
+    (serial && serial !== id ? serial : "") ||
+    lr ||
+    serial;
+  return number ? `LR# ${number}` : "—";
+}
+
 export function resolveInvoiceTripLrNumber(args: {
   bookingRef?: string | null;
   documentLrNumbers?: string[] | null;

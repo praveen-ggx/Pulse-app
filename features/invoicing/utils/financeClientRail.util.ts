@@ -134,7 +134,9 @@ export function buildFinanceClientRailRows(args: {
       else if (state.invoiceState === "draft") draftTripCount += 1;
       else unbilledTripCount += 1;
       if (state.invoiceable) eligibleTripCount += 1;
-      if (state.invoiceState === "blocked_pod") podPendingTripCount += 1;
+      if (trip.invoiced !== true && trip.physicalPodReceived !== true && trip.digitalPodPresent !== true) {
+        podPendingTripCount += 1;
+      }
       if (
         state.invoiceState === "blocked_pod" ||
         state.invoiceState === "blocked_policy" ||

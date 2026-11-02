@@ -33,6 +33,7 @@ import {
   round2,
   type InvoiceTaxEngineInput,
 } from "@/features/invoicing/services/invoiceTax.service";
+import { parsePaymentTermDays } from "@/features/invoicing/services/invoicePreviewModel.service";
 import {
   INVOICE_POD_HARD_COPY_REQUIRED,
   INVOICE_POD_LEGACY_REQUIRED,
@@ -83,6 +84,8 @@ export interface InvoicingTripView {
   load_type: string | null;
   /** LR number(s) from trip_documents document_type=lr (read-only). */
   lr_number: string | null;
+  /** trips.trip_number when it is distinct from the display id. */
+  trip_number?: string | null;
   checks: TripChecks;
   /** trips.pod_received_at — physical/hard-copy receipt, not a digital POD file. */
   physicalPodReceived: boolean;
@@ -182,16 +185,18 @@ function resolveSupplierName(
 }
 
 function parseNetDays(paymentTerms: string | undefined): number {
-  const match = /net\s*(\d+)/i.exec(paymentTerms ?? "");
-  if (!match) return 30;
-  const days = Number.parseInt(match[1], 10);
-  return Number.isFinite(days) ? days : 30;
+  const days = parsePaymentTermDays(paymentTerms);
+  return days == null ? 30 : days;
 }
 
 function addDaysIso(isoDate: string, days: number): string {
   const d = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return isoDate;
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 /** FY segment from an issued invoice number (`INV/{fy}/#####`). */
@@ -476,6 +481,7 @@ function mapRowToView(
         bookingRef: str((row as { booking_ref?: string | null }).booking_ref),
       }) ||
       null,
+    trip_number: str((row as { trip_number?: string | null }).trip_number) || null,
     checks: {
       poMatch: true,
       idConfirmed: true,
@@ -593,30 +599,36 @@ export async function fetchInvoicingTrips(
     );
 
     if (supplierIds.length > 0) {
-      const { data: supData } = await supabase()
-        .from("suppliers")
-        .select("id, name, company_name")
-        .in("id", supplierIds);
+      for (let i = 0; i < supplierIds.length; i += POD_IN_CHUNK) {
+        const chunk = supplierIds.slice(i, i + POD_IN_CHUNK);
+        const { data: supData } = await supabase()
+          .from("suppliers")
+          .select("id, name, company_name")
+          .in("id", chunk);
 
-      for (const s of supData ?? []) {
-        const id = str((s as { id?: string | null }).id);
-        if (!id) continue;
-        const name =
-          str((s as { name?: string | null }).name) ||
-          str((s as { company_name?: string | null }).company_name);
-        if (name) supplierNameById.set(id, name);
+        for (const s of supData ?? []) {
+          const id = str((s as { id?: string | null }).id);
+          if (!id) continue;
+          const name =
+            str((s as { name?: string | null }).name) ||
+            str((s as { company_name?: string | null }).company_name);
+          if (name) supplierNameById.set(id, name);
+        }
       }
     }
 
     if (driverIds.length > 0) {
-      const { data: driverData } = await supabase()
-        .from("drivers")
-        .select("id, name")
-        .in("id", driverIds);
-      for (const d of driverData ?? []) {
-        const id = str((d as { id?: string | null }).id);
-        const name = str((d as { name?: string | null }).name);
-        if (id && name) driverNameById.set(id, name);
+      for (let i = 0; i < driverIds.length; i += POD_IN_CHUNK) {
+        const chunk = driverIds.slice(i, i + POD_IN_CHUNK);
+        const { data: driverData } = await supabase()
+          .from("drivers")
+          .select("id, name")
+          .in("id", chunk);
+        for (const d of driverData ?? []) {
+          const id = str((d as { id?: string | null }).id);
+          const name = str((d as { name?: string | null }).name);
+          if (id && name) driverNameById.set(id, name);
+        }
       }
     }
 
@@ -753,6 +765,13 @@ export interface InvoicePayload {
   };
   draftId?: string;
   idempotencyKey?: string;
+  /** Frozen copy written after issue. Preview uses this instead of the live template. */
+  document?: {
+    lines: unknown;
+    issuer: unknown;
+    client: unknown;
+    tax: unknown;
+  };
 }
 
 /**
@@ -1029,6 +1048,20 @@ export async function executeInvoiceCreation(
         : new Error("Could not allocate an invoice number. Please try again.");
     }
     const invoiceNumber = String(issuedNumber).trim();
+
+    if (payload?.document) {
+      await supabase()
+        .from("invoices")
+        .update({
+          line_items: payload.document.lines as never,
+          issuer_snapshot: payload.document.issuer as never,
+          client_snapshot: payload.document.client as never,
+          tax_snapshot: payload.document.tax as never,
+          payment_terms: payload.paymentTerms ?? null,
+        })
+        .eq("org_id", orgId)
+        .eq("invoice_number", invoiceNumber);
+    }
 
     const EVENT_CONCURRENCY = 5;
     const runOne = async (id: string) => {

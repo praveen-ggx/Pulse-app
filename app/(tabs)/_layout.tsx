@@ -105,6 +105,10 @@ function DemoCustomTabBar(
         if (canOpenCompliance) router.push(ROUTES.COMPLIANCE as Parameters<typeof router.push>[0]);
         return;
       }
+      if (tab === 'invoice') {
+        router.push(ROUTES.PULSE_INVOICE as Parameters<typeof router.push>[0]);
+        return;
+      }
       if (tab === 'network') {
         // Re-tapping NETWORK while already on hub must not downgrade to the feed.
         if (pathname.includes('/hub')) return;

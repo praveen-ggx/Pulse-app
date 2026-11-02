@@ -31,6 +31,8 @@ export type ManualInvoicePersistArgs = {
   lineItems: InvoiceLineSnapshot[];
   taxSnapshot?: InvoiceTaxSnapshot | null;
   draftId?: string | null;
+  /** Used only when the draft is first created. Later saves leave the number alone. */
+  invoiceNumber?: string | null;
 };
 
 export async function saveManualInvoiceDraft(
@@ -67,7 +69,8 @@ export async function saveManualInvoiceDraft(
       if (error) throw toAppError(error);
       return { error: null, draftId: args.draftId };
     }
-    const invoiceNumber = draftInvoiceNumber();
+    const requested = args.invoiceNumber?.trim() ?? "";
+    const invoiceNumber = requested && !requested.startsWith("DRAFT/") ? requested : draftInvoiceNumber();
     const invoiceDate = new Date().toISOString().slice(0, 10);
     const { data, error } = await supabase()
       .from("invoices")

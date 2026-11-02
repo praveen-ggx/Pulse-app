@@ -2109,6 +2109,7 @@ export type Database = {
           industry: string | null
           invoice_frequency_label: string | null
           invoice_pod_policy: string | null
+          invoice_style_template_id: string | null
           is_integrated: boolean | null
           kam_email: string | null
           kam_name: string | null
@@ -2168,6 +2169,7 @@ export type Database = {
           industry?: string | null
           invoice_frequency_label?: string | null
           invoice_pod_policy?: string | null
+          invoice_style_template_id?: string | null
           is_integrated?: boolean | null
           kam_email?: string | null
           kam_name?: string | null
@@ -2227,6 +2229,7 @@ export type Database = {
           industry?: string | null
           invoice_frequency_label?: string | null
           invoice_pod_policy?: string | null
+          invoice_style_template_id?: string | null
           is_integrated?: boolean | null
           kam_email?: string | null
           kam_name?: string | null
@@ -5247,6 +5250,57 @@ export type Database = {
             columns: ["warehouse_id"]
             isOneToOne: false
             referencedRelation: "client_warehouses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invoice_style_templates: {
+        Row: {
+          accent: string
+          created_at: string
+          details: Json
+          format: string
+          id: string
+          logo_url: string | null
+          name: string
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          accent: string
+          created_at?: string
+          details?: Json
+          format: string
+          id?: string
+          logo_url?: string | null
+          name: string
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          accent?: string
+          created_at?: string
+          details?: Json
+          format?: string
+          id?: string
+          logo_url?: string | null
+          name?: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_style_templates_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_style_templates_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
         ]

@@ -25,6 +25,9 @@ export type IssuedInvoiceListRow = {
   notes?: string | null;
   payment_terms?: string | null;
   line_items?: unknown;
+  issuer_snapshot?: unknown;
+  client_snapshot?: unknown;
+  tax_snapshot?: unknown;
   subtotal?: number | null;
   gst_rate?: number | null;
   cgst_amount?: number | null;
@@ -68,7 +71,7 @@ export async function fetchIssuedInvoicesForOrg(
     const { data, error } = await supabase()
       .from("invoices")
       .select(
-        "id, invoice_number, invoice_date, due_date, client_id, client_name, total_amount, status, trip_ids, invoice_source, sales_order_id, line_items, subtotal, gst_rate, cgst_amount, sgst_amount, igst_amount, notes, payment_terms",
+        "id, invoice_number, invoice_date, due_date, client_id, client_name, total_amount, status, trip_ids, invoice_source, sales_order_id, line_items, issuer_snapshot, client_snapshot, tax_snapshot, subtotal, gst_rate, cgst_amount, sgst_amount, igst_amount, notes, payment_terms",
       )
       .eq("org_id", orgId)
       .in("status", ["sent", "paid"])
@@ -105,6 +108,9 @@ export async function fetchIssuedInvoicesForOrg(
           str((row as { sales_order_id?: unknown }).sales_order_id) || null,
         sales_order_number: null,
         line_items: (row as { line_items?: unknown }).line_items ?? null,
+        issuer_snapshot: (row as { issuer_snapshot?: unknown }).issuer_snapshot ?? null,
+        client_snapshot: (row as { client_snapshot?: unknown }).client_snapshot ?? null,
+        tax_snapshot: (row as { tax_snapshot?: unknown }).tax_snapshot ?? null,
         subtotal: Number((row as { subtotal?: unknown }).subtotal) || 0,
         gst_rate: Number((row as { gst_rate?: unknown }).gst_rate) || 0,
         cgst_amount: Number((row as { cgst_amount?: unknown }).cgst_amount) || 0,
@@ -122,6 +128,55 @@ export async function fetchIssuedInvoicesForOrg(
       invoices: [],
     };
   }
+}
+
+export async function saveIssuedInvoiceRevision(args: {
+  orgId: string;
+  invoiceId: string;
+  reason: string;
+  notes: string;
+  paymentTerms: string;
+  document?: {
+    lines: unknown;
+    issuer: unknown;
+    client: unknown;
+    tax: unknown;
+  };
+}): Promise<{ error: Error | null }> {
+  const reason = args.reason.trim();
+  if (!reason) return { error: new Error("Enter a reason for the revision.") };
+  const stamp = new Date().toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+  const note = args.notes.trim();
+  const revision = `Revision ${stamp}: ${reason}`;
+  const notes = note ? `${note}\n\n${revision}` : revision;
+  const patch: {
+    notes: string;
+    payment_terms: string | null;
+    line_items?: unknown;
+    issuer_snapshot?: unknown;
+    client_snapshot?: unknown;
+    tax_snapshot?: unknown;
+  } = {
+    notes,
+    payment_terms: args.paymentTerms.trim() || null,
+  };
+  if (args.document) {
+    patch.line_items = args.document.lines;
+    patch.issuer_snapshot = args.document.issuer;
+    patch.client_snapshot = args.document.client;
+    patch.tax_snapshot = args.document.tax;
+  }
+  const { error } = await supabase()
+    .from("invoices")
+    .update(patch as never)
+    .eq("org_id", args.orgId)
+    .eq("id", args.invoiceId)
+    .in("status", ["sent", "paid"]);
+  return { error: error ? new Error(error.message) : null };
 }
 
 export async function fetchDraftInvoicesForOrg(

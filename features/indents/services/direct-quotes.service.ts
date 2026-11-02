@@ -5,7 +5,11 @@
  * submit_pulse_bid_with_direct_quote (bids.service), or
  * accept_direct_quote_counter, never a table upsert.
  */
-import { shouldFallbackDirectQuotesToTable } from '@/features/indents/utils/bidding/indentReviewHubOffers.util';
+import {
+  applyBidderOrganizationNames,
+  bidderOrgIdsMissingNames,
+  shouldFallbackDirectQuotesToTable,
+} from '@/features/indents/utils/bidding/indentReviewHubOffers.util';
 import { getNetworkPoolBidCommitsByIds } from '@/features/network/services/networkPools.service';
 import { shipperCanSeePendingPoolQuote } from '@/features/network/utils/networkPoolBidCommit.util';
 import { indentAwardBlockedBecauseInactive } from '@/features/indents/utils/indentCancelReason.util';
@@ -30,6 +34,35 @@ async function filterLivePoolQuotes(quotes: DirectQuoteRow[]): Promise<DirectQuo
       quote.pool_commit_id ? commits[quote.pool_commit_id] : null,
     ),
   );
+}
+
+/**
+ * Table fallback cannot join organizations (RLS). Resolve display names via
+ * org_display_name (SECURITY DEFINER) so Live bids never show the generic
+ * "Supplier" label when the bidder org exists.
+ */
+async function enrichQuotesWithBidderNames(
+  quotes: DirectQuoteRow[],
+): Promise<DirectQuoteRow[]> {
+  const orgIds = bidderOrgIdsMissingNames(quotes);
+  if (orgIds.length === 0) return quotes;
+
+  const entries = await Promise.all(
+    orgIds.map(async (orgId) => {
+      const { data, error } = await supabase().rpc('org_display_name', {
+        p_org_id: orgId,
+      });
+      if (error || data == null) return [orgId, ''] as const;
+      const name = String(data).trim();
+      return [orgId, name] as const;
+    }),
+  );
+
+  const nameByOrgId: Record<string, string> = {};
+  for (const [orgId, name] of entries) {
+    if (name) nameByOrgId[orgId] = name;
+  }
+  return applyBidderOrganizationNames(quotes, nameByOrgId);
 }
 
 export interface DirectQuoteRow {
@@ -95,7 +128,10 @@ export async function getDirectQuotesByIndentId(
 
   if (!shouldFallbackDirectQuotesToTable(error, data)) {
     const rows = (data ?? []) as (DirectQuoteRow & { bidder_organization_name?: string })[];
-    return { error: null, quotes: await filterLivePoolQuotes(rows) };
+    return {
+      error: null,
+      quotes: await filterLivePoolQuotes(await enrichQuotesWithBidderNames(rows)),
+    };
   }
 
   const tableRows = await supabase()
@@ -109,9 +145,12 @@ export async function getDirectQuotesByIndentId(
       quotes: [],
     };
   }
+  const enriched = await enrichQuotesWithBidderNames(
+    (tableRows.data ?? []) as DirectQuoteRow[],
+  );
   return {
     error: null,
-    quotes: await filterLivePoolQuotes((tableRows.data ?? []) as DirectQuoteRow[]),
+    quotes: await filterLivePoolQuotes(enriched),
   };
 }
 

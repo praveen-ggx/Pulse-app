@@ -1,0 +1,15 @@
+# Clear leftover cancel_reason on active / awarded indents (praveen V1.0.15, PR #61).
+# 1. clear_cancel_reason_on_indent_reactivation_and_award:
+#    - trigger trg_clear_indent_cancel_reason_on_active_status: cancel_reason is cleared when an indent
+#      is open, broadcast, awarded, assigned or deployed.
+#    - one-time repair of leftover reasons on those rows (prod 2026-10-30, read-only: 0 rows).
+#    - count_org_hub_metrics: fail-reason buckets count cancelled / expired only
+#      (built on 20271027155402, which prod and preprod already have).
+#
+# Apply only via: npm run db:push-set -- clear-cancel-reason-on-award   (dry-run first; prod apply needs Vasanth's GO)
+# Never via plain `supabase db push` / `npm run db:push`.
+#
+# Verify before applying:
+#   npx jest supabase/migrations/__tests__/clearCancelReasonOnAwardSet.test.ts supabase/migrations/__tests__/clearCancelReasonOnAward.migration.contract.test.ts
+# sha256 7bfa1637b752bf0af942e48535c2ed124d406b9f258d03a3dc6d993d51216e4e  20271030110000_clear_cancel_reason_on_indent_reactivation_and_award.sql
+20271030110000

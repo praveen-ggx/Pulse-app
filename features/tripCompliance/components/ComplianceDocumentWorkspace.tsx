@@ -125,8 +125,10 @@ import { HubTripLrUpdateModal } from "@/features/trips/components/HubTripLrUpdat
 import { parseLrFieldValues } from "@/features/trips/services/lrDocumentOcr.util";
 import {
   groundOpsDocumentLockLabel,
+  GROUND_OPS_LOCKED_TRIP_STATUSES,
   groundOpsDocumentLockReason,
   isOwnRecentUpload,
+  tripAwaitingResubmit,
 } from "@/features/tripCompliance/utils/groundOpsDocumentLock.util";
 import { alertMessage, confirmAction } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import {
@@ -227,6 +229,9 @@ import { useRouter, type Href } from "expo-router";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { Banknote, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleCheck, ClipboardList, Clock, FileText, Landmark, Maximize2, Minus, NotebookText, Pencil, Plus, RotateCwSquare, Scan, Trash2, Truck, Upload, Users, X } from "lucide-react-native";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { getOwnIndentSupplierTarget } from "@/features/indents/services/indents.service";
+import { resolveCommercialPricing } from "@/features/marketplace/domain/commercialPricing";
 import {
   ActivityIndicator,
   Animated,
@@ -3155,6 +3160,7 @@ export function ComplianceDocumentWorkspace({
   style,
   canManageFinance = false,
   hideCommercials = false,
+  sourcingRates = false,
   groundOpsDocumentLock = false,
   /** False on Compliance Pending queue chip only — hide Finance tab for every trip in that stage. */
   showFinanceTab = true,
@@ -3229,6 +3235,8 @@ export function ComplianceDocumentWorkspace({
   canManageFinance?: boolean;
   /** Ground Ops: no rates, profit, supplier bank details or Advance Payment preview. */
   hideCommercials?: boolean;
+  /** Sourcing (with hideCommercials): Rates card shows supplier rate vs indent supplier target only. */
+  sourcingRates?: boolean;
   /** Ground Ops: existing trip files lock in transit / after approval (groundOpsDocumentLock.util). */
   groundOpsDocumentLock?: boolean;
   /**
@@ -3652,6 +3660,44 @@ export function ComplianceDocumentWorkspace({
   const canEditFiles = isFinanceMode
     ? canManageFinance || canEditTripFiles
     : Boolean(onReviewTripDocs) && canEditTripFiles;
+  /**
+   * Sourcing: only the Memo, and only before the trip is in transit (add,
+   * replace, delete, expiry) — or later when the Memo is rejected, or the trip
+   * is back for resubmit with a reason that mentions the Memo. Every other
+   * document is read-only. App-side only.
+   */
+  const sourcingTripStatus = String(summary?.trip.status ?? "").trim().toLowerCase();
+  const sourcingMemoReopened = useMemo(() => {
+    if (!sourcingRates || !summary) return false;
+    const memoFileRejected = summary.documents.some(
+      (d) => d.document_type === "memo" && d.status === "rejected",
+    );
+    const memoOutstandingRejected = (summary.complianceOutstandingSummary?.rejected ?? []).some(
+      (item) => /memo/i.test(item),
+    );
+    const memoResubmitReason =
+      tripAwaitingResubmit({
+        compliance_verified_at: summary.complianceVerifiedAt,
+        compliance_declined_at: summary.complianceDeclinedAt,
+        compliance_resubmitted_at: summary.complianceResubmittedAt ?? null,
+      }) && /memo/i.test(summary.complianceDeclineReason ?? "");
+    return memoFileRejected || memoOutstandingRejected || memoResubmitReason;
+  }, [sourcingRates, summary]);
+  const sourcingDocLockReason = useCallback(
+    (type: string): string | null => {
+      if (!sourcingRates) return null;
+      if (type !== "memo") return "Sourcing can upload the Memo only";
+      if (sourcingMemoReopened) return null;
+      return GROUND_OPS_LOCKED_TRIP_STATUSES.has(sourcingTripStatus)
+        ? "Locked: trip is in transit"
+        : null;
+    },
+    [sourcingRates, sourcingTripStatus, sourcingMemoReopened],
+  );
+  const canEditFilesOfType = useCallback(
+    (type: string): boolean => canEditFiles && sourcingDocLockReason(type) == null,
+    [canEditFiles, sourcingDocLockReason],
+  );
   const allDocumentRows = useMemo(() => {
     if (!summary) return [];
     const trip = deriveTripVaultReviewRows(summary.documents);
@@ -4571,7 +4617,7 @@ export function ComplianceDocumentWorkspace({
   const showRowReplace = Boolean(
     activeDecisionRow &&
       canShowSingleRowReplace({
-        canEditFiles,
+        canEditFiles: canEditFilesOfType(activeDecisionRow.type),
         row: activeDecisionRow,
       }),
   );
@@ -4945,7 +4991,7 @@ export function ComplianceDocumentWorkspace({
             compliancePreviewFileFromRow(
               item,
               rowLabel,
-              canEditFiles && !uploadingFinanceType,
+              canEditFilesOfType(item.type) && !uploadingFinanceType,
               uploaderProfiles,
             ),
           );
@@ -5038,7 +5084,7 @@ export function ComplianceDocumentWorkspace({
     },
     [
       actorId,
-      canEditFiles,
+      canEditFilesOfType,
       groundOpsDocumentLock,
       isFinanceMode,
       listRows,
@@ -5117,7 +5163,7 @@ export function ComplianceDocumentWorkspace({
     const next = listRows
       .filter((item) => item.type === categoryPreviewType && hasFile(item))
       .map((item) =>
-        compliancePreviewFileFromRow(item, label, canEditFiles, uploaderProfiles),
+        compliancePreviewFileFromRow(item, label, canEditFilesOfType(item.type), uploaderProfiles),
       );
     setCategoryPreview((current) => {
       if (!current || current.type !== categoryPreviewType) return current;
@@ -5139,7 +5185,7 @@ export function ComplianceDocumentWorkspace({
         index: Math.min(current.index, Math.max(0, files.length - 1)),
       };
     });
-  }, [canEditFiles, categoryPreviewType, isFinanceMode, listRows, uploadingFinanceType]);
+  }, [canEditFilesOfType, categoryPreviewType, isFinanceMode, listRows, uploadingFinanceType]);
 
   /** Trip-scope file as the delete helper's row shape. */
   const tripDocumentForDelete = (row: ComplianceDocRow): TripDocumentRow | null =>
@@ -5405,7 +5451,7 @@ export function ComplianceDocumentWorkspace({
                 compliancePreviewFileFromRow(
                   item,
                   rowLabel,
-                  canEditFiles,
+                  canEditFilesOfType(item.type),
                   uploaderProfiles,
                 ),
               ),
@@ -5418,7 +5464,7 @@ export function ComplianceDocumentWorkspace({
           }}
           onAdd={() => void uploadVaultDocument(row)}
           onReplace={
-            canEditFiles && mustReplaceRejectedTripDocument(displayRow)
+            canEditFilesOfType(displayRow.type) && mustReplaceRejectedTripDocument(displayRow)
               ? () => void replaceTripFile(displayRow)
               : undefined
           }
@@ -5428,7 +5474,7 @@ export function ComplianceDocumentWorkspace({
             setScreenOpen(true);
           }}
         />
-        {canEditFiles && needsExpiry && canSetEntityExpiry(displayRow) ? (
+        {canEditFilesOfType(displayRow.type) && needsExpiry && canSetEntityExpiry(displayRow) ? (
           <Pressable
             style={(state: HoverPressState) => [
               styles.missingUploadBtn,
@@ -5715,6 +5761,7 @@ export function ComplianceDocumentWorkspace({
    * this user's own recent upload blocks adding).
    */
   const complianceTypeAddLockReason = (type: string): string | null => {
+    if (sourcingRates) return sourcingDocLockReason(type);
     if (!groundOpsDocumentLock || !summary) return null;
     const blocking = listRows.filter(
       (row) =>
@@ -6735,6 +6782,7 @@ export function ComplianceDocumentWorkspace({
                       supplierName={supplierNameByTripId[summary.trip.id] ?? null}
                         onOpenDocumentUpload={openDocumentUploadFromDetails}
                       hideCommercials={hideCommercials}
+                      sourcingRates={sourcingRates}
                         onOpenTrip={onOpenTrip}
                         onOpenSupplier={onOpenSupplier}
                     />
@@ -7767,7 +7815,7 @@ export function ComplianceDocumentWorkspace({
           if (mobileExclusive) setMobileDocPane("list");
         }}
         onAdd={
-          canEditFiles && categoryPreview && !mustReplaceRejectedTripDocument(
+          categoryPreview && canEditFilesOfType(categoryPreview.type) && !mustReplaceRejectedTripDocument(
             listRows.find(
               (item) => item.key === categoryPreview.files[categoryPreview.index]?.id,
             ) ??
@@ -7790,7 +7838,7 @@ export function ComplianceDocumentWorkspace({
             : undefined
         }
         onReplace={
-          canEditFiles && categoryPreview
+          categoryPreview && canEditFilesOfType(categoryPreview.type)
             ? (() => {
                 const currentFile = categoryPreview.files[categoryPreview.index];
                 const row =
@@ -7805,7 +7853,7 @@ export function ComplianceDocumentWorkspace({
             : undefined
         }
         onDelete={
-          canEditFiles
+          categoryPreview && canEditFilesOfType(categoryPreview.type)
             ? (file) => {
                 if (String(file.id).startsWith("draft-")) {
                   setCategoryPreview((current) => {
@@ -8394,6 +8442,7 @@ function ChecklistTripDetailsPanel({
   supplierName,
   onOpenDocumentUpload,
   hideCommercials = false,
+  sourcingRates = false,
   onOpenTrip,
   onOpenSupplier,
 }: {
@@ -8403,6 +8452,8 @@ function ChecklistTripDetailsPanel({
   onOpenDocumentUpload?: (target: { vault: string; type?: string }) => void;
   /** Ground Ops: drop the Rates and Banking cards (and never fetch the supplier bank account). */
   hideCommercials?: boolean;
+  /** Sourcing: keep a Rates card with supplier rate vs the indent's supplier target (no client / profit / banking). */
+  sourcingRates?: boolean;
   onOpenTrip?: (tripId: string) => void;
   onOpenSupplier?: (supplierId: string) => void;
 }) {
@@ -8490,6 +8541,32 @@ function ChecklistTripDetailsPanel({
   const beneficiary = bankDetails?.beneficiaryName ?? "—";
   const supplierRate = formatTripInr(supplierCostTotal(commercial) ?? commercial.supplier_rate);
   const clientRate = formatTripInr(commercial.client_price);
+  // Sourcing compares the supplier rate with the indent's supplier target
+  // (indents.supplier_target), never the client price.
+  const targetIndentId = sourcingRates
+    ? (trip.indent_id ?? trip.source_indent_id ?? "").trim() || null
+    : null;
+  const { data: indentTarget, isPending: indentTargetPending } = useQuery({
+    queryKey: ["q", "indents", "supplier-target", targetIndentId ?? ""],
+    enabled: !!targetIndentId,
+    staleTime: 5 * 60_000,
+    queryFn: () => getOwnIndentSupplierTarget(targetIndentId),
+  });
+  const targetPricing = indentTarget
+    ? resolveCommercialPricing({
+        supplierTarget: indentTarget.supplier_target,
+        saleRateBasis: indentTarget.supplier_rate_basis,
+        weightKg: indentTarget.weight,
+        bidCount: 0,
+      })
+    : null;
+  const targetLoading = !!targetIndentId && indentTargetPending;
+  const targetRate = targetLoading ? "…" : formatTripInr(targetPricing?.targetPrice);
+  const targetPerMt = targetLoading
+    ? "…"
+    : targetPricing?.basis === "per_mt"
+      ? formatTripInr(targetPricing.unitRateInr)
+      : "—";
   const loadedWeight = formatLoadedWeight(commercial.load_tons);
   const accountNumber = bankDetails?.accountNumber ?? "—";
   const ifsc = bankDetails?.ifsc ?? "—";
@@ -8590,6 +8667,21 @@ function ChecklistTripDetailsPanel({
           <TripDetailFact label="Client sales invoice" value={salesInvoice} />
         </TripDetailSection>
       </View>
+
+      {sourcingRates ? (
+        <TripDetailSection
+          title="Rates"
+          icon={Banknote}
+          iconColor={Theme.complianceDocOkFg}
+          iconWash={Theme.complianceDocOkBg}
+          columns={2}
+        >
+          <TripDetailFact label="Supplier rate" value={supplierRate} />
+          <TripDetailFact label="Supplier / MT" value={supplierRatePerMtLabel(commercial)} />
+          <TripDetailFact label="Target rate" value={targetRate} />
+          <TripDetailFact label="Target / MT" value={targetPerMt} />
+        </TripDetailSection>
+      ) : null}
 
       {hideCommercials ? null : (
       <View style={[styles.tripDetailPairRow, !pairCards && styles.tripDetailPairRowStack]}>

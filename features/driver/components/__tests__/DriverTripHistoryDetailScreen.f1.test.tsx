@@ -17,6 +17,15 @@ jest.mock("react-native", () => jest.requireActual("react-native"));
 jest.mock("@/contexts/AuthContext", () => ({
   useAuth: () => ({ profile: { uid: "user-1" } }),
 }));
+jest.mock("@/lib/queries/useDriverOperatingModeQuery", () => ({
+  useDriverOperatingModeQuery: () => ({
+    canManageIndieBook: false,
+    canManageDcoSelfBook: false,
+    canTagOfflineParty: false,
+    modeLoading: false,
+    isFetched: true,
+  }),
+}));
 jest.mock("@/contexts/DriverThemeContext", () => ({
   useDriverTheme: () => ({ theme: "light" }),
   useDriverThemeColors: () =>

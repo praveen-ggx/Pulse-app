@@ -17,9 +17,13 @@ import {
   Text,
   TextInput,
   View,
+  type PressableStateCallbackType,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { PodReconciliationTripView } from "../services/podReconciliationService";
+
+/** react-native-web adds `hovered` to Pressable state; native never sets it. */
+type PressableHoverState = PressableStateCallbackType & { hovered?: boolean };
 
 function lrEditorDraft(numbers: string[] | undefined): string {
   return (numbers ?? []).filter(Boolean).join(", ");
@@ -50,7 +54,7 @@ export function PodLrNumberCell({
           event.stopPropagation?.();
           onPress();
         }}
-        style={({ hovered, pressed }) => [
+        style={({ hovered, pressed }: PressableHoverState) => [
           styles.trigger,
           hovered ? styles.triggerHover : null,
           pressed ? styles.triggerPressed : null,
@@ -234,7 +238,7 @@ export function PodLrNumberEditorModal({
               accessibilityRole="button"
               onPress={onClose}
               disabled={saving}
-              style={({ hovered, pressed }) => [
+              style={({ hovered, pressed }: PressableHoverState) => [
                 styles.ghostBtn,
                 hovered ? styles.ghostBtnHover : null,
                 pressed ? styles.btnPressed : null,
@@ -249,7 +253,7 @@ export function PodLrNumberEditorModal({
                 void save();
               }}
               disabled={saving}
-              style={({ hovered, pressed }) => [
+              style={({ hovered, pressed }: PressableHoverState) => [
                 styles.saveBtn,
                 hovered ? styles.saveBtnHover : null,
                 pressed ? styles.btnPressed : null,

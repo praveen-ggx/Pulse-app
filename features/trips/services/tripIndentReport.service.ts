@@ -7,69 +7,124 @@ import {
   type IndentRow,
 } from "@/features/indents/services/indents.service";
 import {
-  getTripsByOrganization,
+  getTripsForOrg,
   type TripRow,
 } from "@/features/trips/services/trips.service";
+import { indentMatchesHubDateFilter } from "@/features/trips/utils/indentHubToolbarFilter";
+import {
+  datedGetTripsForOrgCapNote,
+  GET_TRIPS_FOR_ORG_DATED_SAFETY_CAP,
+  HUB_ALL_TIME_BOUNDS,
+  isDatedGetTripsForOrgCapped,
+} from "@/features/trips/utils/tripOrgFetch.util";
 import {
   buildTripIndentReportRows,
   type TripIndentReportEnrichment,
   type TripIndentReportPartyMeta,
   type TripIndentReportRow,
 } from "@/features/trips/utils/tripIndentReport.model";
+import {
+  tripDayMatchesHubDateFilter,
+  type TripHubDateFilter,
+} from "@/lib/dateRangePresets";
 import { supabase } from "@/lib/supabase";
 
 const CHUNK = 200;
 const PAGE = 200;
 const MAX_PAGES = 25;
 
-/** Soft cap: PAGE * MAX_PAGES per entity (trips and indents each). */
+/** Soft cap for paged indent scans (owner org). Trip rows use get_trips_for_org. */
 export const TRIP_INDENT_REPORT_MAX_ENTITY_ROWS = PAGE * MAX_PAGES;
+
+export type TripIndentReportCatalogOptions = {
+  /** Inclusive Asia/Kolkata day bounds — same as Trips hub pills. */
+  dateBounds?: { from: string; to: string } | null;
+  dateFilter?: TripHubDateFilter;
+  customFrom?: string | null;
+  customTo?: string | null;
+};
 
 export type TripIndentReportCatalogResult = {
   error: Error | null;
   trips: TripRow[];
   indents: IndentRow[];
-  /** True when either trips or indents hit the page cap (more may exist). */
+  /** True when trips or indents hit a known safety cap (more may exist). */
   truncated: boolean;
+  /** Human notes for the sheet banner (cap warnings). */
+  notes: string[];
 };
 
+function tripMatchesReportDate(
+  trip: TripRow,
+  dateFilter: TripHubDateFilter,
+  opts?: { customFrom?: string | null; customTo?: string | null },
+): boolean {
+  return tripDayMatchesHubDateFilter(
+    { pickup_date: trip.pickup_date, created_at: trip.created_at },
+    dateFilter,
+    opts,
+  );
+}
+
 /**
- * Merge the Trip Ops hub catalog with paged owner-org trips/indents so the
- * Excel file is not limited to the current table page or toolbar filter.
+ * Full Trip Ops export catalog:
+ * - Trips from `get_trips_for_org` with the same date bounds as the hub
+ *   (All time → HUB_ALL_TIME_BOUNDS), merged with seed rows, deduped by id.
+ * - Indents from paged owner-org scan, then the same hub date matcher.
+ * Export is not limited to the current table page.
  */
 export async function loadTripIndentReportCatalog(
   orgId: string,
   seedTrips: readonly TripRow[],
   seedIndents: readonly IndentRow[],
+  options: TripIndentReportCatalogOptions = {},
 ): Promise<TripIndentReportCatalogResult> {
+  const dateFilter: TripHubDateFilter = options.dateFilter ?? "all";
+  const dateOpts = {
+    customFrom: options.customFrom,
+    customTo: options.customTo,
+  };
+  const bounds = options.dateBounds ?? HUB_ALL_TIME_BOUNDS;
+  const notes: string[] = [];
   const tripById = new Map<string, TripRow>();
-  for (const t of seedTrips) tripById.set(t.id, t);
   const indentById = new Map<string, IndentRow>();
-  for (const i of seedIndents) indentById.set(i.id, i);
-  let tripsTruncated = false;
   let indentsTruncated = false;
 
+  const acceptTrip = (t: TripRow) => {
+    if (!tripMatchesReportDate(t, dateFilter, dateOpts)) return;
+    if (!tripById.has(t.id)) tripById.set(t.id, t);
+  };
+  const acceptIndent = (i: IndentRow) => {
+    if (!indentMatchesHubDateFilter(i, dateFilter, dateOpts)) return;
+    if (!indentById.has(i.id)) indentById.set(i.id, i);
+  };
+
+  for (const t of seedTrips) acceptTrip(t);
+  for (const i of seedIndents) acceptIndent(i);
+
   try {
-    for (let page = 0; page < MAX_PAGES; page += 1) {
-      const offset = page * PAGE;
-      const { error, trips, hasMore } = await getTripsByOrganization(orgId, {
-        limit: PAGE,
-        offset,
-      });
-      if (error) {
-        return {
-          error,
-          trips: [...tripById.values()],
-          indents: [...indentById.values()],
-          truncated: tripsTruncated || indentsTruncated,
-        };
-      }
-      for (const t of trips) {
-        if (!tripById.has(t.id)) tripById.set(t.id, t);
-      }
-      if (!hasMore || trips.length === 0) break;
-      if (page === MAX_PAGES - 1 && hasMore) tripsTruncated = true;
+    const { error: tripsError, trips: rpcTrips } = await getTripsForOrg(orgId, {
+      from: bounds.from,
+      to: bounds.to,
+    });
+    if (tripsError) {
+      return {
+        error: tripsError,
+        trips: [...tripById.values()],
+        indents: [...indentById.values()],
+        truncated: indentsTruncated,
+        notes,
+      };
     }
+    for (const t of rpcTrips) acceptTrip(t);
+    if (isDatedGetTripsForOrgCapped(rpcTrips.length)) {
+      const capNote = datedGetTripsForOrgCapNote(rpcTrips.length);
+      notes.push(
+        capNote ??
+          `Export may be incomplete (newest ${GET_TRIPS_FOR_ORG_DATED_SAFETY_CAP.toLocaleString("en-IN")} matching trips).`,
+      );
+    }
+
     for (let page = 0; page < MAX_PAGES; page += 1) {
       const offset = page * PAGE;
       const { error, indents, hasMore } = await getIndentsByOrganization(orgId, {
@@ -81,27 +136,34 @@ export async function loadTripIndentReportCatalog(
           error,
           trips: [...tripById.values()],
           indents: [...indentById.values()],
-          truncated: tripsTruncated || indentsTruncated,
+          truncated: indentsTruncated || isDatedGetTripsForOrgCapped(rpcTrips.length),
+          notes,
         };
       }
-      for (const i of indents) {
-        if (!indentById.has(i.id)) indentById.set(i.id, i);
-      }
+      for (const i of indents) acceptIndent(i);
       if (!hasMore || indents.length === 0) break;
-      if (page === MAX_PAGES - 1 && hasMore) indentsTruncated = true;
+      if (page === MAX_PAGES - 1 && hasMore) {
+        indentsTruncated = true;
+        notes.push(
+          `Indent export capped at ${TRIP_INDENT_REPORT_MAX_ENTITY_ROWS.toLocaleString("en-IN")} rows. Additional indents were not included.`,
+        );
+      }
     }
+
     return {
       error: null,
       trips: [...tripById.values()],
       indents: [...indentById.values()],
-      truncated: tripsTruncated || indentsTruncated,
+      truncated: indentsTruncated || isDatedGetTripsForOrgCapped(rpcTrips.length),
+      notes,
     };
   } catch (e) {
     return {
       error: e instanceof Error ? e : new Error(String(e)),
       trips: [...tripById.values()],
       indents: [...indentById.values()],
-      truncated: tripsTruncated || indentsTruncated,
+      truncated: indentsTruncated,
+      notes,
     };
   }
 }

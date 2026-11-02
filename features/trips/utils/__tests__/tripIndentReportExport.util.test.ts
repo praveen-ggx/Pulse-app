@@ -32,6 +32,7 @@ function sampleRow(overrides: Partial<TripIndentReportRow> = {}): TripIndentRepo
     supplierCost: 11000,
     status: "assigned",
     createdBy: "Ops User",
+    indentId: "IND-9",
     pulseId: "GGV234ABCTRIP000009",
     tripId: "TRP-9",
     ...overrides,
@@ -65,11 +66,14 @@ describe("tripIndentReportExport.util formatting", () => {
     expect(headerCell.s?.font?.sz).toBe(10);
     expect(headerCell.s?.font?.bold).toBe(true);
 
-    const pulseHeader = sheet![`Q${headerRow}`] as XLSX.CellObject;
+    const indentHeader = sheet![`Q${headerRow}`] as XLSX.CellObject;
+    expect(String(indentHeader.v)).toBe("Indent ID");
+
+    const pulseHeader = sheet![`R${headerRow}`] as XLSX.CellObject;
     expect(String(pulseHeader.v)).toBe("Pulse ID");
     expect((pulseHeader as { s?: { font?: { bold?: boolean } } }).s?.font?.bold).toBe(true);
 
-    const tripHeader = sheet![`R${headerRow}`] as XLSX.CellObject;
+    const tripHeader = sheet![`S${headerRow}`] as XLSX.CellObject;
     expect(String(tripHeader.v)).toBe("Trip ID");
 
     const dataRow = headerRow + 1;
@@ -89,7 +93,7 @@ describe("tripIndentReportExport.util formatting", () => {
     expect(clientCost.s?.alignment?.horizontal).toBe("right");
 
     expect(sheet!["!autofilter"]).toBeDefined();
-    expect(sheet!["!cols"]?.length).toBe(18);
+    expect(sheet!["!cols"]?.length).toBe(19);
   });
 
   it("writes OOXML with Calibri size 10 and bold headers", () => {
@@ -121,7 +125,7 @@ describe("tripIndentReportExport.util formatting", () => {
 
   it("omits cost columns by default and when includeCosts is false", () => {
     const defaultWb = buildTripIndentReportWorkbook([sampleRow()], "GoGo Pulse");
-    expect(defaultWb.Sheets["Trip Report"]!["!cols"]?.length).toBe(16);
+    expect(defaultWb.Sheets["Trip Report"]!["!cols"]?.length).toBe(17);
 
     const wb = buildTripIndentReportWorkbook([sampleRow()], {
       companyName: "GoGo Pulse",
@@ -145,8 +149,12 @@ describe("tripIndentReportExport.util formatting", () => {
     }
     expect(labels).not.toContain("Client Cost");
     expect(labels).not.toContain("Supplier Cost");
+    expect(labels).not.toContain("Client Rate");
+    expect(labels).not.toContain("Vendor Rate");
+    expect(labels).toContain("Indent ID");
+    expect(labels).toContain("Trip ID");
     expect(labels).toContain("Pulse ID");
-    expect(sheet!["!cols"]?.length).toBe(16);
+    expect(sheet!["!cols"]?.length).toBe(17);
   });
 
   it("writes truncation / enrichment notes in the banner", () => {

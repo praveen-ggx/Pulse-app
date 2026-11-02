@@ -1,9 +1,20 @@
 /**
  * Network context — uses @react-native-community/netinfo.
  * Exposes isConnected so the app can require internet before auth/API calls.
+ *
+ * Also the single owner of connectivity for the data layer: tells the Supabase
+ * circuit when the device (not the origin) is offline, pauses TanStack queries
+ * while offline, and on reconnect sends one probe so an open circuit can close
+ * without waiting out its cooldown.
  */
-import { createContext, useContext, useState, useEffect, useMemo, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
+import { onlineManager } from '@tanstack/react-query';
+import { probeSupabaseOrigin } from '@/lib/supabase';
+import {
+  expediteSupabaseCircuitProbe,
+  setSupabaseDeviceConnectivity,
+} from '@/lib/supabaseHttp.util';
 
 interface NetworkContextType {
   isConnected: boolean | null;
@@ -28,14 +39,34 @@ export function useIsOnline(): boolean {
   return true;
 }
 
+/** Same rule as useIsOnline, for a raw NetInfo state. null = not known yet. */
+export function deviceOnlineFromNetInfo(state: NetInfoState | null): boolean | null {
+  if (!state || state.isConnected == null) return null;
+  if (state.isConnected === false) return false;
+  return state.isInternetReachable !== false;
+}
+
 export function NetworkProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<NetInfoState | null>(null);
+  const lastOnlineRef = useRef<boolean | null>(null);
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(setState);
     NetInfo.fetch().then(setState).catch(() => { /* non-fatal; addEventListener handles ongoing state */ });
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    const online = deviceOnlineFromNetInfo(state);
+    const wasOnline = lastOnlineRef.current;
+    lastOnlineRef.current = online;
+    setSupabaseDeviceConnectivity(online);
+    if (online != null) onlineManager.setOnline(online);
+    // Reconnecting never closes the circuit by itself; it only lets one probe through.
+    if (wasOnline === false && online === true && expediteSupabaseCircuitProbe()) {
+      void probeSupabaseOrigin();
+    }
+  }, [state]);
 
   const value = useMemo<NetworkContextType>(
     () => ({

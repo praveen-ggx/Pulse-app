@@ -83,6 +83,56 @@ export function canManageOwnerVehicles(m: DriverOperatingMode): boolean {
   return m.mode === 'DCO' || m.mode === 'DCO_VEHICLE_REQUIRED';
 }
 
+/**
+ * DCO Self shipper CRM / Party B book. Employees and independents never get this.
+ */
+export function canAddDcoShippers(m: DriverOperatingMode): boolean {
+  return canManageOwnerVehicles(m);
+}
+
+/** DCO Self book (parties, issue, collect). Same gate as shipper CRM. */
+export function canManageDcoSelfBook(m: DriverOperatingMode): boolean {
+  return canAddDcoShippers(m);
+}
+
+/**
+ * Independent DRIVER book — separate from DCO Self and employer ledger.
+ * Plain DRIVER who is not an active fleet employee.
+ */
+export function canManageIndieBook(m: DriverOperatingMode): boolean {
+  return m.mode === 'DRIVER' && !m.isEmployeeDriver;
+}
+
+/**
+ * Offline customer tagging / capture entry.
+ * DCO → Self book. Independent DRIVER → indie book. Employees attribute to employer.
+ */
+export function canTagOfflineParty(m: DriverOperatingMode): boolean {
+  return canManageDcoSelfBook(m) || canManageIndieBook(m);
+}
+
+/** Fleet employee attribution path (Control / History). */
+export function canAttributeToEmployer(m: DriverOperatingMode): boolean {
+  return m.mode === 'DRIVER' && m.isEmployeeDriver;
+}
+
+/**
+ * Wallet primary book tab / header label — terminology only, not a destination change.
+ * DCO Self → "Self"; independent DRIVER → "Independent"; fleet employee → "Fleet".
+ */
+export function driverWalletBookTabLabel(m: DriverOperatingMode): string {
+  if (canManageDcoSelfBook(m)) return 'Self';
+  if (canManageIndieBook(m)) return 'Independent';
+  return 'Fleet';
+}
+
+/** Short copy for saved-party lists (Add Client / tag picker). */
+export function driverOfflinePartyBookKicker(m: DriverOperatingMode): string {
+  if (canManageDcoSelfBook(m)) return 'Saved in Self';
+  if (canManageIndieBook(m)) return 'Saved customers';
+  return 'Saved parties';
+}
+
 type RelationshipRow = {
   left_at?: string | null;
   relationship_status?: string | null;
@@ -131,4 +181,28 @@ export function driverJobSource(trip: {
   if (String(trip.source ?? '').trim() === 'market_bid') return 'marketplace_award';
   if (isDcoOperatingTrip(trip)) return 'dco_direct';
   return 'business_assigned';
+}
+
+/** History chips: DCO = Offline + Marketplace; connected employee = Fleet + Offline. */
+export type DriverHistoryLane = 'marketplace' | 'offline' | 'fleet';
+export type DriverHistoryTabId = 'offline' | 'marketplace' | 'fleet';
+
+export function driverHistoryLane(
+  trip: { source?: string | null; operating_mode?: string | null },
+  isFleetDispatched: boolean,
+): DriverHistoryLane {
+  if (driverJobSource(trip) === 'marketplace_award') return 'marketplace';
+  if (isFleetDispatched) return 'fleet';
+  return 'offline';
+}
+
+/** Card chip: DCO sees Offline / Marketplace; employee sees Offline / Fleet. */
+export function driverHistoryLaneLabel(lane: DriverHistoryLane): string {
+  if (lane === "marketplace") return "Marketplace trip";
+  if (lane === "fleet") return "Fleet trip";
+  return "Offline trip";
+}
+
+export function driverHistoryTabsForMode(isDco: boolean): readonly DriverHistoryTabId[] {
+  return isDco ? (['offline', 'marketplace'] as const) : (['fleet', 'offline'] as const);
 }

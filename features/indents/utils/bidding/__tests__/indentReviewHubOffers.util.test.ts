@@ -1,4 +1,6 @@
 import {
+  applyBidderOrganizationNames,
+  bidderOrgIdsMissingNames,
   mergeIndentReviewHubOffers,
   shouldFallbackDirectQuotesToTable,
 } from "@/features/indents/utils/bidding/indentReviewHubOffers.util";
@@ -78,5 +80,29 @@ describe("shouldFallbackDirectQuotesToTable", () => {
     expect(shouldFallbackDirectQuotesToTable({ message: "503" }, [])).toBe(true);
     expect(shouldFallbackDirectQuotesToTable(null, { quotes: [] })).toBe(true);
     expect(shouldFallbackDirectQuotesToTable(null, [])).toBe(false);
+  });
+});
+
+describe("applyBidderOrganizationNames", () => {
+  it("fills missing bidder names from the org id map without renaming known bids", () => {
+    const nameless: DirectQuoteRow = {
+      ...quote("dq-2"),
+      bidder_organization_name: undefined,
+    };
+    const applied = applyBidderOrganizationNames(
+      [quote("dq-1"), nameless],
+      { "org-b": "SMK LOGISTICS" },
+    );
+    expect(applied[0]?.bidder_organization_name).toBe("Bond");
+    expect(applied[1]?.bidder_organization_name).toBe("SMK LOGISTICS");
+  });
+
+  it("lists only org ids that still need a name", () => {
+    const nameless: DirectQuoteRow = {
+      ...quote("dq-2"),
+      bidder_organization_id: "org-c",
+      bidder_organization_name: "  ",
+    };
+    expect(bidderOrgIdsMissingNames([quote("dq-1"), nameless])).toEqual(["org-c"]);
   });
 });

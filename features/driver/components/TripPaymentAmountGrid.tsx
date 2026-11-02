@@ -17,6 +17,7 @@ type TripPaymentAmountGridProps = {
   };
   isDark: boolean;
   compact?: boolean;
+  expectedLabel?: string;
 };
 
 function fmt(n: number) {
@@ -33,6 +34,7 @@ export function TripPaymentAmountGrid({
   colors,
   isDark,
   compact = false,
+  expectedLabel = "Trip earning",
 }: TripPaymentAmountGridProps) {
   const cellBg = isDark ? colors.background : colors.background;
   const borderColor = isDark ? colors.border : "rgba(226,232,240,0.9)";
@@ -41,7 +43,7 @@ export function TripPaymentAmountGrid({
     return (
       <View style={[styles.grid, { borderColor }, compact && styles.gridCompact]}>
         <View style={[styles.cell, { backgroundColor: cellBg }]}>
-          <Text style={[styles.label, { color: colors.textMuted }]}>Trip earning</Text>
+          <Text style={[styles.label, { color: colors.textMuted }]}>{expectedLabel}</Text>
           <Text style={[styles.value, { color: colors.text }]}>{fmt(expectedAmount)}</Text>
         </View>
         <View style={[styles.divider, { backgroundColor: colors.border }]} />
@@ -62,7 +64,7 @@ export function TripPaymentAmountGrid({
     return (
       <View style={[styles.grid, { borderColor }, compact && styles.gridCompact]}>
         <View style={[styles.cell, { backgroundColor: cellBg }]}>
-          <Text style={[styles.label, { color: colors.textMuted }]}>Trip earning</Text>
+          <Text style={[styles.label, { color: colors.textMuted }]}>{expectedLabel}</Text>
           <Text style={[styles.value, { color: colors.text }]}>{fmt(expectedAmount)}</Text>
         </View>
         <View style={[styles.divider, { backgroundColor: colors.border }]} />
@@ -82,7 +84,7 @@ export function TripPaymentAmountGrid({
   return (
     <View style={[styles.gridTwo, { borderColor }, compact && styles.gridCompact]}>
       <View style={[styles.cell, { backgroundColor: cellBg }]}>
-        <Text style={[styles.label, { color: colors.textMuted }]}>Trip earning</Text>
+        <Text style={[styles.label, { color: colors.textMuted }]}>{expectedLabel}</Text>
         <Text style={[styles.value, { color: colors.text }]}>{fmt(expectedAmount)}</Text>
       </View>
       <View style={[styles.divider, { backgroundColor: colors.border }]} />

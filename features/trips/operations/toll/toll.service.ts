@@ -163,7 +163,7 @@ export async function createTripTollEntry(
     approved_at: null,
     idempotency_key: input.queueItemId ?? null,
   };
-  const { data, error } = await supabase()
+  const { data, error, status } = await supabase()
     .from("trip_toll_entries")
     .insert(payload)
     .select("*")
@@ -173,7 +173,8 @@ export async function createTripTollEntry(
     if (error.code === "23505" && input.queueItemId) {
       return { error: null, entry: null, alreadyExists: true };
     }
-    return { error: new Error(error.message), entry: null };
+    // Keep code + status: the save path decides from them whether to queue offline.
+    return { error: Object.assign(new Error(error.message), { code: error.code, status }), entry: null };
   }
   const entry = data as TripTollEntry;
   if (isEmployerExpenseOf(entry, null)) {

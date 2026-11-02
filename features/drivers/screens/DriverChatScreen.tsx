@@ -69,14 +69,15 @@ export default function DriverChatScreen() {
     conversations,
     isLoading,
     sendMessage,
-    markAsRead,
     ensureDriverTripConversation,
   } = useDriverChat();
 
   const ensureConvRef = useRef(ensureDriverTripConversation);
-  const markReadRef = useRef(markAsRead);
   ensureConvRef.current = ensureDriverTripConversation;
-  markReadRef.current = markAsRead;
+  // `${tripId}:${focusTick}` of the deep link already opened. `conversations` stays a
+  // dependency so the first open can wait for the inbox, but every later list update
+  // (each send patches the preview) must not re-select the thread or clear the draft.
+  const openedTripKeyRef = useRef<string | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [pendingConvOrgId, setPendingConvOrgId] = useState<string | null>(null);
@@ -86,22 +87,26 @@ export default function DriverChatScreen() {
 
   useEffect(() => {
     if (!normalizedTripId) {
+      openedTripKeyRef.current = null;
       setOpeningTripThread(false);
       setTripThreadError(null);
       return;
     }
 
+    const openKey = `${normalizedTripId}:${focusTick}`;
+    if (openedTripKeyRef.current === openKey) return;
+
     const cached = conversations.find(
       (c) => String(c.trip_id) === normalizedTripId,
     );
     if (cached) {
+      openedTripKeyRef.current = openKey;
       setOpeningTripThread(false);
       setTripThreadError(null);
       setSelectedId(cached.id);
       setPendingConvOrgId(cached.organization_id);
       setMessageInput("");
       preloadDriverChatThread(queryClient, cached.id);
-      void markReadRef.current(cached.id);
       return;
     }
 
@@ -121,10 +126,10 @@ export default function DriverChatScreen() {
         if (cancelled) return;
         setOpeningTripThread(false);
         if (result) {
+          openedTripKeyRef.current = openKey;
           setPendingConvOrgId(result.orgId);
           setSelectedId(result.convId);
           preloadDriverChatThread(queryClient, result.convId);
-          void markReadRef.current(result.convId);
         } else {
           setTripThreadError("Could not open chat for this trip.");
         }
@@ -179,7 +184,6 @@ export default function DriverChatScreen() {
   const openConv = (conv: TripConversation) => {
     setSelectedId(conv.id);
     setPendingConvOrgId(conv.organization_id);
-    markAsRead(conv.id);
     setMessageInput("");
     preloadDriverChatThread(queryClient, conv.id);
   };

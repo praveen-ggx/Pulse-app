@@ -1,8 +1,9 @@
 /**
  * Wallet → Earnings tab: month picker, optional fleet filter,
- * earned vs received hero + elegant day breakdown (matches driver wallet chrome).
+ * earned vs received for trips completed in that month (not cash-in dates).
  */
 import { NativeHtmlWebView } from "@/components/NativeHtmlWebView";
+import { DriverCapturePaymentButton } from "@/features/drivers/components/DriverCapturePaymentButton";
 import {
   driverBodySecondary,
   driverUIBold,
@@ -17,10 +18,12 @@ import {
   buildBulkEarningsPaymentFollowUpHtml,
   buildEarningsPaymentFollowUpHtml,
 } from "@/features/driver/utils/driverPaymentRequestPreviewHtml.util";
-import type { DriverLedgerRow } from "@/features/drivers/services/drivers.service";
+import { tripNeedsPartyTag } from "@/features/drivers/utils/driverPartyReceivables.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { LinearGradient } from "expo-linear-gradient";
+import { type Href, useRouter } from "expo-router";
 import {
+  ArrowRight,
   Bell,
   Building2,
   CalendarDays,
@@ -34,6 +37,7 @@ import {
   MessageCircle,
   Route,
   Square,
+  Tag,
   X,
 } from "lucide-react-native";
 import { memo, useMemo, useState } from "react";
@@ -72,6 +76,8 @@ type DayTripLine = {
   earned: number;
   received: number;
   pending: number;
+  spent: number;
+  needsTag: boolean;
   meta: WalletEarningsTripMeta;
 };
 
@@ -85,6 +91,7 @@ type DayBucket = {
   label: string;
   earned: number;
   received: number;
+  spent: number;
   tripCount: number;
   trips: DayTripLine[];
 };
@@ -106,10 +113,10 @@ function shiftMonth(key: string, delta: number): string {
 
 function formatMonthLabel(key: string): string {
   const { year, monthIndex } = parseMonthKey(key);
-  return new Date(year, monthIndex, 1).toLocaleDateString("en-IN", {
+  const month = new Date(year, monthIndex, 1).toLocaleDateString("en-IN", {
     month: "long",
-    year: "numeric",
   });
+  return `${month} ${year}`;
 }
 
 function tripDate(trip: TripRow): Date | null {
@@ -152,6 +159,23 @@ function formatDayNum(dayKey: string): string {
   return parts[2] ?? "";
 }
 
+function routeEnds(
+  route: string,
+  from: string,
+  to: string,
+): { from: string; to: string } | { single: string } {
+  const a = from.trim();
+  const b = to.trim();
+  if (a && b && a.toLowerCase() !== b.toLowerCase()) return { from: a, to: b };
+  if (a && !b) return { single: a };
+  if (b && !a) return { single: b };
+  const parts = route.split(/\s*→\s*/).map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 2 && parts[0].toLowerCase() !== parts[1].toLowerCase()) {
+    return { from: parts[0], to: parts[1] };
+  }
+  return { single: (a || b || route || "Trip").trim() };
+}
+
 const REMINDER_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 function reminderCooldown(lastReminderAt: string | null | undefined): {
@@ -183,7 +207,6 @@ function reminderCooldown(lastReminderAt: string | null | undefined): {
 type Props = {
   completedTrips: TripRow[];
   fleets: WalletEarningsFleetOption[];
-  ledgerEntries: DriverLedgerRow[];
   tripEarnings: (trip: TripRow) => number;
   /** True only when real agreed payout terms exist. Trips without this are excluded entirely — not shown as ₹0. */
   hasAgreedPayoutTerms: (trip: TripRow) => boolean;
@@ -222,12 +245,15 @@ type Props = {
     surfaceElevated: string;
   };
   isDark: boolean;
+  /** Fuel / toll / other spend on the driver's trips (DCO). */
+  tripExpenses?: { tripId: string; amount: number; kind?: string }[];
+  /** Show spent + margin on the month hero (DCO trip costs). */
+  showMonthPnl?: boolean;
 };
 
 export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel({
   completedTrips,
   fleets,
-  ledgerEntries,
   tripEarnings,
   hasAgreedPayoutTerms,
   receivedByTripId,
@@ -241,7 +267,10 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
   onSharePaymentPdf,
   colors,
   isDark,
+  tripExpenses = [],
+  showMonthPnl = false,
 }: Props) {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const [monthKey, setMonthKey] = useState(() => monthKeyFromDate(new Date()));
   const [fleetOrgId, setFleetOrgId] = useState<string>("all");
@@ -282,31 +311,60 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
     [scopedTrips, tripEarnings],
   );
 
-  const receivedTotal = useMemo(() => {
-    const byLedger = Math.round(
-      ledgerEntries
-        .filter((e) => {
-          if (e.type !== "settlement") return false;
-          const raw = e.created_at;
-          if (!raw) return false;
-          const d = new Date(raw);
-          if (!Number.isFinite(d.getTime()) || monthKeyFromDate(d) !== monthKey) return false;
-          if (fleetOrgId !== "all" && String(e.organization_id ?? "") !== fleetOrgId) {
-            return false;
-          }
-          return true;
-        })
-        .reduce((sum, e) => sum + (Number(e.amount) || 0), 0),
-    );
-    if (byLedger > 0) return byLedger;
-    return Math.round(
-      scopedTrips.reduce((sum, t) => sum + (receivedByTripId[t.id] ?? 0), 0),
-    );
-  }, [ledgerEntries, monthKey, fleetOrgId, scopedTrips, receivedByTripId]);
+  const receivedTotal = useMemo(
+    () =>
+      Math.round(
+        scopedTrips.reduce((sum, t) => sum + (receivedByTripId[t.id] ?? 0), 0),
+      ),
+    [scopedTrips, receivedByTripId],
+  );
 
   const pendingTotal = Math.max(0, earnedTotal - receivedTotal);
   const collectedPct =
     earnedTotal > 0 ? Math.min(100, Math.round((receivedTotal / earnedTotal) * 100)) : 0;
+
+  const monthPnl = useMemo(() => {
+    const scopedIds = new Set(scopedTrips.map((t) => String(t.id)));
+    let spent = 0;
+    let fuel = 0;
+    let toll = 0;
+    let other = 0;
+    for (const row of tripExpenses) {
+      if (!scopedIds.has(String(row.tripId))) continue;
+      const amt = Math.max(0, Math.round(Number(row.amount) || 0));
+      spent += amt;
+      const kind = String(row.kind ?? "").toLowerCase();
+      if (kind === "fuel") fuel += amt;
+      else if (kind === "toll") toll += amt;
+      else other += amt;
+    }
+    const margin = Math.round(earnedTotal - spent);
+    const denom = earnedTotal > 0 ? earnedTotal : spent > 0 ? spent : 1;
+    const spentShare = Math.min(100, Math.round((spent / denom) * 100));
+    const marginPct =
+      earnedTotal > 0 ? Math.round((margin / earnedTotal) * 100) : spent > 0 ? 0 : 100;
+    return {
+      spent,
+      fuel,
+      toll,
+      other,
+      margin,
+      spentShare,
+      marginShare: Math.max(0, 100 - spentShare),
+      marginPct,
+      isLoss: margin < 0,
+    };
+  }, [scopedTrips, tripExpenses, earnedTotal]);
+
+  const spentByTripId = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const row of tripExpenses) {
+      const id = String(row.tripId ?? "");
+      if (!id) continue;
+      map[id] = (map[id] ?? 0) + Math.max(0, Math.round(Number(row.amount) || 0));
+    }
+    return map;
+  }, [tripExpenses]);
 
   const dayBuckets = useMemo(() => {
     const map = new Map<string, DayBucket>();
@@ -316,7 +374,9 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
       const key = dayKeyFromDate(d);
       const earned = Math.round(tripEarnings(trip));
       const received = Math.round(receivedByTripId[trip.id] ?? 0);
+      const spent = Math.round(spentByTripId[String(trip.id)] ?? 0);
       const pending = Math.max(0, earned - received);
+      const needsTag = showMonthPnl && tripNeedsPartyTag(trip);
       const meta = tripMeta(trip);
       const route =
         [meta.from.trim(), meta.to.trim()].filter(Boolean).join(" → ") ||
@@ -329,11 +389,13 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
           label: formatDayLabel(key),
           earned: 0,
           received: 0,
+          spent: 0,
           tripCount: 0,
           trips: [],
         } satisfies DayBucket);
       prev.earned += earned;
       prev.received += received;
+      prev.spent += spent;
       prev.tripCount += 1;
       prev.trips.push({
         id: String(trip.id),
@@ -342,6 +404,8 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
         earned,
         received,
         pending,
+        spent,
+        needsTag,
         meta,
       });
       map.set(key, prev);
@@ -351,9 +415,10 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
         ...b,
         earned: Math.round(b.earned),
         received: Math.round(b.received),
+        spent: Math.round(b.spent),
       }))
       .sort((a, b) => (a.dayKey < b.dayKey ? 1 : -1));
-  }, [scopedTrips, tripEarnings, receivedByTripId, tripMeta]);
+  }, [scopedTrips, tripEarnings, receivedByTripId, tripMeta, spentByTripId, showMonthPnl]);
 
   const displayDayBuckets = useMemo(() => {
     if (!dueOnly && !selectMode) return dayBuckets;
@@ -363,12 +428,14 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
         if (trips.length === 0) return null;
         const earned = trips.reduce((s, t) => s + t.earned, 0);
         const received = trips.reduce((s, t) => s + t.received, 0);
+        const spent = trips.reduce((s, t) => s + t.spent, 0);
         return {
           ...day,
           trips,
           tripCount: trips.length,
           earned,
           received,
+          spent,
         };
       })
       .filter((d): d is DayBucket => Boolean(d));
@@ -672,20 +739,18 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
           }}
           style={[
             styles.monthNavBtn,
-            {
-              backgroundColor: isDark ? "rgba(4,120,87,0.16)" : Theme.driverEmeraldMuted,
-            },
+            { backgroundColor: isDark ? "rgba(4,120,87,0.16)" : Theme.driverEmeraldMuted },
           ]}
           hitSlop={6}
           accessibilityRole="button"
           accessibilityLabel="Previous month"
         >
-          <ChevronLeft size={18} color={colors.emerald} strokeWidth={2.4} />
+          <ChevronLeft size={16} color={colors.emerald} strokeWidth={2.4} />
         </Pressable>
 
         <View style={styles.monthCenter}>
           <View style={styles.monthEyebrow}>
-            <CalendarDays size={12} color={colors.emerald} strokeWidth={2.4} />
+            <CalendarDays size={11} color={colors.emerald} strokeWidth={2.4} />
             <Text style={[styles.monthEyebrowText, { color: colors.emerald }]}>Period</Text>
           </View>
           <Text style={[styles.monthLabel, { color: colors.text }]} numberOfLines={1}>
@@ -706,15 +771,7 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
           }}
           style={[
             styles.monthNavBtn,
-            {
-              backgroundColor: canGoNext
-                ? isDark
-                  ? "rgba(4,120,87,0.16)"
-                  : Theme.driverEmeraldMuted
-                : isDark
-                  ? colors.surface
-                  : Theme.surfaceGray,
-            },
+            { backgroundColor: isDark ? "rgba(4,120,87,0.16)" : Theme.driverEmeraldMuted },
             !canGoNext && styles.monthNavDisabled,
           ]}
           hitSlop={6}
@@ -723,7 +780,7 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
           accessibilityLabel="Next month"
         >
           <ChevronRight
-            size={18}
+            size={16}
             color={canGoNext ? colors.emerald : colors.textMuted}
             strokeWidth={2.4}
           />
@@ -844,27 +901,93 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
           </Text>
         </View>
 
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: `${collectedPct}%` }]} />
+        <View style={styles.progressPairRow}>
+          <View style={styles.progressPairCol}>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${collectedPct}%` }]} />
+            </View>
+            <Text style={styles.progressCaption} numberOfLines={2}>
+              {collectedPct}% received · ₹{pendingTotal.toLocaleString("en-IN")} pending
+            </Text>
+          </View>
+          {showMonthPnl ? (
+            <View style={styles.progressPairCol}>
+              <View style={styles.pnlBarTrack}>
+                {monthPnl.spent > 0 ? (
+                  <View
+                    style={[
+                      styles.pnlBarSpent,
+                      { width: `${monthPnl.isLoss ? 100 : monthPnl.spentShare}%` },
+                    ]}
+                  />
+                ) : null}
+                {!monthPnl.isLoss && (monthPnl.marginShare > 0 || monthPnl.spent === 0) ? (
+                  <View
+                    style={[
+                      styles.pnlBarKeep,
+                      { width: `${monthPnl.spent === 0 ? 100 : monthPnl.marginShare}%` },
+                    ]}
+                  />
+                ) : null}
+              </View>
+              <Text style={[styles.progressCaption, styles.progressCaptionEnd]} numberOfLines={2}>
+                {monthPnl.spentShare}% spent · ₹
+                {Math.abs(monthPnl.margin).toLocaleString("en-IN")}{" "}
+                {monthPnl.isLoss ? "loss" : "margin"}
+              </Text>
+            </View>
+          ) : null}
         </View>
-        <Text style={styles.progressCaption}>
-          {collectedPct}% received · ₹{pendingTotal.toLocaleString("en-IN")} pending
-        </Text>
 
         <View style={styles.heroMetricRow}>
           <View style={styles.heroMetric}>
             <Text style={styles.heroMetricLabel}>Received</Text>
-            <Text style={styles.heroMetricValue}>
+            <Text style={styles.heroMetricValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
               ₹{receivedTotal.toLocaleString("en-IN")}
             </Text>
           </View>
           <View style={styles.heroMetricDivider} />
           <View style={styles.heroMetric}>
             <Text style={styles.heroMetricLabel}>Pending</Text>
-            <Text style={styles.heroMetricValue}>
+            <Text style={styles.heroMetricValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
               ₹{pendingTotal.toLocaleString("en-IN")}
             </Text>
           </View>
+          {showMonthPnl ? (
+            <>
+              <View style={styles.heroMetricDivider} />
+              <View style={styles.heroMetric}>
+                <Text style={styles.heroMetricLabel}>Spent</Text>
+                <Text
+                  style={[styles.heroMetricValue, styles.pnlSpentValue]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.65}
+                >
+                  ₹{monthPnl.spent.toLocaleString("en-IN")}
+                </Text>
+              </View>
+              <View style={styles.heroMetricDivider} />
+              <View style={styles.heroMetric}>
+                <Text style={styles.heroMetricLabel}>
+                  {monthPnl.isLoss ? "Loss" : "Margin"}
+                  {` ${monthPnl.isLoss ? "" : "+"}${monthPnl.marginPct}%`}
+                </Text>
+                <Text
+                  style={[
+                    styles.heroMetricValue,
+                    monthPnl.isLoss ? styles.pnlLossValue : null,
+                  ]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.65}
+                >
+                  {monthPnl.isLoss ? "−" : ""}₹
+                  {Math.abs(monthPnl.margin).toLocaleString("en-IN")}
+                </Text>
+              </View>
+            </>
+          ) : null}
         </View>
       </LinearGradient>
 
@@ -1111,13 +1234,32 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
                         {day.tripCount} trip{day.tripCount === 1 ? "" : "s"}
                       </Text>
                     </View>
+                    {showMonthPnl ? (
+                      <View style={styles.daySpendMid} accessibilityLabel={`Spend ₹${day.spent}`}>
+                        <Text style={[styles.daySpendLabel, { color: colors.textMuted }]}>Spend</Text>
+                        <Text
+                          style={[styles.daySpendValue, { color: Theme.driverGold }]}
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.8}
+                        >
+                          ₹{day.spent.toLocaleString("en-IN")}
+                        </Text>
+                      </View>
+                    ) : null}
                     <View style={styles.dayRight}>
                       <Text style={[styles.dayEarned, { color: colors.text }]}>
                         ₹{day.earned.toLocaleString("en-IN")}
                       </Text>
-                      <Text style={[styles.dayReceived, { color: colors.emerald }]}>
-                        Received ₹{day.received.toLocaleString("en-IN")}
-                      </Text>
+                      {day.earned - day.received > 0 ? (
+                        <Text style={[styles.dayReceived, { color: Theme.warning }]}>
+                          Due ₹{Math.max(0, day.earned - day.received).toLocaleString("en-IN")}
+                        </Text>
+                      ) : (
+                        <Text style={[styles.dayReceived, { color: colors.emerald }]}>
+                          Received ₹{day.received.toLocaleString("en-IN")}
+                        </Text>
+                      )}
                     </View>
                     {expanded ? (
                       <ChevronUp size={16} color={colors.textMuted} strokeWidth={2.2} />
@@ -1144,10 +1286,12 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
                         const tripId = String(line.id);
                         const isSelected = selectedIds.includes(tripId);
                         const canSelect = isPending && !lineCooldown.blocked;
+                        const ends = routeEnds(line.route, line.meta.from, line.meta.to);
+                        const tripLabel = line.meta.displayId?.trim() || "Trip";
+                        const fleetLabel = line.meta.fleetName?.trim() || "Fleet";
                         return (
                           <Pressable
                             key={tripId}
-                            disabled={!selectMode || !canSelect}
                             onPress={() => {
                               if (!selectMode) return;
                               if (!canSelect) {
@@ -1160,7 +1304,7 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
                               }
                               toggleSelected(line);
                             }}
-                            accessibilityRole={selectMode ? "checkbox" : "button"}
+                            accessibilityRole={selectMode ? "checkbox" : "none"}
                             accessibilityState={
                               selectMode ? { checked: isSelected, disabled: !canSelect } : undefined
                             }
@@ -1183,7 +1327,7 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
                               },
                             ]}
                           >
-                            <View style={styles.dayTripRow}>
+                            <View style={styles.dayTripHead}>
                               {selectMode ? (
                                 isSelected ? (
                                   <CheckSquare
@@ -1214,61 +1358,227 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
                                   ]}
                                 >
                                   <Route
-                                    size={13}
+                                    size={14}
                                     color={isPending ? Theme.warning : colors.emerald}
                                     strokeWidth={2.3}
                                   />
                                 </View>
                               )}
-                              <Text
-                                style={[styles.dayTripRoute, { color: colors.text }]}
-                                numberOfLines={2}
-                              >
-                                {line.route}
-                              </Text>
-                              <View style={styles.dayTripAmounts}>
-                                <Text style={[styles.dayTripEarned, { color: colors.text }]}>
-                                  ₹{line.earned.toLocaleString("en-IN")}
+                              <View style={styles.dayTripHeadText}>
+                                <Text
+                                  style={[styles.dayTripId, { color: colors.text }]}
+                                  numberOfLines={1}
+                                >
+                                  {tripLabel}
                                 </Text>
                                 <Text
+                                  style={[styles.dayTripFleet, { color: colors.textMuted }]}
+                                  numberOfLines={1}
+                                >
+                                  {fleetLabel}
+                                </Text>
+                              </View>
+                              {line.needsTag ? (
+                                <Pressable
+                                  onPress={(event) => {
+                                    event?.stopPropagation?.();
+                                    router.push({
+                                      pathname: "/(driver)/add-client",
+                                      params: {
+                                        tripId,
+                                        partyName: fleetLabel,
+                                      },
+                                    } as Href);
+                                  }}
+                                  hitSlop={10}
+                                  accessibilityRole="button"
+                                  accessibilityLabel="Tag party"
+                                  style={({ pressed }) => [
+                                    styles.tagChip,
+                                    {
+                                      backgroundColor: Theme.driverEmeraldMuted,
+                                      borderColor: Theme.driverEmeraldBorder,
+                                      opacity: pressed ? 0.85 : 1,
+                                    },
+                                  ]}
+                                >
+                                  <Tag size={10} color={colors.emerald} strokeWidth={2.4} />
+                                  <Text style={[styles.tagChipText, { color: colors.emerald }]}>
+                                    Tag
+                                  </Text>
+                                </Pressable>
+                              ) : null}
+                              <View
+                                style={[
+                                  styles.dayTripStatus,
+                                  {
+                                    backgroundColor: isPending
+                                      ? isDark
+                                        ? "rgba(245,158,11,0.16)"
+                                        : "rgba(255,247,237,0.95)"
+                                      : isDark
+                                        ? "rgba(4,120,87,0.16)"
+                                        : Theme.driverEmeraldMuted,
+                                  },
+                                ]}
+                              >
+                                <Text
                                   style={[
-                                    styles.dayTripReceived,
+                                    styles.dayTripStatusText,
                                     { color: isPending ? Theme.warning : colors.emerald },
                                   ]}
                                 >
-                                  {isPending
-                                    ? `due ₹${line.pending.toLocaleString("en-IN")}`
-                                    : `recv ₹${line.received.toLocaleString("en-IN")}`}
+                                  {isPending ? "Due" : "Settled"}
+                                </Text>
+                              </View>
+                            </View>
+
+                            {"from" in ends ? (
+                              <View style={styles.dayTripRouteBlock}>
+                                <Text
+                                  style={[styles.dayTripPlace, { color: colors.text }]}
+                                  numberOfLines={2}
+                                >
+                                  {ends.from}
+                                </Text>
+                                <ArrowRight
+                                  size={12}
+                                  color={colors.textMuted}
+                                  strokeWidth={2.2}
+                                  style={styles.dayTripArrow}
+                                />
+                                <Text
+                                  style={[styles.dayTripPlace, { color: colors.text }]}
+                                  numberOfLines={2}
+                                >
+                                  {ends.to}
+                                </Text>
+                              </View>
+                            ) : (
+                              <Text
+                                style={[styles.dayTripPlace, styles.dayTripPlaceSingle, { color: colors.text }]}
+                                numberOfLines={2}
+                              >
+                                {ends.single}
+                              </Text>
+                            )}
+
+                            <View
+                              style={[
+                                styles.dayTripStats,
+                                {
+                                  backgroundColor: isDark
+                                    ? "rgba(15,23,42,0.35)"
+                                    : "rgba(248,250,252,0.95)",
+                                  borderColor: isDark ? colors.borderSubtle : "rgba(226,232,240,0.95)",
+                                },
+                              ]}
+                            >
+                              <View style={styles.dayTripStat}>
+                                <Text style={[styles.dayTripStatLabel, { color: colors.textMuted }]}>
+                                  Earned
+                                </Text>
+                                <Text style={[styles.dayTripStatValue, { color: colors.text }]}>
+                                  ₹{line.earned.toLocaleString("en-IN")}
+                                </Text>
+                              </View>
+                              {showMonthPnl ? (
+                                <>
+                                  <View
+                                    style={[
+                                      styles.dayTripStatRule,
+                                      { backgroundColor: isDark ? colors.borderSubtle : Theme.borderLight },
+                                    ]}
+                                  />
+                                  <View style={styles.dayTripStat}>
+                                    <Text style={[styles.dayTripStatLabel, { color: colors.textMuted }]}>
+                                      Spend
+                                    </Text>
+                                    <Text
+                                      style={[styles.dayTripStatValue, { color: Theme.driverGold }]}
+                                      numberOfLines={1}
+                                    >
+                                      ₹{line.spent.toLocaleString("en-IN")}
+                                    </Text>
+                                  </View>
+                                </>
+                              ) : null}
+                              <View
+                                style={[
+                                  styles.dayTripStatRule,
+                                  { backgroundColor: isDark ? colors.borderSubtle : Theme.borderLight },
+                                ]}
+                              />
+                              <View style={styles.dayTripStat}>
+                                <Text style={[styles.dayTripStatLabel, { color: colors.textMuted }]}>
+                                  Received
+                                </Text>
+                                <Text
+                                  style={[
+                                    styles.dayTripStatValue,
+                                    { color: line.received > 0 ? colors.emerald : colors.textMuted },
+                                  ]}
+                                >
+                                  ₹{line.received.toLocaleString("en-IN")}
+                                </Text>
+                              </View>
+                              <View
+                                style={[
+                                  styles.dayTripStatRule,
+                                  { backgroundColor: isDark ? colors.borderSubtle : Theme.borderLight },
+                                ]}
+                              />
+                              <View style={styles.dayTripStat}>
+                                <Text style={[styles.dayTripStatLabel, { color: colors.textMuted }]}>
+                                  Due
+                                </Text>
+                                <Text
+                                  style={[
+                                    styles.dayTripStatValue,
+                                    { color: isPending ? Theme.warning : colors.textMuted },
+                                  ]}
+                                >
+                                  ₹{line.pending.toLocaleString("en-IN")}
                                 </Text>
                               </View>
                             </View>
                             {isPending && !selectMode ? (
-                              <Pressable
-                                onPress={() => openFollowUp(line)}
-                                style={({ pressed }) => [
-                                  styles.followUpBtn,
-                                  {
-                                    backgroundColor: isDark
-                                      ? "rgba(4,120,87,0.18)"
-                                      : Theme.driverEmeraldMuted,
-                                    borderColor: isDark
-                                      ? "rgba(4,120,87,0.35)"
-                                      : Theme.driverEmeraldBorderSoft,
-                                    opacity: pressed ? 0.88 : 1,
-                                  },
-                                ]}
-                                accessibilityRole="button"
-                                accessibilityLabel="Follow up and request payment"
-                              >
-                                <Bell size={13} color={colors.emerald} strokeWidth={2.4} />
-                                <Text style={[styles.followUpBtnText, { color: colors.emerald }]}>
-                                  {lineCooldown.blocked
-                                    ? "View reminder"
-                                    : line.meta.lastReminderAt
-                                      ? "Follow up"
-                                      : "Request payment"}
-                                </Text>
-                              </Pressable>
+                              <View style={styles.dayTripActions}>
+                                <DriverCapturePaymentButton
+                                  tripId={line.id}
+                                  due={line.pending}
+                                  lane="fleet"
+                                  partyName={line.meta.fleetName}
+                                  block
+                                  label="Capture commission"
+                                />
+                                <Pressable
+                                  onPress={() => openFollowUp(line)}
+                                  style={({ pressed }) => [
+                                    styles.followUpBtn,
+                                    {
+                                      backgroundColor: isDark
+                                        ? "rgba(4,120,87,0.18)"
+                                        : Theme.driverEmeraldMuted,
+                                      borderColor: isDark
+                                        ? "rgba(4,120,87,0.35)"
+                                        : Theme.driverEmeraldBorderSoft,
+                                      opacity: pressed ? 0.88 : 1,
+                                    },
+                                  ]}
+                                  accessibilityRole="button"
+                                  accessibilityLabel="Follow up and request payment"
+                                >
+                                  <Bell size={14} color={colors.emerald} strokeWidth={2.4} />
+                                  <Text style={[styles.followUpBtnText, { color: colors.emerald }]}>
+                                    {lineCooldown.blocked
+                                      ? "View reminder"
+                                      : line.meta.lastReminderAt
+                                        ? "Follow up"
+                                        : "Request"}
+                                  </Text>
+                                </Pressable>
+                              </View>
                             ) : null}
                           </Pressable>
                         );
@@ -1317,7 +1627,7 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
         onRequestClose={closeFollowUp}
         statusBarTranslucent
       >
-        <View style={styles.fullPageRoot}>
+        <View style={styles.fullPage}>
           <View
             style={[
               styles.fullPage,
@@ -1559,43 +1869,47 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
 const styles = StyleSheet.create({
   root: {
     width: "100%",
+    paddingTop: 8,
     paddingBottom: 28,
-    gap: 14,
+    gap: 10,
   },
   monthCard: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     gap: 10,
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 10,
-    paddingVertical: 10,
-    minHeight: 76,
+    paddingVertical: 8,
     ...Platform.select({
       ios: {
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.06,
-        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.04,
+        shadowRadius: 6,
       },
-      android: { elevation: 2 },
+      android: { elevation: 1 },
       default: {},
     }),
   },
   monthNavBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+    width: 34,
+    height: 34,
+    borderRadius: 11,
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
   monthNavDisabled: {
-    opacity: 0.55,
+    opacity: 0.38,
   },
   monthCenter: {
     flex: 1,
     minWidth: 0,
     alignItems: "center",
+    justifyContent: "center",
     gap: 2,
+    paddingHorizontal: 6,
   },
   monthEyebrow: {
     flexDirection: "row",
@@ -1604,18 +1918,22 @@ const styles = StyleSheet.create({
   },
   monthEyebrowText: {
     ...driverUISemiBold,
-    fontSize: 10,
-    letterSpacing: 0.8,
+    fontSize: 9,
+    letterSpacing: 0.7,
     textTransform: "uppercase",
   },
   monthLabel: {
     ...driverUIExtraBold,
-    fontSize: 17,
-    letterSpacing: -0.3,
+    fontSize: 15,
+    letterSpacing: -0.2,
+    textAlign: "center",
+    lineHeight: 18,
   },
   monthHint: {
     ...driverBodySecondary,
-    fontSize: 11,
+    fontSize: 10,
+    lineHeight: 13,
+    textAlign: "center",
   },
   fleetChipScroll: {
     flexGrow: 0,
@@ -1868,12 +2186,22 @@ const styles = StyleSheet.create({
     lineHeight: 42,
     flexShrink: 1,
   },
+  progressPairRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    marginTop: 2,
+  },
+  progressPairCol: {
+    flex: 1,
+    minWidth: 0,
+    gap: 5,
+  },
   progressTrack: {
     height: 6,
     borderRadius: 999,
     backgroundColor: "rgba(255,255,255,0.16)",
     overflow: "hidden",
-    marginTop: 2,
   },
   progressFill: {
     height: "100%",
@@ -1882,8 +2210,12 @@ const styles = StyleSheet.create({
   },
   progressCaption: {
     fontFamily: DriverFontFamily.medium,
-    fontSize: 11,
+    fontSize: 10,
+    lineHeight: 13,
     color: "rgba(167,243,208,0.85)",
+  },
+  progressCaptionEnd: {
+    textAlign: "right",
   },
   heroMetricRow: {
     flexDirection: "row",
@@ -1892,13 +2224,14 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.10)",
     borderRadius: 14,
     paddingVertical: 10,
-    paddingHorizontal: 8,
+    paddingHorizontal: 4,
   },
   heroMetric: {
     flex: 1,
     alignItems: "center",
     gap: 2,
     minWidth: 0,
+    paddingHorizontal: 2,
   },
   heroMetricDivider: {
     width: StyleSheet.hairlineWidth,
@@ -1908,16 +2241,42 @@ const styles = StyleSheet.create({
   },
   heroMetricLabel: {
     fontFamily: DriverFontFamily.semiBold,
-    fontSize: 10,
-    letterSpacing: 0.6,
+    fontSize: 9,
+    letterSpacing: 0.2,
     textTransform: "uppercase",
     color: "rgba(167,243,208,0.8)",
+    textAlign: "center",
   },
   heroMetricValue: {
     fontFamily: DriverFontFamily.bold,
-    fontSize: 15,
+    fontSize: 13,
     letterSpacing: -0.2,
     color: "#ffffff",
+    textAlign: "center",
+    width: "100%",
+  },
+  pnlBarTrack: {
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    overflow: "hidden",
+    flexDirection: "row",
+  },
+  pnlBarSpent: {
+    height: "100%",
+    backgroundColor: Theme.driverGold,
+    minWidth: 4,
+  },
+  pnlBarKeep: {
+    height: "100%",
+    backgroundColor: "rgba(167,243,208,0.92)",
+    minWidth: 4,
+  },
+  pnlSpentValue: {
+    color: Theme.driverGold,
+  },
+  pnlLossValue: {
+    color: Theme.warningMuted,
   },
   daysHeader: {
     flexDirection: "row",
@@ -2032,7 +2391,7 @@ const styles = StyleSheet.create({
     minHeight: 56,
   },
   dayLeft: {
-    flex: 1,
+    flex: 1.35,
     minWidth: 0,
     gap: 2,
   },
@@ -2044,7 +2403,30 @@ const styles = StyleSheet.create({
     ...driverBodySecondary,
     fontSize: 11,
   },
+  daySpendMid: {
+    flex: 0.9,
+    minWidth: 56,
+    maxWidth: 88,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 1,
+    paddingHorizontal: 4,
+  },
+  daySpendLabel: {
+    ...driverUISemiBold,
+    fontSize: 8,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  daySpendValue: {
+    ...driverUIBold,
+    fontSize: 11,
+    fontVariant: ["tabular-nums"],
+    letterSpacing: -0.2,
+  },
   dayRight: {
+    flex: 1,
+    minWidth: 0,
     alignItems: "flex-end",
     gap: 2,
   },
@@ -2066,63 +2448,138 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   dayTripRowWrap: {
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 12,
+    gap: 10,
   },
-  dayTripRow: {
+  dayTripHead: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
+    gap: 10,
+  },
+  dayTripHeadText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  dayTripId: {
+    ...driverUIBold,
+    fontSize: 13,
+    letterSpacing: -0.2,
+  },
+  dayTripFleet: {
+    ...driverBodySecondary,
+    fontSize: 11,
+  },
+  tagChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    minHeight: 28,
+    minWidth: 44,
+    flexShrink: 0,
+    zIndex: 2,
+  },
+  tagChipText: {
+    ...driverUIBold,
+    fontSize: 10,
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+  },
+  dayTripStatus: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  dayTripStatusText: {
+    ...driverUIBold,
+    fontSize: 10,
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
   },
   dayTripIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 9,
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
-  dayTripRoute: {
+  dayTripRouteBlock: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+  },
+  dayTripPlace: {
     ...driverUISemiBold,
     flex: 1,
     minWidth: 0,
     fontSize: 12,
     lineHeight: 16,
   },
-  dayTripAmounts: {
-    alignItems: "flex-end",
-    gap: 2,
+  dayTripPlaceSingle: {
+    paddingRight: 4,
   },
-  dayTripEarned: {
+  dayTripArrow: {
+    marginTop: 2,
+  },
+  dayTripStats: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 8,
+  },
+  dayTripStat: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: "center",
+    gap: 2,
+    paddingHorizontal: 4,
+  },
+  dayTripStatRule: {
+    width: StyleSheet.hairlineWidth,
+    alignSelf: "stretch",
+  },
+  dayTripStatLabel: {
+    ...driverUISemiBold,
+    fontSize: 9,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+  dayTripStatValue: {
     ...driverUIBold,
     fontSize: 12,
     fontVariant: ["tabular-nums"],
+    letterSpacing: -0.2,
   },
-  dayTripReceived: {
-    ...driverUISemiBold,
-    fontSize: 10,
-    fontVariant: ["tabular-nums"],
+  dayTripActions: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 8,
   },
   followUpBtn: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    marginHorizontal: 8,
-    marginBottom: 8,
-    minHeight: 40,
-    borderRadius: 10,
+    minHeight: 44,
+    borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 12,
   },
   followUpBtnText: {
     ...driverUIBold,
-    fontSize: 12,
-  },
-  fullPageRoot: {
-    flex: 1,
+    fontSize: 13,
   },
   fullPage: {
     flex: 1,

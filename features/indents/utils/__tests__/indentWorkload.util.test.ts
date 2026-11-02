@@ -6,6 +6,7 @@ import {
   indentWorkloadStatusTag,
   isIndentPickupPassed,
   LIVE_INDENT_STATUSES,
+  NEEDS_TRIP_WINDOW_DAYS,
 } from "@/features/indents/utils/indentWorkload.util";
 
 // 2026-10-28 00:30 IST is still 27 Oct in UTC: bounds must use the IST day.
@@ -13,7 +14,8 @@ const NOW = new Date("2026-10-27T19:00:00Z");
 const BOUNDS = { today: "2026-10-28", needsTripFrom: "2026-10-21" };
 
 describe("indentWorkloadBounds", () => {
-  it("uses the Asia/Kolkata calendar day and a 7-day needs-trip window", () => {
+  it("uses the Asia/Kolkata calendar day and a 7-day needs_trip floor", () => {
+    expect(NEEDS_TRIP_WINDOW_DAYS).toBe(7);
     expect(indentWorkloadBounds(NOW)).toEqual(BOUNDS);
     expect(indentWorkloadBounds(new Date("2026-10-27T18:29:59Z"))).toEqual({
       today: "2026-10-27",
@@ -41,12 +43,14 @@ describe("classifyIndentWorkload", () => {
     expect(live("2026-10-27")).toBeNull();
   });
 
-  it("needs_trip: awarded with pickup on/after today − 7, or no pickup date", () => {
+  it("needs_trip (no pill): awarded within today−7, or no pickup date", () => {
     const award = (pickup_date: string | null) =>
       classifyIndentWorkload({ status: "awarded", pickup_date }, false, BOUNDS);
     expect(award("2026-10-21")).toBe("needs_trip");
     expect(award("2026-10-30")).toBe("needs_trip");
     expect(award(null)).toBe("needs_trip");
+    // Older than the rolling window drops out until a date pill overrides it.
+    expect(award("2026-09-15")).toBeNull();
     expect(award("2026-10-20")).toBeNull();
   });
 
@@ -72,7 +76,7 @@ describe("classifyIndentWorkload", () => {
 });
 
 describe("indentWorkloadOrFilter", () => {
-  it("matches the client rules (status + pickup window, null pickup kept)", () => {
+  it("matches the client rules (live today+; needs_trip today−7)", () => {
     expect(indentWorkloadOrFilter("live", BOUNDS)).toBe(
       "and(status.in.(broadcast,open),or(pickup_date.gte.2026-10-28,pickup_date.is.null))",
     );
@@ -83,6 +87,9 @@ describe("indentWorkloadOrFilter", () => {
 
   it("is the current workload when no hub date pill is set", () => {
     expect(indentWorkloadOrFilter("live", BOUNDS, null)).toBe(indentWorkloadOrFilter("live", BOUNDS));
+    expect(indentWorkloadOrFilter("needs_trip", BOUNDS, null)).toBe(
+      indentWorkloadOrFilter("needs_trip", BOUNDS),
+    );
     expect(
       classifyIndentWorkload({ status: "broadcast", pickup_date: "2026-10-27" }, false, BOUNDS, null),
     ).toBeNull();
@@ -97,9 +104,12 @@ describe("indentWorkloadOrFilter", () => {
     );
   });
 
-  it("dated filter never changes needs_trip", () => {
+  it("dated needs_trip uses the same range window (overrides the 7-day default)", () => {
     expect(indentWorkloadOrFilter("needs_trip", BOUNDS, WEEK)).toBe(
-      indentWorkloadOrFilter("needs_trip", BOUNDS),
+      "and(status.in.(awarded),or(" +
+        "and(pickup_date.gte.2026-10-26,pickup_date.lte.2026-11-01)," +
+        'and(pickup_date.is.null,created_at.gte."2026-10-26T00:00:00+05:30",' +
+        'created_at.lt."2026-11-02T00:00:00+05:30")))',
     );
   });
 });
@@ -107,6 +117,7 @@ describe("indentWorkloadOrFilter", () => {
 // "This week" on Thu 29 Oct 2026 (IST, Monday start).
 const WEEK = { from: "2026-10-26", to: "2026-11-01" };
 const TODAY_29 = { today: "2026-10-29", needsTripFrom: "2026-10-22" };
+const OCTOBER = { from: "2026-10-01", to: "2026-10-31" };
 
 describe("classifyIndentWorkload with a hub date range", () => {
   const dated = (indent: { status?: string; pickup_date?: string | null; created_at?: string | null }) =>
@@ -142,18 +153,23 @@ describe("classifyIndentWorkload with a hub date range", () => {
     expect(dated({ pickup_date: "2026-11-02" })).toBeNull();
   });
 
-  it("linked trips, non-live and needs-trip rules are unchanged", () => {
+  it("linked trips and non-live statuses stay out; needs_trip follows the pill", () => {
     expect(
       classifyIndentWorkload({ status: "broadcast", pickup_date: "2026-10-28" }, true, TODAY_29, WEEK),
     ).toBeNull();
     for (const status of ["pending", "draft", "cancelled", "expired", "completed"]) {
       expect(dated({ status, pickup_date: "2026-10-28" })).toBeNull();
     }
-    const award = (pickup_date: string | null) =>
-      classifyIndentWorkload({ status: "awarded", pickup_date }, false, TODAY_29, WEEK);
-    expect(award("2026-10-22")).toBe("needs_trip");
-    expect(award("2026-10-21")).toBeNull();
-    expect(award("2026-11-15")).toBe("needs_trip");
+    const award = (pickup_date: string | null, range = WEEK) =>
+      classifyIndentWorkload({ status: "awarded", pickup_date }, false, TODAY_29, range);
+    // Inside this week.
+    expect(award("2026-10-28")).toBe("needs_trip");
+    // Outside this week (would also be outside the 7-day default).
+    expect(award("2026-09-15")).toBeNull();
+    expect(award("2026-11-15")).toBeNull();
+    // This month brings Oct 23 back (the IND002935 case).
+    expect(award("2026-10-23", OCTOBER)).toBe("needs_trip");
+    expect(award("2026-09-15", OCTOBER)).toBeNull();
   });
 });
 
@@ -172,13 +188,19 @@ describe('hub date "All"', () => {
     ).toBeNull();
   });
 
-  it("needs_trip keeps its 7-day window", () => {
+  it("needs_trip keeps the 7-day window on All (dated pills widen it)", () => {
     expect(indentWorkloadOrFilter("needs_trip", TODAY_29, "all")).toBe(
-      indentWorkloadOrFilter("needs_trip", TODAY_29),
+      "and(status.in.(awarded),or(pickup_date.gte.2026-10-22,pickup_date.is.null))",
     );
     expect(
-      classifyIndentWorkload({ status: "awarded", pickup_date: "2026-10-21" }, false, TODAY_29, "all"),
+      classifyIndentWorkload({ status: "awarded", pickup_date: "2026-09-15" }, false, TODAY_29, "all"),
     ).toBeNull();
+    expect(
+      classifyIndentWorkload({ status: "awarded", pickup_date: "2026-10-23" }, false, TODAY_29, "all"),
+    ).toBe("needs_trip");
+    expect(
+      classifyIndentWorkload({ status: "awarded", pickup_date: null }, false, TODAY_29, "all"),
+    ).toBe("needs_trip");
   });
 });
 

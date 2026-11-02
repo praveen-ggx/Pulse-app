@@ -57,6 +57,18 @@ describe("indentAwardBlockedBecauseInactive", () => {
     );
   });
 
+  it("ignores leftover cancel_reason on awarded or open indents", () => {
+    expect(
+      indentFailedCategory({ status: "awarded", cancel_reason: "client_cancelled" }),
+    ).toBeNull();
+    expect(
+      indentFailedCategory({ status: "open", cancel_reason: "wrong_entry" }),
+    ).toBeNull();
+    expect(
+      indentFailedCategory({ status: "broadcast", cancel_reason: "indent_expired" }),
+    ).toBeNull();
+  });
+
   it("leaves the live award path open", () => {
     expect(indentAwardBlockedBecauseInactive("broadcast")).toBeNull();
     expect(indentAwardBlockedBecauseInactive("open")).toBeNull();

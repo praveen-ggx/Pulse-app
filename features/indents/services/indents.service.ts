@@ -757,6 +757,37 @@ export async function getBroadcastIndentTarget(
   };
 }
 
+/**
+ * Supplier target of the caller's own indent (RLS: org members). Unlike
+ * getBroadcastIndentTarget this does not need a broadcast post.
+ */
+export async function getOwnIndentSupplierTarget(
+  indentId: string | null | undefined,
+): Promise<{
+  supplier_target: number | null;
+  supplier_rate_basis: "per_mt" | "per_trip" | null;
+  weight: number | null;
+} | null> {
+  const id = (indentId ?? "").trim();
+  if (!id) return null;
+  const { data, error } = await supabase()
+    .from("indents")
+    .select("supplier_target, supplier_rate_basis, weight")
+    .eq("id", id)
+    .maybeSingle();
+  if (error || !data) return null;
+  const row = data as {
+    supplier_target: number | null;
+    supplier_rate_basis: "per_mt" | "per_trip" | null;
+    weight: number | null;
+  };
+  return {
+    supplier_target: row.supplier_target ?? null,
+    supplier_rate_basis: row.supplier_rate_basis ?? null,
+    weight: row.weight ?? null,
+  };
+}
+
 /** Supplier-facing target rate (not load-giver client sales price). */
 import { resolveCommercialPricing } from "@/features/marketplace/domain/commercialPricing";
 
@@ -1145,6 +1176,17 @@ export async function updateIndent(
     if (readError) return { error: new Error(readError.message), indent: null };
     const blocked = indentAwardBlockedBecauseInactive(current?.status);
     if (blocked) return { error: new Error(blocked), indent: null };
+  }
+
+  // cancel_reason is only for cancelled/expired. Clearing on award/reopen keeps
+  // Needs trip creation exclusive of Failed (DB trigger mirrors this).
+  const nextStatus = String(updates.status ?? "").trim().toLowerCase();
+  if (
+    nextStatus === "awarded" ||
+    nextStatus === "open" ||
+    nextStatus === "broadcast"
+  ) {
+    payload.cancel_reason = null;
   }
 
   const { data, error } = await supabase()

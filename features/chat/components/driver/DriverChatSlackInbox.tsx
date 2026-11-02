@@ -20,6 +20,7 @@ import { FlashList } from "@shopify/flash-list";
 import { memo, useCallback, useState } from "react";
 import { Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { driverConversationUnreadCount } from "@/features/chat/utils/driverChatUnread.util";
 
 function formatTripDate(iso: string | null | undefined): string {
   const raw = String(iso ?? "").trim();
@@ -109,7 +110,7 @@ function DriverChatSlackInboxInner({
           previewKind={listPreview.previewKind}
           previewImagePreviews={listPreview.previewImagePreviews}
           active={selectedId === item.id}
-          unread={item.unread_dispatcher_count}
+          unread={driverConversationUnreadCount(item)}
           showPreviewStar={showPreviewStar}
           previewStarFilled={previewStarFilled}
           onPressPreviewStar={() => setFeedbackConv(item)}

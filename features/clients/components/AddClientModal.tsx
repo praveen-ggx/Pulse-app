@@ -80,6 +80,17 @@ interface AddClientModalProps {
   onSendInvitation?: (toOrgId: string) => Promise<void>;
   /** "customer" (Customers tab) vs "client" (finance, indents) — success dialog copy. */
   successEntity?: "customer" | "client";
+  initialOrganizationName?: string;
+  initialContactPerson?: string;
+  initialPhone?: string;
+  /** Saved DCO / org clients — tap to reuse instead of creating another offline party. */
+  existingParties?: Array<{ id: string; name: string; phone?: string | null }>;
+  onSelectExistingParty?: (party: { id: string; name: string }) => void | Promise<void>;
+  existingPartyBusyId?: string | null;
+  /** When false, parent owns the success UI after create. */
+  showSuccessOnComplete?: boolean;
+  /** DCO Self only. User App / Finance still require both company and contact. */
+  allowSinglePartyName?: boolean;
 }
 
 const MIN_PHONE_LENGTH_FOR_SEARCH = 8;
@@ -95,13 +106,21 @@ export function AddClientModal({
   searchInviteeByPhone,
   onSendInvitation,
   successEntity = "client",
+  initialOrganizationName = "",
+  initialContactPerson = "",
+  initialPhone = "",
+  existingParties = [],
+  onSelectExistingParty,
+  existingPartyBusyId = null,
+  showSuccessOnComplete = true,
+  allowSinglePartyName = false,
 }: AddClientModalProps) {
   const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   const [showCreateSuccess, setShowCreateSuccess] = useState(false);
-  const [organizationName, setOrganizationName] = useState("");
-  const [contactPerson, setContactPerson] = useState("");
-  const [phone, setPhone] = useState("");
+  const [organizationName, setOrganizationName] = useState(initialOrganizationName);
+  const [contactPerson, setContactPerson] = useState(initialContactPerson);
+  const [phone, setPhone] = useState(initialPhone);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [inviteeMatch, setInviteeMatch] =
@@ -157,13 +176,17 @@ export function AddClientModal({
 
   const blockedByNoOrg = noOrganizationMessage != null;
   const phoneError = phone.trim() ? validatePhone(phone.trim()) : null;
+  const hasOfflineName =
+    organizationName.trim().length > 0 || contactPerson.trim().length > 0;
+  const hasRequiredNames = allowSinglePartyName
+    ? hasOfflineName
+    : organizationName.trim().length > 0 && contactPerson.trim().length > 0;
   const canSubmit =
     !blockedByNoOrg &&
     !driverRegisteredAtPhone &&
     !sameOrgMemberAtPhone &&
     !lookupFailed &&
-    organizationName.trim().length > 0 &&
-    contactPerson.trim().length > 0 &&
+    hasRequiredNames &&
     phone.trim().length > 0 &&
     !phoneError &&
     !submitting;
@@ -173,12 +196,52 @@ export function AddClientModal({
   );
   const hidePrimaryActionForDriverMatch = Boolean(inviteeMatch && inviteeIsDriver);
 
+  const existingPartyPicker =
+    existingParties.length > 0 && onSelectExistingParty ? (
+      <View style={styles.existingWrap}>
+        <Text style={styles.existingTitle}>Your shippers</Text>
+        <Text style={styles.existingHint}>
+          Select a saved client, or add a new offline shipper below. You can
+          fill GST and address later.
+        </Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.existingRow}
+        >
+          {existingParties.map((row) => (
+            <TouchableOpacity
+              key={row.id}
+              style={styles.existingChip}
+              onPress={() => void onSelectExistingParty({ id: row.id, name: row.name })}
+              disabled={!!existingPartyBusyId}
+              accessibilityRole="button"
+              accessibilityLabel={`Use ${row.name}`}
+            >
+              {existingPartyBusyId === row.id ? (
+                <ActivityIndicator size="small" color={Theme.primary} />
+              ) : (
+                <>
+                  <Text style={styles.existingChipName} numberOfLines={1}>
+                    {row.name}
+                  </Text>
+                  <Text style={styles.existingChipMeta} numberOfLines={1}>
+                    {row.phone?.trim() || "Offline"}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    ) : null;
+
   // Reset form when modal opens so each open shows empty fields (not previous submission).
   useEffect(() => {
     if (visible === true) {
-      setOrganizationName("");
-      setContactPerson("");
-      setPhone("");
+      setOrganizationName(initialOrganizationName);
+      setContactPerson(initialContactPerson);
+      setPhone(initialPhone);
       setError(null);
       setSubmitting(false);
       setInviteeMatch(null);
@@ -308,23 +371,27 @@ export function AddClientModal({
     }
     setError(null);
     setSubmitting(true);
+    const orgName = organizationName.trim() || contactPerson.trim();
+    const person = contactPerson.trim() || organizationName.trim();
     const result = onComplete({
-      organizationName: organizationName.trim(),
-      contactPerson: contactPerson.trim(),
+      organizationName: orgName,
+      contactPerson: person,
       phone: phone.trim(),
     });
     const p = result as void | Promise<unknown>;
     if (typeof p?.then === "function") {
       p.then(() => {
         setSubmitting(false);
-        setShowCreateSuccess(true);
+        if (showSuccessOnComplete) setShowCreateSuccess(true);
+        else onClose();
       }).catch((err: Error) => {
         setSubmitting(false);
         setError(err?.message ?? "Failed to add client");
       });
     } else {
       setSubmitting(false);
-      setShowCreateSuccess(true);
+      if (showSuccessOnComplete) setShowCreateSuccess(true);
+      else onClose();
     }
   };
 
@@ -358,6 +425,7 @@ export function AddClientModal({
           ) : null}
         </View>
       ) : null}
+      {existingPartyPicker}
       {/* First block: same layout as Ledger amount block (label on top, input row). Tappable so label/block focuses input. */}
       <Pressable
         style={styles.ledgerAmountBlock}
@@ -647,6 +715,8 @@ export function AddClientModal({
                 ) : null}
               </View>
             ) : null}
+
+            {existingPartyPicker}
 
             <Pressable
               onPress={() => phoneInputRef.current?.focus()}
@@ -1225,14 +1295,14 @@ const styles = StyleSheet.create({
   },
   screenScrollContent: {
     paddingHorizontal: Layout.screenPaddingHorizontal,
-    paddingTop: 20,
-    gap: 18,
+    paddingTop: 12,
+    gap: 12,
   },
   screenHeader: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingBottom: 14,
+    paddingBottom: 10,
     borderBottomWidth: 1,
     borderBottomColor: "rgba(0,0,0,0.06)",
     backgroundColor: Theme.screenBackground,
@@ -1255,13 +1325,14 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   screenTitle: {
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: "700",
     color: Theme.textPrimaryDark,
-    letterSpacing: -0.3,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
   },
   screenSection: {
-    gap: 14,
+    gap: 10,
   },
   screenSectionLabel: {
     fontSize: 10,
@@ -1273,9 +1344,9 @@ const styles = StyleSheet.create({
   },
   screenInputCard: {
     backgroundColor: Theme.screenBackground,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    minHeight: 88,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    minHeight: 64,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.03,
@@ -1350,12 +1421,12 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   screenActionTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "700",
     color: Theme.textPrimaryDark,
   },
   screenActionSubtitle: {
-    fontSize: 12,
+    fontSize: 11,
     color: Theme.textSecondary,
     marginTop: 2,
   },
@@ -1395,7 +1466,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   screenInviteeName: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: "700",
     color: Theme.textPrimaryDark,
   },
@@ -1414,6 +1485,50 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Theme.primary,
     textDecorationLine: "underline",
+  },
+  existingWrap: {
+    marginBottom: 12,
+    gap: 4,
+  },
+  existingTitle: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+  },
+  existingHint: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: Theme.textSecondary,
+    lineHeight: 16,
+  },
+  existingRow: {
+    gap: 8,
+    paddingVertical: 10,
+    paddingRight: 8,
+  },
+  existingChip: {
+    minWidth: 132,
+    maxWidth: 180,
+    minHeight: 52,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.surfaceBorder,
+    backgroundColor: Theme.cardWhite,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    justifyContent: "center",
+  },
+  existingChipName: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Theme.textPrimary,
+  },
+  existingChipMeta: {
+    marginTop: 2,
+    fontSize: 11,
+    color: Theme.textMuted,
   },
   screenStatusCard: {
     backgroundColor: Theme.screenBackground,

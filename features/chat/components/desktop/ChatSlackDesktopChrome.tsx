@@ -18,7 +18,11 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  type PressableStateCallbackType,
 } from "react-native";
+
+/** react-native-web adds `hovered`; native PressableStateCallbackType omits it. */
+type PressableHoverState = PressableStateCallbackType & { hovered?: boolean };
 import {
   SLACK_DESKTOP_AVATAR,
   slackDesktopStyles as st,
@@ -195,7 +199,7 @@ export function ChatSlackDesktopSidebarRow({
     <View ref={anchorRef} collapsable={false}>
       <Pressable
         onPress={onPress}
-        style={({ pressed, hovered }) => [
+        style={({ pressed, hovered }: PressableHoverState) => [
           st.sidebarRow,
           (hasImageStrip || hasDriverSwapPreview) && st.sidebarRowWithMedia,
           active && st.sidebarRowActive,

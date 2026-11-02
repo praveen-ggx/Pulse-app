@@ -34,8 +34,10 @@ export type MemberAccessSnapshot = {
   domains: MemberDomainFlags;
   surfaces: MemberSurfaceMap;
   isDepartmentManager: boolean;
-  /** Ground Ops only: warehouses whose trips this member sees. */
+  /** Ground Ops / Sourcing: warehouses whose indents and trips this member sees. */
   warehouseIds: string[];
+  /** Sourcing only: clients whose indents and trips this member sees (permissions.clientIds). */
+  clientIds: string[];
 };
 
 /** Default draft for a role preset (Invite starts here). */
@@ -50,6 +52,7 @@ export function accessSnapshotFromRole(
     surfaces,
     isDepartmentManager: false,
     warehouseIds: [],
+    clientIds: [],
   };
 }
 
@@ -67,6 +70,9 @@ export function accessSnapshotFromMember(
       (member.permissions as TeamInvitePermissions | null | undefined)
         ?.isDepartmentManager === true,
     warehouseIds,
+    clientIds: [
+      ...((member.permissions as TeamInvitePermissions | null | undefined)?.clientIds ?? []),
+    ],
   };
 }
 
@@ -91,6 +97,8 @@ export function accessSnapshotsEqual(
     a.isDepartmentManager === b.isDepartmentManager &&
     a.warehouseIds.length === b.warehouseIds.length &&
     a.warehouseIds.every((id) => b.warehouseIds.includes(id)) &&
+    a.clientIds.length === b.clientIds.length &&
+    a.clientIds.every((id) => b.clientIds.includes(id)) &&
     surfacesEqual(a.surfaces, b.surfaces)
   );
 }
@@ -137,6 +145,7 @@ export function useMemberAccessDraft(
         ...accessSnapshotFromRole(role, orgCaps),
         isDepartmentManager: prev.isDepartmentManager,
         warehouseIds: prev.warehouseIds,
+        clientIds: prev.clientIds,
         appliedPresetId: null,
       }));
     },
@@ -208,6 +217,15 @@ export function useMemberAccessDraft(
     }));
   }, []);
 
+  const toggleClient = useCallback((id: string, next: boolean) => {
+    setState((prev) => ({
+      ...prev,
+      clientIds: next
+        ? Array.from(new Set([...prev.clientIds, id]))
+        : prev.clientIds.filter((c) => c !== id),
+    }));
+  }, []);
+
   const enabledSurfaceCount = useMemo(
     () => MEMBER_SURFACE_CATALOG.filter((s) => state.surfaces[s.id] === true).length,
     [state.surfaces],
@@ -220,6 +238,7 @@ export function useMemberAccessDraft(
       surfaces: state.surfaces,
       isDepartmentManager: state.isDepartmentManager,
       warehouseIds: state.warehouseIds,
+      clientIds: state.clientIds,
     }),
     [
       state.platformRole,
@@ -227,6 +246,7 @@ export function useMemberAccessDraft(
       state.surfaces,
       state.isDepartmentManager,
       state.warehouseIds,
+      state.clientIds,
     ],
   );
 
@@ -243,5 +263,6 @@ export function useMemberAccessDraft(
     toggleSection,
     setIsDepartmentManager,
     toggleWarehouse,
+    toggleClient,
   };
 }

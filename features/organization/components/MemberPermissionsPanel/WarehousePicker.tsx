@@ -16,11 +16,23 @@ type Props = {
   isError: boolean;
   editable: boolean;
   onToggle: (id: string, next: boolean) => void;
+  /** Same picker for Sourcing clients: options carry the client as `name`. */
+  kind?: "warehouse" | "client";
 };
 
 const MAX_SUMMARY_CHIPS = 3;
 
-export function WarehousePicker({ options, selectedIds, isLoading, isError, editable, onToggle }: Props) {
+export function WarehousePicker({
+  options,
+  selectedIds,
+  isLoading,
+  isError,
+  editable,
+  onToggle,
+  kind = "warehouse",
+}: Props) {
+  const title = kind === "client" ? "Clients" : "Warehouses";
+  const noun = kind === "client" ? "clients" : "warehouses";
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
@@ -45,7 +57,9 @@ export function WarehousePicker({ options, selectedIds, isLoading, isError, edit
 
   const summary =
     selectedIds.length === 0
-      ? "None selected — they will see no trips"
+      ? kind === "client"
+        ? "None selected"
+        : "None selected — they will see no trips"
       : `${selectedIds.length} of ${options.length} selected`;
 
   return (
@@ -55,11 +69,11 @@ export function WarehousePicker({ options, selectedIds, isLoading, isError, edit
         style={({ pressed }) => [styles.head, pressed && { opacity: 0.85 }]}
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
-        accessibilityLabel="Warehouses"
+        accessibilityLabel={title}
       >
         <Warehouse size={15} color="#171717" strokeWidth={2} />
         <View style={styles.headCopy}>
-          <Text style={styles.title}>Warehouses</Text>
+          <Text style={styles.title}>{title}</Text>
           <Text
             style={[styles.summary, selectedIds.length === 0 && styles.summaryWarn]}
             numberOfLines={1}
@@ -94,9 +108,11 @@ export function WarehousePicker({ options, selectedIds, isLoading, isError, edit
         isLoading ? (
           <LoadingIndicator size="small" />
         ) : isError ? (
-          <Text style={styles.summary}>Couldn't load warehouses. Close and reopen to retry.</Text>
+          <Text style={styles.summary}>Couldn't load {noun}. Close and reopen to retry.</Text>
         ) : options.length === 0 ? (
-          <Text style={styles.summary}>No warehouses yet. Add them under a client first.</Text>
+          <Text style={styles.summary}>
+            {kind === "client" ? "No clients yet." : "No warehouses yet. Add them under a client first."}
+          </Text>
         ) : (
           <View style={styles.body}>
             {options.length > 6 ? (
@@ -105,7 +121,7 @@ export function WarehousePicker({ options, selectedIds, isLoading, isError, edit
                 <TextInput
                   value={query}
                   onChangeText={setQuery}
-                  placeholder="Search warehouse, city or client"
+                  placeholder={kind === "client" ? "Search client" : "Search warehouse, city or client"}
                   placeholderTextColor="#A3A3A3"
                   style={styles.searchInput}
                   autoCorrect={false}
@@ -127,7 +143,7 @@ export function WarehousePicker({ options, selectedIds, isLoading, isError, edit
                         style={styles.groupHead}
                         accessibilityRole="checkbox"
                         accessibilityState={{ checked: all ? true : onCount > 0 ? "mixed" : false }}
-                        accessibilityLabel={`All ${client} warehouses`}
+                        accessibilityLabel={`All ${client} ${noun}`}
                       >
                         <View style={[styles.box, onCount > 0 && styles.boxOn]}>
                           {all ? (

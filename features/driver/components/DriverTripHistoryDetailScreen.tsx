@@ -23,7 +23,14 @@ import * as tripDocumentsService from "@/features/trips/services/tripDocuments.s
 import * as driversService from "@/features/drivers/services/drivers.service";
 import * as salaryRequestsService from "@/features/drivers/services/salaryRequests.service";
 import * as tripsService from "@/features/trips/services/trips.service";
+import {
+  isTripTaggedToParty,
+  tripNeedsPartyTag,
+  tripReceivablePartyName,
+} from "@/features/drivers/utils/driverPartyReceivables.util";
 import { resolveDriverTripPayoutTerms } from "@/features/drivers/utils/driverUtils.util";
+import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
+import { ROUTES } from "@/lib/routes";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useFocusEffect } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -40,6 +47,7 @@ import {
   Route,
   Share2,
   ShieldCheck,
+  Tag,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -79,6 +87,7 @@ import {
 import { tripHistoryDetailStyles as styles } from "@/features/driver/tripHistory/tripHistoryDetail.styles";
 import { TripDetailSettlementPanel } from "@/features/driver/components/TripDetailSettlementPanel";
 import { DriverDocumentGalleryPreview } from "@/features/driver/components/DriverDocumentGalleryPreview";
+import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
 import { useTripVerificationSync } from "@/features/trips/verification";
 import { DriverTripOperationsTab } from "@/features/driver/components/DriverTripOperationsTab";
 import { useRegisterDriverContextTrip } from "@/contexts/DriverTripOpsContext";
@@ -172,6 +181,7 @@ export function DriverTripHistoryDetailScreen({
   const [detailPodViewUrls, setDetailPodViewUrls] = useState<Record<string, string>>({});
   const detailPodUrlRequestedRef = useRef<Set<string>>(new Set());
   const [podPreviewIndex, setPodPreviewIndex] = useState<number | null>(null);
+  const [collectFromOpen, setCollectFromOpen] = useState(false);
   const resolveDetailPodPreview = useCallback(
     async (doc: tripDocumentsService.TripDocumentRow): Promise<string | null> => {
       const cached = detailPodViewUrls[doc.id];
@@ -265,9 +275,11 @@ export function DriverTripHistoryDetailScreen({
     };
   }, [detailTab, trip?.id, trip?.driver_id, trip?.created_at, trip?.completed_at, trip?.updated_at]);
 
-  // Fleet attribution state
+  const { canTagOfflineParty } = useDriverOperatingModeQuery();
   const [linkedDriversFull, setLinkedDriversFull] = useState<driversService.DriverRow[]>([]);
-  const [attrSalaryRequests, setAttrSalaryRequests] = useState<salaryRequestsService.SalaryRequestRow[]>([]);
+  const [attrSalaryRequests, setAttrSalaryRequests] = useState<
+    salaryRequestsService.SalaryRequestRow[]
+  >([]);
   const [attributeLoading, setAttributeLoading] = useState(false);
 
   const tripRef = useRef<tripsService.TripRow | null>(null);
@@ -324,8 +336,11 @@ export function DriverTripHistoryDetailScreen({
       });
       const activeRows = allRows.filter((r) => !r.left_at);
       if (activeRows.length > 0) {
-        void salaryRequestsService.getSalaryRequestsByDriverIds(activeRows.map((r) => r.id))
-          .then((sRes) => { if (mounted) setAttrSalaryRequests(sRes.requests ?? []); });
+        void salaryRequestsService
+          .getSalaryRequestsByDriverIds(activeRows.map((r) => r.id))
+          .then((sRes) => {
+            if (mounted) setAttrSalaryRequests(sRes.requests ?? []);
+          });
       }
     });
     return () => {
@@ -544,11 +559,9 @@ export function DriverTripHistoryDetailScreen({
     if (!historyCurrentEmployer || !trip) return;
     setAttributeLoading(true);
     try {
-      // Independent write-path gate: the employer-relationship check above
-      // only proves an employer exists somewhere, not that it applies to
-      // THIS trip. Re-resolve this trip's actual agreed terms — an employee
-      // relationship does not imply the legacy 10% guess is payable.
-      const driverRow = linkedDriversFull.find((d) => d.id === historyCurrentEmployer.driverRowId);
+      const driverRow = linkedDriversFull.find(
+        (d) => d.id === historyCurrentEmployer.driverRowId,
+      );
       const invite = invites.find(
         (i) =>
           String(i.status ?? "").toLowerCase() === "accepted" &&
@@ -560,17 +573,25 @@ export function DriverTripHistoryDetailScreen({
         payableAmount: invite?.payable_amount ?? driverRow?.payable_amount ?? null,
       });
       if (!hasAgreedPayoutTerms || commissionDetail.amount <= 0) {
-        Alert.alert("No agreed payout terms", "This trip has no agreed payout terms and can't be attributed.");
+        Alert.alert(
+          "No agreed payout terms",
+          "This trip has no agreed payout terms and can't be attributed.",
+        );
         return;
       }
       const earnings = Math.round(commissionDetail.amount);
       const tripDate = trip.pickup_date ?? trip.started_at ?? trip.created_at ?? "";
       const tripDateStr = tripDate
-        ? new Date(tripDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
+        ? new Date(tripDate).toLocaleDateString("en-IN", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+          })
         : "";
       const tripRef = getDriverTripDisplayNumber(trip, driverTripNumberById);
       const attrNote = [`Fleet trip · ${tripRef}`, tripDateStr, `₹${earnings.toLocaleString("en-IN")}`]
-        .filter(Boolean).join(" · ");
+        .filter(Boolean)
+        .join(" · ");
       const { error } = await salaryRequestsService.createSalaryRequest(
         historyCurrentEmployer.driverRowId,
         historyCurrentEmployer.orgId,
@@ -582,13 +603,21 @@ export function DriverTripHistoryDetailScreen({
         Alert.alert("Error", error.message);
       } else {
         Alert.alert("Trip attributed", `Sent to ${historyCurrentEmployer.orgName} for review.`);
-        void salaryRequestsService.getSalaryRequestsByDriverIds(linkedDriversFull.map((d) => d.id))
+        void salaryRequestsService
+          .getSalaryRequestsByDriverIds(linkedDriversFull.map((d) => d.id))
           .then((sRes) => setAttrSalaryRequests(sRes.requests ?? []));
       }
     } finally {
       setAttributeLoading(false);
     }
-  }, [historyCurrentEmployer, trip, driverTripNumberById, linkedDriversFull, invites, profile?.uid]);
+  }, [
+    historyCurrentEmployer,
+    trip,
+    driverTripNumberById,
+    linkedDriversFull,
+    invites,
+    profile?.uid,
+  ]);
 
   const onBack = () => {
     if (router.canGoBack()) router.back();
@@ -607,8 +636,16 @@ export function DriverTripHistoryDetailScreen({
   }
 
   const selectedTrip = trip;
+  const needsOfflinePartyTag =
+    canTagOfflineParty && tripNeedsPartyTag(trip, isTripHistoryFleet);
+  const taggedOfflineParty =
+    !isTripHistoryFleet && isTripTaggedToParty(trip)
+      ? tripReceivablePartyName(trip)
+      : null;
   const showHistoryAttributionBar =
     detailTab === "settlement" && !isTripHistoryFleet && !!historyCurrentEmployer;
+  const showTagPartyBar =
+    detailTab === "settlement" && needsOfflinePartyTag && !showHistoryAttributionBar;
 
   return (
     <View
@@ -734,7 +771,7 @@ export function DriverTripHistoryDetailScreen({
                     Layout.modalBottomPadding +
                     insets.bottom +
                     Layout.tabBarDockHeight +
-                    (showHistoryAttributionBar ? 88 : 0),
+                    (showTagPartyBar || showHistoryAttributionBar ? 88 : 0),
                   paddingTop: 16,
                 },
               ]}
@@ -826,6 +863,51 @@ export function DriverTripHistoryDetailScreen({
                         {assignerDisplay}
                       </Text>
                     </View>
+                    {needsOfflinePartyTag || taggedOfflineParty ? (
+                      <TouchableOpacity
+                        style={styles.tdHeroTagRow}
+                        onPress={() => {
+                          if (taggedOfflineParty) {
+                            router.push(
+                              ROUTES.driverAddClient({
+                                tripId: trip.id,
+                                partyName: trip.client_name || undefined,
+                              }) as Href,
+                            );
+                            return;
+                          }
+                          setCollectFromOpen(true);
+                        }}
+                        activeOpacity={0.85}
+                        accessibilityRole="button"
+                        accessibilityLabel={
+                          taggedOfflineParty
+                            ? `Bill to ${taggedOfflineParty}`
+                            : "Tag party"
+                        }
+                      >
+                        <Tag
+                          size={13}
+                          color={taggedOfflineParty ? Theme.driverEmerald : Theme.warning}
+                          strokeWidth={2.4}
+                        />
+                        <Text
+                          style={[
+                            styles.tdHeroTagLabel,
+                            {
+                              color: taggedOfflineParty
+                                ? Theme.driverEmerald
+                                : Theme.warning,
+                            },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {taggedOfflineParty
+                            ? `Bill to ${taggedOfflineParty}`
+                            : "Tag party to track AR"}
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null}
                   </View>
                   <View style={[styles.tdHeroAccentBar, { backgroundColor: colors.emerald }]} />
                 </LinearGradient>
@@ -1276,13 +1358,15 @@ export function DriverTripHistoryDetailScreen({
                   </View>
                 ) : (
                   <TouchableOpacity
-                    style={histAttrStyles.btn}
+                    style={[histAttrStyles.btn, { backgroundColor: "#fffbeb", borderColor: "#d97706" }]}
                     onPress={() => void handleHistoryAttributeTrip()}
                     disabled={attributeLoading}
                     activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Attribute to employer"
                   >
                     <FontAwesome name="building" size={13} color="#d97706" />
-                    <Text style={histAttrStyles.btnText}>
+                    <Text style={[histAttrStyles.btnText, { color: "#d97706" }]}>
                       {attributeLoading
                         ? "Attributing…"
                         : `Attribute to ${historyCurrentEmployer?.orgName}`}
@@ -1290,6 +1374,45 @@ export function DriverTripHistoryDetailScreen({
                   </TouchableOpacity>
                 )}
               </View>
+            ) : null}
+
+            {showTagPartyBar ? (
+              <View
+                style={[
+                  histAttrStyles.stickyWrap,
+                  {
+                    bottom: Layout.tabBarDockHeight + 8,
+                    backgroundColor: colors.surface,
+                    borderTopColor: colors.border,
+                  },
+                ]}
+              >
+                <Text style={[histAttrStyles.label, { color: colors.textMuted }]}>
+                  Tag party to track AR
+                </Text>
+                <TouchableOpacity
+                  style={histAttrStyles.btn}
+                  onPress={() => setCollectFromOpen(true)}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Tag party"
+                >
+                  <FontAwesome name="tag" size={13} color="#0f172a" />
+                  <Text style={histAttrStyles.btnText}>Tag party</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+
+            {trip && canTagOfflineParty ? (
+              <DriverCollectFromSheet
+                visible={collectFromOpen}
+                trip={trip}
+                due={0}
+                lane="shipper"
+                assignerName={assignerDisplay}
+                onClose={() => setCollectFromOpen(false)}
+                onTagged={() => void loadTrip(() => true)}
+              />
             ) : null}
 
             <DriverDocumentGalleryPreview
@@ -1340,14 +1463,14 @@ const histAttrStyles = withWebSafeShadows(
     paddingVertical: 9,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#d97706",
-    backgroundColor: "#fffbeb",
+    borderColor: Theme.primary,
+    backgroundColor: Theme.primary,
     alignSelf: "flex-start",
   },
   btnText: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#d97706",
+    color: Theme.buttonDarkText,
   },
   doneBadge: {
     flexDirection: "row",

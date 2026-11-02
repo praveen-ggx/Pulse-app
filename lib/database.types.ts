@@ -13375,6 +13375,7 @@ export type Database = {
           converted_from_indent_at: string | null
           created_at: string | null
           created_by_user_id: string | null
+          dco_party_billed: number | null
           dco_payee_id: string | null
           deleted_at: string | null
           display_trip_id: string | null
@@ -13478,6 +13479,7 @@ export type Database = {
           converted_from_indent_at?: string | null
           created_at?: string | null
           created_by_user_id?: string | null
+          dco_party_billed?: number | null
           dco_payee_id?: string | null
           deleted_at?: string | null
           display_trip_id?: string | null
@@ -13581,6 +13583,7 @@ export type Database = {
           converted_from_indent_at?: string | null
           created_at?: string | null
           created_by_user_id?: string | null
+          dco_party_billed?: number | null
           dco_payee_id?: string | null
           deleted_at?: string | null
           display_trip_id?: string | null
@@ -18372,6 +18375,24 @@ export type Database = {
           slug: string
         }[]
       }
+      ensure_dco_workspace: {
+        Args: never
+        Returns: {
+          id: string
+          name: string
+          owner_id: string
+          operating_model: string
+          slug: string
+        }[]
+      }
+      tag_dco_trip_party: {
+        Args: {
+          p_trip_id: string
+          p_client_id: string
+          p_billed?: number | null
+        }
+        Returns: Json
+      }
       get_partner_trip_ids_for_shared_ledger_focus: {
         Args: { org_id: string; partner_key: string; viewer_trip_id: string }
         Returns: string[]
@@ -20587,6 +20608,14 @@ export type Database = {
       }
       set_member_role: {
         Args: { p_member_id: string; p_permissions: Json; p_role: string }
+        Returns: Json
+      }
+      set_member_scope_as_manager: {
+        Args: {
+          p_client_ids: string[]
+          p_member_id: string
+          p_warehouse_ids: string[]
+        }
         Returns: Json
       }
       set_member_surfaces_as_manager: {

@@ -11,6 +11,9 @@ import type { TripRow } from "@/features/trips/services/trips.service";
 jest.mock("expo-router", () => ({
   useRouter: () => ({ push: jest.fn() }),
 }));
+jest.mock("@/lib/queries/useDriverOperatingModeQuery", () => ({
+  useDriverOperatingModeQuery: () => ({ canTagOfflineParty: false }),
+}));
 jest.mock("@/contexts/DriverThemeContext", () => ({
   useDriverTheme: () => ({ theme: "light" }),
   useDriverThemeColors: () =>
@@ -29,6 +32,13 @@ jest.mock("@/features/driver/hooks/useDriverTripSettlement", () => ({
       body: "",
       netAmount: 0,
       rows: [],
+      fleetName: "Fleet",
+      isSalary: false,
+      isFleetLinked: false,
+      expectedAmount: 0,
+      amount: 0,
+      outstandingAmount: 0,
+      receivedAmount: null,
     },
     loading: false,
     requestPaymentLoading: false,

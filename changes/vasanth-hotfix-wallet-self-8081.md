@@ -21,4 +21,5 @@ Production `V1.0.1` after release/2026-11-02 shipped the receivable-book rollup 
 
 ## Tested
 - jest driverPartyReceivables.util.test.ts (17 passed)
+- TripDetailSettlementPanel.exchange.test aligned to 8081 fleet copy ("Request from fleet owner"); suite green locally
 - not clicked through on production yet

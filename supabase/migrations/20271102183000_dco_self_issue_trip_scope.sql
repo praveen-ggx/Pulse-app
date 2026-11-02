@@ -10,8 +10,10 @@ SET LOCAL lock_timeout = '5s';
 --   * trip must not be deleted; not-found and not-allowed give the same error
 --     (dco_self_trip_denied) so the RPC cannot be used to probe trip ids
 --   * a trip in the caller's own Self workspace is allowed
---   * any other trip must be operating_mode = 'DCO' AND assigned to a driver row
---     whose user_id is the caller (a FLEET trip stays on the employer ledger)
+--   * any other trip must be operating_mode = 'DCO', its financial payee
+--     (trips.dco_payee_id -> dco_payees.user_id) must be the caller, AND it must be
+--     assigned to a driver row whose user_id is the caller
+--     (a FLEET trip stays on the employer ledger)
 --   * marketplace trips stay rejected
 --   * at most one non-void receivable per operational trip
 --     (dco_self_receivables_active_trip_uidx); a second issue with another key
@@ -124,9 +126,18 @@ BEGIN
     END IF;
     IF v_trip.organization_id IS DISTINCT FROM v_ws THEN
       -- Outside the caller's own Self workspace only a DCO operating trip
-      -- that the caller is driving qualifies.
+      -- whose financial payee is the caller, and which the caller drives, qualifies.
       IF v_trip.operating_mode IS DISTINCT FROM 'DCO' THEN
         RAISE EXCEPTION 'dco_self_fleet_trip_denied' USING ERRCODE = '42501';
+      END IF;
+      -- trips.dco_payee_id -> dco_payees(id); dco_payees.user_id is the DCO.
+      IF NOT EXISTS (
+        SELECT 1
+        FROM public.dco_payees dp
+        WHERE dp.id = v_trip.dco_payee_id
+          AND dp.user_id = v_uid
+      ) THEN
+        RAISE EXCEPTION 'dco_self_payee_denied' USING ERRCODE = '42501';
       END IF;
       IF NOT EXISTS (
         SELECT 1

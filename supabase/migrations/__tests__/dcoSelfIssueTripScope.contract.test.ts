@@ -83,14 +83,18 @@ describe("issue trip scope: trip authorization", () => {
     expect(tripBlock).toContain("dco_self_marketplace_denied");
   });
 
-  it("outside the Self workspace requires a DCO operating trip the caller drives", () => {
+  it("outside the Self workspace requires a DCO trip whose payee is the caller and which the caller drives", () => {
     const outside = tripBlock.indexOf("IF v_trip.organization_id IS DISTINCT FROM v_ws THEN");
     const mode = tripBlock.indexOf("IF v_trip.operating_mode IS DISTINCT FROM 'DCO' THEN");
+    const payee = tripBlock.indexOf("WHERE dp.id = v_trip.dco_payee_id\n          AND dp.user_id = v_uid");
     const driver = tripBlock.indexOf("WHERE d.id = v_trip.driver_id\n          AND d.user_id = v_uid");
     expect(outside).toBeGreaterThan(-1);
     expect(mode).toBeGreaterThan(outside);
-    expect(driver).toBeGreaterThan(mode);
+    expect(payee).toBeGreaterThan(mode);
+    expect(driver).toBeGreaterThan(payee);
+    expect(tripBlock).toContain("FROM public.dco_payees dp");
     expect(tripBlock).toContain("dco_self_fleet_trip_denied");
+    expect(tripBlock).toContain("dco_self_payee_denied");
     expect(tripBlock).toContain("dco_self_trip_denied");
   });
 

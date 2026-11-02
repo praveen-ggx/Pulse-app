@@ -7,14 +7,16 @@
 --   dco_user     auth.users id of an approved DCO (is_dco_eligible = true,
 --                dco_self_workspace_id(dco_user) is not null)
 --   own_trip     trip in the DCO's own Self workspace organisation
---   dco_trip     operating_mode='DCO' trip in another org; its driver row user_id = dco_user
+--   dco_trip     operating_mode='DCO' trip in another org; its dco_payee_id -> dco_payees.user_id
+--                = dco_user AND its driver row user_id = dco_user
 --   fleet_trip   operating_mode='FLEET' trip in another org; its driver row user_id = dco_user
---   other_trip   operating_mode='DCO' trip whose driver is NOT dco_user
+--   payee_trip   operating_mode='DCO' trip driven by dco_user whose payee is a DIFFERENT DCO
+--   other_trip   operating_mode='DCO' trip whose payee is dco_user but whose driver is NOT
 --   market_trip  trip with source = 'market_bid'
 --   deleted_trip trip with deleted_at set (otherwise eligible)
 --
 -- psql "$DISPOSABLE_DB_URL" -v ON_ERROR_STOP=1 -v dco_user=... -v own_trip=... \
---   -v dco_trip=... -v fleet_trip=... -v other_trip=... -v market_trip=... -v deleted_trip=... \
+--   -v dco_trip=... -v fleet_trip=... -v payee_trip=... -v other_trip=... -v market_trip=... -v deleted_trip=... \
 --   -f supabase/tests/dco_self_issue_trip_scope_guards.sql
 -- Pass: every check prints PASS.
 --
@@ -32,6 +34,7 @@ SELECT set_config('scope_test.user', :'dco_user', true),
        set_config('scope_test.own_trip', :'own_trip', true),
        set_config('scope_test.dco_trip', :'dco_trip', true),
        set_config('scope_test.fleet_trip', :'fleet_trip', true),
+       set_config('scope_test.payee_trip', :'payee_trip', true),
        set_config('scope_test.other_trip', :'other_trip', true),
        set_config('scope_test.market_trip', :'market_trip', true),
        set_config('scope_test.deleted_trip', :'deleted_trip', true);
@@ -99,6 +102,15 @@ BEGIN
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM NOT LIKE '%dco_self_fleet_trip_denied%' THEN RAISE; END IF;
     RAISE NOTICE 'PASS S3: fleet trip rejected';
+  END;
+
+  -- S3b: a DCO trip the caller drives but whose payee is another DCO is rejected.
+  BEGIN
+    PERFORM public.issue_dco_self_receivable(v_party, 500, 'qa-scope-payee', current_setting('scope_test.payee_trip')::uuid, NULL);
+    RAISE EXCEPTION 'FAIL S3b: trip paid to another DCO issued';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE '%dco_self_payee_denied%' THEN RAISE; END IF;
+    RAISE NOTICE 'PASS S3b: trip paid to another DCO rejected';
   END;
 
   -- S4: a DCO trip driven by someone else is rejected.

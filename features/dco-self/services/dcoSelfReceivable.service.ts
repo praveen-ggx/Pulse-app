@@ -44,6 +44,9 @@ function rpcError(message: string): Error {
   if (raw.includes("dco_self_fleet_trip_denied")) {
     return new Error("Fleet trips stay on your employer's ledger. Only DCO trips go on your Self book.");
   }
+  if (raw.includes("dco_self_payee_denied")) {
+    return new Error("This DCO trip pays a different DCO. Only trips paid to you go on your Self book.");
+  }
   if (raw.includes("dco_self_trip_already_issued")) {
     return new Error("This trip already has a receivable. Correct that one instead of issuing another.");
   }

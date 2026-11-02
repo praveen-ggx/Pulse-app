@@ -18,7 +18,7 @@ None of these are on the production branch `V1.0.1` (`2e78da38`).
 | 6 | `20271102120000_dco_self_finance_visibility.sql` | `94acae74e73c` | `bbbdf8b0` | Finance Self visibility |
 | 7 | `20271102134500_tag_dco_trip_party_no_notes_finance.sql` | `29916c0eaf63` | added `e3163680` (`f5ab54071671`), **appended** `370fc2fa` (2-arg `DROP`) | tag RPC: no notes marker, no `dco_party_billed`, ignores `p_billed` |
 | 8 | `20271102141500_drop_legacy_tag_dco_trip_party_overload.sql` | `90bd81b453c2` | this change | idempotent forward `DROP` of the unchecked `tag_dco_trip_party(uuid, uuid)` |
-| 9 | `20271102183000_dco_self_issue_trip_scope.sql` | `2d8422df6f25` | release remediation (from `79171699`) | `issue_dco_self_receivable`: trip must be live; outside the Self workspace it must be `operating_mode = 'DCO'` and driven by the caller; one non-void receivable per trip (`dco_self_receivables_active_trip_uidx`); constraint-specific conflict handling. Stops instead of rewriting rows if duplicates already exist |
+| 9 | `20271102183000_dco_self_issue_trip_scope.sql` | `29746f19b026` | release remediation (from `79171699`) | `issue_dco_self_receivable`: trip must be live; outside the Self workspace it must be `operating_mode = 'DCO'`, paid to the caller (`dco_payee_id`) and driven by the caller; one non-void receivable per trip (`dco_self_receivables_active_trip_uidx`); constraint-specific conflict handling. Stops instead of rewriting rows if duplicates already exist |
 
 ### Why #8 exists although #3 and #7 already contain the drop
 

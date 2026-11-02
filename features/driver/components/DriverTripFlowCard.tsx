@@ -63,6 +63,7 @@ import {
   DRIVER_PAY_NA_LABEL,
   isAggregateTrip,
 } from '@/features/drivers/utils/driverUtils.util';
+import { DriverCollectFromSheet } from '@/features/drivers/components/DriverCollectFromSheet';
 import { canTagPartyOnTrip } from '@/features/drivers/utils/driverPartyReceivables.util';
 import { formatINR } from '@/lib/format';
 import { formatEstimatedDuration } from '@/lib/formatEstimatedDuration';
@@ -86,8 +87,7 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-import { useRouter, type Href } from 'expo-router';
-import { ROUTES } from '@/lib/routes';
+import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -458,6 +458,7 @@ export function DriverTripFlowCard({
   const [vehiclePickerBusy, setVehiclePickerBusy] = useState(false);
   const [vehiclePickerError, setVehiclePickerError] = useState<string | null>(null);
   const [shipperFeedbackOpen, setShipperFeedbackOpen] = useState(false);
+  const [partyTagOpen, setPartyTagOpen] = useState(false);
 
   const openVehiclePicker = useCallback(() => {
     setVehiclePickerSelectedId(localTrip.owner_vehicle_id ?? null);
@@ -1739,18 +1740,7 @@ export function DriverTripFlowCard({
           assignedBy={assignedBy}
           onAssignerPress={
             canTagOfflineParty && canTagPartyOnTrip(localTrip, isFleetLinked)
-              ? onAssignerPress ??
-                (() => {
-                  router.push(
-                    ROUTES.driverAddClient({
-                      tripId: localTrip.id,
-                      partyName:
-                        assignedBy?.orgName?.trim() ||
-                        assignedBy?.linePrimary?.trim() ||
-                        undefined,
-                    }) as Href,
-                  );
-                })
+              ? onAssignerPress ?? (() => setPartyTagOpen(true))
               : undefined
           }
           showHeroAssigner={showHeroAssigner}
@@ -2439,6 +2429,19 @@ export function DriverTripFlowCard({
           </Pressable>
         </Pressable>
       </Modal>
+      {partyTagOpen ? (
+        <DriverCollectFromSheet
+          visible
+          trip={localTrip}
+          due={0}
+          assignerName={assignedBy?.orgName?.trim() || assignedBy?.linePrimary?.trim() || null}
+          onClose={() => setPartyTagOpen(false)}
+          onTagged={() => {
+            setPartyTagOpen(false);
+            onRefresh?.();
+          }}
+        />
+      ) : null}
       <DriverShipperFeedbackModal
         visible={shipperFeedbackOpen}
         onClose={() => setShipperFeedbackOpen(false)}

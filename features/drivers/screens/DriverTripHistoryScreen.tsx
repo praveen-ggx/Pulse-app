@@ -1,5 +1,6 @@
 import { DriverBrandMark } from "@/components/driver/DriverBrandMark";
 import { TripListAssignerRow } from "@/components/driver/TripListAssignerRow";
+import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
 import {
     driverBodyPrimary,
     driverBodySecondary,
@@ -291,6 +292,8 @@ export default function DriverTripsScreen() {
     Awaited<ReturnType<typeof driversService.getDriverInvitesReceived>>["invites"]
   >([]);
   const [trips, setTrips] = useState<tripsService.TripRow[]>([]);
+  const [tagTrip, setTagTrip] = useState<tripsService.TripRow | null>(null);
+  const suppressCardPress = useRef(false);
   const [assignmentActorByTripId, setAssignmentActorByTripId] = useState<
     Record<string, string>
   >({});
@@ -922,6 +925,10 @@ export default function DriverTripsScreen() {
           },
         ]}
         onPress={() => {
+          if (suppressCardPress.current) {
+            suppressCardPress.current = false;
+            return;
+          }
           router.push(`/driver-trip/${item.id}` as Href);
         }}
         onPressIn={() => setPressedCardId(item.id)}
@@ -1022,6 +1029,14 @@ export default function DriverTripsScreen() {
               mutedColor={colors.textMuted}
               textColor={colors.text}
               needsTag={tripNeedsPartyTag(item, isFleetTrip)}
+              onTagPress={
+                tripNeedsPartyTag(item, isFleetTrip)
+                  ? () => {
+                      suppressCardPress.current = true;
+                      setTagTrip(item);
+                    }
+                  : undefined
+              }
               taggedParty={
                 tripHistoryLane(item) === "offline" && isTripTaggedToParty(item)
                   ? tripReceivablePartyName(item)
@@ -1437,7 +1452,23 @@ export default function DriverTripsScreen() {
           ) : null
         }
       />
-
+      {tagTrip ? (
+        <DriverCollectFromSheet
+          visible
+          trip={tagTrip}
+          due={0}
+          assignerName={
+            assignerPayloadByTripId[String(tagTrip.id)]?.orgName ||
+            assignerPayloadByTripId[String(tagTrip.id)]?.linePrimary ||
+            null
+          }
+          onClose={() => setTagTrip(null)}
+          onTagged={() => {
+            setTagTrip(null);
+            void fetch();
+          }}
+        />
+      ) : null}
     </View>
   );
 }

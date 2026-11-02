@@ -24,6 +24,8 @@ type Props = {
   pendingName: string | null;
   confirming?: boolean;
   successName: string | null;
+  successTitle?: string | null;
+  successMessage?: string | null;
   created?: boolean;
   billedAmount?: number | null;
   receivable?: TagReceivableDraft | null;
@@ -135,6 +137,8 @@ export function DriverTagPartyDialogs({
   pendingName,
   confirming = false,
   successName,
+  successTitle = null,
+  successMessage = null,
   created = false,
   billedAmount = null,
   receivable = null,
@@ -229,18 +233,20 @@ export function DriverTagPartyDialogs({
         visible={!!successName}
         kind="client"
         title={
-          created
+          successTitle ??
+          (created
             ? `${successName} added`
-            : `Tagged ${successName ?? "party"}`
+            : `Tagged ${successName ?? "party"}`)
         }
         message={
-          created
+          successMessage ??
+          (created
             ? billed
               ? `Saved in Self and tagged. AR for this trip is ${formatInr(billed)}.`
               : "Saved in Self and tagged to this trip. Receivables will show under this party."
             : billed
               ? `This trip now sits under that party’s AR at ${formatInr(billed)}.`
-              : "This trip now sits under that party’s receivables. Collect uses this party."
+              : "This trip now sits under that party’s receivables. Collect uses this party.")
         }
         onOk={onSuccessOk}
       />

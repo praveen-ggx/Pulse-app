@@ -69,6 +69,15 @@ describe('trip view row types', () => {
   // and the Fleet Trips tab was structurally always empty. Drivers then filed
   // attribution requests for work the app had already recorded.
   describe('driver fleet classification fields', () => {
+    it('keeps an offline party tag stored in trip notes', () => {
+      const mapped = driverRowToTripRow({
+        ...driverRow,
+        instructions: '<!--pulse-dco-party:{"id":"local:abc","name":"Ajio","billed":12500}-->',
+      });
+      expect(mapped.notes).toContain('pulse-dco-party');
+      expect(mapped.notes).toContain('Ajio');
+    });
+
     it('passes organization_id through instead of blanking it', () => {
       const mapped = driverRowToTripRow({
         ...driverRow,

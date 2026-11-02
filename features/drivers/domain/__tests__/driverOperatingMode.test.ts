@@ -255,6 +255,19 @@ describe('driverHistoryLane / driverHistoryTabsForMode', () => {
     expect(driverHistoryLane({ source: 'indent' }, true)).toBe('fleet');
   });
 
+  it('a driver fleet mark moves an offline trip into the fleet lane', () => {
+    expect(
+      driverHistoryLane(
+        {
+          source: 'manual',
+          operating_mode: 'DCO',
+          notes: '<!--pulse-fleet-trip:{"name":"Godrej India"}-->',
+        },
+        false,
+      ),
+    ).toBe('fleet');
+  });
+
   it('DCO history chips are Offline + Marketplace; employee chips are Fleet + Offline', () => {
     expect(driverHistoryTabsForMode(true)).toEqual(['offline', 'marketplace']);
     expect(driverHistoryTabsForMode(false)).toEqual(['fleet', 'offline']);

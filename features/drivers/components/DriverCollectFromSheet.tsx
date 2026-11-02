@@ -14,8 +14,12 @@ import {
   driverUISemiBold,
 } from "@/constants/DriverTypography";
 import Theme from "@/constants/Theme";
-import { listDriverOfflineParties } from "@/features/drivers/offline/driverOfflineParty";
-import { tagTripWithDcoClient } from "@/features/drivers/services/driverTripClient.service";
+import { listTagPartyChoices } from "@/features/drivers/utils/driverSelectableParties.util";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  markTripAsFleetTrip,
+  tagTripWithDcoClient,
+} from "@/features/drivers/services/driverTripClient.service";
 import { type DriverCaptureLane } from "@/features/drivers/utils/driverCapturePayment.util";
 import { parseDcoPartyTagFromNotes } from "@/features/drivers/utils/dcoTripPartyTag.util";
 import {
@@ -36,7 +40,7 @@ import { ROUTES } from "@/lib/routes";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { useQueryClient } from "@tanstack/react-query";
 import { type Href, useRouter } from "expo-router";
-import { Plus, UserPlus } from "lucide-react-native";
+import { Plus } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -119,9 +123,10 @@ export function DriverCollectFromSheet({
   onTagged,
 }: Props) {
   const router = useRouter();
+  const { profile } = useAuth();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
-  const { canAddDcoShippers, canTagOfflineParty, isDco } = useDriverOperatingModeQuery();
+  const { canTagOfflineParty, isDco } = useDriverOperatingModeQuery();
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [parties, setParties] = useState<PartyOption[]>([]);
@@ -155,24 +160,12 @@ export function DriverCollectFromSheet({
   }, [trip.client_id, trip.notes]);
 
   const loadParties = useCallback(async () => {
-    if (!canTagOfflineParty && !canAddDcoShippers) {
-      setParties((prev) => (prev.length === 0 ? prev : []));
-      setLoading(false);
-      return;
-    }
     const assigner = fleetAssignerName || currentName;
-    const local = await listDriverOfflineParties().catch(() => []);
+    const local = await listTagPartyChoices(profile?.uid).catch(() => []);
     const nextParties = knownPartyOptions(local, taggedPartyId, assigner, !isDco);
     setParties((prev) => (samePartyOptions(prev, nextParties) ? prev : nextParties));
     setLoading(false);
-  }, [
-    canAddDcoShippers,
-    canTagOfflineParty,
-    currentName,
-    fleetAssignerName,
-    isDco,
-    taggedPartyId,
-  ]);
+  }, [currentName, fleetAssignerName, isDco, profile?.uid, taggedPartyId]);
 
   const loadPartiesRef = useRef(loadParties);
   loadPartiesRef.current = loadParties;
@@ -230,29 +223,36 @@ export function DriverCollectFromSheet({
     onClose();
   }, [onClose, onTagged, successParty]);
 
-  const openAddParty = useCallback(
-    (partyName?: string) => {
-      onClose();
-      router.push(
-        ROUTES.driverAddClient({
-          tripId: trip.id,
-          partyName,
-        }) as Href,
-      );
-    },
-    [onClose, router, trip.id],
-  );
+  const openAddParty = useCallback(() => {
+    onClose();
+    router.push(
+      ROUTES.driverAddClient({
+        tripId: trip.id,
+      }) as Href,
+    );
+  }, [onClose, router, trip.id]);
 
-  const assignerToAdd = useMemo(() => {
-    const name =
-      currentName && currentName !== "Shipper" && currentName !== "Untagged"
-        ? currentName
-        : null;
-    if (!name) return null;
-    const key = name.trim().toLowerCase();
-    const alreadySaved = parties.some((row) => row.name.trim().toLowerCase() === key);
-    return alreadySaved ? null : name;
-  }, [currentName, parties]);
+  const handleMarkFleet = useCallback(async () => {
+    if (!fleetAssignerName || busyId || confirmingRef.current) return;
+    confirmingRef.current = true;
+    setBusyId("fleet");
+    try {
+      const { error } = await markTripAsFleetTrip(trip.id, {
+        name: fleetAssignerName,
+        orgId: trip.organization_id,
+      });
+      if (error) {
+        showAppAlert("Could not mark fleet trip", error.message);
+        return;
+      }
+      await queryClient.invalidateQueries({ queryKey: ["q", "trips"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.trips.detail(trip.id) });
+      setSuccessParty({ id: `fleet:${fleetAssignerName}`, name: fleetAssignerName });
+    } finally {
+      confirmingRef.current = false;
+      setBusyId(null);
+    }
+  }, [busyId, fleetAssignerName, queryClient, trip.id, trip.organization_id]);
 
   const flowOpen = !!(pendingParty || receivableParty || successParty);
   if (!visible && !flowOpen) return null;
@@ -268,18 +268,11 @@ export function DriverCollectFromSheet({
           </View>
           <Text style={styles.kicker}>Tag party</Text>
           <Text style={styles.title}>Who do you bill?</Text>
-          {!isDco && fleetAssignerName ? (
-            <View style={styles.assignerChip}>
-              <Text style={styles.assignerKicker}>Recommended · Fleet</Text>
-              <Text style={styles.assignerName} numberOfLines={1}>
-                {fleetAssignerName}
-              </Text>
-            </View>
-          ) : assignerToAdd ? (
+          {fleetAssignerName ? (
             <View style={styles.assignerChip}>
               <Text style={styles.assignerKicker}>Assigned by</Text>
               <Text style={styles.assignerName} numberOfLines={1}>
-                {assignerToAdd}
+                {fleetAssignerName}
               </Text>
             </View>
           ) : (
@@ -298,6 +291,23 @@ export function DriverCollectFromSheet({
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
+              {fleetAssignerName ? (
+                <TouchableOpacity
+                  style={styles.addPrimary}
+                  onPress={() => void handleMarkFleet()}
+                  disabled={!!busyId}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Mark ${fleetAssignerName} fleet trip`}
+                >
+                  {busyId === "fleet" ? (
+                    <ActivityIndicator size="small" color={Theme.buttonDarkText} />
+                  ) : (
+                    <Text style={styles.addPrimaryText} numberOfLines={1}>
+                      Mark {fleetAssignerName} fleet trip
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              ) : null}
               <Text style={styles.sectionLabel}>Your parties</Text>
               {parties.length === 0 ? (
                 <View style={styles.emptyCard}>
@@ -364,22 +374,9 @@ export function DriverCollectFromSheet({
 
               {canTagOfflineParty ? (
                 <View style={styles.addBlock}>
-                  {assignerToAdd ? (
-                    <TouchableOpacity
-                      style={styles.addPrimary}
-                      onPress={() => openAddParty(assignerToAdd)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Add ${assignerToAdd} as party`}
-                    >
-                      <UserPlus size={16} color={Theme.buttonDarkText} strokeWidth={2.3} />
-                      <Text style={styles.addPrimaryText} numberOfLines={1}>
-                        Add {assignerToAdd} as party
-                      </Text>
-                    </TouchableOpacity>
-                  ) : null}
                   <TouchableOpacity
                     style={styles.addSecondary}
-                    onPress={() => openAddParty()}
+                    onPress={openAddParty}
                     accessibilityRole="button"
                     accessibilityLabel="Add new party"
                   >
@@ -402,6 +399,16 @@ export function DriverCollectFromSheet({
       pendingName={pendingParty?.name ?? null}
       confirming={!!busyId}
       successName={successParty?.name ?? null}
+      successTitle={
+        successParty?.id.startsWith("fleet:")
+          ? `Marked ${successParty.name} fleet trip`
+          : null
+      }
+      successMessage={
+        successParty?.id.startsWith("fleet:")
+          ? "This trip is fleet work now. It leaves Untagged and no longer asks for a bill-to party."
+          : null
+      }
       billedAmount={billedForTag}
       receivable={
         receivableParty

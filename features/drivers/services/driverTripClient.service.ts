@@ -1,8 +1,69 @@
 import {
   applyDcoPartyTagToNotes,
   parseDcoPartyTagFromNotes,
+  stripDcoPartyTagFromNotes,
 } from "@/features/drivers/utils/dcoTripPartyTag.util";
+import {
+  applyFleetTripMarkToNotes,
+  parseFleetTripMarkFromNotes,
+} from "@/features/drivers/utils/driverFleetTripMark.util";
 import { supabase } from "@/lib/supabase";
+
+function rpcMissing(error: { code?: string; message?: string } | null, name: string): boolean {
+  if (!error) return false;
+  const msg = String(error.message ?? "").toLowerCase();
+  return (
+    error.code === "PGRST202" ||
+    error.code === "42883" ||
+    msg.includes(name) ||
+    msg.includes("could not find the function")
+  );
+}
+
+async function readDriverTripNotes(
+  tripId: string,
+): Promise<{ notes: string; error: Error | null }> {
+  const db = supabase();
+  const view = await db
+    .from("trips_driver_view")
+    .select("instructions")
+    .eq("id", tripId)
+    .maybeSingle();
+  if (!view.error) {
+    return { notes: String(view.data?.instructions ?? ""), error: null };
+  }
+  const row = await db.from("trips").select("notes").eq("id", tripId).maybeSingle();
+  if (row.error) return { notes: "", error: mapTagError(row.error.message) };
+  return { notes: String(row.data?.notes ?? ""), error: null };
+}
+
+async function writeDriverTripNotes(
+  tripId: string,
+  nextNotes: string,
+): Promise<{ error: Error | null }> {
+  const db = supabase();
+  const rpc = await db.rpc("driver_save_offline_trip_notes", {
+    p_trip_id: tripId,
+    p_notes: nextNotes,
+  });
+  if (!rpc.error) return { error: null };
+  if (!rpcMissing(rpc.error, "driver_save_offline_trip_notes")) {
+    return { error: mapTagError(rpc.error.message) };
+  }
+
+  const updated = await db.from("trips").update({ notes: nextNotes }).eq("id", tripId).select("id");
+  if (updated.error) return { error: mapTagError(updated.error.message) };
+  if (!updated.data || updated.data.length === 0) {
+    return { error: new Error("Could not save this trip. The database did not keep the update.") };
+  }
+
+  const saved = await readDriverTripNotes(tripId);
+  if (saved.error) return saved;
+  if (!saved.notes.includes("<!--pulse-")) {
+    return { error: new Error("Could not save this trip. The database did not keep the update.") };
+  }
+  return { error: null };
+}
 
 function mapTagError(message: string): Error {
   const raw = message.toLowerCase();
@@ -40,8 +101,6 @@ export async function tagTripWithDcoClient(
       p_trip_id: id,
       p_client_id: client.id,
     });
-    if (!rpc.error && billed <= 0) return { error: null };
-
     const rpcMsg = rpc.error?.message ?? "";
     const rpcMissing =
       !!rpc.error &&
@@ -49,41 +108,52 @@ export async function tagTripWithDcoClient(
         rpc.error.code === "42883" ||
         rpcMsg.toLowerCase().includes("tag_dco_trip_party"));
 
+    // The driver trip list does not include client_id. Always keep the party
+    // in notes so the trip shows under that party after a reload.
     if (rpc.error && !rpcMissing && !rpcMsg.includes("driver_direct_trip_write_denied")) {
-      return { error: mapTagError(rpcMsg) };
-    }
-
-    const patch: Record<string, unknown> = {
-      client_id: client.id,
-      client_name: name,
-    };
-    if (billed > 0) patch.supplier_rate = billed;
-
-    const direct = await db.from("trips").update(patch).eq("id", id);
-    if (!direct.error) return { error: null };
-
-    if (!String(direct.error.message ?? "").includes("driver_direct_trip_write_denied")) {
-      // Fall through to notes for FK / column denies on environments without the RPC.
-      const soft =
-        /foreign key|invalid input syntax|column|permission|rls|policy/i.test(
-          String(direct.error.message ?? ""),
-        );
-      if (!soft) return { error: mapTagError(direct.error.message) };
+      const soft = /client_not_found|dco_tag_client_denied|foreign key/i.test(rpcMsg);
+      if (!soft) return { error: mapTagError(rpcMsg) };
     }
   }
 
-  const existing = await db.from("trips").select("notes").eq("id", id).maybeSingle();
-  if (existing.error) return { error: mapTagError(existing.error.message) };
+  const existing = await readDriverTripNotes(id);
+  if (existing.error) return existing;
 
-  const nextNotes = applyDcoPartyTagToNotes(existing.data?.notes, {
+  const nextNotes = applyDcoPartyTagToNotes(existing.notes, {
     id: client.id,
     name,
     ...(billed > 0 ? { billed } : {}),
   });
-  const noted = await db.from("trips").update({ notes: nextNotes }).eq("id", id);
-  if (noted.error) return { error: mapTagError(noted.error.message) };
+  const noted = await writeDriverTripNotes(id, nextNotes);
+  if (noted.error) return noted;
 
   const confirmed = parseDcoPartyTagFromNotes(nextNotes);
   if (!confirmed) return { error: new Error("Could not tag this trip. Try again.") };
+  return { error: null };
+}
+
+/** Mark an offline trip as fleet work for the assigning business. Notes only — no client book write. */
+export async function markTripAsFleetTrip(
+  tripId: string,
+  fleet: { name: string; orgId?: string | null },
+): Promise<{ error: Error | null }> {
+  const id = tripId.trim();
+  const name = fleet.name.trim();
+  if (!id) return { error: new Error("Missing trip.") };
+  if (!name) return { error: new Error("Missing fleet.") };
+
+  const existing = await readDriverTripNotes(id);
+  if (existing.error) return existing;
+
+  const orgId = String(fleet.orgId ?? "").trim();
+  const nextNotes = applyFleetTripMarkToNotes(stripDcoPartyTagFromNotes(existing.notes), {
+    name,
+    ...(orgId ? { orgId } : {}),
+  });
+  const noted = await writeDriverTripNotes(id, nextNotes);
+  if (noted.error) return noted;
+  if (!parseFleetTripMarkFromNotes(nextNotes)) {
+    return { error: new Error("Could not mark this fleet trip. Try again.") };
+  }
   return { error: null };
 }

@@ -108,7 +108,6 @@ import { supabase } from "@/lib/supabase";
 import { withWebSafeShadows } from "@/lib/platformViewStyle.util";
 import * as driverLocationService from "@/features/driver/services/driverLocation.service";
 import * as driversService from "@/features/drivers/services/drivers.service";
-import { canTagPartyOnTrip } from "@/features/drivers/utils/driverPartyReceivables.util";
 import {
     buildRouteFetchKey,
     getOptimalRoute,
@@ -152,7 +151,6 @@ import * as ExpoLocation from "expo-location";
 import { startForegroundPositionWatch } from "@/lib/safeForegroundPositionWatch";
 import { useRouter, type Href } from "expo-router";
 import { ROUTES } from "@/lib/routes";
-import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import {
   Fragment,
   useCallback,
@@ -291,7 +289,6 @@ export default function DriverRadarScreen() {
   const jobRequestSheetMuted = isDark ? Theme.textOnDarkMuted : Theme.textMuted;
   const { profile } = useAuth();
   const uid = profile?.uid ?? null;
-  const { canTagOfflineParty } = useDriverOperatingModeQuery(uid);
   const invalidateDriverHome = useInvalidateDriverHomeDashboard();
   const refreshDashboard = useCallback(() => {
     if (uid) void invalidateDriverHome(uid);
@@ -1589,11 +1586,6 @@ export default function DriverRadarScreen() {
       return driversService.isActiveFleetRelationshipDriver(row);
     });
   }, [effectiveFirstIncoming, linkedDriversQuery.activeLinkedDrivers]);
-  const incomingIsOfflineParty = canTagPartyOnTrip(
-    effectiveFirstIncoming,
-    incomingFleetLinked,
-  );
-
   const acceptedInviteForOrg =
     effectiveFirstIncoming &&
     (invites.find(
@@ -5405,21 +5397,6 @@ export default function DriverRadarScreen() {
             variant={mapSheet ? "page" : "card"}
             assignedBy={jobCardAssigner}
             assignedByLine={assignerLineForJobCard}
-            onAssignerPress={
-              canTagOfflineParty && incomingIsOfflineParty
-                ? () => {
-                    router.push(
-                      ROUTES.driverAddClient({
-                        tripId: String(effectiveFirstIncoming.id),
-                        partyName:
-                          jobCardAssigner?.orgName?.trim() ||
-                          jobCardAssigner?.linePrimary?.trim() ||
-                          undefined,
-                      }) as Href,
-                    );
-                  }
-                : undefined
-            }
             OtpInputComponent={mapSheet ? OtpInputComponent : undefined}
             onOtpFocus={
               mapSheet

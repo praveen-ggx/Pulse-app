@@ -302,6 +302,16 @@ describe("tripNeedsPartyTag", () => {
         true,
       ),
     ).toBe(false);
+    expect(
+      tripNeedsPartyTag(
+        trip({
+          id: "marked",
+          source: "manual",
+          operating_mode: "DCO",
+          notes: '<!--pulse-fleet-trip:{"name":"Godrej India"}-->',
+        }),
+      ),
+    ).toBe(false);
   });
 });
 

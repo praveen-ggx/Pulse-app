@@ -1,0 +1,15 @@
+# DCO Self receivable financial isolation remediation (preprod catch-up).
+# Vasanth's hardened issue_dco_self_receivable: workspace isolation, driver auth,
+# DCO operating-mode gate, dco_payee_id counterparty check, deleted-trip rejection,
+# one active receivable per trip (partial unique index).
+#
+# Prerequisite: preprod must already have 20271102003100 (dco_self_financial_book).
+# That migration was applied via compat (history row missing but schema present).
+#
+# Apply only via: npm run db:push-set -- dco-issue-trip-scope-preprod
+# Never via plain `supabase db push` / `npm run db:push`.
+#
+# Verify before applying:
+#   npx jest supabase/migrations/__tests__/dcoSelfIssueTripScope.contract.test.ts
+# sha256 29746f19b02617705eed10f9b480bec2513d2c2268e42b48f201f444ec2408fa  20271102183000_dco_self_issue_trip_scope.sql
+20271102183000

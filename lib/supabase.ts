@@ -522,10 +522,19 @@ function getSupabase(): SupabaseClient<Database> {
       const isLocal = host === '127.0.0.1' || host === 'localhost';
       console.log(`[pulse] Supabase DB: ${isLocal ? 'LOCAL (docker)' : 'CLOUD'} — ${host}`);
       if (envSupabaseUrl && extraSupabaseUrl && envSupabaseUrl !== extraSupabaseUrl) {
-        console.warn('[pulse] Supabase source mismatch: preferring env over extra', {
-          envSupabaseUrl,
-          extraSupabaseUrl,
-        });
+        const origin = (value: string) => {
+          try {
+            return new URL(value).origin;
+          } catch {
+            return value.trim();
+          }
+        };
+        if (origin(envSupabaseUrl) !== origin(extraSupabaseUrl)) {
+          console.warn('[pulse] Supabase source mismatch: preferring env over extra', {
+            envHost: origin(envSupabaseUrl),
+            extraHost: origin(extraSupabaseUrl),
+          });
+        }
       }
     } catch {
       console.warn('[pulse] Supabase URL invalid:', supabaseUrl?.slice(0, 50));

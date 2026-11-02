@@ -520,6 +520,7 @@ export async function updateWorkspaceKyc(
     address_line?: string | null;
     city?: string | null;
     state?: string | null;
+    pincode?: string | null;
   },
 ): Promise<{ error: Error | null; kyc: WorkspaceKyc | null }> {
   // update_workspace_kyc RPC uses COALESCE — it cannot clear gstin or cin.
@@ -542,6 +543,7 @@ export async function updateWorkspaceKyc(
     fields.address_line !== undefined ||
     fields.city !== undefined ||
     fields.state !== undefined ||
+    fields.pincode !== undefined ||
     clearingGstinForSkip ||
     clearingCin;
 
@@ -558,9 +560,10 @@ export async function updateWorkspaceKyc(
 
   if (hasExtUpdate) {
     const touchingAddress =
-      fields.address_line !== undefined ||
-      fields.city !== undefined ||
-      fields.state !== undefined;
+    fields.address_line !== undefined ||
+    fields.city !== undefined ||
+    fields.state !== undefined ||
+    fields.pincode !== undefined;
     if (touchingAddress) {
       const { data: statusRow, error: statusErr } = await supabase()
         .from('organizations')
@@ -599,6 +602,11 @@ export async function updateWorkspaceKyc(
     }
     if (fields.city !== undefined) patch.city = fields.city?.trim() || null;
     if (fields.state !== undefined) patch.state = fields.state?.trim() || null;
+    if (fields.pincode !== undefined) {
+      const pin = fields.pincode?.trim() || null;
+      patch.pincode = pin;
+      patch.address_pincode = pin;
+    }
     const { error } = await supabase().from('organizations').update(patch).eq('id', orgId);
     if (error) return { error: new Error(error.message), kyc: null };
   }

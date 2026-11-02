@@ -88,17 +88,28 @@ export function splitInvoiceRoute(route: string | null | undefined): {
   };
 }
 
+export function freightLineDetail(
+  line: { line_type: string; trip_ref: string | null; unit: string },
+  trips: readonly { trip_id: string; lr_number: string | null }[],
+): string {
+  if (line.line_type === 'freight') {
+    return trips.find((trip) => trip.trip_id === line.trip_ref)?.lr_number || '—';
+  }
+  return [line.trip_ref, line.unit !== 'trip' ? line.unit : ''].filter(Boolean).join(' · ');
+}
+
 export function buildFreightLineDescription(
   trip: InvoicingTripView,
   multiTrip: boolean,
 ): string {
-  const tripId = trimOrNull(trip.id) || '—';
+  const lr = trimOrNull(trip.lr_number);
+  const ref = lr ? `LR ${lr}` : `Trip ${trimOrNull(trip.id) || '—'}`;
   const route = trimOrNull(trip.route) || 'Freight';
   if (multiTrip) {
     const vehicle = trimOrNull(trip.vehicle_number);
     return vehicle
-      ? `Freight charges · Trip ID-${tripId} · ${route} · ${vehicle}`
-      : `Freight charges · Trip ID-${tripId} · ${route}`;
+      ? `Freight charges · ${ref} · ${route} · ${vehicle}`
+      : `Freight charges · ${ref} · ${route}`;
   }
   return 'Base freight';
 }
@@ -339,6 +350,36 @@ export function invoiceDraftTaxDisplay(tax: InvoiceTaxResult): {
   }
 
   return { warning: null, rows: [taxable] };
+}
+
+/** RCM: disclose GST, but the recipient pays it, so the balance stays the taxable amount. */
+export function presentInvoiceTax(
+  tax: InvoiceTaxResult,
+  reverseCharge: boolean,
+): {
+  rows: InvoiceDraftTaxDisplayRow[];
+  warning: string | null;
+  payable: number;
+} {
+  const display = invoiceDraftTaxDisplay(tax);
+  const charged =
+    reverseCharge &&
+    tax.status === "ok" &&
+    tax.gst_rate > 0 &&
+    tax.supply_type !== "gst_off" &&
+    tax.supply_type !== "not_applicable";
+  if (!charged) {
+    return { ...display, payable: tax.total_amount };
+  }
+  return {
+    warning: [display.warning, "GST is payable by the recipient under reverse charge."]
+      .filter(Boolean)
+      .join(" "),
+    rows: display.rows.map((row) =>
+      row.key === "taxable" ? row : { ...row, label: `${row.label} · RCM` },
+    ),
+    payable: tax.taxable_base,
+  };
 }
 
 function buildDraftLines(
@@ -736,7 +777,7 @@ export function mapInvoiceDraftModelToPdfData(
         line.line_type === 'freight' && model.shipment.mode === 'single'
           ? freightRoute
           : line.line_type === 'freight' && tripRef
-            ? `Trip ID · ${tripRef}`
+            ? `LR · ${model.shipment.trips.find((trip) => trip.trip_id === tripRef)?.lr_number || '—'}`
             : null,
       date:
         line.line_type === 'freight' && tripRef

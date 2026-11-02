@@ -372,8 +372,8 @@ const ac = StyleSheet.create({
     gap: 4,
   },
   headerTitle: {
-    fontSize: 15,
-    fontWeight: "800",
+    fontSize: 16,
+    fontWeight: "600",
     color: Theme.textPrimaryDark,
     letterSpacing: -0.2,
   },
@@ -410,37 +410,38 @@ const ac = StyleSheet.create({
   },
   tabRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    alignItems: "flex-end",
     gap: 4,
     paddingHorizontal: 16,
-    paddingTop: 2,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.borderLight,
     backgroundColor: Theme.cardWhite,
   },
   tab: {
-    paddingVertical: 10,
-    paddingHorizontal: 10,
-    borderBottomWidth: 3,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderBottomWidth: 2,
     borderBottomColor: "transparent",
+    marginBottom: -StyleSheet.hairlineWidth,
   },
   tabOn: {
     borderBottomColor: Theme.accentGold,
   },
   tabText: {
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "500",
     color: Theme.textSection,
   },
   tabTextOn: {
     color: Theme.textPrimaryDark,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   bodyScroll: {
     flex: 1,
+    backgroundColor: Theme.screenBackground,
   },
   bodyContent: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingHorizontal: 0,
+    paddingTop: 0,
   },
 });

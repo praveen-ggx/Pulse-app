@@ -230,7 +230,9 @@ export function summarizeFinanceClientPicture(args: {
     else if (state.invoiceState === "draft") draftTripCount += 1;
     else unbilledTripCount += 1;
     if (state.invoiceable) eligibleTripCount += 1;
-    if (state.invoiceState === "blocked_pod") podPendingTripCount += 1;
+    if (!issuedIds.has(trip.id) && !trip.physicalPodReceived && !trip.digitalPodPresent) {
+      podPendingTripCount += 1;
+    }
     if (
       state.invoiceState === "blocked_pod" ||
       state.invoiceState === "blocked_policy" ||

@@ -16,9 +16,25 @@ import {
   resolveInvoiceTripDriverName,
   resolveInvoiceTripLrNumber,
   resolveInvoiceTripSupplierName,
+  tripListLrLabel,
 } from "../invoiceTripOperational.util";
 
 describe("invoiceTripOperational.util", () => {
+  it("formats trip list LR labels without inventing ids", () => {
+    expect(
+      tripListLrLabel({ id: "uuid-1", lr_number: "1015", trip_number: "T-9" }),
+    ).toBe("LR# 1015");
+    expect(
+      tripListLrLabel({ id: "uuid-1", lr_number: null, trip_number: "T-9" }),
+    ).toBe("LR# T-9");
+    expect(
+      tripListLrLabel({ id: "uuid-1", lr_number: "uuid-1", trip_number: null }),
+    ).toBe("LR# uuid-1");
+    expect(tripListLrLabel({ id: "uuid-1", lr_number: null, trip_number: null })).toBe(
+      "—",
+    );
+  });
+
   it("uses Core driver display name when present", () => {
     expect(
       resolveInvoiceTripDriverName({

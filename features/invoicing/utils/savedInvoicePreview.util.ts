@@ -1,5 +1,6 @@
 import type { InvoiceLineSnapshot } from "@/features/invoicing/services/invoiceDocumentSnapshot.service";
 import type { InvoiceIssuerIdentity } from "@/features/invoicing/services/invoiceIssuerIdentity.service";
+import type { InvoiceStyleDetails } from "@/features/invoicing/services/invoiceStyleTemplate.service";
 import type {
   InvoiceDraftClientView,
   InvoiceDraftModel,
@@ -70,6 +71,7 @@ export function buildSavedInvoicePreviewModel(input: {
   sgstAmount: number;
   igstAmount: number;
   totalAmount: number;
+  dueDate?: string | null;
 }): InvoiceDraftModel | null {
   if (input.lines.length === 0) return null;
   const tax: InvoiceTaxResult = {
@@ -98,7 +100,7 @@ export function buildSavedInvoicePreviewModel(input: {
     // Saved invoices are rebuilt from stored lines, not trips — shipment block is empty.
     shipment: buildShipmentView([]),
     preview_date: input.invoiceDate,
-    indicative_due_date: null,
+    indicative_due_date: input.dueDate ?? null,
     payment_terms: input.paymentTerms,
     notes: input.notes,
     issuer: input.issuer,
@@ -130,4 +132,60 @@ export function manualLinesFromSavedItems(
     discount: "0",
     taxRate: line.tax_rate != null ? String(line.tax_rate) : "18",
   }));
+}
+
+function text(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function parseStyleDetails(value: unknown): InvoiceStyleDetails | null {
+  const row = asRecord(value);
+  if (!row) return null;
+  const gst = text(row.gstRate);
+  return {
+    bankName: text(row.bankName),
+    accountNumber: text(row.accountNumber),
+    ifsc: text(row.ifsc),
+    branch: text(row.branch),
+    upi: text(row.upi),
+    terms: text(row.terms),
+    signatory: text(row.signatory),
+    signatureUrl: text(row.signatureUrl).slice(0, 2000),
+    gstRate: gst === "0" || gst === "5" || gst === "12" || gst === "18" ? gst : "",
+    reverseCharge: row.reverseCharge === true,
+    splitNotes: row.splitNotes !== false,
+  };
+}
+
+export type IssuedInvoicePresentation = {
+  format: string | null;
+  accent: string | null;
+  splitNotes: boolean;
+  reverseCharge: boolean;
+  logoUrl: string | null;
+  issuerLines: string[];
+  details: InvoiceStyleDetails | null;
+};
+
+export function parseIssuedPresentation(snapshots: {
+  tax?: unknown;
+  issuer?: unknown;
+}): IssuedInvoicePresentation {
+  const tax = asRecord(snapshots.tax);
+  const presentation = asRecord(tax?.presentation);
+  const issuer = asRecord(snapshots.issuer);
+  const detail = issuer?.detail;
+  const issuerLines = Array.isArray(detail)
+    ? detail.filter((line): line is string => typeof line === "string" && line.trim().length > 0)
+    : [];
+  const hasPresentation = presentation != null;
+  return {
+    format: str(presentation?.format),
+    accent: str(presentation?.accent),
+    splitNotes: hasPresentation ? presentation.splitNotes === true : false,
+    reverseCharge: presentation?.reverseCharge === true,
+    logoUrl: str(presentation?.logoUrl),
+    issuerLines,
+    details: parseStyleDetails(presentation?.details),
+  };
 }

@@ -4,6 +4,7 @@ import type { InvoiceRevenueNote } from '../invoiceCnDn.service';
 import {
   INVOICE_CNDN_CHARGE_ID_PREFIX,
   buildInvoicePdfTableRows,
+  invoiceLinesForNoteSplit,
   groupInvoiceRevenueCnDn,
   invoiceOnlyCharges,
   invoiceTripAdjustedAmount,
@@ -214,5 +215,43 @@ describe('invoiceCnDn.service', () => {
     expect(rows[0].route).toBe('Chennai → Bengaluru');
     expect(rows[0].tripId).toBe('GOD-1');
     expect(rows[0].amount).toBe(88750);
+  });
+
+  it('folds credit and debit notes into a rounded freight amount when split is off', () => {
+    const lines = invoiceLinesForNoteSplit(
+      [
+        {
+          description: 'Freight charges · LR AI1025',
+          trip_id: TRIP_ID,
+          trip_ref: 'AI1025',
+          line_type: 'freight',
+          rate: 46390,
+          taxable_value: 46390,
+        },
+        {
+          description: 'Debit note — Loading Charges',
+          trip_id: TRIP_ID,
+          trip_ref: 'AI1025',
+          line_type: 'additional',
+          rate: 1000.4,
+          taxable_value: 1000.4,
+        },
+        {
+          description: 'Credit note — Damages',
+          trip_id: TRIP_ID,
+          trip_ref: 'AI1025',
+          line_type: 'additional',
+          rate: -4500.2,
+          taxable_value: -4500.2,
+        },
+      ],
+      false,
+    );
+    expect(lines.map((line) => line.description)).toEqual([
+      'Freight charges · LR AI1025',
+      'Round off',
+    ]);
+    expect(lines[0].taxable_value).toBe(42890);
+    expect(lines[0].taxable_value + lines[1].taxable_value).toBeCloseTo(46390 + 1000.4 - 4500.2);
   });
 });

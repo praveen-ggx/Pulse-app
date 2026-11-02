@@ -100,6 +100,25 @@ async function fieldsFromOrgId(
   };
 }
 
+/** Same avatar stack as the Self receivables list, keyed by client id. */
+export async function resolveClientPartyAvatarMap(
+  clients: ClientRow[],
+): Promise<Record<string, DriverPartyAvatarFields>> {
+  const orgIds = [
+    ...new Set(
+      clients
+        .map((client) => (client.linked_organization_id ?? "").trim())
+        .filter((id): id is string => !!id),
+    ),
+  ];
+  const orgById = orgIds.length ? await getLinkedOrgProfilesBatch(orgIds) : {};
+  const out: Record<string, DriverPartyAvatarFields> = {};
+  for (const client of clients) {
+    out[client.id] = fieldsFromClient(client, orgById);
+  }
+  return out;
+}
+
 export async function resolveDriverPartyAvatar(
   partyId: string,
   trips: TripRow[],

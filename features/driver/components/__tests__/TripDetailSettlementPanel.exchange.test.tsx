@@ -103,9 +103,10 @@ describe("TripDetailSettlementPanel — Marketplace DCO on Pulse Exchange", () =
     expect(mockSummaryQuery).toHaveBeenCalledWith(null);
     expect(screen.queryByText("exchange:trip-1")).toBeNull();
     expect(screen.getByText("Expected payout")).toBeTruthy();
-    expect(screen.getByText("Capture commission")).toBeTruthy();
-    expect(screen.getByText("Commission from Shipper A")).toBeTruthy();
-    expect(screen.queryByText("Request from fleet owner")).toBeNull();
-    expect(screen.queryByText(/settle offline with fleet/i)).toBeNull();
+    expect(screen.getByText("Request from fleet owner")).toBeTruthy();
+    expect(screen.getByText(/Revenue from/)).toBeTruthy();
+    expect(screen.getByText(/Shipper A/)).toBeTruthy();
+    expect(screen.getByText(/settle offline with fleet/i)).toBeTruthy();
+    expect(screen.queryByText("Capture commission")).toBeNull();
   });
 });

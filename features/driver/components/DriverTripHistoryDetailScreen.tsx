@@ -24,6 +24,7 @@ import * as driversService from "@/features/drivers/services/drivers.service";
 import * as salaryRequestsService from "@/features/drivers/services/salaryRequests.service";
 import * as tripsService from "@/features/trips/services/trips.service";
 import {
+  canTagPartyOnTrip,
   isTripTaggedToParty,
   tripNeedsPartyTag,
   tripReceivablePartyName,
@@ -636,10 +637,12 @@ export function DriverTripHistoryDetailScreen({
   }
 
   const selectedTrip = trip;
+  const isOfflinePartyTrip =
+    canTagOfflineParty && canTagPartyOnTrip(trip, isTripHistoryFleet);
   const needsOfflinePartyTag =
-    canTagOfflineParty && tripNeedsPartyTag(trip, isTripHistoryFleet);
+    isOfflinePartyTrip && tripNeedsPartyTag(trip, isTripHistoryFleet);
   const taggedOfflineParty =
-    !isTripHistoryFleet && isTripTaggedToParty(trip)
+    isOfflinePartyTrip && isTripTaggedToParty(trip)
       ? tripReceivablePartyName(trip)
       : null;
   const showHistoryAttributionBar =

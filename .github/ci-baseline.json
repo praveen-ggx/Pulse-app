@@ -1,5 +1,5 @@
 {
-  "lint": 102,
+  "lint": 101,
   "typecheck": 340,
   "cycles": 92,
   "lib-files": 178

@@ -144,6 +144,11 @@ export const Theme = {
   accentBrownWash: "#F6F0EA",
   accentBrownBorder: "rgba(107, 79, 58, 0.28)",
   accentBrownSoft: "#EFE4D8",
+  /** Invoice accent swatches. Dark enough for white type on a filled header. */
+  invoiceSlate: "#334155",
+  invoiceBlue: "#1D4ED8",
+  invoiceTeal: "#0F766E",
+  invoicePlum: "#6D28D9",
 
   // ---- Semantic (demo: Tesla red / dark green) ----
   /** Demo accent; positive/credit */

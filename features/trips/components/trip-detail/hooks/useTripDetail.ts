@@ -87,6 +87,7 @@ import {
 import { applyHardCopyPodColumnsToTrip } from "@/lib/queries/hardCopyPodCache.util";
 import { useTripHardCopyPodQuery } from "@/lib/queries/useTripHardCopyPodQuery";
 import { queryKeys } from "@/lib/queryKeys";
+import { invalidateTripFinanceNoteQueries } from "@/lib/queries/useTripFinanceAdjustmentsQuery";
 import { isServiceUnavailableError } from "@/lib/supabaseHttp.util";
 import * as driverLocationService from "@/features/driver/services/driverLocation.service";
 import { getMoverAssetClientPaid } from "@/features/trips/services/moverAssetPayment.service";
@@ -3091,9 +3092,7 @@ export function useTripDetail({
           : undefined,
       );
       await loadAdjustments();
-      void queryClient.invalidateQueries({
-        queryKey: [...queryKeys.tripFinanceAdjustmentsRoot],
-      });
+      invalidateTripFinanceNoteQueries(queryClient);
     },
     [trip, currentOrganization?.id, currentUserId, loadAdjustments, queryClient],
   );
@@ -3105,9 +3104,7 @@ export function useTripDetail({
       if (!r) return;
       await voidTripAdjustment(trip.id, adjustmentId, r);
       await loadAdjustments();
-      void queryClient.invalidateQueries({
-        queryKey: [...queryKeys.tripFinanceAdjustmentsRoot],
-      });
+      invalidateTripFinanceNoteQueries(queryClient);
     },
     [trip?.id, loadAdjustments, queryClient],
   );
@@ -3125,9 +3122,7 @@ export function useTripDetail({
       if (!trip?.id) return;
       await updateTripAdjustment(trip.id, adjustmentId, params);
       await loadAdjustments();
-      void queryClient.invalidateQueries({
-        queryKey: [...queryKeys.tripFinanceAdjustmentsRoot],
-      });
+      invalidateTripFinanceNoteQueries(queryClient);
     },
     [trip?.id, loadAdjustments, queryClient],
   );

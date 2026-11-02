@@ -126,9 +126,9 @@ export const clientProfileStyles = StyleSheet.create({
     marginTop: 12,
   },
   kycDocCard: {
-    width: "31%",
-    minWidth: 220,
+    width: "31.5%",
     flexGrow: 1,
+    minWidth: 180,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: METRONIC.border,

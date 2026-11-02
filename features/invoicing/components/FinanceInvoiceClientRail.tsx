@@ -57,10 +57,10 @@ export function FinanceInvoiceClientRail({
               accessibilityLabel={item.name}
               accessibilityState={{ selected: active }}
             >
-              <View style={s.avatar}>
-                <Text style={s.avatarText}>{initial}</Text>
+              <View style={[s.avatar, active && s.avatarActive]}>
+                <Text style={[s.avatarText, active && s.avatarTextActive]}>{initial}</Text>
               </View>
-              <View style={{ flex: 1, minWidth: 0 }}>
+              <View style={{ flex: 1, minWidth: 0, justifyContent: "center" }}>
                 <Text style={s.railName} numberOfLines={1}>
                   {item.name}
                 </Text>

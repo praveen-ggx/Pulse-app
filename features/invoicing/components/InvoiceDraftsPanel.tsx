@@ -1,9 +1,8 @@
 import Theme from "@/constants/Theme";
 import Layout from "@/constants/Layout";
 import type { IssuedInvoiceListRow } from "@/features/invoicing/services/invoiceList.service";
-import { financeInvoiceHistoryFields } from "@/features/invoicing/utils/invoiceSource.util";
 import { issuedInvoicesForClient } from "@/features/invoicing/utils/issuedInvoiceMatch.util";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 function formatInr(n: number): string {
   return `₹${n.toLocaleString("en-IN", {
@@ -24,16 +23,28 @@ function formatWhen(raw?: string | null): string {
   });
 }
 
+function draftTitle(item: IssuedInvoiceListRow): string {
+  return item.client_name?.trim() || "Draft invoice";
+}
+
+function tripCount(item: IssuedInvoiceListRow): number {
+  return item.trip_ids?.length ?? 0;
+}
+
 export function InvoiceDraftsPanel({
   drafts,
   partnerClientId,
   partnerLabel,
+  selectedId = null,
+  onSelect,
   onResume,
   onCancel,
 }: {
   drafts: IssuedInvoiceListRow[];
   partnerClientId?: string | null;
   partnerLabel?: string | null;
+  selectedId?: string | null;
+  onSelect?: (draft: IssuedInvoiceListRow) => void;
   onResume: (draft: IssuedInvoiceListRow) => void;
   onCancel: (draft: IssuedInvoiceListRow) => void;
 }) {
@@ -45,144 +56,190 @@ export function InvoiceDraftsPanel({
         })
       : drafts;
 
+  if (rows.length === 0) {
+    return (
+      <View style={styles.empty}>
+        <Text style={styles.emptyTitle}>No drafts</Text>
+        <Text style={styles.emptySub}>
+          Save a draft from the invoice preview. It stays here until you issue or cancel it.
+        </Text>
+      </View>
+    );
+  }
+
   return (
-    <FlatList
-      style={styles.list}
-      data={rows}
-      keyExtractor={(item) => item.id}
-      contentContainerStyle={styles.content}
-      ListEmptyComponent={
-        <View style={styles.empty}>
-          <Text style={styles.emptyTitle}>No drafts</Text>
-          <Text style={styles.emptySub}>
-            Create Invoice saves a draft that reserves trips until you issue or
-            cancel it.
-          </Text>
-        </View>
-      }
-      renderItem={({ item }) => (
-        <View style={styles.card} accessibilityLabel={`Draft ${item.invoice_number}`}>
-          <Text style={styles.number} numberOfLines={1}>
-            {item.invoice_number}
-          </Text>
-          <Text style={styles.meta}>
-            {(() => {
-              const history = financeInvoiceHistoryFields({
-                invoice_source: item.invoice_source,
-                sales_order_number: item.sales_order_number,
-                trip_ids: item.trip_ids,
-              });
-              return `${history.source} · ${history.reference} · ${formatInr(item.total_amount)}`;
-            })()}
-          </Text>
-          <Text style={styles.meta}>
-            Updated {formatWhen(item.updated_at || item.created_at)}
-          </Text>
-          <Text style={styles.status}>Draft</Text>
-          <View style={styles.actions}>
-            <Pressable
-              style={styles.primary}
-              onPress={() => onResume(item)}
-              accessibilityRole="button"
-              accessibilityLabel="Resume draft"
-            >
-              <Text style={styles.primaryText}>Open</Text>
-            </Pressable>
-            <Pressable
-              style={styles.secondary}
-              onPress={() => onCancel(item)}
-              accessibilityRole="button"
-              accessibilityLabel="Cancel draft"
-            >
-              <Text style={styles.secondaryText}>Cancel</Text>
-            </Pressable>
-          </View>
-        </View>
-      )}
-    />
+    <ScrollView style={styles.list} contentContainerStyle={styles.content}>
+      {rows.map((item) => {
+        const selected = item.id === selectedId;
+        const trips = tripCount(item);
+        return (
+          <Pressable
+            key={item.id}
+            style={[styles.card, selected && styles.cardOn]}
+            onPress={() => (onSelect ? onSelect(item) : onResume(item))}
+            accessibilityRole="button"
+            accessibilityState={{ selected }}
+            accessibilityLabel={`Preview draft for ${draftTitle(item)}`}
+          >
+            <View style={styles.sheet}>
+              <View style={[styles.sheetBand, selected && styles.sheetBandOn]}>
+                <Text style={[styles.sheetKicker, selected && styles.sheetKickerOn]}>Draft</Text>
+                <Text style={[styles.sheetAmount, selected && styles.sheetKickerOn]}>
+                  {formatInr(item.total_amount)}
+                </Text>
+              </View>
+              <Text style={styles.sheetName} numberOfLines={2}>{draftTitle(item)}</Text>
+              <View style={styles.rule} />
+              <View style={styles.fakeLine} />
+              <View style={[styles.fakeLine, styles.fakeLineShort]} />
+              <View style={styles.fakeLine} />
+              <View style={styles.sheetTotal}>
+                <Text style={styles.sheetTotalLabel}>Balance</Text>
+                <Text style={styles.sheetTotalValue}>{formatInr(item.total_amount)}</Text>
+              </View>
+            </View>
+            <Text style={styles.meta} numberOfLines={1}>
+              {trips} trip{trips === 1 ? "" : "s"} · {formatWhen(item.updated_at || item.created_at)}
+            </Text>
+            <View style={styles.actions}>
+              <Pressable
+                style={styles.primary}
+                onPress={() => onResume(item)}
+                accessibilityRole="button"
+                accessibilityLabel="Open draft"
+              >
+                <Text style={styles.primaryText}>Open</Text>
+              </Pressable>
+              <Pressable
+                style={styles.secondary}
+                onPress={() => onCancel(item)}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel draft"
+              >
+                <Text style={styles.secondaryText}>Cancel</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   list: { flex: 1, backgroundColor: Theme.screenBackground },
   content: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
     paddingHorizontal: Layout.screenPaddingHorizontal,
     paddingTop: 12,
     paddingBottom: 32,
-    flexGrow: 1,
   },
-  empty: { alignItems: "center", paddingVertical: 48 },
+  empty: { alignItems: "center", paddingVertical: 48, paddingHorizontal: 24 },
   emptyTitle: {
-    fontSize: 13,
-    fontWeight: "800",
+    fontSize: 14,
+    fontWeight: "500",
     color: Theme.textPrimaryDark,
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
   },
   emptySub: {
-    marginTop: 8,
+    marginTop: 6,
     fontSize: 12,
-    fontWeight: "600",
+    fontWeight: "400",
     color: Theme.textMuted,
     textAlign: "center",
-    paddingHorizontal: 24,
   },
   card: {
+    width: 176,
     backgroundColor: Theme.cardWhite,
     borderWidth: 1,
-    borderColor: Theme.surfaceBorder,
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 10,
+    borderColor: Theme.border,
+    borderRadius: 12,
+    padding: 8,
   },
-  number: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: Theme.textPrimary,
+  cardOn: {
+    borderColor: Theme.primary,
+    borderWidth: 2,
   },
-  meta: {
-    marginTop: 4,
+  sheet: {
+    backgroundColor: Theme.cardWhite,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.border,
+    borderRadius: 6,
+    overflow: "hidden",
+    minHeight: 168,
+  },
+  sheetBand: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: Theme.surface,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  sheetBandOn: { backgroundColor: Theme.primary },
+  sheetKicker: { fontSize: 9, fontWeight: "500", color: Theme.textSecondary, letterSpacing: 0.4 },
+  sheetKickerOn: { color: Theme.buttonDarkText },
+  sheetAmount: { fontSize: 10, fontWeight: "500", color: Theme.textPrimaryDark },
+  sheetName: {
+    marginTop: 8,
+    marginHorizontal: 8,
     fontSize: 12,
-    fontWeight: "600",
-    color: Theme.textSecondary,
+    fontWeight: "500",
+    color: Theme.textPrimaryDark,
+    minHeight: 32,
   },
-  status: {
+  rule: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: Theme.border,
+    marginHorizontal: 8,
+    marginTop: 6,
+  },
+  fakeLine: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Theme.surface,
+    marginHorizontal: 8,
+    marginTop: 6,
+  },
+  fakeLineShort: { width: "62%" },
+  sheetTotal: {
+    marginTop: 8,
+    marginHorizontal: 8,
+    marginBottom: 8,
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  sheetTotalLabel: { fontSize: 9, fontWeight: "400", color: Theme.textMuted },
+  sheetTotalValue: { fontSize: 11, fontWeight: "500", color: Theme.textPrimaryDark },
+  meta: {
     marginTop: 8,
     fontSize: 11,
-    fontWeight: "800",
-    color: Theme.textMuted,
-    textTransform: "uppercase",
+    fontWeight: "400",
+    color: Theme.textSecondary,
   },
   actions: {
     flexDirection: "row",
-    gap: 8,
-    marginTop: 12,
+    gap: 6,
+    marginTop: 8,
   },
   primary: {
-    backgroundColor: Theme.buttonPrimary,
+    flex: 1,
+    backgroundColor: Theme.surface,
     borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    minHeight: 44,
+    minHeight: 32,
+    alignItems: "center",
     justifyContent: "center",
   },
-  primaryText: {
-    color: Theme.buttonPrimaryText,
-    fontWeight: "800",
-    fontSize: 13,
-  },
+  primaryText: { color: Theme.textPrimaryDark, fontWeight: "500", fontSize: 12 },
   secondary: {
-    borderWidth: 1,
-    borderColor: Theme.surfaceBorder,
+    flex: 1,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.border,
     borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    minHeight: 44,
+    minHeight: 32,
+    alignItems: "center",
     justifyContent: "center",
   },
-  secondaryText: {
-    color: Theme.textPrimary,
-    fontWeight: "700",
-    fontSize: 13,
-  },
+  secondaryText: { color: Theme.textSecondary, fontWeight: "500", fontSize: 12 },
 });

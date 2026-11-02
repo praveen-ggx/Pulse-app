@@ -69,7 +69,9 @@ export function PulseProductShell({
   return (
     <PulseProductShellContext.Provider value={productId}>
       <View style={styles.root}>
-        <PulseProductChromeHeader productId={productId} />
+        {productId === "invoice" ? null : (
+          <PulseProductChromeHeader productId={productId} />
+        )}
 
         {productId === "finance-pro" ? <FinanceProSubTabs /> : null}
         {returnTo ? (

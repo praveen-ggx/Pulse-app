@@ -176,6 +176,75 @@ function revisedFreightAmount(base: number, nested: InvoicePdfItem[]): number {
   );
 }
 
+export function isInvoiceNoteDescription(description: string): boolean {
+  return /^(credit note|debit note)\b/i.test(description.trim());
+}
+
+type SplitLine = {
+  description: string;
+  trip_id: string | null;
+  trip_ref: string | null;
+  line_type: string;
+  rate: number;
+  taxable_value: number;
+};
+
+function noteMatchesFreight(note: SplitLine, freight: SplitLine): boolean {
+  const ids = [freight.trip_id, freight.trip_ref].filter(Boolean);
+  return ids.some((id) => id === note.trip_id || id === note.trip_ref);
+}
+
+/**
+ * Split on: keep each credit and debit note.
+ * Split off: drop those lines and show the freight amount after them, rounded to the rupee.
+ */
+export function invoiceLinesForNoteSplit<T extends SplitLine>(
+  lines: T[],
+  showSplit: boolean,
+): T[] {
+  if (showSplit) return lines;
+  const notes = lines.filter((line) => isInvoiceNoteDescription(line.description));
+  if (notes.length === 0) return lines;
+  const freights = lines.filter((line) => line.line_type === 'freight');
+  const used = new Set<T>();
+  const netted = new Map<T, number>();
+  for (const freight of freights) {
+    const matched = notes.filter((note) => !used.has(note) && noteMatchesFreight(note, freight));
+    matched.forEach((note) => used.add(note));
+    const sum = matched.reduce((acc, note) => acc + note.taxable_value, 0);
+    netted.set(freight, freight.taxable_value + sum);
+  }
+  const leftover = notes
+    .filter((note) => !used.has(note))
+    .reduce((acc, note) => acc + note.taxable_value, 0);
+  const last = freights[freights.length - 1];
+  if (last) netted.set(last, (netted.get(last) ?? last.taxable_value) + leftover);
+
+  const presented = lines.flatMap((line) => {
+    if (isInvoiceNoteDescription(line.description)) return [];
+    if (line.line_type !== 'freight') return [line];
+    const net = Math.round(netted.get(line) ?? line.taxable_value);
+    return [{ ...line, rate: net, taxable_value: net }];
+  });
+  const exact = lines.reduce((acc, line) => acc + line.taxable_value, 0);
+  const shown = presented.reduce((acc, line) => acc + line.taxable_value, 0);
+  const roundOff = Math.round((exact - shown) * 100) / 100;
+  if (Math.abs(roundOff) >= 0.01 && last) {
+    presented.push({
+      ...last,
+      description: 'Round off',
+      trip_id: null,
+      trip_ref: null,
+      line_type: 'additional',
+      rate: roundOff,
+      taxable_value: roundOff,
+      qty: 1,
+      unit: 'trip',
+    } as T);
+  }
+  return presented;
+}
+
 /** Flatten snapshot lines into PDF rows: trip, nested CN/DN, then revised invoiced freight. */
 export function buildInvoicePdfTableRows(
   items: InvoicePdfItem[],

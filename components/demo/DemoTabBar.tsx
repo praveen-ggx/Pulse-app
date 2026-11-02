@@ -56,7 +56,7 @@ import { setMobileNetworkDockExpanded } from "@/lib/mobileDockState";
 import { ROUTES } from "@/lib/routes";
 import { useEffectiveBottomInset } from "@/lib/safeAreaWeb";
 import { usePathname, useRouter } from "expo-router";
-import { DollarSign, Inbox, LineChart, MessageSquare, ShieldCheck, Signpost, Truck } from "lucide-react-native";
+import { DollarSign, FileText, Inbox, LineChart, MessageSquare, ShieldCheck, Signpost, Truck } from "lucide-react-native";
 import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
     Image,
@@ -136,7 +136,7 @@ function AnimatedPress({
   );
 }
 
-export type DemoTabId = "finance" | "trips" | "network" | "loadCenter" | "compliance" | "resources";
+export type DemoTabId = "finance" | "trips" | "network" | "loadCenter" | "compliance" | "invoice" | "resources";
 
 /** Per-domain tab visibility (functional member roles). Omitted → all visible. */
 export type DemoTabVisibility = {
@@ -145,6 +145,7 @@ export type DemoTabVisibility = {
   network: boolean;
   loadCenter: boolean;
   compliance: boolean;
+  invoice?: boolean;
 };
 
 const ALL_TABS_VISIBLE: DemoTabVisibility = {
@@ -198,7 +199,7 @@ export function DemoTabBar({
         preloadPulseLoadsRoute();
         return;
       }
-      if (tab === "compliance") {
+      if (tab === "compliance" || tab === "invoice") {
         return;
       }
       if (tab === "finance" || tab === "trips" || tab === "network") {
@@ -499,6 +500,7 @@ export function DemoTabBar({
   const isNetwork = activeTab === "network";
   const isLoadCenter = activeTab === "loadCenter";
   const isCompliance = activeTab === "compliance";
+  const isInvoice = activeTab === "invoice";
   const isChatRoute = pathname.includes("/chat");
   const networkDockOpen = !isDesktopWeb && isNetworkExpanded;
   const displayName = (
@@ -662,6 +664,13 @@ export function DemoTabBar({
         Icon: ShieldCheck,
         active: isCompliance,
       },
+      {
+        id: "invoice",
+        title: "INVOICE",
+        subtitle: "GST",
+        Icon: FileText,
+        active: isInvoice,
+      },
     ];
     // Hide primary-domain tabs the member's functional role can't reach.
     const navItems = allNavItems.filter((item) => {
@@ -670,6 +679,7 @@ export function DemoTabBar({
       if (item.id === "network") return visibility.network !== false;
       if (item.id === "loadCenter") return visibility.loadCenter !== false;
       if (item.id === "compliance") return visibility.compliance !== false;
+      if (item.id === "invoice") return visibility.invoice !== false;
       return true;
     });
 

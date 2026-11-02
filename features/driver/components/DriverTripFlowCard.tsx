@@ -116,6 +116,7 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
+import { driverConversationUnreadCount } from '@/features/chat/utils/driverChatUnread.util';
 
 /** Secondary row (Call / Chat / Camera, Navigate) and the stage CTA below it. */
 const ACTION_BTN_HEIGHT = 52;
@@ -648,7 +649,7 @@ export function DriverTripFlowCard({
     const id = String(localTrip?.id ?? '');
     if (!id) return 0;
     const conv = conversations.find((c) => String(c.trip_id) === id);
-    return Math.max(0, conv?.unread_dispatcher_count ?? 0);
+    return conv ? driverConversationUnreadCount(conv) : 0;
   }, [conversations, localTrip?.id]);
 
   // Presentation-only: this trip may have started life as a Reach

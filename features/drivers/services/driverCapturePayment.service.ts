@@ -21,6 +21,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import {
   buildDriverCaptureDescription,
+  driverLedgerCaptureReferenceId,
   stableDriverCaptureKey,
   toExchangePaymentMode,
   type DriverCaptureLane,
@@ -323,7 +324,8 @@ async function insertLedgerOnce(
   if (!orgId) return { error: new Error("Missing organization.") };
   if (!input.driverId) return { error: new Error("Missing driver.") };
 
-  const existing = await findDriverLedgerByReference(orgId, "dco_capture", key);
+  const referenceId = driverLedgerCaptureReferenceId(key);
+  const existing = await findDriverLedgerByReference(orgId, "dco_capture", referenceId);
   if (existing.row) return { error: null };
   if (existing.error) return { error: existing.error };
 
@@ -345,7 +347,7 @@ async function insertLedgerOnce(
       createdBy: input.createdBy,
       description,
       referenceType: "dco_capture",
-      referenceId: key,
+      referenceId,
     },
   );
   if (error?.message?.includes("driver_ledger_created_by_fkey")) {
@@ -359,7 +361,7 @@ async function insertLedgerOnce(
         createdBy: null,
         description,
         referenceType: "dco_capture",
-        referenceId: key,
+        referenceId,
       },
     );
     error = retry.error;

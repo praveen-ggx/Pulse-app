@@ -1,9 +1,11 @@
 import {
   buildDriverCaptureDescription,
   driverCaptureLaneForTrip,
+  driverLedgerCaptureReferenceId,
   parseDriverCaptureLane,
   stableDriverCaptureKey,
   toExchangePaymentMode,
+  uuidV5,
 } from "../driverCapturePayment.util";
 
 describe("driverCapturePayment.util", () => {
@@ -69,6 +71,19 @@ describe("driverCapturePayment.util", () => {
     });
     expect(a).toBe(b);
     expect(a).toBe("dco-capture:shipper:t1:99:UPI:utr9:2026-11-01");
+  });
+
+  it("turns the capture key into a stable ledger uuid", () => {
+    expect(uuidV5("python.org", "6ba7b810-9dad-11d1-80b4-00c04fd430c8")).toBe(
+      "886313e1-3b8a-5372-9b90-0c9aee199e5d",
+    );
+    const key = "dco-capture:fleet:92c57326-2af8-426c-9ec1-663ebc4d3e31:4020:CASH::2026-11-02";
+    const id = driverLedgerCaptureReferenceId(key);
+    expect(id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    expect(driverLedgerCaptureReferenceId(key)).toBe(id);
+    expect(driverLedgerCaptureReferenceId(`${key}:2`)).not.toBe(id);
   });
 
   it("maps capture modes onto Exchange", () => {

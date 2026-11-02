@@ -141,7 +141,6 @@ export function DriverTagPartyDialogs({
   onSuccessOk,
 }: Props) {
   const billed = billedAmount != null && billedAmount > 0 ? billedAmount : null;
-  const showReceivable = !!receivable && !pendingName && !successName;
   const showConfirm = !!pendingName && !successName;
   const confirmHasPriorStep = billed != null && !!onBackConfirm;
   const partyName = receivable?.partyName || pendingName || "";

@@ -20,7 +20,6 @@ import {
   type DriverPartyAvatarFields,
 } from "@/features/drivers/utils/driverPartyAvatar.util";
 import {
-  UNTAGGED_PARTY_ID,
   buildDriverPartyReceivables,
   isTripTaggedToParty,
   tripNeedsPartyTag,

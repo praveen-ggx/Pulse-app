@@ -30,7 +30,12 @@ import {
   canRetryFetchAttempt,
   dataFetchConcurrencyGate,
   admitSupabaseRequest,
+  currentSupabaseProbeGeneration,
+  deviceOfflineError,
   finishSupabaseCircuitProbe,
+  isBrowserTransportFailure,
+  isDeviceKnownOffline,
+  releaseSupabaseCircuitProbe,
   isOriginDownHttpStatus,
   isRetryableHttpResponse,
   maxRetriesForHttpResponse,
@@ -228,79 +233,94 @@ async function fetchWithTimeoutAndRetryRaw(
   if (admission === 'reject') {
     throw supabaseCircuitOpenError();
   }
-  if (queued) {
-    await dataFetchConcurrencyGate.acquire(requestSignal);
-  }
+  // Every exit below must give the probe back if no verdict was recorded (abort,
+  // timeout, queue reject, device offline); otherwise the circuit latches forever.
+  const probeGeneration = admission === 'probe' ? currentSupabaseProbeGeneration() : -1;
   try {
-    let lastError: Error | null = null;
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        // Same request already holds the half-open probe; do not re-admit.
-        const res = await doFetch(requestSignal);
-        if (res.ok) {
-          if (admission === 'probe') finishSupabaseCircuitProbe(true);
-          else noteSupabaseHealthy();
-        } else if (isOriginDownHttpStatus(res.status)) {
-          const statementTimeout = await isStatementTimeoutResponse(res);
-          recordSupabaseHttp5xx(res.status);
-          if (shouldOpenOriginCircuitForHttpFailure(res.status, statementTimeout)) {
-            if (admission === 'probe') finishSupabaseCircuitProbe(false);
-            else noteSupabaseOriginDown();
-          } else if (statementTimeout) {
-            recordSupabaseHttpTimeout();
+    return await fetchAdmitted();
+  } finally {
+    if (admission === 'probe') releaseSupabaseCircuitProbe(probeGeneration);
+  }
+
+  async function fetchAdmitted(): Promise<Response> {
+    if (queued) {
+      await dataFetchConcurrencyGate.acquire(requestSignal);
+    }
+    try {
+      let lastError: Error | null = null;
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          // Same request already holds the half-open probe; do not re-admit.
+          const res = await doFetch(requestSignal);
+          if (res.ok) {
             if (admission === 'probe') finishSupabaseCircuitProbe(true);
+            else noteSupabaseHealthy();
+          } else if (isOriginDownHttpStatus(res.status)) {
+            const statementTimeout = await isStatementTimeoutResponse(res);
+            recordSupabaseHttp5xx(res.status);
+            if (shouldOpenOriginCircuitForHttpFailure(res.status, statementTimeout)) {
+              if (admission === 'probe') finishSupabaseCircuitProbe(false);
+              else noteSupabaseOriginDown();
+            } else if (statementTimeout) {
+              recordSupabaseHttpTimeout();
+              if (admission === 'probe') finishSupabaseCircuitProbe(true);
+            } else if (admission === 'probe') {
+              finishSupabaseCircuitProbe(true);
+            }
           } else if (admission === 'probe') {
             finishSupabaseCircuitProbe(true);
           }
-        } else if (admission === 'probe') {
-          finishSupabaseCircuitProbe(true);
-        }
-        if (
-          isRetryableHttpResponse(res) &&
-          attempt < maxRetriesForHttpResponse(res.status) &&
-          !(await isStatementTimeoutResponse(res))
-        ) {
+          if (
+            isRetryableHttpResponse(res) &&
+            attempt < maxRetriesForHttpResponse(res.status) &&
+            !(await isStatementTimeoutResponse(res))
+          ) {
+            await new Promise((r) => setTimeout(r, delayForAttempt(attempt)));
+            continue;
+          }
+          // JWT-expiry recovery: on the FIRST attempt of a non-auth request, if the
+          // response is a true token-expiry, refresh once (deduped) and retry once so
+          // the SDK re-sends with the rotated token. attempt===0 + single continue
+          // bounds this to exactly one extra attempt — no loop. Never runs for
+          // /auth/v1/token requests, so refreshSession() cannot recurse into itself.
+          if (!isAuthToken && attempt === 0 && (await isJwtExpiryResponse(res))) {
+            const recovered = await recoverAuthOnce();
+            if (recovered) continue;
+            // Not recovered → return the expiry response; GoTrue's SIGNED_OUT →
+            // AuthContext does clear-state + route-to-login + "expired" flash.
+          }
+          return res;
+        } catch (e) {
+          lastError = e instanceof Error ? e : new Error(String(e));
+          if (requestSignal?.aborted || lastError.name === 'AbortError') {
+            throw lastError.name === 'AbortError' ? lastError : toCancelError();
+          }
+          if (!isAuthToken && isDeviceKnownOffline() && isBrowserTransportFailure(lastError)) {
+            // No retries and no circuit: the device is offline, the origin may be fine.
+            throw deviceOfflineError();
+          }
+          if (!isAuthToken && isClientTimeoutError(lastError)) {
+            recordSupabaseHttpTimeout();
+          } else if (!isAuthToken && noteSupabaseOriginDownIfTransportFailure(lastError)) {
+            recordSupabaseHttp5xx();
+          }
+          if (
+            !canRetryFetchAttempt({
+              attempt,
+              maxRetries,
+              timeoutMaxRetries: TIMEOUT_MAX_RETRIES,
+              error: lastError,
+            })
+          ) {
+            throw lastError;
+          }
           await new Promise((r) => setTimeout(r, delayForAttempt(attempt)));
-          continue;
         }
-        // JWT-expiry recovery: on the FIRST attempt of a non-auth request, if the
-        // response is a true token-expiry, refresh once (deduped) and retry once so
-        // the SDK re-sends with the rotated token. attempt===0 + single continue
-        // bounds this to exactly one extra attempt — no loop. Never runs for
-        // /auth/v1/token requests, so refreshSession() cannot recurse into itself.
-        if (!isAuthToken && attempt === 0 && (await isJwtExpiryResponse(res))) {
-          const recovered = await recoverAuthOnce();
-          if (recovered) continue;
-          // Not recovered → return the expiry response; GoTrue's SIGNED_OUT →
-          // AuthContext does clear-state + route-to-login + "expired" flash.
-        }
-        return res;
-      } catch (e) {
-        lastError = e instanceof Error ? e : new Error(String(e));
-        if (requestSignal?.aborted || lastError.name === 'AbortError') {
-          throw lastError.name === 'AbortError' ? lastError : toCancelError();
-        }
-        if (!isAuthToken && isClientTimeoutError(lastError)) {
-          recordSupabaseHttpTimeout();
-        } else if (!isAuthToken && noteSupabaseOriginDownIfTransportFailure(lastError)) {
-          recordSupabaseHttp5xx();
-        }
-        if (
-          !canRetryFetchAttempt({
-            attempt,
-            maxRetries,
-            timeoutMaxRetries: TIMEOUT_MAX_RETRIES,
-            error: lastError,
-          })
-        ) {
-          throw lastError;
-        }
-        await new Promise((r) => setTimeout(r, delayForAttempt(attempt)));
       }
+      throw lastError ?? new Error('Network request failed');
+    } finally {
+      if (queued) dataFetchConcurrencyGate.release();
     }
-    throw lastError ?? new Error('Network request failed');
-  } finally {
-    if (queued) dataFetchConcurrencyGate.release();
   }
 }
 
@@ -317,6 +337,9 @@ async function fetchWithTimeoutAndRetryRaw(
  * realtime traffic bypass moderation entirely — queuing a token refresh behind
  * data reads is how a recovering client gets stuck.
  */
+/** Circuit / probe tests drive the raw wrapper directly; app code goes through supabase(). */
+export const fetchWithTimeoutAndRetryRawForTests = fetchWithTimeoutAndRetryRaw;
+
 async function fetchWithTimeoutAndRetry(
   input: RequestInfo | URL,
   init?: RequestInit
@@ -550,6 +573,19 @@ export function supabase(): SupabaseClient<Database> {
     configurePlatformDb(() => client);
   }
   return client;
+}
+
+/**
+ * Single lightweight request used as the half-open probe after the device reconnects
+ * (see expediteSupabaseCircuitProbe). Goes through the normal fetch wrapper, so it is
+ * admitted as the probe and its result closes or reopens the circuit.
+ */
+export async function probeSupabaseOrigin(): Promise<void> {
+  try {
+    await supabase().from('profiles').select('id', { head: true }).limit(1);
+  } catch {
+    // The wrapper already recorded the verdict.
+  }
 }
 
 export type { SupabaseClient };

@@ -51,6 +51,15 @@ function randomId(): string {
   return `ops_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/**
+ * Id for one fuel/toll save. Generated before the online attempt and used as both the
+ * insert's idempotency_key and the outbox item id, so a replay of a save that already
+ * committed (timeout after commit) hits the unique index instead of duplicating it.
+ */
+export function newOperationsQueueItemId(): string {
+  return randomId();
+}
+
 async function readQueue(): Promise<OperationsQueueItem[]> {
   try {
     const raw = await AsyncStorage.getItem(OUTBOX_KEY);
@@ -79,9 +88,10 @@ async function enqueue(item: OperationsQueueItem) {
 
 export async function enqueueFuelMetadata(
   payload: FuelMetadataQueueItem["payload"],
+  id: string = randomId(),
 ) {
   return enqueue({
-    id: randomId(),
+    id,
     kind: "fuel_metadata",
     payload,
     createdAt: new Date().toISOString(),
@@ -105,9 +115,10 @@ export async function enqueueFuelPhoto(payload: FuelPhotoQueueItem["payload"]) {
 
 export async function enqueueTollMetadata(
   payload: TollMetadataQueueItem["payload"],
+  id: string = randomId(),
 ) {
   return enqueue({
-    id: randomId(),
+    id,
     kind: "toll_metadata",
     payload,
     createdAt: new Date().toISOString(),

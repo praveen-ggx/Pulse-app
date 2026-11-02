@@ -18,6 +18,7 @@ None of these are on the production branch `V1.0.1` (`2e78da38`).
 | 6 | `20271102120000_dco_self_finance_visibility.sql` | `94acae74e73c` | `bbbdf8b0` | Finance Self visibility |
 | 7 | `20271102134500_tag_dco_trip_party_no_notes_finance.sql` | `29916c0eaf63` | added `e3163680` (`f5ab54071671`), **appended** `370fc2fa` (2-arg `DROP`) | tag RPC: no notes marker, no `dco_party_billed`, ignores `p_billed` |
 | 8 | `20271102141500_drop_legacy_tag_dco_trip_party_overload.sql` | `90bd81b453c2` | this change | idempotent forward `DROP` of the unchecked `tag_dco_trip_party(uuid, uuid)` |
+| 9 | `20271102183000_dco_self_issue_trip_scope.sql` | `2d8422df6f25` | release remediation (from `79171699`) | `issue_dco_self_receivable`: trip must be live; outside the Self workspace it must be `operating_mode = 'DCO'` and driven by the caller; one non-void receivable per trip (`dco_self_receivables_active_trip_uidx`); constraint-specific conflict handling. Stops instead of rewriting rows if duplicates already exist |
 
 ### Why #8 exists although #3 and #7 already contain the drop
 
@@ -31,6 +32,8 @@ An environment that applied an **earlier body** of #3 (the original `bb373be4` f
 |---|---|---|
 | Production `nafxpivddesgsrthmosv` | none of #1–#8 expected (not in `V1.0.1`) | **UNVERIFIED** (needs approved read-only access) |
 | Preprod `xbisiveavvbifbzyfhgy` | #4 "realized via compat; do not replay"; #5–#8 on the dry-run allowlist; #1–#3 "remote apply status UNVERIFIED" (`docs/DCO_SELF_FINANCIAL_BOOK_PLAN.md`) | **UNVERIFIED** |
+
+**Preprod holds PR #65's DCO Self objects** (recorded `20261101184143`, `20261101184214`; `ensure_dco_workspace` is PR #65's pinned version). #4 would fail there (same argument types, renamed parameters) and #1/#2 would overwrite the pinned workspace function. Preprod is not a valid target for this set until it is reconciled under a separate approval.
 
 ### The `20271102003100` discrepancy
 

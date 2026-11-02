@@ -386,7 +386,7 @@ export function ClientProfileHubsEditSection({
                 setDraft((d) => ({
                   ...d,
                   mapPlaceLabel: label,
-                  address: d.address.trim() || label,
+                  address: label || d.address.trim(),
                   // Always take city / state / pincode from the place API (overwrite stale draft).
                   city: coords.city?.trim() || "",
                   state: coords.state?.trim() || "",

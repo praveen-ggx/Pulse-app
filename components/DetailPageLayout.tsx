@@ -19,12 +19,14 @@ interface DetailPageLayoutProps {
   fab?: ReactNode;
   /** Optional right-side header action (e.g. profile icon). */
   rightAction?: ReactNode;
+  /** Default centered. Left matches client-style party headers. */
+  titleAlign?: 'center' | 'left';
   /** Pull-to-refresh. */
   onRefresh?: () => void | Promise<void>;
   refreshing?: boolean;
 }
 
-export function DetailPageLayout({ title, onBack, children, titleSubline, fab, rightAction, onRefresh, refreshing = false }: DetailPageLayoutProps) {
+export function DetailPageLayout({ title, onBack, children, titleSubline, fab, rightAction, onRefresh, refreshing = false, titleAlign = 'center' }: DetailPageLayoutProps) {
   const insets = useSafeAreaInsets();
 
   return (
@@ -47,9 +49,13 @@ export function DetailPageLayout({ title, onBack, children, titleSubline, fab, r
         >
           <FontAwesome name="arrow-left" size={20} color={Theme.textPrimaryDark} />
         </TouchableOpacity>
-        <View style={styles.titleWrap}>
-          <Text style={styles.title} numberOfLines={1}>{title}</Text>
-          {titleSubline != null ? <View style={styles.titleSubline}>{titleSubline}</View> : null}
+        <View style={[styles.titleWrap, titleAlign === 'left' && styles.titleWrapLeft]}>
+          <Text style={[styles.title, titleAlign === 'left' && styles.titleLeft]} numberOfLines={1}>{title}</Text>
+          {titleSubline != null ? (
+            <View style={[styles.titleSubline, titleAlign === 'left' && styles.titleSublineLeft]}>
+              {titleSubline}
+            </View>
+          ) : null}
         </View>
         {rightAction != null ? rightAction : <View style={styles.backBtn} />}
       </View>
@@ -143,9 +149,19 @@ const styles = StyleSheet.create({
       default: {},
     }),
   },
+  titleWrapLeft: {
+    alignItems: 'flex-start',
+  },
+  titleLeft: {
+    textAlign: 'left',
+  },
   titleSubline: {
     marginTop: 2,
     alignItems: 'center',
+  },
+  titleSublineLeft: {
+    alignItems: 'flex-start',
+    alignSelf: 'stretch',
   },
   scroll: { flex: 1 },
   scrollContent: { padding: 16 },

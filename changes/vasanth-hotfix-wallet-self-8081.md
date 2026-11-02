@@ -8,6 +8,8 @@
 Production `V1.0.1` after release/2026-11-02 shipped the receivable-book rollup UI. Operators need the working 8081 Self preview published.
 
 ## Areas
+- components/DetailPageLayout.tsx (titleAlign)
+- features/clients/components/AddClientModal.tsx (allowOfflineWithoutOrganization)
 - features/drivers/utils/driverPartyReceivables.util.ts
 - features/drivers/components/DriverSelfReceivablesPanel.tsx
 - features/drivers/screens/DriverPartyReceivableScreen.tsx
@@ -22,4 +24,5 @@ Production `V1.0.1` after release/2026-11-02 shipped the receivable-book rollup 
 ## Tested
 - jest driverPartyReceivables.util.test.ts (17 passed)
 - TripDetailSettlementPanel.exchange.test aligned to 8081 fleet copy ("Request from fleet owner"); suite green locally
+- typecheck props restored: DetailPageLayout titleAlign + AddClientModal allowOfflineWithoutOrganization
 - not clicked through on production yet

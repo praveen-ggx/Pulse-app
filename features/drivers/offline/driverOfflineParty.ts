@@ -29,7 +29,10 @@ async function writeAll(rows: DriverOfflineParty[]): Promise<void> {
 }
 
 export async function listDriverOfflineParties(): Promise<DriverOfflineParty[]> {
-  return readAll();
+  const rows = await readAll();
+  const created = rows.filter((row) => isLocalDriverOfflinePartyId(row.id));
+  if (created.length !== rows.length) await writeAll(created);
+  return created;
 }
 
 export async function rememberDriverOfflineParty(input: {
@@ -38,7 +41,7 @@ export async function rememberDriverOfflineParty(input: {
 }): Promise<DriverOfflineParty> {
   const name = String(input.name ?? "").trim() || "Party";
   const phone = input.phone ?? null;
-  const rows = await readAll();
+  const rows = (await readAll()).filter((row) => isLocalDriverOfflinePartyId(row.id));
   const existing = rows.find(
     (row) =>
       row.name.trim().toLowerCase() === name.toLowerCase() &&

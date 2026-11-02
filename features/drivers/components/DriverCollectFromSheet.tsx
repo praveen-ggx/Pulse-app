@@ -6,7 +6,6 @@
 import { EntityAvatar } from "@/components/EntityAvatar";
 import {
   EMPTY_DRIVER_PARTY_AVATAR,
-  resolveClientPartyAvatarMap,
   type DriverPartyAvatarFields,
 } from "@/features/drivers/utils/driverPartyAvatar.util";
 import {
@@ -15,7 +14,7 @@ import {
   driverUISemiBold,
 } from "@/constants/DriverTypography";
 import Theme from "@/constants/Theme";
-import { getClientsByOrganization, type ClientRow } from "@/features/clients/services/clients.service";
+import { listDriverOfflineParties } from "@/features/drivers/offline/driverOfflineParty";
 import { tagTripWithDcoClient } from "@/features/drivers/services/driverTripClient.service";
 import { type DriverCaptureLane } from "@/features/drivers/utils/driverCapturePayment.util";
 import { parseDcoPartyTagFromNotes } from "@/features/drivers/utils/dcoTripPartyTag.util";
@@ -29,10 +28,6 @@ import {
   sortTagPartyOptions,
   tagPartyListDetail,
 } from "@/features/drivers/utils/driverPartyTagRecommend.util";
-import {
-  ensureDcoWorkspace,
-  getOrganizationsForUser,
-} from "@/features/organization/services/organization.service";
 import { DriverTagPartyDialogs } from "@/features/drivers/components/DriverTagPartyDialogs";
 import { showAppAlert } from "@/lib/appAlert";
 import { queryKeys } from "@/lib/queryKeys";
@@ -42,7 +37,7 @@ import type { TripRow } from "@/features/trips/services/trips.service";
 import { useQueryClient } from "@tanstack/react-query";
 import { type Href, useRouter } from "expo-router";
 import { Plus, UserPlus } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -54,6 +49,44 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+function knownPartyOptions(
+  rows: Array<{ id: string; name: string; phone?: string | null }>,
+  taggedPartyId: string,
+  assigner: string,
+  recommendFleet: boolean,
+): PartyOption[] {
+  const seen = new Set<string>();
+  const named = new Set<string>();
+  const mapped: PartyOption[] = [];
+  for (const party of rows) {
+    const name = party.name.trim();
+    const key = name.toLowerCase();
+    if (!party.id || seen.has(party.id) || named.has(key)) continue;
+    seen.add(party.id);
+    named.add(key);
+    mapped.push({
+      id: party.id,
+      name,
+      phone: party.phone ?? null,
+      linkedToTrip: !!taggedPartyId && party.id === taggedPartyId,
+      matchesAssigner: partyMatchesAssigner(name, assigner),
+      avatar: EMPTY_DRIVER_PARTY_AVATAR,
+    });
+  }
+  return sortTagPartyOptions(mapped, recommendFleet);
+}
+
+function samePartyOptions(prev: PartyOption[], next: PartyOption[]): boolean {
+  if (prev.length !== next.length) return false;
+  return prev.every(
+    (row, index) =>
+      row.id === next[index]?.id &&
+      row.name === next[index]?.name &&
+      row.phone === next[index]?.phone &&
+      row.linkedToTrip === next[index]?.linkedToTrip,
+  );
+}
 
 type PartyOption = {
   id: string;
@@ -123,50 +156,31 @@ export function DriverCollectFromSheet({
 
   const loadParties = useCallback(async () => {
     if (!canTagOfflineParty && !canAddDcoShippers) {
-      setParties([]);
+      setParties((prev) => (prev.length === 0 ? prev : []));
+      setLoading(false);
       return;
     }
-    setLoading(true);
-    try {
-      let orgId: string | null = null;
-      let workspaceUnavailable = false;
-      if (canAddDcoShippers) {
-        const { organization, error } = await ensureDcoWorkspace();
-        orgId = organization?.id ?? null;
-        workspaceUnavailable = /not enabled on this environment|cannot create your shipper book/i.test(
-          error?.message ?? "",
-        );
-      }
-      if (!orgId && !workspaceUnavailable) {
-        const listed = await getOrganizationsForUser();
-        orgId = listed.organizations[0]?.id ?? null;
-      }
-      const rows: ClientRow[] = orgId
-        ? ((await getClientsByOrganization(orgId)).clients ?? [])
-        : [];
-      const avatars = rows.length ? await resolveClientPartyAvatarMap(rows) : {};
-      const mapped: PartyOption[] = rows.map((row) => {
-        const name = row.name || row.contact_person || "Shipper";
-        return {
-          id: row.id,
-          name,
-          phone: row.phone,
-          contactPerson: row.contact_person,
-          linkedOrganizationId: row.linked_organization_id,
-          linkedToTrip: !!taggedPartyId && row.id === taggedPartyId,
-          matchesAssigner: partyMatchesAssigner(name, fleetAssignerName || currentName),
-          avatar: avatars[row.id] ?? EMPTY_DRIVER_PARTY_AVATAR,
-        };
-      });
-      setParties(sortTagPartyOptions(mapped, !isDco));
-    } finally {
-      setLoading(false);
-    }
-  }, [canAddDcoShippers, canTagOfflineParty, currentName, fleetAssignerName, isDco, taggedPartyId]);
+    const assigner = fleetAssignerName || currentName;
+    const local = await listDriverOfflineParties().catch(() => []);
+    const nextParties = knownPartyOptions(local, taggedPartyId, assigner, !isDco);
+    setParties((prev) => (samePartyOptions(prev, nextParties) ? prev : nextParties));
+    setLoading(false);
+  }, [
+    canAddDcoShippers,
+    canTagOfflineParty,
+    currentName,
+    fleetAssignerName,
+    isDco,
+    taggedPartyId,
+  ]);
+
+  const loadPartiesRef = useRef(loadParties);
+  loadPartiesRef.current = loadParties;
 
   useEffect(() => {
-    if (visible) void loadParties();
-  }, [visible, loadParties]);
+    if (!visible) return;
+    void loadPartiesRef.current();
+  }, [visible, trip.id]);
 
   const currentBilled = useMemo(() => tripReceivableBilled(trip), [trip]);
 
@@ -178,8 +192,11 @@ export function DriverCollectFromSheet({
     setReceivableAmount(currentBilled > 0 ? String(currentBilled) : "");
   }, [busyId, currentBilled]);
 
+  const confirmingRef = useRef(false);
+
   const handleConfirmTag = useCallback(async () => {
-    if (!pendingParty?.id || busyId) return;
+    if (!pendingParty?.id || busyId || confirmingRef.current) return;
+    confirmingRef.current = true;
     setBusyId(pendingParty.id);
     try {
       const { error } = await tagTripWithDcoClient(
@@ -201,6 +218,7 @@ export function DriverCollectFromSheet({
       setReceivableParty(null);
       setBilledForTag(billedForTag);
     } finally {
+      confirmingRef.current = false;
       setBusyId(null);
     }
   }, [billedForTag, busyId, pendingParty, queryClient, trip.id]);
@@ -379,6 +397,7 @@ export function DriverCollectFromSheet({
         </View>
       </View>
     </Modal>
+    {flowOpen ? (
     <DriverTagPartyDialogs
       pendingName={pendingParty?.name ?? null}
       confirming={!!busyId}
@@ -408,7 +427,7 @@ export function DriverCollectFromSheet({
         setReceivableAmount("");
       }}
       onContinueReceivable={(value) => {
-        if (!receivableParty) return;
+        if (!receivableParty || pendingParty) return;
         const amount = Math.round(Number(String(value ?? receivableAmount).replace(/,/g, "")) || 0);
         if (amount <= 0) return;
         setReceivableAmount(String(amount));
@@ -425,6 +444,7 @@ export function DriverCollectFromSheet({
       onConfirm={() => void handleConfirmTag()}
       onSuccessOk={handleSuccessOk}
     />
+    ) : null}
     </>
   );
 }

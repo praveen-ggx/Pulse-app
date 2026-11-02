@@ -7,14 +7,12 @@ import { DetailPageLayout } from "@/components/DetailPageLayout";
 import { EntityAvatar } from "@/components/EntityAvatar";
 import {
   EMPTY_DRIVER_PARTY_AVATAR,
-  resolveClientPartyAvatarMap,
   type DriverPartyAvatarFields,
 } from "@/features/drivers/utils/driverPartyAvatar.util";
 import {
   AddClientModal,
   type AddClientFormData,
 } from "@/features/clients/components/AddClientModal";
-import { createClient, getClientsByOrganization } from "@/features/clients/services/clients.service";
 import {
   createConnectionRequest,
   getConnectionInviteeByPhone,
@@ -25,17 +23,13 @@ import {
   rememberDriverOfflineParty,
 } from "@/features/drivers/offline/driverOfflineParty";
 import { tagTripWithDcoClient } from "@/features/drivers/services/driverTripClient.service";
-import {
-  ensureDcoWorkspace,
-  getOrganizationsForUser,
-} from "@/features/organization/services/organization.service";
+import { tripReceivableBilled } from "@/features/drivers/utils/driverPartyReceivables.util";
 import {
   driverBodySecondary,
   driverUIBold,
   driverUISemiBold,
 } from "@/constants/DriverTypography";
 import Theme from "@/constants/Theme";
-import { tripReceivableBilled } from "@/features/drivers/utils/driverPartyReceivables.util";
 import {
   partyMatchesAssigner,
   sortTagPartyOptions,
@@ -70,7 +64,7 @@ function param(value: string | string[] | undefined): string {
 
 export default function DriverAddClientScreen() {
   const onBack = useSafeBack(ROUTES.driverWalletSelf());
-  const { canAddDcoShippers, canTagOfflineParty, isDco, isLoading: modeLoading } =
+  const { canTagOfflineParty, isDco, isLoading: modeLoading } =
     useDriverOperatingModeQuery();
   const queryClient = useQueryClient();
   const params = useLocalSearchParams<{ tripId?: string; partyName?: string }>();
@@ -127,90 +121,28 @@ export default function DriverAddClientScreen() {
   );
 
   const loadOrg = useCallback(async () => {
-    if (modeLoading) {
-      return;
-    }
+    if (modeLoading) return;
     if (!canTagOfflineParty) {
       setLoading(false);
       return;
     }
     setLoading(true);
     setWorkspaceError(null);
+    setOrg(null);
     try {
-      let ensureError: Error | null = null;
-      let next: CurrentOrganization | null = null;
-      if (canAddDcoShippers) {
-        const ensured = await ensureDcoWorkspace();
-        ensureError = ensured.error ?? null;
-        next = ensured.organization?.id ? ensured.organization : null;
-      }
-      const workspaceUnavailable = /not enabled on this environment|cannot create your shipper book/i.test(
-        ensureError?.message ?? "",
+      const local = await listDriverOfflineParties();
+      setExistingParties(
+        local.map((row) => ({
+          id: row.id,
+          name: row.name,
+          phone: row.phone,
+          avatar: EMPTY_DRIVER_PARTY_AVATAR,
+        })),
       );
-      if (!next?.id && !workspaceUnavailable) {
-        const { organizations, error: listError } = await getOrganizationsForUser();
-        next = organizations[0] ?? null;
-        if (!next?.id) {
-          setOrg(null);
-          const softUnavailable = /not enabled on this environment|cannot create your shipper book/i.test(
-            ensureError?.message ?? "",
-          );
-          setWorkspaceError(
-            softUnavailable
-              ? null
-              : ensureError?.message ?? listError?.message ?? DCO_NO_WORKSPACE,
-          );
-          const local = await listDriverOfflineParties();
-          setExistingParties(
-            local.map((row) => ({
-              id: row.id,
-              name: row.name,
-              phone: row.phone,
-            })),
-          );
-          return;
-        }
-      }
-      if (!next?.id) {
-        // Offline Self tagging still works without a server workspace.
-        // Do not block the picker with a red environment banner.
-        setOrg(null);
-        setWorkspaceError(null);
-        const local = await listDriverOfflineParties();
-        setExistingParties(
-          local.map((row) => ({
-            id: row.id,
-            name: row.name,
-            phone: row.phone,
-          })),
-        );
-        return;
-      }
-      setOrg(next);
-      const [{ clients: rows }, local] = await Promise.all([
-        getClientsByOrganization(next.id),
-        listDriverOfflineParties(),
-      ]);
-      const avatars = rows.length ? await resolveClientPartyAvatarMap(rows) : {};
-      const serverRows = rows.map((row) => ({
-        id: row.id,
-        name: row.name || row.contact_person || "Shipper",
-        phone: row.phone,
-        contactPerson: row.contact_person,
-        linkedOrganizationId: row.linked_organization_id,
-        avatar: avatars[row.id] ?? EMPTY_DRIVER_PARTY_AVATAR,
-      }));
-      const serverIds = new Set(serverRows.map((row) => row.id));
-      setExistingParties([
-        ...local
-          .filter((row) => !serverIds.has(row.id))
-          .map((row) => ({ id: row.id, name: row.name, phone: row.phone })),
-        ...serverRows,
-      ]);
     } finally {
       setLoading(false);
     }
-  }, [canAddDcoShippers, canTagOfflineParty, modeLoading]);
+  }, [canTagOfflineParty, modeLoading]);
 
   // Only load when this route is focused. add-client is a hidden Tabs screen and
   // can otherwise mount beside Wallet/Self and probe ensure_dco_workspace.
@@ -294,56 +226,24 @@ export default function DriverAddClientScreen() {
     async (data: AddClientFormData) => {
       const displayName =
         data.organizationName?.trim() || data.contactPerson?.trim() || "Party";
-
-      if (!org?.id) {
-        const local = await rememberDriverOfflineParty({
-          name: displayName,
-          phone: data.phone,
-        });
-        const created = { id: local.id, name: local.name };
-        setExistingParties((prev) =>
-          prev.some((row) => row.id === created.id)
-            ? prev
-            : [created, ...prev],
-        );
-        setCreatedSuccess(true);
-        if (tripId) {
-          beginTag({ ...created, phone: data.phone, contactPerson: data.contactPerson });
-        } else {
-          const tagged = await finishWithClient(created);
-          if (tagged.error) throw tagged.error;
-          setSuccessParty(created);
-        }
-        return;
-      }
-
-      const { error, client } = await createClient(org.id, {
-        contact_person: data.contactPerson,
+      const local = await rememberDriverOfflineParty({
+        name: displayName,
         phone: data.phone,
-        organization_name: data.organizationName || undefined,
       });
-      if (error) throw error;
-      if (client?.id) {
-        const created = {
-          id: client.id,
-          name: client.name || data.organizationName || data.contactPerson,
-        };
-        setCreatedSuccess(true);
-        if (tripId) {
-          beginTag({
-            ...created,
-            phone: data.phone,
-            contactPerson: data.contactPerson,
-          });
-        } else {
-          const tagged = await finishWithClient(created);
-          if (tagged.error) throw tagged.error;
-          setSuccessParty(created);
-        }
+      const created = { id: local.id, name: local.name };
+      setExistingParties((prev) =>
+        prev.some((row) => row.id === created.id) ? prev : [created, ...prev],
+      );
+      setCreatedSuccess(true);
+      if (tripId) {
+        beginTag({ ...created, phone: data.phone, contactPerson: data.contactPerson });
+      } else {
+        const tagged = await finishWithClient(created);
+        if (tagged.error) throw tagged.error;
+        setSuccessParty(created);
       }
-      await queryClient.refetchQueries({ queryKey: queryKeys.clients.all(org.id) });
     },
-    [beginTag, finishWithClient, org?.id, queryClient, tripId],
+    [beginTag, finishWithClient, tripId],
   );
 
   const searchInviteeByPhone = useCallback(
@@ -376,12 +276,12 @@ export default function DriverAddClientScreen() {
   );
 
   const closeCreateForm = useCallback(() => {
-    if (tripId && showCreate && existingParties.length > 0) {
+    if (tripId && showCreate) {
       setShowCreate(false);
       return;
     }
     handleClose();
-  }, [existingParties.length, handleClose, showCreate, tripId]);
+  }, [handleClose, showCreate, tripId]);
 
   const createForm = (
     <AddClientModal
@@ -468,15 +368,11 @@ export default function DriverAddClientScreen() {
     return <CenteredLoadingView message="Loading…" color={Theme.primary} />;
   }
 
-  if (!tripId) {
-    return createForm;
-  }
-
-  if (showCreate || existingParties.length === 0) {
+  if (!tripId || showCreate) {
     return (
       <>
         {createForm}
-        {dialogs}
+        {tripId ? dialogs : null}
       </>
     );
   }
@@ -495,6 +391,9 @@ export default function DriverAddClientScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        {sortedExistingParties.length === 0 ? (
+          <Text style={styles.hint}>No saved parties yet. Add one, then tag this trip.</Text>
+        ) : null}
         {sortedExistingParties.map((row) => {
           const busy = pickingId === row.id;
           return (

@@ -13,8 +13,9 @@ import { queryKeys } from "@/lib/queryKeys";
 /**
  * Trips hub indent workload: exact counts plus the matching rows. Under the
  * `indents.all(orgId)` prefix, so existing indent / trip invalidations refresh it.
- * `range` (hub date pill) narrows the live set to that range ("all" = any date);
- * null = current workload.
+ * `range` (hub date pill): "all" = every live indent, needs_trip still today−7;
+ * dated = that IST window for both. null = current workload (live today+;
+ * needs_trip today−7).
  */
 export function useIndentWorkload(
   orgId: string | null,

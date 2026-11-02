@@ -10,6 +10,7 @@ import { ComplianceHardCopyPodSheet } from "@/features/tripCompliance/components
 import { LogBulkPodModal } from "@/features/tripCompliance/components/LogBulkPodModal";
 import { GroundOpsWarehouseNotice } from "@/features/organization/components/GroundOpsWarehouseNotice";
 import { useGroundOpsWarehouseGap } from "@/features/organization/hooks/useGroundOpsWarehouseGap";
+import { useSourcingScope } from "@/features/organization/hooks/useSourcingScope";
 import { ChromeBelowTopNavLoadingScreen } from "@/components/chromeLoadingScreens";
 import { HubPromoHeroLottie } from "@/components/hub/HubPromoLottie";
 import Layout from "@/constants/Layout";
@@ -368,8 +369,15 @@ export default function ComplianceScreen() {
   const canManagePod = canSurface("trip_compliance.pod.manage");
   const canManageFinance = canSurface("trip_compliance.finance.manage");
   const canViewFinance = canSurface("trip_compliance.finance.view");
+  const memberPlatformRole = useOptionalActiveWorkspace()?.memberPlatformRole;
+  const isGroundOps = memberPlatformRole === "ground_ops";
+  /**
+   * Sourcing views Document Upload read-only: same money hiding as Ground Ops,
+   * but the Rates card shows supplier rate vs the indent's supplier target.
+   */
+  const isSourcing = memberPlatformRole === "sourcing";
   /** Ground Ops upload documents only: no rates, profit, bank details, advance or balance amounts. */
-  const hideCommercials = useOptionalActiveWorkspace()?.memberPlatformRole === "ground_ops";
+  const hideCommercials = isGroundOps || isSourcing;
   /** Ground Ops on a phone: list → trip documents flow, cards only, short chip labels. */
   const groundOpsPhone = hideCommercials && width < 560;
   const groundOpsWarehouseGap = useGroundOpsWarehouseGap();
@@ -437,11 +445,16 @@ export default function ComplianceScreen() {
   // Ground Ops / TripOps fix holds but can't verify: their held trips show in
   // Document Upload → Compliance Hold, wherever the file count would place them.
   const fixesHoldsOnly = canResubmit && !canVerifyDocuments && !canMarkVerified;
+  // Sourcing: only trips of their assigned clients / warehouses (app-side).
+  const sourcingScope = useSourcingScope(currentOrganization?.id ?? null);
   const summaries = useMemo(() => {
     if (!queueSummaries) return queueSummaries;
-    const routed = fixesHoldsOnly ? routeHoldsToDocumentUpload(queueSummaries) : queueSummaries;
+    const scoped = sourcingScope.active
+      ? queueSummaries.filter((s) => sourcingScope.filterTrips([s.trip]).length > 0)
+      : queueSummaries;
+    const routed = fixesHoldsOnly ? routeHoldsToDocumentUpload(scoped) : scoped;
     return debitControlOnly ? onlyCompletedTrips(routed) : routed;
-  }, [debitControlOnly, fixesHoldsOnly, queueSummaries]);
+  }, [debitControlOnly, fixesHoldsOnly, queueSummaries, sourcingScope]);
   const { stage, setStage, filtered, counts, declinedCount, podReceivedCount } =
     useComplianceStageFilter(summaries);
   const [pendingSlice, setPendingSlice] = useState<"all" | "hold" | "finance_declined" | "rejected">("all");
@@ -1936,6 +1949,9 @@ export default function ComplianceScreen() {
     );
   }
 
+  if (sourcingScope.missingScope) {
+    return <GroundOpsWarehouseNotice sourcing />;
+  }
   if (groundOpsWarehouseGap.missingWarehouse) {
     return <GroundOpsWarehouseNotice />;
   }
@@ -2180,7 +2196,8 @@ export default function ComplianceScreen() {
           canViewDocuments={canViewDocuments}
           canManageFinance={canManageFinance}
           hideCommercials={hideCommercials}
-          groundOpsDocumentLock={hideCommercials}
+          sourcingRates={isSourcing}
+          groundOpsDocumentLock={isGroundOps}
           showFinanceTab={stage !== "compliance_pending"}
           onPay={openPay}
           paymentSubmitting={paying}
@@ -2228,6 +2245,7 @@ export default function ComplianceScreen() {
           hideDocumentDecisions={stage === "compliance_verified" || stage === "pending_for_docs"}
           hideDocumentPanes={debitControlOnly}
           canManagePod={canManagePod}
+          // Sourcing: the workspace narrows this to the Memo before in transit.
           canEditTripFiles={hideCommercials ? canViewDocuments : canResubmit}
           showHardCopyPodLog={stage === "hard_copy_pod_received"}
           compliancePendingQueue={stage === "compliance_pending"}

@@ -21,6 +21,7 @@ import {
   getUser2DAvatarUriForSeed,
 } from "@/constants/UserAvatars";
 import { useAuth } from "@/contexts/AuthContext";
+import { useViewerManagerDepartment } from "@/lib/queries/useOrgMembersQuery";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { WorkspaceLanguagePanel } from "@/features/organization/components/workspace/WorkspaceLanguagePanel";
 import { WorkspaceRegionPanel } from "@/features/organization/components/workspace/WorkspaceRegionPanel";
@@ -136,6 +137,11 @@ export function WorkspaceHubMenu({
   const capabilities = useCapabilities();
   const { can: canSurface } = useMemberAccess();
   const { currentOrganization } = useOrganization();
+  // Department managers open Team & access for their own department only.
+  const managerDepartment = useViewerManagerDepartment(
+    currentOrganization?.id ?? null,
+    user?.uid ?? null,
+  );
   const { data: workspaceProducts = [] } = useWorkspaceProductsQuery();
   const { mutateAsync: setProductStatus, isPending: complianceSaving } =
     useSetWorkspaceProductStatusMutation();
@@ -274,7 +280,7 @@ export function WorkspaceHubMenu({
         orgSection: "details",
       });
     }
-    if (canSurface("team.manage")) {
+    if (canSurface("team.manage") || managerDepartment) {
       rows.push({
         id: "org-team",
         label: "Team & access",
@@ -283,7 +289,7 @@ export function WorkspaceHubMenu({
       });
     }
     return rows;
-  }, [canSurface]);
+  }, [canSurface, managerDepartment]);
 
   const workspaceRows: HubRow[] = useMemo(() => {
     if (!canSurface("workspace.settings")) return [];

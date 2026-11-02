@@ -70,6 +70,7 @@ export async function listIndentWorkload(
   const filter = `${indentWorkloadOrFilter("live", bounds, range)},${indentWorkloadOrFilter(
     "needs_trip",
     bounds,
+    range,
   )}`;
   const indents: IndentRow[] = [];
   for (let page = 0; page < INDENT_WORKLOAD_MAX_PAGES; page += 1) {

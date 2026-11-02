@@ -104,6 +104,8 @@ type Props = {
   defaultExpanded?: boolean;
   onToggleDomain: (next: boolean) => void;
   onToggleSurface: (id: MemberSurfaceId, next: boolean) => void;
+  /** Department manager: only these toggles are editable; master switch locked. */
+  editableSurfaceIds?: ReadonlySet<MemberSurfaceId> | null;
 };
 
 export function DomainPermissionToggleRow({
@@ -116,7 +118,10 @@ export function DomainPermissionToggleRow({
   defaultExpanded = false,
   onToggleDomain,
   onToggleSurface,
+  editableSurfaceIds = null,
 }: Props) {
+  const surfaceEditable = (id: MemberSurfaceId) =>
+    !editableSurfaceIds || editableSurfaceIds.has(id);
   const { width } = useWindowDimensions();
   const twoColSurfaces = width >= 720;
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -203,7 +208,9 @@ export function DomainPermissionToggleRow({
         </Pressable>
         <Switch
           value={isSection ? sectionOn : switchOn}
-          disabled={!canEdit || (isSection ? availableCount === 0 : lockedByOrg)}
+          disabled={
+            !canEdit || !!editableSurfaceIds || (isSection ? availableCount === 0 : lockedByOrg)
+          }
           onValueChange={onToggleDomain}
           trackColor={{ false: "#E8E8E8", true: accent }}
           thumbColor="#FFFFFF"
@@ -215,10 +222,11 @@ export function DomainPermissionToggleRow({
       {expanded ? (
         <View style={styles.groupStack}>
           {groups.map((group) => {
-            const available = group.surfaces.filter((s) =>
-              orgAllowsSurface(orgCaps, s.id),
+            const available = group.surfaces.filter(
+              (s) => orgAllowsSurface(orgCaps, s.id) && surfaceEditable(s.id),
             );
-            if (available.length === 0) return null;
+            const visible = group.surfaces.filter((s) => orgAllowsSurface(orgCaps, s.id));
+            if (visible.length === 0) return null;
             const onCount = available.filter((s) =>
               memberHasSurface(orgCaps, surfaces, s.id, false),
             ).length;
@@ -234,7 +242,7 @@ export function DomainPermissionToggleRow({
                     <SurfaceCheckbox
                       state={groupState}
                       accent={accent}
-                      disabled={!surfacesEditable}
+                      disabled={!surfacesEditable || available.length === 0}
                       label={`${group.group} — all`}
                       onPress={() => toggleGroup(available, groupState !== "on")}
                     />
@@ -277,7 +285,7 @@ export function DomainPermissionToggleRow({
                           <SurfaceCheckbox
                             state={on ? "on" : "off"}
                             accent={accent}
-                            disabled={!surfacesEditable}
+                            disabled={!surfacesEditable || !surfaceEditable(surface.id)}
                             label={surface.label}
                             onPress={() => onToggleSurface(surface.id, !on)}
                           />

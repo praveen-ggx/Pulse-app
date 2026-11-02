@@ -32,6 +32,10 @@ import {
 } from "@/features/indents/services/indentWorkload.service";
 
 const BOUNDS = { today: "2026-10-28", needsTripFrom: "2026-10-21" };
+const DEFAULT_LIVE =
+  "and(status.in.(broadcast,open),or(pickup_date.gte.2026-10-28,pickup_date.is.null))";
+const DEFAULT_NEEDS_TRIP =
+  "and(status.in.(awarded),or(pickup_date.gte.2026-10-21,pickup_date.is.null))";
 
 beforeEach(() => {
   mockCalls.length = 0;
@@ -60,11 +64,11 @@ describe("countIndentWorkload", () => {
     }
     expect(mockCalls[0]).toContainEqual({
       method: "or",
-      args: ["and(status.in.(broadcast,open),or(pickup_date.gte.2026-10-28,pickup_date.is.null))"],
+      args: [DEFAULT_LIVE],
     });
     expect(mockCalls[1]).toContainEqual({
       method: "or",
-      args: ["and(status.in.(awarded),or(pickup_date.gte.2026-10-21,pickup_date.is.null))"],
+      args: [DEFAULT_NEEDS_TRIP],
     });
   });
 
@@ -83,14 +87,21 @@ describe("hub date range", () => {
     "and(pickup_date.gte.2026-10-26,pickup_date.lte.2026-11-01)," +
     'and(pickup_date.is.null,created_at.gte."2026-10-26T00:00:00+05:30",' +
     'created_at.lt."2026-11-02T00:00:00+05:30")))';
-  const NEEDS_TRIP = "and(status.in.(awarded),or(pickup_date.gte.2026-10-21,pickup_date.is.null))";
+  const DATED_NEEDS_TRIP =
+    "and(status.in.(awarded),or(" +
+    "and(pickup_date.gte.2026-10-26,pickup_date.lte.2026-11-01)," +
+    'and(pickup_date.is.null,created_at.gte."2026-10-26T00:00:00+05:30",' +
+    'created_at.lt."2026-11-02T00:00:00+05:30")))';
+  // "All" keeps the rolling needs_trip window — not every awarded indent.
+  const ALL_NEEDS_TRIP =
+    "and(status.in.(awarded),or(pickup_date.gte.2026-10-21,pickup_date.is.null))";
 
-  it("counts the dated live set server-side; needs_trip unchanged; scoping kept", async () => {
+  it("counts dated live and needs_trip server-side; scoping kept", async () => {
     mockNextResults = [{ count: 7 }, { count: 31 }];
     const res = await countIndentWorkload("org-1", BOUNDS, WEEK);
     expect(res.counts).toEqual({ live: 7, needs_trip: 31 });
     expect(mockCalls[0]).toContainEqual({ method: "or", args: [DATED_LIVE] });
-    expect(mockCalls[1]).toContainEqual({ method: "or", args: [NEEDS_TRIP] });
+    expect(mockCalls[1]).toContainEqual({ method: "or", args: [DATED_NEEDS_TRIP] });
     for (const log of mockCalls) {
       expect(log).toEqual(
         expect.arrayContaining([
@@ -102,19 +113,22 @@ describe("hub date range", () => {
     }
   });
 
-  it('"All" counts every broadcast / open indent; scoping kept', async () => {
+  it('"All" counts every broadcast / open; needs_trip stays on the 7-day window', async () => {
     mockNextResults = [{ count: 320 }, { count: 31 }];
     const res = await countIndentWorkload("org-1", BOUNDS, "all");
     expect(res.counts).toEqual({ live: 320, needs_trip: 31 });
     expect(mockCalls[0]).toContainEqual({ method: "or", args: ["status.in.(broadcast,open)"] });
     expect(mockCalls[0]).toContainEqual({ method: "is", args: ["trips", null] });
-    expect(mockCalls[1]).toContainEqual({ method: "or", args: [NEEDS_TRIP] });
+    expect(mockCalls[1]).toContainEqual({ method: "or", args: [ALL_NEEDS_TRIP] });
   });
 
-  it("lists the dated live rows from the server (not a client filter of the default set)", async () => {
+  it("lists dated live and needs_trip rows from the server (not a client filter)", async () => {
     mockNextResults = [{ data: [{ id: "a" }] }];
     await listIndentWorkload("org-1", BOUNDS, WEEK);
-    expect(mockCalls[0]).toContainEqual({ method: "or", args: [`${DATED_LIVE},${NEEDS_TRIP}`] });
+    expect(mockCalls[0]).toContainEqual({
+      method: "or",
+      args: [`${DATED_LIVE},${DATED_NEEDS_TRIP}`],
+    });
   });
 });
 
@@ -135,10 +149,7 @@ describe("listIndentWorkload", () => {
     });
     expect(mockCalls[0]).toContainEqual({
       method: "or",
-      args: [
-        "and(status.in.(broadcast,open),or(pickup_date.gte.2026-10-28,pickup_date.is.null))," +
-          "and(status.in.(awarded),or(pickup_date.gte.2026-10-21,pickup_date.is.null))",
-      ],
+      args: [`${DEFAULT_LIVE},${DEFAULT_NEEDS_TRIP}`],
     });
   });
 

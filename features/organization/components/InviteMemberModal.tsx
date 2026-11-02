@@ -347,6 +347,7 @@ export function InviteMemberFlow({
         surfaces: access.surfaces,
         isDepartmentManager: isOwner && access.isDepartmentManager,
         warehouseIds: access.warehouseIds,
+        clientIds: access.clientIds,
       },
       existingUserId: foundProfile?.user_id ?? null,
     });

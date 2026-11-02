@@ -1,7 +1,7 @@
 /**
  * TanStack Query hooks for organization member management.
  */
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   getMyTeamInvites,
@@ -12,6 +12,7 @@ import {
 import type { OrgTeamRoster } from '@/types/organization';
 import { queryKeys } from '@/lib/queryKeys';
 import { STALE } from '@/lib/queryClient';
+import { managerDepartmentOf, type ManagerDepartment } from '@/lib/memberSurfaces';
 
 const EMPTY_ROSTER: OrgTeamRoster = { members: [], pendingPhoneInvites: [] };
 
@@ -112,3 +113,21 @@ export function useInvalidateTeamInvites() {
 }
 
 export { EMPTY_ROSTER };
+
+/**
+ * The signed-in member's department when they hold the Department manager
+ * flag (and are not owner / admin, who already manage everyone); else null.
+ * App-side gate for Team access only — set_member_surfaces_as_manager and
+ * set_member_scope_as_manager re-check every manager write on the server.
+ */
+export function useViewerManagerDepartment(
+  orgId: string | null,
+  userId: string | null,
+): ManagerDepartment | null {
+  const { data } = useOrgMembersData(orgId);
+  return useMemo(() => {
+    if (!userId) return null;
+    const me = (data?.members ?? []).find((m) => m.user_id === userId && m.status === 'active');
+    return managerDepartmentOf(me);
+  }, [data, userId]);
+}

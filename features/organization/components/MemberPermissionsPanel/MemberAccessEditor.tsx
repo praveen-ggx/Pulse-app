@@ -10,7 +10,10 @@ import {
   DomainPermissionToggleRow,
 } from "@/features/organization/components/MemberPermissionsPanel/DomainPermissionToggleRow";
 import type { MemberAccessDraft } from "@/features/organization/hooks/useMemberAccessDraft";
-import { listOrgWarehouses } from "@/features/organization/services/memberWarehouses.service";
+import {
+  listOrgClientOptions,
+  listOrgWarehouses,
+} from "@/features/organization/services/memberWarehouses.service";
 import { WarehousePicker } from "@/features/organization/components/MemberPermissionsPanel/WarehousePicker";
 import {
   deleteCustomRolePreset,
@@ -39,6 +42,7 @@ import {
   defaultSurfacesForRole,
   memberHasSurface,
   type MemberSectionKey,
+  type MemberSurfaceId,
 } from "@/lib/memberSurfaces";
 import { useQuery } from "@tanstack/react-query";
 import { BookmarkPlus, Check, ChevronDown, Trash2 } from "lucide-react-native";
@@ -62,6 +66,15 @@ type Props = {
   canEditSurfaces: boolean;
   /** Owner-only: grant the Department manager flag. */
   canAssignManager: boolean;
+  /**
+   * Department manager: only these toggles are editable (their department's
+   * preset); everything else stays read-only and custom presets are hidden.
+   */
+  editableSurfaceIds?: ReadonlySet<MemberSurfaceId> | null;
+  /** Client / warehouse pickers editable (owner, or a Ground Ops / Sourcing manager). */
+  canEditScope?: boolean;
+  /** Manager: pickers list only the manager's own clients / warehouses. */
+  scopeLimit?: { clientIds: ReadonlySet<string>; warehouseIds: ReadonlySet<string> } | null;
   busy: boolean;
   /** Lay role tiles out in one row (wide desktop). */
   wide?: boolean;
@@ -75,10 +88,14 @@ export function MemberAccessEditor({
   canEditRole,
   canEditSurfaces,
   canAssignManager,
+  editableSurfaceIds = null,
+  canEditScope,
+  scopeLimit = null,
   busy,
   wide = false,
   onError,
 }: Props) {
+  const scopeEditable = canEditScope ?? canEditRole;
   const [presets, setPresets] = useState<CustomRolePreset[]>([]);
   const [presetsOpen, setPresetsOpen] = useState(false);
   const [presetName, setPresetName] = useState("");
@@ -129,7 +146,8 @@ export function MemberAccessEditor({
     });
   }, [groundOpsEnabled, draft.platformRole, orgCaps]);
 
-  const canManagePresets = canEditSurfaces;
+  // Custom presets replace the whole toggle set — owner / inviter only.
+  const canManagePresets = canEditSurfaces && !editableSurfaceIds;
 
   // Saved access drifts from the role preset when the preset gains surfaces
   // later (e.g. Finance's Compliance-page tabs). Show it and offer a reset.
@@ -150,16 +168,29 @@ export function MemberAccessEditor({
     return missing + extra > 0 ? { missing, extra } : null;
   }, [draft.platformRole, draft.surfaces, orgCaps]);
   const isGroundOps = draft.platformRole === "ground_ops";
+  // Sourcing is scoped by clients and/or warehouses (app-side only).
+  const isSourcing = draft.platformRole === "sourcing";
 
   const warehousesQuery = useQuery({
     queryKey: ["org-warehouse-options", orgId],
-    enabled: isGroundOps && !!orgId,
+    enabled: (isGroundOps || isSourcing) && !!orgId,
     // Shared by Invite and Edit; warehouses change rarely.
     staleTime: 5 * 60_000,
     queryFn: async () => {
       const { error, warehouses } = await listOrgWarehouses(orgId as string);
       if (error) throw error;
       return warehouses;
+    },
+  });
+
+  const clientsQuery = useQuery({
+    queryKey: ["org-client-options", orgId],
+    enabled: isSourcing && !!orgId,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const { error, clients } = await listOrgClientOptions(orgId as string);
+      if (error) throw error;
+      return clients;
     },
   });
 
@@ -330,13 +361,33 @@ export function MemberAccessEditor({
         </View>
       ) : null}
 
-      {isGroundOps ? (
+      {isSourcing ? (
         <WarehousePicker
-          options={warehousesQuery.data ?? []}
+          kind="client"
+          options={
+            scopeLimit
+              ? (clientsQuery.data ?? []).filter((c) => scopeLimit.clientIds.has(c.id))
+              : (clientsQuery.data ?? [])
+          }
+          selectedIds={draft.clientIds}
+          isLoading={clientsQuery.isLoading}
+          isError={clientsQuery.isError}
+          editable={scopeEditable && !disabled}
+          onToggle={draft.toggleClient}
+        />
+      ) : null}
+
+      {isGroundOps || isSourcing ? (
+        <WarehousePicker
+          options={
+            scopeLimit
+              ? (warehousesQuery.data ?? []).filter((w) => scopeLimit.warehouseIds.has(w.id))
+              : (warehousesQuery.data ?? [])
+          }
           selectedIds={draft.warehouseIds}
           isLoading={warehousesQuery.isLoading}
           isError={warehousesQuery.isError}
-          editable={canEditRole && !disabled}
+          editable={scopeEditable && !disabled}
           onToggle={draft.toggleWarehouse}
         />
       ) : null}
@@ -482,7 +533,10 @@ export function MemberAccessEditor({
                 }
                 onError(null);
               }}
+              editableSurfaceIds={editableSurfaceIds}
               onToggleSurface={(id, next) => {
+                // Manager: never touch a toggle outside their department.
+                if (editableSurfaceIds && !editableSurfaceIds.has(id)) return;
                 draft.toggleSurface(id, next);
                 onError(null);
               }}

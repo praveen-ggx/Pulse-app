@@ -155,20 +155,36 @@ A second, orthogonal RBAC axis layered on top of the operating model above. Owne
 
 ---
 
-## Department Manager (surface-only delegation)
+## Sourcing (read-only follow-up preset)
 
-A narrow, opt-in delegation on top of the owner-only model above — the owner can let one member per department edit *surface* toggles for their own teammates, without becoming an org admin.
+`platformRole: "sourcing"`, stored as `organization_members.role = "member"`. Follows the indents and trips of the clients / warehouses assigned to them — list, detail, status, Journey log and Compliance Document Upload — read-only.
 
 | Aspect | Rule |
 |--------|------|
-| Grant | `permissions.isDepartmentManager: true` — **owner-only** to set, via the existing owner-only `set_member_role` RPC (same as any other permissions field). Toggle lives in Member Access. |
-| Scope | Manager can edit `permissions.surfaces` only, only for members whose `permissions.platformRole` matches the manager's own. Cannot change `platformRole`, `domains`, `grants`, or `isDepartmentManager` itself — cannot touch owner/admin rows — cannot edit their own row. |
-| Write path | `set_member_surfaces_as_manager(p_member_id, p_surfaces)` RPC (SECURITY DEFINER) — a second, narrower function alongside `set_member_role`; merges only the `surfaces` key. Service: `updateMemberSurfacesAsManager` in `features/organization/services/members.service.ts`. |
-| UI | `MemberPermissionsPanel` — `canEditAsManager` gates edit rights for non-owners; role-preset tiles and domain master switches stay locked (`canEditRolePreset`, owner-only) — a manager only sees the leaf surface toggles as editable. |
-| Audit | `workspace_audit_log` event `member.surfaces_update_by_manager` `{member_id, department, surfaces}`. |
-| Migration | `supabase/migrations/20270220120000_department_manager_surface_write.sql` |
+| Preset surfaces | `sales.tab` (parent of indent view), `tripops.indents.view`, `tripops.tab`, `tripops.trips.view`, `tripops.trips.detail`, `trip_compliance.tab`, `trip_compliance.documents.view`. No create / edit / bid / award / allocate / broadcast / cancel, no assign / reassign / simulate / tracking / trip docs / expenses / trip finance / verification / ratings, no verify / mark verified / resubmit / POD / finance, no fleet or team. |
+| Scope | Owner assigns **clients** (`permissions.clientIds`, saved with the owner-only `set_member_role`) and/or **warehouses** (`organization_member_warehouses`, same picker as Ground Ops) in Member access. Union: an indent shows when its client or warehouse is assigned; a trip shows when its indent does, or (no indent) when its client is assigned. A client covers all its warehouses, current and future. Nothing assigned → empty lists and a "No client or warehouse assigned" notice. Indents with neither client nor an assigned warehouse never show. Filter: `useSourcingScope` / `sourcingScope.util.ts`, applied on the Trips hub (trips, date-range, search, indents, workload, failed), the Compliance queue, and direct entry to trip / indent detail. Org-wide server tile counts are dropped for Sourcing (counts come from the scoped lists). |
+| Extra UI gates (`platformRole === "sourcing"`) | Trips hub: no indent card actions, no receivable / payable tiles, no Trip Report download or ledger export. Indent detail: commercials redacted and quotes not fetched (same path as Ground Ops). Trip detail: no E-LR action (it carries freight), no trip-document upload, no bank docs (driver name / phone stay visible — owner decision 29 Oct 2026). Compliance: lists Assigned trips too (like Ground Ops); Ground Ops money hiding (no Banking, Bank Docs, Advance Payment, profit, client rate); files are read-only except the **Memo**, which Sourcing may add / replace / delete only before the trip is in transit, or later when the Memo is rejected or the trip awaits resubmit with a reason mentioning the Memo; Rates card shows **Supplier rate** and **Target rate** = `indents.supplier_target` (basis `indents.supplier_rate_basis`, per-MT expanded with `indents.weight` via `resolveCommercialPricing`). |
+| Tests | `lib/__tests__/rbac.sourcingPreset.test.ts`, `features/organization/utils/__tests__/sourcingScope.util.test.ts` |
 
-**Example:** a Finance Manager (Priya) can toggle `finance.garage.edit` on for another Finance member (Ayush), but cannot touch a Sales member (Meera), cannot promote Ayush to Finance Manager, and cannot grant herself any surface outside Finance.
+> **App-side only — not a security boundary.** Sourcing is the coarse role `member`, which `is_org_staff()` accepts, so the database lets a Sourcing login read and write every indent, trip, bid, rate, finance row and trip document in the org, exactly like Sales — the client / warehouse scope and every hidden field are enforced only in the app. A direct API call bypasses them. Database enforcement needs a separate, migration-backed change (see the 29 Oct 2026 RBAC audit).
+
+## Department Manager (surface-only delegation)
+
+A narrow, opt-in delegation on top of the owner-only model — the owner can let a member manage the other members of their own department, without becoming an org admin. Same mechanism for every department.
+
+| Aspect | Rule |
+|--------|------|
+| Eligibility | `permissions.isDepartmentManager: true`, set by the **owner only** (`set_member_role`). Department = `permissions.platformRole`. Manager departments: Finance, Sales, TripOps, Compliance, Debit control, Vendor support, Ground Ops, Sourcing (`MANAGER_DEPARTMENTS`). Admin, Restricted and legacy planner / operator rows are never managers; owner / admin already manage everyone. |
+| Team access | The flag opens **Team & access** (workspace menu, `?panel=team`, `/team`) without `team.manage`. The roster shows only **active teammates of the same department** — no owner / admin / driver rows, no self, no pending invites, no join requests, no bulk role change, no invite (`team.invite` stays owner / admin). A direct member link outside the department shows "Not in your department". |
+| What a manager edits | Only their department's preset toggles (`managerEditableSurfaceIds(dept)`): e.g. a TripOps manager can turn a teammate's assign / tracking on or off, never Finance, Team, workspace or another department's toggles. Master (domain) switches, role preset, manager flag and custom presets are locked. Ground Ops / Sourcing managers also assign their teammates' **warehouses** (and Sourcing **clients**) — only from the manager's own scope; owner-assigned scope outside it is kept. |
+| Server enforcement | `set_member_surfaces_as_manager(member, surfaces)`: org resolved from the **target** member, caller must be an active manager in that org; target active, same department, not owner / admin / driver, not self; every key must be in `manager_department_surfaces(dept)` and boolean, else `surface_not_allowed` / `invalid_surfaces`. `set_member_scope_as_manager(member, warehouses[], clients[])` (via `can_manage_member`): ids outside the manager's own scope → `warehouse_out_of_scope` / `client_out_of_scope`; other departments → `scope_not_supported`. `organization_member_warehouses` writes are owner / admin only; managers may read their teammates' rows. `anon` cannot call any of them. |
+| Audit | `workspace_audit_log` events `member.surfaces_update_by_manager` `{member_id, department, surfaces}` and `member.scope_update_by_manager` `{member_id, department, warehouse_ids, client_ids}`. |
+| Migrations | `20270304022000_department_manager_surface_write.sql` (original) and `20261029171316_department_manager_allowlist_and_scope.sql` (allowlist, org-safe caller, scope, warehouse write policy) — release set `department-manager-rbac`. |
+| Tests | `lib/__tests__/rbac.departmentManager.test.ts` (app ↔ SQL allowlist parity, rules), `supabase/migrations/__tests__/departmentManagerRbacSet.test.ts`, `supabase/tests/department_manager/run_local.sh` (29 allow / deny cases on a disposable Postgres). |
+
+> Known limits: the roster itself is readable by any org staff through the API (unchanged); preset toggles still matter only in the app except where a database rule reads them. A manager cannot switch a whole department (master switch) on or off for a teammate — owner only.
+
+**Example:** a Finance Manager (Priya) can toggle `finance.void_adjustments` on for another Finance member (Ayush), but cannot touch a Sales member (Meera), cannot promote Ayush to Finance Manager, and cannot grant herself any surface outside Finance.
 
 ## Owner-only Access Control
 

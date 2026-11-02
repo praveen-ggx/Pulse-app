@@ -74,3 +74,30 @@ export function shouldFallbackDirectQuotesToTable(
 ): boolean {
   return rpcError != null || !Array.isArray(rpcData);
 }
+
+/**
+ * Apply bidder org display names onto quotes that are missing them
+ * (table fallback of get_direct_quotes_with_bidder_names has no name column).
+ */
+export function applyBidderOrganizationNames(
+  quotes: DirectQuoteRow[],
+  nameByOrgId: Record<string, string>,
+): DirectQuoteRow[] {
+  if (quotes.length === 0) return quotes;
+  return quotes.map((quote) => {
+    if (quote.bidder_organization_name?.trim()) return quote;
+    const resolved = nameByOrgId[quote.bidder_organization_id]?.trim();
+    if (!resolved) return quote;
+    return { ...quote, bidder_organization_name: resolved };
+  });
+}
+
+/** Org ids on quotes that still need a display name. */
+export function bidderOrgIdsMissingNames(quotes: DirectQuoteRow[]): string[] {
+  const ids = new Set<string>();
+  for (const quote of quotes) {
+    if (quote.bidder_organization_name?.trim()) continue;
+    if (quote.bidder_organization_id) ids.add(quote.bidder_organization_id);
+  }
+  return [...ids];
+}

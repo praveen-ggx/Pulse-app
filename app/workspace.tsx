@@ -30,6 +30,8 @@ import { ROUTES } from "@/lib/routes";
 import { shouldMountAuthenticatedDataPlane } from "@/lib/bootGate";
 import { useMemberAccess } from "@/lib/useMemberAccess";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOptionalOrganization } from "@/contexts/OrganizationContext";
+import { useViewerManagerDepartment } from "@/lib/queries/useOrgMembersQuery";
 import type { ExpoProductShellId } from "@/lib/suite/suiteProducts";
 import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef } from "react";
@@ -102,8 +104,18 @@ function AuthenticatedWorkspaceScreen() {
     "ocr-usage": "workspace.products",
   };
   const requiredSurface = activePanel ? panelRequiredSurface[activePanel] : undefined;
+  // A Department manager opens Team for their own department (no invite /
+  // remove / role change — the roster is filtered and the server re-checks).
+  const { user } = useAuth();
+  const managerDepartment = useViewerManagerDepartment(
+    useOptionalOrganization()?.currentOrganization?.id ?? null,
+    user?.uid ?? null,
+  );
   const panelDenied =
-    !memberAccessLoading && !!requiredSurface && !canSurface(requiredSurface);
+    !memberAccessLoading &&
+    !!requiredSurface &&
+    !canSurface(requiredSurface) &&
+    !(activePanel === "team" && managerDepartment);
 
   const closeOverlay = useCallback(() => {
     if (router.canGoBack()) router.back();

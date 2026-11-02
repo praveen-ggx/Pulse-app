@@ -741,6 +741,7 @@ function TripsHubTripCardInner({
 
   return (
     <Pressable
+      nativeID={`hub-item-${trip.id}`}
       style={(_state: HoverPressState) => [
         styles.fleetCardOuter,
         WEB_TRANSITION,

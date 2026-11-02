@@ -1,7 +1,6 @@
 /**
- * Mobile vault category — Order Details–style card: hero, meta, status + upload log.
+ * Mobile vault category — full-width card: title, hero, thumb strip.
  */
-import { HUB_MOBILE_COMMERCE_REF } from "@/components/hub/hubMobileTicketTokens";
 import Theme from "@/constants/Theme";
 import {
   DocumentUploadAttributionRow,
@@ -14,13 +13,12 @@ import {
 } from "@/features/trips/components/trip-detail/VaultCardLrStylePreview";
 import {
   formatSelectedVaultFileMeta,
+  vaultDocRejectionLabel,
   type TripDocFile,
   type TripDocItem,
 } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { useState } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
-
-const SHOP = HUB_MOBILE_COMMERCE_REF;
 
 const WEB_COPY =
   Platform.OS === "web"
@@ -60,36 +58,43 @@ export function TripMobileVaultCategoryRow({
       ? resolveUploadAttribution?.(selectedFile, doc) ?? null
       : null;
   const showUploadLog = documentUploadAttributionHasContent(uploadAttribution);
-  const onFile =
-    !uploading &&
-    !error &&
-    (doc.status === "Verified" ||
-      doc.status === "Uploaded" ||
-      Boolean(selectedFile?.storagePath) ||
-      Boolean(doc.storagePath));
-  const uploadedWhen = String(
-    uploadAttribution?.uploadedAt ?? selectedFile?.uploadedAt ?? doc.uploadedAt ?? "",
-  ).trim();
-  const uploadedDate = uploadedWhen ? new Date(uploadedWhen) : null;
-  const uploadedLabel =
-    uploadedDate && !Number.isNaN(uploadedDate.getTime())
-      ? uploadedDate.toLocaleString("en-GB", {
-          day: "numeric",
-          month: "short",
-          hour: "numeric",
-          minute: "2-digit",
-        })
-      : onFile
-        ? "On file"
-        : uploading
-          ? "Uploading…"
-          : "Awaiting upload";
-
+  const rejection = vaultDocRejectionLabel(doc);
   return (
     <View style={styles.card} accessibilityLabel={doc.label}>
+      <View style={styles.header}>
+        <View style={styles.copy}>
+          <Text style={[styles.title, WEB_COPY]} numberOfLines={1}>
+            {doc.label}
+          </Text>
+          <Text
+            style={[
+              styles.meta,
+              WEB_COPY,
+              error ? styles.metaError : null,
+            ]}
+            numberOfLines={2}
+          >
+            {meta}
+          </Text>
+          {rejection ? (
+            <Text
+              style={[styles.meta, WEB_COPY, styles.metaError]}
+              numberOfLines={2}
+            >
+              {rejection}
+            </Text>
+          ) : null}
+          {showUploadLog ? (
+            <DocumentUploadAttributionRow
+              {...uploadAttribution!}
+              size={22}
+              compact
+            />
+          ) : null}
+        </View>
+      </View>
       <VaultCardLrStylePreview
         doc={doc}
-        density="shop"
         disabled={uploading}
         onAdd={canAdd ? onAdd : undefined}
         onPressFile={onPreview}
@@ -97,53 +102,6 @@ export function TripMobileVaultCategoryRow({
         sign={sign}
         uploadAttribution={uploadAttribution}
       />
-
-      <View style={styles.metaBlock}>
-        <Text style={[styles.brand, WEB_COPY]} numberOfLines={1}>
-          {doc.label}
-        </Text>
-        <Text
-          style={[styles.metaLine, WEB_COPY, error ? styles.metaError : null]}
-          numberOfLines={1}
-        >
-          {meta}
-        </Text>
-      </View>
-
-      <View
-        style={[
-          styles.statusCard,
-          error
-            ? styles.statusCardError
-            : onFile
-              ? styles.statusCardOn
-              : styles.statusCardOff,
-        ]}
-      >
-        <View style={styles.statusRow}>
-          <View style={styles.statusCopy}>
-            <Text style={styles.statusKicker}>
-              {error ? "Issue" : onFile ? "Uploaded" : "Status"}
-            </Text>
-            <Text
-              style={[styles.statusDate, (!onFile || error) && styles.statusDateMuted]}
-              numberOfLines={1}
-            >
-              {error ? error : uploadedLabel}
-            </Text>
-          </View>
-          {showUploadLog ? (
-            <View style={styles.statusLog}>
-              <DocumentUploadAttributionRow
-                {...uploadAttribution!}
-                size={22}
-                compact
-                hideWhen
-              />
-            </View>
-          ) : null}
-        </View>
-      </View>
     </View>
   );
 }
@@ -151,90 +109,36 @@ export function TripMobileVaultCategoryRow({
 const styles = StyleSheet.create({
   card: {
     width: "100%",
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: SHOP.hairline,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.actionBtnGhostBorder,
     backgroundColor: Theme.cardWhite,
-    paddingTop: 10,
+    paddingHorizontal: 12,
+    paddingTop: 12,
     paddingBottom: 10,
-    paddingHorizontal: 10,
-    gap: 8,
+    gap: 10,
   },
-  metaBlock: {
-    width: "100%",
+  header: {
+    flexDirection: "row",
     alignItems: "center",
-    gap: 1,
-    paddingHorizontal: 4,
+    gap: 10,
   },
-  brand: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: "700",
-    color: SHOP.ink,
-    letterSpacing: -0.15,
-    textAlign: "center",
+  copy: {
+    flex: 1,
+    minWidth: 0,
   },
-  metaLine: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "500",
-    color: SHOP.muted,
-    textAlign: "center",
+  title: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: Theme.actionBtnInk,
+  },
+  meta: {
+    marginTop: 2,
+    fontSize: 12,
+    fontWeight: "400",
+    color: Theme.textSecondary,
   },
   metaError: {
     color: Theme.negative,
-  },
-  statusCard: {
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 0,
-  },
-  statusCardOn: {
-    backgroundColor: SHOP.successSoft,
-  },
-  statusCardOff: {
-    backgroundColor: SHOP.warningSoft,
-  },
-  statusCardError: {
-    backgroundColor: SHOP.dangerSoft,
-  },
-  statusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  statusCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 0,
-  },
-  statusKicker: {
-    fontSize: 9,
-    lineHeight: 12,
-    fontWeight: "600",
-    color: SHOP.muted,
-    textTransform: "uppercase",
-    letterSpacing: 0.3,
-  },
-  statusDate: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "700",
-    color: SHOP.success,
-    letterSpacing: -0.1,
-  },
-  statusDateMuted: {
-    color: SHOP.warning,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  statusLog: {
-    flexGrow: 0,
-    flexShrink: 1,
-    maxWidth: "48%",
-    minWidth: 96,
-    alignItems: "flex-end",
-    justifyContent: "center",
   },
 });

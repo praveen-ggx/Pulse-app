@@ -79,6 +79,19 @@ export interface TripDocItem {
   /** Upload timestamp for the latest file in this slot (ISO). */
   uploadedAt?: string | null;
   uploadedBy?: string | null;
+  /** Compliance review state of the row behind this card: pending / verified / rejected. */
+  reviewStatus?: string | null;
+  /** Reviewer's note when reviewStatus is rejected. */
+  rejectionReason?: string | null;
+}
+
+/** "Rejected · <reason>" when compliance rejected this document, else null. */
+export function vaultDocRejectionLabel(
+  doc: Pick<TripDocItem, "reviewStatus" | "rejectionReason"> | null | undefined,
+): string | null {
+  if (doc?.reviewStatus?.trim().toLowerCase() !== "rejected") return null;
+  const reason = doc.rejectionReason?.trim();
+  return reason ? `Rejected · ${reason}` : "Rejected";
 }
 
 /** Matches trip-documents + vehicle-documents bucket limits (100 MB). */

@@ -290,15 +290,18 @@ function buildSlotCard(
       uploadedBy: row.uploaded_by ?? null,
     };
   });
-  const storedFields = rows
-    .map((row) => parseLrFieldValues(row.document_number))
-    .find((fields) => fields.lrNumber || fields.date || fields.invoice);
-  const ewayRaw = isEwaySlot
-    ? rows.find((row) => parseEwayFieldEntries(row.document_number).length > 0)
-        ?.document_number ??
-      rows.find((row) => row.document_number?.trim())?.document_number ??
-      null
-    : null;
+  const lrFieldsRow = rows.find((row) => {
+    const fields = parseLrFieldValues(row.document_number);
+    return fields.lrNumber || fields.date || fields.invoice;
+  });
+  const storedFields = lrFieldsRow
+    ? parseLrFieldValues(lrFieldsRow.document_number)
+    : undefined;
+  const ewayRow = isEwaySlot
+    ? rows.find((row) => parseEwayFieldEntries(row.document_number).length > 0) ??
+      rows.find((row) => row.document_number?.trim())
+    : undefined;
+  const ewayRaw = ewayRow?.document_number ?? null;
   const documentNumber = isEwaySlot
     ? ewayRaw?.trim() || null
     : storedFields?.lrNumber || null;
@@ -331,6 +334,10 @@ function buildSlotCard(
       : storedFields?.invoice || null,
     uploadedAt: latest.uploaded_at ?? rows[0]?.uploaded_at ?? null,
     uploadedBy: latest.uploaded_by ?? rows[0]?.uploaded_by ?? null,
+    // Review state of the row whose number the card shows.
+    reviewStatus: (isEwaySlot ? ewayRow : lrFieldsRow ?? latest)?.status ?? null,
+    rejectionReason:
+      (isEwaySlot ? ewayRow : lrFieldsRow ?? latest)?.rejection_reason ?? null,
   };
 }
 
@@ -503,8 +510,11 @@ export function useTripDetail({
   const { t } = useLanguage();
   const { profile, user } = useAuth();
   const { currentOrganization } = useOrganization();
-  // Ground Ops never upload or see bank details (trip Bank Docs or supplier banking).
-  const hideBankDocs = useOptionalActiveWorkspace()?.memberPlatformRole === "ground_ops";
+  // Ground Ops and Sourcing never upload or see bank details (trip Bank Docs or
+  // supplier banking).
+  const workspacePlatformRole = useOptionalActiveWorkspace()?.memberPlatformRole;
+  const hideBankDocs =
+    workspacePlatformRole === "ground_ops" || workspacePlatformRole === "sourcing";
   const queryClient = useQueryClient();
   const { state: hardCopyPod } = useTripHardCopyPodQuery(tripId);
   void onBack;
@@ -1566,6 +1576,8 @@ export function useTripDetail({
           files: files.length > 0 ? files : undefined,
           documentNumber: lrSlot.documentNumber,
           documentDate: lrSlot.documentDate,
+          reviewStatus: lrSlot.reviewStatus,
+          rejectionReason: lrSlot.rejectionReason,
           invoiceNumber:
             invoiceSlot.invoiceNumber ||
             invoiceSlot.documentNumber ||
@@ -2287,8 +2299,25 @@ export function useTripDetail({
           }
         }
         if (trip.supplier_id) {
-          const supplier = bundle.supplier_detail?.supplier;
+          let supplier: { avatar_url?: string | null; avatar_seed?: string | null } | null =
+            bundle.supplier_detail?.supplier ?? null;
           const linked = bundle.supplier_detail?.linked_org;
+          // Light bundle (completed trip on narrow web) ships no supplier_detail
+          // and trips has no supplier_name, so the card showed "Awaiting data".
+          if (!supplier) {
+            const { supplier: row } = await getSupplierById(ownerOrg, trip.supplier_id);
+            if (cancelled) return;
+            const name = row ? pickSupplierDisplayName(row) : null;
+            if (row && !isMissingSupplierLabel(name)) {
+              supplier = row;
+              setPartnerName(name);
+              setSupplierPartyRes({
+                name,
+                integrated: isIntegratedSupplierRow(row),
+                orgId: nStr(row.linked_organization_id),
+              });
+            }
+          }
           const fields = emptyTripPartyAvatarFields();
           fields.avatarUrl = nStr(supplier?.avatar_url);
           fields.avatarSeed = nStr(supplier?.avatar_seed);
@@ -3110,6 +3139,12 @@ export function useTripDetail({
 
 
   // ── Effects ───────────────────────────────────────────────────────────────
+
+  // A trip with no files never overwrites the list (bundle and table reads keep
+  // `prev` when empty), so drop the previous trip's files before the seed below.
+  useEffect(() => {
+    setTripDocuments([]);
+  }, [tripId]);
 
   // Phase 3b: seed all state from bundle on initial mount and on bundle cache refresh.
   // Individual load effects below are guarded by bundleActive so they do not

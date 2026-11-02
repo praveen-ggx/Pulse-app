@@ -248,7 +248,7 @@ export function driverRowToTripRow(row: DriverTripRow): TripRow {
     pickup_lon: row.pickup_lon ?? null,
     drop_lat: row.drop_lat ?? null,
     drop_lon: row.drop_lon ?? null,
-    notes: row.instructions,
+    notes: row.instructions ?? (row as DriverTripRow & { notes?: string | null }).notes ?? null,
     vehicle_id: row.vehicle_id,
     started_at: row.started_at ?? null,
     created_at: row.created_at,
@@ -260,7 +260,8 @@ export function driverRowToTripRow(row: DriverTripRow): TripRow {
     // Real source, not a hardcoded 'assigned' — mover_asset rows must stay
     // identifiable so the wallet can tell supplier-side trips from dispatches.
     source: row.source ?? 'assigned',
-    client_name: '',
+    client_name:
+      (row as DriverTripRow & { client_name?: string | null }).client_name ?? '',
     client_price: row.client_price ?? 0,
     supplier_rate: row.supplier_rate ?? 0,
     margin: 0,
@@ -271,7 +272,7 @@ export function driverRowToTripRow(row: DriverTripRow): TripRow {
     amount_paid: 0,
     distance: row.distance ?? null,
     estimated_duration: null,
-    client_id: null,
+    client_id: (row as DriverTripRow & { client_id?: string | null }).client_id ?? null,
     supplier_id: row.supplier_id ?? null,
     driver_id: row.driver_id ?? null,
     load_type: null,

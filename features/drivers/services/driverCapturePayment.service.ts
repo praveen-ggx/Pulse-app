@@ -9,7 +9,9 @@ import {
 import {
   createDriverLedgerEntry,
   findDriverLedgerByReference,
+  getDriverLedgerByTripId,
 } from "@/features/drivers/services/drivers.service";
+import { supabase } from "@/lib/supabase";
 import {
   buildDriverCaptureDescription,
   stableDriverCaptureKey,
@@ -178,7 +180,7 @@ async function insertLedgerOnce(
     lane: input.lane,
   });
 
-  let { error } = await createDriverLedgerEntry(
+  let { error, row } = await createDriverLedgerEntry(
     orgId,
     input.driverId,
     amount,
@@ -206,6 +208,33 @@ async function insertLedgerOnce(
       },
     );
     error = retry.error;
+    row = retry.row;
   }
-  return { error };
+  if (!error && row) {
+    const saved = await getDriverLedgerByTripId(input.trip.id);
+    const visible =
+      !saved.error &&
+      saved.entries.some(
+        (entry) => entry.id === row?.id || (entry.type === "settlement" && Number(entry.amount) === amount),
+      );
+    if (visible) return { error: null };
+  }
+
+  const rpc = await supabase().rpc("driver_record_trip_settlement", {
+    p_trip_id: input.trip.id,
+    p_amount: amount,
+    p_description: description,
+  });
+  const rpcMsg = String(rpc.error?.message ?? "").toLowerCase();
+  const rpcUnavailable =
+    !!rpc.error &&
+    (rpc.error.code === "PGRST202" ||
+      rpc.error.code === "42883" ||
+      rpcMsg.includes("driver_record_trip_settlement") ||
+      rpcMsg.includes("could not find the function"));
+  if (!rpc.error) return { error: null };
+  if (!rpcUnavailable) return { error: new Error(rpc.error.message) };
+  return {
+    error: error ?? new Error("Could not save this payment. The database did not keep it."),
+  };
 }

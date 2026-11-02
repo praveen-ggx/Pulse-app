@@ -18,11 +18,13 @@ import {
   getConnectionInviteeByPhone,
 } from "@/features/connections/services/connectionRequests.service";
 import { DriverTagPartyDialogs } from "@/features/drivers/components/DriverTagPartyDialogs";
+import { rememberDriverOfflineParty } from "@/features/drivers/offline/driverOfflineParty";
+import { listTagPartyChoices } from "@/features/drivers/utils/driverSelectableParties.util";
+import { useAuth } from "@/contexts/AuthContext";
 import {
-  listDriverOfflineParties,
-  rememberDriverOfflineParty,
-} from "@/features/drivers/offline/driverOfflineParty";
-import { tagTripWithDcoClient } from "@/features/drivers/services/driverTripClient.service";
+  markTripAsFleetTrip,
+  tagTripWithDcoClient,
+} from "@/features/drivers/services/driverTripClient.service";
 import { tripReceivableBilled } from "@/features/drivers/utils/driverPartyReceivables.util";
 import {
   driverBodySecondary,
@@ -64,6 +66,7 @@ function param(value: string | string[] | undefined): string {
 
 export default function DriverAddClientScreen() {
   const onBack = useSafeBack(ROUTES.driverWalletSelf());
+  const { profile } = useAuth();
   const { canTagOfflineParty, isDco, isLoading: modeLoading } =
     useDriverOperatingModeQuery();
   const queryClient = useQueryClient();
@@ -130,9 +133,9 @@ export default function DriverAddClientScreen() {
     setWorkspaceError(null);
     setOrg(null);
     try {
-      const local = await listDriverOfflineParties();
+      const choices = await listTagPartyChoices(profile?.uid);
       setExistingParties(
-        local.map((row) => ({
+        choices.map((row) => ({
           id: row.id,
           name: row.name,
           phone: row.phone,
@@ -142,7 +145,7 @@ export default function DriverAddClientScreen() {
     } finally {
       setLoading(false);
     }
-  }, [canTagOfflineParty, modeLoading]);
+  }, [canTagOfflineParty, modeLoading, profile?.uid]);
 
   // Only load when this route is focused. add-client is a hidden Tabs screen and
   // can otherwise mount beside Wallet/Self and probe ensure_dco_workspace.
@@ -195,6 +198,27 @@ export default function DriverAddClientScreen() {
   const handleClose = useCallback(() => {
     onBack();
   }, [onBack]);
+
+  const handleMarkFleet = useCallback(async () => {
+    if (!tripId || !partyName || pickingId) return;
+    setPickingId("fleet");
+    setWorkspaceError(null);
+    try {
+      const { error } = await markTripAsFleetTrip(tripId, {
+        name: partyName,
+        orgId: tripQuery.data?.organization_id,
+      });
+      if (error) {
+        setWorkspaceError(error.message);
+        return;
+      }
+      await queryClient.invalidateQueries({ queryKey: ["q", "trips"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.trips.detail(tripId) });
+      setSuccessParty({ id: `fleet:${partyName}`, name: partyName });
+    } finally {
+      setPickingId(null);
+    }
+  }, [partyName, pickingId, queryClient, tripId, tripQuery.data?.organization_id]);
 
   const handlePickExisting = useCallback((row: { id: string; name: string }) => {
     if (pickingId) return;
@@ -313,6 +337,16 @@ export default function DriverAddClientScreen() {
       pendingName={pendingParty?.name ?? null}
       confirming={!!pickingId}
       successName={successParty?.name ?? null}
+      successTitle={
+        successParty?.id.startsWith("fleet:")
+          ? `Marked ${successParty.name} fleet trip`
+          : null
+      }
+      successMessage={
+        successParty?.id.startsWith("fleet:")
+          ? "This trip is fleet work now. It leaves Untagged and no longer asks for a bill-to party."
+          : null
+      }
       created={createdSuccess}
       billedAmount={billedForTag}
       receivable={
@@ -385,6 +419,23 @@ export default function DriverAddClientScreen() {
         Tap a party to tag this trip. Details are already on file — only add a new
         party if they are not in this list.
       </Text>
+      {partyName ? (
+        <TouchableOpacity
+          style={styles.fleetBtn}
+          onPress={() => void handleMarkFleet()}
+          disabled={!!pickingId}
+          accessibilityRole="button"
+          accessibilityLabel={`Mark ${partyName} fleet trip`}
+        >
+          {pickingId === "fleet" ? (
+            <ActivityIndicator size="small" color={Theme.buttonDarkText} />
+          ) : (
+            <Text style={styles.fleetBtnText} numberOfLines={1}>
+              Mark {partyName} fleet trip
+            </Text>
+          )}
+        </TouchableOpacity>
+      ) : null}
       {workspaceError ? <Text style={styles.error}>{workspaceError}</Text> : null}
       <ScrollView
         contentContainerStyle={styles.list}
@@ -510,6 +561,20 @@ const styles = StyleSheet.create({
     ...driverUIBold,
     fontSize: 13,
     color: Theme.primary,
+  },
+  fleetBtn: {
+    minHeight: 48,
+    borderRadius: 14,
+    backgroundColor: Theme.actionBtnInk,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+    marginBottom: 12,
+  },
+  fleetBtnText: {
+    ...driverUIBold,
+    fontSize: 14,
+    color: Theme.buttonDarkText,
   },
   addBtn: {
     minHeight: 48,

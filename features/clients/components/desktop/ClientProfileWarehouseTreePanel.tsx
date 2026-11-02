@@ -309,7 +309,7 @@ export function ClientProfileWarehouseTreePanel({ bundle, orgId, clientId, onRef
                 setWhForm({
                   ...whForm,
                   mapPlaceLabel: label,
-                  address: whForm.address.trim() || label,
+                  address: label || whForm.address.trim(),
                   city: coords.city?.trim() || "",
                   state: coords.state?.trim() || "",
                   pincode: coords.pincode?.trim() || "",

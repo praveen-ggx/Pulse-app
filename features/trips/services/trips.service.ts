@@ -3797,7 +3797,11 @@ export async function forceSetTripStatusSimulated(
     updated_at: new Date().toISOString(),
   };
   if (data.startedAt !== undefined) updates.started_at = data.startedAt ?? null;
-  if (data.completedAt !== undefined) updates.completed_at = data.completedAt ?? null;
+  if (data.completedAt !== undefined) {
+    updates.completed_at = data.completedAt ?? null;
+  } else if (data.status !== "completed") {
+    updates.completed_at = null;
+  }
   if (data.notes !== undefined) updates.notes = data.notes;
   let query = supabase()
     .from("trips")

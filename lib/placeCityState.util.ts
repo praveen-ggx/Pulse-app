@@ -281,17 +281,12 @@ export function enrichPlaceSelectionSync(place: {
   const pincode =
     normalizePlacePincode(place.pincode) ||
     normalizePlacePincode(place.displayName.match(/\b([1-9]\d{5})\b/)?.[1] ?? null);
-  // Show the place actually picked. A locality (e.g. Pallavaram) is more specific
-  // than its parent city, so it leads the label; the city/state anchors it.
-  // Anchor with the city when there is a real one. When `city` is only the
-  // parsed district (Chengalpattu for a Pallavaram pick), anchor with the state
-  // instead — the district would read as the wrong place.
-  const district = titleCasePlacePart(place.district?.trim() ?? "");
-  // A city parsed out of the display name is unreliable: for "Pallavaram,
-  // Chengalpattu, Tamil Nadu" the parse yields the district. Only a
-  // provider-supplied city is trusted as an anchor.
-  const cityIsTrusted = Boolean(place.city?.trim()) && !isSamePlacePart(city, district);
-  const anchor = cityIsTrusted ? city : state || city;
+  // A locality (e.g. Jeedimetla) is more specific than its parent
+  // administrative city (Hyderabad), so it leads the label and is returned as
+  // the operational city.  Anchor the label with the state so the format stays
+  // "Locality, State" — consistent with the "City, State" pattern used
+  // everywhere else.  Fall back to city when state is unavailable.
+  const anchor = state || city;
   const localityLabel =
     locality && !isSamePlacePart(locality, city)
       ? formatCityStateFromParts(locality, anchor)
@@ -305,9 +300,10 @@ export function enrichPlaceSelectionSync(place: {
     label,
     lat: place.lat,
     lon: place.lon,
-    // Prefer a trusted city; otherwise the locality is the most accurate thing
-    // we have. Never store the district as the city.
-    city: cityIsTrusted ? city : locality || city,
+    // Return the most specific operational locality.  When the provider
+    // reports a distinct sub-city locality (Jeedimetla vs Hyderabad), prefer
+    // it — this flows into warehouse.city → lane origin_label → indent/trip.
+    city: locality && !isSamePlacePart(locality, city) ? locality : city,
     state,
     pincode,
   };

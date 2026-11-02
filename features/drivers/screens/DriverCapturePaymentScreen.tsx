@@ -9,6 +9,7 @@ import { SmartInput } from "@/components/mobile-input";
 import Theme from "@/constants/Theme";
 import { useAuth } from "@/contexts/AuthContext";
 import { getDcoSelfReceivableForTrip } from "@/features/dco-self/services/dcoSelfReceivable.service";
+import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
 import { captureDriverTripPayment } from "@/features/drivers/services/driverCapturePayment.service";
 import * as driversService from "@/features/drivers/services/drivers.service";
 import {
@@ -27,11 +28,13 @@ import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingMod
 import * as tripsService from "@/features/trips/services/trips.service";
 import { formatLedgerAmountInput } from "@/lib/format";
 import { PAYMENT_MODES } from "@/lib/paymentModes";
+import { queryKeys } from "@/lib/queryKeys";
 import { ROUTES } from "@/lib/routes";
 import { showAppAlert } from "@/lib/appAlert";
 import { useSafeBack } from "@/lib/useSafeBack";
 import { Banknote, Hash } from "lucide-react-native";
-import { type Href, useLocalSearchParams, useRouter } from "expo-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -61,6 +64,7 @@ function firstParam(value: string | string[] | undefined): string {
 
 export default function DriverCapturePaymentScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const onBack = useSafeBack(ROUTES.driverWalletSelf());
   const { profile } = useAuth();
   const {
@@ -99,6 +103,7 @@ export default function DriverCapturePaymentScreen() {
   );
   const [reference, setReference] = useState(referenceHint);
   const [paidOn, setPaidOn] = useState(todayISO());
+  const [tagOpen, setTagOpen] = useState(false);
 
   const load = useCallback(async () => {
     // Resolve operating mode before choosing Self / indie / employer / exchange path.
@@ -110,10 +115,10 @@ export default function DriverCapturePaymentScreen() {
     setLoading(true);
     try {
       const [tripRes, driversRes] = await Promise.all([
-        tripsService.getDriverTripById(tripId),
+        tripsService.getAccessibleTripById(tripId),
         driversService.getLinkedDriversForCurrentUser(profile.uid),
       ]);
-      const nextTrip = (tripRes.trip as tripsService.TripRow | null) ?? null;
+      const nextTrip = tripRes.trip;
       setTrip(nextTrip);
       const drivers = driversRes.drivers ?? [];
       const match =
@@ -238,6 +243,8 @@ export default function DriverCapturePaymentScreen() {
         showAppAlert("Could not capture payment", error.message);
         return;
       }
+      await queryClient.invalidateQueries({ queryKey: ["q", "trips"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.trips.detail(trip.id) });
       showAppAlert(
         lane === "marketplace" ? "Sent for confirmation" : "Payment recorded",
         lane === "marketplace"
@@ -259,6 +266,7 @@ export default function DriverCapturePaymentScreen() {
     onBack,
     paidOn,
     profile?.uid,
+    queryClient,
     reference,
     router,
     selfReceivableId,
@@ -399,20 +407,26 @@ export default function DriverCapturePaymentScreen() {
       {needsPartyTag ? (
         <TouchableOpacity
           style={styles.submit}
-          onPress={() =>
-            router.push(
-              ROUTES.driverAddClient({
-                tripId: trip.id,
-                partyName: partyHint || undefined,
-              }) as Href,
-            )
-          }
+          onPress={() => setTagOpen(true)}
           accessibilityRole="button"
           accessibilityLabel="Tag party"
         >
           <Text style={styles.submitText}>Tag party first</Text>
         </TouchableOpacity>
       ) : null}
+
+      <DriverCollectFromSheet
+        visible={tagOpen}
+        trip={trip}
+        due={dueHint}
+        lane="shipper"
+        assignerName={partyHint || null}
+        onClose={() => setTagOpen(false)}
+        onTagged={() => {
+          setTagOpen(false);
+          void load();
+        }}
+      />
 
       <TouchableOpacity
         style={[styles.submit, !canSubmit && styles.submitDisabled]}

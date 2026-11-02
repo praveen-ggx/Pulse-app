@@ -120,11 +120,8 @@ export function FullscreenNumericEntry({
   );
   useEffect(() => {
     if (Platform.OS !== 'web' || !visible || !window.visualViewport) return;
-    const vv = window.visualViewport;
-    const update = () => setWebViewportHeight(vv.height);
-    update();
-    vv.addEventListener('resize', update);
-    return () => vv.removeEventListener('resize', update);
+    const next = Math.round(window.visualViewport.height);
+    setWebViewportHeight((prev) => (prev === next ? prev : next));
   }, [visible]);
 
   const keypadOpts: KeypadOptions = useMemo(() => ({

@@ -36,6 +36,7 @@ import { ClientLaneSearchPicker } from "@/features/clients/components/ClientLane
 import type { ClientLaneRate } from "@/features/clients/types/clientManagement.types";
 import {
   buildClientLanePrefill,
+  laneRateBasis,
   repriceLaneForTons,
 } from "@/features/clients/utils/clientLanePrefill.util";
 import {
@@ -944,6 +945,12 @@ export default function CreateIndentScreen() {
 
   const handleSaleRateBasisChange = useCallback(
     (basis: SaleRateBasis) => {
+      // Block per_mt when a per-trip lane is selected — its rate is already a
+      // total, not a unit rate, so treating it as per-MT inflates the price.
+      if (basis === "per_mt" && selectedLaneId) {
+        const lane = contractLanes.find((l) => l.id === selectedLaneId);
+        if (lane && laneRateBasis(lane) === "total") return;
+      }
       const next: Partial<FormState> = { sale_rate_basis: basis };
       if (basis === "per_mt") {
         const tons = parsePositiveTons(form.weight);
@@ -961,7 +968,7 @@ export default function CreateIndentScreen() {
       }
       update(next);
     },
-    [form.client_price, form.sale_unit_rate, form.weight, update],
+    [contractLanes, form.client_price, form.sale_unit_rate, form.weight, selectedLaneId, update],
   );
 
   const handleSaleUnitRateChange = useCallback(

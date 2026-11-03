@@ -46,6 +46,7 @@ import { useLinkedClientOrgLocationsQuery } from "@/lib/queries/useLinkedClientO
 import type { ClientLaneRate } from "@/features/clients/types/clientManagement.types";
 import {
   buildClientLanePrefill,
+  laneRateBasis,
   repriceLaneForTons,
 } from "@/features/clients/utils/clientLanePrefill.util";
 import {
@@ -347,6 +348,10 @@ export function CreateTripDesktopWizard({
 
   const handleSaleRateBasisChange = useCallback(
     (basis: SaleRateBasis) => {
+      if (basis === "per_mt" && selectedLaneId) {
+        const lane = contractLanes.find((l) => l.id === selectedLaneId);
+        if (lane && laneRateBasis(lane) === "total") return;
+      }
       setters.setSaleRateBasis(basis);
       if (basis === "per_mt") {
         const tons = parsePositiveTons(state.tons);
@@ -362,7 +367,7 @@ export function CreateTripDesktopWizard({
         syncPerMtTotal(state.saleUnitRate, state.tons);
       }
     },
-    [setters, state.clientPrice, state.saleUnitRate, state.tons, syncPerMtTotal],
+    [contractLanes, selectedLaneId, setters, state.clientPrice, state.saleUnitRate, state.tons, syncPerMtTotal],
   );
 
   const handleSaleUnitRateChange = useCallback(

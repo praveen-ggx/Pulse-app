@@ -462,7 +462,9 @@ function Timeline({
                       key={`${line.time}-${hi}`}
                       style={[styles.tlHistoryAlwaysLine, WEB_COPY]}
                     >
-                      {line.time} · {line.actor} · {line.action}
+                      {[line.time, line.actor?.trim(), line.action]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </Text>
                   ))}
                 </View>
@@ -513,7 +515,9 @@ function Timeline({
                             key={`${line.time}-${hi}`}
                             style={[styles.tlLogHistoryLine, WEB_COPY]}
                           >
-                            {line.time} · {line.actor} · {line.action}
+                            {[line.time, line.actor?.trim(), line.action]
+                              .filter(Boolean)
+                              .join(" · ")}
                           </Text>
                         ))}
                       </View>

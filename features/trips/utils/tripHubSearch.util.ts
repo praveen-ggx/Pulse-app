@@ -3,7 +3,7 @@ import {
   type TripRow,
 } from "@/features/trips/services/trips.service";
 
-function foldSearchToken(value: string): string {
+export function foldSearchToken(value: string): string {
   return value.toLowerCase().replace(/[\s\-_.]/g, "");
 }
 

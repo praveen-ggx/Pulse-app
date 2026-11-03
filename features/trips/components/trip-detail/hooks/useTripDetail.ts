@@ -97,6 +97,11 @@ import {
   parseEwayFieldEntries,
   parseEwayFieldValues,
 } from "@/features/trips/services/ewayBillFields.util";
+import {
+  filterDocumentsForTrip,
+  mergeTripDocumentsFromBundleSeed,
+  tripDocumentsFromTableLoad,
+} from "@/features/trips/utils/tripDocumentsScope.util";
 import { useQueryClient } from "@tanstack/react-query";
 import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 import { useRouter } from "expo-router";
@@ -1494,6 +1499,8 @@ export function useTripDetail({
   }, [driverIdentityDocs]);
 
   const computedTripDocs = useMemo<TripDocItem[]>(() => {
+    // Defensive: never paint another trip's vault files (e-way / LR / POD).
+    const scopedTripDocuments = filterDocumentsForTrip(tripDocuments, tripId);
     const hasVehicleDoc = vehiclePreviewDocs.some((doc) => !!doc.storagePath);
     const firstVehicleDoc = vehiclePreviewDocs.find((doc) => !!doc.storagePath);
 
@@ -1529,23 +1536,25 @@ export function useTripDetail({
     return [
       (() => {
         const lrSlot = buildSlotCard(
-          tripDocuments.filter((d) => d.document_type === "lr"),
+          scopedTripDocuments.filter((d) => d.document_type === "lr"),
           { id: "lr", label: "LR Document", pendingType: "PDF", category: "lr" },
         );
         const invoiceSlot = buildSlotCard(
-          tripDocuments.filter((d) => d.document_type === "invoice"),
+          scopedTripDocuments.filter((d) => d.document_type === "invoice"),
           { id: "invoice", label: "Invoice", pendingType: "PDF", category: "invoice" },
         );
         const memoSlot = buildSlotCard(
-          tripDocuments.filter((d) => d.document_type === "memo"),
+          scopedTripDocuments.filter((d) => d.document_type === "memo"),
           { id: "memo", label: "Memo", pendingType: "PDF", category: "trip" },
         );
         const otherSlot = buildSlotCard(
-          tripDocuments.filter((d) => d.document_type === "other"),
+          scopedTripDocuments.filter((d) => d.document_type === "other"),
           { id: "other", label: "Other Documents", pendingType: "PDF", category: "trip" },
         );
         const bankSlot = buildSlotCard(
-          hideBankDocs ? [] : tripDocuments.filter((d) => d.document_type === "bank_docs"),
+          hideBankDocs
+            ? []
+            : scopedTripDocuments.filter((d) => d.document_type === "bank_docs"),
           { id: "bank_docs", label: "Bank Docs", pendingType: "PDF", category: "trip" },
         );
         const tag = (card: TripDocItem, slotType: TripDetailsSlot): TripDocFile[] =>
@@ -1600,7 +1609,7 @@ export function useTripDetail({
         };
       })(),
       buildSlotCard(
-        tripDocuments.filter((d) => d.document_type === "eway_bill"),
+        scopedTripDocuments.filter((d) => d.document_type === "eway_bill"),
         {
           id: "eway_bill",
           label: "Eway Bill",
@@ -1638,7 +1647,7 @@ export function useTripDetail({
             : undefined,
       },
       buildSlotCard(
-        tripDocuments.filter((d) => d.document_type === "pod"),
+        scopedTripDocuments.filter((d) => d.document_type === "pod"),
         {
           id: "pod",
           label: "Driver POD",
@@ -1648,6 +1657,7 @@ export function useTripDetail({
       ),
     ];
   }, [
+    tripId,
     tripDocuments,
     vehiclePreviewDocs,
     vehicleDocs,
@@ -2581,11 +2591,9 @@ export function useTripDetail({
         .then(({ documents, error }) => {
           if (currentTripIdRef.current !== requestedTripId) return;
           if (error) return;
-          if ((documents ?? []).length > 0) {
-            setTripDocuments(documents ?? []);
-            return;
-          }
-          if (forViewer) setTripDocuments([]);
+          // Always replace — including [] — so a trip with no files cannot keep
+          // the previous trip's e-way / LR / POD in the vault.
+          setTripDocuments(tripDocumentsFromTableLoad(documents));
         });
     },
     [tripId],
@@ -2797,9 +2805,13 @@ export function useTripDetail({
 
   const upsertTripDocument = useCallback(
     (row: tripDocumentsService.TripDocumentRow) => {
+      const openId = (currentTripIdRef.current ?? "").trim();
+      if (!openId || row.trip_id !== openId) return;
       lastLocalTripDocWriteAtRef.current = Date.now();
       setTripDocuments((prev) => {
-        const without = prev.filter((doc) => doc.id !== row.id);
+        const without = filterDocumentsForTrip(prev, openId).filter(
+          (doc) => doc.id !== row.id,
+        );
         return [row, ...without];
       });
     },
@@ -3255,18 +3267,16 @@ export function useTripDetail({
     );
     if (!documentsViewerActiveRef.current) {
       const fromBundle = tripDocumentsFromBundle(bundle.documents);
-      // The light bundle always ships documents: []. Do not wipe rows the
-      // vault already loaded from trip_documents.
-      setTripDocuments((prev) => {
-        if (fromBundle.length === 0 && prev.length > 0) return prev;
-        return fromBundle.map((row) => {
-          if (row.document_number?.trim()) return row;
-          const previous = prev.find((item) => item.id === row.id);
-          return previous?.document_number
-            ? { ...row, document_number: previous.document_number }
-            : row;
-        });
-      });
+      // Light bundles ship documents: []. Keep same-trip vault rows only —
+      // never another trip's e-way / LR / POD after navigation.
+      setTripDocuments((prev) =>
+        mergeTripDocumentsFromBundleSeed({
+          openTripId: tripId,
+          bundleTripId: bundle.trip?.id,
+          fromBundle,
+          prev,
+        }),
+      );
     }
 
     if (bundle.otp) {
@@ -3373,7 +3383,7 @@ export function useTripDetail({
           : null,
       );
     }
-  }, [bundle, hardCopyPod, queryClient]);
+  }, [bundle, hardCopyPod, queryClient, tripId]);
 
   // Bundle JSON omits trips.pod_received_at. Keep the open trip row aligned
   // with the shared POD record so every section on this page reads it.
@@ -3391,6 +3401,8 @@ export function useTripDetail({
     if (!tripId) {
       bundleSeededRef.current = false;
       setTrip(null);
+      setTripDocuments([]);
+      documentsViewerActiveRef.current = false;
       setLoading(true);
       return;
     }
@@ -3398,6 +3410,10 @@ export function useTripDetail({
     const switchingAway = tripRef.current != null && tripRef.current.id !== tripId;
     if (switchingAway) {
       bundleSeededRef.current = false;
+      // Drop previous trip's vault before paint so e-way / LR / POD cannot flash
+      // (or stick) onto the next trip while table/bundle loads.
+      setTripDocuments([]);
+      documentsViewerActiveRef.current = false;
     }
 
     const next = peekTripDetailFirstPaint(tripId, queryClient);

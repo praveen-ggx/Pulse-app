@@ -112,11 +112,14 @@ const BENTO_LAYOUT: Record<
 function BentoMetricCard({
   item,
   active,
+  searchMatch = false,
   onPress,
   flexStyle,
 }: {
   item: BentoMetricItem;
   active: boolean;
+  /** Hub ID search found this stage — ring highlight without selecting the tab. */
+  searchMatch?: boolean;
   onPress: () => void;
   flexStyle: ViewStyle;
 }) {
@@ -153,7 +156,9 @@ function BentoMetricCard({
       }}
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
-      accessibilityLabel={`${item.title}, ${item.count} trips`}
+      accessibilityLabel={`${item.title}, ${item.count} trips${
+        searchMatch && !active ? ", matches search" : ""
+      }`}
       style={[styles.cardPressable, flexStyle]}
     >
       <Animated.View
@@ -161,6 +166,7 @@ function BentoMetricCard({
           styles.card,
           item.size === "large" && styles.cardLarge,
           active ? styles.cardActive : styles.cardIdle,
+          !active && searchMatch ? styles.cardSearchMatch : null,
           active ? CARD_SHADOW_ACTIVE : CARD_SHADOW,
           cardAnim,
         ]}
@@ -255,6 +261,10 @@ export type TripsHubBentoMetricsProps = {
   getIcon: (id: ActiveMetricTabId) => React.ComponentProps<typeof FontAwesome>["name"];
   isDesktop: boolean;
   style?: StyleProp<ViewStyle>;
+  /** Stage that owns the current Indent/Trip ID search hit (highlight only). */
+  searchMatchedMetricId?: ActiveMetricTabId | null;
+  /** Vehicle / multi-stage search: highlight every stage with matches. */
+  searchMatchedMetricIds?: ReadonlySet<ActiveMetricTabId> | null;
 };
 
 export function TripsHubBentoMetrics({
@@ -267,6 +277,8 @@ export function TripsHubBentoMetrics({
   getIcon,
   isDesktop,
   style,
+  searchMatchedMetricId = null,
+  searchMatchedMetricIds = null,
 }: TripsHubBentoMetricsProps) {
   const items: BentoMetricItem[] = metricOrder.flatMap((id) => {
     const layout = BENTO_LAYOUT[id];
@@ -289,6 +301,10 @@ export function TripsHubBentoMetrics({
       key={item.id}
       item={item}
       active={activeMetricTab === item.id}
+      searchMatch={
+        searchMatchedMetricIds?.has(item.id) === true ||
+        searchMatchedMetricId === item.id
+      }
       onPress={() => onSelectMetric(item.id)}
       flexStyle={
         item.size === "large" ? styles.flexLarge : styles.flexSmall
@@ -700,6 +716,10 @@ const styles = StyleSheet.create({
   },
   cardIdle: {
     borderColor: Theme.borderLight,
+  },
+  cardSearchMatch: {
+    borderColor: Theme.primary,
+    borderWidth: 2,
   },
   cardActive: {
     borderColor: BENTO_ACTIVE_BORDER,

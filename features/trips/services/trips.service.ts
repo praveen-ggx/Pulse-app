@@ -2516,6 +2516,10 @@ async function insertTripRow(
     driver_id: normalizedDriverId,
     vehicle_id: normalizedVehicleId,
     vehicle_display_number: (data.vehicle_display_number ?? "").trim() || null,
+    // First assigner = creator when a driver is attached at create time.
+    ...(normalizedDriverId && creatorUserId
+      ? { assigned_by_user_id: creatorUserId }
+      : {}),
   };
   let { data: row, error } = await supabase()
     .from("trips")
@@ -2826,6 +2830,10 @@ export async function updateTripAssignment(
     updates.vehicle_display_number = data.vehicle_display_number;
   if (data.driver_display_name !== undefined)
     updates.driver_display_name = data.driver_display_name?.trim() || null;
+  // Persist who assigned so Manifest Pulse / activity can resolve the member
+  // even when audit rows are missing or delayed.
+  const assignerId = String(options?.changedBy ?? "").trim();
+  if (assignerId) updates.assigned_by_user_id = assignerId;
   // Reassign preserves trip stage — only driver_id and vehicle_id change.
   // Only push status → 'assigned' on first assign before the trip has started.
   if (

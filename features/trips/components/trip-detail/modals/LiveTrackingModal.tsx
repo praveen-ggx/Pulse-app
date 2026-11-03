@@ -334,7 +334,11 @@ export function LiveTrackingModal({
                 <TimelineItem
                   key={item.id}
                   label={item.status_label}
-                  sublabel={`${contextLabel} · ${actorLabel}`}
+                  sublabel={
+                    actorLabel
+                      ? `${contextLabel} · ${actorLabel}`
+                      : contextLabel
+                  }
                   date={formatAssignmentDate(item.changed_at)}
                   isFirst={isFirst}
                   isLast={isLast}
@@ -365,9 +369,9 @@ export function LiveTrackingModal({
               actorUserId: row.changed_by,
               currentUserId,
               displayById: actorDisplayById,
-              fallback: "Dispatcher",
+              fallback: "",
             });
-            const byLabel = row.changed_by != null ? ` · ${actorLabel}` : "";
+            const byLabel = actorLabel ? ` · ${actorLabel}` : "";
             const isFallback = row.id === "fallback";
             const driverPrev =
               !isFallback && row.driver_id_prev

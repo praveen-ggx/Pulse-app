@@ -40,8 +40,7 @@ export function formatActivityTimelineActorLabel(args: {
 export function fallbackActorForStatusContext(
   context: Extract<DriverActivityTimelineRow, { kind: "status" }>["status_context"],
 ): string {
+  // Prefer a resolved profile name. Never invent "Staff" / "Workspace member".
   if (context === "accepted") return "Driver";
-  if (context === "assigned") return "Dispatcher";
-  if (context === "created") return "Workspace member";
-  return "Workspace member";
+  return "";
 }

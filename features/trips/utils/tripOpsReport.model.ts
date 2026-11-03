@@ -1,54 +1,40 @@
 /**
- * Trip Ops Excel report — classic operational columns and field mapping.
+ * Trip Ops Excel report — operational columns and field mapping.
  *
- * Used by Trip Ops members on the Trips hub Download button (and the Trips
- * Export modal). Sales members use `tripIndentReport` instead — do not mix
- * those column sets.
+ * Used by Trip Ops members on the Trips hub Download button.
+ * Sales members use `tripIndentReport` instead — do not mix those column sets.
  *
- * Field sources (DB / derived):
+ * Column contract (12 columns, matching the ops reference sheet):
+ * - SR ID ← indent_reference_code | source_indent_code (sales/sourcing reference)
  * - TRIP ID ← display_trip_id | trip_number | id
  * - LR NO ← trip_documents LR via loadHubPodReceiptFlags
  * - CLIENT ← hub client display name
  * - SOURCE ← pickup_area
  * - DESTINATION ← drop_location
  * - SUPPLIER ← hub party meta displaySupplierName | supplier_name
- * - VEHICLE NO ← vehicle_display_number
- * - DRIVER ← hub party meta displayDriverName | driver_display_name
- * - DRIVER NO ← get_trip_driver_phones | drivers.phone fallback
- * - STATUS ← hub stage label
- * - Km ← distance | actual_distance_traveled_km
- * - Indent ← indent_reference_code | source_indent_code
- * - ASSIGNED ← trip_status_audit status_to=assigned | created_at
+ * - TRIP STATUS ← hub stage label
+ * - ASSIGNED DATE ← trip_status_audit status_to=assigned | created_at
  * - PICKUP ← trip_status_audit in_progress | started_at
- * - IN-TRANSIT ← trip_status_audit in_transit
- * - ETA ← manifest delivery plan estimate
- * - ARRIVED AT DROP OFF ← trip_status_audit at_drop
- * - DELIVERED ← completed_at | trip_status_audit completed
+ * - ARRIVED AT DROP ← trip_status_audit at_drop
+ * - SOFT COPY UPLOADED BY ← trip_documents pod/soft_pod uploaded_by → profiles.full_name
  */
 
 import type { TripRow } from "@/features/trips/services/trips.service";
 import type { TripStatusTimesByTripId } from "@/features/trips/services/tripStatusTimes.service";
-import { buildManifestDeliveryPlan } from "@/features/trips/utils/manifestDeliveryPlan.util";
 
 export const TRIP_OPS_REPORT_COLUMNS = [
+  { key: "srId", label: "SR ID" },
   { key: "tripId", label: "TRIP ID" },
   { key: "lrNo", label: "LR NO" },
   { key: "client", label: "CLIENT" },
   { key: "source", label: "SOURCE" },
   { key: "destination", label: "DESTINATION" },
   { key: "supplier", label: "SUPPLIER" },
-  { key: "vehicleNo", label: "VEHICLE NO" },
-  { key: "driver", label: "DRIVER" },
-  { key: "driverNo", label: "DRIVER NO" },
-  { key: "status", label: "STATUS" },
-  { key: "km", label: "Km" },
-  { key: "indent", label: "Indent" },
-  { key: "assigned", label: "ASSIGNED" },
+  { key: "tripStatus", label: "TRIP STATUS" },
+  { key: "assignedDate", label: "ASSIGNED DATE" },
   { key: "pickup", label: "PICKUP" },
-  { key: "inTransit", label: "IN-TRANSIT" },
-  { key: "eta", label: "ETA" },
-  { key: "arrivedAtDrop", label: "ARRIVED AT DROP OFF" },
-  { key: "delivered", label: "DELIVERED" },
+  { key: "arrivedAtDrop", label: "ARRIVED AT DROP" },
+  { key: "softCopyUploadedBy", label: "SOFT COPY UPLOADED BY" },
 ] as const;
 
 export type TripOpsReportColumnKey = (typeof TRIP_OPS_REPORT_COLUMNS)[number]["key"];
@@ -61,17 +47,13 @@ export type TripOpsReportPartyMeta = {
 };
 
 export type TripOpsReportEnrichment = {
-  /** Earliest status timestamps from trip_status_audit (lowercase trip id). */
   statusTimesByTripId?: TripStatusTimesByTripId;
-  /** LR numbers keyed by lowercase trip id. */
   lrNumberByTripId?: Record<string, string>;
-  /** Driver phones keyed by trip id (as returned by get_trip_driver_phones). */
-  driverPhoneByTripId?: Record<string, string>;
-  /** Fallback phones keyed by lowercase driver id. */
-  driverPhoneByDriverId?: Map<string, string> | Record<string, string>;
   partyMetaByTripId?: Map<string, TripOpsReportPartyMeta> | Record<string, TripOpsReportPartyMeta>;
   clientNameForTrip?: (trip: TripRow) => string;
   stageLabelForTrip?: (trip: TripRow) => string;
+  /** Soft-copy (POD) uploader display name keyed by lowercase trip id. */
+  softCopyUploaderByTripId?: Record<string, string>;
 };
 
 function blank(value: string | null | undefined): string {
@@ -102,18 +84,6 @@ function partyMetaFor(
   return map[tripId];
 }
 
-function phoneByDriverId(
-  enrichment: TripOpsReportEnrichment | undefined,
-  driverId: string,
-): string {
-  const key = blank(driverId).toLowerCase();
-  if (!key) return "";
-  const map = enrichment?.driverPhoneByDriverId;
-  if (!map) return "";
-  if (map instanceof Map) return blank(map.get(key));
-  return blank(map[key]);
-}
-
 export function buildTripOpsReportRow(
   trip: TripRow,
   enrichment: TripOpsReportEnrichment = {},
@@ -121,15 +91,9 @@ export function buildTripOpsReportRow(
   const key = blank(trip.id).toLowerCase();
   const times = enrichment.statusTimesByTripId?.[key] ?? {};
   const meta = partyMetaFor(enrichment, trip.id);
-  const km = Number(trip.distance ?? trip.actual_distance_traveled_km);
-  const eta = buildManifestDeliveryPlan({
-    tripDistance: trip.distance,
-    startedAt: trip.started_at,
-    pickupAt: trip.pickup_date,
-    createdAt: trip.created_at,
-  }).estimatedDeliveryAt;
 
   return {
+    srId: blank(trip.indent_reference_code) || blank(trip.source_indent_code),
     tripId: blank(trip.display_trip_id) || blank(trip.trip_number) || blank(trip.id),
     lrNo: blank(enrichment.lrNumberByTripId?.[key]),
     client: blank(enrichment.clientNameForTrip?.(trip)),
@@ -137,22 +101,11 @@ export function buildTripOpsReportRow(
     destination: blank(trip.drop_location),
     supplier:
       blank(meta?.displaySupplierName) || blank(trip.supplier_name),
-    vehicleNo: blank(trip.vehicle_display_number),
-    driver:
-      blank(meta?.displayDriverName) || blank(trip.driver_display_name),
-    driverNo:
-      blank(enrichment.driverPhoneByTripId?.[trip.id]) ||
-      phoneByDriverId(enrichment, trip.driver_id ?? ""),
-    status: blank(enrichment.stageLabelForTrip?.(trip)),
-    km: Number.isFinite(km) && km > 0 ? km : "",
-    indent:
-      blank(trip.indent_reference_code) || blank(trip.source_indent_code),
-    assigned: formatTripOpsReportDateTime(times.assigned ?? trip.created_at),
+    tripStatus: blank(enrichment.stageLabelForTrip?.(trip)),
+    assignedDate: formatTripOpsReportDateTime(times.assigned ?? trip.created_at),
     pickup: formatTripOpsReportDateTime(times.in_progress ?? trip.started_at),
-    inTransit: formatTripOpsReportDateTime(times.in_transit),
-    eta: eta ? formatTripOpsReportDateTime(eta.toISOString()) : "",
     arrivedAtDrop: formatTripOpsReportDateTime(times.at_drop),
-    delivered: formatTripOpsReportDateTime(trip.completed_at ?? times.completed),
+    softCopyUploadedBy: blank(enrichment.softCopyUploaderByTripId?.[key]),
   };
 }
 

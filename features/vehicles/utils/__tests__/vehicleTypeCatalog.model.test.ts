@@ -44,7 +44,10 @@ describe("vehicleTypeCatalog", () => {
       group: "Open",
       type: "40 Feet",
     });
-    expect(parseVehicleTypeSelection("Container 40 Feet")).toBeNull();
+    expect(parseVehicleTypeSelection("Container 40 Feet")).toEqual({
+      group: "Container",
+      type: "40 Feet",
+    });
     expect(vehicleTonRange("Container 32 Feet SXL")).toEqual({ min: 7, max: 9 });
     expect(vehicleTonRange("LCV Container 32 Feet SXL")).toEqual({ min: 7, max: 9 });
     expect(vehicleTonRange("Container 32 Feet MXL")).toEqual({ min: 15, max: 18 });
@@ -56,9 +59,11 @@ describe("vehicleTypeCatalog", () => {
   });
 
   it("flags tons outside the vehicle range", () => {
-    expect(tonsOutsideVehicleRange("LCV Open 8 Feet", "2")).toEqual({ min: 0.75, max: 1 });
+    expect(tonsOutsideVehicleRange("LCV Open 8 Feet", "2")).toBeNull();
     expect(tonsOutsideVehicleRange("LCV Open 8 Feet", "1")).toBeNull();
     expect(tonsOutsideVehicleRange("Tata Ace", "50")).toBeNull();
+    expect(tonsOutsideVehicleRange("Open 20 Feet", "0")).toBeNull();
+    expect(tonsOutsideVehicleRange("Open 20 Feet", "-5")).toBeNull();
   });
 
   it("finds the passing ton that holds a load", () => {

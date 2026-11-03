@@ -46,26 +46,20 @@ function trip(partial: Partial<TripRow> & { id: string }): TripRow {
 }
 
 describe("tripOpsReport.model", () => {
-  it("keeps the classic TripOps column order and labels", () => {
+  it("keeps the 12-column TripOps contract", () => {
     expect(TRIP_OPS_REPORT_COLUMNS.map((c) => c.label)).toEqual([
+      "SR ID",
       "TRIP ID",
       "LR NO",
       "CLIENT",
       "SOURCE",
       "DESTINATION",
       "SUPPLIER",
-      "VEHICLE NO",
-      "DRIVER",
-      "DRIVER NO",
-      "STATUS",
-      "Km",
-      "Indent",
-      "ASSIGNED",
+      "TRIP STATUS",
+      "ASSIGNED DATE",
       "PICKUP",
-      "IN-TRANSIT",
-      "ETA",
-      "ARRIVED AT DROP OFF",
-      "DELIVERED",
+      "ARRIVED AT DROP",
+      "SOFT COPY UPLOADED BY",
     ]);
   });
 
@@ -84,63 +78,52 @@ describe("tripOpsReport.model", () => {
           "trip-1": {
             assigned: "2026-10-01T07:00:00.000Z",
             in_progress: "2026-10-01T09:00:00.000Z",
-            in_transit: "2026-10-01T10:00:00.000Z",
             at_drop: "2026-10-02T12:00:00.000Z",
-            completed: "2026-10-02T17:00:00.000Z",
           },
         },
         lrNumberByTripId: { "trip-1": "LR-42" },
-        driverPhoneByTripId: { "Trip-1": "9876543210" },
         partyMetaByTripId: {
           "Trip-1": {
             displaySupplierName: "Meta Supplier",
-            displayDriverName: "Meta Driver",
           },
         },
         clientNameForTrip: () => "Hub Client",
         stageLabelForTrip: () => "In transit",
+        softCopyUploaderByTripId: { "trip-1": "Ashwin Kumar" },
       },
     );
 
+    expect(row.srId).toBe("SRC-1");
     expect(row.tripId).toBe("TRP-9");
     expect(row.lrNo).toBe("LR-42");
     expect(row.client).toBe("Hub Client");
     expect(row.source).toBe("Pune");
     expect(row.destination).toBe("Mumbai");
     expect(row.supplier).toBe("Meta Supplier");
-    expect(row.vehicleNo).toBe("MH12AB1234");
-    expect(row.driver).toBe("Meta Driver");
-    expect(row.driverNo).toBe("9876543210");
-    expect(row.status).toBe("In transit");
-    expect(row.km).toBe(99);
-    expect(row.indent).toBe("SRC-1");
-    expect(row.assigned).toContain("2026");
+    expect(row.tripStatus).toBe("In transit");
+    expect(row.assignedDate).toContain("2026");
     expect(row.pickup).toContain("2026");
-    expect(row.inTransit).toContain("2026");
     expect(row.arrivedAtDrop).toContain("2026");
-    expect(row.delivered).toContain("2026");
+    expect(row.softCopyUploadedBy).toBe("Ashwin Kumar");
   });
 
-  it("falls back to trip.created_at / started_at / supplier_name / driver phone by id", () => {
-    const phones = new Map<string, string>([["drv-1", "9000000000"]]);
+  it("falls back to trip.created_at / started_at / supplier_name / indent_reference_code", () => {
     const row = buildTripOpsReportRow(trip({ id: "t2", display_trip_id: null }), {
-      driverPhoneByDriverId: phones,
       clientNameForTrip: (t) => t.client_name ?? "",
       stageLabelForTrip: () => "Assigned",
     });
+    expect(row.srId).toBe("IND-7");
     expect(row.tripId).toBe("TRP001");
     expect(row.supplier).toBe("Fleet Co");
-    expect(row.driver).toBe("Ravi");
-    expect(row.driverNo).toBe("9000000000");
-    expect(row.assigned).toContain("2026");
+    expect(row.assignedDate).toContain("2026");
     expect(row.pickup).toContain("2026");
-    expect(row.indent).toBe("IND-7");
-    expect(row.km).toBe(120);
   });
 
-  it("builds one row per trip and a dated filename", () => {
-    const rows = buildTripOpsReportRows([trip({ id: "a" }), trip({ id: "b" })]);
+  it("builds one row per trip with SR ID from indent reference and a dated filename", () => {
+    const rows = buildTripOpsReportRows([trip({ id: "a" }), trip({ id: "b", indent_reference_code: "SAT812GO" })]);
     expect(rows).toHaveLength(2);
+    expect(rows[0].srId).toBe("IND-7");
+    expect(rows[1].srId).toBe("SAT812GO");
     expect(tripOpsReportFileName(new Date("2026-10-31T12:00:00Z"))).toBe(
       "Pulse_Trip_Report_2026-10-31.xlsx",
     );

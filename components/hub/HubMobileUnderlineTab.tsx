@@ -17,6 +17,8 @@ export interface HubMobileUnderlineTabProps {
   compact?: boolean;
   /** Override active tab accent (e.g. load center yellow tabs). */
   accentColor?: string;
+  /** Search found this stage — dotted underline without selecting the tab. */
+  searchMatch?: boolean;
 }
 
 export const HubMobileUnderlineTab = memo(function HubMobileUnderlineTab({
@@ -26,6 +28,7 @@ export const HubMobileUnderlineTab = memo(function HubMobileUnderlineTab({
   accessibilityLabel,
   compact = false,
   accentColor = HUB_MOBILE_ACCENT,
+  searchMatch = false,
 }: HubMobileUnderlineTabProps) {
   const activeColor = accentColor || HUB_MOBILE_ACCENT;
 
@@ -40,7 +43,10 @@ export const HubMobileUnderlineTab = memo(function HubMobileUnderlineTab({
       onPress={onPress}
       accessibilityRole="tab"
       accessibilityState={{ selected: isActive }}
-      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityLabel={
+        accessibilityLabel ??
+        (searchMatch && !isActive ? `${label}, matches search` : label)
+      }
     >
       <Text
         style={[
@@ -48,6 +54,7 @@ export const HubMobileUnderlineTab = memo(function HubMobileUnderlineTab({
           compact && styles.tabLabelCompact,
           isActive && styles.tabLabelActive,
           isActive && { color: activeColor },
+          !isActive && searchMatch ? { color: activeColor, fontWeight: "700" } : null,
         ]}
         numberOfLines={1}
       >
@@ -59,6 +66,14 @@ export const HubMobileUnderlineTab = memo(function HubMobileUnderlineTab({
             styles.tabUnderline,
             compact && styles.tabUnderlineCompact,
             { backgroundColor: activeColor },
+          ]}
+        />
+      ) : searchMatch ? (
+        <View
+          style={[
+            styles.tabUnderline,
+            compact && styles.tabUnderlineCompact,
+            { backgroundColor: activeColor, opacity: 0.55 },
           ]}
         />
       ) : null}

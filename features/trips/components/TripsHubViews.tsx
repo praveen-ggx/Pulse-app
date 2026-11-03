@@ -197,8 +197,11 @@ function trackingStepForTrip(trip: TripRow, stageUpper: string): number {
   if (completedLike) return 4;
   const s = (trip.status ?? "").toLowerCase();
   if (s === "completed" || s === "delivered" || s === "done") return 4;
-  if (s === "in_progress" || s === "in transit" || s === "in_transit") return 3;
-  if (trip.started_at) return 2;
+  // Match classifyTripMetric: in_progress = Loading; only explicit in_transit = step 3.
+  if (s === "in transit" || s === "in_transit" || s === "dispatched" || s === "transit")
+    return 3;
+  if (s === "in_progress" || s === "picked_up" || s === "pickup" || trip.started_at)
+    return 2;
   if (trip.driver_id || s === "assigned") return 1;
   return 0;
 }
@@ -1121,6 +1124,8 @@ export type TripsHubTableViewProps = {
     accessibilityLabel?: string;
     /** Reason chips expand under Failed and use the failed tone. */
     kind?: "status" | "reason";
+    /** Indent/Trip ID search owns this stage — ring without selecting. */
+    searchMatch?: boolean;
   }>;
   /**
    * Controlled hub search. When set, the parent has already filtered `trips` by it
@@ -1520,6 +1525,7 @@ export function TripsHubTableView({
     trailing?: ReactNode,
   ) => {
     const tone = indentStatusTagTone(tag.id);
+    const searchMatch = Boolean(tag.searchMatch) && !tag.selected;
     return (
       <TouchableOpacity
         key={tag.id}
@@ -1528,14 +1534,23 @@ export function TripsHubTableView({
           tag.kind === "reason" && styles.indentReasonTag,
           {
             backgroundColor: tag.selected ? tone.selectedBg : tone.bg,
-            borderColor: tag.selected ? tone.selectedBorder : tone.border,
+            borderColor: tag.selected
+              ? tone.selectedBorder
+              : searchMatch
+                ? Theme.primary
+                : tone.border,
+            borderWidth: searchMatch ? 2 : undefined,
           },
         ]}
         onPress={tag.onPress}
         activeOpacity={0.85}
         accessibilityRole="button"
         accessibilityState={{ selected: tag.selected }}
-        accessibilityLabel={tag.accessibilityLabel ?? tag.label}
+        accessibilityLabel={
+          searchMatch
+            ? `${tag.accessibilityLabel ?? tag.label}, matches search`
+            : (tag.accessibilityLabel ?? tag.label)
+        }
       >
         <View
           style={[

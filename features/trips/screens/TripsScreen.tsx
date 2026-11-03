@@ -197,6 +197,7 @@ import {
 } from "@/features/trips/utils/lastOpenedHubItem.util";
 import {
     TRIP_METRIC_ORDER,
+    hubTripCardStageLabel,
     type TripMetricId,
 } from "@/features/trips/utils/tripHubMetrics";
 import type { TripHubPartyMeta } from "@/features/trips/utils/tripHubPartyMeta";
@@ -1596,21 +1597,10 @@ export default function TripsScreen() {
         if (tag === "awarded") return "AWARDED";
         return "FAILED";
       }
-      if (t.driver_id == null) return tr("unassigned").toUpperCase();
-      const s = (t.status ?? "").trim().toLowerCase();
-      if (s === "in_progress")
-        return t.started_at ? "IN TRANSIT" : "LOADING";
-      if (s === "in_transit" || s === "transit" || s === "dispatched")
-        return "IN TRANSIT";
-      if (s === "picked_up" || s === "pickup") return "LOADING";
-      if (s === "at_drop" || s === "unloading" || s === "arrived" || s === "at_destination")
-        return "UNLOADING";
-      if (s === "assigned") return "ASSIGNED";
-      if (s === "completed" || s === "delivered" || s === "done") return "COMPLETED";
-      if (s === "cancelled") return "CANCELLED";
-      return s.replace(/_/g, " ").toUpperCase() || "ACTIVE";
+      // Same classification as Active rail tiles (never use started_at for IN TRANSIT).
+      return hubTripCardStageLabel(t, EMPTY_HUB_DOC_TRIP_IDS);
     },
-    [tr, indentById, indentOfferCounts],
+    [indentById, indentOfferCounts],
   );
 
   /** Show completed/done trips only on the History tab. */

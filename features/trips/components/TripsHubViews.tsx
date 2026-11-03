@@ -197,8 +197,11 @@ function trackingStepForTrip(trip: TripRow, stageUpper: string): number {
   if (completedLike) return 4;
   const s = (trip.status ?? "").toLowerCase();
   if (s === "completed" || s === "delivered" || s === "done") return 4;
-  if (s === "in_progress" || s === "in transit" || s === "in_transit") return 3;
-  if (trip.started_at) return 2;
+  // Match classifyTripMetric: in_progress = Loading; only explicit in_transit = step 3.
+  if (s === "in transit" || s === "in_transit" || s === "dispatched" || s === "transit")
+    return 3;
+  if (s === "in_progress" || s === "picked_up" || s === "pickup" || trip.started_at)
+    return 2;
   if (trip.driver_id || s === "assigned") return 1;
   return 0;
 }

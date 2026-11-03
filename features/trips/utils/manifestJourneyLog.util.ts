@@ -379,22 +379,94 @@ function partyLabel(
   return names?.[key]?.trim() || fallback?.trim() || null;
 }
 
+/** Prefer audit assigner, then trip.assigned_by_user_id, then creator/owner. */
+export function resolveManifestAssignerUserId(
+  trip: Pick<
+    TripRow,
+    | "created_by_user_id"
+    | "created_by"
+    | "owner_user_id"
+    | "assigned_by_user_id"
+  >,
+  assignmentAuditRows: readonly TripAssignmentAuditRow[] = [],
+): string | null {
+  const staffAudits = [...assignmentAuditRows]
+    .filter((row) => {
+      const ev = String(row.event_type ?? "").toLowerCase();
+      return ev === "assignment" || ev === "reassignment" || !ev;
+    })
+    .sort(
+      (a, b) =>
+        new Date(b.changed_at).getTime() - new Date(a.changed_at).getTime(),
+    );
+  for (const row of staffAudits) {
+    const id = String(row.changed_by ?? "").trim();
+    if (id) return id;
+  }
+  for (const raw of [
+    trip.assigned_by_user_id,
+    trip.created_by_user_id,
+    trip.created_by,
+    trip.owner_user_id,
+  ]) {
+    const id = String(raw ?? "").trim();
+    if (id) return id;
+  }
+  return null;
+}
+
+/** User ids that must be resolved for Manifest Pulse history labels. */
+export function collectManifestJourneyActorIds(
+  trip: Pick<
+    TripRow,
+    | "created_by_user_id"
+    | "created_by"
+    | "owner_user_id"
+    | "assigned_by_user_id"
+    | "status_updated_by"
+  >,
+  assignmentAuditRows: readonly TripAssignmentAuditRow[] = [],
+): string[] {
+  const ids = new Set<string>();
+  const add = (value: string | null | undefined) => {
+    const id = String(value ?? "").trim();
+    if (id) ids.add(id);
+  };
+  add(trip.created_by_user_id);
+  add(trip.created_by);
+  add(trip.owner_user_id);
+  add(trip.assigned_by_user_id);
+  add(trip.status_updated_by);
+  add(resolveManifestAssignerUserId(trip, assignmentAuditRows));
+  for (const row of assignmentAuditRows) add(row.changed_by);
+  return Array.from(ids);
+}
+
+/**
+ * Resolve who performed a historical Manifest Pulse action.
+ * Prefer profile map for stored user ids. Never use the viewing member's name
+ * unless their id is the actor. Never invent a generic "Staff" label.
+ */
 function actorLabel(input: {
-  userId?: string | null;
+  userIds?: Array<string | null | undefined>;
   actorNameById?: Record<string, string>;
   currentUserId?: string | null;
   staffDisplayName?: string | null;
-  fallback: string;
+  /** Last resort when no user id / profile exists (e.g. driver accept). */
+  fallback?: string | null;
 }): string {
-  const id = (input.userId ?? "").trim();
-  if (id && input.currentUserId && id === input.currentUserId) {
-    return input.staffDisplayName?.trim() || "You";
-  }
-  if (id) {
+  const viewerId = String(input.currentUserId ?? "").trim();
+  for (const raw of input.userIds ?? []) {
+    const id = String(raw ?? "").trim();
+    if (!id) continue;
     const named = input.actorNameById?.[id]?.trim();
     if (named) return named;
+    if (viewerId && id === viewerId) {
+      const self = input.staffDisplayName?.trim();
+      if (self) return self;
+    }
   }
-  return input.fallback;
+  return input.fallback?.trim() || "";
 }
 
 function assignmentHistoryLine(
@@ -406,6 +478,8 @@ function assignmentHistoryLine(
     currentUserId?: string | null;
     staffDisplayName?: string | null;
     driverDisplayName?: string | null;
+    tripAssignedByUserId?: string | null;
+    tripCreatedByUserId?: string | null;
   },
 ): ManifestJourneyHistoryLine {
   const ev = String(row.event_type ?? "").toLowerCase();
@@ -449,23 +523,36 @@ function assignmentHistoryLine(
   } else if (vehiclePrev) {
     bits.push(`vehicle ${vehiclePrev} removed`);
   }
-  const actorFallback =
-    ev === "driver_accepted" || ev === "accepted"
-      ? driverNew || names.driverDisplayName?.trim() || "Driver"
-      : names.staffDisplayName?.trim() || "Staff";
+  const isDriverEvent = ev === "driver_accepted" || ev === "accepted";
   return {
     atIso: row.changed_at,
     time: formatTrackingDateTime(row.changed_at),
     actor: actorLabel({
-      userId: row.changed_by,
+      userIds: isDriverEvent
+        ? [row.changed_by, row.driver_id_new]
+        : [
+            row.changed_by,
+            names.tripAssignedByUserId,
+            names.tripCreatedByUserId,
+          ],
       actorNameById: names.actorNameById,
       currentUserId: names.currentUserId,
       staffDisplayName: names.staffDisplayName,
-      fallback: actorFallback,
+      fallback: isDriverEvent
+        ? driverNew || names.driverDisplayName?.trim() || ""
+        : "",
     }),
     action: bits.join(" · "),
   };
 }
+
+function formatManifestHistoryLine(line: ManifestJourneyHistoryLine): string {
+  return [line.time, line.actor?.trim(), line.action]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+export { formatManifestHistoryLine };
 
 function sortHistory(
   lines: ManifestJourneyHistoryLine[],
@@ -722,6 +809,9 @@ export function buildManifestJourneyLogs(input: {
     },
   ];
 
+  const tripCreatedByUserId =
+    tr.created_by_user_id ?? tr.created_by ?? tr.owner_user_id ?? null;
+  const resolvedAssignerUserId = resolveManifestAssignerUserId(tr, audits);
   const nameCtx = {
     driverNames: input.driverNames,
     vehicleLabels: input.vehicleLabels,
@@ -729,8 +819,10 @@ export function buildManifestJourneyLogs(input: {
     currentUserId: input.currentUserId,
     staffDisplayName: input.staffDisplayName,
     driverDisplayName: input.driverDisplayName,
+    tripAssignedByUserId:
+      tr.assigned_by_user_id ?? resolvedAssignerUserId ?? null,
+    tripCreatedByUserId,
   };
-  const staff = input.staffDisplayName?.trim() || "Staff";
   const driver = input.driverDisplayName?.trim() || "Driver";
   const auditHistory = [...audits]
     .sort(
@@ -745,7 +837,8 @@ export function buildManifestJourneyLogs(input: {
       .map((e) => ({
         atIso: e.timestamp,
         time: formatTrackingDateTime(e.timestamp),
-        actor: e.userName?.trim() || staff,
+        // Prefer the name stored on the BISIM log; never invent "Staff" or viewer.
+        actor: e.userName?.trim() || "",
         action: e.locationLabel?.trim()
           ? `Simulated ${e.status.replace(/_/g, " ")} · ${e.locationLabel.trim()}`
           : `Simulated ${e.status.replace(/_/g, " ")}`,
@@ -760,11 +853,14 @@ export function buildManifestJourneyLogs(input: {
               atIso: assignedAtIso,
               time: formatTrackingDateTime(assignedAtIso),
               actor: actorLabel({
-                userId: tr.assigned_by_user_id,
+                userIds: [
+                  resolvedAssignerUserId,
+                  tr.assigned_by_user_id,
+                  tripCreatedByUserId,
+                ],
                 actorNameById: input.actorNameById,
                 currentUserId: input.currentUserId,
                 staffDisplayName: input.staffDisplayName,
-                fallback: staff,
               }),
               action: driver
                 ? `Assigned · driver ${driver}`
@@ -841,7 +937,16 @@ export function buildManifestJourneyLogs(input: {
             {
               atIso: tr.completed_at,
               time: formatTrackingDateTime(tr.completed_at),
-              actor: staff,
+              actor: actorLabel({
+                userIds: [
+                  tr.status_updated_by,
+                  tr.assigned_by_user_id,
+                  tripCreatedByUserId,
+                ],
+                actorNameById: input.actorNameById,
+                currentUserId: input.currentUserId,
+                staffDisplayName: input.staffDisplayName,
+              }),
               action: "Marked delivered",
             },
           ]

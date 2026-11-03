@@ -89,7 +89,8 @@ export function resolveTripActivityUserLabel(
   userId: string | null | undefined,
   currentUserId: string | null | undefined,
   userDisplayById: Record<string, string>,
-  fallback = "Workspace member",
+  /** Prefer empty over generic labels like "Staff" / "Workspace member". */
+  fallback = "",
   userProfileById?: Record<string, TripActivityUserProfile>,
 ): string {
   const id = String(userId ?? "").trim();
@@ -246,7 +247,7 @@ function resolveStatusActor(
       item.actorUserId,
       currentUserId,
       userDisplayById,
-      context === "assigned" ? "Dispatcher" : "Workspace member",
+      "",
       userProfileById,
     );
   }
@@ -257,7 +258,7 @@ function resolveStatusActor(
       creatorId,
       currentUserId,
       userDisplayById,
-      "Workspace member",
+      "",
       userProfileById,
     );
   }
@@ -280,7 +281,7 @@ function resolveStatusActor(
     trip.status_updated_by,
     currentUserId,
     userDisplayById,
-    context === "assigned" ? "Dispatcher" : "Workspace member",
+    "",
     userProfileById,
   );
 }
@@ -490,7 +491,7 @@ export function buildTripAuditLog(params: {
           actorUserId,
           currentUserId,
           userDisplayById,
-          "Dispatcher",
+          "",
           userProfileById,
         );
     const actorAvatar = isDriverDeclined
@@ -691,7 +692,7 @@ export function buildTripAuditLog(params: {
       actorUserId,
       currentUserId,
       userDisplayById,
-      "Workspace member",
+      "",
       userProfileById,
     );
 
@@ -755,7 +756,7 @@ export function buildTripAuditLog(params: {
       mile.actorUserId,
       currentUserId,
       userDisplayById,
-      "Workspace member",
+      "",
       userProfileById,
     );
     const category: TripAuditLogCategory =
@@ -768,7 +769,7 @@ export function buildTripAuditLog(params: {
         mile.originActorUserId,
         currentUserId,
         userDisplayById,
-        "Workspace member",
+        "",
         userProfileById,
       );
       const originLine = `Created by ${originWho} · ${formatAuditTimestamp(mile.originAt)}`;
@@ -812,7 +813,7 @@ export function buildTripAuditLog(params: {
       creatorId,
       currentUserId,
       userDisplayById,
-      "Workspace member",
+      "",
       userProfileById,
     );
     entries.push({
@@ -856,7 +857,7 @@ export function buildTripAuditLog(params: {
       editorId,
       currentUserId,
       userDisplayById,
-      "Workspace member",
+      "",
       userProfileById,
     );
     entries.push({
@@ -890,7 +891,7 @@ export function buildTripAuditLog(params: {
       actorId,
       currentUserId,
       userDisplayById,
-      "Workspace member",
+      "",
       userProfileById,
     );
     const methodLabel =

@@ -1,10 +1,12 @@
-import { getProfile } from "@/features/auth/services/auth.service";
-import { getOrganizationMembers } from "@/features/organization/services/members.service";
 import { listIndentHubActivityPage } from "@/features/trips/services/indentHubActivity.service";
 import {
   indentToHubActivityEvents,
   type IndentHubActivityRow,
 } from "@/features/trips/utils/indentHubActivity.util";
+import {
+  displayMapFromProfiles,
+  resolveActivityUserProfiles,
+} from "@/lib/trips/hydrateTripActivityActors.util";
 import { useCallback, useEffect, useState } from "react";
 
 export function useIndentHubActivity(
@@ -32,30 +34,15 @@ export function useIndentHubActivity(
             .filter((id) => id && !known[id]),
         ),
       );
-      if (missing.length === 0 || !orgId) return known;
-      const next = { ...known };
-      const members = await getOrganizationMembers(orgId);
-      for (const member of members.members) {
-        const id = String(member.user_id ?? "").trim();
-        const name = (member.full_name || member.email || member.phone || "").trim();
-        if (id && name) next[id] = name;
-      }
-      await Promise.all(
-        missing
-          .filter((id) => !next[id])
-          .map(async (id) => {
-            const profile = await getProfile(id);
-            const name = (
-              profile?.full_name ||
-              profile?.displayName ||
-              profile?.email ||
-              profile?.phone ||
-              ""
-            ).trim();
-            if (name) next[id] = name;
-          }),
-      );
-      return next;
+      if (missing.length === 0) return known;
+      const profiles = await resolveActivityUserProfiles({
+        userIds: missing,
+        organizationId: orgId,
+      });
+      return {
+        ...known,
+        ...displayMapFromProfiles(profiles),
+      };
     },
     [orgId],
   );

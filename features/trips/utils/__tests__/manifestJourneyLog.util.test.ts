@@ -1,7 +1,9 @@
 import {
   buildManifestJourneyLogs,
+  collectManifestJourneyActorIds,
   getManifestCurrentStepIndex,
   getVisibleManifestJourneyLogs,
+  resolveManifestAssignerUserId,
 } from "@/features/trips/utils/manifestJourneyLog.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 
@@ -105,5 +107,141 @@ describe("manifest journey simulation flow", () => {
       ]),
     );
     expect(accepted?.history?.[0]?.actor).toBe("Meena");
+  });
+
+  it("never substitutes the viewing member's name or a generic Staff label", () => {
+    const logs = buildManifestJourneyLogs({
+      trip: {
+        ...trip,
+        assigned_by_user_id: null,
+        created_by_user_id: "creator-1",
+        created_at: "2026-08-13T04:52:00.000Z",
+      } as TripRow,
+      assignmentAuditRows: [
+        {
+          id: "a1",
+          trip_id: "t1",
+          event_type: "assignment",
+          driver_id_prev: null,
+          driver_id_new: "driver-1",
+          vehicle_id_prev: null,
+          vehicle_id_new: null,
+          changed_at: "2026-08-13T05:00:00.000Z",
+          changed_by: "staff-other",
+        },
+        {
+          id: "a2",
+          trip_id: "t1",
+          event_type: "assignment",
+          driver_id_prev: null,
+          driver_id_new: "driver-1",
+          vehicle_id_prev: null,
+          vehicle_id_new: null,
+          changed_at: "2026-08-13T05:30:00.000Z",
+          changed_by: null,
+        },
+      ],
+      actorNameById: {
+        "staff-other": "Nihas",
+        "creator-1": "Meena Creator",
+      },
+      currentUserId: "viewer-1",
+      staffDisplayName: "Praveen Viewer",
+      driverDisplayName: "Ravi",
+      simLogs: [
+        {
+          status: "in_progress",
+          timestamp: "2026-08-18T11:16:00.000Z",
+          userName: "",
+        },
+      ],
+    });
+    const assigned = logs.find((row) => row.stepKey === "assigned");
+    const actors = (assigned?.history ?? []).map((line) => line.actor);
+    expect(actors).toContain("Nihas");
+    // Missing changed_by falls through to the resolved trip assigner (audit),
+    // not the viewing member and not a generic Staff label.
+    expect(actors.every((name) => name === "Nihas" || name === "Meena Creator")).toBe(
+      true,
+    );
+    expect(actors).not.toContain("Staff");
+    expect(actors).not.toContain("Praveen Viewer");
+    const pickup = logs.find((row) => row.stepKey === "pickup");
+    const simActors = (pickup?.history ?? [])
+      .filter((line) => line.action.startsWith("Simulated"))
+      .map((line) => line.actor);
+    expect(simActors.every((name) => name === "")).toBe(true);
+    expect(simActors).not.toContain("Praveen Viewer");
+    expect(simActors).not.toContain("Staff");
+  });
+
+  it("collectManifestJourneyActorIds gathers trip + audit user ids", () => {
+    const ids = collectManifestJourneyActorIds(
+      {
+        created_by_user_id: "c1",
+        assigned_by_user_id: "a1",
+        status_updated_by: "s1",
+      } as TripRow,
+      [
+        { changed_by: "x1" } as never,
+        { changed_by: "a1" } as never,
+      ],
+    );
+    expect(ids.sort()).toEqual(["a1", "c1", "s1", "x1"]);
+  });
+
+  it("resolves assigner from assignment audit changed_by before trip creator", () => {
+    expect(
+      resolveManifestAssignerUserId(
+        {
+          created_by_user_id: "creator-1",
+          assigned_by_user_id: null,
+        } as TripRow,
+        [
+          {
+            id: "a1",
+            trip_id: "t1",
+            event_type: "assignment",
+            driver_id_prev: null,
+            driver_id_new: "d1",
+            vehicle_id_prev: null,
+            vehicle_id_new: null,
+            changed_at: "2026-11-02T07:52:00.000Z",
+            changed_by: "assigner-9",
+          },
+        ],
+      ),
+    ).toBe("assigner-9");
+
+    const logs = buildManifestJourneyLogs({
+      trip: {
+        ...trip,
+        status: "assigned",
+        driver_id: "driver-1",
+        assigned_by_user_id: null,
+        created_by_user_id: "creator-1",
+      } as TripRow,
+      assignmentAuditRows: [
+        {
+          id: "a1",
+          trip_id: "t1",
+          event_type: "assignment",
+          driver_id_prev: null,
+          driver_id_new: "driver-1",
+          vehicle_id_prev: null,
+          vehicle_id_new: null,
+          changed_at: "2026-11-02T07:52:00.000Z",
+          changed_by: "assigner-9",
+        },
+      ],
+      actorNameById: {
+        "assigner-9": "Mohamed Asik Hussain",
+        "creator-1": "Someone Else",
+      },
+      driverDisplayName: "RAJESH YERRAGUNTA",
+    });
+    const assigned = logs.find((row) => row.stepKey === "assigned");
+    expect(assigned?.history?.[0]?.actor).toBe("Mohamed Asik Hussain");
+    expect(assigned?.history?.[0]?.action).toContain("Assigned");
   });
 });

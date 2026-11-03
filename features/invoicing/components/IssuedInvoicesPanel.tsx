@@ -1,15 +1,19 @@
 /**
- * Issued invoices from public.invoices. Not AR. Payment state is not inferred.
+ * Issued invoices from public.invoices. Payment status and outstanding come from
+ * the invoice payment ledger (invoice_payment_summaries); issued totals are shown
+ * as issued and never recalculated here.
  */
 import Theme from "@/constants/Theme";
 import Layout from "@/constants/Layout";
 import { IssuedInvoiceCard } from "@/features/invoicing/components/IssuedInvoiceCard";
+import { useInvoiceSettlements } from "@/features/invoicing/hooks/useInvoiceSettlements";
 import type { IssuedInvoiceListRow } from "@/features/invoicing/services/invoiceList.service";
 import { issuedInvoicesForPodToggle } from "@/features/invoicing/utils/invoicePodRequired.util";
 import { issuedInvoicesForClient } from "@/features/invoicing/utils/issuedInvoiceMatch.util";
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 
 export function IssuedInvoicesPanel({
+  orgId = null,
   invoices,
   podRequired,
   refreshing,
@@ -19,6 +23,7 @@ export function IssuedInvoicesPanel({
   onSelect,
   selectedId,
 }: {
+  orgId?: string | null;
   invoices: IssuedInvoiceListRow[];
   podRequired: boolean;
   refreshing?: boolean;
@@ -36,6 +41,14 @@ export function IssuedInvoicesPanel({
           clientName: partnerLabel,
         })
       : visible;
+  const settlements = useInvoiceSettlements(
+    orgId,
+    rows.filter((row) => row.status === "sent" || row.status === "paid").map((row) => row.id),
+  );
+  const settlementOf = (item: IssuedInvoiceListRow) =>
+    item.status === "sent" || item.status === "paid"
+      ? settlements.get(item.id) ?? (settlements.ready ? null : undefined)
+      : null;
 
   return (
     <FlatList
@@ -72,10 +85,11 @@ export function IssuedInvoicesPanel({
               item={item}
               compact
               selected={selectedId === item.id}
+              settlement={orgId ? settlementOf(item) : null}
             />
           </Pressable>
         ) : (
-          <IssuedInvoiceCard item={item} />
+          <IssuedInvoiceCard item={item} settlement={orgId ? settlementOf(item) : null} />
         )
       }
     />

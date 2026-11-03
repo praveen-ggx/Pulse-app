@@ -1,18 +1,22 @@
 import Theme from "@/constants/Theme";
 import { useClientTdsRate } from "@/features/invoicing/hooks/useClientTdsRate";
+import { invalidateFinanceBalances } from "@/features/invoicing/components/finance/PaymentReceiptSheet";
+import { invalidateSharedCustomerLedger } from "@/features/invoicing/hooks/useInvoiceCustomerLedger";
+import { useInvoiceSettlements } from "@/features/invoicing/hooks/useInvoiceSettlements";
 import { captureCustomerReceipt } from "@/features/invoicing/services/customerReceipt.service";
+import { newFinanceKey } from "@/features/invoicing/services/financeBooks.service";
 import type { IssuedInvoiceListRow } from "@/features/invoicing/services/invoiceList.service";
 import type { InvoicingTripView } from "@/features/invoicing/services/invoicing.service";
 import { expectedAfterTds, tdsForBankCredit } from "@/features/invoicing/utils/clientTds.util";
 import {
   allocateCustomerReceipt,
   planTripReceive,
-  receiptAppliedFromSnapshot,
   receiveStatus,
   receiveStatusLabel,
   receiptTargetFromInvoice,
 } from "@/features/invoicing/utils/customerReceipt.util";
-import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 function inr(amount: number): string {
@@ -47,13 +51,20 @@ export function InvoiceCaptureButton({
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [tripEdits, setTripEdits] = useState<Record<string, string>>({});
+  const queryClient = useQueryClient();
+  const captureKey = useRef<string | null>(null);
+  // Settled amount comes from the invoice payment ledger; unknown means no capture.
+  const settlements = useInvoiceSettlements(orgId, [invoice.id]);
+  const settled = settlements.settledOf(invoice.id);
   const target = useMemo(
     () =>
-      receiptTargetFromInvoice({
-        ...invoice,
-        receiptApplied: receiptAppliedFromSnapshot(invoice.tax_snapshot),
-      }),
-    [invoice],
+      settled === undefined
+        ? null
+        : receiptTargetFromInvoice({
+            ...invoice,
+            receiptApplied: settled,
+          }),
+    [invoice, settled],
   );
   const cash = Number(cashText.replace(/,/g, "")) || 0;
   const tdsPercent = tdsOn ? Number(percentText.replace(/,/g, "")) || 0 : 0;
@@ -86,6 +97,9 @@ export function InvoiceCaptureButton({
   }, [invoice.trip_ids, trips]);
 
   useEffect(() => {
+    captureKey.current = null;
+  }, [cashText, reference, paidOn, tdsOn, percentText, tripEdits]);
+  useEffect(() => {
     if (!open || !clientTds.ready || percentTouched) return;
     setPercentText(clientTds.percent > 0 ? String(clientTds.percent) : "");
     setTdsOn(clientTds.percent > 0);
@@ -100,6 +114,7 @@ export function InvoiceCaptureButton({
 
   const record = async () => {
     if (!orgId || busy || allocation.applied <= 0) return;
+    captureKey.current = captureKey.current ?? newFinanceKey("capture");
     setBusy(true);
     setNote(null);
     const preview = planTripReceive({
@@ -128,6 +143,7 @@ export function InvoiceCaptureButton({
       reference,
       date: paidOn,
       lines,
+      idempotencyKey: captureKey.current,
       tripsByInvoice: { [invoice.id]: anchors },
       slicesByInvoice: touched
         ? {
@@ -142,6 +158,9 @@ export function InvoiceCaptureButton({
       setNote(result.error.message);
       return;
     }
+    captureKey.current = null;
+    await invalidateFinanceBalances(queryClient, orgId);
+    await invalidateSharedCustomerLedger(queryClient, orgId);
     setOpen(false);
     setCashText("");
     setPercentText("");

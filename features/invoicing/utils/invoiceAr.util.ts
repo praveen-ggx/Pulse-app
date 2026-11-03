@@ -216,6 +216,38 @@ export function buildArBook(
     };
   });
 
+  return tallyArLines(lines);
+}
+
+/** Credit notes reduce what is still owed; debit notes increase it. A note already inside the invoice total is not applied again. */
+export function applyNoteDeltas(book: ArBook, deltas: ReadonlyMap<string, number>): ArBook {
+  if (deltas.size === 0) return book;
+  const lines = book.lines.map((line) => {
+    const delta = deltas.get(line.internalId) ?? deltas.get(line.id) ?? 0;
+    if (!delta) return line;
+    if (line.uninvoiced) {
+      const sales = Math.max(0, Math.round((line.sales + delta) * 100) / 100);
+      const ratio = line.sales > 0 ? sales / line.sales : 0;
+      return {
+        ...line,
+        sales,
+        expectedBank: Math.round(line.expectedBank * ratio * 100) / 100,
+        expectedTds: Math.round(line.expectedTds * ratio * 100) / 100,
+      };
+    }
+    const pending = Math.max(0, Math.round((line.pending + delta) * 100) / 100);
+    const ratio = line.pending > 0 ? pending / line.pending : pending > 0 ? 1 : 0;
+    return {
+      ...line,
+      pending,
+      expectedBank: Math.round(line.expectedBank * ratio * 100) / 100,
+      expectedTds: Math.round(line.expectedTds * ratio * 100) / 100,
+    };
+  });
+  return tallyArLines(lines);
+}
+
+export function tallyArLines(lines: ArLine[]): ArBook {
   const book: ArBook = {
     lines,
     sales: 0,
@@ -245,6 +277,121 @@ export function buildArBook(
     if (line.pending > 0) book.openAging[line.bucket] += line.pending;
   }
   return book;
+}
+
+export const AR_SHEET_COLUMNS = [
+  "lr",
+  "date",
+  "age",
+  "route",
+  "sales",
+  "invoiced",
+  "received",
+  "pending",
+  "pod",
+] as const;
+
+export type ArSheetColumn = (typeof AR_SHEET_COLUMNS)[number];
+
+/** Checked values for a column. Missing means every value is visible. */
+export type ArSheetFilters = Partial<Record<ArSheetColumn, readonly string[]>>;
+
+export type ArSheetSort = { column: ArSheetColumn; direction: "asc" | "desc" } | null;
+
+const SHEET_BLANK = "(Blank)";
+
+function sheetText(value: string): string {
+  const text = value.trim();
+  if (!text || text === "—") return SHEET_BLANK;
+  return text;
+}
+
+function sheetRupee(amount: number): string {
+  return `₹${Math.round(amount).toLocaleString("en-IN")}`;
+}
+
+function sheetPod(pod: ArPod): string {
+  if (pod === "received") return "POD received";
+  if (pod === "digital") return "Digital POD";
+  return "POD pending";
+}
+
+export function arSheetCell(line: ArLine, column: ArSheetColumn): string {
+  switch (column) {
+    case "lr":
+      return sheetText(line.lr);
+    case "date":
+      return sheetText(line.dateLabel);
+    case "age":
+      return `${line.ageDays}d`;
+    case "route":
+      return sheetText(line.route);
+    case "sales":
+      return sheetRupee(line.sales);
+    case "invoiced":
+      return sheetRupee(line.invoiced);
+    case "received":
+      return sheetRupee(line.received);
+    case "pending":
+      return sheetRupee(line.pending);
+    case "pod":
+      return sheetPod(line.pod);
+    default:
+      return SHEET_BLANK;
+  }
+}
+
+export function applyArSheetFilters(lines: readonly ArLine[], filters: ArSheetFilters): ArLine[] {
+  const active = AR_SHEET_COLUMNS.flatMap((column) => {
+    const picked = filters[column];
+    return picked ? [[column, new Set(picked)] as const] : [];
+  });
+  if (active.length === 0) return [...lines];
+  return lines.filter((line) => active.every(([column, picked]) => picked.has(arSheetCell(line, column))));
+}
+
+export function arSheetChoices(
+  lines: readonly ArLine[],
+  column: ArSheetColumn,
+  filters: ArSheetFilters,
+): { value: string; count: number }[] {
+  const rest = { ...filters };
+  delete rest[column];
+  const rows = applyArSheetFilters(lines, rest);
+  const counts = new Map<string, number>();
+  rows.forEach((line) => {
+    const value = arSheetCell(line, column);
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  });
+  return [...counts.entries()]
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => {
+      if (a.value === SHEET_BLANK) return 1;
+      if (b.value === SHEET_BLANK) return -1;
+      return a.value.localeCompare(b.value, undefined, { numeric: true, sensitivity: "base" });
+    });
+}
+
+export function sortArSheet(lines: readonly ArLine[], sort: ArSheetSort): ArLine[] {
+  if (!sort) return [...lines];
+  const direction = sort.direction === "asc" ? 1 : -1;
+  const numeric: Partial<Record<ArSheetColumn, (line: ArLine) => number>> = {
+    age: (line) => line.ageDays,
+    sales: (line) => line.sales,
+    invoiced: (line) => line.invoiced,
+    received: (line) => line.received,
+    pending: (line) => line.pending,
+  };
+  const amount = numeric[sort.column];
+  return [...lines].sort((a, b) => {
+    if (amount) return (amount(a) - amount(b)) * direction;
+    return (
+      arSheetCell(a, sort.column).localeCompare(arSheetCell(b, sort.column), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      }) * direction
+    );
+  });
 }
 
 export function applyArFilter(lines: readonly ArLine[], filter: ArFilter): ArLine[] {

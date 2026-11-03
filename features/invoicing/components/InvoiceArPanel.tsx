@@ -1,30 +1,46 @@
 import Theme from "@/constants/Theme";
 import { useClientTdsRate } from "@/features/invoicing/hooks/useClientTdsRate";
+import { useInvoiceCustomerLedger, invalidateSharedCustomerLedger } from "@/features/invoicing/hooks/useInvoiceCustomerLedger";
+import { useWorkspaceFinance } from "@/features/invoicing/hooks/useWorkspaceFinance";
 import { InvoiceCaptureButton } from "@/features/invoicing/components/InvoiceCaptureButton";
+import { TripExcelColumnHeader } from "@/features/invoicing/components/TripExcelColumnHeader";
+import { useInvoiceSettlements } from "@/features/invoicing/hooks/useInvoiceSettlements";
+import { fetchCustomerReceipts } from "@/features/invoicing/services/customerReceiptList.service";
 import { captureCustomerReceipt } from "@/features/invoicing/services/customerReceipt.service";
+import { invalidateFinanceBalances } from "@/features/invoicing/components/finance/PaymentReceiptSheet";
+import { PAYMENT_MODE_LABELS, newFinanceKey, type PaymentMode } from "@/features/invoicing/services/financeBooks.service";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { expectedAfterTds, tdsForBankCredit } from "@/features/invoicing/utils/clientTds.util";
 import type { IssuedInvoiceListRow } from "@/features/invoicing/services/invoiceList.service";
 import type { InvoicingTripView } from "@/features/invoicing/services/invoicing.service";
 import {
   allocateCustomerReceipt,
   planTripReceive,
-  receiptAppliedFromSnapshot,
   receiptTargetFromInvoice,
   receiveStatus,
   receiveStatusLabel,
 } from "@/features/invoicing/utils/customerReceipt.util";
+import { noteIdsOnInvoices, openNoteDeltaByTrip } from "@/features/invoicing/utils/workspaceFinance.util";
 import {
   AR_BUCKETS,
+  AR_SHEET_COLUMNS,
   applyArFilter,
+  applyNoteDeltas,
+  applyArSheetFilters,
+  arSheetChoices,
   buildArBook,
+  sortArSheet,
+  tallyArLines,
   type ArAgingScope,
   type ArBucket,
   type ArFilter,
   type ArKpi,
   type ArPod,
+  type ArSheetFilters,
+  type ArSheetSort,
 } from "@/features/invoicing/utils/invoiceAr.util";
 import { supabase } from "@/lib/supabase";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 const EMPTY_FILTER: ArFilter = {
@@ -61,11 +77,15 @@ export function InvoiceArPanel({
   invoices: readonly IssuedInvoiceListRow[];
   onRecorded?: () => void;
   onTripsChanged?: () => void;
-  /** Button and capture sheet only, for the Receipts tab. */
+  /** Button and capture sheet only, for the customer ledger. */
   captureOnly?: boolean;
 }) {
   const clientTds = useClientTdsRate(orgId, clientId);
+  const customerLedger = useInvoiceCustomerLedger(orgId, clientId);
+  const workspace = useWorkspaceFinance({ orgId, clientId, clientName, trips });
   const [filter, setFilter] = useState<ArFilter>(EMPTY_FILTER);
+  const [sheetFilters, setSheetFilters] = useState<ArSheetFilters>({});
+  const [sheetSort, setSheetSort] = useState<ArSheetSort>(null);
   const [captureOpen, setCaptureOpen] = useState(false);
   const [captureMode, setCaptureMode] = useState<"invoice" | "aging">("invoice");
   const [cashText, setCashText] = useState("");
@@ -84,7 +104,37 @@ export function InvoiceArPanel({
   const [freightBusy, setFreightBusy] = useState(false);
   const [freightNote, setFreightNote] = useState<string | null>(null);
   const [tripEdits, setTripEdits] = useState<Record<string, string>>({});
-  const book = useMemo(
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>("neft");
+  const captureKey = useRef<string | null>(null);
+  const queryClient = useQueryClient();
+  // Settled = confirmed receipts + credit notes from the invoice payment ledger.
+  const settlements = useInvoiceSettlements(
+    orgId,
+    invoices.filter((invoice) => invoice.status === "sent" || invoice.status === "paid").map((invoice) => invoice.id),
+  );
+  const ledgerReceipts = useQuery({
+    queryKey: ["customer-receipts", orgId, clientId, clientName],
+    queryFn: () => fetchCustomerReceipts({ orgId: orgId!, clientId, clientName }),
+    enabled: Boolean(orgId && clientName) && settlements.unavailable,
+    staleTime: 15_000,
+  });
+  const usingLedgerReceipts = settlements.unavailable && ledgerReceipts.isSuccess && !ledgerReceipts.data?.error;
+  const receivedByInvoice = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!usingLedgerReceipts) return map;
+    for (const receipt of ledgerReceipts.data?.receipts ?? []) {
+      if (!receipt.invoiceNumber) continue;
+      map.set(receipt.invoiceNumber, Math.round(((map.get(receipt.invoiceNumber) ?? 0) + receipt.total) * 100) / 100);
+    }
+    return map;
+  }, [ledgerReceipts.data, usingLedgerReceipts]);
+  const canSettle = settlements.ready || usingLedgerReceipts;
+  const receivedOf = (invoice: IssuedInvoiceListRow): number | undefined => {
+    if (settlements.ready) return settlements.settledOf(invoice.id);
+    if (usingLedgerReceipts) return receivedByInvoice.get(invoice.invoice_number) ?? 0;
+    return undefined;
+  };
+  const rawBook = useMemo(
     () =>
       buildArBook(
         trips.map((trip) => ({
@@ -105,22 +155,54 @@ export function InvoiceArPanel({
           status: invoice.status,
           totalAmount: invoice.total_amount,
           tripIds: invoice.trip_ids,
-          amountReceived: receiptAppliedFromSnapshot(invoice.tax_snapshot),
+          amountReceived: receivedOf(invoice) ?? 0,
         })),
         new Date(),
         clientTds.percent,
       ),
-    [invoices, trips, clientTds.percent],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- receivedOf reads the settlements query
+    [invoices, trips, clientTds.percent, settlements.ready, settlements.settledOf, usingLedgerReceipts, receivedByInvoice],
   );
+  const book = useMemo(
+    () =>
+      applyNoteDeltas(
+        rawBook,
+        openNoteDeltaByTrip(
+          workspace.notes,
+          new Set(invoices.flatMap((invoice) => invoice.trip_ids)),
+          noteIdsOnInvoices(invoices),
+        ),
+      ),
+    [invoices, rawBook, workspace.notes],
+  );
+  const party = customerLedger.party;
+  const alignedBook = useMemo(() => {
+    if (!party) return book;
+    const lines = book.lines.map((line) => {
+      const sales = party.salesByTripId[line.internalId] ?? party.salesByTripId[line.id] ?? line.sales;
+      const received = party.paidByTripId[line.internalId] ?? party.paidByTripId[line.id] ?? 0;
+      return {
+        ...line,
+        sales,
+        received,
+        pending: Math.max(0, Math.round((sales - received) * 100) / 100),
+      };
+    });
+    const tallied = tallyArLines(lines);
+    return { ...tallied, sales: party.billed, received: party.received, pending: party.pending };
+  }, [book, party]);
   const openInvoices = useMemo(
     () => invoices.flatMap((invoice) => {
+      const settled = receivedOf(invoice);
+      if (settled === undefined) return [];
       const target = receiptTargetFromInvoice({
         ...invoice,
-        receiptApplied: receiptAppliedFromSnapshot(invoice.tax_snapshot),
+        receiptApplied: settled,
       });
       return target ? [target] : [];
     }),
-    [invoices],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- receivedOf reads the settlements query
+    [invoices, settlements.ready, settlements.settledOf, usingLedgerReceipts, receivedByInvoice],
   );
   const cash = Number(cashText.replace(/,/g, "")) || 0;
   const tdsPercent = tdsOn ? Number(percentText.replace(/,/g, "")) || 0 : 0;
@@ -157,16 +239,18 @@ export function InvoiceArPanel({
       }),
     [agingBucket, captureMode, cash, openInvoices, pickedIds, tds],
   );
+  const narrowed = useMemo(() => applyArFilter(alignedBook.lines, filter), [alignedBook.lines, filter]);
   const rows = useMemo(
-    () =>
-      applyArFilter(book.lines, filter).sort((a, b) => b.ageDays - a.ageDays),
-    [book.lines, filter],
+    () => sortArSheet(applyArSheetFilters(narrowed, sheetFilters), sheetSort),
+    [narrowed, sheetFilters, sheetSort],
   );
   const filtering =
     filter.kpi != null ||
     filter.bucket != null ||
     filter.pod != null ||
-    filter.agingScope != null;
+    filter.agingScope != null ||
+    AR_SHEET_COLUMNS.some((column) => sheetFilters[column] != null) ||
+    sheetSort != null;
 
   const toggleKpi = (kpi: ArKpi) => {
     setFilter((current) => ({
@@ -196,6 +280,10 @@ export function InvoiceArPanel({
   };
 
   useEffect(() => {
+    // Any change to the receipt is a new intent; an unchanged retry reuses the key.
+    captureKey.current = null;
+  }, [cashText, reference, paidOn, pickedIds, tdsOn, percentText, paymentMode, tripEdits, captureMode, agingBucket]);
+  useEffect(() => {
     if (!captureOpen || !clientTds.ready) return;
     if (!percentTouched) {
       setPercentText(clientTds.percent > 0 ? String(clientTds.percent) : "");
@@ -219,14 +307,15 @@ export function InvoiceArPanel({
     );
   }
 
-  const maxOpen = Math.max(1, ...AR_BUCKETS.map((bucket) => book.openAging[bucket.key]));
+  const maxOpen = Math.max(1, ...AR_BUCKETS.map((bucket) => alignedBook.openAging[bucket.key]));
   const maxUnbilled = Math.max(
     1,
-    ...AR_BUCKETS.map((bucket) => book.uninvoicedAging[bucket.key]),
+    ...AR_BUCKETS.map((bucket) => alignedBook.uninvoicedAging[bucket.key]),
   );
 
   const recordReceipt = async () => {
-    if (!orgId || captureBusy || allocation.applied <= 0) return;
+    if (!orgId || captureBusy || allocation.applied <= 0 || !canSettle) return;
+    captureKey.current = captureKey.current ?? newFinanceKey("capture");
     setCaptureBusy(true);
     setCaptureNote(null);
     const tripsByInvoice: Record<string, ReturnType<typeof tripsFor>> = {};
@@ -260,12 +349,15 @@ export function InvoiceArPanel({
       lines,
       tripsByInvoice,
       slicesByInvoice,
+      idempotencyKey: captureKey.current,
+      paymentMode,
     });
     setCaptureBusy(false);
     if (result.error) {
       setCaptureNote(result.error.message);
       return;
     }
+    captureKey.current = null;
     setCashText("");
     setPercentText("");
     setPercentTouched(false);
@@ -275,10 +367,16 @@ export function InvoiceArPanel({
     setTripEdits({});
     setCaptureOpen(false);
     setCaptureNote(
-      result.cleared > 0
-        ? `${result.cleared} invoice${result.cleared === 1 ? "" : "s"} marked paid across ${result.trips} trip${result.trips === 1 ? "" : "s"}. The receipt is on the customer ledger.`
-        : `Partial receipt recorded on ${result.trips} trip${result.trips === 1 ? "" : "s"}. Invoices that are only partly covered stay open.`,
+      `${result.receiptNumber ? `Receipt ${result.receiptNumber} recorded. ` : "Receipt recorded. "}${
+        result.cleared > 0
+          ? `${result.cleared} invoice${result.cleared === 1 ? " is" : "s are"} now settled.`
+          : "Invoices that are only partly covered stay open."
+      } It is listed with this customer's receipts.`,
     );
+    if (orgId) {
+      await invalidateFinanceBalances(queryClient, orgId);
+      await invalidateSharedCustomerLedger(queryClient, orgId);
+    }
     onRecorded?.();
   };
 
@@ -302,15 +400,22 @@ export function InvoiceArPanel({
         <View style={styles.captureCopy}>
           <Text style={styles.cardTitle}>Receivable</Text>
           <Text style={styles.cardHint}>
-            {inr(book.pending)} open across {openInvoices.length} invoice{openInvoices.length === 1 ? "" : "s"}
+            {inr(alignedBook.pending)} open across {openInvoices.length} invoice{openInvoices.length === 1 ? "" : "s"}
             {clientTds.percent > 0
-              ? ` · expect ${inr(book.lines.reduce((sum, line) => sum + line.expectedBank, 0))} in bank after ${clientTds.percent}% TDS`
+              ? ` · expect ${inr(alignedBook.lines.reduce((sum, line) => sum + line.expectedBank, 0))} in bank after ${clientTds.percent}% TDS`
               : ""}
           </Text>
         </View>
       </View>
       )}
       {captureNote ? <Text style={styles.captureNote}>{captureNote}</Text> : null}
+      {!captureOnly && !canSettle ? (
+        <Text style={styles.captureNote}>
+          {settlements.loading || ledgerReceipts.isLoading
+            ? "Loading receipts recorded for this customer…"
+            : "Received amounts are still loading, so payments cannot be captured right now."}
+        </Text>
+      ) : null}
       <Modal visible={captureOpen} transparent animationType="fade" onRequestClose={() => setCaptureOpen(false)}>
         <View style={styles.popupBackdrop}>
           <View style={styles.popupCard}>
@@ -385,6 +490,20 @@ export function InvoiceArPanel({
                   />
                 </View>
               </View>
+              <View style={styles.modeRow} accessibilityRole="radiogroup" accessibilityLabel="Payment mode">
+                {(["neft", "rtgs", "imps", "upi", "cheque", "cash", "other"] as const).map((mode) => (
+                  <Pressable
+                    key={mode}
+                    style={[styles.tdsChip, paymentMode === mode && styles.modeCardOn]}
+                    onPress={() => setPaymentMode(mode)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: paymentMode === mode }}
+                    accessibilityLabel={PAYMENT_MODE_LABELS[mode]}
+                  >
+                    <Text style={styles.choiceName}>{PAYMENT_MODE_LABELS[mode]}</Text>
+                  </Pressable>
+                ))}
+              </View>
               <Pressable
                 style={[styles.tdsChip, tdsOn && styles.modeCardOn]}
                 onPress={() => {
@@ -435,7 +554,7 @@ export function InvoiceArPanel({
                         accessibilityState={{ selected: on }}
                       >
                         <Text style={styles.choiceName}>{bucket.label}</Text>
-                        <Text style={styles.cardHint}>{inr(book.openAging[bucket.key])} open</Text>
+                        <Text style={styles.cardHint}>{inr(alignedBook.openAging[bucket.key])} open</Text>
                       </Pressable>
                     );
                   })}
@@ -518,7 +637,7 @@ export function InvoiceArPanel({
                         <Pressable
                           style={styles.tripName}
                           onPress={() => {
-                            const row = book.lines.find(
+                            const row = alignedBook.lines.find(
                               (item) => item.internalId === slice.tripId || item.id === slice.tripId,
                             );
                             if (!row) return;
@@ -566,11 +685,11 @@ export function InvoiceArPanel({
             </ScrollView>
             <View style={styles.popupFoot}>
               <Pressable
-                style={[styles.captureBtn, (captureBusy || allocation.applied <= 0 || !orgId) && styles.captureOff]}
+                style={[styles.captureBtn, (captureBusy || allocation.applied <= 0 || !orgId || !canSettle) && styles.captureOff]}
                 onPress={() => {
                   void recordReceipt();
                 }}
-                disabled={captureBusy || allocation.applied <= 0 || !orgId}
+                disabled={captureBusy || allocation.applied <= 0 || !orgId || !canSettle}
                 accessibilityRole="button"
                 accessibilityLabel="Record receipt"
               >
@@ -583,7 +702,7 @@ export function InvoiceArPanel({
       <TripPreview
         invoice={invoices.find((invoice) =>
           invoice.trip_ids.some((id) => {
-            const line = book.lines.find((row) => row.id === previewId);
+            const line = alignedBook.lines.find((row) => row.id === previewId);
             return line != null && (id === line.internalId || id === line.id);
           }),
         ) ?? null}
@@ -592,7 +711,7 @@ export function InvoiceArPanel({
         clientName={clientName}
         trips={trips}
         onRecorded={onRecorded}
-        line={book.lines.find((line) => line.id === previewId) ?? null}
+        line={alignedBook.lines.find((line) => line.id === previewId) ?? null}
         percent={clientTds.percent}
         freightText={freightText}
         busy={freightBusy}
@@ -600,7 +719,7 @@ export function InvoiceArPanel({
         onFreight={setFreightText}
         onClose={() => setPreviewId(null)}
         onSave={() => {
-          const line = book.lines.find((row) => row.id === previewId);
+          const line = alignedBook.lines.find((row) => row.id === previewId);
           const amount = Number(freightText.replace(/,/g, ""));
           if (!line || !orgId || !Number.isFinite(amount) || amount < 0) return;
           setFreightBusy(true);
@@ -626,11 +745,11 @@ export function InvoiceArPanel({
       <View style={styles.kpiRow}>
         {(
           [
-            ["sales", "Sales", book.sales],
-            ["invoiced", "Invoiced", book.invoiced],
-            ["received", "Received", book.received],
-            ["pending", "Pending", book.pending],
-            ["uninvoiced", "Uninvoiced", book.uninvoiced],
+            ["sales", "Sales", alignedBook.sales],
+            ["invoiced", "Invoiced", alignedBook.invoiced],
+            ["received", "Received", alignedBook.received],
+            ["pending", "Pending", alignedBook.pending],
+            ["uninvoiced", "Uninvoiced", alignedBook.uninvoiced],
           ] as const
         ).map(([key, label, value]) => {
           const on = filter.kpi === key || (key === "sales" && filter.kpi == null && !filtering);
@@ -642,7 +761,9 @@ export function InvoiceArPanel({
               accessibilityRole="button"
               accessibilityState={{ selected: filter.kpi === key }}
             >
-              <Text style={styles.kpiValue}>{inr(value)}</Text>
+              <Text style={styles.kpiValue}>
+                {!customerLedger.ready && !canSettle && (key === "received" || key === "pending") ? "Unavailable" : inr(value)}
+              </Text>
               <Text style={styles.kpiLabel}>{label}</Text>
             </Pressable>
           );
@@ -672,16 +793,16 @@ export function InvoiceArPanel({
               <Text style={styles.bucketLabel}>{bucket.label}</Text>
               <AgingBar
                 label="Open"
-                amount={book.openAging[bucket.key]}
-                width={book.openAging[bucket.key] / maxOpen}
+                amount={alignedBook.openAging[bucket.key]}
+                width={alignedBook.openAging[bucket.key] / maxOpen}
                 tone="open"
                 selected={filter.bucket === bucket.key && filter.agingScope === "open"}
                 onPress={() => toggleBucket(bucket.key, "open")}
               />
               <AgingBar
                 label="Uninvoiced"
-                amount={book.uninvoicedAging[bucket.key]}
-                width={book.uninvoicedAging[bucket.key] / maxUnbilled}
+                amount={alignedBook.uninvoicedAging[bucket.key]}
+                width={alignedBook.uninvoicedAging[bucket.key] / maxUnbilled}
                 tone="uninvoiced"
                 selected={
                   filter.bucket === bucket.key && filter.agingScope === "uninvoiced"
@@ -700,9 +821,9 @@ export function InvoiceArPanel({
           </View>
           <View style={styles.podList}>
           {(["received", "digital", "pending"] as const).map((pod) => {
-            const cell = book.uninvoicedPod[pod];
+            const cell = alignedBook.uninvoicedPod[pod];
             const on = filter.pod === pod;
-            const share = book.uninvoiced > 0 ? cell.amount / book.uninvoiced : 0;
+            const share = alignedBook.uninvoiced > 0 ? cell.amount / alignedBook.uninvoiced : 0;
             const tone = pod === "received" ? Theme.success : pod === "digital" ? Theme.primary : Theme.warning;
             return (
               <Pressable
@@ -735,28 +856,60 @@ export function InvoiceArPanel({
       <View style={styles.tableHead}>
         <Text style={styles.tableTitle}>
           {rows.length} trip{rows.length === 1 ? "" : "s"}
-          {filtering ? ` of ${book.lines.length}` : ""}
+          {filtering ? ` of ${alignedBook.lines.length}` : ""}
           {` · TDS ${inr(rows.reduce((sum, row) => sum + row.expectedTds, 0))} · To receive ${inr(rows.reduce((sum, row) => sum + row.expectedBank, 0))}`}
         </Text>
         {filtering ? (
-          <Pressable onPress={() => setFilter(EMPTY_FILTER)} accessibilityRole="button">
+          <Pressable
+            onPress={() => {
+              setFilter(EMPTY_FILTER);
+              setSheetFilters({});
+              setSheetSort(null);
+            }}
+            accessibilityRole="button"
+          >
             <Text style={styles.clear}>Clear filters</Text>
           </Pressable>
         ) : (
-          <Text style={styles.cardHint}>Select a figure above to filter this list</Text>
+          <Text style={styles.cardHint}>Select a figure above, or a column, to filter this list</Text>
         )}
       </View>
       <View style={styles.table}>
         <View style={styles.trHead}>
-          <View style={styles.colLr}><Text style={styles.th}>LR</Text></View>
-          <View style={styles.colDate}><Text style={styles.th}>Date</Text></View>
-          <View style={styles.colAge}><Text style={[styles.th, styles.right]}>Age</Text></View>
-          <View style={styles.colRoute}><Text style={styles.th}>Route</Text></View>
-          <View style={styles.colMoney}><Text style={[styles.th, styles.right]}>Sales</Text></View>
-          <View style={styles.colMoney}><Text style={[styles.th, styles.right]}>Invoiced</Text></View>
-          <View style={styles.colMoney}><Text style={[styles.th, styles.right]}>Received</Text></View>
-          <View style={styles.colMoney}><Text style={[styles.th, styles.right]}>Pending</Text></View>
-          <View style={styles.colPod}><Text style={styles.th}>POD</Text></View>
+          {(
+            [
+              ["lr", "LR", "left", styles.colLr],
+              ["date", "Date", "left", styles.colDate],
+              ["age", "Age", "right", styles.colAge],
+              ["route", "Route", "left", styles.colRoute],
+              ["sales", "Sales", "right", styles.colMoney],
+              ["invoiced", "Invoiced", "right", styles.colMoney],
+              ["received", "Received", "right", styles.colMoney],
+              ["pending", "Pending", "right", styles.colMoney],
+              ["pod", "POD", "left", styles.colPod],
+            ] as const
+          ).map(([column, label, align, style]) => (
+            <TripExcelColumnHeader
+              key={column}
+              label={label}
+              align={align}
+              style={style}
+              tone="dark"
+              active={sheetFilters[column] != null}
+              sortDirection={sheetSort?.column === column ? sheetSort.direction : null}
+              choices={arSheetChoices(narrowed, column, sheetFilters)}
+              selected={sheetFilters[column] ?? null}
+              onChange={(selected) =>
+                setSheetFilters((current) => {
+                  const next = { ...current };
+                  if (selected == null) delete next[column];
+                  else next[column] = selected;
+                  return next;
+                })
+              }
+              onSort={(direction) => setSheetSort({ column, direction })}
+            />
+          ))}
         </View>
         {rows.length === 0 ? (
           <Text style={styles.tableEmpty}>No trips match these filters.</Text>

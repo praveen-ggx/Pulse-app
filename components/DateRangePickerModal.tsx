@@ -25,6 +25,14 @@ export interface DateRangePickerModalProps {
   onDismiss: () => void;
   onApply: (from: string, to: string) => void;
   onClear?: () => void;
+  /** Override the modal title (default: "DATE RANGE"). */
+  title?: string;
+  /** Override the subtitle (default: "Pick a custom window"). */
+  subtitle?: string;
+  /** Override the apply button label (default: "APPLY"). */
+  applyLabel?: string;
+  /** Maximum span in days; 0 = unlimited. */
+  maxSpanDays?: number;
 }
 
 function toIsoDate(d: Date | null): string {
@@ -84,6 +92,10 @@ export function DateRangePickerModal({
   onDismiss,
   onApply,
   onClear,
+  title: titleProp,
+  subtitle: subtitleProp,
+  applyLabel: applyLabelProp,
+  maxSpanDays = 0,
 }: DateRangePickerModalProps) {
   const insets = useSafeAreaInsets();
   const [from, setFrom] = useState<string>(initialFrom ?? "");
@@ -107,7 +119,14 @@ export function DateRangePickerModal({
     }
   }, [visible, initialFrom, initialTo]);
 
-  const canApply = Boolean(from && to) && new Date(from) <= new Date(to);
+  const spanDays =
+    from && to
+      ? Math.round(
+          (new Date(to).getTime() - new Date(from).getTime()) / 86_400_000,
+        ) + 1
+      : 0;
+  const spanExceeded = maxSpanDays > 0 && spanDays > maxSpanDays;
+  const canApply = Boolean(from && to) && new Date(from) <= new Date(to) && !spanExceeded;
   const days = monthMatrix(calendarYear, calendarMonth);
   const fromIso = from.slice(0, 10);
   const toIso = to.slice(0, 10);
@@ -140,8 +159,8 @@ export function DateRangePickerModal({
                   />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.title}>AUDIT MATRIX</Text>
-                  <Text style={styles.subtitle}>Pick a custom window</Text>
+                  <Text style={styles.title}>{titleProp ?? "DATE RANGE"}</Text>
+                  <Text style={styles.subtitle}>{subtitleProp ?? "Pick a custom window"}</Text>
                 </View>
                 <TouchableOpacity
                   onPress={onDismiss}
@@ -315,17 +334,25 @@ export function DateRangePickerModal({
                 <View style={styles.analysisGlow} />
                 <View style={styles.analysisRow}>
                   <View>
-                    <Text style={styles.analysisLabel}>RANGE ANALYSIS</Text>
+                    <Text style={styles.analysisLabel}>SELECTED RANGE</Text>
                     <Text style={styles.analysisValue}>
-                      {from && to ? `${formatDisplay(from)} - ${formatDisplay(to)}` : "Select window"}
+                      {from && to ? `${formatDisplay(from)} – ${formatDisplay(to)}` : "Select dates"}
                     </Text>
                   </View>
-                  <View style={styles.analysisRight}>
-                    <Text style={styles.analysisPct}>0.4%</Text>
-                    <Text style={styles.analysisSub}>Avg. Variance</Text>
-                  </View>
+                  {from && to ? (
+                    <View style={styles.analysisRight}>
+                      <Text style={styles.analysisPct}>{spanDays}</Text>
+                      <Text style={styles.analysisSub}>{spanDays === 1 ? "Day" : "Days"}</Text>
+                    </View>
+                  ) : null}
                 </View>
               </View>
+
+              {spanExceeded ? (
+                <Text style={styles.spanWarning}>
+                  Maximum range is {maxSpanDays} days
+                </Text>
+              ) : null}
 
               <View style={styles.actions}>
                 <TouchableOpacity
@@ -343,7 +370,7 @@ export function DateRangePickerModal({
                       !canApply && styles.applyBtnTextDisabled,
                     ]}
                   >
-                    APPLY MIRROR
+                    {applyLabelProp ?? "APPLY"}
                   </Text>
                 </TouchableOpacity>
                 {onClear ? (
@@ -570,6 +597,13 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: "700",
     letterSpacing: 0.8,
+  },
+  spanWarning: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#ef4444",
+    textAlign: "center",
+    marginTop: 6,
   },
   actions: {
     marginTop: 12,

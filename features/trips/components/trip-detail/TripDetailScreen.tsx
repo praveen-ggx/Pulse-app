@@ -122,6 +122,7 @@ import { throwIfCancelled } from "@/lib/supabaseAbort.util";
 import { notifyTripChatMessagesChanged } from "@/lib/tripChatInvalidate";
 import { getOptimalRoute } from "@/lib/routingService";
 import * as tripDocumentsService from "@/features/trips/services/tripDocuments.service";
+import { downloadTripDocumentFile } from "@/features/trips/utils/tripDocumentDownload.util";
 import {
   acceptVaultFileConfirmation,
   vaultUploadOutcome,
@@ -5445,6 +5446,24 @@ export default function TripDetailScreen({
             previews={slotPreviews.length > 0 ? slotPreviews : undefined}
             onPreview={() => previewTripDetailsSlot(slot.id)}
             onEdit={() => previewTripDetailsSlot(slot.id)}
+            onDownload={
+              slot.id === "lr" && onFile && files[0]?.storagePath
+                ? () => {
+                    void (async () => {
+                      const { error } = await downloadTripDocumentFile({
+                        storagePath: files[0]!.storagePath!,
+                        fileName:
+                          files[0]?.fileName?.trim() ||
+                          files[0]?.label?.trim() ||
+                          "LR Document",
+                      });
+                      if (error) {
+                        showAppAlert("Download failed", error.message);
+                      }
+                    })();
+                  }
+                : undefined
+            }
             onAdd={() => uploadTripDetailsSlot(slot.id)}
             appearance="shop"
           />
@@ -5504,6 +5523,26 @@ export default function TripDetailScreen({
                 : null
             }
             onPreview={() => previewDriverPodFile(file)}
+            onDownload={
+              onFile && file.storagePath?.trim()
+                ? () => {
+                    void (async () => {
+                      const { error } = await downloadTripDocumentFile({
+                        storagePath: file.storagePath!,
+                        fileName:
+                          ("fileName" in file
+                            ? String(file.fileName ?? "").trim()
+                            : "") ||
+                          file.label?.trim() ||
+                          "Driver POD",
+                      });
+                      if (error) {
+                        showAppAlert("Download failed", error.message);
+                      }
+                    })();
+                  }
+                : undefined
+            }
             onAdd={uploadDriverPod}
             appearance="shop"
           />

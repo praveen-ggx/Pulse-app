@@ -1,4 +1,4 @@
-import { applyArFilter, buildArBook } from "../invoiceAr.util";
+import { applyArFilter, applyArSheetFilters, buildArBook, sortArSheet } from "../invoiceAr.util";
 
 const NOW = new Date("2026-11-03T00:00:00");
 
@@ -116,5 +116,20 @@ describe("buildArBook", () => {
       agingScope: "uninvoiced",
     });
     expect(rows.map((row) => row.id)).toEqual(["a"]);
+  });
+
+  it("filters and sorts the trip columns like a sheet", () => {
+    const book = buildArBook(
+      [
+        trip({ id: "a", internalId: "a", lr: "100", route: "North", sales: 2000 }),
+        trip({ id: "b", internalId: "b", lr: "200", route: "South", sales: 9000 }),
+      ],
+      [],
+      NOW,
+    );
+    const filtered = applyArSheetFilters(book.lines, { route: ["North"] });
+    expect(filtered.map((row) => row.id)).toEqual(["a"]);
+    const sorted = sortArSheet(book.lines, { column: "sales", direction: "desc" });
+    expect(sorted.map((row) => row.id)).toEqual(["b", "a"]);
   });
 });

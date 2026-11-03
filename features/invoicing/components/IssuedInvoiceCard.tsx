@@ -5,6 +5,8 @@ import Theme from "@/constants/Theme";
 import type { IssuedInvoiceListRow } from "@/features/invoicing/services/invoiceList.service";
 import { FileText } from "lucide-react-native";
 import { financeInvoiceHistoryFields } from "@/features/invoicing/utils/invoiceSource.util";
+import type { InvoiceSettlement } from "@/features/invoicing/hooks/useInvoiceSettlements";
+import { paymentStatusLabel, type InvoicePaymentStatus } from "@/features/invoicing/utils/invoicePayment.util";
 import { StyleSheet, Text, View } from "react-native";
 
 function formatInr(n: number): string {
@@ -18,8 +20,14 @@ export function IssuedInvoiceCard({
   item,
   compact,
   selected,
+  settlement,
 }: {
   item: IssuedInvoiceListRow;
+  /**
+   * From the invoice payment ledger. undefined = still loading / unavailable
+   * (shown as unavailable, never as ₹0); null = not applicable (draft/cancelled).
+   */
+  settlement?: InvoiceSettlement | null;
   /** Tighter padding for the Pending Billing side rail. */
   compact?: boolean;
   selected?: boolean;
@@ -67,11 +75,20 @@ export function IssuedInvoiceCard({
           <Text style={styles.meta} numberOfLines={1}>
             {source.source} · {source.reference}
           </Text>
-          {!compact ? (
-            <Text style={styles.unsupported}>
-              Invoice-level payment / allocation is not supported on this
-              surface.
-            </Text>
+          {settlement === undefined ? (
+            <Text style={styles.meta} numberOfLines={1}>Payment status unavailable</Text>
+          ) : settlement ? (
+            <View style={styles.metaRow}>
+              <Text
+                style={[styles.meta, settlement.outstanding > 0 ? styles.payOpen : styles.payDone]}
+                numberOfLines={1}
+              >
+                {paymentStatusLabel(settlement.status as InvoicePaymentStatus)}
+              </Text>
+              <Text style={styles.meta} numberOfLines={1}>
+                Outstanding {formatInr(settlement.outstanding)}
+              </Text>
+            </View>
           ) : null}
         </View>
       </View>
@@ -165,11 +182,6 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: Theme.teslaRed,
   },
-  unsupported: {
-    marginTop: 8,
-    fontSize: 10,
-    fontWeight: "600",
-    color: Theme.textMuted,
-    lineHeight: 14,
-  },
+  payOpen: { color: Theme.warning },
+  payDone: { color: Theme.success },
 });

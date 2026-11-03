@@ -236,7 +236,7 @@ type Props = {
   settingsHidden?: boolean;
   /** Workspace shows settings in the body. The full-page preview keeps the popup. */
   settingsInline?: boolean;
-  /** A4 page breaks. Only the full-page preview uses this. */
+  /** Full A4 pages. The invoice always previews as this document. */
   a4Pages?: boolean;
   numbering?: {
     prefix: string;
@@ -259,7 +259,28 @@ type Props = {
   footerEnd?: ReactNode;
 };
 
+const A4_PAGE_WIDTH = 794;
 const A4_PAGE_HEIGHT = 1123;
+
+function A4Frame({ scale, children }: { scale: number; children: ReactNode }) {
+  if (scale >= 0.999) return <>{children}</>;
+  const width = A4_PAGE_WIDTH * scale;
+  const height = A4_PAGE_HEIGHT * scale;
+  return (
+    <View style={{ width, height, overflow: "hidden", alignSelf: "center" }}>
+      <View
+        style={{
+          width: A4_PAGE_WIDTH,
+          height: A4_PAGE_HEIGHT,
+          transform: [{ scale }],
+          transformOrigin: "top left",
+        }}
+      >
+        {children}
+      </View>
+    </View>
+  );
+}
 
 function invoiceLineHeight(line: PulseInvoiceLine): number {
   const wraps = Math.max(1, Math.ceil(line.description.length / 72));
@@ -334,7 +355,7 @@ export function PulseInvoiceDocument({
   frozenDetails = null,
   settingsHidden = false,
   settingsInline = false,
-  a4Pages = false,
+  a4Pages = true,
   numbering = null,
   toolbarLabel,
   leading,
@@ -347,6 +368,7 @@ export function PulseInvoiceDocument({
   const [settingsTab, setSettingsTab] = useState<"template" | "organization">("template");
   const [templateEditor, setTemplateEditor] = useState(false);
   const [orgEditing, setOrgEditing] = useState(false);
+  const [paperWidth, setPaperWidth] = useState(0);
   const [focus, setFocus] = useState<"bank" | "terms" | "signatory" | "notes" | "payment" | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [localDetails, setLocalDetails] = useState<InvoiceStyleDetails>(EMPTY_INVOICE_STYLE_DETAILS);
@@ -879,6 +901,7 @@ export function PulseInvoiceDocument({
     setSettingsOpen(true);
   };
   const settingsUnderBack = a4Pages && !settingsHidden && !settingsInline;
+  const pageScale = a4Pages && paperWidth > 0 ? Math.min(1, paperWidth / 794) : 1;
 
   return (
     <View style={styles.root}>
@@ -966,12 +989,16 @@ export function PulseInvoiceDocument({
           settingsOpen && !a4Pages && styles.contentBesideSettings,
         ]}
         showsVerticalScrollIndicator={false}
+        onLayout={(event) => {
+          const next = event.nativeEvent.layout.width - (compact ? 24 : 32);
+          if (next > 0 && Math.abs(next - paperWidth) > 1) setPaperWidth(next);
+        }}
       >
         {invoicePages.map((pageLines, pageIndex) => {
           const lastPage = pageIndex === invoicePages.length - 1;
           const numberFrom = invoicePages.slice(0, pageIndex).reduce((sum, page) => sum + page.length, 0);
-          return (
-        <View key={`page-${pageIndex}`} style={[styles.sheet, a4Pages && styles.pageSheet, leftRail && pageIndex === 0 && { borderLeftWidth: 6, borderLeftColor: accent }, template === "rule" && pageIndex === 0 && { borderTopWidth: 6, borderTopColor: accent }]}>
+          const sheet = (
+        <View style={[styles.sheet, a4Pages && styles.pageSheet, leftRail && pageIndex === 0 && { borderLeftWidth: 6, borderLeftColor: accent }, template === "rule" && pageIndex === 0 && { borderTopWidth: 6, borderTopColor: accent }]}>
           <View style={a4Pages ? styles.pageBody : undefined}>
           {a4Pages && pageIndex > 0 ? (
             <View style={styles.continued}>
@@ -1175,6 +1202,11 @@ export function PulseInvoiceDocument({
           <Text style={styles.pageFoot}>Page {pageIndex + 1} of {invoicePages.length}</Text>
           ) : null}
         </View>
+          );
+          return (
+            <A4Frame key={`page-${pageIndex}`} scale={a4Pages ? pageScale : 1}>
+              {sheet}
+            </A4Frame>
           );
         })}
       </ScrollView>
@@ -2147,6 +2179,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   pageSheet: {
+    width: A4_PAGE_WIDTH,
+    maxWidth: A4_PAGE_WIDTH,
     height: A4_PAGE_HEIGHT,
     flexDirection: "column",
   },

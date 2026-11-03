@@ -1283,20 +1283,51 @@ function wheelDelta(event: WheelEvent): number {
   return dy;
 }
 
-/** Drag / scroll travel for the inline preview at a given zoom. */
+type PreviewPanLimits = { minX: number; maxX: number; minY: number; maxY: number };
+
+/**
+ * Drag / scroll travel. The page is top-aligned, so a width-fit sheet needs the
+ * full overflow downward. Zoom still grows from the center, which is symmetric
+ * when the unscaled page already fills the pane (Original).
+ */
 function previewPanLimits(
   box: { width: number; height: number },
   display: { width: number; height: number } | null,
   zoom: number,
   rotation = 0,
-): { maxX: number; maxY: number } {
-  if (box.width < 2 || box.height < 2) return { maxX: 0, maxY: 0 };
+): PreviewPanLimits {
+  const none = { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+  if (box.width < 2 || box.height < 2 || !display) return none;
+  const viewW = Math.max(0, box.width - PREVIEW_CANVAS_PAD * 2);
+  const viewH = Math.max(0, box.height - PREVIEW_CANVAS_PAD);
   const visual = rotatedVisualSize(display, zoom, rotation);
-  const scaledW = visual?.width ?? (display?.width ?? box.width) * zoom;
-  const scaledH = visual?.height ?? (display?.height ?? box.height) * zoom;
+  if (!visual) return none;
+  const fit = widthFitScaleForRotation(display.width, display.height, rotation);
+  const pin = rotationTopPinOffset(display.width, display.height, rotation, fit);
+  const overflowX = visual.width - viewW;
+  const minX = overflowX > 2 ? -overflowX / 2 : 0;
+  const maxX = overflowX > 2 ? overflowX / 2 : 0;
+  const topPan = visual.height / 2 - display.height / 2 - pin.y;
+  const bottomPan = viewH - visual.height / 2 - display.height / 2 - pin.y;
+  if (visual.height <= viewH + 2) {
+    return { minX, maxX, minY: topPan, maxY: topPan };
+  }
   return {
-    maxX: Math.max(28, Math.abs(scaledW - box.width) / 2, box.width * 0.22),
-    maxY: Math.max(28, Math.abs(scaledH - box.height) / 2, box.height * 0.22),
+    minX,
+    maxX,
+    minY: Math.min(topPan, bottomPan),
+    maxY: Math.max(topPan, bottomPan),
+  };
+}
+
+function clampPreviewPan(
+  x: number,
+  y: number,
+  limits: PreviewPanLimits,
+): { x: number; y: number } {
+  return {
+    x: Math.min(limits.maxX, Math.max(limits.minX, x)),
+    y: Math.min(limits.maxY, Math.max(limits.minY, y)),
   };
 }
 
@@ -1434,6 +1465,8 @@ type PreviewScrollFrame = {
   y: number;
   maxX: number;
   maxY: number;
+  minX?: number;
+  minY?: number;
   moveX: (next: number) => void;
   moveY: (next: number) => void;
 };
@@ -1464,11 +1497,14 @@ function PreviewScrollRail({
   axis,
   value,
   max,
+  min,
   onChange,
 }: {
   axis: "x" | "y";
   value: number;
   max: number;
+  /** Defaults to the opposite of `max` so centered pans stay symmetric. */
+  min?: number;
   onChange: (next: number) => void;
 }) {
   const horizontal = axis === "x";
@@ -1478,17 +1514,19 @@ function PreviewScrollRail({
   const raf = useRef<number | null>(null);
   const hideCues = useRef<ReturnType<typeof setTimeout> | null>(null);
   const span = Math.max(track, 1);
-  const scrollable = max > 0.5;
-  const safeMax = Math.max(max, 1);
+  const lo = min ?? -max;
+  const hi = max;
+  const range = Math.max(hi - lo, 1);
+  const scrollable = hi - lo > 1;
   const thumb = Math.max(
     18,
-    Math.min(span * (scrollable ? 0.16 : 0.14), span - 16),
+    Math.min(span * (scrollable ? Math.min(0.72, span / (span + range)) : 0.14), span - 16),
   );
   const travel = Math.max(1, span - thumb);
-  const fraction = Math.min(1, Math.max(0, (safeMax - value) / (2 * safeMax)));
+  const fraction = Math.min(1, Math.max(0, (hi - value) / range));
   const offset = fraction * travel;
-  const atStart = value >= safeMax - 0.5;
-  const atEnd = value <= -safeMax + 0.5;
+  const atStart = value >= hi - 0.5;
+  const atEnd = value <= lo + 0.5;
   const StartIcon = horizontal ? ChevronLeft : ChevronUp;
   const EndIcon = horizontal ? ChevronRight : ChevronDown;
 
@@ -1508,7 +1546,7 @@ function PreviewScrollRail({
 
   const applyFraction = (next: number) => {
     const clamped = Math.min(1, Math.max(0, next));
-    onChange(safeMax - clamped * 2 * safeMax);
+    onChange(hi - clamped * (hi - lo));
   };
 
   const schedule = (next: number) => {
@@ -1522,8 +1560,8 @@ function PreviewScrollRail({
   const nudge = (direction: 1 | -1) => {
     if (!scrollable) return;
     showCues();
-    const step = Math.max(56, safeMax * 0.32);
-    onChange(Math.min(safeMax, Math.max(-safeMax, value + direction * step)));
+    const step = Math.max(56, range * 0.32);
+    onChange(Math.min(hi, Math.max(lo, value + direction * step)));
     deferHideCues();
   };
 
@@ -1606,7 +1644,7 @@ function PreviewScrollRail({
         onResponderMove={(event) => {
           if (!drag.current || !scrollable) return;
           const point = horizontal ? event.nativeEvent.pageX : event.nativeEvent.pageY;
-          const start = (safeMax - drag.current.value) / (2 * safeMax);
+          const start = (hi - drag.current.value) / range;
           schedule(start + (point - drag.current.origin) / travel);
         }}
         onResponderRelease={() => {
@@ -1648,6 +1686,7 @@ function PreviewPanFooter({ label }: { label: string }) {
       <PreviewScrollRail
         axis="x"
         value={frame?.x ?? 0}
+        min={frame?.minX}
         max={frame?.maxX ?? 0}
         onChange={frame?.moveX ?? (() => undefined)}
       />
@@ -1762,8 +1801,10 @@ function OriginalDocumentPreview({
     return { width, height };
   }, [box.height, box.width]);
 
+  // Width-fit trims the desk around a photo. Zooming out must reveal the original file, not a smaller copy of that trim.
+  const showOriginalImage = !isPdf && zoom < 1 - 0.001;
   const cropBox =
-    !isPdf && fitMode === "width" && natural && contentBox ? contentBox : null;
+    !showOriginalImage && fitMode === "width" && natural && contentBox ? contentBox : null;
   const fitSource = cropBox
     ? { width: cropBox.width, height: cropBox.height }
     : natural;
@@ -1790,12 +1831,16 @@ function OriginalDocumentPreview({
     [box, display, viewRotation, zoom],
   );
 
+  useEffect(() => {
+    setPan((prev) => {
+      const next = clampPreviewPan(prev.x, prev.y, limits);
+      return next.x === prev.x && next.y === prev.y ? prev : next;
+    });
+  }, [limits]);
+
   const clampLocalPan = useCallback(
-    (x: number, y: number) => ({
-      x: Math.min(limits.maxX, Math.max(-limits.maxX, x)),
-      y: Math.min(limits.maxY, Math.max(-limits.maxY, y)),
-    }),
-    [limits.maxX, limits.maxY],
+    (x: number, y: number) => clampPreviewPan(x, y, limits),
+    [limits],
   );
 
   const [rotateEase, setRotateEase] = useState(false);
@@ -1825,10 +1870,12 @@ function OriginalDocumentPreview({
       y: pan.y,
       maxX: limits.maxX,
       maxY: limits.maxY,
+      minX: limits.minX,
+      minY: limits.minY,
       moveX,
       moveY,
     });
-  }, [limits.maxX, limits.maxY, moveX, moveY, pan.x, pan.y]);
+  }, [limits.maxX, limits.maxY, limits.minX, limits.minY, moveX, moveY, pan.x, pan.y]);
 
   useEffect(
     () => () => {
@@ -1837,7 +1884,7 @@ function OriginalDocumentPreview({
     [],
   );
 
-  const pannable = limits.maxX > 0 || limits.maxY > 0;
+  const pannable = limits.maxX - limits.minX > 1 || limits.maxY - limits.minY > 1;
   frameRef.current = { box, display, rotation: viewRotation };
 
   const paintZoom = useCallback((nextZoom: number, cursorX: number, cursorY: number) => {
@@ -1846,16 +1893,17 @@ function OriginalDocumentPreview({
     const clamped = clampPreviewZoom(nextZoom);
     const from = Math.max(current.zoom, 0.001);
     const ratio = clamped / from;
-    const { maxX, maxY } = previewPanLimits(
+    const limits = previewPanLimits(
       frame.box,
       frame.display,
       clamped,
       frame.rotation,
     );
-    const next = {
-      x: Math.min(maxX, Math.max(-maxX, cursorX - ratio * (cursorX - current.panX))),
-      y: Math.min(maxY, Math.max(-maxY, cursorY - ratio * (cursorY - current.panY))),
-    };
+    const next = clampPreviewPan(
+      cursorX - ratio * (cursorX - current.panX),
+      cursorY - ratio * (cursorY - current.panY),
+      limits,
+    );
     viewRef.current = { zoom: clamped, panX: next.x, panY: next.y };
     if (Platform.OS !== "web") return;
     const el = mediaRef.current as unknown as HTMLElement | null;
@@ -1984,11 +2032,8 @@ function OriginalDocumentPreview({
           dx = dy;
           dy = 0;
         }
-        const { maxX, maxY } = previewPanLimits(frame.box, frame.display, live.zoom, frame.rotation);
-        const next = {
-          x: Math.min(maxX, Math.max(-maxX, live.panX - dx)),
-          y: Math.min(maxY, Math.max(-maxY, live.panY - dy)),
-        };
+        const limits = previewPanLimits(frame.box, frame.display, live.zoom, frame.rotation);
+        const next = clampPreviewPan(live.panX - dx, live.panY - dy, limits);
         viewRef.current = { ...live, panX: next.x, panY: next.y };
         const el = mediaRef.current as unknown as HTMLElement | null;
         if (el?.style) {
@@ -2190,9 +2235,9 @@ function OriginalDocumentPreview({
         </View>
       ) : null}
       </View>
-      <PreviewScrollRail axis="y" value={pan.y} max={limits.maxY} onChange={moveY} />
+      <PreviewScrollRail axis="y" value={pan.y} min={limits.minY} max={limits.maxY} onChange={moveY} />
       <View style={styles.previewScrollXDock} pointerEvents="box-none">
-        <PreviewScrollRail axis="x" value={pan.x} max={limits.maxX} onChange={moveX} />
+        <PreviewScrollRail axis="x" value={pan.x} min={limits.minX} max={limits.maxX} onChange={moveX} />
       </View>
     </View>
   );

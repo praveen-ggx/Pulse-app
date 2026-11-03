@@ -765,6 +765,7 @@ function RootOverlayTabBar() {
         network: domainsLoading || memberDomainAccess.sales,
         loadCenter: canViewLoadsHub,
         compliance: canOpenCompliance,
+        invoice: surfaceLoading || domainsLoading || canSurface('finance.invoicing') || memberDomainAccess.finance,
       }}
       onTabChange={(tab) => {
         if (tab === 'loadCenter' && !canViewLoadsHub) return;

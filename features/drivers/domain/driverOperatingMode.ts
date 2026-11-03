@@ -8,6 +8,7 @@
  * parses that answer and derives display/routing decisions from it — it must
  * not recompute DCO status from dco_profiles, owner_vehicles or drivers rows.
  */
+import { isFleetTripMarked } from '../utils/driverFleetTripMark.util';
 import { isDcoOperatingTrip } from '../../trips/domain/tripDcoOperating';
 
 export type DriverOperatingModeKind =
@@ -188,11 +189,15 @@ export type DriverHistoryLane = 'marketplace' | 'offline' | 'fleet';
 export type DriverHistoryTabId = 'offline' | 'marketplace' | 'fleet';
 
 export function driverHistoryLane(
-  trip: { source?: string | null; operating_mode?: string | null },
+  trip: {
+    source?: string | null;
+    operating_mode?: string | null;
+    notes?: string | null;
+  },
   isFleetDispatched: boolean,
 ): DriverHistoryLane {
   if (driverJobSource(trip) === 'marketplace_award') return 'marketplace';
-  if (isFleetDispatched) return 'fleet';
+  if (isFleetDispatched || isFleetTripMarked(trip.notes)) return 'fleet';
   return 'offline';
 }
 

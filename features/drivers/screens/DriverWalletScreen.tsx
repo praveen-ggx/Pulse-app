@@ -10,6 +10,7 @@ import {
   buildDriverPartyReceivables,
 } from '@/features/drivers/utils/driverPartyReceivables.util';
 import { listDriverTripExpensesByTripIds } from '@/features/drivers/services/driverTripExpenses.service';
+import { receivedByTripFromDriverBooks } from '@/features/drivers/services/driverCapturePayment.service';
 import {
   buildDriverWalletTransactions,
   filterDriverWalletTransactions,
@@ -214,6 +215,7 @@ export default function DriverWalletScreen() {
     Record<string, OrgBrandingRow>
   >({});
   const [ledgerEntries, setLedgerEntries] = useState<driversService.DriverLedgerRow[]>([]);
+  const [bookReceivedByTripId, setBookReceivedByTripId] = useState<Record<string, number>>({});
   const [tripExpenses, setTripExpenses] = useState<
     Awaited<ReturnType<typeof listDriverTripExpensesByTripIds>>["entries"]
   >([]);
@@ -301,6 +303,7 @@ export default function DriverWalletScreen() {
       if (drivers.length === 0) {
         setSalaryRequests([]);
         setTripExpenses([]);
+        setBookReceivedByTripId({});
         setLoading(false);
         initialLoadDoneRef.current = true;
         isRefreshingRef.current = false;
@@ -322,6 +325,7 @@ export default function DriverWalletScreen() {
       setInvites(invRes.invites ?? []);
       setTrips(tRes.trips ?? []);
       setLedgerEntries(ledgerRes.entries ?? []);
+      setBookReceivedByTripId(await receivedByTripFromDriverBooks());
       setSalaryRequests(salaryReqRes.requests ?? []);
       if (isDco) {
         const expenseRes = await listDriverTripExpensesByTripIds(
@@ -389,8 +393,11 @@ export default function DriverWalletScreen() {
         nonTrip.push(e);
       }
     }
+    for (const [tripId, amount] of Object.entries(bookReceivedByTripId)) {
+      byTrip[tripId] = (byTrip[tripId] ?? 0) + amount;
+    }
     return { receivedByTripId: byTrip, nonTripLedgerEntries: nonTrip };
-  }, [ledgerEntries]);
+  }, [bookReceivedByTripId, ledgerEntries]);
 
   const isFleetDispatchedTrip = useCallback(
     (trip: tripsService.TripRow) => {

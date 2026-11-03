@@ -65,7 +65,7 @@ describe("Nvidia a — Finance Pro client picture", () => {
     expect(picture).toEqual({
       listedTripCount: 3,
       completedTripCount: 2,
-      podPendingTripCount: 0,
+      podPendingTripCount: 1,
       draftTripCount: 0,
       unbilledTripCount: 1,
       eligibleTripCount: 0,

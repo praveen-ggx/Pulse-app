@@ -81,10 +81,21 @@ export function useTripFinanceAdjustmentsMap(
   };
 }
 
+/** One note is visible on the invoice, trip finance, the finance ledger, and debit control. */
+export function invalidateTripFinanceNoteQueries(
+  qc: { invalidateQueries: (opts: { queryKey: readonly unknown[] }) => Promise<unknown> },
+) {
+  void qc.invalidateQueries({ queryKey: [...queryKeys.tripFinanceAdjustmentsRoot] });
+  void qc.invalidateQueries({ queryKey: ["q", "finance-aggregation"] });
+  void qc.invalidateQueries({ queryKey: ["q", "debit-control"] });
+  void qc.invalidateQueries({ queryKey: ["q", "invoicing"] });
+  void qc.invalidateQueries({ queryKey: ["q", "trips", "detail"] });
+}
+
 export function useInvalidateTripFinanceAdjustments() {
   const qc = useQueryClient();
   return useCallback(() => {
-    void qc.invalidateQueries({ queryKey: [...queryKeys.tripFinanceAdjustmentsRoot] });
+    invalidateTripFinanceNoteQueries(qc);
   }, [qc]);
 }
 

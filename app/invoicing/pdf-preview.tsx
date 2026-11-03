@@ -18,13 +18,19 @@ import { CenteredLoadingView } from '@/components/CenteredLoadingView';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCapabilities } from '@/lib/useCapabilities';
 import { useMemberAccess } from '@/lib/useMemberAccess';
-import InvoicePdf from '@/components/InvoicePdf';
+import { PulseInvoiceDocument } from '@/features/invoicing/components/PulseInvoiceDocument';
+import { useInvoiceStyleEditor } from '@/features/invoicing/hooks/useInvoiceStyleEditor';
+import { useInvoiceNumberPlan } from '@/features/invoicing/hooks/useInvoiceNumberPlan';
+import { useInvoiceWorkspaceBilling } from '@/features/invoicing/hooks/useInvoiceWorkspaceBilling';
+import { invoiceLinesForNoteSplit } from '@/features/invoicing/services/invoiceCnDn.service';
 import { useInvoiceDraftClientsQuery } from '@/features/invoicing/hooks/useInvoiceDraftClients';
 import { mergeInvoiceChargesWithTripCnDn } from '@/features/invoicing/services/invoiceCnDn.service';
 import {
   buildInvoiceDraftModel,
+  displayInvoicePreviewDate,
   formatInvoicePreviewDate,
-  mapInvoiceDraftModelToPdfData,
+  freightLineDetail,
+  presentInvoiceTax,
   uniqueTripClientIds,
   uniqueTripClientNames,
 } from '@/features/invoicing/services/invoicePreviewModel.service';
@@ -39,6 +45,7 @@ interface InvoicePreviewParams extends Record<string, string | undefined> {
   paymentTerms: string;
   notes: string;
   includeGst: string;
+  reverseCharge?: string;
   gstRate: string;
   includeFuel: string;
   fuelRate: string;
@@ -58,6 +65,13 @@ function canAccessInvoicing(
     caps.includes('dispatch') ||
     caps.includes('dispatch_for_own_fleet')
   );
+}
+
+function formatInr(amount: number): string {
+  return `₹${amount.toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 function safeJsonArray<T>(value: unknown): T[] {
@@ -88,7 +102,7 @@ export default function InvoicePdfPreviewScreen() {
   const [msmeNumber, setMsmeNumber] = useState<string | null>(null);
 
   const activeClient = params.activeClient || '';
-  const paymentTerms = params.paymentTerms || '';
+  const [paymentTerms, setPaymentTerms] = useState(params.paymentTerms || '');
   const notes = params.notes || '';
   const previewDate = params.previewDate
     ? formatInvoicePreviewDate(params.previewDate)
@@ -165,6 +179,11 @@ export default function InvoicePdfPreviewScreen() {
       }),
     [activeWorkspace, brandingOverlay],
   );
+  const workspaceBilling = useInvoiceWorkspaceBilling(workspaceId, issuer);
+  const numberPlan = useInvoiceNumberPlan(
+    workspaceId,
+    workspaceBilling.billing.legalName || issuer?.businessName,
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -206,13 +225,20 @@ export default function InvoicePdfPreviewScreen() {
     });
   }, [activeClient, fetchedClients, invoiceConfig, issuer, notes, paymentTerms, previewDate, selectedTrips]);
 
-  const invoiceData = useMemo(
-    () =>
-      draftModel
-        ? mapInvoiceDraftModelToPdfData(draftModel, { bankDetailsLines, msmeNumber })
-        : null,
-    [bankDetailsLines, draftModel, msmeNumber],
-  );
+  const taxView = draftModel
+    ? presentInvoiceTax(draftModel.tax, params.reverseCharge === "true")
+    : null;
+  const taxDisplay = taxView ? { rows: taxView.rows, warning: taxView.warning } : null;
+  const payableAmount = taxView?.payable ?? 0;
+  const styleEditor = useInvoiceStyleEditor({
+    orgId: workspaceId,
+    clientId: draftModel?.client.client_id ?? fetchedClients[0]?.id ?? null,
+    clientName:
+      draftModel?.client.legal_name ||
+      draftModel?.client.display_name ||
+      activeClient ||
+      null,
+  });
 
   if (!allowed) {
     return (
@@ -246,7 +272,7 @@ export default function InvoicePdfPreviewScreen() {
     );
   }
 
-  if (selectedTrips.length === 0 || !invoiceData) {
+  if (selectedTrips.length === 0 || !draftModel || !taxDisplay) {
     return (
       <View style={[styles.blocked, { paddingTop: insets.top + 24, paddingBottom: insets.bottom }]}>
         <Text style={styles.blockedTitle}>No trips selected</Text>
@@ -268,22 +294,126 @@ export default function InvoicePdfPreviewScreen() {
 
   return (
     <View style={[styles.studio, { paddingTop: insets.top }]}>
-      <View style={styles.previewChrome}>
-        <Pressable
-          onPress={handleBack}
-          style={styles.previewBackBtn}
-          accessibilityRole="button"
-          accessibilityLabel="Back to invoice draft"
-          hitSlop={Layout.touchTargetHitSlop}
-        >
-          <Text style={styles.previewBackText}>← Back to draft</Text>
-        </Pressable>
-      </View>
       <View style={styles.previewBody}>
-        <InvoicePdf
-          invoiceData={invoiceData}
-          initialShowSplit={params.showSplit !== 'false'}
-          onBack={handleBack}
+        <PulseInvoiceDocument
+          leading={
+            <Pressable
+              onPress={handleBack}
+              style={styles.previewBackBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Back to invoice draft"
+              hitSlop={Layout.touchTargetHitSlop}
+            >
+              <Text style={styles.previewBackText}>← Back to draft</Text>
+            </Pressable>
+          }
+          title="Invoice"
+          invoiceNumber={
+            draftModel.invoice_number_label &&
+            draftModel.invoice_number_label !== 'DRAFT' &&
+            draftModel.invoice_number_label !== 'Draft' &&
+            !draftModel.invoice_number_label.startsWith('DRAFT/')
+              ? draftModel.invoice_number_label
+              : numberPlan.sample || draftModel.invoice_number_label || 'Draft'
+          }
+          numbering={{
+            prefix: numberPlan.prefix,
+            start: numberPlan.start,
+            sample: numberPlan.sample,
+            suggestedPrefix: numberPlan.suggestedPrefix,
+            busy: numberPlan.busy,
+            configured: numberPlan.configured,
+            editing: numberPlan.editing,
+            onPrefix: numberPlan.setPrefix,
+            onStart: numberPlan.setStart,
+            onEdit: numberPlan.beginEdit,
+            onCancel: numberPlan.cancelEdit,
+            onSave: () => {
+              void numberPlan.save();
+            },
+          }}
+          invoiceDate={displayInvoicePreviewDate(draftModel.preview_date)}
+          invoiceDateIso={draftModel.preview_date}
+          dueDate={
+            draftModel.indicative_due_date
+              ? displayInvoicePreviewDate(draftModel.indicative_due_date)
+              : '—'
+          }
+          paymentTerms={paymentTerms || draftModel.payment_terms || '—'}
+          paymentOptions={['Due on Receipt', 'Net 15', 'Net 30', 'Net 45', 'Net 60']}
+          onPaymentTerms={setPaymentTerms}
+          issuerName={workspaceBilling.billing.legalName || draftModel.issuer.businessName}
+          logoUrl={styleEditor.displayLogo ?? draftModel.issuer.logoUrl}
+          styleEditor={styleEditor}
+          billing={workspaceBilling.billing}
+          issuerDetail={(workspaceBilling.issuerLines.length > 0
+            ? workspaceBilling.issuerLines
+            : [
+                ...draftModel.issuer.addressLines,
+                draftModel.issuer.gstin ? `GSTIN ${draftModel.issuer.gstin}` : '',
+                msmeNumber ? `MSME ${msmeNumber}` : '',
+              ]
+          )
+            .concat(bankDetailsLines)
+            .filter(Boolean)
+            .join('\n')}
+          share={{
+            draft: {
+              status: 'draft',
+              organization: workspaceBilling.billing.legalName || draftModel.issuer.businessName,
+              gstin: workspaceBilling.billing.gstin,
+              cin: workspaceBilling.billing.cin,
+              pan: workspaceBilling.billing.pan,
+              address: [
+                workspaceBilling.billing.address,
+                [workspaceBilling.billing.city, workspaceBilling.billing.state, workspaceBilling.billing.pincode]
+                  .filter(Boolean)
+                  .join(', '),
+              ]
+                .filter(Boolean)
+                .join(', '),
+              client: draftModel.client.legal_name || draftModel.client.display_name,
+              invoiceNumber: numberPlan.sample || draftModel.invoice_number_label || 'Draft',
+              invoiceDate: displayInvoicePreviewDate(draftModel.preview_date),
+              dueDate: draftModel.indicative_due_date ? displayInvoicePreviewDate(draftModel.indicative_due_date) : '—',
+              amount: formatInr(payableAmount),
+              tripCount: draftModel.shipment.trip_count,
+            },
+            email: draftModel.client.email,
+            phone: draftModel.client.phone,
+            subject: `Draft invoice from ${workspaceBilling.billing.legalName || draftModel.issuer.businessName}`,
+          }}
+          billToName={draftModel.client.legal_name || draftModel.client.display_name}
+          billToDetail={[
+            draftModel.client.billing_address,
+            draftModel.client.gstin ? `GSTIN ${draftModel.client.gstin}` : '',
+            draftModel.client.phone,
+          ]
+            .filter(Boolean)
+            .join('\n')}
+          lines={invoiceLinesForNoteSplit(
+            draftModel.lines,
+            styleEditor.details.splitNotes !== false,
+          ).map((line, index) => ({
+            id: `${line.line_type}-${index}`,
+            description: line.description,
+            detail: freightLineDetail(line, draftModel.shipment.trips),
+            qty: String(line.qty),
+            rate: formatInr(line.rate),
+            amount: formatInr(line.taxable_value),
+          }))}
+          notes={draftModel.notes || notes}
+          readOnly
+          totals={taxDisplay.rows}
+          notice={taxDisplay.warning}
+          totalValue={formatInr(payableAmount)}
+          widgets={[
+            { label: "Balance due", value: formatInr(payableAmount) },
+            { label: "Trips", value: String(draftModel.shipment.trip_count) },
+            { label: "Terms", value: draftModel.payment_terms || paymentTerms || "—" },
+          ]}
+          includeGst={parsedIncludeGst}
+          a4Pages
         />
       </View>
     </View>
@@ -326,20 +456,8 @@ const styles = StyleSheet.create({
     minHeight: 0,
     backgroundColor: Theme.analyticsCanvas,
   },
-  previewChrome: {
-    flexShrink: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 48,
-    paddingHorizontal: Layout.screenPaddingHorizontal,
-    paddingVertical: 8,
-    backgroundColor: Theme.screenBackground,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Theme.borderMedium,
-    zIndex: 20,
-  },
   previewBackBtn: {
-    minHeight: Layout.minTouchTargetSize,
+    minHeight: 36,
     justifyContent: 'center',
     paddingRight: 12,
   },

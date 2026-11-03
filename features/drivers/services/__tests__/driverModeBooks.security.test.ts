@@ -14,8 +14,12 @@ const mockGetIndie = jest.fn(async () => ({
   error: null,
   receivable: { id: "indie-rec-1" },
 }));
-const mockCreateLedger = jest.fn(async () => ({ error: null }));
+const mockCreateLedger = jest.fn(async () => ({ error: null, row: { id: "led-1" } }));
 const mockFindLedger = jest.fn(async () => ({ row: null, error: null }));
+const mockGetLedger = jest.fn(async () => ({
+  error: null,
+  entries: [{ id: "led-1", type: "settlement", amount: 1000 }],
+}));
 const mockClaimExchange = jest.fn(async () => ({ error: null }));
 
 jest.mock("@/features/dco-self/services/dcoSelfReceivable.service", () => ({
@@ -31,6 +35,7 @@ jest.mock("@/features/driver-indie/services/driverIndieReceivable.service", () =
 jest.mock("@/features/drivers/services/drivers.service", () => ({
   createDriverLedgerEntry: (...args: unknown[]) => mockCreateLedger(...args),
   findDriverLedgerByReference: (...args: unknown[]) => mockFindLedger(...args),
+  getDriverLedgerByTripId: (...args: unknown[]) => mockGetLedger(...args),
 }));
 
 jest.mock("@/features/marketplace/services/exchangePayments.service", () => ({

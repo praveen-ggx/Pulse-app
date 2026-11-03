@@ -1,5 +1,8 @@
 import { captureDriverTripPayment } from "../driverCapturePayment.service";
-import { stableDriverCaptureKey } from "../../utils/driverCapturePayment.util";
+import {
+  driverLedgerCaptureReferenceId,
+  stableDriverCaptureKey,
+} from "../../utils/driverCapturePayment.util";
 
 const mockClaim = jest.fn();
 const mockFindRef = jest.fn();
@@ -13,9 +16,12 @@ jest.mock("@/features/marketplace/services/exchangePayments.service", () => ({
   claimExchangePayment: (...args: unknown[]) => mockClaim(...args),
 }));
 
+const mockGetLedger = jest.fn();
+
 jest.mock("@/features/drivers/services/drivers.service", () => ({
   findDriverLedgerByReference: (...args: unknown[]) => mockFindRef(...args),
   createDriverLedgerEntry: (...args: unknown[]) => mockCreateLedger(...args),
+  getDriverLedgerByTripId: (...args: unknown[]) => mockGetLedger(...args),
 }));
 
 jest.mock("@/features/dco-self/services/dcoSelfReceivable.service", () => ({
@@ -32,6 +38,11 @@ beforeEach(() => {
   mockClaim.mockReset();
   mockFindRef.mockReset();
   mockCreateLedger.mockReset();
+  mockGetLedger.mockReset();
+  mockGetLedger.mockResolvedValue({
+    error: null,
+    entries: [{ id: "led-1", type: "settlement", amount: 2500 }],
+  });
   mockGetReceivable.mockReset();
   mockCollectSelf.mockReset();
   mockGetIndie.mockReset();
@@ -72,6 +83,14 @@ describe("captureDriverTripPayment", () => {
   });
 
   it("does not insert a second ledger row for the same capture", async () => {
+    const key = stableDriverCaptureKey({
+      lane: "shipper",
+      tripId: "trip-1",
+      amount: 2500,
+      paymentModeId: "UPI",
+      reference: "UTR1",
+      paidOn: "2026-11-01",
+    });
     mockFindRef
       .mockResolvedValueOnce({ error: null, row: null })
       .mockResolvedValueOnce({ error: null, row: { id: "led-1" } });
@@ -83,8 +102,9 @@ describe("captureDriverTripPayment", () => {
     expect(mockCreateLedger).toHaveBeenCalledTimes(1);
     expect(mockCreateLedger.mock.calls[0][4]).toMatchObject({
       referenceType: "dco_capture",
-      referenceId: expect.stringMatching(/^dco-capture:shipper:trip-1:2500:UPI:utr1:2026-11-01$/),
+      referenceId: driverLedgerCaptureReferenceId(key),
     });
+    expect(mockFindRef.mock.calls[0][2]).toBe(driverLedgerCaptureReferenceId(key));
   });
 
   it("collapses a double-tap into one in-flight insert", async () => {

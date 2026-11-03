@@ -3,7 +3,7 @@ import Theme from "@/constants/Theme";
 import type { JobCardAssignerPayload } from "@/features/trips/utils/driverAssignerDisplay.util";
 import { Tag } from "lucide-react-native";
 import React, { type ReactNode } from "react";
-import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
+import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 
 type Props = {
   assigner: JobCardAssignerPayload | null;
@@ -16,6 +16,8 @@ type Props = {
   taggedParty?: string | null;
   /** Offline trip with no bill-to party yet. */
   needsTag?: boolean;
+  /** Opens the same tag sheet used everywhere else. */
+  onTagPress?: () => void;
   /** Third footer cell (e.g. Yield) — same pill, aligned columns. */
   endSlot?: ReactNode;
   style?: StyleProp<ViewStyle>;
@@ -29,6 +31,7 @@ export function TripListAssignerRow({
   compact = true,
   taggedParty = null,
   needsTag = false,
+  onTagPress,
   endSlot = null,
   style,
 }: Props) {
@@ -115,7 +118,13 @@ export function TripListAssignerRow({
       ) : showUntagged ? (
         <>
           <View style={[styles.rule, { backgroundColor: Theme.warning }]} />
-          <View style={[styles.cellEnd, endSlot ? styles.cellMid : null]}>
+          <Pressable
+            onPress={onTagPress}
+            disabled={!onTagPress}
+            accessibilityRole="button"
+            accessibilityLabel="Tag the party"
+            style={[styles.cellEnd, endSlot ? styles.cellMid : null]}
+          >
             <View style={[styles.tagGlyph, styles.tagGlyphWarn]}>
               <Tag size={11} color={Theme.warning} strokeWidth={2.4} />
             </View>
@@ -134,7 +143,7 @@ export function TripListAssignerRow({
                 Tag the party to track the AR
               </Text>
             </View>
-          </View>
+          </Pressable>
         </>
       ) : null}
       {endSlot ? (

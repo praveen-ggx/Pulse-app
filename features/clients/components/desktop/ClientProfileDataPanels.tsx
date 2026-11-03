@@ -79,6 +79,7 @@ function FormField({
   multiline = false,
   required = false,
   compact = false,
+  wide = false,
 }: {
   label: string;
   value: string;
@@ -88,9 +89,10 @@ function FormField({
   multiline?: boolean;
   required?: boolean;
   compact?: boolean;
+  wide?: boolean;
 }) {
   return (
-    <View style={[f.fieldGroup, compact && mobile.fieldGroupFull]}>
+    <View style={[f.fieldGroup, wide && f.fieldGroupWide, compact && mobile.fieldGroupFull]}>
       <Text style={f.fieldLabel}>
         {label}
         {required ? <Text style={{ color: "#F1416C" }}> *</Text> : null}
@@ -911,6 +913,7 @@ export function ClientProfileFinancePanel({ bundle, orgId, clientId, onRefresh }
             />
             <FormField
               compact={compact}
+              wide
               label="Notes"
               value={form.notes}
               onChangeText={(v) => setForm({ ...form, notes: v })}
@@ -1072,8 +1075,9 @@ const f = StyleSheet.create({
   },
 
   // Fields
-  formGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
-  fieldGroup: { minWidth: 220, flexGrow: 1, flexShrink: 1, gap: 5 },
+  formGrid: { flexDirection: "row", flexWrap: "wrap", marginHorizontal: -6 },
+  fieldGroup: { width: "50%", paddingHorizontal: 6, paddingBottom: 12, minWidth: 0, gap: 6 },
+  fieldGroupWide: { width: "100%" },
   fieldLabel: {
     fontSize: 10, fontWeight: "700", color: METRONIC.muted,
     textTransform: "uppercase", letterSpacing: 0.4,
@@ -1091,10 +1095,10 @@ const f = StyleSheet.create({
   },
   selectBtnText: { fontSize: 13, fontWeight: "500", color: METRONIC.text },
   selectDropdown: {
-    position: "absolute", top: 68, left: 0, right: 0, zIndex: 100,
+    position: "absolute", top: 68, left: 6, right: 6, zIndex: 100,
     borderRadius: 8, borderWidth: 1, borderColor: METRONIC.border,
     backgroundColor: "#fff",
-    shadowColor: "#181C32", shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 4 },
+    boxShadow: "0 8px 20px rgba(24, 28, 50, 0.08)",
     elevation: 8,
   },
   selectOption: { paddingHorizontal: 12, paddingVertical: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
@@ -1122,15 +1126,15 @@ const f = StyleSheet.create({
   formErrorText: { fontSize: 12, fontWeight: "600", color: "#F1416C", flex: 1 },
 
   // Form actions
-  formActions: { flexDirection: "row", gap: 10, marginTop: 4 },
+  formActions: { flexDirection: "row", justifyContent: "flex-end", gap: 10, marginTop: 4 },
   cancelBtn: {
-    flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1,
-    borderColor: METRONIC.border, backgroundColor: "#FAFAFA", alignItems: "center",
+    minWidth: 120, minHeight: 40, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1,
+    borderColor: METRONIC.border, backgroundColor: "#FAFAFA", alignItems: "center", justifyContent: "center",
   },
-  cancelBtnText: { fontSize: 12, fontWeight: "700", color: METRONIC.subtle },
+  cancelBtnText: { fontSize: 13, fontWeight: "500", color: METRONIC.text },
   saveBtn: {
-    flex: 2, flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 6, paddingVertical: 10, borderRadius: 8, backgroundColor: METRONIC.text,
+    minWidth: 140, minHeight: 40, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 6, borderRadius: 8, backgroundColor: Theme.primary,
   },
   saveBtnText: { fontSize: 12, fontWeight: "700", color: Theme.buttonDarkText },
 
@@ -1153,9 +1157,9 @@ const f = StyleSheet.create({
   termValue: { fontSize: 13, fontWeight: "700", color: METRONIC.text },
 
   // Finance aging
-  agingGrid: { flexDirection: "row", gap: 10, flexWrap: "wrap", marginTop: 10 },
+  agingGrid: { flexDirection: "row", gap: 10, marginTop: 10 },
   agingCard: {
-    flex: 1, minWidth: 100, borderRadius: 10, borderWidth: 1, borderTopWidth: 3,
+    flex: 1, minWidth: 0, borderRadius: 10, borderWidth: 1, borderTopWidth: 3,
     borderColor: METRONIC.border, backgroundColor: "#fff", padding: 14, alignItems: "center", gap: 4,
   },
   agingValue: { fontSize: 16, fontWeight: "800", letterSpacing: -0.3 },

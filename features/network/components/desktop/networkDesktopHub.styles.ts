@@ -511,7 +511,8 @@ const networkDesktopHubStylesDef = {
   }),
   mapPlaceholder: view({
     flex: 1,
-    minWidth: 200,
+    width: "100%",
+    minWidth: 0,
     minHeight: 140,
     borderRadius: 10,
     borderWidth: 1,
@@ -521,6 +522,7 @@ const networkDesktopHubStylesDef = {
     justifyContent: "center",
     padding: 16,
     position: "relative",
+    overflow: "hidden",
   }),
   mapPlaceholderLoading: view({
     justifyContent: "center",

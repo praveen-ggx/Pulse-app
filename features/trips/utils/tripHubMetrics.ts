@@ -112,6 +112,42 @@ export function classifyTripMetric(
   return "loading";
 }
 
+/**
+ * Hub card status chip — must match the Active rail tile that owns the trip.
+ * Do not infer IN TRANSIT from `started_at`: DB `in_progress` stays Loading
+ * until status is explicitly `in_transit` / `dispatched` / `transit`.
+ */
+export function hubTripCardStageLabel(
+  trip: Pick<TripRow, "id" | "status" | "driver_id">,
+  tripIdsWithAnyDocument: ReadonlySet<string> = new Set(),
+): string {
+  const s = normStatus(trip.status);
+  if (s === "cancelled") return "CANCELLED";
+  if (isCompletedTripStatus(trip.status)) return "COMPLETED";
+  const metric = classifyTripMetric(
+    trip as TripRow,
+    tripIdsWithAnyDocument as Set<string>,
+  );
+  switch (metric) {
+    case "unassigned":
+      return "UNASSIGNED";
+    case "assigned":
+      return "ASSIGNED";
+    case "loading":
+      return "LOADING";
+    case "in_transit":
+      return "IN TRANSIT";
+    case "unloading":
+      return "UNLOADING";
+    case "delivered_docs_pending":
+      return "DELIVERED";
+    case "indent":
+      return "INDENT";
+    default:
+      return s.replace(/_/g, " ").toUpperCase() || "ACTIVE";
+  }
+}
+
 export function countTripsByMetric(
   trips: TripRow[],
   tripIdsWithAnyDocument: Set<string>,

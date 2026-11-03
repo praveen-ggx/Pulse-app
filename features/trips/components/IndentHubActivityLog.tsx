@@ -234,8 +234,8 @@ export function IndentHubActivityLogPanel({
             ) : null
           }
           renderItem={({ item }) => {
-            const actor =
-              (item.createdByUserId && namesById[item.createdByUserId]) || "Staff";
+            const actorId = String(item.createdByUserId ?? "").trim();
+            const actor = actorId ? namesById[actorId]?.trim() || "" : "";
             const active = selectedId === item.indentId;
             return (
               <Pressable
@@ -261,7 +261,7 @@ export function IndentHubActivityLogPanel({
                     </Text>
                   ) : null}
                   <Text style={styles.actor} numberOfLines={2}>
-                    {actor} {item.action}
+                    {actor ? `${actor} ${item.action}` : item.action}
                   </Text>
                   <Text style={styles.stamp}>{formatLedgerDateTime(item.at)}</Text>
                 </View>

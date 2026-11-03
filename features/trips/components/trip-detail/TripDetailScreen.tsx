@@ -324,6 +324,7 @@ import {
 } from "@/lib/mapLocationLabel.service";
 import {
   buildManifestJourneyLogs,
+  collectManifestJourneyActorIds,
   getManifestCurrentStepIndex,
   getVisibleManifestJourneyLogs,
   MANIFEST_PULSE_LAST_INDEX,
@@ -1651,18 +1652,46 @@ export default function TripDetailScreen({
     Record<string, string>
   >({});
 
+  const journeyActorIdsKey = useMemo(() => {
+    if (!detail.trip) return "";
+    return collectManifestJourneyActorIds(
+      detail.trip,
+      detail.assignmentAuditRows ?? [],
+    )
+      .slice()
+      .sort()
+      .join(",");
+  }, [detail.trip, detail.assignmentAuditRows]);
+
+  const docUploaderIdsKey = useMemo(
+    () =>
+      [
+        ...new Set(
+          (detail.computedTripDocs ?? [])
+            .flatMap((doc) => [
+              doc.uploadedBy,
+              ...(doc.files ?? []).map((file) => file.uploadedBy),
+            ])
+            .map((id) => String(id ?? "").trim())
+            .filter(Boolean),
+        ),
+      ]
+        .sort()
+        .join(","),
+    [detail.computedTripDocs],
+  );
+
   useEffect(() => {
     const tripId = String(detail.trip?.id ?? "").trim();
     const orgId =
       detail.trip?.organization_id ?? currentOrganization?.id ?? null;
-    const ids = (detail.computedTripDocs ?? [])
-      .flatMap((doc) => [
-        doc.uploadedBy,
-        ...(doc.files ?? []).map((file) => file.uploadedBy),
-      ])
-      .map((id) => String(id ?? "").trim())
-      .filter(Boolean);
-    const unique = [...new Set(ids)];
+    const docIds = docUploaderIdsKey
+      ? docUploaderIdsKey.split(",").filter(Boolean)
+      : [];
+    const journeyIds = journeyActorIdsKey
+      ? journeyActorIdsKey.split(",").filter(Boolean)
+      : [];
+    const unique = [...new Set([...docIds, ...journeyIds])];
     if (!tripId && unique.length === 0) {
       setUploaderProfiles({});
       setUploadedByByDocId({});
@@ -1706,11 +1735,45 @@ export default function TripDetailScreen({
         };
       }
       const docActorIds = Object.values(hydration.uploadedByByDocId);
-      const profiles = await resolveActivityUserProfiles({
+      let profiles = await resolveActivityUserProfiles({
         userIds: [...unique, ...docActorIds, selfId],
         organizationId: orgId,
         seedProfiles: seed,
       });
+      if (cancelled) return;
+
+      // Last pass for assigners / actors org roster + profiles still miss under RLS.
+      const stillMissing = unique.filter((id) => {
+        const p = profiles[id];
+        return !(
+          p?.full_name?.trim() ||
+          p?.phone?.trim() ||
+          p?.email?.trim()
+        );
+      });
+      if (stillMissing.length > 0) {
+        const { resolveComplianceActorDetails } = await import(
+          "@/features/tripCompliance/services/complianceDocumentView.service"
+        );
+        const details = await resolveComplianceActorDetails(
+          stillMissing,
+          orgId,
+        );
+        if (cancelled) return;
+        const merged = { ...profiles };
+        for (const [id, detailRow] of Object.entries(details)) {
+          if (!detailRow.name || detailRow.name === "Unknown") continue;
+          merged[id] = {
+            full_name: detailRow.name,
+            phone: merged[id]?.phone ?? null,
+            email: merged[id]?.email ?? null,
+            avatar_url: merged[id]?.avatar_url ?? null,
+            avatar_seed: merged[id]?.avatar_seed ?? null,
+          };
+        }
+        profiles = merged;
+      }
+
       if (cancelled) return;
       setUploadedByByDocId(hydration.uploadedByByDocId);
       setUploaderProfiles(profiles);
@@ -1720,7 +1783,8 @@ export default function TripDetailScreen({
     };
   }, [
     currentOrganization?.id,
-    detail.computedTripDocs,
+    docUploaderIdsKey,
+    journeyActorIdsKey,
     detail.currentUserId,
     detail.profile?.avatar_seed,
     detail.profile?.avatar_url,
@@ -1730,6 +1794,9 @@ export default function TripDetailScreen({
     detail.profile?.phone,
     detail.trip?.id,
     detail.trip?.organization_id,
+    detail.trip?.vehicle_id,
+    detail.trip?.driver_id,
+    detail.trip?.supplier_id,
   ]);
 
   const attributionForUploader = useCallback(
@@ -3221,6 +3288,11 @@ export default function TripDetailScreen({
   );
   const commerceJourney = isCommerceJourney(commerceStops);
 
+  const journeyActorNameById = useMemo(
+    () => displayMapFromProfiles(uploaderProfiles),
+    [uploaderProfiles],
+  );
+
   const journeyLogs = useMemo((): ManifestJourneyLogEntry[] => {
     const tr = detail.trip;
     if (!tr) return [];
@@ -3235,6 +3307,7 @@ export default function TripDetailScreen({
       locationLoadingLabel: MAP_LOCATION_LABEL_LOADING,
       driverNames: detail.assignmentDriverNames,
       vehicleLabels: detail.assignmentVehicleLabels,
+      actorNameById: journeyActorNameById,
       currentUserId: detail.currentUserId,
       staffDisplayName: detail.profile?.full_name,
       driverDisplayName: detail.driverName ?? tr.driver_display_name,
@@ -3250,6 +3323,7 @@ export default function TripDetailScreen({
     detail.assignmentAuditRows,
     detail.assignmentDriverNames,
     detail.assignmentVehicleLabels,
+    journeyActorNameById,
     detail.currentUserId,
     detail.profile?.full_name,
     detail.driverName,
@@ -3296,7 +3370,6 @@ export default function TripDetailScreen({
     [journeyLogs, currentStepIndex],
   );
   const mobileStageLogs = useMemo(() => {
-    const staffName = detail.profile?.full_name?.trim() || "Staff";
     const driverName =
       detail.driverName?.trim() ||
       detail.trip?.driver_display_name?.trim() ||
@@ -3305,9 +3378,14 @@ export default function TripDetailScreen({
       const stepIndex = manifestStepIndexForLog(log.stepKey);
       const sims = manifestSimLogsForStepIndex(stepIndex, simLogEntries);
       const lastSim = sims[sims.length - 1];
+      const historyActor = [...(log.history ?? [])]
+        .reverse()
+        .map((line) => line.actor?.trim())
+        .find(Boolean);
       const actor =
         lastSim?.userName?.trim() ||
-        (log.stepKey === "driver_accepted" ? driverName : staffName);
+        historyActor ||
+        (log.stepKey === "driver_accepted" ? driverName : "");
       const time = lastSim?.timestamp
         ? formatTrackingDateTime(lastSim.timestamp)
         : log.time !== "—"
@@ -3329,7 +3407,6 @@ export default function TripDetailScreen({
   }, [
     detail.driverName,
     detail.trip?.driver_display_name,
-    detail.profile?.full_name,
     journeyLogs,
     simLogEntries,
   ]);
@@ -7245,7 +7322,9 @@ export default function TripDetailScreen({
                                               neoStyles.timelineHistoryLineMobile,
                                           ]}
                                         >
-                                          {line.time} · {line.actor} · {line.action}
+                                          {[line.time, line.actor?.trim(), line.action]
+                                            .filter(Boolean)
+                                            .join(" · ")}
                                         </Text>
                                       ))}
                                     </View>

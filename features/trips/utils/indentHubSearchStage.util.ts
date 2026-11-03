@@ -11,12 +11,19 @@ import { indentMatchesHubSearch } from "@/features/trips/utils/indentHubToolbarF
 /** Indent toolbar stages the hub search can jump to. */
 export type IndentHubSearchStage = IndentHubStatusTag;
 
+/** Exact / includes code score — exclusive list shows only this indent. */
+export const INDENT_HUB_SEARCH_STRONG_SCORE = 80;
+
 const STAGE_TIEBREAK: IndentHubSearchStage[] = [
   "awarded",
   "bids",
   "pending",
   "failed",
 ];
+
+export function isStrongIndentHubSearchScore(score: number): boolean {
+  return score >= INDENT_HUB_SEARCH_STRONG_SCORE;
+}
 
 /**
  * Stage for one indent on the Trips Live-indents toolbar.

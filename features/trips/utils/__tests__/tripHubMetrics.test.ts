@@ -2,6 +2,7 @@ import {
   TRIP_METRIC_ORDER,
   classifyTripMetric,
   countTripsByMetric,
+  hubTripCardStageLabel,
   isOperationsDeliveredTrip,
 } from "@/features/trips/utils/tripHubMetrics";
 import type { TripRow } from "@/features/trips/services/trips.service";
@@ -104,6 +105,45 @@ describe("isOperationsDeliveredTrip — Delivered tile membership", () => {
     expect(
       isOperationsDeliveredTrip(trip({ id: "t", status: "unloading", driver_id: null }), true),
     ).toBe(false);
+  });
+});
+
+describe("hubTripCardStageLabel — matches Active rail classification", () => {
+  it("keeps in_progress as LOADING even when started_at is set", () => {
+    expect(
+      hubTripCardStageLabel(
+        trip({
+          driver_id: "d1",
+          status: "in_progress",
+          started_at: "2026-11-02T10:00:00.000Z",
+        } as Partial<TripRow>),
+      ),
+    ).toBe("LOADING");
+    expect(
+      classifyTripMetric(
+        trip({
+          driver_id: "d1",
+          status: "in_progress",
+          started_at: "2026-11-02T10:00:00.000Z",
+        } as Partial<TripRow>),
+        NO_DOCS,
+      ),
+    ).toBe("loading");
+  });
+
+  it("labels explicit in_transit / assigned / unloading for the matching rail tile", () => {
+    expect(
+      hubTripCardStageLabel(trip({ driver_id: "d1", status: "in_transit" })),
+    ).toBe("IN TRANSIT");
+    expect(
+      hubTripCardStageLabel(trip({ driver_id: "d1", status: "assigned" })),
+    ).toBe("ASSIGNED");
+    expect(
+      hubTripCardStageLabel(trip({ driver_id: "d1", status: "unloading" })),
+    ).toBe("UNLOADING");
+    expect(hubTripCardStageLabel(trip({ driver_id: null, status: "assigned" }))).toBe(
+      "UNASSIGNED",
+    );
   });
 });
 

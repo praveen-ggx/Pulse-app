@@ -2,6 +2,7 @@ import type { TripRow } from "@/features/trips/services/trips.service";
 import {
   bestTripHubSearchMatch,
   collectTripHubSearchMatches,
+  isStrongTripHubSearchScore,
   pickTripHubSearchStage,
   scoreTripHubSearchMatch,
   tripHubSearchStageForTrip,
@@ -114,5 +115,31 @@ describe("collectTripHubSearchMatches", () => {
     expect(pickTripHubSearchStage(matches)).toBe("in_transit");
     expect(bestTripHubSearchMatch(matches, "in_transit")?.tripId).toBe("hit");
     expect(scoreTripHubSearchMatch(row, "SAT812GOGTRIP001676", "org")).toBe(100);
+  });
+
+  it("treats trip-code matches as strong (exclusive list) and client text as weak", () => {
+    expect(isStrongTripHubSearchScore(100)).toBe(true);
+    expect(isStrongTripHubSearchScore(80)).toBe(true);
+    expect(isStrongTripHubSearchScore(40)).toBe(false);
+    expect(
+      isStrongTripHubSearchScore(
+        scoreTripHubSearchMatch(trip({ id: "a" }), "SAT812GOGTRIP001676", "org"),
+      ),
+    ).toBe(true);
+    expect(
+      isStrongTripHubSearchScore(
+        scoreTripHubSearchMatch(
+          trip({
+            id: "b",
+            trip_number: "OTHER",
+            trip_operational_code: "OTHER",
+            display_trip_id: "OTHER",
+            client_name: "Apollo",
+          }),
+          "apollo",
+          "org",
+        ),
+      ),
+    ).toBe(false);
   });
 });

@@ -30,7 +30,7 @@ import type { TripAdjustment } from "@/features/trips/services/tripAdjustments";
 import { buildUniqueLinkedOrgIdMap, isLoadBasedTrip } from "@/features/trips/visibility/tripVisibility";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { formatLedgerDate } from "@/lib/format";
-import { useClientsQuery, useTripsQuery } from "@/lib/queries";
+import { useClientsQuery, useCompleteTripsQuery } from "@/lib/queries";
 import { useFinanceCustomerLedgerInputs } from "@/lib/queries/useLedgerAggregationQuery";
 import {
   customerLedgerLoadState,
@@ -1692,7 +1692,7 @@ export function CustomersTab({
 
   const { data: clientsFromQuery = [], isPending: clientsLoading } =
     useClientsQuery(isControlled ? null : organizationId);
-  const { data: tripsFromQuery = [] } = useTripsQuery(
+  const { data: tripsFromQuery = [] } = useCompleteTripsQuery(
     isControlled ? null : organizationId,
   );
 

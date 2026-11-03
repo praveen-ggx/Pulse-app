@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useQueryBootDefer } from '@/lib/hooks/useQueryBootDefer';
 import { getTripsWhereOrgIsClient } from '@/features/trips/services/trips.service';
 import { useIndentsQuery } from '@/lib/queries/useIndentsQuery';
-import { useTripsQuery } from '@/lib/queries/useTripsQuery';
+import { useCompleteTripsQuery } from '@/lib/queries/useTripsQuery';
 import { getDriverOffersByOrganization } from '@/features/drivers/services/drivers.service';
 import { getSalaryRequestsByOrganization } from '@/features/drivers/services/salaryRequests.service';
 import { getAcceptedDirectQuotesByOrg } from '@/features/indents/services/direct-quotes.service';
@@ -28,9 +28,9 @@ export function useTripsWhereOrgIsClientQuery(orgId: string | null, active = tru
   });
 }
 
-/** Trips owned by other orgs where this org is the supplier — derived from useTripsQuery cache, no extra request. */
+/** Trips owned by other orgs where this org is the supplier — from the complete catalog, not the newest 400. */
 export function useTripsWhereOrgIsSupplierQuery(orgId: string | null) {
-  const tripsQuery = useTripsQuery(orgId);
+  const tripsQuery = useCompleteTripsQuery(orgId);
   const supplierTrips = useMemo(
     () => tripsQuery.data?.filter((t) => t.organization_id !== orgId) ?? [],
     [tripsQuery.data, orgId],

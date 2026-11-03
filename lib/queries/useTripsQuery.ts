@@ -4,6 +4,7 @@
  */
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  getAllTripsForOrg,
   getTripsByOrganization,
   getTripsForOrg,
   getTripPartyCountsForOrg,
@@ -38,6 +39,26 @@ export function useTripsQuery(orgId: string | null) {
       const res = await getTripsForOrg(orgId!);
       if (res.error) throw res.error;
       if (!isStartupComplete()) markStartupPhase('trips_query_done');
+      return res.trips;
+    },
+    enabled: !!orgId && status !== 'restoring' && bootQuietOpen,
+    staleTime: STALE.realtime,
+    refetchOnMount: refetchOnMountIfEntityListEmpty<TripRow[]>(),
+  });
+}
+
+/**
+ * Totals and analytics. Walks past the newest-400 catalog so sales, cost, and
+ * trip counts are the org's real history.
+ */
+export function useCompleteTripsQuery(orgId: string | null) {
+  const { status } = useAuth();
+  const bootQuietOpen = useAppQueryGate(orgId);
+  return useQuery<TripRow[], Error>({
+    queryKey: queryKeys.trips.complete(orgId ?? ''),
+    queryFn: async () => {
+      const res = await getAllTripsForOrg(orgId!);
+      if (res.error) throw res.error;
       return res.trips;
     },
     enabled: !!orgId && status !== 'restoring' && bootQuietOpen,

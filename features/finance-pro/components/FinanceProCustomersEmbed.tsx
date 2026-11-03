@@ -5,7 +5,7 @@
 import { CustomersTab, type CustomersViewTab } from "@/features/clients/components/CustomersTab";
 import type { EntityListFilter } from "@/features/finance/components/TreasurySummaryCard";
 import { useOrganization } from "@/contexts/OrganizationContext";
-import { useTripsQuery } from "@/lib/queries";
+import { useCompleteTripsQuery } from "@/lib/queries";
 import { useTripFinanceAdjustmentsMap } from "@/lib/queries/useTripFinanceAdjustmentsQuery";
 import { useCallback, useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
@@ -30,7 +30,7 @@ export function FinanceProCustomersEmbed({
 }) {
   const { currentOrganization } = useOrganization();
   const orgId = currentOrganization?.id ?? null;
-  const { data: tripRows = [] } = useTripsQuery(orgId);
+  const { data: tripRows = [] } = useCompleteTripsQuery(orgId);
   const tripIds = useMemo(
     () => tripRows.map((t) => t.id).filter(Boolean),
     [tripRows],

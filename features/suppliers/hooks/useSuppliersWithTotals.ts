@@ -4,7 +4,7 @@
  */
 import { useCallback, useMemo } from 'react';
 import { useSuppliersQuery } from '@/lib/queries/useSuppliersQuery';
-import { useTripsQuery } from '@/lib/queries/useTripsQuery';
+import { useCompleteTripsQuery } from '@/lib/queries/useTripsQuery';
 import {
   computeSupplierTotalsFromTrips,
   computeTripSummary,
@@ -12,7 +12,7 @@ import {
 
 export function useSuppliersWithTotals(organizationId: string | null) {
   const suppliersQuery = useSuppliersQuery(organizationId);
-  const tripsQuery = useTripsQuery(organizationId);
+  const tripsQuery = useCompleteTripsQuery(organizationId);
 
   const suppliers = suppliersQuery.data ?? [];
   const trips = tripsQuery.data ?? [];

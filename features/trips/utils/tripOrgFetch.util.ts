@@ -21,6 +21,51 @@ export function datedGetTripsForOrgCapNote(rowCount: number): string | null {
   return `Results may be incomplete (newest ${GET_TRIPS_FOR_ORG_DATED_SAFETY_CAP} matching trips)`;
 }
 
+function utcIsoDate(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+function nextIsoDate(iso: string): string | null {
+  const [year, month, day] = iso.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return utcIsoDate(Date.UTC(year, month - 1, day + 1));
+}
+
+/** Split an inclusive calendar range into two non-overlapping halves. */
+export function splitIsoDateRange(
+  from: string,
+  to: string,
+): { from: string; to: string }[] | null {
+  if (from >= to) return null;
+  const start = Date.parse(`${from}T00:00:00Z`);
+  const end = Date.parse(`${to}T00:00:00Z`);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+  const mid = utcIsoDate(start + Math.floor((end - start) / 2));
+  if (mid < from || mid >= to) return null;
+  const rightFrom = nextIsoDate(mid);
+  if (!rightFrom || rightFrom > to) return null;
+  return [
+    { from, to: mid },
+    { from: rightFrom, to },
+  ];
+}
+
+/**
+ * A dated get_trips_for_org page of 2000 is truncated. Keep the page only when
+ * it is short, or when the range is already a single day.
+ */
+export function completeTripRangeStep(
+  range: { from: string; to: string },
+  rowCount: number,
+): { accept: boolean; children: { from: string; to: string }[] } {
+  if (!isDatedGetTripsForOrgCapped(rowCount) || range.from === range.to) {
+    return { accept: true, children: [] };
+  }
+  const children = splitIsoDateRange(range.from, range.to);
+  if (!children) return { accept: true, children: [] };
+  return { accept: false, children };
+}
+
 /**
  * Table-scan fallback for `get_trips_for_org` is only for a missing RPC
  * (local/old schema). 503/504/timeout must not start a second `trips` SELECT

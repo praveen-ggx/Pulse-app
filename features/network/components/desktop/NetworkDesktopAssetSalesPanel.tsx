@@ -60,7 +60,7 @@ import {
 } from "@/features/network/lib/networkExport.util";
 import { formatINRChip } from "@/lib/format";
 import { useDriversQuery } from "@/lib/queries/useDriversQuery";
-import { useTripsQuery } from "@/lib/queries/useTripsQuery";
+import { useCompleteTripsQuery } from "@/lib/queries/useTripsQuery";
 import { useVehiclesQuery } from "@/lib/queries/useVehiclesQuery";
 import {
   Activity,
@@ -308,7 +308,7 @@ export function NetworkDesktopAssetSalesPanel({ orgId }: Props) {
   const [performanceView, setPerformanceView] =
     useState<AssetPerformanceView>("drivers");
 
-  const tripsQ = useTripsQuery(orgId);
+  const tripsQ = useCompleteTripsQuery(orgId);
   const driversQ = useDriversQuery(orgId);
   const vehiclesQ = useVehiclesQuery(orgId);
   const trips = tripsQ.data ?? [];

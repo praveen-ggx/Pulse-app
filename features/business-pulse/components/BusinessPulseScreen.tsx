@@ -22,7 +22,7 @@ import {
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { useClientsQuery } from "@/lib/queries/useClientsQuery";
 import { useSuppliersQuery } from "@/lib/queries/useSuppliersQuery";
-import { useTripsQuery } from "@/lib/queries/useTripsQuery";
+import { useCompleteTripsQuery } from "@/lib/queries/useTripsQuery";
 import { useVehiclesQuery } from "@/lib/queries/useVehiclesQuery";
 import { useDriversQuery } from "@/lib/queries/useDriversQuery";
 import { supabase } from "@/lib/supabase";
@@ -265,7 +265,7 @@ export function BusinessPulseScreen({ embedded = false, topInset }: BusinessPuls
 
   const clientsQuery = useClientsQuery(orgId);
   const suppliersQuery = useSuppliersQuery(orgId);
-  const tripsQuery = useTripsQuery(orgId);
+  const tripsQuery = useCompleteTripsQuery(orgId);
   const vehiclesQuery = useVehiclesQuery(orgId);
   const driversQuery = useDriversQuery(orgId);
 

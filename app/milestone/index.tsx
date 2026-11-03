@@ -12,7 +12,7 @@ import { CenteredLoadingView } from '@/components/CenteredLoadingView';
 import { useSafeBack } from '@/lib/useSafeBack';
 import { useAuth } from '@/contexts/AuthContext';
 import { useOrganization } from '@/contexts/OrganizationContext';
-import { useTripsQuery } from '@/lib/queries/useTripsQuery';
+import { useCompleteTripsQuery } from '@/lib/queries/useTripsQuery';
 import { useQuery } from '@tanstack/react-query';
 import {
   averageScore,
@@ -48,7 +48,7 @@ export default function MilestoneScreen() {
   const { user, profile } = useAuth();
   const { currentOrganization } = useOrganization();
   const orgId = currentOrganization?.id ?? null;
-  const { data: trips = [], isLoading: tripsLoading } = useTripsQuery(orgId);
+  const { data: trips = [], isLoading: tripsLoading } = useCompleteTripsQuery(orgId);
 
   const { data: ratingBundle, isLoading: ratingsLoading } = useQuery({
     queryKey: ['q', 'milestone', 'receivedRatings', orgId ?? ''],

@@ -30,7 +30,7 @@ import { formatINRChip } from "@/lib/format";
 import {
   useDriverOffersQuery,
   useDriversQuery,
-  useTripsQuery,
+  useCompleteTripsQuery,
 } from "@/lib/queries";
 
 import { PartyAvatar } from "@/components/PartyAvatar";
@@ -259,7 +259,7 @@ export function DriverFleetRankingTab({ currentDriverId }: Props) {
   const orgId = currentOrganization?.id ?? null;
   const [sortKey, setSortKey] = useState<DriverLeaderboardSortKey>("score");
 
-  const { data: trips = [] } = useTripsQuery(orgId);
+  const { data: trips = [] } = useCompleteTripsQuery(orgId);
   const { data: drivers = [] } = useDriversQuery(orgId);
   const { data: offers = {} } = useDriverOffersQuery(orgId);
 

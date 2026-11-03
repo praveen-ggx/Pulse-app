@@ -21,7 +21,7 @@ import {
   useDriversQuery,
   useSalaryRequestsQuery,
   useSuppliersQuery,
-  useTripsQuery,
+  useCompleteTripsQuery,
   useTripsWhereOrgIsClientQuery,
   useTripsWhereOrgIsSupplierQuery,
   useVehiclesQuery,
@@ -73,7 +73,7 @@ export function useFinanceEntities({
   const orgId = canAccess ? organizationId : null;
 
   const { data: clientRows = [], isPending: clientsLoading } = useClientsQuery(orgId);
-  const { data: tripRows = [], isPending: tripsLoading, isError: tripsError, refetch: refetchTrips } = useTripsQuery(orgId);
+  const { data: tripRows = [], isPending: tripsLoading, isError: tripsError, refetch: refetchTrips } = useCompleteTripsQuery(orgId);
   const { data: supplierRows = [], isPending: suppliersLoading } = useSuppliersQuery(orgId);
   const { data: vehicleRows = [], isPending: vehiclesLoading } = useVehiclesQuery(orgId);
   const { data: driverRows = [], isPending: driversLoading } = useDriversQuery(orgId, {

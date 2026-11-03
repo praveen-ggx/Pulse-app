@@ -18,7 +18,7 @@ import Theme from "@/constants/Theme";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { METRONIC } from "@/features/network/components/desktop/networkDesktopHub.styles";
 import type { MissionRow } from "@/features/vehicles/components/analytics/analyticsUtils";
-import { useTripsQuery, useTransactionsQuery } from "@/lib/queries";
+import { useCompleteTripsQuery, useTransactionsQuery } from "@/lib/queries";
 
 const ClientAnalyticsTab = lazy(() =>
   import("@/features/clients/components/analytics/ClientAnalyticsTab").then((m) => ({
@@ -59,7 +59,7 @@ export function FleetPartyAnalyticsFullScreen({ kind }: { kind: FleetPartyKind }
   const orgId = currentOrganization?.id ?? null;
   const copy = COPY[kind];
 
-  const tripsQ = useTripsQuery(orgId);
+  const tripsQ = useCompleteTripsQuery(orgId);
   const txQ = useTransactionsQuery(orgId);
   const trips = tripsQ.data ?? [];
   const transactions = txQ.data ?? [];

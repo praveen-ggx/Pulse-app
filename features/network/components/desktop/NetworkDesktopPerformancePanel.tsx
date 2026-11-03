@@ -110,7 +110,7 @@ import { useClientsQuery } from "@/lib/queries/useClientsQuery";
 import { useDriversQuery } from "@/lib/queries/useDriversQuery";
 import { useOrgMembersData } from "@/lib/queries/useOrgMembersQuery";
 import { useSuppliersQuery } from "@/lib/queries/useSuppliersQuery";
-import { useTripsQuery } from "@/lib/queries/useTripsQuery";
+import { useCompleteTripsQuery } from "@/lib/queries/useTripsQuery";
 import { useVehiclesQuery } from "@/lib/queries/useVehiclesQuery";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -221,7 +221,7 @@ export function NetworkDesktopPerformancePanel({ orgId }: Props) {
     };
   }, [orgId]);
 
-  const tripsQ = useTripsQuery(orgId);
+  const tripsQ = useCompleteTripsQuery(orgId);
   const clientsQ = useClientsQuery(orgId);
   const driversQ = useDriversQuery(orgId);
   const vehiclesQ = useVehiclesQuery(orgId);

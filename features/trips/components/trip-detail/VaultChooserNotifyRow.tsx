@@ -95,6 +95,8 @@ type Props = {
   onEdit?: () => void;
   /** Full document viewer with next / previous across files. */
   onOpenFull?: (index: number) => void;
+  /** Optional download — shown as a top-right icon on shop cards when on file. */
+  onDownload?: () => void;
   onAdd: () => void;
   /** Replace the rejected trip file in place. When set, Add is hidden. */
   onReplace?: () => void;
@@ -320,6 +322,7 @@ export function VaultChooserNotifyRow({
   onEditExpiry,
   onEdit,
   onOpenFull,
+  onDownload,
   onAdd,
   onReplace,
   appearance = "default",
@@ -489,8 +492,21 @@ export function VaultChooserNotifyRow({
         </ScrollView>
       );
     }
+    const showDownload = onFile && Boolean(onDownload);
+
     return (
       <View style={[styles.card, styles.cardShop]} accessibilityLabel={a11yLabel}>
+        {showDownload ? (
+          <Pressable
+            onPress={onDownload}
+            style={styles.shopDownloadBtn}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={`Download ${label}`}
+          >
+            <Feather name="download" size={14} color={SHOP.ink} />
+          </Pressable>
+        ) : null}
         {showHero ? (
           <View style={styles.shopHeroBand}>
             {showDoc && heroPreview ? (
@@ -1112,6 +1128,21 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderColor: SHOP.hairline,
     backgroundColor: Theme.cardWhite,
+  },
+  shopDownloadBtn: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    zIndex: 2,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.cardWhite,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: SHOP.hairline,
+    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as const) : {}),
   },
   shopHeroBand: {
     width: "100%",

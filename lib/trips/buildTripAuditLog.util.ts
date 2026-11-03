@@ -295,7 +295,7 @@ function statusDetailLine(
   if (item.status_context === "created") {
     return base && !base.toLowerCase().includes("system generated")
       ? base
-      : `${actor} created ${tripRef}`;
+      : actor ? `${actor} created ${tripRef}` : `Created ${tripRef}`;
   }
   return base || `${item.status_label} · ${tripRef}`;
 }
@@ -571,7 +571,7 @@ export function buildTripAuditLog(params: {
           : "Assignment",
       detail:
         detailLines.join(" · ") ||
-        `${actor} updated assignment on ${tripRef}`,
+        actor ? `${actor} updated assignment on ${tripRef}` : `Assignment updated on ${tripRef}`,
       detailLines: detailLines.length > 0 ? detailLines : undefined,
       people: people.length > 0 ? people : undefined,
     });
@@ -772,7 +772,9 @@ export function buildTripAuditLog(params: {
         "",
         userProfileById,
       );
-      const originLine = `Created by ${originWho} · ${formatAuditTimestamp(mile.originAt)}`;
+      const originLine = originWho
+        ? `Created by ${originWho} · ${formatAuditTimestamp(mile.originAt)}`
+        : `Created · ${formatAuditTimestamp(mile.originAt)}`;
       if (!lines.includes(originLine)) lines.push(originLine);
     }
     if (detail && !lines.includes(detail)) {
@@ -831,7 +833,7 @@ export function buildTripAuditLog(params: {
         "client",
       ),
       contextLabel: "Trip created",
-      detail: `${creator} created ${tripRef}`,
+      detail: creator ? `${creator} created ${tripRef}` : `Created ${tripRef}`,
     });
   }
 
@@ -929,7 +931,7 @@ export function buildTripAuditLog(params: {
         "client",
       ),
       contextLabel: "Hard copy POD",
-      detail: detail || `${actor} updated hard copy POD for ${tripRef}`,
+      detail: detail || (actor ? `${actor} updated hard copy POD for ${tripRef}` : `Hard copy POD updated for ${tripRef}`),
     });
   }
 

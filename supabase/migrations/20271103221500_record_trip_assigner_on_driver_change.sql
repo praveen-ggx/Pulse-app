@@ -94,7 +94,7 @@ BEGIN
     FROM public.trip_assignment_audit a
     WHERE a.trip_id = NEW.id
       AND a.driver_id_new IS NOT DISTINCT FROM NEW.driver_id
-      AND a.changed_at > now() - interval '15 seconds'
+      AND a.changed_at > clock_timestamp() - interval '15 seconds'
   ) THEN
     RETURN NEW;
   END IF;
@@ -123,9 +123,9 @@ BEGIN
     WHEN check_violation THEN
       NULL;
     WHEN insufficient_privilege THEN
-      NULL;
+      RAISE WARNING 'trips_write_assignment_audit: insufficient_privilege trip_id=% actor=%', NEW.id, v_actor;
     WHEN foreign_key_violation THEN
-      NULL;
+      RAISE WARNING 'trips_write_assignment_audit: fk_violation trip_id=% actor=%', NEW.id, v_actor;
   END;
 
   RETURN NEW;
@@ -141,7 +141,7 @@ CREATE TRIGGER trg_trips_record_assigner_on_driver_change
 
 DROP TRIGGER IF EXISTS trg_trips_write_assignment_audit_on_driver_change ON public.trips;
 CREATE TRIGGER trg_trips_write_assignment_audit_on_driver_change
-  AFTER INSERT OR UPDATE OF driver_id, vehicle_id
+  AFTER INSERT OR UPDATE OF driver_id
   ON public.trips
   FOR EACH ROW
   EXECUTE FUNCTION public.trips_write_assignment_audit_on_driver_change();
@@ -150,4 +150,4 @@ COMMENT ON FUNCTION public.trips_record_assigner_on_driver_change() IS
   'Stamps trips.assigned_by_user_id from auth.uid() whenever driver_id is set or changed.';
 
 COMMENT ON FUNCTION public.trips_write_assignment_audit_on_driver_change() IS
-  'Writes trip_assignment_audit (assignment/reassignment) when driver/vehicle changes so Manifest Pulse can show the assigner.';
+  'Writes trip_assignment_audit (assignment/reassignment) when driver_id changes so Manifest Pulse can show the assigner.';

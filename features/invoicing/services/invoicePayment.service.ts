@@ -13,6 +13,8 @@ export type InvoicePaymentSummary = {
   paymentStatus: InvoicePaymentStatus;
   lastPaymentDate: string | null;
   lastReference: string | null;
+  /** Issued credit notes on the invoice (0 when the database predates credit notes). */
+  amountCredited: number;
 };
 
 export type InvoicePaymentHistoryRow = {
@@ -151,6 +153,7 @@ export async function fetchInvoicePaymentSummaries(
         paymentStatus: String(item.payment_status ?? "unpaid") as InvoicePaymentStatus,
         lastPaymentDate: text(item.last_payment_date),
         lastReference: text(item.last_reference),
+        amountCredited: money(item.amount_credited),
       };
     }),
   };

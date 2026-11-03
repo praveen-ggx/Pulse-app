@@ -4,7 +4,8 @@ export type InvoicePaymentStatus =
   | "unpaid"
   | "partially_paid"
   | "paid"
-  | "overpaid";
+  | "overpaid"
+  | "cancelled";
 
 export type AgingBucket =
   | "current"
@@ -45,8 +46,9 @@ export function invoiceAmountOutstanding(total: number, received: number): numbe
 
 export function paymentStatusLabel(status: InvoicePaymentStatus): string {
   if (status === "partially_paid") return "Partially Paid";
-  if (status === "overpaid") return "Overpaid";
+  if (status === "overpaid") return "Customer credit";
   if (status === "paid") return "Paid";
+  if (status === "cancelled") return "Cancelled";
   return "Unpaid";
 }
 

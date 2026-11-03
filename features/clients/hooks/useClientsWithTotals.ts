@@ -4,12 +4,12 @@
  */
 import { useCallback, useMemo } from 'react';
 import { useClientsQuery } from '@/lib/queries/useClientsQuery';
-import { useTripsQuery } from '@/lib/queries/useTripsQuery';
+import { useCompleteTripsQuery } from '@/lib/queries/useTripsQuery';
 import { computeClientTotals, computeTripSummary } from '@/features/clients/utils/totals.util';
 
 export function useClientsWithTotals(organizationId: string | null, enabled: boolean) {
   const clientsQuery = useClientsQuery(enabled ? organizationId : null);
-  const tripsQuery = useTripsQuery(enabled ? organizationId : null);
+  const tripsQuery = useCompleteTripsQuery(enabled ? organizationId : null);
 
   const clients = clientsQuery.data ?? [];
   const trips = tripsQuery.data ?? [];

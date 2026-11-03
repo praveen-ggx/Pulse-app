@@ -51,7 +51,7 @@ import { useDriversQuery } from "@/lib/queries/useDriversQuery";
 import { useOrgMembersData } from "@/lib/queries/useOrgMembersQuery";
 import { useSuppliersQuery } from "@/lib/queries/useSuppliersQuery";
 import { useTransactionsQuery } from "@/lib/queries/useTransactionsQuery";
-import { useTripsQuery } from "@/lib/queries/useTripsQuery";
+import { useCompleteTripsQuery } from "@/lib/queries/useTripsQuery";
 import { useVehiclesQuery } from "@/lib/queries/useVehiclesQuery";
 import type { OrgMember } from "@/types/organization";
 import {
@@ -781,7 +781,7 @@ export function NetworkDesktopGoalsPanel({ orgId }: Props) {
   const [editingPeriodKey, setEditingPeriodKey] = useState<string | null>(null);
   const [periodTargetDraft, setPeriodTargetDraft] = useState("");
 
-  const tripsQ = useTripsQuery(orgId);
+  const tripsQ = useCompleteTripsQuery(orgId);
   const txQ = useTransactionsQuery(orgId);
   const clientsQ = useClientsQuery(orgId);
   const suppliersQ = useSuppliersQuery(orgId);

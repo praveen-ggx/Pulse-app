@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useOrganization } from "@/contexts/OrganizationContext";
-import { useClientsQuery, useTripsQuery } from "@/lib/queries";
+import { useClientsQuery, useCompleteTripsQuery } from "@/lib/queries";
 import { useCustomerLedgerInputsQuery } from "@/lib/queries/useLedgerAggregationQuery";
 import { useIssuedInvoicesQuery } from "@/lib/queries/useInvoicingExecuteQueries";
 import { loadHubPodReceiptFlags } from "@/features/trips/services/tripDocumentLrPod.service";
@@ -19,7 +19,7 @@ export function useFinanceProModel() {
 
   const clientsQ = useClientsQuery(orgId);
   const ledgerQ = useCustomerLedgerInputsQuery(orgId, true);
-  const tripsQ = useTripsQuery(orgId);
+  const tripsQ = useCompleteTripsQuery(orgId);
   const invoicesQ = useIssuedInvoicesQuery(orgId);
 
   const digitalPodCandidateIds = useMemo(() => {

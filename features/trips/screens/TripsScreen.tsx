@@ -122,6 +122,7 @@ import {
     tripPodIsReceived,
     type HubPodReceiptFlags,
 } from "@/features/trips/services/tripDocumentLrPod.service";
+import { loadSoftCopyUploadersByTripId } from "@/features/trips/services/tripSoftCopyUploader.service";
 import { getTripStatusTimes } from "@/features/trips/services/tripStatusTimes.service";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { isAttributedFleetTrip } from "@/features/trips/utils/attributedFleetTrip.util";
@@ -529,6 +530,7 @@ export default function TripsScreen() {
   const [customDateTo, setCustomDateTo] = useState<string | null>(null);
   const [tripLedgerExportOpen, setTripLedgerExportOpen] = useState(false);
   const [tripReportDownloading, setTripReportDownloading] = useState(false);
+  const [exportDateModalVisible, setExportDateModalVisible] = useState(false);
   /** Domain flags — finance gates cost columns on Trip Report export. */
   const memberDomains = useMemberCapabilities();
   const [activeHistoryMetricTab, setActiveHistoryMetricTab] =
@@ -2397,7 +2399,7 @@ export default function TripsScreen() {
    * - Sales → Sales indent report (Indent ID + costs when finance).
    * - TripOps-only → classic ops sheet (TRIP ID / LR NO / stage times).
    */
-  const handleDownloadTripReport = useCallback(async () => {
+  const handleDownloadTripReport = useCallback(async (exportFrom: string, exportTo: string) => {
     if (!orgId || tripReportDownloading) return;
     setTripReportDownloading(true);
     try {
@@ -2407,10 +2409,10 @@ export default function TripsScreen() {
         hubTrips,
         allIndents,
         {
-          dateBounds: hubDateBounds ?? HUB_ALL_TIME_BOUNDS,
-          dateFilter: dateRangeFilter,
-          customFrom: customDateFrom,
-          customTo: customDateTo,
+          dateBounds: { from: exportFrom, to: exportTo },
+          dateFilter: "custom",
+          customFrom: exportFrom,
+          customTo: exportTo,
         },
       );
       if (catalog.error) {
@@ -2424,10 +2426,10 @@ export default function TripsScreen() {
 
       if (audience === "tripops") {
         const tripIds = scopedTrips.map((t) => t.id);
-        const [statusResult, docFlags, driverPhoneByTripId] = await Promise.all([
+        const [statusResult, docFlags, softCopyUploaderByTripId] = await Promise.all([
           getTripStatusTimes(tripIds),
           loadHubPodReceiptFlags(tripIds),
-          loadDriverPhonesByTripId(scopedTrips),
+          loadSoftCopyUploadersByTripId(tripIds),
         ]);
         if (statusResult.error) {
           showAppAlert(
@@ -2442,11 +2444,10 @@ export default function TripsScreen() {
             ...lrNumbersByTripId,
             ...(docFlags.lrNumbersByTripId ?? {}),
           },
-          driverPhoneByTripId,
-          driverPhoneByDriverId: driverPhoneById,
           partyMetaByTripId: tripHubPartyMetaByTripId,
           clientNameForTrip: tripCardClientName,
           stageLabelForTrip: getStageLabelForTrip,
+          softCopyUploaderByTripId,
         });
         const notes: string[] = [...catalog.notes];
         await downloadTripOpsReportExcel(rows, {
@@ -2496,17 +2497,12 @@ export default function TripsScreen() {
     tripReportDownloading,
     hubTrips,
     allIndents,
-    hubDateBounds,
-    dateRangeFilter,
-    customDateFrom,
-    customDateTo,
     sourcingScope,
     tripHubPartyMetaByTripId,
     getStageLabelForTrip,
     currentOrganization?.name,
     memberDomains,
     lrNumbersByTripId,
-    driverPhoneById,
     tripCardClientName,
   ]);
 
@@ -2693,21 +2689,11 @@ export default function TripsScreen() {
     staleTime: 60_000,
     queryFn: () => loadHubPodReceiptFlags(opsExportTripIds),
   });
-  const opsExportDriverPhonesQuery = useQuery({
-    queryKey: queryKeys.trips.hubDriverPhones(orgId ?? "", opsExportIdsKey),
-    enabled: opsExportQueriesEnabled,
-    staleTime: 5 * 60_000,
-    queryFn: () => loadDriverPhonesByTripId(filtered),
-  });
   const opsExportLrByTripId = opsExportDocFlagsQuery.data?.lrNumbersByTripId;
-  const opsExportPhoneByTripId = opsExportDriverPhonesQuery.data;
   const opsExportLoading =
     opsStatusTimesQuery.isLoading ||
-    opsExportDocFlagsQuery.isLoading ||
-    opsExportDriverPhonesQuery.isLoading;
-  // Not while refetching: a retry keeps isError true until it settles, and
-  // counting that would close the sheet again before the retry can succeed.
-  const opsExportFailed = [opsStatusTimesQuery, opsExportDocFlagsQuery, opsExportDriverPhonesQuery].some(
+    opsExportDocFlagsQuery.isLoading;
+  const opsExportFailed = [opsStatusTimesQuery, opsExportDocFlagsQuery].some(
     (q) => q.isError && !q.isFetching,
   );
   // Don't open the sheet with blank columns; close it and say so instead.
@@ -2733,8 +2719,6 @@ export default function TripsScreen() {
         ...lrNumbersByTripId,
         ...(opsExportLrByTripId ?? {}),
       },
-      driverPhoneByTripId: opsExportPhoneByTripId,
-      driverPhoneByDriverId: driverPhoneById,
       partyMetaByTripId: tripHubPartyMetaByTripId,
       clientNameForTrip: tripCardClientName,
       stageLabelForTrip: getStageLabelForTrip,
@@ -2749,8 +2733,6 @@ export default function TripsScreen() {
     opsExportLrByTripId,
     lrNumbersByTripId,
     tripCardClientName,
-    opsExportPhoneByTripId,
-    driverPhoneById,
     getStageLabelForTrip,
   ]);
 
@@ -3446,7 +3428,7 @@ export default function TripsScreen() {
         }
         loading={tripReportDownloading}
         disabled={tripReportDownloading || !orgId}
-        onPress={() => void handleDownloadTripReport()}
+        onPress={() => setExportDateModalVisible(true)}
         accessibilityLabel="Download Trip Report"
         style={[styles.tripsAddButtonOnChrome, styles.tripsReportIconButton]}
       />
@@ -3610,6 +3592,21 @@ export default function TripsScreen() {
           setCustomDateTo(null);
           setDateRangeFilter("all");
           setShowDateRangePicker(false);
+        }}
+      />
+
+      <DateRangePickerModal
+        visible={exportDateModalVisible}
+        initialFrom={customDateFrom}
+        initialTo={customDateTo}
+        onDismiss={() => setExportDateModalVisible(false)}
+        title="EXPORT TRIPS"
+        subtitle="Select date range for report"
+        applyLabel="DOWNLOAD REPORT"
+        maxSpanDays={90}
+        onApply={(from, to) => {
+          setExportDateModalVisible(false);
+          void handleDownloadTripReport(from, to);
         }}
       />
 

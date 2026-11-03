@@ -33,6 +33,14 @@ function triggerWebDownload(blob: Blob, fileName: string): void {
   URL.revokeObjectURL(objectUrl);
 }
 
+function safeCell(v: string | number | null | undefined): string | number {
+  if (v == null) return "";
+  if (typeof v === "number") return v;
+  const s = String(v);
+  if (s.length > 0 && "=+-@\t\r\n".includes(s[0])) return `'${s}`;
+  return s;
+}
+
 export function buildTripOpsReportWorkbook(
   rows: TripOpsReportRow[],
   options: TripOpsReportDownloadOptions = {},
@@ -40,10 +48,7 @@ export function buildTripOpsReportWorkbook(
   const columns = TRIP_OPS_REPORT_COLUMNS;
   const header = columns.map((c) => c.label);
   const body = rows.map((row) =>
-    columns.map((c) => {
-      const v = row[c.key];
-      return v == null ? "" : v;
-    }),
+    columns.map((c) => safeCell(row[c.key])),
   );
   const noteRows = (options.notes ?? [])
     .map((n) => n.trim())

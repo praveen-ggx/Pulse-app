@@ -28,14 +28,48 @@ import {
 } from "@/features/vehicles/utils/vehicleTypeCatalog.model";
 
 const CATEGORY_IMAGES: Record<VehicleCategoryKey, ImageSourcePropType> = {
+  trailer: require("../../../assets/trucks/OpenBody.png") as ImageSourcePropType,
   open: require("../../../assets/trucks/OpenBody.png") as ImageSourcePropType,
   container: require("../../../assets/trucks/32FT_Container.png") as ImageSourcePropType,
   lcv: require("../../../assets/trucks/LCV.png") as ImageSourcePropType,
+  tipper: require("../../../assets/trucks/Tipper.png") as ImageSourcePropType,
+  tanker: require("../../../assets/trucks/LCV.png") as ImageSourcePropType,
+  bulker: require("../../../assets/trucks/LCV.png") as ImageSourcePropType,
+  reefer: require("../../../assets/trucks/32FT_Container.png") as ImageSourcePropType,
+  car_carrier: require("../../../assets/trucks/OpenBody.png") as ImageSourcePropType,
 };
 
+const CATEGORY_GROUP_MAP: Record<VehicleCategoryKey, VehicleGroupLabel> = {
+  trailer: "Trailer",
+  open: "Open",
+  container: "Container",
+  lcv: "LCV Open",
+  tipper: "Tipper",
+  tanker: "Tanker",
+  bulker: "Bulker",
+  reefer: "Reefer",
+  car_carrier: "Car Carrier",
+};
+
+function formatPassingTonLabel(label: string): string {
+  const plus = label.match(/^\s*([\d.]+)\+\s*Ton\s*$/i);
+  if (plus) return `${plus[1]}+ MT`;
+  const range = label.match(/^\s*[\d.]+\s*-\s*([\d.]+)\s*Ton\s*$/i);
+  if (range) return `Upto ${range[1]} MT`;
+  const single = label.match(/^\s*([\d.]+)\s*Ton\s*$/i);
+  if (single) return `Upto ${single[1]} MT`;
+  return label.replace(/Ton$/i, "").trim();
+}
+
 function categoryOfGroup(group: VehicleGroupLabel): VehicleCategoryKey {
+  if (group === "Trailer") return "trailer";
   if (group === "Open") return "open";
   if (group === "Container") return "container";
+  if (group === "Tipper") return "tipper";
+  if (group === "Tanker") return "tanker";
+  if (group === "Bulker") return "bulker";
+  if (group === "Reefer") return "reefer";
+  if (group === "Car Carrier") return "car_carrier";
   return "lcv";
 }
 
@@ -77,7 +111,7 @@ export function VehicleTypeCatalogSheet({ visible, value, tons: loadTons, onClos
   const canApply = type != null;
 
   const pickCategory = (key: VehicleCategoryKey) => {
-    const next: VehicleGroupLabel = key === "open" ? "Open" : key === "container" ? "Container" : "LCV Open";
+    const next: VehicleGroupLabel = CATEGORY_GROUP_MAP[key];
     if (categoryOfGroup(group) === key) return;
     setGroup(next);
     setType(null);
@@ -124,25 +158,31 @@ export function VehicleTypeCatalogSheet({ visible, value, tons: loadTons, onClos
             </Pressable>
           </View>
 
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoryScroll}
+            style={styles.categoryScrollOuter}
+          >
+            {VEHICLE_MAIN_CATEGORIES.map((c) => {
+              const active = c.key === category;
+              return (
+                <Pressable
+                  key={c.key}
+                  style={[styles.categoryCard, active && styles.categoryActive]}
+                  onPress={() => pickCategory(c.key)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                >
+                  <Image source={CATEGORY_IMAGES[c.key]} style={styles.categoryImage} resizeMode="contain" />
+                  <Text style={[styles.categoryName, active && styles.textActive]}>{c.name}</Text>
+                  <Text style={styles.categoryRange}>{c.capacityRange}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
           <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-            <View style={styles.categoryRow}>
-              {VEHICLE_MAIN_CATEGORIES.map((c) => {
-                const active = c.key === category;
-                return (
-                  <Pressable
-                    key={c.key}
-                    style={[styles.categoryCard, active && styles.tileActive]}
-                    onPress={() => pickCategory(c.key)}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: active }}
-                  >
-                    <Image source={CATEGORY_IMAGES[c.key]} style={styles.categoryImage} resizeMode="contain" />
-                    <Text style={[styles.categoryName, active && styles.textActive]}>{c.name}</Text>
-                    <Text style={styles.categoryRange}>{c.capacityRange}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
 
             {category === "lcv" ? (
               <View style={styles.chipRow}>
@@ -198,7 +238,7 @@ export function VehicleTypeCatalogSheet({ visible, value, tons: loadTons, onClos
                         accessibilityRole="button"
                         accessibilityState={{ selected: active }}
                       >
-                        <Text style={[styles.typeText, active && styles.textActive]}>{t}</Text>
+                        <Text style={[styles.typeText, active && styles.textActive]}>{formatPassingTonLabel(t)}</Text>
                       </Pressable>
                     );
                   })}
@@ -270,12 +310,16 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 12,
   },
-  categoryRow: {
-    flexDirection: "row",
+  categoryScrollOuter: {
+    flexGrow: 0,
+    marginTop: 4,
+  },
+  categoryScroll: {
+    paddingHorizontal: 16,
     gap: 8,
   },
   categoryCard: {
-    flex: 1,
+    width: 100,
     alignItems: "center",
     paddingVertical: 10,
     paddingHorizontal: 4,
@@ -354,6 +398,11 @@ const styles = StyleSheet.create({
     borderColor: Theme.borderLight,
     backgroundColor: Theme.cardWhite,
     ...Platform.select({ web: { cursor: "pointer" as const }, default: {} }),
+  },
+  categoryActive: {
+    backgroundColor: Theme.cardWhite,
+    borderColor: Theme.textPrimaryDark,
+    borderWidth: 2,
   },
   tileActive: {
     backgroundColor: Theme.primaryLight,

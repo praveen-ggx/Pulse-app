@@ -619,6 +619,7 @@ export function InvoicePreviewPanel({
         </View>
       ) : null}
       <PulseInvoiceDocument
+        a4Pages
         compact={density === "compact"}
         invoiceNumber={invoiceNumberLabel}
         invoiceDate={invoiceDateLabel}

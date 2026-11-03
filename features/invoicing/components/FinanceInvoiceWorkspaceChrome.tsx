@@ -142,6 +142,7 @@ const BOOKS: { key: FinanceBookSection; label: string }[] = [
   { key: "credits", label: "Credit Notes" },
   { key: "reconcile", label: "Reconciliation" },
   { key: "reports", label: "Reports" },
+  { key: "details", label: "Client Details" },
 ];
 
 export function FinanceBookNav({
@@ -188,9 +189,6 @@ export function FinanceInvoiceWorkspaceTabs({
     { key: "pending", label: "Trips" },
     { key: "drafts", label: "Drafts" },
     { key: "issued", label: "Issued" },
-    { key: "ar", label: "AR" },
-    { key: "receipts", label: "Receipts" },
-    { key: "details", label: "Client Details" },
   ];
   return (
     <View style={s.tabs} accessibilityRole="tablist">

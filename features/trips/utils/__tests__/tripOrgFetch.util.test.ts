@@ -1,10 +1,12 @@
 import {
   GET_TRIPS_FOR_ORG_DATED_SAFETY_CAP,
   GET_TRIPS_FOR_ORG_DEFAULT_CAP,
+  completeTripRangeStep,
   datedGetTripsForOrgCapNote,
   isDatedGetTripsForOrgCapped,
   shouldFallbackTripsTableScan,
   shouldTableScanTripsForOrg,
+  splitIsoDateRange,
   tripsForOrgRpcArgs,
 } from "@/features/trips/utils/tripOrgFetch.util";
 
@@ -83,5 +85,31 @@ describe("dated get_trips_for_org cap", () => {
       "Results may be incomplete (newest 2000 matching trips)",
     );
     expect(datedGetTripsForOrgCapNote(20)).toBeNull();
+  });
+});
+
+describe("complete trip ranges", () => {
+  it("keeps a short dated page", () => {
+    expect(completeTripRangeStep({ from: "2026-01-01", to: "2026-12-31" }, 400)).toEqual({
+      accept: true,
+      children: [],
+    });
+  });
+
+  it("splits a full 2000-row page so older trips are not dropped", () => {
+    const step = completeTripRangeStep({ from: "2020-01-01", to: "2026-12-31" }, 2000);
+    expect(step.accept).toBe(false);
+    expect(step.children).toHaveLength(2);
+    expect(step.children[0].from).toBe("2020-01-01");
+    expect(step.children[1].to).toBe("2026-12-31");
+    expect(step.children[0].to < step.children[1].from).toBe(true);
+  });
+
+  it("accepts a single day even when the page is full", () => {
+    expect(splitIsoDateRange("2026-08-01", "2026-08-01")).toBeNull();
+    expect(completeTripRangeStep({ from: "2026-08-01", to: "2026-08-01" }, 2000)).toEqual({
+      accept: true,
+      children: [],
+    });
   });
 });

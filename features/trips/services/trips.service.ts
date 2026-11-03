@@ -15,6 +15,8 @@ import {
     type OrgHubMetricsSource,
 } from "@/features/trips/utils/orgHubMetrics.util";
 import {
+    completeTripRangeStep,
+    HUB_ALL_TIME_BOUNDS,
     shouldFallbackTripsTableScan,
     shouldTableScanTripsForOrg,
     tripsForOrgRpcArgs,
@@ -341,6 +343,35 @@ export async function getTripsForOrg(
     }
     return getTripsByOrganization(orgId);
   });
+}
+
+/**
+ * Every trip get_trips_for_org can see, not the newest-400 catalog.
+ * Dated pages stop at 2000, so a full page is split until each slice fits.
+ */
+export async function getAllTripsForOrg(
+  orgId: string,
+): Promise<{ error: Error | null; trips: TripRow[] }> {
+  const byId = new Map<string, TripRow>();
+  const pending: { from: string; to: string }[] = [{ ...HUB_ALL_TIME_BOUNDS }];
+  let steps = 0;
+  while (pending.length > 0) {
+    if (++steps > 96) {
+      return { error: new Error("Trip history is too large to load in one pass"), trips: [] };
+    }
+    const range = pending.shift()!;
+    const res = await getTripsForOrg(orgId, range);
+    if (res.error) return { error: res.error, trips: [] };
+    const step = completeTripRangeStep(range, res.trips.length);
+    if (!step.accept) {
+      pending.push(...step.children);
+      continue;
+    }
+    for (const trip of res.trips) {
+      if (trip.id) byId.set(trip.id, trip);
+    }
+  }
+  return { error: null, trips: [...byId.values()] };
 }
 
 /**

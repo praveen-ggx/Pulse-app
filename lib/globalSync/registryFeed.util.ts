@@ -5,7 +5,14 @@ import type { NetworkNotificationRow } from '@/features/network/services/network
 export type RegistryFeedKind = 'ops' | 'salary' | 'network';
 
 /** Metronic-style notification filter tabs. */
-export type RegistryFilterTab = 'all' | 'driver' | 'trip' | 'payment' | 'archive';
+export type RegistryFilterTab =
+  | 'all'
+  | 'driver'
+  | 'trip'
+  | 'indent'
+  | 'payment'
+  | 'received'
+  | 'archive';
 
 export type RegistryFeedEntry = {
   id: string;
@@ -97,18 +104,18 @@ export function entryMatchesRegistryFilter(
     return false;
   }
   if (filter === 'trip') {
-    // Indent/bid/award events are load-lifecycle signals, so they live here.
-    if (entry.kind === 'network') return true;
+    if (entry.kind === 'network') return false;
     if (entry.kind !== 'ops' || !entry.ops) return false;
     const cat = entry.ops.category;
     if (cat === 'unassigned_trip') return false;
-    return cat !== 'payment_received';
+    return cat !== 'payment_received' && cat !== 'payment_paid';
   }
+  if (filter === 'indent') return entry.kind === 'network';
   if (filter === 'payment') {
-    if (entry.kind === 'ops' && entry.ops) {
-      return entry.ops.category === 'payment_received';
-    }
-    return false;
+    return entry.kind === 'ops' && entry.ops?.category === 'payment_paid';
+  }
+  if (filter === 'received') {
+    return entry.kind === 'ops' && entry.ops?.category === 'payment_received';
   }
   return true;
 }

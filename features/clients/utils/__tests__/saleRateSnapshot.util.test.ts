@@ -54,6 +54,12 @@ describe("computeClientPrice", () => {
     ).toBe(94200);
   });
 
+  it("keeps exact per-MT product without rupee rounding", () => {
+    expect(
+      computeClientPrice({ basis: "per_mt", unitRate: 2520, tons: 29.877 }),
+    ).toBe(75290.04);
+  });
+
   it("returns 0 when per-MT tons are unknown", () => {
     expect(
       computeClientPrice({ basis: "per_mt", unitRate: 3140, tons: null }),

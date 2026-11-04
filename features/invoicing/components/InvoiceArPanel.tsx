@@ -2,7 +2,6 @@ import Theme from "@/constants/Theme";
 import { useClientTdsRate } from "@/features/invoicing/hooks/useClientTdsRate";
 import { useInvoiceCustomerLedger, invalidateSharedCustomerLedger } from "@/features/invoicing/hooks/useInvoiceCustomerLedger";
 import { useWorkspaceFinance } from "@/features/invoicing/hooks/useWorkspaceFinance";
-import { InvoiceCaptureButton } from "@/features/invoicing/components/InvoiceCaptureButton";
 import { TripExcelColumnHeader } from "@/features/invoicing/components/TripExcelColumnHeader";
 import { useInvoiceSettlements } from "@/features/invoicing/hooks/useInvoiceSettlements";
 import { fetchCustomerReceipts } from "@/features/invoicing/services/customerReceiptList.service";
@@ -39,9 +38,20 @@ import {
   type ArSheetFilters,
   type ArSheetSort,
 } from "@/features/invoicing/utils/invoiceAr.util";
-import { supabase } from "@/lib/supabase";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { invoiceTripAdjustedAmount } from "@/features/invoicing/services/invoiceCnDn.service";
+import { ProvisionAdjustmentModal } from "@/features/trips/components/trip-detail/adjustment/ProvisionAdjustmentModal";
+import {
+  addTripAdjustment,
+  updateTripAdjustment,
+  type TripAdjustment,
+} from "@/features/trips/services/tripAdjustments";
+import {
+  adjustmentsForTripId,
+  useInvalidateTripFinanceAdjustments,
+  useTripFinanceAdjustmentsMap,
+} from "@/lib/queries/useTripFinanceAdjustmentsQuery";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 const EMPTY_FILTER: ArFilter = {
   kpi: null,
@@ -99,10 +109,8 @@ export function InvoiceArPanel({
   const [captureNote, setCaptureNote] = useState<string | null>(null);
   const [cashTouched, setCashTouched] = useState(false);
   const [percentTouched, setPercentTouched] = useState(false);
-  const [previewId, setPreviewId] = useState<string | null>(null);
-  const [freightText, setFreightText] = useState("");
-  const [freightBusy, setFreightBusy] = useState(false);
-  const [freightNote, setFreightNote] = useState<string | null>(null);
+  const [cnDnTripId, setCnDnTripId] = useState<string | null>(null);
+  const [cnDnEdit, setCnDnEdit] = useState<TripAdjustment | null>(null);
   const [tripEdits, setTripEdits] = useState<Record<string, string>>({});
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("neft");
   const captureKey = useRef<string | null>(null);
@@ -641,9 +649,8 @@ export function InvoiceArPanel({
                               (item) => item.internalId === slice.tripId || item.id === slice.tripId,
                             );
                             if (!row) return;
-                            setPreviewId(row.id);
-                            setFreightText(String(row.sales || ""));
-                            setFreightNote(null);
+                            setCnDnEdit(null);
+                            setCnDnTripId(row.internalId);
                           }}
                           accessibilityRole="button"
                           accessibilityLabel={`Preview trip ${slice.label}`}
@@ -699,45 +706,20 @@ export function InvoiceArPanel({
           </View>
         </View>
       </Modal>
-      <TripPreview
-        invoice={invoices.find((invoice) =>
-          invoice.trip_ids.some((id) => {
-            const line = alignedBook.lines.find((row) => row.id === previewId);
-            return line != null && (id === line.internalId || id === line.id);
-          }),
-        ) ?? null}
+      <TripRevenueNote
         orgId={orgId}
-        clientId={clientId}
         clientName={clientName}
         trips={trips}
-        onRecorded={onRecorded}
-        line={alignedBook.lines.find((line) => line.id === previewId) ?? null}
-        percent={clientTds.percent}
-        freightText={freightText}
-        busy={freightBusy}
-        note={freightNote}
-        onFreight={setFreightText}
-        onClose={() => setPreviewId(null)}
-        onSave={() => {
-          const line = alignedBook.lines.find((row) => row.id === previewId);
-          const amount = Number(freightText.replace(/,/g, ""));
-          if (!line || !orgId || !Number.isFinite(amount) || amount < 0) return;
-          setFreightBusy(true);
-          setFreightNote(null);
-          void supabase()
-            .from("trips")
-            .update({ client_price: amount, updated_at: new Date().toISOString() })
-            .eq("id", line.internalId)
-            .eq("organization_id", orgId)
-            .then(({ error }) => {
-              setFreightBusy(false);
-              if (error) {
-                setFreightNote(error.message);
-                return;
-              }
-              setFreightNote("Trip freight saved.");
-              onTripsChanged?.();
-            });
+        line={alignedBook.lines.find((line) => line.internalId === cnDnTripId) ?? null}
+        edit={cnDnEdit}
+        onEdit={setCnDnEdit}
+        onClose={() => {
+          setCnDnTripId(null);
+          setCnDnEdit(null);
+        }}
+        onRecorded={() => {
+          onTripsChanged?.();
+          onRecorded?.();
         }}
       />
       {captureOnly ? null : (
@@ -919,12 +901,11 @@ export function InvoiceArPanel({
               key={row.id}
               style={[styles.tr, index % 2 === 1 && styles.trAlt]}
               onPress={() => {
-                setPreviewId(row.id);
-                setFreightText(String(row.sales || ""));
-                setFreightNote(null);
+                setCnDnEdit(null);
+                setCnDnTripId(row.internalId);
               }}
               accessibilityRole="button"
-              accessibilityLabel={`Preview trip ${row.lr}`}
+              accessibilityLabel={`Adjust revenue for ${row.lr}`}
             >
               <View style={styles.colLr}><Text style={styles.tdStrong} numberOfLines={1}>{row.lr}</Text></View>
               <View style={styles.colDate}><Text style={styles.td} numberOfLines={1}>{row.dateLabel}</Text></View>
@@ -956,103 +937,104 @@ export function InvoiceArPanel({
   );
 }
 
-function TripPreview({
+function TripRevenueNote({
   line,
-  invoice,
   orgId,
-  clientId,
   clientName,
   trips,
-  onRecorded,
-  percent,
-  freightText,
-  busy,
-  note,
-  onFreight,
+  edit,
+  onEdit,
   onClose,
-  onSave,
+  onRecorded,
 }: {
   line: ReturnType<typeof buildArBook>["lines"][number] | null;
-  invoice: IssuedInvoiceListRow | null;
   orgId: string | null;
-  clientId: string | null;
   clientName: string | null;
   trips: readonly InvoicingTripView[];
-  onRecorded?: () => void;
-  percent: number;
-  freightText: string;
-  busy: boolean;
-  note: string | null;
-  onFreight: (value: string) => void;
+  edit: TripAdjustment | null;
+  onEdit: (next: TripAdjustment | null) => void;
   onClose: () => void;
-  onSave: () => void;
+  onRecorded?: () => void;
 }) {
-  const freight = Number(freightText.replace(/,/g, "")) || 0;
-  const base = line == null ? 0 : line.uninvoiced ? freight : line.pending;
-  const expected = expectedAfterTds(base, percent);
+  const trip = line
+    ? trips.find((item) => item.internal_id === line.internalId || item.id === line.id) ?? null
+    : null;
+  const tripIds = useMemo(
+    () => (line ? [line.internalId] : []),
+    [line],
+  );
+  const adjustments = useTripFinanceAdjustmentsMap(orgId, tripIds);
+  const invalidate = useInvalidateTripFinanceAdjustments();
+  const notes = adjustmentsForTripId(adjustments.record, line?.internalId);
+  const sales = line?.sales ?? 0;
+  const adjusted = invoiceTripAdjustedAmount(sales, notes);
+  const save = useCallback(
+    async (params: {
+      type: "revenue" | "cost";
+      impact: "plus" | "minus";
+      amount: number;
+      reason: string;
+    }) => {
+      const tripId = line?.internalId?.trim();
+      if (!tripId || !orgId || params.type !== "revenue") {
+        Alert.alert(
+          "Credit / debit note",
+          "Revenue on this trip changes only through a credit note or a debit note.",
+        );
+        return;
+      }
+      await addTripAdjustment(
+        tripId,
+        params,
+        { organizationId: orgId, missionKey: trip?.id ?? null },
+      );
+      await invalidate();
+      onRecorded?.();
+    },
+    [invalidate, line?.internalId, onRecorded, orgId, trip?.id],
+  );
+  const update = useCallback(
+    async (
+      adjustmentId: string,
+      params: {
+        type: "revenue" | "cost";
+        impact: "plus" | "minus";
+        amount: number;
+        reason: string;
+      },
+    ) => {
+      const tripId = line?.internalId?.trim();
+      if (!tripId || params.type !== "revenue") return;
+      await updateTripAdjustment(tripId, adjustmentId, params);
+      await invalidate();
+      onEdit(null);
+      onRecorded?.();
+    },
+    [invalidate, line?.internalId, onEdit, onRecorded],
+  );
   return (
-    <Modal visible={line != null} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.popupBackdrop}>
-        <View style={styles.popupCard}>
-          <View style={styles.popupHead}>
-            <Text style={styles.cardTitle}>{line?.lr ?? "Trip"}</Text>
-            <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close trip preview">
-              <Text style={styles.clear}>Close</Text>
-            </Pressable>
-          </View>
-          <Text style={styles.cardHint}>{line?.route}</Text>
-          <Text style={styles.fieldLabel}>Trip freight</Text>
-          <TextInput
-            value={freightText}
-            onChangeText={onFreight}
-            keyboardType="decimal-pad"
-            placeholder="0.00"
-            placeholderTextColor={Theme.textMuted}
-            style={styles.fieldInput}
-            accessibilityLabel="Trip freight"
-          />
-          <View style={styles.previewFacts}>
-            <Text style={styles.cardHint}>Invoiced {line ? inr(line.invoiced) : inr(0)}</Text>
-            <Text style={styles.cardHint}>Received {line ? inr(line.received) : inr(0)}</Text>
-            <Text style={styles.cardHint}>Pending {line ? inr(line.pending) : inr(0)}</Text>
-          </View>
-          <View style={styles.allocBlock}>
-            <Text style={styles.choiceName}>
-              {percent > 0
-                ? `Expected in bank ${inr(expected.bank)} after ${percent}% TDS`
-                : `Expected in bank ${inr(expected.bank)}`}
-            </Text>
-            <Text style={styles.cardHint}>
-              {percent > 0
-                ? `TDS ${inr(expected.tds)} stays with the client. Set the percent once on Client Details.`
-                : "No TDS percent is saved for this client."}
-            </Text>
-          </View>
-          {note ? <Text style={styles.captureNote}>{note}</Text> : null}
-          <View style={styles.popupFoot}>
-            <Pressable
-              style={[styles.captureBtn, busy && styles.captureOff]}
-              onPress={onSave}
-              disabled={busy}
-              accessibilityRole="button"
-              accessibilityLabel="Save trip freight"
-            >
-              <Text style={styles.captureBtnText}>{busy ? "Saving…" : "Save freight"}</Text>
-            </Pressable>
-            {invoice ? (
-              <InvoiceCaptureButton
-                orgId={orgId}
-                clientId={clientId}
-                clientName={clientName}
-                invoice={invoice}
-                trips={trips}
-                onRecorded={onRecorded}
-              />
-            ) : null}
-          </View>
-        </View>
-      </View>
-    </Modal>
+    <ProvisionAdjustmentModal
+      visible={line != null}
+      side="client"
+      onClose={onClose}
+      onSave={save}
+      onUpdate={update}
+      editTarget={edit}
+      tripCode={trip?.id ?? line?.lr}
+      partyLabel={clientName}
+      clientName={clientName || trip?.client || "Client"}
+      supplierName={trip?.supplier_name || "Supplier"}
+      sales={sales}
+      adjSales={adjusted}
+      cost={0}
+      adjCost={0}
+      revenueSideDelta={adjusted - sales}
+      costSideDelta={0}
+      adjustments={notes}
+      lineMetaLabel={(adj) =>
+        (adj.reason ?? "").trim() || (adj.impact === "minus" ? "Credit note" : "Debit note")
+      }
+    />
   );
 }
 

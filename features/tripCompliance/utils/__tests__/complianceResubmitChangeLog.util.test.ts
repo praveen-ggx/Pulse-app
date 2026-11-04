@@ -1,4 +1,5 @@
 import {
+  compactResubmitCardNote,
   composeResubmitComplianceNote,
   formatResubmitChangeItemLine,
   formatResubmitChangeLogBlock,
@@ -176,5 +177,19 @@ describe("merge + format + compose", () => {
     expect(note.length).toBeLessThanOrEqual(COMPLIANCE_DECLINE_REASON_MAX);
     expect(note).toContain("Re-uploaded insurance");
     expect(note.startsWith("Changes since hold/reject:")).toBe(true);
+  });
+
+  it("keeps the trip card note to document names and the remark", () => {
+    const note = [
+      "Changes since hold/reject:",
+      "• Uploaded Driving License (license_1a1a.jpeg)",
+      "• Uploaded Insurance (insurance_1a1a.png)",
+      "• Deleted Insurance (Expiry date not mentioned)",
+      "—",
+      "Done.",
+    ].join("\n");
+    expect(compactResubmitCardNote(note)).toBe(
+      "Driving License, Insurance, Insurance removed · Done.",
+    );
   });
 });

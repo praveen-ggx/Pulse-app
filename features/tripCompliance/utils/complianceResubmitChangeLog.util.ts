@@ -238,3 +238,32 @@ export function composeResubmitComplianceNote(input: {
 export function resubmitNoteMeetsMinimum(note: string): boolean {
   return note.trim().length >= COMPLIANCE_DECLINE_REASON_MIN;
 }
+
+/** One line for the trip card. Drops file names and the change-log heading. */
+export function compactResubmitCardNote(note: string): string {
+  const trimmed = note.trim();
+  if (!trimmed) return "";
+  const splitAt = trimmed.search(/\n[—–-]\n/);
+  const remark = splitAt >= 0 ? trimmed.slice(splitAt).replace(/^\n[—–-]\n/, "").replace(/\s+/g, " ").trim() : "";
+  const block = splitAt >= 0 ? trimmed.slice(0, splitAt) : trimmed;
+  const labels: string[] = [];
+  for (const line of block.split("\n")) {
+    const match = line.match(/^[•*\-]\s+(Uploaded|Deleted)\s+(.+?)(?:\s+\(.*\))?$/);
+    if (!match) continue;
+    const label = match[2].replace(/\s*\([^)]*\)/g, "").trim();
+    if (!label) continue;
+    labels.push(match[1] === "Deleted" ? `${label} removed` : label);
+  }
+  const unique = [...new Set(labels)];
+  const shown = unique.slice(0, 3).join(", ");
+  const extra = unique.length > 3 ? ` +${unique.length - 3}` : "";
+  const head = shown ? `${shown}${extra}` : "";
+  if (head && remark) return `${head} · ${remark}`;
+  if (remark) return remark;
+  if (head) return head;
+  const first = trimmed
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line && !/^Changes since/i.test(line));
+  return (first ?? trimmed).replace(/\s*\([^)]*\)/g, "").replace(/\s+/g, " ").trim();
+}

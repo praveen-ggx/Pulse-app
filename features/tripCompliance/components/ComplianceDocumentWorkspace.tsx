@@ -27,7 +27,6 @@ import {
   ComplianceAdvancePaidDetails,
   type AdvanceUtrTarget,
 } from "@/features/tripCompliance/components/ComplianceAdvancePaidDetails";
-import { ComplianceAdvancePaymentArt } from "@/features/tripCompliance/components/ComplianceAdvancePaymentArt";
 import { ComplianceChecklistGapArt } from "@/features/tripCompliance/components/ComplianceChecklistGapArt";
 import { ComplianceDeclineModal } from "@/features/tripCompliance/components/ComplianceDeclineModal";
 import { NoDocumentPreviewEmpty, NoTripsFoundEmpty } from "@/features/tripCompliance/components/ComplianceEmptyState";
@@ -6023,7 +6022,7 @@ export function ComplianceDocumentWorkspace({
         ) : (
         <ScrollView
           ref={listRef}
-          style={styles.listScroll}
+          style={[styles.listScroll, mobileExclusive && styles.listScrollMobile]}
           nestedScrollEnabled
           showsVerticalScrollIndicator
           contentContainerStyle={[styles.listContent, mobileExclusive && styles.listContentMobile]}
@@ -6055,10 +6054,11 @@ export function ComplianceDocumentWorkspace({
                   : undefined
               }
             >
-              <View style={hubMobileListCanvasStyles.cardWrap}>
+              <View style={mobileExclusive ? styles.mobileCardWrap : hubMobileListCanvasStyles.cardWrap}>
                 <ComplianceTripCard
                 summary={item}
                   compact
+                  plain={mobileExclusive}
                   selected={!mobileExclusive && item.trip.id === summary?.trip.id}
                   supplierName={supplierNameByTripId[item.trip.id] ?? null}
                   parties={partyAvatarByTripId[item.trip.id]}
@@ -6296,7 +6296,7 @@ export function ComplianceDocumentWorkspace({
             </View>
         </View>
       ) : hideDocumentPanes ? null : (
-      <View style={[styles.previewPane, mobileExclusive && styles.podLogPaneMobile]}>
+      <View style={[styles.previewPane, mobileExclusive && styles.previewPaneMobile]}>
         <View style={styles.stage}>
           {showDocumentShell ? (
             <View
@@ -9384,11 +9384,6 @@ function ChecklistAdvancePaymentPanel({
     Boolean(onFinanceVerify);
   const showUndoFinanceVerify = !advance && Boolean(summary.financeVerifiedAt) && Boolean(onUndoFinanceVerify);
 
-  const showArt =
-    !advance &&
-    !showInlineForm &&
-    !showReviewForm;
-
   return (
     <View style={[styles.checklistAdvancePanel, advance && styles.checklistAdvancePanelPosted]}>
       <View style={styles.checklistAdvanceLead}>
@@ -9604,11 +9599,6 @@ function ChecklistAdvancePaymentPanel({
         </View>
       ) : null}
 
-      {showArt || showInlineForm ? (
-        <View style={styles.checklistAdvanceArtSlot} pointerEvents="none">
-          <ComplianceAdvancePaymentArt large={showInlineForm} />
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -10009,7 +9999,8 @@ const _TripListRow = React.memo(function TripListRow({
 const styles = StyleSheet.create({
   workspace: { flex: 1, minHeight: 0, flexDirection: "row", alignItems: "stretch", gap: 12, overflow: "hidden", backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
   workspaceStacked: { flexDirection: "column", gap: 16 },
-  workspaceMobile: { gap: 0, backgroundColor: HUB_MOBILE_LIST_CANVAS_BG, overflow: "visible" },
+  workspaceMobile: { gap: 0, backgroundColor: Theme.screenBackground, overflow: "visible" },
+  mobileCardWrap: { width: "100%", marginBottom: 0 },
   listPane: {
     width: 420,
     maxWidth: "42%",
@@ -10046,7 +10037,7 @@ const styles = StyleSheet.create({
   },
   listEmptyMobileContent: {
     flexGrow: 1,
-    backgroundColor: HUB_MOBILE_LIST_CANVAS_BG,
+    backgroundColor: Theme.screenBackground,
   },
   listEmptyMobileBody: {
     flexGrow: 1,
@@ -10057,13 +10048,14 @@ const styles = StyleSheet.create({
     paddingVertical: 32,
   },
   listScroll: { flex: 1, minHeight: 0, backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
+  listScrollMobile: { backgroundColor: Theme.screenBackground },
   listContent: { paddingTop: 10, paddingBottom: 16, paddingHorizontal: 12, gap: 0, backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
   listContentMobile: {
     flexGrow: 0,
-    paddingTop: 10,
+    paddingTop: 0,
     paddingBottom: 28,
-    paddingHorizontal: Layout.screenPaddingHorizontal,
-    backgroundColor: HUB_MOBILE_LIST_CANVAS_BG,
+    paddingHorizontal: 0,
+    backgroundColor: Theme.screenBackground,
   },
   listLoadMore: {
     paddingVertical: 12,
@@ -10438,9 +10430,14 @@ const styles = StyleSheet.create({
   podLogPaneMobile: {
     borderWidth: 0,
     borderRadius: 0,
-    backgroundColor: "#F5F5F5",
-    paddingHorizontal: 14,
+    backgroundColor: Theme.screenBackground,
+    paddingHorizontal: Layout.screenPaddingHorizontal,
     paddingVertical: 0,
+  },
+  previewPaneMobile: {
+    backgroundColor: Theme.screenBackground,
+    borderWidth: 0,
+    borderRadius: 0,
   },
   previewPane: {
     flex: 1,
@@ -11500,12 +11497,11 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   checklistAdvancePanel: {
-    flexGrow: 1,
-    minHeight: 0,
-    overflow: "visible",
+    width: "100%",
+    minWidth: 0,
     paddingHorizontal: 8,
     paddingVertical: 6,
-    gap: 6,
+    gap: 10,
   },
   checklistAdvancePanelPosted: {
     gap: 8,
@@ -11526,18 +11522,6 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     gap: 2,
-  },
-  checklistAdvanceArtSlot: {
-    flexGrow: 1,
-    flexShrink: 1,
-    minHeight: 0,
-    width: "100%",
-    alignItems: "flex-end",
-    justifyContent: "flex-end",
-    paddingTop: 4,
-    paddingRight: 12,
-    paddingBottom: 4,
-    backgroundColor: "transparent",
   },
   // Scrolls inside tripDetailsScroll instead of clipping on smaller screens.
   tripDetailsScroll: { flex: 1, minHeight: 0 },
@@ -12087,18 +12071,14 @@ const styles = StyleSheet.create({
   flagNote: { fontSize: 13, fontWeight: "600", color: Theme.textPrimaryDark },
   flagHint: { fontSize: 11, color: Theme.textMuted },
   checklistAdvanceFormCard: {
-    flexGrow: 0,
-    flexShrink: 0,
-    minHeight: 0,
     width: "100%",
     minWidth: 0,
     borderRadius: 0,
     borderWidth: 0,
     backgroundColor: "transparent",
-    paddingHorizontal: 6,
+    paddingHorizontal: 2,
     paddingTop: 4,
-    paddingBottom: 4,
-    overflow: "hidden",
+    paddingBottom: 8,
   },
   checklistAdvanceStatusLabel: {
     fontSize: 10,

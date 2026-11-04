@@ -662,6 +662,8 @@ const styles = StyleSheet.create({
     alignItems: "stretch",
     gap: 6,
     width: "100%" as const,
+    maxWidth: "100%" as const,
+    minWidth: 0,
   },
   historyClusters: {
     flexDirection: "row",

@@ -933,7 +933,17 @@ export function PulseInvoiceDocument({
         ) : (
           <View style={{ flex: 1 }} />
         )}
-        {settingsHidden || settingsUnderBack ? null : onPreview && !a4Pages ? (
+        {settingsHidden ? null : settingsUnderBack ? (
+          <Pressable
+            style={[styles.settingsUnderBack, styles.settingsInRow, settingsOpen && { borderColor: Theme.primary }]}
+            onPress={() => (settingsOpen ? closeSettings() : openSettings())}
+            accessibilityRole="button"
+            accessibilityLabel="Invoice settings"
+            hitSlop={8}
+          >
+            <FontAwesome name="cog" size={15} color={Theme.textPrimaryDark} />
+          </Pressable>
+        ) : onPreview && !a4Pages ? (
           <Pressable
             style={styles.settingsIcon}
             onPress={onPreview}
@@ -954,17 +964,6 @@ export function PulseInvoiceDocument({
           </Pressable>
         )}
       </View>
-      {settingsUnderBack ? (
-        <Pressable
-          style={[styles.settingsUnderBack, settingsOpen && { borderColor: Theme.primary }]}
-          onPress={() => (settingsOpen ? closeSettings() : openSettings())}
-          accessibilityRole="button"
-          accessibilityLabel="Invoice settings"
-          hitSlop={8}
-        >
-          <FontAwesome name="cog" size={15} color={Theme.textPrimaryDark} />
-        </Pressable>
-      ) : null}
       </View>
 
       {!settingsInline && !settingsHidden && !a4Pages ? (
@@ -1762,9 +1761,11 @@ const styles = StyleSheet.create({
   toolbar: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "nowrap",
     gap: 8,
     paddingHorizontal: 12,
     paddingTop: 10,
+    paddingBottom: 10,
   },
   toolbarTitle: { fontSize: 11, fontWeight: "500", color: Theme.textSecondary, flexShrink: 1, maxWidth: 120 },
   pageChip: {
@@ -1827,6 +1828,11 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Theme.border,
+  },
+  settingsInRow: {
+    marginLeft: 0,
+    marginTop: 0,
+    flexShrink: 0,
   },
   detailBackdrop: {
     flex: 1,

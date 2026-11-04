@@ -1,4 +1,5 @@
 import type { LedgerRow } from "@/features/finance/services/finance.service";
+import { getOrganizationMembersShared } from "@/features/organization/services/members.service";
 import type { TripAuditMilestone, TripActivityUserProfile } from "@/lib/trips/buildTripAuditLog.util";
 import { supabase } from "@/lib/supabase";
 
@@ -81,6 +82,8 @@ function rememberProfile(
   };
 }
 
+const PROFILE_CACHE = new Map<string, TripActivityUserProfile>();
+
 function profileHasDisplayName(profile?: TripActivityUserProfile | null): boolean {
   if (!profile) return false;
   return Boolean(
@@ -88,6 +91,34 @@ function profileHasDisplayName(profile?: TripActivityUserProfile | null): boolea
       profile.phone?.trim() ||
       profile.email?.trim(),
   );
+}
+
+/** Names already resolved for any trip. The log reads this before the network. */
+export function readCachedActivityProfiles(
+  userIds: Array<string | null | undefined>,
+): Record<string, TripActivityUserProfile> {
+  const profiles: Record<string, TripActivityUserProfile> = {};
+  for (const id of userIds) {
+    const uid = trimId(id);
+    const hit = uid ? PROFILE_CACHE.get(uid) : undefined;
+    if (uid && hit) profiles[uid] = hit;
+  }
+  return profiles;
+}
+
+function writeProfileCache(profiles: Record<string, TripActivityUserProfile>) {
+  for (const [id, profile] of Object.entries(profiles)) {
+    const uid = trimId(id);
+    if (!uid || !profileHasDisplayName(profile)) continue;
+    const prev = PROFILE_CACHE.get(uid);
+    PROFILE_CACHE.set(uid, {
+      full_name: profile.full_name?.trim() || prev?.full_name || null,
+      email: profile.email?.trim() || prev?.email || null,
+      phone: profile.phone?.trim() || prev?.phone || null,
+      avatar_url: profile.avatar_url?.trim() || prev?.avatar_url || null,
+      avatar_seed: profile.avatar_seed?.trim() || prev?.avatar_seed || null,
+    });
+  }
 }
 
 export async function fetchActivityUserProfiles(
@@ -131,45 +162,48 @@ export async function resolveActivityUserProfiles(input: {
     if (!uid) continue;
     rememberProfile(profiles, uid, profile);
   }
-  if (unique.length === 0) return profiles;
-
-  const fromTable = await fetchActivityUserProfiles(unique);
-  for (const [id, profile] of Object.entries(fromTable)) {
+  for (const [id, profile] of Object.entries(readCachedActivityProfiles(unique))) {
     rememberProfile(profiles, id, profile);
+  }
+  if (unique.length === 0) {
+    writeProfileCache(profiles);
+    return profiles;
+  }
+
+  const missing = unique.filter((id) => !profileHasDisplayName(profiles[id]));
+  if (missing.length === 0) {
+    writeProfileCache(profiles);
+    return profiles;
   }
 
   const orgId = trimId(input.organizationId);
-  if (orgId) {
-    const { data } = await supabase().rpc("get_org_members_with_profiles", {
-      p_org_id: orgId,
+  const [fromTable, roster] = await Promise.all([
+    fetchActivityUserProfiles(missing),
+    orgId ? getOrganizationMembersShared(orgId) : Promise.resolve(null),
+  ]);
+  for (const [id, profile] of Object.entries(fromTable)) {
+    rememberProfile(profiles, id, profile);
+  }
+  for (const row of roster?.members ?? []) {
+    const uid = trimId(row.user_id);
+    if (!uid || !unique.includes(uid)) continue;
+    rememberProfile(profiles, uid, {
+      full_name: row.full_name,
+      phone: row.phone,
+      email: row.email,
+      avatar_url: row.avatar_url,
+      avatar_seed: row.avatar_seed,
     });
-    for (const row of data ?? []) {
-      const uid = trimId(
-        typeof row?.user_id === "string"
-          ? row.user_id
-          : typeof row?.id === "string"
-            ? row.id
-            : "",
-      );
-      if (!uid || !unique.includes(uid)) continue;
-      rememberProfile(profiles, uid, {
-        full_name: typeof row?.full_name === "string" ? row.full_name : null,
-        phone: typeof row?.phone === "string" ? row.phone : null,
-        email: typeof row?.email === "string" ? row.email : null,
-        avatar_url: typeof row?.avatar_url === "string" ? row.avatar_url : null,
-        avatar_seed: typeof row?.avatar_seed === "string" ? row.avatar_seed : null,
-      });
-    }
   }
 
   const stillMissing = unique.filter((id) => !profileHasDisplayName(profiles[id]));
-  if (stillMissing.length === 0) return profiles;
-
-  // Last pass: profiles again for ids the org roster did not cover (cross-org actors).
-  const retry = await fetchActivityUserProfiles(stillMissing);
-  for (const [id, profile] of Object.entries(retry)) {
-    rememberProfile(profiles, id, profile);
+  if (stillMissing.length > 0) {
+    const retry = await fetchActivityUserProfiles(stillMissing);
+    for (const [id, profile] of Object.entries(retry)) {
+      rememberProfile(profiles, id, profile);
+    }
   }
+  writeProfileCache(profiles);
   return profiles;
 }
 

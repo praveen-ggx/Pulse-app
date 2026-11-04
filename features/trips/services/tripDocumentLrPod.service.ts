@@ -205,7 +205,7 @@ export type TripHardCopyPodReceipt = {
 /** Hard-copy POD workflow status (header badge + sidebar). */
 export type HardCopyPodStatus = "PENDING" | "IN_TRANSIT" | "RECEIVED";
 
-export type HardCopyPodReceiptMethod = "person" | "courier";
+export type HardCopyPodReceiptMethod = "person" | "courier" | "lost";
 
 export type TripHardCopyPodState = {
   status: HardCopyPodStatus;
@@ -342,7 +342,7 @@ function decodedComment(parsed: HardCopyPodCommentPayload): {
     remarks: String(parsed.remarks ?? "").trim() || null,
     receivedDate: String(parsed.received_date ?? "").trim() || null,
     receivedTime: String(parsed.received_time ?? "").trim() || null,
-    receiptMethod: method === "person" || method === "courier" ? method : null,
+    receiptMethod: method === "person" || method === "courier" || method === "lost" ? method : null,
     dispatchDate: String(parsed.dispatch_date ?? "").trim() || null,
     expectedDeliveryDate: String(parsed.expected_delivery_date ?? "").trim() || null,
     ibond,

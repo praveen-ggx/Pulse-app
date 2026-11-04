@@ -264,6 +264,15 @@ describe("encodeHardCopyPodComment / decodeHardCopyPodComment", () => {
       vendorCostBefore: null,
       vendorCostAfter: null,
     });
+    expect(decodeHardCopyPodComment(encodeHardCopyPodComment({
+      remarks: "RBM email attached",
+      receivedDate: "2026-11-04",
+      receiptMethod: "lost",
+    }))).toMatchObject({
+      remarks: "RBM email attached",
+      receivedDate: "2026-11-04",
+      receiptMethod: "lost",
+    });
     expect(decodeHardCopyPodComment("Checked at gate")).toEqual({
       remarks: "Checked at gate",
       receivedDate: null,

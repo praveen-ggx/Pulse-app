@@ -87,4 +87,77 @@ describe("Change driver popup routing", () => {
     expect(presentation.actionText).toBe("needs a driver change for");
     expect(presentation.detail).toContain("Change driver to continue");
   });
+
+  it("puts the lane and date on the driver-change card", () => {
+    const presentation = buildOpsRegistryCardPresentation(
+      ops({ category: "unassigned_trip", trip_id: "trip-025" }),
+      {
+        org: null,
+        activeTrips: [
+          {
+            trip_id: "trip-025",
+            trip_number: "TRP025",
+            display_trip_id: "TRP025",
+            status: "assigned",
+            pickup_area: "Gowdavalli",
+            drop_location: "Jaggayapeta",
+            driver_display_name: null,
+            vehicle_display_number: null,
+            driver_id: null,
+            supplier_id: null,
+            client_id: null,
+            created_at: "2026-11-03T05:30:00.000Z",
+            total_unread: 0,
+            recent_events: [],
+          },
+        ],
+        clientsById: new Map(),
+        driversById: new Map(),
+        suppliersById: new Map(),
+        partnerDisplay: {},
+        partnerAvatarUri: {},
+      },
+    );
+    expect(presentation.detailMeta).toContain("Gowdavalli → Jaggayapeta");
+    expect(presentation.detailMeta).toMatch(/Nov/);
+  });
+
+  it("puts the client and lane on a late-log card", () => {
+    const presentation = buildOpsRegistryCardPresentation(
+      ops({
+        category: "late_log",
+        trip_id: "trip-025",
+        subtitle: "No driver system_log in 5+ hours",
+      }),
+      {
+        org: null,
+        activeTrips: [
+          {
+            trip_id: "trip-025",
+            trip_number: "TRP025",
+            display_trip_id: "TRP002023",
+            status: "in_transit",
+            pickup_area: "Chennai",
+            drop_location: "Delhi",
+            driver_display_name: "Jothi S",
+            vehicle_display_number: null,
+            driver_id: "drv-1",
+            supplier_id: null,
+            client_id: "client-1",
+            created_at: "2026-11-03T05:30:00.000Z",
+            total_unread: 0,
+            recent_events: [],
+          },
+        ],
+        clientsById: new Map([
+          ["client-1", { id: "client-1", name: "Megha Engineering" } as never],
+        ]),
+        driversById: new Map(),
+        suppliersById: new Map(),
+        partnerDisplay: {},
+        partnerAvatarUri: {},
+      },
+    );
+    expect(presentation.detailMeta).toBe("Megha Engineering · Chennai → Delhi");
+  });
 });

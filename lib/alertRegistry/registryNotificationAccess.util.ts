@@ -85,7 +85,7 @@ export function indentPrimaryAction(
     }
     return view;
   }
-  if (eventType === "awarded") return { label: "View award", enabled: access.indents };
+  if (eventType === "awarded") return { label: "Allocate", enabled: access.indents };
   return view;
 }
 

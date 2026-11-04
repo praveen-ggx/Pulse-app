@@ -127,20 +127,22 @@ function OrganizationProfile({
           </View>
         ) : null}
         {billing?.locked ? (
-          <Text style={styles.choiceHint}>Registered office is locked while verification is pending or complete.</Text>
+          <Text style={styles.choiceHint}>
+            GSTIN, PAN, CIN, and the registered office are locked while verification is pending or complete.
+          </Text>
         ) : null}
       </View>
       {billing && editing ? (
         <>
           <View style={styles.formGrid}>
             <View style={styles.formCell}>
-              <Field label="GSTIN" value={billing.gstin} onChange={(value) => billing.onChange("gstin", value)} />
+              <Field label="GSTIN" value={billing.gstin} onChange={(value) => billing.onChange("gstin", value)} editable={!billing.locked} />
             </View>
             <View style={styles.formCell}>
-              <Field label="CIN" value={billing.cin} onChange={(value) => billing.onChange("cin", value)} />
+              <Field label="CIN" value={billing.cin} onChange={(value) => billing.onChange("cin", value)} editable={!billing.locked} />
             </View>
             <View style={styles.formCell}>
-              <Field label="PAN" value={billing.pan} onChange={(value) => billing.onChange("pan", value)} />
+              <Field label="PAN" value={billing.pan} onChange={(value) => billing.onChange("pan", value)} editable={!billing.locked} />
             </View>
             <View style={styles.formCell}>
               <Field label="MSME" value={billing.msme} onChange={(value) => billing.onChange("msme", value)} />
@@ -1711,7 +1713,11 @@ function Field({
         autoCapitalize={autoCapitalize}
         placeholder={placeholder ?? label}
         placeholderTextColor={Theme.textMuted}
-        style={[styles.templateName, multiline && styles.fieldMultiline]}
+        style={[
+          styles.templateName,
+          multiline && styles.fieldMultiline,
+          !editable && styles.fieldLocked,
+        ]}
         accessibilityLabel={label}
       />
     </View>
@@ -2090,6 +2096,10 @@ const styles = StyleSheet.create({
     fontWeight: "400",
     color: Theme.textPrimaryDark,
     backgroundColor: Theme.cardWhite,
+  },
+  fieldLocked: {
+    color: Theme.textSecondary,
+    backgroundColor: Theme.surface,
   },
   templateActions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   templateBtn: {

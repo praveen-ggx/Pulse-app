@@ -247,6 +247,72 @@ const TRIP_SUMMARY_DOCUMENT_TYPES = [
  * Summary-card fraction: documents on file ÷ every document in the group.
  * Completion (green) stays on the group tone, which counts required types only.
  */
+export type ComplianceGroupDecisionMark = "verified" | "declined";
+
+function statusesForTypes(
+  rows: Array<{ type: string; status: string }>,
+  types: readonly string[],
+): Map<string, string[]> {
+  const byType = new Map<string, string[]>();
+  for (const type of types) byType.set(type, []);
+  for (const row of rows) {
+    const bucket = byType.get(row.type);
+    if (bucket) bucket.push(row.status);
+  }
+  return byType;
+}
+
+/**
+ * Pill mark for Trip / Vehicle / Driver / Finance.
+ * Declined wins when any file in the tab was rejected.
+ * Verified when every required file in the tab is approved.
+ */
+export function complianceGroupDecisionMark(
+  group: ComplianceChecklistGroup,
+  input: {
+    documents?: Array<{ document_type?: string | null; status?: string | null }>;
+    vehicleDocuments?: Array<{ doc_type?: string | null; status?: string | null; expiry_date?: string | null; storage_path?: string | null }>;
+    driverDocuments?: Array<{ doc_type?: string | null; status?: string | null; expiry_date?: string | null; storage_path?: string | null }>;
+  },
+  now = new Date(),
+): ComplianceGroupDecisionMark | null {
+  const required =
+    group.key === "finance"
+      ? REQUIRED_COMPLIANCE_FINANCE_DOCUMENT_TYPES
+      : group.key === "vehicle"
+        ? REQUIRED_VEHICLE_DOCUMENT_TYPES
+        : group.key === "driver"
+          ? REQUIRED_DRIVER_DOCUMENT_TYPES
+          : REQUIRED_COMPLIANCE_DOCUMENT_TYPES;
+  const watched = group.slots.map((slot) => slot.type);
+  const tripRows = (input.documents ?? []).map((doc) => ({
+    type: doc.document_type ?? "",
+    status: doc.status === "rejected" ? "rejected" : doc.status === "verified" ? "verified" : "pending",
+  }));
+  const entityRows = (
+    group.key === "vehicle" ? input.vehicleDocuments : group.key === "driver" ? input.driverDocuments : []
+  )?.map((doc) => ({
+    type: doc.doc_type ?? "",
+    status:
+      doc.status === "rejected"
+        ? "rejected"
+        : (doc.status === "verified" || doc.status === "active") &&
+            isEntityDocumentSlotVerified(doc, now, doc.doc_type)
+          ? "verified"
+          : "pending",
+  }));
+  const byType = statusesForTypes(
+    group.key === "vehicle" || group.key === "driver" ? entityRows ?? [] : tripRows,
+    watched,
+  );
+  const declined = watched.some((type) => (byType.get(type) ?? []).includes("rejected"));
+  if (declined) return "declined";
+  const verified =
+    required.length > 0 &&
+    required.every((type) => (byType.get(type) ?? []).includes("verified"));
+  return verified ? "verified" : null;
+}
+
 export function complianceGroupOnFileCount(
   group: ComplianceChecklistGroup,
   tripDocuments: ComplianceDocumentRow[] = [],

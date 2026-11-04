@@ -30,6 +30,10 @@ import { useOptionalAuth } from "@/contexts/AuthContext";
 import { useTabBarAwareScrollProps } from "@/contexts/DemoTabBarScrollContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useOptionalOrganization } from "@/contexts/OrganizationContext";
+import {
+  reportIndentsAlreadyBootstrapped,
+  reportTripsAlreadyBootstrapped,
+} from "@/features/trips/utils/tripIndentReportCatalog.util";
 import { downloadTripIndentReportExcel } from "@/features/trips/utils/tripIndentReportExport.util";
 import {
   buildTripIndentReport,
@@ -2215,7 +2219,21 @@ export default function TripsScreen() {
     if (!orgId || tripReportDownloading) return;
     setTripReportDownloading(true);
     try {
-      const catalog = await loadTripIndentReportCatalog(orgId, hubTrips, allIndents);
+      const catalog = await loadTripIndentReportCatalog(
+        orgId,
+        hubTrips,
+        allIndents,
+        {
+          tripsBootstrapped: reportTripsAlreadyBootstrapped({
+            completeness: hubTripCompleteness,
+            allTime: hubDateBounds == null,
+          }),
+          indentsBootstrapped: reportIndentsAlreadyBootstrapped(
+            allIndents.length,
+            FINITE_LIST_CAP,
+          ),
+        },
+      );
       if (catalog.error) {
         showAppAlert(
           "Export failed",
@@ -2223,13 +2241,12 @@ export default function TripsScreen() {
         );
         return;
       }
-      const driverPhoneByTripId = await loadDriverPhonesByTripId(catalog.trips);
       const { error, rows, warnings } = await buildTripIndentReport({
         orgId,
         trips: catalog.trips,
         indents: catalog.indents,
         partyMetaByTripId: tripHubPartyMetaByTripId,
-        driverPhoneByTripId,
+        driverPhoneByTripId: loadDriverPhonesByTripId(catalog.trips),
         stageLabelForTrip: getStageLabelForTrip,
       });
       if (error) {
@@ -2265,6 +2282,8 @@ export default function TripsScreen() {
     tripReportDownloading,
     hubTrips,
     allIndents,
+    hubTripCompleteness,
+    hubDateBounds,
     tripHubPartyMetaByTripId,
     getStageLabelForTrip,
     currentOrganization?.name,
@@ -4749,15 +4768,11 @@ const styles = StyleSheet.create({
   gridContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
-    width: "100%",
-    maxWidth: "100%",
+    marginHorizontal: -6,
     alignItems: "stretch",
     paddingTop: 0,
     marginTop: 0,
     rowGap: 4,
-    ...Platform.select({
-      web: { minWidth: 0, overflow: "hidden" } as ViewStyle,
-    }),
   },
   /** Desktop trips grid — column % comes from hubGridItemStyle. */
   gridItem: {

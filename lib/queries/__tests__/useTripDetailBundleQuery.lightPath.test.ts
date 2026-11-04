@@ -41,8 +41,11 @@ function thenable(result: QueryResult) {
 
 const deliveredTrip = {
   id: "trip-delivered",
+  organization_id: "org-1",
   status: "delivered",
   completed_at: "2026-09-19T00:00:00Z",
+  driver_id: "driver-1",
+  driver_display_name: "Ravi",
 };
 
 const txs = [{ id: "tx-1", trip_id: "trip-delivered", amount_in: 100, amount_out: 0 }];
@@ -50,6 +53,15 @@ const txs = [{ id: "tx-1", trip_id: "trip-delivered", amount_in: 100, amount_out
 beforeEach(() => {
   jest.clearAllMocks();
   mockTxLimit.mockImplementation(() => Promise.resolve({ data: txs, error: null }));
+  mockRpc.mockImplementation((name: string) => {
+    if (name === "get_trip_driver_phones") {
+      return Promise.resolve({
+        data: [{ trip_id: "trip-delivered", phone: "9876543210" }],
+        error: null,
+      });
+    }
+    return thenable({ data: null, error: null });
+  });
   mockFrom.mockImplementation((table: string) => {
     if (table === "trips") {
       return thenable({ data: deliveredTrip, error: null });
@@ -70,7 +82,7 @@ beforeEach(() => {
 });
 
 describe("fetchTripDetailBundle — delivered light path", () => {
-  it("loads only the trip row — no documents, ledger, or bundle RPC", async () => {
+  it("loads the trip row and driver phone — no documents, ledger, or full bundle RPC", async () => {
     const bundle = await fetchTripDetailBundle(
       "trip-delivered",
       "org-1",
@@ -78,7 +90,13 @@ describe("fetchTripDetailBundle — delivered light path", () => {
       true,
     );
 
-    expect(mockRpc).not.toHaveBeenCalled();
+    expect(mockRpc).toHaveBeenCalledWith("get_trip_driver_phones", {
+      p_trip_ids: ["trip-delivered"],
+    });
+    expect(mockRpc).not.toHaveBeenCalledWith(
+      "get_trip_detail_bundle",
+      expect.anything(),
+    );
     expect(mockStorageList).not.toHaveBeenCalled();
     expect(mockFrom).toHaveBeenCalledWith("trips");
     expect(mockFrom).not.toHaveBeenCalledWith("trip_documents");
@@ -86,6 +104,11 @@ describe("fetchTripDetailBundle — delivered light path", () => {
     expect(bundle?.trip.id).toBe("trip-delivered");
     expect(bundle?.documents).toEqual([]);
     expect(bundle?.transactions).toEqual([]);
+    expect(bundle?.driver).toMatchObject({
+      id: "driver-1",
+      name: "Ravi",
+      phone: "9876543210",
+    });
   });
 
   it("loads transactions and adjustments only via fetchLightTripDetailFinance", async () => {

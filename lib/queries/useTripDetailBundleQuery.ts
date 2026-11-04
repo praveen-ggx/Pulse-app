@@ -8,6 +8,7 @@
  * to the existing direct-service code path. No schema changes required for rollback.
  */
 import { useQuery, type QueryClient } from '@tanstack/react-query';
+import { getTripDriverPhones } from '@/features/tripCompliance/services/tripDriverPhones.service';
 import { supabase } from '@/lib/supabase';
 import { throwIfCancelled, withAbortSignal } from '@/lib/supabaseAbort.util';
 import { queryKeys } from '@/lib/queryKeys';
@@ -301,14 +302,49 @@ async function fetchTripAdjustmentsForLightBundle(
   return data as BundleAdjustment[];
 }
 
-/** Table-only trip row. Documents wait until Docs; ledger until Finance. */
+/**
+ * Table-only trip row (+ driver phone). Documents wait until Docs; ledger until
+ * Finance. Delivered / narrow-web first paint skips get_trip_detail_bundle, but
+ * still needs the assigned driver's phone — the full-bundle driver seed is
+ * otherwise null and bundleActive blocks the legacy getDriverById effect.
+ */
 async function composeLightTripDetailBundle(
   tripId: string,
   signal?: AbortSignal,
 ): Promise<TripDetailBundle | null> {
   const light = await fetchTripRowLight(tripId, signal);
   if (!light) return null;
-  return emptyBundleFromTrip(light);
+  const bundle = emptyBundleFromTrip(light);
+  const driverId = light.driver_id?.trim() || null;
+  if (!driverId) return bundle;
+
+  let phone: string | null = null;
+  try {
+    throwIfCancelled(signal);
+    const phones = await getTripDriverPhones([
+      { id: light.id, driver_id: driverId },
+    ]);
+    throwIfCancelled(signal);
+    phone = phones.get(light.id)?.trim() || null;
+  } catch (err) {
+    throwIfCancelled(
+      signal,
+      err && typeof err === 'object'
+        ? (err as { message?: string; name?: string })
+        : null,
+    );
+  }
+
+  bundle.driver = {
+    id: driverId,
+    name: light.driver_display_name,
+    phone,
+    avatar_url: null,
+    avatar_seed: null,
+    user_id: null,
+    organization_id: light.organization_id,
+  };
+  return bundle;
 }
 
 export async function fetchLightTripDetailFinance(

@@ -17,6 +17,7 @@ import {
 import type { ClientRow } from "@/features/clients/services/clients.service";
 import type { DriverRow } from "@/features/drivers/services/drivers.service";
 import type { SupplierRow } from "@/features/suppliers/services/suppliers.service";
+import { useTripMoneyById } from "@/lib/alertRegistry/useTripMoneyById";
 import { useCachedQueryRows } from "@/lib/queries/useCachedQueryRows";
 import { queryKeys } from "@/lib/queryKeys";
 import type { GlobalOperationAlert } from "@/lib/globalSync/priorityEngine.util";
@@ -100,6 +101,7 @@ export function AlertDetailScreen({
     [suppliers],
   );
 
+  const tripMoneyById = useTripMoneyById(orgId);
   const partyCtx = useMemo(
     () => ({
       activeTrips,
@@ -109,6 +111,7 @@ export function AlertDetailScreen({
       org: currentOrganization,
       partnerDisplay: partnerDisplayByOrgId,
       partnerAvatarUri: partnerAvatarUriByOrgId,
+      tripMoneyById,
     }),
     [
       activeTrips,
@@ -118,6 +121,7 @@ export function AlertDetailScreen({
       currentOrganization,
       partnerDisplayByOrgId,
       partnerAvatarUriByOrgId,
+      tripMoneyById,
     ],
   );
 

@@ -14,6 +14,10 @@ import {
 } from "@/lib/alertRegistry/registryOpsPresentation.util";
 import { resolveSalaryRegistryAvatar } from "@/lib/alertRegistry/registryNotificationAvatar.util";
 import type { GlobalOperationAlert } from "@/lib/globalSync/priorityEngine.util";
+import {
+  classifyPaymentAlert,
+  paymentTagLabel,
+} from "@/lib/globalSync/registryPaymentLane.util";
 
 export function formatRegistryRelativeTime(iso: string | null | undefined): string {
   if (!iso) return "Just now";
@@ -51,15 +55,21 @@ function opsContextLabel(item: GlobalOperationAlert): string {
   if (item.category === "late_log") return "Operations";
   if (item.category === "unassigned_trip") return "Operations";
   if (item.category === "vehicle_idle") return "Fleet";
-  if (item.category === "payment_received") return "Finance";
+  if (item.category === "payment_received") return "Received";
+  if (item.category === "payment_paid") return "Payment";
   return "Operations";
 }
 
-function opsTag(item: GlobalOperationAlert): string {
+function opsTag(
+  item: GlobalOperationAlert,
+  trips: RegistryPartyLookup["activeTrips"],
+): string {
   if (item.category === "late_log") return "late log";
   if (item.category === "unassigned_trip") return "unassigned";
   if (item.category === "vehicle_idle") return "idle";
-  if (item.category === "payment_received") return "payment received";
+  if (item.category === "payment_received" || item.category === "payment_paid") {
+    return paymentTagLabel(classifyPaymentAlert(item, trips));
+  }
   return item.category.replace(/_/g, " ");
 }
 
@@ -139,7 +149,7 @@ export function buildOpsAlertCardPresentation(
 ): AlertDetailCardPresentation {
   const isActive = mode === "active";
   const opsTags: RegistryTag[] = [
-    { label: opsTag(ops), variant: opsAlertTagVariant(ops.category) },
+    { label: opsTag(ops, partyCtx.activeTrips), variant: opsAlertTagVariant(ops.category) },
   ];
   const presentation = buildOpsRegistryCardPresentation(ops, partyCtx);
   const detailLines = splitOpsDetailLines(ops, presentation.detail);

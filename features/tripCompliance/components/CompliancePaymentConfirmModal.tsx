@@ -933,12 +933,13 @@ export function CompliancePaymentConfirmModal({
     </View>
   );
 
+  const sideBySide = twoColumn && !isInline;
   const detailsRow = (
-    <View style={[styles.columns, twoColumn && styles.columnsWide, isInline && styles.columnsInline]}>
-      <View style={[styles.column, twoColumn && styles.columnWide, isInline && styles.columnInline]}>
+    <View style={[styles.columns, sideBySide && styles.columnsWide, isInline && styles.columnsInline]}>
+      <View style={[styles.column, sideBySide && styles.columnWide, isInline && styles.columnInline]}>
         {factsCard}
       </View>
-      <View style={[styles.column, twoColumn && styles.columnWide, isInline && styles.columnInline]}>
+      <View style={[styles.column, sideBySide && styles.columnWide, isInline && styles.columnInline]}>
         {calcCard}
       </View>
     </View>
@@ -1447,7 +1448,13 @@ const styles = StyleSheet.create({
   columnsInline: { flexDirection: "column", alignItems: "stretch", gap: 10 },
   column: { minWidth: 0 },
   columnWide: { flex: 1, flexBasis: 0 },
-  columnInline: { minWidth: 0 },
+  columnInline: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: "auto",
+    width: "100%",
+    minWidth: 0,
+  },
   inlineScroll: { flex: 1, minHeight: 0 },
   inlineScrollContent: { flexGrow: 1, gap: 8, paddingBottom: 4 },
   factCard: {
@@ -1460,6 +1467,7 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   factCardInline: {
+    flexGrow: 0,
     paddingBottom: 2,
   },
   factRow: {
@@ -1555,6 +1563,7 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   calcCardInline: {
+    flexGrow: 0,
     paddingBottom: 4,
   },
   calcTitle: {

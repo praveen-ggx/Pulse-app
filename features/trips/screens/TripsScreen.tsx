@@ -5217,15 +5217,11 @@ const styles = StyleSheet.create({
   gridContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
-    width: "100%",
-    maxWidth: "100%",
+    marginHorizontal: -6,
     alignItems: "stretch",
     paddingTop: 0,
     marginTop: 0,
     rowGap: 4,
-    ...Platform.select({
-      web: { minWidth: 0, overflow: "hidden" } as ViewStyle,
-    }),
   },
   /** Desktop trips grid — column % comes from hubGridItemStyle. */
   gridItem: {

@@ -1,6 +1,8 @@
 import {
   appendBisimNote,
+  clampSimCompletionPickerValue,
   formatSimCompletionInput,
+  isSimCompletionAtOrAfterMin,
   lastBisimCoordinate,
   parseSimCompletionInput,
   hour12To24,
@@ -8,6 +10,8 @@ import {
   parseSimCompletionPickerValue,
   toSimCompletionPickerValue,
   resolveSimulateStageCoordinate,
+  resolveSimulateStageMinAt,
+  resolveTripAssignedAtIso,
   simulateStageStopTarget,
   unrevokedBisimEntries,
 } from "@/features/trips/utils/simulateTripStage.util";
@@ -101,5 +105,52 @@ describe("simulateTripStage", () => {
       at: parsed!,
     });
     expect(notes).toContain(parsed);
+  });
+
+  it("anchors Assigned from assignment audit and floors later stages to ≥ previous", () => {
+    const assignedAt = "2026-11-04T04:50:00.000Z"; // 10:20 IST wall if needed — absolute min
+    const trip = {
+      driver_id: "d1",
+      created_at: "2026-11-01T00:00:00.000Z",
+      updated_at: assignedAt,
+      started_at: null,
+      completed_at: null,
+      notes: null,
+    };
+    expect(
+      resolveTripAssignedAtIso(trip, [
+        { changed_at: assignedAt, driver_id_new: "d1" },
+      ]),
+    ).toBe(assignedAt);
+
+    const pickupMin = resolveSimulateStageMinAt({
+      targetStatus: "in_progress",
+      trip,
+      assignmentChangedAt: assignedAt,
+    });
+    expect(pickupMin?.toISOString()).toBe(assignedAt);
+    expect(isSimCompletionAtOrAfterMin(assignedAt, pickupMin)).toBe(true);
+    expect(
+      isSimCompletionAtOrAfterMin("2026-11-03T04:50:00.000Z", pickupMin),
+    ).toBe(false);
+
+    const afterPickup = {
+      ...trip,
+      started_at: "2026-11-04T05:00:00.000Z",
+      notes:
+        "[BISIM|in_progress|2026-11-04T05:00:00.000Z|1|2|Ops|assigned|Pickup]",
+    };
+    const transitMin = resolveSimulateStageMinAt({
+      targetStatus: "in_transit",
+      trip: afterPickup,
+      assignmentChangedAt: assignedAt,
+    });
+    expect(transitMin?.toISOString()).toBe("2026-11-04T05:00:00.000Z");
+    expect(
+      clampSimCompletionPickerValue(
+        "2026-11-04T04:00",
+        new Date(2026, 10, 4, 10, 20, 0, 0),
+      ),
+    ).toBe("2026-11-04T10:20");
   });
 });

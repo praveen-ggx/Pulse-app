@@ -49,6 +49,8 @@ export function HardCopyPodDateField({
   disabled = false,
   compact = false,
   quiet = false,
+  minDate,
+  allowClear = true,
 }: {
   label: string;
   value: string;
@@ -60,6 +62,9 @@ export function HardCopyPodDateField({
   compact?: boolean;
   /** Notification-scale type: sentence-case 12px label, 13px value. */
   quiet?: boolean;
+  /** YYYY-MM-DD — earlier calendar days are disabled. */
+  minDate?: string;
+  allowClear?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const fieldId = useId();
@@ -125,21 +130,24 @@ export function HardCopyPodDateField({
               </View>
               <DocumentDateCalendar
                 selectedIso={isoValue}
+                minDate={minDate}
                 onSelect={(iso) => {
                   onChange(iso);
                   close();
                 }}
               />
-              <Pressable
-                onPress={() => {
-                  onChange("");
-                  close();
-                }}
-                hitSlop={8}
-                style={styles.clearRow}
-              >
-                <Text style={styles.clearText}>Clear</Text>
-              </Pressable>
+              {allowClear ? (
+                <Pressable
+                  onPress={() => {
+                    onChange("");
+                    close();
+                  }}
+                  hitSlop={8}
+                  style={styles.clearRow}
+                >
+                  <Text style={styles.clearText}>Clear</Text>
+                </Pressable>
+              ) : null}
             </View>
           </View>
         </Modal>
@@ -147,9 +155,10 @@ export function HardCopyPodDateField({
 
       {open && Platform.OS === "android" ? (
         <DateTimePicker
-          value={parseISO(isoValue)}
+          value={parseISO(isoValue || minDate || toISODate(new Date()))}
           mode="date"
           display="default"
+          minimumDate={minDate ? parseISO(minDate) : undefined}
           onChange={(e, date) => {
             setOpen(false);
             if (e.type === "set" && date) onChange(toISODate(date));
@@ -162,24 +171,29 @@ export function HardCopyPodDateField({
           <Pressable style={styles.sheetBackdrop} onPress={close}>
             <View style={styles.sheet} onStartShouldSetResponder={() => true}>
               <View style={styles.sheetHeader}>
-                <Pressable
-                  onPress={() => {
-                    onChange("");
-                    close();
-                  }}
-                  hitSlop={10}
-                >
-                  <Text style={styles.clearText}>Clear</Text>
-                </Pressable>
+                {allowClear ? (
+                  <Pressable
+                    onPress={() => {
+                      onChange("");
+                      close();
+                    }}
+                    hitSlop={10}
+                  >
+                    <Text style={styles.clearText}>Clear</Text>
+                  </Pressable>
+                ) : (
+                  <View style={{ width: 48 }} />
+                )}
                 <Text style={styles.sheetTitle}>{label}</Text>
                 <Pressable onPress={close} hitSlop={10}>
                   <Text style={styles.doneText}>Done</Text>
                 </Pressable>
               </View>
               <DateTimePicker
-                value={parseISO(isoValue)}
+                value={parseISO(isoValue || minDate || toISODate(new Date()))}
                 mode="date"
                 display="spinner"
+                minimumDate={minDate ? parseISO(minDate) : undefined}
                 onChange={(_, date) => date && onChange(toISODate(date))}
               />
             </View>

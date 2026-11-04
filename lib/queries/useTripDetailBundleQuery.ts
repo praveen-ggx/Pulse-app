@@ -35,6 +35,9 @@ export interface BundleTrip {
   organization_id: string;
   trip_number: string;
   display_trip_id: string | null;
+  /** Operational SAT… code — preferred by getTripOperationalDisplayCode. */
+  trip_operational_code?: string | null;
+  trip_code?: string | null;
   driver_display_trip_id: string | null;
   indent_id: string | null;
   source: string;

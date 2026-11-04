@@ -79,7 +79,7 @@ describe("registry feed — network lane", () => {
     expect(feed.map((e) => e.id)).toEqual(["network:new", "network:old"]);
   });
 
-  it("shows network rows under All and Trip, not Driver or Payment", () => {
+  it("shows network rows under All and Indent, not Trip, Driver, or Payment", () => {
     const entry = buildRegistryFeed({
       ...EMPTY,
       tab: "active",
@@ -87,8 +87,10 @@ describe("registry feed — network lane", () => {
     })[0] as RegistryFeedEntry;
 
     expect(entryMatchesRegistryFilter(entry, "all")).toBe(true);
-    expect(entryMatchesRegistryFilter(entry, "trip")).toBe(true);
+    expect(entryMatchesRegistryFilter(entry, "indent")).toBe(true);
+    expect(entryMatchesRegistryFilter(entry, "trip")).toBe(false);
     expect(entryMatchesRegistryFilter(entry, "driver")).toBe(false);
     expect(entryMatchesRegistryFilter(entry, "payment")).toBe(false);
+    expect(entryMatchesRegistryFilter(entry, "received")).toBe(false);
   });
 });

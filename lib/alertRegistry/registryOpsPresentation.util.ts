@@ -11,6 +11,13 @@ import {
   type RegistryNotificationAvatar,
   resolveOpsRegistryAvatar,
 } from "@/lib/alertRegistry/registryNotificationAvatar.util";
+import { classifyPayment } from "@/lib/globalSync/registryPaymentLane.util";
+import {
+  formatBareRupeeTokens,
+  formatInrAmount,
+  tripBalanceHint,
+  type TripMoneySnapshot,
+} from "@/lib/alertRegistry/paymentAmountFormat.util";
 
 export type RegistryPartyLookup = {
   activeTrips: ActiveTripSummary[];
@@ -20,6 +27,7 @@ export type RegistryPartyLookup = {
   org: CurrentOrganization | null | undefined;
   partnerDisplay: Record<string, InboundPartnerDisplay>;
   partnerAvatarUri: Record<string, string | null>;
+  tripMoneyById?: Map<string, TripMoneySnapshot>;
 };
 
 export type OpsRegistryCardPresentation = {
@@ -140,7 +148,18 @@ function partnerAvatarFromOrgId(
 
 function formatOpsAmount(amount: number | null | undefined): string | undefined {
   if (amount == null || !Number.isFinite(Number(amount))) return undefined;
-  return `₹${Math.abs(Number(amount)).toLocaleString("en-IN")}`;
+  return formatInrAmount(Number(amount));
+}
+
+function paymentDetail(
+  raw: string | null | undefined,
+  fallback: string,
+  lane: "received" | "paid",
+  money: TripMoneySnapshot | undefined,
+): string {
+  const formatted = formatBareRupeeTokens((raw ?? "").trim() || fallback);
+  const hint = tripBalanceHint(lane, money);
+  return hint ? `${formatted} · ${hint}` : formatted;
 }
 
 function buildPaymentPresentation(
@@ -150,33 +169,47 @@ function buildPaymentPresentation(
 ): OpsRegistryCardPresentation {
   const trip = findOpsTrip(ops, ctx.activeTrips);
   const meta = readMeta(event);
-  const flow = String(meta?.flow ?? "").toLowerCase();
+  const classified = classifyPayment({
+    content: event?.content ?? ops.subtitle,
+    metadata: event?.metadata ?? meta,
+  });
   const tripLabel = ops.trip_number ?? trip?.display_trip_id ?? trip?.trip_number ?? "trip";
   const amountLabel = formatOpsAmount(ops.amount ?? Number(meta?.amount ?? NaN));
+  const kindLabel = classified.kind === "advance" ? "Advance" : classified.categoryLabel;
+  const moneyId = ops.trip_id ?? trip?.trip_id ?? null;
+  const money = moneyId ? ctx.tripMoneyById?.get(moneyId) : undefined;
+  const rawDetail = event?.content?.trim() || ops.subtitle?.trim() || null;
 
-  if (flow === "out") {
-    const receiverOrgId =
-      typeof meta?.receiver_org_id === "string" ? meta.receiver_org_id : null;
+  if (classified.lane === "paid") {
+    const senderName =
+      String(meta?.sender_org_name ?? "").trim() ||
+      ctx.org?.name?.trim() ||
+      "You";
     const receiverName = String(meta?.receiver_org_name ?? "").trim();
     const supplier =
       trip?.supplier_id != null ? ctx.suppliersById.get(trip.supplier_id) : undefined;
-    const supplierName =
+    const payee =
+      receiverName ||
       supplier?.company_name?.trim() ||
       supplier?.name?.trim() ||
-      receiverName ||
-      "Supplier";
+      "payee";
     const avatar =
       supplier != null
-        ? partyAvatarFromSupplier(supplier, supplierName)
-        : partnerAvatarFromOrgId(receiverOrgId, supplierName, "supplier", ctx);
+        ? partyAvatarFromSupplier(supplier, payee)
+        : partnerAvatarFromOrgId(
+            typeof meta?.receiver_org_id === "string" ? meta.receiver_org_id : null,
+            payee,
+            "supplier",
+            ctx,
+          );
 
     return {
       avatar,
-      actorName: supplierName,
-      actionText: "received",
+      actorName: senderName,
+      actionText: "paid",
       highlightText: amountLabel,
-      trailingText: `on ${tripLabel}`,
-      detail: event?.content?.trim() || ops.subtitle?.trim() || undefined,
+      trailingText: `to ${payee} on ${tripLabel}`,
+      detail: paymentDetail(rawDetail, `${kindLabel} · ${tripLabel}`, "paid", money),
     };
   }
 
@@ -195,7 +228,7 @@ function buildPaymentPresentation(
     actionText: "paid",
     highlightText: amountLabel,
     trailingText: `on ${tripLabel}`,
-    detail: event?.content?.trim() || ops.subtitle?.trim() || undefined,
+    detail: paymentDetail(rawDetail, `${kindLabel} captured · ${tripLabel}`, "received", money),
   };
 }
 
@@ -272,7 +305,7 @@ export function buildOpsRegistryCardPresentation(
 ): OpsRegistryCardPresentation {
   const event = findOpsSourceEvent(ops, ctx.activeTrips);
 
-  if (ops.category === "payment_received") {
+  if (ops.category === "payment_received" || ops.category === "payment_paid") {
     return buildPaymentPresentation(ops, ctx, event);
   }
 
@@ -304,7 +337,7 @@ function tripHasDriver(ops: GlobalOperationAlert, ctx: RegistryPartyLookup): boo
 }
 
 export function opsRegistryActionLabel(ops: GlobalOperationAlert): string {
-  if (ops.category === "payment_received") return "View payment";
+  if (ops.category === "payment_received" || ops.category === "payment_paid") return "View payment";
   if (ops.category === "unassigned_trip") return "Change driver";
   if (ops.category === "late_log") return "View trip";
   if (ops.category === "vehicle_idle") return "View trip";

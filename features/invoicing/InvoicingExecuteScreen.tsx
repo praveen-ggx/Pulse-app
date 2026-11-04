@@ -15,7 +15,6 @@ import { IssuedInvoicesPanel } from "@/features/invoicing/components/IssuedInvoi
 import { PendingBillingInsightPanel } from "@/features/invoicing/components/PendingBillingInsightPanel";
 import { FinanceInvoiceClientRail } from "@/features/invoicing/components/FinanceInvoiceClientRail";
 import { InvoiceArPanel } from "@/features/invoicing/components/InvoiceArPanel";
-import { InvoiceReceiptsPanel } from "@/features/invoicing/components/InvoiceReceiptsPanel";
 import { TripExcelColumnHeader } from "@/features/invoicing/components/TripExcelColumnHeader";
 import { InvoiceIssueConfirm } from "@/features/invoicing/components/InvoiceIssueConfirm";
 import { InvoiceClientDetailsPanel } from "@/features/invoicing/components/InvoiceClientDetailsPanel";
@@ -339,9 +338,6 @@ function InvoiceBillingSurfaceTabs({
           { key: "pending", label: "Trips" },
           { key: "drafts", label: "Drafts" },
           { key: "issued", label: "Issued" },
-          { key: "ar", label: "AR" },
-          { key: "receipts", label: "Receipts" },
-          { key: "details", label: "Client Details" },
         ] as const
       ).map((tab) => {
         const isActive = value === tab.key;
@@ -465,6 +461,15 @@ export function InvoicingExecuteScreen({
   const [invoiceSurface, setInvoiceSurface] =
     useState<InvoiceBillingSurface>("pending");
   const [financeBook, setFinanceBook] = useState<FinanceBookSection>("book");
+  useEffect(() => {
+    if (invoiceSurface === "receipts") {
+      setFinanceBook("ledger");
+      setInvoiceSurface("pending");
+    } else if (invoiceSurface === "details") {
+      setFinanceBook("details");
+      setInvoiceSurface("pending");
+    }
+  }, [invoiceSurface]);
   const [pendingIssue, setPendingIssue] = useState<{
     internalIds: string[];
     payload: InvoicePayload;
@@ -2532,11 +2537,32 @@ export function InvoicingExecuteScreen({
               ) : null}
               <View style={financeInvoiceWorkspaceStyles.stageBody}>
               <View style={financeInvoiceWorkspaceStyles.workPane}>
-              {financeBook !== "book" && orgId ? (
+              {financeBook === "receivables" ? (
+                <InvoiceArPanel
+                  orgId={orgId}
+                  clientId={selectedClientId}
+                  clientName={activeClientLabel}
+                  trips={arTrips}
+                  invoices={arInvoices}
+                  onRecorded={() => {
+                    void refetchIssued();
+                  }}
+                  onTripsChanged={() => {
+                    void refetch();
+                  }}
+                />
+              ) : financeBook === "details" ? (
+                <InvoiceClientDetailsPanel
+                  orgId={orgId}
+                  clientId={selectedClientId}
+                  clientName={activeClientLabel}
+                />
+              ) : financeBook !== "book" && orgId ? (
                 <FinanceBooksPanel
                   section={financeBook}
                   orgId={orgId}
                   clientId={selectedClientId}
+                  clientName={activeClientLabel}
                   canRecord={caps.includes("finance_manage")}
                   invoices={arInvoices
                     .filter((row) => row.status === "sent" || row.status === "paid")
@@ -2545,6 +2571,14 @@ export function InvoicingExecuteScreen({
                       invoiceNumber: row.invoice_number,
                       total: Number(row.total_amount) || 0,
                     }))}
+                  trips={arTrips}
+                  issuedInvoices={arInvoices}
+                  onRecorded={() => {
+                    void refetchIssued();
+                  }}
+                  onTripsChanged={() => {
+                    void refetch();
+                  }}
                 />
               ) : invoiceSurface === "drafts" ? (
                 <InvoiceDraftsPanel
@@ -2577,6 +2611,7 @@ export function InvoicingExecuteScreen({
                     </View>
                   ) : null}
                   <IssuedInvoicesPanel
+                    orgId={orgId}
                     invoices={issuedInvoices}
                     podRequired={podRequired}
                     refreshing={issuedRefetching}
@@ -2597,40 +2632,6 @@ export function InvoicingExecuteScreen({
                     }}
                   />
                 </View>
-              ) : invoiceSurface === "details" ? (
-                <InvoiceClientDetailsPanel
-                  orgId={orgId}
-                  clientId={selectedClientId}
-                  clientName={activeClientLabel}
-                />
-              ) : invoiceSurface === "ar" ? (
-                <InvoiceArPanel
-                  orgId={orgId}
-                  clientId={selectedClientId}
-                  clientName={activeClientLabel}
-                  trips={arTrips}
-                  invoices={arInvoices}
-                  onRecorded={() => {
-                    void refetchIssued();
-                  }}
-                  onTripsChanged={() => {
-                    void refetch();
-                  }}
-                />
-              ) : invoiceSurface === "receipts" ? (
-                <InvoiceReceiptsPanel
-                  orgId={orgId}
-                  clientId={selectedClientId}
-                  clientName={activeClientLabel}
-                  trips={arTrips}
-                  invoices={arInvoices}
-                  onRecorded={() => {
-                    void refetchIssued();
-                  }}
-                  onTripsChanged={() => {
-                    void refetch();
-                  }}
-                />
               ) : composeMode === "manual" ? (
                 <FinanceManualInvoicePanel
                   clientName={activeClientLabel || "Client"}
@@ -2707,7 +2708,7 @@ export function InvoicingExecuteScreen({
                 />
               )}
               </View>
-            {previewOpen ? (
+            {previewOpen && financeBook === "book" ? (
             <View
               style={financeInvoiceWorkspaceStyles.previewCol}
               accessibilityLabel="Invoice preview"
@@ -2874,11 +2875,32 @@ export function InvoicingExecuteScreen({
           ) : null}
           {null}
         </View>
-        {financeBook !== "book" && orgId ? (
+        {financeBook === "receivables" ? (
+          <InvoiceArPanel
+            orgId={orgId}
+            clientId={selectedClientId}
+            clientName={activeClientLabel}
+            trips={arTrips}
+            invoices={arInvoices}
+            onRecorded={() => {
+              void refetchIssued();
+            }}
+            onTripsChanged={() => {
+              void refetch();
+            }}
+          />
+        ) : financeBook === "details" ? (
+          <InvoiceClientDetailsPanel
+            orgId={orgId}
+            clientId={selectedClientId}
+            clientName={activeClientLabel}
+          />
+        ) : financeBook !== "book" && orgId ? (
           <FinanceBooksPanel
             section={financeBook}
             orgId={orgId}
             clientId={selectedClientId}
+            clientName={activeClientLabel}
             canRecord={caps.includes("finance_manage")}
             invoices={arInvoices
               .filter((row) => row.status === "sent" || row.status === "paid")
@@ -2887,6 +2909,14 @@ export function InvoicingExecuteScreen({
                 invoiceNumber: row.invoice_number,
                 total: Number(row.total_amount) || 0,
               }))}
+            trips={arTrips}
+            issuedInvoices={arInvoices}
+            onRecorded={() => {
+              void refetchIssued();
+            }}
+            onTripsChanged={() => {
+              void refetch();
+            }}
           />
         ) : invoiceSurface === "drafts" ? (
           <InvoiceDraftsPanel
@@ -2917,6 +2947,7 @@ export function InvoicingExecuteScreen({
               </View>
             ) : null}
             <IssuedInvoicesPanel
+              orgId={orgId}
               invoices={issuedInvoices}
               podRequired={podRequired}
               refreshing={issuedRefetching}
@@ -2931,40 +2962,6 @@ export function InvoicingExecuteScreen({
               partnerLabel={activeClientLabel}
             />
           </View>
-        ) : invoiceSurface === "details" ? (
-          <InvoiceClientDetailsPanel
-            orgId={orgId}
-            clientId={selectedClientId}
-            clientName={activeClientLabel}
-          />
-        ) : invoiceSurface === "ar" ? (
-          <InvoiceArPanel
-            orgId={orgId}
-            clientId={selectedClientId}
-            clientName={activeClientLabel}
-            trips={arTrips}
-            invoices={arInvoices}
-            onRecorded={() => {
-              void refetchIssued();
-            }}
-            onTripsChanged={() => {
-              void refetch();
-            }}
-          />
-        ) : invoiceSurface === "receipts" ? (
-          <InvoiceReceiptsPanel
-            orgId={orgId}
-            clientId={selectedClientId}
-            clientName={activeClientLabel}
-            trips={arTrips}
-            invoices={arInvoices}
-            onRecorded={() => {
-              void refetchIssued();
-            }}
-            onTripsChanged={() => {
-              void refetch();
-            }}
-          />
         ) : isLargeScreen ? (
           <View style={styles.splitLayout}>
             <View style={styles.sidebar}>{renderSidebar()}</View>

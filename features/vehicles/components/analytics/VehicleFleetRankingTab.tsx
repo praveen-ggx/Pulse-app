@@ -27,7 +27,7 @@ import { Theme } from "@/constants/Theme";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { formatINRChip } from "@/lib/format";
 import {
-  useTripsQuery,
+  useCompleteTripsQuery,
   useVehiclesQuery,
 } from "@/lib/queries";
 
@@ -240,7 +240,7 @@ export function VehicleFleetRankingTab({ currentVehicleId }: Props) {
   const orgId = currentOrganization?.id ?? null;
   const [sortKey, setSortKey] = useState<VehicleLeaderboardSortKey>("score");
 
-  const { data: trips = [] } = useTripsQuery(orgId);
+  const { data: trips = [] } = useCompleteTripsQuery(orgId);
   const { data: vehicles = [] } = useVehiclesQuery(orgId);
 
   const fleetRows = useMemo(

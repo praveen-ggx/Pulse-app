@@ -9,6 +9,8 @@ export const queryKeys = {
   trips: {
     all: (orgId: string) => ["q", "trips", orgId] as const,
     finite: (orgId: string) => ["q", "trips", orgId, "finite"] as const,
+    /** All visible trips for totals. The finite list stays the newest 400. */
+    complete: (orgId: string) => ["q", "trips", orgId, "complete"] as const,
     /** Compliance queue catalog: newest 400 plus older unsettled Compliance trips. */
     compliance: (orgId: string) => ["q", "trips", orgId, "compliance"] as const,
     partyCounts: (orgId: string) =>

@@ -35,7 +35,7 @@ import {
   uniqueLanes,
 } from "@/features/network/utils/connectionSalesAnalytics.util";
 import { formatINRChip } from "@/lib/format";
-import { useTripsQuery } from "@/lib/queries/useTripsQuery";
+import { useCompleteTripsQuery } from "@/lib/queries/useTripsQuery";
 import { NetworkExportMenu } from "@/features/network/components/desktop/NetworkExportMenu";
 import {
   exportConnectionSalesExcel,
@@ -116,7 +116,7 @@ export function NetworkDesktopConnectionSalesPanel({
   const [tableSearch, setTableSearch] = useState("");
   const [partnerBarFilter, setPartnerBarFilter] = useState<string | null>(null);
 
-  const tripsQ = useTripsQuery(orgId);
+  const tripsQ = useCompleteTripsQuery(orgId);
   const trips = tripsQ.data ?? [];
 
   const mergedFilters = useMemo(

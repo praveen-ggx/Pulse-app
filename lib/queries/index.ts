@@ -93,7 +93,7 @@ export {
 export {
     useAssignmentAuditQuery,
     useInvalidateTrips, useOrgIndentIdsWithTripQuery, useOrgHubMetricsQuery, useOrgTripCountsQuery, useShipperDisplayNamesQuery, useTripDetailQuery, useTripPartyCountsQuery,
-    useTripsInfiniteQuery, useTripsQuery
+    useCompleteTripsQuery, useTripsInfiniteQuery, useTripsQuery
 } from './useTripsQuery';
 export {
     useSaveTripVerification, useTripVerification, useTripVerificationPhotos

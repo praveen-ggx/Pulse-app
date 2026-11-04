@@ -1,0 +1,16 @@
+# Release 2026-11-03 (Vasanthgogox V1.0.1): two migrations for this release.
+# 1. fix_chat_participants_auth_guard: EXISTS guard on chat_participants inserts — prevents FK violation
+#    when organization_members or drivers carry orphaned user_ids not in auth.users (PR #78).
+# 2. record_trip_assigner_on_driver_change: records assigner user IDs on driver reassignment (PR #77).
+#
+# Apply only via: npm run db:push-set -- prod-2026-11-03   (dry-run first; apply needs Vasanth's GO)
+# Never via plain `supabase db push` / `npm run db:push`.
+#
+# Excluded on purpose: dco_single_owner_operator_concept, get_driver_owned_trip, godrej_dco_payable_classification,
+# network_pool_bid_commits (not in this release, carried from earlier exclusions).
+#
+# Verify before applying:  npx jest supabase/migrations/__tests__/prodRelease20261103Set.test.ts
+# sha256 fe1eaf30939a356d258f4ba2a1fabcaf64aeeeb90358bb0a8fc766ea4891fa64  20261103121242_fix_chat_participants_auth_guard.sql
+20261103121242
+# sha256 556b5249eac7bc42d5eef317d57faaad7d728e1c536089f288344df26372a979  20271103221500_record_trip_assigner_on_driver_change.sql
+20271103221500

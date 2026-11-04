@@ -3,6 +3,7 @@
  * Does not change invoice totals.
  */
 import { supabase } from "@/lib/supabase";
+import { receiptAppliedFromSnapshot } from "@/features/invoicing/utils/customerReceipt.util";
 import {
   groupCustomerReceipts,
   type CustomerReceipt,
@@ -55,5 +56,33 @@ export async function fetchCustomerReceipts(args: {
       reference: typeof item.payment_reference === "string" ? item.payment_reference : null,
     }];
   });
-  return { error: null, receipts: groupCustomerReceipts(rows) };
+  const receipts = groupCustomerReceipts(rows);
+  const covered = new Set(receipts.map((receipt) => receipt.invoiceNumber).filter((number): number is string => Boolean(number)));
+  const invoices = await supabase()
+    .from("invoices")
+    .select("id, invoice_number, invoice_date, tax_snapshot, client_id, client_name")
+    .eq("org_id", args.orgId)
+    .limit(300);
+  if (!invoices.error) {
+    for (const row of invoices.data ?? []) {
+      const item = row as Record<string, unknown>;
+      const number = typeof item.invoice_number === "string" ? item.invoice_number : "";
+      const contact = typeof item.client_id === "string" ? item.client_id : null;
+      const party = typeof item.client_name === "string" ? item.client_name.trim().toLowerCase() : "";
+      const sameClient = clientId ? contact === clientId || (clientName != null && party === clientName) : clientName != null && party === clientName;
+      const applied = receiptAppliedFromSnapshot(item.tax_snapshot);
+      if (!sameClient || !number || applied <= 0 || covered.has(number)) continue;
+      receipts.push({
+        id: `applied:${String(item.id ?? number)}`,
+        date: typeof item.invoice_date === "string" ? item.invoice_date : "",
+        reference: null,
+        invoiceNumber: number,
+        bank: applied,
+        tds: 0,
+        total: applied,
+        trips: [],
+      });
+    }
+  }
+  return { error: null, receipts };
 }

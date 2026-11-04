@@ -5,7 +5,7 @@ import {
   rejectDcoSelfOutbox,
   type DcoSelfOutboxItem,
 } from "@/features/dco-self/offline/dcoSelfOutbox";
-import { isDcoSelfTransportError } from "@/features/dco-self/offline/dcoSelfOffline.util";
+import { dcoSelfPartyKey, isDcoSelfTransportError } from "@/features/dco-self/offline/dcoSelfOffline.util";
 import {
   markLocalDcoSelfPartyRejected,
   markLocalDcoSelfPartySynced,
@@ -33,6 +33,7 @@ async function flushParty(item: DcoSelfOutboxItem): Promise<"ok" | "offline" | "
   const { data, error } = await rpc("upsert_dco_self_party", {
     p_name: String(item.payload.name ?? ""),
     p_phone: item.payload.phone ?? null,
+    p_idempotency_key: dcoSelfPartyKey(localId || item.id),
   });
   if (error) {
     if (isDcoSelfTransportError(error)) return "offline";

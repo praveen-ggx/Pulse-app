@@ -22,6 +22,7 @@ import {
     driverHistoryLane,
     driverHistoryLaneLabel,
     driverHistoryTabsForMode,
+    isClientSupplierTaggedTrip,
     type DriverHistoryTabId,
 } from "@/features/drivers/domain/driverOperatingMode";
 import {
@@ -29,7 +30,12 @@ import {
     tripNeedsPartyTag,
     tripReceivablePartyName,
 } from "@/features/drivers/utils/driverPartyReceivables.util";
-import { isAggregateTrip, isRosterTrip, resolveDriverTripPayoutTerms } from "@/features/drivers/utils/driverUtils.util";
+import {
+    DRIVER_PAY_NA_AMOUNT,
+    isAggregateTrip,
+    isRosterTrip,
+    resolveDriverTripPayoutTerms,
+} from "@/features/drivers/utils/driverUtils.util";
 import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import { getLatestAssignmentAuditByTripIds } from "@/features/trips/services/trip-assignment-audit.service";
 import * as tripsService from "@/features/trips/services/trips.service";
@@ -727,6 +733,7 @@ export default function DriverTripsScreen() {
       const tripOrgId = String(trip.organization_id ?? "").trim();
       if (!tripOrgId) return false;
       if (String(trip.source ?? "").trim() === "market_bid") return false;
+      if (isClientSupplierTaggedTrip(trip)) return false;
       return linkedDriverRows.some((row) => {
         if (String(row.organization_id ?? "").trim() !== tripOrgId) return false;
         if (row.tracking_only === true) return false;
@@ -805,6 +812,9 @@ export default function DriverTripsScreen() {
   const getEarning = (trip: tripsService.TripRow) => {
     // Aggregate/direct-shipper trips with no agreed payout terms are worth
     // ₹0 — never the legacy 10%-of-price guess.
+    // Client supplier-tagged trips are offline: the client's terms are not the
+    // driver's pay (matches PAY N/A on the assignment card).
+    if (isClientSupplierTaggedTrip(trip)) return DRIVER_PAY_NA_AMOUNT;
     const { hasAgreedPayoutTerms, commissionDetail } = resolveDriverTripPayoutTerms(
       trip,
       payoutTermsForTrip(trip),

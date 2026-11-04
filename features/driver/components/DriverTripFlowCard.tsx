@@ -49,6 +49,11 @@ import { useRouteExtraStopRowsFor } from '@/features/trips/hooks/useRouteExtraSt
 import { useDriverStopExecution } from '@/features/driver/hooks/useDriverStopExecution';
 import { shouldShowDriverMultiStop } from '@/features/driver/execution/normalizeDriverStopExecution';
 import { DriverShipperFeedbackModal } from '@/features/chat/components/driver/DriverShipperFeedbackModal';
+import {
+  showDriverTripCompleted,
+  TRIP_COMPLETED_MODAL_HANDOFF_MS,
+} from '@/features/driver/components/DriverTripCompletedModal';
+import { getTripDisplayLabel } from '@/lib/globalId';
 import { findLatestMissionDebriefMessage } from '@/features/chat/utils/missionDebrief.util';
 import { DriverPodCompletionPage } from '@/features/driver/components/DriverPodCompletionPage';
 import { LoadingComplianceNotice } from '@/features/tripCompliance/components/LoadingComplianceNotice';
@@ -460,6 +465,16 @@ export function DriverTripFlowCard({
   const [vehiclePickerBusy, setVehiclePickerBusy] = useState(false);
   const [vehiclePickerError, setVehiclePickerError] = useState<string | null>(null);
   const [shipperFeedbackOpen, setShipperFeedbackOpen] = useState(false);
+  const cardMountedRef = useRef(true);
+  const feedbackHandoffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    cardMountedRef.current = true;
+    return () => {
+      cardMountedRef.current = false;
+      if (feedbackHandoffTimerRef.current) clearTimeout(feedbackHandoffTimerRef.current);
+    };
+  }, []);
   const [partyTagOpen, setPartyTagOpen] = useState(false);
 
   const openVehiclePicker = useCallback(() => {
@@ -1551,7 +1566,21 @@ export function DriverTripFlowCard({
       void queryClient.invalidateQueries({ queryKey: driverUiTripsQueryKey(profile.uid) });
     }
     onTripCompleted?.();
-    setShipperFeedbackOpen(true);
+    // Success first; the shipper rating follows if this card is still mounted.
+    showDriverTripCompleted({
+      tripLabel: getTripDisplayLabel(next),
+      pickupLabel,
+      dropLabel,
+      earnings,
+      completedAt: next.completed_at ?? now,
+      onClosed: () => {
+        if (!cardMountedRef.current) return;
+        if (feedbackHandoffTimerRef.current) clearTimeout(feedbackHandoffTimerRef.current);
+        feedbackHandoffTimerRef.current = setTimeout(() => {
+          if (cardMountedRef.current) setShipperFeedbackOpen(true);
+        }, TRIP_COMPLETED_MODAL_HANDOFF_MS);
+      },
+    });
   };
 
   const peekCopy = missionStagePeekCopy(step, pickupLabel, dropLabel);

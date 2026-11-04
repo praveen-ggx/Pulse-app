@@ -56,7 +56,7 @@ export function DriverTabBar({ state, descriptors, navigation }: BottomTabBarPro
   const insets = useSafeAreaInsets();
   const colors = useDriverThemeColors();
   const { isDark } = useDriverTheme();
-  const { isDco } = useDriverOperatingModeQuery();
+  const { canSeeMarketplace } = useDriverOperatingModeQuery();
   const focusedRoute = state.routes[state.index];
   const current = focusedRoute?.name;
 
@@ -105,7 +105,7 @@ export function DriverTabBar({ state, descriptors, navigation }: BottomTabBarPro
 
   const renderTab = (tab: (typeof TAB_CONFIG)[number]) => {
     const isActive = current === tab.name;
-    const label = tab.name === 'available-loads' && !isDco ? 'Loads' : tab.label;
+    const label = tab.label;
     return (
       <View key={tab.name} style={styles.dockColumn}>
         <View
@@ -166,7 +166,7 @@ export function DriverTabBar({ state, descriptors, navigation }: BottomTabBarPro
       ]}
     >
       <View style={[styles.glassDock, dockSurface]}>
-        {TAB_CONFIG.map(renderTab)}
+        {TAB_CONFIG.filter((tab) => tab.name !== 'available-loads' || canSeeMarketplace).map(renderTab)}
       </View>
     </View>
   );

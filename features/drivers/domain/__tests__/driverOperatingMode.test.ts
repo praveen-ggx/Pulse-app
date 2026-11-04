@@ -12,6 +12,7 @@ import {
   driverJobSource,
   driverOfflinePartyBookKicker,
   driverWalletBookTabLabel,
+  isClientSupplierTaggedTrip,
   isDcoOperatingMode,
   parseDriverOperatingMode,
   splitEmployerRelationships,
@@ -322,5 +323,22 @@ describe('driverHistoryLane / driverHistoryTabsForMode', () => {
     expect(driverHistoryLaneLabel('marketplace')).toBe('Marketplace trip');
     expect(driverHistoryLaneLabel('offline')).toBe('Offline trip');
     expect(driverHistoryLaneLabel('fleet')).toBe('Fleet trip');
+  });
+});
+
+describe('isClientSupplierTaggedTrip', () => {
+  it('client trip tagging the employer as supplier is offline, not fleet', () => {
+    const trip = { organization_id: 'org-nihas', supplier_id: 'supplier-gk', operating_mode: null };
+    expect(isClientSupplierTaggedTrip(trip)).toBe(true);
+    expect(driverHistoryLaneLabel(driverHistoryLane(trip, false))).toBe('Offline trip');
+  });
+
+  it('employer-dispatched trip without a supplier is unaffected', () => {
+    expect(isClientSupplierTaggedTrip({ organization_id: 'org-gk', supplier_id: null })).toBe(false);
+    expect(isClientSupplierTaggedTrip({ organization_id: 'org-gk', supplier_id: '  ' })).toBe(false);
+  });
+
+  it('DCO trips keep their own lanes', () => {
+    expect(isClientSupplierTaggedTrip({ supplier_id: 'supplier-x', operating_mode: 'DCO' })).toBe(false);
   });
 });

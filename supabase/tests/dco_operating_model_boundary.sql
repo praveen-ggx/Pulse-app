@@ -153,6 +153,23 @@ BEGIN
   IF NOT v_raised THEN RAISE EXCEPTION 'FAIL G: FLEET trip created for DCO'; END IF;
   RAISE NOTICE 'PASS: G — approved DCO cannot receive employee-driver assignment';
 
+  -- ── G2. Offline market hire of a DCO is allowed (20271103224500) ───────
+  INSERT INTO public.trips (organization_id, trip_number, pickup_area, drop_location, client_name, client_price, driver_id, status, trip_payout_mode)
+  VALUES (v_biz, '', 'Chennai', 'Salem', 'Test Client', 4000, v_dco_stub_row, 'assigned', 'market')
+  RETURNING id INTO v_trip_id;
+  IF v_trip_id IS NULL THEN RAISE EXCEPTION 'FAIL G2: market-hire trip not created for DCO'; END IF;
+  RAISE NOTICE 'PASS: G2 — offline market-hire trip can track an approved DCO';
+
+  -- ── G3. An asset (employee) trip to the same DCO stays blocked ─────────
+  v_raised := false;
+  BEGIN
+    INSERT INTO public.trips (organization_id, trip_number, pickup_area, drop_location, client_name, client_price, driver_id, status, trip_payout_mode)
+    VALUES (v_biz, '', 'Chennai', 'Salem', 'Test Client', 4000, v_dco_stub_row, 'assigned', 'asset');
+  EXCEPTION WHEN check_violation THEN v_raised := true;
+  END;
+  IF NOT v_raised THEN RAISE EXCEPTION 'FAIL G3: asset trip created for DCO'; END IF;
+  RAISE NOTICE 'PASS: G3 — asset trip to an approved DCO is still refused';
+
   -- ── H. Previous employer remains visible as history ────────────────────
   IF NOT EXISTS (
     SELECT 1 FROM public.drivers

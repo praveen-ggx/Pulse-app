@@ -2,6 +2,7 @@ import {
   claimExchangePayment,
   claimExchangePaymentOnce,
   confirmExchangePayment,
+  confirmedDcoExchangeReceivedByTrip,
   exchangeErrorMessage,
   exchangeModeFromLedgerLabel,
   getExchangeTripSummary,
@@ -12,13 +13,65 @@ import {
 } from "../exchangePayments.service";
 
 const mockRpc = jest.fn();
+const mockGetUser = jest.fn();
+const mockEq = jest.fn();
+const mockSelect = jest.fn();
+const mockFrom = jest.fn();
 
 jest.mock("@/lib/supabase", () => ({
-  supabase: () => ({ rpc: (...args: unknown[]) => mockRpc(...args) }),
+  supabase: () => ({
+    rpc: (...args: unknown[]) => mockRpc(...args),
+    auth: { getUser: () => mockGetUser() },
+    from: (...args: unknown[]) => mockFrom(...args),
+  }),
 }));
 
 beforeEach(() => {
   mockRpc.mockReset();
+  mockGetUser.mockReset();
+  mockEq.mockReset();
+  mockSelect.mockReset();
+  mockFrom.mockReset();
+});
+
+describe("confirmedDcoExchangeReceivedByTrip", () => {
+  function queryReturns(result: { data: unknown; error: unknown }) {
+    const chain = { eq: mockEq };
+    let calls = 0;
+    mockEq.mockImplementation(() => {
+      calls += 1;
+      return calls >= 2 ? Promise.resolve(result) : chain;
+    });
+    mockSelect.mockReturnValue(chain);
+    mockFrom.mockReturnValue({ select: mockSelect });
+  }
+
+  it("sums only the signed-in DCO's confirmed payments per trip", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: "dco-user" } } });
+    queryReturns({
+      data: [
+        { trip_id: "trip-1", amount: 10000 },
+        { trip_id: "trip-1", amount: 15000 },
+        { trip_id: "trip-2", amount: 0 },
+        { trip_id: null, amount: 500 },
+      ],
+      error: null,
+    });
+    await expect(confirmedDcoExchangeReceivedByTrip()).resolves.toEqual({ "trip-1": 25000 });
+    expect(mockFrom).toHaveBeenCalledWith("exchange_payments");
+    expect(mockEq).toHaveBeenCalledWith("status", "confirmed");
+    expect(mockEq).toHaveBeenCalledWith("dco_payees.user_id", "dco-user");
+  });
+
+  it("returns nothing when signed out or the read fails", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    await expect(confirmedDcoExchangeReceivedByTrip()).resolves.toEqual({});
+    expect(mockFrom).not.toHaveBeenCalled();
+
+    mockGetUser.mockResolvedValue({ data: { user: { id: "dco-user" } } });
+    queryReturns({ data: null, error: { message: "denied" } });
+    await expect(confirmedDcoExchangeReceivedByTrip()).resolves.toEqual({});
+  });
 });
 
 describe("exchangeErrorMessage", () => {

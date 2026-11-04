@@ -298,15 +298,29 @@ export default function DriverPartyReceivableScreen() {
                     </Text>
                   </View>
                   <Text style={[styles.amt, { color: Theme.positive }]}>{inr(line.received)}</Text>
+                </Pressable>
+                {/* Capture sits under Due: the 44pt action column is narrower than the button. */}
+                <View style={styles.dueCell}>
                   <Text
                     style={[
                       styles.amt,
                       { color: line.due > 0 ? Theme.negative : Theme.positive },
                     ]}
+                    numberOfLines={1}
                   >
                     {inr(line.due)}
                   </Text>
-                </Pressable>
+                  {!needsTag && line.due > 0 &&
+                  (isMarketplace || isTripTaggedToParty(line.trip)) ? (
+                    <DriverCapturePaymentButton
+                      tripId={line.trip.id}
+                      due={line.due}
+                      lane={captureLane}
+                      partyName={showParty ? partyName : party?.name}
+                      compact
+                    />
+                  ) : null}
+                </View>
                 <View style={styles.actionCol}>
                   {needsTag ? (
                     <Pressable
@@ -321,15 +335,6 @@ export default function DriverPartyReceivableScreen() {
                     >
                       <Tag size={13} color={Theme.driverEmerald} strokeWidth={2.4} />
                     </Pressable>
-                  ) : line.due > 0 &&
-                    (isMarketplace || isTripTaggedToParty(line.trip)) ? (
-                    <DriverCapturePaymentButton
-                      tripId={line.trip.id}
-                      due={line.due}
-                      lane={captureLane}
-                      partyName={showParty ? partyName : party?.name}
-                      compact
-                    />
                   ) : null}
                 </View>
               </View>
@@ -510,6 +515,13 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "500",
     color: Theme.textMuted,
+  },
+  dueCell: {
+    width: 72,
+    marginLeft: 4,
+    alignItems: "flex-end",
+    justifyContent: "center",
+    gap: 4,
   },
   amt: {
     width: 72,

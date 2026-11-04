@@ -243,7 +243,7 @@ export function useTripControl(tripId: string | undefined) {
 
   const completeTrip = async () => {
     const id = trip?.id ?? tripId;
-    if (!id) return;
+    if (!id) return false;
     const now = new Date().toISOString();
     setStep("completed");
     setTrip((prev) =>
@@ -259,7 +259,7 @@ export function useTripControl(tripId: string | undefined) {
       setStepError(error?.message ?? "Could not complete the trip.");
       setStep("reached");
       setTrip((prev) => (prev ? { ...prev, status: "at_drop", completed_at: null } : prev));
-      return;
+      return false;
     }
     setTrip((prev) => (prev ? applyDriverCommandResult(prev, result) : prev));
 
@@ -273,6 +273,7 @@ export function useTripControl(tripId: string | undefined) {
       void invalidateDriverHomeDashboard(profile.uid);
       void queryClient.invalidateQueries({ queryKey: driverUiTripsQueryKey(profile.uid) });
     }
+    return true;
   };
 
   return {

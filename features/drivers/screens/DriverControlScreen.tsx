@@ -10,6 +10,8 @@ import {
     useDriverLocation,
 } from "@/features/drivers/hooks/useDriverLocation";
 import { useHoldButton } from "@/features/drivers/hooks/useHoldButton";
+import { showDriverTripCompleted } from "@/features/driver/components/DriverTripCompletedModal";
+import { getTripDisplayLabel } from "@/lib/globalId";
 import { useLrDocuments, usePodDocuments } from "@/features/drivers/hooks/useTripDocumentsByType";
 import {
     STEPS,
@@ -27,6 +29,7 @@ import {
   resolveDriverTripPayoutTerms,
   tripEarningsDetailForDriver,
 } from "@/features/drivers/utils/driverUtils.util";
+import { isClientSupplierTaggedTrip } from "@/features/drivers/domain/driverOperatingMode";
 import { formatINR } from "@/lib/format";
 import { formatEstimatedDuration } from "@/lib/formatEstimatedDuration";
 import { ROUTES } from "@/lib/routes";
@@ -127,9 +130,21 @@ export default function DriverControlScreen() {
     completeTrip,
   } = useTripControl(tripId);
 
+  const completeTripWithSuccess = async () => {
+    if (!(await completeTrip()) || !trip) return;
+    showDriverTripCompleted({
+      tripLabel: getTripDisplayLabel(trip),
+      pickupLabel: trip.pickup_area ?? null,
+      dropLabel: trip.drop_location ?? null,
+      // `commission` is computed below the loading returns; the hold button only exists once it is.
+      earnings: commission > 0 ? formatINR(commission) : null,
+      completedAt: new Date().toISOString(),
+    });
+  };
+
   // 2. Hold Button Hook (Hold-to-complete logic)
   const { holdProgress, isHolding, startHold, cancelHold } =
-    useHoldButton(completeTrip);
+    useHoldButton(completeTripWithSuccess);
 
   // 3. POD Documents Hook (Upload, View, Skip)
   const {
@@ -555,10 +570,11 @@ export default function DriverControlScreen() {
 
   // Employer-based attribution: employerOrgIdSet / controlCurrentEmployer are
   // computed above, before the loading + authorization guards.
-  // Fleet trip: employer dispatched directly OR employer is supplier on a cross-org trip.
+  // Fleet trip: employer dispatched directly. A client trip that tags the
+  // employer as supplier is an offline trip (isClientSupplierTaggedTrip).
   const isControlTripFleet = controlCurrentEmployer
-    ? (employerOrgIdSet.has(String(trip.organization_id ?? '')) ||
-        (!!trip.supplier_id && employerOrgIdSet.has(String(trip.supplier_id ?? ''))))
+    ? employerOrgIdSet.has(String(trip.organization_id ?? '')) &&
+      !isClientSupplierTaggedTrip(trip)
     : false;
 
 

@@ -7,6 +7,7 @@ import {
   canManageIndieBook,
   canTagOfflineParty,
   canManageOwnerVehicles,
+  canSeeMarketplace,
   isDcoOperatingMode,
   type DriverOperatingMode,
 } from '@/features/drivers/domain/driverOperatingMode';
@@ -82,6 +83,8 @@ export function useDriverOperatingModeQuery(userId?: string | null) {
     canAttributeToEmployer: ready && canAttributeToEmployer(operatingMode),
     canTagOfflineParty: ready && canTagOfflineParty(operatingMode),
     marketplaceAllowed: ready && operatingMode.marketplaceAllowed,
+    /** Market tab / Find Work / Market routes. False until the mode has loaded. */
+    canSeeMarketplace: ready && canSeeMarketplace(operatingMode),
     invalidate,
   };
 }

@@ -27,7 +27,7 @@ import {
   Wallet,
   XCircle,
 } from 'lucide-react-native';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -52,7 +52,13 @@ export default function DcoStatusScreen() {
   const colors = useDriverThemeColors();
   const pageBg = driverDetailPageBackground(isDark, colors.background);
   const { status, dcoProfile, isLoading, invalidate } = useDcoStatusQuery(profile?.uid);
-  const { operatingMode } = useDriverOperatingModeQuery(profile?.uid);
+  const { operatingMode, invalidate: invalidateMode } = useDriverOperatingModeQuery(profile?.uid);
+
+  // Admin approval flips dco status first; refresh the cached mode so the
+  // Market tab and Find Work appear without waiting for the next refetch.
+  useEffect(() => {
+    if (status === 'APPROVED' && operatingMode.mode === 'DRIVER') invalidateMode();
+  }, [status, operatingMode.mode, invalidateMode]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

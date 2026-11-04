@@ -85,6 +85,15 @@ export function canManageOwnerVehicles(m: DriverOperatingMode): boolean {
 }
 
 /**
+ * Market tab, Find Work and Market deep links. Approved DCO not employed by a
+ * fleet; a DCO still adding the first vehicle sees Market's add-vehicle prompt.
+ * Plain drivers, fleet employees and suspended DCOs never see Market.
+ */
+export function canSeeMarketplace(m: DriverOperatingMode): boolean {
+  return m.mode === 'DCO' || m.mode === 'DCO_VEHICLE_REQUIRED';
+}
+
+/**
  * DCO Self shipper CRM / Party B book. Employees and independents never get this.
  */
 export function canAddDcoShippers(m: DriverOperatingMode): boolean {
@@ -182,6 +191,22 @@ export function driverJobSource(trip: {
   if (String(trip.source ?? '').trim() === 'market_bid') return 'marketplace_award';
   if (isDcoOperatingTrip(trip)) return 'dco_direct';
   return 'business_assigned';
+}
+
+/**
+ * A client trip that tags a supplier (e.g. nihas → GK as supplier → GK's driver)
+ * is OFFLINE work for an employee driver, never a fleet trip — even when the
+ * client holds pay terms on its own drivers row. The driver works it through
+ * the supplier, not for the dispatching org. DCO trips never carry supplier_id
+ * and keep their own lanes; an explicit fleet mark (notes) still wins in
+ * driverHistoryLane.
+ */
+export function isClientSupplierTaggedTrip(trip: {
+  supplier_id?: string | null;
+  operating_mode?: string | null;
+}): boolean {
+  if (isDcoOperatingTrip(trip)) return false;
+  return String(trip.supplier_id ?? '').trim().length > 0;
 }
 
 /** History chips: DCO = Offline + Marketplace; connected employee = Fleet + Offline. */

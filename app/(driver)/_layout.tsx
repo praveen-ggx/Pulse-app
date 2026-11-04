@@ -11,6 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { DriverAvatarProvider } from '@/contexts/DriverAvatarContext';
 import { DriverThemeProvider } from '@/contexts/DriverThemeContext';
 import { DriverCommunicationProvider } from '@/features/driver/communication';
+import { DriverTripCompletedHost } from '@/features/driver/components/DriverTripCompletedModal';
 import {
   consumePendingDriverInviteAfterAuth,
 } from '@/lib/driverInviteDeepLink.util';
@@ -257,6 +258,7 @@ export default function DriverAppLayout() {
           <DriverInviteModalProvider>
             <DriverTripOpsProvider>
               <DriverTabsNavigator />
+              <DriverTripCompletedHost />
             </DriverTripOpsProvider>
           </DriverInviteModalProvider>
         </DriverCommunicationProvider>

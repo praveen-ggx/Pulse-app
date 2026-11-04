@@ -26,7 +26,10 @@ import {
   toExchangePaymentMode,
   type DriverCaptureLane,
 } from "@/features/drivers/utils/driverCapturePayment.util";
-import { claimExchangePayment } from "@/features/marketplace/services/exchangePayments.service";
+import {
+  claimExchangePayment,
+  confirmedDcoExchangeReceivedByTrip,
+} from "@/features/marketplace/services/exchangePayments.service";
 import type { TripRow } from "@/features/trips/services/trips.service";
 
 const inFlight = new Map<string, Promise<{ error: Error | null }>>();
@@ -267,11 +270,12 @@ async function collectSelfOnce(
   return { error: collected.error };
 }
 
-/** Collected amounts on the DCO Self and independent books, keyed by trip. */
+/** Collected amounts on the DCO Self, independent, and Marketplace (Exchange) books, keyed by trip. */
 export async function receivedByTripFromDriverBooks(): Promise<Record<string, number>> {
-  const [selfBook, indieBook] = await Promise.all([
+  const [selfBook, indieBook, exchangeReceived] = await Promise.all([
     listDcoSelfReceivableBook().catch(() => ({ error: new Error("unavailable"), rows: [] })),
     listDriverIndieReceivableBook().catch(() => ({ error: new Error("unavailable"), rows: [] })),
+    confirmedDcoExchangeReceivedByTrip().catch(() => ({}) as Record<string, number>),
   ]);
   const out: Record<string, number> = {};
   const add = (tripId: string | null | undefined, amount: number) => {
@@ -282,6 +286,7 @@ export async function receivedByTripFromDriverBooks(): Promise<Record<string, nu
   };
   for (const row of selfBook.rows) add(row.receivable.operational_trip_id, row.collected);
   for (const row of indieBook.rows) add(row.receivable.operational_trip_id, row.collected);
+  for (const [tripId, amount] of Object.entries(exchangeReceived)) add(tripId, amount);
   return out;
 }
 

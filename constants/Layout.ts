@@ -73,6 +73,11 @@ export const Layout = {
   /** Desktop web top navigation reserve height (layout px below fixed header). */
   desktopTopNavOffset: 84,
   /**
+   * Desktop Chrome content inset. Applied on `#root` so every page keeps space
+   * on the right; the top bar breaks back out to the window edge.
+   */
+  desktopPageGutter: 24,
+  /**
    * @deprecated Static estimate only — ignores safe area on mobile web.
    * Use `useLayoutInsets().scrollBottomPadding()` or `scrollClearanceAboveTabBar()` from `@/lib/layoutInsets`.
    */

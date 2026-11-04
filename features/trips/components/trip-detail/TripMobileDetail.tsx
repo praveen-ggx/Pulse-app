@@ -5,7 +5,7 @@
  * 1. Status hero
  * 2. Route / freight card (inset)
  * 3. Progress timeline + Driver / Trip ID
- * 4. Track (+ Change assets)
+ * 4. Track, then Change driver / Change vehicle (each confirms first)
  * 5. Delivery address
  * 6. Nested ops (live tracking / ratings)
  * 7. Footer Trip ID · Placed On
@@ -17,6 +17,7 @@ import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { getManifestCurrentStepIndex } from "@/features/trips/utils/manifestJourneyLog.util";
 import { formatIndianVehicleNumber, formatINR } from "@/lib/format";
+import { confirmDialog } from "@/lib/confirmDialog";
 import { formatPhoneForDisplay } from "@/lib/phoneLookup";
 import type { PartyEntityType } from "@/lib/partyAvatarDisplay";
 import { memo, useMemo, useState, type ReactNode } from "react";
@@ -104,7 +105,8 @@ export type TripMobileDetailProps = {
   secondaryActionLabel?: string;
   onSecondaryAction?: () => void;
   canChangeAssets?: boolean;
-  onChangeAssets?: () => void;
+  /** Opens the assignment flow after the driver or vehicle choice is confirmed. */
+  onChangeAssets?: (focus: "driver" | "vehicle") => void;
   onOpenFinance?: () => void;
   /** Trip stage buttons (simulate / Ground Ops Reached pickup · Start trip / undo). */
   stageActions?: readonly TripMobileStageAction[];
@@ -640,12 +642,28 @@ export const TripMobileDetail = memo(function TripMobileDetail({
   };
 
   const primaryLabel = canTrack && onTrack ? "Track" : "View details";
-  const showPrimary = Boolean(onTrack || primaryLabel);
-  const handleSecondary = onSecondaryAction ?? onChangeAssets;
-  const secondaryLabel =
-    secondaryActionLabel ??
-    (canChangeAssets && onChangeAssets ? "Change assets" : undefined);
+  const showPrimary = Boolean(onTrack);
+  const showAssetChoices = Boolean(
+    canChangeAssets && onChangeAssets && !secondaryActionLabel && !onSecondaryAction,
+  );
+  const handleSecondary = onSecondaryAction;
+  const secondaryLabel = secondaryActionLabel;
   const showSecondary = Boolean(secondaryLabel && handleSecondary);
+
+  const confirmAssetChange = async (focus: "driver" | "vehicle") => {
+    const changingDriver = focus === "driver";
+    const who = courierName === "Unassigned" ? "No driver is on this trip yet" : courierName;
+    const plate = driverVehiclePlate || "No vehicle is on this trip yet";
+    const ok = await confirmDialog({
+      title: changingDriver ? "Change driver" : "Change vehicle",
+      message: changingDriver
+        ? `${who}${phoneDisplay ? ` · ${phoneDisplay}` : ""}. Only the driver changes. The vehicle stays.`
+        : `${plate}. Only the vehicle changes. The driver stays.`,
+      confirmLabel: changingDriver ? "Change driver" : "Change vehicle",
+      cancelLabel: "Cancel",
+    });
+    if (ok) onChangeAssets?.(focus);
+  };
 
   const clientFace =
     clientParty?.name?.trim() && clientParty.name.trim() !== "—"
@@ -901,13 +919,40 @@ export const TripMobileDetail = memo(function TripMobileDetail({
             </View>
           ) : null}
 
+          {showAssetChoices ? (
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={[styles.secondaryBtn, styles.actionBtnFlex]}
+                onPress={() => void confirmAssetChange("driver")}
+                activeOpacity={0.88}
+                accessibilityRole="button"
+                accessibilityLabel="Change driver"
+              >
+                <Text style={styles.secondaryBtnText} numberOfLines={1}>
+                  Change driver
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.secondaryBtn, styles.actionBtnFlex]}
+                onPress={() => void confirmAssetChange("vehicle")}
+                activeOpacity={0.88}
+                accessibilityRole="button"
+                accessibilityLabel="Change vehicle"
+              >
+                <Text style={styles.secondaryBtnText} numberOfLines={1}>
+                  Change vehicle
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
 
           <View style={styles.footRow}>
             <Text style={styles.footMuted} numberOfLines={2}>
               {completed
                 ? "Trip completed"
                 : canChangeAssets
-                  ? "Reassign before delivery if needed"
+                  ? "Confirm driver or vehicle before the trip updates"
                   : "Asset changes are not available"}
             </Text>
           </View>
@@ -959,17 +1004,6 @@ export const TripMobileDetail = memo(function TripMobileDetail({
   );
 });
 
-const shadow = Platform.select({
-  ios: {
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-  },
-  android: { elevation: 1 },
-  default: {},
-});
-
 const styles = StyleSheet.create({
   root: {
     width: "100%",
@@ -1007,16 +1041,11 @@ const styles = StyleSheet.create({
     fontWeight: "400",
     color: MUTED,
   },
-  /** Inset card — same PAD left/right as block so edges align with screen. */
+  /** Sits on the white trip section. No second card. */
   card: {
-    backgroundColor: Theme.cardWhite,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#EEEEEE",
-    ...shadow,
+    backgroundColor: Theme.screenBackground,
+    paddingTop: 2,
+    paddingBottom: 2,
   },
   sectionTitle: {
     fontSize: 13,

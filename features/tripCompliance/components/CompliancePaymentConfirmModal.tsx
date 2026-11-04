@@ -974,7 +974,7 @@ export function CompliancePaymentConfirmModal({
                   selected && { borderColor: visual.color, backgroundColor: visual.tint },
                 ]}
               >
-                <ModeIcon size={22} color={selected ? visual.color : Theme.textPrimaryDark} strokeWidth={2.1} />
+                <ModeIcon size={15} color={selected ? visual.color : Theme.textPrimaryDark} strokeWidth={2.1} />
                 <Text
                   style={[styles.modeChoiceLabel, selected && { color: visual.color }]}
                   numberOfLines={1}
@@ -1197,16 +1197,11 @@ export function CompliancePaymentConfirmModal({
           {introText}
         </View>
         )}
-        {/* Values scroll instead of being clipped on smaller screens; actions stay pinned. */}
-        <ScrollView
-          style={styles.inlineScroll}
-          contentContainerStyle={styles.inlineScrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
+        <View style={styles.inlineStack}>
           {detailsRow}
           {readOnly ? null : modeField}
-        </ScrollView>
-        <View style={[styles.actionsBar, styles.actionsBarInline]}>{actionsRow}</View>
+          <View style={[styles.actionsBar, styles.actionsBarInline]}>{actionsRow}</View>
+        </View>
       </View>
     );
   }
@@ -1297,14 +1292,17 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
   inlineRoot: {
-    flex: 1,
-    minHeight: 0,
     width: "100%",
     minWidth: 0,
     paddingTop: 2,
     paddingBottom: 0,
-    gap: 6,
+    gap: 8,
     backgroundColor: "transparent",
+  },
+  inlineStack: {
+    width: "100%",
+    minWidth: 0,
+    gap: 10,
   },
   inlineHeader: {
     flexShrink: 0,
@@ -1363,8 +1361,10 @@ const styles = StyleSheet.create({
   },
   modeTileRow: {
     flexDirection: "row",
-    alignItems: "stretch",
-    gap: 6,
+    alignItems: "center",
+    alignSelf: "stretch",
+    flexWrap: "wrap",
+    gap: 8,
   },
   modeTileCell: { flex: 1, minWidth: 0 },
   ledgerInputWrap: {
@@ -1384,6 +1384,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     flexWrap: "wrap",
+    width: "100%",
+    minWidth: 0,
   },
   datePreset: {
     height: 32,
@@ -1442,7 +1444,7 @@ const styles = StyleSheet.create({
   },
   columns: { gap: 8 },
   columnsWide: { flexDirection: "row", alignItems: "stretch" },
-  columnsInline: { gap: 6 },
+  columnsInline: { flexDirection: "column", alignItems: "stretch", gap: 10 },
   column: { minWidth: 0 },
   columnWide: { flex: 1, flexBasis: 0 },
   columnInline: { minWidth: 0 },
@@ -1733,8 +1735,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   amountResultInline: {
-    marginTop: "auto",
-    paddingVertical: 6,
+    marginTop: 8,
+    paddingVertical: 8,
   },
   amountResultCopy: { flex: 1, minWidth: 0, gap: 2 },
   amountResultLabel: {
@@ -1772,33 +1774,36 @@ const styles = StyleSheet.create({
     borderWidth: 0,
     backgroundColor: Theme.cardWhite,
   },
-  fieldFill: { flexGrow: 1 },
+  fieldFill: { width: "100%", minWidth: 0 },
   paymentBody: {
     gap: 10,
     paddingHorizontal: 0,
     paddingTop: 0,
     paddingBottom: 2,
   },
-  paymentBodyFill: { flexGrow: 1, justifyContent: "space-between", gap: 12 },
+  paymentBodyFill: { width: "100%", gap: 12 },
   paymentBand: { gap: 8 },
   modeChoice: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: 88,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 88,
+    height: 36,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    borderRadius: 10,
-    borderWidth: 1.5,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: Theme.borderLight,
-    backgroundColor: Theme.surface,
-    paddingHorizontal: 6,
-    paddingVertical: 8,
+    backgroundColor: Theme.cardWhite,
+    paddingHorizontal: 8,
   },
   modeChoiceLabel: {
-    fontSize: 13,
+    flexShrink: 1,
+    fontSize: 12,
     lineHeight: 16,
-    fontWeight: "700",
+    fontWeight: "600",
     textAlign: "center",
     color: Theme.textSecondary,
   },
@@ -1839,6 +1844,7 @@ const styles = StyleSheet.create({
     borderColor: SHOP.hairline,
     borderRadius: 10,
     backgroundColor: Theme.cardWhite,
+    overflow: "hidden",
   },
   dateShellInline: {
     minHeight: 32,
@@ -1857,11 +1863,12 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
   dateIconBtn: {
-    width: 44,
-    height: 42,
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
+    flexShrink: 0,
   },
   dateBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: Theme.overlayBackdrop },
   dateSheet: { backgroundColor: Theme.cardWhite, paddingBottom: 24 },

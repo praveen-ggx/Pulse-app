@@ -1,19 +1,11 @@
+import { PulseAlertCard } from '@/components/PulseAlertCard';
 import Theme from '@/constants/Theme';
 import { tGlobal } from '@/contexts/LanguageContext';
 import { registerConfirmDialogImplementation } from '@/lib/confirmDialog';
-import { platformShadow } from '@/lib/platformShadow';
 import { pe } from '@/lib/platformViewStyle.util';
 import { WebOverlayPortal, webFixedFill } from '@/lib/webOverlayPortal';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  Modal,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  useWindowDimensions,
-} from 'react-native';
+import { Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
 
 export interface ConfirmDialogRequest {
   title: string;
@@ -24,16 +16,9 @@ export interface ConfirmDialogRequest {
 }
 
 /**
- * Single themed confirm modal for `confirmDialog()`, styled to match
- * AppAlertHost but with a real two-button choice (Cancel / Confirm) that
- * actually resolves on every platform — including web, where a bare
- * `Alert.alert` with multiple buttons has no native dialog to back it and
- * silently never invokes its callbacks.
+ * Themed yes/no dialog for `confirmDialog()`. Same card as `showAppAlert`.
  */
 export function ConfirmDialogHost() {
-  const { width } = useWindowDimensions();
-  const isCompact = width < 420;
-
   const [visible, setVisible] = useState(false);
   const [request, setRequest] = useState<ConfirmDialogRequest | null>(null);
   const resolveRef = useRef<((value: boolean) => void) | null>(null);
@@ -67,8 +52,6 @@ export function ConfirmDialogHost() {
     destructive = false,
   } = request;
 
-  const accent = destructive ? Theme.destructive : Theme.modalNeutralAccent;
-
   const overlay = (
     <View style={[styles.backdrop, webFixedFill, pe('box-none')]}>
       <Pressable
@@ -77,49 +60,15 @@ export function ConfirmDialogHost() {
         accessibilityRole="button"
         accessibilityLabel={cancelLabel}
       />
-      <View
-        style={[styles.card, isCompact && styles.cardCompact]}
-        accessibilityRole="alert"
-        accessibilityViewIsModal
-      >
-        <View
-          style={[
-            styles.iconWrap,
-            destructive && { backgroundColor: 'rgba(232,33,39,0.10)' },
-          ]}
-        >
-          <Text style={[styles.iconChar, { color: accent }]}>
-            {destructive ? '!' : '?'}
-          </Text>
-        </View>
-        <Text style={styles.title}>{title}</Text>
-        {message ? <Text style={styles.body}>{message}</Text> : null}
-
-        <View style={styles.actionRow}>
-          <Pressable
-            onPress={() => settle(false)}
-            style={({ pressed }) => [
-              styles.button,
-              styles.buttonNeutral,
-              pressed && styles.buttonPressed,
-            ]}
-            accessibilityRole="button"
-          >
-            <Text style={styles.buttonNeutralLabel}>{cancelLabel}</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => settle(true)}
-            style={({ pressed }) => [
-              styles.button,
-              { backgroundColor: accent },
-              pressed && styles.buttonPressed,
-            ]}
-            accessibilityRole="button"
-          >
-            <Text style={styles.buttonLabel}>{confirmLabel}</Text>
-          </Pressable>
-        </View>
-      </View>
+      <PulseAlertCard
+        title={title}
+        message={message}
+        tone={destructive ? 'destructive' : 'neutral'}
+        primaryLabel={confirmLabel}
+        onPrimary={() => settle(true)}
+        secondaryLabel={cancelLabel}
+        onSecondary={() => settle(false)}
+      />
     </View>
   );
 
@@ -128,12 +77,7 @@ export function ConfirmDialogHost() {
   }
 
   return (
-    <Modal
-      visible
-      transparent
-      animationType="fade"
-      onRequestClose={() => settle(false)}
-    >
+    <Modal visible transparent animationType="fade" onRequestClose={() => settle(false)}>
       {overlay}
     </Modal>
   );
@@ -142,96 +86,10 @@ export function ConfirmDialogHost() {
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(15,23,42,0.58)',
+    backgroundColor: Theme.overlayBackdrop,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingVertical: 24,
-  },
-  card: {
-    alignSelf: 'center',
-    width: 380,
-    maxWidth: '100%',
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: Theme.borderLight,
-    backgroundColor: Theme.networkPageBackground,
-    paddingHorizontal: 22,
-    paddingTop: 26,
-    paddingBottom: 20,
-    alignItems: 'stretch',
-    zIndex: 1,
-    ...platformShadow('0 16px 28px rgba(15, 23, 42, 0.18)', {
-      color: Theme.shadow,
-      opacity: 0.18,
-      radius: 28,
-      offsetY: 16,
-      elevation: 8,
-    }),
-  },
-  cardCompact: {
-    width: '100%',
-    borderRadius: 24,
-    paddingHorizontal: 18,
-  },
-  iconWrap: {
-    alignSelf: 'center',
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: Theme.modalNeutralIconWash,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: Theme.textPrimaryDark,
-    textAlign: 'center',
-    letterSpacing: -0.2,
-  },
-  body: {
-    marginTop: 10,
-    fontSize: 15,
-    fontWeight: '500',
-    color: Theme.textSecondary,
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  actionRow: {
-    marginTop: 22,
-    flexDirection: 'row',
-    gap: 10,
-  },
-  button: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    borderRadius: 14,
-  },
-  buttonNeutral: {
-    backgroundColor: Theme.surfaceGray,
-    borderWidth: 1,
-    borderColor: Theme.borderLight,
-  },
-  buttonPressed: {
-    opacity: 0.88,
-  },
-  buttonLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#ffffff',
-  },
-  buttonNeutralLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Theme.textPrimaryDark,
-  },
-  iconChar: {
-    fontSize: 22,
-    fontWeight: '700',
-    includeFontPadding: false,
   },
 });

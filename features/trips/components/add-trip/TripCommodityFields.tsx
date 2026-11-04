@@ -25,6 +25,8 @@ import { ROUTES } from "@/lib/routes";
 import { VehicleTypeCatalogSheet } from "@/features/vehicles/components/VehicleTypeCatalogSheet";
 import {
   formatSelectedVehicleTypeLabel,
+  LOAD_WEIGHT_MIN_MT,
+  loadWeightAllowedRange,
   parseVehicleTypeSelection,
   passingTonRange,
   passingTonsFor,
@@ -157,8 +159,7 @@ export const TripCommodityFields = memo(function TripCommodityFields({
   const { chips: tonsChips, recent: recentTons, remember: rememberTons } =
     useRecentTonsRecommendations();
 
-  // Catalog vehicle with a passing ton: suggest and check load weight within that range.
-  // Hard limit = the vehicle's full range; chips narrow to the picked passing ton.
+  // Catalog vehicle: chips stay on the passing-ton band; validation is 1 MT…capacity max.
   const catalogTonRange = useVehicleCatalog ? vehicleTonRange(vehicleType) : null;
   const catalogSelection = useVehicleCatalog ? parseVehicleTypeSelection(vehicleType) : null;
   const pickedTonRange =
@@ -169,24 +170,34 @@ export const TripCommodityFields = memo(function TripCommodityFields({
       : null;
   const chipsTonRange = pickedTonRange ?? catalogTonRange;
   const visibleTonsChips = chipsTonRange ? tonSuggestionsForRange(chipsTonRange) : tonsChips;
+  const loadAllowedRange = useVehicleCatalog
+    ? loadWeightAllowedRange(vehicleType, pickedPassingTon)
+    : null;
   const tonsNumber = Number(tons);
   const tonsOutOfRange =
-    catalogTonRange != null &&
+    loadAllowedRange != null &&
     tons.trim() !== "" &&
     Number.isFinite(tonsNumber) &&
-    (tonsNumber < catalogTonRange.min || tonsNumber > catalogTonRange.max);
+    (tonsNumber < loadAllowedRange.min ||
+      (Number.isFinite(loadAllowedRange.max) && tonsNumber > loadAllowedRange.max));
   const tonsInvalid = tonsError || tonsOutOfRange;
 
   const onCatalogChange = useCallback(
     (value: string, passingTon: string | null) => {
       onVehicleTypeChange(value);
       setPickedPassingTon(passingTon);
-      // Pass the picked passing ton on to the tons (MT) field.
+      // Capacity is a max: keep tons when already in 1…max; otherwise fill the max.
       const range = passingTonRange(passingTon);
       if (!range) return;
       const n = Number(tons);
-      if (!tons.trim() || !Number.isFinite(n) || n < range.min || n > range.max) {
-        onTonsChange(String(range.max));
+      const aboveMax = Number.isFinite(range.max) && n > range.max;
+      if (
+        !tons.trim() ||
+        !Number.isFinite(n) ||
+        n < LOAD_WEIGHT_MIN_MT ||
+        aboveMax
+      ) {
+        onTonsChange(String(Number.isFinite(range.max) ? range.max : range.min));
       }
     },
     [onVehicleTypeChange, onTonsChange, tons],
@@ -421,12 +432,14 @@ export const TripCommodityFields = memo(function TripCommodityFields({
             );
           })}
         </View>
-        {catalogTonRange ? (
+        {loadAllowedRange ? (
           <Text style={[styles.tonsRangeHint, tonsOutOfRange && styles.tonsRangeHintError]}>
             {tonsOutOfRange ? "Outside this vehicle's range: " : "Vehicle range: "}
-            {catalogTonRange.min === catalogTonRange.max
-              ? `${catalogTonRange.min} tons`
-              : `${catalogTonRange.min}–${catalogTonRange.max} tons`}
+            {loadAllowedRange.max === Infinity
+              ? `${loadAllowedRange.min}+ tons`
+              : loadAllowedRange.min === loadAllowedRange.max
+                ? `${loadAllowedRange.min} tons`
+                : `${loadAllowedRange.min}–${loadAllowedRange.max} tons`}
           </Text>
         ) : null}
       </View>

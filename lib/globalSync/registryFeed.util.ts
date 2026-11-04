@@ -1,6 +1,10 @@
 import type { GlobalOperationAlert } from '@/lib/globalSync/priorityEngine.util';
 import type { SalaryRequestWithDriverRow } from '@/features/drivers/services/salaryRequests.service';
 import type { NetworkNotificationRow } from '@/features/network/services/networkNotifications.service';
+import {
+  collapsePoolNetworkNotifications,
+  type NetworkLaneGroup,
+} from '@/lib/globalSync/networkLaneNotifications.util';
 
 export type RegistryFeedKind = 'ops' | 'salary' | 'network';
 
@@ -22,6 +26,8 @@ export type RegistryFeedEntry = {
   ops?: GlobalOperationAlert;
   salary?: SalaryRequestWithDriverRow;
   network?: NetworkNotificationRow;
+  /** Pool quote / award collapsed from several indent rows on one lane. */
+  networkLane?: NetworkLaneGroup;
 };
 
 function parseSortMs(iso: string | null | undefined, fallbackWeight = 0): number {
@@ -41,13 +47,16 @@ export function buildRegistryFeed(input: {
 }): RegistryFeedEntry[] {
   const entries: RegistryFeedEntry[] = [];
   const pushNetwork = (rows: NetworkNotificationRow[] | undefined, weight: number) => {
-    for (const network of rows ?? []) {
+    for (const lane of collapsePoolNetworkNotifications(rows ?? [])) {
+      const network = lane.lead;
+      const criticalBoost = lane.critical ? 90 * 24 * 60 * 60 * 1000 : 0;
       entries.push({
         id: `network:${network.id}`,
         kind: 'network',
-        sortKey: parseSortMs(network.created_at, weight),
+        sortKey: parseSortMs(network.created_at, weight) + criticalBoost,
         createdAt: network.created_at,
         network,
+        networkLane: lane,
       });
     }
   };

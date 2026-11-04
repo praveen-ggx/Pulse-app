@@ -37,6 +37,8 @@ export type OpsRegistryCardPresentation = {
   highlightText?: string;
   trailingText?: string;
   detail?: string;
+  /** Route and date, shown smaller than the detail title. */
+  detailMeta?: string;
 };
 
 function readMeta(event: ActiveTripRecentEvent | null): Record<string, unknown> | null {
@@ -210,6 +212,7 @@ function buildPaymentPresentation(
       highlightText: amountLabel,
       trailingText: `to ${payee} on ${tripLabel}`,
       detail: paymentDetail(rawDetail, `${kindLabel} · ${tripLabel}`, "paid", money),
+      detailMeta: tripTinyLine(trip, ctx, { client: false, date: false }),
     };
   }
 
@@ -229,6 +232,7 @@ function buildPaymentPresentation(
     highlightText: amountLabel,
     trailingText: `on ${tripLabel}`,
     detail: paymentDetail(rawDetail, `${kindLabel} captured · ${tripLabel}`, "received", money),
+    detailMeta: tripTinyLine(trip, ctx, { client: false, date: false }),
   };
 }
 
@@ -253,7 +257,44 @@ function buildUnassignedPresentation(
     actionText: "needs a driver change for",
     highlightText: clientName,
     detail: ops.subtitle?.trim() || `${tripLabel} · Change driver to continue`,
+    detailMeta: tripTinyLine(trip, ctx, { client: true, date: true }),
   };
+}
+
+function tripClientName(trip: ActiveTripSummary | undefined, ctx: RegistryPartyLookup): string {
+  if (!trip?.client_id) return "";
+  const client = ctx.clientsById.get(trip.client_id);
+  return client?.name?.trim() || client?.contact_person?.trim() || "";
+}
+
+function tripRouteLabel(trip: ActiveTripSummary | undefined): string {
+  const origin = trip?.pickup_area?.trim() ?? "";
+  const dest = trip?.drop_location?.trim() ?? "";
+  if (origin && dest) return `${origin} → ${dest}`;
+  return origin || dest;
+}
+
+/** Client, lane, and date in one quiet line. Omit a part the headline already carries. */
+function tripTinyLine(
+  trip: ActiveTripSummary | undefined,
+  ctx: RegistryPartyLookup,
+  parts: { client: boolean; date: boolean },
+): string | undefined {
+  if (!trip) return undefined;
+  const bits = [
+    parts.client ? tripClientName(trip, ctx) : "",
+    tripRouteLabel(trip),
+    parts.date ? formatTinyTripDate(trip.created_at) : "",
+  ].filter(Boolean);
+  return bits.join(" · ") || undefined;
+}
+
+function formatTinyTripDate(iso: string | null | undefined): string {
+  const raw = iso?.trim();
+  if (!raw) return "";
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit" });
 }
 
 function buildDriverOpsPresentation(
@@ -269,6 +310,8 @@ function buildDriverOpsPresentation(
       ? partyAvatarFromDriver(ctx.driversById.get(driverId), driverName, driverId)
       : resolveOpsRegistryAvatar(ops, ctx);
 
+  const detailMeta = tripTinyLine(trip, ctx, { client: true, date: false });
+
   if (ops.category === "vehicle_idle") {
     return {
       avatar,
@@ -276,6 +319,7 @@ function buildDriverOpsPresentation(
       actionText: "is idle on",
       highlightText: tripLabel,
       detail: ops.subtitle?.trim() || undefined,
+      detailMeta,
     };
   }
 
@@ -286,6 +330,7 @@ function buildDriverOpsPresentation(
       actionText: "is behind schedule on",
       highlightText: tripLabel,
       detail: ops.subtitle?.trim() || undefined,
+      detailMeta,
     };
   }
 
@@ -296,6 +341,7 @@ function buildDriverOpsPresentation(
     highlightText: tripLabel,
     trailingText: "on",
     detail: ops.subtitle?.trim() || undefined,
+    detailMeta,
   };
 }
 
@@ -321,6 +367,7 @@ export function buildOpsRegistryCardPresentation(
     return buildDriverOpsPresentation(ops, ctx);
   }
 
+  const trip = findOpsTrip(ops, ctx.activeTrips);
   return {
     avatar: resolveOpsRegistryAvatar(ops, ctx),
     actorName: ctx.org?.name?.trim() || "System",
@@ -328,6 +375,7 @@ export function buildOpsRegistryCardPresentation(
     highlightText: ops.trip_number ?? "trip",
     trailingText: "on",
     detail: ops.subtitle?.trim() || undefined,
+    detailMeta: tripTinyLine(trip, ctx, { client: true, date: false }),
   };
 }
 

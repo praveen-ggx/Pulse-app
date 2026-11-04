@@ -1,21 +1,18 @@
 import { DocumentDateCalendar } from "@/components/DocumentDateCalendar";
 import {
-  AlertRegistrySignalCard,
-} from "@/components/AlertRegistrySignalCard";
-import {
   RegistryGhostButton,
   RegistryPrimaryButton,
 } from "@/components/AlertRegistryCardActions";
+import { HUB_MOBILE_COMMERCE_REF } from "@/components/hub/hubMobileTicketTokens";
 import Layout from "@/constants/Layout";
 import { Theme } from "@/constants/Theme";
-import type { RegistryStatusTone } from "@/lib/alertRegistry/registryAlertPresentation.util";
 import { signCompliancePreviewUrl } from "@/features/tripCompliance/services/complianceDocumentView.service";
 import {
   formatVaultDocDate,
   isPdfTripDoc,
   vaultDocDateToIso,
-  vaultDocRejectionLabel,
 } from "@/features/trips/components/trip-detail/tripDocTypes";
+import { EwayBillZoomPreview } from "@/features/trips/components/trip-detail/EwayBillZoomPreview";
 import { VaultDocThumb } from "@/features/trips/components/trip-detail/VaultDocThumb";
 import { isInlinePreviewUri } from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import {
@@ -50,6 +47,11 @@ import {
   type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+const SHOP = HUB_MOBILE_COMMERCE_REF;
+
+const WEB_POINTER: ViewStyle | null =
+  Platform.OS === "web" ? ({ cursor: "pointer" } as ViewStyle) : null;
 
 const HUG_BTN: ViewStyle = {
   alignSelf: "flex-start",
@@ -105,10 +107,14 @@ function EwayTinyPreview({
   row,
   organizationId,
   onPress,
+  width,
+  height,
 }: {
   row: EwayBillStripRow;
   organizationId?: string | null;
   onPress: () => void;
+  width: number;
+  height: number;
 }) {
   const readyUri = row.previewUri?.trim() || "";
   const storagePath = row.previewPath?.trim() || "";
@@ -149,8 +155,6 @@ function EwayTinyPreview({
     };
   }, [organizationId, row.previewPath, row.previewUri]);
 
-  if (!pending && !uri) return null;
-
   const pdf = isPdfTripDoc({
     fileName: row.previewFileName,
     mimeType: row.previewMime,
@@ -160,7 +164,7 @@ function EwayTinyPreview({
   return (
     <Pressable
       onPress={onPress}
-      style={styles.tinyPreview}
+      style={[styles.tinyPreview, { width, height }]}
       accessibilityRole="button"
       accessibilityLabel={`Preview e-way bill${row.ewayNo !== "—" ? ` ${row.ewayNo}` : ""}`}
     >
@@ -172,9 +176,13 @@ function EwayTinyPreview({
           sizing="cover"
           style={styles.tinyThumb}
         />
-      ) : (
+      ) : pending ? (
         <View style={styles.tinyLoading}>
           <ActivityIndicator size="small" color={Theme.actionBtnInk} />
+        </View>
+      ) : (
+        <View style={styles.tinyFallback}>
+          <Feather name="file-text" size={18} color={SHOP.muted} />
         </View>
       )}
     </Pressable>
@@ -360,23 +368,26 @@ function EwayDatePreviewField({
   );
 }
 
-function ewayStatusPill(
+function ewayOrderStatus(
   row: EwayBillStripRow,
   expiry: string | null,
   expiryTone: ReturnType<typeof ewayExpiryTone>,
-): { label: string; tone: RegistryStatusTone } {
-  if (vaultDocRejectionLabel(row)) return { label: "Rejected", tone: "danger" };
-  if (expiryTone === "expired") return { label: "Expired", tone: "danger" };
-  if (expiry) return { label: "Expiring", tone: "warning" };
-  if (row.canView || (row.ewayNo && row.ewayNo !== "—")) {
-    return { label: "On file", tone: "success" };
+): { label: string; color: string; soft: string } {
+  if (expiryTone === "expired") {
+    return { label: "Expired", color: SHOP.danger, soft: SHOP.dangerSoft };
   }
-  return { label: "Pending", tone: "warning" };
+  if (expiryTone === "soon" || expiry) {
+    return { label: "Expiring", color: SHOP.warning, soft: SHOP.warningSoft };
+  }
+  if (row.canView || (row.ewayNo && row.ewayNo !== "—")) {
+    return { label: "On file", color: SHOP.success, soft: SHOP.successSoft };
+  }
+  return { label: "Pending", color: SHOP.warning, soft: SHOP.warningSoft };
 }
 
 export function EwayBillLrStrip({
   rows,
-  onView,
+  onView: _onView,
   onUpload,
   canUpload,
   canEdit,
@@ -424,6 +435,11 @@ export function EwayBillLrStrip({
   };
   const showEdit = !!canEdit && !!onSave;
   const showUpload = !!canUpload && !!onUpload;
+  const [zoomRow, setZoomRow] = useState<EwayBillStripRow | null>(null);
+  const openZoomPreview = (row: EwayBillStripRow) => {
+    if (!row.canView && !row.previewPath?.trim() && !row.previewUri?.trim()) return;
+    setZoomRow(row);
+  };
   const [editing, setEditing] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | "new">(0);
   const [saving, setSaving] = useState(false);
@@ -473,7 +489,7 @@ export function EwayBillLrStrip({
       return existingEntries.filter((_, index) => index !== editingIndex);
     }
     if (editingIndex === "new") return [...existingEntries, draft];
-    if (editingIndex >= existingEntries.length) return [...existingEntries, draft];
+    if (existingEntries.length === 0) return [draft];
     return existingEntries.map((entry, index) =>
       index === editingIndex ? draft : entry,
     );
@@ -500,89 +516,165 @@ export function EwayBillLrStrip({
       {feed ? (
         <>
           <Text style={[styles.sectionTitle, WEB_COPY]}>E-way Bill</Text>
+          <View style={styles.feedGrid}>
           {displayRows.map((row) => {
             const expiry = ewayExpiryLabel(row.validTill);
             const expiryTone = ewayExpiryTone(expiry);
+            const status = ewayOrderStatus(row, expiry, expiryTone);
             const hasNumber = Boolean(row.ewayNo && row.ewayNo !== "—");
             const updaterName = resolveUpdaterName(row);
             const updatedAtLabel = ewayUpdateTimeLabel(row.updatedAt);
+            const thumbW = desktopSheet ? 64 : 52;
+            const thumbH = desktopSheet ? 80 : 68;
+            const helper =
+              expiry ||
+              (row.validTill !== "—" ? `Valid till ${row.validTill}` : null) ||
+              "Add the e-way number to continue";
+            const helperBlocked = expiryTone === "expired" || expiryTone === "soon";
             return (
-              <AlertRegistrySignalCard
-                key={row.id}
-                variant="feed"
-                isUnread={!hasNumber}
-                avatar={{
-                  name: updaterName || (hasNumber ? row.ewayNo : "E-way bill"),
-                  entityType: "client",
-                  initialsColorSeed: row.updatedById || row.id,
-                }}
-                actorName={updaterName || (hasNumber ? row.ewayNo : "E-way bill")}
-                actionText={
-                  updaterName
-                    ? hasNumber
-                      ? "updated this e-way bill"
-                      : "started this e-way bill"
-                    : hasNumber
-                      ? "is on file for this trip"
-                      : "needs an e-way number"
-                }
-                detailTitle={hasNumber ? row.ewayNo : "E-way bill"}
-                detailSubtitle={
-                  [
-                    vaultDocRejectionLabel(row),
-                    row.docNo !== "—" ? row.docNo : null,
-                    row.validTill !== "—" ? `Valid till ${row.validTill}` : null,
-                    expiry,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ") || "Add the e-way number to continue"
-                }
-                timeLabel={updatedAtLabel || "—"}
-                contextLabel={updaterName || "Documents"}
-                detailMedia={
-                  row.canView && (row.previewPath || row.previewUri) ? (
-                    <EwayTinyPreview
-                      row={row}
-                      organizationId={currentOrganization?.id}
-                      onPress={() => onView(row.id)}
-                    />
-                  ) : null
-                }
-                statusPill={ewayStatusPill(row, expiry, expiryTone)}
-                footer={
-                  <View style={styles.feedActions}>
-                    <RegistryGhostButton
-                      label="Preview"
-                      disabled={!row.canView}
-                      onPress={() => onView(row.id)}
-                      style={HUG_BTN}
-                    />
-                    {showEdit ? (
-                      <RegistryGhostButton
-                        label="Edit"
-                        onPress={() => openEditor(row)}
-                        style={HUG_BTN}
-                      />
-                    ) : null}
-                    {showUpload ? (
-                      <RegistryPrimaryButton
-                        label={vaultDocRejectionLabel(row) ? "Re-upload" : "Upload"}
-                        onPress={() => onUpload?.(row.id)}
-                        style={HUG_BTN}
-                      />
-                    ) : null}
+              <View key={row.id} style={styles.feedCell}>
+              <View style={[styles.orderCard, styles.orderCardGrid, desktopSheet && styles.orderCardDesktop]}>
+                <View style={styles.statusRow}>
+                  <View style={[styles.statusMark, { backgroundColor: status.soft }]}>
+                    <Feather name="check" size={11} color={status.color} />
                   </View>
-                }
-              />
+                  <View style={styles.statusCopy}>
+                    <Text style={[styles.statusTitle, WEB_COPY, { color: status.color }]} numberOfLines={1}>
+                      {status.label}
+                    </Text>
+                    <Text style={[styles.statusWhen, WEB_COPY]} numberOfLines={1}>
+                      {updatedAtLabel ? `On ${updatedAtLabel}` : "Awaiting update"}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.productRow}>
+                <Pressable
+                  onPress={() => {
+                    if (row.canView) openZoomPreview(row);
+                  }}
+                  disabled={!row.canView}
+                  style={[styles.productMain, WEB_POINTER]}
+                  accessibilityRole={row.canView ? "button" : "none"}
+                  accessibilityLabel={
+                    hasNumber ? `E-way bill ${row.ewayNo}` : "E-way bill details"
+                  }
+                >
+                  <EwayTinyPreview
+                    row={row}
+                    organizationId={currentOrganization?.id}
+                    onPress={() => {
+                      if (row.canView) openZoomPreview(row);
+                    }}
+                    width={thumbW}
+                    height={thumbH}
+                  />
+                  <View style={styles.productCopy}>
+                    <Text style={[styles.productTitle, WEB_COPY]} numberOfLines={1}>
+                      {hasNumber ? row.ewayNo : "E-way bill"}
+                    </Text>
+                    <Text style={[styles.productSub, WEB_COPY]} numberOfLines={1}>
+                      {row.docNo !== "—"
+                        ? `Doc ${row.docNo}`
+                        : "Document number pending"}
+                    </Text>
+                    <Text style={[styles.productMeta, WEB_COPY]} numberOfLines={1}>
+                      {[
+                        row.validTill !== "—" ? `Valid till ${row.validTill}` : null,
+                        updaterName ? `by ${updaterName}` : null,
+                      ]
+                        .filter(Boolean)
+                        .join("  ·  ") || "Add number and validity"}
+                    </Text>
+                  </View>
+                </Pressable>
+
+                <View style={styles.chipRow}>
+                  <Pressable
+                    onPress={() => openZoomPreview(row)}
+                    disabled={!row.canView}
+                    style={[
+                      styles.actionChip,
+                      WEB_POINTER,
+                      !row.canView && styles.actionChipDisabled,
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Preview e-way bill"
+                    accessibilityState={{ disabled: !row.canView }}
+                  >
+                    <Feather
+                      name="eye"
+                      size={14}
+                      color={row.canView ? SHOP.ink : SHOP.muted}
+                    />
+                    <Text
+                      style={[
+                        styles.actionChipLabel,
+                        WEB_COPY,
+                        !row.canView && styles.actionChipLabelMuted,
+                      ]}
+                    >
+                      Preview
+                    </Text>
+                  </Pressable>
+                  {showEdit ? (
+                    <Pressable
+                      onPress={() => openEditor(row)}
+                      style={[styles.actionChip, WEB_POINTER]}
+                      accessibilityRole="button"
+                      accessibilityLabel="Edit e-way bill details"
+                    >
+                      <Feather name="edit-2" size={13} color={SHOP.ink} />
+                      <Text style={[styles.actionChipLabel, WEB_COPY]}>Edit</Text>
+                    </Pressable>
+                  ) : null}
+                  {showUpload ? (
+                    <Pressable
+                      onPress={() => onUpload?.(row.id)}
+                      style={[styles.actionChip, WEB_POINTER]}
+                      accessibilityRole="button"
+                      accessibilityLabel="Upload e-way bill"
+                    >
+                      <Feather name="upload" size={13} color={SHOP.ink} />
+                      <Text style={[styles.actionChipLabel, WEB_COPY]}>Upload</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+                </View>
+
+                <View style={styles.helperRow}>
+                  <Feather
+                    name="check"
+                    size={12}
+                    color={helperBlocked ? status.color : SHOP.success}
+                  />
+                  <Text
+                    style={[
+                      styles.helperText,
+                      WEB_COPY,
+                      helperBlocked && { color: status.color, fontWeight: "600" },
+                    ]}
+                    numberOfLines={2}
+                  >
+                    {helper}
+                  </Text>
+                </View>
+              </View>
+              </View>
             );
           })}
+          </View>
           {showEdit && !editing ? (
             <View style={styles.feedAddRow}>
-              <RegistryPrimaryButton
-                label="Add e-way number"
+              <Pressable
                 onPress={openAdd}
-                style={HUG_BTN}
-              />
+                style={[styles.addChip, WEB_POINTER]}
+                accessibilityRole="button"
+                accessibilityLabel="Add e-way number"
+              >
+                <Feather name="plus" size={14} color={SHOP.ink} />
+                <Text style={[styles.addChipLabel, WEB_COPY]}>Add e-way number</Text>
+              </Pressable>
             </View>
           ) : null}
         </>
@@ -611,14 +703,6 @@ export function EwayBillLrStrip({
                     <Text style={styles.cell} numberOfLines={1}>
                       {row.ewayNo}
                     </Text>
-                    {vaultDocRejectionLabel(row) ? (
-                      <Text
-                        style={[styles.expiryText, styles.expiryExpired]}
-                        numberOfLines={2}
-                      >
-                        {vaultDocRejectionLabel(row)}
-                      </Text>
-                    ) : null}
                     {ewayUpdateTimeLabel(row.updatedAt) || resolveUpdaterName(row) ? (
                       <Text style={styles.logMeta} numberOfLines={2}>
                         {[
@@ -678,7 +762,7 @@ export function EwayBillLrStrip({
                   ) : null}
                   <TouchableOpacity
                     style={styles.iconBtn}
-                    onPress={() => onView(row.id)}
+                    onPress={() => openZoomPreview(row)}
                     disabled={!row.canView}
                     activeOpacity={0.85}
                     accessibilityRole="button"
@@ -735,6 +819,12 @@ export function EwayBillLrStrip({
           ) : null}
         </>
       )}
+
+      <EwayBillZoomPreview
+        row={zoomRow}
+        organizationId={currentOrganization?.id}
+        onClose={() => setZoomRow(null)}
+      />
 
       <Modal
         visible={editing}
@@ -892,29 +982,179 @@ const styles = StyleSheet.create({
   feedWrap: {
     width: "100%",
     alignSelf: "stretch",
-    gap: 8,
+    gap: 10,
+  },
+  feedGrid: {
+    width: "100%",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "stretch",
+    marginHorizontal: -6,
+  },
+  feedCell: {
+    width: "50%",
+    paddingHorizontal: 6,
+    paddingBottom: 12,
+    minWidth: 0,
   },
   sectionTitle: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: Theme.actionBtnInk,
+    fontSize: 13,
+    fontWeight: "700",
+    color: SHOP.ink,
     paddingHorizontal: 2,
     paddingTop: 4,
   },
-  feedActions: {
+  orderCard: {
+    width: "100%",
+  },
+  orderCardGrid: {
+    flex: 1,
+    height: "100%",
+    minWidth: 0,
+    backgroundColor: Theme.cardWhite,
+    borderRadius: SHOP.cardRadius,
+    borderWidth: 1,
+    borderColor: SHOP.hairline,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 10,
+    ...Platform.select({
+      web: { boxShadow: "0 1px 4px rgba(40, 44, 63, 0.06)" } as ViewStyle,
+      default: {
+        shadowColor: SHOP.ink,
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        elevation: 1,
+      },
+    }),
+  },
+  orderCardDesktop: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+  },
+  statusRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "flex-end",
     alignItems: "center",
+    gap: 8,
+  },
+  statusMark: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  statusCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  statusTitle: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: "700",
+    letterSpacing: -0.1,
+  },
+  statusWhen: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "400",
+    color: SHOP.muted,
+  },
+  productRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "nowrap",
+    gap: 10,
+    minWidth: 0,
+  },
+  productMain: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  productCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  productTitle: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "700",
+    color: SHOP.ink,
+    letterSpacing: -0.15,
+    fontVariant: ["tabular-nums"],
+  },
+  productSub: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "400",
+    color: SHOP.muted,
+  },
+  productMeta: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "500",
+    color: Theme.textSecondary,
+  },
+  chipRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 0,
+    gap: 8,
+  },
+  actionChip: {
+    flexGrow: 0,
+    flexShrink: 0,
+    minWidth: 72,
+    minHeight: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: SHOP.hairline,
+    backgroundColor: Theme.cardWhite,
+    paddingHorizontal: 6,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  actionChipDisabled: {
+    opacity: 0.45,
+  },
+  actionChipLabel: {
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "600",
+    color: SHOP.ink,
+    textAlign: "center",
+  },
+  actionChipLabelMuted: {
+    color: SHOP.muted,
+  },
+  helperRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
     gap: 6,
-    maxWidth: "100%",
+  },
+  helperText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "500",
+    color: SHOP.ink,
   },
   tinyPreview: {
-    width: "100%",
-    height: 72,
-    borderRadius: 6,
+    borderRadius: 8,
     overflow: "hidden",
     backgroundColor: Theme.compliancePreviewCanvas,
+    flexShrink: 0,
   },
   tinyThumb: {
     width: "100%",
@@ -925,12 +1165,34 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  tinyFallback: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.compliancePageBg,
+  },
   feedAddRow: {
     flexDirection: "row",
     justifyContent: "flex-start",
     alignItems: "center",
-    paddingHorizontal: 4,
-    paddingVertical: 4,
+    paddingHorizontal: 2,
+    paddingVertical: 2,
+  },
+  addChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 36,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: SHOP.hairline,
+    backgroundColor: Theme.cardWhite,
+  },
+  addChipLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: SHOP.ink,
   },
   table: {
     width: "100%",

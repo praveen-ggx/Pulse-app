@@ -4,6 +4,7 @@
  * log_trip_hard_copy_pod_courier RPCs. Does not create duplicate POD rows.
  */
 import { AlertRegistrySignalCard } from "@/components/AlertRegistrySignalCard";
+import { PartyAvatar } from "@/components/PartyAvatar";
 import {
   RegistryCardActions,
   RegistryGhostButton,
@@ -61,16 +62,10 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-const HARD_COPY_POD_COURIERS = [
-  "BlueDart",
-  "DHL",
-  "DTDC",
-  "Delhivery",
-  "FedEx",
-  "Ecom Express",
-  "Professional Couriers",
-  "India Post",
-] as const;
+import {
+  hardCopyPodCourierOptions,
+  rememberHardCopyPodCourier,
+} from "@/features/trips/utils/hardCopyPodCouriers.util";
 
 function todayIsoDate(): string {
   const now = new Date();
@@ -85,10 +80,7 @@ function dateOrToday(value: string | null | undefined): string {
 }
 
 function courierNameOptions(current: string): string[] {
-  const saved = current.trim();
-  const base: string[] = [...HARD_COPY_POD_COURIERS];
-  if (!saved || base.includes(saved)) return base;
-  return [saved, ...base];
+  return hardCopyPodCourierOptions(current);
 }
 
 export type { HardCopyPodLrOption };
@@ -116,6 +108,95 @@ function statusColor(status: HardCopyPodStatus): string {
   if (status === "RECEIVED") return Theme.positive;
   if (status === "IN_TRANSIT") return Theme.warning;
   return Theme.textMuted;
+}
+
+const CREATE_STEP_ORDER: Record<CreateStep, number> = { pod: 0, method: 1, details: 2 };
+
+function PodStepRail({ step }: { step: CreateStep }) {
+  const steps: { id: CreateStep; label: string }[] = [
+    { id: "pod", label: "Scan" },
+    { id: "method", label: "Receipt" },
+    { id: "details", label: "Log" },
+  ];
+  const current = CREATE_STEP_ORDER[step];
+  return (
+    <View style={styles.stepRail}>
+      {steps.map((item, index) => {
+        const order = CREATE_STEP_ORDER[item.id];
+        const done = order < current;
+        const active = order === current;
+        return (
+          <View key={item.id} style={styles.stepItem}>
+            {index > 0 ? (
+              <View style={[styles.stepJoin, (done || active) && styles.stepJoinOn]} />
+            ) : null}
+            <View style={[styles.stepIndex, done && styles.stepIndexDone, active && styles.stepIndexOn]}>
+              <Text
+                style={[
+                  styles.stepIndexText,
+                  done && styles.stepIndexTextDone,
+                  active && styles.stepIndexTextOn,
+                ]}
+              >
+                {index + 1}
+              </Text>
+            </View>
+            <Text style={[styles.stepLabel, active && styles.stepLabelOn, done && styles.stepLabelDone]}>
+              {item.label}
+            </Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function PodPartyMark({
+  name,
+  role,
+  entityType,
+  seed,
+}: {
+  name: string;
+  role: string;
+  entityType: "client" | "supplier";
+  seed: string;
+}) {
+  const label = name.trim() || "—";
+  return (
+    <View style={styles.partyMark}>
+      <PartyAvatar
+        name={label}
+        entityType={entityType}
+        initialsColorSeed={seed || label}
+        size={36}
+      />
+      <View style={styles.partyMarkCopy}>
+        <Text style={styles.partyRole}>{role}</Text>
+        <Text style={styles.partyName} numberOfLines={1}>
+          {label.toUpperCase()}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function WizardStepHead({
+  kicker,
+  title,
+  hint,
+}: {
+  kicker: string;
+  title: string;
+  hint: string;
+}) {
+  return (
+    <View style={styles.wizardHead}>
+      <Text style={styles.wizardKicker}>{kicker}</Text>
+      <Text style={styles.wizardTitle}>{title}</Text>
+      <Text style={styles.wizardHint}>{hint}</Text>
+    </View>
+  );
 }
 
 function formatDisplayDate(iso: string | null | undefined): string {
@@ -172,7 +253,7 @@ export function LogHardCopyPodModal({
   headerEnd?: ReactNode;
 }) {
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const isNarrow = width < 720;
   const queryClient = useQueryClient();
 
@@ -409,9 +490,12 @@ export function LogHardCopyPodModal({
     const next: Record<string, string> = {};
     if (!method) {
       next.method = "Select how the hard copy POD was received.";
-    } else if (method === "person") {
-      if (!receivedBy.trim()) next.receivedBy = "Person name is required.";
-      if (!receivedDate.trim()) next.receivedDate = "Received date is required.";
+    } else if (method === "person" || method === "lost") {
+      if (!receivedBy.trim()) {
+        next.receivedBy =
+          method === "lost" ? "Enter who confirmed the POD is lost." : "Person name is required.";
+      }
+      if (!receivedDate.trim()) next.receivedDate = "Date is required.";
     } else {
       if (!tripScoped && lrChoices.length > 0 && selectedLrRows.length === 0) {
         next.lrSelection = "Select at least one LR number.";
@@ -449,7 +533,7 @@ export function LogHardCopyPodModal({
 
   const logReady = useMemo(() => {
     if (!method) return false;
-    if (method === "person") return Boolean(receivedBy.trim() && receivedDate.trim());
+    if (method === "person" || method === "lost") return Boolean(receivedBy.trim() && receivedDate.trim());
     if (!tripScoped && lrChoices.length > 0 && selectedLrRows.length === 0) return false;
     if (!courierName.trim() || !awbNumber.trim()) return false;
     if (courierDispatchDateError(dispatchDate)) return false;
@@ -482,7 +566,9 @@ export function LogHardCopyPodModal({
           ? tripScoped
             ? "Enter courier name, docket number, dispatch date, and received date for this trip."
             : "Select the LR numbers, then enter courier name, docket number, dispatch date, and received date."
-          : "Enter who received the POD and the received date.",
+          : method === "lost"
+            ? "Enter who confirmed the POD is lost and the date. Upload the RBM email on the scan step."
+            : "Enter who received the POD and the received date.",
       );
       return;
     }
@@ -503,19 +589,21 @@ export function LogHardCopyPodModal({
           ? tripScoped
             ? "Enter courier name, docket number, dispatch date, and received date for this trip."
             : "Select the LR numbers, then enter courier name, docket number, dispatch date, and received date."
-          : "Enter who received the POD and the received date.",
+          : method === "lost"
+            ? "Enter who confirmed the POD is lost and the date. Upload the RBM email on the scan step."
+            : "Enter who received the POD and the received date.",
       );
       return;
     }
     setSaving(true);
-    if (method === "person") {
+    if (method === "person" || method === "lost") {
       const { error, alreadyReceived } = await markTripHardCopyPodReceived(tripId, {
         receivedBy: receivedBy.trim(),
         comment: encodeHardCopyPodComment({
           remarks,
           receivedDate,
           receivedTime,
-          receiptMethod: "person",
+          receiptMethod: method,
         }),
       });
       setSaving(false);
@@ -701,7 +789,9 @@ export function LogHardCopyPodModal({
         : mode === "create" && createStep === "method"
           ? "How was this hard-copy POD received?"
           : mode === "create" && createStep === "details"
-            ? method === "person"
+            ? method === "lost"
+              ? "Who confirmed the POD is lost, and the date on the RBM email."
+              : method === "person"
               ? "Who took the hard-copy POD and when."
               : "Courier, tracking, and dates for this trip."
         : tripScoped
@@ -711,17 +801,18 @@ export function LogHardCopyPodModal({
   const readOnly = mode === "view";
   const showCreateForm = mode === "create";
   const showMarkReceived = mode === "mark_received";
-  // Split layout (form | uploaded POD) for the inline pane and full screen.
-  const compact = inline || fullScreen;
-  /** Full-screen page layout (wide screens). Narrow screens keep the stacked split. */
-  const fs = fullScreen && !isNarrow;
+  /** Compliance log opens as a centered dialog. The inline pane stays in the workspace. */
+  const popup = fullScreen && !inline;
+  const compact = inline;
+  const dialogMaxHeight = Math.max(440, height - insets.top - insets.bottom - 40);
+  const dialogScrollMaxHeight = Math.max(240, dialogMaxHeight - 188);
 
   // Shared pieces: the drawer / inline pane and the full-screen page arrange them differently.
   const headerEl = (
-    <View style={[styles.headerRow, compact && styles.headerRowCompact, fs && styles.fsHeader]}>
+    <View style={[styles.headerRow, compact && styles.headerRowCompact, popup && styles.dialogHeader]}>
       <View style={styles.headerCopy}>
-        <Text style={[styles.title, compact && !fs && styles.titleCompact]}>{title}</Text>
-        <Text style={[styles.subtitle, compact && !fs && styles.subtitleCompact]} numberOfLines={2}>
+        <Text style={[styles.title, compact && styles.titleCompact]}>{title}</Text>
+        <Text style={[styles.subtitle, compact && styles.subtitleCompact]} numberOfLines={2}>
           {subtitle}
         </Text>
       </View>
@@ -741,7 +832,43 @@ export function LogHardCopyPodModal({
   );
   const pendingLr = openedLrReceipt.pending.join(", ");
   const receivedLr = openedLrReceipt.received.join(", ");
-  const summaryEl = (
+  const tripMeta = [
+    cardLrNumber !== "—" ? `LR ${cardLrNumber}` : null,
+    summary.vehicleLabel,
+    summary.vehicleType?.trim(),
+    summary.driverName,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const summaryEl = popup ? (
+    <View style={styles.identityCard}>
+      <View style={styles.identityParties}>
+        <PodPartyMark
+          name={summary.clientName}
+          role="Client"
+          entityType="client"
+          seed={summary.clientName || summary.manifestId}
+        />
+        <PodPartyMark
+          name={summary.vendorName?.trim() || "Vendor"}
+          role="Vendor"
+          entityType="supplier"
+          seed={summary.vendorName || summary.manifestId}
+        />
+      </View>
+      <Text style={styles.identityTrip} numberOfLines={1}>
+        {summary.manifestId}
+      </Text>
+      <Text style={styles.identityRoute} numberOfLines={1}>
+        {`${summary.pickup} → ${summary.delivery}`}
+      </Text>
+      {tripMeta ? (
+        <Text style={styles.identityMeta} numberOfLines={2}>
+          {tripMeta}
+        </Text>
+      ) : null}
+    </View>
+  ) : (
     <View style={styles.notifyCard}>
       <AlertRegistrySignalCard
         variant="feed"
@@ -756,14 +883,7 @@ export function LogHardCopyPodModal({
         highlightText={summary.clientName}
         trailingText={`· ${summary.manifestId}`}
         detailTitle={`${summary.pickup} → ${summary.delivery}`}
-        detailSubtitle={[
-          cardLrNumber !== "—" ? `LR ${cardLrNumber}` : null,
-          summary.vehicleLabel,
-          summary.vehicleType?.trim(),
-          summary.driverName,
-        ]
-          .filter(Boolean)
-          .join(" · ")}
+        detailSubtitle={tripMeta}
         timeLabel="Awaiting POD"
         contextLabel="Hard copy"
         tags={
@@ -774,7 +894,7 @@ export function LogHardCopyPodModal({
               : undefined
         }
         statusPill={{
-          label: method === "courier" ? "Courier" : method === "person" ? "Person" : "Log POD",
+          label: method === "courier" ? "Courier" : method === "person" ? "Person" : method === "lost" ? "Lost" : "Log POD",
           tone: method ? "success" : "warning",
         }}
       />
@@ -809,7 +929,7 @@ export function LogHardCopyPodModal({
                 { color: statusColor(podState.status) },
               ]}
             >
-              {statusLabel(podState.status)}
+              {podState.receiptMethod === "lost" ? "LOST" : statusLabel(podState.status)}
             </Text>
           </View>
         </View>
@@ -820,7 +940,9 @@ export function LogHardCopyPodModal({
               ? "Received by Courier"
               : podState.receiptMethod === "person"
                 ? "Received by Person"
-                : "—"
+                : podState.receiptMethod === "lost"
+                  ? "POD lost"
+                  : "—"
           }
         />
         {podState.receiptMethod === "courier" ? (
@@ -901,18 +1023,31 @@ export function LogHardCopyPodModal({
 
     {showCreateForm && createStep === "pod" ? (
       <View style={[styles.section, compact && styles.sectionCompact, styles.notifyForm]}>
-        <Text style={styles.notifyFeedTitle}>Upload the hard-copy POD</Text>
-        <Text style={styles.notifyQuoteMeta}>
-          {Platform.OS === "web"
-            ? "Attach the scan or photo, then continue to receipt details."
-            : "Photograph the physical POD, then continue to receipt details."}
-        </Text>
-        <View style={styles.wizardPodStage}>
+        <WizardStepHead
+          kicker="Step 1 · Scan"
+          title="Upload the hard-copy POD"
+          hint={
+            Platform.OS === "web"
+              ? "Attach the scan, then continue to how it was received."
+              : "Photograph the POD, then continue to how it was received."
+          }
+        />
+        {errors.pod ? <Text style={styles.errorText}>{errors.pod}</Text> : null}
+        <View style={[styles.wizardPodStage, popup && styles.wizardPodStagePopup]}>
           <HardCopyPodPhotoUpload
             tripId={tripId}
             canEdit={canManage}
             variant="pane"
-            onUploadedChange={setPodUploaded}
+            framed={popup}
+            onUploadedChange={(uploaded) => {
+              setPodUploaded(uploaded);
+              if (!uploaded) return;
+              setErrors((current) => {
+                if (!current.pod) return current;
+                const { pod: _removed, ...rest } = current;
+                return rest;
+              });
+            }}
           />
         </View>
       </View>
@@ -920,7 +1055,11 @@ export function LogHardCopyPodModal({
 
     {showCreateForm && createStep === "method" ? (
       <View style={[styles.section, compact && styles.sectionCompact, styles.notifyForm]}>
-        <Text style={styles.notifyFeedTitle}>How was the hard copy POD received?</Text>
+        <WizardStepHead
+          kicker="Step 2 · Receipt"
+          title="How did the hard copy arrive?"
+          hint="Person at the desk, a courier docket, or a lost POD. The next step records the details."
+        />
         {errors.method ? (
           <Text style={styles.errorText}>{errors.method}</Text>
         ) : null}
@@ -981,25 +1120,55 @@ export function LogHardCopyPodModal({
               });
             }}
           />
+          <AlertRegistrySignalCard
+            variant="feed"
+            isUnread={method === "lost"}
+            avatar={{
+              name: "Lost",
+              entityType: "supplier",
+              initialsColorSeed: "hard-copy-lost",
+            }}
+            avatarSlot={<ReceiptMethodIcon name="alert-circle" selected={method === "lost"} />}
+            actorName="POD lost"
+            actionText="vendor confirmed the hard copy is lost"
+            timeLabel="Lost"
+            contextLabel="Hard copy"
+            statusPill={{
+              label: method === "lost" ? "Selected" : "Option",
+              tone: method === "lost" ? "warning" : "neutral",
+            }}
+            onPress={() => {
+              setMethod("lost");
+              setCreateStep("details");
+              setErrors((e) => {
+                const { method: _m, ...rest } = e;
+                return rest;
+              });
+            }}
+          />
         </View>
       </View>
     ) : null}
 
-    {showCreateForm && createStep === "details" && method === "person" ? (
+    {showCreateForm && createStep === "details" && (method === "person" || method === "lost") ? (
           <View style={[styles.fields, compact && styles.fieldsCompact, styles.notifyQuote]}>
-            <View style={styles.notifyQuoteHead}>
-              <Text style={styles.notifyQuoteKicker}>This trip</Text>
-              <Text style={styles.notifyQuoteTitle}>Received at the desk</Text>
-              <Text style={styles.notifyQuoteMeta}>Who took the hard-copy POD and when</Text>
-            </View>
+            <WizardStepHead
+              kicker="Step 3 · Log"
+              title={method === "lost" ? "POD marked lost" : "Received at the desk"}
+              hint={
+                method === "lost"
+                  ? "Who confirmed it is lost. The scan step holds the RBM email."
+                  : "Who took the hard-copy POD, and when."
+              }
+            />
             <View style={styles.notifyQuoteBody}>
             <Field
               quiet
-              label="Received by"
+              label={method === "lost" ? "Confirmed by" : "Received by"}
               required
               value={receivedBy}
               onChangeText={setReceivedBy}
-              placeholder="Person name"
+              placeholder={method === "lost" ? "RBM or approver name" : "Person name"}
               error={errors.receivedBy}
             />
             <View style={styles.dateTimeRow}>
@@ -1038,15 +1207,11 @@ export function LogHardCopyPodModal({
     {showCreateForm && createStep === "details" && method === "courier" ? (
           <View style={[styles.fields, compact && styles.fieldsCompact, styles.notifyQuote]}>
             <View style={styles.notifyQuoteHeadRow}>
-              <View style={styles.notifyQuoteHead}>
-                <Text style={styles.notifyQuoteKicker}>This trip</Text>
-                <Text style={styles.notifyQuoteTitle} numberOfLines={1}>
-                  Courier dispatch
-                </Text>
-                <Text style={styles.notifyQuoteMeta} numberOfLines={2}>
-                  Courier, tracking, and dates for this trip only
-                </Text>
-              </View>
+              <WizardStepHead
+                kicker="Step 3 · Log"
+                title="Courier dispatch"
+                hint="Courier, tracking, and dates for this trip."
+              />
               {tripScoped ? (
                 <View style={styles.tripLrChips}>
                   {lrChoices.length === 0 ? (
@@ -1222,7 +1387,7 @@ export function LogHardCopyPodModal({
     </>
   );
   const footerEl = (
-    <View style={[styles.footer, compact && styles.footerCompact, fs && styles.fsFooterInner]}>
+    <View style={[styles.footer, compact && styles.footerCompact, popup && styles.dialogFooter]}>
       {showCreateForm && canManage ? (
         <RegistryCardActions>
           {createStep === "pod" ? (
@@ -1245,8 +1410,28 @@ export function LogHardCopyPodModal({
           ) : (
             <RegistryPrimaryButton
               label="Next"
-              onPress={() => setCreateStep(createStep === "pod" ? "method" : "details")}
-              disabled={createStep === "pod" ? !podUploaded : !method}
+              onPress={() => {
+                if (createStep === "pod") {
+                  if (!podUploaded) {
+                    setErrors((current) => ({
+                      ...current,
+                      pod: "Upload the hard-copy POD to continue.",
+                    }));
+                    return;
+                  }
+                  setCreateStep("method");
+                  return;
+                }
+                if (!method) {
+                  setErrors((current) => ({
+                    ...current,
+                    method: "Choose how the hard copy was received.",
+                  }));
+                  return;
+                }
+                setCreateStep("details");
+              }}
+              disabled={saving}
               style={styles.notifyFooterBtn}
             />
           )}
@@ -1276,43 +1461,31 @@ export function LogHardCopyPodModal({
     </View>
   );
 
-  const fsPanel = (
+  const dialogPanel = (
     <View
       style={[
-        styles.fsPanel,
-        { paddingTop: insets.top + 16, paddingBottom: Math.max(insets.bottom, 16) },
+        styles.dialog,
+        {
+          width: Math.min(720, Math.max(320, width - 48)),
+          maxHeight: dialogMaxHeight,
+        },
       ]}
     >
       {headerEl}
-      {summaryEl}
-      <View style={styles.fsBody}>
-        <View style={[styles.fsForm, showCreateForm && styles.fsFormWide]}>
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={styles.fsFormBody}
-            keyboardShouldPersistTaps="handled"
-          >
-            {formBodyEl}
-          </ScrollView>
-        </View>
-        {showCreateForm ? null : (
-        <View style={styles.fsPreview}>
-          <HardCopyPodPhotoUpload
-            tripId={tripId}
-            canEdit={canManage}
-            variant="pane"
-            onUploadedChange={setPodUploaded}
-          />
-        </View>
-        )}
-      </View>
-      <View style={styles.fsFooterBar}>
-        <View style={styles.fsFooterActions}>{footerEl}</View>
-      </View>
+      {showCreateForm ? <PodStepRail step={createStep} /> : null}
+      <ScrollView
+        style={{ maxHeight: dialogScrollMaxHeight }}
+        contentContainerStyle={styles.dialogBody}
+        keyboardShouldPersistTaps="handled"
+      >
+        {summaryEl}
+        {formBodyEl}
+      </ScrollView>
+      {footerEl}
     </View>
   );
 
-  const panel = fs ? fsPanel : (
+  const panel = popup ? dialogPanel : (
         <View
           style={[
             styles.panel,
@@ -1412,7 +1585,7 @@ export function LogHardCopyPodModal({
         animationType={isNarrow ? "slide" : "fade"}
         onRequestClose={onClose}
       >
-        <View style={styles.overlay}>
+        <View style={[styles.overlay, popup && styles.overlayCenter]}>
           <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
           {panel}
         </View>
@@ -1467,11 +1640,21 @@ function CourierNameField({
   quiet?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const options = courierNameOptions(value);
+  const [draftName, setDraftName] = useState("");
+  const [options, setOptions] = useState(() => courierNameOptions(value));
   const selected = value.trim();
 
   const choose = (name: string) => {
     onChange(name);
+    setOpen(false);
+  };
+
+  const addCourier = () => {
+    const name = draftName.trim();
+    if (!name) return;
+    setOptions(rememberHardCopyPodCourier(name));
+    onChange(name);
+    setDraftName("");
     setOpen(false);
   };
 
@@ -1482,7 +1665,10 @@ function CourierNameField({
         <Text style={styles.req}> *</Text>
       </Text>
       <Pressable
-        onPress={() => setOpen(true)}
+        onPress={() => {
+          setOptions(courierNameOptions(value));
+          setOpen(true);
+        }}
         style={[
           styles.input,
           quiet && styles.inputQuiet,
@@ -1568,6 +1754,25 @@ function CourierNameField({
                 );
               })}
             </ScrollView>
+            <View style={styles.courierAddRow}>
+              <TextInput
+                value={draftName}
+                onChangeText={setDraftName}
+                placeholder="Add new courier partner"
+                placeholderTextColor={Theme.textMuted}
+                style={[styles.input, styles.courierAddInput]}
+                accessibilityLabel="New courier partner"
+                onSubmitEditing={addCourier}
+              />
+              <Pressable
+                onPress={addCourier}
+                style={styles.courierAddBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Add new courier partner"
+              >
+                <Text style={styles.courierAddBtnText}>Add</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1727,7 +1932,7 @@ function ReceiptMethodIcon({
   name,
   selected,
 }: {
-  name: "user" | "package";
+  name: "user" | "package" | "alert-circle";
   selected: boolean;
 }) {
   return (
@@ -1800,6 +2005,94 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "flex-end",
     backgroundColor: "rgba(15, 23, 42, 0.4)",
+  },
+  overlayCenter: {
+    flexDirection: "column",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 24,
+  },
+  dialog: {
+    width: "100%",
+    borderRadius: 16,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    overflow: "hidden",
+    ...Platform.select({
+      web: { boxShadow: "0 24px 48px rgba(15,23,42,0.18)" } as object,
+      default: {
+        shadowColor: Theme.shadow,
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.16,
+        shadowRadius: 24,
+        elevation: 12,
+      },
+    }),
+  },
+  dialogHeader: { paddingTop: 16, marginBottom: 0 },
+  dialogBody: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 16, gap: 12 },
+  dialogFooter: { paddingHorizontal: 16, paddingBottom: 16 },
+  stepRail: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.borderLight,
+  },
+  stepItem: { flexDirection: "row", alignItems: "center", flexShrink: 0 },
+  stepJoin: {
+    width: 18,
+    height: 2,
+    marginHorizontal: 6,
+    borderRadius: 999,
+    backgroundColor: Theme.surfaceGray,
+  },
+  stepJoinOn: { backgroundColor: Theme.buttonDark },
+  stepIndex: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.surfaceGray,
+    marginRight: 6,
+  },
+  stepIndexDone: { backgroundColor: Theme.primaryLight },
+  stepIndexOn: { backgroundColor: Theme.buttonDark },
+  stepIndexText: { fontSize: 12, fontWeight: "600", color: Theme.textMuted },
+  stepIndexTextDone: { color: Theme.textPrimaryDark },
+  stepIndexTextOn: { color: Theme.buttonDarkText },
+  stepLabel: { fontSize: 13, fontWeight: "500", color: Theme.textMuted },
+  stepLabelDone: { color: Theme.textPrimary },
+  stepLabelOn: { color: Theme.textPrimaryDark, fontWeight: "700" },
+  wizardHead: {
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 8,
+    gap: 2,
+  },
+  wizardKicker: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    color: Theme.textRouteCard,
+  },
+  wizardTitle: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+  },
+  wizardHint: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "400",
+    color: Theme.textSecondary,
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
@@ -1996,9 +2289,67 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   wizardPodStage: {
-    minHeight: 360,
+    minHeight: 220,
     paddingHorizontal: 12,
     paddingBottom: 12,
+  },
+  wizardPodStagePopup: {
+    height: 280,
+    minHeight: 0,
+  },
+  identityCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.cardWhite,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 8,
+  },
+  identityParties: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+  },
+  partyMark: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  partyMarkCopy: { flex: 1, minWidth: 0, gap: 1 },
+  partyRole: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "600",
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+    color: Theme.textRouteCard,
+  },
+  partyName: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "500",
+    color: Theme.textPrimaryDark,
+  },
+  identityTrip: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "500",
+    color: Theme.textPrimaryDark,
+  },
+  identityRoute: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "400",
+    color: Theme.textPrimary,
+  },
+  identityMeta: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "400",
+    color: Theme.textSecondary,
   },
   notifyMethodIcon: {
     width: 36,
@@ -2463,6 +2814,33 @@ const styles = StyleSheet.create({
   },
   courierPopoverList: {
     maxHeight: 260,
+  },
+  courierAddRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Theme.complianceTripCardBorder,
+  },
+  courierAddInput: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 40,
+  },
+  courierAddBtn: {
+    minHeight: 40,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.buttonPrimary,
+  },
+  courierAddBtnText: {
+    fontSize: 13,
+    fontWeight: "400",
+    color: Theme.buttonPrimaryText,
   },
   courierOption: {
     minHeight: 36,

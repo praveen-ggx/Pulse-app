@@ -1,5 +1,5 @@
 /**
- * Log hard copy POD for one compliance trip — full screen (or the inline
+ * Log hard copy POD for one compliance trip — centered popup (or the inline
  * pane) built from a ComplianceTripSummary. Single place that maps a
  * compliance trip onto LogHardCopyPodModal's manifest summary, so every entry
  * point (workspace pane, workspace popup, Debit control table) shows the same.

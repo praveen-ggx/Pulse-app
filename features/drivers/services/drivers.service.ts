@@ -2198,6 +2198,28 @@ export async function createDriverLedgerEntry(
   return { error: null, row: data as DriverLedgerRow };
 }
 
+/** Driver still linked to a fleet vehicle. Used when a plate change should suggest who already runs it. */
+export async function findActiveDriverForVehicle(
+  vehicleId: string,
+): Promise<{ error: Error | null; name: string | null; phone: string | null }> {
+  const id = vehicleId.trim();
+  if (!id) return { error: null, name: null, phone: null };
+  const { data, error } = await supabase()
+    .from("drivers")
+    .select("name, phone")
+    .eq("assigned_vehicle_id", id)
+    .is("left_at", null)
+    .limit(1)
+    .maybeSingle();
+  if (error) return { error: new Error(error.message), name: null, phone: null };
+  const row = data as { name?: string | null; phone?: string | null } | null;
+  return {
+    error: null,
+    name: row?.name?.trim() || null,
+    phone: row?.phone?.trim() || null,
+  };
+}
+
 /**
  * Get driver_ledger entries for a driver (e.g. driver app Wallet). RLS: driver can read own ledger.
  */

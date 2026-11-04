@@ -11,6 +11,7 @@ import {
 } from "@/components/hub/hubGridCardLayout";
 import { HUB_MOBILE_TICKET_REF } from "@/components/hub/hubMobileTicketTokens";
 import { FinanceTxnTypography } from "@/constants/FinanceTxnTypography";
+import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import {
   type ComplianceChecklistGroup,
@@ -43,6 +44,7 @@ import { ComplianceActivityLogButton } from "@/features/tripCompliance/component
 import { ComplianceDeclineModal } from "@/features/tripCompliance/components/ComplianceDeclineModal";
 import { COMPLIANCE_DECLINE_ACTION_LABEL } from "@/features/tripCompliance/complianceDecisionConfig";
 import { COMPLIANCE_DECLINE_REASON_SECTIONS } from "@/features/tripCompliance/utils/complianceDeclineReason.util";
+import { compactResubmitCardNote } from "@/features/tripCompliance/utils/complianceResubmitChangeLog.util";
 import {
   canVerifyTrip,
   isFinanceDeclinedTrip,
@@ -119,6 +121,8 @@ export type ComplianceTripCardProps = {
   layout?: "ticket" | "strip";
   /** Sit inside the Document Details nav with no extra card chrome. */
   flush?: boolean;
+  /** Mobile list: full-width row on the white page, no floating card. */
+  plain?: boolean;
   /** Compact header chips that keep their own width (mobile filmstrip). */
   dense?: boolean;
   supplierName?: string | null;
@@ -391,6 +395,7 @@ export function ComplianceTripCard({
   selected = false,
   layout = "ticket",
   flush = false,
+  plain = false,
   dense = false,
   supplierName = null,
   parties = null,
@@ -511,6 +516,7 @@ export function ComplianceTripCard({
           styles.cardCompact,
           isStrip && styles.cardStrip,
           flush && styles.cardFlush,
+          plain && styles.cardPlain,
           WEB_TRANSITION,
           !isStrip && WEB_POINTER,
           !isStrip && (hovered || selected || isHovered(state)) && styles.cardHover,
@@ -525,6 +531,7 @@ export function ComplianceTripCard({
             compact && styles.bodyCompact,
             isStrip && styles.bodyStrip,
             flush && styles.bodyFlush,
+            plain && styles.bodyPlain,
           ]}
         >
           {isStrip ? null : (
@@ -708,15 +715,19 @@ export function ComplianceTripCard({
 
           {isStrip ? null : resubmitNote ? (
             <View
-              style={styles.resubmitNoteBox}
+              style={[
+                styles.blockerBox,
+                compact && styles.blockerBoxCompact,
+                styles.blockerBoxReady,
+                styles.blockerBoxWithAction,
+              ]}
               testID={`compliance-card-resubmit-note-${trip.id}`}
               accessible
               accessibilityLabel={`Ground Ops resubmit note. ${resubmitNote}`}
             >
-              <Text style={styles.resubmitNoteTitle} numberOfLines={1}>
-                Resubmitted · Ground Ops
+              <Text style={styles.resubmitNoteLine} numberOfLines={1}>
+                {`Resubmitted · ${compactResubmitCardNote(resubmitNote)}`}
               </Text>
-              <Text style={styles.resubmitNoteBody}>{resubmitNote}</Text>
             </View>
           ) : null}
 
@@ -954,6 +965,22 @@ const styles = StyleSheet.create({
       web: { boxShadow: "none" } as ViewStyle,
       default: { elevation: 0, shadowOpacity: 0 },
     }),
+  },
+  cardPlain: {
+    borderWidth: 0,
+    borderRadius: 0,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.networkCardBorder,
+    backgroundColor: Theme.screenBackground,
+    ...Platform.select({
+      web: { boxShadow: "none" } as ViewStyle,
+      default: { elevation: 0, shadowOpacity: 0 },
+    }),
+  },
+  bodyPlain: {
+    paddingHorizontal: Layout.screenPaddingHorizontal,
+    paddingTop: 14,
+    paddingBottom: 14,
   },
   cardFlush: {
     borderWidth: 0,
@@ -1638,29 +1665,20 @@ const styles = StyleSheet.create({
     color: Theme.textSecondary,
     lineHeight: 12,
   },
-  resubmitNoteBox: {
-    gap: 2,
-    paddingTop: 6,
-    paddingHorizontal: 8,
-    paddingBottom: 6,
-    borderRadius: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderLeftWidth: 3,
-    backgroundColor: Theme.positiveMuted,
-    borderColor: Theme.positiveMuted,
-    borderLeftColor: Theme.positive,
-  },
-  resubmitNoteTitle: {
+  resubmitNoteLine: {
+    flex: 1,
+    minWidth: 0,
     fontSize: 9,
     fontWeight: "400",
-    color: Theme.positive,
     lineHeight: 12,
-  },
-  resubmitNoteBody: {
-    fontSize: 9,
-    fontWeight: "400",
-    color: Theme.textSecondary,
-    lineHeight: 12,
+    color: Theme.complianceStageSuccessFg,
+    ...Platform.select({
+      web: {
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      } as ViewStyle,
+    }),
   },
   expiryWarnBox: {
     gap: 2,

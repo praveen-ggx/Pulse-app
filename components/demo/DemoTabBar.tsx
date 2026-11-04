@@ -1245,7 +1245,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.8)",
     borderBottomWidth: 1,
     borderBottomColor: "#f1f5f9",
-    paddingHorizontal: 20,
+    paddingHorizontal: Layout.desktopPageGutter,
     paddingTop: 10,
     paddingBottom: 10,
     zIndex: 200,

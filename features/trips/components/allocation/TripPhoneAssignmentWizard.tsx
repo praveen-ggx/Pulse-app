@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Modal,
   Platform,
+  Pressable,
   ScrollView,
   Text,
   TextInput,
@@ -28,6 +29,7 @@ import {
   type IndianVehicleFormat,
 } from "@/lib/indianVehicleInput.util";
 import { InputFormatPicker } from "@/components/indianVehicle/InputFormatPicker";
+import { PulseAlertCard } from "@/components/PulseAlertCard";
 import Theme from "@/constants/Theme";
 import { AddTripWizardProgress } from "@/features/trips/components/add-trip/AddTripWizardProgress";
 import { AggregateTrackingMobileStep } from "@/features/trips/components/add-trip/AggregateTrackingMobileStep";
@@ -50,8 +52,79 @@ import {
 import { TripPhoneReassignContextRail } from "@/features/trips/components/allocation/TripPhoneReassignContextRail";
 import { useAggregateDriverPhoneLookup } from "@/features/trips/hooks/useAggregateDriverPhoneLookup";
 import { assignmentShellStyles } from "@/features/trips/styles/assignmentShellShared";
-import { formatIndianVehicleNumber, formatMobileNumber } from "@/lib/format";
+import {
+  bootstrapAssignmentFleet,
+  peekAssignmentFleet,
+  type AssignmentFleetSnapshot,
+} from "@/features/trips/utils/assignmentFleetBootstrap";
+import { isSameDriverPhone } from "@/features/trips/utils/reassignChangeDetection.util";
+import {
+  formatIndianVehicleNumber,
+  formatMobileNumber,
+  normalizeVehicleNumberForMatch,
+} from "@/lib/format";
 import { getTripDisplayNumber, type TripRow } from "@/features/trips/services/trips.service";
+
+const LIVE_TRIP_STATUSES = new Set([
+  "picked_up",
+  "pickup",
+  "in_progress",
+  "in_transit",
+  "dispatched",
+  "transit",
+  "at_drop",
+  "unloading",
+  "arrived",
+  "at_destination",
+]);
+
+function tripDriverIsActive(status: string | null | undefined): boolean {
+  return LIVE_TRIP_STATUSES.has(String(status ?? "").toLowerCase());
+}
+
+function applyFleetSnapshot(
+  snapshot: AssignmentFleetSnapshot | null,
+  setters: {
+    setFleetVehicleType: (value: string | null) => void;
+    setFleetVehicleCapacity: (value: string | null) => void;
+    setFleetVehicleMake: (value: string | null) => void;
+    setVehicleDriverHint: (value: string | null) => void;
+    setVehicleComplianceHint: (value: string | null) => void;
+  },
+  showVehicleHints: boolean,
+) {
+  setters.setFleetVehicleType(snapshot?.found ? snapshot.type : null);
+  setters.setFleetVehicleCapacity(snapshot?.found ? snapshot.capacity : null);
+  setters.setFleetVehicleMake(snapshot?.found ? snapshot.make : null);
+  if (!showVehicleHints) return;
+  if (!snapshot) {
+    setters.setVehicleDriverHint(null);
+    setters.setVehicleComplianceHint(null);
+    return;
+  }
+  setters.setVehicleComplianceHint(snapshot.complianceNote);
+  setters.setVehicleDriverHint(
+    snapshot.linkedDriverName
+      ? `This vehicle is already used by ${snapshot.linkedDriverName}${
+          snapshot.linkedDriverPhone
+            ? ` · ${formatMobileNumber(snapshot.linkedDriverPhone)}`
+            : ""
+        }.`
+      : null,
+  );
+}
+
+type AssignConfirmFact = { label: string; value: string };
+
+type AssignConfirm = {
+  title: string;
+  facts: AssignConfirmFact[];
+  notes: string[];
+  confirmLabel: string;
+  onConfirm: () => void;
+  alternateLabel?: string;
+  onAlternate?: () => void;
+};
 
 export type TripPhoneOtpReveal = {
   code: string;
@@ -160,6 +233,12 @@ export function TripPhoneAssignmentWizard({
   const [workspaceStep, setWorkspaceStep] = useState<"details" | "reason">(
     "details",
   );
+  const [assignConfirm, setAssignConfirm] = useState<AssignConfirm | null>(null);
+  const [vehicleDriverHint, setVehicleDriverHint] = useState<string | null>(null);
+  const [vehicleComplianceHint, setVehicleComplianceHint] = useState<string | null>(null);
+  const [fleetVehicleType, setFleetVehicleType] = useState<string | null>(null);
+  const [fleetVehicleCapacity, setFleetVehicleCapacity] = useState<string | null>(null);
+  const [fleetVehicleMake, setFleetVehicleMake] = useState<string | null>(null);
 
   const resolvedActiveDriverName = useMemo(
     () => (activeDriverName ?? initialDriverName ?? trip.driver_display_name ?? "").trim(),
@@ -308,6 +387,60 @@ export function TripPhoneAssignmentWizard({
   });
 
   const tripLabel = getTripDisplayNumber(trip);
+  const driverIsActive = tripDriverIsActive(trip.status);
+
+  useEffect(() => {
+    if (!visible) {
+      setVehicleDriverHint(null);
+      setVehicleComplianceHint(null);
+      setFleetVehicleType(null);
+      setFleetVehicleCapacity(null);
+      setFleetVehicleMake(null);
+      return;
+    }
+    const plate = (
+      formatIndianVehicleNumber(vehiclePlate).trim() || resolvedActiveVehiclePlate
+    ).trim();
+    if (plate.length < 4) {
+      setFleetVehicleType(null);
+      setFleetVehicleCapacity(null);
+      setFleetVehicleMake(null);
+      if (initialFocus === "vehicle") {
+        setVehicleDriverHint(null);
+        setVehicleComplianceHint(null);
+      }
+      return;
+    }
+    const setters = {
+      setFleetVehicleType,
+      setFleetVehicleCapacity,
+      setFleetVehicleMake,
+      setVehicleDriverHint,
+      setVehicleComplianceHint,
+    };
+    const cached = peekAssignmentFleet(organizationId, null, plate);
+    if (cached) {
+      applyFleetSnapshot(cached, setters, initialFocus === "vehicle");
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void bootstrapAssignmentFleet({ organizationId, plate }).then((snapshot) => {
+        if (cancelled) return;
+        applyFleetSnapshot(snapshot, setters, initialFocus === "vehicle");
+      });
+    }, 120);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [
+    visible,
+    initialFocus,
+    vehiclePlate,
+    resolvedActiveVehiclePlate,
+    organizationId,
+  ]);
 
   useEffect(() => {
     if (!visible) {
@@ -626,25 +759,68 @@ export function TripPhoneAssignmentWizard({
       visible={visible}
       animationType={Platform.OS === "web" ? "fade" : "slide"}
       presentationStyle={
-        Platform.OS === "web" ? "overFullScreen" : presentationStyle
+        useAssignmentWorkspace
+          ? "overFullScreen"
+          : Platform.OS === "web"
+            ? "overFullScreen"
+            : presentationStyle
       }
-      transparent={Platform.OS === "web" && !fullPageFlow}
+      transparent={Platform.OS === "web" || useAssignmentWorkspace}
       onRequestClose={onClose}
     >
       <View
         style={[
           assignmentShellStyles.webModalBackdrop,
-          (fullPageFlow || useAssignmentWorkspace) && {
-            flex: 1,
-            padding: 0,
-            backgroundColor: Theme.assignmentPageBg,
-          },
+          useAssignmentWorkspace
+            ? {
+                flex: 1,
+                backgroundColor: Theme.overlayBackdrop,
+                justifyContent: windowWidth >= 720 ? "center" : "flex-end",
+                alignItems: "center",
+                paddingTop: windowWidth >= 720 ? insets.top + 24 : insets.top + 28,
+                paddingBottom: windowWidth >= 720 ? insets.bottom + 24 : 0,
+                paddingHorizontal: windowWidth >= 720 ? 24 : 0,
+              }
+            : (fullPageFlow || useAssignmentWorkspace) && {
+                flex: 1,
+                padding: 0,
+                backgroundColor: Theme.assignmentPageBg,
+              },
         ]}
       >
+        {useAssignmentWorkspace ? (
+          <Pressable
+            style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}
+            onPress={onClose}
+            accessibilityLabel="Close"
+          />
+        ) : null}
         <View
           style={[
             assignmentShellStyles.assignModalWrapSlate,
-            (fullPageFlow || useAssignmentWorkspace) && {
+            useAssignmentWorkspace
+              ? {
+                  width: "100%",
+                  maxWidth: windowWidth >= 720 ? 560 : "100%",
+                  maxHeight: "92%",
+                  minHeight: 0,
+                  flexBasis: "auto",
+                  flexGrow: 0,
+                  flexShrink: 0,
+                  borderRadius: windowWidth >= 720 ? 24 : 0,
+                  borderTopLeftRadius: 24,
+                  borderTopRightRadius: 24,
+                  overflow: "hidden",
+                  padding: 0,
+                  backgroundColor: Theme.assignmentPageBg,
+                  ...Platform.select({
+                    web: {
+                      boxShadow: "0 24px 64px rgba(12, 16, 29, 0.28)",
+                    } as object,
+                    default: {},
+                  }),
+                }
+              : (fullPageFlow || useAssignmentWorkspace) && {
               flex: 1,
               width: "100%",
               maxWidth: "100%",
@@ -658,12 +834,14 @@ export function TripPhoneAssignmentWizard({
               !fullPageFlow &&
               !useAssignmentWorkspace &&
               Platform.OS === "web" && { maxWidth: 1320, width: "92%", maxHeight: "92%" },
-            {
-              flex:
-                Platform.OS === "web" && !fullPageFlow && !useAssignmentWorkspace
-                  ? 0
-                  : 1,
-            },
+            !useAssignmentWorkspace
+              ? {
+                  flex:
+                    Platform.OS === "web" && !fullPageFlow && !useAssignmentWorkspace
+                      ? 0
+                      : 1,
+                }
+              : null,
           ]}
         >
           {assignSuccess ? (
@@ -686,7 +864,11 @@ export function TripPhoneAssignmentWizard({
                 <View style={styles.otpCard}>
                   <FontAwesome name="check-circle" size={36} color={Theme.primary} />
                   <Text style={styles.otpTitle}>
-                    {isReassign ? "Driver updated" : "Driver assigned"}
+                    {initialFocus === "vehicle"
+                      ? "Vehicle updated"
+                      : isReassign
+                        ? "Driver updated"
+                        : "Driver assigned"}
                   </Text>
                   <Text style={styles.otpHint}>
                     {assignSuccess.driverLabel}
@@ -749,6 +931,9 @@ export function TripPhoneAssignmentWizard({
                   resolvedActiveVehiclePlate ||
                   "Vehicle"
                 }
+                vehicleTypeLabel={fleetVehicleType}
+                vehicleCapacityLabel={fleetVehicleCapacity}
+                vehicleMakeLabel={fleetVehicleMake}
                 fulfillmentMode="MARKET"
                 fulfillmentModeEditable={false}
                 driverAction={driverAction}
@@ -835,6 +1020,19 @@ export function TripPhoneAssignmentWizard({
                         ))}
                       </View>
                     ) : null}
+                    {lookup.suggestedName &&
+                    lookup.suggestedName.trim().toLowerCase() !==
+                      driverName.trim().toLowerCase() ? (
+                      <TouchableOpacity
+                        onPress={() => onDriverNameChange(lookup.suggestedName ?? "")}
+                        accessibilityRole="button"
+                        style={aws.dialogSuggest}
+                      >
+                        <Text style={aws.dialogSuggestText}>
+                          This number is already in the app as {lookup.suggestedName}. Use this name.
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null}
                     {lookup.inTrip ? (
                       <Text style={styles.errorText}>
                         This driver is on {lookup.busyTripLabel ?? "another trip"}.
@@ -843,57 +1041,30 @@ export function TripPhoneAssignmentWizard({
                   </View>
                 }
                 vehiclePanelBody={
-                  <View style={{ gap: 12, flex: 1 }}>
-                    {windowWidth >= 720 ? (
-                      <View style={aws.sectionHintRow}>
-                        <Text style={aws.sectionHint}>Update plate or type</Text>
-                      </View>
+                  <View style={{ gap: 8 }}>
+                    <Text style={aws.fieldLabel}>Plate</Text>
+                    <InputFormatPicker
+                      options={INDIAN_VEHICLE_FORMATS}
+                      value={plateFormat}
+                      onChange={handlePlateFormatChange}
+                      testID="trip-assign-plate-format"
+                    />
+                    <TextInput
+                      style={[aws.input, { fontWeight: "800", letterSpacing: 0.6 }]}
+                      value={vehiclePlate}
+                      onChangeText={handleVehicleChange}
+                      placeholder={
+                        plateFormat === "noSeries" ? "e.g. KA 56 6088" : "e.g. TN 18 D 2522"
+                      }
+                      placeholderTextColor={Theme.textMuted}
+                      autoCapitalize="characters"
+                    />
+                    {vehicleDriverHint ? (
+                      <Text style={aws.dialogSuggestText}>{vehicleDriverHint}</Text>
                     ) : null}
-                    <View
-                      style={[
-                        aws.fieldsGrid,
-                        windowWidth < 720 && aws.fieldsGridPhone,
-                      ]}
-                    >
-                      <View style={windowWidth < 720 ? aws.fieldPhone : aws.fieldFull}>
-                        <View style={aws.sectionHintRow}>
-                          <Text style={[aws.fieldLabel, { marginBottom: 0 }]}>
-                            Plate
-                          </Text>
-                        </View>
-                        <View style={{ marginTop: 6 }}>
-                          <InputFormatPicker
-                            options={INDIAN_VEHICLE_FORMATS}
-                            value={plateFormat}
-                            onChange={handlePlateFormatChange}
-                            testID="trip-assign-plate-format"
-                          />
-                        </View>
-                        <TextInput
-                          style={[
-                            aws.input,
-                            { fontWeight: "800", letterSpacing: 0.6 },
-                          ]}
-                          value={vehiclePlate}
-                          onChangeText={handleVehicleChange}
-                          placeholder={
-                            plateFormat === "noSeries" ? "e.g. KA 56 6088" : "e.g. TN 18 D 2522"
-                          }
-                          placeholderTextColor={Theme.textMuted}
-                          autoCapitalize="characters"
-                        />
-                      </View>
-                      <View style={windowWidth < 720 ? aws.fieldPhone : aws.fieldFull}>
-                        <Text style={aws.fieldLabel}>Vehicle category</Text>
-                        <TextInput
-                          style={[aws.input, { opacity: 0.85 }]}
-                          value=""
-                          editable={false}
-                          placeholder="From fleet / RC record"
-                          placeholderTextColor={Theme.textMuted}
-                        />
-                      </View>
-                    </View>
+                    {vehicleComplianceHint ? (
+                      <Text style={styles.errorText}>{vehicleComplianceHint}</Text>
+                    ) : null}
                     {error ? <Text style={styles.errorText}>{error}</Text> : null}
                   </View>
                 }
@@ -902,30 +1073,183 @@ export function TripPhoneAssignmentWizard({
                 changeRemarks={changeRemarks}
                 onChangeRemarksChange={setChangeRemarks}
                 panelScope={initialFocus}
-                wizardStep={workspaceStep}
+                contained
+                directSave
+                wizardStep="details"
                 onContinue={() => setWorkspaceStep("reason")}
                 onWizardBack={() => setWorkspaceStep("details")}
                 continueLabel="Continue"
                 onConfirm={() => {
-                  onSubmit();
-                  setWorkspaceToast(
-                    isReassign
-                      ? "Manifest update requested — share OTP with the driver if shown."
-                      : "Assignment requested — share OTP with the driver if shown.",
+                  const runSave = () => {
+                    setAssignConfirm(null);
+                    onSubmit();
+                    setWorkspaceToast(
+                      isReassign
+                        ? "Manifest update requested — share OTP with the driver if shown."
+                        : "Assignment requested — share OTP with the driver if shown.",
+                    );
+                    setTimeout(() => setWorkspaceToast(null), 3500);
+                  };
+                  const workingPlate =
+                    formatIndianVehicleNumber(vehiclePlate).trim() ||
+                    resolvedActiveVehiclePlate ||
+                    "the vehicle on this trip";
+                  if (initialFocus === "vehicle") {
+                    const plate = formatIndianVehicleNumber(vehiclePlate).trim();
+                    const current = resolvedActiveVehiclePlate;
+                    const plateChanged =
+                      normalizeVehicleNumberForMatch(plate) !==
+                      normalizeVehicleNumberForMatch(current);
+                    const facts: AssignConfirmFact[] = [
+                      { label: "On trip", value: current || "Not set" },
+                      {
+                        label: plateChanged ? "New plate" : "Plate",
+                        value: plate || current || "Not set",
+                      },
+                    ];
+                    const notes: string[] = [];
+                    if (plateChanged && driverIsActive) {
+                      notes.push(
+                        "This driver is active. Changing the vehicle can interrupt the work they are doing now.",
+                      );
+                    }
+                    const known = peekAssignmentFleet(organizationId, null, plate);
+                    if (known?.found && known.linkedDriverName) {
+                      facts.push({ label: "Driver", value: known.linkedDriverName });
+                    }
+                    if (known?.complianceNote) notes.push(known.complianceNote);
+                    const title =
+                      plateChanged && driverIsActive
+                        ? "Vehicle change may interrupt this trip"
+                        : "Change vehicle";
+                    setAssignConfirm({
+                      title,
+                      facts,
+                      notes,
+                      confirmLabel: "Update vehicle",
+                      onConfirm: runSave,
+                    });
+                    if (!known && plate) {
+                      void bootstrapAssignmentFleet({
+                        organizationId,
+                        plate,
+                      }).then((snapshot) => {
+                        if (!snapshot) return;
+                        setAssignConfirm((currentConfirm) => {
+                          if (!currentConfirm || currentConfirm.title !== title) {
+                            return currentConfirm;
+                          }
+                          const nextFacts = facts.filter((fact) => fact.label !== "Driver");
+                          if (snapshot.linkedDriverName) {
+                            nextFacts.push({
+                              label: "Driver",
+                              value: snapshot.linkedDriverName,
+                            });
+                          }
+                          const nextNotes = notes.filter(
+                            (note) => note !== snapshot.complianceNote,
+                          );
+                          if (snapshot.complianceNote) nextNotes.push(snapshot.complianceNote);
+                          return { ...currentConfirm, facts: nextFacts, notes: nextNotes };
+                        });
+                      });
+                    }
+                    return;
+                  }
+                  const name = driverName.trim() || "This driver";
+                  const phone = formatMobileNumber(driverPhone).trim();
+                  const suggested = lookup.suggestedName?.trim() || "";
+                  if (lookup.inTrip) {
+                    const other = lookup.busyTripLabel ?? "another trip";
+                    setAssignConfirm({
+                      title: "Driver already on a trip",
+                      facts: [
+                        { label: "Vehicle", value: workingPlate },
+                        { label: "Driver", value: name },
+                        { label: "Still on", value: other },
+                      ],
+                      notes: [`${tripLabel} updates after that trip is changed.`],
+                      confirmLabel: "OK",
+                      onConfirm: () => setAssignConfirm(null),
+                    });
+                    return;
+                  }
+                  const alreadyOnThisTrip = isSameDriverPhone(
+                    driverPhone,
+                    resolvedActiveDriverPhone,
                   );
-                  setTimeout(() => setWorkspaceToast(null), 3500);
+                  const currentName = resolvedActiveDriverName.trim();
+                  const nameChanged =
+                    name.toLowerCase() !== currentName.toLowerCase();
+                  const nameOnly = alreadyOnThisTrip && nameChanged;
+                  const facts: AssignConfirmFact[] = [
+                    { label: "Vehicle", value: workingPlate },
+                    { label: "Trip", value: tripLabel },
+                    { label: "Name", value: name },
+                  ];
+                  if (phone) facts.push({ label: "Phone", value: phone });
+                  const notes: string[] = [];
+                  if (suggested && !alreadyOnThisTrip) {
+                    notes.push(`This number is already in the app as ${suggested}.`);
+                  }
+                  if (nameOnly) {
+                    notes.push(
+                      "Only the name changes. This phone stays on the trip, so the person working it is not interrupted.",
+                    );
+                  } else if (alreadyOnThisTrip) {
+                    notes.push(
+                      "This phone already belongs to the driver on the trip. Operations stay with them. The vehicle stays.",
+                    );
+                  } else {
+                    notes.push(
+                      "A different phone moves this trip to another person. The vehicle stays.",
+                    );
+                    if (driverIsActive) {
+                      notes.push(
+                        "The driver working this trip now can be interrupted.",
+                      );
+                    }
+                  }
+                  const useSuggested =
+                    suggested.length > 1 &&
+                    suggested.toLowerCase() !== name.toLowerCase();
+                  setAssignConfirm({
+                    title: nameOnly
+                      ? "Update the name"
+                      : !alreadyOnThisTrip
+                        ? "This phone assigns a different driver"
+                        : "Update this driver",
+                    facts,
+                    notes,
+                    confirmLabel: nameOnly
+                      ? "Update name"
+                      : alreadyOnThisTrip
+                        ? "Update driver"
+                        : "Change driver",
+                    onConfirm: runSave,
+                    alternateLabel: useSuggested ? `Use ${suggested}` : undefined,
+                    onAlternate: useSuggested
+                      ? () => {
+                          onDriverNameChange(suggested);
+                          runSave();
+                        }
+                      : undefined,
+                  });
                 }}
                 confirmDisabled={
                   workspaceStep === "details"
                     ? initialFocus === "vehicle"
                       ? !isTripPhoneWizardStepComplete("vehicle", stepValidationState) ||
                         saving
-                      : !isTripPhoneWizardStepComplete("driverPhone", stepValidationState) ||
+                      : !isTripPhoneWizardStepComplete("driverPhone", {
+                          ...stepValidationState,
+                          phoneInTrip: false,
+                        }) ||
                         !isTripPhoneWizardStepComplete("driverName", stepValidationState) ||
                         saving ||
-                        lookup.inTrip ||
-                        lookup.loading
-                    : !canSubmitAll || saving || lookup.inTrip || lookup.loading
+                        (lookup.loading &&
+                          !isSameDriverPhone(driverPhone, resolvedActiveDriverPhone))
+                    : !canSubmitAll || saving || lookup.loading
                 }
                 confirmLoading={saving}
                 confirmHint={
@@ -934,7 +1258,7 @@ export function TripPhoneAssignmentWizard({
                     : submitBlockedHint
                 }
                 confirmLabel={
-                  isReassign ? "Save assignment" : "Assign driver"
+                  initialFocus === "vehicle" ? "Change vehicle" : "Change driver"
                 }
                 onClose={onClose}
                 toastMessage={workspaceToast}
@@ -1182,6 +1506,30 @@ export function TripPhoneAssignmentWizard({
             </AssignmentFlowShell>
           )}
         </View>
+        {assignConfirm ? (
+          <View style={aws.dialogConfirmScrim}>
+            <PulseAlertCard
+              title={assignConfirm.title}
+              tone={
+                /interrupt|already|different/i.test(assignConfirm.title)
+                  ? "warning"
+                  : "neutral"
+              }
+              facts={assignConfirm.facts}
+              notes={assignConfirm.notes}
+              primaryLabel={assignConfirm.confirmLabel}
+              onPrimary={assignConfirm.onConfirm}
+              alternateLabel={assignConfirm.alternateLabel}
+              onAlternate={assignConfirm.onAlternate}
+              secondaryLabel={assignConfirm.confirmLabel === "OK" ? undefined : "Cancel"}
+              onSecondary={
+                assignConfirm.confirmLabel === "OK"
+                  ? undefined
+                  : () => setAssignConfirm(null)
+              }
+            />
+          </View>
+        ) : null}
       </View>
     </Modal>
   );

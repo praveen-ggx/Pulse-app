@@ -2592,11 +2592,11 @@ export default function ComplianceScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, minHeight: 0, overflow: "hidden", backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
-  screenMobile: { backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
+  screenMobile: { backgroundColor: Theme.screenBackground },
   chrome: { flexShrink: 0, paddingTop: 8, backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
   chromeMobile: { paddingTop: 2 },
   queueBody: { flex: 1, minHeight: 0, marginTop: 8, gap: 4, backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
-  queueBodyMobile: { marginTop: 2 },
+  queueBodyMobile: { marginTop: 0, backgroundColor: Theme.screenBackground },
   queueScroll: { flex: 1, width: "100%", minWidth: 0 },
   queueScrollContent: { paddingBottom: 8, width: "100%", minWidth: 0 },
   tableLoadMore: {

@@ -70,6 +70,7 @@ import {
   isIntegratedSupplierRow,
 } from "@/features/trips/visibility/tripVisibility";
 import { formatIndianVehicleNumber } from "@/lib/format";
+import { peekAssignmentSessionSeed } from "@/features/trips/utils/assignmentSessionSeed";
 import {
     useShipperDisplayNamesQuery,
     useTransactionsQuery,
@@ -524,14 +525,22 @@ export function useTripDetail({
 
   // ── Assignment / driver / vehicle ─────────────────────────────────────────
   const [driverName, setDriverName] = useState<string | null>(() => {
+    const painted = peekAssignmentSessionSeed(tripId)?.driverName?.trim();
+    if (painted) return painted;
     const row = peekTripDetailFirstPaint(tripId, queryClient);
     return row ? tripRowListPaintFields(row).driverName : null;
   });
-  const [driverPhone, setDriverPhone] = useState<string | null>(null);
-  const [driverAvatarUri, setDriverAvatarUri] = useState<string | null>(null);
+  const [driverPhone, setDriverPhone] = useState<string | null>(
+    () => peekAssignmentSessionSeed(tripId)?.driverPhone?.trim() || null,
+  );
+  const [driverAvatarUri, setDriverAvatarUri] = useState<string | null>(
+    () => peekAssignmentSessionSeed(tripId)?.driverAvatarUri?.trim() || null,
+  );
   const [vehicleOwnerOrgId, setVehicleOwnerOrgId] = useState<string | null>(null);
   const [vaultVehicleId, setVaultVehicleId] = useState<string | null>(null);
   const [vehicleLabel, setVehicleLabel] = useState<string | null>(() => {
+    const painted = peekAssignmentSessionSeed(tripId)?.vehicleLabel?.trim();
+    if (painted) return painted;
     const row = peekTripDetailFirstPaint(tripId, queryClient);
     return row ? tripRowListPaintFields(row).vehicleLabel : null;
   });
@@ -1936,9 +1945,10 @@ export function useTripDetail({
       return signed ?? null;
     };
     if (trip.driver_id) {
-      setDriverName(fallbackDriverName);
-      setDriverPhone(null);
-      setDriverAvatarUri(null);
+      const painted = peekAssignmentSessionSeed(trip.id);
+      setDriverName(painted?.driverName?.trim() || fallbackDriverName);
+      if (!painted?.driverPhone) setDriverPhone(null);
+      if (!painted?.driverAvatarUri) setDriverAvatarUri(null);
       setDriverLinked(false);
       getDriverById(orgId, trip.driver_id).then((res) => {
         if (cancelled) return;

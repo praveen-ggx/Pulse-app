@@ -1,13 +1,26 @@
-import { EntityAvatar as PartyAvatar } from "@/components/EntityAvatar";
+import { PartyAvatar } from "@/components/PartyAvatar";
 import Theme from "@/constants/Theme";
+import {
+  bootstrapAssignmentFleet,
+  peekAssignmentFleet,
+  type AssignmentFleetSnapshot,
+} from "@/features/trips/utils/assignmentFleetBootstrap";
 import { formatIndianVehicleNumber } from "@/lib/format";
 import { formatPhoneForDisplay } from "@/lib/phoneLookup";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { Feather } from "@expo/vector-icons";
+import {
+  Bike,
+  BusFront,
+  CarFront,
+  Container,
+  Fuel,
+  Truck,
+  type LucideIcon,
+} from "lucide-react-native";
 import * as Clipboard from "expo-clipboard";
 import { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Linking,
   Platform,
@@ -20,9 +33,8 @@ import {
   type ViewStyle,
 } from "react-native";
 
-const AVATAR_SIZE = 32;
-const AVATAR_SIZE_DESKTOP = 44;
-const VEHICLE_ICON_SIZE_DESKTOP = 44;
+const AVATAR_SIZE = 40;
+const AVATAR_SIZE_DESKTOP = 52;
 
 type Props = {
   roleLabel: string;
@@ -30,6 +42,11 @@ type Props = {
   variant: "driver" | "vehicle";
   /** Shown under plate on vehicle cards (tiny). */
   vehicleType?: string | null;
+  /** Fleet capacity when the vehicle record has one. */
+  vehicleCapacity?: string | null;
+  /** Organization that owns the fleet lookup. */
+  organizationId?: string | null;
+  vehicleId?: string | null;
   /** Driver contact number under name / rating. */
   phone?: string | null;
   ratingAvg?: number | null;
@@ -47,6 +64,70 @@ type Props = {
   /** Stretch to fill a flex parent (Journey Log equal-height slots). */
   fill?: boolean;
 };
+
+type FleetVehicleFacts = {
+  type: string | null;
+  capacity: string | null;
+  make: string | null;
+  avatarUrl: string | null;
+  avatarSeed: string | null;
+};
+
+function factsFromSnapshot(snapshot: AssignmentFleetSnapshot | null): FleetVehicleFacts | null {
+  if (!snapshot?.found) return null;
+  return {
+    type: snapshot.type,
+    capacity: snapshot.capacity,
+    make: snapshot.make,
+    avatarUrl: snapshot.avatarUrl,
+    avatarSeed: snapshot.avatarSeed,
+  };
+}
+
+function vehicleMarkIcon(typeLabel: string | null): LucideIcon {
+  const text = (typeLabel ?? "").toLowerCase();
+  if (text.includes("container") || text.includes("trailer")) return Container;
+  if (text.includes("tanker") || text.includes("fuel")) return Fuel;
+  if (text.includes("bus")) return BusFront;
+  if (text.includes("bike") || text.includes("two")) return Bike;
+  if (text.includes("car") || text.includes("lcv") || text.includes("pickup")) return CarFront;
+  return Truck;
+}
+
+function useFleetVehicleFacts(
+  organizationId: string | null | undefined,
+  vehicleId: string | null | undefined,
+  plate: string,
+): FleetVehicleFacts | null {
+  const orgId = organizationId?.trim() || "";
+  const id = vehicleId?.trim() || "";
+  const plateKey = plate.trim();
+  const [facts, setFacts] = useState<FleetVehicleFacts | null>(() =>
+    factsFromSnapshot(peekAssignmentFleet(orgId, id, plateKey)),
+  );
+
+  useEffect(() => {
+    if (!orgId || (!id && plateKey.length < 4)) return;
+    const cached = factsFromSnapshot(peekAssignmentFleet(orgId, id, plateKey));
+    if (cached) {
+      setFacts(cached);
+      return;
+    }
+    let cancelled = false;
+    void bootstrapAssignmentFleet({
+      organizationId: orgId,
+      vehicleId: id,
+      plate: plateKey,
+    }).then((snapshot) => {
+      if (!cancelled) setFacts(factsFromSnapshot(snapshot));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId, id, plateKey]);
+
+  return facts;
+}
 
 function formatDriverDisplayName(value: string): string {
   const trimmed = value.trim();
@@ -147,26 +228,7 @@ function RatingMetaRow({
   const hasRating = ratingAvg != null && Number.isFinite(ratingAvg);
   const starSize = desktop ? 13 : 11;
 
-  if (loading) {
-    return (
-      <View style={styles.metaRow}>
-        <ActivityIndicator size="small" color={Theme.textMuted} />
-      </View>
-    );
-  }
-
-  if (!hasRating) {
-    return (
-      <View style={styles.metaRow}>
-        <Text
-          style={[styles.metaText, desktop && styles.metaTextDesktop]}
-          numberOfLines={1}
-        >
-          No rating yet
-        </Text>
-      </View>
-    );
-  }
+  if (loading || !hasRating) return null;
 
   return (
     <View style={styles.metaRow}>
@@ -187,40 +249,50 @@ function RatingMetaRow({
   );
 }
 
-function VehicleTypeMetaRow({
-  vehicleType,
-  loading,
+function VehicleTypeMark({
+  typeLabel,
+  size,
+  compact = false,
+}: {
+  typeLabel: string | null;
+  size: number;
+  compact?: boolean;
+}) {
+  const Icon = vehicleMarkIcon(typeLabel);
+  const iconSize = compact ? Math.round(size * 0.72) : Math.round(size * 0.46);
+  return (
+    <View
+      style={[
+        compact ? styles.vehicleMarkCompact : styles.vehicleMark,
+        { width: size, height: size, borderRadius: compact ? 6 : 14 },
+      ]}
+      accessibilityLabel={typeLabel ? `${typeLabel} vehicle` : "Vehicle"}
+    >
+      <Icon size={iconSize} color={Theme.textPrimaryDark} strokeWidth={2.1} />
+    </View>
+  );
+}
+
+function VehicleSpecRow({
+  typeLabel,
+  capacityLabel,
+  makeLabel,
   desktop = false,
 }: {
-  vehicleType: string | null | undefined;
-  loading: boolean;
+  typeLabel: string | null;
+  capacityLabel: string | null;
+  makeLabel: string | null;
   desktop?: boolean;
 }) {
-  const typeLabel = vehicleType?.trim() || null;
-
-  if (loading) {
-    return (
-      <View style={styles.metaRow}>
-        <ActivityIndicator size="small" color={Theme.textMuted} />
-      </View>
-    );
-  }
-
+  if (!typeLabel && !capacityLabel && !makeLabel) return null;
+  const summary = [typeLabel, capacityLabel, makeLabel].filter(Boolean).join(" · ");
   return (
-    <View style={styles.metaRow}>
-      {typeLabel ? (
-        <View style={[styles.typeChip, desktop && styles.typeChipDesktop]}>
-          <Text
-            style={[styles.vehicleTypeText, desktop && styles.vehicleTypeTextDesktop]}
-            numberOfLines={1}
-          >
-            {typeLabel}
-          </Text>
-        </View>
-      ) : (
-        <View style={styles.vehicleTypeSpacer} />
-      )}
-    </View>
+    <Text
+      style={[styles.vehicleSummary, desktop && styles.vehicleSummaryDesktop]}
+      numberOfLines={2}
+    >
+      {summary}
+    </Text>
   );
 }
 
@@ -229,6 +301,9 @@ export function ManifestRefAssetCard({
   primaryText,
   variant,
   vehicleType = null,
+  vehicleCapacity = null,
+  organizationId = null,
+  vehicleId = null,
   phone = null,
   ratingAvg = null,
   docsIssue = false,
@@ -236,7 +311,6 @@ export function ManifestRefAssetCard({
   driverName,
   driverAvatarUrl,
   driverId,
-  vehicleLabel = null,
   showChange = false,
   onChange,
   style,
@@ -247,12 +321,6 @@ export function ManifestRefAssetCard({
     variant === "driver"
       ? formatDriverDisplayName(primaryText)
       : formatVehiclePlateOnly(primaryText);
-  const driverPlate =
-    variant === "driver" ? formatVehiclePlateOnly(vehicleLabel ?? "") : "";
-  const showDriverPlate =
-    Boolean(driverPlate) &&
-    driverPlate !== "—" &&
-    driverPlate !== "Pending";
   const phoneDisplay =
     variant === "driver" ? formatPhoneForDisplay(phone) : "";
   const phoneDigits = (phone ?? "").replace(/[^\d+]/g, "");
@@ -272,6 +340,14 @@ export function ManifestRefAssetCard({
   })();
   const isDriver = variant === "driver";
   const avatarSize = desktop ? AVATAR_SIZE_DESKTOP : AVATAR_SIZE;
+  const fleetFacts = useFleetVehicleFacts(
+    isDriver ? null : organizationId,
+    isDriver ? null : vehicleId,
+    isDriver ? "" : displayPrimary,
+  );
+  const typeLabel = fleetFacts?.type || displayVehicleType;
+  const capacityLabel = fleetFacts?.capacity || vehicleCapacity?.trim() || null;
+  const makeLabel = fleetFacts?.make || null;
 
   const copyValue = isDriver ? phoneDisplay : displayPrimary;
   const copyLabel = isDriver ? "driver mobile number" : "vehicle number";
@@ -331,19 +407,24 @@ export function ManifestRefAssetCard({
                 size={avatarSize}
                 avatarUrl={driverAvatarUrl ?? undefined}
                 avatarSeed={driverId ?? undefined}
-                showIntegrationBadge={false}
+              />
+            </View>
+          ) : fleetFacts?.avatarUrl || fleetFacts?.avatarSeed ? (
+            <View style={styles.avatarCol}>
+              <PartyAvatar
+                name={displayPrimary}
+                entityType="vehicle"
+                size={avatarSize}
+                shape="rounded"
+                avatarUrl={fleetFacts.avatarUrl ?? undefined}
+                avatarSeed={fleetFacts.avatarSeed ?? undefined}
               />
             </View>
           ) : (
-            <View
-              style={[styles.vehicleIcon, desktop && styles.vehicleIconDesktop]}
-            >
-              <Feather
-                name="truck"
-                size={desktop ? 18 : 14}
-                color={Theme.textOnPrimary}
-              />
-            </View>
+            <VehicleTypeMark
+              typeLabel={typeLabel}
+              size={avatarSize}
+            />
           )}
 
           <View style={styles.bodyCol}>
@@ -353,15 +434,6 @@ export function ManifestRefAssetCard({
             >
               {displayPrimary}
             </Text>
-            {isDriver && showDriverPlate ? (
-              <Text
-                style={[styles.vehicleUnderName, desktop && styles.vehicleUnderNameDesktop]}
-                numberOfLines={1}
-                accessibilityLabel={`Vehicle ${driverPlate}`}
-              >
-                {driverPlate}
-              </Text>
-            ) : null}
 
             {isDriver && phoneDisplay ? (
               <Text
@@ -397,9 +469,10 @@ export function ManifestRefAssetCard({
                 desktop={desktop}
               />
             ) : (
-              <VehicleTypeMetaRow
-                vehicleType={displayVehicleType}
-                loading={insightsLoading}
+              <VehicleSpecRow
+                typeLabel={typeLabel}
+                capacityLabel={capacityLabel}
+                makeLabel={makeLabel}
                 desktop={desktop}
               />
             )}
@@ -533,12 +606,34 @@ const styles = StyleSheet.create({
     gap: 12,
     minWidth: 0,
   },
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minWidth: 0,
+  },
+  specRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 6,
+    minWidth: 0,
+  },
+  specLabel: {
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+    lineHeight: 12,
+  },
   bodyCol: {
     flex: 1,
     minWidth: 0,
     gap: 3,
   },
   primaryText: {
+    alignSelf: "stretch",
     fontSize: 12,
     fontWeight: "600",
     color: Theme.textPrimaryDark,
@@ -584,8 +679,8 @@ const styles = StyleSheet.create({
   metaRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
+    flexShrink: 0,
+    gap: 4,
     minHeight: 16,
     minWidth: 0,
   },
@@ -604,7 +699,8 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   metaText: {
-    flex: 1,
+    flexGrow: 0,
+    flexShrink: 1,
     minWidth: 0,
     fontSize: 10,
     fontWeight: "500",
@@ -655,18 +751,48 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  vehicleIcon: {
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-    borderRadius: AVATAR_SIZE / 2,
-    backgroundColor: Theme.textPrimaryDark,
+  vehicleMark: {
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.networkCardBorder,
   },
-  vehicleIconDesktop: {
-    width: VEHICLE_ICON_SIZE_DESKTOP,
-    height: VEHICLE_ICON_SIZE_DESKTOP,
-    borderRadius: VEHICLE_ICON_SIZE_DESKTOP / 2,
+  vehicleMarkCompact: {
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    backgroundColor: Theme.surface,
+  },
+  plateLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minWidth: 0,
+    marginTop: 2,
+  },
+  plateLineText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+    color: Theme.textPrimary,
+  },
+  plateLineTextDesktop: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  vehicleSummary: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+    color: Theme.textSecondary,
+  },
+  vehicleSummaryDesktop: {
+    fontSize: 13,
+    lineHeight: 18,
   },
 });

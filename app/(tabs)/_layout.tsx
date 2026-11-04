@@ -135,11 +135,10 @@ function DemoCustomTabBar(
     styles.tabBarWrap,
     isDesktopWeb && {
       position: 'absolute' as const,
-      left: 0,
-      right: 0,
+      left: -Layout.desktopPageGutter,
+      right: -Layout.desktopPageGutter,
       top: 0,
       zIndex: 100,
-      width: '100%' as const,
     },
     // Mobile web: fixed to visual viewport (not 100vh flex box) so dock isn't clipped by Chrome UI.
     !isDesktopWeb && Platform.OS === 'web' && {

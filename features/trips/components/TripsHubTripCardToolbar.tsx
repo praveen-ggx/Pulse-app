@@ -14,7 +14,7 @@ export type TripsHubTripCardToolbarProps = {
 
 const WEB_COPY =
   Platform.OS === "web"
-    ? ({ whiteSpace: "pre-wrap", letterSpacing: 0 } as const)
+    ? ({ whiteSpace: "nowrap", letterSpacing: 0 } as const)
     : ({ letterSpacing: 0 } as const);
 
 function splitEwayExpiryLabel(label: string): { kicker: string; detail: string } {
@@ -82,7 +82,8 @@ const styles = StyleSheet.create({
     gap: 6,
     backgroundColor: "transparent",
     maxWidth: "100%",
-    marginTop: -2,
+    minWidth: 0,
+    overflow: "hidden",
   },
   tag: {
     alignItems: "flex-end",

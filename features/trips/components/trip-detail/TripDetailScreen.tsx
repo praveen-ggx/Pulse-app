@@ -231,6 +231,9 @@ import { TripAssignmentBlock } from "../TripAssignmentBlock";
 import { ReassignSheet } from "../reassign/ReassignSheet";
 import { WaitingForDriverLocationOverlay } from "../reassign/WaitingForDriverLocationOverlay";
 import { useReassignMigrationGate } from "@/features/trips/hooks/useReassignMigrationGate";
+import { setInitialTripForDetail } from "@/features/trips/initialTripForDetail";
+import { bootstrapAssignmentFleet } from "@/features/trips/utils/assignmentFleetBootstrap";
+import { setAssignmentSessionSeed } from "@/features/trips/utils/assignmentSessionSeed";
 
 function vaultPreviewStoragePath(doc: TripDocItem): string | null {
   const primary = doc.storagePath?.trim();
@@ -3341,9 +3344,31 @@ export default function TripDetailScreen({
   const openAssignmentFlow = useCallback(
     (focus: "driver" | "vehicle") => {
       if (!tripForAssignmentFlow?.id || !canChangeManifestAssetsForNav) return;
+      setInitialTripForDetail(tripForAssignmentFlow);
+      setAssignmentSessionSeed({
+        tripId: tripForAssignmentFlow.id,
+        driverName: detail.driverName,
+        driverPhone: detail.driverPhone,
+        driverAvatarUri: detail.driverAvatarUri,
+        vehicleLabel: detail.vehicleLabel,
+      });
+      void bootstrapAssignmentFleet({
+        organizationId: currentOrganization?.id ?? tripForAssignmentFlow.organization_id,
+        vehicleId: tripForAssignmentFlow.vehicle_id ?? tripForAssignmentFlow.owner_vehicle_id,
+        plate: detail.vehicleLabel,
+      });
       router.push(ROUTES.tripAssignment(tripForAssignmentFlow.id, focus) as never);
     },
-    [tripForAssignmentFlow?.id, canChangeManifestAssetsForNav, router],
+    [
+      tripForAssignmentFlow,
+      canChangeManifestAssetsForNav,
+      router,
+      detail.driverName,
+      detail.driverPhone,
+      detail.driverAvatarUri,
+      detail.vehicleLabel,
+      currentOrganization?.id,
+    ],
   );
 
   const ewayExpiryQuery = useQuery({
@@ -6574,7 +6599,7 @@ export default function TripDetailScreen({
                   }
                 }}
                 canChangeAssets={canChangeManifestAssets}
-                onChangeAssets={() => openAssignmentFlow("driver")}
+                onChangeAssets={(focus) => openAssignmentFlow(focus)}
                 onOpenFinance={
                   canTripFinanceTab
                     ? () => setActiveTab("finance")
@@ -7784,6 +7809,8 @@ export default function TripDetailScreen({
                       driverAvatarUrl={detail.driverAvatarUri}
                       driverId={trip.driver_id}
                       vehicleLabel={allocatedVehicleLabel}
+                      organizationId={currentOrganization?.id ?? trip.organization_id}
+                      vehicleId={trip.vehicle_id ?? trip.owner_vehicle_id}
                       showChange={canChangeManifestAssets}
                       onChange={() => openAssignmentFlow("driver")}
                       style={neoStyles.assetCardWrap}
@@ -7794,6 +7821,12 @@ export default function TripDetailScreen({
                       primaryText={allocatedVehicleLabel}
                       variant="vehicle"
                       vehicleType={vehicleTypeLabel}
+                      vehicleCapacity={
+                        String(tripExtra.capacity ?? tripExtra.vehicle_capacity ?? "").trim() ||
+                        null
+                      }
+                      organizationId={currentOrganization?.id ?? trip.organization_id}
+                      vehicleId={trip.vehicle_id ?? trip.owner_vehicle_id}
                       docsIssue={manifestVehicleInsights.docsIssue}
                       insightsLoading={manifestRefAssetInsights.isLoading}
                             showChange={canChangeManifestAssets}

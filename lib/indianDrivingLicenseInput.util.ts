@@ -1,11 +1,12 @@
 /**
- * Indian DL: 2 letters · 2 digits · 4 digits · 7-8 digits.
- * Length is NOT fixed across states — most RTOs issue 15 chars
- * (TN01 20200001234) but some (e.g. AP) issue 16 (AP00 219960000365).
- * Accept both: complete at 15, still typeable up to 16.
+ * Indian DL: 2 letters · 2 digits · 4-digit year · 6-8 digits.
+ * Length is NOT fixed across states — older cards are 14
+ * (WB01 2003692449), most RTOs issue 15 (TN01 20200001234),
+ * some (e.g. AP) issue 16 (AP00 219960000365).
+ * Accept 14 through 16: complete at 14, still typeable up to 16.
  */
-export const INDIAN_DL_SEGMENT_LENGTHS = [2, 2, 4, 7] as const;
-export const INDIAN_DL_MIN_LENGTH = 15;
+export const INDIAN_DL_SEGMENT_LENGTHS = [2, 2, 4, 6] as const;
+export const INDIAN_DL_MIN_LENGTH = 14;
 export const INDIAN_DL_MAX_LENGTH = 16;
 /** @deprecated use INDIAN_DL_MIN_LENGTH / INDIAN_DL_MAX_LENGTH */
 export const INDIAN_DL_TOTAL_LENGTH = INDIAN_DL_MIN_LENGTH;
@@ -15,7 +16,7 @@ const DL_CLEAN = /[\s-]/g;
 /**
  * Licence layouts the user can pick. "standard" is the default and the only
  * one typed unless the user picks another format explicitly.
- *   standard  — TN01 20200001234 (2 letters · 2 digits · 4-digit year · 7-8 digits)
+ *   standard  — TN01 20200001234 (2 letters · 2 digits · 4-digit year · 6-8 digits)
  *   rtoLetter — TN29 Z19940001713 (2 letters · 2 digits · 1 letter · 4-digit year · 7 digits)
  *   other     — older cards still in use (Telangana/AP):
  *               DLFAP12810371208 / DLFAP029126912005OD (DLF · 2-letter state · 9-13 digits · optional letters) or
@@ -34,7 +35,7 @@ export const INDIAN_DL_FORMATS: readonly {
 ];
 
 const DL_FORMAT_PATTERNS: Record<IndianDlFormat, RegExp> = {
-  standard: /^[A-Z]{2}[0-9]{2}[0-9]{4}[0-9]{7,8}$/,
+  standard: /^[A-Z]{2}[0-9]{2}[0-9]{4}[0-9]{6,8}$/,
   rtoLetter: /^[A-Z]{2}[0-9]{2}[A-Z][0-9]{4}[0-9]{7}$/,
   other: /^(?:DLF[A-Z]{2}[0-9]{9,13}[A-Z]{0,3}|[0-9]{1,7}\/[A-Z]{1,4}\/[0-9]{4}[A-Z]{0,3})$/,
 };
@@ -112,10 +113,13 @@ export function getIndianDlFormatHint(
   if (normalizedLen < 8) return "Enter 4 digits (issue year)";
   if (normalizedLen < INDIAN_DL_MIN_LENGTH) {
     const need = INDIAN_DL_MIN_LENGTH - normalizedLen;
-    return `Enter ${need} more digit${need === 1 ? "" : "s"} (7 or 8 in this block)`;
+    return `Enter ${need} more digit${need === 1 ? "" : "s"} (6, 7, or 8 in this block)`;
   }
   if (normalizedLen < INDIAN_DL_MAX_LENGTH) {
-    return "Done — add 1 more digit if your licence has 16";
+    const room = INDIAN_DL_MAX_LENGTH - normalizedLen;
+    return room === 1
+      ? "Done — add 1 more digit if your licence has 16"
+      : "Done — add 1 or 2 more digits if your licence has 15 or 16";
   }
   return "Format: TN01 20200001234";
 }

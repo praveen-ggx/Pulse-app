@@ -45,7 +45,7 @@ const SEGMENTS: Record<IndianDlFormat, readonly { label: string; doneAt: number 
     { label: "AA", doneAt: 2 },
     { label: "00", doneAt: 4 },
     { label: "0000", doneAt: 8 },
-    { label: "0000000", doneAt: 15 },
+    { label: "000000", doneAt: 14 },
   ],
   rtoLetter: [
     { label: "AA", doneAt: 2 },

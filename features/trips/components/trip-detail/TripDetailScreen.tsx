@@ -39,6 +39,8 @@ import {
   type TripActivityUserProfile,
 } from "@/lib/trips/buildTripAuditLog.util";
 import { CompactValidTillCalendar, buildEwayBillStripRows } from "@/features/trips/components/trip-detail/EwayBillVaultTab";
+import { CancelIntegratedTripSheet } from "@/features/trips/components/trip-detail/CancelIntegratedTripSheet";
+import { integratedTripCancelOffered } from "@/features/trips/utils/integratedTripCancel.util";
 import { ElrTripDetailAction } from "@/features/trips/components/trip-detail/ElrTripDetailAction";
 import { HubTripLrUpdateModal } from "@/features/trips/components/HubTripLrUpdateModal";
 import { VaultChooserNotifyRow } from "@/features/trips/components/trip-detail/VaultChooserNotifyRow";
@@ -1280,6 +1282,7 @@ export default function TripDetailScreen({
   const [groundOpsDocsChecking, setGroundOpsDocsChecking] = useState(false);
   const [simulating, setSimulating] = useState(false);
   const [revokingSimulation, setRevokingSimulation] = useState(false);
+  const [cancelTripOpen, setCancelTripOpen] = useState(false);
   const [simError, setSimError] = useState<string | null>(null);
   const simCompletionRef = useRef("");
   const simulateAbortRef = useRef<AbortController | null>(null);
@@ -5959,6 +5962,15 @@ export default function TripDetailScreen({
         ? "Simulate Complete"
         : "Simulate"
     : null;
+  const canCancelIntegratedTrip =
+    detail.canAssign &&
+    integratedTripCancelOffered({
+      source: trip.source,
+      sourceMarketBidId: trip.source_market_bid_id,
+      indentId: trip.indent_id,
+      supplierId: trip.supplier_id,
+      status: trip.status,
+    });
   const mobileStageActions = [
     ...(canRevokeLastSimulation
       ? [
@@ -5977,6 +5989,16 @@ export default function TripDetailScreen({
             label: nextSimulateLabel,
             onPress: () => openSimulateConfirm(nextSimulateStep),
             disabled: revokingSimulation,
+          },
+        ]
+      : []),
+    ...(canCancelIntegratedTrip
+      ? [
+          {
+            key: "cancel",
+            label: "Cancel trip",
+            onPress: () => setCancelTripOpen(true),
+            disabled: simulating || revokingSimulation,
           },
         ]
       : []),
@@ -7241,6 +7263,30 @@ export default function TripDetailScreen({
                                     : canTripSimulate
                                       ? "Revoke Last"
                                       : "Undo"}
+                                </Text>
+                              </TouchableOpacity>
+                            ) : null}
+                            {canCancelIntegratedTrip ? (
+                              <TouchableOpacity
+                                style={[
+                                  neoStyles.simBtn,
+                                  neoStyles.simBtnRevoke,
+                                  isMobile && neoStyles.simBtnMobile,
+                                ]}
+                                onPress={() => setCancelTripOpen(true)}
+                                activeOpacity={0.85}
+                                disabled={simulating || revokingSimulation}
+                                accessibilityRole="button"
+                                accessibilityLabel="Cancel trip"
+                              >
+                                <Feather name="x-circle" size={13} color={Theme.destructive} />
+                                <Text
+                                  style={[
+                                    neoStyles.simBtnText,
+                                    isMobile && neoStyles.simBtnTextMobile,
+                                  ]}
+                                >
+                                  Cancel trip
                                 </Text>
                               </TouchableOpacity>
                             ) : null}
@@ -10244,6 +10290,22 @@ export default function TripDetailScreen({
           />
         </Suspense>
       ) : null}
+
+      <CancelIntegratedTripSheet
+        visible={cancelTripOpen}
+        tripId={trip.id}
+        onClose={() => setCancelTripOpen(false)}
+        onCancelled={() => {
+          const orgId = currentOrganization?.id ?? trip.organization_id ?? null;
+          if (orgId) {
+            void queryClient.invalidateQueries({ queryKey: queryKeys.trips.all(orgId) });
+            void queryClient.invalidateQueries({ queryKey: queryKeys.indents.all(orgId) });
+          }
+          void queryClient.invalidateQueries({ queryKey: queryKeys.trips.detail(trip.id) });
+          void queryClient.invalidateQueries({ queryKey: queryKeys.trips.bundle(trip.id) });
+          detail.load();
+        }}
+      />
 
     </View>
     </TripProvider>

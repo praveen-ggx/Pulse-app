@@ -11,7 +11,6 @@ import { useCallback, useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import Theme from "@/constants/Theme";
 import Layout from "@/constants/Layout";
-
 function formatInr(n: number): string {
   return `₹${n.toLocaleString("en-IN")}`;
 }

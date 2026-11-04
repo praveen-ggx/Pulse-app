@@ -1,5 +1,3 @@
-import Layout from "@/constants/Layout";
-
 /**
  * Single source for the web HTML shell customizations. Consumed two ways:
  * - app/+html.tsx inlines these into the statically rendered HTML
@@ -179,9 +177,6 @@ html.pulse-desktop-web #root {
   height: 100%;
   height: 100dvh;
   min-height: 100dvh;
-  box-sizing: border-box;
-  padding-left: ${Layout.desktopPageGutter}px;
-  padding-right: ${Layout.desktopPageGutter}px;
 }
 html.pulse-desktop-web body {
   -webkit-text-size-adjust: auto;
@@ -287,9 +282,8 @@ textarea:-webkit-autofill:focus {
 }
 
 /*
-  Desktop web: #root is the full viewport width, with a content gutter so pages
-  do not sit on the Chrome window edge. The top bar breaks out of that gutter.
-  Mobile web unchanged.
+  Desktop web: full-bleed shell. #root spans the full viewport width so the top
+  nav, hero, and content stretch edge-to-edge on any monitor. Mobile web unchanged.
 */
 #root {
   width: 100%;

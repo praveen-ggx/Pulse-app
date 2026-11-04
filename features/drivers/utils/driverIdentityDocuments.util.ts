@@ -1,6 +1,8 @@
 /**
  * Driver identity docs shown on Trip Asset Vault (License + Aadhaar).
- * Merges trip entity_documents with driver-app KYC (`driver_kyc_documents`).
+ * Merges viewer-org entity_documents with trip-authorized rows from
+ * `get_compliance_driver_docs_for_trips` (cross-org entity + driver KYC).
+ * Direct `driver_kyc_documents` reads stay blocked for org members by RLS.
  */
 
 export type DriverIdentityDocType = "license" | "aadhaar";

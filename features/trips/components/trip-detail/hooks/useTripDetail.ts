@@ -16,7 +16,6 @@ import {
     getDriverById,
     getDriverProfileDisplay,
 } from "@/features/drivers/services/drivers.service";
-import { listDriverVaultKycDocuments } from "@/features/drivers/services/driverKycDocuments.service";
 import {
   DRIVER_IDENTITY_TYPE_HINT,
   DRIVER_IDENTITY_UPLOAD_ORDER,
@@ -29,6 +28,7 @@ import {
   getComplianceDocumentSignedUrl,
   getDocumentsByEntity,
 } from "@/features/compliance/services/documents.service";
+import { fetchComplianceDriverDocsForTrips } from "@/features/tripCompliance/services/complianceListFacts.service";
 import { openTripLedgerEntryChooser } from "@/features/finance/ledger/tripLedgerEntryChooser";
 import type { LedgerRow } from "@/features/finance/services/finance.service";
 import { getTripLedgerEntries } from "@/features/finance/utils/getTripLedgerEntries";
@@ -2119,19 +2119,21 @@ export function useTripDetail({
     };
   }, [trip, currentOrganization?.id]);
 
-  // Driver License / Aadhaar: trip entity_documents plus driver-app KYC.
+  // Driver License / Aadhaar: authorized trip RPC (entity_documents + KYC).
+  // Direct driver_kyc_documents reads are RLS-blocked for org members.
   useEffect(() => {
     let cancelled = false;
     const driverId = trip?.driver_id?.trim() || null;
-    const orgId = currentOrganization?.id ?? trip?.organization_id ?? null;
-    if (!driverId || !orgId) {
+    const tripId = trip?.id?.trim() || null;
+    const viewerOrgId = currentOrganization?.id ?? trip?.organization_id ?? null;
+    if (!driverId || !tripId || !viewerOrgId) {
       setDriverIdentityDocs(null);
       return;
     }
     void Promise.all([
-      getDocumentsByEntity(orgId, "driver", driverId),
-      listDriverVaultKycDocuments([driverId]),
-    ]).then(([res, kyc]) => {
+      getDocumentsByEntity(viewerOrgId, "driver", driverId),
+      fetchComplianceDriverDocsForTrips(viewerOrgId, [tripId]).catch(() => []),
+    ]).then(([res, authorizedRows]) => {
       if (cancelled) return;
       const entityDocs = res.error ? [] : res.documents;
       const bestByType = new Map<
@@ -2198,18 +2200,19 @@ export function useTripDetail({
           source: "entity",
         });
       }
-      for (const row of kyc.byDriverId.get(driverId) ?? []) {
+      for (const row of authorizedRows) {
+        if (row.driver_id !== driverId) continue;
         if (!isDriverIdentityDocType(row.doc_type)) continue;
-        if (row.status === "rejected") continue;
+        if (row.status === "rejected" || row.status === "replaced") continue;
         const path = row.storage_path?.trim();
         if (!path) continue;
         ingest(row.doc_type, {
-          id: row.id,
+          id: row.doc_id,
           url: path,
-          expiryDate: null,
-          fileName: row.file_name,
-          createdAt: row.updated_at || row.created_at,
-          source: "driver-kyc",
+          expiryDate: row.expiry_date,
+          fileName: row.notes,
+          createdAt: row.created_at ?? "",
+          source: row.source === "entity" ? "entity" : "driver-kyc",
         });
       }
       const next: DriverIdentityDocuments = {};
@@ -2228,7 +2231,7 @@ export function useTripDetail({
     return () => {
       cancelled = true;
     };
-  }, [trip?.driver_id, trip?.organization_id, currentOrganization?.id, assetExtrasReloadKey]);
+  }, [trip?.id, trip?.driver_id, trip?.organization_id, currentOrganization?.id, assetExtrasReloadKey]);
 
   // Extra vehicle files saved in entity_documents (trip / viewer / owner org) that
   // are not the file shown in the vault slot for their type.

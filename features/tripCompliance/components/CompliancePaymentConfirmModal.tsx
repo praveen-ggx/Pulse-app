@@ -1,8 +1,5 @@
 import { HUB_MOBILE_COMMERCE_REF } from "@/components/hub/hubMobileTicketTokens";
-import {
-  LedgerProtocolStripModeTile,
-  ledgerPaymentModeVisual,
-} from "@/components/ledger/ledgerPaymentVisuals";
+import { ledgerPaymentModeVisual } from "@/components/ledger/ledgerPaymentVisuals";
 import { LedgerSyncPalette } from "@/constants/LedgerSyncPalette";
 import Theme from "@/constants/Theme";
 import { getDocumentChargeConfig } from "@/features/organization/services/documentCharges.service";
@@ -948,8 +945,9 @@ export function CompliancePaymentConfirmModal({
   );
 
   const modeField = (
-    <View style={[styles.field, styles.ledgerCard, isInline && styles.fieldInline]}>
-      <View style={styles.paymentBody}>
+    <View style={[styles.field, styles.ledgerCard, isInline && styles.fieldInline, isInline && styles.fieldFill]}>
+      <View style={[styles.paymentBody, isInline && styles.paymentBodyFill]}>
+        <View style={isInline ? styles.paymentBand : undefined}>
         <LedgerSectionHead
           icon={<Banknote size={15} color={Theme.darkGreen} strokeWidth={2.2} />}
           iconTone="mode"
@@ -957,20 +955,38 @@ export function CompliancePaymentConfirmModal({
           hint="How this money moved"
         />
         <View style={styles.modeTileRow}>
-          {PAYMENT_MODES.slice(0, 4).map((item) => (
-            <View key={item.id} style={styles.modeTileCell}>
-              <LedgerProtocolStripModeTile
-                modeId={item.id}
-                label={ledgerPaymentModeVisual(item.id).shortLabel}
-                selected={modeId === item.id}
-                variant={isInline ? "compact" : "desktop"}
+          {PAYMENT_MODES.slice(0, 4).map((item) => {
+            const visual = ledgerPaymentModeVisual(item.id);
+            const selected = modeId === item.id;
+            const ModeIcon = visual.Icon;
+            return (
+              <Pressable
+                key={item.id}
                 onPress={() => {
                   if (!submitting) setModeId(item.id);
                 }}
-              />
-            </View>
-          ))}
+                disabled={submitting}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                accessibilityLabel={visual.label}
+                style={[
+                  styles.modeChoice,
+                  selected && { borderColor: visual.color, backgroundColor: visual.tint },
+                ]}
+              >
+                <ModeIcon size={22} color={selected ? visual.color : Theme.textPrimaryDark} strokeWidth={2.1} />
+                <Text
+                  style={[styles.modeChoiceLabel, selected && { color: visual.color }]}
+                  numberOfLines={1}
+                >
+                  {visual.shortLabel}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
+        </View>
+        <View style={isInline ? styles.paymentBand : undefined}>
         <LedgerSectionHead
           icon={<Hash size={15} color={Theme.primary} strokeWidth={2.2} />}
           iconTone="ref"
@@ -991,6 +1007,8 @@ export function CompliancePaymentConfirmModal({
           />
         </View>
         {utrText && utrError ? <Text style={styles.fieldError}>{utrError}</Text> : null}
+        </View>
+        <View style={isInline ? styles.paymentBand : undefined}>
         <LedgerSectionHead
           icon={<Clock size={15} color={LedgerSyncPalette.ink} strokeWidth={2.2} />}
           iconTone="date"
@@ -1031,6 +1049,7 @@ export function CompliancePaymentConfirmModal({
           </View>
         </View>
         {txnDateText.length >= 10 && txnDateError ? <Text style={styles.fieldError}>{txnDateError}</Text> : null}
+        </View>
         {payoutAccounts.length > 0 ? (
           <>
             <Text style={styles.paidFromLabel}>Paid from (optional)</Text>
@@ -1354,10 +1373,10 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   ledgerInput: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: "600",
     color: LedgerSyncPalette.ink,
-    paddingVertical: 10,
+    paddingVertical: 12,
     ...(Platform.OS === "web" ? { outlineStyle: "none" } : null),
   } as never,
   dateInlineRow: {
@@ -1428,7 +1447,7 @@ const styles = StyleSheet.create({
   columnWide: { flex: 1, flexBasis: 0 },
   columnInline: { minWidth: 0 },
   inlineScroll: { flex: 1, minHeight: 0 },
-  inlineScrollContent: { gap: 6, paddingBottom: 4 },
+  inlineScrollContent: { flexGrow: 1, gap: 8, paddingBottom: 4 },
   factCard: {
     flexGrow: 1,
     borderRadius: 0,
@@ -1714,7 +1733,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   amountResultInline: {
-    marginTop: 4,
+    marginTop: "auto",
     paddingVertical: 6,
   },
   amountResultCopy: { flex: 1, minWidth: 0, gap: 2 },
@@ -1740,8 +1759,8 @@ const styles = StyleSheet.create({
     color: Theme.darkGreen,
   },
   amountResultValueInline: {
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: 22,
+    lineHeight: 26,
   },
   field: { gap: 6 },
   fieldInline: {
@@ -1753,11 +1772,35 @@ const styles = StyleSheet.create({
     borderWidth: 0,
     backgroundColor: Theme.cardWhite,
   },
+  fieldFill: { flexGrow: 1 },
   paymentBody: {
     gap: 10,
     paddingHorizontal: 0,
     paddingTop: 0,
     paddingBottom: 2,
+  },
+  paymentBodyFill: { flexGrow: 1, justifyContent: "space-between", gap: 12 },
+  paymentBand: { gap: 8 },
+  modeChoice: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 88,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: Theme.borderLight,
+    backgroundColor: Theme.surface,
+    paddingHorizontal: 6,
+    paddingVertical: 8,
+  },
+  modeChoiceLabel: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: "700",
+    textAlign: "center",
+    color: Theme.textSecondary,
   },
   label: { fontSize: 11, fontWeight: "600", color: SHOP.muted },
   labelInline: { fontSize: 10, lineHeight: 13 },

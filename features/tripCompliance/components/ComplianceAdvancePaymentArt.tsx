@@ -4,7 +4,7 @@ import { Animated, Easing, StyleSheet } from "react-native";
 const SOURCE = require("@/assets/illustrations/compliance-advance-payment.png");
 
 /** Advance panel filler: the payment art moves on the pane color, with no picture frame. */
-export function ComplianceAdvancePaymentArt() {
+export function ComplianceAdvancePaymentArt({ large = false }: { large?: boolean }) {
   const drift = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -43,7 +43,7 @@ export function ComplianceAdvancePaymentArt() {
       resizeMode="contain"
       accessibilityIgnoresInvertColors
       accessibilityLabel="Advance payment"
-      style={[styles.image, { transform: [{ translateY }, { scale }] }]}
+      style={[styles.image, large && styles.imageLarge, { transform: [{ translateY }, { scale }] }]}
     />
   );
 }
@@ -53,5 +53,9 @@ const styles = StyleSheet.create({
     width: 196,
     aspectRatio: 1024 / 779,
     backgroundColor: "transparent",
+  },
+  imageLarge: {
+    width: 280,
+    maxWidth: "100%",
   },
 });

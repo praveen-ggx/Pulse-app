@@ -89,6 +89,7 @@ describe("complianceVerifiedExport.util", () => {
       "LR No",
       "Customer",
       "Supplier",
+      "Vendor Name",
       "Source",
       "Destination",
       "Truck No",
@@ -119,6 +120,7 @@ describe("complianceVerifiedExport.util", () => {
     const without = buildVerifiedExportCsvRow(summary({}), base);
     expect(withBeneficiary["Beneficiary Name"]).toBe("Pravupa Das");
     expect(withBeneficiary.Supplier).toBe("Gogox Logistics");
+    expect(withBeneficiary["Vendor Name"]).toBe("Gogox Logistics");
     // No account holder name → blank (never the supplier's company name).
     expect(without["Beneficiary Name"]).toBe("");
     const { ["Beneficiary Name"]: _a, ...restWith } = withBeneficiary;

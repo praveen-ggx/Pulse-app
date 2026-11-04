@@ -6,7 +6,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { TripAuditLogContent } from "@/features/trips/components/trip-detail/TripAuditLogContent";
 import { resolveComplianceActorDetails } from "@/features/tripCompliance/services/complianceDocumentView.service";
 import type { LedgerRow } from "@/features/finance/services/finance.service";
-import { getOrganizationMembers } from "@/features/organization/services/members.service";
 import type { DriverActivityTimelineRow } from "@/features/trips/components/trip-detail/hooks/useTripDetail";
 import type { TripAssignmentAuditRow } from "@/features/trips/services/trip-assignment-audit.service";
 import type { TripHardCopyPodState } from "@/features/trips/services/tripDocumentLrPod.service";
@@ -20,6 +19,7 @@ import {
   displayMapFromProfiles,
   loadTripActivityActorHydration,
   mergeLedgerCreatedBy,
+  readCachedActivityProfiles,
   resolveActivityUserProfiles,
   type TripActivityActorHydration,
 } from "@/lib/trips/hydrateTripActivityActors.util";
@@ -139,7 +139,6 @@ export function TripAuditLogPanel({
   const [userProfileById, setUserProfileById] = useState<
     Record<string, TripActivityUserProfile>
   >({});
-  const [resolvingUsers, setResolvingUsers] = useState(false);
   const [capturedMilestones, setCapturedMilestones] = useState<TripAuditMilestone[]>(
     [],
   );
@@ -271,6 +270,37 @@ export function TripAuditLogPanel({
   // render (which otherwise re-fires resolution and flickers the empty state).
   const activityUserIdsKey = activityUserIds.join(",");
 
+  const knownProfiles = useMemo(() => {
+    const profiles: Record<string, TripActivityUserProfile> = {
+      ...readCachedActivityProfiles(activityUserIds),
+      ...actorHydration.profiles,
+    };
+    if (sessionUserId && sessionProfile) {
+      const prev = profiles[sessionUserId];
+      profiles[sessionUserId] = {
+        full_name:
+          sessionProfile.full_name?.trim() ||
+          sessionProfile.displayName?.trim() ||
+          prev?.full_name ||
+          null,
+        email: sessionProfile.email?.trim() || prev?.email || null,
+        phone: sessionProfile.phone?.trim() || prev?.phone || null,
+        avatar_url: sessionProfile.avatar_url ?? prev?.avatar_url ?? null,
+        avatar_seed: sessionProfile.avatar_seed ?? prev?.avatar_seed ?? null,
+      };
+    }
+    return profiles;
+  }, [
+    activityUserIds,
+    actorHydration.profiles,
+    sessionProfile,
+    sessionUserId,
+  ]);
+  const knownNames = useMemo(
+    () => ({ ...displayMapFromProfiles(knownProfiles), ...userDisplayById }),
+    [knownProfiles, userDisplayById],
+  );
+
   useEffect(() => {
     if (!visible) return;
     const orgId = organizationId ?? trip.organization_id;
@@ -281,110 +311,30 @@ export function TripAuditLogPanel({
     }
 
     let cancelled = false;
-    setResolvingUsers(true);
 
     void (async () => {
-      const displayMap: Record<string, string> = {};
-      const profileMap: Record<string, TripActivityUserProfile> = {};
-
-      const rememberProfile = (
-        uid: string,
-        profile: TripActivityUserProfile,
-      ) => {
-        const prev = profileMap[uid];
-        const next: TripActivityUserProfile = {
-          full_name: profile.full_name?.trim() || prev?.full_name || null,
-          email: profile.email?.trim() || prev?.email || null,
-          phone: profile.phone?.trim() || prev?.phone || null,
-          avatar_url: profile.avatar_url?.trim() || prev?.avatar_url || null,
-          avatar_seed: profile.avatar_seed?.trim() || prev?.avatar_seed || null,
-        };
-        profileMap[uid] = next;
-        const name =
-          next.full_name?.trim() ||
-          next.phone?.trim() ||
-          next.email?.trim() ||
-          "";
-        if (name) displayMap[uid] = name;
-      };
-
-      if (sessionUserId && sessionProfile) {
-        rememberProfile(sessionUserId, {
-          full_name: sessionProfile.full_name ?? sessionProfile.displayName ?? null,
-          email: sessionProfile.email ?? null,
-          phone: sessionProfile.phone ?? null,
-          avatar_url: sessionProfile.avatar_url ?? null,
-          avatar_seed: sessionProfile.avatar_seed ?? null,
-        });
-      }
-
-      for (const [id, profile] of Object.entries(actorHydration.profiles)) {
-        rememberProfile(id, profile);
-      }
-
-      // Canonical Activity name path: profiles table + org roster RPC.
       const resolved = await resolveActivityUserProfiles({
         userIds: activityUserIds,
         organizationId: orgId,
-        seedProfiles: profileMap,
+        seedProfiles: knownProfiles,
       });
-      for (const [id, profile] of Object.entries(resolved)) {
-        rememberProfile(id, profile);
-      }
-      for (const [id, name] of Object.entries(displayMapFromProfiles(profileMap))) {
-        if (name) displayMap[id] = name;
-      }
-
-      if (orgId) {
-        const { members } = await getOrganizationMembers(orgId);
-        for (const member of members) {
-          const uid = String(member.user_id ?? "").trim();
-          if (!uid || !activityUserIds.includes(uid)) continue;
-          rememberProfile(uid, {
-            full_name:
-              member.full_name?.trim() ||
-              member.phone?.trim() ||
-              member.email?.trim() ||
-              null,
-            email: member.email?.trim() || null,
-            phone: member.phone?.trim() || null,
-            avatar_url: member.avatar_url ?? null,
-            avatar_seed: member.avatar_seed ?? null,
-          });
-        }
-        for (const [id, name] of Object.entries(displayMapFromProfiles(profileMap))) {
-          if (name) displayMap[id] = name;
-        }
-      }
-
-      const missingName = (id: string) => {
-        const existing = profileMap[id];
-        return !(
-          existing?.full_name?.trim() ||
-          existing?.phone?.trim() ||
-          existing?.email?.trim()
-        );
-      };
-      const unresolved = activityUserIds.filter(missingName);
+      const profileMap: Record<string, TripActivityUserProfile> = { ...resolved };
+      const displayMap = displayMapFromProfiles(profileMap);
+      const unresolved = activityUserIds.filter((id) => !displayMap[id]);
       if (unresolved.length > 0) {
         const details = await resolveComplianceActorDetails(unresolved, orgId);
         for (const [id, detail] of Object.entries(details)) {
-          if (detail.name && detail.name !== "Unknown") {
-            rememberProfile(id, {
-              full_name: detail.name,
-              email: null,
-              phone: null,
-              avatar_url: profileMap[id]?.avatar_url ?? null,
-              avatar_seed: profileMap[id]?.avatar_seed ?? null,
-            });
-            displayMap[id] = detail.name;
-          }
+          if (!detail.name || detail.name === "Unknown") continue;
+          profileMap[id] = {
+            ...profileMap[id],
+            full_name: detail.name,
+          };
+          displayMap[id] = detail.name;
         }
       }
       if (!cancelled) {
         setUserDisplayById(displayMap);
         setUserProfileById(profileMap);
-        setResolvingUsers(false);
       }
     })();
 
@@ -416,8 +366,8 @@ export function TripAuditLogPanel({
         timelineRows,
         transactions: hydratedLedgerEntries,
         currentUserId: sessionUserId,
-        userDisplayById,
-        userProfileById,
+        userDisplayById: knownNames,
+        userProfileById: { ...knownProfiles, ...userProfileById },
         driverDisplayName: driverDisplayName ?? trip.driver_display_name,
         hardCopyPod,
         scope,
@@ -432,7 +382,8 @@ export function TripAuditLogPanel({
       timelineRows,
       hydratedLedgerEntries,
       sessionUserId,
-      userDisplayById,
+      knownNames,
+      knownProfiles,
       userProfileById,
       driverDisplayName,
       hardCopyPod,
@@ -454,7 +405,7 @@ export function TripAuditLogPanel({
       subtitle={route ? `${tripRef} · ${route}` : tripRef}
       entries={entries}
       matchesTab={matchesTripAuditTab}
-      loading={loading || resolvingUsers || loadingCaptured}
+      loading={loading || loadingCaptured}
       onClose={onClose}
       shellStyle={styles.panelFullBleed}
       tabs={tabs}

@@ -43,6 +43,7 @@ import {
   networkNotificationActionText,
   networkNotificationTagLabel,
 } from "@/features/network/utils/networkNotificationLabels.util";
+import { networkLaneDetail } from "@/lib/globalSync/networkLaneNotifications.util";
 import { useMarkNetworkNotificationRead } from "@/lib/queries/useNetworkNotificationsQuery";
 import { useLinkedOrgDisplayMap } from "@/lib/queries/useLinkedOrgDisplayQuery";
 import { ROUTES } from "@/lib/routes";
@@ -388,6 +389,7 @@ function RegistryFeedList({
               highlightText={presentation.highlightText}
               trailingText={presentation.trailingText}
               detailTitle={detailLines.title}
+              detailMeta={presentation.detailMeta}
               detailSubtitle={detailLines.subtitle}
               detail={detailLines.body}
               timeLabel={formatRelativeTime(ops.created_at)}
@@ -418,6 +420,8 @@ function RegistryFeedList({
 
         if (entry.kind === "network" && entry.network) {
           const item = entry.network;
+          const lane = entry.networkLane;
+          const laneCopy = lane ? networkLaneDetail(lane) : null;
           const hasAmount =
             item.amount_meta != null && Number.isFinite(Number(item.amount_meta));
           const amountText = hasAmount
@@ -436,11 +440,42 @@ function RegistryFeedList({
             name: companyNameForInitials(networkAvatar.name),
           };
           const indentAction = indentPrimaryAction(item.event_type, access);
+          const dismissLane = () => {
+            const ids = lane?.memberIds.length ? lane.memberIds : [item.id];
+            for (const id of ids) {
+              void markNetworkRead.mutateAsync(id).catch(() => {});
+            }
+          };
           const openIndent = () => {
             if (!access.indents || !item.indent_id) return;
-            void markNetworkRead.mutateAsync(item.id).catch(() => {});
+            dismissLane();
             router.push(ROUTES.indentDetail(item.indent_id));
           };
+          const laneTags: RegistryTag[] = [];
+          if (isActiveView) {
+            laneTags.push({
+              label: lane?.critical ? "Allocate" : networkNotificationTagLabel(item.event_type),
+              variant: lane?.critical
+                ? "warning"
+                : item.event_type === "awarded"
+                  ? "success"
+                  : item.event_type === "counter_offered"
+                    ? "warning"
+                    : "default",
+            });
+            if (lane && lane.loadCount > 1) {
+              laneTags.push({
+                label: `${lane.loadCount} loads`,
+                variant: "neutral",
+              });
+            }
+            if (lane && lane.bidCount > 1) {
+              laneTags.push({
+                label: `${lane.bidCount} bids`,
+                variant: "default",
+              });
+            }
+          }
           return (
             <AlertRegistrySignalCard
               key={entry.id}
@@ -448,27 +483,17 @@ function RegistryFeedList({
               onPress={openIndent}
               avatar={networkInitialsAvatar}
               actorName={networkAvatar.name}
-              actionText={networkNotificationActionText(item.event_type)}
+              actionText={
+                lane?.critical
+                  ? "awarded, waiting for allocation"
+                  : networkNotificationActionText(item.event_type)
+              }
               highlightText={amountText ?? item.title}
-              detailTitle={item.title}
-              detailSubtitle={item.subtitle ?? undefined}
+              detailTitle={laneCopy?.title ?? item.title}
+              detailSubtitle={laneCopy?.subtitle || item.subtitle || undefined}
               timeLabel={formatRelativeTime(item.created_at)}
               contextLabel={item.subtitle ?? undefined}
-              tags={
-                isActiveView
-                  ? [
-                      {
-                        label: networkNotificationTagLabel(item.event_type),
-                        variant:
-                          item.event_type === "awarded"
-                            ? "success"
-                            : item.event_type === "counter_offered"
-                              ? "warning"
-                              : "default",
-                      } satisfies RegistryTag,
-                    ]
-                  : undefined
-              }
+              tags={laneTags.length > 0 ? laneTags : undefined}
               isUnread={isActiveView && item.status === "open"}
               statusPill={
                 !isActiveView
@@ -481,12 +506,7 @@ function RegistryFeedList({
               footer={
                 isActiveView ? (
                   <RegistryCardActions>
-                    <RegistryGhostButton
-                      label="Dismiss"
-                      onPress={() => {
-                        void markNetworkRead.mutateAsync(item.id).catch(() => {});
-                      }}
-                    />
+                    <RegistryGhostButton label="Dismiss" onPress={dismissLane} />
                     {indentAction.enabled ? (
                       <RegistryPrimaryButton
                         label={indentAction.label}

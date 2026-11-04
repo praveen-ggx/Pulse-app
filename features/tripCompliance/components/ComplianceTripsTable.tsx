@@ -6,6 +6,7 @@
  * approve/reject wiring). E-way Bill column + Verify/Decline actions per
  * docs/compliance/dinesh/CONTRACT.md.
  */
+import { ThemedConfirmModal } from "@/components/ThemedConfirmModal";
 import Theme from "@/constants/Theme";
 import {
     COMPLIANCE_DECLINE_ACTION_LABEL,
@@ -241,6 +242,7 @@ function TripRowContent({
   const [markingTrip, setMarkingTrip] = useState(false);
   const markingRef = useRef(false);
   const [declineOpen, setDeclineOpen] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<"verify" | "decline" | null>(null);
   const rows = useMemo(() => deriveComplianceDocumentRows(summary.documents), [summary.documents]);
   const vehicleRows = useMemo(
     () =>
@@ -282,6 +284,11 @@ function TripRowContent({
       else onReview(tripId, null, "trip");
       return;
     }
+    setConfirmAction("verify");
+  };
+
+  const runVerify = () => {
+    if (markingRef.current || !onMarkComplianceVerified) return;
     markingRef.current = true;
     setMarkingTrip(true);
     void onMarkComplianceVerified(tripId).finally(() => {
@@ -503,7 +510,7 @@ function TripRowContent({
               testID={`compliance-decline-${tripId}`}
               style={[styles.actionGhost, styles.actionItem]}
               hitSlop={{ top: 8, bottom: 8, left: 2, right: 2 }}
-              onPress={() => setDeclineOpen(true)}
+              onPress={() => setConfirmAction("decline")}
               accessibilityRole="button"
               accessibilityLabel={`${COMPLIANCE_DECLINE_ACTION_LABEL} trip compliance`}
             >
@@ -520,6 +527,26 @@ function TripRowContent({
         </View>
       </View>
 
+      <ThemedConfirmModal
+        visible={confirmAction != null}
+        variant={confirmAction === "decline" ? "warning" : "positive"}
+        title={confirmAction === "decline" ? "Decline this trip?" : "Verify this trip?"}
+        message={
+          confirmAction === "decline"
+            ? `${tripIdLabel} goes back for correction. Next you record the reason.`
+            : `${tripIdLabel} will be marked compliance verified.`
+        }
+        confirmText={confirmAction === "decline" ? "Continue" : "Verify"}
+        confirmVariant={confirmAction === "decline" ? "destructive" : "primary"}
+        onCancel={() => setConfirmAction(null)}
+        onRequestClose={() => setConfirmAction(null)}
+        onConfirm={() => {
+          const action = confirmAction;
+          setConfirmAction(null);
+          if (action === "verify") runVerify();
+          else setDeclineOpen(true);
+        }}
+      />
       {onDeclineCompliance ? (
         <ComplianceDeclineModal
           visible={declineOpen}

@@ -35,6 +35,17 @@ export type InvoiceWorkspaceBilling = {
 
 type Form = Omit<InvoiceWorkspaceBilling, "busy" | "locked" | "onChange" | "onSave">;
 
+/** Identity and registered office. The database rejects these while verification is pending or complete. */
+const FROZEN_BILLING_FIELDS = new Set<InvoiceBillingField>([
+  "gstin",
+  "cin",
+  "pan",
+  "address",
+  "city",
+  "state",
+  "pincode",
+]);
+
 function blank(issuer: InvoiceIssuerIdentity | null | undefined): Form {
   return {
     legalName: issuer?.businessName ?? "",
@@ -85,20 +96,21 @@ export function useInvoiceWorkspaceBilling(
   }, [orgId, issuer?.businessName]);
 
   const onChange = useCallback((key: InvoiceBillingField, value: string) => {
+    if (locked && FROZEN_BILLING_FIELDS.has(key)) return;
     setForm((current) => ({ ...current, [key]: value }));
-  }, []);
+  }, [locked]);
 
   const onSave = useCallback(() => {
     if (!orgId || busy) return Promise.resolve(false);
     setBusy(true);
     return updateWorkspaceKyc(orgId, {
-      business_pan: form.pan.trim().toUpperCase() || null,
-      gstin: form.gstin.trim().toUpperCase() || null,
-      cin: form.cin.trim().toUpperCase() || null,
       msme_number: form.msme.trim().toUpperCase() || null,
       ...(locked
         ? {}
         : {
+            business_pan: form.pan.trim().toUpperCase() || null,
+            gstin: form.gstin.trim().toUpperCase() || null,
+            cin: form.cin.trim().toUpperCase() || null,
             address_line: form.address,
             city: form.city,
             state: form.state,

@@ -128,6 +128,7 @@ export function buildComplianceTableSheetRows(
     const base: Record<string, string | number> = {
       "Trip ID": getTripDisplayNumber(summary.trip),
       Customer: summary.trip.client_name?.trim() || "",
+      "Vendor Name": summary.trip.supplier_name?.trim() || "",
       Date: formatComplianceExportDay(complianceEventAt(summary.trip)),
       From: summary.trip.pickup_area?.trim() || "",
       To: summary.trip.drop_location?.trim() || summary.trip.drop_area?.trim() || "",

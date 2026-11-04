@@ -516,6 +516,7 @@ export function EwayBillLrStrip({
       {feed ? (
         <>
           <Text style={[styles.sectionTitle, WEB_COPY]}>E-way Bill</Text>
+          <View style={styles.feedGrid}>
           {displayRows.map((row) => {
             const expiry = ewayExpiryLabel(row.validTill);
             const expiryTone = ewayExpiryTone(expiry);
@@ -531,7 +532,8 @@ export function EwayBillLrStrip({
               "Add the e-way number to continue";
             const helperBlocked = expiryTone === "expired" || expiryTone === "soon";
             return (
-              <View key={row.id} style={[styles.orderCard, desktopSheet && styles.orderCardDesktop]}>
+              <View key={row.id} style={styles.feedCell}>
+              <View style={[styles.orderCard, styles.orderCardGrid, desktopSheet && styles.orderCardDesktop]}>
                 <View style={styles.statusRow}>
                   <View style={[styles.statusMark, { backgroundColor: status.soft }]}>
                     <Feather name="check" size={11} color={status.color} />
@@ -546,12 +548,13 @@ export function EwayBillLrStrip({
                   </View>
                 </View>
 
+                <View style={styles.productRow}>
                 <Pressable
                   onPress={() => {
                     if (row.canView) openZoomPreview(row);
                   }}
                   disabled={!row.canView}
-                  style={[styles.productRow, WEB_POINTER]}
+                  style={[styles.productMain, WEB_POINTER]}
                   accessibilityRole={row.canView ? "button" : "none"}
                   accessibilityLabel={
                     hasNumber ? `E-way bill ${row.ewayNo}` : "E-way bill details"
@@ -584,7 +587,6 @@ export function EwayBillLrStrip({
                         .join("  ·  ") || "Add number and validity"}
                     </Text>
                   </View>
-                  <Feather name="chevron-right" size={16} color={SHOP.muted} />
                 </Pressable>
 
                 <View style={styles.chipRow}>
@@ -638,6 +640,7 @@ export function EwayBillLrStrip({
                     </Pressable>
                   ) : null}
                 </View>
+                </View>
 
                 <View style={styles.helperRow}>
                   <Feather
@@ -657,8 +660,10 @@ export function EwayBillLrStrip({
                   </Text>
                 </View>
               </View>
+              </View>
             );
           })}
+          </View>
           {showEdit && !editing ? (
             <View style={styles.feedAddRow}>
               <Pressable
@@ -979,6 +984,19 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
     gap: 10,
   },
+  feedGrid: {
+    width: "100%",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "stretch",
+    marginHorizontal: -6,
+  },
+  feedCell: {
+    width: "50%",
+    paddingHorizontal: 6,
+    paddingBottom: 12,
+    minWidth: 0,
+  },
   sectionTitle: {
     fontSize: 13,
     fontWeight: "700",
@@ -988,6 +1006,10 @@ const styles = StyleSheet.create({
   },
   orderCard: {
     width: "100%",
+  },
+  orderCardGrid: {
+    flex: 1,
+    height: "100%",
     minWidth: 0,
     backgroundColor: Theme.cardWhite,
     borderRadius: SHOP.cardRadius,
@@ -1045,8 +1067,16 @@ const styles = StyleSheet.create({
   productRow: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "nowrap",
     gap: 10,
     minWidth: 0,
+  },
+  productMain: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
   productCopy: {
     flex: 1,
@@ -1075,12 +1105,14 @@ const styles = StyleSheet.create({
   },
   chipRow: {
     flexDirection: "row",
-    alignItems: "stretch",
+    alignItems: "center",
+    flexShrink: 0,
     gap: 8,
   },
   actionChip: {
-    flex: 1,
-    minWidth: 0,
+    flexGrow: 0,
+    flexShrink: 0,
+    minWidth: 72,
     minHeight: 44,
     borderRadius: 10,
     borderWidth: 1,

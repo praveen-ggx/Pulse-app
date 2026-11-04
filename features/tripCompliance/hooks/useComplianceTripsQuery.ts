@@ -34,6 +34,7 @@ import type {
   ComplianceTripInputs,
   ComplianceTripSummary,
 } from "@/features/tripCompliance/tripCompliance.types";
+import { invalidateComplianceTripActivity } from "@/features/tripCompliance/components/ComplianceTripActivityLog";
 import { ensureComplianceChecklist } from "@/features/tripCompliance/utils/complianceChecklist.util";
 import { selectCompliancePipelineTrips } from "@/features/tripCompliance/utils/compliancePipelineTrips.util";
 import { syncFinanceComplianceCaches } from "@/lib/queries/syncFinanceComplianceCaches";
@@ -529,6 +530,7 @@ export function useComplianceChangeSync() {
       const key = queryKeys.tripCompliance.pipeline(orgId);
       const current = qc.getQueryData<ComplianceTripInputs[]>(key);
       const tripId = complianceChangeTripId(change);
+      if (tripId) invalidateComplianceTripActivity(tripId);
       if (tripId) void qc.invalidateQueries({ queryKey: queryKeys.tripCompliance.detail(orgId, tripId) });
       if (!current) {
         void qc.invalidateQueries({ queryKey: key });

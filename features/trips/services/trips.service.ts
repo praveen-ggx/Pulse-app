@@ -113,6 +113,7 @@ export interface TripRow {
   converted_from_indent_at?: string | null;
   converted_by?: string | null;
   source: string;
+  source_market_bid_id?: string | null;
   pickup_area: string;
   drop_location: string;
   /** Optional legacy / synced column; UI may fall back when drop_location is empty. */
@@ -160,6 +161,10 @@ export interface TripRow {
   payment_status: string;
   amount_paid: number;
   status: string;
+  cancel_reason?: string | null;
+  cancel_reason_note?: string | null;
+  cancelled_at?: string | null;
+  cancelled_by?: string | null;
   /** Who/what last changed status (e.g. business_simulated). */
   status_change_origin?: string | null;
   pickup_date: string | null;
@@ -229,6 +234,7 @@ export interface TripRow {
   pod_received_at?: string | null;
   /** Trip Compliance parallel workflow — see migration 20260915162440. */
   compliance_verified_at?: string | null;
+  compliance_decision?: string | null;
   compliance_verified_by?: string | null;
   /** Finance verify — see migration 20261010122824. Required before the compliance advance. */
   finance_verified_at?: string | null;

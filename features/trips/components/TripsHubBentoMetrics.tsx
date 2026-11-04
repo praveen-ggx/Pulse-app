@@ -323,7 +323,8 @@ export type HistoryTripMetricId =
   | "due_to_pay"
   | "no_due_to_pay"
   | "pending_soft_pod"
-  | "pending_hard_pod";
+  | "pending_hard_pod"
+  | "cancelled";
 
 export type HistoryBentoMetricItem = {
   id: HistoryTripMetricId;
@@ -345,6 +346,7 @@ const HISTORY_VARIANT: Record<
   no_due_to_pay: { variant: "slate", showsAmount: false },
   pending_soft_pod: { variant: "purple", showsAmount: false },
   pending_hard_pod: { variant: "cyan", showsAmount: false },
+  cancelled: { variant: "slate", showsAmount: false },
 };
 
 function historyMetricIcon(
@@ -358,6 +360,8 @@ function historyMetricIcon(
       return "file-text";
     case "pending_hard_pod":
       return "copy";
+    case "cancelled":
+      return "ban";
     default:
       return "rupee";
   }
@@ -566,6 +570,7 @@ export function TripsHubHistoryBentoMetrics({
   const podItems = items.filter(
     (item) => item.id === "pending_soft_pod" || item.id === "pending_hard_pod",
   );
+  const cancelledItems = items.filter((item) => item.id === "cancelled");
 
   if (!isDesktop) {
     // Few tiles (e.g. Ground Ops: POD only) share the width instead of scrolling.
@@ -606,6 +611,11 @@ export function TripsHubHistoryBentoMetrics({
         {podItems.length > 0 ? (
           <View style={[styles.historyCluster, styles.historyClusterPod]}>
             {podItems.map(renderCard)}
+          </View>
+        ) : null}
+        {cancelledItems.length > 0 ? (
+          <View style={[styles.historyCluster, styles.historyClusterPod]}>
+            {cancelledItems.map(renderCard)}
           </View>
         ) : null}
       </View>

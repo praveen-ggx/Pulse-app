@@ -812,7 +812,7 @@ export const TripMobileDetail = memo(function TripMobileDetail({
               stageActions && stageActions.length > 0 ? (
                 <View style={styles.simRow}>
                   {stageActions.map((action) => {
-                    const ghost = action.key === "revoke";
+                    const ghost = action.key === "revoke" || action.key === "cancel";
                     return (
                       <TouchableOpacity
                         key={action.key}

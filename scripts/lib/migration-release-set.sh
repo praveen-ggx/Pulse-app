@@ -219,6 +219,11 @@ EOF
 
   while IFS= read -r ver; do
     [[ -n "$ver" ]] || continue
+    # Skip frozen versions already on Remote — they are read-only history placeholders,
+    # not pending applies. Only flag a frozen file that would be newly applied.
+    if grep -qx "$ver" "$remote_file"; then
+      continue
+    fi
     frozen_hit="$(find "$dest_root/supabase/migrations" -maxdepth 1 -type f -name "${ver}_*.sql" -print -quit || true)"
     if [[ -n "$frozen_hit" ]]; then
       echo "ERROR: frozen migration copied into snapshot: $frozen_hit" >&2

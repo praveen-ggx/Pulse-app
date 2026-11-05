@@ -108,3 +108,6 @@ e2e/.qa/
 
 # Local Netlify folder
 .netlify
+
+# MIR data files (xlsx reports, not part of the app)
+MIR/

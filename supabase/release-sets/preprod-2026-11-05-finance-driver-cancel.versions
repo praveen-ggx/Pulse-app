@@ -1,0 +1,31 @@
+# Preprod release set 2026-11-05: finance (invoicing/DCO/driver), driver-offline, assigner audit, trip cancel.
+# 11 migrations covering chat-auth guard, DCO self financial book, driver offline trip,
+# invoice stack (templates, numbering, TDS, payments, finance controls), trip assigner audit,
+# and integrated trip cancel reason.
+#
+# Apply only via: npm run db:push-set -- preprod-2026-11-05-finance-driver-cancel   (dry-run first)
+# Never via plain `supabase db push` / `npm run db:push`.
+#
+# Verify before applying:  npx jest supabase/migrations/__tests__/preprodRelease20261105Set.test.ts
+# sha256 fe1eaf30939a356d258f4ba2a1fabcaf64aeeeb90358bb0a8fc766ea4891fa64  20261103121242_fix_chat_participants_auth_guard.sql
+20261103121242
+# sha256 87e82b092f8b7384d548e9b43aba091b132926cc6a8cfc551396fa900d28de54  20271102003100_dco_self_financial_book.sql
+20271102003100
+# sha256 8a67f169ee727a0883a575cdfb90fc01a151f523adecdf3c385ba1215f207fcf  20271102184500_driver_offline_trip_book.sql
+20271102184500
+# sha256 35582fa4d9c80b78fe0b0e93aa632d886ba4b0b11280fdd0860ffc4f4bd09a5b  20271103101500_invoice_style_templates.sql
+20271103101500
+# sha256 d2bef51f6ae28f1a46c316cd7fe80ea7b8307935bfbd3d39d2e6feabbdf26e08  20271103113000_invoice_style_template_details.sql
+20271103113000
+# sha256 c40955c5b8e8f2c4e4a473e88cca3050c1b3fdfb3353c478b072622b0c093cd6  20271103143000_invoice_numbering_settings.sql
+20271103143000
+# sha256 ffa7d96de33f5812bce0b90024f222a877ee735e1fbed1c7e82ec4ad60eddc79  20271103154500_client_customer_tds_percent.sql
+20271103154500
+# sha256 9b6c410f712f1cdf3e6efdedb42ff51d418494d60d96fdedf84a8685eacb2830  20271103213000_invoice_payment_tracking.sql
+20271103213000
+# sha256 03ac9024733df92d4504d54b3399d4947f05e734485bbba76c210779d2f2ce3b  20271103220000_invoice_finance_controls.sql
+20271103220000
+# sha256 556b5249eac7bc42d5eef317d57faaad7d728e1c536089f288344df26372a979  20271103221500_record_trip_assigner_on_driver_change.sql
+20271103221500
+# sha256 6c11c1227408e611f9eb516f62a043b157798b0601feb1bea44fdfbeeb18d453  20271104183100_integrated_trip_cancel_reason.sql
+20271104183100

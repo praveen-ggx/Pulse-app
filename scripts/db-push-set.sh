@@ -130,8 +130,14 @@ echo "── Snapshot Local-only files ──"
 cat "$apply_root/snapshot-local-only.txt"
 echo
 echo "── Frozen versions excluded from snapshot ──"
+parse_migration_list "$work/main_remote" "$work/main_local_only" <"$work/list.txt"
 while IFS= read -r ver; do
   [[ -n "$ver" ]] || continue
+  # Frozen versions already on Remote are history placeholders, not pending applies.
+  if grep -qx "$ver" "$work/main_remote"; then
+    echo "REMOTE (history) $ver"
+    continue
+  fi
   if find "$apply_root/supabase/migrations" -maxdepth 1 -type f -name "${ver}_*.sql" | grep -q .; then
     echo "ERROR: frozen version $ver is present in the snapshot" >&2
     exit 1

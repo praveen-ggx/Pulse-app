@@ -25,7 +25,10 @@ import {
     normalizeVaultVehicleNumber,
     vehicleVaultDocumentsToEntityDocs,
 } from "@/features/tripCompliance/utils/complianceVaultDocuments.util";
-import { fetchComplianceVehicleVaultForTrips } from "@/features/tripCompliance/services/complianceListFacts.service";
+import {
+  fetchComplianceDriverDocsForTrips,
+  fetchComplianceVehicleVaultForTrips,
+} from "@/features/tripCompliance/services/complianceListFacts.service";
 import {
   isSoftPodDocumentType,
   fetchHardCopyIbondTripIds,
@@ -44,7 +47,6 @@ import {
   type PodChargeWorkflowFlags,
 } from "@/features/debit-control/utils/podChargeWorkflow.util";
 import { podDebitIdentifiedFromPayload } from "@/features/debit-control/utils/podExceptionDebit.util";
-import { listDriverVaultKycDocuments } from "@/features/drivers/services/driverKycDocuments.service";
 import { decodeCourierLrRemarks, lrReceiptForTrip } from "@/features/trips/utils/lrReceiptStatus.util";
 import {
   isCompletedTripStatus,
@@ -756,31 +758,48 @@ async function fetchVehicleVaultDocumentsForTrips(
   return byKey;
 }
 
-async function fetchDriverKycDocumentsForTrips(
+/**
+ * Licence / Aadhaar for trip drivers — authorized via
+ * get_compliance_driver_docs_for_trips (entity_documents any org + driver KYC).
+ * Direct driver_kyc_documents reads are RLS-blocked for org members, so this
+ * RPC is required for DL to appear on trips that only have KYC uploads.
+ */
+async function fetchAuthorizedDriverDocumentsForTrips(
   trips: TripRow[],
+  viewerOrgId: string,
 ): Promise<Map<string, ComplianceEntityDocument[]>> {
   const byDriver = new Map<string, ComplianceEntityDocument[]>();
-  const driverIds = Array.from(new Set(trips.map((trip) => trip.driver_id).filter((id): id is string => Boolean(id))));
-  if (driverIds.length === 0) return byDriver;
+  const tripIds = trips.map((trip) => trip.id).filter(Boolean);
+  if (!viewerOrgId || tripIds.length === 0) return byDriver;
 
-  const { byDriverId } = await listDriverVaultKycDocuments(driverIds);
-  for (const [driverId, rows] of byDriverId) {
-    byDriver.set(
-      driverId,
-      rows.map((row) => ({
-        id: row.id,
-        entity_type: "driver" as const,
-        entity_id: driverId,
-        doc_type: row.doc_type,
-        status: row.status,
-        storage_path: row.storage_path,
-        expiry_date: null,
-        verified_at: row.verified_at,
-        notes: row.rejection_notes,
-        created_at: row.created_at,
-        source: "driver-kyc" as const,
-      })),
-    );
+  const rows = await fetchComplianceDriverDocsForTrips(viewerOrgId, tripIds);
+  const seenByDriver = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const driverId = row.driver_id?.trim();
+    const path = row.storage_path?.trim();
+    if (!driverId || !path) continue;
+    const docType = String(row.doc_type ?? "").trim().toLowerCase();
+    if (docType !== "license" && docType !== "aadhaar") continue;
+    const dedupeKey = `${row.source ?? ""}:${row.doc_id}:${path}`;
+    const seen = seenByDriver.get(driverId) ?? new Set<string>();
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    seenByDriver.set(driverId, seen);
+    const list = byDriver.get(driverId) ?? [];
+    list.push({
+      id: row.doc_id,
+      entity_type: "driver",
+      entity_id: driverId,
+      doc_type: docType,
+      status: row.status || "pending",
+      storage_path: path,
+      expiry_date: row.expiry_date,
+      verified_at: row.verified_at,
+      notes: row.notes,
+      created_at: row.created_at || new Date(0).toISOString(),
+      source: row.source === "entity" ? "entity" : "driver-kyc",
+    });
+    byDriver.set(driverId, list);
   }
   return byDriver;
 }
@@ -839,7 +858,7 @@ export async function fetchComplianceTripInputs(
   if (trips.length === 0) return [];
   const tripIds = trips.map((t) => t.id);
   const entityIds = trips.flatMap((trip) => [trip.vehicle_id, trip.driver_id].filter((id): id is string => Boolean(id)));
-  const [docsByTrip, flagsByTrip, receivedLrsByTrip, ibondTripIds, chargeWorkflow, txnsByTrip, entityDocsById, vault, driverKycDocs] =
+  const [docsByTrip, flagsByTrip, receivedLrsByTrip, ibondTripIds, chargeWorkflow, txnsByTrip, entityDocsById, vault, authorizedDriverDocs] =
     await Promise.all([
       fetchTripDocumentsForTrips(tripIds),
       fetchComplianceTripFlags(tripIds),
@@ -849,7 +868,7 @@ export async function fetchComplianceTripInputs(
       fetchComplianceTransactions(tripIds),
       fetchEntityDocumentsByIds(orgIdOf(trips), entityIds, ["vehicle", "driver"]),
       fetchVehicleVaultDocumentsForTrips(trips, viewerOrgId),
-      fetchDriverKycDocumentsForTrips(trips),
+      fetchAuthorizedDriverDocumentsForTrips(trips, viewerOrgId),
     ]);
   const flagsWithLrs = attachChargesSavedFlags(
     attachIbondFlags(attachReceivedLrNumbers(flagsByTrip, receivedLrsByTrip), ibondTripIds),
@@ -861,7 +880,7 @@ export async function fetchComplianceTripInputs(
     flags: flagsWithLrs.get(trip.id) ?? null,
     ...paymentInputs(txnsByTrip.get(trip.id)),
     ...assembleVehicleDocuments(trip, entityDocsById, vault),
-    driverDocuments: assembleDriverDocuments(trip, entityDocsById, driverKycDocs),
+    driverDocuments: assembleDriverDocuments(trip, entityDocsById, authorizedDriverDocs),
   }));
 }
 
@@ -1017,18 +1036,21 @@ export async function fetchVehicleDocumentsForTrips(
   return byTrip;
 }
 
-/** Driver-document inputs (KYC + entity driver docs) for every trip passed. */
+/** Driver-document inputs (authorized KYC + entity driver docs) for every trip passed. */
 export async function fetchDriverDocumentsForTrips(
   trips: TripRow[],
+  viewerOrgId: string,
 ): Promise<Map<string, ComplianceEntityDocument[]>> {
   const byTrip = new Map<string, ComplianceEntityDocument[]>();
   if (trips.length === 0) return byTrip;
   const driverIds = trips.map((trip) => trip.driver_id).filter((id): id is string => Boolean(id));
-  const [entityDocsById, kyc] = await Promise.all([
+  const [entityDocsById, authorized] = await Promise.all([
     fetchEntityDocumentsByIds(orgIdOf(trips), driverIds, ["driver"]),
-    fetchDriverKycDocumentsForTrips(trips),
+    fetchAuthorizedDriverDocumentsForTrips(trips, viewerOrgId),
   ]);
-  for (const trip of trips) byTrip.set(trip.id, assembleDriverDocuments(trip, entityDocsById, kyc));
+  for (const trip of trips) {
+    byTrip.set(trip.id, assembleDriverDocuments(trip, entityDocsById, authorized));
+  }
   return byTrip;
 }
 

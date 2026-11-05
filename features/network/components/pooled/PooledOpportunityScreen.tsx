@@ -3,8 +3,9 @@
  * requirement, one rate for every eligible load, and the identity / award →
  * trip handoff. The pool, its biddable set and this org's bid state come from
  * the server manifest (get_org_marketplace_pool); the bid scope is re-read and
- * fingerprint-checked before any write. Members are never listed: no indent
- * ids, shipper names or per-load details are shown.
+ * fingerprint-checked before any write. Members are listed anonymously (shipper
+ * target + your bid) so a different supplier target can be revised alone;
+ * pool-level submit/update still applies one rate to every eligible member.
  */
 import { ChromeBelowTopNavLoadingScreen } from "@/components/chromeLoadingScreens";
 import Layout from "@/constants/Layout";
@@ -420,6 +421,72 @@ export function PooledOpportunityScreen() {
     />
   );
 
+  const biddableSet = new Set(summary.biddableIds);
+  const singleTarget = targetCount === 1;
+  const memberList =
+    keyReady && !poolQ.isError && !preparing && members.length > 0 ? (
+      <View style={styles.memberBlock} testID="pool-member-list">
+        <Text style={styles.memberTitle}>Loads in this pool</Text>
+        <Text style={styles.memberHint}>
+          One pool rate covers every eligible load. Open a load below to revise
+          only that rate when shipper targets differ.
+        </Text>
+        {members.map((load) => {
+          const bid = summary.bidByIndentId.get(load.id);
+          const bidAmount = Number(
+            (bid as { amount?: number | null } | undefined)?.amount,
+          );
+          const canRevise =
+            viewerCanBidCapability &&
+            fitsFleet &&
+            readiness.ready &&
+            biddableSet.has(load.id);
+          const target =
+            load.rate_offer != null && Number.isFinite(Number(load.rate_offer))
+              ? formatINR(Number(load.rate_offer))
+              : "—";
+          const yours =
+            Number.isFinite(bidAmount) && bidAmount > 0
+              ? formatINR(bidAmount)
+              : bid
+                ? "Quoted"
+                : "Not quoted";
+          return (
+            <View
+              key={load.id}
+              style={styles.memberRow}
+              accessibilityLabel={`Pool load, shipper target ${target}, your rate ${yours}`}
+            >
+              <View style={styles.memberCopy}>
+                <Text style={styles.memberLabel}>Shipper target</Text>
+                <Text style={styles.memberValue}>{target}</Text>
+                <Text style={styles.memberSub}>Your rate · {yours}</Text>
+              </View>
+              {canRevise ? (
+                <Pressable
+                  onPress={() => {
+                    setBidError(undefined);
+                    setResult(null);
+                    setBidTargets([load.id]);
+                  }}
+                  style={({ pressed }) => [
+                    styles.memberCta,
+                    pressed && styles.pressed,
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Revise rate for this load"
+                >
+                  <Text style={styles.memberCtaText}>
+                    {bid ? "Revise" : "Quote"}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          );
+        })}
+      </View>
+    ) : null;
+
   const loadsBody = !keyReady ? (
     <Text style={styles.message}>
       This pool link is incomplete. Go back and pick a pool.
@@ -444,7 +511,9 @@ export function PooledOpportunityScreen() {
     <Text style={styles.message}>
       No loads in this pool are open right now.
     </Text>
-  ) : null;
+  ) : (
+    memberList
+  );
   const showCommercial = keyReady && !poolQ.isError;
 
   const dialogMaxHeight = Math.max(
@@ -514,20 +583,45 @@ export function PooledOpportunityScreen() {
         }}
         onSubmitAmount={submitPoolRate}
         onSuccessDone={refreshAfterBid}
-        shipperName={`Pooled opportunity · ${countLabel}`}
+        shipperName={
+          singleTarget
+            ? "Pooled opportunity · 1 load"
+            : `Pooled opportunity · ${countLabel}`
+        }
         pickup={key.pickup}
         drop={key.drop}
         vehicleType={key.vehicleType}
-        targetRateInr={summary.targetRateMin}
-        entryLabel="Your rate for this pooled opportunity"
-        contextLine={`Applies to all ${targetsLabel} in this pool`}
-        submitLabel="Submit rate for pool"
+        targetRateInr={
+          singleTarget
+            ? Number(
+                members.find((m) => m.id === bidTargets?.[0])?.rate_offer ??
+                  summary.targetRateMin,
+              ) || summary.targetRateMin
+            : summary.targetRateMin
+        }
+        entryLabel={
+          singleTarget
+            ? "Your rate for this load"
+            : "Your rate for this pooled opportunity"
+        }
+        contextLine={
+          singleTarget
+            ? "Applies to this load only — other loads in the pool keep their rates."
+            : `Applies to all ${targetsLabel} in this pool`
+        }
+        submitLabel={singleTarget ? "Submit rate for load" : "Submit rate for pool"}
         confirmCopy={{
-          scopeNote: `Your rate will be submitted for all ${targetsLabel} in this pool. The shipper reviews bids; nothing is awarded until the shipper accepts.`,
+          scopeNote: singleTarget
+            ? "Your rate will be submitted for this load only. Other loads in the pool are unchanged. The shipper reviews bids; nothing is awarded until the shipper accepts."
+            : `Your rate will be submitted for all ${targetsLabel} in this pool. The shipper reviews bids; nothing is awarded until the shipper accepts.`,
           feeNote: (fee) =>
             `The Marketplace fee is per awarded load: you pay Pulse ${formatINR(fee)} for each load the shipper awards you at this rate.`,
-          successTitle: "Rate submitted for pool",
-          successSubtitle: `Your rate has been submitted for all ${plural(targetCount, "load")}.`,
+          successTitle: singleTarget
+            ? "Rate submitted for load"
+            : "Rate submitted for pool",
+          successSubtitle: singleTarget
+            ? "Your rate has been submitted for this load only."
+            : `Your rate has been submitted for all ${plural(targetCount, "load")}.`,
         }}
         validationError={bidError}
         onClearValidationError={() => setBidError(undefined)}
@@ -703,6 +797,63 @@ const styles = StyleSheet.create({
   },
   retryBtnText: {
     fontSize: 14,
+    fontWeight: "700",
+    color: Theme.buttonPrimaryText,
+  },
+  memberBlock: { gap: 10 },
+  memberTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    color: Theme.textSecondary,
+    textTransform: "uppercase",
+    ...WEB_COPY,
+  },
+  memberHint: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: Theme.textMuted,
+    ...WEB_COPY,
+  },
+  memberRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.surfaceBorder,
+    backgroundColor: Theme.cardWhite,
+  },
+  memberCopy: { flex: 1, minWidth: 0, gap: 2 },
+  memberLabel: {
+    fontSize: 11,
+    fontWeight: "500",
+    color: Theme.textMuted,
+    ...WEB_COPY,
+  },
+  memberValue: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: Theme.textPrimaryDark,
+    ...WEB_COPY,
+  },
+  memberSub: {
+    fontSize: 12,
+    color: Theme.textSecondary,
+    ...WEB_COPY,
+  },
+  memberCta: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minHeight: Layout.minTouchTargetSize,
+    justifyContent: "center",
+    borderRadius: 10,
+    backgroundColor: Theme.buttonPrimary,
+  },
+  memberCtaText: {
+    fontSize: 13,
     fontWeight: "700",
     color: Theme.buttonPrimaryText,
   },

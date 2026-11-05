@@ -24,7 +24,7 @@ import {
   describePoolCommitPending,
   usePoolCommitPreview,
 } from "@/features/network/utils/networkPoolCommitPreview.util";
-import { Layers } from "lucide-react-native";
+import { ChevronRight, Layers } from "lucide-react-native";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 const STATE_TONE: Record<NetworkBidMemberState, { bg: string; fg: string }> = {
@@ -39,10 +39,15 @@ const STATE_TONE: Record<NetworkBidMemberState, { bg: string; fg: string }> = {
 export function NetworkBidPoolCard({
   pool,
   onReviseBid,
+  onViewIndents,
+  showIndentsAction = true,
   viaStops = [],
 }: {
   pool: NetworkBidPool<NetworkPoolLoad>;
   onReviseBid?: () => void;
+  /** Open the pool's member indents (per-indent revise / different shipper targets). */
+  onViewIndents?: () => void;
+  showIndentsAction?: boolean;
   viaStops?: readonly string[];
 }) {
   const count = pool.members.length;
@@ -81,18 +86,32 @@ export function NetworkBidPoolCard({
             <Text style={styles.countPillText}>{loadsLabel.toUpperCase()}</Text>
           </View>
         </View>
-        <View
-          style={[
-            bidStyles.statePill,
-            { backgroundColor: tone?.bg ?? Theme.surface },
-          ]}
-        >
-          <Text
-            style={[bidStyles.statePillText, { color: tone?.fg ?? Theme.textSecondary }]}
-            numberOfLines={1}
+        <View style={bidStyles.topRight}>
+          {showIndentsAction && onViewIndents ? (
+            <Pressable
+              onPress={onViewIndents}
+              style={styles.view}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel={`View ${plural(count, "indent")} in this pool`}
+            >
+              <Text style={styles.viewText}>View {plural(count, "indent")}</Text>
+              <ChevronRight size={12} color={Theme.primary} strokeWidth={2.4} />
+            </Pressable>
+          ) : null}
+          <View
+            style={[
+              bidStyles.statePill,
+              { backgroundColor: tone?.bg ?? Theme.surface },
+            ]}
           >
-            {pillText.toUpperCase()}
-          </Text>
+            <Text
+              style={[bidStyles.statePillText, { color: tone?.fg ?? Theme.textSecondary }]}
+              numberOfLines={1}
+            >
+              {pillText.toUpperCase()}
+            </Text>
+          </View>
         </View>
       </View>
 
@@ -159,6 +178,13 @@ export function NetworkBidPoolCard({
 }
 
 const bidStyles = StyleSheet.create({
+  topRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 1,
+    justifyContent: "flex-end",
+  },
   statePill: {
     paddingHorizontal: 6,
     paddingVertical: 2,

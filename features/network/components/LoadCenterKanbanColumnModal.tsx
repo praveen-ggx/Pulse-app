@@ -393,7 +393,7 @@ export function LoadCenterKanbanColumnModal({
     () => filterNetworkLoadPools(networkPools.pools, appliedSearch),
     [networkPools, appliedSearch],
   );
-  const openPool = openPoolId
+  const openNetworkPool = openPoolId
     ? (networkPools.pools.find((p) => p.id === openPoolId) ?? null)
     : null;
 
@@ -422,6 +422,11 @@ export function LoadCenterKanbanColumnModal({
       bidPools ? bidPools.pools.filter((p) => p.members.some(shownInStage)) : [],
     [bidPools, shownInStage],
   );
+  const openBidPool = openPoolId
+    ? (bidPools?.pools.find((p) => p.id === openPoolId) ?? null)
+    : null;
+  /** Opened Network Loads pool, or opened My Bids pool (same id space / lane key). */
+  const openPool = openBidPool ?? openNetworkPool;
   const viaForPool = useCallback(
     (members: readonly IndentRow[]) =>
       viaStopsByIndentId
@@ -435,10 +440,11 @@ export function LoadCenterKanbanColumnModal({
 
   const filteredLoads = useMemo(() => {
     if (bidPools) {
+      if (openBidPool) return openBidPool.members.filter(shownInStage);
       return bidPools.individual.filter(shownInStage);
     }
     if (pooledMode) {
-      if (openPool) return openPool.members;
+      if (openNetworkPool) return openNetworkPool.members;
       return networkPools.unpooled.filter(
         (load) =>
           fieldEquals(load.pickup_area, appliedSearch?.pickup ?? "") &&
@@ -461,9 +467,10 @@ export function LoadCenterKanbanColumnModal({
     );
   }, [
     bidPools,
+    openBidPool,
     shownInStage,
     pooledMode,
-    openPool,
+    openNetworkPool,
     networkPools,
     searchFirst,
     searchReady,
@@ -486,8 +493,8 @@ export function LoadCenterKanbanColumnModal({
     `${column?.id ?? ""}:${activeTabId}:${searchQuery}:${pickupFilter}:${dropFilter}:${vehicleFilter}:${appliedSearch ? "s" : ""}:${openPoolId ?? ""}`,
   );
 
-  const showPoolList = pooledMode && !openPool;
-  const showBidPoolList = bidPools != null;
+  const showPoolList = pooledMode && !openNetworkPool;
+  const showBidPoolList = bidPools != null && !openBidPool;
   const columns = maxColumnsForWidth(width);
 
   const cellStyle = useMemo(() => {
@@ -917,19 +924,36 @@ export function LoadCenterKanbanColumnModal({
                 onPress={() => setOpenPoolId(null)}
                 style={styles.poolBack}
                 accessibilityRole="button"
-                accessibilityLabel="Back to all pools"
+                accessibilityLabel={
+                  openBidPool ? "Back to my bids" : "Back to all pools"
+                }
                 hitSlop={8}
               >
                 <FontAwesome name="chevron-left" size={11} color={Theme.primary} />
-                <Text style={styles.poolBackText}>All pools</Text>
+                <Text style={styles.poolBackText}>
+                  {openBidPool ? "My bids" : "All pools"}
+                </Text>
               </Pressable>
-              <NetworkLoadPoolCard
-                pool={openPool}
-                canQuote={canQuotePools}
-                showIndentsAction={false}
-                onQuote={() => onQuotePool?.(openPool)}
-                viaStops={viaForPool(openPool.members)}
-              />
+              {openBidPool ? (
+                <NetworkBidPoolCard
+                  pool={openBidPool}
+                  showIndentsAction={false}
+                  onReviseBid={
+                    onReviseBidPool
+                      ? () => onReviseBidPool(openBidPool)
+                      : undefined
+                  }
+                  viaStops={viaForPool(openBidPool.members)}
+                />
+              ) : openNetworkPool ? (
+                <NetworkLoadPoolCard
+                  pool={openNetworkPool}
+                  canQuote={canQuotePools}
+                  showIndentsAction={false}
+                  onQuote={() => onQuotePool?.(openNetworkPool)}
+                  viaStops={viaForPool(openNetworkPool.members)}
+                />
+              ) : null}
               <Text style={styles.poolSectionTitle}>
                 Indents in this pool
               </Text>
@@ -952,6 +976,7 @@ export function LoadCenterKanbanColumnModal({
                     onReviseBid={
                       onReviseBidPool ? () => onReviseBidPool(pool) : undefined
                     }
+                    onViewIndents={() => setOpenPoolId(pool.id)}
                     viaStops={viaForPool(pool.members)}
                   />
                 </View>
@@ -1051,7 +1076,8 @@ export function LoadCenterKanbanColumnModal({
               ]}
             >
               {visibleLoads.map((load) => {
-                const memberRenderer = pooledMode
+                const memberRenderer =
+                  pooledMode || openBidPool
                     ? renderPoolMemberCard
                     : null;
                 return (

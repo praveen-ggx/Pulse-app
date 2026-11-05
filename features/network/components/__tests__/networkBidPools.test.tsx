@@ -195,12 +195,16 @@ describe("My Bids: pooled Network quotes render as pools", () => {
     ]);
   });
 
-  it("the pool card does not open a detail view — only Revise bid is tappable", () => {
+  it("View indents opens the member list; Back returns to pool cards", () => {
     renderList();
-    fireEvent.press(screen.getByLabelText(NET_POOL_CARD));
-    expect(screen.queryByLabelText("Back to my bids")).toBeNull();
-    expect(screen.queryByText("Indents in this pool")).toBeNull();
+    fireEvent.press(screen.getByLabelText("View 2 indents in this pool"));
+    expect(screen.getByLabelText("Back to my bids")).toBeTruthy();
+    expect(screen.getByText("Indents in this pool")).toBeTruthy();
+    expect(screen.getByLabelText("Member IND-n1")).toBeTruthy();
+    expect(screen.getByLabelText("Member IND-n2")).toBeTruthy();
+    fireEvent.press(screen.getByLabelText("Back to my bids"));
     expect(bidPoolLabels()).toContain(NET_POOL_CARD);
+    expect(screen.queryByText("Indents in this pool")).toBeNull();
   });
 
   it("revises the pooled bid from the list card", () => {
@@ -211,7 +215,7 @@ describe("My Bids: pooled Network quotes render as pools", () => {
     expect(onRevisePool.mock.calls[0][0].id).toBe(NET_POOL_ID);
   });
 
-  it("pressing the pool card does not hand the pool to a detail view", () => {
+  it("pressing the pool card does not open the member list", () => {
     const onRevisePool = jest.fn();
     renderList({ onRevisePool });
     fireEvent.press(screen.getByLabelText(NET_POOL_CARD));

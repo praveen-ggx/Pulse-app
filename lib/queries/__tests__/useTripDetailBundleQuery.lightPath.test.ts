@@ -153,6 +153,68 @@ describe("fetchTripDetailBundle — delivered light path", () => {
     expect(bundle?.trip.id).toBe("trip-active");
   });
 
+  it("returns bundle without driver phone when driver_id is null", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "trips") {
+        return thenable({ data: { ...deliveredTrip, driver_id: null }, error: null });
+      }
+      if (table === "trip_finance_adjustments") return thenable({ data: [], error: null });
+      throw new Error(`unexpected table: ${table}`);
+    });
+
+    const bundle = await fetchTripDetailBundle("trip-delivered", "org-1", undefined, true);
+    expect(mockRpc).not.toHaveBeenCalledWith("get_trip_driver_phones", expect.anything());
+    expect(bundle?.driver).toBeNull();
+  });
+
+  it("falls back to drivers table when get_trip_driver_phones RPC fails", async () => {
+    mockRpc.mockImplementation((name: string) => {
+      if (name === "get_trip_driver_phones") {
+        return Promise.resolve({ data: null, error: { message: "function not found" } });
+      }
+      return thenable({ data: null, error: null });
+    });
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "trips") return thenable({ data: deliveredTrip, error: null });
+      if (table === "drivers") return thenable({ data: { phone: "1112223333" }, error: null });
+      if (table === "trip_finance_adjustments") return thenable({ data: [], error: null });
+      throw new Error(`unexpected table: ${table}`);
+    });
+
+    const bundle = await fetchTripDetailBundle("trip-delivered", "org-1", undefined, true);
+    expect(mockRpc).toHaveBeenCalledWith("get_trip_driver_phones", { p_trip_ids: ["trip-delivered"] });
+    expect(mockFrom).toHaveBeenCalledWith("drivers");
+    expect(bundle?.driver?.phone).toBe("1112223333");
+  });
+
+  it("swallows phone-fetch errors and returns driver with null phone", async () => {
+    mockRpc.mockImplementation((name: string) => {
+      if (name === "get_trip_driver_phones") {
+        return Promise.reject(new Error("network timeout"));
+      }
+      return thenable({ data: null, error: null });
+    });
+
+    const bundle = await fetchTripDetailBundle("trip-delivered", "org-1", undefined, true);
+    expect(bundle?.driver?.id).toBe("driver-1");
+    expect(bundle?.driver?.phone).toBeNull();
+  });
+
+  it("re-throws on abort signal cancellation during phone fetch", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    mockRpc.mockImplementation((name: string) => {
+      if (name === "get_trip_driver_phones") {
+        return Promise.resolve({ data: [{ trip_id: "trip-delivered", phone: "9876543210" }], error: null });
+      }
+      return thenable({ data: null, error: null });
+    });
+
+    await expect(
+      fetchTripDetailBundle("trip-delivered", "org-1", controller.signal, true),
+    ).rejects.toThrow();
+  });
+
   it("on bundle RPC failure still does not scan trip_documents or storage", async () => {
     mockRpc.mockReturnValue(thenable({ data: null, error: { message: "503" } }));
 

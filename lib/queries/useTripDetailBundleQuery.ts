@@ -8,7 +8,6 @@
  * to the existing direct-service code path. No schema changes required for rollback.
  */
 import { useQuery, type QueryClient } from '@tanstack/react-query';
-import { getTripDriverPhones } from '@/features/tripCompliance/services/tripDriverPhones.service';
 import { supabase } from '@/lib/supabase';
 import { throwIfCancelled, withAbortSignal } from '@/lib/supabaseAbort.util';
 import { queryKeys } from '@/lib/queryKeys';
@@ -321,11 +320,27 @@ async function composeLightTripDetailBundle(
   let phone: string | null = null;
   try {
     throwIfCancelled(signal);
-    const phones = await getTripDriverPhones([
-      { id: light.id, driver_id: driverId },
-    ]);
+    const { data: rpcRows, error: rpcErr } = await supabase().rpc(
+      'get_trip_driver_phones',
+      { p_trip_ids: [light.id] },
+    );
     throwIfCancelled(signal);
-    phone = phones.get(light.id)?.trim() || null;
+    if (!rpcErr && rpcRows) {
+      for (const row of rpcRows as { trip_id: string; phone: string | null }[]) {
+        if (row.trip_id === light.id && row.phone) phone = row.phone.trim() || null;
+      }
+    } else {
+      const { data: driverRow } = await withAbortSignal(
+        supabase()
+          .from('drivers')
+          .select('phone')
+          .eq('id', driverId)
+          .maybeSingle(),
+        signal,
+      );
+      throwIfCancelled(signal);
+      phone = driverRow?.phone?.trim() || null;
+    }
   } catch (err) {
     throwIfCancelled(
       signal,

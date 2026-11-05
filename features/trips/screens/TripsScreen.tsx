@@ -633,6 +633,16 @@ export default function TripsScreen() {
   const [hubLrPreviewByTripId, setHubLrPreviewByTripId] = useState<
     Record<string, string>
   >({});
+  /** LR labels for structural hub search (preview + hydrated document numbers). */
+  const [hubStructuralLrLabels, setHubStructuralLrLabels] = useState<
+    Record<string, string>
+  >({});
+  useEffect(() => {
+    setHubStructuralLrLabels((prev) => ({
+      ...prev,
+      ...hubLrPreviewByTripId,
+    }));
+  }, [hubLrPreviewByTripId]);
   const [hubLrDocPreview, setHubLrDocPreview] = useState<{
     files: VaultCategoryPreviewFile[];
     index: number;
@@ -1016,8 +1026,10 @@ export default function TripsScreen() {
         query: searchQuery,
         trips: hubTrips,
         organizationId: orgId,
+        lrLabelByTripId: hubStructuralLrLabels,
+        serverHitTripIds: hubSearchHitIds,
       }),
-    [searchQuery, hubTrips, orgId],
+    [searchQuery, hubTrips, orgId, hubStructuralLrLabels, hubSearchHitIds],
   );
   const indentSearchBestMatch = useMemo(() => {
     if (!searchQuery.trim() || indentHubSearchMatches.length === 0) return null;
@@ -1036,7 +1048,7 @@ export default function TripsScreen() {
     return bestTripHubSearchMatch(tripHubSearchMatches, stage);
   }, [searchQuery, tripHubSearchMatches]);
   /**
-   * Structural Indent/Trip ID / Vehicle search: stage ownership + scoped counts.
+   * Structural Indent/Trip ID / Vehicle / LR search: stage ownership + scoped counts.
    * Highlights matching stages and filters lists — never auto-switches tabs.
    */
   const hubSearchStageHint = useMemo((): HubSearchStageHint | null => {
@@ -1084,6 +1096,8 @@ export default function TripsScreen() {
         indentMatches: indentHubSearchMatches,
         tripsById: hubTripsById,
         organizationId: orgId,
+        lrLabelByTripId: hubStructuralLrLabels,
+        serverHitTripIds: hubSearchHitIds,
       }),
     [
       searchQuery,
@@ -1091,6 +1105,8 @@ export default function TripsScreen() {
       indentHubSearchMatches,
       hubTripsById,
       orgId,
+      hubStructuralLrLabels,
+      hubSearchHitIds,
     ],
   );
   const hubSearchScoped = useMemo(
@@ -1102,6 +1118,8 @@ export default function TripsScreen() {
         indentMatches: indentHubSearchMatches,
         tripsById: hubTripsById,
         organizationId: orgId,
+        lrLabelByTripId: hubStructuralLrLabels,
+        serverHitTripIds: hubSearchHitIds,
       }),
     [
       hubStructuralSearchMode,
@@ -1110,6 +1128,8 @@ export default function TripsScreen() {
       indentHubSearchMatches,
       hubTripsById,
       orgId,
+      hubStructuralLrLabels,
+      hubSearchHitIds,
     ],
   );
   const hubStructuralSearchActive = hubSearchScoped.mode !== "off";
@@ -1120,7 +1140,7 @@ export default function TripsScreen() {
         ? hubSearchStageHint.id
         : null;
   const tripSearchHighlightId =
-    hubSearchScoped.mode === "trip_id"
+    hubSearchScoped.mode === "trip_id" || hubSearchScoped.mode === "lr"
       ? [...hubSearchScoped.matchingTripIds][0] ?? null
       : null;
   const searchMatchedTripMetricIds = hubStructuralSearchActive
@@ -1698,6 +1718,14 @@ export default function TripsScreen() {
     () => searchNumberFlags?.ewayNumbersByTripId ?? ({} as Record<string, string>),
     [searchNumberFlags],
   );
+  // Keep structural search labels in sync once document numbers hydrate
+  // (declared after searchLrNumbers; state lives earlier for hook order).
+  useEffect(() => {
+    setHubStructuralLrLabels({
+      ...hubLrPreviewByTripId,
+      ...searchLrNumbersByTripId,
+    });
+  }, [hubLrPreviewByTripId, searchLrNumbersByTripId]);
 
   /**
    * Driver numbers for search. The drivers list only has this org's active fleet,

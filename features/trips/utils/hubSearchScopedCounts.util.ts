@@ -1,5 +1,5 @@
 /**
- * Trip Ops structural search (Indent ID / Trip ID / Vehicle): stage-scoped
+ * Trip Ops structural search (Indent ID / Trip ID / Vehicle / LR): stage-scoped
  * counts + matching ids. Never auto-navigates — callers only filter/highlight.
  */
 import type { IndentRow } from "@/features/indents/services/indents.service";
@@ -17,13 +17,17 @@ import {
   type TripHubSearchMatch,
   type TripHubSearchStage,
 } from "@/features/trips/utils/tripHubSearchStage.util";
-import { foldSearchToken } from "@/features/trips/utils/tripHubSearch.util";
+import {
+  foldSearchToken,
+  scoreTripLrHubSearchMatch,
+} from "@/features/trips/utils/tripHubSearch.util";
 
 export type HubStructuralSearchMode =
   | "off"
   | "indent_id"
   | "trip_id"
-  | "vehicle";
+  | "vehicle"
+  | "lr";
 
 export type HubSearchScopedCounts = {
   mode: HubStructuralSearchMode;
@@ -84,9 +88,16 @@ export function isStrongVehicleHubSearchScore(score: number): boolean {
   return score >= TRIP_HUB_SEARCH_STRONG_SCORE;
 }
 
+export function isStrongLrHubSearchScore(score: number): boolean {
+  return score >= TRIP_HUB_SEARCH_STRONG_SCORE;
+}
+
+/** Re-export for callers that already import vehicle scoring from this module. */
+export { scoreTripLrHubSearchMatch } from "@/features/trips/utils/tripHubSearch.util";
+
 /**
- * Classify Indent ID / Trip ID / Vehicle structural search.
- * Strong trip-code → trip_id; else strong indent → indent_id; else vehicle plate.
+ * Classify Indent ID / Trip ID / Vehicle / LR structural search.
+ * Strong trip-code → trip_id; else strong indent → indent_id; else LR; else vehicle.
  */
 export function resolveHubStructuralSearchMode(opts: {
   query: string;
@@ -94,6 +105,9 @@ export function resolveHubStructuralSearchMode(opts: {
   indentMatches: readonly IndentHubSearchMatch[];
   tripsById: ReadonlyMap<string, TripRow>;
   organizationId?: string | null;
+  lrLabelByTripId?: Readonly<Record<string, string>>;
+  /** Trips from search_trips_for_org (includes LR document hits). */
+  serverHitTripIds?: ReadonlySet<string>;
 }): HubStructuralSearchMode {
   const q = opts.query.trim();
   if (q.length < 2) return "off";
@@ -101,6 +115,10 @@ export function resolveHubStructuralSearchMode(opts: {
   let bestCode = 0;
   let bestIndent = 0;
   let strongVehicle = false;
+  let strongLr = false;
+  let provisionalServerLr = false;
+  const lrMap = opts.lrLabelByTripId ?? {};
+  const serverHits = opts.serverHitTripIds;
 
   for (const row of opts.tripMatches) {
     const trip = opts.tripsById.get(row.tripId);
@@ -114,6 +132,18 @@ export function resolveHubStructuralSearchMode(opts: {
     ) {
       strongVehicle = true;
     }
+    const lrLabel =
+      lrMap[trip.id.trim().toLowerCase()] ?? lrMap[trip.id] ?? "";
+    if (isStrongLrHubSearchScore(scoreTripLrHubSearchMatch(lrLabel, q))) {
+      strongLr = true;
+    } else if (
+      serverHits?.has(trip.id) &&
+      row.score >= TRIP_HUB_SEARCH_STRONG_SCORE &&
+      /[a-z]/i.test(q)
+    ) {
+      // Letter+digit queries (e.g. AI1050) from server search before LR labels hydrate.
+      provisionalServerLr = true;
+    }
   }
   for (const row of opts.indentMatches) {
     bestIndent = Math.max(bestIndent, row.score);
@@ -121,7 +151,12 @@ export function resolveHubStructuralSearchMode(opts: {
 
   if (bestCode >= TRIP_HUB_SEARCH_STRONG_SCORE) return "trip_id";
   if (bestIndent >= INDENT_HUB_SEARCH_STRONG_SCORE) return "indent_id";
+  // Prefer confirmed LR labels, then vehicle plates, then provisional server LR
+  // (letter+digit queries before document numbers hydrate). Vehicle must beat
+  // provisional so plates like TN52AJ8388 stay in vehicle mode.
+  if (strongLr) return "lr";
   if (strongVehicle) return "vehicle";
+  if (provisionalServerLr) return "lr";
   return "off";
 }
 
@@ -133,6 +168,8 @@ export function buildHubSearchScopedCounts(opts: {
   tripsById: ReadonlyMap<string, TripRow>;
   organizationId?: string | null;
   tripIdsWithAnyDocument?: ReadonlySet<string>;
+  lrLabelByTripId?: Readonly<Record<string, string>>;
+  serverHitTripIds?: ReadonlySet<string>;
 }): HubSearchScopedCounts {
   const empty: HubSearchScopedCounts = {
     mode: "off",
@@ -153,6 +190,7 @@ export function buildHubSearchScopedCounts(opts: {
   const matchingIndentIds = new Set<string>();
   const docs = opts.tripIdsWithAnyDocument ?? new Set<string>();
   const q = opts.query.trim();
+  const lrMap = opts.lrLabelByTripId ?? {};
 
   if (opts.mode === "indent_id") {
     let best: IndentHubSearchMatch | null = null;
@@ -174,6 +212,34 @@ export function buildHubSearchScopedCounts(opts: {
       const code = scoreTripCodeHubSearchMatch(trip, q, opts.organizationId);
       if (code < TRIP_HUB_SEARCH_STRONG_SCORE) continue;
       const ranked = { ...row, score: code };
+      if (!best || ranked.score > best.score) best = ranked;
+    }
+    if (best) {
+      matchingTripIds.add(best.tripId);
+      metricCounts[best.stage] = 1;
+    }
+  } else if (opts.mode === "lr") {
+    // Same as trip id: one best LR hit on its owning stage (no auto-nav).
+    let best: TripHubSearchMatch | null = null;
+    for (const row of opts.tripMatches) {
+      const trip = opts.tripsById.get(row.tripId);
+      if (!trip) continue;
+      const lrLabel =
+        lrMap[trip.id.trim().toLowerCase()] ?? lrMap[trip.id] ?? "";
+      const lrScore = scoreTripLrHubSearchMatch(lrLabel, q);
+      const provisional =
+        !isStrongLrHubSearchScore(lrScore) &&
+        opts.serverHitTripIds?.has(trip.id) === true &&
+        row.score >= TRIP_HUB_SEARCH_STRONG_SCORE &&
+        /[a-z]/i.test(q);
+      const effective = isStrongLrHubSearchScore(lrScore)
+        ? lrScore
+        : provisional
+          ? row.score
+          : 0;
+      if (effective < TRIP_HUB_SEARCH_STRONG_SCORE) continue;
+      const stage = tripHubSearchStageForTrip(trip, docs) ?? row.stage;
+      const ranked = { ...row, stage, score: effective };
       if (!best || ranked.score > best.score) best = ranked;
     }
     if (best) {
@@ -264,7 +330,9 @@ export function hubTripViewShowsStructuralMatch(opts: {
   activeMetricTab: string;
   matchingTripMetrics: ReadonlySet<TripMetricId | "all">;
 }): boolean {
-  if (opts.mode !== "trip_id" && opts.mode !== "vehicle") return false;
+  if (opts.mode !== "trip_id" && opts.mode !== "vehicle" && opts.mode !== "lr") {
+    return false;
+  }
   if (opts.tripFilter === "History") {
     return opts.matchingTripMetrics.has("delivered_docs_pending");
   }
@@ -284,7 +352,9 @@ export function filterIndentsForHubStructuralSearch(opts: {
   viewCanShowIndents: boolean;
 }): IndentRow[] {
   if (opts.mode === "off") return [...opts.list];
-  if (opts.mode === "trip_id" || opts.mode === "vehicle") return [];
+  if (opts.mode === "trip_id" || opts.mode === "vehicle" || opts.mode === "lr") {
+    return [];
+  }
   if (!opts.viewCanShowIndents) return [];
   const out = opts.list.filter((indent) =>
     opts.matchingIndentIds.has(indent.id),

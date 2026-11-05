@@ -234,8 +234,8 @@ import { ReassignSheet } from "../reassign/ReassignSheet";
 import { WaitingForDriverLocationOverlay } from "../reassign/WaitingForDriverLocationOverlay";
 import { useReassignMigrationGate } from "@/features/trips/hooks/useReassignMigrationGate";
 import { setInitialTripForDetail } from "@/features/trips/initialTripForDetail";
-import { bootstrapAssignmentFleet } from "@/features/trips/utils/assignmentFleetBootstrap";
-import { setAssignmentSessionSeed } from "@/features/trips/utils/assignmentSessionSeed";
+import { bootstrapAssignmentFleet } from "@/features/trips/utils/assignmentFleetBootstrap.util";
+import { setAssignmentSessionSeed } from "@/features/trips/utils/assignmentSessionSeed.util";
 
 function vaultPreviewStoragePath(doc: TripDocItem): string | null {
   const primary = doc.storagePath?.trim();
@@ -1636,7 +1636,7 @@ export default function TripDetailScreen({
     };
   }, [pendingVaultUpload?.docType, pendingLrNumber, detail.trip?.id]);
 
-  const [lrOcrReading, setLrOcrReading] = useState(false);
+  const [_lrOcrReading, setLrOcrReading] = useState(false);
   const lrOcrAttemptedRef = useRef<string | null>(null);
   const [addDocChooserVisible, setAddDocChooserVisible] = useState(false);
   const [tripDetailsVisible, setTripDetailsVisible] = useState(false);

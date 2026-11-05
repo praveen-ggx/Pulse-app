@@ -70,7 +70,7 @@ import {
   isIntegratedSupplierRow,
 } from "@/features/trips/visibility/tripVisibility";
 import { formatIndianVehicleNumber } from "@/lib/format";
-import { peekAssignmentSessionSeed } from "@/features/trips/utils/assignmentSessionSeed";
+import { peekAssignmentSessionSeed } from "@/features/trips/utils/assignmentSessionSeed.util";
 import {
     useShipperDisplayNamesQuery,
     useTransactionsQuery,

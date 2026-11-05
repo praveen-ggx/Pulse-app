@@ -15,8 +15,36 @@ import {
 } from '@/features/invoicing/services/invoiceTax.service';
 import type { AdditionalCharge, InvoiceConfig, InvoicingTripView } from '@/features/invoicing/services/invoicing.service';
 import type { InvoiceDraftClientRow } from '@/features/invoicing/services/invoicePreviewClients.service';
-import { splitChargesForInvoiceTrips } from '@/features/invoicing/services/invoiceCnDn.service';
 import { formatInvoiceAmountInWords } from '@/features/invoicing/utils/invoiceAmountInWords.util';
+
+function normTripId(id: string | null | undefined): string {
+  return id == null ? '' : String(id).trim().toLowerCase();
+}
+
+function chargeBelongsToTrip(
+  charge: AdditionalCharge,
+  trip: InvoicingTripView,
+): boolean {
+  const id = normTripId(charge.tripId);
+  if (!id) return false;
+  return id === normTripId(trip.internal_id) || id === normTripId(trip.id);
+}
+
+function splitChargesForInvoiceTrips(
+  charges: AdditionalCharge[],
+  trips: InvoicingTripView[],
+): { byTripKey: Map<string, AdditionalCharge[]>; unassigned: AdditionalCharge[] } {
+  const byTripKey = new Map<string, AdditionalCharge[]>();
+  const assigned = new Set<string>();
+  for (const trip of trips) {
+    const key = trip.internal_id || trip.id;
+    const list = charges.filter((c) => chargeBelongsToTrip(c, trip));
+    for (const c of list) assigned.add(c.id);
+    byTripKey.set(key, list);
+  }
+  const unassigned = charges.filter((c) => !assigned.has(c.id));
+  return { byTripKey, unassigned };
+}
 
 export const INVOICE_DRAFT_NUMBER_LABEL = 'DRAFT' as const;
 export const INVOICE_DRAFT_NUMBER_CAPTION = 'Invoice number assigned on issue';

@@ -31,7 +31,7 @@ import {
 } from "@/features/tripCompliance/components/ComplianceMobileChrome";
 import { ComplianceSegmentedFilter } from "@/features/tripCompliance/components/ComplianceSegmentedFilter";
 import { isComplianceMobileViewport } from "@/features/tripCompliance/utils/complianceMobileLayout.util";
-import { HubMobileUnderlineTab, HUB_MOBILE_LIST_CANVAS_BG, hubMobileChromeStyles as hubChrome } from "@/components/hub";
+import { HubMobileUnderlineTab, HUB_MOBILE_LIST_CANVAS_BG } from "@/components/hub";
 import { ComplianceTripsTable } from "@/features/tripCompliance/components/ComplianceTripsTable";
 import { DebitControlTripsTable } from "@/features/tripCompliance/components/DebitControlTripsTable";
 import {
@@ -88,7 +88,6 @@ import {
 } from "@/features/tripCompliance/utils/complianceAdvanceProcessedExport.util";
 import { sortAdvanceProcessedSummaries } from "@/features/tripCompliance/utils/complianceAdvanceProcessedSort.util";
 import {
-    COMPLIANCE_FILTER_COUNT_TONE,
     COMPLIANCE_STAGE_TONE,
     matchesComplianceTripSearch,
     supplierComplianceSearchLabels,
@@ -172,7 +171,7 @@ type HoverPressState = { pressed: boolean; hovered?: boolean };
 const WEB_POINTER: ViewStyle | null =
   Platform.OS === "web" ? ({ cursor: "pointer" } as ViewStyle) : null;
 
-function StageChip({
+function _StageChip({
   label,
   count,
   countColor,

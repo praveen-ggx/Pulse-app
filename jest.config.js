@@ -68,6 +68,8 @@ module.exports = {
         // auto-mock convention would find __mocks__/@sentry/react-native.js on
         // its own; mapping it explicitly keeps the dependency visible here.
         '^@sentry/react-native$': '<rootDir>/__mocks__/@sentry/react-native.js',
+        '^react-native-svg$': '<rootDir>/__mocks__/react-native-svg.js',
+        '^lucide-react-native$': '<rootDir>/__mocks__/lucide-react-native.js',
       },
       // moti / react-native-reanimated / lottie ship untranspiled ESM, so they
       // must be transformed rather than passed through — otherwise any test

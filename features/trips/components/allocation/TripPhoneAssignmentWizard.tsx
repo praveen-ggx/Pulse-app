@@ -56,7 +56,7 @@ import {
   bootstrapAssignmentFleet,
   peekAssignmentFleet,
   type AssignmentFleetSnapshot,
-} from "@/features/trips/utils/assignmentFleetBootstrap";
+} from "@/features/trips/utils/assignmentFleetBootstrap.util";
 import { isSameDriverPhone } from "@/features/trips/utils/reassignChangeDetection.util";
 import {
   formatIndianVehicleNumber,

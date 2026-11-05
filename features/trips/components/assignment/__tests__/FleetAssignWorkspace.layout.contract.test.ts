@@ -11,7 +11,7 @@ describe("Fleet assign stays a full-page workspace", () => {
     expect(src).not.toMatch(/layout\s*=\s*["']popup["']/);
     expect(src).toContain("wizardStep");
     expect(src).toContain("panelScope");
-    expect(src).toContain("Save assignment");
+    expect(src).toContain("saveAssignment");
     expect(src).toContain("Continue");
   });
 

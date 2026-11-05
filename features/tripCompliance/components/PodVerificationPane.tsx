@@ -1,5 +1,5 @@
+import { PartyAvatar } from "@/components/PartyAvatar";
 import { AdjustableSplitLayout } from "@/components/layout/AdjustableSplitLayout";
-import { AlertRegistrySignalCard } from "@/components/AlertRegistrySignalCard";
 import {
   RegistryCardActions,
   RegistryGhostButton,
@@ -8,7 +8,6 @@ import {
 import { ThemedConfirmModal } from "@/components/ThemedConfirmModal";
 import Theme from "@/constants/Theme";
 import { ComplianceActivityLogButton } from "@/features/tripCompliance/components/ComplianceTripActivityLog";
-import { NoDocumentPreviewEmpty } from "@/features/tripCompliance/components/ComplianceEmptyState";
 import { PodCopyWatermark } from "@/features/tripCompliance/components/PodCopyWatermark";
 import { TripVaultFilePreview } from "@/features/trips/components/trip-detail/TripVaultFilePreview";
 import {
@@ -82,7 +81,8 @@ import { VaultChooserNotifyRow } from "@/features/trips/components/trip-detail/V
 import { HardCopyPodDateField } from "@/features/trips/components/trip-detail/HardCopyPodDateField";
 import { fetchComplianceAdvanceFinanceBreakdown } from "@/features/tripCompliance/services/complianceAdvanceFinanceBreakdown.service";
 import { fetchTripCostLedgerPaid } from "@/features/tripCompliance/services/tripComplianceRead.service";
-import { signCompliancePreviewUrl } from "@/features/tripCompliance/services/complianceDocumentView.service";
+import { invalidateCompliancePreviewCache, signCompliancePreviewUrl } from "@/features/tripCompliance/services/complianceDocumentView.service";
+import { pickComplianceVaultFiles } from "@/features/tripCompliance/services/complianceVaultUpload.service";
 import type { ComplianceListTripFacts } from "@/features/tripCompliance/services/complianceListFacts.service";
 import { fetchTripDocumentsForTrips } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
@@ -90,17 +90,24 @@ import {
   podVerificationFiles,
   podVerificationKind,
   podVerificationLabel,
+  pulseHardCopyFileName,
   type PodVerificationFile,
 } from "@/features/tripCompliance/utils/podVerificationDocuments.util";
-import { getDocumentsByTripId } from "@/features/trips/services/tripDocuments.service";
+import {
+  deleteTripDocument,
+  getDocumentsByTripId,
+  uploadTripDocument,
+  type TripDocumentRow,
+} from "@/features/trips/services/tripDocuments.service";
 import { ComplianceHardCopyPodSheet } from "@/features/tripCompliance/components/ComplianceHardCopyPodSheet";
 import type { HardCopyPodLrOption } from "@/features/trips/components/trip-detail/LogHardCopyPodModal";
 import Feather from "@expo/vector-icons/Feather";
-import { ChevronLeft, ChevronRight, Maximize2, Minus, Plus, RefreshCw, RotateCwSquare } from "lucide-react-native";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronLeft, Clock, Hand, Maximize2, Minus, Pencil, Plus, RotateCwSquare, Scan, Trash2, Upload } from "lucide-react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -131,14 +138,22 @@ function moneyFromLog(raw: string): number {
   return Number.isFinite(value) && value > 0 ? Math.round(value * 100) / 100 : 0;
 }
 
-function applyExceptionLog(base: PodChargeLines, log: PodExceptionLogDraft): PodChargeLines {
+function applyExceptionLog(
+  base: PodChargeLines,
+  log: PodExceptionLogDraft,
+  side: "client" | "vendor",
+): PodChargeLines {
+  const text = (clientKey: keyof PodExceptionLogDraft, vendorKey: keyof PodExceptionLogDraft) =>
+    side === "vendor" ? log[vendorKey] : log[clientKey];
+  const apply = (current: number, raw: string) => (raw.trim() === "" ? current : moneyFromLog(raw));
   return {
     ...base,
-    loading: log.loading.trim() === "" ? base.loading : moneyFromLog(log.loading),
-    unloading: log.unloading.trim() === "" ? base.unloading : moneyFromLog(log.unloading),
-    damage: log.damage.trim() === "" ? base.damage : moneyFromLog(log.damage),
-    productMissing: log.productMissing.trim() === "" ? base.productMissing : moneyFromLog(log.productMissing),
-    delay: log.delay.trim() === "" ? base.delay : moneyFromLog(log.delay),
+    loading: apply(base.loading, text("loading", "loadingVendor")),
+    unloading: apply(base.unloading, text("unloading", "unloadingVendor")),
+    damage: apply(base.damage, text("damage", "damageVendor")),
+    productMissing: apply(base.productMissing, text("productMissing", "productMissingVendor")),
+    delay: apply(base.delay, text("delay", "delayVendor")),
+    halting: apply(base.halting, text("halting", "haltingVendor")),
   };
 }
 
@@ -197,17 +212,32 @@ export function PodVerificationPane({
   onOpenActivityLog?: () => void;
 }) {
   const [liveFiles, setLiveFiles] = useState<PodVerificationFile[]>([]);
+  const [droppedFileIds, setDroppedFileIds] = useState<Set<string>>(() => new Set());
   const files = useMemo(() => {
-    const fromSummary = podVerificationFiles(summary.documents);
-    if (fromSummary.length === 0) return liveFiles;
-    const seen = new Set(fromSummary.map((file) => file.id));
-    return [...fromSummary, ...liveFiles.filter((file) => !seen.has(file.id))];
-  }, [liveFiles, summary.documents]);
+    const fromSummary = podVerificationFiles(summary.documents).filter(
+      (file) => !droppedFileIds.has(file.id),
+    );
+    const liveById = new Map(liveFiles.map((file) => [file.id, file]));
+    const base = fromSummary.length === 0 ? liveFiles : fromSummary;
+    const seen = new Set<string>();
+    const merged: PodVerificationFile[] = [];
+    for (const file of base) {
+      if (droppedFileIds.has(file.id)) continue;
+      seen.add(file.id);
+      merged.push(liveById.get(file.id) ?? file);
+    }
+    for (const file of liveFiles) {
+      if (seen.has(file.id) || droppedFileIds.has(file.id)) continue;
+      merged.push(file);
+    }
+    return merged;
+  }, [droppedFileIds, liveFiles, summary.documents]);
 
   useEffect(() => {
     const tripId = summary.trip.id;
     let cancelled = false;
     setLiveFiles([]);
+    setDroppedFileIds(new Set());
     void (async () => {
       const byTrip = await fetchTripDocumentsForTrips([tripId]);
       let next = podVerificationFiles(byTrip.get(tripId) ?? []);
@@ -239,10 +269,15 @@ export function PodVerificationPane({
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const [exceptionLog, setExceptionLog] = useState<PodExceptionLogDraft>(EMPTY_POD_EXCEPTION_LOG);
+  const exceptionLogRef = useRef(exceptionLog);
+  exceptionLogRef.current = exceptionLog;
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
-  const [toolLabel, setToolLabel] = useState<string | null>(null);
+  const [, setToolLabel] = useState<string | null>(null);
   const [screenOpen, setScreenOpen] = useState(false);
+  const [fileBusy, setFileBusy] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [confirmDeleteFile, setConfirmDeleteFile] = useState(false);
   const [savedLocal, setSavedLocal] = useState(false);
   const [editingSaved, setEditingSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -261,9 +296,9 @@ export function PodVerificationPane({
   const [selectedNote, setSelectedNote] = useState<TripAdjustment | null>(null);
 
   useEffect(() => {
-    setMobilePane("work");
+    setMobilePane(previewOnly ? "preview" : "work");
     setSelectedNote(null);
-  }, [summary.trip.id]);
+  }, [previewOnly, summary.trip.id]);
   const [provisionDraft, setProvisionDraft] = useState<PodCnDnDraft | null>(null);
   const [provisionPreset, setProvisionPreset] = useState<{
     type?: TripAdjustmentType;
@@ -326,6 +361,108 @@ export function PodVerificationPane({
   const releaseSettlement = useReleasePodSettlementMutation(organizationId || null, actorId);
 
   const active = files.find((file) => file.id === activeId) ?? files[0] ?? null;
+  const canEditFiles = canManage && Boolean(actorId);
+
+  const reloadPodFiles = useCallback(async () => {
+    const listed = await getDocumentsByTripId(summary.trip.id, {
+      includeOcr: false,
+      includeStorageFallback: true,
+    });
+    const next = podVerificationFiles(
+      (listed.documents ?? []).map((doc) => ({
+        id: doc.id,
+        document_type: doc.document_type,
+        file_name: doc.file_name,
+        storage_path: doc.storage_path,
+        mime_type: doc.mime_type,
+      })),
+    );
+    setDroppedFileIds(new Set());
+    setLiveFiles(next);
+    return next;
+  }, [summary.trip.id]);
+
+  const uploadPodFiles = useCallback(
+    async (mode: "add" | "replace") => {
+      if (!actorId || fileBusy) return;
+      const target = active;
+      if (mode === "replace" && !target?.storage_path) return;
+      setFileError(null);
+      setFileBusy(true);
+      try {
+        const picked = await pickComplianceVaultFiles("pod");
+        const batch = mode === "replace" ? picked.slice(0, 1) : picked;
+        if (batch.length === 0) return;
+        let lastId = target?.id ?? null;
+        const hardCopy = !target || podVerificationKind(target) === "hard";
+        for (const [index, file] of batch.entries()) {
+          const replacing = mode === "replace" && index === 0 && target ? target : null;
+          const { doc, error } = await uploadTripDocument(
+            summary.trip.id,
+            actorId,
+            {
+              arrayBuffer: file.arrayBuffer,
+              fileName: hardCopy ? pulseHardCopyFileName(file.fileName) : file.fileName,
+              mimeType: file.mimeType,
+            },
+            "pod",
+            undefined,
+            replacing
+              ? { replaceDocumentId: replacing.id, organizationId }
+              : { organizationId },
+          );
+          if (error || !doc) {
+            setFileError(error?.message || "Could not save the POD file.");
+            break;
+          }
+          lastId = doc.id;
+          if (replacing?.storage_path) invalidateCompliancePreviewCache([replacing.storage_path]);
+        }
+        const next = await reloadPodFiles();
+        const focus = next.find((file) => file.id === lastId) ?? next[next.length - 1] ?? null;
+        setActiveId(focus?.id ?? null);
+        setPreviewUrl(null);
+        await onChanged(summary.trip.id);
+      } catch (err) {
+        setFileError(err instanceof Error ? err.message : "Could not save the POD file.");
+      } finally {
+        setFileBusy(false);
+      }
+    },
+    [active, actorId, fileBusy, onChanged, organizationId, reloadPodFiles, summary.trip.id],
+  );
+
+  const deleteActivePodFile = useCallback(async () => {
+    if (!active?.storage_path || fileBusy) return;
+    setFileError(null);
+    setFileBusy(true);
+    try {
+      const row: TripDocumentRow = {
+        id: active.id,
+        trip_id: summary.trip.id,
+        file_name: active.file_name?.trim() || "pod",
+        storage_path: active.storage_path,
+        mime_type: active.mime_type ?? null,
+        size_bytes: null,
+        uploaded_at: new Date(0).toISOString(),
+        uploaded_by: actorId,
+        document_type: "pod",
+      };
+      const { error } = await deleteTripDocument(row);
+      if (error) {
+        setFileError(error.message);
+        return;
+      }
+      invalidateCompliancePreviewCache([active.storage_path]);
+      setDroppedFileIds((current) => new Set(current).add(active.id));
+      setLiveFiles((current) => current.filter((file) => file.id !== active.id));
+      setPreviewUrl(null);
+      setConfirmDeleteFile(false);
+      await onChanged(summary.trip.id);
+    } finally {
+      setFileBusy(false);
+    }
+  }, [active, actorId, fileBusy, onChanged, summary.trip.id]);
 
   useEffect(() => {
     setActiveId(files[0]?.id ?? null);
@@ -366,14 +503,21 @@ export function PodVerificationPane({
     const client = loaded.data.clientCharges;
     const vendor = loaded.data.vendorCharges;
     if (!client && !vendor && !loaded.data.deliveryDate) return;
-    const draft = chargeDraftFromLines(client ?? vendor ?? EMPTY_CHARGE_LINES);
-    const other = chargeDraftFromLines(vendor ?? client ?? EMPTY_CHARGE_LINES);
+    const clientDraft = chargeDraftFromLines(client ?? EMPTY_CHARGE_LINES);
+    const vendorDraft = chargeDraftFromLines(vendor ?? EMPTY_CHARGE_LINES);
     setExceptionLog({
-      loading: draft.loading || other.loading,
-      unloading: draft.unloading || other.unloading,
-      damage: draft.damage || other.damage,
-      productMissing: draft.productMissing || other.productMissing,
-      delay: draft.delay || other.delay,
+      loading: client ? clientDraft.loading : "",
+      loadingVendor: vendor ? vendorDraft.loading : "",
+      unloading: client ? clientDraft.unloading : "",
+      unloadingVendor: vendor ? vendorDraft.unloading : "",
+      damage: client ? clientDraft.damage : "",
+      damageVendor: vendor ? vendorDraft.damage : "",
+      productMissing: client ? clientDraft.productMissing : "",
+      productMissingVendor: vendor ? vendorDraft.productMissing : "",
+      delay: client ? clientDraft.delay : "",
+      delayVendor: vendor ? vendorDraft.delay : "",
+      halting: client ? clientDraft.halting : "",
+      haltingVendor: vendor ? vendorDraft.halting : "",
       actualDeliveryDate: isoDay(loaded.data.deliveryDate),
     });
   }, [loaded.data, summary.trip.id]);
@@ -484,12 +628,17 @@ export function PodVerificationPane({
   const canValidatePod = !busy;
 
   const buildTripInput = () => {
+    const log = exceptionLogRef.current;
+    const markedNoDebit =
+      kindsFromDraft(log).length === 0 &&
+      (exceptionLogExplicitlyClear(log) ||
+        !podDebitIdentified(loaded.data?.clientCharges, loaded.data?.vendorCharges));
     const clientBase = loaded.data?.clientCharges ?? chargeLinesFromBase(Number(summary.trip.client_price) || 0);
     const vendorBase = loaded.data?.vendorCharges ?? chargeLinesFromBase(Number(summary.trip.supplier_rate) || 0);
     return {
       tripId: summary.trip.id,
-      remarks: noDebit ? "No debit" : "",
-      noDebit,
+      remarks: markedNoDebit ? "No debit" : "",
+      noDebit: markedNoDebit,
       clientInvoiceNumber: loaded.data?.invoiceNumber ?? null,
       tripStartDate:
         isoDay(loaded.data?.tripStartDate) ||
@@ -497,13 +646,13 @@ export function PodVerificationPane({
         isoDay(summary.trip.started_at) ||
         null,
       deliveryDate:
-        isoDay(exceptionLog.actualDeliveryDate) ||
+        isoDay(log.actualDeliveryDate) ||
         isoDay(loaded.data?.deliveryDate) ||
         isoDay(summary.trip.completed_at) ||
         null,
       dispatchDate: isoDay(loaded.data?.dispatchDate) || null,
-      client: applyExceptionLog(clientBase, exceptionLog),
-      vendor: applyExceptionLog(vendorBase, exceptionLog),
+      client: applyExceptionLog(clientBase, log, "client"),
+      vendor: applyExceptionLog(vendorBase, log, "vendor"),
     };
   };
 
@@ -852,6 +1001,7 @@ export function PodVerificationPane({
         style={styles.previewCol}
         contentContainerStyle={[
           styles.previewContent,
+          !mobileExclusive && styles.previewContentFill,
           workLayout && styles.previewContentStacked,
           mobileExclusive && styles.previewContentMobile,
         ]}
@@ -888,11 +1038,11 @@ export function PodVerificationPane({
                 ? "Revised sale and cost after CN / DN, plus POD charges that are still not adjusted."
                 : settlementMode
                   ? isAssetExecution
-                    ? "Post client sale (revenue) and driver pay CN / DN. Own-fleet trips have no vendor payable."
-                    : "Post client sale (revenue) and vendor cost CN / DN with the same provision adjust flow as trip finance."
+                    ? "Post client sale and driver pay. Own-fleet trips have no vendor payable."
+                    : "Post the client sale and the vendor cost from this POD."
                   : previewOnly
-                    ? "Preview the hard-copy scan from Log Bulk POD or Log POD."
-                    : "Only POD uploaded as soft copy or from Log Hard Copy POD"}
+                    ? "Preview the hard-copy scan, then log how it was received."
+                    : "Choose a copy, confirm who received it, then validate."}
           </Text>
         </View>
         {settlementMode ? filePicker : null}
@@ -920,45 +1070,51 @@ export function PodVerificationPane({
             ) : null}
           </View>
           {logged ? (
-            <AlertRegistrySignalCard
-              variant="feed"
-              isUnread={!hard.received}
-              avatar={{
-                name: courierLogged ? "Courier" : "Person",
-                entityType: courierLogged ? "supplier" : "driver",
-                initialsColorSeed: courierLogged ? "hard-copy-courier" : "hard-copy-person",
-              }}
-              avatarSlot={
-                <View
-                  style={[
-                    styles.methodIcon,
-                    hard.received ? styles.methodIconOn : styles.methodIconIdle,
-                  ]}
-                >
-                  <Feather
-                    name={courierLogged ? "package" : "user"}
-                    size={16}
-                    color={Theme.textPrimaryDark}
-                  />
+            <View style={styles.receiptPanel}>
+              <View style={styles.receiptTop}>
+                <PartyAvatar
+                  name={courierLogged ? hard.courier?.trim() || "Courier" : hard.receivedBy?.trim() || "Desk"}
+                  entityType={courierLogged ? "supplier" : "driver"}
+                  initialsColorSeed={courierLogged ? hard.courier || "courier" : hard.receivedBy || "desk"}
+                  size={40}
+                />
+                <View style={styles.receiptCopy}>
+                  <Text style={styles.receiptName} numberOfLines={1}>
+                    {courierLogged ? hard.courier?.trim() || "Courier" : hard.receivedBy?.trim() || "Desk"}
+                  </Text>
+                  <Text style={styles.receiptRole} numberOfLines={1}>
+                    {courierLogged ? "Received by courier" : "Received in person"}
+                  </Text>
                 </View>
-              }
-              actorName={courierLogged ? "Received by Courier" : "Received by Person"}
-              actionText={courierLogged ? "dispatched via courier" : "handed over in person"}
-              timeLabel={hard.received ? "Received" : "Logged"}
-              contextLabel="Hard copy"
-              statusPill={{
-                label: hard.received ? "Received" : "In transit",
-                tone: hard.received ? "success" : "warning",
-              }}
-              detailTitle={courierLogged ? hard.courier ?? "Courier" : hard.receivedBy ?? "Desk"}
-              detailSubtitle={[
-                lrLabel !== "—" ? `LR ${lrLabel}` : null,
-                hard.awbNumber?.trim() ? `AWB ${hard.awbNumber.trim()}` : null,
-                formatPodDate(hard.receivedAt),
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            />
+                <View style={[styles.receiptPill, hard.received ? styles.receiptPillOn : styles.receiptPillWait]}>
+                  <Text style={[styles.receiptPillText, hard.received ? styles.receiptPillTextOn : styles.receiptPillTextWait]}>
+                    {hard.received ? "Received" : "In transit"}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.receiptFacts}>
+                <View style={styles.receiptFact}>
+                  <Text style={styles.receiptFactLabel}>LR</Text>
+                  <Text style={styles.receiptFactValue} numberOfLines={1}>
+                    {lrLabel}
+                  </Text>
+                </View>
+                <View style={styles.receiptFact}>
+                  <Text style={styles.receiptFactLabel}>When</Text>
+                  <Text style={styles.receiptFactValue} numberOfLines={1}>
+                    {formatPodDate(hard.receivedAt) || "—"}
+                  </Text>
+                </View>
+                {hard.awbNumber?.trim() ? (
+                  <View style={styles.receiptFact}>
+                    <Text style={styles.receiptFactLabel}>AWB</Text>
+                    <Text style={styles.receiptFactValue} numberOfLines={1}>
+                      {hard.awbNumber.trim()}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            </View>
           ) : (
             <View style={[styles.logEmpty, mobileExclusive && styles.logEmptyMobile]}>
               <Text style={styles.logEmptyText}>
@@ -1058,13 +1214,17 @@ export function PodVerificationPane({
                 Settlement sent this trip back. Update the POD charges, then Validated to return it to Settlement Verification.
               </Text>
             ) : null}
+            <View style={styles.workFill}>
             <PodExceptionLogCard
               key={summary.trip.id}
               stacked={workLayout}
               mobileExclusive={mobileExclusive}
               plannedDelivery={summary.trip.completed_at ?? null}
               value={exceptionLog}
-              onChange={setExceptionLog}
+              onChange={(next) => {
+                exceptionLogRef.current = next;
+                setExceptionLog(next);
+              }}
               canManage={canManage}
               submitted={submitted && !editingSaved}
               saving={saveDraft.isPending}
@@ -1083,10 +1243,11 @@ export function PodVerificationPane({
                   : undefined
               }
             />
+            </View>
             {canManage ? (
-              <View style={styles.validateBar}>
+              <View style={[styles.validateBar, styles.validateDock]}>
                 <Text style={styles.meta}>
-                  Save charges when a debit is identified. If there is no debit, mark No debit and Validated still moves this trip to Settlement Verification. POD not found returns it to Awaiting POD if the hard copy was logged by mistake.
+                  Validated moves this trip to Settlement Verification. POD not found sends it back to Awaiting POD.
                 </Text>
                 <View style={[styles.validateActions, workLayout && styles.validateActionsStacked]}>
                   <View style={[styles.validateAction, workLayout && styles.validateActionStacked]}>
@@ -1131,47 +1292,67 @@ export function PodVerificationPane({
             onExpand={() => openNotePdf(selectedNote)}
           />
         ) : (
-        <PodDocumentPreview
-          locked={false}
-          title={active ? podVerificationLabel(active) : "POD"}
-          copyKind={active ? podVerificationKind(active) : "soft"}
-          fileName={active?.file_name ?? null}
-          uri={previewUrl}
-          isPdf={fileIsPdf(active ?? {})}
-          loading={loadingPreview}
-          zoom={zoom}
-          rotation={rotation}
-          toolLabel={toolLabel}
-          index={Math.max(0, files.findIndex((file) => file.id === active?.id))}
-          count={files.length}
-          onZoom={setZoom}
-          onRotate={() => {
-            setRotation((value) => (value + 90) % 360);
-            setZoom(1);
-            setToolLabel("rotate");
-          }}
-          onRefresh={() => {
-            setZoom(1);
-            setRotation(0);
-            setToolLabel("refresh");
-          }}
-          onExpand={() => setScreenOpen(true)}
-          onPrev={() => {
-            const index = files.findIndex((file) => file.id === active?.id);
-            if (index > 0) setActiveId(files[index - 1].id);
-          }}
-          onNext={() => {
-            const index = files.findIndex((file) => file.id === active?.id);
-            if (index >= 0 && index < files.length - 1) setActiveId(files[index + 1].id);
-          }}
-        />
+          <PodShopPreview
+            title={active ? podVerificationLabel(active) : "POD"}
+            fileName={active?.file_name ?? null}
+            uri={previewUrl}
+            isPdf={fileIsPdf(active ?? {})}
+            loading={loadingPreview}
+            zoom={zoom}
+            rotation={rotation}
+            index={Math.max(0, files.findIndex((file) => file.id === active?.id))}
+            files={files.map((file) => ({
+              id: file.id,
+              label: podVerificationKind(file) === "hard" ? "POD" : "SOFT",
+            }))}
+            selectedId={active?.id ?? null}
+            onSelect={(id) => setActiveId(id)}
+            tripLabel={getTripDisplayNumber(summary.trip, summary.trip.organization_id ?? null)}
+            onFileSince={summary.documents.find((doc) => doc.id === active?.id)?.uploaded_at ?? null}
+            logged={logged}
+            receiptDetail={
+              logged
+                ? [
+                    courierLogged ? hard.courier?.trim() || "Courier" : hard.receivedBy?.trim() || "Desk",
+                    hard.awbNumber?.trim() ? `AWB ${hard.awbNumber.trim()}` : null,
+                    hard.received ? "Received" : "In transit",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                : "Receipt not logged"
+            }
+            canLog={canManage}
+            onLog={() => setLogOpen(true)}
+            canEditFiles={canEditFiles}
+            fileBusy={fileBusy}
+            fileError={fileError}
+            onAdd={() => void uploadPodFiles("add")}
+            onEdit={() => void uploadPodFiles("replace")}
+            onDelete={() => {
+              setFileError(null);
+              setConfirmDeleteFile(true);
+            }}
+            onActivityLog={onOpenActivityLog}
+            onZoom={setZoom}
+            onRotate={() => {
+              setRotation((value) => (value + 90) % 360);
+              setZoom(1);
+              setToolLabel("rotate");
+            }}
+            onOriginal={() => {
+              setZoom(1);
+              setRotation(0);
+              setToolLabel("original");
+            }}
+            onExpand={() => setScreenOpen(true)}
+          />
         )}
       </View>
   );
 
   return (
     <View style={[styles.root, workLayout && styles.rootStacked, mobileExclusive && styles.rootMobile]}>
-      {mobileExclusive && mobilePane === "preview" ? (
+      {mobileExclusive && !previewOnly && mobilePane === "preview" ? (
         <View style={styles.mobilePreviewFill}>
           <Pressable
             onPress={() => setMobilePane("work")}
@@ -1192,8 +1373,10 @@ export function PodVerificationPane({
           </Pressable>
           {previewPane}
         </View>
-      ) : mobileExclusive ? (
+      ) : mobileExclusive && !previewOnly ? (
         workPane
+      ) : previewOnly ? (
+        <View style={styles.shopStage}>{previewPane}</View>
       ) : (
       <AdjustableSplitLayout
         storageKey="compliance.podPreview"
@@ -1365,6 +1548,16 @@ export function PodVerificationPane({
         </View>
       </Modal>
       <ThemedConfirmModal
+        visible={confirmDeleteFile}
+        title="Delete this POD file?"
+        message="The scan is removed from this trip. The receipt log stays until you edit it."
+        confirmText={fileBusy ? "Deleting…" : "Delete"}
+        cancelText="Cancel"
+        variant="warning"
+        onCancel={() => setConfirmDeleteFile(false)}
+        onConfirm={() => void deleteActivePodFile()}
+      />
+      <ThemedConfirmModal
         visible={confirmValidated}
         title="Validate this POD?"
         message={
@@ -1455,189 +1648,447 @@ function CnDnNotePreview({
   );
 }
 
-function PodDocumentPreview({
-  locked = false,
-  lockHint,
+function PodShopPreview({
   title,
-  copyKind = "soft",
   fileName,
   uri,
   isPdf,
   loading,
   zoom,
   rotation,
-  toolLabel,
   index,
-  count,
+  files,
+  selectedId,
+  onSelect,
+  tripLabel,
+  onFileSince,
+  logged,
+  receiptDetail,
+  canLog,
+  onLog,
+  canEditFiles,
+  fileBusy,
+  fileError,
+  onAdd,
+  onEdit,
+  onDelete,
+  onActivityLog,
   onZoom,
   onRotate,
-  onRefresh,
+  onOriginal,
   onExpand,
-  onPrev,
-  onNext,
 }: {
-  locked?: boolean;
-  lockHint?: string;
   title: string;
-  copyKind?: "soft" | "hard";
   fileName: string | null;
   uri: string | null;
   isPdf: boolean;
   loading: boolean;
   zoom: number;
   rotation: number;
-  toolLabel: string | null;
   index: number;
-  count: number;
+  files: { id: string; label: string }[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  tripLabel: string;
+  onFileSince: string | null;
+  logged: boolean;
+  receiptDetail: string;
+  canLog: boolean;
+  onLog: () => void;
+  canEditFiles: boolean;
+  fileBusy: boolean;
+  fileError: string | null;
+  onAdd: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onActivityLog?: () => void;
   onZoom: (next: number) => void;
   onRotate: () => void;
-  onRefresh: () => void;
+  onOriginal: () => void;
   onExpand: () => void;
-  onPrev: () => void;
-  onNext: () => void;
 }) {
-  const toolsEnabled = Boolean(uri) && !locked;
-  const toolColor = toolsEnabled ? Theme.textPrimaryDark : Theme.textMuted;
-  const showSideNav = count > 1 && (Boolean(uri) || loading);
-  const ordinal = count > 0 ? index + 1 : 0;
-
-  return (
-    <>
-      <View style={styles.docToolbar}>
-        <Text style={styles.docToolbarTitle} numberOfLines={1}>
-          {fileName?.trim() || title}
-        </Text>
-        <View style={styles.docToolbarActions}>
+  const toolsEnabled = Boolean(uri);
+  const ink = toolsEnabled ? Theme.actionBtnInk : Theme.textMuted;
+  const [hand, setHand] = useState(true);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const handRef = useRef(hand);
+  const panRef = useRef(pan);
+  handRef.current = hand;
+  panRef.current = pan;
+  const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
+  const shopStageRef = useRef<View>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web" || !hand || !toolsEnabled) return;
+    const node = shopStageRef.current as unknown as HTMLElement | null;
+    if (!node?.addEventListener) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest?.("button, a, [role='button']")) return;
+      drag.current = {
+        x: event.clientX,
+        y: event.clientY,
+        px: panRef.current.x,
+        py: panRef.current.y,
+      };
+      try {
+        node.setPointerCapture(event.pointerId);
+      } catch {
+        /* ignore */
+      }
+      node.style.cursor = "grabbing";
+    };
+    const onPointerMove = (event: PointerEvent) => {
+      const start = drag.current;
+      if (!start) return;
+      setPan({
+        x: start.px + (event.clientX - start.x),
+        y: start.py + (event.clientY - start.y),
+      });
+    };
+    const endPointer = (event: PointerEvent) => {
+      drag.current = null;
+      try {
+        node.releasePointerCapture(event.pointerId);
+      } catch {
+        /* ignore */
+      }
+      node.style.cursor = "grab";
+    };
+    const onWheel = (event: WheelEvent) => {
+      if (!handRef.current) return;
+      event.preventDefault();
+      setPan((current) => ({
+        x: current.x - event.deltaX,
+        y: current.y - event.deltaY,
+      }));
+    };
+    node.addEventListener("pointerdown", onPointerDown);
+    node.addEventListener("pointermove", onPointerMove);
+    node.addEventListener("pointerup", endPointer);
+    node.addEventListener("pointercancel", endPointer);
+    node.addEventListener("wheel", onWheel, { passive: false });
+    node.style.cursor = "grab";
+    return () => {
+      node.removeEventListener("pointerdown", onPointerDown);
+      node.removeEventListener("pointermove", onPointerMove);
+      node.removeEventListener("pointerup", endPointer);
+      node.removeEventListener("pointercancel", endPointer);
+      node.removeEventListener("wheel", onWheel);
+      node.style.cursor = "";
+    };
+  }, [hand, toolsEnabled, uri]);
+  const handPan = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: () => handRef.current,
+        onPanResponderGrant: (event) => {
+          drag.current = {
+            x: event.nativeEvent.pageX,
+            y: event.nativeEvent.pageY,
+            px: panRef.current.x,
+            py: panRef.current.y,
+          };
+        },
+        onPanResponderMove: (event) => {
+          const start = drag.current;
+          if (!start) return;
+          setPan({
+            x: start.px + (event.nativeEvent.pageX - start.x),
+            y: start.py + (event.nativeEvent.pageY - start.y),
+          });
+        },
+        onPanResponderRelease: () => {
+          drag.current = null;
+        },
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderTerminate: () => {
+          drag.current = null;
+        },
+      }),
+    [],
+  );
+  useEffect(() => {
+    setPan({ x: 0, y: 0 });
+  }, [uri, rotation, zoom === 1]);
+  const editInk = canEditFiles && !fileBusy ? Theme.actionBtnInk : Theme.textMuted;
+  const activityLogButton = onActivityLog ? (
+    <Pressable
+      style={styles.shopToolBtn}
+      onPress={onActivityLog}
+      accessibilityRole="button"
+      accessibilityLabel="View activity log"
+    >
+      <Clock size={10} color={Theme.actionBtnInk} strokeWidth={2.1} />
+      <Text style={styles.shopToolText}>Log</Text>
+    </Pressable>
+  ) : null;
+  const toolbar = (
+    <View style={styles.shopOverlay} pointerEvents="box-none">
+      <View style={styles.shopToolbar}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.shopToolbarScroll}
+          contentContainerStyle={styles.shopToolbarTools}
+        >
+          {canEditFiles ? (
+            <>
+              <Pressable
+                style={[styles.shopToolBtn, fileBusy && styles.docToolDisabled]}
+                onPress={onAdd}
+                disabled={fileBusy}
+                accessibilityRole="button"
+                accessibilityLabel={`Add more ${title}`}
+              >
+                <Plus size={10} color={editInk} />
+                <Text style={styles.shopToolText}>Add more</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.shopToolBtn, (!toolsEnabled || fileBusy) && styles.docToolDisabled]}
+                onPress={onEdit}
+                disabled={!toolsEnabled || fileBusy}
+                accessibilityRole="button"
+                accessibilityLabel={`Edit ${title}`}
+              >
+                <Pencil size={10} color={toolsEnabled && !fileBusy ? Theme.actionBtnInk : Theme.textMuted} strokeWidth={2} />
+                <Text style={styles.shopToolText}>Edit</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.shopToolBtn, (!toolsEnabled || fileBusy) && styles.docToolDisabled]}
+                onPress={onDelete}
+                disabled={!toolsEnabled || fileBusy}
+                accessibilityRole="button"
+                accessibilityLabel={`Delete ${title}`}
+              >
+                <Trash2 size={10} color={toolsEnabled && !fileBusy ? Theme.actionBtnInk : Theme.textMuted} strokeWidth={2} />
+                <Text style={styles.shopToolText}>Delete</Text>
+              </Pressable>
+              <View style={styles.shopToolDivider} />
+            </>
+          ) : null}
+          {canLog ? (
+            <>
+              <Pressable
+                style={styles.shopToolBtn}
+                onPress={onLog}
+                accessibilityRole="button"
+                accessibilityLabel={logged ? "Edit the POD log" : "Log POD"}
+              >
+                <Plus size={10} color={Theme.actionBtnInk} />
+                <Text style={styles.shopToolText}>Log POD</Text>
+              </Pressable>
+              <View style={styles.shopToolDivider} />
+            </>
+          ) : null}
+          <View style={styles.shopZoom}>
+            <Pressable
+              onPress={() => onZoom(clampPreviewZoom(zoom - 0.25))}
+              disabled={!toolsEnabled || zoom <= 0.5}
+              style={!toolsEnabled && styles.docToolDisabled}
+              accessibilityRole="button"
+              accessibilityLabel="Zoom out"
+            >
+              <Minus size={10} color={ink} />
+            </Pressable>
+            <Text style={styles.shopZoomLabel}>{Math.round(zoom * 100)}%</Text>
+            <Pressable
+              onPress={() => onZoom(clampPreviewZoom(zoom + 0.25))}
+              disabled={!toolsEnabled}
+              style={!toolsEnabled && styles.docToolDisabled}
+              accessibilityRole="button"
+              accessibilityLabel="Zoom in"
+            >
+              <Plus size={10} color={ink} />
+            </Pressable>
+          </View>
           <Pressable
-            style={[styles.docToolBtn, toolLabel === "rotate" && styles.docToolBtnNamed, !toolsEnabled && styles.docToolDisabled]}
+            style={[
+              styles.shopToolBtn,
+              hand && toolsEnabled && styles.shopToolBtnOn,
+              !toolsEnabled && styles.docToolDisabled,
+            ]}
+            onPress={() => {
+              setHand((current) => !current);
+              if (hand) setPan({ x: 0, y: 0 });
+            }}
+            disabled={!toolsEnabled}
+            accessibilityRole="button"
+            accessibilityLabel="Hand"
+            accessibilityState={{ selected: hand && toolsEnabled }}
+          >
+            <Hand size={10} color={ink} strokeWidth={2.1} />
+            <Text style={styles.shopToolText}>Hand</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.shopToolBtn, !toolsEnabled && styles.docToolDisabled]}
             onPress={onRotate}
             disabled={!toolsEnabled}
             accessibilityRole="button"
             accessibilityLabel="Rotate"
-            {...(Platform.OS === "web" ? { title: "Rotate" } : {})}
           >
-            <RotateCwSquare size={12} color={toolColor} strokeWidth={2.1} />
-            {toolLabel === "rotate" ? <Text style={styles.docToolName}>Rotate</Text> : null}
+            <RotateCwSquare size={10} color={ink} strokeWidth={2.1} />
+            <Text style={styles.shopToolText}>Rotate</Text>
           </Pressable>
-          <View style={[styles.docZoomCluster, !toolsEnabled && styles.docToolDisabled]}>
-            <Pressable
-              style={styles.docZoomBtn}
-              onPress={() => onZoom(clampPreviewZoom(zoom - 0.25))}
-              disabled={!toolsEnabled}
-              accessibilityRole="button"
-              accessibilityLabel="Zoom out"
-            >
-              <Minus size={12} color={toolColor} />
-            </Pressable>
-            <Text style={[styles.docZoomLabel, !toolsEnabled && styles.docZoomLabelMuted]}>
-              {Math.round(zoom * 100)}%
-            </Text>
-            <Pressable
-              style={styles.docZoomBtn}
-              onPress={() => onZoom(clampPreviewZoom(zoom + 0.25))}
-              disabled={!toolsEnabled}
-              accessibilityRole="button"
-              accessibilityLabel="Zoom in"
-            >
-              <Plus size={12} color={toolColor} />
-            </Pressable>
-          </View>
           <Pressable
-            style={[styles.docToolBtn, toolLabel === "refresh" && styles.docToolBtnNamed, !toolsEnabled && styles.docToolDisabled]}
-            onPress={onRefresh}
+            style={[styles.shopToolBtn, !toolsEnabled && styles.docToolDisabled]}
+            onPress={onOriginal}
             disabled={!toolsEnabled}
             accessibilityRole="button"
-            accessibilityLabel="Refresh"
-            {...(Platform.OS === "web" ? { title: "Refresh" } : {})}
+            accessibilityLabel="Original"
           >
-            <RefreshCw size={12} color={toolColor} strokeWidth={2.2} />
-            {toolLabel === "refresh" ? <Text style={styles.docToolName}>Refresh</Text> : null}
+            <Scan size={10} color={ink} strokeWidth={2.1} />
+            <Text style={styles.shopToolText}>Original</Text>
           </Pressable>
           <Pressable
-            style={[styles.docToolBtn, !toolsEnabled && styles.docToolDisabled]}
+            style={[styles.shopToolBtn, !toolsEnabled && styles.docToolDisabled]}
             onPress={onExpand}
             disabled={!toolsEnabled}
             accessibilityRole="button"
             accessibilityLabel={`Open ${title} full screen`}
-            {...(Platform.OS === "web" ? { title: "Full screen" } : {})}
           >
-            <Maximize2 size={12} color={toolColor} />
+            <Maximize2 size={10} color={ink} />
+            <Text style={styles.shopToolText}>Full view</Text>
           </Pressable>
+        </ScrollView>
+        {activityLogButton}
+      </View>
+    </View>
+  );
+  const ordinal = files.length > 0 ? index + 1 : 0;
+  const when = onFileSince ? new Date(onFileSince) : null;
+  const onFileLabel =
+    when && !Number.isNaN(when.getTime())
+      ? when.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+      : uri
+        ? "On file"
+        : "Awaiting upload";
+  const pageLine = [
+    fileName?.trim() || null,
+    files.length > 0 ? `${ordinal} of ${files.length}` : null,
+    tripLabel ? `# ${tripLabel}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <View style={styles.shopRoot}>
+      {files.length > 0 ? (
+        <ScrollView
+          style={styles.shopRail}
+          contentContainerStyle={styles.shopRailContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {files.map((file, fileIndex) => {
+            const selected = file.id === selectedId;
+            return (
+              <Pressable
+                key={file.id}
+                onPress={() => onSelect(file.id)}
+                style={[styles.shopThumb, selected && styles.shopThumbOn]}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                accessibilityLabel={`${file.label} ${fileIndex + 1}`}
+              >
+                <Feather name="file-text" size={16} color={selected ? Theme.textPrimaryDark : Theme.textMuted} />
+                <Text style={[styles.shopThumbText, selected && styles.shopThumbTextOn]}>{file.label}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      ) : null}
+      <View style={styles.shopMain}>
+        <View style={styles.shopHero}>
+          {loading ? (
+            <View style={styles.docEmpty}>
+              <ActivityIndicator color={Theme.textPrimaryDark} />
+              <Text style={styles.docEmptyHint}>Loading document…</Text>
+            </View>
+          ) : uri ? (
+            <View ref={shopStageRef} style={styles.shopDoc}>
+              <View
+                style={[
+                  styles.docMedia,
+                  hand && toolsEnabled ? styles.docMediaHand : null,
+                  {
+                    transform: [
+                      { translateX: pan.x },
+                      { translateY: pan.y },
+                      { rotate: `${rotation}deg` },
+                      { scale: zoom },
+                    ],
+                  },
+                ]}
+                {...(hand && toolsEnabled ? handPan.panHandlers : {})}
+              >
+                <TripVaultFilePreview
+                  uri={uri}
+                  isPdf={isPdf}
+                  sizing="fit"
+                  zoom={zoom}
+                  style={styles.docMediaFill}
+                  accessibilityLabel={fileName?.trim() || title}
+                />
+              </View>
+              {toolbar}
+            </View>
+          ) : (
+            <View style={styles.shopDrop}>
+              <Pressable
+                style={styles.shopDropBody}
+                onPress={canLog ? onLog : canEditFiles ? onAdd : undefined}
+                disabled={!canLog && !canEditFiles}
+                accessibilityRole={canLog || canEditFiles ? "button" : "text"}
+                accessibilityLabel={
+                  canLog
+                    ? "Log the hard-copy POD"
+                    : canEditFiles
+                      ? `Add ${title}`
+                      : "No POD to preview"
+                }
+              >
+                <View style={styles.shopDropIcon}>
+                  <Upload size={22} color={Theme.actionBtnInk} strokeWidth={2} />
+                </View>
+                <Text style={styles.shopDropTitle}>Log the hard-copy POD</Text>
+                <Text style={styles.shopDropHint}>
+                  {canLog
+                    ? "Upload the scan, then record a desk receipt, courier, or lost POD."
+                    : "No soft-copy or hard-copy POD is on file for this trip."}
+                </Text>
+                {canLog ? (
+                  <View style={styles.shopDropBtn}>
+                    <Text style={styles.shopDropBtnText}>Log POD</Text>
+                  </View>
+                ) : null}
+              </Pressable>
+              {toolbar}
+            </View>
+          )}
+        </View>
+        <View style={styles.shopFooter}>
+          <Text style={styles.shopFooterTitle} numberOfLines={1}>
+            {title}
+          </Text>
+          <Text style={styles.shopFooterMeta} numberOfLines={1}>
+            {pageLine || receiptDetail}
+          </Text>
+          <View style={[styles.shopStatus, !uri && styles.shopStatusPending]}>
+            <Text style={styles.shopStatusKicker}>{uri ? "On file since" : "Status"}</Text>
+            <Text style={styles.shopStatusValue} numberOfLines={1}>
+              {onFileLabel}
+            </Text>
+          </View>
+          <Text
+            style={[styles.shopReceipt, fileError ? styles.shopReceiptError : null]}
+            numberOfLines={2}
+          >
+            {fileError || receiptDetail}
+          </Text>
         </View>
       </View>
-      <View style={styles.docBody}>
-        {locked ? (
-          <View style={styles.docEmpty}>
-            <NoDocumentPreviewEmpty
-              compact
-              title="Save POD entries to view"
-              hint={lockHint ?? "Save the POD validation entries to view the document."}
-            />
-          </View>
-        ) : loading ? (
-          <View style={styles.docEmpty}>
-            <ActivityIndicator color={Theme.textPrimaryDark} />
-            <Text style={styles.docEmptyHint}>Loading document…</Text>
-          </View>
-        ) : uri ? (
-          <View
-            style={[
-              styles.docMedia,
-              { transform: [{ rotate: `${rotation}deg` }, { scale: zoom }] },
-            ]}
-          >
-            <TripVaultFilePreview
-              uri={uri}
-              isPdf={isPdf}
-              sizing="fit"
-              zoom={zoom}
-              style={styles.docMediaFill}
-              accessibilityLabel={fileName?.trim() || title}
-            />
-            <PodCopyWatermark kind={copyKind} />
-          </View>
-        ) : (
-          <View style={styles.docEmpty}>
-            <NoDocumentPreviewEmpty
-              compact
-              title={count === 0 ? "No document to preview" : `${title} has no file to preview`}
-              hint="Select a soft-copy or hard-copy POD, or log the hard copy first."
-            />
-          </View>
-        )}
-        {showSideNav ? (
-          <>
-            <View style={styles.docNavLeft} pointerEvents="box-none">
-              <Pressable
-                style={[styles.docNavBtn, index <= 0 && styles.docToolDisabled]}
-                onPress={onPrev}
-                disabled={index <= 0}
-                accessibilityRole="button"
-                accessibilityLabel="Previous document"
-              >
-                <ChevronLeft size={20} color={index <= 0 ? Theme.textMuted : Theme.textPrimaryDark} strokeWidth={2.2} />
-              </Pressable>
-            </View>
-            <View style={styles.docNavRight} pointerEvents="box-none">
-              <Pressable
-                style={[styles.docNavBtn, index >= count - 1 && styles.docToolDisabled]}
-                onPress={onNext}
-                disabled={index >= count - 1}
-                accessibilityRole="button"
-                accessibilityLabel="Next document"
-              >
-                <ChevronRight size={20} color={index >= count - 1 ? Theme.textMuted : Theme.textPrimaryDark} strokeWidth={2.2} />
-              </Pressable>
-            </View>
-          </>
-        ) : null}
-      </View>
-      <View style={styles.docFooter}>
-        <Text style={styles.docFooterMeta} numberOfLines={1}>
-          {count > 0 ? `${ordinal} of ${count}` : "No file on this row"}
-        </Text>
-      </View>
-    </>
+    </View>
   );
 }
 
@@ -2396,29 +2847,101 @@ function amountEntered(value: string): boolean {
   return raw !== "0";
 }
 
-type ExceptionKind = "loading" | "unloading" | "damage" | "productMissing" | "late";
+type ExceptionKind = "loading" | "unloading" | "damage" | "productMissing" | "halting" | "late";
 
 const EXCEPTION_KIND_OPTIONS: {
   key: ExceptionKind;
   label: string;
   hint: string;
-  icon: "truck" | "package" | "alert-circle" | "minus-circle" | "clock";
+  icon: "truck" | "package" | "alert-circle" | "minus-circle" | "clock" | "pause-circle";
 }[] = [
-  { key: "loading", label: "Loading", hint: "Loading charges", icon: "truck" },
-  { key: "unloading", label: "Unloading", hint: "Unloading charges", icon: "package" },
+  { key: "loading", label: "Loading", hint: "Client and vendor loading", icon: "truck" },
+  { key: "unloading", label: "Unloading", hint: "Client and vendor unloading", icon: "package" },
+  { key: "halting", label: "Detention charges (Halting)", hint: "Halting for client and vendor", icon: "pause-circle" },
   { key: "damage", label: "Damages", hint: "Damage value", icon: "alert-circle" },
   { key: "productMissing", label: "Missing", hint: "Product missing", icon: "minus-circle" },
   { key: "late", label: "Late delivery", hint: "Actual delivery date", icon: "clock" },
 ];
 
+const EXCEPTION_AMOUNT_KEYS: Record<
+  Exclude<ExceptionKind, "late">,
+  { client: keyof PodExceptionLogDraft; vendor: keyof PodExceptionLogDraft }
+> = {
+  loading: { client: "loading", vendor: "loadingVendor" },
+  unloading: { client: "unloading", vendor: "unloadingVendor" },
+  damage: { client: "damage", vendor: "damageVendor" },
+  productMissing: { client: "productMissing", vendor: "productMissingVendor" },
+  halting: { client: "halting", vendor: "haltingVendor" },
+};
+
+const EXCEPTION_LOG_AMOUNT_KEYS: (keyof PodExceptionLogDraft)[] = [
+  "loading",
+  "loadingVendor",
+  "unloading",
+  "unloadingVendor",
+  "damage",
+  "damageVendor",
+  "productMissing",
+  "productMissingVendor",
+  "delay",
+  "delayVendor",
+  "halting",
+  "haltingVendor",
+];
+
+/** "0" is an explicit clear. Empty keeps the amount already stored on the trip. */
+function zeroExceptionLog(): PodExceptionLogDraft {
+  const next = { ...EMPTY_POD_EXCEPTION_LOG };
+  for (const key of EXCEPTION_LOG_AMOUNT_KEYS) next[key] = "0";
+  return next;
+}
+
+function exceptionLogExplicitlyClear(log: PodExceptionLogDraft): boolean {
+  return (
+    EXCEPTION_LOG_AMOUNT_KEYS.every((key) => String(log[key] ?? "").trim() === "0") &&
+    !String(log.actualDeliveryDate ?? "").trim()
+  );
+}
+
+function parsedLogAmount(raw: string): "empty" | "zero" | "bad" | string {
+  const text = raw.trim();
+  if (!text) return "empty";
+  if (!/^\d+(\.\d{1,2})?$/.test(text)) return "bad";
+  const value = Number(text);
+  if (!Number.isFinite(value) || value < 0) return "bad";
+  if (value === 0) return "zero";
+  return String(Math.round(value * 100) / 100);
+}
+
+function normalizeExceptionLog(value: PodExceptionLogDraft): PodExceptionLogDraft | null {
+  const next = { ...value };
+  for (const key of EXCEPTION_LOG_AMOUNT_KEYS) {
+    const parsed = parsedLogAmount(String(value[key] ?? ""));
+    if (parsed === "bad") return null;
+    next[key] = parsed === "zero" ? "0" : parsed === "empty" ? "" : parsed;
+  }
+  return next;
+}
+
 function kindsFromDraft(value: PodExceptionLogDraft): ExceptionKind[] {
   const open: ExceptionKind[] = [];
-  if (amountEntered(value.loading)) open.push("loading");
-  if (amountEntered(value.unloading)) open.push("unloading");
-  if (amountEntered(value.damage)) open.push("damage");
-  if (amountEntered(value.productMissing)) open.push("productMissing");
-  if (amountEntered(value.delay) || value.actualDeliveryDate.trim()) open.push("late");
+  if (amountEntered(value.loading) || amountEntered(value.loadingVendor)) open.push("loading");
+  if (amountEntered(value.unloading) || amountEntered(value.unloadingVendor)) open.push("unloading");
+  if (amountEntered(value.halting) || amountEntered(value.haltingVendor)) open.push("halting");
+  if (amountEntered(value.damage) || amountEntered(value.damageVendor)) open.push("damage");
+  if (amountEntered(value.productMissing) || amountEntered(value.productMissingVendor)) open.push("productMissing");
+  if (amountEntered(value.delay) || amountEntered(value.delayVendor) || value.actualDeliveryDate.trim()) {
+    open.push("late");
+  }
   return open;
+}
+
+function partyAmountDetail(client: string, vendor: string): string {
+  const parts = [
+    amountEntered(client) ? `Client ${formatInr(Number(client))}` : null,
+    amountEntered(vendor) ? `Vendor ${formatInr(Number(vendor))}` : null,
+  ].filter(Boolean);
+  return parts.join(" · ");
 }
 
 function QuietAmountField({
@@ -2434,7 +2957,7 @@ function QuietAmountField({
     <View style={styles.exField}>
       <Text style={styles.exLabel}>{label}</Text>
       <TextInput
-        value={value}
+        value={value.trim() === "0" ? "" : value}
         onChangeText={onChange}
         keyboardType="decimal-pad"
         placeholder="0"
@@ -2448,16 +2971,21 @@ function QuietAmountField({
 
 function exceptionPreviewRows(value: PodExceptionLogDraft): { label: string; detail: string }[] {
   const rows: { label: string; detail: string }[] = [];
-  if (amountEntered(value.loading)) rows.push({ label: "Loading", detail: formatInr(Number(value.loading)) });
-  if (amountEntered(value.unloading)) rows.push({ label: "Unloading", detail: formatInr(Number(value.unloading)) });
-  if (amountEntered(value.damage)) rows.push({ label: "Damages", detail: formatInr(Number(value.damage)) });
-  if (amountEntered(value.productMissing)) rows.push({ label: "Missing", detail: formatInr(Number(value.productMissing)) });
-  if (amountEntered(value.delay) || value.actualDeliveryDate.trim()) {
+  const push = (label: string, client: string, vendor: string) => {
+    const detail = partyAmountDetail(client, vendor);
+    if (detail) rows.push({ label, detail });
+  };
+  push("Loading", value.loading, value.loadingVendor);
+  push("Unloading", value.unloading, value.unloadingVendor);
+  push("Detention charges (Halting)", value.halting, value.haltingVendor);
+  push("Damages", value.damage, value.damageVendor);
+  push("Missing", value.productMissing, value.productMissingVendor);
+  if (amountEntered(value.delay) || amountEntered(value.delayVendor) || value.actualDeliveryDate.trim()) {
     rows.push({
       label: "Late delivery",
       detail: [
         value.actualDeliveryDate ? formatPodDate(value.actualDeliveryDate) : null,
-        amountEntered(value.delay) ? formatInr(Number(value.delay)) : null,
+        partyAmountDetail(value.delay, value.delayVendor) || null,
       ]
         .filter(Boolean)
         .join(" · "),
@@ -2493,36 +3021,131 @@ function PodExceptionLogCard({
   onEdit: () => void;
   onCancelEdit?: () => void;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [openKinds, setOpenKinds] = useState<ExceptionKind[]>(() => kindsFromDraft(value));
-
-  useEffect(() => {
-    const fromValue = kindsFromDraft(value);
-    if (fromValue.length === 0) return;
-    setOpenKinds((current) => Array.from(new Set([...current, ...fromValue])));
-  }, [value]);
-  const patch = (key: keyof PodExceptionLogDraft, next: string) =>
-    onChange({ ...value, [key]: next });
-  const lateDays = lateDeliveryDays(plannedDelivery, value.actualDeliveryDate);
-  const isLate = lateDays != null && lateDays > 0;
+  const [logOpen, setLogOpen] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [activeKind, setActiveKind] = useState<ExceptionKind>("loading");
+  const [lineError, setLineError] = useState<string | null>(null);
+  const [updatedKind, setUpdatedKind] = useState<ExceptionKind | null>(null);
   const entered = kindsFromDraft(value).length > 0;
+  const preview = exceptionPreviewRows(value);
+  const draftEntered = kindsFromDraft(draft).length > 0;
+  const lateDays = lateDeliveryDays(plannedDelivery, draft.actualDeliveryDate);
+  const isLate = lateDays != null && lateDays > 0;
 
-  const addKind = (kind: ExceptionKind) => {
-    setOpenKinds((current) => (current.includes(kind) ? current : [...current, kind]));
-    setMenuOpen(false);
+  const openLog = () => {
+    if (submitted) onEdit();
+    setDraft(value);
+    setActiveKind(kindsFromDraft(value)[0] ?? "loading");
+    setLineError(null);
+    setUpdatedKind(null);
+    setLogOpen(true);
   };
 
-  const removeKind = (kind: ExceptionKind) => {
-    setOpenKinds((current) => current.filter((item) => item !== kind));
+  const patchDraft = (key: keyof PodExceptionLogDraft, next: string) => {
+    setLineError(null);
+    setUpdatedKind(null);
+    setDraft((current) => ({ ...current, [key]: next }));
+  };
+
+  const clearKind = (kind: ExceptionKind) => {
+    setLineError(null);
+    setUpdatedKind(null);
     if (kind === "late") {
-      onChange({ ...value, delay: "", actualDeliveryDate: "" });
+      setDraft((current) => ({ ...current, delay: "", delayVendor: "", actualDeliveryDate: "" }));
       return;
     }
-    onChange({ ...value, [kind]: "" });
+    const keys = EXCEPTION_AMOUNT_KEYS[kind];
+    setDraft((current) => ({ ...current, [keys.client]: "", [keys.vendor]: "" }));
+  };
+
+  const [confirmMode, setConfirmMode] = useState<null | "update" | "save">(null);
+  const [confirmTitle, setConfirmTitle] = useState("");
+  const [confirmMessage, setConfirmMessage] = useState("");
+  const [readyDraft, setReadyDraft] = useState<PodExceptionLogDraft | null>(null);
+
+  const commitDraft = (next: PodExceptionLogDraft, close: boolean) => {
+    onChange(next);
+    setDraft(next);
+    if (close) setLogOpen(false);
+    onSubmit();
+  };
+
+  const lineEntry = (kind: ExceptionKind) => {
+    const normalized = normalizeExceptionLog(draft);
+    if (!normalized) return { error: "Enter a valid amount." } as const;
+    const next = { ...normalized };
+    const clientRaw = kind === "late" ? draft.delay : String(draft[EXCEPTION_AMOUNT_KEYS[kind].client] ?? "");
+    const vendorRaw = kind === "late" ? draft.delayVendor : String(draft[EXCEPTION_AMOUNT_KEYS[kind].vendor] ?? "");
+    const client = parsedLogAmount(clientRaw);
+    const vendor = parsedLogAmount(vendorRaw);
+    if (client === "bad" || vendor === "bad") return { error: "Enter a valid amount." } as const;
+    const clientEntered = client !== "empty" && client !== "zero";
+    const vendorEntered = vendor !== "empty" && vendor !== "zero";
+    if (!clientEntered && !vendorEntered) return { error: "Enter a client or vendor amount." } as const;
+    if (kind === "late" && !draft.actualDeliveryDate.trim()) {
+      return { error: "Enter the actual delivery date." } as const;
+    }
+    if (kind === "late") {
+      next.delay = clientEntered ? client : "0";
+      next.delayVendor = vendorEntered ? vendor : "0";
+    } else {
+      const keys = EXCEPTION_AMOUNT_KEYS[kind];
+      next[keys.client] = clientEntered ? client : "0";
+      next[keys.vendor] = vendorEntered ? vendor : "0";
+    }
+    const label = EXCEPTION_KIND_OPTIONS.find((option) => option.key === kind)?.label ?? "This charge";
+    const parts = [
+      clientEntered ? `Client ₹${Number(client).toLocaleString("en-IN")}` : null,
+      vendorEntered ? `Vendor ₹${Number(vendor).toLocaleString("en-IN")}` : null,
+      kind === "late" && draft.actualDeliveryDate.trim() ? formatPodDate(draft.actualDeliveryDate) : null,
+    ].filter(Boolean);
+    return { next, summary: `${label}: ${parts.join(" · ")}` } as const;
+  };
+
+  const askUpdate = (kind: ExceptionKind) => {
+    const prepared = lineEntry(kind);
+    if ("error" in prepared) {
+      setLineError(prepared.error);
+      setUpdatedKind(null);
+      return;
+    }
+    setLineError(null);
+    setReadyDraft(prepared.next);
+    setUpdatedKind(kind);
+    setConfirmTitle("Update this charge?");
+    setConfirmMessage(prepared.summary);
+    setConfirmMode("update");
+  };
+
+  const askSave = () => {
+    const normalized = normalizeExceptionLog(draft);
+    if (!normalized) {
+      setLineError("Enter a valid amount.");
+      return;
+    }
+    const hasDebit = kindsFromDraft(normalized).length > 0;
+    if (!hasDebit) {
+      const touched = EXCEPTION_LOG_AMOUNT_KEYS.some((key) => String(draft[key] ?? "").trim() !== "");
+      if (touched) {
+        setLineError("Enter a client or vendor amount.");
+        return;
+      }
+    }
+    setLineError(null);
+    const next = hasDebit ? normalized : zeroExceptionLog();
+    const lines = exceptionPreviewRows(next);
+    setReadyDraft(next);
+    setConfirmTitle(hasDebit ? "Save this debit?" : "Save no debit?");
+    setConfirmMessage(
+      hasDebit
+        ? lines.map((row) => `${row.label} · ${row.detail}`).join("\n")
+        : "This POD will be saved with no extra charges.",
+    );
+    setConfirmMode("save");
   };
 
   return (
-    <View style={[styles.logCard, mobileExclusive && styles.logCardMobile, menuOpen && styles.logCardMenuOpen]}>
+    <View style={[styles.logCard, styles.logCardFill, mobileExclusive && styles.logCardMobile]}>
       <View style={styles.logHead}>
         <View style={styles.logHeadCopy}>
           <Text style={styles.kicker}>{submitted ? "Updated from POD" : "Log entry"}</Text>
@@ -2530,9 +3153,9 @@ function PodExceptionLogCard({
           <Text style={styles.meta}>
             {submitted
               ? entered
-                ? "Debit identified — CN / DN apply in Settlement."
-                : "No debit — CN / DN are not required."
-              : "Use Log when a debit is identified. If there is none, mark No debit and Validated."}
+                ? "Debit identified. CN / DN apply in Settlement."
+                : "No debit. CN / DN are not required."
+              : "Log a debit when one is identified. Otherwise mark No debit and Validated."}
           </Text>
         </View>
         <View style={styles.logHeadActions}>
@@ -2544,222 +3167,182 @@ function PodExceptionLogCard({
               {entered ? "Debit" : "No debit"}
             </Text>
           </View>
-          {submitted ? (
-            canManage ? <RegistryGhostButton compact label="Edit" onPress={onEdit} /> : null
-          ) : (
-            <RegistryGhostButton
-              compact
-              label="Log"
-              onPress={() => setMenuOpen((current) => !current)}
-            />
-          )}
+          {canManage ? (
+            <RegistryGhostButton compact label={submitted ? "Edit" : "Log"} onPress={openLog} />
+          ) : null}
         </View>
       </View>
-      {!submitted && menuOpen ? (
-        <View style={styles.logMenu} accessibilityRole="menu">
-          {EXCEPTION_KIND_OPTIONS.map((option) => {
-            const added = openKinds.includes(option.key);
-            return (
-              <Pressable
-                key={option.key}
-                onPress={() => addKind(option.key)}
-                style={[styles.logMenuRow, added && styles.logMenuRowActive]}
-                accessibilityRole="menuitem"
-                accessibilityState={{ selected: added }}
-              >
-                <View style={styles.logMenuIcon}>
-                  <Feather name={option.icon} size={12} color={Theme.textPrimaryDark} />
-                </View>
-                <View style={styles.exField}>
-                  <Text style={styles.logMenuLabel}>{option.label}</Text>
-                  <Text style={styles.meta}>{option.hint}</Text>
-                </View>
-                {added ? <Feather name="check" size={14} color={Theme.textPrimaryDark} /> : null}
-              </Pressable>
-            );
-          })}
+      {preview.length === 0 ? (
+        <Text style={[styles.meta, styles.exHint]}>No debit logged on this POD.</Text>
+      ) : (
+        <View style={styles.exQuote}>
+          {preview.map((row) => (
+            <View key={row.label} style={styles.exPreviewRow}>
+              <Text style={styles.exPreviewLabel}>{row.label}</Text>
+              <Text style={styles.exPreviewValue}>{row.detail}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+      {saveError ? <Text style={[styles.exError, styles.exHint]}>{saveError}</Text> : null}
+      {!submitted && onCancelEdit ? (
+        <View style={styles.exSubmit}>
+          <RegistryGhostButton compact label="Cancel" onPress={onCancelEdit} />
         </View>
       ) : null}
-      <AlertRegistrySignalCard
-        variant="feed"
-        isUnread={isLate}
-        avatar={{
-          name: "Exceptions",
-          entityType: "client",
-          initialsColorSeed: "pod-exceptions",
-        }}
-        avatarSlot={
-          <View style={[styles.methodIcon, isLate ? styles.methodIconOn : styles.methodIconIdle]}>
-            <Feather name="alert-circle" size={16} color={Theme.textPrimaryDark} />
-          </View>
-        }
-        actorName="Trip exceptions"
-        actionText={
-          isLate
-            ? `delivered ${lateDays} day${lateDays === 1 ? "" : "s"} late`
-            : entered
-              ? "charges logged on this trip"
-              : "choose an entry from Log"
-        }
-        timeLabel={value.actualDeliveryDate ? formatPodDate(value.actualDeliveryDate) : "Actual delivery"}
-        contextLabel="POD plan"
-        statusPill={{
-          label: submitted ? "Submitted" : isLate ? "Late" : entered ? "Logged" : "Open",
-          tone: submitted || entered ? (isLate ? "warning" : "success") : "neutral",
-        }}
-        detailTitle={
-          plannedDelivery ? `Planned ${formatPodDate(plannedDelivery)}` : "Set the actual delivery date"
-        }
-        detailSubtitle="Late delivery uses the actual delivery date"
-      />
-      {submitted ? (
-        <View style={styles.exQuote}>
-          {exceptionPreviewRows(value).length === 0 ? (
-            <Text style={styles.meta}>No debit on this POD. Settlement will not ask for CN / DN.</Text>
-          ) : (
-            exceptionPreviewRows(value).map((row) => (
-              <View key={row.label} style={styles.exPreviewRow}>
-                <Text style={styles.exLabel}>{row.label}</Text>
-                <Text style={styles.exPreviewValue}>{row.detail}</Text>
-              </View>
-            ))
-          )}
-        </View>
-      ) : openKinds.length > 0 ? (
-        <View style={styles.exQuote}>
-          {openKinds.includes("loading") || openKinds.includes("unloading") ? (
-            <View style={[styles.exRow, stacked && styles.exRowStacked]}>
-              {openKinds.includes("loading") ? (
-                <View style={styles.exField}>
-                  <View style={styles.exFieldHead}>
-                    <Text style={styles.exLabel}>Loading</Text>
-                    <Pressable onPress={() => removeKind("loading")} hitSlop={8} accessibilityLabel="Remove loading">
-                      <Feather name="x" size={14} color={Theme.textMuted} />
+      <Modal visible={logOpen} transparent animationType="fade" onRequestClose={() => setLogOpen(false)}>
+        <View style={styles.noteModalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setLogOpen(false)} accessibilityLabel="Close" />
+          <View style={styles.debitModal}>
+            <Text style={styles.kicker}>Log debit</Text>
+            <Text style={styles.title}>Exceptions and extra charges</Text>
+            <Text style={styles.meta}>
+              Choose a charge. Client and vendor amounts are saved separately.
+            </Text>
+            <ScrollView
+              style={styles.debitList}
+              contentContainerStyle={styles.debitListContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              {EXCEPTION_KIND_OPTIONS.map((option) => {
+                const selected = activeKind === option.key;
+                const detail =
+                  option.key === "late"
+                    ? [
+                        draft.actualDeliveryDate ? formatPodDate(draft.actualDeliveryDate) : null,
+                        partyAmountDetail(draft.delay, draft.delayVendor) || null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")
+                    : partyAmountDetail(
+                        String(draft[EXCEPTION_AMOUNT_KEYS[option.key].client] ?? ""),
+                        String(draft[EXCEPTION_AMOUNT_KEYS[option.key].vendor] ?? ""),
+                      );
+                return (
+                  <View key={option.key} style={[styles.debitRow, selected && styles.debitRowOn]}>
+                    <Pressable
+                      onPress={() => setActiveKind(option.key)}
+                      style={styles.debitRowHit}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                      accessibilityLabel={option.label}
+                    >
+                      <View style={[styles.logMenuIcon, selected && styles.debitIconOn]}>
+                        <Feather name={option.icon} size={13} color={Theme.textPrimaryDark} />
+                      </View>
+                      <View style={styles.debitRowCopy}>
+                        <Text style={styles.logMenuLabel}>{option.label}</Text>
+                        <Text style={styles.meta} numberOfLines={1}>
+                          {detail || option.hint}
+                        </Text>
+                      </View>
+                      {detail ? <Feather name="check" size={14} color={Theme.textPrimaryDark} /> : null}
                     </Pressable>
+                    {selected && option.key !== "late" ? (
+                      <View style={[styles.exRow, stacked && styles.exRowStacked, styles.debitFields]}>
+                        <QuietAmountField
+                          label="Client charges"
+                          value={String(draft[EXCEPTION_AMOUNT_KEYS[option.key].client] ?? "")}
+                          onChange={(next) => patchDraft(EXCEPTION_AMOUNT_KEYS[option.key].client, next)}
+                        />
+                        <QuietAmountField
+                          label="Vendor charges"
+                          value={String(draft[EXCEPTION_AMOUNT_KEYS[option.key].vendor] ?? "")}
+                          onChange={(next) => patchDraft(EXCEPTION_AMOUNT_KEYS[option.key].vendor, next)}
+                        />
+                      </View>
+                    ) : null}
+                    {selected && option.key === "late" ? (
+                      <View style={styles.debitFields}>
+                        <HardCopyPodDateField
+                          quiet
+                          label="Actual delivery date"
+                          value={draft.actualDeliveryDate}
+                          onChange={(iso) => patchDraft("actualDeliveryDate", iso)}
+                        />
+                        {plannedDelivery ? (
+                          <Text style={styles.meta}>
+                            {isLate
+                              ? `${lateDays} day${lateDays === 1 ? "" : "s"} after ${formatPodDate(plannedDelivery)}`
+                              : `Planned ${formatPodDate(plannedDelivery)}`}
+                          </Text>
+                        ) : null}
+                        <View style={[styles.exRow, stacked && styles.exRowStacked]}>
+                          <QuietAmountField
+                            label="Client charges"
+                            value={draft.delay}
+                            onChange={(next) => patchDraft("delay", next)}
+                          />
+                          <QuietAmountField
+                            label="Vendor charges"
+                            value={draft.delayVendor}
+                            onChange={(next) => patchDraft("delayVendor", next)}
+                          />
+                        </View>
+                      </View>
+                    ) : null}
+                    {selected ? (
+                      <View style={styles.debitLineActions}>
+                        <View style={styles.debitLineActionEnd}>
+                          {detail ? (
+                            <Pressable
+                              onPress={() => clearKind(option.key)}
+                              style={styles.debitClear}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Clear ${option.label}`}
+                            >
+                              <Text style={styles.debitClearText}>Clear</Text>
+                            </Pressable>
+                          ) : (
+                            <View />
+                          )}
+                          {updatedKind === option.key && !saving ? (
+                            <Text style={styles.debitUpdated}>Updated</Text>
+                          ) : null}
+                        </View>
+                        <RegistryPrimaryButton
+                          label={saving ? "Saving…" : "Update"}
+                          onPress={() => askUpdate(option.key)}
+                          disabled={saving}
+                          style={styles.debitUpdateBtn}
+                        />
+                      </View>
+                    ) : null}
+                    {selected && lineError ? <Text style={styles.exError}>{lineError}</Text> : null}
                   </View>
-                  <TextInput
-                    value={value.loading}
-                    onChangeText={(next) => patch("loading", next)}
-                    keyboardType="decimal-pad"
-                    placeholder="0"
-                    placeholderTextColor={Theme.textMuted}
-                    style={styles.exInput}
-                    accessibilityLabel="Loading"
-                  />
-                </View>
-              ) : (
-                <View style={styles.exField} />
-              )}
-              {openKinds.includes("unloading") ? (
-                <View style={styles.exField}>
-                  <View style={styles.exFieldHead}>
-                    <Text style={styles.exLabel}>Unloading</Text>
-                    <Pressable onPress={() => removeKind("unloading")} hitSlop={8} accessibilityLabel="Remove unloading">
-                      <Feather name="x" size={14} color={Theme.textMuted} />
-                    </Pressable>
-                  </View>
-                  <TextInput
-                    value={value.unloading}
-                    onChangeText={(next) => patch("unloading", next)}
-                    keyboardType="decimal-pad"
-                    placeholder="0"
-                    placeholderTextColor={Theme.textMuted}
-                    style={styles.exInput}
-                    accessibilityLabel="Unloading"
-                  />
-                </View>
-              ) : (
-                <View style={styles.exField} />
-              )}
-            </View>
-          ) : null}
-          {openKinds.includes("damage") || openKinds.includes("productMissing") ? (
-            <View style={[styles.exRow, stacked && styles.exRowStacked]}>
-              {openKinds.includes("damage") ? (
-                <View style={styles.exField}>
-                  <View style={styles.exFieldHead}>
-                    <Text style={styles.exLabel}>Damages</Text>
-                    <Pressable onPress={() => removeKind("damage")} hitSlop={8} accessibilityLabel="Remove damages">
-                      <Feather name="x" size={14} color={Theme.textMuted} />
-                    </Pressable>
-                  </View>
-                  <TextInput
-                    value={value.damage}
-                    onChangeText={(next) => patch("damage", next)}
-                    keyboardType="decimal-pad"
-                    placeholder="0"
-                    placeholderTextColor={Theme.textMuted}
-                    style={styles.exInput}
-                    accessibilityLabel="Damages"
-                  />
-                </View>
-              ) : (
-                <View style={styles.exField} />
-              )}
-              {openKinds.includes("productMissing") ? (
-                <View style={styles.exField}>
-                  <View style={styles.exFieldHead}>
-                    <Text style={styles.exLabel}>Missing</Text>
-                    <Pressable onPress={() => removeKind("productMissing")} hitSlop={8} accessibilityLabel="Remove missing">
-                      <Feather name="x" size={14} color={Theme.textMuted} />
-                    </Pressable>
-                  </View>
-                  <TextInput
-                    value={value.productMissing}
-                    onChangeText={(next) => patch("productMissing", next)}
-                    keyboardType="decimal-pad"
-                    placeholder="0"
-                    placeholderTextColor={Theme.textMuted}
-                    style={styles.exInput}
-                    accessibilityLabel="Missing"
-                  />
-                </View>
-              ) : (
-                <View style={styles.exField} />
-              )}
-            </View>
-          ) : null}
-          {openKinds.includes("late") ? (
-            <View style={[styles.exRow, stacked && styles.exRowStacked]}>
-              <View style={styles.exField}>
-                <View style={styles.exFieldHead}>
-                  <Text style={styles.exLabel}>Late delivery</Text>
-                  <Pressable onPress={() => removeKind("late")} hitSlop={8} accessibilityLabel="Remove late delivery">
-                    <Feather name="x" size={14} color={Theme.textMuted} />
-                  </Pressable>
-                </View>
-                <HardCopyPodDateField
-                  quiet
-                  label="Actual delivery date"
-                  value={value.actualDeliveryDate}
-                  onChange={(iso) => patch("actualDeliveryDate", iso)}
-                />
-              </View>
-              <QuietAmountField
-                label={isLate ? `Late delivery (${lateDays}d)` : "Late delivery"}
-                value={value.delay}
-                onChange={(next) => patch("delay", next)}
+                );
+              })}
+            </ScrollView>
+            {saveError ? <Text style={styles.exError}>{saveError}</Text> : null}
+            <View style={styles.exSubmitRow}>
+              <RegistryGhostButton compact label="Cancel" onPress={() => setLogOpen(false)} disabled={saving} />
+              <RegistryPrimaryButton
+                compact
+                label={saving ? "Saving…" : draftEntered ? "Save debit" : "Save no debit"}
+                onPress={askSave}
+                disabled={saving}
               />
             </View>
-          ) : null}
-        </View>
-      ) : (
-        <Text style={[styles.meta, styles.exHint]}>Tap Log and choose loading, unloading, damages, missing, or late delivery.</Text>
-      )}
-      {!submitted && canManage ? (
-        <View style={styles.exSubmit}>
-          {saveError ? <Text style={styles.exError}>{saveError}</Text> : null}
-          <View style={[styles.exSubmitRow, stacked && styles.exSubmitRowStacked]}>
-            {onCancelEdit ? <RegistryGhostButton compact label="Cancel" onPress={onCancelEdit} /> : null}
-            <RegistryPrimaryButton
-              compact
-              label={saving ? "Saving…" : entered ? "Save" : "Save no debit"}
-              onPress={onSubmit}
-              disabled={saving}
-            />
           </View>
         </View>
-      ) : null}
+      </Modal>
+      <ThemedConfirmModal
+        visible={confirmMode != null}
+        variant={confirmMode === "save" && !draftEntered ? "neutral" : "positive"}
+        title={confirmTitle}
+        message={confirmMessage}
+        confirmText={confirmMode === "update" ? "Update" : draftEntered ? "Save debit" : "Save no debit"}
+        confirmVariant="primary"
+        onCancel={() => setConfirmMode(null)}
+        onRequestClose={() => setConfirmMode(null)}
+        onConfirm={() => {
+          const mode = confirmMode;
+          const next = readyDraft;
+          setConfirmMode(null);
+          if (!next || !mode) return;
+          commitDraft(next, mode === "save");
+        }}
+      />
     </View>
   );
 }
@@ -2770,6 +3353,8 @@ const styles = StyleSheet.create({
   rootMobile: { backgroundColor: "transparent" },
   previewCol: { flex: 1, minWidth: 0, minHeight: 0 },
   previewContent: { padding: 12, gap: 12, paddingBottom: 20 },
+  previewContentFill: { flexGrow: 1 },
+  workFill: { flexGrow: 1, minHeight: 0 },
   previewContentStacked: { paddingBottom: 28 },
   previewContentMobile: { paddingHorizontal: 0, paddingTop: 12, gap: 12, paddingBottom: 32 },
   fileCardList: { gap: 10 },
@@ -2814,9 +3399,12 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingTop: 4,
   },
+  validateDock: {
+    marginTop: "auto",
+  },
   validateActions: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
     gap: 8,
     alignItems: "stretch",
   },
@@ -2871,6 +3459,257 @@ const styles = StyleSheet.create({
     marginRight: 0,
     marginLeft: 0,
     borderRadius: 12,
+  },
+  shopStage: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 0,
+  },
+  shopRoot: {
+    flex: 1,
+    minHeight: 0,
+    flexDirection: "row",
+    backgroundColor: Theme.compliancePageBg,
+  },
+  shopRail: {
+    width: 72,
+    flexGrow: 0,
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderRightColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.cardWhite,
+  },
+  shopRailContent: {
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    gap: 8,
+  },
+  shopThumb: {
+    minHeight: 64,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  shopThumbOn: {
+    borderColor: Theme.textPrimaryDark,
+    backgroundColor: Theme.complianceIconWash,
+  },
+  shopThumbText: {
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: "400",
+    color: Theme.textMuted,
+  },
+  shopThumbTextOn: {
+    color: Theme.textPrimaryDark,
+  },
+  shopMain: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 0,
+  },
+  shopHero: {
+    flex: 1,
+    minHeight: 0,
+    padding: 8,
+  },
+  shopDoc: {
+    flex: 1,
+    minHeight: 0,
+    borderRadius: 10,
+    overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.cardWhite,
+  },
+  shopOverlay: {
+    position: "absolute",
+    top: 10,
+    left: 12,
+    right: 12,
+    zIndex: 30,
+    alignItems: "center",
+  },
+  shopToolbarScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  shopToolbarTools: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  shopToolbar: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "center",
+    maxWidth: "100%",
+    height: 34,
+    paddingHorizontal: 4,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.cardWhite,
+  },
+  shopToolBtn: {
+    height: 26,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  shopToolBtnOn: {
+    backgroundColor: Theme.complianceIconWash,
+  },
+  docMediaHand: Platform.OS === "web" ? ({ cursor: "grab" } as object) : {},
+  shopToolText: {
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "400",
+    color: Theme.actionBtnInk,
+  },
+  shopToolDivider: {
+    width: StyleSheet.hairlineWidth,
+    height: 16,
+    marginHorizontal: 4,
+    backgroundColor: Theme.complianceTripCardBorder,
+  },
+  shopZoom: {
+    flexDirection: "row",
+    alignItems: "center",
+    height: 26,
+    paddingHorizontal: 4,
+    gap: 4,
+  },
+  shopZoomLabel: {
+    minWidth: 36,
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "400",
+    color: Theme.textPrimaryDark,
+    textAlign: "center",
+  },
+  shopDrop: {
+    flex: 1,
+    minHeight: 220,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.cardWhite,
+    overflow: "hidden",
+  },
+  shopDropBody: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    gap: 8,
+  },
+  shopDropIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.complianceIconWash,
+  },
+  shopDropTitle: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "400",
+    color: Theme.textPrimaryDark,
+    textAlign: "center",
+  },
+  shopDropHint: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "400",
+    color: Theme.textMuted,
+    textAlign: "center",
+    maxWidth: 360,
+  },
+  shopDropBtn: {
+    marginTop: 4,
+    minHeight: 36,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.buttonDark,
+  },
+  shopDropBtnText: {
+    fontSize: 13,
+    fontWeight: "400",
+    color: Theme.buttonDarkText,
+  },
+  shopFooter: {
+    flexShrink: 0,
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: Theme.cardWhite,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Theme.complianceTripCardBorder,
+  },
+  shopFooterTitle: {
+    flexShrink: 0,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "400",
+    color: Theme.textPrimaryDark,
+  },
+  shopFooterMeta: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "400",
+    color: Theme.textMuted,
+  },
+  shopStatus: {
+    flexShrink: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: Theme.complianceIconWash,
+  },
+  shopStatusPending: {
+    backgroundColor: Theme.surface,
+  },
+  shopStatusKicker: {
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: "400",
+    color: Theme.textMuted,
+    textTransform: "uppercase",
+  },
+  shopStatusValue: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "400",
+    color: Theme.textPrimaryDark,
+  },
+  shopReceipt: {
+    flexShrink: 1,
+    maxWidth: 220,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "400",
+    color: Theme.textSecondary,
+  },
+  shopReceiptError: {
+    color: Theme.destructive,
   },
   docToolbar: {
     flexShrink: 0,
@@ -3069,16 +3908,94 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 12, fontWeight: "400", color: Theme.textMuted },
   chipTextSelected: { fontWeight: "500", color: Theme.textPrimaryDark },
   logCard: {
-    borderRadius: 0,
-    borderWidth: 0,
-    backgroundColor: "transparent",
-    overflow: "visible",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.cardWhite,
+    overflow: "hidden",
+    paddingBottom: 4,
+  },
+  logCardFill: {
+    flexGrow: 1,
+  },
+  receiptPanel: {
+    marginHorizontal: 12,
+    marginBottom: 12,
+    borderRadius: 10,
+    backgroundColor: Theme.compliancePageBg,
+    padding: 12,
+    gap: 12,
+  },
+  receiptTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  receiptCopy: { flex: 1, minWidth: 0, gap: 2 },
+  receiptName: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "600",
+    color: Theme.textPrimaryDark,
+  },
+  receiptRole: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "400",
+    color: Theme.textSecondary,
+  },
+  receiptPill: {
+    minHeight: 24,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  receiptPillOn: { backgroundColor: Theme.complianceStageSuccessBg },
+  receiptPillWait: { backgroundColor: Theme.complianceStageBalanceBg },
+  receiptPillText: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+  },
+  receiptPillTextOn: { color: Theme.complianceStageSuccessFg },
+  receiptPillTextWait: { color: Theme.complianceStageBalanceFg },
+  receiptFacts: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 8,
+  },
+  receiptFact: {
+    flex: 1,
+    minWidth: 0,
+    borderRadius: 8,
+    backgroundColor: Theme.cardWhite,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 2,
+  },
+  receiptFactLabel: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "600",
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+    color: Theme.textRouteCard,
+  },
+  receiptFactValue: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "500",
+    color: Theme.textPrimaryDark,
   },
   logCardMobile: {
     borderRadius: 0,
     borderWidth: 0,
     backgroundColor: "transparent",
     overflow: "visible",
+    flexGrow: 0,
   },
   logCardMenuOpen: { zIndex: 6 },
   logMenu: {
@@ -3102,12 +4019,66 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.compliancePageBg,
   },
   logMenuIcon: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: Theme.surfaceGray,
+  },
+  debitModal: {
+    width: "100%",
+    maxWidth: 480,
+    maxHeight: "86%",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.cardWhite,
+    padding: 16,
+    gap: 8,
+  },
+  debitList: { flexGrow: 0, maxHeight: 420 },
+  debitListContent: { paddingBottom: 8 },
+  debitRow: {
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    gap: 8,
+  },
+  debitRowOn: { backgroundColor: Theme.compliancePageBg },
+  debitRowHit: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  debitRowCopy: { flex: 1, minWidth: 0, gap: 1 },
+  debitIconOn: { backgroundColor: Theme.cardWhite },
+  debitFields: { paddingLeft: 38, paddingBottom: 6, gap: 8 },
+  debitLineActions: {
+    alignSelf: "stretch",
+    gap: 8,
+    paddingLeft: 38,
+    paddingRight: 4,
+    paddingBottom: 8,
+  },
+  debitLineActionEnd: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    minHeight: 28,
+  },
+  debitUpdateBtn: { alignSelf: "stretch", flexGrow: 0, flexShrink: 0 },
+  debitUpdated: { fontSize: 12, lineHeight: 16, fontWeight: "600", color: Theme.textPrimaryDark },
+  debitClear: { alignSelf: "flex-start", marginLeft: 0, minHeight: 28, justifyContent: "center" },
+  debitClearText: { fontSize: 12, lineHeight: 16, fontWeight: "500", color: Theme.textSecondary },
+  exPreviewLabel: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "500",
+    color: Theme.textPrimaryDark,
   },
   logMenuLabel: {
     fontSize: 13,

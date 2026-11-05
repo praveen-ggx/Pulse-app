@@ -64,7 +64,8 @@ export function useAggregateDriverPhoneLookup({
     }
 
     const requestId = ++requestRef.current;
-    setLoading(true);
+    const editingCurrent = isSameDriverPhone(last10, currentDriverPhone);
+    if (!editingCurrent) setLoading(true);
     setLookupError(null);
     setSelectedUserId(null);
 
@@ -132,6 +133,7 @@ export function useAggregateDriverPhoneLookup({
       requestRef.current += 1;
     };
   }, [
+    currentDriverPhone,
     driverAssignOrgId,
     enabled,
     last10,

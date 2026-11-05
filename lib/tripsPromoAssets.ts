@@ -264,6 +264,20 @@ export const TRIPS_PROMO_PRESETS: Record<TripsPromoVariant, TripsPromoPreset> = 
       { label: "Close documents", icon: "zip" },
     ],
   },
+  history_cancelled: {
+    illustration: Illustration20,
+    aspect: 600 / 480,
+    title: "No cancelled trips",
+    description:
+      "Integrated trips cancelled before pickup appear here, using the same date range as this view.",
+    ctaLabel: "",
+    bullets: [
+      { label: "Before pickup", icon: "doc" },
+      { label: "Indent reopened", icon: "xls" },
+      { label: "No posted money", icon: "excel" },
+      { label: "Reason on file", icon: "mail" },
+    ],
+  },
   ...STATUS_PRESETS,
 };
 

@@ -1,0 +1,30 @@
+const React = require('react');
+const make = (name) => (props) => React.createElement(name, props, props?.children);
+
+module.exports = {
+  __esModule: true,
+  default: make('Svg'),
+  Svg: make('Svg'),
+  Circle: make('Circle'),
+  Ellipse: make('Ellipse'),
+  G: make('G'),
+  Text: make('Text'),
+  TSpan: make('TSpan'),
+  TextPath: make('TextPath'),
+  Path: make('Path'),
+  Polygon: make('Polygon'),
+  Polyline: make('Polyline'),
+  Line: make('Line'),
+  Rect: make('Rect'),
+  Use: make('Use'),
+  Image: make('Image'),
+  Symbol: make('Symbol'),
+  Defs: make('Defs'),
+  LinearGradient: make('LinearGradient'),
+  RadialGradient: make('RadialGradient'),
+  Stop: make('Stop'),
+  ClipPath: make('ClipPath'),
+  Pattern: make('Pattern'),
+  Mask: make('Mask'),
+  ForeignObject: make('ForeignObject'),
+};

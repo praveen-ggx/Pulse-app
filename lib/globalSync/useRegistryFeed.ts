@@ -7,6 +7,8 @@ import {
 } from '@/lib/globalSync/registryFeed.util';
 import { useAlertRegistryNotifications } from '@/lib/globalSync/useAlertRegistryNotifications';
 import { useGlobalSyncStore } from '@/lib/globalSync/useGlobalSyncStore';
+import { ledgerAlertsFromTripEvents } from '@/lib/globalSync/priorityEngine.util';
+import { reclassifyPaymentAlert } from '@/lib/globalSync/registryPaymentLane.util';
 import { useOperationsShelfItems } from '@/lib/globalSync/useOperationsDerived';
 import { useNetworkNotificationsQuery } from '@/lib/queries/useNetworkNotificationsQuery';
 
@@ -67,12 +69,27 @@ export function useRegistryFeed(orgId: string | null): {
         };
       },
     );
+    const ledger = ledgerAlertsFromTripEvents(activeTrips).map((alert) =>
+      reclassifyPaymentAlert(alert, activeTrips),
+    );
+    const ledgerTripIds = new Set(
+      ledger.map((alert) => alert.trip_id).filter((id): id is string => !!id),
+    );
     const map = new Map<string, GlobalOperationAlert>();
-    for (const a of [...items, ...lateMonitoringAlerts]) {
-      map.set(a.id, a);
+    for (const raw of [...items, ...lateMonitoringAlerts]) {
+      const alert = reclassifyPaymentAlert(raw, activeTrips);
+      if (
+        (alert.category === 'payment_received' || alert.category === 'payment_paid') &&
+        alert.trip_id &&
+        ledgerTripIds.has(alert.trip_id)
+      ) {
+        continue;
+      }
+      map.set(alert.id, alert);
     }
+    for (const alert of ledger) map.set(alert.id, alert);
     return Array.from(map.values()).sort(
-      (a, b) => b.priority_weight - a.priority_weight,
+      (a, b) => b.priority_weight - a.priority_weight || b.created_at.localeCompare(a.created_at),
     );
   }, [activeTrips, items]);
 

@@ -93,6 +93,7 @@ export function sharedNotificationStatusTone(
 
 export function opsAlertTagVariant(category: string): RegistryTagVariant {
   if (category === "payment_received") return "success";
+  if (category === "payment_paid") return "warning";
   if (category === "unassigned_trip") return "warning";
   if (category === "late_log" || category === "vehicle_idle") return "warning";
   return "neutral";

@@ -5,6 +5,7 @@
 import {
   ComplianceActivityLogButton,
   ComplianceTripActivityLog,
+  prefetchComplianceTripActivity,
 } from "@/features/tripCompliance/components/ComplianceTripActivityLog";
 import { ComplianceHardCopyPodSheet } from "@/features/tripCompliance/components/ComplianceHardCopyPodSheet";
 import { LogBulkPodModal } from "@/features/tripCompliance/components/LogBulkPodModal";
@@ -30,7 +31,7 @@ import {
 } from "@/features/tripCompliance/components/ComplianceMobileChrome";
 import { ComplianceSegmentedFilter } from "@/features/tripCompliance/components/ComplianceSegmentedFilter";
 import { isComplianceMobileViewport } from "@/features/tripCompliance/utils/complianceMobileLayout.util";
-import { HubMobileUnderlineTab, HUB_MOBILE_LIST_CANVAS_BG, hubMobileChromeStyles as hubChrome } from "@/components/hub";
+import { HubMobileUnderlineTab, HUB_MOBILE_LIST_CANVAS_BG } from "@/components/hub";
 import { ComplianceTripsTable } from "@/features/tripCompliance/components/ComplianceTripsTable";
 import { DebitControlTripsTable } from "@/features/tripCompliance/components/DebitControlTripsTable";
 import {
@@ -72,7 +73,6 @@ import {
 import { COMPLIANCE_STAGE_FILTER_LABEL, type ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
 import {
     AWAITING_POD_SUBVIEW_LABEL,
-    AWAITING_POD_SUBVIEW_TONE,
     AWAITING_POD_SUBVIEWS,
     countAwaitingPodSoftCopy,
     tripHasSoftCopyPodOnFile,
@@ -88,7 +88,6 @@ import {
 } from "@/features/tripCompliance/utils/complianceAdvanceProcessedExport.util";
 import { sortAdvanceProcessedSummaries } from "@/features/tripCompliance/utils/complianceAdvanceProcessedSort.util";
 import {
-    COMPLIANCE_FILTER_COUNT_TONE,
     COMPLIANCE_STAGE_TONE,
     matchesComplianceTripSearch,
     supplierComplianceSearchLabels,
@@ -172,7 +171,7 @@ type HoverPressState = { pressed: boolean; hovered?: boolean };
 const WEB_POINTER: ViewStyle | null =
   Platform.OS === "web" ? ({ cursor: "pointer" } as ViewStyle) : null;
 
-function StageChip({
+function _StageChip({
   label,
   count,
   countColor,
@@ -264,31 +263,29 @@ function StageFilterRail({
   visibleStages?: ReadonlySet<ComplianceQueueFilter> | null;
 }) {
   const showStage = (item: ComplianceQueueFilter) => !visibleStages || visibleStages.has(item);
+  const tab = (id: ComplianceQueueFilter, label: string, count: number, caption?: string) => (
+    <HubMobileUnderlineTab
+      key={id}
+      label={`${label} (${count})`}
+      isActive={stage === id}
+      onPress={() => onSelectStage(id)}
+      accessibilityLabel={caption ? `${label}, ${caption}, ${count}` : `${label}, ${count}`}
+    />
+  );
   return (
     <>
-      {showStage("all") ? (
-      <StageChip
-        label="All"
-        count={counts.all}
-        countColor={COMPLIANCE_FILTER_COUNT_TONE.all}
-        active={stage === "all"}
-        onPress={() => onSelectStage("all")}
-      />
-      ) : null}
+      {showStage("all") ? tab("all", "All", counts.all) : null}
       {STAGE_DEPT_GROUPS.map((group) =>
-        group.stages.filter((item) => showStage(item)).map((item) => (
-          <StageChip
-            key={item}
-            label={complianceQueueLabel(item)}
-            count={
-              item === "pod_received" ? podReceivedCount : counts[item]
-            }
-            countColor={COMPLIANCE_FILTER_COUNT_TONE[item === "pod_received" ? "hard_copy_pod_received" : item]}
-            active={stage === item}
-            onPress={() => onSelectStage(item)}
-            caption={group.department}
-          />
-        )),
+        group.stages
+          .filter((item) => showStage(item))
+          .map((item) =>
+            tab(
+              item,
+              complianceQueueLabel(item),
+              item === "pod_received" ? podReceivedCount : counts[item],
+              group.department,
+            ),
+          ),
       )}
     </>
   );
@@ -850,6 +847,10 @@ export default function ComplianceScreen() {
   /** Debit control table: trip whose Log hard copy POD modal is open. */
   const [podLogSummary, setPodLogSummary] = useState<ComplianceTripSummary | null>(null);
   const [activityLogSummary, setActivityLogSummary] = useState<ComplianceTripSummary | null>(null);
+  const openActivityLog = useCallback((summary: ComplianceTripSummary) => {
+    prefetchComplianceTripActivity(summary, currentOrganization?.id);
+    setActivityLogSummary(summary);
+  }, [currentOrganization?.id]);
   const [exporting, setExporting] = useState(false);
   const routeFocus = useLocalSearchParams<{ trip?: string; tab?: string }>();
 
@@ -1163,7 +1164,7 @@ export default function ComplianceScreen() {
    */
   const renderQueueSubFilter = (embedded: boolean) => {
     const cardDense = !embedded;
-    const hubUnderline = !embedded;
+    const hubUnderline = true;
     if (stage === "pending_for_docs") {
       const outcomeFilter = (
         <ComplianceSegmentedFilter
@@ -1289,9 +1290,6 @@ export default function ComplianceScreen() {
           ]}
         >
           <View style={embedded ? styles.verifiedFilterGroupTable : styles.verifiedFilterGroupQueue}>
-            <View style={styles.verifiedFilterGroupLabelPanel}>
-              <Text style={styles.verifiedFilterGroupLabel}>Queue</Text>
-            </View>
             <ComplianceSegmentedFilter
               embedded
               compact
@@ -1851,41 +1849,21 @@ export default function ComplianceScreen() {
 
   const awaitingFiltersOnDetail = viewMode === "card" && !debitControlOnly && (!isMobile || mobileReviewing);
   const renderAwaitingPodFilters = (onDetail: boolean) =>
-    awaitingPodCounts && isMobile && !onDetail ? (
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        style={hubChrome.metricTabsScroll}
-        contentContainerStyle={hubChrome.metricTabsContent}
-        accessibilityRole="tablist"
-      >
-        {AWAITING_POD_SUBVIEWS.map((subview) => (
-          <HubMobileUnderlineTab
-            key={subview}
-            compact
-            label={`${AWAITING_POD_SUBVIEW_LABEL[subview]} (${awaitingPodCounts[subview]})`}
-            isActive={awaitingPodSubview === subview}
-            onPress={() => setAwaitingPodSubview(subview)}
-          />
-        ))}
-      </ScrollView>
-    ) : awaitingPodCounts ? (
+    awaitingPodCounts ? (
       <View style={onDetail ? styles.detailFilterRow : styles.subchipRow}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          style={onDetail ? styles.detailFilterScroll : styles.subchipScroll}
-          contentContainerStyle={onDetail ? styles.detailFilterChips : styles.chipWrap}
           keyboardShouldPersistTaps="handled"
+          style={styles.subchipScroll}
+          contentContainerStyle={styles.stageDeptWrap}
+          accessibilityRole="tablist"
         >
           {AWAITING_POD_SUBVIEWS.map((subview) => (
-            <StageChip
+            <HubMobileUnderlineTab
               key={subview}
-              label={AWAITING_POD_SUBVIEW_LABEL[subview]}
-              count={awaitingPodCounts[subview]}
-              countColor={AWAITING_POD_SUBVIEW_TONE[subview]}
-              active={awaitingPodSubview === subview}
+              label={`${AWAITING_POD_SUBVIEW_LABEL[subview]} (${awaitingPodCounts[subview]})`}
+              isActive={awaitingPodSubview === subview}
               onPress={() => setAwaitingPodSubview(subview)}
             />
           ))}
@@ -2136,7 +2114,7 @@ export default function ComplianceScreen() {
             summaries={tableWindowItems}
             tripFacts={tripFacts}
             onOpenTrip={openTrip}
-            onOpenActivityLog={setActivityLogSummary}
+            onOpenActivityLog={openActivityLog}
             onRowPress={
               stage === "hard_copy_pod_received"
                 ? (summary) => {
@@ -2153,7 +2131,7 @@ export default function ComplianceScreen() {
             organizationId={currentOrganization?.id ?? ""}
             onOpenTrip={openTrip}
             onOpenSupplier={openSupplier}
-            onOpenActivityLog={setActivityLogSummary}
+            onOpenActivityLog={openActivityLog}
             onUtrSaved={(tripId) => void syncChange({ type: "payment", tripId })}
           />
         </TableQueueScroll>
@@ -2182,7 +2160,7 @@ export default function ComplianceScreen() {
             dateSort={isAdvanceProcessedStage ? undefined : tableDateSort}
             onDateSortChange={isAdvanceProcessedStage ? undefined : setTableDateSort}
             dateSortEnabled={!isAdvanceProcessedStage}
-            onOpenActivityLog={setActivityLogSummary}
+            onOpenActivityLog={openActivityLog}
           />
         </TableQueueScroll>
       ) : (
@@ -2320,7 +2298,9 @@ export default function ComplianceScreen() {
                   mobileReviewSummary ? (
                     <ComplianceActivityLogButton
                       hub
-                      onPress={() => setActivityLogSummary(mobileReviewSummary)}
+                      onPress={() => {
+                        if (mobileReviewSummary) openActivityLog(mobileReviewSummary);
+                      }}
                     />
                   ) : null
                 }
@@ -2335,7 +2315,7 @@ export default function ComplianceScreen() {
           onReviewTripDocs={(tripId, _documentKey, scope = "trip") => {
             openComplianceCard(tripId, scope);
           }}
-          onOpenActivityLog={setActivityLogSummary}
+          onOpenActivityLog={openActivityLog}
           onOpenTrip={openTrip}
           onOpenSupplier={openSupplier}
         />
@@ -2629,11 +2609,11 @@ export default function ComplianceScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, minHeight: 0, overflow: "hidden", backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
-  screenMobile: { backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
+  screenMobile: { backgroundColor: Theme.screenBackground },
   chrome: { flexShrink: 0, paddingTop: 8, backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
   chromeMobile: { paddingTop: 2 },
   queueBody: { flex: 1, minHeight: 0, marginTop: 8, gap: 4, backgroundColor: HUB_MOBILE_LIST_CANVAS_BG },
-  queueBodyMobile: { marginTop: 2 },
+  queueBodyMobile: { marginTop: 0, backgroundColor: Theme.screenBackground },
   queueScroll: { flex: 1, width: "100%", minWidth: 0 },
   queueScrollContent: { paddingBottom: 8, width: "100%", minWidth: 0 },
   tableLoadMore: {
@@ -2725,10 +2705,12 @@ const styles = StyleSheet.create({
   reportBtnText: { fontSize: 10, fontWeight: "500", lineHeight: 12, color: Theme.actionBtnInk },
   logHardCopyPodBtn: {
     flexShrink: 0,
-    height: 26,
-    minHeight: 26,
+    alignSelf: "flex-end",
+    height: 32,
+    minHeight: 32,
     minWidth: 68,
     marginLeft: 8,
+    marginBottom: 6,
     paddingHorizontal: 10,
     borderRadius: 4,
     backgroundColor: Theme.cardWhite,
@@ -2760,8 +2742,8 @@ const styles = StyleSheet.create({
   filtersRow: {
     flex: 1,
     minWidth: 0,
-    minHeight: 56,
-    justifyContent: "center",
+    minHeight: 36,
+    justifyContent: "flex-end",
   },
   /**
    * Stacked toolbar is a column: `flex: 1` (basis 0) collapses the rail to 0 high
@@ -2771,7 +2753,7 @@ const styles = StyleSheet.create({
   chipScroll: {
     flexGrow: 1,
     width: "100%",
-    height: 32,
+    minHeight: 36,
   },
   subChipScroll: {
     flexGrow: 0,
@@ -2786,9 +2768,11 @@ const styles = StyleSheet.create({
   tableSubFilterBar: {
     width: "100%",
     alignSelf: "stretch",
-    alignItems: "center",
-    marginTop: 8,
-    marginBottom: 2,
+    alignItems: "flex-end",
+    minHeight: 36,
+    marginTop: 2,
+    marginBottom: 0,
+    paddingHorizontal: 2,
   },
   /** Verified: Queue (All / Verified) beside Declined (Compliance / Document Upload). */
   verifiedFilterRow: {
@@ -2814,12 +2798,10 @@ const styles = StyleSheet.create({
   },
   /** Card pane: same inset as the trip cards so the subtabs share their edges. */
   verifiedFilterRowCard: {
-    paddingHorizontal: 8,
-    paddingTop: 8,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Theme.complianceCardBorder,
-    backgroundColor: Theme.cardWhite,
+    paddingHorizontal: 2,
+    paddingTop: 0,
+    paddingBottom: 0,
+    backgroundColor: "transparent",
   },
   verifiedFilterGroup: {
     flex: 1,
@@ -2841,15 +2823,9 @@ const styles = StyleSheet.create({
   },
   verifiedFilterGroupLabelPanel: {
     alignSelf: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 999,
-    backgroundColor: Theme.cardWhite,
-    shadowColor: Theme.textPrimaryDark,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
+    paddingHorizontal: 2,
+    paddingVertical: 0,
+    backgroundColor: "transparent",
   },
   verifiedFilterGroupLabel: {
     textAlign: "center",
@@ -2872,14 +2848,12 @@ const styles = StyleSheet.create({
   /** Card list header — tighter stack so both filter rows fit without scroll. */
   pendingDocsFilterStackCard: {
     width: "100%",
-    paddingHorizontal: 10,
-    paddingTop: 6,
-    paddingBottom: 8,
-    gap: 4,
-    alignItems: "stretch",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Theme.complianceCardBorder,
-    backgroundColor: Theme.cardWhite,
+    paddingHorizontal: 2,
+    paddingTop: 0,
+    paddingBottom: 0,
+    gap: 0,
+    alignItems: "flex-start",
+    backgroundColor: "transparent",
   },
   pendingDocsFilterStackEmbedded: {
     width: "100%",
@@ -2889,23 +2863,20 @@ const styles = StyleSheet.create({
   },
   subchipRow: {
     width: "100%",
-    marginTop: 8,
+    minHeight: 36,
+    marginTop: 2,
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-end",
+    paddingHorizontal: 2,
   },
   detailFilterRow: {
     width: "100%",
+    minHeight: 36,
     marginTop: 0,
-    height: 56,
     flexDirection: "row",
-    alignItems: "center",
-    paddingLeft: 8,
-    paddingRight: 8,
-    borderRadius: 999,
-    backgroundColor: Theme.cardWhite,
-    borderWidth: 1,
-    borderColor: Theme.complianceCardBorder,
-    overflow: "hidden",
+    alignItems: "flex-end",
+    paddingHorizontal: 2,
+    backgroundColor: "transparent",
   },
   detailFilterScroll: {
     flex: 1,
@@ -2961,38 +2932,29 @@ const styles = StyleSheet.create({
   stageDeptWrap: {
     flexDirection: "row",
     flexWrap: "nowrap",
-    alignItems: "center",
-    gap: 4,
-    height: 32,
-    paddingRight: 4,
+    alignItems: "flex-end",
+    gap: 2,
+    paddingRight: 8,
   },
   stageTrack: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-end",
     width: "100%",
-    height: 56,
-    paddingHorizontal: 6,
-    paddingVertical: 10,
+    minHeight: 36,
+    paddingHorizontal: 2,
+    paddingVertical: 0,
     overflow: "hidden",
-    borderRadius: 999,
-    backgroundColor: Theme.cardWhite,
-    borderWidth: 1,
-    borderColor: Theme.complianceCardBorder,
-    shadowColor: Theme.textPrimaryDark,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
-    gap: 6,
+    backgroundColor: "transparent",
+    borderWidth: 0,
   },
   chipStack: {
     flexShrink: 0,
-    height: 32,
+    height: 36,
     justifyContent: "center",
   },
   chip: {
     flexShrink: 0,
-    height: 32,
+    height: 36,
     minWidth: 44,
     paddingLeft: 12,
     paddingRight: 10,

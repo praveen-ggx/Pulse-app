@@ -53,6 +53,10 @@ export type TripAssignmentWorkspaceProps = {
   driverPhoneDisplay?: string | null;
   vehicleDisplayLabel: string;
   vehicleCategory?: string | null;
+  /** Fleet record, when this plate is already saved in the app. */
+  vehicleTypeLabel?: string | null;
+  vehicleCapacityLabel?: string | null;
+  vehicleMakeLabel?: string | null;
   fulfillmentMode: AssignmentFulfillmentMode;
   onFulfillmentModeChange?: (mode: AssignmentFulfillmentMode) => void;
   /** When false, mode toggle is display-only (locked to trip type). */
@@ -97,6 +101,10 @@ export type TripAssignmentWorkspaceProps = {
   onContinue?: () => void;
   continueLabel?: string;
   onWizardBack?: () => void;
+  /** Sit inside a dialog instead of a full-screen page. */
+  contained?: boolean;
+  /** One button saves this screen. Skips the extra Continue step. */
+  directSave?: boolean;
 };
 
 function ReasonChipsRow({
@@ -157,22 +165,27 @@ function AssignmentPartySignalCard({
   kind,
   name,
   meta,
+  omitEmptyMeta,
   tripLabel,
   assigned,
   action,
   desktop,
   onEdit,
   onSwap,
+  hideActions,
 }: {
   kind: "driver" | "vehicle";
   name: string;
   meta?: string | null;
+  /** Skip the generic subtitle when the fleet record has no type or capacity. */
+  omitEmptyMeta?: boolean;
   tripLabel: string;
   assigned: boolean;
   action: AssignmentPanelAction;
   desktop?: boolean;
   onEdit: () => void;
   onSwap: () => void;
+  hideActions?: boolean;
 }) {
   const isDriver = kind === "driver";
   const displayName = name.trim() || "Unassigned";
@@ -196,16 +209,28 @@ function AssignmentPartySignalCard({
           <Text style={[aws.notifyName, desktop && aws.notifyNameDesktop]} numberOfLines={1}>
             {displayName}
           </Text>
-          <Text style={[aws.notifyMeta, desktop && aws.notifyMetaDesktop]} numberOfLines={1}>
-            {meta?.trim() ||
-              (isDriver ? "Contact and licence" : "RC, Fastag, specs")}
-          </Text>
+          {(() => {
+            const metaLine =
+              meta?.trim() ||
+              (omitEmptyMeta
+                ? ""
+                : isDriver
+                  ? "Contact and licence"
+                  : "RC, Fastag, specs");
+            if (!metaLine) return null;
+            return (
+              <Text style={[aws.notifyMeta, desktop && aws.notifyMetaDesktop]} numberOfLines={1}>
+                {metaLine}
+              </Text>
+            );
+          })()}
         </View>
         <View style={aws.notifyIconCluster}>
           <RegistryStatusPill
             label={assigned ? "Assigned" : "Needed"}
             tone={assigned ? "success" : "warning"}
           />
+          {hideActions ? null : (
           <View style={aws.notifyIconRow}>
             <Pressable
               onPress={onEdit}
@@ -246,6 +271,7 @@ function AssignmentPartySignalCard({
               </Text>
             </Pressable>
           </View>
+          )}
         </View>
       </View>
     </View>
@@ -268,6 +294,9 @@ export function TripAssignmentWorkspace({
   driverPhoneDisplay,
   vehicleDisplayLabel,
   vehicleCategory,
+  vehicleTypeLabel = null,
+  vehicleCapacityLabel = null,
+  vehicleMakeLabel = null,
   fulfillmentMode,
   driverAction,
   onDriverActionChange,
@@ -294,6 +323,8 @@ export function TripAssignmentWorkspace({
   onContinue,
   continueLabel = "Continue",
   onWizardBack,
+  contained = false,
+  directSave = false,
 }: TripAssignmentWorkspaceProps) {
   const insets = useSafeAreaInsets();
   const pageScrollRef = useRef<ScrollView>(null);
@@ -318,7 +349,8 @@ export function TripAssignmentWorkspace({
     }, 50);
     return () => clearTimeout(id);
   }, [confirmPreview, resolvedWizardStep]);
-  const mobileFullPage = width < 768;
+  const mobileFullPage = !contained && width < 768;
+  const singleChange = directSave && panelScope !== "both";
   const [showAuditDrawer, setShowAuditDrawer] = useState(false);
 
   const tripLabel = getTripDisplayNumber(trip, organizationId ?? undefined);
@@ -558,8 +590,242 @@ export function TripAssignmentWorkspace({
     );
   }
 
+  if (contained && directSave && showPartyPanels) {
+    const dialogTitle = panelScope === "vehicle" ? "Change vehicle" : "Change driver";
+    const partyKind = panelScope === "vehicle" ? "vehicle" : "driver";
+    const partyName = partyKind === "driver" ? driverDisplayName : vehicleDisplayLabel;
+    const fleetSpec = [vehicleTypeLabel, vehicleCapacityLabel, vehicleMakeLabel]
+      .map((part) => part?.trim())
+      .filter(Boolean)
+      .join(" · ");
+    const partyMeta =
+      partyKind === "driver"
+        ? driverPhoneDisplay
+        : fleetSpec || vehicleCategory?.trim() || null;
+    const partyAction = partyKind === "driver" ? driverAction : vehicleAction;
+    const partyAssigned =
+      partyKind === "driver"
+        ? Boolean((trip.driver_id ?? "").trim()) ||
+          Boolean(
+            driverDisplayName.trim() &&
+              !["unassigned", "select driver"].includes(driverDisplayName.trim().toLowerCase()),
+          )
+        : Boolean((trip.vehicle_id ?? "").trim()) ||
+          Boolean(
+            vehicleDisplayLabel.trim() &&
+              !["unassigned", "select vehicle"].includes(
+                vehicleDisplayLabel.trim().toLowerCase(),
+              ),
+          );
+    return (
+      <View style={aws.dialogShell}>
+        {compact ? <View style={aws.sheetHandle} /> : null}
+        <View style={aws.dialogTop}>
+          <TouchableOpacity
+            style={aws.iconBtn}
+            onPress={onClose}
+            accessibilityLabel="Close"
+            activeOpacity={0.85}
+          >
+            <FontAwesome name="close" size={14} color={Theme.textSecondary} />
+          </TouchableOpacity>
+          <View style={aws.dialogTitleBlock}>
+            <Text style={aws.dialogEyebrow} numberOfLines={1}>
+              {dialogTitle}
+            </Text>
+            <View style={aws.dialogTitleRow}>
+              <Text style={aws.tripCode} numberOfLines={1}>
+                {tripLabel}
+              </Text>
+              <View style={aws.statusPill}>
+                <Text style={aws.statusPillText} numberOfLines={1}>
+                  {statusLabel}
+                </Text>
+              </View>
+            </View>
+          </View>
+          <TouchableOpacity
+            style={aws.iconBtn}
+            onPress={() => setShowAuditDrawer(true)}
+            accessibilityLabel="Activity"
+            activeOpacity={0.85}
+          >
+            <FontAwesome name="history" size={13} color={Theme.textMuted} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={aws.dialogBody}>
+          <View style={aws.dialogVehicleLead}>
+            <Text style={aws.dialogEyebrow}>
+              {panelScope === "vehicle" ? "Vehicle on this trip" : "Working vehicle"}
+            </Text>
+            <Text style={aws.dialogVehiclePlate} numberOfLines={1}>
+              {vehicleDisplayLabel}
+            </Text>
+            {vehicleTypeLabel || vehicleCapacityLabel || vehicleMakeLabel ? (
+              <View style={aws.dialogSpecRow}>
+                {vehicleTypeLabel ? (
+                  <View style={aws.dialogSpecChip}>
+                    <Text style={aws.dialogSpecLabel}>Type</Text>
+                    <Text style={aws.dialogSpecValue} numberOfLines={1}>
+                      {vehicleTypeLabel}
+                    </Text>
+                  </View>
+                ) : null}
+                {vehicleCapacityLabel ? (
+                  <View style={aws.dialogSpecChip}>
+                    <Text style={aws.dialogSpecLabel}>Capacity</Text>
+                    <Text style={aws.dialogSpecValue} numberOfLines={1}>
+                      {vehicleCapacityLabel}
+                    </Text>
+                  </View>
+                ) : null}
+                {vehicleMakeLabel ? (
+                  <View style={aws.dialogSpecChip}>
+                    <Text style={aws.dialogSpecLabel}>Make</Text>
+                    <Text style={aws.dialogSpecValue} numberOfLines={1}>
+                      {vehicleMakeLabel}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+            <Text style={aws.dialogFitMeta}>
+              {panelScope === "vehicle"
+                ? "Changing this plate can interrupt a driver who is active on the trip."
+                : "This plate is what puts the driver to work on this trip."}
+            </Text>
+          </View>
+          <View style={aws.dialogFitRoute}>
+            <Text style={aws.dialogFitCity} numberOfLines={1}>
+              {origin}
+            </Text>
+            <FontAwesome name="long-arrow-right" size={12} color={Theme.textMuted} />
+            <Text style={[aws.dialogFitCity, aws.dialogFitCityEnd]} numberOfLines={1}>
+              {destination}
+            </Text>
+          </View>
+          <Text style={aws.dialogFitMeta} numberOfLines={1}>
+            {clientName}
+            {supplierName !== "—" ? `  ·  ${supplierName}` : ""}
+          </Text>
+
+          <View style={[aws.panel, aws.panelSingle, aws.dialogFitPanel]}>
+            <AssignmentPartySignalCard
+              kind={partyKind}
+              name={partyName}
+              meta={partyMeta}
+              omitEmptyMeta
+              tripLabel={tripLabel}
+              action={partyAction}
+              hideActions
+              assigned={partyAssigned}
+              onEdit={() => {
+                if (partyKind === "driver") {
+                  onDriverActionChange(driverAction === "EDIT" ? "PREVIEW" : "EDIT");
+                } else {
+                  onVehicleActionChange(vehicleAction === "EDIT" ? "PREVIEW" : "EDIT");
+                }
+              }}
+              onSwap={() => {
+                if (partyKind === "driver") {
+                  onDriverActionChange(driverAction === "SWAP" ? "PREVIEW" : "SWAP");
+                } else {
+                  onVehicleActionChange(vehicleAction === "SWAP" ? "PREVIEW" : "SWAP");
+                }
+              }}
+            />
+            {partyAction !== "PREVIEW" ? (
+              <View style={aws.panelBody}>
+                <View style={aws.fieldsArea}>
+                  {partyKind === "driver" ? driverPanelBody : vehiclePanelBody}
+                </View>
+              </View>
+            ) : null}
+          </View>
+        </View>
+
+        <View style={[aws.dialogFoot, { paddingBottom: Math.max(16, insets.bottom + 12) }]}>
+          <Text style={[aws.infoBody, aws.scopeNote]}>
+            {panelScope === "vehicle"
+              ? "Only the vehicle changes. The driver stays on this trip."
+              : "Only the driver changes. The vehicle stays on this trip."}
+          </Text>
+          {confirmHint ? (
+            <Text style={[aws.infoBody, { color: Theme.textMuted }]}>{confirmHint}</Text>
+          ) : null}
+          <TouchableOpacity
+            style={[
+              aws.confirmBtn,
+              (confirmDisabled || confirmLoading) && aws.confirmBtnDisabled,
+            ]}
+            onPress={onConfirm}
+            disabled={confirmDisabled || confirmLoading}
+            activeOpacity={0.9}
+            accessibilityRole="button"
+            accessibilityLabel={confirmLabel}
+          >
+            <Text style={aws.confirmBtnText}>
+              {confirmLoading ? "Saving…" : confirmLabel}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {toastMessage ? (
+          <View style={aws.toast} pointerEvents="none">
+            <FontAwesome
+              name="check-circle"
+              size={16}
+              color={Theme.networkHubListCardOnlineDot}
+            />
+            <Text style={aws.toastText}>{toastMessage}</Text>
+          </View>
+        ) : null}
+
+        <Modal
+          visible={showAuditDrawer}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowAuditDrawer(false)}
+        >
+          <Pressable style={aws.dialogActivityBackdrop} onPress={() => setShowAuditDrawer(false)}>
+            <Pressable style={aws.dialogActivityCard} onPress={() => undefined}>
+              <View style={aws.drawerHeader}>
+                <Text style={aws.drawerTitle}>{tripLabel} activity</Text>
+                <TouchableOpacity
+                  style={aws.iconBtn}
+                  onPress={() => setShowAuditDrawer(false)}
+                  accessibilityLabel="Close activity"
+                >
+                  <FontAwesome name="close" size={14} color={Theme.textMuted} />
+                </TouchableOpacity>
+              </View>
+              <View style={aws.dialogActivityList}>
+                {defaultActivity.map((item, idx) => (
+                  <View key={`${item.title}-${idx}`} style={aws.dialogActivityItem}>
+                    <Text style={aws.timelineTime}>{item.time}</Text>
+                    <Text style={aws.timelineTitle}>{item.title}</Text>
+                    <Text style={aws.timelineBody}>{item.body}</Text>
+                  </View>
+                ))}
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+      </View>
+    );
+  }
+
   return (
-    <View style={[aws.root, mobileFullPage && aws.rootMobileFullPage, { paddingTop: insets.top }]}>
+    <View
+      style={[
+        aws.root,
+        mobileFullPage && aws.rootMobileFullPage,
+        contained && aws.rootContained,
+        { paddingTop: contained ? 0 : insets.top },
+      ]}
+    >
+      {contained && compact ? <View style={aws.sheetHandle} /> : null}
       {/* Header */}
       <View style={[aws.header, compact && aws.headerMobile]}>
         <View
@@ -576,20 +842,32 @@ export function TripAssignmentWorkspace({
               accessibilityLabel="Close"
               activeOpacity={0.85}
             >
-              <FontAwesome name="chevron-left" size={12} color={Theme.textSecondary} />
+              <FontAwesome
+                name={contained ? "close" : "chevron-left"}
+                size={contained ? 14 : 12}
+                color={Theme.textSecondary}
+              />
             </TouchableOpacity>
             <View style={{ minWidth: 0, flex: 1 }}>
               {!phone ? (
                 <Text style={aws.eyebrow} numberOfLines={1}>
                   {panelScope === "vehicle"
-                    ? "Assign vehicle"
+                    ? directSave
+                      ? "Change vehicle"
+                      : "Assign vehicle"
                     : panelScope === "driver"
-                      ? "Assign driver"
+                      ? directSave
+                        ? "Change driver"
+                        : "Assign driver"
                       : "Assign driver & vehicle"}
                 </Text>
               ) : (
                 <Text style={aws.eyebrow} numberOfLines={1}>
-                  Driver & vehicle
+                  {panelScope === "vehicle"
+                    ? "Change vehicle"
+                    : panelScope === "driver"
+                      ? "Change driver"
+                      : "Driver & vehicle"}
                 </Text>
               )}
               <View style={aws.tripTitleRow}>
@@ -760,6 +1038,7 @@ export function TripAssignmentWorkspace({
                   tripLabel={tripLabel}
                   action={driverAction}
                   desktop={wide}
+                  hideActions={singleChange}
                   assigned={
                     Boolean((trip.driver_id ?? "").trim()) ||
                     Boolean(
@@ -812,6 +1091,7 @@ export function TripAssignmentWorkspace({
                         ),
                     )
                   }
+                  hideActions={singleChange}
                   onEdit={() => {
                     const next = vehicleAction === "EDIT" ? "PREVIEW" : "EDIT";
                     onVehicleActionChange(next);
@@ -848,18 +1128,33 @@ export function TripAssignmentWorkspace({
                       compact && aws.confirmBtnMobile,
                       (confirmDisabled || confirmLoading) && aws.confirmBtnDisabled,
                     ]}
-                    onPress={onContinue}
-                    disabled={confirmDisabled || confirmLoading || !onContinue}
+                    onPress={directSave ? onConfirm : onContinue}
+                    disabled={
+                      confirmDisabled ||
+                      confirmLoading ||
+                      (directSave ? false : !onContinue)
+                    }
                     activeOpacity={0.9}
                     accessibilityRole="button"
-                    accessibilityLabel={continueLabel}
+                    accessibilityLabel={directSave ? confirmLabel : continueLabel}
                   >
                     <Text
                       style={[aws.confirmBtnText, phone && aws.confirmBtnTextPhone]}
                     >
-                      {continueLabel}
+                      {confirmLoading
+                        ? "Saving…"
+                        : directSave
+                          ? confirmLabel
+                          : continueLabel}
                     </Text>
                   </TouchableOpacity>
+                  {singleChange ? (
+                    <Text style={[aws.infoBody, aws.scopeNote]}>
+                      {panelScope === "vehicle"
+                        ? "Only the vehicle changes. The driver stays on this trip."
+                        : "Only the driver changes. The vehicle stays on this trip."}
+                    </Text>
+                  ) : null}
                   {confirmHint ? (
                     <Text
                       style={[

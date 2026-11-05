@@ -69,7 +69,6 @@ export function ComplianceSegmentedFilter<T extends string>({
           return (
             <HubMobileUnderlineTab
               key={option.id}
-              compact
               label={`${option.label} (${count})`}
               isActive={option.id === value}
               onPress={() => onChange(option.id)}

@@ -51,6 +51,7 @@ import { patchAssignmentCaches } from "@/features/trips/utils/assignmentCachePat
 import { tripAssignmentVehicleWrite } from "@/features/trips/utils/tripAssignmentVehicle.util";
 import { publishAssignmentPaint } from "@/features/trips/utils/assignmentPaint.util";
 import { setInitialTripForDetail } from "@/features/trips/initialTripForDetail";
+import { showAppAlert } from "@/lib/appAlert";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import {
@@ -62,10 +63,10 @@ import {
     type ReactNode,
 } from "react";
 import {
-    Alert,
     Keyboard,
     Modal,
     Platform,
+    Pressable,
     ScrollView,
     StyleSheet,
     Text,
@@ -543,6 +544,72 @@ export function TripAssignmentBlock({
     }
     const orgForDriver =
       (driverAssignOrgId ?? organizationId).trim() || organizationId;
+    const editingCurrentPhone = isSameDriverPhone(trimmed, assignedDriverPhone);
+    if (editingCurrentPhone && trip.driver_id) {
+      setPhoneError(null);
+      setPhoneSaving(true);
+      try {
+        const { error: saveErr } = await updateTripAssignment(
+          trip.id,
+          {
+            driver_display_name: driverNameTrimmed || null,
+            ...(assignMode === "driver" || !nextVehiclePlate
+              ? {}
+              : { vehicle_display_number: nextVehiclePlate }),
+          },
+          currentUserId != null
+            ? {
+                changedBy: currentUserId,
+                driverIdPrev: trip.driver_id ?? null,
+                vehicleIdPrev: trip.vehicle_id ?? null,
+              }
+            : undefined,
+        );
+        if (saveErr) {
+          setPhoneError(saveErr.message);
+          return;
+        }
+        const nextName = driverNameTrimmed || null;
+        patchAssignmentCaches(queryClient, {
+          tripId: trip.id,
+          organizationId,
+          patch: {
+            ...(trip.driver_id ? { driverId: trip.driver_id } : {}),
+            driverDisplayName: nextName,
+            driverPhone: trimmed,
+            ...(assignMode === "driver" || !nextVehiclePlate
+              ? {}
+              : { vehicleDisplayNumber: nextVehiclePlate }),
+            focus: "driver",
+          },
+        });
+        setInitialTripForDetail({
+          ...trip,
+          driver_display_name: nextName,
+          ...(assignMode !== "driver" && nextVehiclePlate
+            ? { vehicle_display_number: nextVehiclePlate }
+            : {}),
+        });
+        publishAssignmentPaint({
+          tripId: trip.id,
+          driverName: nextName || "Driver",
+          driverPhone: trimmed,
+          vehicleLabel: nextVehiclePlate,
+          vehicleId: trip.vehicle_id ?? null,
+          focus: "driver",
+          confirm: true,
+        });
+        if (assignMode !== "driver" && nextVehiclePlate) {
+          paintVehicleAssignment(nextVehiclePlate, trip.vehicle_id ?? null);
+        }
+        onUpdated();
+        closeAssignModal();
+        if (fullPageFlow) onFlowComplete?.();
+      } finally {
+        setPhoneSaving(false);
+      }
+      return;
+    }
     const { error: availabilityError, result: availability } = driverAssignOrgId
       ? await getDriverAvailabilityByPhoneGlobal(trimmed, {
           excludeTripId: trip.id,
@@ -558,8 +625,7 @@ export function TripAssignmentBlock({
       );
       return;
     }
-    const editingCurrentPhone = isSameDriverPhone(trimmed, assignedDriverPhone);
-    if (availability.isBusy && !editingCurrentPhone) {
+    if (availability.isBusy) {
       const conflictTripLabel =
         availability.ongoingTripLabel ?? "another ongoing trip";
       setPhoneDriverBusy(true);
@@ -567,38 +633,6 @@ export function TripAssignmentBlock({
       setPhoneError(
         `This number is on ${conflictTripLabel}. Finish that trip or pick a different driver.`,
       );
-      return;
-    }
-    if (editingCurrentPhone && trip.driver_id) {
-      setPhoneError(null);
-      setPhoneSaving(true);
-      try {
-        const { error: saveErr } = await updateTripAssignment(
-          trip.id,
-          {
-            driver_display_name: driverNameTrimmed || null,
-            ...(nextVehiclePlate
-              ? { vehicle_display_number: nextVehiclePlate }
-              : {}),
-          },
-          currentUserId != null
-            ? {
-                changedBy: currentUserId,
-                driverIdPrev: trip.driver_id ?? null,
-                vehicleIdPrev: trip.vehicle_id ?? null,
-              }
-            : undefined,
-        );
-        if (saveErr) {
-          setPhoneError(saveErr.message);
-          return;
-        }
-        onUpdated();
-        closeAssignModal();
-        if (fullPageFlow) onFlowComplete?.();
-      } finally {
-        setPhoneSaving(false);
-      }
       return;
     }
     setPhoneError(null);
@@ -629,12 +663,15 @@ export function TripAssignmentBlock({
     const effectiveVehicleInput =
       phoneVehicleInput.trim() ||
       (phoneModalIsReassign ? formatIndianVehicleNumber(existingVehicleDisplay) : "");
+    const driverOnly = assignMode === "driver";
     const vehicleNumNormEffective = normalizeVehicleNumber(effectiveVehicleInput);
-    const matchedVehicle = vehicleNumNormEffective
-      ? phoneModalVehicles.find(
-          (v) => normalizeVehicleNumber(v.vehicle_number) === vehicleNumNormEffective,
-        )
-      : null;
+    const matchedVehicle = driverOnly
+      ? null
+      : vehicleNumNormEffective
+        ? phoneModalVehicles.find(
+            (v) => normalizeVehicleNumber(v.vehicle_number) === vehicleNumNormEffective,
+          )
+        : null;
     if (matchedVehicle) {
       const tripsRes = await getTripsByOrganization(organizationId);
       if (!tripsRes.error) {
@@ -671,8 +708,8 @@ export function TripAssignmentBlock({
         trip.id,
         orgForDriver,
         trimmed,
-        matchedVehicle ? null : effectiveVehicleInput.trim() || null,
-        matchedVehicle?.id ?? null,    // ← pass vehicle_id to RPC directly
+        driverOnly ? null : matchedVehicle ? null : effectiveVehicleInput.trim() || null,
+        driverOnly ? null : matchedVehicle?.id ?? null,
         trip.driver_id ?? null,        // previousDriverId
         driverNameTrimmed,             // persist typed name instead of 'Driver' placeholder
         phoneIsOwnAsset == null ? null : phoneIsOwnAsset ? "ASSET" : "AGGREGATE",
@@ -694,7 +731,7 @@ export function TripAssignmentBlock({
         setPhoneError(humanizeTripIdInRpcError(error.message, trip));
         return;
       }
-      if (matchedVehicle) {
+      if (!driverOnly && matchedVehicle) {
         const { error: vehicleErr } = await updateTripAssignment(
           trip.id,
           { vehicle_id: matchedVehicle.id },
@@ -702,7 +739,7 @@ export function TripAssignmentBlock({
         );
         if (vehicleErr)
           setPhoneError(humanizeTripIdInRpcError(vehicleErr.message, trip));
-      } else if (effectiveVehicleInput.trim()) {
+      } else if (!driverOnly && effectiveVehicleInput.trim()) {
         const { error: vehicleErr } = await updateTripAssignment(
           trip.id,
           tripAssignmentVehicleWrite({
@@ -808,6 +845,8 @@ export function TripAssignmentBlock({
     onFlowComplete,
     assignMode,
     paintVehicleAssignment,
+    queryClient,
+    trip,
   ]);
 
   const _handleRegenerateOtp = useCallback(async () => {
@@ -1121,7 +1160,7 @@ export function TripAssignmentBlock({
     async (driverId: string | null) => {
       if (driverId && driverId !== trip.driver_id && activeDriverIds.has(driverId)) {
         const label = activeDriverTripLabelById[driverId] ?? "another ongoing trip";
-        Alert.alert("Driver already in trip", `Driver is already assigned to ${label}.`);
+        showAppAlert("Driver already in trip", `Driver is already assigned to ${label}.`);
         return;
       }
       setSaving(true);
@@ -1138,7 +1177,7 @@ export function TripAssignmentBlock({
             : undefined,
         );
         if (error) {
-          Alert.alert("Save failed", error.message, [{ text: "OK" }]);
+          showAppAlert("Save failed", error.message);
           return;
         }
         closeAssignModal();
@@ -1172,7 +1211,7 @@ export function TripAssignmentBlock({
     ) => {
       if (vehicleId && vehicleId !== trip.vehicle_id && activeVehicleIds.has(vehicleId)) {
         const label = activeVehicleTripLabelById[vehicleId] ?? "another ongoing trip";
-        Alert.alert("Vehicle already in trip", `Vehicle is already assigned to ${label}.`);
+        showAppAlert("Vehicle already in trip", `Vehicle is already assigned to ${label}.`);
         return;
       }
       setSaving(true);
@@ -1194,7 +1233,7 @@ export function TripAssignmentBlock({
             : undefined,
         );
         if (error) {
-          Alert.alert("Save failed", error.message, [{ text: "OK" }]);
+          showAppAlert("Save failed", error.message);
           return;
         }
         closeAssignModal();
@@ -1383,20 +1422,28 @@ export function TripAssignmentBlock({
       },
       opts?: { close?: boolean; refresh?: boolean },
     ) => {
-      if (driverId !== trip.driver_id && activeDriverIds.has(driverId)) {
+      const changingDriver = assignMode !== "vehicle";
+      const changingVehicle = assignMode !== "driver";
+      if (
+        changingDriver &&
+        driverId &&
+        driverId !== trip.driver_id &&
+        activeDriverIds.has(driverId)
+      ) {
         const label =
           activeDriverTripLabelById[driverId] ?? "another ongoing trip";
-        Alert.alert("Driver already in trip", `Driver is already assigned to ${label}.`);
+        showAppAlert("Driver already in trip", `Driver is already assigned to ${label}.`);
         return false;
       }
       if (
+        changingVehicle &&
         vehicleId &&
         vehicleId !== trip.vehicle_id &&
         activeVehicleIds.has(vehicleId)
       ) {
         const label =
           activeVehicleTripLabelById[vehicleId] ?? "another ongoing trip";
-        Alert.alert("Vehicle already in trip", `Vehicle is already assigned to ${label}.`);
+        showAppAlert("Vehicle already in trip", `Vehicle is already assigned to ${label}.`);
         return false;
       }
       setSaving(true);
@@ -1408,17 +1455,21 @@ export function TripAssignmentBlock({
           trip.vehicle_display_number?.trim() ||
           null;
         const vehicleIdChanged =
-          vehicleId != null && vehicleId !== trip.vehicle_id;
+          changingVehicle && vehicleId != null && vehicleId !== trip.vehicle_id;
         const { error } = await updateTripAssignment(
           trip.id,
           {
-            ...(driverId !== trip.driver_id ? { driver_id: driverId } : {}),
+            ...(changingDriver && driverId && driverId !== trip.driver_id
+              ? { driver_id: driverId }
+              : {}),
             ...(vehicleIdChanged ? { vehicle_id: vehicleId } : {}),
-            ...tripAssignmentVehicleWrite({
-              resolvedVehicleId: vehicleIdChanged ? vehicleId : null,
-              plate: persistVehiclePlate,
-            }),
-            ...(persistDriverName
+            ...(changingVehicle
+              ? tripAssignmentVehicleWrite({
+                  resolvedVehicleId: vehicleIdChanged ? vehicleId : null,
+                  plate: persistVehiclePlate,
+                })
+              : {}),
+            ...(changingDriver && persistDriverName
               ? { driver_display_name: persistDriverName }
               : {}),
           },
@@ -1431,7 +1482,7 @@ export function TripAssignmentBlock({
             : undefined,
         );
         if (error) {
-          Alert.alert("Save failed", error.message, [{ text: "OK" }]);
+          showAppAlert("Save failed", error.message);
           return false;
         }
         const nextDriverName =
@@ -1448,48 +1499,64 @@ export function TripAssignmentBlock({
           tripId: trip.id,
           organizationId,
           patch: {
-            driverId,
-            ...(vehicleId !== undefined ? { vehicleId } : {}),
-            driverDisplayName: nextDriverName,
-            vehicleDisplayNumber: nextVehicleLabel,
-            ...(nextVehicleType ? { vehicleType: nextVehicleType } : {}),
+            ...(changingDriver ? { driverId, driverDisplayName: nextDriverName } : {}),
+            ...(changingVehicle
+              ? {
+                  ...(vehicleId !== undefined ? { vehicleId } : {}),
+                  vehicleDisplayNumber: nextVehicleLabel,
+                  ...(nextVehicleType ? { vehicleType: nextVehicleType } : {}),
+                }
+              : {}),
             focus: persistFocus,
           },
         });
         setInitialTripForDetail({
           ...trip,
-          driver_id: driverId,
-          ...(vehicleId !== undefined ? { vehicle_id: vehicleId } : {}),
-          driver_display_name: nextDriverName,
-          vehicle_display_number: nextVehicleLabel,
+          ...(changingDriver
+            ? { driver_id: driverId, driver_display_name: nextDriverName }
+            : {}),
+          ...(changingVehicle
+            ? {
+                ...(vehicleId !== undefined ? { vehicle_id: vehicleId } : {}),
+                vehicle_display_number: nextVehicleLabel,
+              }
+            : {}),
         });
         publishAssignmentPaint({
           tripId: trip.id,
-          driverName: nextDriverName,
-          vehicleLabel: nextVehicleLabel,
-          vehicleType: nextVehicleType,
-          vehicleId,
+          driverName: changingDriver
+            ? nextDriverName
+            : trip.driver_display_name?.trim() || "Driver",
+          vehicleLabel: changingVehicle
+            ? nextVehicleLabel
+            : trip.vehicle_display_number?.trim() || "Vehicle",
+          vehicleType: changingVehicle ? nextVehicleType : null,
+          vehicleId: changingVehicle ? vehicleId : trip.vehicle_id,
           focus: persistFocus,
           confirm: true,
         });
-        onVehicleDisplayChangeRef.current?.(nextVehicleLabel);
+        if (changingVehicle) onVehicleDisplayChangeRef.current?.(nextVehicleLabel);
         if (opts?.refresh !== false) {
           setTimeout(() => onUpdated(), 800);
         }
-        setActiveDriverIds((prev) => {
-          const next = new Set(prev);
-          if (trip.driver_id) next.delete(trip.driver_id);
-          next.add(driverId);
-          return next;
-        });
-        setActiveVehicleIds((prev) => {
-          const next = new Set(prev);
-          if (trip.vehicle_id) next.delete(trip.vehicle_id);
-          if (vehicleId) next.add(vehicleId);
-          return next;
-        });
-        setPreviewDriverId(driverId);
-        if (vehicleId) setPreviewVehicleId(vehicleId);
+        if (changingDriver && driverId) {
+          setActiveDriverIds((prev) => {
+            const next = new Set(prev);
+            if (trip.driver_id) next.delete(trip.driver_id);
+            next.add(driverId);
+            return next;
+          });
+          setPreviewDriverId(driverId);
+        }
+        if (changingVehicle) {
+          setActiveVehicleIds((prev) => {
+            const next = new Set(prev);
+            if (trip.vehicle_id) next.delete(trip.vehicle_id);
+            if (vehicleId) next.add(vehicleId);
+            return next;
+          });
+          if (vehicleId) setPreviewVehicleId(vehicleId);
+        }
         void Promise.all([
           getActiveDriverAssignments(organizationId, trip.id),
           getActiveVehicleAssignments(organizationId, trip.id),
@@ -1958,26 +2025,48 @@ export function TripAssignmentBlock({
 
       {/* Driver / vehicle picker + summary */}
       <Modal
-        visible={assignMode !== null}
+        visible={assignMode !== null && !showPhoneModal}
         animationType="fade"
         presentationStyle="overFullScreen"
         transparent
         onRequestClose={dismissAssignmentFlow}
       >
         <View
-          style={
-            isMobileAssignFlow
-              ? assignmentShellStyles.webModalBackdropFullPage
-              : assignmentShellStyles.webModalBackdrop
-          }
+          style={{
+            flex: 1,
+            backgroundColor: Theme.overlayBackdrop,
+            justifyContent: windowWidth >= 720 ? "center" : "flex-end",
+            alignItems: "center",
+            paddingTop: windowWidth >= 720 ? insets.top + 24 : insets.top + 28,
+            paddingBottom: windowWidth >= 720 ? insets.bottom + 24 : 0,
+            paddingHorizontal: windowWidth >= 720 ? 24 : 0,
+          }}
         >
+          <Pressable
+            style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}
+            onPress={dismissAssignmentFlow}
+            accessibilityLabel="Close"
+          />
           {!showAssignByPhone ? (
             <View
-              style={
-                isMobileAssignFlow
-                  ? assignmentShellStyles.assignModalWrapFullPage
-                  : assignmentShellStyles.assignModalWrapPopup
-              }
+              style={{
+                width: "100%",
+                maxWidth: windowWidth >= 720 ? 560 : "100%",
+                maxHeight: "92%",
+                minHeight: 0,
+                flexBasis: "auto",
+                flexGrow: 0,
+                flexShrink: 0,
+                borderRadius: windowWidth >= 720 ? 24 : 0,
+                borderTopLeftRadius: 24,
+                borderTopRightRadius: 24,
+                overflow: "hidden",
+                backgroundColor: Theme.assignmentPageBg,
+                ...Platform.select({
+                  web: { boxShadow: "0 24px 64px rgba(12, 16, 29, 0.28)" } as object,
+                  default: {},
+                }),
+              }}
             >
               <FleetAssignWorkspace
                 trip={trip}
@@ -2602,6 +2691,7 @@ export function TripAssignmentBlock({
         visible={showPhoneModal}
         onClose={() => {
           setShowPhoneModal(false);
+          setAssignMode(null);
           setPhoneAssignOtpReveal(null);
           setPhoneAssignSuccess(null);
           setPhoneIsOwnAsset(null);

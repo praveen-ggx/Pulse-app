@@ -87,11 +87,14 @@ export function HardCopyPodPhotoUpload({
   tripId,
   canEdit,
   variant = "embed",
+  framed = false,
   onUploadedChange,
 }: {
   tripId: string;
   canEdit: boolean;
   variant?: "embed" | "pane";
+  /** Dialog scan step: page preview first, upload control aligned under it. */
+  framed?: boolean;
   onUploadedChange?: (uploaded: boolean) => void;
 }) {
   const { user } = useAuth();
@@ -319,40 +322,48 @@ export function HardCopyPodPhotoUpload({
   const active = photos.find((item) => item.key === activeKey) ?? photos[0] ?? null;
 
   if (variant === "pane") {
+    const uploadControls = canEdit ? (
+      <View style={[styles.paneUploadRow, framed && styles.paneUploadRowFramed]}>
+        {framed ? (
+          <Text style={styles.paneHintFramed} numberOfLines={2}>
+            {active
+              ? shortHardCopyPodPhotoName(active.fileName)
+              : complianceTripDocFormatHint()}
+          </Text>
+        ) : null}
+        {Platform.OS !== "web" ? (
+          <Pressable
+            style={[styles.paneUpload, styles.paneUploadPrimary, framed && styles.paneUploadFramed]}
+            onPress={() => {
+              setValidationMessage(null);
+              void pickFromCamera();
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Take POD photo"
+          >
+            <Camera size={14} color={Theme.buttonDarkText} />
+            <Text style={styles.paneUploadPrimaryText}>Take photo</Text>
+          </Pressable>
+        ) : null}
+        <Pressable
+          style={[styles.paneUpload, framed && styles.paneUploadFramed]}
+          onPress={() => void pickFromDocuments()}
+          accessibilityRole="button"
+          accessibilityLabel="Upload POD"
+        >
+          <Upload size={14} color={Theme.textPrimaryDark} />
+          <Text style={styles.paneUploadText}>
+            {Platform.OS === "web" ? "Upload POD" : "Upload file"}
+          </Text>
+        </Pressable>
+      </View>
+    ) : null;
     return (
       <View style={styles.pane}>
-        <Text style={styles.label}>Uploaded POD</Text>
-        {canEdit ? (
-          <View style={styles.paneUploadRow}>
-            {Platform.OS !== "web" ? (
-              <Pressable
-                style={[styles.paneUpload, styles.paneUploadPrimary]}
-                onPress={() => {
-                  setValidationMessage(null);
-                  void pickFromCamera();
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Take POD photo"
-              >
-                <Camera size={14} color={Theme.buttonDarkText} />
-                <Text style={styles.paneUploadPrimaryText}>Take photo</Text>
-              </Pressable>
-            ) : null}
-            <Pressable
-              style={styles.paneUpload}
-              onPress={() => void pickFromDocuments()}
-              accessibilityRole="button"
-              accessibilityLabel="Upload POD"
-            >
-              <Upload size={14} color={Theme.textPrimaryDark} />
-              <Text style={styles.paneUploadText}>
-                {Platform.OS === "web" ? "Upload POD" : "Upload file"}
-              </Text>
-            </Pressable>
-          </View>
-        ) : null}
-        <Text style={styles.paneHint}>{complianceTripDocFormatHint()}</Text>
-        <View style={styles.paneStage}>
+        {framed ? null : <Text style={styles.label}>Uploaded POD</Text>}
+        {framed ? null : uploadControls}
+        {framed ? null : <Text style={styles.paneHint}>{complianceTripDocFormatHint()}</Text>}
+        <View style={[styles.paneStage, framed && styles.paneStageFramed]}>
           {!loaded && photos.length === 0 ? (
             <ActivityIndicator color={Theme.analyticsHeroBg} />
           ) : active?.previewUri && fileIsPdf(active.fileName, active.document?.mime_type) ? (
@@ -365,7 +376,7 @@ export function HardCopyPodPhotoUpload({
               <PdfViewer
                 pdfUri={active.previewUri}
                 showToolbar={false}
-                sizing="cover"
+                sizing="fit"
                 style={styles.paneFile}
               />
               <PodCopyWatermark kind="hard" />
@@ -380,20 +391,35 @@ export function HardCopyPodPhotoUpload({
               <Image
                 source={{ uri: active.previewUri }}
                 style={styles.paneImage}
-                resizeMode="cover"
+                resizeMode="contain"
                 accessibilityLabel={active.fileName}
               />
               <PodCopyWatermark kind="hard" />
             </Pressable>
           ) : (
-            <View style={styles.paneEmptyWrap} accessibilityLabel="Uploaded POD image will show here">
+            <Pressable
+              style={styles.paneEmptyWrap}
+              onPress={
+                canEdit
+                  ? () => {
+                      setValidationMessage(null);
+                      void (Platform.OS === "web" ? pickFromDocuments() : pickPhotos());
+                    }
+                  : undefined
+              }
+              disabled={!canEdit}
+              accessibilityRole="button"
+              accessibilityLabel="Upload POD"
+            >
               <HubPromoHeroLottie
                 source={EMPTY_STATE_LOTTIE.podUpload}
                 width={72}
                 height={72}
               />
-              <Text style={styles.paneEmpty}>Upload a POD photo to preview it here</Text>
-            </View>
+              <Text style={styles.paneEmpty}>
+                {canEdit ? "Choose a POD scan or photo" : "Upload a POD photo to preview it here"}
+              </Text>
+            </Pressable>
           )}
           {active?.uploading ? (
             <View style={styles.paneBusy}>
@@ -412,7 +438,7 @@ export function HardCopyPodPhotoUpload({
             </Pressable>
           ) : null}
         </View>
-        {active ? (
+        {framed ? uploadControls : active ? (
           <Text style={styles.fileName} numberOfLines={1}>
             {shortHardCopyPodPhotoName(active.fileName)}
           </Text>
@@ -588,6 +614,28 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
   },
+  paneUploadRowFramed: {
+    alignItems: "center",
+    flexWrap: "nowrap",
+  },
+  paneUploadFramed: {
+    flexGrow: 0,
+    minHeight: 36,
+    paddingHorizontal: 12,
+  },
+  paneHintFramed: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "400",
+    color: Theme.textSecondary,
+  },
+  paneStageFramed: {
+    flex: 1,
+    minHeight: 0,
+    backgroundColor: Theme.surface,
+  },
   paneUpload: {
     minHeight: 32,
     flexDirection: "row",
@@ -635,15 +683,18 @@ const styles = StyleSheet.create({
   paneFile: { flex: 1, width: "100%", height: "100%", position: "relative" },
   paneImage: { width: "100%", height: "100%" },
   paneEmptyWrap: {
+    flex: 1,
+    width: "100%",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
     paddingHorizontal: 16,
   },
   paneEmpty: {
-    fontSize: 12,
+    fontSize: 13,
+    lineHeight: 17,
     fontWeight: "600",
-    color: Theme.textMuted,
+    color: Theme.textPrimary,
     textAlign: "center",
   },
   paneBusy: {

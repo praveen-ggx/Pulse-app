@@ -56,6 +56,8 @@ export type AlertRegistrySignalCardProps = {
   detailTitle?: string;
   /** Secondary line in the detail card — e.g. category or note. */
   detailSubtitle?: string;
+  /** Route and date, smaller than the detail title. */
+  detailMeta?: string;
   /** Optional media inside the gray quote card (uploaded document thumb). */
   detailMedia?: React.ReactNode;
   timeLabel: string;
@@ -180,6 +182,7 @@ export function AlertRegistrySignalCard({
   detail,
   detailTitle,
   detailSubtitle,
+  detailMeta,
   detailMedia,
   timeLabel,
   contextLabel,
@@ -194,7 +197,7 @@ export function AlertRegistrySignalCard({
   compact = false,
   avatarSlot,
 }: AlertRegistrySignalCardProps) {
-  const showDetailCard = Boolean(detailTitle || detailSubtitle || detail || detailMedia);
+  const showDetailCard = Boolean(detailTitle || detailSubtitle || detailMeta || detail || detailMedia);
   const avatarSize = compact ? COMPACT_AVATAR_SIZE : AVATAR_SIZE;
 
   const content = (
@@ -270,6 +273,14 @@ export function AlertRegistrySignalCard({
                 numberOfLines={2}
               >
                 {detailTitle}
+              </Text>
+            ) : null}
+            {detailMeta ? (
+              <Text
+                style={[styles.detailMeta, WEB_COPY, compact && styles.detailMetaCompact]}
+                numberOfLines={1}
+              >
+                {detailMeta}
               </Text>
             ) : null}
             {detailSubtitle ? (
@@ -500,6 +511,16 @@ const stylesDef = {
     fontSize: 11,
     lineHeight: 14,
     fontWeight: "500",
+  }),
+  detailMeta: text({
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "400",
+    color: "#78829D",
+  }),
+  detailMetaCompact: text({
+    fontSize: 9,
+    lineHeight: 12,
   }),
   detailSubtitle: text({
     fontSize: 12,

@@ -34,22 +34,36 @@ export type PodChargeLines = {
 
 export type ChargeDraft = Record<keyof PodChargeLines, string>;
 
-/** Exception / extra-charge log on POD Verification. */
+/** Exception / extra-charge log on POD Verification. Client and vendor amounts stay independent. */
 export type PodExceptionLogDraft = {
   loading: string;
+  loadingVendor: string;
   unloading: string;
+  unloadingVendor: string;
   damage: string;
+  damageVendor: string;
   productMissing: string;
+  productMissingVendor: string;
   delay: string;
+  delayVendor: string;
+  halting: string;
+  haltingVendor: string;
   actualDeliveryDate: string;
 };
 
 export const EMPTY_POD_EXCEPTION_LOG: PodExceptionLogDraft = {
   loading: "",
+  loadingVendor: "",
   unloading: "",
+  unloadingVendor: "",
   damage: "",
+  damageVendor: "",
   productMissing: "",
+  productMissingVendor: "",
   delay: "",
+  delayVendor: "",
+  halting: "",
+  haltingVendor: "",
   actualDeliveryDate: "",
 };
 
@@ -59,7 +73,17 @@ export const POD_EXCEPTION_CHARGE_KEYS = [
   "damage",
   "productMissing",
   "delay",
+  "halting",
 ] as const satisfies readonly (keyof PodExceptionLogDraft)[];
+
+export const POD_EXCEPTION_VENDOR_KEYS = {
+  loading: "loadingVendor",
+  unloading: "unloadingVendor",
+  damage: "damageVendor",
+  productMissing: "productMissingVendor",
+  delay: "delayVendor",
+  halting: "haltingVendor",
+} as const satisfies Record<(typeof POD_EXCEPTION_CHARGE_KEYS)[number], keyof PodExceptionLogDraft>;
 
 export const EMPTY_CHARGE_LINES: PodChargeLines = {
   cost: 0,

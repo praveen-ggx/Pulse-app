@@ -37,13 +37,28 @@ import {
   resolveNetworkRegistryAvatar,
   resolveSalaryRegistryAvatar,
 } from "@/lib/alertRegistry/registryNotificationAvatar.util";
+import { companyNameForInitials } from "@/lib/alertRegistry/networkNotificationParty.util";
+import { useTripMoneyById } from "@/lib/alertRegistry/useTripMoneyById";
 import {
-  networkNotificationActionLabel,
   networkNotificationActionText,
   networkNotificationTagLabel,
 } from "@/features/network/utils/networkNotificationLabels.util";
+import { networkLaneDetail } from "@/lib/globalSync/networkLaneNotifications.util";
 import { useMarkNetworkNotificationRead } from "@/lib/queries/useNetworkNotificationsQuery";
+import { useLinkedOrgDisplayMap } from "@/lib/queries/useLinkedOrgDisplayQuery";
 import { ROUTES } from "@/lib/routes";
+import { useMemberAccess } from "@/lib/useMemberAccess";
+import {
+  canOpenOpsAlert,
+  entryAllowedByAccess,
+  indentPrimaryAction,
+  registryTabVisible,
+  type RegistryNotificationAccess,
+} from "@/lib/alertRegistry/registryNotificationAccess.util";
+import {
+  classifyPaymentAlert,
+  paymentTagLabel,
+} from "@/lib/globalSync/registryPaymentLane.util";
 import { useRouter } from "expo-router";
 import type { ClientRow } from "@/features/clients/services/clients.service";
 import type { DriverRow } from "@/features/drivers/services/drivers.service";
@@ -72,7 +87,9 @@ const FILTER_TABS: { id: RegistryFilterTab; label: string }[] = [
   { id: "all", label: "All" },
   { id: "driver", label: "Driver" },
   { id: "trip", label: "Trip" },
+  { id: "indent", label: "Indent" },
   { id: "payment", label: "Payment" },
+  { id: "received", label: "Received" },
   { id: "archive", label: "Archive" },
 ];
 
@@ -92,9 +109,17 @@ const EMPTY_COPY: Record<
     title: "No trip alerts",
     body: "Late logs, idle vehicles, and other active trip signals appear here.",
   },
+  indent: {
+    title: "No indent activity",
+    body: "Indent bids, quotes, and awards appear here.",
+  },
   payment: {
-    title: "No payment alerts",
-    body: "Payment receipts appear here.",
+    title: "No payments initiated",
+    body: "Advance and other payments you send appear here.",
+  },
+  received: {
+    title: "No client receipts",
+    body: "Payments captured from a client appear here.",
   },
   archive: {
     title: "No archived items",
@@ -131,15 +156,21 @@ function opsContextLabel(item: GlobalOperationAlert): string {
   if (item.category === "late_log") return "Operations";
   if (item.category === "unassigned_trip") return "Operations";
   if (item.category === "vehicle_idle") return "Fleet";
-  if (item.category === "payment_received") return "Finance";
+  if (item.category === "payment_received") return "Received";
+  if (item.category === "payment_paid") return "Payment";
   return "Operations";
 }
 
-function opsTag(item: GlobalOperationAlert): string {
+function opsTag(
+  item: GlobalOperationAlert,
+  trips: RegistryPartyLookup["activeTrips"],
+): string {
   if (item.category === "late_log") return "late log";
   if (item.category === "unassigned_trip") return "unassigned";
   if (item.category === "vehicle_idle") return "idle";
-  if (item.category === "payment_received") return "payment received";
+  if (item.category === "payment_received" || item.category === "payment_paid") {
+    return paymentTagLabel(classifyPaymentAlert(item, trips));
+  }
   return item.category.replace(/_/g, " ");
 }
 
@@ -203,11 +234,13 @@ function RegistryFeedList({
   visibleCount,
   finance,
   feed,
+  access,
 }: {
   filterTab: RegistryFilterTab;
   visibleCount: number;
   finance: AlertRegistryFinanceHandlers;
   feed: RegistryFeedEntry[];
+  access: RegistryNotificationAccess;
 }) {
   const auth = useOptionalAuth();
   const org = useOptionalOrganization();
@@ -235,6 +268,47 @@ function RegistryFeedList({
     () => new Map(suppliers.map((supplier) => [supplier.id, supplier])),
     [suppliers],
   );
+  const actorOrgIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const entry of feed) {
+      const id = entry.network?.actor_org_id?.trim();
+      if (id) ids.add(id);
+    }
+    return [...ids];
+  }, [feed]);
+  const linkedOrgs = useLinkedOrgDisplayMap(actorOrgIds);
+  const tripMoneyById = useTripMoneyById(orgId);
+  const partiesByLinkedOrg = useMemo(() => {
+    const map = new Map<
+      string,
+      { name: string; entityType: "client" | "supplier"; avatarUrl?: string | null; avatarSeed?: string | null }
+    >();
+    for (const client of clients) {
+      const id = client.linked_organization_id?.trim();
+      const name = client.name?.trim();
+      if (id && name) {
+        map.set(id, {
+          name,
+          entityType: "client",
+          avatarUrl: client.avatar_url,
+          avatarSeed: client.avatar_seed,
+        });
+      }
+    }
+    for (const supplier of suppliers) {
+      const id = supplier.linked_organization_id?.trim();
+      const name = supplier.company_name?.trim() || supplier.name?.trim();
+      if (id && name && !map.has(id)) {
+        map.set(id, {
+          name,
+          entityType: "supplier",
+          avatarUrl: supplier.avatar_url,
+          avatarSeed: supplier.avatar_seed,
+        });
+      }
+    }
+    return map;
+  }, [clients, suppliers]);
   const partyCtx = useMemo(
     (): RegistryPartyLookup => ({
       activeTrips,
@@ -244,6 +318,7 @@ function RegistryFeedList({
       org: org?.currentOrganization ?? null,
       partnerDisplay: partnerDisplayByOrgId,
       partnerAvatarUri: partnerAvatarUriByOrgId,
+      tripMoneyById,
     }),
     [
       activeTrips,
@@ -253,6 +328,7 @@ function RegistryFeedList({
       org?.currentOrganization,
       partnerDisplayByOrgId,
       partnerAvatarUriByOrgId,
+      tripMoneyById,
     ],
   );
   const isActiveView = filterTab !== "archive";
@@ -289,21 +365,31 @@ function RegistryFeedList({
         if (entry.kind === "ops" && entry.ops) {
           const ops = entry.ops;
           const opsTags: RegistryTag[] = [
-            { label: opsTag(ops), variant: opsAlertTagVariant(ops.category) },
+            { label: opsTag(ops, activeTrips), variant: opsAlertTagVariant(ops.category) },
           ];
           const presentation = buildOpsRegistryCardPresentation(ops, partyCtx);
+          const openOps = canOpenOpsAlert(ops.category, access);
+          const openOpsPress = () => {
+            if (!openOps) return;
+            if (!access.tripDetail) {
+              router.push(ROUTES.TABS.FINANCE as Parameters<typeof router.push>[0]);
+              return;
+            }
+            finance.onOpenOps(ops);
+          };
           const detailLines = splitOpsDetailLines(ops, presentation.detail);
           return (
             <AlertRegistrySignalCard
               key={entry.id}
               mode="active"
-              onPress={() => finance.onOpenOps(ops)}
+              onPress={openOps ? openOpsPress : undefined}
               avatar={presentation.avatar}
               actorName={presentation.actorName}
               actionText={presentation.actionText}
               highlightText={presentation.highlightText}
               trailingText={presentation.trailingText}
               detailTitle={detailLines.title}
+              detailMeta={presentation.detailMeta}
               detailSubtitle={detailLines.subtitle}
               detail={detailLines.body}
               timeLabel={formatRelativeTime(ops.created_at)}
@@ -316,10 +402,16 @@ function RegistryFeedList({
                     label="Decline"
                     onPress={() => finance.onDismissOps(ops)}
                   />
-                  <RegistryPrimaryButton
-                    label={opsActionLabel(ops)}
-                    onPress={() => finance.onOpenOps(ops)}
-                  />
+                  {openOps ? (
+                    <RegistryPrimaryButton
+                      label={
+                        ops.category === "unassigned_trip" && !access.tripAssign
+                          ? "View trip"
+                          : opsActionLabel(ops)
+                      }
+                      onPress={openOpsPress}
+                    />
+                  ) : null}
                 </RegistryCardActions>
               }
             />
@@ -328,6 +420,8 @@ function RegistryFeedList({
 
         if (entry.kind === "network" && entry.network) {
           const item = entry.network;
+          const lane = entry.networkLane;
+          const laneCopy = lane ? networkLaneDetail(lane) : null;
           const hasAmount =
             item.amount_meta != null && Number.isFinite(Number(item.amount_meta));
           const amountText = hasAmount
@@ -338,41 +432,68 @@ function RegistryFeedList({
           const networkAvatar = resolveNetworkRegistryAvatar(item, {
             partnerDisplay: partyCtx.partnerDisplay,
             partnerAvatarUri: partyCtx.partnerAvatarUri,
+            linkedOrgs,
+            partiesByLinkedOrg,
           });
-          const openIndent = () => {
-            if (item.indent_id) {
-              void markNetworkRead.mutateAsync(item.id).catch(() => {});
-              router.push(ROUTES.indentDetail(item.indent_id));
+          const networkInitialsAvatar = {
+            ...networkAvatar,
+            name: companyNameForInitials(networkAvatar.name),
+          };
+          const indentAction = indentPrimaryAction(item.event_type, access);
+          const dismissLane = () => {
+            const ids = lane?.memberIds.length ? lane.memberIds : [item.id];
+            for (const id of ids) {
+              void markNetworkRead.mutateAsync(id).catch(() => {});
             }
           };
+          const openIndent = () => {
+            if (!access.indents || !item.indent_id) return;
+            dismissLane();
+            router.push(ROUTES.indentDetail(item.indent_id));
+          };
+          const laneTags: RegistryTag[] = [];
+          if (isActiveView) {
+            laneTags.push({
+              label: lane?.critical ? "Allocate" : networkNotificationTagLabel(item.event_type),
+              variant: lane?.critical
+                ? "warning"
+                : item.event_type === "awarded"
+                  ? "success"
+                  : item.event_type === "counter_offered"
+                    ? "warning"
+                    : "default",
+            });
+            if (lane && lane.loadCount > 1) {
+              laneTags.push({
+                label: `${lane.loadCount} loads`,
+                variant: "neutral",
+              });
+            }
+            if (lane && lane.bidCount > 1) {
+              laneTags.push({
+                label: `${lane.bidCount} bids`,
+                variant: "default",
+              });
+            }
+          }
           return (
             <AlertRegistrySignalCard
               key={entry.id}
               mode={isActiveView ? "active" : "completed"}
               onPress={openIndent}
-              avatar={networkAvatar}
+              avatar={networkInitialsAvatar}
               actorName={networkAvatar.name}
-              actionText={networkNotificationActionText(item.event_type)}
+              actionText={
+                lane?.critical
+                  ? "awarded, waiting for allocation"
+                  : networkNotificationActionText(item.event_type)
+              }
               highlightText={amountText ?? item.title}
-              detailTitle={item.title}
-              detailSubtitle={item.subtitle ?? undefined}
+              detailTitle={laneCopy?.title ?? item.title}
+              detailSubtitle={laneCopy?.subtitle || item.subtitle || undefined}
               timeLabel={formatRelativeTime(item.created_at)}
               contextLabel={item.subtitle ?? undefined}
-              tags={
-                isActiveView
-                  ? [
-                      {
-                        label: networkNotificationTagLabel(item.event_type),
-                        variant:
-                          item.event_type === "awarded"
-                            ? "success"
-                            : item.event_type === "counter_offered"
-                              ? "warning"
-                              : "default",
-                      } satisfies RegistryTag,
-                    ]
-                  : undefined
-              }
+              tags={laneTags.length > 0 ? laneTags : undefined}
               isUnread={isActiveView && item.status === "open"}
               statusPill={
                 !isActiveView
@@ -385,16 +506,13 @@ function RegistryFeedList({
               footer={
                 isActiveView ? (
                   <RegistryCardActions>
-                    <RegistryGhostButton
-                      label="Dismiss"
-                      onPress={() => {
-                        void markNetworkRead.mutateAsync(item.id).catch(() => {});
-                      }}
-                    />
-                    <RegistryPrimaryButton
-                      label={networkNotificationActionLabel(item.event_type)}
-                      onPress={openIndent}
-                    />
+                    <RegistryGhostButton label="Dismiss" onPress={dismissLane} />
+                    {indentAction.enabled ? (
+                      <RegistryPrimaryButton
+                        label={indentAction.label}
+                        onPress={openIndent}
+                      />
+                    ) : null}
                   </RegistryCardActions>
                 ) : undefined
               }
@@ -496,8 +614,6 @@ function RegistryFeedList({
   );
 }
 
-const TABS = FILTER_TABS;
-
 /** Metronic demo2 dropdown + privacy-settings chrome. */
 const METRONIC = {
   border: "#EFF2F5",
@@ -551,11 +667,63 @@ export function AlertRegistryPanel({
     setDetail(null);
   }, [filterTab]);
 
+  const memberAccess = useMemberAccess();
+  const notificationAccess = useMemo((): RegistryNotificationAccess => {
+    if (memberAccess.isLoading) return {
+      trips: false,
+      tripDetail: false,
+      tripAssign: false,
+      tripFinance: false,
+      indents: false,
+      indentBid: false,
+      indentAward: false,
+      received: false,
+      paid: false,
+      driverPay: false,
+    };
+    const can = memberAccess.can;
+    const tripFinance = can("tripops.trips.finance") || can("finance.view");
+    return {
+      trips: can("tripops.trips.view"),
+      tripDetail: can("tripops.trips.detail"),
+      tripAssign: can("tripops.trips.assign"),
+      tripFinance,
+      indents: can("tripops.indents.view"),
+      indentBid: can("tripops.indents.bid"),
+      indentAward: can("tripops.indents.award"),
+      received:
+        can("finance.ledger.customers") ||
+        can("finance.subtab.customers") ||
+        tripFinance,
+      paid:
+        can("finance.ledger.suppliers") ||
+        can("finance.subtab.suppliers") ||
+        can("finance.ledger.driver") ||
+        can("finance.subtab.drivers") ||
+        tripFinance,
+      driverPay:
+        can("finance.ledger.driver") ||
+        can("finance.subtab.drivers") ||
+        tripFinance,
+    };
+  }, [memberAccess.isLoading, memberAccess.can]);
+  const visibleTabs = useMemo(
+    () => FILTER_TABS.filter((tab) => registryTabVisible(tab.id, notificationAccess)),
+    [notificationAccess],
+  );
   const salaryRequestsHasMore = useGlobalSyncStore((s) => s.salaryRequestsHasMore);
   const loadMoreSalaryRequests = useGlobalSyncStore((s) => s.loadMoreSalaryRequests);
   const { activeFeed, historyFeed } = useRegistryFeed(orgId);
+  const accessibleActive = useMemo(
+    () => activeFeed.filter((entry) => entryAllowedByAccess(entry, notificationAccess)),
+    [activeFeed, notificationAccess],
+  );
+  const accessibleHistory = useMemo(
+    () => historyFeed.filter((entry) => entryAllowedByAccess(entry, notificationAccess)),
+    [historyFeed, notificationAccess],
+  );
   const feed =
-    registryFeedLifecycleTab(filterTab) === "history" ? historyFeed : activeFeed;
+    registryFeedLifecycleTab(filterTab) === "history" ? accessibleHistory : accessibleActive;
   const filteredFeed = useMemo(
     () => filterRegistryFeed(feed, filterTab),
     [feed, filterTab],
@@ -566,12 +734,16 @@ export function AlertRegistryPanel({
         FILTER_TABS.map((t) => [
           t.id,
           t.id === "archive"
-            ? historyFeed.length
-            : filterRegistryFeed(activeFeed, t.id).length,
+            ? accessibleHistory.length
+            : filterRegistryFeed(accessibleActive, t.id).length,
         ]),
       ) as Record<RegistryFilterTab, number>,
-    [activeFeed, historyFeed.length],
+    [accessibleActive, accessibleHistory],
   );
+
+  useEffect(() => {
+    if (!registryTabVisible(filterTab, notificationAccess)) onFilterTabChange("all");
+  }, [filterTab, notificationAccess, onFilterTabChange]);
   const hasMoreInMemory = visibleCount < filteredFeed.length;
   const hasMoreInDb = filterTab !== "archive" && salaryRequestsHasMore;
   const showLoadMore = hasMoreInMemory || hasMoreInDb;
@@ -717,7 +889,7 @@ export function AlertRegistryPanel({
           style={styles.tabScroll}
           contentContainerStyle={styles.tabScrollContent}
         >
-          {TABS.map((t) => {
+          {visibleTabs.map((t) => {
             const selected = filterTab === t.id;
             const count = tabCounts[t.id] ?? 0;
             const showCount = count > 0;
@@ -782,6 +954,7 @@ export function AlertRegistryPanel({
           visibleCount={visibleCount}
           finance={panelFinance}
           feed={filteredFeed}
+          access={notificationAccess}
         />
         {showLoadMore ? (
           <Pressable

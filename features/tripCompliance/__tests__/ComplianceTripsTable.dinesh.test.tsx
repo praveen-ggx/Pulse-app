@@ -219,6 +219,9 @@ describe("ComplianceTripsTable — actions (AC-16..AC-22)", () => {
     expect(btn.props.accessibilityHint).toBeUndefined();
     expect(btn.props.accessibilityState).toMatchObject({ disabled: false });
     fireEvent.press(btn);
+    // Confirm modal now intercedes — press "Verify" in the confirm dialog
+    const verifyButtons = screen.getAllByText("Verify");
+    fireEvent.press(verifyButtons[verifyButtons.length - 1]);
     expect(screen.getByTestId("compliance-verify-t1").props.accessibilityState).toMatchObject({ disabled: true, busy: true });
     await act(async () => resolve());
     await waitFor(() =>
@@ -232,6 +235,10 @@ describe("ComplianceTripsTable — actions (AC-16..AC-22)", () => {
     renderTable(makeSummary({ tripDocStatus: "verified" }), { onMarkComplianceVerified: onVerify });
     const btn = screen.getByTestId("compliance-verify-t1");
     fireEvent.press(btn);
+    // Confirm modal intercedes — press the confirm button
+    const verifyButtons = screen.getAllByText("Verify");
+    fireEvent.press(verifyButtons[verifyButtons.length - 1]);
+    // Second press on the row button should be no-op (already marking)
     fireEvent.press(btn);
     expect(onVerify).toHaveBeenCalledTimes(1);
     expect(onVerify).toHaveBeenCalledWith("t1");
@@ -274,6 +281,9 @@ describe("ComplianceTripsTable — actions (AC-16..AC-22)", () => {
     renderTable(makeSummary(), { onDeclineCompliance: onDecline });
     expect(screen.queryByTestId("compliance-decline-modal")).toBeNull();
     fireEvent.press(screen.getByTestId("compliance-decline-t1"));
+    // Confirm modal intercedes — press "Continue" to proceed to the decline reason
+    const continueBtn = screen.getByText("Continue");
+    fireEvent.press(continueBtn);
     fireEvent.changeText(screen.getByTestId("compliance-decline-reason-input"), "  LR blurry  ");
     await act(async () => {
       fireEvent.press(screen.getByTestId("compliance-decline-submit"));

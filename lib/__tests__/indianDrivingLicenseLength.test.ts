@@ -1,6 +1,6 @@
 /**
- * Indian DL length regression: 15-char (most states) AND 16-char (e.g. AP) must
- * both be typeable AND pass the Continue gate.
+ * Indian DL length regression: 14-char (older cards, e.g. WB), 15-char (most
+ * states) AND 16-char (e.g. AP) must all be typeable AND pass the Continue gate.
  *
  * Bug this locks down: the keypad accepted 16 chars but a separate DL_FORMAT
  * regex demanded exactly 7 trailing digits, so Continue stayed disabled with no
@@ -15,12 +15,13 @@ import {
   INDIAN_DL_MIN_LENGTH,
 } from "@/lib/indianDrivingLicenseInput.util";
 
-/** Mirrors DL_FORMAT / DL_FORMAT_REGEX used by the three driver-entry screens. */
-const DL_FORMAT = /^[A-Z]{2}[0-9]{2}[0-9]{4}[0-9]{7,8}$/;
+/** Mirrors the standard pattern in indianDrivingLicenseInput.util.ts. */
+const DL_FORMAT = /^[A-Z]{2}[0-9]{2}[0-9]{4}[0-9]{6,8}$/;
 const norm = (s: string) => s.trim().toUpperCase().replace(/[\s-]/g, "");
 
 const AP_16 = "AP00219960000365"; // the number reported from the field
 const TN_15 = "TN0120200001234";
+const WB_14 = "WB012003692449"; // older West Bengal card: 6-digit serial
 
 describe("Indian DL — typing layer", () => {
   it("keeps all 16 chars of an AP licence", () => {
@@ -41,9 +42,17 @@ describe("Indian DL — typing layer", () => {
     ).toBe(INDIAN_DL_MAX_LENGTH);
   });
 
-  it("treats 15 as already complete", () => {
+  it("treats 14 as already complete", () => {
+    expect(isIndianDrivingLicenseComplete(WB_14)).toBe(true);
     expect(isIndianDrivingLicenseComplete(TN_15)).toBe(true);
-    expect(INDIAN_DL_MIN_LENGTH).toBe(15);
+    expect(INDIAN_DL_MIN_LENGTH).toBe(14);
+  });
+
+  it("keeps a 14-char WB licence and shows it spaced", () => {
+    const typed = applyIndianDlKeystroke("WB01 2003692449");
+    expect(getIndianDlNormalizedLength(typed)).toBe(14);
+    expect(norm(typed)).toBe(WB_14);
+    expect(typed).toBe("WB01 2003692449");
   });
 });
 
@@ -54,7 +63,9 @@ describe("Indian DL — Continue gate (DL_FORMAT)", () => {
     ["TN 15-char, as typed", "TN01 20200001234", true],
     ["TN 15-char, unspaced", TN_15, true],
     ["15-char AP", "AP00 21996000036", true],
-    ["14 chars (too short)", "AP00 2199600003", false],
+    ["WB 14-char, as typed", "WB01 2003692449", true],
+    ["WB 14-char, unspaced", WB_14, true],
+    ["13 chars (too short)", "WB01 200369244", false],
     ["17 chars (too long)", "AP00 2199600003651", false],
     ["digit in state block", "A100 219960000365", false],
     ["letters in serial", "AP00 21996000036X", false],
@@ -63,7 +74,7 @@ describe("Indian DL — Continue gate (DL_FORMAT)", () => {
   });
 
   it("accepts every licence the keypad lets you finish typing", () => {
-    for (const raw of [AP_16, TN_15, "AP0021996000036"]) {
+    for (const raw of [AP_16, TN_15, WB_14, "AP0021996000036"]) {
       const typed = applyIndianDlKeystroke(raw);
       expect(isIndianDrivingLicenseComplete(typed)).toBe(true);
       // The two layers must agree — this is exactly what broke before.

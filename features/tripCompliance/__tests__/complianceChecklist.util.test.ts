@@ -4,6 +4,7 @@ import {
   buildComplianceChecklist,
   checklistGroupStatusLabel,
   checklistTone,
+  complianceGroupDecisionMark,
   complianceGroupOnFileCount,
   ensureComplianceChecklist,
   isEntityDocumentSlotVerified,
@@ -160,6 +161,33 @@ describe("buildComplianceChecklist", () => {
     expect(checklist.tone).toBe("success");
     expect(checklist.groups.slice(0, 3).every((group) => group.tone === "success")).toBe(true);
     expect(checklist.groups[3].tone).not.toBe("success");
+  });
+});
+
+describe("complianceGroupDecisionMark", () => {
+  it("marks a tab verified only when every required document is approved", () => {
+    const checklist = buildComplianceChecklist({
+      tripDocuments: ["lr", "eway_bill", "invoice"].map((type) => tripDoc(type)),
+      vehicleDocuments: [],
+      driverDocuments: [],
+    });
+    expect(complianceGroupDecisionMark(checklist.groups[0], {
+      documents: ["lr", "eway_bill", "invoice"].map((type) => tripDoc(type)),
+    })).toBe("verified");
+    expect(complianceGroupDecisionMark(checklist.groups[0], {
+      documents: [tripDoc("lr"), tripDoc("eway_bill", "pending"), tripDoc("invoice")],
+    })).toBeNull();
+  });
+
+  it("marks a tab declined when any of its documents was rejected", () => {
+    const checklist = buildComplianceChecklist({
+      tripDocuments: [tripDoc("lr", "rejected")],
+      vehicleDocuments: [],
+      driverDocuments: [],
+    });
+    expect(complianceGroupDecisionMark(checklist.groups[0], {
+      documents: [tripDoc("lr", "verified"), tripDoc("eway_bill", "rejected"), tripDoc("invoice", "verified")],
+    })).toBe("declined");
   });
 });
 

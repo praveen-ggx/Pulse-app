@@ -127,20 +127,22 @@ function OrganizationProfile({
           </View>
         ) : null}
         {billing?.locked ? (
-          <Text style={styles.choiceHint}>Registered office is locked while verification is pending or complete.</Text>
+          <Text style={styles.choiceHint}>
+            GSTIN, PAN, CIN, and the registered office are locked while verification is pending or complete.
+          </Text>
         ) : null}
       </View>
       {billing && editing ? (
         <>
           <View style={styles.formGrid}>
             <View style={styles.formCell}>
-              <Field label="GSTIN" value={billing.gstin} onChange={(value) => billing.onChange("gstin", value)} />
+              <Field label="GSTIN" value={billing.gstin} onChange={(value) => billing.onChange("gstin", value)} editable={!billing.locked} />
             </View>
             <View style={styles.formCell}>
-              <Field label="CIN" value={billing.cin} onChange={(value) => billing.onChange("cin", value)} />
+              <Field label="CIN" value={billing.cin} onChange={(value) => billing.onChange("cin", value)} editable={!billing.locked} />
             </View>
             <View style={styles.formCell}>
-              <Field label="PAN" value={billing.pan} onChange={(value) => billing.onChange("pan", value)} />
+              <Field label="PAN" value={billing.pan} onChange={(value) => billing.onChange("pan", value)} editable={!billing.locked} />
             </View>
             <View style={styles.formCell}>
               <Field label="MSME" value={billing.msme} onChange={(value) => billing.onChange("msme", value)} />
@@ -931,7 +933,17 @@ export function PulseInvoiceDocument({
         ) : (
           <View style={{ flex: 1 }} />
         )}
-        {settingsHidden || settingsUnderBack ? null : onPreview && !a4Pages ? (
+        {settingsHidden ? null : settingsUnderBack ? (
+          <Pressable
+            style={[styles.settingsUnderBack, styles.settingsInRow, settingsOpen && { borderColor: Theme.primary }]}
+            onPress={() => (settingsOpen ? closeSettings() : openSettings())}
+            accessibilityRole="button"
+            accessibilityLabel="Invoice settings"
+            hitSlop={8}
+          >
+            <FontAwesome name="cog" size={15} color={Theme.textPrimaryDark} />
+          </Pressable>
+        ) : onPreview && !a4Pages ? (
           <Pressable
             style={styles.settingsIcon}
             onPress={onPreview}
@@ -952,17 +964,6 @@ export function PulseInvoiceDocument({
           </Pressable>
         )}
       </View>
-      {settingsUnderBack ? (
-        <Pressable
-          style={[styles.settingsUnderBack, settingsOpen && { borderColor: Theme.primary }]}
-          onPress={() => (settingsOpen ? closeSettings() : openSettings())}
-          accessibilityRole="button"
-          accessibilityLabel="Invoice settings"
-          hitSlop={8}
-        >
-          <FontAwesome name="cog" size={15} color={Theme.textPrimaryDark} />
-        </Pressable>
-      ) : null}
       </View>
 
       {!settingsInline && !settingsHidden && !a4Pages ? (
@@ -1711,7 +1712,11 @@ function Field({
         autoCapitalize={autoCapitalize}
         placeholder={placeholder ?? label}
         placeholderTextColor={Theme.textMuted}
-        style={[styles.templateName, multiline && styles.fieldMultiline]}
+        style={[
+          styles.templateName,
+          multiline && styles.fieldMultiline,
+          !editable && styles.fieldLocked,
+        ]}
         accessibilityLabel={label}
       />
     </View>
@@ -1756,9 +1761,11 @@ const styles = StyleSheet.create({
   toolbar: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "nowrap",
     gap: 8,
     paddingHorizontal: 12,
     paddingTop: 10,
+    paddingBottom: 10,
   },
   toolbarTitle: { fontSize: 11, fontWeight: "500", color: Theme.textSecondary, flexShrink: 1, maxWidth: 120 },
   pageChip: {
@@ -1821,6 +1828,11 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Theme.border,
+  },
+  settingsInRow: {
+    marginLeft: 0,
+    marginTop: 0,
+    flexShrink: 0,
   },
   detailBackdrop: {
     flex: 1,
@@ -2090,6 +2102,10 @@ const styles = StyleSheet.create({
     fontWeight: "400",
     color: Theme.textPrimaryDark,
     backgroundColor: Theme.cardWhite,
+  },
+  fieldLocked: {
+    color: Theme.textSecondary,
+    backgroundColor: Theme.surface,
   },
   templateActions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   templateBtn: {

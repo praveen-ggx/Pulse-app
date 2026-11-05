@@ -4,6 +4,7 @@ import {
   createConcurrencyGate,
   finishSupabaseCircuitProbe,
   isClientTimeoutError,
+  isDroppedConnectionError,
   isOriginDownError,
   isOriginDownErrorMessage,
   isOriginDownHttpStatus,
@@ -223,6 +224,29 @@ describe("isClientTimeoutError", () => {
     abort.name = "AbortError";
     expect(noteSupabaseOriginDownIfClientTimeout(abort)).toBe(false);
     expect(isSupabaseCircuitOpen()).toBe(false);
+  });
+
+  it("retries one dropped Safari connection without opening the circuit", () => {
+    const dropped = new Error("The network connection was lost.");
+    expect(isDroppedConnectionError(dropped)).toBe(true);
+    expect(noteSupabaseOriginDownIfTransportFailure(dropped)).toBe(false);
+    expect(isSupabaseCircuitOpen()).toBe(false);
+    expect(
+      canRetryFetchAttempt({
+        attempt: 0,
+        maxRetries: 2,
+        timeoutMaxRetries: TIMEOUT_MAX_RETRIES,
+        error: dropped,
+      }),
+    ).toBe(true);
+    expect(
+      canRetryFetchAttempt({
+        attempt: 1,
+        maxRetries: 2,
+        timeoutMaxRetries: TIMEOUT_MAX_RETRIES,
+        error: dropped,
+      }),
+    ).toBe(false);
   });
 
   it("opens the circuit on Safari Load failed and does not retry it", () => {

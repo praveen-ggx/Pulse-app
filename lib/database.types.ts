@@ -13410,6 +13410,10 @@ export type Database = {
           amount_paid: number
           assigned_by_user_id: string | null
           booking_ref: string | null
+          cancel_reason: string | null
+          cancel_reason_note: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
           client_id: string | null
           client_name: string
           client_price: number
@@ -13514,6 +13518,10 @@ export type Database = {
           amount_paid?: number
           assigned_by_user_id?: string | null
           booking_ref?: string | null
+          cancel_reason?: string | null
+          cancel_reason_note?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           client_id?: string | null
           client_name: string
           client_price?: number
@@ -13618,6 +13626,10 @@ export type Database = {
           amount_paid?: number
           assigned_by_user_id?: string | null
           booking_ref?: string | null
+          cancel_reason?: string | null
+          cancel_reason_note?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           client_id?: string | null
           client_name?: string
           client_price?: number

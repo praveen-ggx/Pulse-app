@@ -198,6 +198,7 @@ import {
 import {
     TRIP_METRIC_ORDER,
     hubTripCardStageLabel,
+    isTripCancelledForHub,
     type TripMetricId,
 } from "@/features/trips/utils/tripHubMetrics";
 import type { TripHubPartyMeta } from "@/features/trips/utils/tripHubPartyMeta";
@@ -2041,6 +2042,26 @@ export default function TripsScreen() {
   ]);
 
   const filtered = useMemo(() => {
+    if (showCompletedList && activeHistoryMetricTab === "cancelled") {
+      const q = searchQuery.trim();
+      return hubScopedTrips.filter((trip) => {
+        if (!isTripCancelledForHub(trip.status)) return false;
+        if (!q) return true;
+        if (hubSearchHitIds.has(trip.id)) return true;
+        return tripMatchesHubSearch(trip, q, {
+          organizationId: orgId,
+          clientName:
+            shipperNameByTripId[trip.id] ??
+            (trip.organization_id !== orgId ? "" : trip.client_name ?? ""),
+          supplierName: trip.supplier_name,
+          lrLabel:
+            hubLrPreviewByTripId[trip.id.trim().toLowerCase()] ||
+            searchLrNumbersByTripId[trip.id.trim().toLowerCase()] ||
+            "",
+          elrLabel: "",
+        });
+      });
+    }
     if (!showCompletedList || activeHistoryMetricTab == null) {
       return baseFilteredTrips;
     }
@@ -2070,6 +2091,13 @@ export default function TripsScreen() {
     activeHistoryMetricTab,
     baseFilteredTrips,
     currentOrganization?.id,
+    hubLrPreviewByTripId,
+    hubScopedTrips,
+    hubSearchHitIds,
+    orgId,
+    searchLrNumbersByTripId,
+    searchQuery,
+    shipperNameByTripId,
     showCompletedList,
     transactionsByTripId,
     tripFinanceAdjForHub,
@@ -2952,6 +2980,12 @@ export default function TripsScreen() {
         title: "Pending hard POD",
         hint: "Hard copy not received",
       },
+      cancelled: {
+        count: hubScopedTrips.filter((trip) => isTripCancelledForHub(trip.status)).length,
+        amount: 0,
+        title: "Cancelled trips",
+        hint: "Same dates as this view",
+      },
     };
 
     if (!showCompletedList) return base;
@@ -2995,6 +3029,7 @@ export default function TripsScreen() {
   }, [
     baseFilteredTrips,
     currentOrganization?.id,
+    hubScopedTrips,
     showCompletedList,
     transactionsByTripId,
     tripFinanceAdjForHub,
@@ -3483,6 +3518,7 @@ export default function TripsScreen() {
         ...historyReceivableIds,
         ...historyPayableIds,
         ...historyPodIds,
+        "cancelled",
       ] as HistoryTripMetricId[],
     [historyReceivableIds, historyPayableIds, historyPodIds],
   );

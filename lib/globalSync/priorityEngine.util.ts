@@ -12,6 +12,7 @@ export type OperationsIslandVisualKind = 'neutral' | 'warning' | 'critical' | 's
 export type OperationCategory =
   | 'vehicle_idle'
   | 'payment_received'
+  | 'payment_paid'
   | 'unassigned_trip'
   | 'late_log'
   | 'salary'
@@ -336,6 +337,31 @@ function notifToSignal(n: GlobalNotificationRow): GlobalOperationAlert | null {
   return null;
 }
 
+const LEDGER_MESSAGE_TYPES = new Set([
+  'ledger_event',
+  'ledger',
+  'payment',
+  'ledger_update',
+]);
+
+export function isLedgerMessageType(messageType: string): boolean {
+  return LEDGER_MESSAGE_TYPES.has(messageType);
+}
+
+/** Every ledger card on the trip, not the last-12 island slice. */
+export function ledgerAlertsFromTripEvents(
+  trips: ActiveTripSummary[],
+): GlobalOperationAlert[] {
+  const out: GlobalOperationAlert[] = [];
+  for (const trip of trips) {
+    for (const ev of trip.recent_events ?? []) {
+      if (!isLedgerMessageType(String(ev.message_type))) continue;
+      out.push(recentEventToSignal(trip, ev));
+    }
+  }
+  return out;
+}
+
 function recentEventToSignal(trip: ActiveTripSummary, ev: ActiveTripRecentEvent): GlobalOperationAlert {
   const meta =
     ev.metadata && typeof ev.metadata === 'object' && !Array.isArray(ev.metadata)
@@ -345,7 +371,7 @@ function recentEventToSignal(trip: ActiveTripSummary, ev: ActiveTripRecentEvent)
   const w = assignPriorityWeightFromTripMessage(ev.message_type, explicit, meta);
   const mt = String(ev.message_type);
   const amount = ledgerAmountFromMetadata(meta);
-  const isLedger = mt === 'ledger_event' || mt === 'ledger' || mt === 'payment';
+  const isLedger = isLedgerMessageType(mt);
   const kind: OperationsIslandVisualKind = isLedger
     ? 'success'
     : w >= PRIORITY_WEIGHT_DISPUTE_CRITICAL - 20

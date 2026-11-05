@@ -1,8 +1,5 @@
 import { HUB_MOBILE_COMMERCE_REF } from "@/components/hub/hubMobileTicketTokens";
-import {
-  LedgerProtocolStripModeTile,
-  ledgerPaymentModeVisual,
-} from "@/components/ledger/ledgerPaymentVisuals";
+import { ledgerPaymentModeVisual } from "@/components/ledger/ledgerPaymentVisuals";
 import { LedgerSyncPalette } from "@/constants/LedgerSyncPalette";
 import Theme from "@/constants/Theme";
 import { getDocumentChargeConfig } from "@/features/organization/services/documentCharges.service";
@@ -936,20 +933,22 @@ export function CompliancePaymentConfirmModal({
     </View>
   );
 
+  const sideBySide = twoColumn && !isInline;
   const detailsRow = (
-    <View style={[styles.columns, twoColumn && styles.columnsWide, isInline && styles.columnsInline]}>
-      <View style={[styles.column, twoColumn && styles.columnWide, isInline && styles.columnInline]}>
+    <View style={[styles.columns, sideBySide && styles.columnsWide, isInline && styles.columnsInline]}>
+      <View style={[styles.column, sideBySide && styles.columnWide, isInline && styles.columnInline]}>
         {factsCard}
       </View>
-      <View style={[styles.column, twoColumn && styles.columnWide, isInline && styles.columnInline]}>
+      <View style={[styles.column, sideBySide && styles.columnWide, isInline && styles.columnInline]}>
         {calcCard}
       </View>
     </View>
   );
 
   const modeField = (
-    <View style={[styles.field, styles.ledgerCard, isInline && styles.fieldInline]}>
-      <View style={styles.paymentBody}>
+    <View style={[styles.field, styles.ledgerCard, isInline && styles.fieldInline, isInline && styles.fieldFill]}>
+      <View style={[styles.paymentBody, isInline && styles.paymentBodyFill]}>
+        <View style={isInline ? styles.paymentBand : undefined}>
         <LedgerSectionHead
           icon={<Banknote size={15} color={Theme.darkGreen} strokeWidth={2.2} />}
           iconTone="mode"
@@ -957,20 +956,38 @@ export function CompliancePaymentConfirmModal({
           hint="How this money moved"
         />
         <View style={styles.modeTileRow}>
-          {PAYMENT_MODES.slice(0, 4).map((item) => (
-            <View key={item.id} style={styles.modeTileCell}>
-              <LedgerProtocolStripModeTile
-                modeId={item.id}
-                label={ledgerPaymentModeVisual(item.id).shortLabel}
-                selected={modeId === item.id}
-                variant={isInline ? "compact" : "desktop"}
+          {PAYMENT_MODES.slice(0, 4).map((item) => {
+            const visual = ledgerPaymentModeVisual(item.id);
+            const selected = modeId === item.id;
+            const ModeIcon = visual.Icon;
+            return (
+              <Pressable
+                key={item.id}
                 onPress={() => {
                   if (!submitting) setModeId(item.id);
                 }}
-              />
-            </View>
-          ))}
+                disabled={submitting}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                accessibilityLabel={visual.label}
+                style={[
+                  styles.modeChoice,
+                  selected && { borderColor: visual.color, backgroundColor: visual.tint },
+                ]}
+              >
+                <ModeIcon size={15} color={selected ? visual.color : Theme.textPrimaryDark} strokeWidth={2.1} />
+                <Text
+                  style={[styles.modeChoiceLabel, selected && { color: visual.color }]}
+                  numberOfLines={1}
+                >
+                  {visual.shortLabel}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
+        </View>
+        <View style={isInline ? styles.paymentBand : undefined}>
         <LedgerSectionHead
           icon={<Hash size={15} color={Theme.primary} strokeWidth={2.2} />}
           iconTone="ref"
@@ -991,6 +1008,8 @@ export function CompliancePaymentConfirmModal({
           />
         </View>
         {utrText && utrError ? <Text style={styles.fieldError}>{utrError}</Text> : null}
+        </View>
+        <View style={isInline ? styles.paymentBand : undefined}>
         <LedgerSectionHead
           icon={<Clock size={15} color={LedgerSyncPalette.ink} strokeWidth={2.2} />}
           iconTone="date"
@@ -1031,6 +1050,7 @@ export function CompliancePaymentConfirmModal({
           </View>
         </View>
         {txnDateText.length >= 10 && txnDateError ? <Text style={styles.fieldError}>{txnDateError}</Text> : null}
+        </View>
         {payoutAccounts.length > 0 ? (
           <>
             <Text style={styles.paidFromLabel}>Paid from (optional)</Text>
@@ -1178,16 +1198,11 @@ export function CompliancePaymentConfirmModal({
           {introText}
         </View>
         )}
-        {/* Values scroll instead of being clipped on smaller screens; actions stay pinned. */}
-        <ScrollView
-          style={styles.inlineScroll}
-          contentContainerStyle={styles.inlineScrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
+        <View style={styles.inlineStack}>
           {detailsRow}
           {readOnly ? null : modeField}
-        </ScrollView>
-        <View style={[styles.actionsBar, styles.actionsBarInline]}>{actionsRow}</View>
+          <View style={[styles.actionsBar, styles.actionsBarInline]}>{actionsRow}</View>
+        </View>
       </View>
     );
   }
@@ -1278,14 +1293,17 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
   inlineRoot: {
-    flex: 1,
-    minHeight: 0,
     width: "100%",
     minWidth: 0,
     paddingTop: 2,
     paddingBottom: 0,
-    gap: 6,
+    gap: 8,
     backgroundColor: "transparent",
+  },
+  inlineStack: {
+    width: "100%",
+    minWidth: 0,
+    gap: 10,
   },
   inlineHeader: {
     flexShrink: 0,
@@ -1344,8 +1362,10 @@ const styles = StyleSheet.create({
   },
   modeTileRow: {
     flexDirection: "row",
-    alignItems: "stretch",
-    gap: 6,
+    alignItems: "center",
+    alignSelf: "stretch",
+    flexWrap: "wrap",
+    gap: 8,
   },
   modeTileCell: { flex: 1, minWidth: 0 },
   ledgerInputWrap: {
@@ -1354,10 +1374,10 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   ledgerInput: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: "600",
     color: LedgerSyncPalette.ink,
-    paddingVertical: 10,
+    paddingVertical: 12,
     ...(Platform.OS === "web" ? { outlineStyle: "none" } : null),
   } as never,
   dateInlineRow: {
@@ -1365,6 +1385,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     flexWrap: "wrap",
+    width: "100%",
+    minWidth: 0,
   },
   datePreset: {
     height: 32,
@@ -1423,12 +1445,18 @@ const styles = StyleSheet.create({
   },
   columns: { gap: 8 },
   columnsWide: { flexDirection: "row", alignItems: "stretch" },
-  columnsInline: { gap: 6 },
+  columnsInline: { flexDirection: "column", alignItems: "stretch", gap: 10 },
   column: { minWidth: 0 },
   columnWide: { flex: 1, flexBasis: 0 },
-  columnInline: { minWidth: 0 },
+  columnInline: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: "auto",
+    width: "100%",
+    minWidth: 0,
+  },
   inlineScroll: { flex: 1, minHeight: 0 },
-  inlineScrollContent: { gap: 6, paddingBottom: 4 },
+  inlineScrollContent: { flexGrow: 1, gap: 8, paddingBottom: 4 },
   factCard: {
     flexGrow: 1,
     borderRadius: 0,
@@ -1439,6 +1467,7 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   factCardInline: {
+    flexGrow: 0,
     paddingBottom: 2,
   },
   factRow: {
@@ -1534,6 +1563,7 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   calcCardInline: {
+    flexGrow: 0,
     paddingBottom: 4,
   },
   calcTitle: {
@@ -1714,8 +1744,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   amountResultInline: {
-    marginTop: 4,
-    paddingVertical: 6,
+    marginTop: 8,
+    paddingVertical: 8,
   },
   amountResultCopy: { flex: 1, minWidth: 0, gap: 2 },
   amountResultLabel: {
@@ -1740,8 +1770,8 @@ const styles = StyleSheet.create({
     color: Theme.darkGreen,
   },
   amountResultValueInline: {
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: 22,
+    lineHeight: 26,
   },
   field: { gap: 6 },
   fieldInline: {
@@ -1753,11 +1783,38 @@ const styles = StyleSheet.create({
     borderWidth: 0,
     backgroundColor: Theme.cardWhite,
   },
+  fieldFill: { width: "100%", minWidth: 0 },
   paymentBody: {
     gap: 10,
     paddingHorizontal: 0,
     paddingTop: 0,
     paddingBottom: 2,
+  },
+  paymentBodyFill: { width: "100%", gap: 12 },
+  paymentBand: { gap: 8 },
+  modeChoice: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 88,
+    height: 36,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderLight,
+    backgroundColor: Theme.cardWhite,
+    paddingHorizontal: 8,
+  },
+  modeChoiceLabel: {
+    flexShrink: 1,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+    textAlign: "center",
+    color: Theme.textSecondary,
   },
   label: { fontSize: 11, fontWeight: "600", color: SHOP.muted },
   labelInline: { fontSize: 10, lineHeight: 13 },
@@ -1796,6 +1853,7 @@ const styles = StyleSheet.create({
     borderColor: SHOP.hairline,
     borderRadius: 10,
     backgroundColor: Theme.cardWhite,
+    overflow: "hidden",
   },
   dateShellInline: {
     minHeight: 32,
@@ -1814,11 +1872,12 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
   dateIconBtn: {
-    width: 44,
-    height: 42,
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
+    flexShrink: 0,
   },
   dateBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: Theme.overlayBackdrop },
   dateSheet: { backgroundColor: Theme.cardWhite, paddingBottom: 24 },

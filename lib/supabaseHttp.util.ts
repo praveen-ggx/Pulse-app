@@ -19,6 +19,14 @@ const ORIGIN_DOWN_MESSAGE =
 const BROWSER_TRANSPORT_FAILURE =
   /Failed to fetch|Load failed|NetworkError when attempting to fetch resource|Network request failed|network connection was lost|Internet connection appears to be offline/i;
 
+/**
+ * Safari logs an aborted or reset HTTP/2 stream as "The network connection was lost".
+ * That is one dropped socket, not an origin outage. Opening the shared circuit on it
+ * fails every later hub RPC (suppliers, network feed, driver ledger) for the cooldown.
+ */
+const DROPPED_CONNECTION =
+  /network connection was lost|Internet connection appears to be offline/i;
+
 /** Normalize Cloudflare / HTML error bodies from Supabase into short retryable messages. */
 export function normalizeInfrastructureErrorMessage(message: string): string {
   if (/<!doctype|error code 522|cloudflare|connection timed out/i.test(message)) {
@@ -158,16 +166,21 @@ export function isInfrastructureErrorMessage(message: string): boolean {
   );
 }
 
+function transportFailureMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  if (typeof (error as { message?: unknown } | null)?.message === 'string') {
+    return (error as { message: string }).message;
+  }
+  return '';
+}
+
+export function isDroppedConnectionError(error: unknown): boolean {
+  return DROPPED_CONNECTION.test(transportFailureMessage(error));
+}
+
 export function isBrowserTransportFailure(error: unknown): boolean {
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === 'string'
-        ? error
-        : typeof (error as { message?: unknown } | null)?.message === 'string'
-          ? (error as { message: string }).message
-          : '';
-  return BROWSER_TRANSPORT_FAILURE.test(message);
+  return BROWSER_TRANSPORT_FAILURE.test(transportFailureMessage(error));
 }
 
 /**
@@ -249,6 +262,7 @@ export function canRetryFetchAttempt(args: {
   if (error.name === "TimeoutError") {
     return attempt < timeoutMaxRetries;
   }
+  if (isDroppedConnectionError(error)) return attempt < 1;
   return attempt < maxRetries && isTransientFetchError(error);
 }
 
@@ -420,6 +434,7 @@ export function noteSupabaseOriginDownIfTransportFailure(error: unknown): boolea
   // the origin. Opening the shared circuit would fail every request for 45s after
   // the signal returns.
   if (isDeviceKnownOffline()) return false;
+  if (isDroppedConnectionError(error)) return false;
   noteSupabaseOriginDown();
   return true;
 }

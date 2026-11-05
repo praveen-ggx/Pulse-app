@@ -20,6 +20,9 @@ import { Plus } from "lucide-react-native";
 import { useRouter } from "expo-router";
 
 import Theme from "@/constants/Theme";
+import { showAppAlert } from "@/lib/appAlert";
+import { confirmDialog } from "@/lib/confirmDialog";
+import { isSameDriverPhone } from "@/features/trips/utils/reassignChangeDetection.util";
 import { type DriverRow } from "@/features/drivers/services/drivers.service";
 import { type VehicleRow } from "@/features/vehicles/services/vehicles.service";
 import {
@@ -28,7 +31,7 @@ import {
   type ChangeReasonCode,
 } from "@/features/trips/components/assignment/TripAssignmentWorkspace";
 import { aws } from "@/features/trips/components/assignment/tripAssignmentWorkspace.styles";
-import type { TripRow } from "@/features/trips/services/trips.service";
+import { getTripDisplayNumber, type TripRow } from "@/features/trips/services/trips.service";
 import {
   suggestedNameForPhoneLookup,
   trimDriverLabel,
@@ -384,15 +387,15 @@ export function FleetAssignWorkspace({
     vehicleReady && !(selectedVehicleId && isVehicleBusy(selectedVehicleId));
   const canConfirm =
     focus === "vehicle"
-      ? canConfirmVehicle && !!persistDriverId
+      ? canConfirmVehicle
       : focus === "driver"
         ? canConfirmDriver
         : canConfirmDriver && canConfirmVehicle;
 
   const assignmentDraft = useCallback(() => {
-    if (!persistDriverId) return null;
+    if (focus !== "vehicle" && !persistDriverId) return null;
     return {
-      driverId: persistDriverId,
+      driverId: persistDriverId ?? "",
       vehicleId: selectedVehicleId ?? trip.vehicle_id ?? null,
       driverName:
         editDriverName.trim() ||
@@ -417,6 +420,7 @@ export function FleetAssignWorkspace({
     selectedDriver,
     selectedVehicle,
     selectedVehicleId,
+    focus,
     trip.driver_display_name,
     trip.vehicle_display_number,
     trip.vehicle_id,
@@ -430,18 +434,87 @@ export function FleetAssignWorkspace({
   const saveAssignment = useCallback(() => {
     const draft = assignmentDraft();
     if (!draft || !canConfirm) return;
-    void Promise.resolve(
-      onConfirm(draft.driverId, draft.vehicleId, {
-        driverName: draft.driverName,
-        vehiclePlate: draft.vehiclePlate,
-        vehicleType: draft.vehicleType,
-      }),
-    )
-      .then((ok) => {
-        if (ok !== false) onClose();
-      })
-      .catch(() => undefined);
-  }, [assignmentDraft, canConfirm, onClose, onConfirm]);
+    const tripCode = getTripDisplayNumber(trip, organizationId);
+    const commit = () => {
+      void Promise.resolve(
+        onConfirm(draft.driverId, draft.vehicleId, {
+          driverName: draft.driverName,
+          vehiclePlate: draft.vehiclePlate,
+          vehicleType: draft.vehicleType,
+        }),
+      )
+        .then((ok) => {
+          if (ok !== false) onClose();
+        })
+        .catch(() => undefined);
+    };
+    void (async () => {
+      if (focus === "vehicle") {
+        if (selectedVehicleId && isVehicleBusy(selectedVehicleId)) {
+          const other =
+            activeVehicleTripLabelById[selectedVehicleId] ?? "another trip";
+          showAppAlert(
+            "Vehicle already on a trip",
+            `${draft.vehiclePlate} is already on ${other}. That trip keeps this vehicle. ${tripCode} updates after that trip is changed.`,
+          );
+          return;
+        }
+        const ok = await confirmDialog({
+          title: "Change vehicle",
+          message: `Update ${tripCode} to ${draft.vehiclePlate}. Only the vehicle changes. The driver stays.`,
+          confirmLabel: "Change vehicle",
+        });
+        if (ok) commit();
+        return;
+      }
+      if (persistDriverId && isDriverBusy(persistDriverId)) {
+        const other = activeDriverTripLabelById[persistDriverId] ?? "another trip";
+        showAppAlert(
+          "Driver already on a trip",
+          `${draft.driverName} is already on ${other}. That trip keeps this driver. ${tripCode} updates after that trip is changed.`,
+        );
+        return;
+      }
+      const alreadyOnThisTrip = persistDriverId === trip.driver_id;
+      const currentDriver = drivers.find((d) => d.id === trip.driver_id);
+      const phoneChanged =
+        !alreadyOnThisTrip ||
+        !isSameDriverPhone(draft.driverPhone, currentDriver?.phone);
+      const currentName = (trip.driver_display_name ?? currentDriver?.name ?? "").trim();
+      const nameChanged =
+        draft.driverName.trim().toLowerCase() !== currentName.toLowerCase();
+      const nameOnly = alreadyOnThisTrip && !phoneChanged && nameChanged;
+      const ok = await confirmDialog({
+        title: nameOnly
+          ? "Update the name"
+          : phoneChanged
+            ? "This phone assigns a different driver"
+            : "Update this driver",
+        message: nameOnly
+          ? `Only the name changes to ${draft.driverName}. This phone stays on ${tripCode}, so the person working the trip is not interrupted.`
+          : phoneChanged
+            ? `${draft.driverPhone || "This number"} moves ${tripCode} to another person${draft.driverName ? `, ${draft.driverName}` : ""}. The driver working it now can be interrupted. The vehicle stays.`
+            : `${draft.driverName} already has this phone on ${tripCode}. The vehicle stays.`,
+        confirmLabel: nameOnly ? "Update name" : phoneChanged ? "Change driver" : "Update driver",
+      });
+      if (ok) commit();
+    })();
+  }, [
+    activeDriverTripLabelById,
+    activeVehicleTripLabelById,
+    assignmentDraft,
+    canConfirm,
+    focus,
+    isDriverBusy,
+    isVehicleBusy,
+    onClose,
+    onConfirm,
+    drivers,
+    persistDriverId,
+    selectedVehicleId,
+    organizationId,
+    trip,
+  ]);
 
   const openAddDriver = () => {
     onClose();
@@ -455,8 +528,16 @@ export function FleetAssignWorkspace({
   };
 
   const selectDriver = (id: string) => {
-    if (saving || isDriverBusy(id)) return;
+    if (saving) return;
     const picked = drivers.find((d) => d.id === id);
+    if (isDriverBusy(id)) {
+      const other = activeDriverTripLabelById[id] ?? "another trip";
+      showAppAlert(
+        "Driver already on a trip",
+        `${picked?.name?.trim() || "This driver"} is already on ${other}. That trip keeps this driver. This trip updates after that trip is changed.`,
+      );
+      return;
+    }
     setSelectedDriverId(id);
     nameOwnedLocallyRef.current = false;
     nameOwnedForLast10Ref.current = normalizeIndianMobileLast10(picked?.phone ?? "");
@@ -467,8 +548,19 @@ export function FleetAssignWorkspace({
   };
 
   const selectVehicle = (id: string) => {
-    if (saving || isVehicleBusy(id)) return;
+    if (saving) return;
     const picked = vehicles.find((v) => v.id === id);
+    if (isVehicleBusy(id)) {
+      const plate = picked
+        ? formatIndianVehicleNumber(picked.vehicle_number)
+        : "This vehicle";
+      const other = activeVehicleTripLabelById[id] ?? "another trip";
+      showAppAlert(
+        "Vehicle already on a trip",
+        `${plate} is already on ${other}. That trip keeps this vehicle. This trip updates after that trip is changed.`,
+      );
+      return;
+    }
     setSelectedVehicleId(id);
     setEditVehiclePlate(
       picked ? formatIndianVehicleNumber(picked.vehicle_number) : "",
@@ -477,9 +569,43 @@ export function FleetAssignWorkspace({
     setVehicleAction("EDIT");
   };
 
+  const modeRow = (
+    editing: boolean,
+    onEdit: () => void,
+    onPick: () => void,
+    pickLabel: string,
+  ) => (
+    <View style={styles.modeRow}>
+      <Pressable
+        onPress={onEdit}
+        style={[styles.modeChip, editing && styles.modeChipOn]}
+        accessibilityRole="button"
+      >
+        <Text style={[styles.modeChipText, editing && styles.modeChipTextOn]}>
+          Update details
+        </Text>
+      </Pressable>
+      <Pressable
+        onPress={onPick}
+        style={[styles.modeChip, !editing && styles.modeChipOn]}
+        accessibilityRole="button"
+      >
+        <Text style={[styles.modeChipText, !editing && styles.modeChipTextOn]}>
+          {pickLabel}
+        </Text>
+      </Pressable>
+    </View>
+  );
+
   const driverPanelBody =
     driverAction === "SWAP" ? (
       <View style={styles.panelStack}>
+        {modeRow(
+          false,
+          () => setDriverAction("EDIT"),
+          () => setDriverAction("SWAP"),
+          "Pick from fleet",
+        )}
         {!isCompact ? (
           <Text style={aws.sectionHint}>Select on-duty fleet driver</Text>
         ) : null}
@@ -570,6 +696,12 @@ export function FleetAssignWorkspace({
       </View>
     ) : (
       <View style={styles.panelStack}>
+        {modeRow(
+          true,
+          () => setDriverAction("EDIT"),
+          () => setDriverAction("SWAP"),
+          "Pick from fleet",
+        )}
         <View style={[styles.fieldStack, isCompact && aws.fieldsGridPhone]}>
           <View style={isCompact ? aws.fieldPhone : undefined}>
             <Text style={aws.fieldLabel}>Name</Text>
@@ -631,6 +763,12 @@ export function FleetAssignWorkspace({
   const vehiclePanelBody =
     vehicleAction === "SWAP" ? (
       <View style={styles.panelStack}>
+        {modeRow(
+          false,
+          () => setVehicleAction("EDIT"),
+          () => setVehicleAction("SWAP"),
+          "Pick from fleet",
+        )}
         {!isCompact ? (
           <Text style={aws.sectionHint}>Select available registered truck</Text>
         ) : null}
@@ -720,6 +858,12 @@ export function FleetAssignWorkspace({
       </View>
     ) : (
       <View style={styles.panelStack}>
+        {modeRow(
+          true,
+          () => setVehicleAction("EDIT"),
+          () => setVehicleAction("SWAP"),
+          "Pick from fleet",
+        )}
         <View style={[styles.fieldStack, isCompact && aws.fieldsGridPhone]}>
           <View style={isCompact ? aws.fieldPhone : undefined}>
             <Text style={aws.fieldLabel}>Plate</Text>
@@ -791,25 +935,22 @@ export function FleetAssignWorkspace({
         confirmDisabled={!canConfirm || saving}
         confirmLoading={saving}
         panelScope={focus === "vehicle" ? "vehicle" : "driver"}
-        confirmLabel="Save assignment"
+        contained
+        directSave
+        wizardStep="details"
+        confirmLabel={focus === "vehicle" ? "Change vehicle" : "Change driver"}
         confirmHint={
-          wizardStep === "reason"
-            ? saving
-              ? "Saving these details to the trip…"
-              : "Pick a reason, then save to update the trip."
-            : focus === "vehicle"
-              ? !vehicleReady
-                ? "Edit the plate or tap Replace to pick a vehicle."
-                : !persistDriverId
-                  ? "This trip needs a driver before the vehicle can be saved."
-                  : !canConfirm
-                    ? "That truck is already on another trip."
-                    : null
-              : !persistDriverId
-                ? "Tap Replace to pick a driver."
-                : !canConfirm
-                  ? "That person is already on another trip."
-                  : null
+          focus === "vehicle"
+            ? !vehicleReady
+              ? "Enter a plate or pick a vehicle from the fleet."
+              : !canConfirm
+                ? "That truck is already on another trip."
+                : null
+            : !persistDriverId
+              ? "Enter the driver or pick someone from the fleet."
+              : !canConfirm
+                ? "That person is already on another trip."
+                : null
         }
         onClose={onClose}
         toastMessage={toast}
@@ -820,9 +961,7 @@ export function FleetAssignWorkspace({
 
 const styles = {
   root: {
-    flex: 1,
     width: "100%" as const,
-    height: "100%" as const,
     maxWidth: "100%" as const,
     alignSelf: "stretch" as const,
     position: "relative" as const,
@@ -830,6 +969,32 @@ const styles = {
   rootDesktop: {
     maxWidth: Platform.OS === "web" ? 1360 : undefined,
     alignSelf: "center" as const,
+  },
+  modeRow: {
+    flexDirection: "row" as const,
+    gap: 8,
+    padding: 4,
+    borderRadius: 12,
+    backgroundColor: Theme.surface,
+  },
+  modeChip: {
+    flex: 1,
+    minHeight: 36,
+    borderRadius: 10,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    paddingHorizontal: 10,
+  },
+  modeChipOn: {
+    backgroundColor: Theme.buttonDark,
+  },
+  modeChipText: {
+    fontSize: 13,
+    fontWeight: "600" as const,
+    color: Theme.textSecondary,
+  },
+  modeChipTextOn: {
+    color: Theme.buttonDarkText,
   },
   panelStack: {
     gap: 10,

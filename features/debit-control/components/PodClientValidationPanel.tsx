@@ -9,6 +9,7 @@ import {
   CHARGE_FIELDS,
   IBOND_DEDUCTIBLE_COST,
   POD_EXCEPTION_CHARGE_KEYS,
+  POD_EXCEPTION_VENDOR_KEYS,
   type ChargeDraft,
   type ChargeFieldKey,
   type PodExceptionLogDraft,
@@ -184,15 +185,16 @@ export function PodClientValidationPanel({
     setDelivery((current) =>
       current === exceptionLog.actualDeliveryDate ? current : exceptionLog.actualDeliveryDate,
     );
-    setDraft((current) => applyExceptionLog(current, exceptionLog));
-    setVendorDraft((current) => applyExceptionLog(current, exceptionLog));
+    setDraft((current) => applyExceptionLog(current, exceptionLog, "client"));
+    setVendorDraft((current) => applyExceptionLog(current, exceptionLog, "vendor"));
   }, [exceptionLog]);
 
-  const patchException = (key: ChargeFieldKey, value: string) => {
+  const patchException = (key: ChargeFieldKey, value: string, side: "client" | "vendor") => {
     if (!onExceptionLogChange) return;
     if (!(POD_EXCEPTION_CHARGE_KEYS as readonly string[]).includes(key)) return;
+    const logKey = side === "vendor" ? POD_EXCEPTION_VENDOR_KEYS[key as (typeof POD_EXCEPTION_CHARGE_KEYS)[number]] : key;
     const base = exceptionLog ?? exceptionFromDrafts(draft, vendorDraft, delivery);
-    onExceptionLogChange({ ...base, [key]: value });
+    onExceptionLogChange({ ...base, [logKey]: value });
   };
 
   const aging = podReceivingAging(delivery, podAgingEndDate(dispatchDate, todayIsoDate()), true);
@@ -418,7 +420,7 @@ export function PodClientValidationPanel({
         locked={locked}
         onChange={(key, value) => {
           setDraft((current) => ({ ...current, [key]: value }));
-          patchException(key, value);
+          patchException(key, value, "client");
         }}
       />
       {onlyEntered && !invoiceNumber.trim() && locked ? null : (
@@ -462,7 +464,7 @@ export function PodClientValidationPanel({
         onChange={(key, value) => {
           if (key === "documentCost") return;
           setVendorDraft((current) => ({ ...current, [key]: value }));
-          patchException(key, value);
+          patchException(key, value, "vendor");
         }}
       />
     </ScrollView>
@@ -556,14 +558,21 @@ function isoDate(value: string | null | undefined): string {
   return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : "";
 }
 
-function applyExceptionLog(draft: ChargeDraft, log: PodExceptionLogDraft): ChargeDraft {
+function applyExceptionLog(
+  draft: ChargeDraft,
+  log: PodExceptionLogDraft,
+  side: "client" | "vendor",
+): ChargeDraft {
+  const pick = (clientKey: (typeof POD_EXCEPTION_CHARGE_KEYS)[number]) =>
+    side === "vendor" ? log[POD_EXCEPTION_VENDOR_KEYS[clientKey]] : log[clientKey];
   return {
     ...draft,
-    loading: log.loading,
-    unloading: log.unloading,
-    damage: log.damage,
-    productMissing: log.productMissing,
-    delay: log.delay,
+    loading: pick("loading"),
+    unloading: pick("unloading"),
+    damage: pick("damage"),
+    productMissing: pick("productMissing"),
+    delay: pick("delay"),
+    halting: pick("halting"),
   };
 }
 
@@ -573,11 +582,18 @@ function exceptionFromDrafts(
   delivery: string,
 ): PodExceptionLogDraft {
   return {
-    loading: client.loading || vendor.loading,
-    unloading: client.unloading || vendor.unloading,
-    damage: client.damage || vendor.damage,
-    productMissing: client.productMissing || vendor.productMissing,
-    delay: client.delay || vendor.delay,
+    loading: client.loading,
+    loadingVendor: vendor.loading,
+    unloading: client.unloading,
+    unloadingVendor: vendor.unloading,
+    damage: client.damage,
+    damageVendor: vendor.damage,
+    productMissing: client.productMissing,
+    productMissingVendor: vendor.productMissing,
+    delay: client.delay,
+    delayVendor: vendor.delay,
+    halting: client.halting,
+    haltingVendor: vendor.halting,
     actualDeliveryDate: delivery,
   };
 }

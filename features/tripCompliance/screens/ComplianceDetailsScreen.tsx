@@ -210,7 +210,7 @@ export function ComplianceDetailsScreen({ tripId }: { tripId: string }) {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: Theme.compliancePageBg },
+  screen: { flex: 1, backgroundColor: Theme.screenBackground },
   content: { paddingTop: Layout.spacingMedium, gap: Layout.spacingLarge },
   backBtn: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", minHeight: Layout.minTouchTargetSize },
   backText: { fontSize: 13, fontWeight: "600", color: Theme.textMuted },

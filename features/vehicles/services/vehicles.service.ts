@@ -145,6 +145,9 @@ export async function getVehicleById(
   return { error: null, vehicle: data as VehicleRow | null };
 }
 
+const VEHICLE_PLATE_LOOKUP_COLUMNS =
+  "id, organization_id, vehicle_number, vehicle_type, vehicle_body_type, vehicle_size, vehicle_brand, vehicle_model, capacity, avatar_url, avatar_seed, documents, status, type, created_at, updated_at";
+
 /** Point lookup on (organization_id, vehicle_number). Tries the compact plate and the raw text. */
 export async function findVehicleByPlate(
   orgId: string,
@@ -156,7 +159,7 @@ export async function findVehicleByPlate(
   for (const vehicleNumber of numbers) {
     const { data, error } = await supabase()
       .from("vehicles")
-      .select("id, organization_id, vehicle_number, vehicle_type, documents, status, type, created_at, updated_at")
+      .select(VEHICLE_PLATE_LOOKUP_COLUMNS)
       .eq("organization_id", orgId)
       .eq("vehicle_number", vehicleNumber)
       .limit(1)
@@ -169,7 +172,7 @@ export async function findVehicleByPlate(
   if (compactKey.length >= 4 && tail) {
     const { data: rows, error: listError } = await supabase()
       .from("vehicles")
-      .select("id, organization_id, vehicle_number, vehicle_type, documents, status, type, created_at, updated_at")
+      .select(VEHICLE_PLATE_LOOKUP_COLUMNS)
       .eq("organization_id", orgId)
       .ilike("vehicle_number", `%${tail}%`)
       .limit(40);
@@ -194,7 +197,7 @@ export async function findVisibleVehicleByPlate(
   if (compactKey.length < 4 || !tail) return { error: null, vehicle: null };
   const { data: rows, error } = await supabase()
     .from("vehicles")
-    .select("id, organization_id, vehicle_number, vehicle_type, documents, status, type, created_at, updated_at")
+    .select(VEHICLE_PLATE_LOOKUP_COLUMNS)
     .ilike("vehicle_number", `%${tail}%`)
     .limit(40);
   if (error) return { error: new Error(error.message), vehicle: null };

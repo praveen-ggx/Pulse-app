@@ -35,6 +35,10 @@ import {
 } from "@/features/trips/services/tripDocumentLrPod.service";
 import { uploadTripDocument } from "@/features/trips/services/tripDocuments.service";
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
+import {
+  hardCopyPodCourierOptions,
+  rememberHardCopyPodCourier,
+} from "@/features/trips/utils/hardCopyPodCouriers.util";
 import { syncHardCopyPodRecord } from "@/lib/queries/invalidateHardCopyPodCaches";
 import { captureOrPickImage } from "@/lib/media/captureImage.util";
 import { useQueryClient } from "@tanstack/react-query";
@@ -56,17 +60,6 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
-const COURIERS = [
-  "BlueDart",
-  "DHL",
-  "DTDC",
-  "Delhivery",
-  "FedEx",
-  "Ecom Express",
-  "Professional Couriers",
-  "India Post",
-] as const;
 
 type Step = "method" | "details" | "party" | "trips" | "capture";
 type ConfirmKind = "log" | "validate" | null;
@@ -642,7 +635,7 @@ export function LogBulkPodModal({
               <View style={styles.field}>
                 <Text style={styles.label}>Courier name *</Text>
                 <View style={styles.courierWrap}>
-                  {COURIERS.map((name) => (
+                  {hardCopyPodCourierOptions(courierName).map((name) => (
                     <Pressable
                       key={name}
                       onPress={() => setCourierName(name)}
@@ -655,9 +648,13 @@ export function LogBulkPodModal({
                 <TextInput
                   value={courierName}
                   onChangeText={setCourierName}
-                  placeholder="Or type courier"
+                  onBlur={() => {
+                    if (courierName.trim()) rememberHardCopyPodCourier(courierName);
+                  }}
+                  placeholder="Add new courier partner"
                   placeholderTextColor={Theme.textMuted}
                   style={styles.input}
+                  accessibilityLabel="Add new courier partner"
                 />
               </View>
               <View style={styles.field}>

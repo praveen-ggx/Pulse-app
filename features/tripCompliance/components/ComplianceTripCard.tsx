@@ -3,8 +3,15 @@
  * route, party chips, docs checklist). Same summary data and callbacks.
  */
 import { PartyAvatar } from "@/components/PartyAvatar";
+import { ThemedConfirmModal } from "@/components/ThemedConfirmModal";
+import {
+  HUB_CARD_HEAD_AVATAR,
+  HUB_CARD_HEAD_LEFT_GAP,
+  HUB_CARD_PARTY_CHIP_AVATAR,
+} from "@/components/hub/hubGridCardLayout";
 import { HUB_MOBILE_TICKET_REF } from "@/components/hub/hubMobileTicketTokens";
 import { FinanceTxnTypography } from "@/constants/FinanceTxnTypography";
+import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import {
   type ComplianceChecklistGroup,
@@ -21,8 +28,10 @@ import {
   verificationStatusVisual,
 } from "@/features/tripCompliance/utils/complianceCardVisual.util";
 import {
+  complianceGroupDecisionMark,
   complianceGroupOnFileCount,
   ensureComplianceChecklist,
+  type ComplianceGroupDecisionMark,
 } from "@/features/tripCompliance/utils/complianceChecklist.util";
 import {
   deriveComplianceQueueReadiness,
@@ -32,7 +41,15 @@ import { splitHubRouteLocationDisplay } from "@/features/trips/utils/tripLocatio
 import { formatIndianVehicleNumber } from "@/lib/format";
 import { driverAvatarSeedFromId } from "@/lib/partyAvatarDisplay";
 import { ComplianceActivityLogButton } from "@/features/tripCompliance/components/ComplianceTripActivityLog";
-import { Check, Eye } from "lucide-react-native";
+import { ComplianceDeclineModal } from "@/features/tripCompliance/components/ComplianceDeclineModal";
+import { COMPLIANCE_DECLINE_ACTION_LABEL } from "@/features/tripCompliance/complianceDecisionConfig";
+import { COMPLIANCE_DECLINE_REASON_SECTIONS } from "@/features/tripCompliance/utils/complianceDeclineReason.util";
+import { compactResubmitCardNote } from "@/features/tripCompliance/utils/complianceResubmitChangeLog.util";
+import {
+  canVerifyTrip,
+  isFinanceDeclinedTrip,
+} from "@/features/tripCompliance/utils/complianceTableStatus.util";
+import { Check, CircleX, Eye } from "lucide-react-native";
 import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -46,9 +63,6 @@ import {
 
 const REF = HUB_MOBILE_TICKET_REF;
 const ROUTE_PIN_SIZE = 6;
-const HEAD_AVATAR = 34;
-const CHIP_AVATAR = 22;
-const STRIP_AVATAR = 16;
 
 type HoverPressState = { pressed: boolean; hovered?: boolean };
 
@@ -92,8 +106,10 @@ export type ComplianceTripCardProps = {
   onViewTrip: () => void;
   onOpenDetails?: () => void;
   onPay?: () => void;
-  /** When every required trip document is approved, Verify Docs marks the trip compliance verified. */
+  /** When every required trip document is approved, Verify marks the trip compliance verified. */
   onMarkComplianceVerified?: () => Promise<boolean | void>;
+  /** Decline the trip with a reason, same action as the table. */
+  onDeclineCompliance?: (reason: string) => Promise<void>;
   canManageFinance?: boolean;
   /** Details screen renders its own full decline section. */
   hideDeclineNotice?: boolean;
@@ -105,10 +121,16 @@ export type ComplianceTripCardProps = {
   layout?: "ticket" | "strip";
   /** Sit inside the Document Details nav with no extra card chrome. */
   flush?: boolean;
+  /** Mobile list: full-width row on the white page, no floating card. */
+  plain?: boolean;
   /** Compact header chips that keep their own width (mobile filmstrip). */
   dense?: boolean;
   supplierName?: string | null;
   parties?: ComplianceTripCardParties | null;
+  /** Strip header only: Preview / Trip Detail sit on the checklist pill row. */
+  stripActions?: { label: string; active: boolean; onPress: () => void }[];
+  /** Strip header: document group pills are for the checklist, not POD stages. */
+  hideChecklistPills?: boolean;
 };
 
 function asLabel(value: unknown): string {
@@ -189,8 +211,6 @@ function PartyChip({
   organizationImageUrl,
   isIntegrated,
   alignEnd,
-  compact = false,
-  dense = false,
   vehiclePlate,
 }: {
   name: string;
@@ -201,8 +221,6 @@ function PartyChip({
   organizationImageUrl?: string | null;
   isIntegrated?: boolean;
   alignEnd?: boolean;
-  compact?: boolean;
-  dense?: boolean;
   vehiclePlate?: string | null;
 }) {
   const label = formatPartyName(name);
@@ -224,7 +242,7 @@ function PartyChip({
         avatarSeed={avatarSeed}
         entityType={entityType}
         isIntegrated={isIntegrated}
-        size={dense || compact ? STRIP_AVATAR : CHIP_AVATAR}
+        size={HUB_CARD_PARTY_CHIP_AVATAR}
       />
       <View
         style={[
@@ -236,8 +254,6 @@ function PartyChip({
         <Text
           style={[
             styles.chipName,
-            compact && styles.chipNameCompact,
-            dense && styles.chipNameDense,
             alignEnd && styles.chipNameEnd,
           ]}
           numberOfLines={1}
@@ -246,7 +262,7 @@ function PartyChip({
         </Text>
         {stacked ? (
           <Text
-            style={[styles.chipPlate, dense && styles.chipPlateDense, alignEnd && styles.chipNameEnd]}
+            style={[styles.chipPlate, alignEnd && styles.chipNameEnd]}
             numberOfLines={1}
             accessibilityLabel={`Vehicle ${plate}`}
           >
@@ -258,9 +274,20 @@ function PartyChip({
   );
 }
 
+function GroupDecisionIcon({ mark }: { mark: ComplianceGroupDecisionMark | null }) {
+  if (mark === "verified") {
+    return <Check size={12} color={Theme.complianceDocOkFg} strokeWidth={2.6} />;
+  }
+  if (mark === "declined") {
+    return <CircleX size={12} color={Theme.complianceDocNeedFg} strokeWidth={2.4} />;
+  }
+  return null;
+}
+
 function ChecklistGroupTile({
   group,
   countLabel,
+  mark = null,
   onPress,
   compact = false,
   pills = false,
@@ -269,6 +296,7 @@ function ChecklistGroupTile({
 }: {
   group: ComplianceChecklistGroup;
   countLabel: string;
+  mark?: ComplianceGroupDecisionMark | null;
   onPress?: () => void;
   compact?: boolean;
   pills?: boolean;
@@ -277,12 +305,14 @@ function ChecklistGroupTile({
 }) {
   const tone = groupToneVisual(group.tone);
   const requiredComplete = group.tone === "success";
+  const markLabel = mark === "verified" ? ", approved" : mark === "declined" ? ", declined" : "";
   const content = (
     <>
       <View style={styles.groupHeader}>
         <Text style={styles.groupLabel} numberOfLines={1}>
           {group.label}
         </Text>
+        <GroupDecisionIcon mark={mark} />
         <Eye size={11} color={Theme.textRouteCard} strokeWidth={2.2} />
       </View>
       <View style={styles.groupDots}>
@@ -325,6 +355,7 @@ function ChecklistGroupTile({
       >
         {countLabel}
       </Text>
+      <GroupDecisionIcon mark={mark} />
     </View>
   );
 
@@ -336,7 +367,7 @@ function ChecklistGroupTile({
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${group.label} documents, ${countLabel}`}
+      accessibilityLabel={`${group.label} documents, ${countLabel}${markLabel}`}
       style={(state: HoverPressState) => [
         tileStyle,
         WEB_POINTER,
@@ -356,6 +387,7 @@ export function ComplianceTripCard({
   onOpenDetails,
   onPay,
   onMarkComplianceVerified,
+  onDeclineCompliance,
   canManageFinance = false,
   hideDeclineNotice = false,
   onOpenActivityLog,
@@ -363,9 +395,12 @@ export function ComplianceTripCard({
   selected = false,
   layout = "ticket",
   flush = false,
+  plain = false,
   dense = false,
   supplierName = null,
   parties = null,
+  stripActions = [],
+  hideChecklistPills = false,
 }: ComplianceTripCardProps) {
   const [hovered, setHovered] = useState(false);
   const trip = summary.trip;
@@ -376,11 +411,15 @@ export function ComplianceTripCard({
   const debitStatus = podDebitStatusVisual(summary);
   const showPaymentPill = shouldShowPaymentStatusPill(summary);
   const fullyVerified = Boolean(summary.complianceVerifiedAt);
-  /** Pending-docs cards already show status in the header — no Verify Docs action. */
-  const showVerifyDocsAction = verification.kind !== "pending_docs" && !fullyVerified;
-  const readyToMarkTrip =
-    readiness.requiredDocs.markVerifiedReady && !fullyVerified && Boolean(onMarkComplianceVerified);
+  const financeDeclined = isFinanceDeclinedTrip(summary);
+  const tripVerified = fullyVerified && !financeDeclined;
+  const verifyEligibility = useMemo(() => canVerifyTrip(summary), [summary]);
+  const showVerifyAction = Boolean(onMarkComplianceVerified) && !tripVerified;
+  const showDeclineAction = Boolean(onDeclineCompliance) && !tripVerified && !financeDeclined;
   const [markingTrip, setMarkingTrip] = useState(false);
+  const [declining, setDeclining] = useState(false);
+  const [declineOpen, setDeclineOpen] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<"verify" | "decline" | null>(null);
   const showPayAction = Boolean(canManageFinance && readiness.paymentReady && onPay);
   const showCardFooter =
     showPaymentPill &&
@@ -435,10 +474,16 @@ export function ComplianceTripCard({
 
   const pressVerifyDocs = () => {
     if (markingTrip) return;
-    if (!readyToMarkTrip || !onMarkComplianceVerified) {
+    if (!onMarkComplianceVerified || !verifyEligibility.allowed) {
       onReviewDocuments("trip");
       return;
     }
+    setConfirmAction("verify");
+  };
+
+  const runVerify = () => {
+    if (markingTrip || !onMarkComplianceVerified) return;
+    setConfirmAction(null);
     setMarkingTrip(true);
     void onMarkComplianceVerified().finally(() => setMarkingTrip(false));
   };
@@ -471,6 +516,7 @@ export function ComplianceTripCard({
           styles.cardCompact,
           isStrip && styles.cardStrip,
           flush && styles.cardFlush,
+          plain && styles.cardPlain,
           WEB_TRANSITION,
           !isStrip && WEB_POINTER,
           !isStrip && (hovered || selected || isHovered(state)) && styles.cardHover,
@@ -485,6 +531,7 @@ export function ComplianceTripCard({
             compact && styles.bodyCompact,
             isStrip && styles.bodyStrip,
             flush && styles.bodyFlush,
+            plain && styles.bodyPlain,
           ]}
         >
           {isStrip ? null : (
@@ -498,10 +545,10 @@ export function ComplianceTripCard({
                 avatarSeed={parties?.client?.avatarSeed}
                 entityType="client"
                 isIntegrated={parties?.client?.isIntegrated}
-                size={compact ? 28 : HEAD_AVATAR}
+                size={HUB_CARD_HEAD_AVATAR}
               />
               <View style={styles.headText}>
-                <Text style={[styles.brand, compact && styles.brandCompact]} numberOfLines={2}>
+                <Text style={styles.brand} numberOfLines={1}>
                   {formatPartyName(clientName)}
                 </Text>
                 <Text style={[styles.tripIdLink, compact && styles.tripIdLinkCompact]} numberOfLines={1}>
@@ -571,8 +618,6 @@ export function ComplianceTripCard({
               initialsColorSeed={supplierFb}
               organizationImageUrl={parties?.supplier?.organizationImageUrl}
               isIntegrated={parties?.supplier?.isIntegrated}
-              compact={compact}
-              dense={compact}
             />
             <PartyChip
               name={driverLabel}
@@ -581,8 +626,6 @@ export function ComplianceTripCard({
               avatarSeed={driverSeed}
               initialsColorSeed={driverFb}
               alignEnd
-              compact={compact}
-              dense={compact}
               vehiclePlate={vehicleLabel || null}
             />
           </View>
@@ -597,28 +640,61 @@ export function ComplianceTripCard({
             flush && styles.complianceBodyFlush,
           ]}
         >
-          <View style={[styles.groupRow, isStrip ? styles.groupRowPills : styles.groupRowCompact, dense && styles.groupRowPillsDense]}>
-            {checklist.groups.map((group, index) => {
-              const onFile = complianceGroupOnFileCount(group, summary.documents);
-              return (
-                <ChecklistGroupTile
-                  key={group.key}
-                  group={group}
-                  compact
-                  pills={isStrip}
-                  dense={dense}
-                  align={
-                    index === 0
-                      ? "start"
-                      : index === checklist.groups.length - 1
-                        ? "end"
-                        : "center"
-                  }
-                  countLabel={`${onFile.onFile}/${onFile.total}`}
-                  onPress={() => onReviewDocuments(group.key)}
-                />
-              );
-            })}
+          <View
+            style={[
+              styles.groupRow,
+              isStrip ? styles.groupRowPills : styles.groupRowCompact,
+              dense && styles.groupRowPillsDense,
+              isStrip && hideChecklistPills && styles.groupRowActionsOnly,
+            ]}
+          >
+            {isStrip && hideChecklistPills ? null : (
+              <View style={isStrip ? styles.groupPillCluster : styles.groupMetricCluster}>
+                {checklist.groups.map((group, index) => {
+                  const onFile = complianceGroupOnFileCount(group, summary.documents);
+                  return (
+                    <ChecklistGroupTile
+                      key={group.key}
+                      group={group}
+                      compact
+                      pills={isStrip}
+                      dense={dense}
+                      mark={complianceGroupDecisionMark(group, summary)}
+                      align={
+                        index === 0
+                          ? "start"
+                          : index === checklist.groups.length - 1
+                            ? "end"
+                            : "center"
+                      }
+                      countLabel={`${onFile.onFile}/${onFile.total}`}
+                      onPress={() => onReviewDocuments(group.key)}
+                    />
+                  );
+                })}
+              </View>
+            )}
+            {isStrip && stripActions.length > 0 ? (
+              <View style={styles.stripActionCluster}>
+                {stripActions.map((action) => (
+                  <Pressable
+                    key={action.label}
+                    onPress={action.onPress}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: action.active }}
+                    accessibilityLabel={action.label}
+                    style={[styles.stripAction, action.active && styles.stripActionOn]}
+                  >
+                    <Text
+                      style={[styles.stripActionText, action.active && styles.stripActionTextOn]}
+                      numberOfLines={1}
+                    >
+                      {action.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
           </View>
 
           {isStrip ? null : declinedAt ? (
@@ -639,15 +715,19 @@ export function ComplianceTripCard({
 
           {isStrip ? null : resubmitNote ? (
             <View
-              style={styles.resubmitNoteBox}
+              style={[
+                styles.blockerBox,
+                compact && styles.blockerBoxCompact,
+                styles.blockerBoxReady,
+                styles.blockerBoxWithAction,
+              ]}
               testID={`compliance-card-resubmit-note-${trip.id}`}
               accessible
               accessibilityLabel={`Ground Ops resubmit note. ${resubmitNote}`}
             >
-              <Text style={styles.resubmitNoteTitle} numberOfLines={1}>
-                Resubmitted · Ground Ops
+              <Text style={styles.resubmitNoteLine} numberOfLines={1}>
+                {`Resubmitted · ${compactResubmitCardNote(resubmitNote)}`}
               </Text>
-              <Text style={styles.resubmitNoteBody}>{resubmitNote}</Text>
             </View>
           ) : null}
 
@@ -702,25 +782,45 @@ export function ComplianceTripCard({
                 </Text>
               ) : null}
             </View>
-            {showVerifyDocsAction || showPayAction ? (
+            {showVerifyAction || showDeclineAction || showPayAction ? (
               <View style={styles.blockerActions}>
-                {showVerifyDocsAction ? (
+                {showVerifyAction ? (
                   <Pressable
                     style={styles.payBtn}
                     onPress={(event) => {
                       event.stopPropagation();
                       pressVerifyDocs();
                     }}
-                    disabled={markingTrip}
+                    disabled={markingTrip || declining}
                     hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
                     accessibilityRole="button"
-                    accessibilityLabel="Verify documents"
+                    accessibilityLabel="Verify trip compliance"
+                    accessibilityHint={
+                      verifyEligibility.reason
+                        ? `${verifyEligibility.reason}. Opens trip documents.`
+                        : undefined
+                    }
                   >
                     {markingTrip ? (
                       <ActivityIndicator size="small" color={Theme.buttonPrimaryText} />
                     ) : (
-                      <Text style={styles.payBtnText}>Verify Docs</Text>
+                      <Text style={styles.payBtnText}>Verify</Text>
                     )}
+                  </Pressable>
+                ) : null}
+                {showDeclineAction ? (
+                  <Pressable
+                    style={styles.declineBtn}
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      setConfirmAction("decline");
+                    }}
+                    disabled={markingTrip || declining}
+                    hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${COMPLIANCE_DECLINE_ACTION_LABEL} trip compliance`}
+                  >
+                    <Text style={styles.declineBtnText}>{COMPLIANCE_DECLINE_ACTION_LABEL}</Text>
                   </Pressable>
                 ) : null}
                 {showPayAction ? (
@@ -742,6 +842,48 @@ export function ComplianceTripCard({
           </View>
           )}
         </View>
+
+        <ThemedConfirmModal
+          visible={confirmAction != null}
+          variant={confirmAction === "decline" ? "warning" : "positive"}
+          title={confirmAction === "decline" ? "Decline this trip?" : "Verify this trip?"}
+          message={
+            confirmAction === "decline"
+              ? `${tripId} goes back for correction. Next you record the reason.`
+              : `${tripId}${clientName !== "—" ? ` · ${clientName}` : ""} is marked compliance verified and can move on.`
+          }
+          cancelText="Cancel"
+          confirmText={confirmAction === "decline" ? "Continue" : "Verify"}
+          confirmVariant={confirmAction === "decline" ? "destructive" : "primary"}
+          onCancel={() => setConfirmAction(null)}
+          onConfirm={() => {
+            if (confirmAction === "verify") {
+              runVerify();
+              return;
+            }
+            setConfirmAction(null);
+            setDeclineOpen(true);
+          }}
+        />
+        {onDeclineCompliance ? (
+          <ComplianceDeclineModal
+            visible={declineOpen}
+            presets={COMPLIANCE_DECLINE_REASON_SECTIONS}
+            tripLabel={`${tripId}${clientName !== "—" ? ` · ${clientName}` : ""}`}
+            onCancel={() => {
+              if (!declining) setDeclineOpen(false);
+            }}
+            onSubmit={async (reason) => {
+              setDeclining(true);
+              try {
+                await onDeclineCompliance(reason);
+                setDeclineOpen(false);
+              } finally {
+                setDeclining(false);
+              }
+            }}
+          />
+        ) : null}
 
         {false && showCardFooter ? (
           <View style={styles.cardFooter}>
@@ -816,12 +958,29 @@ const styles = StyleSheet.create({
     borderColor: Theme.actionBtnInk,
   },
   cardStrip: {
-    borderRadius: 8,
-    borderColor: "#EAEAEC",
+    borderWidth: 0,
+    borderRadius: 0,
+    backgroundColor: "transparent",
     ...Platform.select({
       web: { boxShadow: "none" } as ViewStyle,
       default: { elevation: 0, shadowOpacity: 0 },
     }),
+  },
+  cardPlain: {
+    borderWidth: 0,
+    borderRadius: 0,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.networkCardBorder,
+    backgroundColor: Theme.screenBackground,
+    ...Platform.select({
+      web: { boxShadow: "none" } as ViewStyle,
+      default: { elevation: 0, shadowOpacity: 0 },
+    }),
+  },
+  bodyPlain: {
+    paddingHorizontal: Layout.screenPaddingHorizontal,
+    paddingTop: 14,
+    paddingBottom: 14,
   },
   cardFlush: {
     borderWidth: 0,
@@ -895,29 +1054,21 @@ const styles = StyleSheet.create({
     minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: HUB_CARD_HEAD_LEFT_GAP,
   },
   headText: {
     flex: 1,
     minWidth: 0,
+    minHeight: HUB_CARD_HEAD_AVATAR,
     justifyContent: "center",
     gap: 1,
   },
   brand: {
+    ...FinanceTxnTypography.partyTitle,
     fontSize: 12,
     lineHeight: 15,
     letterSpacing: -0.1,
-    fontWeight: "600",
-    fontStyle: "normal",
-    color: REF.ink,
-    textTransform: "uppercase",
-  },
-  brandCompact: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "600",
-    fontStyle: "normal",
-    letterSpacing: -0.1,
+    fontWeight: "500",
     color: REF.ink,
     textTransform: "uppercase",
   },
@@ -992,6 +1143,22 @@ const styles = StyleSheet.create({
     lineHeight: 11,
     fontWeight: "400",
     color: Theme.buttonPrimaryText,
+    letterSpacing: 0,
+  },
+  declineBtn: {
+    minHeight: 22,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: Theme.destructive,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  declineBtnText: {
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: "400",
+    color: Theme.textOnPrimary,
     letterSpacing: 0,
   },
   headStatusPill: {
@@ -1109,19 +1276,20 @@ const styles = StyleSheet.create({
   },
   partyRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
     gap: 10,
-    minHeight: CHIP_AVATAR,
+    marginTop: 6,
+    minHeight: HUB_CARD_PARTY_CHIP_AVATAR,
   },
   partyRowCompact: {
-    alignItems: "center",
-    minHeight: STRIP_AVATAR,
-    marginTop: 2,
+    alignItems: "flex-start",
+    minHeight: HUB_CARD_PARTY_CHIP_AVATAR,
+    marginTop: 6,
   },
   partyRowStrip: {
-    alignItems: "center",
-    minHeight: STRIP_AVATAR,
+    alignItems: "flex-start",
+    minHeight: HUB_CARD_PARTY_CHIP_AVATAR,
     marginTop: 0,
     gap: 8,
   },
@@ -1157,19 +1325,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.1,
     fontWeight: "500",
   },
-  chipNameCompact: {
-    ...FinanceTxnTypography.partyTitle,
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: "500",
-    color: REF.ink,
-  },
   chipNameEnd: { textAlign: "right" },
-  chipNameDense: {
-    fontSize: 8,
-    lineHeight: 10,
-    fontWeight: "600",
-  },
   chipPlate: {
     marginTop: 1,
     alignSelf: "stretch",
@@ -1179,12 +1335,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
     color: Theme.textMuted,
     fontVariant: ["tabular-nums"],
-  },
-  chipPlateDense: {
-    marginTop: 0,
-    fontSize: 8,
-    lineHeight: 10,
-    letterSpacing: 0.2,
   },
   complianceBody: {
     flexGrow: 1,
@@ -1218,10 +1368,35 @@ const styles = StyleSheet.create({
     minHeight: 22,
   },
   groupRowPills: {
-    alignItems: "stretch",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: 8,
+    paddingTop: 2,
+  },
+  groupRowActionsOnly: {
+    justifyContent: "flex-end",
+  },
+  groupPillCluster: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  groupMetricCluster: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
     gap: 6,
-    paddingTop: 2,
+  },
+  stripActionCluster: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 0,
+    gap: 6,
+    marginLeft: "auto",
   },
   groupRowPillsDense: {
     justifyContent: "flex-start",
@@ -1242,6 +1417,32 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 6,
     paddingVertical: 4,
+  },
+  stripAction: {
+    flexGrow: 0,
+    flexShrink: 0,
+    minHeight: 28,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#D4D5D9",
+    backgroundColor: Theme.cardWhite,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stripActionOn: {
+    backgroundColor: Theme.buttonDark,
+    borderColor: Theme.buttonDark,
+  },
+  stripActionText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+    color: Theme.textPrimary,
+  },
+  stripActionTextOn: {
+    fontWeight: "700",
+    color: Theme.buttonDarkText,
   },
   groupPillDense: {
     flexGrow: 0,
@@ -1464,29 +1665,20 @@ const styles = StyleSheet.create({
     color: Theme.textSecondary,
     lineHeight: 12,
   },
-  resubmitNoteBox: {
-    gap: 2,
-    paddingTop: 6,
-    paddingHorizontal: 8,
-    paddingBottom: 6,
-    borderRadius: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderLeftWidth: 3,
-    backgroundColor: Theme.positiveMuted,
-    borderColor: Theme.positiveMuted,
-    borderLeftColor: Theme.positive,
-  },
-  resubmitNoteTitle: {
+  resubmitNoteLine: {
+    flex: 1,
+    minWidth: 0,
     fontSize: 9,
     fontWeight: "400",
-    color: Theme.positive,
     lineHeight: 12,
-  },
-  resubmitNoteBody: {
-    fontSize: 9,
-    fontWeight: "400",
-    color: Theme.textSecondary,
-    lineHeight: 12,
+    color: Theme.complianceStageSuccessFg,
+    ...Platform.select({
+      web: {
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      } as ViewStyle,
+    }),
   },
   expiryWarnBox: {
     gap: 2,

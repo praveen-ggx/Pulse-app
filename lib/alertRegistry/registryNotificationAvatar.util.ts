@@ -13,6 +13,9 @@ import {
 import type { CurrentOrganization } from "@/types/organization";
 
 import type { RegistryNotificationAvatar } from "@/lib/alertRegistry/registryNotificationAvatar.types";
+import {
+  networkNotificationPartyName,
+} from "@/lib/alertRegistry/networkNotificationParty.util";
 
 export type { RegistryNotificationAvatar };
 
@@ -39,29 +42,6 @@ function orgAvatar(
     entityType: "client",
     organizationImageUrl: org?.logo_url ?? null,
     initialsColorSeed: org?.id ?? name,
-  };
-}
-
-function partnerAvatar(
-  partnerOrgId: string | null | undefined,
-  partnerDisplay: Record<string, InboundPartnerDisplay>,
-  partnerAvatarUri: Record<string, string | null>,
-  fallbackName: string,
-): RegistryNotificationAvatar {
-  if (!partnerOrgId) {
-    return { name: fallbackName, entityType: "client", initialsColorSeed: fallbackName };
-  }
-  const profile = partnerDisplay[partnerOrgId];
-  const resolvedUri = partnerAvatarUri[partnerOrgId];
-  return {
-    name: profile?.organizationName?.trim() || fallbackName,
-    entityType: "client",
-    organizationImageUrl:
-      profile?.logoUrl ?? profile?.avatarUrl ?? resolvedUri ?? null,
-    organizationAvatarSeed: profile?.orgAvatarSeed ?? profile?.avatarSeed ?? null,
-    avatarUrl: profile?.ownerAvatarUrl ?? null,
-    avatarSeed: profile?.avatarSeed ?? null,
-    initialsColorSeed: partnerOrgId,
   };
 }
 
@@ -118,26 +98,78 @@ export function resolveOpsRegistryAvatar(
   return orgAvatar(ctx.org, "System");
 }
 
+type LinkedPartyAvatar = {
+  name: string;
+  entityType: "client" | "supplier";
+  avatarUrl?: string | null;
+  avatarSeed?: string | null;
+};
+
+export type NetworkRegistryAvatarContext = {
+  partnerDisplay: Record<string, InboundPartnerDisplay>;
+  partnerAvatarUri: Record<string, string | null>;
+  linkedOrgs?: Record<
+    string,
+    {
+      organizationName?: string;
+      logoUrl?: string;
+      avatarUrl?: string;
+      avatarSeed?: string;
+      orgAvatarSeed?: string;
+    }
+  >;
+  partiesByLinkedOrg?: Map<string, LinkedPartyAvatar>;
+};
+
+function partyFromDirectory(
+  orgId: string,
+  parties: Map<string, LinkedPartyAvatar> | undefined,
+): LinkedPartyAvatar | undefined {
+  return parties?.get(orgId);
+}
+
 /** Avatar for cross-org network notifications; keyed on the acting org. */
 export function resolveNetworkRegistryAvatar(
   item: NetworkNotificationRow,
-  ctx: {
-    partnerDisplay: Record<string, InboundPartnerDisplay>;
-    partnerAvatarUri: Record<string, string | null>;
-  },
+  ctx: NetworkRegistryAvatarContext,
 ): RegistryNotificationAvatar {
-  if (item.actor_org_id) {
-    return partnerAvatar(
-      item.actor_org_id,
-      ctx.partnerDisplay,
-      ctx.partnerAvatarUri,
-      item.title,
-    );
-  }
+  const orgId = item.actor_org_id?.trim() || "";
+  const linked = orgId ? ctx.linkedOrgs?.[orgId] : undefined;
+  const directory = orgId ? partyFromDirectory(orgId, ctx.partiesByLinkedOrg) : undefined;
+  const partner = orgId ? ctx.partnerDisplay[orgId] : undefined;
+  const parsed = networkNotificationPartyName(item.title);
+  const name =
+    linked?.organizationName?.trim() ||
+    partner?.organizationName?.trim() ||
+    directory?.name ||
+    parsed ||
+    "Partner";
+  const entityType: "client" | "supplier" =
+    item.event_type === "bid_received" ? "supplier" : directory?.entityType ?? "client";
+  const logo =
+    linked?.logoUrl?.trim() ||
+    linked?.avatarUrl?.trim() ||
+    partner?.logoUrl ||
+    partner?.avatarUrl ||
+    (orgId ? ctx.partnerAvatarUri[orgId] : null) ||
+    directory?.avatarUrl ||
+    null;
+  const seed =
+    linked?.orgAvatarSeed?.trim() ||
+    linked?.avatarSeed?.trim() ||
+    partner?.orgAvatarSeed ||
+    partner?.avatarSeed ||
+    directory?.avatarSeed ||
+    null;
+
   return {
-    name: item.title?.trim() || "Partner",
-    entityType: "supplier",
-    initialsColorSeed: item.id,
+    name,
+    entityType,
+    organizationImageUrl: logo,
+    organizationAvatarSeed: seed,
+    avatarUrl: partner?.ownerAvatarUrl ?? null,
+    avatarSeed: partner?.avatarSeed ?? directory?.avatarSeed ?? null,
+    initialsColorSeed: orgId || item.id,
   };
 }
 

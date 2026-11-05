@@ -81,6 +81,7 @@ import {
 import { invoiceSourceLabel } from "@/features/invoicing/utils/invoiceSource.util";
 import type { InvoiceLineSnapshot } from "@/features/invoicing/services/invoiceDocumentSnapshot.service";
 import { ROUTES } from "@/lib/routes";
+import { WebOverlayPortal } from "@/lib/webOverlayPortal";
 import { useLoadingStuck } from "@/lib/hooks/useLoadingStuck";
 import { TripCompletionFilterBar } from "@/features/trips/components/TripCompletionFilterBar";
 import {
@@ -150,6 +151,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import {
     Alert,
@@ -163,6 +165,7 @@ import {
     TextInput,
     View,
     useWindowDimensions,
+    type StyleProp,
     type ViewStyle,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -3394,6 +3397,101 @@ function InvoiceTripActions({
   );
 }
 
+function formatInvoiceTripTimestamp(value: string): string {
+  const raw = value.trim();
+  if (!raw) return "—";
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  const hasTime = /T\d{2}:\d{2}|\d{2}:\d{2}/.test(raw);
+  return parsed.toLocaleString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    ...(hasTime ? { hour: "numeric", minute: "2-digit" } : {}),
+  });
+}
+
+function invoiceTripRouteDetail(trip: InvoicingTripView): string {
+  const pickup = trip.pickup?.trim();
+  const delivery = trip.delivery?.trim();
+  if (pickup && delivery) return `${pickup} → ${delivery}`;
+  return trip.route.replace(/\s*➔\s*/g, " → ").trim() || "—";
+}
+
+function InvoiceTripHoverRow({
+  trip,
+  style,
+  onPress,
+  disabled,
+  children,
+}: {
+  trip: InvoicingTripView;
+  style: StyleProp<ViewStyle>;
+  onPress: () => void;
+  disabled?: boolean;
+  children: ReactNode;
+}) {
+  const anchor = useRef<View>(null);
+  const { height: windowHeight } = useWindowDimensions();
+  const [open, setOpen] = useState(false);
+  const [origin, setOrigin] = useState<{ x: number; y: number; height: number } | null>(null);
+
+  const reveal = () => {
+    anchor.current?.measureInWindow((x, y, _width, height) => {
+      setOrigin({ x, y, height });
+      setOpen(true);
+    });
+  };
+
+  const cardTop = origin
+    ? origin.y + origin.height + 132 > windowHeight
+      ? Math.max(8, origin.y - 132)
+      : origin.y + origin.height + 6
+    : 0;
+
+  return (
+    <Pressable
+      ref={anchor}
+      style={style}
+      onPress={onPress}
+      disabled={disabled}
+      onHoverIn={reveal}
+      onHoverOut={() => setOpen(false)}
+    >
+      {children}
+      {open && origin ? (
+        <WebOverlayPortal>
+          <View
+            pointerEvents="none"
+            style={[
+              styles.tripHoverCard,
+              {
+                position: "fixed",
+                top: cardTop,
+                left: Math.max(12, origin.x),
+                zIndex: 20000,
+              } as ViewStyle,
+            ]}
+          >
+            <View style={styles.tripHoverFact}>
+              <Text style={styles.tripHoverLabel}>Route</Text>
+              <Text style={styles.tripHoverValue}>{invoiceTripRouteDetail(trip)}</Text>
+            </View>
+            <View style={styles.tripHoverFact}>
+              <Text style={styles.tripHoverLabel}>Time</Text>
+              <Text style={styles.tripHoverValue}>{formatInvoiceTripTimestamp(trip.date)}</Text>
+            </View>
+            <View style={styles.tripHoverFact}>
+              <Text style={styles.tripHoverLabel}>LR</Text>
+              <Text style={styles.tripHoverValue}>{tripListLrLabel(trip)}</Text>
+            </View>
+          </View>
+        </WebOverlayPortal>
+      ) : null}
+    </Pressable>
+  );
+}
+
 function InvoiceTripPodChips({ trip }: { trip: InvoicingTripView }) {
   if (!tripIsDeliveredStatus(trip.tripStatus)) {
     return <Text style={{ fontSize: 11, fontWeight: "600", color: Theme.textMuted }}>—</Text>;
@@ -3901,7 +3999,8 @@ function TripListContent({
             );
           }
           return (
-            <Pressable
+            <InvoiceTripHoverRow
+                trip={trip}
                 style={[
                   styles.tripTableRow,
                   compact && styles.tripTableRowCompact,
@@ -3993,7 +4092,7 @@ function TripListContent({
                   </Pressable>
                 ) : null}
               </View>
-            </Pressable>
+            </InvoiceTripHoverRow>
           );
         }}
       />
@@ -4991,6 +5090,33 @@ const styles = StyleSheet.create({
   },
   tripTableRowSelected: { backgroundColor: Theme.surface },
   tripRowDisabled: { opacity: 0.6 },
+  tripHoverCard: {
+    width: 280,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.networkCardBorder,
+    gap: 8,
+    shadowColor: Theme.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  tripHoverFact: { gap: 1 },
+  tripHoverLabel: {
+    fontSize: 10,
+    fontWeight: "600",
+    letterSpacing: 0.3,
+    color: Theme.textMuted,
+  },
+  tripHoverValue: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: Theme.textPrimary,
+  },
   tripCardMobile: {
     backgroundColor: Theme.screenBackground,
     padding: 12,

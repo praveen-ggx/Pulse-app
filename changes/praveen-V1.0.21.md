@@ -12,11 +12,11 @@
 - `features/tripCompliance/services/tripComplianceRead.service.ts`
 - `features/tripCompliance/services/compliancePipelineSync.service.ts`
 - `features/trips/components/trip-detail/hooks/useTripDetail.ts`
-- Tests: `complianceDriverDocs.migration.contract.test.ts`, `compliancePipelineSync.service.test.ts`
+- Tests: `complianceDriverDocs.migration.contract.test.ts`, `compliancePipelineSync.service.test.ts`; mock `get_compliance_driver_docs_for_trips` (and vehicle vault RPC) in `tripDocumentClassification.util.test.ts` + `buildComplianceTripSummaries.hardCopyPod.test.ts`
 
 ## Migrations
 - `20261104095549_get_compliance_driver_docs_for_trips.sql` (additive RPC only; no table changes)
 
 ## Tested
-- `npx jest features/tripCompliance/__tests__/complianceDriverDocs.migration.contract.test.ts features/tripCompliance/__tests__/compliancePipelineSync.service.test.ts --ci --silent`
+- `npx jest features/tripCompliance/__tests__/complianceDriverDocs.migration.contract.test.ts features/tripCompliance/__tests__/compliancePipelineSync.service.test.ts features/tripCompliance/__tests__/tripDocumentClassification.util.test.ts features/tripCompliance/__tests__/buildComplianceTripSummaries.hardCopyPod.test.ts --ci --silent`
 - UI: not clicked through (needs migration applied on preprod)

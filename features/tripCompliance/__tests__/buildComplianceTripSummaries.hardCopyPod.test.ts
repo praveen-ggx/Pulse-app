@@ -39,6 +39,15 @@ jest.mock("@/lib/supabase", () => ({
       if (table === "trip_workflow_events") return mockMakeThenable({ data: [], error: null });
       throw new Error(`unexpected table ${table}`);
     },
+    rpc: (name: string) => {
+      if (
+        name === "get_compliance_driver_docs_for_trips" ||
+        name === "get_compliance_vehicle_vault_for_trips"
+      ) {
+        return Promise.resolve({ data: [], error: null });
+      }
+      return Promise.resolve({ data: null, error: null });
+    },
   }),
 }));
 

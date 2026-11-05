@@ -222,9 +222,13 @@ import {
 } from "../../services/trips.service";
 import {
     appendBisimNote,
+    clampSimCompletionPickerValue,
+    isSimCompletionAtOrAfterMin,
     lastBisimCoordinate,
     parseSimCompletionPickerValue,
     resolveSimulateStageCoordinate,
+    resolveSimulateStageMinAt,
+    resolveTripAssignedAtIso,
     toSimCompletionPickerValue,
     unrevokedBisimEntries,
 } from "../../utils/simulateTripStage.util";
@@ -336,6 +340,7 @@ import {
   MANIFEST_PULSE_LAST_INDEX,
   manifestSimLogsForStepIndex,
   manifestStepIndexForLog,
+  resolveDriverAcceptanceAt,
   type ManifestJourneyLogEntry,
 } from "@/features/trips/utils/manifestJourneyLog.util";
 import {
@@ -4634,8 +4639,26 @@ export default function TripDetailScreen({
     }
   };
 
+  const simulateStageMinAt = (targetStatus: string): Date | null =>
+    resolveSimulateStageMinAt({
+      targetStatus,
+      trip,
+      assignmentChangedAt: resolveTripAssignedAtIso(
+        trip,
+        detail.assignmentAuditRows ?? [],
+      ),
+      driverAcceptedAt: resolveDriverAcceptanceAt({
+        trip,
+        assignmentAuditRows: detail.assignmentAuditRows ?? [],
+      }),
+    });
+
   const openSimulateConfirm = (step: NonNullable<typeof simConfirmStep>) => {
-    simCompletionRef.current = toSimCompletionPickerValue();
+    const minAt = simulateStageMinAt(step.targetStatus);
+    simCompletionRef.current = clampSimCompletionPickerValue(
+      toSimCompletionPickerValue(),
+      minAt,
+    );
     setSimError(null);
     setGroundOpsMissingDocs(null);
     setSimConfirmStep(step);
@@ -4713,6 +4736,14 @@ export default function TripDetailScreen({
       const completedAt = parseSimCompletionPickerValue(simCompletionRef.current);
       if (!completedAt) {
         setSimError("Pick a completion date and time.");
+        setSimulating(false);
+        return;
+      }
+      const minAt = simulateStageMinAt(simConfirmStep.targetStatus);
+      if (!isSimCompletionAtOrAfterMin(completedAt, minAt)) {
+        setSimError(
+          "Completion time must be on or after the previous Journey Log stage.",
+        );
         setSimulating(false);
         return;
       }
@@ -6112,6 +6143,10 @@ export default function TripDetailScreen({
               <SimCompletionTimeField
                 key={`${simConfirmStep.targetStatus}-${simConfirmStep.label}`}
                 initialValue={simCompletionRef.current}
+                minDateTime={(() => {
+                  const minAt = simulateStageMinAt(simConfirmStep.targetStatus);
+                  return minAt ? toSimCompletionPickerValue(minAt) : null;
+                })()}
                 onChange={(value) => {
                   simCompletionRef.current = value;
                 }}
@@ -8816,6 +8851,10 @@ export default function TripDetailScreen({
                 <SimCompletionTimeField
                   key={`${simConfirmStep.targetStatus}-${simConfirmStep.label}`}
                   initialValue={simCompletionRef.current}
+                  minDateTime={(() => {
+                    const minAt = simulateStageMinAt(simConfirmStep.targetStatus);
+                    return minAt ? toSimCompletionPickerValue(minAt) : null;
+                  })()}
                   onChange={(value) => {
                     simCompletionRef.current = value;
                   }}

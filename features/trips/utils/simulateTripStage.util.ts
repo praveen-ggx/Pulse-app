@@ -202,3 +202,140 @@ export function lastBisimCoordinate(
   }
   return null;
 }
+
+function latestIso(...candidates: Array<string | null | undefined>): string | null {
+  let bestMs = -Infinity;
+  let best: string | null = null;
+  for (const iso of candidates) {
+    if (!iso?.trim()) continue;
+    const ms = new Date(iso).getTime();
+    if (!Number.isFinite(ms)) continue;
+    if (ms >= bestMs) {
+      bestMs = ms;
+      best = iso;
+    }
+  }
+  return best;
+}
+
+function latestSimTimestamp(
+  notes: string | null | undefined,
+  statuses: readonly string[],
+): string | null {
+  const want = new Set(statuses.map((s) => s.toLowerCase()));
+  let best: string | null = null;
+  for (const row of unrevokedBisimEntries(notes)) {
+    if (!want.has(row.status) || !row.timestamp) continue;
+    best = latestIso(best, row.timestamp);
+  }
+  return best;
+}
+
+/** Assignment instant used as the Journey Log "Assigned" anchor. */
+export function resolveTripAssignedAtIso(
+  trip: Pick<TripRow, "driver_id" | "created_at" | "updated_at">,
+  audits: ReadonlyArray<{ changed_at: string; driver_id_new?: string | null }>,
+): string | null {
+  if (audits.length > 0) {
+    const sorted = [...audits].sort(
+      (a, b) => new Date(a.changed_at).getTime() - new Date(b.changed_at).getTime(),
+    );
+    const driverId = trip.driver_id;
+    if (driverId) {
+      const forDriver = [...sorted]
+        .reverse()
+        .find((row) => row.driver_id_new === driverId);
+      if (forDriver?.changed_at) return forDriver.changed_at;
+    }
+    return sorted[0]?.changed_at ?? null;
+  }
+  if (trip.driver_id) return trip.updated_at ?? trip.created_at ?? null;
+  return trip.created_at ?? null;
+}
+
+/**
+ * Minimum completion instant for the next simulate stage.
+ * Same timestamp as the previous stage is allowed; earlier is not.
+ *
+ * Anchor (Assigned): assignment audit for the current driver, else trip created_at.
+ */
+export function resolveSimulateStageMinAt(opts: {
+  targetStatus: string;
+  trip: Pick<
+    TripRow,
+    "created_at" | "updated_at" | "started_at" | "completed_at" | "driver_id" | "notes"
+  >;
+  assignmentChangedAt?: string | null;
+  driverAcceptedAt?: string | null;
+}): Date | null {
+  const target = String(opts.targetStatus ?? "")
+    .trim()
+    .toLowerCase();
+  const assigned = latestIso(
+    opts.assignmentChangedAt,
+    opts.trip.created_at,
+  );
+  const notes = opts.trip.notes;
+
+  let minIso: string | null = null;
+  if (target === "assigned") {
+    // Driver-accept simulation — must be ≥ Assigned.
+    minIso = assigned;
+  } else if (target === "in_progress" || target === "picked_up") {
+    minIso = latestIso(
+      assigned,
+      opts.driverAcceptedAt,
+      latestSimTimestamp(notes, ["assigned", "pending_acceptance"]),
+    );
+  } else if (target === "in_transit") {
+    minIso = latestIso(
+      opts.trip.started_at,
+      latestSimTimestamp(notes, ["in_progress", "picked_up", "pickup"]),
+      opts.driverAcceptedAt,
+      assigned,
+    );
+  } else if (target === "at_drop") {
+    minIso = latestIso(
+      latestSimTimestamp(notes, ["in_transit"]),
+      opts.trip.started_at,
+      assigned,
+    );
+  } else if (target === "completed" || target === "delivered" || target === "done") {
+    minIso = latestIso(
+      latestSimTimestamp(notes, ["at_drop"]),
+      latestSimTimestamp(notes, ["in_transit"]),
+      opts.trip.started_at,
+      assigned,
+    );
+  } else {
+    minIso = assigned;
+  }
+
+  if (!minIso) return null;
+  const ms = new Date(minIso).getTime();
+  return Number.isFinite(ms) ? new Date(ms) : null;
+}
+
+/** True when ISO completion is on/after min (same minute allowed). */
+export function isSimCompletionAtOrAfterMin(
+  completionIso: string,
+  minAt: Date | null | undefined,
+): boolean {
+  if (!minAt) return true;
+  const ms = new Date(completionIso).getTime();
+  if (!Number.isFinite(ms)) return false;
+  return ms >= minAt.getTime();
+}
+
+/** Raise a picker value to min when it would be earlier. */
+export function clampSimCompletionPickerValue(
+  value: string,
+  minAt: Date | null | undefined,
+): string {
+  if (!minAt) return value || toSimCompletionPickerValue();
+  const parsed = parseSimCompletionPickerValue(value);
+  if (!parsed || new Date(parsed).getTime() < minAt.getTime()) {
+    return toSimCompletionPickerValue(minAt);
+  }
+  return value;
+}

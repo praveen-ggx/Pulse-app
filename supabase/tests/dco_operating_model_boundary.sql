@@ -153,7 +153,7 @@ BEGIN
   IF NOT v_raised THEN RAISE EXCEPTION 'FAIL G: FLEET trip created for DCO'; END IF;
   RAISE NOTICE 'PASS: G — approved DCO cannot receive employee-driver assignment';
 
-  -- ── G2. Offline market hire of a DCO is allowed (20271103224500) ───────
+  -- ── G2. Offline market hire of a DCO is allowed (20271110101500) ───────
   INSERT INTO public.trips (organization_id, trip_number, pickup_area, drop_location, client_name, client_price, driver_id, status, trip_payout_mode)
   VALUES (v_biz, '', 'Chennai', 'Salem', 'Test Client', 4000, v_dco_stub_row, 'assigned', 'market')
   RETURNING id INTO v_trip_id;

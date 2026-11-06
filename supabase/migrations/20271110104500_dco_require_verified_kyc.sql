@@ -27,7 +27,7 @@
 -- owner_vehicles RLS only lets an APPROVED DCO add a vehicle, and Marketplace
 -- already requires an active owner vehicle (is_dco_marketplace_eligible).
 --
--- Supersedes request_dco_status() from 20271104103000 (keeps its employment
+-- Supersedes request_dco_status() from 20271110103000 (keeps its employment
 -- gate) and platform_approve_dco() from 20271005120000 (keeps everything, adds
 -- the KYC check).
 

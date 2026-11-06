@@ -6,7 +6,7 @@
  * The driver Documents screen stays driver-documents only; DCO-only documents
  * live on this screen. Pulse admin verifies all of them before approving.
  * @see supabase/migrations/20270310200000_dco_schema_foundation.sql
- * @see supabase/migrations/20271104115500_dco_require_verified_kyc.sql
+ * @see supabase/migrations/20271110104500_dco_require_verified_kyc.sql
  */
 import {
   DRIVER_DETAIL_HORIZONTAL_PAD,

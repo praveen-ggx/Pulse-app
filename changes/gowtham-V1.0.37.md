@@ -20,8 +20,8 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" â
 - Operating-mode helpers and query wiring so Self / DCO / fleet surfaces pick the right book and gates.
 - DCO Self offline + receivable issue paths (clearer errors, sync/offline util tweaks) and exchange payment test coverage for DCO Self book routing.
 - Assigner display util + unit test; RBAC operating-model changelog note; DCO operating-model boundary SQL test updates.
-- Migration `20271103223000_booking_ref_skip_taken_refs`: booking_ref trigger skips refs already on `trips` and can walk past a lagged sequence (paid DCO award confirm failure).
-- Migration `20271103224500_dco_allow_offline_market_hire_trip`: allow Aggregate/market-hire FLEET trips to assign a `tracking_only` DCO driver (offline hire by phone); employee/fleet DCO assignment stays blocked.
+- Migration `20271110100000_booking_ref_skip_taken_refs`: booking_ref trigger skips refs already on `trips` and can walk past a lagged sequence (paid DCO award confirm failure).
+- Migration `20271110101500_dco_allow_offline_market_hire_trip`: allow Aggregate/market-hire FLEET trips to assign a `tracking_only` DCO driver (offline hire by phone); employee/fleet DCO assignment stays blocked.
 - Fleet disconnect: themed confirm warns about pending trip pay / open salary requests before leave; `leave_fleet` notifies the fleet org (`driver_disconnected` network inbox) and soft-closes driver membership; DCO request is refused while still employed (admin approve already required disconnect).
 - Fleet owner bell card for a driver who left reads "<Driver> left your fleet Â· Disconnected" (tag "Left fleet"); driver name from the payload, or parsed from the legacy "<Name> disconnected from your fleet" title.
 - DCO status screen: disconnect-first CTA (Wallet Self) then request; copy matches two-gate order (fleet leave â†’ admin approve).
@@ -43,17 +43,17 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" â
 - `components/AlertRegistryPanel.tsx`, `lib/globalSync/registryFeed.util.ts`
 - `lib/queries/useDriverOperatingModeQuery.ts`
 - `docs/RBAC_OPERATING_MODEL_CHANGELOG.md`
-- `supabase/migrations/20271103223000_booking_ref_skip_taken_refs.sql`
-- `supabase/migrations/20271103224500_dco_allow_offline_market_hire_trip.sql`
-- `supabase/migrations/20271104103000_fleet_disconnect_notify_and_dco_request_gate.sql`
-- `supabase/migrations/20271104115500_dco_require_verified_kyc.sql`, `features/driver/components/DcoStatusScreen.tsx`, `lib/queryKeys.ts`, `analytics/src/lib/dco.ts`, `analytics/src/components/queue/DcoReviewPanel.tsx`, `analytics/src/components/queue/DriverKycPanel.tsx`, `analytics/src/lib/driverKyc.ts`, `features/drivers/screens/DriverDocumentsScreen.tsx`, `features/drivers/services/driverKycDocuments.service.ts`
+- `supabase/migrations/20271110100000_booking_ref_skip_taken_refs.sql`
+- `supabase/migrations/20271110101500_dco_allow_offline_market_hire_trip.sql`
+- `supabase/migrations/20271110103000_fleet_disconnect_notify_and_dco_request_gate.sql`
+- `supabase/migrations/20271110104500_dco_require_verified_kyc.sql`, `features/driver/components/DcoStatusScreen.tsx`, `lib/queryKeys.ts`, `analytics/src/lib/dco.ts`, `analytics/src/components/queue/DcoReviewPanel.tsx`, `analytics/src/components/queue/DriverKycPanel.tsx`, `analytics/src/lib/driverKyc.ts`, `features/drivers/screens/DriverDocumentsScreen.tsx`, `features/drivers/services/driverKycDocuments.service.ts`
 - `supabase/tests/dco_operating_model_boundary.sql`
 
 ## Migrations
-- `20271103223000_booking_ref_skip_taken_refs.sql`
-- `20271103224500_dco_allow_offline_market_hire_trip.sql`
-- `20271104103000_fleet_disconnect_notify_and_dco_request_gate.sql`
-- `20271104115500_dco_require_verified_kyc.sql`
+- `20271110100000_booking_ref_skip_taken_refs.sql`
+- `20271110101500_dco_allow_offline_market_hire_trip.sql`
+- `20271110103000_fleet_disconnect_notify_and_dco_request_gate.sql`
+- `20271110104500_dco_require_verified_kyc.sql`
 - Not applied from this branch. Nihas applies to preprod after merge; Vasanth applies to prod on release.
 
 ## Tested

@@ -303,6 +303,19 @@ describe("deriveComplianceStage", () => {
     ).toBe("balance_pending");
   });
 
+  it("stays on Advance Verification when delivered + hard-copy POD but advance not posted", () => {
+    expect(
+      deriveComplianceStage({
+        documentCount: 3,
+        complianceVerifiedAt: "2026-09-01T00:00:00Z",
+        advance: null,
+        tripStatus: "delivered",
+        hardCopyReceived: true,
+        balance: null,
+      }),
+    ).toBe("compliance_verified");
+  });
+
   it("is PAYMENT_SETTLED once balance is posted", () => {
     expect(
       deriveComplianceStage({

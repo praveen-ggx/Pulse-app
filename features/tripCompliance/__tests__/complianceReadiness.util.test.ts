@@ -3,6 +3,7 @@ import {
   deriveComplianceQueueReadiness,
   isComplianceAwaitingPod,
   isCompliancePaymentPending,
+  isComplianceVerifiedQueue,
   summarizeRequiredTripDocuments,
 } from "@/features/tripCompliance/utils/complianceReadiness.util";
 import { classifyPreviewFailure } from "@/features/tripCompliance/utils/compliancePreviewFailure.util";
@@ -125,6 +126,22 @@ describe("deriveComplianceQueueReadiness", () => {
     expect(isComplianceAwaitingPod(delivered)).toBe(true);
     expect(isComplianceAwaitingPod(inTransit)).toBe(false);
     expect(isComplianceAwaitingPod(summaryFixture({ stage: "balance_pending", advance: paid }))).toBe(false);
+  });
+
+  it("keeps hard-copy-without-advance trips in the Verified export queue", () => {
+    const row = summaryFixture({
+      stage: "compliance_verified",
+      complianceVerifiedAt: "2026-09-01",
+      hardCopyPod: {
+        received: true,
+        receivedAt: "2026-09-21",
+        courier: null,
+        awbNumber: null,
+        receivedBy: null,
+      },
+    });
+    expect(isComplianceVerifiedQueue(row)).toBe(true);
+    expect(isCompliancePaymentPending(row)).toBe(true);
   });
 
   it("flags payment-pending across stages until advance is posted", () => {

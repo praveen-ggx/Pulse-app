@@ -267,9 +267,9 @@ export function isCompliancePaymentPending(summary: ComplianceTripSummary): bool
 }
 
 /**
- * Verified chip. Includes completed verified trips that skipped the exclusive
- * Verified stage (e.g. into Awaiting POD) until advance is posted or hard-copy
- * POD is received. Once advance is posted, exclusive stage is Advance Processed.
+ * Verified chip + Export Report. Includes completed verified trips until the
+ * advance is posted (hard-copy POD alone does not leave this queue). Once
+ * advance is posted, exclusive stage is Advance Processed / Awaiting POD.
  * Post-verify Reject is excluded here; Verified All still unions it in the queue filter.
  */
 export function isComplianceVerifiedQueue(summary: ComplianceTripSummary): boolean {
@@ -279,8 +279,9 @@ export function isComplianceVerifiedQueue(summary: ComplianceTripSummary): boole
   if (summary.stage === "compliance_verified") return true;
   if (summary.stage === "advance_payment_processed") return false;
   if (!summary.complianceVerifiedAt) return false;
+  // Advance posted → Advance Processed / Awaiting POD / Balance Pending — leave Verified.
+  // Hard-copy POD alone must not drop the trip (or Export Report) before advance.
   if (summary.advance || summary.balance) return false;
-  if (summary.hardCopyPod?.received) return false;
   return true;
 }
 
@@ -293,8 +294,8 @@ export function isComplianceVerifiedQueue(summary: ComplianceTripSummary): boole
 export function isFinanceVerifiedQueue(summary: ComplianceTripSummary): boolean {
   if (!summary.complianceVerifiedAt || !summary.financeVerifiedAt) return false;
   if (isPostVerifyFinanceReject(summary)) return false;
+  // Hard-copy POD alone must not drop the trip before advance is posted.
   if (summary.advance || summary.balance) return false;
-  if (summary.hardCopyPod?.received) return false;
   return true;
 }
 

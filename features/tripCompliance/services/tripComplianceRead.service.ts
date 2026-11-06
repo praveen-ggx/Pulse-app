@@ -595,11 +595,12 @@ export function deriveComplianceStage(input: {
     return docsStillOpen ? "pending_for_docs" : "compliance_pending";
   }
   const delivered = Boolean(input.opsDelivered || isCompletedTripStatus(input.tripStatus));
-  // Delivered + hard-copy → balance. Delivered without hard-copy → Awaiting POD
-  // once the advance is posted. Before that the trip stays with Finance
-  // (Advance Verification / Advance Payment); the Awaiting POD list still shows it.
+  // Delivered + hard-copy + advance → Balance Pending. Hard-copy alone must not
+  // leave Advance Verification / export before the advance is posted.
+  // Delivered without hard-copy → Awaiting POD once the advance is posted.
+  // Before that the trip stays with Finance (Advance Verification / Advance Payment).
   if (delivered) {
-    if (input.hardCopyReceived) return "balance_pending";
+    if (input.hardCopyReceived && input.advance) return "balance_pending";
     if (input.advance) return "hard_copy_pod_received";
     return input.financeVerifiedAt ? "finance_verified" : "compliance_verified";
   }

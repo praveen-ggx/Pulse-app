@@ -1,12 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { getTripsForOrg, type TripRow } from "@/features/trips/services/trips.service";
+import { loadHubTripKeysetRange, type TripRow } from "@/features/trips/services/trips.service";
 import { STALE } from "@/lib/queryClient";
 import { queryKeys } from "@/lib/queryKeys";
 
 /**
  * Trips hub trip rows for a date range (HUB_ALL_TIME_BOUNDS for "All time").
- * The default list is only the newest 400 trips, so hub counts come from this query.
- * Errors surface as `isError`; the RPC never falls back to a table scan here.
+ * Pages come from list_org_hub_trips_keyset. A short walk is an error.
+ * The newest-400 catalog is not a fallback.
  */
 export function useTripsHubDateRange(
   orgId: string | null,
@@ -15,9 +15,9 @@ export function useTripsHubDateRange(
   const from = bounds?.from ?? "";
   const to = bounds?.to ?? "";
   const query = useQuery<TripRow[]>({
-    queryKey: queryKeys.trips.hubDateRange(orgId ?? "", from, to),
+    queryKey: [...queryKeys.trips.hubDateRange(orgId ?? "", from, to), "keyset"],
     queryFn: async () => {
-      const res = await getTripsForOrg(orgId!, { from, to });
+      const res = await loadHubTripKeysetRange(orgId!, { from, to });
       if (res.error) throw res.error;
       return res.trips;
     },

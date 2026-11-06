@@ -519,6 +519,7 @@ export function TripAssignmentBlock({
         }
         paintVehicleAssignment(nextVehiclePlate, trip.vehicle_id ?? null);
         onUpdated();
+        setShowPhoneModal(false);
         closeAssignModal();
         if (fullPageFlow) onFlowComplete?.();
       } finally {
@@ -603,6 +604,7 @@ export function TripAssignmentBlock({
           paintVehicleAssignment(nextVehiclePlate, trip.vehicle_id ?? null);
         }
         onUpdated();
+        setShowPhoneModal(false);
         closeAssignModal();
         if (fullPageFlow) onFlowComplete?.();
       } finally {

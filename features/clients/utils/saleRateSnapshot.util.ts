@@ -32,7 +32,12 @@ export function parsePositiveAmount(
   return n;
 }
 
-/** Total billed to the client. Per-MT with no tons yet → 0 (not billable). */
+/**
+ * Total billed to the client. Per-MT with no tons yet → 0 (not billable).
+ * Per-MT keeps the exact rate × weight product (no rupee rounding) so the
+ * saved client_price matches the commercial formula (e.g. 2520 × 29.877 =
+ * 75290.04). Per-trip stays a whole-rupee flat total.
+ */
 export function computeClientPrice(opts: {
   basis: SaleRateBasis;
   unitRate: number | null | undefined;
@@ -43,15 +48,18 @@ export function computeClientPrice(opts: {
     const unit = opts.unitRate != null && opts.unitRate > 0 ? opts.unitRate : null;
     const tons = opts.tons != null && opts.tons > 0 ? opts.tons : null;
     if (unit == null || tons == null) return 0;
-    return Math.round(unit * tons);
+    return unit * tons;
   }
   const flat = opts.flatPrice;
   return flat != null && Number.isFinite(flat) && flat > 0 ? Math.round(flat) : 0;
 }
 
+/** Persist/display the sale total without re-rounding per-MT decimals away. */
 export function formatSaleAmount(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n) || n <= 0) return "";
-  return String(Math.round(n));
+  if (Number.isInteger(n)) return String(n);
+  // Trim binary float tails; keep real paise (e.g. 75290.04).
+  return String(Number(n.toFixed(6)));
 }
 
 export function hasConvertibleSale(opts: {

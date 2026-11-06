@@ -1,14 +1,17 @@
 import type { IndentRow } from "@/features/indents/services/indents.service";
 import { getTodayIso, isValidIsoDateString } from "@/lib/dateIso.util";
 
-/** Indent `weight` is stored in kg; deploy UI uses metric tons. */
+/**
+ * Indent `weight` is stored in kg; deploy / add-trip UI uses metric tons.
+ * Keep kg÷1000 exactly (1 kg = 0.001 MT) — do not round to 2dp, which used to
+ * turn 29.877 MT into 29.88 and inflate per-MT client_price.
+ */
 export function indentWeightKgToTonsInput(kg: number | null | undefined): string {
   const n = Number(kg);
   if (!Number.isFinite(n) || n <= 0) return "";
   const tons = n / 1000;
-  if (tons >= 100) return tons.toFixed(1);
-  const rounded = Math.round(tons * 100) / 100;
-  return String(rounded);
+  // Up to 3 decimal MT matches whole-kilogram indent weight; strip float noise.
+  return String(Number(tons.toFixed(6)));
 }
 
 export function parseTonsInputToWeightKg(tonsInput: string): number | null {

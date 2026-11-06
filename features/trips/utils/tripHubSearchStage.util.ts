@@ -7,7 +7,10 @@ import {
   hubTripBucket,
 } from "@/features/trips/utils/hubTripListCounts.util";
 import type { TripMetricId } from "@/features/trips/utils/hubMetrics.model";
-import { tripMatchesHubSearch } from "@/features/trips/utils/tripHubSearch.util";
+import {
+  scoreTripLrHubSearchMatch,
+  tripMatchesHubSearch,
+} from "@/features/trips/utils/tripHubSearch.util";
 
 /** Active-rail stages a trip-id search can jump to (includes Delivered / completed). */
 export type TripHubSearchStage = Exclude<TripMetricId, "indent">;
@@ -65,16 +68,19 @@ export function scoreTripCodeHubSearchMatch(
   return 0;
 }
 
-/** Higher = better match (trip code > vehicle plate > client text). */
+/** Higher = better match (trip code > LR > vehicle plate > client text). */
 export function scoreTripHubSearchMatch(
   trip: TripRow,
   query: string,
   organizationId?: string | null,
+  lrLabel?: string | null,
 ): number {
   const q = query.trim().toLowerCase();
   if (!q) return 0;
   const codeScore = scoreTripCodeHubSearchMatch(trip, query, organizationId);
   if (codeScore > 0) return codeScore;
+  const lrScore = scoreTripLrHubSearchMatch(lrLabel, query);
+  if (lrScore > 0) return lrScore;
   const vehicle =
     trip.vehicle_display_number ??
     (trip as { vehicle_number?: string | null }).vehicle_number ??
@@ -85,7 +91,7 @@ export function scoreTripHubSearchMatch(
     if (vFold === qFold) return 100;
     if (vFold.includes(qFold) || qFold.includes(vFold)) return 85;
   }
-  if (!tripMatchesHubSearch(trip, q, { organizationId })) return 0;
+  if (!tripMatchesHubSearch(trip, q, { organizationId, lrLabel })) return 0;
   const client = String(trip.client_name ?? "").trim().toLowerCase();
   if (client && client === q) return 40;
   if (client && client.includes(q)) return 20;
@@ -127,21 +133,37 @@ export function collectTripHubSearchMatches(opts: {
   trips: readonly TripRow[];
   organizationId?: string | null;
   tripIdsWithAnyDocument?: ReadonlySet<string>;
+  lrLabelByTripId?: Readonly<Record<string, string>>;
+  /** Trips `search_trips_for_org` already matched (includes LR hits). */
+  serverHitTripIds?: ReadonlySet<string>;
 }): TripHubSearchMatch[] {
   const q = opts.query.trim();
   if (!q) return [];
   const docs = opts.tripIdsWithAnyDocument ?? new Set<string>();
+  const lrMap = opts.lrLabelByTripId ?? {};
   const out: TripHubSearchMatch[] = [];
   const seen = new Set<string>();
 
   for (const trip of opts.trips) {
     if (seen.has(trip.id)) continue;
-    if (!tripMatchesHubSearch(trip, q, { organizationId: opts.organizationId })) {
-      continue;
-    }
+    const lrLabel =
+      lrMap[trip.id.trim().toLowerCase()] ?? lrMap[trip.id] ?? "";
+    const lrScore = scoreTripLrHubSearchMatch(lrLabel, q);
+    const serverHit = opts.serverHitTripIds?.has(trip.id) === true;
+    const textHit = tripMatchesHubSearch(trip, q, {
+      organizationId: opts.organizationId,
+      lrLabel,
+    });
+    // Server LR hits may arrive before document-number labels hydrate — keep them.
+    if (!textHit && lrScore <= 0 && !serverHit) continue;
     const stage = tripHubSearchStageForTrip(trip, docs);
     if (!stage) continue;
-    const score = scoreTripHubSearchMatch(trip, q, opts.organizationId);
+    let score = scoreTripHubSearchMatch(trip, q, opts.organizationId, lrLabel);
+    if (score <= 0 && serverHit && lrScore <= 0) {
+      // Provisional strong score until LR labels load; mode resolver prefers
+      // real LR labels when present and still ranks below trip-code hits.
+      score = 90;
+    }
     if (score <= 0) continue;
     seen.add(trip.id);
     out.push({ tripId: trip.id, stage, score });

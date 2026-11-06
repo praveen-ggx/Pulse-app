@@ -193,7 +193,7 @@ export function repriceLaneForTons(
       : parseFloat(String(tonsInput ?? "").replace(/,/g, ""));
   if (!Number.isFinite(tons) || tons <= 0) return null;
   const amount = resolveLaneSaleAmount({ ...lane, default_load_tons: tons });
-  return amount != null ? String(Math.round(amount)) : null;
+  return amount != null ? formatSaleAmount(amount) || null : null;
 }
 
 export function lanePrimaryRateLabel(lane: ClientLaneRate): string {

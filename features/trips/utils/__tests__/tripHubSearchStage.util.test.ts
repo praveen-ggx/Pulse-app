@@ -142,4 +142,34 @@ describe("collectTripHubSearchMatches", () => {
       ),
     ).toBe(false);
   });
+
+  it("scores LR labels and keeps provisional server hits until labels hydrate", () => {
+    const row = trip({
+      id: "lr-hit",
+      status: "assigned",
+      driver_id: "d",
+      trip_number: "OTHER",
+      trip_operational_code: "OTHER",
+      display_trip_id: "OTHER",
+    });
+    const withLabel = collectTripHubSearchMatches({
+      query: "AI1050",
+      trips: [row],
+      organizationId: "org",
+      lrLabelByTripId: { "lr-hit": "AI1050" },
+    });
+    expect(withLabel).toEqual([
+      { tripId: "lr-hit", stage: "assigned", score: 100 },
+    ]);
+
+    const provisional = collectTripHubSearchMatches({
+      query: "AI1050",
+      trips: [row],
+      organizationId: "org",
+      serverHitTripIds: new Set(["lr-hit"]),
+    });
+    expect(provisional).toEqual([
+      { tripId: "lr-hit", stage: "assigned", score: 90 },
+    ]);
+  });
 });

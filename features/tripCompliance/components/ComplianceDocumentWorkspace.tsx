@@ -3304,7 +3304,7 @@ export function ComplianceDocumentWorkspace({
   onProceededToSettlement,
   onPayBalance,
   onPodNotFound,
-  showHardcopyPodButton = false,
+  showHardcopyPodButton: _showHardcopyPodButton = false,
   logHardCopyPodRequest = 0,
   courierLrOptions = [],
   onPay,
@@ -3675,7 +3675,7 @@ export function ComplianceDocumentWorkspace({
     podRequestSeen.current = logHardCopyPodRequest;
     setPodOpen(true);
   }, [logHardCopyPodRequest, showLogHardCopyPod]);
-  const isPendingDocsTrip = Boolean(summary && verificationStatusVisual(summary).kind === "pending_docs");
+  const _isPendingDocsTrip = Boolean(summary && verificationStatusVisual(summary).kind === "pending_docs");
   const rows = useMemo(() => (summary ? rowsForTab(summary, tab) : []), [summary, tab]);
   const entityUnassigned =
     !showAllDocs &&

@@ -242,7 +242,7 @@ export function DriverCollectFromSheet({
         orgId: trip.organization_id,
       });
       if (error) {
-        showAppAlert("Could not mark fleet trip", error.message);
+        showAppAlert("Could not mark party trip", error.message);
         return;
       }
       await queryClient.invalidateQueries({ queryKey: ["q", "trips"] });
@@ -297,13 +297,13 @@ export function DriverCollectFromSheet({
                   onPress={() => void handleMarkFleet()}
                   disabled={!!busyId}
                   accessibilityRole="button"
-                  accessibilityLabel={`Mark ${fleetAssignerName} fleet trip`}
+                  accessibilityLabel={`Mark ${fleetAssignerName} party trip`}
                 >
                   {busyId === "fleet" ? (
                     <ActivityIndicator size="small" color={Theme.buttonDarkText} />
                   ) : (
                     <Text style={styles.addPrimaryText} numberOfLines={1}>
-                      Mark {fleetAssignerName} fleet trip
+                      Mark {fleetAssignerName} party trip
                     </Text>
                   )}
                 </TouchableOpacity>
@@ -401,7 +401,7 @@ export function DriverCollectFromSheet({
       successName={successParty?.name ?? null}
       successTitle={
         successParty?.id.startsWith("fleet:")
-          ? `Marked ${successParty.name} fleet trip`
+          ? `Marked ${successParty.name} party trip`
           : null
       }
       successMessage={

@@ -339,7 +339,7 @@ export default function DriverAddClientScreen() {
       successName={successParty?.name ?? null}
       successTitle={
         successParty?.id.startsWith("fleet:")
-          ? `Marked ${successParty.name} fleet trip`
+          ? `Marked ${successParty.name} party trip`
           : null
       }
       successMessage={
@@ -425,13 +425,13 @@ export default function DriverAddClientScreen() {
           onPress={() => void handleMarkFleet()}
           disabled={!!pickingId}
           accessibilityRole="button"
-          accessibilityLabel={`Mark ${partyName} fleet trip`}
+          accessibilityLabel={`Mark ${partyName} party trip`}
         >
           {pickingId === "fleet" ? (
             <ActivityIndicator size="small" color={Theme.buttonDarkText} />
           ) : (
             <Text style={styles.fleetBtnText} numberOfLines={1}>
-              Mark {partyName} fleet trip
+              Mark {partyName} party trip
             </Text>
           )}
         </TouchableOpacity>

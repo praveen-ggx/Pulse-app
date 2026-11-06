@@ -1,4 +1,4 @@
-import { Alert, View, Text, TouchableOpacity, StyleSheet, ScrollView, Platform, Modal } from 'react-native';
+import { Alert, View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { useRouter } from 'expo-router';
@@ -10,25 +10,25 @@ import {
 } from '@/components/driver/DriverSubScreenHeader';
 import { useDriverTheme, useDriverThemeColors } from '@/contexts/DriverThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
 import { subscribeSharedPostgresChanges } from '@/lib/realtimeRegistry';
 import {
   listMyDriverKycDocuments,
-  submitDriverKycDocument,
   latestDriverKycDocument,
   getMyDriverKycSubmission,
   submitDriverKycForVerification,
   listDriverKycDocRequirements,
   withdrawDriverKycDocument,
   MANDATORY_DRIVER_KYC_DOC_TYPES,
+  DCO_REQUIRED_KYC_DOC_TYPES,
   type DriverKycDocType,
   type DriverKycDocument,
   type DriverKycSubmission,
   type DriverKycDocRequirement,
 } from '@/features/drivers/services/driverKycDocuments.service';
-import * as Linking from 'expo-linking';
-import { File } from 'expo-file-system';
-import * as ImagePicker from 'expo-image-picker';
+import { useDcoStatusQuery } from '@/lib/queries/useDcoStatusQuery';
+import {
+  useDriverKycDocUpload,
+} from '@/features/drivers/hooks/useDriverKycDocUpload';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 const DOC_DEFS: { key: DriverKycDocType; label: string; icon: keyof typeof FontAwesome.glyphMap }[] = [
@@ -37,50 +37,6 @@ const DOC_DEFS: { key: DriverKycDocType; label: string; icon: keyof typeof FontA
   { key: 'pan', label: 'PAN', icon: 'credit-card' },
   { key: 'selfie', label: 'Selfie', icon: 'user-circle' },
 ];
-
-function normalizeDocMimeType(rawMime: string | null | undefined): string {
-  const mime = (rawMime ?? '').toLowerCase();
-  if (mime.includes('png')) return 'image/png';
-  if (mime.includes('webp')) return 'image/webp';
-  if (mime.includes('pdf')) return 'application/pdf';
-  return 'image/jpeg';
-}
-
-function base64ToUint8Array(base64: string): Uint8Array {
-  const normalized = base64.replace(/\s/g, '');
-  if (typeof globalThis.atob === 'function') {
-    const binary = globalThis.atob(normalized);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i += 1) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes;
-  }
-  const maybeBuffer = (globalThis as { Buffer?: { from: (value: string, enc: string) => Uint8Array } }).Buffer;
-  if (maybeBuffer?.from) return maybeBuffer.from(normalized, 'base64');
-  throw new Error('Base64 decoding is not available on this device');
-}
-
-async function readAssetBytes(uri: string, base64?: string): Promise<ArrayBuffer | Uint8Array> {
-  if (typeof base64 === 'string' && base64.trim().length > 0) {
-    return base64ToUint8Array(base64.trim());
-  }
-
-  // Web picker commonly returns blob: URLs; fetch() reads these reliably.
-  try {
-    const response = await fetch(uri);
-    if (response.ok) {
-      const bytes = await response.arrayBuffer();
-      if (bytes.byteLength > 0) return bytes;
-    }
-  } catch {
-    // fall through to expo-file-system
-  }
-
-  const bytes = await new File(uri).arrayBuffer();
-  if (bytes.byteLength === 0) throw new Error('Could not read selected document');
-  return bytes;
-}
 
 function statusLabel(doc: DriverKycDocument | undefined): string {
   if (!doc?.storage_path) return 'Not added';
@@ -112,7 +68,6 @@ export default function DocumentsScreen() {
   const colors = useDriverThemeColors();
   const pageBg = driverDetailPageBackground(isDark, colors.background);
   const [documents, setDocuments] = useState<DriverKycDocument[]>([]);
-  const [uploadingDocKey, setUploadingDocKey] = useState<DriverKycDocType | null>(null);
   const [submission, setSubmission] = useState<DriverKycSubmission | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [requirements, setRequirements] = useState<DriverKycDocRequirement[]>([]);
@@ -130,6 +85,17 @@ export default function DocumentsScreen() {
     : MANDATORY_DRIVER_KYC_DOC_TYPES;
   const isOptionalDoc = (type: DriverKycDocType) => !mandatoryTypes.includes(type);
 
+  // This screen is driver documents only. DCO documents (PAN, bank proof) are
+  // uploaded on the DCO status screen; once a driver has a DCO request, PAN is
+  // managed there so the two lists never show the same document.
+  const { status: dcoStatus } = useDcoStatusQuery(profile?.uid);
+  const onDcoPath = dcoStatus !== 'NONE';
+  const dcoTypes: readonly DriverKycDocType[] = requirements.length
+    ? requirements.filter((r) => r.required_for_dco).map((r) => r.doc_type)
+    : DCO_REQUIRED_KYC_DOC_TYPES;
+  const isDcoRequiredDoc = (type: DriverKycDocType) =>
+    onDcoPath && isOptionalDoc(type) && dcoTypes.includes(type);
+
   const docsByType = useMemo(() => {
     const map = new Map<DriverKycDocType, DriverKycDocument>();
     for (const def of DOC_DEFS) {
@@ -138,7 +104,10 @@ export default function DocumentsScreen() {
     }
     return map;
   }, [documents]);
-  const uploadedCount = DOC_DEFS.filter((d) => docsByType.get(d.key)?.storage_path).length;
+  const driverDocDefs = DOC_DEFS.filter(
+    (d) => !isDcoRequiredDoc(d.key),
+  );
+  const uploadedCount = driverDocDefs.filter((d) => docsByType.get(d.key)?.storage_path).length;
 
   const handleBack = () => {
     if (router.canGoBack()) router.back();
@@ -152,6 +121,7 @@ export default function DocumentsScreen() {
     setSubmission(sub);
     setRequirements(await listDriverKycDocRequirements());
   }, []);
+  const { uploadingDocKey, uploadDocumentFrom, promptUpload } = useDriverKycDocUpload(loadDocuments);
 
   // Submit unlocks only when every mandatory doc is uploaded and none is still
   // carrying a rejection — the same rule the RPC enforces server-side. A doc
@@ -163,7 +133,8 @@ export default function DocumentsScreen() {
     (type) => docsByType.get(type)?.status === 'rejected',
   );
   const rejectedOptionalTypes = DOC_DEFS.map((d) => d.key).filter(
-    (type) => isOptionalDoc(type) && docsByType.get(type)?.status === 'rejected',
+    (type) =>
+      isOptionalDoc(type) && !isDcoRequiredDoc(type) && docsByType.get(type)?.status === 'rejected',
   );
   // Only mandatory documents gate submission, so a driver with no PAN card
   // can still get verified.
@@ -231,111 +202,6 @@ export default function DocumentsScreen() {
     return unsubscribe;
   }, [profile?.uid, loadDocuments]);
 
-  const openDocument = async (doc: DriverKycDocument | undefined) => {
-    if (!doc?.storage_path?.trim()) return;
-    try {
-      const { data, error } = await supabase()
-        .storage
-        .from('driver-documents')
-        .createSignedUrl(doc.storage_path, 60 * 10);
-      if (error || !data?.signedUrl) {
-        Alert.alert('Preview unavailable', error?.message || 'Could not open document.');
-        return;
-      }
-      await Linking.openURL(data.signedUrl);
-    } catch (e) {
-      Alert.alert('Preview unavailable', e instanceof Error ? e.message : 'Could not open document.');
-    }
-  };
-
-  const uploadDocumentFrom = async (
-    docType: DriverKycDocType,
-    label: string,
-    source: 'gallery' | 'camera',
-  ) => {
-    if (!profile?.uid || uploadingDocKey) return;
-    setUploadingDocKey(docType);
-    try {
-      // Web has no media-library permission model — the browser's own file
-      // dialog is the consent step. Requesting it there can resolve un-granted
-      // and block a picker that would otherwise work fine.
-      if (Platform.OS === 'web') {
-        // no-op: fall through to launchImageLibraryAsync
-      } else if (source === 'gallery') {
-        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (!perm.granted) {
-          Alert.alert('Permission required', 'Photo library access is needed to upload this document.');
-          return;
-        }
-      } else {
-        const perm = await ImagePicker.requestCameraPermissionsAsync();
-        if (!perm.granted) {
-          Alert.alert('Permission required', 'Camera access is needed to capture this document.');
-          return;
-        }
-      }
-
-      const result =
-        source === 'gallery'
-          ? await ImagePicker.launchImageLibraryAsync({
-              mediaTypes: ['images'],
-              allowsEditing: false,
-              quality: 0.9,
-              base64: true,
-            })
-          : await ImagePicker.launchCameraAsync({
-              allowsEditing: false,
-              quality: 0.9,
-              base64: true,
-            });
-      if (result.canceled || !result.assets?.[0]) return;
-
-      const asset = result.assets[0];
-      const mimeType = normalizeDocMimeType(asset.mimeType);
-      const extByMime =
-        mimeType === 'image/png'
-          ? 'png'
-          : mimeType === 'image/webp'
-            ? 'webp'
-            : mimeType === 'application/pdf'
-              ? 'pdf'
-              : 'jpg';
-      const ext = (asset.fileName?.split('.').pop() || extByMime).toLowerCase();
-      const path = `${profile.uid}/${docType}-${Date.now()}.${ext}`;
-      const uploadBytes = await readAssetBytes(asset.uri, typeof asset.base64 === 'string' ? asset.base64 : undefined);
-
-      const { error: uploadError } = await supabase()
-        .storage
-        .from('driver-documents')
-        .upload(path, uploadBytes, {
-          contentType: mimeType,
-          upsert: true,
-        });
-      if (uploadError) {
-        Alert.alert('Upload failed', uploadError.message || `Could not upload ${label}.`);
-        return;
-      }
-
-      const { error: submitError } = await submitDriverKycDocument({
-        doc_type: docType,
-        storage_path: path,
-        file_name: asset.fileName ?? `${docType}.${ext}`,
-        mime_type: mimeType,
-        file_size_bytes: asset.fileSize ?? undefined,
-      });
-      if (submitError) {
-        Alert.alert('Uploaded with warning', `File uploaded, but status sync failed: ${submitError.message}`);
-      }
-
-      await loadDocuments();
-      Alert.alert('Submitted', `${label} submitted for review.`);
-    } catch (e) {
-      Alert.alert('Upload failed', e instanceof Error ? e.message : `Could not upload ${label}.`);
-    } finally {
-      setUploadingDocKey(null);
-    }
-  };
-
   const handleWithdraw = async (documentId: string, label: string) => {
     if (withdrawing) return;
     setWithdrawing(true);
@@ -355,13 +221,12 @@ export default function DocumentsScreen() {
 
   const onDocumentPress = (docType: DriverKycDocType, label: string) => {
     const doc = docsByType.get(docType);
-    const canReupload = !doc?.storage_path || doc.status === 'rejected' || doc.status === 'expired';
 
     // A rejected OPTIONAL document must be escapable: a driver who uploaded the
     // wrong file because they have no PAN at all would otherwise be stuck
     // forever, unable to fix it and unable to remove it. Needs three choices,
     // so it gets a real sheet rather than a two-button Alert/confirm.
-    if (doc?.id && doc.status === 'rejected' && isOptionalDoc(docType)) {
+    if (doc?.id && doc.status === 'rejected' && isOptionalDoc(docType) && !isDcoRequiredDoc(docType)) {
       setRejectedOptionalSheet({
         docId: doc.id,
         docType,
@@ -371,36 +236,61 @@ export default function DocumentsScreen() {
       return;
     }
 
-    if (doc?.storage_path && !canReupload) {
-      // Verified or pending — view only. Pending review shouldn't be silently
-      // overwritten while an admin may already be looking at it.
-      void openDocument(doc);
-      return;
-    }
+    promptUpload(doc, docType, label);
+  };
 
-    // RN Web's Alert.alert renders a window.confirm and silently ignores any
-    // button past the first two, so the Gallery/Camera sheet never appears on
-    // web. Web has no camera roll distinction anyway — go straight to the
-    // file picker, which is what the browser's own dialog provides.
-    if (Platform.OS === 'web') {
-      void uploadDocumentFrom(docType, label, 'gallery');
-      return;
-    }
-
-    const actions: { text: string; onPress?: () => void; style?: 'cancel' }[] = [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Gallery', onPress: () => void uploadDocumentFrom(docType, label, 'gallery') },
-      { text: 'Camera', onPress: () => void uploadDocumentFrom(docType, label, 'camera') },
-    ];
-    if (doc?.storage_path) {
-      actions.splice(1, 0, { text: 'View current', onPress: () => void openDocument(doc) });
-    }
-    Alert.alert(
-      label,
-      doc?.status === 'rejected' && doc.rejection_notes
-        ? `Rejected: ${doc.rejection_notes}\n\nUpload a new one?`
-        : 'Upload this document now?',
-      actions,
+  const renderDocRow = (
+    def: (typeof DOC_DEFS)[number],
+    idx: number,
+  ) => {
+    const doc = docsByType.get(def.key);
+    return (
+      <TouchableOpacity
+        key={def.key}
+        style={[styles.docRow, idx === 0 ? { borderTopWidth: 0 } : { borderTopColor: colors.border }]}
+        onPress={() => onDocumentPress(def.key, def.label)}
+        activeOpacity={0.7}
+        disabled={uploadingDocKey != null}
+      >
+        <View style={styles.docRowLeft}>
+          <View style={[styles.docRowIcon, { backgroundColor: colors.emeraldMuted }]}>
+            <FontAwesome name={def.icon} size={14} color={colors.emerald} />
+          </View>
+          <View style={styles.docRowLabelCol}>
+            <View style={styles.docRowLabelLine}>
+              <Text style={[styles.docRowLabel, { color: colors.text }]}>
+                {def.label}
+                {/* Asterisk marks required; "Optional" marks the rest.
+                    Both stated explicitly so neither is inferred. */}
+                {!isOptionalDoc(def.key) ? (
+                  <Text style={styles.docRowRequiredStar}> *</Text>
+                ) : null}
+              </Text>
+              {isOptionalDoc(def.key) ? (
+                <Text style={[styles.docRowOptional, { color: colors.textMuted }]}>
+                  Optional
+                </Text>
+              ) : null}
+            </View>
+            {/* The reviewer's reason has to be readable without tapping —
+                a driver who can't see why it failed can't fix it. */}
+            {doc?.status === 'rejected' && doc.rejection_notes ? (
+              <Text style={[styles.docRowReason, { color: Theme.negative }]}>
+                {doc.rejection_notes}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+        <View style={styles.docRowRight}>
+          <Text
+            style={[styles.docRowStatus, { color: statusColor(doc, colors) }]}
+            numberOfLines={1}
+          >
+            {uploadingDocKey === def.key ? 'Uploading...' : statusLabel(doc)}
+          </Text>
+          <FontAwesome name="chevron-right" size={12} color={colors.textMuted} />
+        </View>
+      </TouchableOpacity>
     );
   };
 
@@ -429,57 +319,7 @@ export default function DocumentsScreen() {
         </Text>
         <Text style={[styles.sectionEyebrow, { color: colors.textMuted }]}>ID & proof</Text>
         <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          {DOC_DEFS.map((def, idx) => {
-            const doc = docsByType.get(def.key);
-            return (
-              <TouchableOpacity
-                key={def.key}
-                style={[styles.docRow, idx === 0 ? { borderTopWidth: 0 } : { borderTopColor: colors.border }]}
-                onPress={() => onDocumentPress(def.key, def.label)}
-                activeOpacity={0.7}
-                disabled={uploadingDocKey != null}
-              >
-                <View style={styles.docRowLeft}>
-                  <View style={[styles.docRowIcon, { backgroundColor: colors.emeraldMuted }]}>
-                    <FontAwesome name={def.icon} size={14} color={colors.emerald} />
-                  </View>
-                  <View style={styles.docRowLabelCol}>
-                    <View style={styles.docRowLabelLine}>
-                      <Text style={[styles.docRowLabel, { color: colors.text }]}>
-                        {def.label}
-                        {/* Asterisk marks required; "Optional" marks the rest.
-                            Both stated explicitly so neither is inferred. */}
-                        {!isOptionalDoc(def.key) ? (
-                          <Text style={styles.docRowRequiredStar}> *</Text>
-                        ) : null}
-                      </Text>
-                      {isOptionalDoc(def.key) ? (
-                        <Text style={[styles.docRowOptional, { color: colors.textMuted }]}>
-                          Optional
-                        </Text>
-                      ) : null}
-                    </View>
-                    {/* The reviewer's reason has to be readable without tapping —
-                        a driver who can't see why it failed can't fix it. */}
-                    {doc?.status === 'rejected' && doc.rejection_notes ? (
-                      <Text style={[styles.docRowReason, { color: Theme.negative }]}>
-                        {doc.rejection_notes}
-                      </Text>
-                    ) : null}
-                  </View>
-                </View>
-                <View style={styles.docRowRight}>
-                  <Text
-                    style={[styles.docRowStatus, { color: statusColor(doc, colors) }]}
-                    numberOfLines={1}
-                  >
-                    {uploadingDocKey === def.key ? 'Uploading...' : statusLabel(doc)}
-                  </Text>
-                  <FontAwesome name="chevron-right" size={12} color={colors.textMuted} />
-                </View>
-              </TouchableOpacity>
-            );
-          })}
+          {driverDocDefs.map(renderDocRow)}
         </View>
 
         {submission ? (
@@ -545,6 +385,7 @@ export default function DocumentsScreen() {
             </Text>
           </TouchableOpacity>
         ) : null}
+
       </ScrollView>
 
       {/* Rejected optional document → three real choices, not a browser confirm. */}

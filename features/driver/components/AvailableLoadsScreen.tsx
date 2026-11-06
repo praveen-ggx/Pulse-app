@@ -240,7 +240,7 @@ export function FindLoadsContent({ uid, filters }: { uid: string; filters: Share
   }, [loads, filters, fleetTypes]);
 
   if (!modeLoading && !marketplaceAllowed) {
-    const gate = marketplaceGate(operatingMode.mode);
+    const gate = marketplaceGate(operatingMode.mode, vehicles.length > 0);
     return (
       <View style={styles.marketGate}>
         <Text style={[styles.marketplaceLabel, { color: colors.textMuted }]}>MARKETPLACE</Text>
@@ -248,7 +248,9 @@ export function FindLoadsContent({ uid, filters }: { uid: string; filters: Share
         <Pressable
           onPress={() =>
             router.push(
-              (gate.target === 'my-fleet'
+              (gate.target === 'my-fleet-add'
+                ? ROUTES.driverMyFleetAdd()
+                : gate.target === 'my-fleet'
                 ? ROUTES.driverMyFleet()
                 : gate.target === 'wallet-self'
                   ? ROUTES.driverWalletSelf()
@@ -392,18 +394,29 @@ function PoolCard({
   );
 }
 
-function marketplaceGate(mode: DriverOperatingModeKind): {
+function marketplaceGate(
+  mode: DriverOperatingModeKind,
+  hasVehicle: boolean,
+): {
   body: string;
   cta: string;
-  target: 'dco-status' | 'my-fleet' | 'wallet-self';
+  target: 'dco-status' | 'my-fleet' | 'my-fleet-add' | 'wallet-self';
 } {
   switch (mode) {
     case 'DCO_VEHICLE_REQUIRED':
-      return {
-        body: 'Add an active vehicle to your fleet to see and bid on Marketplace loads as a DCO.',
-        cta: 'Manage my vehicle',
-        target: 'my-fleet',
-      };
+      // New vehicles are saved active, so "no vehicle yet" is the normal case;
+      // an existing-but-inactive vehicle is managed from My Fleet.
+      return hasVehicle
+        ? {
+            body: 'Your vehicle is inactive. Set it to active to see and bid on Marketplace loads.',
+            cta: 'Manage my vehicle',
+            target: 'my-fleet',
+          }
+        : {
+            body: 'Add your vehicle to see and bid on Marketplace loads as a DCO.',
+            cta: 'Add vehicle',
+            target: 'my-fleet-add',
+          };
     case 'DCO_SUSPENDED':
       return {
         body: 'Your DCO status is suspended, so Marketplace is unavailable.',

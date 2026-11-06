@@ -1,7 +1,9 @@
 /**
  * DCO (driver-cum-owner / independent owner-operator) review console.
- * No documents (unlike Driver KYC) — a single list of dco_profiles rows,
- * newest request first, with per-row lifecycle actions.
+ * A single list of dco_profiles rows, newest request first, with per-row
+ * lifecycle actions. Identity proofs are reviewed in the Driver KYC panel;
+ * Approve stays disabled here until that driver's KYC is approved (the
+ * platform_approve_dco RPC enforces the same rule).
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -21,6 +23,7 @@ import {
   reinstateDco,
   rejectDco,
   suspendDco,
+  type DcoKycStatus,
   type DcoProfileStatus,
   type DcoReviewRow,
 } from '@/lib/dco';
@@ -71,6 +74,16 @@ const STATUS_BADGE: Record<
   APPROVED: { label: 'Approved', variant: 'success' },
   REJECTED: { label: 'Rejected', variant: 'secondary' },
   SUSPENDED: { label: 'Suspended', variant: 'destructive' },
+};
+
+const KYC_BADGE: Record<
+  DcoKycStatus,
+  { label: string; variant: 'info' | 'success' | 'secondary' | 'destructive' }
+> = {
+  none: { label: 'Not submitted', variant: 'secondary' },
+  submitted: { label: 'Awaiting verification', variant: 'info' },
+  approved: { label: 'Verified', variant: 'success' },
+  rejected: { label: 'Rejected', variant: 'destructive' },
 };
 
 function formatDate(iso: string | null): string {
@@ -237,6 +250,7 @@ export function DcoReviewPanel() {
                 <th className="px-3 py-2 font-medium">Driver</th>
                 <th className="px-3 py-2 font-medium">Requested</th>
                 <th className="px-3 py-2 font-medium">Status</th>
+                <th className="px-3 py-2 font-medium">KYC docs</th>
                 <th className="px-3 py-2 font-medium">Reviewed</th>
                 <th className="px-3 py-2 font-medium">Reason</th>
                 <th className="px-3 py-2 font-medium text-right">Actions</th>
@@ -246,6 +260,9 @@ export function DcoReviewPanel() {
               {filtered.map((r) => {
                 const badge = STATUS_BADGE[r.status];
                 const busy = busyId === r.user_id;
+                const kycBadge = KYC_BADGE[r.kyc_review_status];
+                const kycVerified =
+                  r.kyc_review_status === 'approved' && !r.dco_docs_unverified;
                 return (
                   <tr key={r.user_id} className="border-t border-border">
                     <td className="px-3 py-2">
@@ -264,6 +281,16 @@ export function DcoReviewPanel() {
                       <Badge variant={badge.variant} appearance="light" size="xs">
                         {badge.label}
                       </Badge>
+                    </td>
+                    <td className="px-3 py-2">
+                      <Badge variant={kycBadge.variant} appearance="light" size="xs">
+                        {kycBadge.label}
+                      </Badge>
+                      {r.dco_docs_unverified ? (
+                        <div className="mt-1 text-[10px] text-muted-foreground">
+                          DCO docs to verify: {r.dco_docs_unverified}
+                        </div>
+                      ) : null}
                     </td>
                     <td className="px-3 py-2 text-[11px] text-muted-foreground">
                       {formatDate(r.reviewed_at)}
@@ -288,7 +315,12 @@ export function DcoReviewPanel() {
                             <Button
                               size="sm"
                               className="h-7 gap-1 px-2 text-[11px]"
-                              disabled={busy}
+                              disabled={busy || !kycVerified}
+                              title={
+                                kycVerified
+                                  ? undefined
+                                  : 'Verify this driver\'s KYC and DCO documents (PAN, bank proof) in the Driver KYC panel first'
+                              }
                               onClick={() => openAction({ kind: 'approve', userId: r.user_id })}
                             >
                               <ShieldCheck className="size-3" />

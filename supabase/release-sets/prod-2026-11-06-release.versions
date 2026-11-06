@@ -1,0 +1,8 @@
+# Production release set 2026-11-06 (Nihas release/2026-11-06 @ 3a92f9c6).
+# Compliance driver-docs RPC + trip detail bundle operational codes.
+# Apply only via: npm run db:push-set -- prod-2026-11-06-release   (dry-run first)
+# Never via plain `supabase db push` / `npm run db:push`.
+# sha256 b3b36f7f0e69279e830de5b0c3dd9f634b37b1ba3e141c16d6d1513ed44ad283  20261104095549_get_compliance_driver_docs_for_trips.sql
+20261104095549
+# sha256 a8e7686c98de6c4c5fce833ec39b2298288b4cc7e544a678074246332dda6592  20271104142208_get_trip_detail_bundle_operational_codes.sql
+20271104142208

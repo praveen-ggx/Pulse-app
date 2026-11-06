@@ -840,6 +840,8 @@ export default function TripDetailScreen({
   const canTripSimulate = canSurface("tripops.trips.simulate") && !isGroundOpsOnly;
   const canGroundOpsPickupSimulate = isGroundOpsOnly;
   const canTripRatings = canSurface("tripops.trips.ratings");
+  /** Integrated cancel before pickup — owner / admin only (`tripops.trips.cancel`). */
+  const canCancelTripPrePickup = canSurface("tripops.trips.cancel");
 
   const manifestInsightsEnabled = shouldFetchManifestRefAssetInsights(
     detail.trip,
@@ -6019,6 +6021,7 @@ export default function TripDetailScreen({
         : "Simulate"
     : null;
   const canCancelIntegratedTrip =
+    canCancelTripPrePickup &&
     detail.canAssign &&
     integratedTripCancelOffered({
       source: trip.source,

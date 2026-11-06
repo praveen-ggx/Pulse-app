@@ -57,7 +57,11 @@ import {
   peekAssignmentFleet,
   type AssignmentFleetSnapshot,
 } from "@/features/trips/utils/assignmentFleetBootstrap";
-import { isSameDriverPhone } from "@/features/trips/utils/reassignChangeDetection.util";
+import {
+  isEditingCurrentTripDriver,
+  isNameOnlyDriverUpdate,
+  isSameDriverPhone,
+} from "@/features/trips/utils/reassignChangeDetection.util";
 import {
   formatIndianVehicleNumber,
   formatMobileNumber,
@@ -1174,14 +1178,21 @@ export function TripPhoneAssignmentWizard({
                     });
                     return;
                   }
-                  const alreadyOnThisTrip = isSameDriverPhone(
-                    driverPhone,
-                    resolvedActiveDriverPhone,
-                  );
+                  const alreadyOnThisTrip = isEditingCurrentTripDriver({
+                    tripDriverId: trip.driver_id,
+                    phone: driverPhone,
+                    currentDriverPhone: resolvedActiveDriverPhone,
+                  });
                   const currentName = resolvedActiveDriverName.trim();
                   const nameChanged =
                     name.toLowerCase() !== currentName.toLowerCase();
-                  const nameOnly = alreadyOnThisTrip && nameChanged;
+                  const nameOnly = isNameOnlyDriverUpdate({
+                    tripDriverId: trip.driver_id,
+                    phone: driverPhone,
+                    currentDriverPhone: resolvedActiveDriverPhone,
+                    currentDriverName: currentName,
+                    driverNameInput: driverName,
+                  });
                   const facts: AssignConfirmFact[] = [
                     { label: "Vehicle", value: workingPlate },
                     { label: "Trip", value: tripLabel },
@@ -1241,14 +1252,39 @@ export function TripPhoneAssignmentWizard({
                     ? initialFocus === "vehicle"
                       ? !isTripPhoneWizardStepComplete("vehicle", stepValidationState) ||
                         saving
-                      : !isTripPhoneWizardStepComplete("driverPhone", {
-                          ...stepValidationState,
-                          phoneInTrip: false,
-                        }) ||
-                        !isTripPhoneWizardStepComplete("driverName", stepValidationState) ||
-                        saving ||
-                        (lookup.loading &&
-                          !isSameDriverPhone(driverPhone, resolvedActiveDriverPhone))
+                      : (() => {
+                          const nameOk = isTripPhoneWizardStepComplete(
+                            "driverName",
+                            stepValidationState,
+                          );
+                          const nameOnlyReady =
+                            isReassign &&
+                            isNameOnlyDriverUpdate({
+                              tripDriverId: trip.driver_id,
+                              phone: driverPhone,
+                              currentDriverPhone: resolvedActiveDriverPhone,
+                              currentDriverName: resolvedActiveDriverName,
+                              driverNameInput: driverName,
+                            }) &&
+                            nameOk;
+                          const phoneOk = isTripPhoneWizardStepComplete(
+                            "driverPhone",
+                            {
+                              ...stepValidationState,
+                              phoneInTrip: false,
+                            },
+                          );
+                          const editingCurrent = isEditingCurrentTripDriver({
+                            tripDriverId: trip.driver_id,
+                            phone: driverPhone,
+                            currentDriverPhone: resolvedActiveDriverPhone,
+                          });
+                          return (
+                            !(nameOnlyReady || (phoneOk && nameOk)) ||
+                            saving ||
+                            (lookup.loading && !editingCurrent)
+                          );
+                        })()
                     : !canSubmitAll || saving || lookup.loading
                 }
                 confirmLoading={saving}
@@ -1258,7 +1294,17 @@ export function TripPhoneAssignmentWizard({
                     : submitBlockedHint
                 }
                 confirmLabel={
-                  initialFocus === "vehicle" ? "Change vehicle" : "Change driver"
+                  initialFocus === "vehicle"
+                    ? "Change vehicle"
+                    : isNameOnlyDriverUpdate({
+                          tripDriverId: trip.driver_id,
+                          phone: driverPhone,
+                          currentDriverPhone: resolvedActiveDriverPhone,
+                          currentDriverName: resolvedActiveDriverName,
+                          driverNameInput: driverName,
+                        })
+                      ? "Update name"
+                      : "Change driver"
                 }
                 onClose={onClose}
                 toastMessage={workspaceToast}

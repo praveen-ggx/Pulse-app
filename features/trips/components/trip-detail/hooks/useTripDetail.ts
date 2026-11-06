@@ -16,6 +16,7 @@ import {
     getDriverById,
     getDriverProfileDisplay,
 } from "@/features/drivers/services/drivers.service";
+import { getTripDriverPhones } from "@/features/tripCompliance/services/tripDriverPhones.service";
 import { listDriverVaultKycDocuments } from "@/features/drivers/services/driverKycDocuments.service";
 import {
   DRIVER_IDENTITY_TYPE_HINT,
@@ -2106,6 +2107,27 @@ export function useTripDetail({
       cancelled = true;
     };
   }, [trip, currentOrganization?.id]);
+
+  /**
+   * Cross-org assigned drivers are hidden by drivers RLS / often omitted from
+   * the trip-detail bundle. Resolve phone via the trip-scoped SECURITY DEFINER RPC.
+   */
+  useEffect(() => {
+    const driverId = (trip?.driver_id ?? "").trim();
+    const id = (trip?.id ?? "").trim();
+    if (!driverId || !id) return;
+    if ((driverPhone ?? "").trim()) return;
+    let cancelled = false;
+    void getTripDriverPhones([{ id, driver_id: driverId }]).then((byTrip) => {
+      if (cancelled) return;
+      const remote = (byTrip.get(id) ?? "").trim();
+      if (!remote) return;
+      setDriverPhone((prev) => ((prev ?? "").trim() ? prev : remote));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [trip?.id, trip?.driver_id, driverPhone]);
 
   // Driver License / Aadhaar: trip entity_documents plus driver-app KYC.
   useEffect(() => {

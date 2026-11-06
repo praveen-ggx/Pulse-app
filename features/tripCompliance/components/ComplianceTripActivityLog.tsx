@@ -65,8 +65,9 @@ async function fetchComplianceActivityBundle(
     fetchTripHardCopyPodState(tripId),
     supabase()
       .from("transactions")
+      // `trip_number` is not a transactions column on prod — resolve labels via trip join / meta.
       .select(
-        "id, organization_id, trip_id, trip_number, party_name, description, amount_in, amount_out, transaction_date, created_at, contact_id, contact_type, vehicle_number, driver_name, ledger_entity_type, ledger_flow_type, ledger_category, payment_reference, created_by",
+        "id, organization_id, trip_id, party_name, description, amount_in, amount_out, transaction_date, created_at, contact_id, contact_type, vehicle_number, driver_name, ledger_entity_type, ledger_flow_type, ledger_category, payment_reference, created_by",
       )
       .eq("trip_id", tripId)
       .order("transaction_date", { ascending: false })

@@ -31,24 +31,42 @@ import {
 
 const cacheKey = (orgId: string) => `@pulse/invoice-numbering-v1:${orgId}`;
 
-function missingTable(error: { code?: string; message?: string } | null): boolean {
+function missingTable(error: { code?: string; message?: string; status?: number } | null): boolean {
   if (!error) return false;
-  return error.code === "42P01" || error.code === "42703" || /invoice_numbering_settings/i.test(error.message ?? "");
+  return (
+    error.status === 404 ||
+    error.code === "42P01" ||
+    error.code === "42703" ||
+    error.code === "PGRST205" ||
+    /invoice_numbering_settings/i.test(error.message ?? "") ||
+    /Could not find the table/i.test(error.message ?? "")
+  );
+}
+
+/** Once PostgREST 404s the table, skip remote for this boot (prod lag). */
+let numberingRemoteMissing = false;
+
+function hostDefaultsNumberingUnavailable(): boolean {
+  const url = String(process.env.EXPO_PUBLIC_SUPABASE_URL ?? "");
+  return /nafxpivddesgsrthmosv/i.test(url);
 }
 
 export async function loadInvoiceNumberSettings(
   orgId: string,
 ): Promise<InvoiceNumberSettings> {
   try {
-    const { data, error } = await numberingTable()
-      .select("prefix, start_number")
-      .eq("org_id", orgId)
-      .maybeSingle();
-    if (!error && data) {
-      return {
-        prefix: String((data as { prefix?: string }).prefix ?? ""),
-        start: Number((data as { start_number?: number }).start_number) || 1,
-      };
+    if (!numberingRemoteMissing && !hostDefaultsNumberingUnavailable()) {
+      const { data, error } = await numberingTable()
+        .select("prefix, start_number")
+        .eq("org_id", orgId)
+        .maybeSingle();
+      if (!error && data) {
+        return {
+          prefix: String((data as { prefix?: string }).prefix ?? ""),
+          start: Number((data as { start_number?: number }).start_number) || 1,
+        };
+      }
+      if (missingTable(error)) numberingRemoteMissing = true;
     }
   } catch {
     // Local settings still apply.
@@ -73,13 +91,16 @@ export async function saveInvoiceNumberSettings(
   const prefix = settings.prefix.trim().toUpperCase();
   const start = settings.start > 0 ? Math.floor(settings.start) : 1;
   await AsyncStorage.setItem(cacheKey(orgId), JSON.stringify({ prefix, start }));
+  if (numberingRemoteMissing || hostDefaultsNumberingUnavailable()) return;
   const { error } = await numberingTable().upsert(
     { org_id: orgId, prefix, start_number: start },
     { onConflict: "org_id" },
   );
-  if (error && !missingTable(error)) {
-    throw error;
+  if (missingTable(error)) {
+    numberingRemoteMissing = true;
+    return;
   }
+  if (error) throw error;
 }
 
 export async function planNextInvoiceReference(args: {

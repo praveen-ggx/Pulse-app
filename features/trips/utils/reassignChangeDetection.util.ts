@@ -16,6 +16,46 @@ export function isSameDriverPhone(
   return a.length >= 8 && a === b;
 }
 
+/**
+ * Reassign Edit details for the driver already on this trip.
+ * Vendor / cross-org phones are often missing from the roster — empty fields
+ * still mean "keep this person" when `trip.driver_id` is set.
+ */
+export function isEditingCurrentTripDriver(args: {
+  tripDriverId?: string | null;
+  phone: string;
+  currentDriverPhone?: string | null;
+}): boolean {
+  if (!(args.tripDriverId ?? '').trim()) return false;
+  const phone = args.phone.trim();
+  const current = (args.currentDriverPhone ?? '').trim();
+  if (!phone) return true;
+  if (!current) return false;
+  return isSameDriverPhone(phone, current);
+}
+
+/** Name changed on the assigned driver; phone stays (or was never shown). */
+export function isNameOnlyDriverUpdate(args: {
+  tripDriverId?: string | null;
+  phone: string;
+  currentDriverPhone?: string | null;
+  currentDriverName?: string | null;
+  driverNameInput?: string;
+}): boolean {
+  if (
+    !isEditingCurrentTripDriver({
+      tripDriverId: args.tripDriverId,
+      phone: args.phone,
+      currentDriverPhone: args.currentDriverPhone,
+    })
+  ) {
+    return false;
+  }
+  const next = (args.driverNameInput ?? '').trim();
+  if (next.length < 2) return false;
+  return next !== (args.currentDriverName ?? '').trim();
+}
+
 type ChangeArgs = {
   trip: Pick<TripRow, 'driver_id' | 'vehicle_id' | 'vehicle_display_number'>;
   driverModeIsPhone: boolean;

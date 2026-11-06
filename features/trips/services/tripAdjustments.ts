@@ -473,16 +473,30 @@ export function normTripFinanceAdjustmentKey(id: string | null | undefined): str
 }
 
 const ADJ_FETCH_CHUNK = 40;
+const TRIP_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isTripUuid(id: string): boolean {
+  return TRIP_UUID_RE.test(id.trim());
+}
 
 /**
  * Load persisted trip finance adjustments for many trips (batched `.in` queries).
  * Returns a map keyed by {@link normTripFinanceAdjustmentKey}(trip_id).
+ * Non-UUID ids (e.g. booking refs `BKG-…`) are skipped — `trip_id` is uuid.
  */
 export async function fetchTripFinanceAdjustmentsByTripIds(
   tripIds: string[],
 ): Promise<Map<string, TripAdjustment[]>> {
   const out = new Map<string, TripAdjustment[]>();
-  const uniq = [...new Set(tripIds.filter(Boolean).map((id) => String(id)))];
+  const uniq = [
+    ...new Set(
+      tripIds
+        .filter(Boolean)
+        .map((id) => String(id).trim())
+        .filter(isTripUuid),
+    ),
+  ];
   if (uniq.length === 0) return out;
 
   if (isSupabaseCircuitOpen()) return out;

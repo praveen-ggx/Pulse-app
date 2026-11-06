@@ -402,6 +402,9 @@ export default function DriverWalletScreen() {
     () => buildDriverPartyReceivables(trips, receivedByTripId, isFleetDispatchedTrip),
     [trips, receivedByTripId, isFleetDispatchedTrip],
   );
+  useEffect(() => {
+    publishSelectableShippers(selectableShippersFromReceivables(selfPartyReceivables));
+  }, [selfPartyReceivables]);
   const addClientPartyActions = useMemo((): PartySpeedDialAction[] => {
     if (!canTagOfflineParty) return [];
     return [

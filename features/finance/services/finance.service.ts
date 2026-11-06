@@ -696,6 +696,12 @@ type LedgerDescriptionMeta = {
   payment_mode?: string | null;
   payment_reference?: string | null;
   category?: string | null;
+  /**
+   * Compliance Ops confirmed Paid at / Sync date (Advance Payment Confirm, or
+   * Paid-tab edit). Must survive createLedgerEntry / updateLedgerEntry QMETA rebuilds
+   * — otherwise Paid tab blanks the date while UTR still shows.
+   */
+  compliance_txn_date_set?: boolean | null;
 };
 
 const LEDGER_META_PREFIX = "[[QMETA:";
@@ -718,6 +724,9 @@ function normalizeLedgerMeta(
     payment_reference: cleanTextValue(meta.payment_reference),
     category: cleanTextValue(meta.category),
   };
+  if (meta.compliance_txn_date_set === true) {
+    normalized.compliance_txn_date_set = true;
+  }
   const hasAnyValue = Object.values(normalized).some((v) => v != null);
   return hasAnyValue ? normalized : null;
 }
@@ -752,7 +761,18 @@ function buildDescriptionWithMeta(
   meta: LedgerDescriptionMeta,
   maxLength?: number,
 ): string {
-  const normalizedMeta = normalizeLedgerMeta(meta);
+  // Preserve compliance Sync-date confirmation when callers rebuild QMETA for
+  // trip_number / payment_mode / etc. (postCompliancePayment stamps the flag
+  // before createLedgerEntry; strip+rebuild used to drop it).
+  const prior = extractLedgerMeta(baseDescription);
+  const normalizedMeta = normalizeLedgerMeta({
+    ...meta,
+    compliance_txn_date_set:
+      meta.compliance_txn_date_set === true ||
+      prior.compliance_txn_date_set === true
+        ? true
+        : null,
+  });
   const cleanDescription = stripLedgerMeta(baseDescription);
   if (!normalizedMeta) return cleanDescription;
   const metaSuffix = ` ${LEDGER_META_PREFIX}${JSON.stringify(normalizedMeta)}${LEDGER_META_SUFFIX}`;

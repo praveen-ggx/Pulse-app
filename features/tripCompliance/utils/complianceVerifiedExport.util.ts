@@ -127,6 +127,20 @@ function formatExportDate(iso: string | null | undefined): string {
   return `${day}-${EXPORT_MONTHS[date.getMonth()]}-${date.getFullYear()}`;
 }
 
+/**
+ * Loading date on the Verified export = planned pickup_date when set.
+ * Trip Ops Manifest Pulse "PICKUP" uses started_at (or in_progress audit) when
+ * pickup_date was never filled — fall back so the sheet matches the UI.
+ */
+export function exportLoadingDateIso(trip: {
+  pickup_date?: string | null;
+  started_at?: string | null;
+}): string | null {
+  const planned = trip.pickup_date?.trim() || null;
+  if (planned) return planned;
+  return trip.started_at?.trim() || null;
+}
+
 function matchesExportDocType(documentType: string | null | undefined, type: "lr" | "invoice"): boolean {
   const raw = (documentType ?? "").toLowerCase().replace(/[\s-]+/g, "_");
   if (type === "lr") return raw === "lr" || raw === "lorry" || raw === "lorry_receipt";
@@ -352,7 +366,7 @@ export function buildVerifiedExportCsvRow(
       : summary.financeFlaggedAt
         ? "Flagged for Compliance"
         : COMPLIANCE_STAGE_FILTER_LABEL.compliance_verified,
-    "Loading date": formatExportDate(trip.pickup_date),
+    "Loading date": formatExportDate(exportLoadingDateIso(trip)),
     "Intransit date": formatExportDate(trip.started_at),
     "Client sales invoice No": latestDocNumber(summary.documents, "invoice"),
     "Account No": blank(enrichment.accountNumber),

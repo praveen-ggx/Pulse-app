@@ -1,6 +1,7 @@
 import {
   buildVerifiedExportCsvRow,
   buildVerifiedExportWorkbook,
+  exportLoadingDateIso,
   exportLrNumber,
   formatExportPhone,
   regionForPlace,
@@ -237,6 +238,35 @@ describe("complianceVerifiedExport.util", () => {
     expect(row["Loading date"]).toBe("06-Oct-2026");
     expect(regionForPlace("Guwahati, Assam")).toBe("East");
     expect(regionForPlace("Unknown place")).toBe("");
+  });
+
+  it("fills Loading date from started_at when pickup_date is missing (Trip Ops PICKUP)", () => {
+    expect(
+      exportLoadingDateIso({ pickup_date: null, started_at: "2026-11-03T11:00:00+05:30" }),
+    ).toBe("2026-11-03T11:00:00+05:30");
+    const row = buildVerifiedExportCsvRow(
+      summary({
+        trip: {
+          pickup_date: null,
+          started_at: "2026-11-03T11:00:00+05:30",
+        },
+      }),
+    );
+    expect(row["Loading date"]).toBe("03-Nov-2026");
+    expect(row["Intransit date"]).toBe("03-Nov-2026");
+  });
+
+  it("prefers pickup_date over started_at for Loading date", () => {
+    const row = buildVerifiedExportCsvRow(
+      summary({
+        trip: {
+          pickup_date: "2026-11-04",
+          started_at: "2026-11-03T11:00:00+05:30",
+        },
+      }),
+    );
+    expect(row["Loading date"]).toBe("04-Nov-2026");
+    expect(row["Intransit date"]).toBe("03-Nov-2026");
   });
 
   it("finds the region from a state-less source and the dotted location format", () => {

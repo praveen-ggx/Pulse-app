@@ -44,6 +44,10 @@ import { driverWalletBookTabLabel } from '@/features/drivers/domain/driverOperat
 import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
 import { confirmDialog } from '@/lib/confirmDialog';
 import {
+  buildFleetDisconnectConfirmMessage,
+  fleetDisconnectConfirmTitle,
+} from '@/features/drivers/utils/fleetDisconnectWarning.util';
+import {
     buildBulkTripClaimWhatsappMessage,
     buildSettlementShareMessage,
     buildTripClaimWhatsappMessage,
@@ -2367,9 +2371,25 @@ export default function DriverWalletScreen() {
 
   const handleLeaveFleet = useCallback(
     async (orgId: string, orgName: string) => {
+      const fleetPending =
+        fleetCards.find((f) => String(f.orgId ?? '') === orgId)?.pending ?? 0;
+      const openSalary = salaryRequests.filter(
+        (r) =>
+          String(r.organization_id ?? '') === orgId &&
+          String(r.status ?? '').toLowerCase() === 'pending',
+      );
+      const pendingSalaryRequestInr = openSalary.reduce(
+        (sum, r) => sum + (Number(r.amount) || 0),
+        0,
+      );
       const confirmed = await confirmDialog({
-        title: 'Disconnect from employer?',
-        message: `You will be removed from ${orgName}'s fleet. Salary flow will stop. You can reconnect by accepting a new invite.`,
+        title: fleetDisconnectConfirmTitle(orgName),
+        message: buildFleetDisconnectConfirmMessage({
+          orgName,
+          pendingTripPayInr: fleetPending,
+          pendingSalaryRequestInr,
+          openSalaryRequestCount: openSalary.length,
+        }),
         confirmLabel: 'Disconnect',
         destructive: true,
       });
@@ -2397,7 +2417,7 @@ export default function DriverWalletScreen() {
       invalidateOperatingMode();
       requestWalletRefresh({ force: true });
     },
-    [requestWalletRefresh, invalidateOperatingMode],
+    [requestWalletRefresh, invalidateOperatingMode, fleetCards, salaryRequests],
   );
 
   /**

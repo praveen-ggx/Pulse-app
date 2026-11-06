@@ -133,6 +133,23 @@ export function resolveNetworkRegistryAvatar(
   item: NetworkNotificationRow,
   ctx: NetworkRegistryAvatarContext,
 ): RegistryNotificationAvatar {
+  if (item.event_type === "driver_disconnected") {
+    const payloadName =
+      typeof item.payload_json?.driver_name === "string"
+        ? item.payload_json.driver_name.trim()
+        : "";
+    const driverId =
+      typeof item.payload_json?.driver_id === "string"
+        ? item.payload_json.driver_id.trim()
+        : "";
+    const name = payloadName || item.title?.trim() || "Driver";
+    return {
+      name,
+      entityType: "driver",
+      avatarSeed: driverId ? driverAvatarSeedFromId(driverId) : undefined,
+      initialsColorSeed: driverId || item.id,
+    };
+  }
   const orgId = item.actor_org_id?.trim() || "";
   const linked = orgId ? ctx.linkedOrgs?.[orgId] : undefined;
   const directory = orgId ? partyFromDirectory(orgId, ctx.partiesByLinkedOrg) : undefined;

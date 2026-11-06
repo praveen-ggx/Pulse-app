@@ -39,6 +39,12 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { confirmDialog } from '@/lib/confirmDialog';
+import {
+  buildFleetDisconnectConfirmMessage,
+  fleetDisconnectConfirmTitle,
+} from '@/features/drivers/utils/fleetDisconnectWarning.util';
+import * as salaryRequestsService from '@/features/drivers/services/salaryRequests.service';
 
 
 /**
@@ -364,21 +370,42 @@ export default function DriverRequestsScreen() {
   );
 
   const handleLeaveFleetPress = useCallback(
-    (organizationId: string, orgName: string) => {
-      Alert.alert(
-        'Leave fleet?',
-        `You will no longer receive trip assignments from ${orgName}. Your passbook for this fleet will remain available under Passbook history. You can connect again if they send a new invite.`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Leave fleet',
-            style: 'destructive',
-            onPress: () => handleLeaveFleet(organizationId),
-          },
-        ]
-      );
+    async (organizationId: string, orgName: string) => {
+      const passbook = passbookByOrgId[organizationId];
+      const driverIds = linkedDrivers
+        .filter((d) => String(d.organization_id ?? '') === organizationId)
+        .map((d) => d.id);
+      let pendingSalaryRequestInr = 0;
+      let openSalaryRequestCount = 0;
+      if (driverIds.length > 0) {
+        const { requests } =
+          await salaryRequestsService.getSalaryRequestsByDriverIds(driverIds);
+        const open = (requests ?? []).filter(
+          (r) =>
+            String(r.organization_id ?? '') === organizationId &&
+            String(r.status ?? '').toLowerCase() === 'pending',
+        );
+        openSalaryRequestCount = open.length;
+        pendingSalaryRequestInr = open.reduce(
+          (sum, r) => sum + (Number(r.amount) || 0),
+          0,
+        );
+      }
+      const confirmed = await confirmDialog({
+        title: fleetDisconnectConfirmTitle(orgName),
+        message: buildFleetDisconnectConfirmMessage({
+          orgName,
+          pendingTripPayInr: passbook?.pendingAmount ?? 0,
+          pendingSalaryRequestInr,
+          openSalaryRequestCount,
+        }),
+        confirmLabel: 'Disconnect',
+        destructive: true,
+      });
+      if (!confirmed) return;
+      handleLeaveFleet(organizationId);
     },
-    [handleLeaveFleet]
+    [handleLeaveFleet, passbookByOrgId, linkedDrivers],
   );
 
   const styles = useMemo(() => StyleSheet.create({

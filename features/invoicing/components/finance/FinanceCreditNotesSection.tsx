@@ -388,6 +388,7 @@ function TripNotesBook({
       </Row>
       <QueryState
         loading={loading}
+        error={null}
         empty={!loading && rows.length === 0}
         emptyText="No credit or debit notes on these trips yet."
         onRetry={onRetry}

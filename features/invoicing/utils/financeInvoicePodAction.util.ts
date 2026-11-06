@@ -85,6 +85,25 @@ export function isInvoiceWorkspaceSelectable(args: {
   );
 }
 
+/**
+ * A trip already on the open draft can be issued with that draft.
+ * Every other trip must be invoiceable on its own.
+ */
+export function isTripInvoiceableInWorkspace(args: {
+  state: FinanceWorkflowTripState | null;
+  onActiveDraft: boolean;
+}): boolean {
+  if (!args.state) return false;
+  if (args.state.invoiceable) return true;
+  if (!args.onActiveDraft) return false;
+  return (
+    args.state.invoiceState === "draft" &&
+    args.state.completed &&
+    args.state.podState !== "pending" &&
+    args.state.podState !== "unconfigured"
+  );
+}
+
 export type InvoiceWorkspaceSelectionSummary = {
   selectedCount: number;
   podLoggableCount: number;
@@ -99,6 +118,8 @@ export function summarizeInvoiceWorkspaceSelection(
     state: FinanceWorkflowTripState;
     policy: InvoicePodPolicy | null;
     physicalPodReceived: boolean;
+    /** Workspace rule, including the open-draft exception. */
+    workspaceInvoiceable?: boolean;
   }>,
 ): InvoiceWorkspaceSelectionSummary {
   let selectedCount = 0;
@@ -109,7 +130,8 @@ export function summarizeInvoiceWorkspaceSelection(
   for (const row of rows) {
     if (!row.selected) continue;
     selectedCount += 1;
-    if (row.state.invoiceable) invoiceableCount += 1;
+    const invoiceable = row.workspaceInvoiceable ?? row.state.invoiceable;
+    if (invoiceable) invoiceableCount += 1;
     if (isInvoiceHardPodLoggable(row)) podLoggableCount += 1;
     if (row.state.invoiceState === "issued") invoicedCount += 1;
     if (

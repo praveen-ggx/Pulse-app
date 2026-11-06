@@ -34,6 +34,17 @@ export function tripListLrLabel(trip: {
   return number ? `LR# ${number}` : "—";
 }
 
+/** The row shows the serial trip number when no LR is stored. Search must find that label. */
+export function invoiceTripSearchIncludesDisplayedNumber(
+  trip: { id?: string | null; lr_number?: string | null; trip_number?: string | null },
+  query: string,
+): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return false;
+  const serial = (trip.trip_number ?? "").trim().toLowerCase();
+  return tripListLrLabel(trip).toLowerCase().includes(q) || (serial.length > 0 && serial.includes(q));
+}
+
 export function resolveInvoiceTripLrNumber(args: {
   bookingRef?: string | null;
   documentLrNumbers?: string[] | null;

@@ -1,0 +1,6 @@
+# Omni-channel award classification (Exchange Phase 0, defect 12).
+# Replaces is_marketplace_indent_award and create_trip_from_assigned_indent.
+# No table DDL, no data change. Network deploys on 'both' indents link the
+# supplier again; historical repair of affected trips is a separate set.
+# Apply only after explicit production authorization.
+20271006142659

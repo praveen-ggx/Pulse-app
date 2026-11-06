@@ -32,6 +32,11 @@ import {
   type FinanceBookSection,
 } from "@/features/invoicing/components/FinanceBooksPanel";
 import { financeInvoiceWorkspaceStyles } from "@/features/invoicing/components/financeInvoiceWorkspace.styles";
+import {
+  InvoiceCreationStageBody,
+  InvoiceCreationStepper,
+  type InvoiceCreationStage,
+} from "@/features/invoicing/components/InvoiceCreationStepper";
 import { buildFinanceClientRailRows } from "@/features/invoicing/utils/financeClientRail.util";
 import {
   applyTripSheetFilters,
@@ -48,6 +53,7 @@ import {
   invoicePodRequiredModeLabel,
   isInvoiceHardPodLoggable,
   isInvoiceWorkspaceSelectable,
+  isTripInvoiceableInWorkspace,
   summarizeInvoiceWorkspaceSelection,
   validateHardCopyPodReceiptSelection,
 } from "@/features/invoicing/utils/financeInvoicePodAction.util";
@@ -104,15 +110,19 @@ import { LogIncomingPodsModal } from "@/features/log-pods/components/LogIncoming
 import {
   displayOperationalField,
   invoiceTripOperationalSeedFromView,
+  invoiceTripSearchIncludesDisplayedNumber,
   tripListLrLabel,
 } from "@/features/invoicing/utils/invoiceTripOperational.util";
 import { updateClientInvoicePodPolicy } from "@/features/clients/services/clients.service";
 import {
   effectiveInvoicePodPolicyFromClientRaw,
+  INVOICE_POD_POLICY_UNCONFIGURED,
   invoiceNeedsDigitalPodLookup,
 } from "@/features/invoicing/utils/invoicePodEnforcement.util";
 import {
   evaluateFinanceWorkflowTrip,
+  financeInvoiceStatusLabel,
+  INVOICE_TRIP_NOT_COMPLETED,
   summarizeFinanceClientPicture,
 } from "@/features/invoicing/utils/financeWorkflowState.util";
 import { issueIdempotencyKey } from "@/features/invoicing/utils/invoiceLifecycle.util";
@@ -197,6 +207,7 @@ function parseCreateClientParam(
 function invoiceTripMatchesSearch(trip: InvoicingTripView, query: string): boolean {
   const q = query.toLowerCase().trim();
   if (!q) return true;
+  if (invoiceTripSearchIncludesDisplayedNumber(trip, query)) return true;
   const tripDate = new Date(trip.date);
   const dateLabel = Number.isNaN(tripDate.getTime())
     ? trip.date
@@ -231,6 +242,8 @@ function invoiceTripMatchesSearch(trip: InvoicingTripView, query: string): boole
     trip.inDraft ? "draft" : "",
     trip.digitalPodPresent ? "soft pod digital" : "soft pending",
     trip.physicalPodReceived ? "hard pod received" : "hard pending",
+    trip.trip_number,
+    tripListLrLabel(trip),
   ]
     .filter(Boolean)
     .join(" ")
@@ -580,6 +593,8 @@ export function InvoicingExecuteScreen({
   }, [tripSelectionKey]);
   const [clientSearch, setClientSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState("");
+  const [creationStage, setCreationStage] = useState<InvoiceCreationStage>("select");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [completionFilter, setCompletionFilter] =
@@ -662,7 +677,7 @@ export function InvoicingExecuteScreen({
     const eDate = endDate ? parseDate(endDate) : null;
     if (eDate) eDate.setHours(23, 59, 59, 999);
 
-    const q = searchQuery.toLowerCase().trim();
+    const q = appliedSearch.toLowerCase().trim();
 
     return scopedTrips
       .filter((t) => {
@@ -687,7 +702,7 @@ export function InvoicingExecuteScreen({
         };
         return statusOrder[a.status] - statusOrder[b.status];
       });
-  }, [scopedTrips, activeClient, searchQuery, startDate, endDate]);
+  }, [scopedTrips, activeClient, appliedSearch, startDate, endDate]);
 
   const completionCounts = useMemo(
     () => countTripsByCompletion(clientTripsBase, (t) => t.tripStatus),
@@ -1161,7 +1176,45 @@ export function InvoicingExecuteScreen({
     }
     return { unbilled, invoiced, completed: 0, podPending: 0, draft: 0 };
   }, [clientPicture, clientTripsBase]);
-  const selectableTrips = clientTrips;
+  const activeDraftTripIds = useMemo(
+    () => new Set((selectedDraft?.trip_ids ?? []).filter((id) => id.length > 0)),
+    [selectedDraft],
+  );
+  const tripOnActiveDraft = useCallback(
+    (trip: InvoicingTripView) =>
+      activeDraftTripIds.has(trip.id) ||
+      (trip.internal_id ? activeDraftTripIds.has(trip.internal_id) : false),
+    [activeDraftTripIds],
+  );
+  const isTripInvoiceable = useCallback(
+    (trip: InvoicingTripView) => {
+      const flags = invoiceWorkspaceTripFlags(trip, clientPolicies);
+      return isTripInvoiceableInWorkspace({
+        state: flags.state,
+        onActiveDraft: tripOnActiveDraft(trip),
+      });
+    },
+    [clientPolicies, tripOnActiveDraft],
+  );
+  const isTripSelectable = useCallback(
+    (trip: InvoicingTripView) =>
+      tripOnActiveDraft(trip) ||
+      invoiceWorkspaceTripFlags(trip, clientPolicies).selectable,
+    [clientPolicies, tripOnActiveDraft],
+  );
+  const tripInvoiceBlockedHint = useCallback(
+    (trip: InvoicingTripView) => {
+      if (isTripInvoiceable(trip)) return "";
+      const flags = invoiceWorkspaceTripFlags(trip, clientPolicies);
+      if (!flags.state) return "This trip cannot be invoiced.";
+      return financeInvoiceStatusLabel(flags.state.invoiceState);
+    },
+    [clientPolicies, isTripInvoiceable],
+  );
+  const selectableTrips = useMemo(
+    () => clientTrips.filter((trip) => isTripSelectable(trip)),
+    [clientTrips, isTripSelectable],
+  );
   const selectionSummary = useMemo(
     () =>
       summarizeInvoiceWorkspaceSelection(
@@ -1177,22 +1230,47 @@ export function InvoicingExecuteScreen({
             },
             policy: flags.policy,
             physicalPodReceived: trip.physicalPodReceived === true,
+            workspaceInvoiceable: isTripInvoiceable(trip),
           };
         }),
       ),
-    [selectedTrips, clientPolicies],
+    [selectedTrips, clientPolicies, isTripInvoiceable],
   );
   const allClientTripsSelected =
     selectableTrips.length > 0 &&
     selectableTrips.every((t) => selectedTripIds.includes(t.id));
 
   useEffect(() => {
-    const allowedIds = new Set(selectableTrips.map((t) => t.id));
+    const handle = setTimeout(() => setAppliedSearch(searchQuery), 200);
+    return () => clearTimeout(handle);
+  }, [searchQuery]);
+
+  const invoiceableFreight = useMemo(
+    () =>
+      selectedTrips.reduce(
+        (sum, trip) =>
+          isTripInvoiceable(trip) ? sum + (Number(trip.amount) || 0) : sum,
+        0,
+      ),
+    [isTripInvoiceable, selectedTrips],
+  );
+
+  useEffect(() => {
+    if (!activeClient) return;
+    const allowedIds = new Set(
+      scopedTrips
+        .filter(
+          (trip) =>
+            invoicingClientGroupKey(trip) === activeClient &&
+            isTripSelectable(trip),
+        )
+        .map((trip) => trip.id),
+    );
     setSelectedTripIds((prev) => {
       const next = prev.filter((id) => allowedIds.has(id));
       return next.length === prev.length ? prev : next;
     });
-  }, [selectableTrips]);
+  }, [activeClient, isTripSelectable, scopedTrips]);
 
   useEffect(() => {
     const restoreDraft = async () => {
@@ -1334,18 +1412,29 @@ export function InvoicingExecuteScreen({
     step,
   ]);
 
-  const isTripInvoiceable = useCallback((_trip: InvoicingTripView) => true, []);
+  const createInvoiceBlockedReason = useMemo(() => {
+    if (selectedTripIds.length === 0) return "Select one or more trips";
+    if (selectionSummary.invoiceableCount === 0) {
+      return "None of the selected trips can be invoiced";
+    }
+    return null;
+  }, [selectedTripIds.length, selectionSummary.invoiceableCount]);
 
-  const tripInvoiceBlockedHint = useCallback((_trip: InvoicingTripView) => "", []);
-
-  const selectedInvoiceIssueBlockedReason: string | null = null;
+  const selectedInvoiceIssueBlockedReason = useMemo(() => {
+    if (selectedTrips.length === 0) return null;
+    if (selectedTrips.some((trip) => isTripInvoiceable(trip))) return null;
+    return tripInvoiceBlockedHint(selectedTrips[0]);
+  }, [isTripInvoiceable, selectedTrips, tripInvoiceBlockedHint]);
 
   const handleToggleTrip = useCallback((id: string) => {
-    if (!tripsById.has(id)) return;
-    setSelectedTripIds((prev) =>
-      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id],
-    );
-  }, [tripsById]);
+    const trip = tripsById.get(id);
+    if (!trip) return;
+    setSelectedTripIds((prev) => {
+      if (prev.includes(id)) return prev.filter((i) => i !== id);
+      if (!isTripSelectable(trip)) return prev;
+      return [...prev, id];
+    });
+  }, [isTripSelectable, tripsById]);
 
   const handleSelectAll = useCallback(() => {
     if (selectableTrips.length === 0) {
@@ -1365,9 +1454,7 @@ export function InvoicingExecuteScreen({
     }
   }, [selectableTrips, selectedTripIds]);
 
-  const handleCreateInvoice = useCallback(async (opts?: {
-    stayOnWorkspace?: boolean;
-  }) => {
+  const handleCreateInvoice = useCallback(async () => {
     if (buildBlockedReason) {
       Alert.alert("Create Invoice", buildBlockedReason);
       return;
@@ -1376,140 +1463,35 @@ export function InvoicingExecuteScreen({
       Alert.alert("Create Invoice", "Select a client first.");
       return;
     }
-    const tripIds = selectedTripIds.filter((id) => tripsById.has(id));
+    const tripIds = selectedTripIds.filter((id) => {
+      const trip = tripsById.get(id);
+      return trip != null && isTripInvoiceable(trip);
+    });
     if (tripIds.length === 0) {
-      Alert.alert("Create Invoice", "Select one or more trips first.");
-      return;
-    }
-
-    const clientId =
-      activeClient.startsWith("name:") ? null : activeClient;
-    if (orgId && clientId) {
-      const selected = tripIds
-        .map((id) => tripsById.get(id))
-        .filter(Boolean) as InvoicingTripView[];
-      const internalIds = selected
-        .map((trip) => trip.internal_id)
-        .filter((id) =>
-          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-            id,
-          ),
-        );
-      const freight = selected.reduce(
-        (sum, trip) => sum + (Number(trip.amount) || 0),
-        0,
+      Alert.alert(
+        "Create Invoice",
+        selectedTripIds.length === 0
+          ? "Select one or more trips first."
+          : "None of the selected trips can be invoiced.",
       );
-      if (internalIds.length > 0) {
-        const issued = alreadyInvoicedGuidance({
-          tripIds: internalIds,
-          invoices: issuedInvoices.map((invoice) => ({
-            id: invoice.id,
-            invoiceNumber: invoice.invoice_number,
-            tripIds: invoice.trip_ids,
-          })),
-          labelForTrip: (id) => {
-            const trip = tripsById.get(id);
-            return trip?.lr_number?.trim() ? `LR ${trip.lr_number.trim()}` : "This trip";
-          },
-        });
-        if (issued) {
-          Alert.alert("Already invoiced", issued);
-          return;
-        }
-        const saved = await saveInvoiceDraftOnce({
-          orgId,
-          clientId,
-          clientName: activeClientLabel,
-          tripIds: internalIds,
-          subtotal: freight,
-          gstRate: 0,
-          sgstAmount: 0,
-          cgstAmount: 0,
-          igstAmount: 0,
-          totalAmount: freight,
-          createdBy: user?.uid ?? profile?.uid ?? null,
-          activeDraftId,
-        });
-        if (saved.error) {
-          Alert.alert("Create draft", saved.error.message);
-          return;
-        }
-        setActiveDraftId(saved.draftId ?? null);
-        if (saved.reused) {
-          Alert.alert(
-            "Draft already exists",
-            saved.draftNumber
-              ? `These trips stay on ${saved.draftNumber}. That draft was updated.`
-              : "These trips are already on a draft. That draft was updated.",
-          );
-        }
-        void queryClient.invalidateQueries({
-          queryKey: queryKeys.invoicing.drafts(orgId),
-        });
-        void queryClient.invalidateQueries({
-          queryKey: queryKeys.invoicing.trips(orgId),
-        });
-      }
-    }
-
-    const payload = {
-      activeClient,
-      selectedTripIds: tripIds,
-      clientSearch,
-      searchQuery,
-      startDate,
-      endDate,
-      step,
-      savedAt: new Date().toISOString(),
-    };
-    if (orgId) {
-      try {
-        await AsyncStorage.setItem(
-          `invoicing_execute_draft_${orgId}`,
-          JSON.stringify(payload),
-        );
-        setDraftSavedAt(payload.savedAt);
-      } catch {
-        // Still navigate — create page can use query params.
-      }
-    }
-    const qs = new URLSearchParams();
-    qs.set("trips", tripIds.join(","));
-    if (activeClient) qs.set("client", activeClient);
-    if (activeDraftId) qs.set("draft", activeDraftId);
-    if (opts?.stayOnWorkspace) {
       return;
     }
-    router.push(
-      `${ROUTES.INVOICING_EXECUTE_CREATE}?${qs.toString()}` as never,
-    );
+    setInvoiceSurface("pending");
+    setComposeMode("trips");
+    setStep(1);
+    setCreationStage("configure");
   }, [
     activeClient,
     buildBlockedReason,
-    clientPolicies,
-    clientSearch,
-    clientTrips,
-    endDate,
-    orgId,
-    podRequired,
-    profile?.uid,
-    queryClient,
-    router,
-    searchQuery,
+    isTripInvoiceable,
     selectedTripIds,
-    startDate,
-    step,
     tripsById,
-    user?.uid,
-    activeClientLabel,
-    activeDraftId,
-    issuedInvoices,
   ]);
 
   const persistTripInvoiceDraft = useCallback(
     async (snapshot?: InvoiceDraftSaveSnapshot, options?: { openDrafts?: boolean }) => {
       if (!snapshot) {
-        await handleCreateInvoice({ stayOnWorkspace: true });
+        await handleCreateInvoice();
         return;
       }
       if (buildBlockedReason) {
@@ -1608,6 +1590,7 @@ export function InvoicingExecuteScreen({
   const selectClient = (clientKey: string) => {
     setActiveClient(clientKey);
     setSelectedTripIds([]);
+    setCreationStage("select");
     setInspectedIssuedInvoice(null);
     setStep(1);
   };
@@ -1640,7 +1623,7 @@ export function InvoicingExecuteScreen({
       }
       const pendingReason = selectedInvoiceIssueBlockedReason;
       if (pendingReason) {
-        Alert.alert("POD required", pendingReason);
+        Alert.alert("Issue invoice", pendingReason);
         return;
       }
       const internalIds = args.internalIds.filter(Boolean);
@@ -1656,29 +1639,40 @@ export function InvoicingExecuteScreen({
       if (issueInFlight.current || issueMutation.isPending) return;
       const internalIds = pendingIssue.internalIds.filter(Boolean);
       if (internalIds.length === 0) return;
+      const blocked = internalIds.find((id) => {
+        const trip = tripsById.get(id);
+        return trip == null || !isTripInvoiceable(trip);
+      });
+      if (blocked) {
+        const trip = tripsById.get(blocked);
+        Alert.alert(
+          "Issue invoice",
+          trip
+            ? tripInvoiceBlockedHint(trip)
+            : "A selected trip is no longer available.",
+        );
+        return;
+      }
       const open = internalIds.filter((id) => {
         const trip = tripsById.get(id);
         return trip != null && !tripIsDeliveredStatus(trip.tripStatus);
       });
-      if (open.length > 0) return;
+      if (open.length > 0) {
+        Alert.alert("Issue invoice", INVOICE_TRIP_NOT_COMPLETED);
+        return;
+      }
       issueInFlight.current = true;
       const clientId =
         activeClient && !activeClient.startsWith("name:") ? activeClient : null;
+      if (!clientId) {
+        issueInFlight.current = false;
+        Alert.alert("Issue invoice", "Select a saved client before issuing.");
+        return;
+      }
       if (activeClientPolicy == null) {
-        if (!orgId || !clientId) {
-          issueInFlight.current = false;
-          Alert.alert("Issue invoice", "Select a saved client before issuing.");
-          return;
-        }
-        const { error } = await updateClientInvoicePodPolicy(orgId, clientId, "none");
-        if (error) {
-          issueInFlight.current = false;
-          Alert.alert("Issue invoice", error.message);
-          return;
-        }
-        void queryClient.invalidateQueries({
-          queryKey: ["q", "invoicing", "client-pod-policies", orgId],
-        });
+        issueInFlight.current = false;
+        Alert.alert("Issue invoice", INVOICE_POD_POLICY_UNCONFIGURED);
+        return;
       }
       const draftsCoveringTrips = draftInvoices.filter((draft) =>
         internalIds.some((id) => draft.trip_ids.includes(id)),
@@ -1764,9 +1758,10 @@ export function InvoicingExecuteScreen({
       activeDraftId,
       draftInvoices,
       issuedInvoices,
+      isTripInvoiceable,
       issueMutation,
-      orgId,
       pendingIssue,
+      tripInvoiceBlockedHint,
       tripsById,
       mode,
       profile?.uid,
@@ -1918,6 +1913,8 @@ export function InvoicingExecuteScreen({
           setManualBuiltLines(parsed);
         }
         setInvoiceSurface("pending");
+        setStep(1);
+        setCreationStage("select");
         if (stayOnWorkspace) {
           router.setParams({
             draft: draft.id,
@@ -1942,6 +1939,8 @@ export function InvoicingExecuteScreen({
         .filter((id): id is string => Boolean(id));
       if (displayIds.length > 0) setSelectedTripIds(displayIds);
       setInvoiceSurface("pending");
+      setStep(1);
+      setCreationStage("configure");
       const qs = new URLSearchParams();
       qs.set("trips", (draft.trip_ids ?? []).join(","));
       if (draft.client_id) qs.set("client", draft.client_id);
@@ -2298,7 +2297,7 @@ export function InvoicingExecuteScreen({
                 isIssuing={issueMutation.isPending}
                 activeClient={activeClientLabel}
                 clientId={selectedClientId}
-                selectedTrips={selectedTrips}
+                selectedTrips={selectedTrips.filter(isTripInvoiceable)}
                 isStandalone={true}
                 issuer={issuer}
                 workspaceOrgId={workspaceId ?? orgId}
@@ -2650,6 +2649,40 @@ export function InvoicingExecuteScreen({
                   onLinesBuilt={setManualBuiltLines}
                 />
               ) : (
+                <View style={{ flex: 1 }}>
+                <InvoiceCreationStepper
+                  stage={creationStage}
+                  onStage={setCreationStage}
+                  eligibleCount={selectionSummary.invoiceableCount}
+                  blockedCount={selectionSummary.blockedCount}
+                  freight={invoiceableFreight}
+                  policyLabel={activePolicyLabel}
+                  canLeaveSelect={selectionSummary.invoiceableCount > 0}
+                />
+                {creationStage !== "select" ? (
+                  <InvoiceCreationStageBody
+                    stage={creationStage}
+                    clientName={activeClientLabel || "Client"}
+                    policyLabel={activePolicyLabel}
+                    policyUnconfigured={activeClientPolicy == null}
+                    eligibleCount={selectionSummary.invoiceableCount}
+                    blockedCount={selectionSummary.blockedCount}
+                    freight={invoiceableFreight}
+                    blockedHint={selectedInvoiceIssueBlockedReason}
+                    onBack={() =>
+                      setCreationStage(
+                        creationStage === "issue"
+                          ? "review"
+                          : creationStage === "review"
+                            ? "configure"
+                            : "select",
+                      )
+                    }
+                    onContinue={() =>
+                      setCreationStage(creationStage === "configure" ? "review" : "issue")
+                    }
+                  />
+                ) : null}
                 <TripListContent
                   tabBarScrollProps={tabBarScrollProps}
                   isDesktopTripTable
@@ -2671,14 +2704,15 @@ export function InvoicingExecuteScreen({
                   invoiceStateLabel={(trip) =>
                     invoiceWorkspaceTripFlags(trip, clientPolicies).pill
                   }
-                  isTripSelectable={() => true}
+                  isTripSelectable={isTripSelectable}
                   isTripPodLoggable={(trip) =>
                     invoiceWorkspaceTripFlags(trip, clientPolicies).loggable
                   }
                   onLogPod={openLogPod}
                   podLoggableSelectedCount={selectionSummary.podLoggableCount}
-                  invoiceableSelectedCount={selectedTripIds.length}
-                  selectedBlockedCount={0}
+                  invoiceableSelectedCount={selectionSummary.invoiceableCount}
+                  selectedBlockedCount={selectionSummary.blockedCount}
+                  selectedFreight={invoiceableFreight}
                   searchQuery={searchQuery}
                   setSearchQuery={setSearchQuery}
                   startDate={startDate}
@@ -2698,14 +2732,11 @@ export function InvoicingExecuteScreen({
                   }
                   notCompletedTripCount={completionCounts.notCompleted}
                   onCreateInvoice={() => {
-                    void handleCreateInvoice({ stayOnWorkspace: true });
+                    void handleCreateInvoice();
                   }}
-                  createBlockedReason={
-                    selectedTripIds.length === 0
-                      ? "Select one or more trips"
-                      : null
-                  }
+                  createBlockedReason={createInvoiceBlockedReason}
                 />
+                </View>
               )}
               </View>
             {previewOpen && financeBook === "book" ? (
@@ -2825,7 +2856,11 @@ export function InvoicingExecuteScreen({
                   isIssuing={issueMutation.isPending}
                   activeClient={activeClientLabel}
                   clientId={selectedClientId}
-                  selectedTrips={previewTrips}
+                  selectedTrips={
+                    inspectedIssuedInvoice
+                      ? previewTrips
+                      : previewTrips.filter(isTripInvoiceable)
+                  }
                   isStandalone
                   density="compact"
                   issuer={issuer}
@@ -2851,8 +2886,8 @@ export function InvoicingExecuteScreen({
                           void persistTripInvoiceDraft(snapshot, { openDrafts: true });
                         }
                   }
-                  saveDraftLabel="Save as draft"
-                  convertFirst
+                    saveDraftLabel="Save as draft"
+                  convertFirst={creationStage !== "review" && creationStage !== "issue"}
                   assignedInvoiceNumber={inspectedIssuedInvoice ? null : heldInvoiceNumber}
                   readOnly={Boolean(inspectedIssuedInvoice)}
                 />
@@ -2865,12 +2900,16 @@ export function InvoicingExecuteScreen({
         </View>
       ) : (
       <View style={styles.contentArea}>
-        <View style={styles.billingChrome}>
+        <View style={[styles.billingChrome, { flexDirection: "column", width: "100%", maxWidth: "100%", overflow: "hidden" }]}>
           <FinanceBookNav value={financeBook} onChange={setFinanceBook} />
           {financeBook === "book" ? (
           <InvoiceBillingSurfaceTabs
             value={invoiceSurface}
-            onChange={setInvoiceSurface}
+            onChange={(next) => {
+              setInvoiceSurface(next);
+              if (next !== "pending") setComposeMode("trips");
+              if (next !== "issued") setInspectedIssuedInvoice(null);
+            }}
           />
           ) : null}
           {null}
@@ -2927,7 +2966,9 @@ export function InvoicingExecuteScreen({
                 : null
             }
             partnerLabel={activeClientLabel}
-            onResume={(draft) => resumeDraft(draft, false)}
+            selectedId={activeDraftId}
+            onSelect={(draft) => resumeDraft(draft, true)}
+            onResume={(draft) => resumeDraft(draft, true)}
             onCancel={cancelDraft}
           />
         ) : invoiceSurface === "issued" ? (
@@ -2960,7 +3001,52 @@ export function InvoicingExecuteScreen({
                   : null
               }
               partnerLabel={activeClientLabel}
+              selectedId={inspectedIssuedInvoice?.id ?? null}
+              onSelect={(invoice) => {
+                setInspectedIssuedInvoice(invoice);
+                setComposeMode("trips");
+                setStep(1);
+                if (invoice.client_id) setActiveClient(invoice.client_id);
+              }}
             />
+            {issuedPreviewDraft ? (
+              <View style={{ flex: 1, minHeight: 360 }}>
+                <Suspense fallback={<CenteredLoadingView message="Opening invoice..." />}>
+                  <InvoicePreviewPanel
+                    insights={invoiceInsights}
+                    onPreview={handlePreview}
+                    isFinalizing={false}
+                    isIssuing={false}
+                    activeClient={activeClientLabel}
+                    clientId={selectedClientId}
+                    selectedTrips={[]}
+                    isStandalone
+                    density="compact"
+                    issuer={issuer}
+                    workspaceOrgId={workspaceId}
+                    externalDraft={issuedPreviewDraft}
+                    readOnly
+                    issuedLock={issuedPresentation}
+                    payableInvoice={inspectedIssuedInvoice}
+                    payableTrips={
+                      inspectedIssuedInvoice
+                        ? scopedTrips.filter((trip) =>
+                            inspectedIssuedInvoice.trip_ids.some(
+                              (id) => id === trip.id || id === trip.internal_id,
+                            ),
+                          )
+                        : []
+                    }
+                    onPaymentRecorded={() => {
+                      void refetchIssued();
+                      void refetch();
+                    }}
+                    onSaveRevision={handleReviseIssued}
+                    invoiceIssueBlockedReason="This invoice is already issued."
+                  />
+                </Suspense>
+              </View>
+            ) : null}
           </View>
         ) : isLargeScreen ? (
           <View style={styles.splitLayout}>
@@ -2988,13 +3074,13 @@ export function InvoicingExecuteScreen({
                 onExportFiltered={handleExportFiltered}
                 bulkDisabledMessage={bulkDisabledMessage}
                 isTripInvoiceable={isTripInvoiceable}
-                isTripSelectable={() => true}
+                isTripSelectable={isTripSelectable}
                 isTripPodLoggable={(trip) =>
                   invoiceWorkspaceTripFlags(trip, clientPolicies).loggable
                 }
                 onLogPod={openLogPod}
                 podLoggableSelectedCount={selectionSummary.podLoggableCount}
-                invoiceableSelectedCount={selectedTripIds.length}
+                invoiceableSelectedCount={selectionSummary.invoiceableCount}
                 searchQuery={searchQuery}
                 setSearchQuery={setSearchQuery}
                 startDate={startDate}
@@ -3011,11 +3097,7 @@ export function InvoicingExecuteScreen({
                 completedTripCount={completionCounts.completed}
                 notCompletedTripCount={completionCounts.notCompleted}
                 onCreateInvoice={handleCreateInvoice}
-                createBlockedReason={
-                  selectedTripIds.length === 0
-                    ? "Select one or more trips"
-                    : null
-                }
+                createBlockedReason={createInvoiceBlockedReason}
               />
             </View>
             {isLargeScreen && (
@@ -3095,7 +3177,62 @@ export function InvoicingExecuteScreen({
               </View>
             )}
 
-            {step === 1 && (
+            {step === 1 && composeMode === "manual" && selectedClientId ? (
+              <View style={styles.mobileStepContainer}>
+                <FinanceManualInvoicePanel
+                  clientName={activeClientLabel || "Client"}
+                  onBack={() => setComposeMode("trips")}
+                  invoiceDate={manualInvoiceDate}
+                  dueDate={manualDueDate}
+                  poReference={manualPo}
+                  paymentTerms={manualTerms}
+                  placeOfSupply={manualClientRow?.state ?? ""}
+                  lines={manualLines}
+                  onInvoiceDate={setManualInvoiceDate}
+                  onDueDate={setManualDueDate}
+                  onPoReference={setManualPo}
+                  onPaymentTerms={setManualTerms}
+                  onLines={setManualLines}
+                  onLinesBuilt={setManualBuiltLines}
+                />
+                <View style={{ flex: 1, minHeight: 360 }}>
+                  <Suspense fallback={<CenteredLoadingView message="Opening invoice..." />}>
+                    <InvoicePreviewPanel
+                      insights={invoiceInsights}
+                      onPreview={handlePreview}
+                      isFinalizing={false}
+                      isIssuing={manualBusy === "issue"}
+                      activeClient={activeClientLabel}
+                      clientId={selectedClientId}
+                      selectedTrips={[]}
+                      isStandalone
+                      density="compact"
+                      issuer={issuer}
+                      workspaceOrgId={workspaceId}
+                      invoiceBuildBlockedReason={invoiceHsnIssueBlock(manualBuiltLines)}
+                      invoiceIssueBlockedReason={invoiceHsnIssueBlock(manualBuiltLines)}
+                      onSaveDraft={(snapshot) => {
+                        void persistManualInvoice("draft", { invoiceNumber: snapshot?.invoiceNumber });
+                      }}
+                      onConvertToInvoice={(snapshot) => {
+                        void persistManualInvoice("draft", {
+                          openDrafts: true,
+                          invoiceNumber: snapshot?.invoiceNumber,
+                        });
+                      }}
+                      saveDraftLabel="Save as draft"
+                      convertFirst
+                      externalDraft={manualDraftModel}
+                      onIssueExternal={() => {
+                        void persistManualInvoice("issue");
+                      }}
+                    />
+                  </Suspense>
+                </View>
+              </View>
+            ) : null}
+
+            {step === 1 && composeMode !== "manual" ? (
               <View style={styles.mobileStepContainer}>
                 <View style={styles.mobileConfig}>
                   <Text style={styles.sectionLabel}>Strategic Partner</Text>
@@ -3117,6 +3254,69 @@ export function InvoicingExecuteScreen({
                     </Text>
                   </Pressable>
                 </View>
+                <InvoiceCreationStepper
+                  stage={creationStage}
+                  onStage={setCreationStage}
+                  eligibleCount={selectionSummary.invoiceableCount}
+                  blockedCount={selectionSummary.blockedCount}
+                  freight={invoiceableFreight}
+                  policyLabel={activePolicyLabel}
+                  canLeaveSelect={selectionSummary.invoiceableCount > 0}
+                />
+                {creationStage !== "select" ? (
+                  <View style={{ flex: 1, minHeight: 360 }}>
+                    <InvoiceCreationStageBody
+                      stage={creationStage}
+                      clientName={activeClientLabel || "Client"}
+                      policyLabel={activePolicyLabel}
+                      policyUnconfigured={activeClientPolicy == null}
+                      eligibleCount={selectionSummary.invoiceableCount}
+                      blockedCount={selectionSummary.blockedCount}
+                      freight={invoiceableFreight}
+                      blockedHint={selectedInvoiceIssueBlockedReason}
+                      onBack={() =>
+                        setCreationStage(
+                          creationStage === "issue"
+                            ? "review"
+                            : creationStage === "review"
+                              ? "configure"
+                              : "select",
+                        )
+                      }
+                      onContinue={() =>
+                        setCreationStage(creationStage === "configure" ? "review" : "issue")
+                      }
+                    />
+                    <Suspense fallback={<CenteredLoadingView message="Opening invoice..." />}>
+                      <InvoicePreviewPanel
+                        insights={invoiceInsights}
+                        onPreview={handlePreview}
+                        onIssue={handleIssueInvoice}
+                        isFinalizing={false}
+                        isIssuing={issueMutation.isPending}
+                        activeClient={activeClientLabel}
+                        clientId={selectedClientId}
+                        selectedTrips={previewTrips.filter(isTripInvoiceable)}
+                        isStandalone
+                        density="compact"
+                        issuer={issuer}
+                        workspaceOrgId={workspaceId}
+                        onEditClient={(clientId) => void openClientEditor(clientId)}
+                        invoiceBuildBlockedReason={buildBlockedReason}
+                        invoiceIssueBlockedReason={selectedInvoiceIssueBlockedReason}
+                        onSaveDraft={(snapshot) => {
+                          void persistTripInvoiceDraft(snapshot);
+                        }}
+                        onConvertToInvoice={(snapshot) => {
+                          void persistTripInvoiceDraft(snapshot, { openDrafts: true });
+                        }}
+                        saveDraftLabel="Save as draft"
+                        convertFirst={creationStage !== "review" && creationStage !== "issue"}
+                        assignedInvoiceNumber={heldInvoiceNumber}
+                      />
+                    </Suspense>
+                  </View>
+                ) : (
                 <View style={styles.mobileGridArea}>
                   <TripListContent
                     tabBarScrollProps={tabBarScrollProps}
@@ -3132,13 +3332,13 @@ export function InvoicingExecuteScreen({
                     onExportFiltered={handleExportFiltered}
                     bulkDisabledMessage={bulkDisabledMessage}
                     isTripInvoiceable={isTripInvoiceable}
-                    isTripSelectable={() => true}
+                    isTripSelectable={isTripSelectable}
                     isTripPodLoggable={(trip) =>
                       invoiceWorkspaceTripFlags(trip, clientPolicies).loggable
                     }
                     onLogPod={openLogPod}
                     podLoggableSelectedCount={selectionSummary.podLoggableCount}
-                    invoiceableSelectedCount={selectedTripIds.length}
+                    invoiceableSelectedCount={selectionSummary.invoiceableCount}
                     searchQuery={searchQuery}
                     setSearchQuery={setSearchQuery}
                     startDate={startDate}
@@ -3155,21 +3355,18 @@ export function InvoicingExecuteScreen({
                     completedTripCount={completionCounts.completed}
                     notCompletedTripCount={completionCounts.notCompleted}
                     onCreateInvoice={handleCreateInvoice}
-                    createBlockedReason={
-                      selectedTripIds.length === 0
-                        ? "Select one or more trips"
-                        : null
-                    }
+                    createBlockedReason={createInvoiceBlockedReason}
                   />
                 </View>
+                )}
               </View>
-            )}
+            ) : null}
           </View>
         )}
       </View>
       )}
 
-      {!isLargeScreen && step === 1 && (
+      {!isLargeScreen && step === 1 && creationStage === "select" && composeMode === "trips" && (
         <View
           style={[
             styles.footer,
@@ -3446,6 +3643,7 @@ type TripListContentProps = {
   podLoggableSelectedCount?: number;
   invoiceableSelectedCount?: number;
   selectedBlockedCount?: number;
+  selectedFreight?: number;
 };
 
 function TripListContent({
@@ -3487,12 +3685,17 @@ function TripListContent({
   podLoggableSelectedCount = 0,
   invoiceableSelectedCount = 0,
   selectedBlockedCount = 0,
+  selectedFreight = 0,
 }: TripListContentProps) {
   const [sheetFilters, setSheetFilters] = useState<TripSheetFilters>({});
   const [sheetSort, setSheetSort] = useState<TripSheetSort>(null);
+  const [eligibility, setEligibility] = useState<
+    "all" | "eligible" | "pod" | "incomplete" | "invoiced"
+  >("all");
   useEffect(() => {
     setSheetFilters({});
     setSheetSort(null);
+    setEligibility("all");
   }, [activeClient]);
   const invoiceLabel = useCallback(
     (trip: InvoicingTripView) =>
@@ -3503,11 +3706,18 @@ function TripListContent({
   const visibleTrips = useMemo(
     () =>
       sortTripSheet(
-        applyTripSheetFilters(clientTrips, sheetFilters, invoiceLabel),
+        applyTripSheetFilters(clientTrips, sheetFilters, invoiceLabel).filter((trip) => {
+          if (eligibility === "all") return true;
+          const label = invoiceLabel(trip);
+          if (eligibility === "eligible") return label === "Eligible" || label === "Ready";
+          if (eligibility === "pod") return label === "POD pending";
+          if (eligibility === "incomplete") return label === "Not completed";
+          return label === "Invoiced";
+        }),
         sheetSort,
         invoiceLabel,
       ),
-    [clientTrips, invoiceLabel, sheetFilters, sheetSort],
+    [clientTrips, eligibility, invoiceLabel, sheetFilters, sheetSort],
   );
   const sheetFilterCount = tripSheetFilterCount(sheetFilters);
   const visibleAllSelected =
@@ -3610,6 +3820,35 @@ function TripListContent({
           ) : null}
         </View>
       </View>
+      {invoiceStateLabel ? (
+        <View style={styles.eligibilityRow}>
+          {(
+            [
+              ["all", "All"],
+              ["eligible", "Eligible"],
+              ["pod", "POD pending"],
+              ["incomplete", "Incomplete"],
+              ["invoiced", "Invoiced"],
+            ] as const
+          ).map(([key, label]) => {
+            const active = eligibility === key;
+            return (
+              <Pressable
+                key={key}
+                style={[styles.eligibilityChip, active && styles.eligibilityChipOn]}
+                onPress={() => setEligibility(key)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`Show ${label} trips`}
+              >
+                <Text style={[styles.eligibilityChipText, active && styles.eligibilityChipTextOn]}>
+                  {label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
     </>
   );
 
@@ -3637,7 +3876,7 @@ function TripListContent({
               {activeClient || "None Selected"}
             </Text>
             {selectedTripIds.length > 0
-              ? ` · ${selectedTripIds.length} selected · ${invoiceableSelectedCount} eligible · ${podLoggableSelectedCount} POD loggable`
+              ? ` · ${selectedTripIds.length} selected · ${invoiceableSelectedCount} eligible · ₹${Math.round(selectedFreight).toLocaleString("en-IN")}`
               : ""}
           </Text>
           {selectedBlockedCount > 0 ? (
@@ -3759,13 +3998,13 @@ function TripListContent({
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.sheetFilterChips}
         >
-          {columnHead("trip", "Trip / LR", undefined, "left", "light")}
-          {columnHead("lr", "LR No", undefined, "left", "light")}
-          {columnHead("party", "Supplier / Driver", undefined, "left", "light")}
-          {columnHead("route", "Route", undefined, "left", "light")}
-          {columnHead("freight", "Freight", undefined, "left", "light")}
-          {columnHead("invoice", "Invoice", undefined, "left", "light")}
-          {columnHead("pod", "POD", undefined, "left", "light")}
+          {columnHead("trip", "Trip / LR", styles.sheetChip, "left", "light")}
+          {columnHead("lr", "LR No", styles.sheetChip, "left", "light")}
+          {columnHead("party", "Supplier / Driver", styles.sheetChip, "left", "light")}
+          {columnHead("route", "Route", styles.sheetChip, "left", "light")}
+          {columnHead("freight", "Freight", styles.sheetChip, "left", "light")}
+          {columnHead("invoice", "Invoice", styles.sheetChip, "left", "light")}
+          {columnHead("pod", "POD", styles.sheetChip, "left", "light")}
         </ScrollView>
       )}
       {sheetFilterCount > 0 || sheetSort ? (
@@ -4252,11 +4491,10 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.primary,
   },
   billingChrome: {
-    flexDirection: "row",
-    flexWrap: "nowrap",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
+    flexDirection: "column",
+    alignItems: "stretch",
+    justifyContent: "flex-start",
+    gap: 0,
     backgroundColor: Theme.screenBackground,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.border,
@@ -4756,6 +4994,33 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.7,
   },
+  eligibilityRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 8,
+  },
+  eligibilityChip: {
+    minHeight: 32,
+    paddingHorizontal: 10,
+    justifyContent: "center",
+    borderRadius: 6,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.surfaceBorder,
+    backgroundColor: Theme.surface,
+  },
+  eligibilityChipOn: {
+    borderColor: Theme.brandBlue,
+    backgroundColor: Theme.brandBlueWashSubtle,
+  },
+  eligibilityChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Theme.textSecondary,
+  },
+  eligibilityChipTextOn: {
+    color: Theme.textPrimaryDark,
+  },
   bulkActionWrap: {
     position: "relative",
     zIndex: 30,
@@ -4956,9 +5221,17 @@ const styles = StyleSheet.create({
   sheetFilterChips: {
     flexDirection: "row",
     alignItems: "center",
+    flexGrow: 0,
     gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
+    minHeight: 44,
+  },
+  sheetChip: {
+    flexShrink: 0,
+    flexGrow: 0,
+    minHeight: 44,
+    justifyContent: "center",
   },
 
   selectAllGroup: {

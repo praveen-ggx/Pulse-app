@@ -11,9 +11,37 @@
 -- them entirely and wrote directly to organizations instead.
 -- =============================================================================
 
-DROP PROCEDURE IF EXISTS public.admin_approve_profile(uuid, uuid, text);
-DROP PROCEDURE IF EXISTS public.admin_reject_profile(uuid, uuid, jsonb, text);
-DROP PROCEDURE IF EXISTS public.admin_force_unlock_profile(uuid, uuid, text);
+-- DROP PROCEDURE errors (42809) when the same signature is already a function.
+-- Fresh replay keeps the September functions because 20261101000000 cannot
+-- replace a function with a procedure. Production still has the procedures,
+-- so those are dropped before the function bodies below.
+DO $drop_admin_procedures$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_proc
+    WHERE oid = to_regprocedure('public.admin_approve_profile(uuid,uuid,text)')
+      AND prokind = 'p'
+  ) THEN
+    DROP PROCEDURE public.admin_approve_profile(uuid, uuid, text);
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM pg_proc
+    WHERE oid = to_regprocedure('public.admin_reject_profile(uuid,uuid,jsonb,text)')
+      AND prokind = 'p'
+  ) THEN
+    DROP PROCEDURE public.admin_reject_profile(uuid, uuid, jsonb, text);
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM pg_proc
+    WHERE oid = to_regprocedure('public.admin_force_unlock_profile(uuid,uuid,text)')
+      AND prokind = 'p'
+  ) THEN
+    DROP PROCEDURE public.admin_force_unlock_profile(uuid, uuid, text);
+  END IF;
+END
+$drop_admin_procedures$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- admin_approve_profile

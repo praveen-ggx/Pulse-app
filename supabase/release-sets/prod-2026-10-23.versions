@@ -12,5 +12,5 @@
 # populate_public_users_on_signup from pulse-unified-base) is remote-only and untouched.
 #
 # Verify before applying:  npx jest supabase/migrations/__tests__/prodRelease20261023Set.test.ts
-# sha256 923648affa24ffda9afa1aa93186dc88585a962b9d9291fd2b3cff896da6f751  20261022123845_individual_registration_type.sql
+# sha256 0ade0025927381e6262e783c5cb6d9ab25881c238eba7d141260e70c3dd4cb3f  20261022123845_individual_registration_type.sql
 20261022123845

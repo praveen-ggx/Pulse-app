@@ -56,6 +56,8 @@ const extraBlockList = [
   /\/dist-test-bundle\//,
   /\/android\/build\//,
   /\/ios\/build\//,
+  // Nested worktrees duplicate the app graph and OOM Metro / corrupt chunk fetches.
+  /\/\.worktrees\//,
 ];
 
 const { transformer, resolver } = config;

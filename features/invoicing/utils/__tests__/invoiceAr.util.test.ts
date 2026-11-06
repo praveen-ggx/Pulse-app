@@ -1,4 +1,4 @@
-import { applyArFilter, applyArSheetFilters, buildArBook, sortArSheet } from "../invoiceAr.util";
+import { applyArFilter, applyArSheetFilters, applyNoteDeltas, buildArBook, sortArSheet } from "../invoiceAr.util";
 
 const NOW = new Date("2026-11-03T00:00:00");
 
@@ -131,5 +131,79 @@ describe("buildArBook", () => {
     expect(filtered.map((row) => row.id)).toEqual(["a"]);
     const sorted = sortArSheet(book.lines, { column: "sales", direction: "desc" });
     expect(sorted.map((row) => row.id)).toEqual(["b", "a"]);
+  });
+
+  it("reconciles pending to issued invoice outstanding, not trip sales", () => {
+    const book = buildArBook(
+      [
+        trip({ id: "unpaid", internalId: "unpaid", sales: 3000, invoicedFlag: true }),
+        trip({ id: "partial", internalId: "partial", sales: 6000, invoicedFlag: true }),
+        trip({ id: "settled", internalId: "settled", sales: 2500, invoicedFlag: true }),
+        trip({ id: "open-trip", internalId: "open-trip", sales: 7000 }),
+        trip({ id: "draft-trip", internalId: "draft-trip", sales: 900, invoicedFlag: true }),
+        trip({ id: "cancelled-trip", internalId: "cancelled-trip", sales: 1500, invoicedFlag: true }),
+      ],
+      [
+        { invoiceNumber: "UNPAID", invoiceDate: "2026-11-01", dueDate: "2026-11-15", status: "sent", totalAmount: 3000, amountReceived: 0, tripIds: ["unpaid"] },
+        { invoiceNumber: "PARTIAL", invoiceDate: "2026-11-01", dueDate: "2026-11-15", status: "sent", totalAmount: 7080, amountReceived: 1020.41, tripIds: ["partial"] },
+        { invoiceNumber: "SETTLED", invoiceDate: "2026-11-01", dueDate: "2026-11-15", status: "sent", totalAmount: 2500, amountReceived: 2500, tripIds: ["settled"] },
+        { invoiceNumber: "DRAFT", invoiceDate: "2026-11-01", dueDate: null, status: "draft", totalAmount: 900, tripIds: ["draft-trip"] },
+        { invoiceNumber: "CANCELLED", invoiceDate: "2026-11-01", dueDate: null, status: "cancelled", totalAmount: 1500, tripIds: ["cancelled-trip"] },
+        { invoiceNumber: "MANUAL", invoiceDate: "2026-11-02", dueDate: "2026-11-20", status: "sent", totalAmount: 1180, amountReceived: 180, tripIds: [] },
+      ],
+      NOW,
+    );
+    const expected =
+      3000 +
+      (7080 - 1020.41) +
+      0 +
+      (1180 - 180);
+    expect(book.pending).toBeCloseTo(expected, 2);
+    expect(book.uninvoiced).toBe(7000 + 900 + 1500);
+    expect(book.lines.find((line) => line.lr === "MANUAL")?.pending).toBe(1000);
+    expect(book.lines.some((line) => line.lr === "DRAFT" || line.lr === "CANCELLED")).toBe(false);
+  });
+
+  it("reduces outstanding when a credit note is not already inside the invoice", () => {
+    const book = buildArBook(
+      [trip({ id: "a", internalId: "a", sales: 6000, invoicedFlag: true })],
+      [
+        {
+          invoiceNumber: "GST",
+          invoiceDate: "2026-11-01",
+          dueDate: "2026-11-15",
+          status: "sent",
+          totalAmount: 7080,
+          amountReceived: 0,
+          tripIds: ["a"],
+        },
+      ],
+      NOW,
+    );
+    const credited = applyNoteDeltas(book, new Map([["a", -1180]]));
+    expect(credited.pending).toBe(5900);
+  });
+
+  it("restores outstanding when a receipt is reversed", () => {
+    const invoice = {
+      invoiceNumber: "REV",
+      invoiceDate: "2026-11-01",
+      dueDate: "2026-11-15",
+      status: "sent",
+      totalAmount: 5310,
+      tripIds: ["fuel"],
+    };
+    const paid = buildArBook(
+      [trip({ id: "fuel", internalId: "fuel", sales: 4000, invoicedFlag: true })],
+      [{ ...invoice, amountReceived: 102.04 }],
+      NOW,
+    );
+    const reversed = buildArBook(
+      [trip({ id: "fuel", internalId: "fuel", sales: 4000, invoicedFlag: true })],
+      [{ ...invoice, amountReceived: 0 }],
+      NOW,
+    );
+    expect(paid.pending).toBeCloseTo(5310 - 102.04, 2);
+    expect(reversed.pending).toBe(5310);
   });
 });

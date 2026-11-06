@@ -1,0 +1,3 @@
+# Deploy load reused TRP100 after trip 999 because lpad(seq, 3) truncates.
+# Trip numbers now use format_org_local_seq_label, same plan as indent numbers.
+20271012125000

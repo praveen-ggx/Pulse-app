@@ -678,7 +678,7 @@ export async function updateWorkspaceKyc(
     if (fields.gst_not_applicable !== undefined) {
       patch.gst_not_applicable = fields.gst_not_applicable;
     }
-    if (clearingGstinForSkip) patch.gstin = null;
+    if (clearingGstinForSkip || fields.gstin === null || fields.gstin === "") patch.gstin = null;
     if (clearingCin) patch.cin = null;
     if (fields.address_line !== undefined) {
       patch.address_line = fields.address_line?.trim() || null;

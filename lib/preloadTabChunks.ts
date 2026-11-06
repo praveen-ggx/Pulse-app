@@ -3,11 +3,25 @@
  * (keeps preloadFinanceWarmup ↔ preloadRoutes acyclic).
  */
 const loaded = new Set<string>();
+const failed = new Set<string>();
 
 function preloadOnce(key: string, loader: () => Promise<unknown>): void {
-  if (loaded.has(key)) return;
+  if (loaded.has(key) || failed.has(key)) return;
   loaded.add(key);
-  void loader();
+  void loader().catch((err: unknown) => {
+    // Hover / idle warm-up must never surface as LogBox "Failed to fetch"
+    // when Metro is restarting, on the wrong port, or OOMing a chunk.
+    loaded.delete(key);
+    failed.add(key);
+    // Allow a later hover/press to retry after Metro recovers.
+    setTimeout(() => {
+      failed.delete(key);
+    }, 30_000);
+    if (__DEV__) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.debug(`[preload] ${key} skipped: ${message}`);
+    }
+  });
 }
 
 export type PreloadableTab = 'trips' | 'network' | 'finance';

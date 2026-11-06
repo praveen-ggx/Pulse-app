@@ -140,7 +140,7 @@ function ReceiptRows({
 function NoteRows({ notes, loading, onRetry }: { notes: WorkspaceNote[]; loading: boolean; onRetry: () => void }) {
   return (
     <>
-      <QueryState loading={loading} empty={!loading && notes.length === 0} emptyText="No notes on these trips yet." onRetry={onRetry} />
+      <QueryState loading={loading} error={null} empty={!loading && notes.length === 0} emptyText="No notes on these trips yet." onRetry={onRetry} />
       <DataTable
         columns={[
           { key: "date", label: "Date", width: 110, render: (row: WorkspaceNote) => formatDocDate(row.date) },

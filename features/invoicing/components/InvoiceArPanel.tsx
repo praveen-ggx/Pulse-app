@@ -29,8 +29,7 @@ import {
   arSheetChoices,
   buildArBook,
   sortArSheet,
-  tallyArLines,
-  type ArAgingScope,
+    type ArAgingScope,
   type ArBucket,
   type ArFilter,
   type ArKpi,
@@ -183,22 +182,6 @@ export function InvoiceArPanel({
       ),
     [invoices, rawBook, workspace.notes],
   );
-  const party = customerLedger.party;
-  const alignedBook = useMemo(() => {
-    if (!party) return book;
-    const lines = book.lines.map((line) => {
-      const sales = party.salesByTripId[line.internalId] ?? party.salesByTripId[line.id] ?? line.sales;
-      const received = party.paidByTripId[line.internalId] ?? party.paidByTripId[line.id] ?? 0;
-      return {
-        ...line,
-        sales,
-        received,
-        pending: Math.max(0, Math.round((sales - received) * 100) / 100),
-      };
-    });
-    const tallied = tallyArLines(lines);
-    return { ...tallied, sales: party.billed, received: party.received, pending: party.pending };
-  }, [book, party]);
   const openInvoices = useMemo(
     () => invoices.flatMap((invoice) => {
       const settled = receivedOf(invoice);
@@ -218,7 +201,7 @@ export function InvoiceArPanel({
     if (captureMode === "aging") {
       return agingBucket && invoice.bucket === agingBucket ? sum + invoice.balance : sum;
     }
-    if (pickedIds.length === 0 || pickedIds.includes(invoice.id)) return sum + invoice.balance;
+    if (pickedIds.includes(invoice.id)) return sum + invoice.balance;
     return sum;
   }, 0);
   const expected = expectedAfterTds(captureGross, tdsPercent);
@@ -247,7 +230,7 @@ export function InvoiceArPanel({
       }),
     [agingBucket, captureMode, cash, openInvoices, pickedIds, tds],
   );
-  const narrowed = useMemo(() => applyArFilter(alignedBook.lines, filter), [alignedBook.lines, filter]);
+  const narrowed = useMemo(() => applyArFilter(book.lines, filter), [book.lines, filter]);
   const rows = useMemo(
     () => sortArSheet(applyArSheetFilters(narrowed, sheetFilters), sheetSort),
     [narrowed, sheetFilters, sheetSort],
@@ -315,14 +298,30 @@ export function InvoiceArPanel({
     );
   }
 
-  const maxOpen = Math.max(1, ...AR_BUCKETS.map((bucket) => alignedBook.openAging[bucket.key]));
+  const maxOpen = Math.max(1, ...AR_BUCKETS.map((bucket) => book.openAging[bucket.key]));
   const maxUnbilled = Math.max(
     1,
-    ...AR_BUCKETS.map((bucket) => alignedBook.uninvoicedAging[bucket.key]),
+    ...AR_BUCKETS.map((bucket) => book.uninvoicedAging[bucket.key]),
   );
 
+  const selectionMissing = captureMode === "invoice" && pickedIds.length === 0;
+  const agingMissing = captureMode === "aging" && agingBucket == null;
+  const overAllocated = allocation.unapplied > 0.009;
   const recordReceipt = async () => {
-    if (!orgId || captureBusy || allocation.applied <= 0 || !canSettle) return;
+    if (!orgId || captureBusy || !canSettle) return;
+    if (selectionMissing) {
+      setCaptureNote("Select at least one invoice. A receipt is not applied until you do.");
+      return;
+    }
+    if (agingMissing) {
+      setCaptureNote("Choose an age bucket. Aging allocation stays inside that bucket.");
+      return;
+    }
+    if (overAllocated) {
+      setCaptureNote("The receipt is larger than the outstanding balance of the selected invoices.");
+      return;
+    }
+    if (allocation.applied <= 0) return;
     captureKey.current = captureKey.current ?? newFinanceKey("capture");
     setCaptureBusy(true);
     setCaptureNote(null);
@@ -408,12 +407,22 @@ export function InvoiceArPanel({
         <View style={styles.captureCopy}>
           <Text style={styles.cardTitle}>Receivable</Text>
           <Text style={styles.cardHint}>
-            {inr(alignedBook.pending)} open across {openInvoices.length} invoice{openInvoices.length === 1 ? "" : "s"}
+            {inr(book.pending)} open across {openInvoices.length} invoice{openInvoices.length === 1 ? "" : "s"}
             {clientTds.percent > 0
-              ? ` · expect ${inr(alignedBook.lines.reduce((sum, line) => sum + line.expectedBank, 0))} in bank after ${clientTds.percent}% TDS`
+              ? ` · expect ${inr(book.lines.reduce((sum, line) => sum + line.expectedBank, 0))} in bank after ${clientTds.percent}% TDS`
               : ""}
           </Text>
         </View>
+        <Pressable
+          style={styles.captureBtn}
+          onPress={() => setCaptureOpen(true)}
+          disabled={!canSettle}
+          accessibilityRole="button"
+          accessibilityLabel="Capture payment"
+          accessibilityState={{ disabled: !canSettle }}
+        >
+          <Text style={styles.captureBtnText}>Capture payment</Text>
+        </Pressable>
       </View>
       )}
       {captureNote ? <Text style={styles.captureNote}>{captureNote}</Text> : null}
@@ -440,8 +449,8 @@ export function InvoiceArPanel({
               <View style={styles.modeRow}>
                 {(
                   [
-                    ["invoice", "By invoice", "One invoice, or every open invoice"],
-                    ["aging", "By aging", "One age bucket, oldest due first"],
+                    ["invoice", "By invoice", "Only the invoices you select"],
+                    ["aging", "By aging", "Explicit bucket only. Oldest due in that bucket is cleared first."],
                   ] as const
                 ).map(([key, label, hint]) => {
                   const on = captureMode === key;
@@ -562,7 +571,7 @@ export function InvoiceArPanel({
                         accessibilityState={{ selected: on }}
                       >
                         <Text style={styles.choiceName}>{bucket.label}</Text>
-                        <Text style={styles.cardHint}>{inr(alignedBook.openAging[bucket.key])} open</Text>
+                        <Text style={styles.cardHint}>{inr(book.openAging[bucket.key])} open</Text>
                       </Pressable>
                     );
                   })}
@@ -586,28 +595,40 @@ export function InvoiceArPanel({
                             )
                           }
                           accessibilityRole="checkbox"
+                          accessibilityLabel={`${on ? "Selected" : "Select"} ${invoice.number}, outstanding ${inr(invoice.balance)}`}
                           accessibilityState={{ checked: on }}
                         >
+                          <View style={[styles.invoiceCheck, on && styles.invoiceCheckOn]}>
+                            {on ? <Text style={styles.invoiceCheckMark}>✓</Text> : null}
+                          </View>
                           <Text style={styles.choiceName}>{invoice.number}</Text>
-                          <Text style={styles.figure}>{inr(invoice.balance)}</Text>
+                          <Text style={styles.figure}>{on ? "Selected" : "Not selected"} · {inr(invoice.balance)}</Text>
                         </Pressable>
                       );
                     })
                   )}
                   <Text style={styles.cardHint}>
                     {pickedIds.length === 0
-                      ? "None selected, so the receipt spreads across every open invoice, oldest due first."
-                      : `${pickedIds.length} selected. Oldest due is cleared first.`}
+                      ? "Select at least one invoice. Nothing is allocated until you do."
+                      : `${pickedIds.length} selected for ${clientName}. Oldest due is cleared first.`}
                   </Text>
                 </View>
               )}
               <View style={styles.summaryRow}>
-                <Text style={styles.choiceName}>Clears {inr(allocation.applied)}</Text>
+                <Text style={styles.choiceName}>Allocated {inr(allocation.applied)}</Text>
                 <Text style={styles.cardHint}>
-                  {tds > 0 ? `Bank ${inr(cash)} · TDS ${inr(tds)}` : `Bank ${inr(cash)}`}
-                  {allocation.unapplied > 0 ? ` · ${inr(allocation.unapplied)} above the open balance` : ""}
+                  {clientName} · {tds > 0 ? `Bank ${inr(cash)} · TDS ${inr(tds)}` : `Bank ${inr(cash)}`}
+                  {` · Unallocated ${inr(allocation.unapplied)}`}
                 </Text>
               </View>
+              {allocation.lines.map((line) => (
+                <View key={`breakdown-${line.id}`} style={styles.summaryRow}>
+                  <Text style={styles.allocLine}>{line.number}</Text>
+                  <Text style={styles.cardHint}>
+                    {`Outstanding ${inr(line.balance)} · Allocated ${inr(line.applied)} · Remaining ${inr(line.remaining)}`}
+                  </Text>
+                </View>
+              ))}
               {allocation.lines.filter((line) => line.applied > 0).map((line) => {
                 const anchors = tripsFor(line.id);
                 const preview = planTripReceive({
@@ -645,7 +666,7 @@ export function InvoiceArPanel({
                         <Pressable
                           style={styles.tripName}
                           onPress={() => {
-                            const row = alignedBook.lines.find(
+                            const row = book.lines.find(
                               (item) => item.internalId === slice.tripId || item.id === slice.tripId,
                             );
                             if (!row) return;
@@ -692,11 +713,11 @@ export function InvoiceArPanel({
             </ScrollView>
             <View style={styles.popupFoot}>
               <Pressable
-                style={[styles.captureBtn, (captureBusy || allocation.applied <= 0 || !orgId || !canSettle) && styles.captureOff]}
+                style={[styles.captureBtn, (captureBusy || allocation.applied <= 0 || overAllocated || selectionMissing || agingMissing || !orgId || !canSettle) && styles.captureOff]}
                 onPress={() => {
                   void recordReceipt();
                 }}
-                disabled={captureBusy || allocation.applied <= 0 || !orgId || !canSettle}
+                disabled={captureBusy || allocation.applied <= 0 || overAllocated || selectionMissing || agingMissing || !orgId || !canSettle}
                 accessibilityRole="button"
                 accessibilityLabel="Record receipt"
               >
@@ -710,7 +731,7 @@ export function InvoiceArPanel({
         orgId={orgId}
         clientName={clientName}
         trips={trips}
-        line={alignedBook.lines.find((line) => line.internalId === cnDnTripId) ?? null}
+        line={book.lines.find((line) => line.internalId === cnDnTripId) ?? null}
         edit={cnDnEdit}
         onEdit={setCnDnEdit}
         onClose={() => {
@@ -727,11 +748,11 @@ export function InvoiceArPanel({
       <View style={styles.kpiRow}>
         {(
           [
-            ["sales", "Sales", alignedBook.sales],
-            ["invoiced", "Invoiced", alignedBook.invoiced],
-            ["received", "Received", alignedBook.received],
-            ["pending", "Pending", alignedBook.pending],
-            ["uninvoiced", "Uninvoiced", alignedBook.uninvoiced],
+            ["sales", "Sales", book.sales],
+            ["invoiced", "Invoiced", book.invoiced],
+            ["received", "Received", book.received],
+            ["pending", "Pending", book.pending],
+            ["uninvoiced", "Uninvoiced", book.uninvoiced],
           ] as const
         ).map(([key, label, value]) => {
           const on = filter.kpi === key || (key === "sales" && filter.kpi == null && !filtering);
@@ -775,16 +796,16 @@ export function InvoiceArPanel({
               <Text style={styles.bucketLabel}>{bucket.label}</Text>
               <AgingBar
                 label="Open"
-                amount={alignedBook.openAging[bucket.key]}
-                width={alignedBook.openAging[bucket.key] / maxOpen}
+                amount={book.openAging[bucket.key]}
+                width={book.openAging[bucket.key] / maxOpen}
                 tone="open"
                 selected={filter.bucket === bucket.key && filter.agingScope === "open"}
                 onPress={() => toggleBucket(bucket.key, "open")}
               />
               <AgingBar
                 label="Uninvoiced"
-                amount={alignedBook.uninvoicedAging[bucket.key]}
-                width={alignedBook.uninvoicedAging[bucket.key] / maxUnbilled}
+                amount={book.uninvoicedAging[bucket.key]}
+                width={book.uninvoicedAging[bucket.key] / maxUnbilled}
                 tone="uninvoiced"
                 selected={
                   filter.bucket === bucket.key && filter.agingScope === "uninvoiced"
@@ -803,9 +824,9 @@ export function InvoiceArPanel({
           </View>
           <View style={styles.podList}>
           {(["received", "digital", "pending"] as const).map((pod) => {
-            const cell = alignedBook.uninvoicedPod[pod];
+            const cell = book.uninvoicedPod[pod];
             const on = filter.pod === pod;
-            const share = alignedBook.uninvoiced > 0 ? cell.amount / alignedBook.uninvoiced : 0;
+            const share = book.uninvoiced > 0 ? cell.amount / book.uninvoiced : 0;
             const tone = pod === "received" ? Theme.success : pod === "digital" ? Theme.primary : Theme.warning;
             return (
               <Pressable
@@ -838,7 +859,7 @@ export function InvoiceArPanel({
       <View style={styles.tableHead}>
         <Text style={styles.tableTitle}>
           {rows.length} trip{rows.length === 1 ? "" : "s"}
-          {filtering ? ` of ${alignedBook.lines.length}` : ""}
+          {filtering ? ` of ${book.lines.length}` : ""}
           {` · TDS ${inr(rows.reduce((sum, row) => sum + row.expectedTds, 0))} · To receive ${inr(rows.reduce((sum, row) => sum + row.expectedBank, 0))}`}
         </Text>
         {filtering ? (
@@ -1213,11 +1234,31 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    minHeight: 36,
+    gap: 8,
+    minHeight: 44,
     paddingHorizontal: 10,
     borderRadius: 8,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Theme.border,
+  },
+  invoiceCheck: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: Theme.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  invoiceCheckOn: {
+    borderColor: Theme.primary,
+    backgroundColor: Theme.primary,
+  },
+  invoiceCheckMark: {
+    color: Theme.buttonDarkText,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 14,
   },
   summaryRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
   allocLine: { fontSize: 12, fontWeight: "400", color: Theme.textPrimaryDark },

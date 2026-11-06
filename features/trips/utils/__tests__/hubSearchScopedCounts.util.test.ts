@@ -92,6 +92,46 @@ describe("resolveHubStructuralSearchMode", () => {
       }),
     ).toBe("indent_id");
   });
+
+  it("classifies LR from labels and provisional server hits", () => {
+    expect(
+      resolveHubStructuralSearchMode({
+        query: "AI1050",
+        tripMatches: [{ tripId: "t1", stage: "assigned", score: 100 }],
+        indentMatches: [],
+        tripsById: byId,
+        organizationId: "org",
+        lrLabelByTripId: { t1: "AI1050" },
+      }),
+    ).toBe("lr");
+
+    // Letter+digit server hit before LR labels hydrate.
+    expect(
+      resolveHubStructuralSearchMode({
+        query: "AI1050",
+        tripMatches: [{ tripId: "t1", stage: "assigned", score: 90 }],
+        indentMatches: [],
+        tripsById: byId,
+        organizationId: "org",
+        serverHitTripIds: new Set(["t1"]),
+      }),
+    ).toBe("lr");
+
+    // Vehicle plate still wins over provisional server LR.
+    expect(
+      resolveHubStructuralSearchMode({
+        query: "TN52AJ8388",
+        tripMatches: [
+          { tripId: "t1", stage: "assigned", score: 90 },
+          { tripId: "t2", stage: "in_transit", score: 90 },
+        ],
+        indentMatches: [],
+        tripsById: byId,
+        organizationId: "org",
+        serverHitTripIds: new Set(["t1", "t2"]),
+      }),
+    ).toBe("vehicle");
+  });
 });
 
 describe("buildHubSearchScopedCounts", () => {
@@ -197,5 +237,89 @@ describe("buildHubSearchScopedCounts", () => {
     expect(scoped.metricCounts.indent).toBe(1);
     expect(scoped.metricCounts.assigned).toBe(0);
     expect(scoped.activeAllCount).toBe(0);
+  });
+
+  it("lr: count 1 on owning stage like trip id (no auto-nav)", () => {
+    const withDriver = new Map([
+      [
+        "t1",
+        trip({
+          id: "t1",
+          status: "assigned",
+          driver_id: "d1",
+          vehicle_display_number: "TN52AJ8388",
+        }),
+      ],
+    ]);
+    const scoped = buildHubSearchScopedCounts({
+      mode: "lr",
+      query: "AI1050",
+      tripMatches: [{ tripId: "t1", stage: "assigned", score: 100 }],
+      indentMatches: [],
+      tripsById: withDriver,
+      lrLabelByTripId: { t1: "AI1050" },
+    });
+    expect(scoped.metricCounts.assigned).toBe(1);
+    expect(scoped.metricCounts.in_transit).toBe(0);
+    expect(scoped.metricCounts.indent).toBe(0);
+    expect(scoped.activeAllCount).toBe(1);
+    expect(scoped.matchingTripIds.has("t1")).toBe(true);
+    expect(scoped.highlightedTripMetrics.has("assigned")).toBe(true);
+    expect(scoped.highlightedTripMetrics.has("all")).toBe(true);
+  });
+
+  it("lr: provisional server hit scopes one trip before labels hydrate", () => {
+    const withDriver = new Map([
+      [
+        "t1",
+        trip({
+          id: "t1",
+          status: "assigned",
+          driver_id: "d1",
+        }),
+      ],
+    ]);
+    const scoped = buildHubSearchScopedCounts({
+      mode: "lr",
+      query: "AI1050",
+      tripMatches: [{ tripId: "t1", stage: "assigned", score: 90 }],
+      indentMatches: [],
+      tripsById: withDriver,
+      serverHitTripIds: new Set(["t1"]),
+    });
+    expect(scoped.matchingTripIds.has("t1")).toBe(true);
+    expect(scoped.metricCounts.assigned).toBe(1);
+  });
+
+  it("lr: delivered trip highlights Delivered only (others 0)", () => {
+    const withDriver = new Map([
+      [
+        "t3",
+        trip({
+          id: "t3",
+          status: "completed",
+          driver_id: "d1",
+        }),
+      ],
+    ]);
+    const scoped = buildHubSearchScopedCounts({
+      mode: "lr",
+      query: "AH2752",
+      tripMatches: [
+        { tripId: "t3", stage: "delivered_docs_pending", score: 100 },
+      ],
+      indentMatches: [],
+      tripsById: withDriver,
+      lrLabelByTripId: { t3: "AH2752" },
+    });
+    expect(scoped.metricCounts.delivered_docs_pending).toBe(1);
+    expect(scoped.metricCounts.assigned).toBe(0);
+    expect(scoped.metricCounts.in_transit).toBe(0);
+    expect(scoped.metricCounts.indent).toBe(0);
+    expect(scoped.historyCount).toBe(1);
+    expect(scoped.activeAllCount).toBe(0);
+    expect(scoped.highlightedTripMetrics.has("delivered_docs_pending")).toBe(
+      true,
+    );
   });
 });

@@ -4,7 +4,7 @@ import {
   bootstrapAssignmentFleet,
   peekAssignmentFleet,
   type AssignmentFleetSnapshot,
-} from "@/features/trips/utils/assignmentFleetBootstrap";
+} from "@/features/trips/utils/assignmentFleetBootstrap.util";
 import { formatIndianVehicleNumber } from "@/lib/format";
 import { formatPhoneForDisplay } from "@/lib/phoneLookup";
 import FontAwesome from "@expo/vector-icons/FontAwesome";

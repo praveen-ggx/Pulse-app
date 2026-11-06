@@ -191,7 +191,7 @@ export async function patchForComplianceChange(
     case "driverDocuments": {
       const trips = tripsUsingDriver(current, change.driverId);
       if (trips.length === 0) return identity;
-      const byTrip = await fetchDriverDocumentsForTrips(trips);
+      const byTrip = await fetchDriverDocumentsForTrips(trips, viewerOrgId);
       return (cur) => applyDriverDocuments(cur, byTrip);
     }
   }

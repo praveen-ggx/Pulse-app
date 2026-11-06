@@ -614,8 +614,6 @@ function RegistryFeedList({
   );
 }
 
-const TABS = FILTER_TABS;
-
 /** Metronic demo2 dropdown + privacy-settings chrome. */
 const METRONIC = {
   border: "#EFF2F5",

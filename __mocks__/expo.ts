@@ -6,6 +6,7 @@ jest.mock('expo-constants', () => ({
 
 jest.mock('expo-font', () => ({
   loadAsync: jest.fn(),
+  isLoaded: jest.fn(() => true),
 }));
 
 jest.mock(
@@ -23,3 +24,8 @@ jest.mock(
 jest.mock('expo-image-manipulator', () => ({
   manipulateAsync: jest.fn(() => Promise.resolve({ uri: 'mocked-image-uri', width: 100, height: 100 })),
 }));
+
+jest.mock('expo-document-picker', () => ({
+  getDocumentAsync: jest.fn(() => Promise.resolve({ canceled: true, assets: [] })),
+}));
+

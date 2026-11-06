@@ -35,6 +35,9 @@ export interface BundleTrip {
   organization_id: string;
   trip_number: string;
   display_trip_id: string | null;
+  /** Operational SAT… code — preferred by getTripOperationalDisplayCode. */
+  trip_operational_code?: string | null;
+  trip_code?: string | null;
   driver_display_trip_id: string | null;
   indent_id: string | null;
   source: string;
@@ -301,14 +304,65 @@ async function fetchTripAdjustmentsForLightBundle(
   return data as BundleAdjustment[];
 }
 
-/** Table-only trip row. Documents wait until Docs; ledger until Finance. */
+/**
+ * Table-only trip row (+ driver phone). Documents wait until Docs; ledger until
+ * Finance. Delivered / narrow-web first paint skips get_trip_detail_bundle, but
+ * still needs the assigned driver's phone — the full-bundle driver seed is
+ * otherwise null and bundleActive blocks the legacy getDriverById effect.
+ */
 async function composeLightTripDetailBundle(
   tripId: string,
   signal?: AbortSignal,
 ): Promise<TripDetailBundle | null> {
   const light = await fetchTripRowLight(tripId, signal);
   if (!light) return null;
-  return emptyBundleFromTrip(light);
+  const bundle = emptyBundleFromTrip(light);
+  const driverId = light.driver_id?.trim() || null;
+  if (!driverId) return bundle;
+
+  let phone: string | null = null;
+  try {
+    throwIfCancelled(signal);
+    const { data: rpcRows, error: rpcErr } = await supabase().rpc(
+      'get_trip_driver_phones',
+      { p_trip_ids: [light.id] },
+    );
+    throwIfCancelled(signal);
+    if (!rpcErr && rpcRows) {
+      for (const row of rpcRows as { trip_id: string; phone: string | null }[]) {
+        if (row.trip_id === light.id && row.phone) phone = row.phone.trim() || null;
+      }
+    } else {
+      const { data: driverRow } = await withAbortSignal(
+        supabase()
+          .from('drivers')
+          .select('phone')
+          .eq('id', driverId)
+          .maybeSingle(),
+        signal,
+      );
+      throwIfCancelled(signal);
+      phone = driverRow?.phone?.trim() || null;
+    }
+  } catch (err) {
+    throwIfCancelled(
+      signal,
+      err && typeof err === 'object'
+        ? (err as { message?: string; name?: string })
+        : null,
+    );
+  }
+
+  bundle.driver = {
+    id: driverId,
+    name: light.driver_display_name,
+    phone,
+    avatar_url: null,
+    avatar_seed: null,
+    user_id: null,
+    organization_id: light.organization_id,
+  };
+  return bundle;
 }
 
 export async function fetchLightTripDetailFinance(

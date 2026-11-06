@@ -259,26 +259,6 @@ export function formatVehicleTypeSelection(sel: VehicleTypeSelection): string {
   return `${sel.group} ${sel.type}`;
 }
 
-/**
- * Capacity shown inside the closed vehicle-type field. Not part of the stored
- * name, and not shown on the option tiles.
- */
-const SELECTED_FIELD_CAPACITY_MT: Record<string, string> = {
-  "Open 40 Feet": "20 MT",
-  "Container 32 Feet SXL": "7-9 MT",
-  "Container 32 Feet MXL": "15-18 MT",
-  "LCV Container 32 Feet SXL": "7-9 MT",
-};
-
-/** Stored catalog value plus its MT capacity, for the selected-field label only. */
-export function formatSelectedVehicleTypeLabel(value: string | null | undefined): string {
-  const raw = (value ?? "").replace(/\s+/g, " ").trim();
-  if (!raw) return "";
-  const capacity = SELECTED_FIELD_CAPACITY_MT[raw];
-  if (!capacity || raw.endsWith(capacity)) return raw;
-  return `${raw} · ${capacity}`;
-}
-
 /** Longest group names first so "LCV Open 8 Feet" isn't read as group "Open". */
 const GROUPS: VehicleGroupLabel[] = ["LCV Container", "LCV Open", "Car Carrier", "Container", "Trailer", "Tipper", "Tanker", "Bulker", "Reefer", "Open"];
 
@@ -294,6 +274,9 @@ export function parseVehicleTypeSelection(
   const type = raw.slice(group.length).trim();
   return vehicleTypesForGroup(group).includes(type) ? { group, type } : null;
 }
+
+/** Floor for entered load weight (MT). Catalog bands are capacity maxima, not required loads. */
+export const LOAD_WEIGHT_MIN_MT = 1;
 
 /** Numeric bounds of a passing ton label, e.g. "11-15 Ton" → {min: 11, max: 15}, "3 Ton" → {min: 3, max: 3}, "30+ Ton" → {min: 30, max: Infinity}. */
 export function passingTonRange(label: string | null | undefined): { min: number; max: number } | null {
@@ -320,6 +303,58 @@ export function vehicleTonRange(
   };
 }
 
+/**
+ * Capacity ceiling label from the catalog (passing-ton max), e.g. Open 40 Feet → "24 MT".
+ * Source of truth is `vehicleTonRange` — not a parallel hardcoded map.
+ */
+export function capacityMtLabelForVehicleType(
+  value: string | null | undefined,
+): string | null {
+  const range = vehicleTonRange(value);
+  if (!range) return null;
+  if (range.max === Infinity) return `${range.min}+ MT`;
+  if (!Number.isFinite(range.max)) return null;
+  return `${range.max} MT`;
+}
+
+/**
+ * Closed-field types that show a capacity suffix. The MT value always comes from
+ * `capacityMtLabelForVehicleType` (catalog max) — this set only preserves which
+ * labels were annotated before, so we don't suddenly suffix every single-band type.
+ */
+const SELECTED_FIELD_SHOWS_CAPACITY = new Set([
+  "Open 40 Feet",
+  "Container 32 Feet SXL",
+  "Container 32 Feet MXL",
+  "LCV Container 32 Feet SXL",
+]);
+
+/** Stored catalog value plus capacity ceiling for the closed field (curated types only). */
+export function formatSelectedVehicleTypeLabel(value: string | null | undefined): string {
+  const raw = (value ?? "").replace(/\s+/g, " ").trim();
+  if (!raw || !SELECTED_FIELD_SHOWS_CAPACITY.has(raw)) return raw;
+  const capacity = capacityMtLabelForVehicleType(raw);
+  if (!capacity || raw.endsWith(capacity)) return raw;
+  return `${raw} · ${capacity}`;
+}
+
+/**
+ * Allowed entered load weight: 1 MT through the capacity max.
+ * When `passingTon` is set, max is that band's ceiling ("Upto 10 MT" → 10);
+ * otherwise the vehicle type's highest catalog band.
+ */
+export function loadWeightAllowedRange(
+  vehicleType: string | null | undefined,
+  passingTon?: string | null,
+): { min: number; max: number } | null {
+  const picked = passingTon ? passingTonRange(passingTon) : null;
+  const vehicle = vehicleTonRange(vehicleType);
+  const max = picked?.max ?? vehicle?.max;
+  if (max == null) return null;
+  if (!Number.isFinite(max) && max !== Infinity) return null;
+  return { min: LOAD_WEIGHT_MIN_MT, max };
+}
+
 /** Passing ton of a vehicle type that contains `tons` (first match), for preselecting the picker. */
 export function passingTonForTons(
   sel: VehicleTypeSelection,
@@ -344,22 +379,31 @@ export function tonSuggestionsForRange(range: { min: number; max: number }): str
   return [...values].sort((a, b) => a - b).map((v) => String(v));
 }
 
-/** The vehicle's load range when `tons` falls outside it, else null. */
+/**
+ * Allowed load range when `tons` is outside 1 MT…capacity max, else null.
+ * Optional `passingTon` narrows the ceiling to that band (e.g. Upto 10 MT → 10).
+ */
 export function tonsOutsideVehicleRange(
   vehicleType: string | null | undefined,
   tons: string | null | undefined,
+  passingTon?: string | null,
 ): { min: number; max: number } | null {
   const raw = (tons ?? "").trim();
   if (!raw) return null;
   const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0) return null;
+  if (!Number.isFinite(n)) return null;
+  const allowed = loadWeightAllowedRange(vehicleType, passingTon);
+  if (!allowed) return null;
+  if (n < allowed.min || (Number.isFinite(allowed.max) && n > allowed.max)) {
+    return allowed;
+  }
   return null;
 }
 
 /**
  * Capacity to apply after a passing ton pick: the range max when `current` is
- * empty or outside the range, else null (keep the user's value). Accepts "10",
- * "10T", "10 TON".
+ * empty or outside 1…max, else null (keep the user's value). Accepts "10",
+ * "10T", "10 TON". Catalog band mins are not required loads.
  */
 export function capacityForPassingTon(
   passingTon: string | null | undefined,
@@ -368,7 +412,11 @@ export function capacityForPassingTon(
   const range = passingTonRange(passingTon);
   if (!range) return null;
   const n = Number((current ?? "").replace(/\s*(t|ton|tons)\s*$/i, "").trim());
-  const inRange = (current ?? "").trim() !== "" && Number.isFinite(n) && n >= range.min && (range.max === Infinity || n <= range.max);
+  const inRange =
+    (current ?? "").trim() !== "" &&
+    Number.isFinite(n) &&
+    n >= LOAD_WEIGHT_MIN_MT &&
+    (range.max === Infinity || n <= range.max);
   if (inRange) return null;
   return Number.isFinite(range.max) ? String(range.max) : String(range.min);
 }

@@ -1,11 +1,16 @@
 /** Format number as INR. */
 export function formatINR(value: number): string {
+  const n = Number(value);
+  // Whole rupees stay integer; per-MT products with paise keep up to 2 decimals
+  // so Finance Hub matches the stored client_price (e.g. ₹75,290.04).
+  const hasPaise =
+    Number.isFinite(n) && Math.abs(n - Math.round(n)) > 1e-9;
   const formatted = new Intl.NumberFormat('en-IN', {
     style: 'currency',
     currency: 'INR',
-    maximumFractionDigits: 0,
-    minimumFractionDigits: 0,
-  }).format(value);
+    maximumFractionDigits: hasPaise ? 2 : 0,
+    minimumFractionDigits: hasPaise ? 2 : 0,
+  }).format(Number.isFinite(n) ? n : value);
   // Intl emits "₹78,000" with no gap — add a space after the symbol for readability.
   return formatted.replace(/₹(?=\d)/g, '₹ ');
 }

@@ -2,6 +2,7 @@ import {
   capacityForPassingTon,
   formatSelectedVehicleTypeLabel,
   formatVehicleTypeSelection,
+  loadWeightAllowedRange,
   parseVehicleTypeSelection,
   passingTonForTons,
   tonSuggestionsForRange,
@@ -52,18 +53,72 @@ describe("vehicleTypeCatalog", () => {
     expect(vehicleTonRange("LCV Container 32 Feet SXL")).toEqual({ min: 7, max: 9 });
     expect(vehicleTonRange("Container 32 Feet MXL")).toEqual({ min: 15, max: 18 });
     expect(vehicleTonRange("Open 40 Feet")).toEqual({ min: 20, max: 24 });
-    expect(formatSelectedVehicleTypeLabel("Open 40 Feet")).toBe("Open 40 Feet · 20 MT");
-    expect(formatSelectedVehicleTypeLabel("Container 32 Feet SXL")).toBe("Container 32 Feet SXL · 7-9 MT");
-    expect(formatSelectedVehicleTypeLabel("Container 32 Feet MXL")).toBe("Container 32 Feet MXL · 15-18 MT");
+    // Single-band types: closed field shows catalog max (20-24 Ton → 24 MT), not a hardcoded 20.
+    expect(formatSelectedVehicleTypeLabel("Open 40 Feet")).toBe("Open 40 Feet · 24 MT");
+    expect(formatSelectedVehicleTypeLabel("Container 32 Feet SXL")).toBe(
+      "Container 32 Feet SXL · 9 MT",
+    );
+    expect(formatSelectedVehicleTypeLabel("Container 32 Feet MXL")).toBe(
+      "Container 32 Feet MXL · 18 MT",
+    );
+    // Multi-band types: no capacity suffix (user picks passing ton in the sheet).
     expect(formatSelectedVehicleTypeLabel("Open 20 Feet")).toBe("Open 20 Feet");
+    expect(loadWeightAllowedRange("Open 40 Feet", "20-24 Ton")).toEqual({
+      min: 1,
+      max: 24,
+    });
+    expect(tonsOutsideVehicleRange("Open 40 Feet", "22", "20-24 Ton")).toBeNull();
+    expect(tonsOutsideVehicleRange("Open 40 Feet", "24", "20-24 Ton")).toBeNull();
+    expect(tonsOutsideVehicleRange("Open 40 Feet", "25", "20-24 Ton")).toEqual({
+      min: 1,
+      max: 24,
+    });
   });
 
-  it("flags tons outside the vehicle range", () => {
-    expect(tonsOutsideVehicleRange("LCV Open 8 Feet", "2")).toBeNull();
+  it("allows load weight from 1 MT through capacity max (band min is not a floor)", () => {
+    // Container 22 Feet · Upto 10 MT → 1…10 (7 MT must pass; 7.5 band min is not required)
+    expect(loadWeightAllowedRange("Container 22 Feet", "7.5-10 Ton")).toEqual({
+      min: 1,
+      max: 10,
+    });
+    expect(tonsOutsideVehicleRange("Container 22 Feet", "7", "7.5-10 Ton")).toBeNull();
+    expect(tonsOutsideVehicleRange("Container 22 Feet", "1", "7.5-10 Ton")).toBeNull();
+    expect(tonsOutsideVehicleRange("Container 22 Feet", "10", "7.5-10 Ton")).toBeNull();
+    expect(tonsOutsideVehicleRange("Container 22 Feet", "0.5", "7.5-10 Ton")).toEqual({
+      min: 1,
+      max: 10,
+    });
+    expect(tonsOutsideVehicleRange("Container 22 Feet", "10.5", "7.5-10 Ton")).toEqual({
+      min: 1,
+      max: 10,
+    });
+
+    // Decimal loads within 1…max
+    expect(tonsOutsideVehicleRange("Container 22 Feet", "1.25", "7.5-10 Ton")).toBeNull();
+    expect(tonsOutsideVehicleRange("Container 22 Feet", "7.5", "7.5-10 Ton")).toBeNull();
+    expect(tonsOutsideVehicleRange("Container 22 Feet", "9.75", "7.5-10 Ton")).toBeNull();
+
+    // Upto 15 MT band on the same size
+    expect(loadWeightAllowedRange("Container 22 Feet", "11-15 Ton")).toEqual({
+      min: 1,
+      max: 15,
+    });
+    expect(tonsOutsideVehicleRange("Container 22 Feet", "12", "11-15 Ton")).toBeNull();
+    expect(tonsOutsideVehicleRange("Container 22 Feet", "16", "11-15 Ton")).toEqual({
+      min: 1,
+      max: 15,
+    });
+
+    // No passing ton → ceiling is the vehicle's highest band (15 for Container 22 Feet)
+    expect(loadWeightAllowedRange("Container 22 Feet")).toEqual({ min: 1, max: 15 });
+    expect(tonsOutsideVehicleRange("Container 22 Feet", "14")).toBeNull();
+    expect(tonsOutsideVehicleRange("Container 22 Feet", "16")).toEqual({ min: 1, max: 15 });
+
+    // Open 20 Feet max 15; LCV Open 8 Feet max 1; free-text vehicles skip catalog check
+    expect(tonsOutsideVehicleRange("Open 20 Feet", "7")).toBeNull();
     expect(tonsOutsideVehicleRange("LCV Open 8 Feet", "1")).toBeNull();
+    expect(tonsOutsideVehicleRange("LCV Open 8 Feet", "2")).toEqual({ min: 1, max: 1 });
     expect(tonsOutsideVehicleRange("Tata Ace", "50")).toBeNull();
-    expect(tonsOutsideVehicleRange("Open 20 Feet", "0")).toBeNull();
-    expect(tonsOutsideVehicleRange("Open 20 Feet", "-5")).toBeNull();
   });
 
   it("finds the passing ton that holds a load", () => {
@@ -76,11 +131,14 @@ describe("vehicleTypeCatalog", () => {
     expect(tonSuggestionsForRange({ min: 0.75, max: 1 })).toEqual(["0.75", "1"]);
   });
 
-  it("replaces capacity only when outside the picked passing ton", () => {
-    expect(capacityForPassingTon("7-10 Ton", "0.3")).toBe("10");
-    expect(capacityForPassingTon("7-10 Ton", "")).toBe("10");
+  it("replaces capacity only when outside 1…max (keeps values below the catalog band min)", () => {
+    expect(capacityForPassingTon("7.5-10 Ton", "7")).toBeNull();
+    expect(capacityForPassingTon("7.5-10 Ton", "1")).toBeNull();
+    expect(capacityForPassingTon("7.5-10 Ton", "0.3")).toBe("10");
+    expect(capacityForPassingTon("7.5-10 Ton", "")).toBe("10");
     expect(capacityForPassingTon("7-10 Ton", "8")).toBeNull();
     expect(capacityForPassingTon("7-10 Ton", "9 TON")).toBeNull();
+    expect(capacityForPassingTon("7.5-10 Ton", "11")).toBe("10");
     expect(capacityForPassingTon(null, "0.3")).toBeNull();
   });
 });

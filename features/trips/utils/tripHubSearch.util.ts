@@ -7,6 +7,28 @@ export function foldSearchToken(value: string): string {
   return value.toLowerCase().replace(/[\s\-_.]/g, "");
 }
 
+/**
+ * LR / E-LR numbers from trip_documents (comma-separated labels ok).
+ * Strong thresholds align with trip-code / vehicle structural search (≥80).
+ */
+export function scoreTripLrHubSearchMatch(
+  lrLabel: string | null | undefined,
+  query: string,
+): number {
+  const qFold = foldSearchToken(query.trim());
+  if (qFold.length < 2) return 0;
+  const raw = String(lrLabel ?? "").trim();
+  if (!raw) return 0;
+  let best = 0;
+  for (const part of raw.split(/[,;/|]+/)) {
+    const lr = foldSearchToken(part);
+    if (!lr) continue;
+    if (lr === qFold) best = Math.max(best, 100);
+    else if (lr.includes(qFold) || qFold.includes(lr)) best = Math.max(best, 85);
+  }
+  return best;
+}
+
 export type TripHubSearchExtras = {
   clientName?: string | null;
   supplierName?: string | null;

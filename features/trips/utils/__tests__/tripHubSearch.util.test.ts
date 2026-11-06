@@ -1,5 +1,8 @@
 import type { TripRow } from "@/features/trips/services/trips.service";
-import { tripMatchesHubSearch } from "@/features/trips/utils/tripHubSearch.util";
+import {
+  scoreTripLrHubSearchMatch,
+  tripMatchesHubSearch,
+} from "@/features/trips/utils/tripHubSearch.util";
 
 function trip(partial: Partial<TripRow> & Pick<TripRow, "id">): TripRow {
   return {
@@ -16,6 +19,16 @@ function trip(partial: Partial<TripRow> & Pick<TripRow, "id">): TripRow {
     ...partial,
   } as TripRow;
 }
+
+describe("scoreTripLrHubSearchMatch", () => {
+  it("scores exact and folded LR numbers as strong", () => {
+    expect(scoreTripLrHubSearchMatch("AI1050", "AI1050")).toBe(100);
+    expect(scoreTripLrHubSearchMatch("AI-1050", "ai1050")).toBe(100);
+    expect(scoreTripLrHubSearchMatch("AI1050, AI1051", "AI1050")).toBe(100);
+    expect(scoreTripLrHubSearchMatch("AI1050", "AI10")).toBe(85);
+    expect(scoreTripLrHubSearchMatch("", "AI1050")).toBe(0);
+  });
+});
 
 describe("tripMatchesHubSearch", () => {
   const row = trip({ id: "t1" });

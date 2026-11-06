@@ -69,6 +69,13 @@ jest.mock("@/lib/supabase", () => ({
         });
         return Promise.resolve({ data: rows, error: null });
       }
+      if (name === "get_compliance_driver_docs_for_trips") {
+        const ids = new Set(args.p_trip_ids as string[]);
+        const rows = (mockTables.compliance_driver_docs ?? []).filter((r) =>
+          ids.has(String(r.trip_id)),
+        );
+        return Promise.resolve({ data: rows, error: null });
+      }
       return Promise.resolve({ data: null, error: null });
     },
   }),
@@ -163,13 +170,69 @@ describe("initial load (full)", () => {
     expect(count("trip_documents")).toBeGreaterThanOrEqual(1);
     expect(count("transactions")).toBe(1);
     expect(count("get_compliance_vehicle_vault_for_trips")).toBe(1);
+    expect(count("get_compliance_driver_docs_for_trips")).toBe(1);
     expect(count("get_vehicle_for_trip_viewer")).toBe(0);
     expect(count("vehicles")).toBe(0); // every trip has a vehicle_id → no plate fallback
     expect(count("get_trips_for_org")).toBe(0);
+    expect(count("driver_kyc_documents")).toBe(0); // KYC is via authorized RPC, not direct table read
     const vault = mockOps.find((op) => op.name === "get_compliance_vehicle_vault_for_trips");
     expect(vault?.args).toEqual({ p_viewer_org_id: "org-1", p_trip_ids: ["t1", "t2", "t3"] });
+    const driverDocs = mockOps.find((op) => op.name === "get_compliance_driver_docs_for_trips");
+    expect(driverDocs?.args).toEqual({ p_viewer_org_id: "org-1", p_trip_ids: ["t1", "t2", "t3"] });
     // Partner truck v2's vault docs reach t3.
     expect(rows[2].vehicleDocuments.some((d) => d.doc_type === "rc")).toBe(true);
+  });
+});
+
+describe("driver-document refresh", () => {
+  it("re-reads DL via authorized RPC and updates every trip sharing that driver", async () => {
+    mockTables.compliance_driver_docs = [
+      {
+        trip_id: "t1",
+        driver_id: "d1",
+        doc_id: "kyc-lic-1",
+        doc_type: "license",
+        status: "verified",
+        storage_path: "drivers/d1/license.pdf",
+        expiry_date: null,
+        verified_at: "2026-09-01T00:00:00.000Z",
+        notes: "DL",
+        created_at: "2026-09-01T00:00:00.000Z",
+        source: "driver-kyc",
+      },
+      {
+        trip_id: "t3",
+        driver_id: "d1",
+        doc_id: "kyc-lic-1",
+        doc_type: "license",
+        status: "verified",
+        storage_path: "drivers/d1/license.pdf",
+        expiry_date: null,
+        verified_at: "2026-09-01T00:00:00.000Z",
+        notes: "DL",
+        created_at: "2026-09-01T00:00:00.000Z",
+        source: "driver-kyc",
+      },
+    ];
+    const patch = await patchForComplianceChange(
+      loaded,
+      { type: "driverDocuments", driverId: "d1" },
+      "org-1",
+    );
+    const next = patch(loaded);
+    expect(count("get_compliance_driver_docs_for_trips")).toBe(1);
+    expect(count("driver_kyc_documents")).toBe(0);
+    expect(
+      next[0].driverDocuments.some(
+        (d) => d.doc_type === "license" && d.storage_path === "drivers/d1/license.pdf",
+      ),
+    ).toBe(true);
+    expect(
+      next[2].driverDocuments.some(
+        (d) => d.doc_type === "license" && d.storage_path === "drivers/d1/license.pdf",
+      ),
+    ).toBe(true);
+    expect(next[1]).toBe(loaded[1]);
   });
 });
 

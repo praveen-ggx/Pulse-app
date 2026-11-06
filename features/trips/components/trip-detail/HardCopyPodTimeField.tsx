@@ -17,11 +17,25 @@ import {
   View,
 } from "react-native";
 
-const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
-const MINUTES = Array.from({ length: 12 }, (_, index) => index * 5);
+const HOURS_24 = Array.from({ length: 24 }, (_, hour) => hour);
+const HOURS_12 = Array.from({ length: 12 }, (_, index) => index + 1);
+const PERIODS = ["AM", "PM"] as const;
+const MINUTES_5 = Array.from({ length: 12 }, (_, index) => index * 5);
+const MINUTES_1 = Array.from({ length: 60 }, (_, index) => index);
 
 function pad(value: number): string {
   return String(value).padStart(2, "0");
+}
+
+function to12Hour(hour24: number): { hour: number; period: "AM" | "PM" } {
+  const period = hour24 >= 12 ? "PM" : "AM";
+  const hour = hour24 % 12 || 12;
+  return { hour, period };
+}
+
+function to24Hour(hour12: number, period: "AM" | "PM"): number {
+  const base = hour12 === 12 ? 0 : hour12;
+  return period === "PM" ? base + 12 : base;
 }
 
 export function parseHm(value: string): { hour: number; minute: number } | null {
@@ -37,12 +51,14 @@ export function formatHm(hour: number, minute: number): string {
   return `${pad(hour)}:${pad(minute)}`;
 }
 
-function formatDisplay(value: string): string {
+function formatDisplay(value: string, hour12: boolean): string {
   const parsed = parseHm(value);
   if (!parsed) return "";
-  const date = new Date();
-  date.setHours(parsed.hour, parsed.minute, 0, 0);
-  return date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+  if (!hour12) {
+    return formatHm(parsed.hour, parsed.minute);
+  }
+  const { hour, period } = to12Hour(parsed.hour);
+  return `${pad(hour)}:${pad(parsed.minute)} ${period}`;
 }
 
 function toPickerDate(value: string): Date {
@@ -61,7 +77,13 @@ export function HardCopyPodTimeField({
   disabled = false,
   compact = false,
   quiet = false,
-  placeholder = "HH:MM",
+  placeholder,
+  minTime,
+  allowClear = true,
+  /** When true, shell + picker use 12-hour AM/PM (still stores HH:MM 24h). */
+  hour12 = false,
+  /** Minute column step. Journey Log uses 1 (00–59); hard-copy POD stays on 5. */
+  minuteStep = 5,
 }: {
   label: string;
   value: string;
@@ -72,6 +94,11 @@ export function HardCopyPodTimeField({
   compact?: boolean;
   quiet?: boolean;
   placeholder?: string;
+  /** HH:MM — earlier slots are disabled (same-day floor). */
+  minTime?: string;
+  allowClear?: boolean;
+  hour12?: boolean;
+  minuteStep?: 1 | 5;
 }) {
   const [open, setOpen] = useState(false);
   const fieldId = useId();
@@ -80,13 +107,30 @@ export function HardCopyPodTimeField({
   const dense = compact || quiet;
   const hour = parsed?.hour ?? new Date().getHours();
   const minute = parsed?.minute ?? 0;
+  const clock12 = to12Hour(hour);
+  const displayPlaceholder = placeholder ?? (hour12 ? "hh:mm AM/PM" : "HH:MM");
+  const baseMinutes = minuteStep === 1 ? MINUTES_1 : MINUTES_5;
   const minuteChoices = useMemo(() => {
-    if (MINUTES.includes(minute)) return MINUTES;
-    return [...MINUTES, minute].sort((a, b) => a - b);
-  }, [minute]);
+    if (baseMinutes.includes(minute)) return baseMinutes;
+    return [...baseMinutes, minute].sort((a, b) => a - b);
+  }, [baseMinutes, minute]);
 
   const close = () => setOpen(false);
-  const pick = (nextHour: number, nextMinute: number) => onChange(formatHm(nextHour, nextMinute));
+  const minParsed = parseHm(minTime ?? "");
+  const isBeforeMin = (nextHour: number, nextMinute: number) => {
+    if (!minParsed) return false;
+    return (
+      nextHour < minParsed.hour ||
+      (nextHour === minParsed.hour && nextMinute < minParsed.minute)
+    );
+  };
+  const pick = (nextHour: number, nextMinute: number) => {
+    if (isBeforeMin(nextHour, nextMinute)) return;
+    onChange(formatHm(nextHour, nextMinute));
+  };
+  const pick12 = (hour12Value: number, nextMinute: number, period: "AM" | "PM") => {
+    pick(to24Hour(hour12Value, period), nextMinute);
+  };
 
   return (
     <View style={[styles.field, dense && styles.fieldCompact]}>
@@ -123,7 +167,7 @@ export function HardCopyPodTimeField({
             !parsed && styles.placeholder,
           ]}
         >
-          {parsed ? formatDisplay(value) : placeholder}
+          {parsed ? formatDisplay(value, hour12) : displayPlaceholder}
         </Text>
         <Clock size={dense ? 14 : 16} color={Theme.textMuted} strokeWidth={2} />
       </Pressable>
@@ -137,55 +181,185 @@ export function HardCopyPodTimeField({
         <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
           <View style={styles.overlay}>
             <Pressable style={styles.dismiss} onPress={close} accessibilityLabel="Close time picker" />
-            <View style={styles.popover} accessibilityRole="none">
+            <View
+              style={[styles.popover, hour12 && styles.popoverWide]}
+              accessibilityRole="none"
+            >
               <View style={styles.popoverHead}>
                 <Text style={styles.popoverKicker}>Time</Text>
                 <Text style={styles.popoverTitle}>{label}</Text>
               </View>
               <View style={styles.columns}>
-                <ScrollView style={styles.column} contentContainerStyle={styles.columnContent}>
-                  {HOURS.map((item) => {
-                    const selected = item === hour;
-                    return (
-                      <Pressable
-                        key={item}
-                        onPress={() => pick(item, minute)}
-                        style={[styles.slot, selected && styles.slotSelected]}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected }}
-                      >
-                        <Text style={[styles.slotText, selected && styles.slotTextSelected]}>{pad(item)}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-                <ScrollView style={styles.column} contentContainerStyle={styles.columnContent}>
-                  {minuteChoices.map((item) => {
-                    const selected = item === minute;
-                    return (
-                      <Pressable
-                        key={item}
-                        onPress={() => pick(hour, item)}
-                        style={[styles.slot, selected && styles.slotSelected]}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected }}
-                      >
-                        <Text style={[styles.slotText, selected && styles.slotTextSelected]}>{pad(item)}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
+                {hour12 ? (
+                  <>
+                    <ScrollView style={styles.column} contentContainerStyle={styles.columnContent}>
+                      {HOURS_12.map((item) => {
+                        const selected = item === clock12.hour;
+                        const candidate24 = to24Hour(item, clock12.period);
+                        const hourDisabled =
+                          !!minParsed &&
+                          minuteChoices.every((m) => isBeforeMin(candidate24, m));
+                        return (
+                          <Pressable
+                            key={`h12-${item}`}
+                            onPress={() => {
+                              if (hourDisabled) return;
+                              const nextMinute = isBeforeMin(candidate24, minute)
+                                ? minParsed!.minute
+                                : minute;
+                              pick12(item, nextMinute, clock12.period);
+                            }}
+                            disabled={hourDisabled}
+                            style={[
+                              styles.slot,
+                              selected && styles.slotSelected,
+                              hourDisabled && { opacity: 0.35 },
+                            ]}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected, disabled: hourDisabled }}
+                          >
+                            <Text style={[styles.slotText, selected && styles.slotTextSelected]}>
+                              {pad(item)}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                    <ScrollView style={styles.column} contentContainerStyle={styles.columnContent}>
+                      {minuteChoices.map((item) => {
+                        const selected = item === minute;
+                        const minuteDisabled = isBeforeMin(hour, item);
+                        return (
+                          <Pressable
+                            key={`m-${item}`}
+                            onPress={() => pick(hour, item)}
+                            disabled={minuteDisabled}
+                            style={[
+                              styles.slot,
+                              selected && styles.slotSelected,
+                              minuteDisabled && { opacity: 0.35 },
+                            ]}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected, disabled: minuteDisabled }}
+                          >
+                            <Text style={[styles.slotText, selected && styles.slotTextSelected]}>
+                              {pad(item)}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                    <ScrollView style={styles.column} contentContainerStyle={styles.columnContent}>
+                      {PERIODS.map((period) => {
+                        const selected = period === clock12.period;
+                        const candidate24 = to24Hour(clock12.hour, period);
+                        const periodDisabled =
+                          !!minParsed &&
+                          minuteChoices.every((m) => isBeforeMin(candidate24, m));
+                        return (
+                          <Pressable
+                            key={period}
+                            onPress={() => {
+                              if (periodDisabled) return;
+                              const nextMinute = isBeforeMin(candidate24, minute)
+                                ? minParsed!.minute
+                                : minute;
+                              pick12(clock12.hour, nextMinute, period);
+                            }}
+                            disabled={periodDisabled}
+                            style={[
+                              styles.slot,
+                              selected && styles.slotSelected,
+                              periodDisabled && { opacity: 0.35 },
+                            ]}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected, disabled: periodDisabled }}
+                          >
+                            <Text style={[styles.slotText, selected && styles.slotTextSelected]}>
+                              {period}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                  </>
+                ) : (
+                  <>
+                    <ScrollView style={styles.column} contentContainerStyle={styles.columnContent}>
+                      {HOURS_24.map((item) => {
+                        const selected = item === hour;
+                        const hourDisabled =
+                          !!minParsed &&
+                          (item < minParsed.hour ||
+                            (item === minParsed.hour &&
+                              minuteChoices.every((m) => isBeforeMin(item, m))));
+                        return (
+                          <Pressable
+                            key={item}
+                            onPress={() => {
+                              if (hourDisabled) return;
+                              const nextMinute = isBeforeMin(item, minute)
+                                ? minParsed!.minute
+                                : minute;
+                              pick(item, nextMinute);
+                            }}
+                            disabled={hourDisabled}
+                            style={[
+                              styles.slot,
+                              selected && styles.slotSelected,
+                              hourDisabled && { opacity: 0.35 },
+                            ]}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected, disabled: hourDisabled }}
+                          >
+                            <Text style={[styles.slotText, selected && styles.slotTextSelected]}>
+                              {pad(item)}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                    <ScrollView style={styles.column} contentContainerStyle={styles.columnContent}>
+                      {minuteChoices.map((item) => {
+                        const selected = item === minute;
+                        const minuteDisabled = isBeforeMin(hour, item);
+                        return (
+                          <Pressable
+                            key={item}
+                            onPress={() => pick(hour, item)}
+                            disabled={minuteDisabled}
+                            style={[
+                              styles.slot,
+                              selected && styles.slotSelected,
+                              minuteDisabled && { opacity: 0.35 },
+                            ]}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected, disabled: minuteDisabled }}
+                          >
+                            <Text style={[styles.slotText, selected && styles.slotTextSelected]}>
+                              {pad(item)}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                  </>
+                )}
               </View>
               <View style={styles.footer}>
-                <Pressable
-                  onPress={() => {
-                    onChange("");
-                    close();
-                  }}
-                  hitSlop={8}
-                >
-                  <Text style={styles.clearText}>Clear</Text>
-                </Pressable>
+                {allowClear ? (
+                  <Pressable
+                    onPress={() => {
+                      onChange("");
+                      close();
+                    }}
+                    hitSlop={8}
+                  >
+                    <Text style={styles.clearText}>Clear</Text>
+                  </Pressable>
+                ) : (
+                  <View />
+                )}
                 <Pressable onPress={close} hitSlop={8}>
                   <Text style={styles.doneText}>Done</Text>
                 </Pressable>
@@ -200,7 +374,7 @@ export function HardCopyPodTimeField({
           value={toPickerDate(value)}
           mode="time"
           display="default"
-          is24Hour
+          is24Hour={!hour12}
           onChange={(event, date) => {
             setOpen(false);
             if (event.type === "set" && date) pick(date.getHours(), date.getMinutes());
@@ -213,15 +387,19 @@ export function HardCopyPodTimeField({
           <Pressable style={styles.sheetBackdrop} onPress={close}>
             <View style={styles.sheet} onStartShouldSetResponder={() => true}>
               <View style={styles.sheetHeader}>
-                <Pressable
-                  onPress={() => {
-                    onChange("");
-                    close();
-                  }}
-                  hitSlop={10}
-                >
-                  <Text style={styles.clearText}>Clear</Text>
-                </Pressable>
+                {allowClear ? (
+                  <Pressable
+                    onPress={() => {
+                      onChange("");
+                      close();
+                    }}
+                    hitSlop={10}
+                  >
+                    <Text style={styles.clearText}>Clear</Text>
+                  </Pressable>
+                ) : (
+                  <View style={{ width: 48 }} />
+                )}
                 <Text style={styles.sheetTitle}>{label}</Text>
                 <Pressable onPress={close} hitSlop={10}>
                   <Text style={styles.doneText}>Done</Text>
@@ -231,7 +409,7 @@ export function HardCopyPodTimeField({
                 value={toPickerDate(value)}
                 mode="time"
                 display="spinner"
-                is24Hour
+                is24Hour={!hour12}
                 onChange={(_, date) => date && pick(date.getHours(), date.getMinutes())}
               />
             </View>
@@ -336,6 +514,9 @@ const styles = StyleSheet.create({
         elevation: 8,
       },
     }),
+  },
+  popoverWide: {
+    maxWidth: 320,
   },
   popoverHead: {
     gap: 1,

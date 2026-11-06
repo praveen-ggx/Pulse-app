@@ -30,6 +30,21 @@ export type ComplianceVehicleVaultRow = {
   documents: VehicleDocuments | null;
 };
 
+/** Driver licence / Aadhaar for a compliance-visible trip (entity + KYC). */
+export type ComplianceDriverDocRow = {
+  trip_id: string;
+  driver_id: string;
+  doc_id: string;
+  doc_type: string;
+  status: string;
+  storage_path: string | null;
+  expiry_date: string | null;
+  verified_at: string | null;
+  notes: string | null;
+  created_at: string;
+  source: "entity" | "driver-kyc" | string;
+};
+
 export type ComplianceListTripFacts = {
   truckTypeByVehicleId: Record<string, string>;
   supplierNameByTripId: Record<string, string>;
@@ -49,7 +64,10 @@ function chunkIds(ids: string[]): string[][] {
 
 /** Calls `rpc` once per ≤1000-id chunk, sequentially (one call for any real list). */
 async function callBatchRpc<Row>(
-  rpc: "get_compliance_list_trip_facts" | "get_compliance_vehicle_vault_for_trips",
+  rpc:
+    | "get_compliance_list_trip_facts"
+    | "get_compliance_vehicle_vault_for_trips"
+    | "get_compliance_driver_docs_for_trips",
   viewerOrgId: string,
   tripIds: readonly string[],
 ): Promise<Row[]> {
@@ -76,6 +94,13 @@ export function fetchComplianceVehicleVaultForTrips(
   tripIds: readonly string[],
 ): Promise<ComplianceVehicleVaultRow[]> {
   return callBatchRpc<ComplianceVehicleVaultRow>("get_compliance_vehicle_vault_for_trips", viewerOrgId, tripIds);
+}
+
+export function fetchComplianceDriverDocsForTrips(
+  viewerOrgId: string,
+  tripIds: readonly string[],
+): Promise<ComplianceDriverDocRow[]> {
+  return callBatchRpc<ComplianceDriverDocRow>("get_compliance_driver_docs_for_trips", viewerOrgId, tripIds);
 }
 
 /**

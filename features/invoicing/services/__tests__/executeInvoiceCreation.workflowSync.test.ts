@@ -19,6 +19,7 @@ jest.mock('@/lib/supabase', () => ({
     from: mockFrom,
     rpc: mockRpc,
   }),
+  getSupabaseBaseUrl: () => 'http://127.0.0.1:54321',
 }));
 
 jest.mock('@/features/trips/services/tripWorkflow.service', () => ({

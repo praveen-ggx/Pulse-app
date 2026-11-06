@@ -2,13 +2,18 @@
  * Persist invoice drafts on public.invoices (status=draft).
  * Does not allocate INV/ serials. Drafts reserve trip_ids until cancelled or issued.
  */
-import { supabase } from "@/lib/supabase";
+import { getSupabaseBaseUrl, supabase } from "@/lib/supabase";
+import { refuseProductionInvoiceWrite } from "@/features/invoicing/utils/invoiceProductionWriteGuard.util";
 import { draftInvoiceNumber } from "@/features/invoicing/utils/invoiceLifecycle.util";
 import {
   alreadyInvoicedGuidance,
   planDraftSave,
   type GuardInvoice,
 } from "@/features/invoicing/utils/invoiceDuplicateGuard.util";
+
+function guardInvoiceWrite(): void {
+  refuseProductionInvoiceWrite(getSupabaseBaseUrl());
+}
 
 function toAppError(e: unknown): Error {
   return e instanceof Error ? e : new Error(String(e));
@@ -32,6 +37,7 @@ export async function saveInvoiceDraft(args: {
   invoiceNumber?: string | null;
 }): Promise<{ error: Error | null; draftId?: string; draftNumber?: string }> {
   try {
+    guardInvoiceWrite();
     if (args.tripIds.length === 0) {
       throw new Error("Select at least one eligible trip to save a draft.");
     }
@@ -97,6 +103,7 @@ export async function saveInvoiceDraftOnce(
   args: Parameters<typeof saveInvoiceDraft>[0] & { activeDraftId?: string | null },
 ): Promise<{ error: Error | null; draftId?: string; draftNumber?: string; reused?: boolean }> {
   try {
+    guardInvoiceWrite();
     const { data, error } = await supabase()
       .from("invoices")
       .select("id, invoice_number, trip_ids, status")
@@ -171,6 +178,7 @@ export async function updateInvoiceDraft(args: {
   totalAmount?: number;
 }): Promise<{ error: Error | null }> {
   try {
+    guardInvoiceWrite();
     const patch: Record<string, unknown> = {};
     if (args.invoiceDate !== undefined) patch.invoice_date = args.invoiceDate;
     if (args.dueDate !== undefined) patch.due_date = args.dueDate;
@@ -186,7 +194,7 @@ export async function updateInvoiceDraft(args: {
     if (Object.keys(patch).length === 0) return { error: null };
     const { error } = await supabase()
       .from("invoices")
-      .update(patch)
+      .update(patch as never)
       .eq("org_id", args.orgId)
       .eq("id", args.draftId)
       .eq("status", "draft");

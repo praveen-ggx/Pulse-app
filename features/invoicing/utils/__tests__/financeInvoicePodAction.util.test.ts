@@ -6,6 +6,7 @@ import {
   invoicePreviewExclusionNote,
   isInvoiceHardPodLoggable,
   isInvoiceWorkspaceSelectable,
+  isTripInvoiceableInWorkspace,
   summarizeInvoiceWorkspaceSelection,
   validateHardCopyPodReceiptSelection,
 } from "../financeInvoicePodAction.util";
@@ -49,6 +50,38 @@ describe("financeInvoicePodAction.util", () => {
       invoiced: false,
     });
     expect(after.invoiceable).toBe(true);
+  });
+
+  it("only the open draft's completed trips stay invoiceable while in draft", () => {
+    const drafted = state({
+      tripStatus: "completed",
+      policy: "none",
+      physicalPodReceived: false,
+      digitalPodPresent: false,
+      invoiced: false,
+      inDraft: true,
+    });
+    expect(drafted.invoiceable).toBe(false);
+    expect(
+      isTripInvoiceableInWorkspace({ state: drafted, onActiveDraft: true }),
+    ).toBe(true);
+    expect(
+      isTripInvoiceableInWorkspace({ state: drafted, onActiveDraft: false }),
+    ).toBe(false);
+    const incompleteDraft = state({
+      tripStatus: "in_transit",
+      policy: "none",
+      physicalPodReceived: false,
+      digitalPodPresent: false,
+      invoiced: false,
+      inDraft: true,
+    });
+    expect(
+      isTripInvoiceableInWorkspace({
+        state: incompleteDraft,
+        onActiveDraft: true,
+      }),
+    ).toBe(false);
   });
 
   it("POD ON blocks completed trips until hard-copy receipt", () => {
@@ -128,6 +161,32 @@ describe("financeInvoicePodAction.util", () => {
         physicalPodReceived: true,
       }),
     ).toBe(false);
+  });
+
+  it("counts an open draft trip as eligible when the workspace says it is invoiceable", () => {
+    const drafted = state({
+      tripStatus: "completed",
+      policy: "none",
+      physicalPodReceived: false,
+      digitalPodPresent: false,
+      invoiced: false,
+      inDraft: true,
+    });
+    expect(drafted.invoiceable).toBe(false);
+    const summary = summarizeInvoiceWorkspaceSelection([
+      {
+        selected: true,
+        state: drafted,
+        policy: "none",
+        physicalPodReceived: false,
+        workspaceInvoiceable: isTripInvoiceableInWorkspace({
+          state: drafted,
+          onActiveDraft: true,
+        }),
+      },
+    ]);
+    expect(summary.invoiceableCount).toBe(1);
+    expect(summary.blockedCount).toBe(0);
   });
 
   it("does not silently skip an invalid bulk POD trip", () => {

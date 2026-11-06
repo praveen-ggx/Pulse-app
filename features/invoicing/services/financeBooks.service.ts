@@ -4,7 +4,8 @@
  * a balance from invoice totals or from the trip ledger.
  */
 import type { CreditTreatment, InvoiceTaxProfile } from "@/features/invoicing/utils/creditNoteTax.util";
-import { supabase } from "@/lib/supabase";
+import { getSupabaseBaseUrl, supabase } from "@/lib/supabase";
+import { refuseProductionInvoiceWrite } from "@/features/invoicing/utils/invoiceProductionWriteGuard.util";
 import {
   invoicePaymentErrorMessage,
   invoicePaymentUnavailable,
@@ -464,6 +465,11 @@ export type RecordedReceipt = {
 };
 
 export async function recordCustomerReceipt(input: CustomerReceiptInput): Promise<{ error: string | null; receipt: RecordedReceipt | null }> {
+  try {
+    refuseProductionInvoiceWrite(getSupabaseBaseUrl());
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error), receipt: null };
+  }
   const { data, error } = await db().rpc("record_customer_receipt", {
     p_org_id: input.orgId,
     p_client_id: input.clientId,
@@ -1219,6 +1225,11 @@ export async function issueInvoiceCreditNote(input: {
   lines: { description: string; value: number; cgst?: number; sgst?: number; igst?: number }[];
   idempotencyKey: string;
 }): Promise<{ error: string | null; note: IssuedCreditNote | null }> {
+  try {
+    refuseProductionInvoiceWrite(getSupabaseBaseUrl());
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error), note: null };
+  }
   const { data, error } = await db().rpc("issue_invoice_credit_note", {
     p_org_id: input.orgId,
     p_invoice_id: input.invoiceId,

@@ -2,7 +2,8 @@
  * Credit notes, cancellation, ledger, bank matching, and invoice email history.
  * Balances stay on the payment RPCs. This file does not write invoice totals.
  */
-import { supabase } from "@/lib/supabase";
+import { getSupabaseBaseUrl, supabase } from "@/lib/supabase";
+import { refuseProductionInvoiceWrite } from "@/features/invoicing/utils/invoiceProductionWriteGuard.util";
 import {
   invoicePaymentErrorMessage,
   invoicePaymentUnavailable,
@@ -65,6 +66,11 @@ export async function issueCreditNote(input: {
   amount: number;
   idempotencyKey: string;
 }) {
+  try {
+    refuseProductionInvoiceWrite(getSupabaseBaseUrl());
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error), result: null };
+  }
   const { data, error } = await db().rpc("issue_invoice_credit_note", {
     p_org_id: input.orgId,
     p_invoice_id: input.invoiceId,
@@ -83,6 +89,11 @@ export async function cancelIssuedInvoice(input: {
   reason: string;
   idempotencyKey: string;
 }) {
+  try {
+    refuseProductionInvoiceWrite(getSupabaseBaseUrl());
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error), result: null };
+  }
   const { data, error } = await db().rpc("cancel_customer_invoice", {
     p_org_id: input.orgId,
     p_invoice_id: input.invoiceId,
@@ -94,6 +105,11 @@ export async function cancelIssuedInvoice(input: {
 }
 
 export async function importBankRows(orgId: string, rows: Record<string, string>[], key: string) {
+  try {
+    refuseProductionInvoiceWrite(getSupabaseBaseUrl());
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error), result: null };
+  }
   const { data, error } = await db().rpc("import_bank_statement", {
     p_org_id: orgId,
     p_rows: rows,
@@ -123,6 +139,11 @@ export async function recordInvoiceEmailRequest(input: {
 }
 
 export async function saveReminderRule(orgId: string, enabled: boolean) {
+  try {
+    refuseProductionInvoiceWrite(getSupabaseBaseUrl());
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
   const { error } = await db().rpc("save_invoice_reminder_rule", {
     p_org_id: orgId,
     p_enabled: enabled,

@@ -44,6 +44,7 @@ import {
   statementFileName,
   statementPeriodLabel,
 } from "@/features/invoicing/utils/financeDocuments.util";
+import { customerLedgerHeadlineSource } from "@/features/invoicing/utils/customerLedgerHeadline.util";
 import {
   downloadFinancePdf,
   exportFinanceCsv,
@@ -114,6 +115,7 @@ export function FinanceLedgerSection({
 
   const booksDown = query.data?.unavailable === true;
   const page = booksDown ? null : query.data?.data;
+  const headline = customerLedgerHeadlineSource(!booksDown);
   const rows = page?.rows ?? [];
 
   const exportCsv = async () => {
@@ -183,7 +185,7 @@ export function FinanceLedgerSection({
           </>
         }
       />
-      {customerLedger.party ? (
+      {headline === "trip" && customerLedger.party ? (
         <MetricRow>
           <Metric label="Billed" value={formatInr(customerLedger.party.billed)} />
           <Metric label="Received" value={formatInr(customerLedger.party.received)} />

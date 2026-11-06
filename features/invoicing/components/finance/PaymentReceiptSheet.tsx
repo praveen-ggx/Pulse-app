@@ -44,7 +44,7 @@ import { Text, View } from "react-native";
 export async function invalidateFinanceBalances(queryClient: ReturnType<typeof useQueryClient>, orgId: string) {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: financeBooksKeys.all(orgId) }),
-    ...FINANCE_BALANCE_KEY_PREFIXES.map((prefix) => queryClient.invalidateQueries({ queryKey: [prefix, orgId] })),
+    ...FINANCE_BALANCE_KEY_PREFIXES.map((prefix) => queryClient.invalidateQueries({ queryKey: [prefix] })),
   ]);
 }
 

@@ -114,6 +114,10 @@ export function InvoiceCaptureButton({
 
   const record = async () => {
     if (!orgId || busy || allocation.applied <= 0) return;
+    if (allocation.unapplied > 0.009) {
+      setNote("The receipt is larger than this invoice's outstanding balance.");
+      return;
+    }
     captureKey.current = captureKey.current ?? newFinanceKey("capture");
     setBusy(true);
     setNote(null);

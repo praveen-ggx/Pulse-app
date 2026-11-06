@@ -306,7 +306,11 @@ export const financeInvoiceWorkspaceStyles = StyleSheet.create({
   tabs: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    alignSelf: "stretch",
+    width: "100%",
+    maxWidth: "100%",
+    overflow: "hidden",
+    justifyContent: "flex-start",
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.surfaceBorder,
     paddingHorizontal: 8,
@@ -314,11 +318,18 @@ export const financeInvoiceWorkspaceStyles = StyleSheet.create({
     position: "relative",
     zIndex: 40,
   },
+  tabScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+    width: "100%",
+    minWidth: 0,
+    maxWidth: "100%",
+  },
   tabGroup: {
     flexDirection: "row",
     alignItems: "center",
-    flexShrink: 1,
-    minWidth: 0,
+    flexGrow: 0,
+    flexShrink: 0,
   },
   tabActions: {
     flexDirection: "row",
@@ -327,10 +338,11 @@ export const financeInvoiceWorkspaceStyles = StyleSheet.create({
     paddingRight: 4,
   },
   tab: {
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    minHeight: 36,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minHeight: 44,
     justifyContent: "center",
+    flexShrink: 0,
   },
   tabLabel: {
     fontSize: FinanceWs.body,
@@ -396,9 +408,16 @@ export const financeInvoiceWorkspaceStyles = StyleSheet.create({
     backgroundColor: Theme.surface,
   },
   pillPending: {
-    backgroundColor: Theme.surface,
+    backgroundColor: Theme.warningMuted,
+    borderColor: Theme.warning,
+  },
+  pillPendingText: {
+    color: Theme.warning,
   },
   pillBlocked: {
     backgroundColor: Theme.surface,
+  },
+  pillBlockedText: {
+    color: Theme.textPrimaryDark,
   },
 });

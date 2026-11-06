@@ -16,6 +16,7 @@ import {
   resolveInvoiceTripDriverName,
   resolveInvoiceTripLrNumber,
   resolveInvoiceTripSupplierName,
+  invoiceTripSearchIncludesDisplayedNumber,
   tripListLrLabel,
 } from "../invoiceTripOperational.util";
 
@@ -33,6 +34,13 @@ describe("invoiceTripOperational.util", () => {
     expect(tripListLrLabel({ id: "uuid-1", lr_number: null, trip_number: null })).toBe(
       "—",
     );
+  });
+
+  it("matches the serial trip number shown when a trip has no LR", () => {
+    const trip = { id: "uuid-1", lr_number: null, trip_number: "INV-T-OPEN" };
+    expect(invoiceTripSearchIncludesDisplayedNumber(trip, "INV-T-OPEN")).toBe(true);
+    expect(invoiceTripSearchIncludesDisplayedNumber(trip, "lr# inv-t-open")).toBe(true);
+    expect(invoiceTripSearchIncludesDisplayedNumber(trip, "INV-T-FUEL")).toBe(false);
   });
 
   it("uses Core driver display name when present", () => {

@@ -18958,6 +18958,30 @@ export type Database = {
         Args: { p_limit?: number; p_org_id: string; p_since: string }
         Returns: Json
       }
+      list_org_hub_trips_keyset: {
+        Args: {
+          p_org_id: string
+          p_limit?: number
+          p_before_created_at?: string | null
+          p_before_id?: string | null
+          p_from?: string | null
+          p_to?: string | null
+          p_bucket?: string
+          p_side?: string
+          p_supplier_id?: string | null
+          p_supplier_name?: string | null
+          p_vehicle_id?: string | null
+          p_vehicle_norm?: string | null
+          p_supply?: string
+          p_attributed?: string
+          p_client_id?: string | null
+          p_driver_id?: string | null
+          p_payment?: string
+          p_load_type?: string | null
+          p_compliance?: boolean
+        }
+        Returns: Json
+      }
       get_trips_for_org: {
         Args: {
           p_org_id: string

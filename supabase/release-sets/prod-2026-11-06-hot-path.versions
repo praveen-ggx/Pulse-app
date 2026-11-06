@@ -1,0 +1,7 @@
+# Hot-path production release. Index SQL is applied by hand, outside schema_migrations.
+# The only migration version this set may introduce is 20271106053100.
+# Apply indexes from supabase/release-manual/20271106053000_hot_path_indexes_concurrent.sql first.
+# Do not mark that index script applied. The function migration checks the indexes itself.
+# sha256 of the function migration is recorded below.
+# sha256 5f26ee4d7501bd1b954a3cc3ce49f72255b79941491a00f50ae33f34fb57108f  20271106053100_hot_path_counts_functions.sql
+20271106053100

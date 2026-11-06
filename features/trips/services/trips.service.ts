@@ -499,34 +499,160 @@ export async function getTripsByOrganization(
   return { error: null, trips: processData(data) };
 }
 
+type HubKeysetCursor = { createdAt: string; id: string };
+
+const HUB_KEYSET_PAGE_SIZE = 100;
+const HUB_KEYSET_MAX_PAGES = 80;
+const TRIP_DELTA_PAGE_SIZE = 200;
+const TRIP_DELTA_MAX_PAGES = 40;
+
+function hubCount(value: unknown): number | null {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * One page of trips this org owns or carries. The installed function is the
+ * list; a missing function is an error, not an owner-only table scan.
+ */
+export async function getHubTripKeysetPage(
+  orgId: string,
+  opts?: {
+    limit?: number;
+    cursor?: HubKeysetCursor | null;
+    from?: string | null;
+    to?: string | null;
+    bucket?: "all" | "active" | "history" | "cancelled" | "closed";
+  },
+): Promise<{
+  error: Error | null;
+  trips: TripRow[];
+  nextCursor: HubKeysetCursor | null;
+  total: number | null;
+}> {
+  const empty = { trips: [] as TripRow[], nextCursor: null, total: null };
+  const limit = Math.min(HUB_KEYSET_PAGE_SIZE, Math.max(1, opts?.limit ?? HUB_KEYSET_PAGE_SIZE));
+  const dated = tripsForOrgRpcArgs(orgId, {
+    from: opts?.from ?? undefined,
+    to: opts?.to ?? undefined,
+  });
+  const { data, error } = await supabase().rpc("list_org_hub_trips_keyset", {
+    p_org_id: orgId,
+    p_limit: limit,
+    p_before_created_at: opts?.cursor?.createdAt ?? null,
+    p_before_id: opts?.cursor?.id ?? null,
+    p_from: dated.p_from ?? null,
+    p_to: dated.p_to ?? null,
+    p_bucket: opts?.bucket ?? "all",
+    p_side: "either",
+    p_supplier_id: null,
+    p_supplier_name: null,
+    p_vehicle_id: null,
+    p_vehicle_norm: null,
+    p_supply: "all",
+    p_attributed: "all",
+    p_client_id: null,
+    p_driver_id: null,
+    p_payment: "all",
+    p_load_type: null,
+    p_compliance: false,
+  });
+  if (error) return { ...empty, error: new Error(error.message) };
+  if (data == null || typeof data !== "object" || Array.isArray(data)) {
+    return { ...empty, error: new Error("Hub trips are not available for this organization.") };
+  }
+  const payload = data as Record<string, unknown>;
+  const rawRows = Array.isArray(payload.rows) ? payload.rows : [];
+  const trips = rawRows.map((row) =>
+    normalizeTripRowWithIndent(row as TripRow & { indents?: TripIndentJoin | null }),
+  );
+  const last = trips[trips.length - 1];
+  const nextCursor =
+    trips.length === limit && last?.created_at && last.id
+      ? { createdAt: String(last.created_at), id: String(last.id) }
+      : null;
+  return { error: null, trips, nextCursor, total: hubCount(payload.total) };
+}
+
+/** Every hub page for a date range. A short walk is an error, not a partial book. */
+export async function loadHubTripKeysetRange(
+  orgId: string,
+  opts?: { from?: string | null; to?: string | null },
+): Promise<{ error: Error | null; trips: TripRow[] }> {
+  const trips: TripRow[] = [];
+  const seen = new Set<string>();
+  let cursor: HubKeysetCursor | null = null;
+  let total: number | null = null;
+  for (let page = 0; page < HUB_KEYSET_MAX_PAGES; page += 1) {
+    const result = await getHubTripKeysetPage(orgId, { ...opts, cursor, limit: HUB_KEYSET_PAGE_SIZE });
+    if (result.error) return { error: result.error, trips: [] };
+    if (result.total == null) {
+      return { error: new Error("Hub trip count is unavailable."), trips: [] };
+    }
+    total = result.total;
+    for (const trip of result.trips) {
+      if (!trip.id || seen.has(trip.id)) {
+        return { error: new Error("Hub page cursor repeated a trip."), trips: [] };
+      }
+      seen.add(trip.id);
+    }
+    trips.push(...result.trips);
+    if (result.trips.length === 0 || trips.length >= total || !result.nextCursor) break;
+    cursor = result.nextCursor;
+  }
+  if (total == null || trips.length !== total) {
+    return {
+      error: new Error(`Hub trip list loaded ${trips.length} of ${total ?? "unknown"} trips.`),
+      trips: [],
+    };
+  }
+  return { error: null, trips };
+}
+
 export async function getTripsDelta(
   orgId: string,
   since: { updatedAt: string; tieBreakerId?: string | null },
 ): Promise<{ error: Error | null; delta: DeltaResponse<TripRow> }> {
-  const { data, error } = await supabase().rpc("get_trips_delta", {
-    p_org_id: orgId,
-    p_since: since.updatedAt,
-    p_limit: 1000,
-  });
-  if (error) {
-    return {
-      error: new Error(error.message),
-      delta: { changed: [], deletedIds: [], nextCursor: since },
-    };
-  }
-  const row = (Array.isArray(data) ? data[0] : data) as
-    | { changed?: TripRow[]; deleted_ids?: string[]; next_cursor?: string | null }
-    | null;
-  return {
-    error: null,
-    delta: {
-      changed: ((row?.changed ?? []) as TripRow[]).map((trip) =>
+  const empty = { changed: [] as TripRow[], deletedIds: [] as string[], nextCursor: since };
+  const changed: TripRow[] = [];
+  const deletedIds: string[] = [];
+  let cursor = since.updatedAt;
+  for (let page = 0; page < TRIP_DELTA_MAX_PAGES; page += 1) {
+    const { data, error } = await supabase().rpc("get_trips_delta", {
+      p_org_id: orgId,
+      p_since: cursor,
+      p_limit: TRIP_DELTA_PAGE_SIZE,
+    });
+    if (error) return { error: new Error(error.message), delta: empty };
+    const row = (Array.isArray(data) ? data[0] : data) as
+      | { changed?: TripRow[]; deleted_ids?: string[]; next_cursor?: string | null; has_more?: unknown }
+      | null;
+    if (row == null) return { error: null, delta: empty };
+    if (typeof row.has_more !== "boolean") {
+      return {
+        error: new Error("Trip delta is incomplete until get_trips_delta reports has_more."),
+        delta: empty,
+      };
+    }
+    changed.push(
+      ...((row.changed ?? []) as TripRow[]).map((trip) =>
         normalizeTripRowWithIndent(trip as TripRow & { indents?: TripIndentJoin | null }),
       ),
-      deletedIds: (row?.deleted_ids ?? []) as string[],
-      nextCursor: row?.next_cursor ? { updatedAt: row.next_cursor } : since,
-    },
-  };
+    );
+    deletedIds.push(...((row.deleted_ids ?? []) as string[]));
+    const next = typeof row.next_cursor === "string" && row.next_cursor.length > 0 ? row.next_cursor : null;
+    if (!row.has_more) {
+      return {
+        error: null,
+        delta: { changed, deletedIds, nextCursor: next ? { updatedAt: next } : since },
+      };
+    }
+    if (!next || next === cursor) {
+      return { error: new Error("Trip delta did not finish."), delta: empty };
+    }
+    cursor = next;
+  }
+  return { error: new Error("Trip delta did not finish."), delta: empty };
 }
 
 export async function syncTripsWithCache(

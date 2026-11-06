@@ -7,6 +7,11 @@
 ## Why
 - Related indents share `_pool_key(pickup|drop|vehicle)` only — `supplier_target` is not part of the pool. Grouped submit correctly writes one `market_bids` / `direct_quotes` row per member, but My Bids / Marketplace UI hid members after quote, so a load with a different shipper target could not be opened or revised alone.
 
+## How
+- After quote/bid, keep pool **member rows** visible (shipper target + your rate) instead of collapsing to a single pool card.
+- Add **View indents** / open-pool paths from Network bid pool + My Bids so the vendor can open the member list.
+- On `PooledOpportunityScreen`, allow **Quote/Revise on one member indent** without rewriting other members’ pending amounts; pool-wide revise still applies one rate to all eligible members.
+
 ## Areas
 - `features/network/components/pooled/NetworkBidPoolCard.tsx` — View indents
 - `features/network/components/pooled/NetworkBidPoolList.tsx` — open pool → member list

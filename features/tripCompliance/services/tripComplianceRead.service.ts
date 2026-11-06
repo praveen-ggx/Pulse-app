@@ -840,10 +840,6 @@ function paymentInputs(txns: { advance: RawTxnRow[]; balance: RawTxnRow[] } | un
   };
 }
 
-function orgIdOf(trips: TripRow[]): string | null {
-  return trips.find((trip) => trip.organization_id)?.organization_id ?? null;
-}
-
 /**
  * Batched read of every input for a set of trips — trip_documents + flags +
  * transactions + entity documents + Asset Vault vehicle JSON + driver KYC.
@@ -866,7 +862,7 @@ export async function fetchComplianceTripInputs(
       fetchHardCopyIbondTripIds(tripIds),
       fetchPodChargeWorkflowFlags(tripIds),
       fetchComplianceTransactions(tripIds),
-      fetchEntityDocumentsByIds(orgIdOf(trips), entityIds, ["vehicle", "driver"]),
+      fetchEntityDocumentsByIds(viewerOrgId, entityIds, ["vehicle", "driver"]),
       fetchVehicleVaultDocumentsForTrips(trips, viewerOrgId),
       fetchAuthorizedDriverDocumentsForTrips(trips, viewerOrgId),
     ]);
@@ -1029,7 +1025,7 @@ export async function fetchVehicleDocumentsForTrips(
   if (trips.length === 0) return byTrip;
   const vehicleIds = trips.map((trip) => trip.vehicle_id).filter((id): id is string => Boolean(id));
   const [entityDocsById, vault] = await Promise.all([
-    fetchEntityDocumentsByIds(orgIdOf(trips), vehicleIds, ["vehicle"]),
+    fetchEntityDocumentsByIds(viewerOrgId, vehicleIds, ["vehicle"]),
     fetchVehicleVaultDocumentsForTrips(trips, viewerOrgId),
   ]);
   for (const trip of trips) byTrip.set(trip.id, assembleVehicleDocuments(trip, entityDocsById, vault));
@@ -1045,7 +1041,7 @@ export async function fetchDriverDocumentsForTrips(
   if (trips.length === 0) return byTrip;
   const driverIds = trips.map((trip) => trip.driver_id).filter((id): id is string => Boolean(id));
   const [entityDocsById, authorized] = await Promise.all([
-    fetchEntityDocumentsByIds(orgIdOf(trips), driverIds, ["driver"]),
+    fetchEntityDocumentsByIds(viewerOrgId, driverIds, ["driver"]),
     fetchAuthorizedDriverDocumentsForTrips(trips, viewerOrgId),
   ]);
   for (const trip of trips) {

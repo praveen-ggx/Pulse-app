@@ -1,5 +1,20 @@
 # gowtham V1.0.37 — Driver / DCO operating-mode batch + booking_ref & offline market-hire
 
+## Flow checklist (one PR when every row is ☑ — per Vasanth)
+☐ not started · ◐ in progress · ☑ done and tested
+
+| # | Flow | DCO / Non-DCO | Status |
+|---|---|---|---|
+| A | Fleet trip | Non-DCO | ☐ |
+| B | Offline: hired by phone (OTP) | Both | ☐ |
+| C | Offline: supplier-tagged | Non-DCO | ☐ |
+| D | Marketplace trip | DCO | ☐ |
+| E | Own client: Self book | DCO | ☐ |
+| F | Own client: Independent book | Non-DCO | ☐ |
+| G | Become a DCO: leave fleet → KYC + PAN + bank proof → admin verifies → approve (existing approved DCOs untouched) | DCO | ◐ |
+
+Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" — OK?
+
 ## What
 - Driver app operating-mode / DCO Self batch: tab bar and driver home routes, trip flow / completed modal, multi-order job card, trip history, control / profile / party receivable / level screens, and related tests.
 - Operating-mode helpers and query wiring so Self / DCO / fleet surfaces pick the right book and gates.
@@ -7,26 +22,38 @@
 - Assigner display util + unit test; RBAC operating-model changelog note; DCO operating-model boundary SQL test updates.
 - Migration `20271103223000_booking_ref_skip_taken_refs`: booking_ref trigger skips refs already on `trips` and can walk past a lagged sequence (paid DCO award confirm failure).
 - Migration `20271103224500_dco_allow_offline_market_hire_trip`: allow Aggregate/market-hire FLEET trips to assign a `tracking_only` DCO driver (offline hire by phone); employee/fleet DCO assignment stays blocked.
+- Fleet disconnect: themed confirm warns about pending trip pay / open salary requests before leave; `leave_fleet` notifies the fleet org (`driver_disconnected` network inbox) and soft-closes driver membership; DCO request is refused while still employed (admin approve already required disconnect).
+- Fleet owner bell card for a driver who left reads "<Driver> left your fleet · Disconnected" (tag "Left fleet"); driver name from the payload, or parsed from the legacy "<Name> disconnected from your fleet" title.
+- DCO status screen: disconnect-first CTA (Wallet Self) then request; copy matches two-gate order (fleet leave → admin approve).
+- DCO now needs identity proofs: driver must submit KYC (Licence, Aadhaar, Selfie) before requesting DCO; admin can approve only after KYC is verified. DCO also needs PAN + bank proof (DCO-only, still optional for normal drivers); Driver Documents screen = driver documents only. DCO screen is a 4-step upgrade (leave fleet → identity docs reused → DCO docs PAN + bank proof uploaded inline → one "Submit for DCO approval" that also submits unsent identity KYC). Shared upload hook `features/drivers/hooks/useDriverKycDocUpload.ts`. Approved DCO with no vehicle: Market + DCO screens show "Add vehicle" (opens the add form) instead of "Manage my vehicle"; "Manage my vehicle" only once a vehicle exists. Admin KYC queue fills missing driver name/phone from profile (`get_driver_kyc_reviewer_profiles`) — DCO drivers have no fleet row, so it showed "Unknown driver". Self receivables: offline parties no longer borrow the trip owner org's logo (`partyAvatarLookup`); they show initials unless the client has its own photo / linked-org logo. Marketplace keeps the listing shipper logo. "Mark … fleet trip" wording → "party trip". "Verified DCO" badge (`components/driver/VerifiedDcoBadge.tsx`) for approved DCOs, shown once on Profile (hero, under the name) and on the DCO status card. Profile for a DCO: rank line reads "<tier> rank · <name> level" (so a level named "Verified" is not a second badge), DCO row is "DCO account", and the vehicle row is "MY VEHICLES · Manage my trucks" → My Fleet instead of "FLEET ASSIGNED". Already-verified drivers who upload DCO docs return to the admin KYC "Awaiting" queue with a "DCO docs" badge (`driver_kyc_review_queue.dco_docs_pending`). DCO screen shows a KYC step card; admin DCO panel shows KYC + DCO-doc status and disables Approve until all verified; Driver KYC panel can verify PAN/bank proof even for already-verified drivers.
 
 ## Why
 - Driver / DCO Self surfaces needed mode-aware UI and book routing so Self vs fleet work does not hit the wrong gates or books.
 - Lagged `booking_ref_seq` vs existing refs caused unique violations after paid DCO awards (“could not confirm your job after payment”).
 - Offline market hire of an approved DCO’s truck was refused as an employee-driver assignment even when the row was `tracking_only` on a market-hire trip.
+- Drivers were leaving fleets without a pending-pay warning or owner notification, and could request DCO while still employed; approval must follow disconnect + admin.
 
 ## Areas
 - `app/(driver)/**`, `components/driver/DriverTabBar.tsx`
 - `features/driver/**`, `features/drivers/**`, `features/dco-self/**`
 - `features/marketplace/services/exchangePayments.service.ts` (+ tests)
 - `features/trips/utils/driverAssignerDisplay.util.ts` (+ tests)
+- `features/drivers/utils/fleetDisconnectWarning.util.ts` (+ tests)
+- `features/network/services/networkNotifications.service.ts`, `networkNotificationLabels.util.ts`
+- `components/AlertRegistryPanel.tsx`, `lib/globalSync/registryFeed.util.ts`
 - `lib/queries/useDriverOperatingModeQuery.ts`
 - `docs/RBAC_OPERATING_MODEL_CHANGELOG.md`
 - `supabase/migrations/20271103223000_booking_ref_skip_taken_refs.sql`
 - `supabase/migrations/20271103224500_dco_allow_offline_market_hire_trip.sql`
+- `supabase/migrations/20271104103000_fleet_disconnect_notify_and_dco_request_gate.sql`
+- `supabase/migrations/20271104115500_dco_require_verified_kyc.sql`, `features/driver/components/DcoStatusScreen.tsx`, `lib/queryKeys.ts`, `analytics/src/lib/dco.ts`, `analytics/src/components/queue/DcoReviewPanel.tsx`, `analytics/src/components/queue/DriverKycPanel.tsx`, `analytics/src/lib/driverKyc.ts`, `features/drivers/screens/DriverDocumentsScreen.tsx`, `features/drivers/services/driverKycDocuments.service.ts`
 - `supabase/tests/dco_operating_model_boundary.sql`
 
 ## Migrations
 - `20271103223000_booking_ref_skip_taken_refs.sql`
 - `20271103224500_dco_allow_offline_market_hire_trip.sql`
+- `20271104103000_fleet_disconnect_notify_and_dco_request_gate.sql`
+- `20271104115500_dco_require_verified_kyc.sql`
 - Not applied from this branch. Nihas applies to preprod after merge; Vasanth applies to prod on release.
 
 ## Tested

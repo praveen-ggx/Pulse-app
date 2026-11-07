@@ -2441,13 +2441,12 @@ export default function DriverRadarScreen() {
   })();
   const sheetSnapPoints = useMemo(() => {
     if (canPeekSheetForMap && commerceOnMap) {
-      const peek = 112;
-      const mid = Math.round(screenHeight * 0.52);
-      const expanded = Math.max(
-        mid + 120,
-        screenHeight - insets.top - 88 - driverSheetBottomInset,
+      const peek = 96;
+      const dashboard = Math.max(
+        peek + 200,
+        screenHeight - insets.top - 72 - driverSheetBottomInset,
       );
-      return [peek, mid, expanded];
+      return [peek, dashboard];
     }
     if (canPeekSheetForMap) {
       const maxExpanded = Math.min(
@@ -5082,6 +5081,9 @@ export default function DriverRadarScreen() {
                     onToggleCollapse: expandMissionSheetFromPeek,
                   }
                 : {})}
+              onExpense={() => {
+                router.push(ROUTES.tripOtherExpenseEntry(activeMission.id) as Href);
+              }}
             />
           </>
         ) : effectiveFirstIncoming &&
@@ -5131,6 +5133,11 @@ export default function DriverRadarScreen() {
                     onToggleCollapse: expandMissionSheetFromPeek,
                   }
                 : {})}
+              onExpense={() => {
+                router.push(
+                  ROUTES.tripOtherExpenseEntry(effectiveFirstIncoming.id) as Href,
+                );
+              }}
             />
           </>
         ) : assignmentFeedback === "accepted" ? (

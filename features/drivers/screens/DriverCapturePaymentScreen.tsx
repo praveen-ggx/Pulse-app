@@ -25,7 +25,6 @@ import {
   isTripTaggedToParty,
   tripReceivablePartyName,
 } from "@/features/drivers/utils/driverPartyReceivables.util";
-import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import * as tripsService from "@/features/trips/services/trips.service";
 import { formatLedgerAmountInput } from "@/lib/format";
 import { PAYMENT_MODES } from "@/lib/paymentModes";

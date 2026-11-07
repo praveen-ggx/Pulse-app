@@ -20,6 +20,40 @@
 -- 1a. get_trips_for_org: filter trips by organization/supplier membership
 --     BEFORE the DISTINCT ON + correlated EXISTS subqueries, not after.
 -- ---------------------------------------------------------------------------
+-- Fresh replay reaches this statement before trips.supplier_trip_sequence
+-- (20261026000001) and before source_bid_id, owner_vehicle_id, operating_mode,
+-- dco_payee_id, the warehouse/sales-order columns, and their tables. Postgres
+-- validates this LANGUAGE sql body at creation, so omitting one column still
+-- fails. Later migrations replace get_trips_for_org, so this statement runs
+-- only when every named object already exists and is not reinstalled afterward.
+
+DO $guard$
+BEGIN
+  IF to_regclass('public.sales_orders') IS NULL
+     OR to_regclass('public.sales_order_lines') IS NULL
+     OR to_regclass('public.shipment_allocations') IS NULL
+     OR to_regclass('public.organization_member_warehouses') IS NULL
+     OR NOT EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'trips'
+         AND column_name IN (
+           'supplier_trip_sequence', 'source_bid_id', 'owner_vehicle_id',
+           'operating_mode', 'dco_payee_id'
+         )
+       HAVING count(*) = 5
+     )
+     OR NOT EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'indents'
+         AND column_name IN ('warehouse_id', 'sales_order_id', 'execution_plan_id')
+       HAVING count(*) = 3
+     )
+  THEN
+    RAISE NOTICE 'get_trips_for_org rewrite deferred: a column or table it selects does not exist yet';
+    RETURN;
+  END IF;
+
+  EXECUTE $historical_function$
 CREATE OR REPLACE FUNCTION public.get_trips_for_org(p_org_id uuid)
  RETURNS SETOF json
  LANGUAGE sql
@@ -182,6 +216,9 @@ AS $function$
   ORDER BY q.created_at DESC
   LIMIT 400;
 $function$;
+  $historical_function$;
+END
+$guard$;
 
 -- ---------------------------------------------------------------------------
 -- 1b. market_indents_for_org: check org membership BEFORE building/UNIONing
@@ -190,7 +227,7 @@ $function$;
 --     via_award / via_reach (each with its own joins) for a caller who turns
 --     out not to be a member at all.
 -- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.market_indents_for_org(p_org_id uuid)
+CREATE OR REPLACE FUNCTION public.market_indents_for_org(org_id uuid)
  RETURNS TABLE(id uuid, organization_id uuid, indent_number text, pickup_area text, drop_location text, client_name text, client_price numeric, supplier_target numeric, status text, vehicle_type text, load_type text, pickup_date date, circulation_target text, created_at timestamp with time zone, updated_at timestamp with time zone, creator_organization_name text, assigned_supplier_id uuid, assigned_supplier_rate numeric, weight numeric)
  LANGUAGE plpgsql
  STABLE SECURITY DEFINER
@@ -200,7 +237,7 @@ BEGIN
   -- Short-circuit before running any of the (expensive, multi-join) candidate
   -- CTEs below — a non-member gets zero rows without touching indents/suppliers/
   -- clients/reach_campaign_targets at all.
-  IF NOT public.is_org_staff(p_org_id) THEN
+  IF NOT public.is_org_staff(org_id) THEN
     RETURN;
   END IF;
 
@@ -209,13 +246,13 @@ BEGIN
   raw_relations AS (
     SELECT r.from_organization_id AS shipper_org_id, r.created_at AS link_since
     FROM public.organization_relations r
-    WHERE r.to_organization_id = p_org_id
+    WHERE r.to_organization_id = org_id
       AND r.relation_type = 'client_supplier'
       AND r.status = 'active'
     UNION ALL
     SELECT r.to_organization_id AS shipper_org_id, r.created_at AS link_since
     FROM public.organization_relations r
-    WHERE r.from_organization_id = p_org_id
+    WHERE r.from_organization_id = org_id
       AND r.relation_type = 'supplier_client'
       AND r.status = 'active'
   ),
@@ -227,18 +264,18 @@ BEGIN
   fallback_links AS (
     SELECT s.organization_id AS shipper_org_id, MIN(s.updated_at) AS link_since
     FROM public.suppliers s
-    WHERE s.linked_organization_id = p_org_id
+    WHERE s.linked_organization_id = org_id
       AND s.organization_id IS NOT NULL
-      AND s.organization_id <> p_org_id
+      AND s.organization_id <> org_id
     GROUP BY s.organization_id
   ),
   client_org_links AS (
     SELECT c.linked_organization_id AS shipper_org_id, MIN(c.created_at) AS link_since
     FROM public.clients c
-    WHERE c.organization_id = p_org_id
+    WHERE c.organization_id = org_id
       AND c.status = 'active'
       AND c.linked_organization_id IS NOT NULL
-      AND c.linked_organization_id <> p_org_id
+      AND c.linked_organization_id <> org_id
     GROUP BY c.linked_organization_id
   ),
   effective_links AS (
@@ -320,14 +357,14 @@ BEGIN
     JOIN public.organizations o ON o.id = i.organization_id
     WHERE i.deleted_at IS NULL
       AND i.status <> 'draft'
-      AND i.organization_id <> p_org_id
+      AND i.organization_id <> org_id
       AND (
-        i.assigned_supplier_id = p_org_id
+        i.assigned_supplier_id = org_id
         OR EXISTS (
           SELECT 1
           FROM public.direct_quotes dq
           WHERE dq.indent_id = i.id
-            AND dq.bidder_organization_id = p_org_id
+            AND dq.bidder_organization_id = org_id
             AND dq.status = 'accepted'
         )
       )
@@ -361,19 +398,19 @@ BEGIN
         (SELECT p.source_indent_id FROM public.posts p WHERE p.id = c.post_id)
       )
     JOIN public.organizations o ON o.id = i.organization_id
-    WHERE t.org_id = p_org_id
+    WHERE t.org_id = org_id
       AND t.released_at IS NOT NULL
       AND c.archived_at IS NULL
       AND i.deleted_at IS NULL
       AND i.status <> 'draft'
-      AND i.organization_id <> p_org_id
+      AND i.organization_id <> org_id
       AND (
         (c.status = 'active' AND (c.expires_at IS NULL OR c.expires_at > now()))
         OR EXISTS (
           SELECT 1
           FROM public.direct_quotes dq
           WHERE dq.indent_id = i.id
-            AND dq.bidder_organization_id = p_org_id
+            AND dq.bidder_organization_id = org_id
         )
       )
   )
@@ -433,28 +470,74 @@ SELECT cron.alter_job(
 
 -- cron-health-alert: keep at 10 min but offset by 3 minutes from the reach
 -- jobs below so they stop stacking on the exact same tick.
-SELECT cron.alter_job(
-  (SELECT jobid FROM cron.job WHERE jobname = 'cron-health-alert'),
-  schedule => '3-59/10 * * * *'
-);
+-- A fresh database has no such job. Do not create one; only reschedule it
+-- where it already exists.
+DO $$
+DECLARE
+  v_job_id bigint;
+BEGIN
+  SELECT jobid INTO v_job_id
+  FROM cron.job
+  WHERE jobname = 'cron-health-alert';
+
+  IF v_job_id IS NOT NULL THEN
+    PERFORM cron.alter_job(
+      v_job_id,
+      schedule => '3-59/10 * * * *'
+    );
+  END IF;
+END $$;
 
 -- reach_campaigns_pace: not an incident-response job — it is marketing
 -- campaign pacing. Move off the :00/:10/:20... offset shared with
 -- cron-health-alert so the two stop colliding.
-SELECT cron.alter_job(
-  (SELECT jobid FROM cron.job WHERE jobname = 'reach_campaigns_pace'),
-  schedule => '7-59/10 * * * *'
-);
+DO $$
+DECLARE
+  v_job_id bigint;
+BEGIN
+  SELECT jobid INTO v_job_id
+  FROM cron.job
+  WHERE jobname = 'reach_campaigns_pace';
+
+  IF v_job_id IS NOT NULL THEN
+    PERFORM cron.alter_job(
+      v_job_id,
+      schedule => '7-59/10 * * * *'
+    );
+  END IF;
+END $$;
 
 -- monitor-watchdog: 15 min, offset by 4 minutes.
-SELECT cron.alter_job(
-  (SELECT jobid FROM cron.job WHERE jobname = 'monitor-watchdog'),
-  schedule => '4-59/15 * * * *'
-);
+DO $$
+DECLARE
+  v_job_id bigint;
+BEGIN
+  SELECT jobid INTO v_job_id
+  FROM cron.job
+  WHERE jobname = 'monitor-watchdog';
+
+  IF v_job_id IS NOT NULL THEN
+    PERFORM cron.alter_job(
+      v_job_id,
+      schedule => '4-59/15 * * * *'
+    );
+  END IF;
+END $$;
 
 -- ops_capture_slow_queries: hourly is fine, but move off the top of the hour
 -- (:00) where it was colliding with every other job's shared minute-0 tick.
-SELECT cron.alter_job(
-  (SELECT jobid FROM cron.job WHERE jobname = 'ops_capture_slow_queries'),
-  schedule => '6 * * * *'
-);
+DO $$
+DECLARE
+  v_job_id bigint;
+BEGIN
+  SELECT jobid INTO v_job_id
+  FROM cron.job
+  WHERE jobname = 'ops_capture_slow_queries';
+
+  IF v_job_id IS NOT NULL THEN
+    PERFORM cron.alter_job(
+      v_job_id,
+      schedule => '6 * * * *'
+    );
+  END IF;
+END $$;

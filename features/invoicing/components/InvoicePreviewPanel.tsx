@@ -229,11 +229,27 @@ export function InvoicePreviewPanel({
     ],
   );
 
+  const billingIssuer = useMemo(() => {
+    if (!issuer) return null;
+    const billing = workspaceBilling.billing;
+    const gstin = billing.gstin.trim().toUpperCase();
+    const state = billing.state.trim();
+    const pan = billing.pan.trim().toUpperCase();
+    return {
+      ...issuer,
+      gstin: gstin || null,
+      state: state || null,
+      pan: pan || issuer.pan,
+      city: billing.city.trim() || issuer.city,
+      pincode: billing.pincode.trim() || issuer.pincode,
+    };
+  }, [issuer, workspaceBilling.billing]);
+
   const draft = useMemo(() => {
     if (externalDraft) return externalDraft;
-    if (!issuer || billingTrips.length === 0) return null;
+    if (!billingIssuer || billingTrips.length === 0) return null;
     return buildInvoiceDraftModel({
-      issuer,
+      issuer: billingIssuer,
       trips: billingTrips,
       config: invoiceConfig,
       previewDate,
@@ -244,10 +260,10 @@ export function InvoicePreviewPanel({
     });
   }, [
     activeClient,
+    billingIssuer,
     billingTrips,
     fetchedClients,
     invoiceConfig,
-    issuer,
     notes,
     paymentTerms,
     previewDate,
@@ -369,6 +385,11 @@ export function InvoicePreviewPanel({
     onPreview(params);
   };
 
+  const missingOrgGstin =
+    !frozen && includeGst && workspaceBilling.billing.gstin.trim().length === 0;
+  const missingOrgGstinNotice = missingOrgGstin
+    ? `The organization has no GSTIN. Add it before issuing a ${gstRate}% tax invoice.`
+    : null;
   const issueBlocked =
     !onIssue ||
     isIssuing ||
@@ -376,6 +397,7 @@ export function InvoicePreviewPanel({
     (!externalDraft && selectedTrips.length === 0) ||
     Boolean(invoiceBuildBlockedReason) ||
     Boolean(invoiceIssueBlockedReason) ||
+    Boolean(missingOrgGstinNotice) ||
     !draft ||
     draft.tax.status === "blocked";
 
@@ -681,7 +703,7 @@ export function InvoicePreviewPanel({
         onNotes={paperLocked || readOnly ? undefined : setNotes}
         readOnly={readOnly}
         totals={taxDisplay?.rows ?? []}
-        notice={taxDisplay?.warning}
+        notice={missingOrgGstinNotice ?? taxDisplay?.warning}
         totalValue={draft ? money(payableAmount) : "₹0.00"}
         widgets={[
           { label: "Balance due", value: draft ? money(payableAmount) : "₹0.00" },

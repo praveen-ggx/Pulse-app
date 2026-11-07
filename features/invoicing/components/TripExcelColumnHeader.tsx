@@ -177,7 +177,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    minHeight: 28,
+    minHeight: 44,
   },
   headLight: {
     borderWidth: 1,

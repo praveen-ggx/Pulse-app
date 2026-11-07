@@ -204,6 +204,12 @@ function mapDcoSelfWorkspace(row: {
   });
 }
 
+const ENSURE_DCO_WORKSPACE_UNAVAILABLE =
+  "DCO shipper book is not enabled on this environment yet. Point the app at preprod, or wait for the production migration. You can still save an offline shipper with name and phone.";
+
+/** Session cache: once PostgREST 404s the RPC, do not re-hit the network this boot. */
+let ensureDcoWorkspaceMissing = false;
+
 /**
  * Approved DCO: create/return the caller-owned Self workspace used for clients.
  * Server RPC is the only writer. No browser org insert and no "first membership" fallback.
@@ -212,14 +218,15 @@ export async function ensureDcoWorkspace(): Promise<{
   error: Error | null;
   organization: CurrentOrganization | null;
 }> {
+  if (ensureDcoWorkspaceMissing) {
+    return { error: new Error(ENSURE_DCO_WORKSPACE_UNAVAILABLE), organization: null };
+  }
   const { data, error } = await supabase().rpc("ensure_dco_workspace" as never);
   if (error) {
     const message = error.message ?? "";
     if (isMissingRpcError(error) || error.code === "42702" || /ambiguous/i.test(message)) {
       return {
-        error: new Error(
-          "DCO is approved, but this environment cannot create your shipper book yet. Refresh after it is enabled — you can save an offline shipper with name and phone, then complete GST later.",
-        ),
+        error: new Error(ENSURE_DCO_WORKSPACE_UNAVAILABLE),
         organization: null,
       };
     }
@@ -595,7 +602,7 @@ export async function updateWorkspaceKyc(
     if (fields.gst_not_applicable !== undefined) {
       patch.gst_not_applicable = fields.gst_not_applicable;
     }
-    if (clearingGstinForSkip) patch.gstin = null;
+    if (clearingGstinForSkip || fields.gstin === null || fields.gstin === "") patch.gstin = null;
     if (clearingCin) patch.cin = null;
     if (fields.address_line !== undefined) {
       patch.address_line = fields.address_line?.trim() || null;

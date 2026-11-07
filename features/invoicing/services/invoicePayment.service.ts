@@ -2,7 +2,8 @@
  * Invoice payment RPCs. Balances are returned by the database.
  * This service does not write invoices.status or invoices.total_amount.
  */
-import { supabase } from "@/lib/supabase";
+import { getSupabaseBaseUrl, supabase } from "@/lib/supabase";
+import { refuseProductionInvoiceWrite } from "@/features/invoicing/utils/invoiceProductionWriteGuard.util";
 import type { InvoicePaymentStatus } from "@/features/invoicing/utils/invoicePayment.util";
 
 export type InvoicePaymentSummary = {
@@ -244,6 +245,11 @@ export async function recordInvoicePayment(input: {
   idempotencyKey: string;
   allocations: { invoiceId: string; amount: number }[];
 }): Promise<{ error: string | null; payment: RecordedPayment | null }> {
+  try {
+    refuseProductionInvoiceWrite(getSupabaseBaseUrl());
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error), payment: null };
+  }
   const { data, error } = await db().rpc("record_invoice_payment", {
     p_org_id: input.orgId,
     p_client_id: input.clientId,

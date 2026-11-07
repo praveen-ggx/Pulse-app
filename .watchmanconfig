@@ -15,6 +15,7 @@
     ".claude",
     ".cursor",
     "android",
-    "ios"
+    "ios",
+    ".worktrees"
   ]
 }

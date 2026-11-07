@@ -26,7 +26,8 @@ import {
 import { INVOICE_TRIP_NOT_COMPLETED } from "@/features/invoicing/utils/financeWorkflowState.util";
 import { syncDomainRows } from "@/lib/cache/domainSync";
 import { mergeDeltaRows } from "@/lib/cache/mergeDelta";
-import { supabase } from "@/lib/supabase";
+import { getSupabaseBaseUrl, supabase } from "@/lib/supabase";
+import { refuseProductionInvoiceWrite } from "@/features/invoicing/utils/invoiceProductionWriteGuard.util";
 import { recordTripWorkflowEvent } from "@/features/trips/services/tripWorkflow.service";
 import {
   computeInvoiceTax,
@@ -278,6 +279,49 @@ export function computeInvoiceTotals(
     igst: 0,
     totalAmount: round2(subtotal + sgst + cgst),
   };
+}
+
+const INVOICE_AMOUNT_TOLERANCE = 0.02;
+
+/**
+ * Freight is the sum of trip prices loaded from the database.
+ * Tax may be intra-state or inter-state, and reverse charge may leave
+ * the payable total equal to the taxable base. Either form must add up.
+ */
+export function invoiceAmountMismatch(args: {
+  tripAmounts: number[];
+  additionalCharges?: { amount?: number }[];
+  includeFuel?: boolean;
+  fuelRate?: number;
+  subtotal: number;
+  sgst: number;
+  cgst: number;
+  igst: number;
+  totalAmount: number;
+}): string | null {
+  const freight = args.tripAmounts.reduce(
+    (sum, amount) => sum + (Number.isFinite(amount) ? amount : 0),
+    0,
+  );
+  const extras = (args.additionalCharges ?? []).reduce(
+    (sum, charge) => sum + (Number(charge.amount) || 0),
+    0,
+  );
+  const fuel = args.includeFuel ? freight * ((args.fuelRate ?? 0) / 100) : 0;
+  const expected = round2(freight + extras + fuel);
+  if (Math.abs(round2(args.subtotal) - expected) > INVOICE_AMOUNT_TOLERANCE) {
+    return "Invoice amount does not match the selected trip freight.";
+  }
+  const withTax = round2(args.subtotal + args.sgst + args.cgst + args.igst);
+  const total = round2(args.totalAmount);
+  const base = round2(args.subtotal);
+  if (
+    Math.abs(total - withTax) > INVOICE_AMOUNT_TOLERANCE &&
+    Math.abs(total - base) > INVOICE_AMOUNT_TOLERANCE
+  ) {
+    return "Invoice tax does not reconcile to the total.";
+  }
+  return null;
 }
 
 function toAppError(e: unknown): Error {
@@ -902,6 +946,7 @@ export async function executeInvoiceCreation(
   options?: ExecuteInvoiceOptions,
 ): Promise<{ error: Error | null; invoiceNumber?: string }> {
   try {
+    refuseProductionInvoiceWrite(getSupabaseBaseUrl());
     const sanitizedIds = Array.from(
       new Set(internalIds.filter((id) => Boolean(id) && isUuid(id))),
     );
@@ -990,6 +1035,18 @@ export async function executeInvoiceCreation(
       typeof calc?.totalAmount === "number" && Number.isFinite(calc.totalAmount)
         ? calc.totalAmount
         : computed.totalAmount;
+    const amountMismatch = invoiceAmountMismatch({
+      tripAmounts,
+      additionalCharges: payload?.additionalCharges,
+      includeFuel: payload?.includeFuel,
+      fuelRate: payload?.fuelRate,
+      subtotal,
+      sgst: sgstAmount,
+      cgst: cgstAmount,
+      igst: igstAmount,
+      totalAmount,
+    });
+    if (amountMismatch) throw new Error(amountMismatch);
 
     const clientIds = Array.from(
       new Set(
@@ -1040,7 +1097,7 @@ export async function executeInvoiceCreation(
           payload.idempotencyKey.trim()
             ? payload.idempotencyKey.trim()
             : null,
-      },
+      } as never,
     );
     if (issueError || issuedNumber == null || String(issuedNumber).trim() === "") {
       throw issueError

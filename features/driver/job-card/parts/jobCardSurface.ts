@@ -9,11 +9,11 @@ export const JOB_CARD_RADIUS = 16;
 
 /** Soft lift used instead of hairline borders on Commerce job-card cards. */
 export const softElevation: ViewStyle = Platform.select<ViewStyle>({
-  web: { boxShadow: '0 2px 10px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04)' } as ViewStyle,
+  web: { boxShadow: '0 2px 10px rgba(15, 23, 42, 0.05), 0 1px 2px rgba(15, 23, 42, 0.04)' } as ViewStyle,
   default: {
     shadowColor: Theme.shadow,
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },

@@ -27,6 +27,16 @@ describe("Invoice Issue action ownership (F1)", () => {
     "utf8",
   );
 
+  it("Create Invoice stays on the workspace and does not write a zero-GST draft", () => {
+    const start = executeSrc.indexOf("const handleCreateInvoice");
+    const end = executeSrc.indexOf("const persistTripInvoiceDraft");
+    const body = executeSrc.slice(start, end);
+    expect(body).toMatch(/setCreationStage\("configure"\)/);
+    expect(body).not.toMatch(/gstRate:\s*0/);
+    expect(body).not.toMatch(/INVOICING_EXECUTE_CREATE/);
+    expect(body).not.toMatch(/saveInvoiceDraftOnce/);
+  });
+
   it("Issue button exists in the execute-owned preview panel", () => {
     expect(documentSrc).toMatch(/accessibilityLabel="Issue Invoice"/);
     expect(documentSrc).toMatch(/Issue Invoice/);

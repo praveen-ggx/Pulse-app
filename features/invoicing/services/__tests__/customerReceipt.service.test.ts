@@ -5,7 +5,10 @@
  */
 const mockRpc = jest.fn();
 const mockFrom = jest.fn();
-jest.mock("@/lib/supabase", () => ({ supabase: () => ({ rpc: mockRpc, from: mockFrom }) }));
+jest.mock("@/lib/supabase", () => ({
+  supabase: () => ({ rpc: mockRpc, from: mockFrom }),
+  getSupabaseBaseUrl: () => "http://127.0.0.1:54321",
+}));
 const rpc = mockRpc;
 const from = mockFrom;
 jest.mock("@/features/finance/services/finance.service", () => ({ createLedgerEntry: jest.fn() }));

@@ -1,6 +1,6 @@
 import Theme from "@/constants/Theme";
 import type { InvoiceStyleEditor } from "@/features/invoicing/hooks/useInvoiceStyleEditor";
-import type { InvoiceWorkspaceBilling } from "@/features/invoicing/hooks/useInvoiceWorkspaceBilling";
+import type { InvoiceBillingField, InvoiceWorkspaceBilling } from "@/features/invoicing/hooks/useInvoiceWorkspaceBilling";
 import type { InvoiceShareDraft } from "@/features/invoicing/utils/invoiceShare.util";
 import {
   displayInvoicePreviewDate,
@@ -90,6 +90,10 @@ function OrganizationProfile({
         .filter(Boolean)
         .join("\n")
     : "";
+  const changeBilling = (key: InvoiceBillingField, value: string) => {
+    onEdit();
+    billing?.onChange(key, value);
+  };
   return (
     <View style={styles.section}>
       <View style={styles.orgCard}>
@@ -136,33 +140,33 @@ function OrganizationProfile({
         <>
           <View style={styles.formGrid}>
             <View style={styles.formCell}>
-              <Field label="GSTIN" value={billing.gstin} onChange={(value) => billing.onChange("gstin", value)} editable={!billing.locked} />
+              <Field label="GSTIN" value={billing.gstin} onChange={(value) => changeBilling("gstin", value)} editable={!billing.locked} />
             </View>
             <View style={styles.formCell}>
-              <Field label="CIN" value={billing.cin} onChange={(value) => billing.onChange("cin", value)} editable={!billing.locked} />
+              <Field label="CIN" value={billing.cin} onChange={(value) => changeBilling("cin", value)} editable={!billing.locked} />
             </View>
             <View style={styles.formCell}>
-              <Field label="PAN" value={billing.pan} onChange={(value) => billing.onChange("pan", value)} editable={!billing.locked} />
+              <Field label="PAN" value={billing.pan} onChange={(value) => changeBilling("pan", value)} editable={!billing.locked} />
             </View>
             <View style={styles.formCell}>
-              <Field label="MSME" value={billing.msme} onChange={(value) => billing.onChange("msme", value)} />
+              <Field label="MSME" value={billing.msme} onChange={(value) => changeBilling("msme", value)} />
             </View>
           </View>
           <Field
             label="GST registered address"
             value={billing.address}
-            onChange={(value) => billing.onChange("address", value)}
+            onChange={(value) => changeBilling("address", value)}
             editable={!billing.locked}
           />
           <View style={styles.formGrid}>
             <View style={styles.formCell}>
-              <Field label="City" value={billing.city} onChange={(value) => billing.onChange("city", value)} editable={!billing.locked} />
+              <Field label="City" value={billing.city} onChange={(value) => changeBilling("city", value)} editable={!billing.locked} />
             </View>
             <View style={styles.formCell}>
-              <Field label="State" value={billing.state} onChange={(value) => billing.onChange("state", value)} editable={!billing.locked} />
+              <Field label="State" value={billing.state} onChange={(value) => changeBilling("state", value)} editable={!billing.locked} />
             </View>
             <View style={styles.formCell}>
-              <Field label="Pincode" value={billing.pincode} onChange={(value) => billing.onChange("pincode", value)} editable={!billing.locked} />
+              <Field label="Pincode" value={billing.pincode} onChange={(value) => changeBilling("pincode", value)} editable={!billing.locked} />
             </View>
           </View>
         </>
@@ -646,16 +650,31 @@ export function PulseInvoiceDocument({
                   : "Select a template to preview it on the invoice."}
               </Text>
               <View style={[styles.libraryGrid, inline && styles.libraryGridStack]}>
-                <Pressable
+                <View
                   style={[styles.templateCard, inline && styles.templateCardFull, !styleEditor.templates.some((item) => item.active) && { borderColor: accent }]}
-                  onPress={styleEditor.onUseDefault}
-                  accessibilityRole="button"
-                  accessibilityLabel="Preview workspace default"
                 >
-                  <View style={[styles.templateSwatch, { backgroundColor: Theme.primary }]} />
-                  <Text style={styles.choiceName}>Workspace default</Text>
-                  <Text style={styles.choiceHint}>Classic · Brown</Text>
-                </Pressable>
+                  <Pressable
+                    onPress={styleEditor.onUseDefault}
+                    accessibilityRole="button"
+                    accessibilityLabel="Preview workspace default"
+                  >
+                    <View style={[styles.templateSwatch, { backgroundColor: Theme.primary }]} />
+                    <Text style={styles.choiceName}>Workspace default</Text>
+                    <Text style={styles.choiceHint}>Classic · Brown</Text>
+                  </Pressable>
+                  <View style={styles.templateCardActions}>
+                    <Pressable
+                      onPress={() => {
+                        styleEditor.onBeginCreate();
+                        setTemplateEditor(true);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Edit workspace default"
+                    >
+                      <Text style={[styles.templateBtnText, { color: accent }]}>Edit</Text>
+                    </Pressable>
+                  </View>
+                </View>
                 {styleEditor.templates.map((item) => {
                   const swatch = ACCENTS.find((entry) => entry.id === item.accent)?.color ?? Theme.primary;
                   return (
@@ -1679,6 +1698,12 @@ function GstPlan({
             ? `Client pays ${selected}% GST to the government on ${identity}.`
             : `Client pays ${selected}% GST to the government. Add GSTIN and PAN under Organization.`}
         </Text>
+      ) : gstOn && !gstin?.trim() ? (
+        <Text style={styles.gstNote}>
+          {`The organization has no GSTIN. Add it before issuing a ${selected}% tax invoice.`}
+        </Text>
+      ) : !gstOn ? (
+        <Text style={styles.gstNote}>No GST rate is selected, so this invoice is issued without tax.</Text>
       ) : null}
     </View>
   );

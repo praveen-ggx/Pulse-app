@@ -12,9 +12,9 @@
 # populate_public_users_on_signup from pulse-unified-base) is remote-only and untouched.
 #
 # Verify before applying:  npx jest supabase/migrations/__tests__/prodRelease20261022Set.test.ts
-# sha256 8fa57817c717ccd8b5cca8824d63187047a1b37cd3d709d89e68da4c06493e37  20261021094632_trips_hub_search.sql
+# sha256 c99e663ac4ee703baf6f45bd551b5a43f53630040d81aa43fb6cc6953c0d6b47  20261021094632_trips_hub_search.sql
 20261021094632
 # sha256 70d0c020d9e83207771bdcd736d585b9a06cefb418ce045e39f116705b81e50c  20261022093720_ground_ops_trip_document_lock.sql
 20261022093720
-# sha256 ec6a0ba517595fec7063d7bad8be28f41d649b50a82eff265578d6536a6eed29  20261022100607_ground_ops_warehouse_indents_read.sql
+# sha256 d2f7688a32d28ba77c3c484a9c9a8fed0ec44bee0722bbffd6feb59060ba83b3  20261022100607_ground_ops_warehouse_indents_read.sql
 20261022100607

@@ -15,7 +15,7 @@ const targets: ReceiptTarget[] = [
 ];
 
 describe("customer receipt allocation", () => {
-  it("spreads cash and TDS across open invoices, oldest first", () => {
+  it("does not allocate when no invoice is selected", () => {
     const result = allocateCustomerReceipt({
       targets,
       cash: 900,
@@ -24,11 +24,83 @@ describe("customer receipt allocation", () => {
       invoiceIds: [],
       bucket: null,
     });
-    expect(result.lines.map((line) => [line.number, line.applied, line.cleared])).toEqual([
-      ["GOG/1", 1000, true],
-      ["GOG/2", 100, false],
+    expect(result.lines).toEqual([]);
+    expect(result.applied).toBe(0);
+    expect(result.unapplied).toBe(1100);
+  });
+
+  it("allocates a partial receipt only to the selected invoice", () => {
+    const result = allocateCustomerReceipt({
+      targets,
+      cash: 250,
+      tds: 0,
+      mode: "invoice",
+      invoiceIds: ["b"],
+      bucket: null,
+    });
+    expect(result.lines.map((line) => [line.number, line.applied, line.remaining])).toEqual([
+      ["GOG/2", 250, 150],
     ]);
     expect(result.unapplied).toBe(0);
+  });
+
+  it("allocates a full receipt to one invoice and leaves the other untouched", () => {
+    const result = allocateCustomerReceipt({
+      targets,
+      cash: 400,
+      tds: 0,
+      mode: "invoice",
+      invoiceIds: ["b"],
+      bucket: null,
+    });
+    expect(result.lines).toEqual([
+      expect.objectContaining({ number: "GOG/2", applied: 400, remaining: 0, cleared: true }),
+    ]);
+  });
+
+  it("includes TDS in the amount allocated to the selected invoice", () => {
+    const result = allocateCustomerReceipt({
+      targets,
+      cash: 800,
+      tds: 200,
+      mode: "invoice",
+      invoiceIds: ["a"],
+      bucket: null,
+    });
+    expect(result.lines.map((line) => [line.number, line.applied, line.remaining])).toEqual([
+      ["GOG/1", 1000, 0],
+    ]);
+  });
+
+  it("splits an explicit multi-invoice receipt and shows the unallocated remainder", () => {
+    const fuel = { id: "fuel", number: "FUEL", balance: 5310, dueDate: "2026-01-02", bucket: "b90" as const };
+    const result = allocateCustomerReceipt({
+      targets: [...targets, fuel],
+      cash: 1200,
+      tds: 0,
+      mode: "invoice",
+      invoiceIds: ["a", "b"],
+      bucket: null,
+    });
+    expect(result.lines.map((line) => [line.number, line.applied, line.remaining])).toEqual([
+      ["GOG/1", 1000, 0],
+      ["GOG/2", 200, 200],
+    ]);
+    expect(result.lines.some((line) => line.number === "FUEL")).toBe(false);
+    expect(result.unapplied).toBe(0);
+  });
+
+  it("does not allocate more than the selected outstanding", () => {
+    const result = allocateCustomerReceipt({
+      targets,
+      cash: 5000,
+      tds: 0,
+      mode: "invoice",
+      invoiceIds: ["b"],
+      bucket: null,
+    });
+    expect(result.lines[0]?.applied).toBe(400);
+    expect(result.unapplied).toBe(4600);
   });
 
   it("keeps an aging capture inside the selected bucket", () => {

@@ -70,6 +70,7 @@ export interface JobRequestCardProps {
   assignmentId?: string;
   assignedBy?: JobCardAssignerPayload | null;
   assignedByLine?: string | null;
+  onAssignerPress?: () => void;
   OtpInputComponent?: ComponentType<TextInputProps>;
   onOtpFocus?: () => void;
   otpKeyboardInset?: number;

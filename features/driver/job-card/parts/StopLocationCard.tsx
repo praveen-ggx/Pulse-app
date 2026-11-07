@@ -121,9 +121,9 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   tile: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -138,10 +138,10 @@ const styles = StyleSheet.create({
     letterSpacing: -0.1,
   },
   place: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
-    letterSpacing: -0.15,
-    lineHeight: 18,
+    letterSpacing: -0.2,
+    lineHeight: 20,
     marginTop: 1,
   },
   customer: {

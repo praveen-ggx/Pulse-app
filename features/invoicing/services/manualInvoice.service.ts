@@ -1,4 +1,5 @@
-import { supabase } from "@/lib/supabase";
+import { getSupabaseBaseUrl, supabase } from "@/lib/supabase";
+import { refuseProductionInvoiceWrite } from "@/features/invoicing/utils/invoiceProductionWriteGuard.util";
 import type {
   InvoiceClientSnapshot,
   InvoiceIssuerSnapshot,
@@ -39,6 +40,7 @@ export async function saveManualInvoiceDraft(
   args: ManualInvoicePersistArgs,
 ): Promise<{ error: Error | null; draftId?: string; draftNumber?: string }> {
   try {
+    refuseProductionInvoiceWrite(getSupabaseBaseUrl());
     if (args.lineItems.length === 0) {
       throw new Error("Add at least one invoice line.");
     }
@@ -117,6 +119,7 @@ export async function issueManualInvoice(
   args: ManualInvoicePersistArgs & { idempotencyKey: string },
 ): Promise<{ error: Error | null; invoiceNumber?: string }> {
   try {
+    refuseProductionInvoiceWrite(getSupabaseBaseUrl());
     const hsnBlock = invoiceHsnIssueBlock(args.lineItems);
     if (hsnBlock) throw new Error(hsnBlock);
     if (args.lineItems.length === 0) {
@@ -144,7 +147,7 @@ export async function issueManualInvoice(
       p_line_items: args.lineItems,
       p_tax_snapshot: args.taxSnapshot ?? null,
       p_payment_terms: args.paymentTerms ?? null,
-    });
+    } as never);
     if (error) throw toAppError(error);
     return { error: null, invoiceNumber: data ? String(data) : undefined };
   } catch (e) {

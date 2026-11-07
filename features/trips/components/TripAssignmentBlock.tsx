@@ -43,7 +43,12 @@ import {
     formatMobileNumber,
 } from "@/lib/format";
 import { applyIndianVehicleKeystroke } from "@/lib/indianVehicleInput.util";
-import { isSameDriverPhone } from "@/features/trips/utils/reassignChangeDetection.util";
+import { getTripDriverPhones } from "@/features/tripCompliance/services/tripDriverPhones.service";
+import {
+  isEditingCurrentTripDriver,
+  isNameOnlyDriverUpdate,
+  isSameDriverPhone,
+} from "@/features/trips/utils/reassignChangeDetection.util";
 import { validatePhone } from "@/lib/phoneValidation";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { Check, ChevronRight, Circle, Plus, Star } from "lucide-react-native";
@@ -534,19 +539,39 @@ export function TripAssignmentBlock({
       setPhoneError("Enter driver name (at least 2 characters).");
       return;
     }
-    if (!trimmed) {
+    const orgForDriver =
+      (driverAssignOrgId ?? organizationId).trim() || organizationId;
+    const currentPhoneBaseline =
+      (assignedDriverPhone ?? "").trim() ||
+      (tripDriverPhone ?? "").trim() ||
+      null;
+    const nameOnlyUpdate =
+      phoneModalIsReassign &&
+      isNameOnlyDriverUpdate({
+        tripDriverId: trip.driver_id,
+        phone: trimmed,
+        currentDriverPhone: currentPhoneBaseline,
+        currentDriverName:
+          propsDriverName ?? trip.driver_display_name ?? null,
+        driverNameInput: driverNameTrimmed,
+      });
+    const editingCurrentPhone = isEditingCurrentTripDriver({
+      tripDriverId: trip.driver_id,
+      phone: trimmed,
+      currentDriverPhone: currentPhoneBaseline,
+    });
+    if (!trimmed && !nameOnlyUpdate) {
       setPhoneError("Enter driver phone number.");
       return;
     }
-    const err = validatePhone(trimmed);
-    if (err) {
-      setPhoneError(err);
-      return;
+    if (trimmed) {
+      const err = validatePhone(trimmed);
+      if (err) {
+        setPhoneError(err);
+        return;
+      }
     }
-    const orgForDriver =
-      (driverAssignOrgId ?? organizationId).trim() || organizationId;
-    const editingCurrentPhone = isSameDriverPhone(trimmed, assignedDriverPhone);
-    if (editingCurrentPhone && trip.driver_id) {
+    if ((editingCurrentPhone || nameOnlyUpdate) && trip.driver_id) {
       setPhoneError(null);
       setPhoneSaving(true);
       try {
@@ -571,13 +596,14 @@ export function TripAssignmentBlock({
           return;
         }
         const nextName = driverNameTrimmed || null;
+        const keptPhone = trimmed || currentPhoneBaseline;
         patchAssignmentCaches(queryClient, {
           tripId: trip.id,
           organizationId,
           patch: {
             ...(trip.driver_id ? { driverId: trip.driver_id } : {}),
             driverDisplayName: nextName,
-            driverPhone: trimmed,
+            ...(keptPhone ? { driverPhone: keptPhone } : {}),
             ...(assignMode === "driver" || !nextVehiclePlate
               ? {}
               : { vehicleDisplayNumber: nextVehiclePlate }),
@@ -594,7 +620,7 @@ export function TripAssignmentBlock({
         publishAssignmentPaint({
           tripId: trip.id,
           driverName: nextName || "Driver",
-          driverPhone: trimmed,
+          driverPhone: keptPhone,
           vehicleLabel: nextVehiclePlate,
           vehicleId: trip.vehicle_id ?? null,
           focus: "driver",
@@ -604,7 +630,6 @@ export function TripAssignmentBlock({
           paintVehicleAssignment(nextVehiclePlate, trip.vehicle_id ?? null);
         }
         onUpdated();
-        setShowPhoneModal(false);
         closeAssignModal();
         if (fullPageFlow) onFlowComplete?.();
       } finally {
@@ -842,6 +867,9 @@ export function TripAssignmentBlock({
     otpLockedByTripProgress,
     onUpdated,
     assignedDriverPhone,
+    tripDriverPhone,
+    propsDriverName,
+    trip.driver_display_name,
     closeAssignModal,
     fullPageFlow,
     onFlowComplete,
@@ -885,6 +913,44 @@ export function TripAssignmentBlock({
     }
   }, [trip?.id, otpRegenerating, canGenerateOtpNow, otpLockedByTripProgress]);
 
+  const [tripDriverPhone, setTripDriverPhone] = useState<string | null>(null);
+
+  useEffect(() => {
+    const driverId = (trip.driver_id ?? "").trim();
+    if (!driverId) {
+      setTripDriverPhone(null);
+      return;
+    }
+    const fromProp = (assignedDriverPhone ?? "").trim();
+    if (fromProp) {
+      setTripDriverPhone(fromProp);
+      return;
+    }
+    const fromRoster = drivers.find((d) => d.id === driverId)?.phone?.trim();
+    if (fromRoster) {
+      setTripDriverPhone(fromRoster);
+      return;
+    }
+    let cancelled = false;
+    void getTripDriverPhones([
+      { id: trip.id, driver_id: driverId },
+    ]).then((byTrip) => {
+      if (cancelled) return;
+      setTripDriverPhone((byTrip.get(trip.id) ?? "").trim() || null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [trip.id, trip.driver_id, assignedDriverPhone, drivers]);
+
+  const currentAssignedDriverPhone = useMemo(() => {
+    const fromProp = (assignedDriverPhone ?? "").trim();
+    if (fromProp) return fromProp;
+    const row = drivers.find((d) => d.id === trip.driver_id);
+    if (row?.phone?.trim()) return row.phone.trim();
+    return (tripDriverPhone ?? "").trim() || null;
+  }, [assignedDriverPhone, drivers, trip.driver_id, tripDriverPhone]);
+
   const openPhoneModal = useCallback(
     (
       isReassign?: boolean,
@@ -906,6 +972,7 @@ export function TripAssignmentBlock({
       const existingPhone = (
         assignedDriverPhone ??
         drivers.find((d) => d.id === trip.driver_id)?.phone ??
+        tripDriverPhone ??
         ""
       ).trim();
       // Prefill current mobile for reassign Edit details; blank for first-time assign.
@@ -938,16 +1005,10 @@ export function TripAssignmentBlock({
       trip.driver_display_name,
       trip.driver_id,
       assignedDriverPhone,
+      tripDriverPhone,
       drivers,
     ],
   );
-
-  const currentAssignedDriverPhone = useMemo(() => {
-    const fromProp = (assignedDriverPhone ?? "").trim();
-    if (fromProp) return fromProp;
-    const row = drivers.find((d) => d.id === trip.driver_id);
-    return row?.phone?.trim() ?? null;
-  }, [assignedDriverPhone, drivers, trip.driver_id]);
 
   const pilotText =
     propsDriverName ??

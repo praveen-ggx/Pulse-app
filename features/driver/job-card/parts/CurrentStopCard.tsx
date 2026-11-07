@@ -21,6 +21,7 @@ import {
   Navigation,
   Package,
   Phone,
+  Receipt,
   Warehouse,
 } from 'lucide-react-native';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -33,12 +34,10 @@ type Props = {
   orders: DriverTripStopOrder[];
   ordersLoading: boolean;
   distanceKm: number | null | undefined;
-  /** Opens the stop's delivery details. */
   onOpenDetails?: () => void;
-  /** Opens external navigation to this stop; null when the stop has no coordinates. */
   onNavigate?: (() => void) | null;
-  /** Opens proof capture; null until the stop can be completed. */
   onProof?: (() => void) | null;
+  onExpense?: (() => void) | null;
   children?: ReactNode;
 };
 
@@ -67,7 +66,7 @@ function ActionButton({
       style={({ pressed }) => [styles.action, { opacity: disabled ? 0.38 : pressed ? 0.7 : 1 }]}
     >
       <View style={[styles.actionIcon, { backgroundColor: colors.emeraldMuted }]}>{icon}</View>
-      <Text style={[styles.actionLabel, { color: colors.text }]} numberOfLines={1}>
+      <Text style={[styles.actionLabel, { color: colors.textMuted }]} numberOfLines={1}>
         {label}
       </Text>
     </Pressable>
@@ -83,6 +82,7 @@ export function CurrentStopCard({
   onOpenDetails,
   onNavigate = null,
   onProof = null,
+  onExpense = null,
   children,
 }: Props) {
   const place = formatStopPlace(stop);
@@ -112,80 +112,93 @@ export function CurrentStopCard({
       testID="multi-order-current-stop"
       style={[styles.card, softElevation, { backgroundColor: cardBackground(colors) }]}
     >
-      <Pressable
-        onPress={onOpenDetails}
-        disabled={!onOpenDetails}
-        accessibilityRole="button"
-        accessibilityLabel={`${role} details, ${place}`}
-        style={styles.summary}
-      >
-        <View style={[styles.tile, { backgroundColor: colors.emeraldMuted }]}>
-          <StopIcon size={18} color={colors.emerald} strokeWidth={2.2} />
-        </View>
-        <View style={styles.copy}>
-          <View style={styles.metaRow}>
-            <Text style={[styles.role, { color: colors.emerald }]}>{role}</Text>
-            <StatusPill
-              colors={colors}
-              tone={arrived ? 'active' : 'next'}
-              label={arrived ? 'Arrived' : delivery ? 'Out for delivery' : 'Heading to pickup'}
-            />
-            {onOpenDetails ? <ChevronRight size={16} color={colors.textMuted} strokeWidth={2.2} /> : null}
+      <View style={styles.summary}>
+        <Pressable
+          onPress={onOpenDetails}
+          disabled={!onOpenDetails}
+          accessibilityRole="button"
+          accessibilityLabel={`${role} details, ${place}`}
+          style={styles.summaryMain}
+        >
+          <View style={[styles.tile, { backgroundColor: colors.emeraldMuted }]}>
+            <StopIcon size={16} color={colors.emerald} strokeWidth={2.2} />
           </View>
-          <Text style={[styles.place, { color: colors.text }]} numberOfLines={1}>
-            {place}
-          </Text>
-          {customers[0] ? (
-            <Text style={[styles.customer, { color: colors.text }]} numberOfLines={1}>
-              {customers.length > 1 ? `${customers[0]} +${customers.length - 1}` : customers[0]}
+          <View style={styles.copy}>
+            <View style={styles.metaRow}>
+              <Text style={[styles.role, { color: colors.emerald }]}>{role}</Text>
+              <StatusPill
+                colors={colors}
+                tone={arrived ? 'active' : 'next'}
+                label={arrived ? 'Arrived' : delivery ? 'Out for delivery' : 'Heading to pickup'}
+              />
+              {onOpenDetails ? <ChevronRight size={14} color={colors.textMuted} strokeWidth={2.2} /> : null}
+            </View>
+            <Text style={[styles.place, { color: colors.text }]} numberOfLines={1}>
+              {place}
             </Text>
-          ) : null}
-          {address || stop.city ? (
-            <Text style={[styles.addr, { color: colors.textMuted }]} numberOfLines={2}>
-              {address || stop.city}
-            </Text>
-          ) : null}
-          {ordersLine || km || ordersLoading ? (
-            <Text
-              testID="multi-order-stop-orders"
-              style={[styles.ordersLine, { color: colors.textMuted }]}
-              numberOfLines={1}
-            >
-              {ordersLine ?? (ordersLoading ? 'Loading orders…' : '')}
-              {orderNumbers ? `  ${orderNumbers}` : ''}
-              {km ? `  ·  ${km}` : ''}
-            </Text>
-          ) : null}
-        </View>
-      </Pressable>
+            {customers[0] ? (
+              <Text style={[styles.customer, { color: colors.text }]} numberOfLines={1}>
+                {customers.length > 1 ? `${customers[0]} +${customers.length - 1}` : customers[0]}
+              </Text>
+            ) : null}
+            {address || stop.city ? (
+              <Text style={[styles.addr, { color: colors.textMuted }]} numberOfLines={2}>
+                {address || stop.city}
+              </Text>
+            ) : null}
+            {ordersLine || km || ordersLoading ? (
+              <Text
+                testID="multi-order-stop-orders"
+                style={[styles.ordersLine, { color: colors.textMuted }]}
+                numberOfLines={1}
+              >
+                {ordersLine ?? (ordersLoading ? 'Loading orders…' : '')}
+                {orderNumbers ? ` ${orderNumbers}` : ''}
+                {km ? ` · ${km}` : ''}
+              </Text>
+            ) : null}
+          </View>
+        </Pressable>
+        {onExpense ? (
+          <Pressable
+            onPress={onExpense}
+            accessibilityRole="button"
+            accessibilityLabel="Add trip expense"
+            hitSlop={Layout.touchTargetHitSlop}
+            style={[styles.expenseHit, { backgroundColor: colors.emeraldMuted }]}
+          >
+            <Receipt size={13} color={colors.emerald} strokeWidth={2.3} />
+          </Pressable>
+        ) : null}
+      </View>
 
       <View style={styles.actions}>
         <ActionButton
           colors={colors}
           label="Call"
           accessibilityLabel={phone ? callLabel : `${callLabel} unavailable`}
-          icon={<Phone size={16} color={colors.emerald} strokeWidth={2.2} />}
+          icon={<Phone size={15} color={colors.emerald} strokeWidth={2.1} />}
           onPress={phone ? () => void Linking.openURL(`tel:${phone}`) : null}
         />
         <ActionButton
           colors={colors}
           label="Navigate"
           accessibilityLabel={`Navigate to ${place}`}
-          icon={<Navigation size={16} color={colors.emerald} strokeWidth={2.2} />}
+          icon={<Navigation size={15} color={colors.emerald} strokeWidth={2.1} />}
           onPress={onNavigate}
         />
         <ActionButton
           colors={colors}
           label="Proof"
           accessibilityLabel={delivery ? 'Proof of delivery' : 'Proof of pickup'}
-          icon={<Camera size={16} color={colors.emerald} strokeWidth={2.2} />}
+          icon={<Camera size={15} color={colors.emerald} strokeWidth={2.1} />}
           onPress={onProof}
         />
         <ActionButton
           colors={colors}
           label="Details"
           accessibilityLabel={`${role} order details`}
-          icon={<FileText size={16} color={colors.emerald} strokeWidth={2.2} />}
+          icon={<FileText size={15} color={colors.emerald} strokeWidth={2.1} />}
           onPress={onOpenDetails}
         />
       </View>
@@ -198,48 +211,64 @@ export function CurrentStopCard({
 const styles = StyleSheet.create({
   card: {
     borderRadius: JOB_CARD_RADIUS,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 12,
     gap: 10,
   },
   summary: {
     flexDirection: 'row',
     alignItems: 'flex-start',
+    gap: 8,
+  },
+  summaryMain: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     gap: 10,
   },
+  expenseHit: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
   tile: {
-    width: 32,
-    height: 32,
+    width: 28,
+    height: 28,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 1,
   },
   copy: {
     flex: 1,
     minWidth: 0,
-    gap: 3,
+    gap: 2,
   },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   role: {
     flex: 1,
     minWidth: 0,
     fontSize: 10,
     fontWeight: '700',
-    letterSpacing: 0.4,
+    letterSpacing: 0.7,
     textTransform: 'uppercase',
   },
   place: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
-    letterSpacing: -0.15,
-    lineHeight: 18,
+    letterSpacing: -0.2,
+    lineHeight: 20,
   },
   customer: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
   },
   addr: {
@@ -253,18 +282,21 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
+    paddingTop: 2,
   },
   action: {
     flex: 1,
+    minWidth: 0,
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
     minHeight: Layout.minTouchTargetSize,
   },
   actionIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -7,8 +7,33 @@
 -- market_award drivers row but NULL trips.driver_id. Backfill any such
 -- orphans, then harden _resolve_or_create_market_driver so it never
 -- returns NULL again.
+--
+-- Fresh replay reaches this file before trips.source_market_bid_id and
+-- drivers.relationship_origin exist. The statements below are unchanged
+-- and run only when both columns are already present. 20270304030500
+-- applies them after those columns and the March resolver exist.
 
--- 1. Backfill: attach the bidder's market_award (or any active) drivers row
+DO $guard$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'trips'
+      AND column_name = 'source_market_bid_id'
+  ) OR NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'drivers'
+      AND column_name = 'relationship_origin'
+  ) THEN
+    RAISE NOTICE 'market bid driver backfill deferred: source_market_bid_id or relationship_origin is absent';
+    RETURN;
+  END IF;
+
+  -- 1. Backfill: attach the bidder's market_award (or any active) drivers row
+  EXECUTE $historical_update$
 UPDATE public.trips t
 SET driver_id = sub.driver_row_id,
     updated_at = now()
@@ -31,8 +56,10 @@ FROM (
 ) sub
 WHERE t.id = sub.trip_id
   AND t.driver_id IS NULL;
+  $historical_update$;
 
--- 2. Harden resolver: never return NULL (would create an unreadable trip)
+  -- 2. Harden resolver: never return NULL (would create an unreadable trip)
+  EXECUTE $historical_function$
 CREATE OR REPLACE FUNCTION public._resolve_or_create_market_driver(
   p_organization_id uuid,
   p_bidder_user_id uuid
@@ -121,6 +148,11 @@ BEGIN
   RETURN v_driver_id;
 END;
 $function$;
+  $historical_function$;
 
+  EXECUTE $historical_comment$
 COMMENT ON FUNCTION public._resolve_or_create_market_driver(uuid, uuid) IS
   'Shared Market/Reach award identity resolver. Always returns a drivers.id or raises — never NULL (NULL would create an awarded trip the DCO cannot read under Drivers-can-read-own-trips RLS).';
+  $historical_comment$;
+END
+$guard$;

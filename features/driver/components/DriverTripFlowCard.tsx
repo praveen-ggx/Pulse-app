@@ -325,6 +325,8 @@ export interface DriverTripFlowCardProps {
   onShowRouteOnMap?: (stopId?: string | null) => void;
   /** Incremented by the map "View details" control to open the order sheet. */
   deliveryDetailsNonce?: number;
+  /** Opens trip expense capture from the job card. */
+  onExpense?: () => void;
 }
 
 function fmtKm(km: number): string {

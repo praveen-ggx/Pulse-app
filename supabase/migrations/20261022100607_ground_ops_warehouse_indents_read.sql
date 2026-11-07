@@ -14,9 +14,21 @@
 -- Read only: "Org members can manage indents" still excludes Ground Ops, so
 -- they cannot insert, update, award, cancel or delete. Additive: one policy and
 -- one function body; no table or data changes.
+--
+-- Fresh replay: the helper does not exist yet. 20271008120001 installs this
+-- policy and function after 20271008120000. Where the helper already exists,
+-- the original statements run now.
 
 begin;
 
+DO $guard$
+BEGIN
+  IF to_regprocedure('public.ground_ops_can_see_trip(uuid,uuid)') IS NULL THEN
+    RAISE NOTICE 'ground_ops indent read deferred until ground_ops_can_see_trip exists';
+    RETURN;
+  END IF;
+
+  EXECUTE $historical$
 -- ── 1. Direct reads (indent detail, Failed list) ─────────────────────────────
 drop policy if exists indents_ground_ops_select_assigned on public.indents;
 create policy indents_ground_ops_select_assigned on public.indents
@@ -89,5 +101,8 @@ begin
   );
 end;
 $$;
+$historical$;
+END
+$guard$;
 
 commit;

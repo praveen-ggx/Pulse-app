@@ -12,7 +12,7 @@
 -- reply_to_support_ticket), the same convention already used for market_bids. A plain
 -- client-side `.insert()`/`.update()` against these tables will be rejected by RLS.
 
-create table public.support_tickets (
+create table if not exists public.support_tickets (
   id uuid primary key default gen_random_uuid(),
   display_id text not null,
   created_by_user_id uuid not null references auth.users(id),
@@ -62,7 +62,7 @@ as $function$
   select 'SUP-' || lpad(nextval('public.support_ticket_display_seq')::text, 6, '0');
 $function$;
 
-create table public.support_ticket_comments (
+create table if not exists public.support_ticket_comments (
   id uuid primary key default gen_random_uuid(),
   ticket_id uuid not null references public.support_tickets(id) on delete cascade,
   author_user_id uuid not null references auth.users(id),
@@ -80,7 +80,7 @@ create index idx_support_ticket_comments_ticket on public.support_ticket_comment
 -- all -- only service_role (the Admin Console, from S2 onward) can read this table.
 -- A regular Pulse user must never see this, per the product spec's "cannot see
 -- internal activity" boundary -- enforced by the absence of a policy, not app logic.
-create table public.support_ticket_activity (
+create table if not exists public.support_ticket_activity (
   id uuid primary key default gen_random_uuid(),
   ticket_id uuid not null references public.support_tickets(id) on delete cascade,
   actor_user_id uuid references auth.users(id),
@@ -93,7 +93,7 @@ create index idx_support_ticket_activity_ticket on public.support_ticket_activit
 
 -- Schema only in S1 -- no upload UI or storage bucket yet (that's S4). Table exists now
 -- so the RPCs/migrations don't need to change shape later.
-create table public.support_ticket_attachments (
+create table if not exists public.support_ticket_attachments (
   id uuid primary key default gen_random_uuid(),
   ticket_id uuid not null references public.support_tickets(id) on delete cascade,
   comment_id uuid references public.support_ticket_comments(id) on delete cascade,

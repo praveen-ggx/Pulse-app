@@ -24,7 +24,12 @@ function dayKey(value: string | null): string {
   return raw ? raw.slice(0, 10) : "9999-12-31";
 }
 
-/** Cash plus TDS clears the customer. Oldest due invoices in the chosen scope are paid first. */
+/**
+ * Cash plus TDS clears the customer. Only invoices the user selected are eligible.
+ * An empty invoice selection allocates nothing. Aging is the one explicit
+ * multi-invoice mode, and it stays inside the chosen age bucket.
+ * Oldest due invoices in that explicit scope are paid first, never above outstanding.
+ */
 export function allocateCustomerReceipt(args: {
   targets: readonly ReceiptTarget[];
   cash: number;
@@ -38,7 +43,6 @@ export function allocateCustomerReceipt(args: {
   const scoped = args.targets.filter((target) => {
     if (target.balance <= 0) return false;
     if (args.mode === "aging") return args.bucket != null && target.bucket === args.bucket;
-    if (chosen.size === 0) return true;
     return chosen.has(target.id);
   });
   const ordered = [...scoped].sort((a, b) => dayKey(a.dueDate).localeCompare(dayKey(b.dueDate)));

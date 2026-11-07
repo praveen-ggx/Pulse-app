@@ -117,14 +117,20 @@ function podOf(trip: ArTripInput): ArPod {
   return "pending";
 }
 
+function countsAsReceivable(status: string | null | undefined): boolean {
+  const normalized = (status ?? "").trim().toLowerCase();
+  return normalized !== "draft" && normalized !== "cancelled" && normalized !== "void";
+}
+
 export function buildArBook(
   trips: readonly ArTripInput[],
   invoices: readonly ArInvoiceInput[],
   now = new Date(),
   tdsPercent = 0,
 ): ArBook {
+  const liveInvoices = invoices.filter((invoice) => countsAsReceivable(invoice.status));
   const byTrip = new Map<string, ArInvoiceInput>();
-  for (const invoice of invoices) {
+  for (const invoice of liveInvoices) {
     for (const tripId of invoice.tripIds) {
       const key = tripId.trim();
       if (!key) continue;
@@ -182,15 +188,10 @@ export function buildArBook(
   const lines: ArLine[] = trips.map((trip) => {
     const invoice = byTrip.get(trip.internalId) ?? byTrip.get(trip.id) ?? null;
     const sales = Math.max(0, trip.sales);
-    const linked = invoice != null || trip.invoicedFlag;
-    const invoiced = invoice
-      ? Math.max(0, shareByTrip.get(trip.id) ?? 0)
-      : linked
-        ? sales
-        : 0;
+    const invoiced = invoice ? Math.max(0, shareByTrip.get(trip.id) ?? 0) : 0;
     const received = invoice ? Math.max(0, receivedByTrip.get(trip.id) ?? 0) : 0;
     const pending = Math.max(0, invoiced - received);
-    const uninvoiced = invoiced <= 0;
+    const uninvoiced = invoice == null;
     const expectedBase = pending > 0 ? pending : uninvoiced ? sales : 0;
     const expected = expectedAfterTds(expectedBase, tdsPercent);
     const anchor = uninvoiced
@@ -215,6 +216,36 @@ export function buildArBook(
       uninvoiced,
     };
   });
+
+  for (const invoice of liveInvoices) {
+    if (grouped.has(invoice)) continue;
+    const total = Math.max(0, invoice.totalAmount);
+    const paid = (invoice.status ?? "").toLowerCase() === "paid";
+    const received = paid
+      ? total
+      : Math.min(total, Math.max(0, invoice.amountReceived ?? 0));
+    const pending = Math.max(0, Math.round((total - received) * 100) / 100);
+    const expected = expectedAfterTds(pending, tdsPercent);
+    const anchor = parseDay(invoice.dueDate) ?? parseDay(invoice.invoiceDate);
+    const age = ageDays(anchor, now);
+    lines.push({
+      id: `invoice:${invoice.invoiceNumber}`,
+      internalId: `invoice:${invoice.invoiceNumber}`,
+      lr: invoice.invoiceNumber || "Invoice",
+      route: "No trip",
+      dateLabel: formatDay(invoice.invoiceDate),
+      ageDays: age,
+      bucket: arBucketForDays(age),
+      sales: 0,
+      invoiced: total,
+      received,
+      pending,
+      expectedBank: expected.bank,
+      expectedTds: expected.tds,
+      pod: "pending",
+      uninvoiced: false,
+    });
+  }
 
   return tallyArLines(lines);
 }

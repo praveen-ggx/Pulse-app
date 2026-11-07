@@ -1,6 +1,5 @@
-import Theme from "@/constants/Theme";
 import type { ReactNode } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import type { FinanceClientPictureSummary } from "@/features/invoicing/utils/financeWorkflowState.util";
 import { financeInvoiceWorkspaceStyles as s } from "@/features/invoicing/components/financeInvoiceWorkspace.styles";
 import type { FinanceBookSection } from "@/features/invoicing/components/FinanceBooksPanel";
@@ -154,7 +153,7 @@ export function FinanceBookNav({
 }) {
   return (
     <View style={s.tabs} accessibilityRole="tablist">
-      <View style={s.tabGroup}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.tabScroll} contentContainerStyle={s.tabGroup}>
         {BOOKS.map((tab) => {
           const active = value === tab.key;
           return (
@@ -171,7 +170,7 @@ export function FinanceBookNav({
             </Pressable>
           );
         })}
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -192,7 +191,7 @@ export function FinanceInvoiceWorkspaceTabs({
   ];
   return (
     <View style={s.tabs} accessibilityRole="tablist">
-      <View style={s.tabGroup}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.tabScroll} contentContainerStyle={s.tabGroup}>
       {tabs.map((tab) => {
         const active = value === tab.key;
         return (
@@ -211,7 +210,7 @@ export function FinanceInvoiceWorkspaceTabs({
         </Pressable>
       );
       })}
-      </View>
+      </ScrollView>
       {actions ? <View style={s.tabActions}>{actions}</View> : null}
     </View>
   );
@@ -269,10 +268,11 @@ export function FinanceInvoiceStatusPill({ label }: { label: string }) {
     >
       <Text
         style={[
-          s.pillText,
-          ready && s.pillReadyText,
-          { color: Theme.textSecondary },
-        ]}
+        s.pillText,
+        ready && s.pillReadyText,
+        pending && s.pillPendingText,
+        label === "Not completed" && s.pillBlockedText,
+      ]}
       >
         {label}
       </Text>

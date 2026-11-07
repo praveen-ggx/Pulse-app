@@ -36,7 +36,7 @@ const INDENT_PAGE = 500;
 const MAX_PAGES = 25;
 
 /** Soft cap for paged indent scans (owner org). Trip rows use get_trips_for_org. */
-export const TRIP_INDENT_REPORT_MAX_ENTITY_ROWS = PAGE * MAX_PAGES;
+export const TRIP_INDENT_REPORT_MAX_ENTITY_ROWS = INDENT_PAGE * MAX_PAGES;
 
 export type TripIndentReportCatalogOptions = {
   /** Inclusive Asia/Kolkata day bounds — same as Trips hub pills. */
@@ -149,9 +149,9 @@ export async function loadTripIndentReportCatalog(
     }
 
     for (let page = 0; page < MAX_PAGES; page += 1) {
-      const offset = page * PAGE;
+      const offset = page * INDENT_PAGE;
       const { error, indents, hasMore } = await getIndentsByOrganization(orgId, {
-        limit: PAGE,
+        limit: INDENT_PAGE,
         offset,
       });
       if (error) {

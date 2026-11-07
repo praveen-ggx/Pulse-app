@@ -5,9 +5,14 @@
  */
 import { DocumentDateCalendar } from "@/components/DocumentDateCalendar";
 import Theme from "@/constants/Theme";
+import {
+  WebOverlayPortal,
+  resolveWebOverlayHost,
+  webFixedFill,
+} from "@/lib/webOverlayPortal";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Calendar as CalendarIcon } from "lucide-react-native";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import {
   Modal,
   Platform,
@@ -68,14 +73,58 @@ export function HardCopyPodDateField({
 }) {
   const [open, setOpen] = useState(false);
   const fieldId = useId();
+  const fieldAnchorRef = useRef<View>(null);
   const isoValue = /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
   const hasError = Boolean(error?.trim());
   const dense = compact || quiet;
 
   const close = () => setOpen(false);
+  const webOverlayHost =
+    Platform.OS === "web"
+      ? resolveWebOverlayHost(
+          fieldAnchorRef.current as unknown as HTMLElement | null,
+        )
+      : null;
+
+  const webPopover =
+    open && Platform.OS === "web" ? (
+      <View style={[styles.overlay, webFixedFill]}>
+        <Pressable
+          style={styles.dismiss}
+          onPress={close}
+          accessibilityLabel="Close date picker"
+        />
+        <View style={styles.popover} accessibilityRole="none">
+          <View style={styles.popoverHead}>
+            <Text style={styles.popoverKicker}>Date</Text>
+            <Text style={styles.popoverTitle}>{label}</Text>
+          </View>
+          <DocumentDateCalendar
+            selectedIso={isoValue}
+            minDate={minDate}
+            onSelect={(iso) => {
+              onChange(iso);
+              close();
+            }}
+          />
+          {allowClear ? (
+            <Pressable
+              onPress={() => {
+                onChange("");
+                close();
+              }}
+              hitSlop={8}
+              style={styles.clearRow}
+            >
+              <Text style={styles.clearText}>Clear</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+    ) : null;
 
   return (
-    <View style={[styles.field, dense && styles.fieldCompact]}>
+    <View ref={fieldAnchorRef} style={[styles.field, dense && styles.fieldCompact]}>
       <Text
         style={[styles.label, compact && styles.labelCompact, quiet && styles.labelQuiet]}
         nativeID={`${fieldId}-label`}
@@ -119,38 +168,8 @@ export function HardCopyPodDateField({
         </Text>
       ) : null}
 
-      {Platform.OS === "web" ? (
-        <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
-          <View style={styles.overlay}>
-            <Pressable style={styles.dismiss} onPress={close} accessibilityLabel="Close date picker" />
-            <View style={styles.popover} accessibilityRole="none">
-              <View style={styles.popoverHead}>
-                <Text style={styles.popoverKicker}>Date</Text>
-                <Text style={styles.popoverTitle}>{label}</Text>
-              </View>
-              <DocumentDateCalendar
-                selectedIso={isoValue}
-                minDate={minDate}
-                onSelect={(iso) => {
-                  onChange(iso);
-                  close();
-                }}
-              />
-              {allowClear ? (
-                <Pressable
-                  onPress={() => {
-                    onChange("");
-                    close();
-                  }}
-                  hitSlop={8}
-                  style={styles.clearRow}
-                >
-                  <Text style={styles.clearText}>Clear</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-        </Modal>
+      {webPopover ? (
+        <WebOverlayPortal host={webOverlayHost}>{webPopover}</WebOverlayPortal>
       ) : null}
 
       {open && Platform.OS === "android" ? (

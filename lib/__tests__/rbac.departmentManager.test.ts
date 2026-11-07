@@ -21,18 +21,28 @@ import {
 } from "@/features/organization/utils/teamInviteRoles.util";
 
 const FILE = "20261029171316_department_manager_allowlist_and_scope.sql";
+/** Latest rewrite of manager_department_surfaces (owner/admin-only trip actions). */
+const ALLOWLIST_FILE =
+  "20261106121132_tripops_simulate_cancel_owner_admin_only.sql";
 const raw = readFileSync(join(process.cwd(), "supabase/migrations", FILE), "utf8");
 const sql = raw
   .split("\n")
   .map((line) => line.replace(/--.*$/, ""))
   .join("\n");
+const allowlistSql = readFileSync(
+  join(process.cwd(), "supabase/migrations", ALLOWLIST_FILE),
+  "utf8",
+)
+  .split("\n")
+  .map((line) => line.replace(/--.*$/, ""))
+  .join("\n");
 
 /** Parse `WHEN 'dept' THEN ARRAY[ ... ]` arms of manager_department_surfaces. */
-function sqlAllowlists(): Record<string, string[]> {
+function sqlAllowlists(source = allowlistSql): Record<string, string[]> {
   const out: Record<string, string[]> = {};
   const re = /WHEN '([a-z_]+)' THEN ARRAY\[([\s\S]*?)\]::text\[\]/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(sql))) {
+  while ((m = re.exec(source))) {
     out[m[1]] = [...m[2].matchAll(/'([^']+)'/g)].map((x) => x[1]).sort();
   }
   return out;
@@ -99,6 +109,7 @@ describe("Department manager allowlist (app)", () => {
 describe("migration 20261029171316 — server mirror", () => {
   it("has a real timestamp, never the sibling repo's 000000 slot", () => {
     expect(FILE.slice(8, 14)).not.toBe("000000");
+    expect(ALLOWLIST_FILE.slice(8, 14)).not.toBe("000000");
   });
 
   it("server allowlist equals the app allowlist for every department", () => {
@@ -107,6 +118,13 @@ describe("migration 20261029171316 — server mirror", () => {
     for (const dept of MANAGER_DEPARTMENTS) {
       expect(server[dept]).toEqual(managerEditableSurfaceIds(dept));
     }
+  });
+
+  it("TripOps manager allowlist omits owner/admin-only simulate and cancel", () => {
+    expect(managerEditableSurfaceIds("tripops")).not.toContain("tripops.trips.simulate");
+    expect(managerEditableSurfaceIds("tripops")).not.toContain("tripops.trips.cancel");
+    expect(sqlAllowlists().tripops).not.toContain("tripops.trips.simulate");
+    expect(sqlAllowlists().tripops).not.toContain("tripops.trips.cancel");
   });
 
   it("set_member_surfaces_as_manager checks every key and resolves the org from the target", () => {

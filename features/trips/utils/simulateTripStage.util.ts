@@ -45,14 +45,45 @@ export function appendBisimNote(params: {
   userName: string;
   lat: number | null;
   lng: number | null;
-  at?: string;
+  /** Required for simulate — never silently fall back to wall-clock now. */
+  at: string;
   locationLabel?: string | null;
 }): string {
-  const at = params.at ?? new Date().toISOString();
+  const at = String(params.at ?? "").trim();
+  if (!at) {
+    throw new Error("Simulation timestamp is required");
+  }
   const place = (params.locationLabel ?? "").replace(/\|/g, " ").trim();
   const simEntry = `[BISIM|${params.targetStatus}|${at}|${params.lat ?? ""}|${params.lng ?? ""}|${params.userName}|${params.fromStatus}${place ? `|${place}` : ""}]`;
   const existing = params.existingNotes?.trim() || "";
   return existing ? `${existing}\n${simEntry}` : simEntry;
+}
+
+/**
+ * Force the last BISIM line for `targetStatus` to use `at`.
+ * Keeps Journey Log / started_at / notes aligned when a prior line was wrong.
+ */
+export function ensureBisimTimestampForStatus(
+  notes: string,
+  targetStatus: string,
+  at: string,
+): string {
+  const status = String(targetStatus ?? "")
+    .trim()
+    .toLowerCase();
+  const atIso = String(at ?? "").trim();
+  if (!status || !atIso || !notes.trim()) return notes;
+  const lines = notes.split("\n");
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i]?.trim() ?? "";
+    if (!line.startsWith("[BISIM|") || !line.endsWith("]")) continue;
+    const parts = line.slice(7, -1).split("|");
+    if ((parts[0] ?? "").trim().toLowerCase() !== status) continue;
+    parts[1] = atIso;
+    lines[i] = `[BISIM|${parts.join("|")}]`;
+    return lines.join("\n");
+  }
+  return notes;
 }
 
 /** Local completion time shown in the simulate dialog. */
@@ -231,13 +262,28 @@ function latestSimTimestamp(
   return best;
 }
 
-/** Assignment instant used as the Journey Log "Assigned" anchor. */
+/**
+ * Assignment instant for the Journey Log "Assigned" step.
+ * Uses assignment / reassignment audit only — never `updated_at` (revoke / simulate
+ * bump it to "now" and must not rewrite Assigned).
+ */
 export function resolveTripAssignedAtIso(
   trip: Pick<TripRow, "driver_id" | "created_at" | "updated_at">,
-  audits: ReadonlyArray<{ changed_at: string; driver_id_new?: string | null }>,
+  audits: ReadonlyArray<{
+    changed_at: string;
+    driver_id_new?: string | null;
+    event_type?: string | null;
+  }>,
 ): string | null {
-  if (audits.length > 0) {
-    const sorted = [...audits].sort(
+  const assignLike = audits.filter((row) => {
+    const ev = String(row.event_type ?? "")
+      .trim()
+      .toLowerCase();
+    // Empty event_type: legacy rows. Ignore driver_accepted / completed.
+    return ev === "assignment" || ev === "reassignment" || ev === "";
+  });
+  if (assignLike.length > 0) {
+    const sorted = [...assignLike].sort(
       (a, b) => new Date(a.changed_at).getTime() - new Date(b.changed_at).getTime(),
     );
     const driverId = trip.driver_id;
@@ -249,15 +295,27 @@ export function resolveTripAssignedAtIso(
     }
     return sorted[0]?.changed_at ?? null;
   }
-  if (trip.driver_id) return trip.updated_at ?? trip.created_at ?? null;
+  // Stable fallback only — never updated_at.
   return trip.created_at ?? null;
+}
+
+/** Next whole picker minute after `iso` (exclusive floor for later stages). */
+export function bumpIsoToNextPickerMinute(
+  iso: string | null | undefined,
+): string | null {
+  if (!iso?.trim()) return null;
+  const ms = new Date(iso).getTime();
+  if (!Number.isFinite(ms)) return null;
+  return new Date(floorDateToMinuteMs(ms) + 60_000).toISOString();
 }
 
 /**
  * Minimum completion instant for the next simulate stage.
- * Same timestamp as the previous stage is allowed; earlier is not.
+ * Same minute as the floor is allowed; earlier is not.
  *
- * Anchor (Assigned): assignment audit for the current driver, else trip created_at.
+ * Pickup is unrestricted (past or future) — returns null.
+ * In-transit and later floor to the selected Pickup instant only (not Assigned /
+ * Driver Accepted), so a past pickup is not blocked by a later accept time.
  */
 export function resolveSimulateStageMinAt(opts: {
   targetStatus: string;
@@ -276,36 +334,35 @@ export function resolveSimulateStageMinAt(opts: {
     opts.trip.created_at,
   );
   const notes = opts.trip.notes;
+  const pickupAt = latestIso(
+    opts.trip.started_at,
+    latestSimTimestamp(notes, ["in_progress", "picked_up", "pickup"]),
+  );
 
   let minIso: string | null = null;
   if (target === "assigned") {
     // Driver-accept simulation — must be ≥ Assigned.
     minIso = assigned;
   } else if (target === "in_progress" || target === "picked_up") {
-    minIso = latestIso(
-      assigned,
-      opts.driverAcceptedAt,
-      latestSimTimestamp(notes, ["assigned", "pending_acceptance"]),
-    );
+    // Pickup: any past or future instant — no Journey Log floor.
+    return null;
   } else if (target === "in_transit") {
-    minIso = latestIso(
-      opts.trip.started_at,
-      latestSimTimestamp(notes, ["in_progress", "picked_up", "pickup"]),
-      opts.driverAcceptedAt,
-      assigned,
-    );
+    // Strictly after Pickup (next picker minute).
+    minIso = bumpIsoToNextPickerMinute(pickupAt);
   } else if (target === "at_drop") {
-    minIso = latestIso(
-      latestSimTimestamp(notes, ["in_transit"]),
-      opts.trip.started_at,
-      assigned,
+    minIso = bumpIsoToNextPickerMinute(
+      latestIso(
+        latestSimTimestamp(notes, ["in_transit"]),
+        pickupAt,
+      ),
     );
   } else if (target === "completed" || target === "delivered" || target === "done") {
-    minIso = latestIso(
-      latestSimTimestamp(notes, ["at_drop"]),
-      latestSimTimestamp(notes, ["in_transit"]),
-      opts.trip.started_at,
-      assigned,
+    minIso = bumpIsoToNextPickerMinute(
+      latestIso(
+        latestSimTimestamp(notes, ["at_drop"]),
+        latestSimTimestamp(notes, ["in_transit"]),
+        pickupAt,
+      ),
     );
   } else {
     minIso = assigned;
@@ -316,6 +373,12 @@ export function resolveSimulateStageMinAt(opts: {
   return Number.isFinite(ms) ? new Date(ms) : null;
 }
 
+/** Picker values are minute-precision; floor so :36:45 vs :36:00 still counts as same minute. */
+export function floorDateToMinuteMs(ms: number): number {
+  if (!Number.isFinite(ms)) return NaN;
+  return Math.floor(ms / 60_000) * 60_000;
+}
+
 /** True when ISO completion is on/after min (same minute allowed). */
 export function isSimCompletionAtOrAfterMin(
   completionIso: string,
@@ -324,7 +387,27 @@ export function isSimCompletionAtOrAfterMin(
   if (!minAt) return true;
   const ms = new Date(completionIso).getTime();
   if (!Number.isFinite(ms)) return false;
-  return ms >= minAt.getTime();
+  return floorDateToMinuteMs(ms) >= floorDateToMinuteMs(minAt.getTime());
+}
+
+/**
+ * When the picker lands in the same minute as min but at :00, bump to min so
+ * stored ISO is not earlier than the previous Journey Log stage.
+ */
+export function alignSimCompletionIsoToMin(
+  completionIso: string,
+  minAt: Date | null | undefined,
+): string {
+  if (!minAt) return completionIso;
+  const ms = new Date(completionIso).getTime();
+  if (!Number.isFinite(ms)) return completionIso;
+  if (
+    floorDateToMinuteMs(ms) === floorDateToMinuteMs(minAt.getTime()) &&
+    ms < minAt.getTime()
+  ) {
+    return minAt.toISOString();
+  }
+  return completionIso;
 }
 
 /** Raise a picker value to min when it would be earlier. */
@@ -334,8 +417,64 @@ export function clampSimCompletionPickerValue(
 ): string {
   if (!minAt) return value || toSimCompletionPickerValue();
   const parsed = parseSimCompletionPickerValue(value);
-  if (!parsed || new Date(parsed).getTime() < minAt.getTime()) {
+  if (
+    !parsed ||
+    floorDateToMinuteMs(new Date(parsed).getTime()) <
+      floorDateToMinuteMs(minAt.getTime())
+  ) {
     return toSimCompletionPickerValue(minAt);
   }
   return value;
+}
+
+/** Pickup stage — manual date+time with no past/future floor. */
+export function isUnrestrictedPickupSimStage(
+  targetStatus: string | null | undefined,
+): boolean {
+  const s = String(targetStatus ?? "")
+    .trim()
+    .toLowerCase();
+  return s === "in_progress" || s === "picked_up";
+}
+
+/**
+ * Stages that show the completion date+time picker.
+ * Driver-accept simulation stays automatic (Assigned / Accepted unchanged).
+ */
+export function showsSimCompletionPicker(
+  targetStatus: string | null | undefined,
+): boolean {
+  const s = String(targetStatus ?? "")
+    .trim()
+    .toLowerCase();
+  return (
+    s === "in_progress" ||
+    s === "picked_up" ||
+    s === "in_transit" ||
+    s === "at_drop" ||
+    s === "completed" ||
+    s === "delivered" ||
+    s === "done"
+  );
+}
+
+/** @deprecated Use isUnrestrictedPickupSimStage / showsSimCompletionPicker. */
+export function isManualSimCompletionStage(
+  targetStatus: string | null | undefined,
+): boolean {
+  return isUnrestrictedPickupSimStage(targetStatus);
+}
+
+/**
+ * Auto stage instant: wall-clock now, never earlier than the previous Journey Log stage.
+ * After a future pickup, the next confirm therefore lands on the pickup instant until "now" catches up.
+ */
+export function resolveAutoSimCompletionIso(
+  minAt: Date | null | undefined,
+  now = new Date(),
+): string {
+  if (!minAt) return now.toISOString();
+  return floorDateToMinuteMs(now.getTime()) < floorDateToMinuteMs(minAt.getTime())
+    ? minAt.toISOString()
+    : now.toISOString();
 }

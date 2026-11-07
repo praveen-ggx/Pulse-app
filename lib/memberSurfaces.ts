@@ -77,6 +77,8 @@ export type MemberSurfaceId =
   | "tripops.trips.finance"
   | "tripops.trips.verification"
   | "tripops.trips.simulate"
+  /** Cancel integrated trip before pickup — owner / admin only. */
+  | "tripops.trips.cancel"
   | "tripops.trips.ratings"
   | "tripops.indents.view"
   | "tripops.indents.create"
@@ -153,6 +155,13 @@ export type MemberSurfaceDef = {
    * Checked after org ∩ member map.
    */
   requires?: MemberSurfaceId;
+  /**
+   * When true, only org owner / admin (and platform-role admin) may use this
+   * surface — `memberHasSurface` returns false for everyone else even if their
+   * saved surfaces map has the id on. Not offered in department presets or
+   * manager toggles.
+   */
+  ownerAdminOnly?: boolean;
 };
 
 const DISP: readonly Capability[] = ["dispatch", "dispatch_for_own_fleet"];
@@ -696,10 +705,21 @@ export const MEMBER_SURFACE_CATALOG: readonly MemberSurfaceDef[] = [
     id: "tripops.trips.simulate",
     group: "Trip execution",
     label: "Simulate trip status",
-    hint: "Business-simulated status advances",
+    hint: "Business-simulated status advances and Revoke Last — owner / admin only",
     domain: "tripops",
     anyOfCaps: DISP,
     requires: "tripops.trips.detail",
+    ownerAdminOnly: true,
+  },
+  {
+    id: "tripops.trips.cancel",
+    group: "Trip execution",
+    label: "Cancel trip (pre-pickup)",
+    hint: "Cancel an integrated award before pickup — owner / admin only",
+    domain: "tripops",
+    anyOfCaps: DISP,
+    requires: "tripops.trips.detail",
+    ownerAdminOnly: true,
   },
   {
     id: "tripops.trips.ratings",
@@ -1479,6 +1499,9 @@ export function defaultSurfacesForRole(
   const allOn = (ids: MemberSurfaceId[]) => {
     const map: MemberSurfaceMap = {};
     for (const id of ids) {
+      // ownerAdminOnly surfaces are never granted by a department preset —
+      // only the owner/admin bypass path can use them.
+      if (SURFACE_BY_ID[id]?.ownerAdminOnly) continue;
       if (orgAllowsSurface(orgCaps, id)) map[id] = true;
     }
     return map;
@@ -1486,7 +1509,15 @@ export function defaultSurfacesForRole(
 
   switch (role) {
     case "admin":
-      return allOn(MEMBER_SURFACE_CATALOG.map((s) => s.id));
+      // Platform-role admin bypasses member surfaces; still persist the full
+      // catalog (including ownerAdminOnly) so the access editor shows them on.
+      return (() => {
+        const map: MemberSurfaceMap = {};
+        for (const s of MEMBER_SURFACE_CATALOG) {
+          if (orgAllowsSurface(orgCaps, s.id)) map[s.id] = true;
+        }
+        return map;
+      })();
     case "finance":
       // Finance needs more than the finance domain: the Customers/Suppliers
       // sub-tabs read party directories (domain "sales"), Garage/Drivers read
@@ -1708,7 +1739,9 @@ export function managerCanEditMember(
 export function managerEditableSurfaceIds(role: string | null | undefined): MemberSurfaceId[] {
   if (!isManagerDepartment(role)) return [];
   const preset = defaultSurfacesForRole(role, EVERY_CAPABILITY);
-  return (Object.keys(preset) as MemberSurfaceId[]).filter((id) => preset[id] === true).sort();
+  return (Object.keys(preset) as MemberSurfaceId[])
+    .filter((id) => preset[id] === true && !SURFACE_BY_ID[id]?.ownerAdminOnly)
+    .sort();
 }
 
 /** Derive coarse domain flags from an enabled surface map. */
@@ -1722,6 +1755,7 @@ export function domainsFromSurfaces(surfaces: MemberSurfaceMap): MemberDomainFla
 
 /**
  * Effective surface grant: org allows ∩ member map (default false if unset) ∩ parent chain.
+ * `ownerAdminOnly` surfaces require the owner/admin bypass — a stored `true` is ignored.
  */
 export function memberHasSurface(
   orgCaps: Capability[],
@@ -1730,9 +1764,10 @@ export function memberHasSurface(
   bypass = false,
 ): boolean {
   if (bypass) return orgAllowsSurface(orgCaps, id);
+  const def = SURFACE_BY_ID[id];
+  if (def?.ownerAdminOnly) return false;
   if (!orgAllowsSurface(orgCaps, id)) return false;
   if (!surfaces || surfaces[id] !== true) return false;
-  const def = SURFACE_BY_ID[id];
   if (def.requires) {
     return memberHasSurface(orgCaps, surfaces, def.requires, false);
   }

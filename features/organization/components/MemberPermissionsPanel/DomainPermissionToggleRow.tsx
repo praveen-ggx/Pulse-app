@@ -223,7 +223,10 @@ export function DomainPermissionToggleRow({
         <View style={styles.groupStack}>
           {groups.map((group) => {
             const available = group.surfaces.filter(
-              (s) => orgAllowsSurface(orgCaps, s.id) && surfaceEditable(s.id),
+              (s) =>
+                orgAllowsSurface(orgCaps, s.id) &&
+                surfaceEditable(s.id) &&
+                !s.ownerAdminOnly,
             );
             const visible = group.surfaces.filter((s) => orgAllowsSurface(orgCaps, s.id));
             if (visible.length === 0) return null;
@@ -262,6 +265,8 @@ export function DomainPermissionToggleRow({
                 >
                   {group.surfaces.map((surface) => {
                     const orgOk = orgAllowsSurface(orgCaps, surface.id);
+                    const ownerOnly = !!surface.ownerAdminOnly;
+                    const locked = !orgOk || ownerOnly;
                     const on = memberHasSurface(
                       orgCaps,
                       surfaces,
@@ -276,10 +281,10 @@ export function DomainPermissionToggleRow({
                           twoColSurfaces
                             ? styles.surfaceRowHalf
                             : styles.surfaceRowFull,
-                          !orgOk && styles.surfaceRowMuted,
+                          locked && styles.surfaceRowMuted,
                         ]}
                       >
-                        {!orgOk ? (
+                        {locked ? (
                           <Lock size={14} color="#A3A3A3" strokeWidth={2} />
                         ) : (
                           <SurfaceCheckbox
@@ -294,14 +299,18 @@ export function DomainPermissionToggleRow({
                           <Text
                             style={[
                               styles.surfaceLabel,
-                              !orgOk && styles.surfaceMuted,
+                              locked && styles.surfaceMuted,
                             ]}
                             numberOfLines={1}
                           >
                             {surface.label}
                           </Text>
                           <Text style={styles.surfaceHint} numberOfLines={1}>
-                            {!orgOk ? "Blocked by operating model" : surface.hint}
+                            {!orgOk
+                              ? "Blocked by operating model"
+                              : ownerOnly
+                                ? "Owner / admin only"
+                                : surface.hint}
                           </Text>
                         </View>
                       </View>

@@ -12,6 +12,8 @@ export type DriverTripExpenseRow = {
 };
 
 const CHUNK = 80;
+/** Expense batches fetched together. Each batch is still 3 table reads. */
+const BATCH_CONCURRENCY = 4;
 
 function chunkIds(ids: string[]): string[][] {
   const out: string[][] = [];
@@ -38,84 +40,98 @@ export async function listDriverTripExpensesByTripIds(
   const ids = [...new Set(tripIds.map((id) => id.trim()).filter(Boolean))];
   if (ids.length === 0) return { error: null, entries: [] };
 
-  const entries: DriverTripExpenseRow[] = [];
   try {
-    for (const batch of chunkIds(ids)) {
-      const [fuel, toll, other] = await Promise.all([
-        supabase()
-          .from("trip_fuel_entries")
-          .select("id, trip_id, amount_inr, fuel_type, entered_at, status")
-          .in("trip_id", batch)
-          .eq("status", "active"),
-        supabase()
-          .from("trip_toll_entries")
-          .select("id, trip_id, amount_inr, plaza_name, entered_at, status")
-          .in("trip_id", batch)
-          .eq("status", "active"),
-        supabase()
-          .from("trip_other_expenses")
-          .select("id, trip_id, amount_inr, expense_category, description, entered_at, status")
-          .in("trip_id", batch)
-          .eq("status", "active"),
-      ]);
-      const firstError = fuel.error ?? toll.error ?? other.error;
-      if (firstError) return { error: new Error(firstError.message), entries: [] };
-
-      for (const row of fuel.data ?? []) {
-        const r = row as {
-          id: string;
-          trip_id: string;
-          amount_inr: number;
-          fuel_type?: string | null;
-          entered_at: string;
-        };
-        entries.push({
-          id: r.id,
-          tripId: r.trip_id,
-          kind: "fuel",
-          label: r.fuel_type ? `Fuel · ${r.fuel_type}` : "Fuel",
-          amount: money(r.amount_inr),
-          enteredAt: r.entered_at,
-        });
-      }
-      for (const row of toll.data ?? []) {
-        const r = row as {
-          id: string;
-          trip_id: string;
-          amount_inr: number;
-          plaza_name?: string | null;
-          entered_at: string;
-        };
-        entries.push({
-          id: r.id,
-          tripId: r.trip_id,
-          kind: "toll",
-          label: r.plaza_name ? `Toll · ${r.plaza_name}` : "Toll",
-          amount: money(r.amount_inr),
-          enteredAt: r.entered_at,
-        });
-      }
-      for (const row of other.data ?? []) {
-        const r = row as {
-          id: string;
-          trip_id: string;
-          amount_inr: number;
-          expense_category?: string | null;
-          description?: string | null;
-          entered_at: string;
-        };
-        entries.push({
-          id: r.id,
-          tripId: r.trip_id,
-          kind: "other",
-          label: otherLabel(r.expense_category, r.description),
-          amount: money(r.amount_inr),
-          enteredAt: r.entered_at,
-        });
-      }
+    const batches = chunkIds(ids);
+    const results: { error: Error | null; entries: DriverTripExpenseRow[] }[] = [];
+    for (let i = 0; i < batches.length; i += BATCH_CONCURRENCY) {
+      const wave = await Promise.all(
+        batches.slice(i, i + BATCH_CONCURRENCY).map((batch) => fetchExpenseBatch(batch)),
+      );
+      results.push(...wave);
     }
-    return { error: null, entries };
+    const failed = results.find((result) => result.error);
+    if (failed?.error) return { error: failed.error, entries: [] };
+    return { error: null, entries: results.flatMap((result) => result.entries) };
   } catch (e) {
     return { error: e instanceof Error ? e : new Error(String(e)), entries: [] };
   }
+}
+
+async function fetchExpenseBatch(
+  batch: string[],
+): Promise<{ error: Error | null; entries: DriverTripExpenseRow[] }> {
+  const entries: DriverTripExpenseRow[] = [];
+  const [fuel, toll, other] = await Promise.all([
+    supabase()
+      .from("trip_fuel_entries")
+      .select("id, trip_id, amount_inr, fuel_type, entered_at, status")
+      .in("trip_id", batch)
+      .eq("status", "active"),
+    supabase()
+      .from("trip_toll_entries")
+      .select("id, trip_id, amount_inr, plaza_name, entered_at, status")
+      .in("trip_id", batch)
+      .eq("status", "active"),
+    supabase()
+      .from("trip_other_expenses")
+      .select("id, trip_id, amount_inr, expense_category, description, entered_at, status")
+      .in("trip_id", batch)
+      .eq("status", "active"),
+  ]);
+  const firstError = fuel.error ?? toll.error ?? other.error;
+  if (firstError) return { error: new Error(firstError.message), entries: [] };
+
+  for (const row of fuel.data ?? []) {
+    const r = row as {
+      id: string;
+      trip_id: string;
+      amount_inr: number;
+      fuel_type?: string | null;
+      entered_at: string;
+    };
+    entries.push({
+      id: r.id,
+      tripId: r.trip_id,
+      kind: "fuel",
+      label: r.fuel_type ? `Fuel · ${r.fuel_type}` : "Fuel",
+      amount: money(r.amount_inr),
+      enteredAt: r.entered_at,
+    });
+  }
+  for (const row of toll.data ?? []) {
+    const r = row as {
+      id: string;
+      trip_id: string;
+      amount_inr: number;
+      plaza_name?: string | null;
+      entered_at: string;
+    };
+    entries.push({
+      id: r.id,
+      tripId: r.trip_id,
+      kind: "toll",
+      label: r.plaza_name ? `Toll · ${r.plaza_name}` : "Toll",
+      amount: money(r.amount_inr),
+      enteredAt: r.entered_at,
+    });
+  }
+  for (const row of other.data ?? []) {
+    const r = row as {
+      id: string;
+      trip_id: string;
+      amount_inr: number;
+      expense_category?: string | null;
+      description?: string | null;
+      entered_at: string;
+    };
+    entries.push({
+      id: r.id,
+      tripId: r.trip_id,
+      kind: "other",
+      label: otherLabel(r.expense_category, r.description),
+      amount: money(r.amount_inr),
+      enteredAt: r.entered_at,
+    });
+  }
+  return { error: null, entries };
 }

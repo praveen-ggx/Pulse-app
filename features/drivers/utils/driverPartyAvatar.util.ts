@@ -20,6 +20,49 @@ import type { TripRow } from "@/features/trips/services/trips.service";
 import { resolvePartyAvatarIdentityFromClient } from "@/lib/entityIdentity";
 import { pickPartyOrganizationImageUrl } from "@/lib/media/partyOrganizationImage.util";
 
+/**
+ * Avatar lookups are display-only. Memoise them per id for a few minutes so
+ * wallet reloads and the party screen do not repeat the same client or org
+ * profile request. Failed lookups are not cached.
+ */
+const AVATAR_LOOKUP_TTL_MS = 5 * 60_000;
+const clientDetailsCache = new Map<string, { at: number; value: ReturnType<typeof getClientDetails> }>();
+const linkedOrgProfileCache = new Map<string, { at: number; value: ReturnType<typeof getLinkedOrgProfile> }>();
+
+function memoLookup<T extends { error: unknown }>(
+  cache: Map<string, { at: number; value: Promise<T> }>,
+  key: string,
+  load: () => Promise<T>,
+): Promise<T> {
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < AVATAR_LOOKUP_TTL_MS) return hit.value;
+  const value = load();
+  cache.set(key, { at: Date.now(), value });
+  void value.then(
+    (res) => {
+      if (res.error && cache.get(key)?.value === value) cache.delete(key);
+    },
+    () => {
+      if (cache.get(key)?.value === value) cache.delete(key);
+    },
+  );
+  return value;
+}
+
+function cachedClientDetails(clientId: string): ReturnType<typeof getClientDetails> {
+  return memoLookup(clientDetailsCache, clientId, () => getClientDetails(clientId));
+}
+
+function cachedLinkedOrgProfile(orgId: string): ReturnType<typeof getLinkedOrgProfile> {
+  return memoLookup(linkedOrgProfileCache, orgId, () => getLinkedOrgProfile(orgId));
+}
+
+/** Test hook: clear the avatar lookup memo. */
+export function clearDriverPartyAvatarCacheForTests(): void {
+  clientDetailsCache.clear();
+  linkedOrgProfileCache.clear();
+}
+
 export type DriverPartyAvatarFields = {
   avatarUrl: string | null;
   avatarSeed: string | null;
@@ -87,7 +130,7 @@ async function fieldsFromOrgId(
   if (!orgId) return EMPTY_DRIVER_PARTY_AVATAR;
   const fromBatch = fieldsFromOrgProfile(orgById[orgId]);
   if (fromBatch) return fromBatch;
-  const { profile } = await getLinkedOrgProfile(orgId);
+  const { profile } = await cachedLinkedOrgProfile(orgId);
   if (!profile) return EMPTY_DRIVER_PARTY_AVATAR;
   return {
     avatarUrl: null,
@@ -129,14 +172,14 @@ export async function resolveDriverPartyAvatar(
   const orgById = seedOrgIds.length ? await getLinkedOrgProfilesBatch(seedOrgIds) : {};
 
   if (clientId) {
-    const { client } = await getClientDetails(clientId);
+    const { client } = await cachedClientDetails(clientId);
     if (client) {
       const linkedOrgId = (client.linked_organization_id ?? "").trim();
       if (linkedOrgId && !orgById[linkedOrgId]) {
         Object.assign(orgById, await getLinkedOrgProfilesBatch([linkedOrgId]));
       }
       if (linkedOrgId && !orgById[linkedOrgId]) {
-        const { profile } = await getLinkedOrgProfile(linkedOrgId);
+        const { profile } = await cachedLinkedOrgProfile(linkedOrgId);
         if (profile) {
           return {
             ...fieldsFromClient(client, {}),
@@ -178,7 +221,7 @@ export async function resolveDriverPartyAvatarMap(
   ];
   const clients = await Promise.all(
     clientIds.map(async (clientId) => {
-      const { client } = await getClientDetails(clientId);
+      const { client } = await cachedClientDetails(clientId);
       return [clientId, client] as const;
     }),
   );
@@ -228,7 +271,7 @@ export async function resolveDriverTripCounterpartyAvatarMap(
   ];
   const clients = await Promise.all(
     clientIds.map(async (clientId) => {
-      const { client } = await getClientDetails(clientId);
+      const { client } = await cachedClientDetails(clientId);
       return [clientId, client] as const;
     }),
   );

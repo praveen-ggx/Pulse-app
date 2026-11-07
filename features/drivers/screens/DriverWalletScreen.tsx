@@ -10,6 +10,7 @@ import {
   buildDriverPartyReceivables,
 } from '@/features/drivers/utils/driverPartyReceivables.util';
 import { listDriverTripExpensesByTripIds } from '@/features/drivers/services/driverTripExpenses.service';
+import { useCoalescedLoader } from '@/features/drivers/hooks/useCoalescedLoader';
 import { receivedByTripFromDriverBooks } from '@/features/drivers/services/driverCapturePayment.service';
 import {
   buildDriverWalletTransactions,
@@ -348,20 +349,22 @@ export default function DriverWalletScreen() {
     }
   }, [profile?.uid, isDco]);
 
+  const refreshWallet = useCoalescedLoader(load, { minIntervalMs: 15_000 });
+
   useEffect(() => {
-    load();
-  }, [load]);
+    void refreshWallet();
+  }, [refreshWallet]);
 
   useFocusEffect(
     useCallback(() => {
-      load();
-    }, [load]),
+      void refreshWallet();
+    }, [refreshWallet]),
   );
 
   useEffect(() => {
     if (fleetConnectionRevision === 0) return;
-    load();
-  }, [fleetConnectionRevision, load]);
+    void refreshWallet({ force: true });
+  }, [fleetConnectionRevision, refreshWallet]);
 
   const completedTrips = useMemo(() => {
     const list = trips.filter((t) => isCompleted(t.status));
@@ -2344,9 +2347,9 @@ export default function DriverWalletScreen() {
         ),
       );
       invalidateOperatingMode();
-      load();
+      void refreshWallet({ force: true });
     },
-    [load, invalidateOperatingMode],
+    [refreshWallet, invalidateOperatingMode],
   );
 
   /**
@@ -2451,13 +2454,13 @@ export default function DriverWalletScreen() {
             'Trip attributed',
             `This trip has been sent to ${target.orgName} for review. They will see it in their salary requests.`,
           );
-          load();
+          void refreshWallet({ force: true });
         }
       } finally {
         setMarkFleetTripLoadingId(null);
       }
     },
-    [currentEmployer, linkedDrivers, profile?.uid, load, driverTripNumberById],
+    [currentEmployer, linkedDrivers, profile?.uid, refreshWallet, driverTripNumberById],
   );
 
   const _filteredTripJourneySections = useMemo(() => {
@@ -2580,7 +2583,7 @@ export default function DriverWalletScreen() {
         setLedgerEntries(prev => [row!, ...prev]);
       }
       setLedgerReceiptPreview(null);
-      load();
+      void refreshWallet({ force: true });
 
       const tripDisplay = getDriverTripDisplayNumber(trip, driverTripNumberById);
       const roundedAmount = Math.round(amount);
@@ -2601,7 +2604,7 @@ export default function DriverWalletScreen() {
         );
       }
     },
-    [linkedDrivers, profile?.uid, load, driverTripNumberById]
+    [linkedDrivers, profile?.uid, refreshWallet, driverTripNumberById]
   );
 
   /** Confirm then mark trip as paid. */
@@ -3216,7 +3219,7 @@ export default function DriverWalletScreen() {
                               setWalletInviteActionId(inv.id);
                               await driversService.rejectDriverInvite(inv.id);
                               setWalletInviteActionId(null);
-                              load();
+                              void refreshWallet({ force: true });
                             }}
                           >
                             <Text style={[styles.walletInviteDeclineText, { color: colors.textMuted }]}>
@@ -3231,7 +3234,7 @@ export default function DriverWalletScreen() {
                               setWalletInviteActionId(inv.id);
                               const { error } = await driversService.acceptDriverInvite(inv.id);
                               setWalletInviteActionId(null);
-                              if (!error) load();
+                              if (!error) void refreshWallet({ force: true });
                               else Alert.alert('Error', error.message);
                             }}
                           >

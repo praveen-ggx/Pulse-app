@@ -10,7 +10,134 @@
 --
 -- Select list and visibility WHERE are copied from get_trips_for_org
 -- (20271013113000_compliance_trips_backlog); only the search filter is new.
+-- Fresh replay: this body reads columns and tables created later, through
+-- indents.warehouse_id in 20270918100000. 20270918100002 installs it then.
+-- Where those objects already exist, the original function runs now.
 
+DO $guard$
+BEGIN
+  IF to_regclass('public.trips') IS NULL
+     OR to_regclass('public.indents') IS NULL
+     OR to_regclass('public.suppliers') IS NULL
+     OR to_regclass('public.organization_members') IS NULL
+     OR to_regclass('public.organization_member_warehouses') IS NULL
+     OR to_regclass('public.sales_orders') IS NULL
+     OR to_regclass('public.sales_order_lines') IS NULL
+     OR to_regclass('public.shipment_allocations') IS NULL
+     OR to_regclass('public.vehicles') IS NULL
+     OR to_regclass('public.clients') IS NULL
+     OR to_regclass('public.drivers') IS NULL
+     OR to_regclass('public.trip_documents') IS NULL
+     OR (
+       SELECT count(*)
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'trips'
+         AND column_name IN (
+           'id', 'client_price', 'margin', 'platform_fee', 'driver_commission', 'amount_paid',
+           'payment_status', 'client_id', 'organization_id', 'trip_number', 'source',
+           'display_trip_id', 'driver_display_trip_id', 'trip_code', 'trip_operational_code',
+           'booking_ref', 'sequence_number', 'pickup_area', 'drop_location', 'distance',
+           'estimated_duration', 'pickup_lat', 'pickup_lon', 'drop_lat', 'drop_lon',
+           'load_type', 'load_tons', 'notes', 'client_name', 'supplier_id',
+           'supplier_trip_sequence', 'supplier_rate', 'advance_paid', 'is_guaranteed',
+           'trip_payout_mode', 'operating_mode', 'dco_payee_id', 'driver_id', 'vehicle_id',
+           'owner_vehicle_id', 'driver_display_name', 'vehicle_display_number', 'status',
+           'pickup_date', 'started_at', 'completed_at', 'created_at', 'updated_at',
+           'deleted_at', 'status_change_origin', 'pod_received_at', 'pod_required',
+           'owner_user_id', 'created_by_user_id', 'assigned_by_user_id', 'last_location_at',
+           'last_location_chat_at', 'actual_distance_traveled_km', 'start_odometer_km',
+           'end_odometer_km', 'odometer_distance_km', 'gps_distance_km',
+           'distance_discrepancy_km', 'distance_source', 'odometer_verification_state',
+           'odometer_notes', 'odometer_updated_by', 'odometer_updated_at', 'indent_id',
+           'source_indent_id', 'source_indent_code', 'indent_reference_code',
+           'converted_from_indent_at', 'converted_by', 'source_bid_id'
+         )
+     ) < 75
+     OR (
+       SELECT count(*)
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'indents'
+         AND column_name IN ('id', 'indent_number', 'warehouse_id', 'sales_order_id', 'execution_plan_id')
+     ) < 5
+     OR (
+       SELECT count(*)
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'suppliers'
+         AND column_name IN ('id', 'linked_organization_id', 'name', 'company_name')
+     ) < 4
+     OR (
+       SELECT count(*)
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'organization_members'
+         AND column_name IN ('organization_id', 'user_id', 'status', 'permissions')
+     ) < 4
+     OR (
+       SELECT count(*)
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'organization_member_warehouses'
+         AND column_name IN ('organization_member_id', 'warehouse_id')
+     ) < 2
+     OR (
+       SELECT count(*)
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'sales_orders'
+         AND column_name IN ('id', 'pickup_warehouse_id', 'drop_warehouse_id')
+     ) < 3
+     OR (
+       SELECT count(*)
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'shipment_allocations'
+         AND column_name IN ('execution_plan_id', 'sales_order_line_id')
+     ) < 2
+     OR NOT EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'sales_order_lines' AND column_name = 'id'
+     )
+     OR NOT EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'sales_order_lines' AND column_name = 'sales_order_id'
+     )
+     OR (
+       SELECT count(*)
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'vehicles'
+         AND column_name IN ('id', 'vehicle_number')
+     ) < 2
+     OR (
+       SELECT count(*)
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'clients'
+         AND column_name IN ('id', 'name')
+     ) < 2
+     OR (
+       SELECT count(*)
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'drivers'
+         AND column_name IN ('id', 'name', 'organization_id', 'phone')
+     ) < 4
+     OR (
+       SELECT count(*)
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'trip_documents'
+         AND column_name IN ('trip_id', 'document_number', 'document_type')
+     ) < 3
+  THEN
+    RAISE NOTICE 'search_trips_for_org deferred until its trip, warehouse, and sales-order columns exist';
+    RETURN;
+  END IF;
+
+  EXECUTE $historical_function$
 create or replace function public.search_trips_for_org(
   p_org_id uuid,
   p_query text,
@@ -304,8 +431,11 @@ AS $function$
   ORDER BY r.created_at DESC
   LIMIT LEAST(GREATEST(COALESCE(p_limit, 200), 1), 500);
 $function$;
+$historical_function$;
 
-revoke execute on function public.search_trips_for_org(uuid, text, integer)
-  from public, anon;
-grant execute on function public.search_trips_for_org(uuid, text, integer)
-  to authenticated, service_role;
+  revoke execute on function public.search_trips_for_org(uuid, text, integer)
+    from public, anon;
+  grant execute on function public.search_trips_for_org(uuid, text, integer)
+    to authenticated, service_role;
+END
+$guard$;

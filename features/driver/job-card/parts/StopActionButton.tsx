@@ -81,8 +81,8 @@ export function StopActionButton({
 }
 
 const styles = StyleSheet.create({
-  wrap: { gap: 6 },
-  idle: { gap: 3 },
+  wrap: { gap: 4 },
+  idle: { gap: 2 },
   stage: {
     fontSize: 10,
     fontWeight: '700',
@@ -100,14 +100,14 @@ const styles = StyleSheet.create({
   },
   cta: {
     minHeight: 44,
-    borderRadius: 10,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 16,
-    marginTop: 2,
+    paddingHorizontal: 14,
+    marginTop: 4,
   },
   ctaText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
     letterSpacing: 0.1,
   },

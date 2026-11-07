@@ -1,4 +1,6 @@
 import {
+  isEditingCurrentTripDriver,
+  isNameOnlyDriverUpdate,
   isSameDriverPhone,
   phoneLast10,
   shouldInviteDriverByPhone,
@@ -42,5 +44,39 @@ describe("shouldInviteDriverByPhone", () => {
   it("treats +91 and 10-digit as the same driver", () => {
     expect(isSameDriverPhone("+91 98491 22459", "9849122459")).toBe(true);
     expect(isSameDriverPhone("9849122459", "9000000001")).toBe(false);
+  });
+});
+
+describe("isEditingCurrentTripDriver / isNameOnlyDriverUpdate", () => {
+  it("keeps the assigned driver when phone fields are empty", () => {
+    expect(
+      isEditingCurrentTripDriver({
+        tripDriverId: "drv-1",
+        phone: "",
+        currentDriverPhone: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("allows a name-only update without a loaded phone", () => {
+    expect(
+      isNameOnlyDriverUpdate({
+        tripDriverId: "drv-1",
+        phone: "",
+        currentDriverPhone: null,
+        currentDriverName: "JOHNAMALRAJ",
+        driverNameInput: "John Amalraj",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not treat a newly typed phone as the current driver without a baseline", () => {
+    expect(
+      isEditingCurrentTripDriver({
+        tripDriverId: "drv-1",
+        phone: "9566594872",
+        currentDriverPhone: null,
+      }),
+    ).toBe(false);
   });
 });

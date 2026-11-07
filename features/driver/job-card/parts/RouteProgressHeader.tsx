@@ -112,7 +112,7 @@ export function RouteProgressHeader({
                 accessible
                 accessibilityLabel={`${label}: ${stats[key]}`}
               >
-                <Icon size={14} color={tint.fg} strokeWidth={2.2} />
+                <Icon size={12} color={tint.fg} strokeWidth={2.2} />
                 <Text style={[styles.statValue, { color: colors.text }]}>{stats[key]}</Text>
                 <Text style={[styles.statLabel, { color: colors.textMuted }]} numberOfLines={1}>
                   {short}
@@ -132,7 +132,7 @@ const styles = StyleSheet.create({
     borderRadius: JOB_CARD_RADIUS,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    gap: 8,
+    gap: 6,
   },
   top: {
     flexDirection: 'row',
@@ -152,7 +152,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   count: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
     letterSpacing: -0.3,
   },
@@ -190,7 +190,7 @@ const styles = StyleSheet.create({
   stats: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
   },
   stat: {
     flexGrow: 1,
@@ -199,12 +199,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    borderRadius: 12,
+    borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
   statValue: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
     letterSpacing: -0.2,
   },

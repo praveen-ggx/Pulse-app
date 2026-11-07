@@ -1,0 +1,5 @@
+# Driver Execution Authority (Step A + Step B + ACCEPT_TRIP). Commit ae896ba5.
+# Write-impacting: SHARE ROW EXCLUSIVE on trips and stop_execution_state while applying.
+# SHA-256 20271005211835 a3772f05...c046, 20271005215938 cb3565d1...c092.
+20271005211835
+20271005215938

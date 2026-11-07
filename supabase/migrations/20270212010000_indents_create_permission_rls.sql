@@ -56,12 +56,24 @@ REVOKE ALL ON FUNCTION public.can_create_indent(uuid) FROM public;
 -- Drop the old generic policy so we can replace it with two specific ones
 DROP POLICY IF EXISTS "Org members can manage indents" ON public.indents;
 
--- READ, UPDATE, DELETE: still just org membership (unchanged)
-CREATE POLICY "Org members can view and edit indents"
+-- READ, UPDATE, DELETE: still just org membership (unchanged).
+-- Postgres accepts one command per policy, so the three commands are separate
+-- policies with the same membership predicate.
+CREATE POLICY "Org members can view indents"
   ON public.indents
-  FOR SELECT, UPDATE, DELETE
+  FOR SELECT
+  USING (public.is_org_member(organization_id));
+
+CREATE POLICY "Org members can update indents"
+  ON public.indents
+  FOR UPDATE
   USING (public.is_org_member(organization_id))
   WITH CHECK (public.is_org_member(organization_id));
+
+CREATE POLICY "Org members can delete indents"
+  ON public.indents
+  FOR DELETE
+  USING (public.is_org_member(organization_id));
 
 -- INSERT: require both org membership AND create permission
 CREATE POLICY "Org members with permission can create indents"

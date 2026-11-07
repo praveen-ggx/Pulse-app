@@ -30,7 +30,9 @@ import {
 import { supabase } from "@/lib/supabase";
 
 const CHUNK = 200;
-const PAGE = 200;
+const CHUNK_CONCURRENCY = 4;
+/** Stay under PostgREST max_rows (1000) so hasMore can see the extra row. */
+const INDENT_PAGE = 500;
 const MAX_PAGES = 25;
 
 /** Soft cap for paged indent scans (owner org). Trip rows use get_trips_for_org. */
@@ -73,6 +75,27 @@ function tripMatchesReportDate(
  * - Indents from paged owner-org scan, then the same hub date matcher.
  * Export is not limited to the current table page.
  */
+async function loadMissingIndents(
+  orgId: string,
+  indentById: Map<string, IndentRow>,
+): Promise<{ error: Error | null; truncated: boolean }> {
+  let truncated = false;
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const offset = page * INDENT_PAGE;
+    const { error, indents, hasMore } = await getIndentsByOrganization(orgId, {
+      limit: INDENT_PAGE,
+      offset,
+    });
+    if (error) return { error, truncated };
+    for (const indent of indents) {
+      if (!indentById.has(indent.id)) indentById.set(indent.id, indent);
+    }
+    if (!hasMore || indents.length === 0) return { error: null, truncated };
+    if (page === MAX_PAGES - 1 && hasMore) truncated = true;
+  }
+  return { error: null, truncated };
+}
+
 export async function loadTripIndentReportCatalog(
   orgId: string,
   seedTrips: readonly TripRow[],
@@ -174,6 +197,17 @@ function chunkIds(ids: string[]): string[][] {
   return out;
 }
 
+/** A few id-chunks at a time so enrichment does not wait on one round trip each. */
+async function forEachChunk(
+  ids: string[],
+  run: (part: string[]) => Promise<void>,
+): Promise<void> {
+  const parts = chunkIds(ids);
+  for (let i = 0; i < parts.length; i += CHUNK_CONCURRENCY) {
+    await Promise.all(parts.slice(i, i + CHUNK_CONCURRENCY).map(run));
+  }
+}
+
 function uniqueIds(values: Array<string | null | undefined>): string[] {
   const set = new Set<string>();
   for (const v of values) {
@@ -191,7 +225,7 @@ async function loadConfirmedAtByIndentId(
   const out: Record<string, string> = {};
   if (indentIds.length === 0) return { data: out, failed: false };
   let failed = false;
-  for (const part of chunkIds(indentIds)) {
+  await forEachChunk(indentIds, async (part) => {
     const { data, error } = await supabase()
       .from("market_bids")
       .select("indent_id, accepted_at")
@@ -200,7 +234,7 @@ async function loadConfirmedAtByIndentId(
       .not("accepted_at", "is", null);
     if (error) {
       failed = true;
-      continue;
+      return;
     }
     for (const row of data ?? []) {
       const id = String((row as { indent_id?: string }).indent_id ?? "").trim();
@@ -209,7 +243,7 @@ async function loadConfirmedAtByIndentId(
       const prev = out[id];
       if (!prev || at > prev) out[id] = at;
     }
-  }
+  });
   return { data: out, failed };
 }
 
@@ -219,14 +253,14 @@ async function loadVehiclesById(
   const out: Record<string, { vehicleType: string; capacity: string }> = {};
   if (vehicleIds.length === 0) return { data: out, failed: false };
   let failed = false;
-  for (const part of chunkIds(vehicleIds)) {
+  await forEachChunk(vehicleIds, async (part) => {
     const { data, error } = await supabase()
       .from("vehicles")
       .select("id, vehicle_type, capacity")
       .in("id", part);
     if (error) {
       failed = true;
-      continue;
+      return;
     }
     for (const row of data ?? []) {
       const id = String((row as { id?: string }).id ?? "").trim();
@@ -236,7 +270,7 @@ async function loadVehiclesById(
         capacity: String((row as { capacity?: string | null }).capacity ?? "").trim(),
       };
     }
-  }
+  });
   return { data: out, failed };
 }
 
@@ -246,21 +280,21 @@ async function loadCreatorNamesByUserId(
   const out: Record<string, string> = {};
   if (userIds.length === 0) return { data: out, failed: false };
   let failed = false;
-  for (const part of chunkIds(userIds)) {
+  await forEachChunk(userIds, async (part) => {
     const { data, error } = await supabase()
       .from("profiles")
       .select("id, full_name")
       .in("id", part);
     if (error) {
       failed = true;
-      continue;
+      return;
     }
     for (const row of data ?? []) {
       const id = String((row as { id?: string }).id ?? "").trim();
       const name = String((row as { full_name?: string | null }).full_name ?? "").trim();
       if (id && name) out[id] = name;
     }
-  }
+  });
   return { data: out, failed };
 }
 
@@ -270,21 +304,21 @@ async function loadOrgNamesById(
   const out: Record<string, string> = {};
   if (orgIds.length === 0) return { data: out, failed: false };
   let failed = false;
-  for (const part of chunkIds(orgIds)) {
+  await forEachChunk(orgIds, async (part) => {
     const { data, error } = await supabase()
       .from("organizations")
       .select("id, name")
       .in("id", part);
     if (error) {
       failed = true;
-      continue;
+      return;
     }
     for (const row of data ?? []) {
       const id = String((row as { id?: string }).id ?? "").trim();
       const name = String((row as { name?: string | null }).name ?? "").trim();
       if (id && name) out[id] = name;
     }
-  }
+  });
   return { data: out, failed };
 }
 
@@ -293,7 +327,9 @@ export type BuildTripIndentReportInput = {
   trips: readonly TripRow[];
   indents: readonly IndentRow[];
   partyMetaByTripId?: Map<string, TripIndentReportPartyMeta> | Record<string, TripIndentReportPartyMeta>;
-  driverPhoneByTripId?: Record<string, string>;
+  driverPhoneByTripId?:
+    | Record<string, string>
+    | Promise<Record<string, string>>;
   stageLabelForTrip?: (trip: TripRow) => string;
 };
 
@@ -327,12 +363,14 @@ export async function buildTripIndentReport(
     ]);
     const awardedSupplierOrgIds = uniqueIds(indents.map((i) => i.assigned_supplier_id));
 
-    const [confirmedAt, vehicles, creators, orgs] = await Promise.all([
-      loadConfirmedAtByIndentId(indentIds),
-      loadVehiclesById(vehicleIds),
-      loadCreatorNamesByUserId(creatorIds),
-      loadOrgNamesById(awardedSupplierOrgIds),
-    ]);
+    const [confirmedAt, vehicles, creators, orgs, driverPhoneByTripId] =
+      await Promise.all([
+        loadConfirmedAtByIndentId(indentIds),
+        loadVehiclesById(vehicleIds),
+        loadCreatorNamesByUserId(creatorIds),
+        loadOrgNamesById(awardedSupplierOrgIds),
+        Promise.resolve(input.driverPhoneByTripId ?? {}),
+      ]);
 
     const warnings: string[] = [];
     if (confirmedAt.failed) {
@@ -353,7 +391,7 @@ export async function buildTripIndentReport(
       vehicleById: vehicles.data,
       creatorNameByUserId: creators.data,
       orgNameById: orgs.data,
-      driverPhoneByTripId: input.driverPhoneByTripId,
+      driverPhoneByTripId,
       partyMetaByTripId: input.partyMetaByTripId,
       indentById,
       stageLabelForTrip: input.stageLabelForTrip,

@@ -13,7 +13,62 @@
 --
 -- The new enum values are only referenced inside plpgsql bodies, which are
 -- not evaluated at CREATE time, so this is safe in one transaction.
+--
+-- Fresh replay: registration_type_enum is created in 20261101000000,
+-- verification_document_type in 20261111000000, and organizations.gst_not_applicable
+-- in 20261114000000. 20261114000001 applies these statements after that.
+-- Where those objects already exist, the original statements run now.
 
+DO $guard$
+BEGIN
+  IF to_regtype('public.registration_type_enum') IS NULL
+     OR to_regtype('public.verification_document_type') IS NULL
+     OR to_regtype('public.kyc_verification_status') IS NULL
+     OR to_regtype('public.verification_job_status') IS NULL
+     OR to_regtype('public.pillar_status_type') IS NULL
+     OR to_regclass('public.organization_kyc_documents') IS NULL
+     OR to_regclass('public.verification_documents') IS NULL
+     OR to_regclass('public.verification_audit_logs') IS NULL
+     OR to_regclass('public.verification_jobs') IS NULL
+     OR to_regprocedure('public.org_has_kyc_document(uuid,text[])') IS NULL
+     OR (
+       SELECT count(*)
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'organizations'
+         AND column_name IN (
+           'registration_type', 'verification_status', 'gst_not_applicable', 'cin',
+           'business_pan', 'gstin', 'address_pincode', 'address_proof_path',
+           'address_proof_type', 'frozen_at', 'submitted_at', 'rejection_reasons'
+         )
+     ) < 12
+     OR (
+       SELECT count(*)
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'verification_documents'
+         AND column_name IN ('org_id', 'status', 'document_type')
+     ) < 3
+     OR (
+       SELECT count(*)
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'verification_jobs'
+         AND column_name IN ('organization_id', 'status', 'pillar_2_mca_status')
+     ) < 3
+     OR (
+       SELECT count(*)
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'verification_audit_logs'
+         AND column_name IN ('org_id', 'changed_by', 'previous_status', 'new_status', 'notes')
+     ) < 5
+  THEN
+    RAISE NOTICE 'individual registration deferred until business-verification types and documents exist';
+    RETURN;
+  END IF;
+
+  EXECUTE $historical$
 ALTER TYPE public.registration_type_enum ADD VALUE IF NOT EXISTS 'individual';
 ALTER TYPE public.verification_document_type ADD VALUE IF NOT EXISTS 'aadhaar_card';
 
@@ -274,3 +329,6 @@ BEGIN
   RETURN v_missing;
 END;
 $function$;
+$historical$;
+END
+$guard$;

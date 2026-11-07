@@ -14,7 +14,10 @@
 -- a second identity or a duplicate role grant for this person.
 
 INSERT INTO public.platform_users (user_id, status)
-VALUES ('d288dc4b-0018-41e2-9692-6755d2c6448c', 'active')
+SELECT 'd288dc4b-0018-41e2-9692-6755d2c6448c', 'active'
+WHERE EXISTS (
+  SELECT 1 FROM auth.users WHERE id = 'd288dc4b-0018-41e2-9692-6755d2c6448c'
+)
 ON CONFLICT (user_id) DO NOTHING;
 
 -- granted_by is NULL: this grant was made via a reviewed migration, not an in-app "grant role"

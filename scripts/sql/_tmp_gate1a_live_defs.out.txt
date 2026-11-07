@@ -1,0 +1,1107 @@
+-- GATE 1A LIVE PRODUCTION CATALOG DUMP (read-only)  captured 2026-10-06
+
+
+==============================================================================
+== A_function
+==============================================================================
+
+--- award_direct_quote | award_direct_quote(uuid,uuid)
+CREATE OR REPLACE FUNCTION public.award_direct_quote(p_indent_id uuid, p_winning_quote_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_indent   public.indents%ROWTYPE;
+  v_winner   public.direct_quotes%ROWTYPE;
+  v_rejected int;
+BEGIN
+  SELECT * INTO v_indent FROM public.indents WHERE id = p_indent_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'not_found: indent %', p_indent_id;
+  END IF;
+  IF NOT public.is_org_staff(v_indent.organization_id) THEN
+    RAISE EXCEPTION 'unauthorized: caller is not a member of org %', v_indent.organization_id;
+  END IF;
+
+  SELECT * INTO v_winner FROM public.direct_quotes WHERE id = p_winning_quote_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'not_found: direct_quote %', p_winning_quote_id;
+  END IF;
+  IF v_winner.indent_id <> p_indent_id THEN
+    RAISE EXCEPTION 'invalid_state: quote % does not belong to indent %', p_winning_quote_id, p_indent_id;
+  END IF;
+
+  -- Idempotency, checked before the pending-status guard (same rationale as
+  -- accept_driver_direct_bid): a retry on an already-awarded indent with the
+  -- same winner returns the current state instead of raising.
+  IF lower(trim(coalesce(v_indent.status, ''))) = 'awarded' AND v_winner.status = 'accepted' THEN
+    RETURN jsonb_build_object('ok', true, 'indent_id', p_indent_id, 'accepted_quote_id', p_winning_quote_id, 'rejected_count', 0);
+  END IF;
+
+  IF lower(trim(coalesce(v_indent.status, ''))) IN ('awarded', 'completed', 'cancelled', 'closed', 'expired') THEN
+    RAISE EXCEPTION 'indent_not_open: indent % is not open for award (status=%)', p_indent_id, v_indent.status;
+  END IF;
+  IF v_winner.status <> 'pending' THEN
+    RAISE EXCEPTION 'invalid_state: quote already decided (current: %)', v_winner.status;
+  END IF;
+
+  UPDATE public.direct_quotes
+  SET status = 'accepted', updated_at = now()
+  WHERE id = p_winning_quote_id;
+
+  UPDATE public.direct_quotes
+  SET status = 'rejected', updated_at = now()
+  WHERE indent_id = p_indent_id
+    AND id <> p_winning_quote_id
+    AND status = 'pending';
+  GET DIAGNOSTICS v_rejected = ROW_COUNT;
+
+  -- Fires deactivate_posts_for_terminal_indent, which rejects pending
+  -- bids/driver_direct_bids/market_bids linked to this indent's posts --
+  -- unchanged, existing trigger behavior, not duplicated here.
+  UPDATE public.indents SET status = 'awarded', updated_at = now() WHERE id = p_indent_id;
+
+  RETURN jsonb_build_object('ok', true, 'indent_id', p_indent_id, 'accepted_quote_id', p_winning_quote_id, 'rejected_count', v_rejected);
+END;
+$function$
+
+
+--- award_indent_to_trip | award_indent_to_trip(uuid,numeric,uuid,uuid,uuid,uuid,text)
+CREATE OR REPLACE FUNCTION public.award_indent_to_trip(p_indent_id uuid, p_supplier_rate numeric DEFAULT NULL::numeric, p_supplier_id uuid DEFAULT NULL::uuid, p_supplier_org_id uuid DEFAULT NULL::uuid, p_driver_id uuid DEFAULT NULL::uuid, p_vehicle_id uuid DEFAULT NULL::uuid, p_vehicle_display_number text DEFAULT NULL::text)
+ RETURNS SETOF trips
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_indent        public.indents%ROWTYPE;
+  v_org_id        uuid;
+  v_trip          public.trips%ROWTYPE;
+  v_supplier_id   uuid;
+  v_supplier_rate numeric;
+  v_vehicle_disp  text;
+  v_bidder_org_id uuid;
+BEGIN
+  SELECT * INTO v_indent FROM public.indents WHERE id = p_indent_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Indent % not found', p_indent_id;
+  END IF;
+
+  IF lower(coalesce(v_indent.status, '')) = 'cancelled' THEN
+    RAISE EXCEPTION 'Cannot create trip: indent % is cancelled', p_indent_id;
+  END IF;
+
+  IF coalesce(trim(v_indent.pickup_area), '') = '' THEN
+    RAISE EXCEPTION 'Cannot create trip: indent % has no pickup_area', p_indent_id;
+  END IF;
+  IF coalesce(trim(v_indent.drop_location), '') = '' THEN
+    RAISE EXCEPTION 'Cannot create trip: indent % has no drop_location', p_indent_id;
+  END IF;
+  IF NOT public.indent_has_convertible_sale(v_indent) THEN
+    RAISE EXCEPTION 'Cannot create trip: indent % has no client_price', p_indent_id;
+  END IF;
+
+  v_org_id := v_indent.organization_id;
+
+  IF NOT public.is_org_staff(v_org_id) THEN
+    RAISE EXCEPTION 'Not authorized: caller is not a member of org %', v_org_id;
+  END IF;
+
+  SELECT t.* INTO v_trip
+  FROM public.trips t
+  WHERE t.indent_id = p_indent_id
+  LIMIT 1;
+
+  IF FOUND THEN
+    IF lower(coalesce(v_trip.status, '')) NOT IN ('completed', 'cancelled') THEN
+      UPDATE public.trips
+      SET
+        driver_id             = COALESCE(p_driver_id,  driver_id),
+        vehicle_id            = COALESCE(p_vehicle_id, vehicle_id),
+        vehicle_display_number = CASE
+          WHEN p_vehicle_display_number IS NOT NULL AND trim(p_vehicle_display_number) <> ''
+          THEN trim(p_vehicle_display_number)
+          ELSE vehicle_display_number
+        END,
+        updated_at = now()
+      WHERE id = v_trip.id;
+      SELECT * INTO v_trip FROM public.trips WHERE id = v_trip.id;
+    END IF;
+    RETURN NEXT v_trip;
+    RETURN;
+  END IF;
+
+  -- Resolve the bidder org id the same way supplier_id resolution below
+  -- does, so the eligibility check covers every way the caller can name
+  -- the bidder (assigned_supplier_id on the indent, or an explicit param).
+  v_bidder_org_id := COALESCE(v_indent.assigned_supplier_id, p_supplier_org_id);
+
+  IF v_bidder_org_id IS NOT NULL AND NOT public.is_approved_supplier(v_org_id, v_bidder_org_id) THEN
+    RAISE EXCEPTION 'Bidder is not an approved supplier of this load owner. Add and approve them as a supplier before awarding.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  v_supplier_rate := COALESCE(
+    p_supplier_rate,
+    (v_indent.assigned_supplier_rate)::numeric,
+    v_indent.supplier_target,
+    0
+  );
+
+  v_supplier_id := p_supplier_id;
+
+  IF v_supplier_id IS NULL AND v_indent.assigned_supplier_id IS NOT NULL THEN
+    SELECT id INTO v_supplier_id
+    FROM public.suppliers
+    WHERE organization_id = v_org_id
+      AND linked_organization_id = v_indent.assigned_supplier_id
+    LIMIT 1;
+  END IF;
+
+  IF v_supplier_id IS NULL AND p_supplier_org_id IS NOT NULL THEN
+    SELECT id INTO v_supplier_id
+    FROM public.suppliers
+    WHERE organization_id = v_org_id
+      AND linked_organization_id = p_supplier_org_id
+    LIMIT 1;
+  END IF;
+
+  v_vehicle_disp := NULLIF(TRIM(COALESCE(p_vehicle_display_number, '')), '');
+
+  INSERT INTO public.trips (
+    organization_id, trip_number, indent_id, source, pickup_area, drop_location,
+    client_name, client_price, supplier_rate, supplier_id, trip_payout_mode,
+    driver_id, vehicle_id, vehicle_display_number, status, pickup_date, load_type,
+    platform_fee, driver_commission, payment_status, amount_paid
+  ) VALUES (
+    v_org_id, '', p_indent_id, 'indent',
+    coalesce(v_indent.pickup_area, ''), coalesce(v_indent.drop_location, ''),
+    coalesce(v_indent.client_name, ''), coalesce(v_indent.client_price, 0),
+    v_supplier_rate, v_supplier_id,
+    CASE WHEN v_supplier_id IS NOT NULL THEN 'market' ELSE 'asset' END,
+    p_driver_id, p_vehicle_id, v_vehicle_disp,
+    CASE WHEN p_driver_id IS NOT NULL THEN 'assigned' ELSE 'draft' END,
+    v_indent.pickup_date, coalesce(v_indent.load_type, ''), 0, 0, 'pending', 0
+  )
+  RETURNING * INTO v_trip;
+
+  UPDATE public.indents
+  SET status = 'completed', updated_at = now()
+  WHERE id = p_indent_id;
+
+  RETURN NEXT v_trip;
+  RETURN;
+END;
+$function$
+
+
+--- award_market_bid | award_market_bid(uuid)
+CREATE OR REPLACE FUNCTION public.award_market_bid(p_bid_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE
+  v_bid          public.market_bids;
+  v_indent       public.indents;
+  v_fee_calc     jsonb;
+  v_platform_fee numeric;
+  v_fee_status   text;
+BEGIN
+  SELECT * INTO v_bid FROM public.market_bids WHERE id = p_bid_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'not_found: bid %', p_bid_id;
+  END IF;
+
+  -- Lock the INDENT first -- unchanged concurrency rule from accept_market_bid.
+  SELECT * INTO v_indent FROM public.indents WHERE id = v_bid.indent_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'not_found: indent % for bid %', v_bid.indent_id, p_bid_id;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.organization_members om
+    WHERE om.organization_id = v_indent.organization_id
+      AND om.user_id = (select auth.uid())
+      AND om.status = 'active'
+      AND om.role <> 'driver'
+  ) THEN
+    RAISE EXCEPTION 'unauthorized: caller must be a non-driver member of the organization that owns this indent';
+  END IF;
+
+  -- No trip is ever created by this function for either branch now, so
+  -- "already decided" is fully expressed by market_bids.status alone -- no
+  -- trips lookup needed here at all (a simplification vs. the old
+  -- accept_market_bid, which had to special-case "accepted, no trip yet"
+  -- only for the organization branch; here it is uniform for both).
+  IF v_bid.status = 'accepted' THEN
+    RETURN jsonb_build_object(
+      'ok', true, 'bid_id', p_bid_id, 'status', 'accepted',
+      'fee_payment_status', v_bid.fee_payment_status,
+      'platform_fee_amount', v_bid.platform_fee_amount
+    );
+  END IF;
+
+  IF v_bid.status <> 'pending' THEN
+    RAISE EXCEPTION 'invalid_state: bid already decided (current: %)', v_bid.status;
+  END IF;
+
+  IF lower(trim(coalesce(v_indent.status, ''))) NOT IN ('open', 'broadcast') THEN
+    RAISE EXCEPTION 'indent_not_open: indent % is not open for award (status=%)', v_indent.id, v_indent.status;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.trips t
+    WHERE t.indent_id = v_indent.id AND t.status <> 'cancelled'
+  ) THEN
+    RAISE EXCEPTION 'already_awarded: indent % already has an active canonical trip', v_indent.id;
+  END IF;
+
+  -- A8.6.2: fee resolution now runs for BOTH bidder types (previously DCO
+  -- only) -- this is the one genuinely new behavior for the organization
+  -- branch. Never recompute after this; locked into market_bids row below.
+  v_fee_calc     := public.calculate_marketplace_platform_fee(v_bid.amount);
+  v_platform_fee := coalesce((v_fee_calc->>'resolved_fee')::numeric, 0);
+  v_fee_status   := CASE WHEN v_platform_fee > 0 THEN 'required' ELSE 'not_required' END;
+
+  IF v_bid.bidder_type = 'organization' THEN
+    IF v_bid.bidder_organization_id IS NULL THEN
+      RAISE EXCEPTION 'invalid_bid: organization bid % has no bidder_organization_id', v_bid.id;
+    END IF;
+
+    UPDATE public.market_bids
+    SET status = 'accepted', accepted_at = now(), updated_at = now(),
+        platform_fee_amount = v_platform_fee,
+        platform_fee_calc_snapshot = v_fee_calc,
+        fee_payment_status = v_fee_status
+    WHERE id = p_bid_id;
+
+    UPDATE public.market_bids
+    SET status = 'rejected', updated_at = now()
+    WHERE indent_id = v_indent.id AND id <> v_bid.id AND status = 'pending';
+
+    UPDATE public.indents
+    SET status = 'awarded',
+        assigned_supplier_id = v_bid.bidder_organization_id,
+        updated_at = now()
+    WHERE id = v_indent.id;
+
+    RETURN jsonb_build_object(
+      'ok', true, 'bid_id', p_bid_id, 'status', 'accepted',
+      'fee_payment_status', v_fee_status, 'platform_fee_amount', v_platform_fee
+    );
+  END IF;
+
+  IF v_bid.bidder_type <> 'dco' THEN
+    RAISE EXCEPTION 'unexpected_bidder_type: %', v_bid.bidder_type;
+  END IF;
+
+  IF NOT public.is_driver_available(v_bid.bidder_user_id) THEN
+    RAISE EXCEPTION 'driver_unavailable: this driver is already on an active trip';
+  END IF;
+
+  IF v_bid.owner_vehicle_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM public.owner_vehicles ov
+    WHERE ov.id = v_bid.owner_vehicle_id
+      AND ov.owner_user_id = v_bid.bidder_user_id
+      AND ov.deleted_at IS NULL
+  ) THEN
+    RAISE EXCEPTION 'vehicle_no_longer_eligible: owner_vehicle % is no longer valid for bidder %', v_bid.owner_vehicle_id, v_bid.bidder_user_id;
+  END IF;
+
+  -- _resolve_or_create_market_driver() deliberately NOT called here anymore
+  -- -- it moves to create_market_trip_after_fee_payment(), the moment a
+  -- trip actually gets created. Creating the drivers-row stub before a fee
+  -- is even paid would be premature side-effecting for a bid that might
+  -- never convert.
+
+  UPDATE public.market_bids
+  SET status = 'accepted', accepted_at = now(), updated_at = now(),
+      platform_fee_amount = v_platform_fee,
+      platform_fee_calc_snapshot = v_fee_calc,
+      fee_payment_status = v_fee_status
+  WHERE id = p_bid_id;
+
+  UPDATE public.market_bids
+  SET status = 'rejected', updated_at = now()
+  WHERE indent_id = v_indent.id AND id <> v_bid.id AND status = 'pending';
+
+  -- A6.3 superseding: unchanged timing -- runs at AWARD, not at eventual
+  -- trip creation. NOTE (A8.6.2 known gap, documented in the plan): this
+  -- only closes out bids that are already PENDING at award time. A driver
+  -- can still submit and be awarded a second bid while this one sits
+  -- fee-pending, since is_driver_available() has no visibility into an
+  -- accepted-but-unpaid market_bids row. Not fixed in this phase.
+  UPDATE public.market_bids
+  SET status = 'superseded', updated_at = now()
+  WHERE bidder_user_id = v_bid.bidder_user_id
+    AND status = 'pending'
+    AND id <> v_bid.id;
+
+  UPDATE public.driver_direct_bids
+  SET status = 'superseded', updated_at = now()
+  WHERE driver_user_id = v_bid.bidder_user_id
+    AND status = 'pending';
+
+  UPDATE public.indents SET status = 'awarded', updated_at = now() WHERE id = v_indent.id;
+
+  RETURN jsonb_build_object(
+    'ok', true, 'bid_id', p_bid_id, 'status', 'accepted',
+    'fee_payment_status', v_fee_status, 'platform_fee_amount', v_platform_fee
+  );
+END;
+$function$
+
+
+--- deactivate_posts_for_terminal_indent | deactivate_posts_for_terminal_indent()
+CREATE OR REPLACE FUNCTION public.deactivate_posts_for_terminal_indent()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_status text;
+BEGIN
+  IF TG_OP <> 'UPDATE' OR NEW.status IS NOT DISTINCT FROM OLD.status THEN
+    RETURN NEW;
+  END IF;
+
+  v_status := lower(trim(coalesce(NEW.status::text, '')));
+  IF NOT (
+    v_status = ANY (
+      ARRAY['awarded', 'completed', 'cancelled', 'closed', 'expired']::text[]
+    )
+  ) THEN
+    RETURN NEW;
+  END IF;
+
+  UPDATE public.posts p
+  SET
+    is_active = false,
+    updated_at = now()
+  WHERE p.source_indent_id = NEW.id
+    AND p.is_active = true;
+
+  UPDATE public.bids b
+  SET
+    status = 'rejected',
+    updated_at = now()
+  WHERE b.status = 'pending'
+    AND b.post_id IN (
+      SELECT p.id FROM public.posts p WHERE p.source_indent_id = NEW.id
+    );
+
+  UPDATE public.driver_direct_bids ddb
+  SET
+    status = 'rejected',
+    updated_at = now()
+  WHERE ddb.status = 'pending'
+    AND ddb.post_id IN (
+      SELECT p.id FROM public.posts p WHERE p.source_indent_id = NEW.id
+    );
+
+  -- WS1: a pending Market bid on this indent must not survive it reaching a
+  -- terminal status via any other path (award, cancellation, expiry, close).
+  UPDATE public.market_bids mb
+  SET
+    status = 'rejected',
+    updated_at = now()
+  WHERE mb.status = 'pending'
+    AND mb.indent_id = NEW.id;
+
+  RETURN NEW;
+END;
+$function$
+
+
+--- enforce_indent_draft_broadcast_rules | enforce_indent_draft_broadcast_rules()
+CREATE OR REPLACE FUNCTION public.enforce_indent_draft_broadcast_rules()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO ''
+AS $function$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.status = 'broadcast' AND NEW.shared_at IS NULL THEN
+      NEW.shared_at := now();
+    END IF;
+    IF NEW.status = 'draft' AND NEW.last_saved_at IS NULL THEN
+      NEW.last_saved_at := now();
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF OLD.status = 'broadcast' AND NEW.status = 'draft' THEN
+    RAISE EXCEPTION 'Broadcast indents cannot be reverted to draft'
+      USING ERRCODE = '23514';
+  END IF;
+
+  -- Lock commercial edits only while the indent stays broadcast. Transitioning
+  -- to awarded/completed/cancelled (award path) may stamp the winning rate.
+  -- circulation_target is deliberately excluded: distribution (A2 — Share to
+  -- Marketplace / Stop sharing) is meant to change post-broadcast.
+  IF OLD.status = 'broadcast'
+     AND NEW.status = 'broadcast'
+     AND (
+       NEW.pickup_area IS DISTINCT FROM OLD.pickup_area OR
+       NEW.drop_location IS DISTINCT FROM OLD.drop_location OR
+       NEW.client_name IS DISTINCT FROM OLD.client_name OR
+       NEW.client_price IS DISTINCT FROM OLD.client_price OR
+       NEW.supplier_target IS DISTINCT FROM OLD.supplier_target OR
+       NEW.vehicle_type IS DISTINCT FROM OLD.vehicle_type OR
+       NEW.load_type IS DISTINCT FROM OLD.load_type OR
+       NEW.pickup_date IS DISTINCT FROM OLD.pickup_date
+     ) THEN
+    RAISE EXCEPTION 'This indent has been shared and cannot be edited'
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF OLD.status <> 'broadcast' AND NEW.status = 'broadcast' AND NEW.shared_at IS NULL THEN
+    NEW.shared_at := now();
+  END IF;
+
+  IF NEW.status = 'draft' THEN
+    NEW.last_saved_at := now();
+  END IF;
+
+  RETURN NEW;
+END;
+$function$
+
+
+--- ensure_awarded_bidder_supplier | ensure_awarded_bidder_supplier(uuid,uuid)
+CREATE OR REPLACE FUNCTION public.ensure_awarded_bidder_supplier(p_owner_org uuid, p_bidder_org uuid)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_id uuid;
+  v_name text;
+BEGIN
+  IF p_owner_org IS NULL OR p_bidder_org IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT s.id INTO v_id
+  FROM public.suppliers s
+  WHERE s.organization_id = p_owner_org
+    AND s.linked_organization_id = p_bidder_org
+  LIMIT 1;
+
+  IF v_id IS NOT NULL THEN
+    UPDATE public.suppliers
+    SET is_active = true, updated_at = now()
+    WHERE id = v_id AND coalesce(is_active, true) IS DISTINCT FROM true;
+    RETURN v_id;
+  END IF;
+
+  SELECT coalesce(nullif(trim(o.name), ''), 'Supplier') INTO v_name
+  FROM public.organizations o
+  WHERE o.id = p_bidder_org;
+
+  INSERT INTO public.suppliers (
+    organization_id, name, linked_organization_id, supplier_type, is_active, updated_at
+  ) VALUES (
+    p_owner_org, coalesce(v_name, 'Supplier'), p_bidder_org, 'integrated', true, now()
+  )
+  RETURNING id INTO v_id;
+
+  RETURN v_id;
+EXCEPTION
+  WHEN unique_violation THEN
+    SELECT s.id INTO v_id
+    FROM public.suppliers s
+    WHERE s.organization_id = p_owner_org
+      AND s.linked_organization_id = p_bidder_org
+    LIMIT 1;
+    RETURN v_id;
+END;
+$function$
+
+
+--- indent_has_convertible_sale | indent_has_convertible_sale(indents)
+CREATE OR REPLACE FUNCTION public.indent_has_convertible_sale(p_indent indents)
+ RETURNS boolean
+ LANGUAGE sql
+ IMMUTABLE
+AS $function$
+  SELECT
+    COALESCE(p_indent.client_price, 0) > 0
+    OR (
+      p_indent.sale_rate_basis = 'per_mt'
+      AND COALESCE(p_indent.sale_unit_rate, 0) > 0
+    );
+$function$
+
+
+--- is_approved_supplier | is_approved_supplier(uuid,uuid)
+CREATE OR REPLACE FUNCTION public.is_approved_supplier(p_owner_org uuid, p_bidder_org uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT EXISTS (
+    SELECT 1 FROM public.suppliers s
+    WHERE s.organization_id = p_owner_org
+      AND s.linked_organization_id = p_bidder_org
+      AND s.is_active = true
+  );
+$function$
+
+
+--- is_marketplace_indent_award | is_marketplace_indent_award(uuid,uuid)
+CREATE OR REPLACE FUNCTION public.is_marketplace_indent_award(p_indent_id uuid, p_bidder_org uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT
+    EXISTS (
+      SELECT 1
+      FROM public.market_bids mb
+      WHERE mb.indent_id = p_indent_id
+        AND mb.status = 'accepted'
+        AND (
+          p_bidder_org IS NULL
+          OR mb.bidder_organization_id = p_bidder_org
+        )
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM public.indents i
+      WHERE i.id = p_indent_id
+        AND lower(coalesce(i.circulation_target, '')) IN ('marketplace', 'both')
+    );
+$function$
+
+
+--- is_org_staff | is_org_staff(uuid)
+CREATE OR REPLACE FUNCTION public.is_org_staff(org_id uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+  SELECT EXISTS (
+    SELECT 1 FROM public.organization_members
+    WHERE organization_id = org_id
+      AND user_id = (SELECT auth.uid())
+      AND status = 'active'
+      AND role = ANY (ARRAY['owner','admin','member','dispatcher','finance'])
+  );
+$function$
+
+
+--- notify_direct_quote_lifecycle | notify_direct_quote_lifecycle()
+CREATE OR REPLACE FUNCTION public.notify_direct_quote_lifecycle()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE
+  v_owner_org uuid;
+  v_code text;
+  v_route text;
+  v_bidder_name text;
+BEGIN
+  SELECT i.organization_id,
+         COALESCE(i.indent_operational_code, i.indent_number, i.indent_code, 'Indent'),
+         public.indent_route_label(i)
+    INTO v_owner_org, v_code, v_route
+    FROM public.indents i
+   WHERE i.id = NEW.indent_id;
+
+  IF v_owner_org IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT o.name INTO v_bidder_name
+    FROM public.organizations o
+   WHERE o.id = NEW.bidder_organization_id;
+
+  -- A supplier quoted → tell the indent owner.
+  IF TG_OP = 'INSERT' THEN
+    PERFORM public.emit_network_notification(
+      v_owner_org,
+      NEW.bidder_organization_id,
+      'bid_received',
+      CONCAT(COALESCE(v_bidder_name, 'A partner'), ' quoted on ', v_code),
+      v_route,
+      NEW.amount,
+      NEW.indent_id, NEW.id, NULL,
+      CONCAT('bid_received:', NEW.id),
+      jsonb_build_object('indent_code', v_code, 'route', v_route)
+    );
+    RETURN NEW;
+  END IF;
+
+  -- Counter offer: whoever did not place the original quote is the actor, so the
+  -- owner countering notifies the bidder and vice versa.
+  IF NEW.counter_amount IS DISTINCT FROM OLD.counter_amount
+     AND NEW.counter_amount IS NOT NULL THEN
+    PERFORM public.emit_network_notification(
+      NEW.bidder_organization_id,
+      v_owner_org,
+      'counter_offered',
+      CONCAT('Counter offer on ', v_code),
+      v_route,
+      NEW.counter_amount,
+      NEW.indent_id, NEW.id, NULL,
+      CONCAT('counter_offered:', NEW.id, ':', NEW.counter_amount),
+      jsonb_build_object('indent_code', v_code, 'route', v_route)
+    );
+  END IF;
+
+  -- Award: the owner accepted this supplier's quote.
+  IF NEW.status = 'accepted' AND OLD.status IS DISTINCT FROM 'accepted' THEN
+    PERFORM public.emit_network_notification(
+      NEW.bidder_organization_id,
+      v_owner_org,
+      'awarded',
+      CONCAT(v_code, ' awarded to you'),
+      v_route,
+      COALESCE(NEW.counter_amount, NEW.amount),
+      NEW.indent_id, NEW.id, NULL,
+      CONCAT('awarded:', NEW.id),
+      jsonb_build_object('indent_code', v_code, 'route', v_route)
+    );
+  END IF;
+
+  RETURN NEW;
+END;
+$function$
+
+
+--- notify_indent_broadcast | notify_indent_broadcast()
+CREATE OR REPLACE FUNCTION public.notify_indent_broadcast()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE
+  v_code text;
+  v_route text;
+BEGIN
+  IF NEW.status <> 'broadcast' THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'UPDATE' AND OLD.status = 'broadcast' THEN
+    RETURN NEW;
+  END IF;
+
+  v_code := COALESCE(NEW.indent_operational_code, NEW.indent_number, NEW.indent_code, 'Indent');
+  v_route := public.indent_route_label(NEW);
+
+  INSERT INTO public.network_notifications (
+    organization_id, actor_org_id, event_type, title, subtitle,
+    amount_meta, indent_id, dedupe_key, payload_json
+  )
+  SELECT DISTINCT
+    s.other_org,
+    NEW.organization_id,
+    'indent_created',
+    CONCAT(v_code, ' is open for bids'),
+    v_route,
+    NEW.supplier_target,
+    NEW.id,
+    CONCAT('indent_created:', NEW.id, ':', s.other_org),
+    jsonb_build_object('indent_code', v_code, 'route', v_route)
+  FROM (
+    SELECT cr.to_organization_id AS other_org
+      FROM public.connection_requests cr
+     WHERE cr.from_organization_id = NEW.organization_id
+       AND cr.status = 'accepted'
+       AND cr.request_carrier_supplier IS TRUE
+    UNION
+    SELECT cr.from_organization_id AS other_org
+      FROM public.connection_requests cr
+     WHERE cr.to_organization_id = NEW.organization_id
+       AND cr.status = 'accepted'
+       AND cr.request_carrier_supplier IS TRUE
+  ) s
+  WHERE s.other_org IS NOT NULL
+    AND s.other_org <> NEW.organization_id
+  ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL
+  DO NOTHING;
+
+  RETURN NEW;
+END;
+$function$
+
+
+--- notify_indent_supplier_requested | notify_indent_supplier_requested()
+CREATE OR REPLACE FUNCTION public.notify_indent_supplier_requested()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE
+  v_code text;
+  v_route text;
+  v_supplier_org uuid;
+BEGIN
+  IF NEW.assigned_supplier_id IS NULL
+     OR NEW.assigned_supplier_id IS NOT DISTINCT FROM OLD.assigned_supplier_id THEN
+    RETURN NEW;
+  END IF;
+
+  -- assigned_supplier_id is already an FK to organizations(id).
+  v_supplier_org := NEW.assigned_supplier_id;
+
+  v_code := COALESCE(NEW.indent_operational_code, NEW.indent_number, NEW.indent_code, 'Indent');
+  v_route := public.indent_route_label(NEW);
+
+  PERFORM public.emit_network_notification(
+    v_supplier_org,
+    NEW.organization_id,
+    'quote_requested',
+    CONCAT('Quote requested on ', v_code),
+    v_route,
+    NEW.supplier_target,
+    NEW.id, NULL, NULL,
+    CONCAT('quote_requested:', NEW.id, ':', v_supplier_org),
+    jsonb_build_object('indent_code', v_code, 'route', v_route)
+  );
+
+  RETURN NEW;
+END;
+$function$
+
+
+--- reject_award_of_inactive_indent | reject_award_of_inactive_indent()
+CREATE OR REPLACE FUNCTION public.reject_award_of_inactive_indent()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF lower(coalesce(OLD.status, '')) IN ('cancelled', 'closed', 'expired')
+     AND lower(coalesce(NEW.status, '')) IN ('awarded', 'assigned', 'deployed')
+     AND lower(coalesce(NEW.status, '')) IS DISTINCT FROM lower(coalesce(OLD.status, ''))
+  THEN
+    RAISE EXCEPTION 'indent_not_active: reactivate this indent before awarding it (status=%)', OLD.status
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$function$
+
+
+--- reject_quote_accept_on_inactive_indent | reject_quote_accept_on_inactive_indent()
+CREATE OR REPLACE FUNCTION public.reject_quote_accept_on_inactive_indent()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_status text;
+BEGIN
+  IF lower(coalesce(NEW.status, '')) = 'accepted'
+     AND lower(coalesce(OLD.status, '')) IS DISTINCT FROM 'accepted'
+  THEN
+    SELECT lower(coalesce(status, '')) INTO v_status
+    FROM public.indents
+    WHERE id = NEW.indent_id;
+    IF v_status IN ('cancelled', 'closed', 'expired') THEN
+      RAISE EXCEPTION 'indent_not_active: reactivate this indent before awarding it (status=%)', v_status
+        USING ERRCODE = '23514';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$function$
+
+
+--- set_indent_assigned_supplier_on_quote_accepted | set_indent_assigned_supplier_on_quote_accepted()
+CREATE OR REPLACE FUNCTION public.set_indent_assigned_supplier_on_quote_accepted()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_owner_org uuid;
+BEGIN
+  IF new.status = 'accepted' THEN
+    SELECT i.organization_id INTO v_owner_org
+    FROM public.indents i
+    WHERE i.id = new.indent_id;
+
+    IF v_owner_org IS NULL THEN
+      RAISE EXCEPTION 'Indent % not found', new.indent_id;
+    END IF;
+
+    -- Network-only: bid visibility already required a supplier.
+    -- Marketplace: do not require a Network suppliers row (ADR-012).
+    IF NOT public.is_marketplace_indent_award(new.indent_id, new.bidder_organization_id)
+       AND NOT public.is_approved_supplier(v_owner_org, new.bidder_organization_id) THEN
+      PERFORM public.ensure_awarded_bidder_supplier(v_owner_org, new.bidder_organization_id);
+    END IF;
+
+    UPDATE public.indents
+    SET
+      assigned_supplier_id = new.bidder_organization_id,
+      assigned_supplier_rate = new.amount,
+      status = CASE
+        WHEN lower(coalesce(status, '')) IN (
+          'awarded', 'completed', 'cancelled', 'closed', 'expired'
+        ) THEN status
+        ELSE 'awarded'
+      END,
+      updated_at = now()
+    WHERE id = new.indent_id;
+  END IF;
+  RETURN new;
+END;
+$function$
+
+
+--- set_updated_at | set_updated_at()
+CREATE OR REPLACE FUNCTION public.set_updated_at()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+BEGIN NEW.updated_at := now(); RETURN NEW; END;
+$function$
+
+
+--- tg_clear_award_revoked_on_award | tg_clear_award_revoked_on_award()
+CREATE OR REPLACE FUNCTION public.tg_clear_award_revoked_on_award()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF TG_OP = 'UPDATE'
+     AND lower(trim(coalesce(NEW.status, ''))) = 'awarded'
+     AND lower(trim(coalesce(OLD.status, ''))) IS DISTINCT FROM 'awarded'
+  THEN
+    NEW.award_revoked_at := NULL;
+  END IF;
+  RETURN NEW;
+END;
+$function$
+
+
+--- trg_complete_reach_campaigns_on_indent_terminal | trg_complete_reach_campaigns_on_indent_terminal()
+CREATE OR REPLACE FUNCTION public.trg_complete_reach_campaigns_on_indent_terminal()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE
+  v_ids uuid[];
+BEGIN
+  SELECT array_agg(n.id)
+  INTO v_ids
+  FROM new_rows n
+  JOIN old_rows o ON o.id = n.id
+  WHERE n.status IS DISTINCT FROM o.status
+    AND lower(trim(coalesce(n.status::text, ''))) = ANY (
+      ARRAY['awarded', 'completed', 'cancelled', 'closed', 'expired']::text[]
+    );
+
+  IF v_ids IS NOT NULL THEN
+    PERFORM public.fn_complete_reach_campaigns_for_indents(v_ids);
+  END IF;
+
+  RETURN NULL;
+END;
+$function$
+
+
+==============================================================================
+== B_trigger
+==============================================================================
+
+--- direct_quotes.direct_quotes_updated_at | enabled
+CREATE TRIGGER direct_quotes_updated_at BEFORE UPDATE ON public.direct_quotes FOR EACH ROW EXECUTE FUNCTION set_updated_at()
+
+--- direct_quotes.trg_notify_direct_quote_lifecycle | enabled
+CREATE TRIGGER trg_notify_direct_quote_lifecycle AFTER INSERT OR UPDATE OF status, counter_amount ON public.direct_quotes FOR EACH ROW EXECUTE FUNCTION notify_direct_quote_lifecycle()
+
+--- direct_quotes.trg_quote_accepted_set_indent_supplier | enabled
+CREATE TRIGGER trg_quote_accepted_set_indent_supplier AFTER UPDATE OF status ON public.direct_quotes FOR EACH ROW WHEN ((new.status = 'accepted'::text)) EXECUTE FUNCTION set_indent_assigned_supplier_on_quote_accepted()
+
+--- direct_quotes.trg_reject_quote_accept_on_inactive_indent | enabled
+CREATE TRIGGER trg_reject_quote_accept_on_inactive_indent BEFORE UPDATE OF status ON public.direct_quotes FOR EACH ROW EXECUTE FUNCTION reject_quote_accept_on_inactive_indent()
+
+--- indents.set_indents_updated_at | enabled
+CREATE TRIGGER set_indents_updated_at BEFORE UPDATE ON public.indents FOR EACH ROW EXECUTE FUNCTION set_updated_at()
+
+--- indents.trg_clear_award_revoked_on_award | enabled
+CREATE TRIGGER trg_clear_award_revoked_on_award BEFORE UPDATE OF status ON public.indents FOR EACH ROW EXECUTE FUNCTION tg_clear_award_revoked_on_award()
+
+--- indents.trg_enforce_indent_draft_broadcast_rules | enabled
+CREATE TRIGGER trg_enforce_indent_draft_broadcast_rules BEFORE INSERT OR UPDATE ON public.indents FOR EACH ROW EXECUTE FUNCTION enforce_indent_draft_broadcast_rules()
+
+--- indents.trg_indents_complete_reach_campaigns | enabled
+CREATE TRIGGER trg_indents_complete_reach_campaigns AFTER UPDATE ON public.indents REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION trg_complete_reach_campaigns_on_indent_terminal()
+
+--- indents.trg_indents_deactivate_linked_posts | enabled
+CREATE TRIGGER trg_indents_deactivate_linked_posts AFTER UPDATE OF status ON public.indents FOR EACH ROW EXECUTE FUNCTION deactivate_posts_for_terminal_indent()
+
+--- indents.trg_notify_indent_broadcast | enabled
+CREATE TRIGGER trg_notify_indent_broadcast AFTER INSERT OR UPDATE OF status ON public.indents FOR EACH ROW EXECUTE FUNCTION notify_indent_broadcast()
+
+--- indents.trg_notify_indent_supplier_requested | enabled
+CREATE TRIGGER trg_notify_indent_supplier_requested AFTER UPDATE OF assigned_supplier_id ON public.indents FOR EACH ROW EXECUTE FUNCTION notify_indent_supplier_requested()
+
+--- indents.trg_reject_award_of_inactive_indent | enabled
+CREATE TRIGGER trg_reject_award_of_inactive_indent BEFORE UPDATE OF status ON public.indents FOR EACH ROW EXECUTE FUNCTION reject_award_of_inactive_indent()
+
+--- indents.trg_set_indent_number | enabled
+CREATE TRIGGER trg_set_indent_number BEFORE INSERT ON public.indents FOR EACH ROW EXECUTE FUNCTION set_indent_operational_identity()
+
+--- indents.trg_set_indent_operational_code | enabled
+CREATE TRIGGER trg_set_indent_operational_code BEFORE INSERT ON public.indents FOR EACH ROW EXECUTE FUNCTION set_indent_operational_code()
+
+--- market_bids.set_market_bids_updated_at | enabled
+CREATE TRIGGER set_market_bids_updated_at BEFORE UPDATE ON public.market_bids FOR EACH ROW EXECUTE FUNCTION set_updated_at()
+
+==============================================================================
+== C_policy
+==============================================================================
+
+--- direct_quotes.Bidders can insert own direct quotes | INSERT roles={public} permissive=PERMISSIVE
+USING: <none>
+WITH CHECK: (EXISTS ( SELECT 1
+   FROM organization_members om
+  WHERE ((om.organization_id = direct_quotes.bidder_organization_id) AND ((om.user_id = ( SELECT auth.uid() AS uid)) AND (om.status = 'active'::text) AND (om.role = ANY (ARRAY['owner'::text, 'admin'::text, 'member'::text, 'dispatcher'::text, 'finance'::text]))))))
+
+--- direct_quotes.Bidders can select own direct quotes | SELECT roles={public} permissive=PERMISSIVE
+USING: (EXISTS ( SELECT 1
+   FROM organization_members om
+  WHERE ((om.organization_id = direct_quotes.bidder_organization_id) AND ((om.user_id = ( SELECT auth.uid() AS uid)) AND (om.status = 'active'::text) AND (om.role = ANY (ARRAY['owner'::text, 'admin'::text, 'member'::text, 'dispatcher'::text, 'finance'::text]))))))
+WITH CHECK: <none>
+
+--- direct_quotes.Bidders can update own direct quotes | UPDATE roles={public} permissive=PERMISSIVE
+USING: (EXISTS ( SELECT 1
+   FROM organization_members om
+  WHERE ((om.organization_id = direct_quotes.bidder_organization_id) AND ((om.user_id = ( SELECT auth.uid() AS uid)) AND (om.status = 'active'::text) AND (om.role = ANY (ARRAY['owner'::text, 'admin'::text, 'member'::text, 'dispatcher'::text, 'finance'::text]))))))
+WITH CHECK: (EXISTS ( SELECT 1
+   FROM organization_members om
+  WHERE ((om.organization_id = direct_quotes.bidder_organization_id) AND ((om.user_id = ( SELECT auth.uid() AS uid)) AND (om.status = 'active'::text) AND (om.role = ANY (ARRAY['owner'::text, 'admin'::text, 'member'::text, 'dispatcher'::text, 'finance'::text]))))))
+
+--- direct_quotes.Indent owners can read quotes on their indents | SELECT roles={public} permissive=PERMISSIVE
+USING: (EXISTS ( SELECT 1
+   FROM (indents i
+     JOIN organization_members om ON (((om.organization_id = i.organization_id) AND ((om.user_id = ( SELECT auth.uid() AS uid)) AND (om.status = 'active'::text) AND (om.role = ANY (ARRAY['owner'::text, 'admin'::text, 'member'::text, 'dispatcher'::text, 'finance'::text]))))))
+  WHERE (i.id = direct_quotes.indent_id)))
+WITH CHECK: <none>
+
+--- direct_quotes.Indent owners can update quotes on their indents | UPDATE roles={public} permissive=PERMISSIVE
+USING: (EXISTS ( SELECT 1
+   FROM (indents i
+     JOIN organization_members om ON (((om.organization_id = i.organization_id) AND ((om.user_id = ( SELECT auth.uid() AS uid)) AND (om.status = 'active'::text) AND (om.role = ANY (ARRAY['owner'::text, 'admin'::text, 'member'::text, 'dispatcher'::text, 'finance'::text]))))))
+  WHERE (i.id = direct_quotes.indent_id)))
+WITH CHECK: (EXISTS ( SELECT 1
+   FROM (indents i
+     JOIN organization_members om ON (((om.organization_id = i.organization_id) AND ((om.user_id = ( SELECT auth.uid() AS uid)) AND (om.status = 'active'::text) AND (om.role = ANY (ARRAY['owner'::text, 'admin'::text, 'member'::text, 'dispatcher'::text, 'finance'::text]))))))
+  WHERE (i.id = direct_quotes.indent_id)))
+
+--- indents.Org members can manage indents | ALL roles={public} permissive=PERMISSIVE
+USING: (is_org_staff(organization_id) AND (NOT (EXISTS ( SELECT 1
+   FROM organization_members om
+  WHERE ((om.organization_id = indents.organization_id) AND (om.user_id = ( SELECT auth.uid() AS uid)) AND (COALESCE((om.permissions ->> 'platformRole'::text), ''::text) = 'ground_ops'::text))))))
+WITH CHECK: (is_org_staff(organization_id) AND (NOT (EXISTS ( SELECT 1
+   FROM organization_members om
+  WHERE ((om.organization_id = indents.organization_id) AND (om.user_id = ( SELECT auth.uid() AS uid)) AND (COALESCE((om.permissions ->> 'platformRole'::text), ''::text) = 'ground_ops'::text))))))
+
+--- market_bids.market_bids_select | SELECT roles={authenticated} permissive=PERMISSIVE
+USING: ((bidder_user_id = ( SELECT auth.uid() AS uid)) OR (EXISTS ( SELECT 1
+   FROM (indents i
+     JOIN organization_members om ON (((om.organization_id = i.organization_id) AND ((om.user_id = ( SELECT auth.uid() AS uid)) AND (om.status = 'active'::text) AND (om.role = ANY (ARRAY['owner'::text, 'admin'::text, 'member'::text, 'dispatcher'::text, 'finance'::text]))) AND (om.status = 'active'::text))))
+  WHERE (i.id = market_bids.indent_id))))
+WITH CHECK: <none>
+
+==============================================================================
+== D_rls
+==============================================================================
+
+--- direct_quotes | rls_enabled=true forced=false
+
+--- indents | rls_enabled=true forced=false
+
+--- market_bids | rls_enabled=true forced=false
+
+==============================================================================
+== E_table_grant
+==============================================================================
+
+--- direct_quotes | anon
+DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+
+--- direct_quotes | authenticated
+DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+
+--- direct_quotes | service_role
+DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+
+--- indents | authenticated
+DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+
+--- indents | anon
+DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+
+--- indents | service_role
+DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+
+--- market_bids | authenticated
+SELECT
+
+--- market_bids | service_role
+DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+
+==============================================================================
+== F_function_acl
+==============================================================================
+
+--- accept_market_bid | accept_market_bid(uuid)
+owner=postgres secdef=true config={"search_path=\"\""} acl={postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}
+
+--- award_direct_quote | award_direct_quote(uuid,uuid)
+owner=postgres secdef=true config={search_path=public} acl={postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}
+
+--- award_indent_to_trip | award_indent_to_trip(uuid,numeric,uuid,uuid,uuid,uuid,text)
+owner=postgres secdef=true config={search_path=public} acl={postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}
+
+--- award_market_bid | award_market_bid(uuid)
+owner=postgres secdef=true config={"search_path=\"\""} acl={postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}
+
+==============================================================================
+== G_missing_check
+==============================================================================
+
+--- private.get_user_org_id() | DOES NOT EXIST
+
+--- public.accept_direct_quote(uuid) | DOES NOT EXIST
+
+--- public.accept_direct_quote(uuid,uuid) | DOES NOT EXIST
+
+--- public.get_user_org_id() | DOES NOT EXIST
+
+==============================================================================
+== H_role_setting
+==============================================================================
+
+--- anon | statement_timeout=5s, idle_in_transaction_session_timeout=3s
+
+--- authenticated | statement_timeout=25s, idle_in_transaction_session_timeout=5s
+
+--- authenticator | session_preload_libraries=safeupdate, statement_timeout=120s, lock_timeout=30s, idle_in_transaction_session_timeout=15s, idle_session_timeout=0
+
+--- service_role | None

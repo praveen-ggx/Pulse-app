@@ -30,6 +30,10 @@ import { useOptionalAuth } from "@/contexts/AuthContext";
 import { useTabBarAwareScrollProps } from "@/contexts/DemoTabBarScrollContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useOptionalOrganization } from "@/contexts/OrganizationContext";
+import {
+  reportIndentsAlreadyBootstrapped,
+  reportTripsAlreadyBootstrapped,
+} from "@/features/trips/utils/tripIndentReportCatalog.util";
 import { downloadTripIndentReportExcel } from "@/features/trips/utils/tripIndentReportExport.util";
 import { resolveTripIndentReportAudience } from "@/features/trips/utils/tripIndentReport.model";
 import {
@@ -2698,7 +2702,7 @@ export default function TripsScreen() {
         trips: scopedTrips,
         indents: scopedIndents,
         partyMetaByTripId: tripHubPartyMetaByTripId,
-        driverPhoneByTripId,
+        driverPhoneByTripId: loadDriverPhonesByTripId(catalog.trips),
         stageLabelForTrip: getStageLabelForTrip,
       });
       if (error) {

@@ -23,8 +23,10 @@ import { useReassignMigrationGate } from '@/features/trips/hooks/useReassignMigr
 import { getTripOtpForDisplay } from '@/features/trips/services/tripOtp.service';
 import type { TripRow } from '@/features/trips/services/trips.service';
 import type { ReassignCompletedMeta } from '@/features/trips/components/reassign/reassign.types';
+import { getTripDriverPhones } from '@/features/tripCompliance/services/tripDriverPhones.service';
 import {
   hasReassignChanges,
+  isNameOnlyDriverUpdate,
   phoneLast10,
   shouldInviteDriverByPhone,
 } from '@/features/trips/utils/reassignChangeDetection.util';
@@ -251,15 +253,31 @@ export function ReassignSheet({
     if (isAggregate) void refreshMigrationCheck(false);
   }, [visible, trip.id]);
 
-  /** Once fleet roster loads, backfill phone if Edit details is still empty. */
+  /** Once fleet roster / trip-phone RPC loads, backfill phone if Edit is empty. */
   useEffect(() => {
     if (!visible) return;
     if (phone.trim()) return;
     const fromMaster = drivers.find((x) => x.id === trip.driver_id)?.phone?.trim();
-    const fallback = (currentDriverPhoneProp ?? fromMaster ?? "").trim();
-    if (!fallback) return;
-    setPhone(formatMobileNumber(fallback));
-  }, [visible, drivers, trip.driver_id, currentDriverPhoneProp, phone]);
+    const fromProp = (currentDriverPhoneProp ?? "").trim();
+    const fallback = (fromProp || fromMaster || "").trim();
+    if (fallback) {
+      setPhone(formatMobileNumber(fallback));
+      return;
+    }
+    if (!(trip.driver_id ?? "").trim()) return;
+    let cancelled = false;
+    void getTripDriverPhones([
+      { id: trip.id, driver_id: trip.driver_id },
+    ]).then((byTrip) => {
+      if (cancelled) return;
+      const remote = (byTrip.get(trip.id) ?? "").trim();
+      if (!remote) return;
+      setPhone((prev) => (prev.trim() ? prev : formatMobileNumber(remote)));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, drivers, trip.id, trip.driver_id, currentDriverPhoneProp, phone]);
 
   /** Keep the optimistic-lock snapshot. Do not reset the picker's selection
    *  when a background trip refetch updates `updated_at` / driver_id. */
@@ -323,11 +341,31 @@ export function ReassignSheet({
     [trip.vehicle_id, existingTripVehiclePlate],
   );
 
+  const nameOnlyUpdate = useMemo(
+    () =>
+      isNameOnlyDriverUpdate({
+        tripDriverId: trip.driver_id,
+        phone,
+        currentDriverPhone,
+        currentDriverName,
+        driverNameInput,
+      }),
+    [
+      trip.driver_id,
+      phone,
+      currentDriverPhone,
+      currentDriverName,
+      driverNameInput,
+    ],
+  );
+
   const meetsValidation = useMemo(() => {
     if (driverModeIsPhone) {
       const trimmed = phone.trim();
       const nameTrimmed = driverNameInput.trim();
       if (!nameTrimmed || nameTrimmed.length < 2) return false;
+      // Name-only on the assigned driver — vehicle stays; phone may be hidden by RLS.
+      if (nameOnlyUpdate) return true;
       if (!trimmed || validatePhone(trimmed)) return false;
       if (isAggregate) {
         if (aggregatePhoneLookup.inTrip) return false;
@@ -361,6 +399,7 @@ export function ReassignSheet({
     driverModeIsPhone,
     driverNameInput,
     phone,
+    nameOnlyUpdate,
     isAggregate,
     selectedVehicleId,
     adHocPlate,

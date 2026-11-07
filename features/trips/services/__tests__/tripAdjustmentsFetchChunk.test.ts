@@ -46,7 +46,11 @@ jest.mock('@/lib/supabase', () => ({
 }));
 
 function ids(n: number): string[] {
-  return Array.from({ length: n }, (_, i) => `trip-${i + 1}`);
+  // trip_id is uuid — non-UUID booking refs (BKG-…) must never enter the IN list.
+  return Array.from({ length: n }, (_, i) => {
+    const hex = (i + 1).toString(16).padStart(12, "0");
+    return `00000000-0000-4000-8000-${hex}`;
+  });
 }
 
 function keysFromMap(map: Map<string, unknown>): string[] {
@@ -60,6 +64,14 @@ beforeEach(() => {
 });
 
 describe('fetchTripFinanceAdjustmentsByTripIds chunking', () => {
+  it('skips non-UUID booking refs so PostgREST does not 22P02', async () => {
+    const uuid = 'a4084b6b-2758-4aa1-ae20-8f36ceb880e2';
+    const found = await fetchTripFinanceAdjustmentsByTripIds([uuid, 'BKG-8xgrnf', '']);
+    expect(mockInChunks).toEqual([[uuid]]);
+    expect(found.has(normTripFinanceAdjustmentKey(uuid))).toBe(true);
+    expect(found.has(normTripFinanceAdjustmentKey('BKG-8xgrnf'))).toBe(false);
+  });
+
   it('39 ids → one request and every id in the result map', async () => {
     const input = ids(39);
     const found = await fetchTripFinanceAdjustmentsByTripIds(input);
@@ -85,7 +97,7 @@ describe('fetchTripFinanceAdjustmentsByTripIds chunking', () => {
     const found = await fetchTripFinanceAdjustmentsByTripIds(input);
     expect(mockInChunks).toHaveLength(2);
     expect(mockInChunks[0]).toHaveLength(40);
-    expect(mockInChunks[1]).toEqual(['trip-41']);
+    expect(mockInChunks[1]).toEqual([input[40]]);
     expect(mockInChunks[0].concat(mockInChunks[1])).toEqual(input);
     expect(found.size).toBe(41);
     expect(keysFromMap(found)).toEqual(input.map(normTripFinanceAdjustmentKey).sort());

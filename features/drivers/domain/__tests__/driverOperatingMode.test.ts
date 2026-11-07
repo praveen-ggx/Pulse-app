@@ -6,6 +6,7 @@ import {
   canManageIndieBook,
   canTagOfflineParty,
   canManageOwnerVehicles,
+  canTagOfflineParty,
   driverHistoryLane,
   driverHistoryLaneLabel,
   driverHistoryTabsForMode,
@@ -93,6 +94,7 @@ describe('parseDriverOperatingMode', () => {
     expect(m.marketplaceAllowed).toBe(true);
     expect(m.hasActiveVehicle).toBe(true);
     expect(canAddDcoShippers(m)).toBe(true);
+    expect(canTagOfflineParty(m)).toBe(true);
   });
 
   it('L: removing the vehicle leaves a DCO (not an employee) without Marketplace', () => {
@@ -123,6 +125,8 @@ describe('single owner-operator concept (DCO = Driver-come-Owner = Fleet Owner)'
     const m = serverMode({ mode: 'DRIVER', dco_status: 'NONE' });
     expect(isDcoOperatingMode(m)).toBe(false);
     expect(canManageOwnerVehicles(m)).toBe(false);
+    expect(canAddDcoShippers(m)).toBe(false);
+    expect(canTagOfflineParty(m)).toBe(true);
     expect(m.marketplaceAllowed).toBe(false);
   });
 
@@ -156,6 +160,7 @@ describe('single owner-operator concept (DCO = Driver-come-Owner = Fleet Owner)'
   it('suspended or still-employed DCOs cannot manage owner vehicles (mirrors is_dco_eligible)', () => {
     expect(canManageOwnerVehicles(serverMode({ mode: 'DCO_SUSPENDED', dco_status: 'SUSPENDED' }))).toBe(false);
     expect(canAddDcoShippers(serverMode({ mode: 'DCO_SUSPENDED', dco_status: 'SUSPENDED' }))).toBe(false);
+    expect(canTagOfflineParty(serverMode({ mode: 'DCO_SUSPENDED', dco_status: 'SUSPENDED' }))).toBe(false);
     expect(
       canManageOwnerVehicles(
         serverMode({ mode: 'DCO_EMPLOYMENT_CONFLICT', dco_status: 'APPROVED', is_employee_driver: true }),
@@ -163,6 +168,11 @@ describe('single owner-operator concept (DCO = Driver-come-Owner = Fleet Owner)'
     ).toBe(false);
     expect(
       canAddDcoShippers(
+        serverMode({ mode: 'DCO_EMPLOYMENT_CONFLICT', dco_status: 'APPROVED', is_employee_driver: true }),
+      ),
+    ).toBe(false);
+    expect(
+      canTagOfflineParty(
         serverMode({ mode: 'DCO_EMPLOYMENT_CONFLICT', dco_status: 'APPROVED', is_employee_driver: true }),
       ),
     ).toBe(false);

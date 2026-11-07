@@ -15,6 +15,65 @@
 -- get_vehicle_for_trip_viewer and get_supplier_details are unchanged.
 
 -- ── Shared visibility helper (not exposed: private has no anon/authenticated USAGE) ──
+-- Fresh replay: organization_member_warehouses is created in 20270917100000 and
+-- indents.warehouse_id in 20270918100000. The original body is installed by
+-- 20270918100001 once those objects exist. Where they already exist, it runs now.
+DO $guard$
+BEGIN
+  IF to_regclass('public.organization_member_warehouses') IS NULL
+     OR to_regclass('public.sales_orders') IS NULL
+     OR to_regclass('public.sales_order_lines') IS NULL
+     OR to_regclass('public.shipment_allocations') IS NULL
+     OR (
+       SELECT count(*)
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'indents'
+         AND column_name IN ('warehouse_id', 'sales_order_id', 'execution_plan_id')
+     ) < 3
+     OR NOT EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'trips' AND column_name = 'source_indent_id'
+     )
+     OR NOT EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'suppliers' AND column_name = 'linked_organization_id'
+     )
+     OR (
+       SELECT count(*)
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'organization_member_warehouses'
+         AND column_name IN ('organization_member_id', 'warehouse_id')
+     ) < 2
+     OR (
+       SELECT count(*)
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'sales_orders'
+         AND column_name IN ('pickup_warehouse_id', 'drop_warehouse_id')
+     ) < 2
+     OR (
+       SELECT count(*)
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'shipment_allocations'
+         AND column_name IN ('execution_plan_id', 'sales_order_line_id')
+     ) < 2
+     OR NOT EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'sales_order_lines' AND column_name = 'sales_order_id'
+     )
+     OR NOT EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'organization_members' AND column_name = 'permissions'
+     )
+  THEN
+    RAISE NOTICE 'compliance_visible_trips deferred until warehouse membership and sales-order dependencies exist';
+    RETURN;
+  END IF;
+
+  EXECUTE $historical_function$
 CREATE OR REPLACE FUNCTION private.compliance_visible_trips(
   p_viewer_org_id uuid,
   p_trip_ids uuid[]
@@ -95,10 +154,13 @@ AS $$
       )
     );
 $$;
+$historical_function$;
 
-REVOKE ALL ON FUNCTION private.compliance_visible_trips(uuid, uuid[]) FROM PUBLIC;
-REVOKE ALL ON FUNCTION private.compliance_visible_trips(uuid, uuid[]) FROM anon;
-REVOKE ALL ON FUNCTION private.compliance_visible_trips(uuid, uuid[]) FROM authenticated;
+  REVOKE ALL ON FUNCTION private.compliance_visible_trips(uuid, uuid[]) FROM PUBLIC;
+  REVOKE ALL ON FUNCTION private.compliance_visible_trips(uuid, uuid[]) FROM anon;
+  REVOKE ALL ON FUNCTION private.compliance_visible_trips(uuid, uuid[]) FROM authenticated;
+END
+$guard$;
 
 -- ── Facts: truck type + supplier label per visible trip ──
 -- supplier_name mirrors get_supplier_details + the client label

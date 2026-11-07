@@ -416,6 +416,9 @@ export default function DriverWalletScreen() {
     () => buildDriverPartyReceivables(trips, receivedByTripId, isFleetDispatchedTrip),
     [trips, receivedByTripId, isFleetDispatchedTrip],
   );
+  useEffect(() => {
+    publishSelectableShippers(selectableShippersFromReceivables(selfPartyReceivables));
+  }, [selfPartyReceivables]);
   const addClientPartyActions = useMemo((): PartySpeedDialAction[] => {
     if (!canTagOfflineParty) return [];
     return [
@@ -3301,7 +3304,7 @@ export default function DriverWalletScreen() {
                     },
                   ]}
                 >
-                  <FontAwesome name="road" size={14} color="#4D3636" />
+                  <FontAwesome name="road" size={14} color={Theme.primary} />
                 </View>
                 <View style={styles.fleetCardBody}>
                   <Text style={[styles.fleetCardTitle, { color: colors.text }]} numberOfLines={1}>
@@ -3351,7 +3354,7 @@ export default function DriverWalletScreen() {
                       directTripStats.pending > 0
                         ? isDark
                           ? 'rgba(129,140,248,0.65)'
-                          : '#4D3636'
+                          : Theme.primary
                         : isDark
                           ? colors.borderSubtle
                           : 'rgba(226,232,240,0.8)',
@@ -3368,7 +3371,7 @@ export default function DriverWalletScreen() {
                         directTripStats.pending > 0
                           ? isDark
                             ? '#a5b4fc'
-                            : '#4D3636'
+                            : Theme.primary
                           : colors.textMuted,
                     },
                   ]}
@@ -3622,6 +3625,7 @@ export default function DriverWalletScreen() {
           isDark={isDark}
           showMonthPnl={isDco}
           tripExpenses={tripExpenses}
+          isFleetDispatched={isFleetDispatchedTrip}
         />
       ) : (
         <View style={[styles.ledgerSection, { paddingHorizontal: 12 }]}>
@@ -4559,7 +4563,7 @@ const styles = StyleSheet.create({
   fleetCardTopRowNew: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 8,
     gap: 8,
   },

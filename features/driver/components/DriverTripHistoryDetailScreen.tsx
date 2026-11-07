@@ -87,6 +87,14 @@ import {
 } from "@/features/driver/tripHistory/tripHistoryDetail.util";
 import { tripHistoryDetailStyles as styles } from "@/features/driver/tripHistory/tripHistoryDetail.styles";
 import { TripDetailSettlementPanel } from "@/features/driver/components/TripDetailSettlementPanel";
+import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
+import { driverCaptureLaneForTrip } from "@/features/drivers/utils/driverCapturePayment.util";
+import {
+  canTagPartyOnTrip,
+  isTripTaggedToParty,
+  tripReceivablePartyName,
+} from "@/features/drivers/utils/driverPartyReceivables.util";
+import { ROUTES } from "@/lib/routes";
 import { DriverDocumentGalleryPreview } from "@/features/driver/components/DriverDocumentGalleryPreview";
 import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
 import { useTripVerificationSync } from "@/features/trips/verification";
@@ -176,6 +184,7 @@ export function DriverTripHistoryDetailScreen({
   const [detailTab, setDetailTab] = useState<"journey" | "operations" | "settlement">(
     initialTab ?? (initialSelectedExpenseId ? "settlement" : "journey"),
   );
+  const [collectFromOpen, setCollectFromOpen] = useState(false);
   const [expandedLogIndex, setExpandedLogIndex] = useState<number | null>(null);
   const [detailPodDocuments, setDetailPodDocuments] = useState<tripDocumentsService.TripDocumentRow[]>([]);
   const [detailPodLoading, setDetailPodLoading] = useState(false);
@@ -542,9 +551,28 @@ export function DriverTripHistoryDetailScreen({
   }, [linkedDriversFull, historyEmployerOrgIdSet, invites]);
 
   const isTripHistoryFleet = useMemo(() => {
-    if (!trip || !historyCurrentEmployer) return false;
-    return historyEmployerOrgIdSet.has(String(trip.organization_id ?? ""));
-  }, [trip, historyCurrentEmployer, historyEmployerOrgIdSet]);
+    if (!trip) return false;
+    const tripOrgId = String(trip.organization_id ?? "").trim();
+    if (!tripOrgId) return false;
+    if (String(trip.source ?? "").trim() === "market_bid") return false;
+    return linkedDriversFull.some((row) => {
+      if (String(row.organization_id ?? "").trim() !== tripOrgId) return false;
+      if (row.tracking_only === true) return false;
+      if (String(row.relationship_origin ?? "").trim().toLowerCase() === "market_award") {
+        return false;
+      }
+      return (
+        driversService.isActiveFleetRelationshipDriver(row) ||
+        row.relationship_status === "disconnected" ||
+        (row.left_at != null && String(row.left_at).trim() !== "")
+      );
+    });
+  }, [trip, linkedDriversFull]);
+
+  const historyCaptureLane = trip
+    ? driverCaptureLaneForTrip(trip, isTripHistoryFleet)
+    : "shipper";
+  const isOfflinePartyTrip = canTagPartyOnTrip(trip, isTripHistoryFleet);
 
   const isTripHistoryAttributed = useMemo(() => {
     if (!historyCurrentEmployer || !trip) return false;
@@ -860,11 +888,22 @@ export function DriverTripHistoryDetailScreen({
                       </View>
                     </View>
                     <View style={styles.tdHeroAssignerRow}>
-                      <ShieldCheck size={14} color={Theme.driverPrimary} />
-                      <Text style={styles.tdHeroAssignerLabel}>Assigned by</Text>
-                      <Text style={styles.tdHeroAssignerValue} numberOfLines={1}>
-                        {assignerDisplay}
-                      </Text>
+                      <View style={styles.tdHeroAssignerPair}>
+                        <ShieldCheck size={14} color={Theme.driverPrimary} />
+                        <Text style={styles.tdHeroAssignerLabel}>Assigned by</Text>
+                        <Text style={styles.tdHeroAssignerValue} numberOfLines={1}>
+                          {assignerDisplay}
+                        </Text>
+                      </View>
+                      {trip && isOfflinePartyTrip && isTripTaggedToParty(trip) ? (
+                        <View style={styles.tdHeroAssignerPair}>
+                          <Tag size={14} color={Theme.driverPrimary} />
+                          <Text style={styles.tdHeroAssignerLabel}>Tagged</Text>
+                          <Text style={styles.tdHeroAssignerValue} numberOfLines={1}>
+                            {tripReceivablePartyName(trip)}
+                          </Text>
+                        </View>
+                      ) : null}
                     </View>
                     {needsOfflinePartyTag || taggedOfflineParty ? (
                       <TouchableOpacity
@@ -1333,6 +1372,7 @@ export function DriverTripHistoryDetailScreen({
                     trip={selectedTrip}
                     isFleetLinked={isTripHistoryFleet}
                     initialSelectedExpenseId={initialSelectedExpenseId}
+                    onPartyTagged={() => void loadTrip(() => true)}
                   />
                 </>
               ) : null}
@@ -1494,4 +1534,42 @@ const histAttrStyles = withWebSafeShadows(
   },
   }),
 );
+
+const histCollectStyles = StyleSheet.create({
+  heroActions: {
+    marginTop: 14,
+    gap: 8,
+    width: "100%",
+  },
+  heroCollectBtn: {
+    minHeight: 48,
+    width: "100%",
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
+  heroCollectText: {
+    fontSize: 14,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+    color: Theme.actionBtnInk,
+  },
+  heroTagBtn: {
+    minHeight: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.28)",
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+  },
+  heroTagText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.92)",
+  },
+});
 

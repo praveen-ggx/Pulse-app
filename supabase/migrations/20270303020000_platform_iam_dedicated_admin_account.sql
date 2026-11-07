@@ -12,7 +12,10 @@
 -- Idempotent: ON CONFLICT DO NOTHING on both inserts, safe to rerun.
 
 INSERT INTO public.platform_users (user_id, status)
-VALUES ('14c33b15-f32a-4ad3-9b0a-45099538b1d1', 'active')
+SELECT '14c33b15-f32a-4ad3-9b0a-45099538b1d1', 'active'
+WHERE EXISTS (
+  SELECT 1 FROM auth.users WHERE id = '14c33b15-f32a-4ad3-9b0a-45099538b1d1'
+)
 ON CONFLICT (user_id) DO NOTHING;
 
 -- granted_by is NULL: this grant was made via a reviewed migration, not an in-app "grant role"

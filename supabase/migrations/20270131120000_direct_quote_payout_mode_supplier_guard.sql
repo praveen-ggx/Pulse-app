@@ -91,7 +91,10 @@ BEGIN
     v_before := v_def;
     v_def := replace(v_def, v_from, v_to);
     IF v_def = v_before THEN
-      RAISE EXCEPTION 'could not patch payout-mode CASE of % - anchor not found', v_sig;
+      -- pg_get_functiondef no longer contains the July one-line CASE.
+      -- 20270227110000 recreates both overloads with the supplier guard.
+      RAISE NOTICE 'could not patch payout-mode CASE of % - anchor not found; later load-hub body installs the guard', v_sig;
+      CONTINUE;
     END IF;
 
     EXECUTE v_def;

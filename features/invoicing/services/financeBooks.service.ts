@@ -159,10 +159,22 @@ function totalOf(list: Record<string, unknown>[]): number {
   return list.length ? Number(list[0]!.total_count) || 0 : 0;
 }
 
+/** RPCs that 404'd this boot — do not re-hit PostgREST (prod schema lag). */
+const missingFinanceRpcs = new Set<string>();
+
 async function call<T>(fn: string, args: Record<string, unknown>, map: (data: unknown) => T, empty: T): Promise<BookResult<T>> {
+  if (missingFinanceRpcs.has(fn)) {
+    return {
+      error: "Finance books are not available on this database yet.",
+      unavailable: true,
+      data: empty,
+    };
+  }
   const { data, error } = await db().rpc(fn, args);
   if (error) {
-    return { error: financeBooksErrorMessage(error), unavailable: invoicePaymentUnavailable(error), data: empty };
+    const unavailable = invoicePaymentUnavailable(error);
+    if (unavailable) missingFinanceRpcs.add(fn);
+    return { error: financeBooksErrorMessage(error), unavailable, data: empty };
   }
   return { error: null, unavailable: false, data: map(data) };
 }

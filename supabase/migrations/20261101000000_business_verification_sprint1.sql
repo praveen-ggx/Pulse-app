@@ -151,6 +151,17 @@ GRANT EXECUTE ON FUNCTION public.submit_business_verification(
   uuid, public.registration_type_enum, text, text, text
 ) TO authenticated;
 
+DO $guard_admin_approve_profile$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_proc
+    WHERE oid = to_regprocedure('public.admin_approve_profile(uuid, uuid, text)')
+      AND prokind = 'f'
+  ) THEN
+    RAISE NOTICE 'admin_approve_profile remains a function until 20261113000000';
+  ELSE
+    EXECUTE $historical$
 -- ─────────────────────────────────────────────────────────────────────────────
 -- STEP 5: Stored procedure — admin_approve_profile
 -- Atomically approves, logs, and unlocks referral attributions.
@@ -208,6 +219,22 @@ EXCEPTION
 END;
 $$;
 
+$historical$;
+  END IF;
+END
+$guard_admin_approve_profile$;
+
+DO $guard_admin_reject_profile$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_proc
+    WHERE oid = to_regprocedure('public.admin_reject_profile(uuid, uuid, jsonb, text)')
+      AND prokind = 'f'
+  ) THEN
+    RAISE NOTICE 'admin_reject_profile remains a function until 20261113000000';
+  ELSE
+    EXECUTE $historical$
 -- ─────────────────────────────────────────────────────────────────────────────
 -- STEP 6: Stored procedure — admin_reject_profile
 -- Rejects, unfreezes the row for correction, logs structured rejection reasons.
@@ -259,6 +286,11 @@ EXCEPTION
     RAISE;
 END;
 $$;
+
+$historical$;
+  END IF;
+END
+$guard_admin_reject_profile$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- STEP 7: Stored procedure — admin_force_unlock_profile

@@ -1,6 +1,6 @@
+import { DriverCapturePaymentButton } from '@/features/drivers/components/DriverCapturePaymentButton';
 import { resolveDriverOrgAvatarUri } from '@/features/drivers/utils/resolveDriverOrgAvatar.util';
 import { useOrgBrandingByIds } from '@/lib/hooks/useOrgBrandingByIds';
-import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { useMemo } from 'react';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { PendingEarningsTripItem } from '../hooks/useDriverPendingEarnings';
@@ -52,9 +52,7 @@ export function PendingEarningsTripCard({
   );
 
   return (
-    <TouchableOpacity
-      activeOpacity={0.82}
-      onPress={onPress}
+    <View
       style={[
         styles.card,
         {
@@ -64,7 +62,7 @@ export function PendingEarningsTripCard({
         },
       ]}
     >
-      <View style={styles.cardInner}>
+      <TouchableOpacity style={styles.cardInner} activeOpacity={0.82} onPress={onPress}>
         <View style={styles.topRow}>
           <View style={styles.topLeft}>
             <View
@@ -119,14 +117,29 @@ export function PendingEarningsTripCard({
           </View>
         </View>
 
-        <View style={[styles.footer, { borderTopColor: isDark ? colors.borderSubtle : '#f1f5f9' }]}>
-          <Text style={[styles.statusPill, styles.statusPending]} numberOfLines={1}>
-            {item.statusLabel.toUpperCase()}
-          </Text>
-          <FontAwesome name="chevron-right" size={12} color={colors.textMuted} />
-        </View>
+      </TouchableOpacity>
+      <View
+        style={[
+          styles.footer,
+          {
+            borderTopColor: isDark ? colors.borderSubtle : '#f1f5f9',
+            paddingHorizontal: 12,
+            paddingBottom: 10,
+          },
+        ]}
+      >
+        <Text style={[styles.statusPill, styles.statusPending]} numberOfLines={1}>
+          {item.statusLabel.toUpperCase()}
+        </Text>
+        <DriverCapturePaymentButton
+          tripId={item.trip.id}
+          due={Math.round(item.amount)}
+          lane="fleet"
+          partyName={item.provider}
+          compact
+        />
       </View>
-    </TouchableOpacity>
+    </View>
   );
 }
 

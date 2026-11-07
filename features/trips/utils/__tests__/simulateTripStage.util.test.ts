@@ -1,17 +1,22 @@
 import {
+  alignSimCompletionIsoToMin,
   appendBisimNote,
   clampSimCompletionPickerValue,
+  ensureBisimTimestampForStatus,
   formatSimCompletionInput,
   isSimCompletionAtOrAfterMin,
+  isUnrestrictedPickupSimStage,
   lastBisimCoordinate,
   parseSimCompletionInput,
   hour12To24,
   hour24To12,
   parseSimCompletionPickerValue,
+  resolveAutoSimCompletionIso,
   toSimCompletionPickerValue,
   resolveSimulateStageCoordinate,
   resolveSimulateStageMinAt,
   resolveTripAssignedAtIso,
+  showsSimCompletionPicker,
   simulateStageStopTarget,
   unrevokedBisimEntries,
 } from "@/features/trips/utils/simulateTripStage.util";
@@ -107,8 +112,9 @@ describe("simulateTripStage", () => {
     expect(notes).toContain(parsed);
   });
 
-  it("anchors Assigned from assignment audit and floors later stages to ≥ previous", () => {
-    const assignedAt = "2026-11-04T04:50:00.000Z"; // 10:20 IST wall if needed — absolute min
+  it("leaves Pickup unrestricted and floors later stages to the Pickup instant only", () => {
+    const assignedAt = "2026-11-07T11:15:00.000Z";
+    const driverAcceptedAt = "2026-11-07T11:15:00.000Z";
     const trip = {
       driver_id: "d1",
       created_at: "2026-11-01T00:00:00.000Z",
@@ -123,34 +129,83 @@ describe("simulateTripStage", () => {
       ]),
     ).toBe(assignedAt);
 
-    const pickupMin = resolveSimulateStageMinAt({
-      targetStatus: "in_progress",
-      trip,
-      assignmentChangedAt: assignedAt,
-    });
-    expect(pickupMin?.toISOString()).toBe(assignedAt);
-    expect(isSimCompletionAtOrAfterMin(assignedAt, pickupMin)).toBe(true);
     expect(
-      isSimCompletionAtOrAfterMin("2026-11-03T04:50:00.000Z", pickupMin),
-    ).toBe(false);
+      resolveSimulateStageMinAt({
+        targetStatus: "in_progress",
+        trip,
+        assignmentChangedAt: assignedAt,
+        driverAcceptedAt,
+      }),
+    ).toBeNull();
 
-    const afterPickup = {
+    const pastPickup = {
       ...trip,
-      started_at: "2026-11-04T05:00:00.000Z",
+      started_at: "2026-10-31T04:30:00.000Z",
       notes:
-        "[BISIM|in_progress|2026-11-04T05:00:00.000Z|1|2|Ops|assigned|Pickup]",
+        "[BISIM|in_progress|2026-10-31T04:30:00.000Z|1|2|Ops|assigned|Pickup]",
     };
+    // Later accept must not raise the In-transit floor above a past Pickup.
     const transitMin = resolveSimulateStageMinAt({
       targetStatus: "in_transit",
-      trip: afterPickup,
+      trip: pastPickup,
       assignmentChangedAt: assignedAt,
+      driverAcceptedAt,
     });
-    expect(transitMin?.toISOString()).toBe("2026-11-04T05:00:00.000Z");
+    // Next picker minute after Pickup — later stages cannot reuse Pickup's minute.
+    expect(transitMin?.toISOString()).toBe("2026-10-31T04:31:00.000Z");
     expect(
       clampSimCompletionPickerValue(
-        "2026-11-04T04:00",
-        new Date(2026, 10, 4, 10, 20, 0, 0),
+        "2026-10-30T10:00",
+        transitMin,
       ),
-    ).toBe("2026-11-04T10:20");
+    ).toBe(toSimCompletionPickerValue(transitMin!));
+  });
+
+  it("shows pickers for Pickup and later stages; Pickup alone has no floor", () => {
+    expect(isUnrestrictedPickupSimStage("in_progress")).toBe(true);
+    expect(isUnrestrictedPickupSimStage("in_transit")).toBe(false);
+    expect(showsSimCompletionPicker("in_progress")).toBe(true);
+    expect(showsSimCompletionPicker("in_transit")).toBe(true);
+    expect(showsSimCompletionPicker("at_drop")).toBe(true);
+    expect(showsSimCompletionPicker("completed")).toBe(true);
+    expect(showsSimCompletionPicker("assigned")).toBe(false);
+
+    const futurePickup = new Date("2026-12-01T10:00:00.000Z");
+    const beforePickup = new Date("2026-11-01T10:00:00.000Z");
+    const afterPickup = new Date("2026-12-01T11:00:00.000Z");
+    expect(resolveAutoSimCompletionIso(futurePickup, beforePickup)).toBe(
+      futurePickup.toISOString(),
+    );
+    expect(resolveAutoSimCompletionIso(futurePickup, afterPickup)).toBe(
+      afterPickup.toISOString(),
+    );
+    expect(resolveAutoSimCompletionIso(null, beforePickup)).toBe(
+      beforePickup.toISOString(),
+    );
+  });
+
+  it("treats the same picker minute as on-or-after the previous stage", () => {
+    const minAt = new Date("2026-11-07T11:06:45.123Z");
+    const sameMinutePicker = "2026-11-07T11:06:00.000Z";
+    expect(isSimCompletionAtOrAfterMin(sameMinutePicker, minAt)).toBe(true);
+    expect(alignSimCompletionIsoToMin(sameMinutePicker, minAt)).toBe(
+      minAt.toISOString(),
+    );
+    expect(
+      isSimCompletionAtOrAfterMin("2026-11-07T11:05:59.000Z", minAt),
+    ).toBe(false);
+  });
+
+  it("rewrites the last BISIM timestamp for a status to the picker instant", () => {
+    const notes = [
+      "[BISIM|in_progress|2026-11-02T06:55:00.000Z|1|2|Ops|assigned|Pickup]",
+    ].join("\n");
+    const fixed = ensureBisimTimestampForStatus(
+      notes,
+      "in_progress",
+      "2026-11-03T12:10:00.000Z",
+    );
+    expect(fixed).toContain("2026-11-03T12:10:00.000Z");
+    expect(fixed).not.toContain("2026-11-02T06:55:00.000Z");
   });
 });

@@ -1,10 +1,11 @@
 /**
  * Completion date + time for simulate — same pickers as vault / hard-copy POD.
+ * Controlled: parent owns the value so Confirm Simulate saves exactly what is shown.
  * Optional minDateTime enforces Journey Log chronological order (same minute OK).
  */
 import { HardCopyPodDateField } from "@/features/trips/components/trip-detail/HardCopyPodDateField";
 import { HardCopyPodTimeField } from "@/features/trips/components/trip-detail/HardCopyPodTimeField";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { StyleSheet, View } from "react-native";
 import {
   clampSimCompletionPickerValue,
@@ -12,7 +13,7 @@ import {
 } from "../../utils/simulateTripStage.util";
 
 type Props = {
-  initialValue: string;
+  value: string;
   onChange: (next: string) => void;
   /** Local picker floor `YYYY-MM-DDTHH:mm` — earlier dates/times disabled. */
   minDateTime?: string | null;
@@ -48,7 +49,7 @@ function parseLocalPickerDateTime(value: string | null | undefined): Date | null
 }
 
 export function SimCompletionTimeField({
-  initialValue,
+  value,
   onChange,
   minDateTime,
 }: Props) {
@@ -57,24 +58,18 @@ export function SimCompletionTimeField({
     [minDateTime],
   );
 
-  const [value, setValue] = useState(() =>
-    clampSimCompletionPickerValue(
-      initialValue || toSimCompletionPickerValue(),
-      minAt,
-    ),
-  );
-
+  // Keep parent value on/after the floor when minDateTime changes.
   useEffect(() => {
-    setValue((prev) => {
-      const next = clampSimCompletionPickerValue(prev, minAt);
-      if (next !== prev) onChange(next);
-      return next;
-    });
-    // Floor only — parent onChange is a ref write and must not re-trigger.
+    const next = clampSimCompletionPickerValue(
+      value || toSimCompletionPickerValue(),
+      minAt,
+    );
+    if (next !== value) onChange(next);
+    // Parent onChange must not be a render dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [minAt?.getTime() ?? null]);
+  }, [minAt?.getTime() ?? null, value]);
 
-  const parts = splitPickerValue(value);
+  const parts = splitPickerValue(value || toSimCompletionPickerValue());
   const minParts = minDateTime ? splitPickerValue(minDateTime) : null;
   const minTimeForSelectedDay =
     minParts && parts.date === minParts.date ? minParts.time : undefined;
@@ -83,20 +78,15 @@ export function SimCompletionTimeField({
     const nextDate = /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : parts.date;
     let nextTime = /^\d{2}:\d{2}$/.test(time) ? time : parts.time;
     if (minParts && nextDate < minParts.date) {
-      const clamped = `${minParts.date}T${minParts.time}`;
-      setValue(clamped);
-      onChange(clamped);
+      onChange(`${minParts.date}T${minParts.time}`);
       return;
     }
     if (minParts && nextDate === minParts.date && nextTime < minParts.time) {
       nextTime = minParts.time;
     }
-    const next = clampSimCompletionPickerValue(
-      `${nextDate}T${nextTime}`,
-      minAt,
+    onChange(
+      clampSimCompletionPickerValue(`${nextDate}T${nextTime}`, minAt),
     );
-    setValue(next);
-    onChange(next);
   };
 
   return (

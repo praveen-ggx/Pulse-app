@@ -4,9 +4,14 @@
  * Stores 24-hour HH:MM.
  */
 import Theme from "@/constants/Theme";
+import {
+  WebOverlayPortal,
+  resolveWebOverlayHost,
+  webFixedFill,
+} from "@/lib/webOverlayPortal";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Clock } from "lucide-react-native";
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import {
   Modal,
   Platform,
@@ -102,9 +107,16 @@ export function HardCopyPodTimeField({
 }) {
   const [open, setOpen] = useState(false);
   const fieldId = useId();
+  const fieldAnchorRef = useRef<View>(null);
   const parsed = parseHm(value);
   const hasError = Boolean(error?.trim());
   const dense = compact || quiet;
+  const webOverlayHost =
+    Platform.OS === "web"
+      ? resolveWebOverlayHost(
+          fieldAnchorRef.current as unknown as HTMLElement | null,
+        )
+      : null;
   const hour = parsed?.hour ?? new Date().getHours();
   const minute = parsed?.minute ?? 0;
   const clock12 = to12Hour(hour);
@@ -133,7 +145,7 @@ export function HardCopyPodTimeField({
   };
 
   return (
-    <View style={[styles.field, dense && styles.fieldCompact]}>
+    <View ref={fieldAnchorRef} style={[styles.field, dense && styles.fieldCompact]}>
       <Text
         style={[styles.label, compact && styles.labelCompact, quiet && styles.labelQuiet]}
         nativeID={`${fieldId}-label`}
@@ -177,9 +189,9 @@ export function HardCopyPodTimeField({
         </Text>
       ) : null}
 
-      {Platform.OS === "web" ? (
-        <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
-          <View style={styles.overlay}>
+      {open && Platform.OS === "web" ? (
+        <WebOverlayPortal host={webOverlayHost}>
+          <View style={[styles.overlay, webFixedFill]}>
             <Pressable style={styles.dismiss} onPress={close} accessibilityLabel="Close time picker" />
             <View
               style={[styles.popover, hour12 && styles.popoverWide]}
@@ -366,7 +378,7 @@ export function HardCopyPodTimeField({
               </View>
             </View>
           </View>
-        </Modal>
+        </WebOverlayPortal>
       ) : null}
 
       {open && Platform.OS === "android" ? (

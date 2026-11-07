@@ -119,19 +119,58 @@ function HubLrChip({
 }) {
   const lrText = (lrLabel ?? "").trim();
   if (!lrText && !canEditLr) return null;
+  const label = lrText
+    ? `LR ${lrText}${canEditLr ? ", update" : ""}`
+    : "Add LR number";
+  const content = (
+    <>
+      <Text style={styles.lrChipKicker}>LR</Text>
+      <Text style={[styles.lrChipValue, !lrText && styles.lrValueEmpty]} numberOfLines={1}>
+        {lrText || "Add LR"}
+      </Text>
+    </>
+  );
+
+  // Card body is a Pressable → <button> on web. Nested Pressable would be
+  // <button> inside <button> (hydration error). Use a View host on web.
+  if (Platform.OS === "web") {
+    return (
+      <View
+        style={[styles.lrChip, canEditLr && WEB_POINTER]}
+        accessibilityRole={canEditLr ? "button" : "text"}
+        accessibilityLabel={label}
+        accessible
+        focusable={!!canEditLr}
+        // @ts-expect-error RN web DOM attrs
+        tabIndex={canEditLr ? 0 : undefined}
+        onClick={(event: { stopPropagation?: () => void }) => {
+          event?.stopPropagation?.();
+          if (canEditLr) onPressLr?.();
+        }}
+        onKeyDown={(event: {
+          key?: string;
+          preventDefault?: () => void;
+          stopPropagation?: () => void;
+        }) => {
+          if (!canEditLr) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault?.();
+            event.stopPropagation?.();
+            onPressLr?.();
+          }
+        }}
+      >
+        {content}
+      </View>
+    );
+  }
+
   return (
     <Pressable
       onPress={(event) => {
         event.stopPropagation();
-        onPressLr?.();
+        if (canEditLr) onPressLr?.();
       }}
-      {...(Platform.OS === "web"
-        ? {
-            onClick: (event: { stopPropagation: () => void }) => {
-              event.stopPropagation();
-            },
-          }
-        : null)}
       disabled={!canEditLr && !lrText}
       style={({ pressed }) => [
         styles.lrChip,
@@ -139,14 +178,9 @@ function HubLrChip({
         pressed && canEditLr && styles.lrSlotPressed,
       ]}
       accessibilityRole={canEditLr ? "button" : "text"}
-      accessibilityLabel={
-        lrText ? `LR ${lrText}${canEditLr ? ", update" : ""}` : "Add LR number"
-      }
+      accessibilityLabel={label}
     >
-      <Text style={styles.lrChipKicker}>LR</Text>
-      <Text style={[styles.lrChipValue, !lrText && styles.lrValueEmpty]} numberOfLines={1}>
-        {lrText || "Add LR"}
-      </Text>
+      {content}
     </Pressable>
   );
 }

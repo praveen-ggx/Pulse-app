@@ -1,4 +1,4 @@
 # Additive supplier / payout columns. Do not apply to production until backup,
 # disposable rehearsal, recovery verification, and explicit authorization.
-20271014184500
+# Excluded: 20271014184500 (frozen Godrej data rewrite, never apply)
 20271014184600

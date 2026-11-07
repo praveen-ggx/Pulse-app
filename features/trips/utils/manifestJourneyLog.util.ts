@@ -1,6 +1,10 @@
 import { formatTrackingDateTime } from "@/features/trips/utils/formatTrackingTimestamp.util";
 import type { TripAssignmentAuditRow } from "@/features/trips/services/trip-assignment-audit.service";
 import type { TripRow } from "@/features/trips/services/trips.service";
+import {
+  resolveTripAssignedAtIso,
+  unrevokedBisimEntries,
+} from "@/features/trips/utils/simulateTripStage.util";
 
 export type ManifestJourneyStepKey =
   | "assigned"
@@ -251,27 +255,24 @@ function resolveStepLocation(
 }
 
 /**
- * Real evidence that the driver acted on the assignment, rather than the
- * dispatcher merely setting `assigned`. Returns the acceptance instant, or
- * null when no driver-side signal exists yet.
+ * Real evidence that the driver accepted the assignment.
+ * Returns the acceptance instant, or null when no driver-side signal exists yet.
  *
  * Evidence, strongest first:
- *  1. an explicit driver-acceptance audit row — forward-compatible only;
- *     `AssignmentEventType` has no acceptance member yet, so this never
- *     matches until the driver accept path starts writing one
- *  2. the trip having moved past `assigned` under its own steam
- *     (started_at set, or a post-assignment stage reached)
- *  3. a driver GPS ping — the app can only ping once the driver is on the trip
+ *  1. driver_accepted / accepted assignment audit
+ *  2. unrevoked business-sim of driver accept (`assigned` / `pending_acceptance`)
+ *  3. earliest driver GPS ping at/after the Assigned instant (when known)
  *
- * Deliberately NOT evidence: `status = assigned`, which is a dispatcher
- * action, and `updated_at`, which any server-side edit bumps.
+ * Never use `started_at` (that is Pickup) or `updated_at` (revoke/sim bump to now).
  */
 export function resolveDriverAcceptanceAt(input: {
   trip: Pick<TripRow, "status" | "started_at" | "completed_at"> & {
     updated_at?: TripRow["updated_at"] | null;
+    notes?: TripRow["notes"] | null;
   };
   assignmentAuditRows?: TripAssignmentAuditRow[];
   locationPings?: ManifestLocationPing[];
+  assignedAtIso?: string | null;
 }): string | null {
   const tr = input.trip;
   const statusLc = String(tr.status ?? "").toLowerCase();
@@ -288,29 +289,33 @@ export function resolveDriverAcceptanceAt(input: {
     )[0];
   if (acceptAudit?.changed_at) return acceptAudit.changed_at;
 
-  const movedPastAssigned = [
-    "in_progress",
-    "picked_up",
-    "pickup",
-    "loading",
-    "unloading",
-    "in_transit",
-    "at_drop",
-    "completed",
-    "delivered",
-    "done",
-  ].includes(statusLc);
-  if (movedPastAssigned || tr.started_at || tr.completed_at) {
-    return tr.started_at ?? tr.updated_at ?? tr.completed_at ?? null;
-  }
+  const simAccept = unrevokedBisimEntries(tr.notes)
+    .filter((row) =>
+      ["assigned", "pending_acceptance"].includes(row.status),
+    )
+    .sort(
+      (a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+    )[0];
+  if (simAccept?.timestamp) return simAccept.timestamp;
 
+  const assignedMs = input.assignedAtIso
+    ? new Date(input.assignedAtIso).getTime()
+    : NaN;
   const pings = input.locationPings ?? [];
   if (pings.length > 0) {
-    const earliest = [...pings].sort(
-      (a, b) =>
-        new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime(),
-    )[0];
-    if (earliest?.recorded_at) return earliest.recorded_at;
+    const eligible = [...pings]
+      .filter((p) => {
+        const ms = new Date(p.recorded_at).getTime();
+        if (!Number.isFinite(ms)) return false;
+        if (!Number.isFinite(assignedMs)) return true;
+        return ms >= assignedMs;
+      })
+      .sort(
+        (a, b) =>
+          new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime(),
+      );
+    if (eligible[0]?.recorded_at) return eligible[0].recorded_at;
   }
 
   return null;
@@ -318,8 +323,12 @@ export function resolveDriverAcceptanceAt(input: {
 
 /** Last fully completed manifest step (0–4). Matches driver control / Manifest Pulse. */
 export function getManifestCurrentStepIndex(
-  trip: Pick<TripRow, "status" | "completed_at" | "started_at"> & {
+  trip: Pick<
+    TripRow,
+    "status" | "completed_at" | "started_at" | "driver_id" | "created_at"
+  > & {
     updated_at?: TripRow["updated_at"] | null;
+    notes?: TripRow["notes"] | null;
   },
   evidence?: {
     assignmentAuditRows?: TripAssignmentAuditRow[];
@@ -339,10 +348,15 @@ export function getManifestCurrentStepIndex(
   if (s === "assigned") {
     // `assigned` alone is a dispatcher action; only advance to the acceptance
     // step once the driver has actually acted.
+    const assignedAtIso = resolveTripAssignedAtIso(
+      trip,
+      evidence?.assignmentAuditRows ?? [],
+    );
     return resolveDriverAcceptanceAt({
       trip,
       assignmentAuditRows: evidence?.assignmentAuditRows,
       locationPings: evidence?.locationPings,
+      assignedAtIso,
     })
       ? 1
       : 0;
@@ -590,29 +604,13 @@ export function buildManifestJourneyLogs(input: {
   const audits = input.assignmentAuditRows;
   const statusLc = (tr.status ?? "").toLowerCase();
 
-  const assignedAtIso: string | null = (() => {
-    if (audits.length > 0) {
-      const sorted = [...audits].sort(
-        (a, b) =>
-          new Date(a.changed_at).getTime() - new Date(b.changed_at).getTime(),
-      );
-      const did = tr.driver_id;
-      if (did) {
-        const forCurrentDriver = [...sorted]
-          .reverse()
-          .find((r) => r.driver_id_new === did);
-        if (forCurrentDriver?.changed_at) return forCurrentDriver.changed_at;
-      }
-      return sorted[0]?.changed_at ?? null;
-    }
-    if (tr.driver_id) return tr.updated_at ?? tr.created_at ?? null;
-    return null;
-  })();
+  const assignedAtIso: string | null = resolveTripAssignedAtIso(tr, audits);
 
   const driverAcceptedAtIso: string | null = resolveDriverAcceptanceAt({
     trip: tr,
     assignmentAuditRows: audits,
     locationPings: pings,
+    assignedAtIso,
   });
 
   const latestDriverLabel =
@@ -670,8 +668,20 @@ export function buildManifestJourneyLogs(input: {
     },
     (() => {
       // No acceptance instant means no driver-side signal yet — never present
-      // this step as if the driver had accepted.
-      const pending = !driverAcceptedAtIso;
+      // this step as if the driver had accepted (and never borrow Pickup/started_at).
+      const pastAssigned = [
+        "in_progress",
+        "picked_up",
+        "pickup",
+        "loading",
+        "unloading",
+        "in_transit",
+        "at_drop",
+        "completed",
+        "delivered",
+        "done",
+      ].includes(statusLc);
+      const pending = !driverAcceptedAtIso && !pastAssigned;
       const acceptLoc = pending
         ? {
             location:
@@ -691,16 +701,12 @@ export function buildManifestJourneyLogs(input: {
             geocodeLabel: acceptGeocodeLabel ?? latestDriverLabel,
             fallback: "Driver location pending",
           });
+      const acceptAt = driverAcceptedAtIso;
       return {
         stepKey: "driver_accepted" as const,
         status: pending ? "Awaiting Driver Acceptance" : "Driver Accepted",
-        atIso: assignedSim?.timestamp ?? driverAcceptedAtIso,
-        time:
-          assignedSim?.timestamp ?? driverAcceptedAtIso
-            ? formatTrackingDateTime(
-                assignedSim?.timestamp ?? driverAcceptedAtIso!,
-              )
-            : "—",
+        atIso: acceptAt,
+        time: acceptAt ? formatTrackingDateTime(acceptAt) : "—",
         location:
           simShownPlace(assignedSim, pickupPlace) ?? acceptLoc.location,
         locationCoords: simCoords(assignedSim) ?? acceptLoc.locationCoords,
@@ -710,10 +716,12 @@ export function buildManifestJourneyLogs(input: {
     {
       stepKey: "pickup",
       status: "Pickup",
-      atIso: pickupSim?.timestamp ?? tr.started_at ?? null,
+      // started_at is the picker / operational Pickup instant — prefer it over
+      // a BISIM line that may still carry the simulate-click wall clock.
+      atIso: tr.started_at ?? pickupSim?.timestamp ?? null,
       time:
-        pickupSim?.timestamp ?? tr.started_at
-          ? formatTrackingDateTime(pickupSim?.timestamp ?? tr.started_at!)
+        tr.started_at ?? pickupSim?.timestamp
+          ? formatTrackingDateTime(tr.started_at ?? pickupSim!.timestamp)
           : "—",
       location: resolveStepLocation(
         [
@@ -791,10 +799,10 @@ export function buildManifestJourneyLogs(input: {
     {
       stepKey: "delivered",
       status: "Delivered",
-      atIso: deliveredSim?.timestamp ?? tr.completed_at ?? null,
+      atIso: tr.completed_at ?? deliveredSim?.timestamp ?? null,
       time:
-        deliveredSim?.timestamp ?? tr.completed_at
-          ? formatTrackingDateTime(deliveredSim?.timestamp ?? tr.completed_at!)
+        tr.completed_at ?? deliveredSim?.timestamp
+          ? formatTrackingDateTime(tr.completed_at ?? deliveredSim!.timestamp)
           : "—",
       location: resolveStepLocation(
         [
@@ -911,7 +919,16 @@ export function buildManifestJourneyLogs(input: {
             },
           ]
         : []),
-      ...simHistory(["in_progress", "picked_up", "pickup"]),
+      // Align "Simulated in progress" with started_at (manual picker), not click-time.
+      ...simHistory(["in_progress", "picked_up", "pickup"]).map((line) =>
+        tr.started_at
+          ? {
+              ...line,
+              atIso: tr.started_at,
+              time: formatTrackingDateTime(tr.started_at),
+            }
+          : line,
+      ),
     ]),
     loading: [],
     in_transit: sortHistory([

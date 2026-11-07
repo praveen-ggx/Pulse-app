@@ -221,14 +221,19 @@ import {
     type TripRow,
 } from "../../services/trips.service";
 import {
+    alignSimCompletionIsoToMin,
     appendBisimNote,
     clampSimCompletionPickerValue,
+    ensureBisimTimestampForStatus,
     isSimCompletionAtOrAfterMin,
+    isUnrestrictedPickupSimStage,
     lastBisimCoordinate,
     parseSimCompletionPickerValue,
+    resolveAutoSimCompletionIso,
     resolveSimulateStageCoordinate,
     resolveSimulateStageMinAt,
     resolveTripAssignedAtIso,
+    showsSimCompletionPicker,
     toSimCompletionPickerValue,
     unrevokedBisimEntries,
 } from "../../utils/simulateTripStage.util";
@@ -1279,8 +1284,10 @@ export default function TripDetailScreen({
   const [simConfirmStep, setSimConfirmStep] = useState<{
     label: string;
     targetStatus: string;
-    started_at?: string;
-    completed_at?: string;
+    /** Persist picker instant onto trips.started_at (Pickup). */
+    writeStartedAt?: boolean;
+    /** Persist picker instant onto trips.completed_at (Delivered). */
+    writeCompletedAt?: boolean;
     driverLat: number | null;
     driverLng: number | null;
     driverLocLabel: string | null;
@@ -1294,7 +1301,14 @@ export default function TripDetailScreen({
   const [revokingSimulation, setRevokingSimulation] = useState(false);
   const [cancelTripOpen, setCancelTripOpen] = useState(false);
   const [simError, setSimError] = useState<string | null>(null);
-  const simCompletionRef = useRef("");
+  /** Controlled picker value — Confirm must save exactly this instant. */
+  const [simCompletionValue, setSimCompletionValue] = useState("");
+  /** Sync copy so Confirm never reads a stale React state closure. */
+  const simCompletionValueRef = useRef("");
+  const setSimCompletionPickerValue = (next: string) => {
+    simCompletionValueRef.current = next;
+    setSimCompletionValue(next);
+  };
   const simulateAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -3400,11 +3414,13 @@ export default function TripDetailScreen({
         lastSim?.userName?.trim() ||
         historyActor ||
         (log.stepKey === "driver_accepted" ? driverName : "");
-      const time = lastSim?.timestamp
-        ? formatTrackingDateTime(lastSim.timestamp)
-        : log.time !== "—"
+      // Prefer Journey Log resolved time (started_at for Pickup) over raw BISIM.
+      const time =
+        log.time !== "—"
           ? log.time
-          : undefined;
+          : lastSim?.timestamp
+            ? formatTrackingDateTime(lastSim.timestamp)
+            : undefined;
       return {
         actor,
         time,
@@ -4539,7 +4555,6 @@ export default function TripDetailScreen({
             : (trip.pickup_area ?? "").trim() || "Pickup",
       };
     };
-    const now = new Date().toISOString();
     if (s === "pending_acceptance")
       return {
         label: "Driver accepts assignment",
@@ -4550,7 +4565,7 @@ export default function TripDetailScreen({
       return {
         label: "Pickup — driver arrived at source",
         targetStatus: "in_progress",
-        started_at: now,
+        writeStartedAt: true,
         ...pinFor("in_progress"),
       };
     if (["in_progress", "picked_up"].includes(s))
@@ -4569,7 +4584,7 @@ export default function TripDetailScreen({
       return {
         label: "Delivered",
         targetStatus: "completed",
-        completed_at: now,
+        writeCompletedAt: true,
         ...pinFor("completed"),
       };
     return null;
@@ -4656,10 +4671,14 @@ export default function TripDetailScreen({
     });
 
   const openSimulateConfirm = (step: NonNullable<typeof simConfirmStep>) => {
-    const minAt = simulateStageMinAt(step.targetStatus);
-    simCompletionRef.current = clampSimCompletionPickerValue(
-      toSimCompletionPickerValue(),
-      minAt,
+    // Pickup: no floor (past or future). Later stages: floor to previous stage.
+    const minAt = isUnrestrictedPickupSimStage(step.targetStatus)
+      ? null
+      : simulateStageMinAt(step.targetStatus);
+    setSimCompletionPickerValue(
+      showsSimCompletionPicker(step.targetStatus)
+        ? clampSimCompletionPickerValue(toSimCompletionPickerValue(), minAt)
+        : "",
     );
     setSimError(null);
     setGroundOpsMissingDocs(null);
@@ -4735,42 +4754,74 @@ export default function TripDetailScreen({
     setSimulating(true);
     setSimError(null);
     try {
-      const completedAt = parseSimCompletionPickerValue(simCompletionRef.current);
-      if (!completedAt) {
-        setSimError("Pick a completion date and time.");
-        setSimulating(false);
-        return;
+      const unrestrictedPickup = isUnrestrictedPickupSimStage(
+        simConfirmStep.targetStatus,
+      );
+      const minAt = unrestrictedPickup
+        ? null
+        : simulateStageMinAt(simConfirmStep.targetStatus);
+      const usesPicker = showsSimCompletionPicker(simConfirmStep.targetStatus);
+      let completedAt: string | null = null;
+      if (usesPicker) {
+        // Prefer ref (sync) so Confirm matches the picker even if state is stale.
+        completedAt = parseSimCompletionPickerValue(
+          simCompletionValueRef.current || simCompletionValue,
+        );
+        if (!completedAt) {
+          setSimError(
+            unrestrictedPickup
+              ? "Pick a pickup date and time."
+              : "Pick a completion date and time.",
+          );
+          setSimulating(false);
+          return;
+        }
+        if (!unrestrictedPickup) {
+          // Minute-precision picker: align :mm:00 up to the previous-stage floor.
+          completedAt = alignSimCompletionIsoToMin(completedAt, minAt);
+        }
+      } else {
+        // Driver-accept simulation: auto-capture (Assigned / Accepted unchanged).
+        completedAt = resolveAutoSimCompletionIso(minAt);
       }
-      const minAt = simulateStageMinAt(simConfirmStep.targetStatus);
-      if (!isSimCompletionAtOrAfterMin(completedAt, minAt)) {
+      if (
+        !unrestrictedPickup &&
+        !isSimCompletionAtOrAfterMin(completedAt, minAt)
+      ) {
         setSimError(
-          "Completion time must be on or after the previous Journey Log stage.",
+          "Completion time must be after the previous Journey Log stage.",
         );
         setSimulating(false);
         return;
       }
+      const eventAt = completedAt;
       const pin = resolveSimulateStageCoordinate(trip, simConfirmStep.targetStatus, {
         lat: simConfirmStep.driverLat,
         lng: simConfirmStep.driverLng,
       });
       const userName = detail.profile?.full_name?.trim() || "Business";
-      const notes = appendBisimNote({
-        existingNotes: trip.notes,
-        targetStatus: simConfirmStep.targetStatus,
-        fromStatus: String(trip.status ?? "").trim().toLowerCase(),
-        userName,
-        lat: pin.lat,
-        lng: pin.lng,
-        at: completedAt,
-        locationLabel: simConfirmStep.driverLocLabel,
-      });
+      const notes = ensureBisimTimestampForStatus(
+        appendBisimNote({
+          existingNotes: trip.notes,
+          targetStatus: simConfirmStep.targetStatus,
+          fromStatus: String(trip.status ?? "").trim().toLowerCase(),
+          userName,
+          lat: pin.lat,
+          lng: pin.lng,
+          at: eventAt,
+          locationLabel: simConfirmStep.driverLocLabel,
+        }),
+        simConfirmStep.targetStatus,
+        eventAt,
+      );
       const { error, cancelled, trip: updatedTrip } = await simulateBusinessTripStage({
         tripId: trip.id,
         targetStatus: simConfirmStep.targetStatus,
         fromStatus: String(trip.status ?? "").trim().toLowerCase(),
         notes,
-        startedAt: simConfirmStep.started_at ? completedAt : undefined,
-        completedAt: simConfirmStep.completed_at ? completedAt : undefined,
+        // Same instant for BISIM notes + started_at / completed_at — never click-time.
+        startedAt: simConfirmStep.writeStartedAt ? eventAt : undefined,
+        completedAt: simConfirmStep.writeCompletedAt ? eventAt : undefined,
         signal: abort.signal,
       });
       if (cancelled || abort.signal.aborted) return;
@@ -6140,19 +6191,25 @@ export default function TripDetailScreen({
                 No driver GPS data available
               </Text>
             )}
-            {simConfirmStep.groundOps ? null : (
+            {simConfirmStep.groundOps ||
+            !showsSimCompletionPicker(simConfirmStep.targetStatus) ? null : (
             <View style={neoStyles.simModalTime}>
-              <Text style={neoStyles.simModalLocLabel}>Completion time</Text>
+              <Text style={neoStyles.simModalLocLabel}>
+                {isUnrestrictedPickupSimStage(simConfirmStep.targetStatus)
+                  ? "Pickup date & time"
+                  : "Completion time"}
+              </Text>
               <SimCompletionTimeField
                 key={`${simConfirmStep.targetStatus}-${simConfirmStep.label}`}
-                initialValue={simCompletionRef.current}
+                value={simCompletionValue}
                 minDateTime={(() => {
+                  if (isUnrestrictedPickupSimStage(simConfirmStep.targetStatus)) {
+                    return null;
+                  }
                   const minAt = simulateStageMinAt(simConfirmStep.targetStatus);
                   return minAt ? toSimCompletionPickerValue(minAt) : null;
                 })()}
-                onChange={(value) => {
-                  simCompletionRef.current = value;
-                }}
+                onChange={setSimCompletionPickerValue}
               />
             </View>
             )}
@@ -7509,7 +7566,7 @@ export default function TripDetailScreen({
                                         >
                                           Business simulated · {sim.userName}
                                         </Text>
-                                        {sim.timestamp ? (
+                                        {(log.atIso || sim.timestamp) ? (
                                           <Text
                                             style={[
                                               neoStyles.simLogBadgeTime,
@@ -7517,7 +7574,9 @@ export default function TripDetailScreen({
                                                 neoStyles.simLogBadgeTimeMobile,
                                             ]}
                                           >
-                                            {formatTrackingDateTime(sim.timestamp)}
+                                            {formatTrackingDateTime(
+                                              log.atIso || sim.timestamp,
+                                            )}
                                           </Text>
                                         ) : null}
                                       </View>
@@ -8849,20 +8908,27 @@ export default function TripDetailScreen({
                   No driver GPS data available
                 </Text>
               )}
-              <View style={neoStyles.simModalTime}>
-                <Text style={neoStyles.simModalLocLabel}>Completion time</Text>
-                <SimCompletionTimeField
-                  key={`${simConfirmStep.targetStatus}-${simConfirmStep.label}`}
-                  initialValue={simCompletionRef.current}
-                  minDateTime={(() => {
-                    const minAt = simulateStageMinAt(simConfirmStep.targetStatus);
-                    return minAt ? toSimCompletionPickerValue(minAt) : null;
-                  })()}
-                  onChange={(value) => {
-                    simCompletionRef.current = value;
-                  }}
-                />
-              </View>
+              {showsSimCompletionPicker(simConfirmStep.targetStatus) ? (
+                <View style={neoStyles.simModalTime}>
+                  <Text style={neoStyles.simModalLocLabel}>
+                    {isUnrestrictedPickupSimStage(simConfirmStep.targetStatus)
+                      ? "Pickup date & time"
+                      : "Completion time"}
+                  </Text>
+                  <SimCompletionTimeField
+                    key={`${simConfirmStep.targetStatus}-${simConfirmStep.label}`}
+                    value={simCompletionValue}
+                    minDateTime={(() => {
+                      if (isUnrestrictedPickupSimStage(simConfirmStep.targetStatus)) {
+                        return null;
+                      }
+                      const minAt = simulateStageMinAt(simConfirmStep.targetStatus);
+                      return minAt ? toSimCompletionPickerValue(minAt) : null;
+                    })()}
+                    onChange={setSimCompletionPickerValue}
+                  />
+                </View>
+              ) : null}
               {simError ? (
                 <Text style={neoStyles.simModalError}>{simError}</Text>
               ) : null}

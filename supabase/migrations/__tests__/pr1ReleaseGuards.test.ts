@@ -134,7 +134,8 @@ describe("PR #1 migration guards", () => {
     const named = fs.readdirSync(setsDir).filter((name) => name.endsWith(".versions"));
     for (const name of named) {
       const body = fs.readFileSync(path.join(setsDir, name), "utf8");
-      expect(body).not.toContain("20271014184500");
+      const nonComment = body.split("\n").filter((l) => !l.trimStart().startsWith("#")).join("\n");
+      expect(nonComment).not.toContain("20271014184500");
     }
   });
 

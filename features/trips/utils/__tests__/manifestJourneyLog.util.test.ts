@@ -3,8 +3,10 @@ import {
   collectManifestJourneyActorIds,
   getManifestCurrentStepIndex,
   getVisibleManifestJourneyLogs,
+  resolveDriverAcceptanceAt,
   resolveManifestAssignerUserId,
 } from "@/features/trips/utils/manifestJourneyLog.util";
+import { resolveTripAssignedAtIso } from "@/features/trips/utils/simulateTripStage.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 
 const trip = {
@@ -243,5 +245,78 @@ describe("manifest journey simulation flow", () => {
     const assigned = logs.find((row) => row.stepKey === "assigned");
     expect(assigned?.history?.[0]?.actor).toBe("Mohamed Asik Hussain");
     expect(assigned?.history?.[0]?.action).toContain("Assigned");
+  });
+
+  it("keeps Assigned on the assignment audit and never borrows updated_at after revoke", () => {
+    const assignedAt = "2026-11-07T11:42:00.000Z";
+    const tripRow = {
+      ...trip,
+      status: "assigned",
+      started_at: null,
+      updated_at: "2026-11-07T12:00:00.000Z",
+      created_at: "2026-11-01T00:00:00.000Z",
+      driver_id: "driver-1",
+    } as TripRow;
+    const audits = [
+      {
+        id: "a1",
+        trip_id: "t1",
+        event_type: "assignment" as const,
+        driver_id_prev: null,
+        driver_id_new: "driver-1",
+        vehicle_id_prev: null,
+        vehicle_id_new: null,
+        changed_at: assignedAt,
+        changed_by: "staff-1",
+      },
+      {
+        id: "a2",
+        trip_id: "t1",
+        event_type: "driver_accepted" as const,
+        driver_id_prev: "driver-1",
+        driver_id_new: "driver-1",
+        vehicle_id_prev: null,
+        vehicle_id_new: null,
+        changed_at: "2026-11-07T11:50:00.000Z",
+        changed_by: "driver-1",
+      },
+    ];
+    expect(resolveTripAssignedAtIso(tripRow, audits)).toBe(assignedAt);
+
+    const logs = buildManifestJourneyLogs({
+      trip: {
+        ...tripRow,
+        status: "in_progress",
+        started_at: "2026-11-02T06:45:00.000Z",
+        updated_at: "2026-11-07T12:05:00.000Z",
+        notes:
+          "[BISIM|in_progress|2026-11-02T06:45:00.000Z|1|2|Ops|assigned|Pickup]",
+      } as TripRow,
+      assignmentAuditRows: audits,
+      driverDisplayName: "ahjd",
+    });
+    expect(logs.find((row) => row.stepKey === "assigned")?.atIso).toBe(assignedAt);
+    expect(logs.find((row) => row.stepKey === "driver_accepted")?.atIso).toBe(
+      "2026-11-07T11:50:00.000Z",
+    );
+    expect(logs.find((row) => row.stepKey === "pickup")?.atIso).toBe(
+      "2026-11-02T06:45:00.000Z",
+    );
+  });
+
+  it("does not treat Pickup started_at as Driver Accepted", () => {
+    expect(
+      resolveDriverAcceptanceAt({
+        trip: {
+          status: "in_progress",
+          started_at: "2026-11-02T06:45:00.000Z",
+          completed_at: null,
+          updated_at: "2026-11-07T12:05:00.000Z",
+          notes: null,
+        },
+        assignmentAuditRows: [],
+        assignedAtIso: "2026-11-07T11:42:00.000Z",
+      }),
+    ).toBeNull();
   });
 });

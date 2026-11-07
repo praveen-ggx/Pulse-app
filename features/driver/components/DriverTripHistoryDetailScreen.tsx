@@ -89,14 +89,7 @@ import { tripHistoryDetailStyles as styles } from "@/features/driver/tripHistory
 import { TripDetailSettlementPanel } from "@/features/driver/components/TripDetailSettlementPanel";
 import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
 import { driverCaptureLaneForTrip } from "@/features/drivers/utils/driverCapturePayment.util";
-import {
-  canTagPartyOnTrip,
-  isTripTaggedToParty,
-  tripReceivablePartyName,
-} from "@/features/drivers/utils/driverPartyReceivables.util";
-import { ROUTES } from "@/lib/routes";
 import { DriverDocumentGalleryPreview } from "@/features/driver/components/DriverDocumentGalleryPreview";
-import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
 import { useTripVerificationSync } from "@/features/trips/verification";
 import { DriverTripOperationsTab } from "@/features/driver/components/DriverTripOperationsTab";
 import { useRegisterDriverContextTrip } from "@/contexts/DriverTripOpsContext";
@@ -191,7 +184,6 @@ export function DriverTripHistoryDetailScreen({
   const [detailPodViewUrls, setDetailPodViewUrls] = useState<Record<string, string>>({});
   const detailPodUrlRequestedRef = useRef<Set<string>>(new Set());
   const [podPreviewIndex, setPodPreviewIndex] = useState<number | null>(null);
-  const [collectFromOpen, setCollectFromOpen] = useState(false);
   const resolveDetailPodPreview = useCallback(
     async (doc: tripDocumentsService.TripDocumentRow): Promise<string | null> => {
       const cached = detailPodViewUrls[doc.id];
@@ -572,7 +564,6 @@ export function DriverTripHistoryDetailScreen({
   const historyCaptureLane = trip
     ? driverCaptureLaneForTrip(trip, isTripHistoryFleet)
     : "shipper";
-  const isOfflinePartyTrip = canTagPartyOnTrip(trip, isTripHistoryFleet);
 
   const isTripHistoryAttributed = useMemo(() => {
     if (!historyCurrentEmployer || !trip) return false;

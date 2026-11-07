@@ -6,7 +6,6 @@ import {
   canManageIndieBook,
   canTagOfflineParty,
   canManageOwnerVehicles,
-  canTagOfflineParty,
   driverHistoryLane,
   driverHistoryLaneLabel,
   driverHistoryTabsForMode,

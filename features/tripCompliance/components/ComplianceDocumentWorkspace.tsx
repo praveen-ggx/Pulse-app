@@ -6928,6 +6928,9 @@ export function ComplianceDocumentWorkspace({
                             <Maximize2 size={16} color={expandColor} />
                       </Pressable>
                     </View>
+                      ) : null}
+                  </View>
+                    </View>
                     {commerceLayout ? null : previewTabs}
                     {previewingDocument &&
                     (showRowDecline || showRowApprove || showRowReplace || previewDeclineReason) ? (
@@ -6966,27 +6969,6 @@ export function ComplianceDocumentWorkspace({
                             <Text style={styles.reviewGroupApproveText}>Replace</Text>
                           </TouchableOpacity>
                 ) : null}
-                        {rowDecisionButtons.approveActive ? (
-                          <View style={styles.rowApprovedCluster}>
-                            <View style={styles.reviewGroupApprovedPill} accessibilityLabel={`${docTitle} approved`}>
-                              <Check size={12} color={Theme.accentGold} strokeWidth={2.8} />
-                              <Text style={styles.reviewGroupApprovedText}>Approved</Text>
-                            </View>
-                            {showRowDecline ? (
-                              <TouchableOpacity
-                                style={[styles.rowRevokeBtn, busy && styles.btnDisabled]}
-                                activeOpacity={0.85}
-                                disabled={busy}
-                                onPress={() => setRowActionConfirm("revoke")}
-                                hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-                                accessibilityRole="button"
-                                accessibilityLabel={`Revoke approval of ${docTitle}`}
-                              >
-                                <Undo2 size={14} color={Theme.textPrimaryDark} strokeWidth={2.2} />
-                              </TouchableOpacity>
-                            ) : null}
-                          </View>
-                        ) : null}
                         {rowDecisionButtons.approveActive ? (
                           <View style={styles.rowApprovedCluster}>
                             <View style={styles.reviewGroupApprovedPill} accessibilityLabel={`${docTitle} approved`}>

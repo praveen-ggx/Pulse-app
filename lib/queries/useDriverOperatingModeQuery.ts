@@ -7,7 +7,6 @@ import {
   canManageIndieBook,
   canTagOfflineParty,
   canManageOwnerVehicles,
-  canTagOfflineParty,
   isDcoOperatingMode,
   type DriverOperatingMode,
 } from '@/features/drivers/domain/driverOperatingMode';

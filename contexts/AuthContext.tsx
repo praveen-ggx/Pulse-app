@@ -15,7 +15,7 @@ import { useMobileKeepSignedInSignOut } from "@/features/auth/hooks/useMobileKee
 import {
   bindDriverPartyAvatarUser,
   clearDriverPartyAvatarCache,
-} from "@/features/drivers/utils/driverPartyAvatar.util";
+} from "@/features/drivers/utils/driverPartyAvatarCache.util";
 import { useWebKeepSignedInSignOut } from "@/features/auth/hooks/useWebKeepSignedInSignOut";
 import type { AuthUser } from "@/features/auth/services/auth.service";
 import * as authService from "@/features/auth/services/auth.service";

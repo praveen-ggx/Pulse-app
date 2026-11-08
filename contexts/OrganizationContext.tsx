@@ -13,7 +13,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { bindDriverPartyAvatarWorkspace } from '@/features/drivers/utils/driverPartyAvatar.util';
+import { bindDriverPartyAvatarWorkspace } from '@/features/drivers/utils/driverPartyAvatarCache.util';
 // Direct path avoids dragging the org barrel (components + visibility helpers)
 // into every consumer of the OrganizationContext.
 import * as organizationService from '@/features/organization/services/organization.service';

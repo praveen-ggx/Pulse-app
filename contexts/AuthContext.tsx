@@ -12,7 +12,10 @@
  * lives in lib/authEngine.
  */
 import { useMobileKeepSignedInSignOut } from "@/features/auth/hooks/useMobileKeepSignedInSignOut";
-import { clearDriverPartyAvatarCache } from "@/features/drivers/utils/driverPartyAvatar.util";
+import {
+  bindDriverPartyAvatarUser,
+  clearDriverPartyAvatarCache,
+} from "@/features/drivers/utils/driverPartyAvatar.util";
 import { useWebKeepSignedInSignOut } from "@/features/auth/hooks/useWebKeepSignedInSignOut";
 import type { AuthUser } from "@/features/auth/services/auth.service";
 import * as authService from "@/features/auth/services/auth.service";
@@ -295,6 +298,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     resetIndexBootRedirect();
     resetDriverPerfMetrics();
     clearDriverPartyAvatarCache();
+    bindDriverPartyAvatarUser(null);
     setUser(null);
     setProfile(null);
     setRoleVerified(false);
@@ -395,6 +399,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     ) => {
       const trustRole =
         sessionProfile.role === "driver" || sessionProfile.role === "user";
+      bindDriverPartyAvatarUser(nextUser.uid);
       setUser(nextUser);
       setProfile(freezeInDev(authProfileToUserProfile(sessionProfile)));
       setRoleVerified(trustRole);

@@ -26,25 +26,33 @@ import { pickPartyOrganizationImageUrl } from "@/lib/media/partyOrganizationImag
  * profile request. Failed lookups are not cached.
  */
 const AVATAR_LOOKUP_TTL_MS = 5 * 60_000;
-const clientDetailsCache = new Map<string, { at: number; value: ReturnType<typeof getClientDetails> }>();
-const linkedOrgProfileCache = new Map<string, { at: number; value: ReturnType<typeof getLinkedOrgProfile> }>();
+type CachedLookup<T> = { at: number; epoch: number; value: Promise<T> };
+const clientDetailsCache = new Map<string, CachedLookup<Awaited<ReturnType<typeof getClientDetails>>>>();
+const linkedOrgProfileCache = new Map<string, CachedLookup<Awaited<ReturnType<typeof getLinkedOrgProfile>>>>();
+
+/** Bumped on sign-out and whenever the signed-in user or workspace changes. */
+let identityEpoch = 0;
+let avatarUserId: string | null = null;
+let avatarWorkspaceId: string | null = null;
 
 function memoLookup<T extends { error: unknown }>(
-  cache: Map<string, { at: number; value: Promise<T> }>,
+  cache: Map<string, CachedLookup<T>>,
   key: string,
   load: () => Promise<T>,
 ): Promise<T> {
   const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < AVATAR_LOOKUP_TTL_MS) return hit.value;
+  if (hit && hit.epoch === identityEpoch && Date.now() - hit.at < AVATAR_LOOKUP_TTL_MS) return hit.value;
+  const epoch = identityEpoch;
   const value = load();
-  cache.set(key, { at: Date.now(), value });
+  cache.set(key, { at: Date.now(), value, epoch });
+  const dropIfOurs = () => {
+    if (cache.get(key)?.value === value) cache.delete(key);
+  };
   void value.then(
     (res) => {
-      if (res.error && cache.get(key)?.value === value) cache.delete(key);
+      if (epoch !== identityEpoch || res.error) dropIfOurs();
     },
-    () => {
-      if (cache.get(key)?.value === value) cache.delete(key);
-    },
+    dropIfOurs,
   );
   return value;
 }
@@ -57,14 +65,33 @@ function cachedLinkedOrgProfile(orgId: string): ReturnType<typeof getLinkedOrgPr
   return memoLookup(linkedOrgProfileCache, orgId, () => getLinkedOrgProfile(orgId));
 }
 
-/** Drop memoised avatars. Call on sign-out so the next workspace cannot reuse them. */
+/** Drop memoised avatars. In-flight lookups from the previous epoch cannot write back. */
 export function clearDriverPartyAvatarCache(): void {
+  identityEpoch += 1;
   clientDetailsCache.clear();
   linkedOrgProfileCache.clear();
 }
 
-/** Test hook: clear the avatar lookup memo. */
-export const clearDriverPartyAvatarCacheForTests = clearDriverPartyAvatarCache;
+/** Clear when the signed-in user changes. Same user is a no-op. */
+export function bindDriverPartyAvatarUser(userId: string | null): void {
+  if (avatarUserId === userId) return;
+  avatarUserId = userId;
+  clearDriverPartyAvatarCache();
+}
+
+/** Clear when the active workspace changes. The same workspace is a no-op. */
+export function bindDriverPartyAvatarWorkspace(workspaceId: string | null): void {
+  if (avatarWorkspaceId === workspaceId) return;
+  avatarWorkspaceId = workspaceId;
+  clearDriverPartyAvatarCache();
+}
+
+/** Test hook: clear the avatar lookup memo and the bound identity. */
+export function clearDriverPartyAvatarCacheForTests(): void {
+  avatarUserId = null;
+  avatarWorkspaceId = null;
+  clearDriverPartyAvatarCache();
+}
 
 export type DriverPartyAvatarFields = {
   avatarUrl: string | null;

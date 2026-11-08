@@ -15,6 +15,8 @@ jest.mock("@/features/clients/services/clients.service", () => ({
 }));
 
 import {
+  bindDriverPartyAvatarUser,
+  bindDriverPartyAvatarWorkspace,
   clearDriverPartyAvatarCache,
   clearDriverPartyAvatarCacheForTests,
   resolveDriverPartyAvatar,
@@ -86,6 +88,44 @@ describe("driver party avatar lookups", () => {
   it("drops cached identities when the workspace cache is cleared", async () => {
     await resolveDriverTripCounterpartyAvatarMap([trip("t1", "c1")]);
     clearDriverPartyAvatarCache();
+    await resolveDriverTripCounterpartyAvatarMap([trip("t1", "c1")]);
+    expect(mockGetClientDetails).toHaveBeenCalledTimes(2);
+  });
+
+  it("refetches after the signed-in user or workspace changes", async () => {
+    bindDriverPartyAvatarUser("user-a");
+    bindDriverPartyAvatarWorkspace("workspace-a");
+    await resolveDriverTripCounterpartyAvatarMap([trip("t1", "c1")]);
+    bindDriverPartyAvatarUser("user-a");
+    bindDriverPartyAvatarWorkspace("workspace-a");
+    await resolveDriverTripCounterpartyAvatarMap([trip("t1", "c1")]);
+    expect(mockGetClientDetails).toHaveBeenCalledTimes(1);
+    bindDriverPartyAvatarWorkspace("workspace-b");
+    await resolveDriverTripCounterpartyAvatarMap([trip("t1", "c1")]);
+    expect(mockGetClientDetails).toHaveBeenCalledTimes(2);
+    bindDriverPartyAvatarUser("user-b");
+    await resolveDriverTripCounterpartyAvatarMap([trip("t1", "c1")]);
+    expect(mockGetClientDetails).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not let an in-flight lookup repopulate the previous identity cache", async () => {
+    bindDriverPartyAvatarUser("user-a");
+    bindDriverPartyAvatarWorkspace("workspace-a");
+    let release!: (value: { error: null; client: { id: string; name: string; linked_organization_id: null } }) => void;
+    mockGetClientDetails.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const pending = resolveDriverTripCounterpartyAvatarMap([trip("t1", "c1")]);
+    bindDriverPartyAvatarWorkspace("workspace-b");
+    release({ error: null, client: { id: "c1", name: "Old", linked_organization_id: null } });
+    await pending;
+    mockGetClientDetails.mockImplementation(async (id: string) => ({
+      error: null,
+      client: { id, name: `Client ${id}`, linked_organization_id: null },
+    }));
     await resolveDriverTripCounterpartyAvatarMap([trip("t1", "c1")]);
     expect(mockGetClientDetails).toHaveBeenCalledTimes(2);
   });

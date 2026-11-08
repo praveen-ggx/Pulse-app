@@ -1,6 +1,15 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 
-export type CoalescedLoad = (opts?: { force?: boolean }) => Promise<void>;
+export type CoalescedRunScope = {
+  /** False after unmount or after a newer connection/mutation generation. */
+  isCurrent: () => boolean;
+};
+
+export type CoalescedLoad = (opts?: {
+  force?: boolean;
+  /** Bump the generation and start one replacement without waiting out the old request. */
+  supersede?: boolean;
+}) => Promise<void>;
 
 /**
  * Wraps a screen loader so overlapping triggers share one request.
@@ -12,7 +21,7 @@ export type CoalescedLoad = (opts?: { force?: boolean }) => Promise<void>;
  * so a mutation never resolves against data read before it.
  */
 export function useCoalescedLoader(
-  run: () => Promise<void>,
+  run: (scope: CoalescedRunScope) => Promise<void>,
   { minIntervalMs }: { minIntervalMs: number },
 ): CoalescedLoad {
   const runRef = useRef(run);
@@ -23,21 +32,24 @@ export function useCoalescedLoader(
   const inFlight = useRef<Promise<void> | null>(null);
   const followUp = useRef<Promise<void> | null>(null);
   const lastCompletedAt = useRef(0);
+  const epoch = useRef(0);
   const mounted = useRef(true);
-  useEffect(() => {
+  useLayoutEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      epoch.current += 1;
     };
   }, []);
 
   const start = useCallback((): Promise<void> => {
     if (!mounted.current) return Promise.resolve();
+    const ticket = epoch.current;
+    const isCurrent = () => mounted.current && epoch.current === ticket;
     const p = (async () => {
-      await runRef.current();
-      // A rejected load must stay stale so the next focus can retry.
-      // An unmounted screen must not record a completion it never painted.
-      if (mounted.current) lastCompletedAt.current = Date.now();
+      await runRef.current({ isCurrent });
+      // A rejected or superseded load must stay stale so the next focus can retry.
+      if (isCurrent()) lastCompletedAt.current = Date.now();
     })();
     inFlight.current = p;
     const clear = () => {
@@ -48,11 +60,25 @@ export function useCoalescedLoader(
   }, []);
 
   return useCallback(
-    (opts?: { force?: boolean }) => {
+    (opts?: { force?: boolean; supersede?: boolean }) => {
       const force = opts?.force === true;
+      const supersede = opts?.supersede === true;
+      if (supersede) epoch.current += 1;
       const current = inFlight.current;
+      if (current && supersede) {
+        if (!followUp.current) {
+          const next = Promise.resolve().then(() => {
+            followUp.current = null;
+            if (!mounted.current) return;
+            return start();
+          });
+          followUp.current = next;
+        }
+        return followUp.current;
+      }
       if (current) {
         if (!force) return current;
+        epoch.current += 1;
         if (!followUp.current) {
           const next = current
             .catch(() => undefined)
@@ -65,7 +91,7 @@ export function useCoalescedLoader(
         }
         return followUp.current;
       }
-      if (!force && Date.now() - lastCompletedAt.current < minIntervalMs) {
+      if (!force && !supersede && Date.now() - lastCompletedAt.current < minIntervalMs) {
         return Promise.resolve();
       }
       return start();

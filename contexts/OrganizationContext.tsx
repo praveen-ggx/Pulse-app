@@ -13,6 +13,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { bindDriverPartyAvatarWorkspace } from '@/features/drivers/utils/driverPartyAvatar.util';
 // Direct path avoids dragging the org barrel (components + visibility helpers)
 // into every consumer of the OrganizationContext.
 import * as organizationService from '@/features/organization/services/organization.service';
@@ -235,6 +236,7 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const newOrgId = currentOrganization?.id ?? null;
     bindLinkedOrgDisplayViewerOrg(newOrgId);
+    bindDriverPartyAvatarWorkspace(newOrgId);
     const prevOrgId = prevOrgIdRef.current;
     const qc = getQueryClient();
     if (prevOrgId !== null && prevOrgId !== newOrgId) {

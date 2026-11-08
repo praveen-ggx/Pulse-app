@@ -57,11 +57,14 @@ function cachedLinkedOrgProfile(orgId: string): ReturnType<typeof getLinkedOrgPr
   return memoLookup(linkedOrgProfileCache, orgId, () => getLinkedOrgProfile(orgId));
 }
 
-/** Test hook: clear the avatar lookup memo. */
-export function clearDriverPartyAvatarCacheForTests(): void {
+/** Drop memoised avatars. Call on sign-out so the next workspace cannot reuse them. */
+export function clearDriverPartyAvatarCache(): void {
   clientDetailsCache.clear();
   linkedOrgProfileCache.clear();
 }
+
+/** Test hook: clear the avatar lookup memo. */
+export const clearDriverPartyAvatarCacheForTests = clearDriverPartyAvatarCache;
 
 export type DriverPartyAvatarFields = {
   avatarUrl: string | null;

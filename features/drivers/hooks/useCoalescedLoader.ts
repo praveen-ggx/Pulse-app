@@ -23,14 +23,21 @@ export function useCoalescedLoader(
   const inFlight = useRef<Promise<void> | null>(null);
   const followUp = useRef<Promise<void> | null>(null);
   const lastCompletedAt = useRef(0);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const start = useCallback((): Promise<void> => {
+    if (!mounted.current) return Promise.resolve();
     const p = (async () => {
-      try {
-        await runRef.current();
-      } finally {
-        lastCompletedAt.current = Date.now();
-      }
+      await runRef.current();
+      // A rejected load must stay stale so the next focus can retry.
+      // An unmounted screen must not record a completion it never painted.
+      if (mounted.current) lastCompletedAt.current = Date.now();
     })();
     inFlight.current = p;
     const clear = () => {
@@ -51,6 +58,7 @@ export function useCoalescedLoader(
             .catch(() => undefined)
             .then(() => {
               followUp.current = null;
+              if (!mounted.current) return;
               return start();
             });
           followUp.current = next;

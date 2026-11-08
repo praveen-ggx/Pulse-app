@@ -15,7 +15,9 @@ jest.mock("@/features/clients/services/clients.service", () => ({
 }));
 
 import {
+  clearDriverPartyAvatarCache,
   clearDriverPartyAvatarCacheForTests,
+  resolveDriverPartyAvatar,
   resolveDriverTripCounterpartyAvatarMap,
 } from "@/features/drivers/utils/driverPartyAvatar.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
@@ -60,5 +62,31 @@ describe("driver party avatar lookups", () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it("keeps a client lookup and an organization lookup in separate caches", async () => {
+    const sharedId = "11111111-1111-4111-8111-111111111111";
+    mockGetLinkedOrgProfilesBatch.mockResolvedValue({});
+    mockGetLinkedOrgProfile.mockResolvedValue({
+      error: null,
+      profile: { avatarUrl: "https://cdn.example/org.png", avatarSeed: "org" },
+    });
+    const orgTrip = trip("t-org", "");
+    orgTrip.organization_id = sharedId;
+    await resolveDriverPartyAvatar(`shipper:org:${sharedId}`, [orgTrip]);
+    await resolveDriverPartyAvatar(`shipper:org:${sharedId}`, [orgTrip]);
+    await resolveDriverTripCounterpartyAvatarMap([trip("t-client", sharedId)]);
+    await resolveDriverTripCounterpartyAvatarMap([trip("t-client", sharedId)]);
+    expect(mockGetLinkedOrgProfile).toHaveBeenCalledTimes(1);
+    expect(mockGetClientDetails).toHaveBeenCalledTimes(1);
+    expect(mockGetLinkedOrgProfile.mock.calls[0][0]).toBe(sharedId);
+    expect(mockGetClientDetails.mock.calls[0][0]).toBe(sharedId);
+  });
+
+  it("drops cached identities when the workspace cache is cleared", async () => {
+    await resolveDriverTripCounterpartyAvatarMap([trip("t1", "c1")]);
+    clearDriverPartyAvatarCache();
+    await resolveDriverTripCounterpartyAvatarMap([trip("t1", "c1")]);
+    expect(mockGetClientDetails).toHaveBeenCalledTimes(2);
   });
 });

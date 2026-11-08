@@ -22,7 +22,7 @@ export type AssignmentFleetSnapshot = {
 };
 
 const cache = new Map<string, AssignmentFleetSnapshot>();
-const inflight = new Map<string, Promise<AssignmentFleetSnapshot>>();
+const inflight = new Map<string, Promise<AssignmentFleetSnapshot | null>>();
 
 function fleetKey(
   organizationId: string,

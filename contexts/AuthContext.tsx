@@ -12,6 +12,7 @@
  * lives in lib/authEngine.
  */
 import { useMobileKeepSignedInSignOut } from "@/features/auth/hooks/useMobileKeepSignedInSignOut";
+import { clearDriverPartyAvatarCache } from "@/features/drivers/utils/driverPartyAvatar.util";
 import { useWebKeepSignedInSignOut } from "@/features/auth/hooks/useWebKeepSignedInSignOut";
 import type { AuthUser } from "@/features/auth/services/auth.service";
 import * as authService from "@/features/auth/services/auth.service";
@@ -293,6 +294,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // hard refresh discards the module. See lib/indexBootRedirect.util.ts.
     resetIndexBootRedirect();
     resetDriverPerfMetrics();
+    clearDriverPartyAvatarCache();
     setUser(null);
     setProfile(null);
     setRoleVerified(false);

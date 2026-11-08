@@ -9,6 +9,10 @@ import {
   UNTAGGED_PARTY_ID,
   buildDriverPartyReceivables,
 } from '@/features/drivers/utils/driverPartyReceivables.util';
+import {
+  publishSelectableShippers,
+  selectableShippersFromReceivables,
+} from '@/features/drivers/utils/driverSelectableParties.util';
 import { listDriverTripExpensesByTripIds } from '@/features/drivers/services/driverTripExpenses.service';
 import { useCoalescedLoader } from '@/features/drivers/hooks/useCoalescedLoader';
 import { receivedByTripFromDriverBooks } from '@/features/drivers/services/driverCapturePayment.service';
@@ -225,6 +229,13 @@ export default function DriverWalletScreen() {
   const [_refreshing, setRefreshing] = useState(false);
   const isRefreshingRef = useRef(false);
   const initialLoadDoneRef = useRef(false);
+  const walletAliveRef = useRef(true);
+  useEffect(() => {
+    walletAliveRef.current = true;
+    return () => {
+      walletAliveRef.current = false;
+    };
+  }, []);
   const [transactionFilter, _setTransactionFilter] = useState<'all' | 'pending' | 'received'>('all');
   const [ledgerReceiptPreview, setLedgerReceiptPreview] = useState<DriverLedgerReceiptPreview | null>(null);
   const [markPaidLoadingTripId, setMarkPaidLoadingTripId] = useState<string | null>(null);
@@ -291,6 +302,7 @@ export default function DriverWalletScreen() {
   }, []);
 
   const load = useCallback(async () => {
+    if (!walletAliveRef.current) return;
     if (!profile?.uid) {
       setLoading(false);
       return;
@@ -298,6 +310,7 @@ export default function DriverWalletScreen() {
     if (!isRefreshingRef.current && !initialLoadDoneRef.current) setLoading(true);
     try {
       const driversRes = await driversService.getLinkedDriversForCurrentUser(profile.uid);
+      if (!walletAliveRef.current) return;
       const drivers = driversRes.drivers ?? [];
       setLinkedDrivers(drivers);
 
@@ -322,16 +335,20 @@ export default function DriverWalletScreen() {
         driversService.getDriverLedgerByDriverIds(driverIds),
         salaryRequestsService.getSalaryRequestsByDriverIds(driverIds),
       ]);
+      if (!walletAliveRef.current) return;
 
       setInvites(invRes.invites ?? []);
       setTrips(tRes.trips ?? []);
       setLedgerEntries(ledgerRes.entries ?? []);
-      setBookReceivedByTripId(await receivedByTripFromDriverBooks());
+      const receivedByTrip = await receivedByTripFromDriverBooks();
+      if (!walletAliveRef.current) return;
+      setBookReceivedByTripId(receivedByTrip);
       setSalaryRequests(salaryReqRes.requests ?? []);
       if (isDco) {
         const expenseRes = await listDriverTripExpensesByTripIds(
           (tRes.trips ?? []).map((trip) => trip.id),
         );
+        if (!walletAliveRef.current) return;
         setTripExpenses(expenseRes.entries ?? []);
       } else {
         setTripExpenses([]);
@@ -342,29 +359,36 @@ export default function DriverWalletScreen() {
       setRefreshing(false);
     } catch (err) {
       console.error('[Wallet] load() error:', err);
-      setLoading(false);
-      initialLoadDoneRef.current = true;
-      isRefreshingRef.current = false;
-      setRefreshing(false);
+      if (walletAliveRef.current) {
+        setLoading(false);
+        initialLoadDoneRef.current = true;
+        isRefreshingRef.current = false;
+        setRefreshing(false);
+      }
+      // Reject so the coalesced loader does not treat this attempt as fresh.
+      throw err;
     }
   }, [profile?.uid, isDco]);
 
   const refreshWallet = useCoalescedLoader(load, { minIntervalMs: 15_000 });
+  const requestWalletRefresh = useCallback((opts?: { force?: boolean }) => {
+    void refreshWallet(opts).catch(() => undefined);
+  }, [refreshWallet]);
 
   useEffect(() => {
-    void refreshWallet();
-  }, [refreshWallet]);
+    requestWalletRefresh();
+  }, [requestWalletRefresh]);
 
   useFocusEffect(
     useCallback(() => {
-      void refreshWallet();
-    }, [refreshWallet]),
+      requestWalletRefresh();
+    }, [requestWalletRefresh]),
   );
 
   useEffect(() => {
     if (fleetConnectionRevision === 0) return;
-    void refreshWallet({ force: true });
-  }, [fleetConnectionRevision, refreshWallet]);
+    requestWalletRefresh({ force: true });
+  }, [fleetConnectionRevision, requestWalletRefresh]);
 
   const completedTrips = useMemo(() => {
     const list = trips.filter((t) => isCompleted(t.status));
@@ -2347,9 +2371,9 @@ export default function DriverWalletScreen() {
         ),
       );
       invalidateOperatingMode();
-      void refreshWallet({ force: true });
+      requestWalletRefresh({ force: true });
     },
-    [refreshWallet, invalidateOperatingMode],
+    [requestWalletRefresh, invalidateOperatingMode],
   );
 
   /**
@@ -2454,13 +2478,13 @@ export default function DriverWalletScreen() {
             'Trip attributed',
             `This trip has been sent to ${target.orgName} for review. They will see it in their salary requests.`,
           );
-          void refreshWallet({ force: true });
+          requestWalletRefresh({ force: true });
         }
       } finally {
         setMarkFleetTripLoadingId(null);
       }
     },
-    [currentEmployer, linkedDrivers, profile?.uid, refreshWallet, driverTripNumberById],
+    [currentEmployer, linkedDrivers, profile?.uid, requestWalletRefresh, driverTripNumberById],
   );
 
   const _filteredTripJourneySections = useMemo(() => {
@@ -2583,7 +2607,7 @@ export default function DriverWalletScreen() {
         setLedgerEntries(prev => [row!, ...prev]);
       }
       setLedgerReceiptPreview(null);
-      void refreshWallet({ force: true });
+      requestWalletRefresh({ force: true });
 
       const tripDisplay = getDriverTripDisplayNumber(trip, driverTripNumberById);
       const roundedAmount = Math.round(amount);
@@ -2604,7 +2628,7 @@ export default function DriverWalletScreen() {
         );
       }
     },
-    [linkedDrivers, profile?.uid, refreshWallet, driverTripNumberById]
+    [linkedDrivers, profile?.uid, requestWalletRefresh, driverTripNumberById]
   );
 
   /** Confirm then mark trip as paid. */
@@ -3219,7 +3243,7 @@ export default function DriverWalletScreen() {
                               setWalletInviteActionId(inv.id);
                               await driversService.rejectDriverInvite(inv.id);
                               setWalletInviteActionId(null);
-                              void refreshWallet({ force: true });
+                              requestWalletRefresh({ force: true });
                             }}
                           >
                             <Text style={[styles.walletInviteDeclineText, { color: colors.textMuted }]}>
@@ -3234,7 +3258,7 @@ export default function DriverWalletScreen() {
                               setWalletInviteActionId(inv.id);
                               const { error } = await driversService.acceptDriverInvite(inv.id);
                               setWalletInviteActionId(null);
-                              if (!error) void refreshWallet({ force: true });
+                              if (!error) requestWalletRefresh({ force: true });
                               else Alert.alert('Error', error.message);
                             }}
                           >

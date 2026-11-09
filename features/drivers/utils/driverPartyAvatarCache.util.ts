@@ -16,12 +16,14 @@ let avatarUserId: string | null = null;
 let avatarWorkspaceId: string | null = null;
 
 function memoLookup<T extends { error: unknown }>(
-  cache: Map<string, CachedLookup<T>>,
+  cache: Map<string, CachedLookup<{ error: unknown }>>,
   key: string,
   load: () => Promise<T>,
 ): Promise<T> {
   const hit = cache.get(key);
-  if (hit && hit.epoch === identityEpoch && Date.now() - hit.at < AVATAR_LOOKUP_TTL_MS) return hit.value;
+  if (hit && hit.epoch === identityEpoch && Date.now() - hit.at < AVATAR_LOOKUP_TTL_MS) {
+    return hit.value as Promise<T>;
+  }
   const epoch = identityEpoch;
   const value = load();
   cache.set(key, { at: Date.now(), value, epoch });

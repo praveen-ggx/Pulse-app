@@ -60,7 +60,6 @@ import {
 import {
   isEditingCurrentTripDriver,
   isNameOnlyDriverUpdate,
-  isSameDriverPhone,
 } from "@/features/trips/utils/reassignChangeDetection.util";
 import {
   formatIndianVehicleNumber,
@@ -1184,8 +1183,6 @@ export function TripPhoneAssignmentWizard({
                     currentDriverPhone: resolvedActiveDriverPhone,
                   });
                   const currentName = resolvedActiveDriverName.trim();
-                  const nameChanged =
-                    name.toLowerCase() !== currentName.toLowerCase();
                   const nameOnly = isNameOnlyDriverUpdate({
                     tripDriverId: trip.driver_id,
                     phone: driverPhone,

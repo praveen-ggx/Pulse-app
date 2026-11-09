@@ -197,7 +197,7 @@ Role/access changes are **owner-only** and enforced server-side.
 | RLS backstop | `org_members_update` `WITH CHECK` now allows a role/permission change only when caller `is_org_owner`; admins keep other-column edits, self-row invite accept/reject unaffected. No self-reference (uses `is_org_owner`/`member_role_permissions_unchanged` helpers) to avoid the recursion class fixed in `20261211090000`. |
 | Audit | `workspace_audit_log` event `member.role_update` `{member_id, from, to}`. |
 | Migration | `supabase/migrations/20261212090000_set_member_role_owner_only.sql` |
-| Trip actions | **Cancel trip (pre-pickup)** (`tripops.trips.cancel`) and **Simulate / Revoke Last** (`tripops.trips.simulate`) are `ownerAdminOnly` — org owner / admin (and platform-role admin) only. Trip Ops and other presets do not grant them; department managers cannot toggle them. Ground Ops pickup Undo is separate and unchanged. |
+| Trip actions | **Cancel trip (pre-pickup)** (`tripops.trips.cancel`) is `ownerAdminOnly` — org owner / admin only. **Simulate** (`tripops.trips.simulate`) is available to Trip Ops members. **Revoke Last from Delivered** is UI-gated to owner / admin only. Ground Ops pickup Undo is separate and unchanged. |
 
 ## Manual test (quick)
 

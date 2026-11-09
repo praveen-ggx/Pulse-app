@@ -486,6 +486,8 @@ export function TripAssignmentBlock({
     [organizationId, propsDriverName, queryClient, trip],
   );
 
+  const [tripDriverPhone, setTripDriverPhone] = useState<string | null>(null);
+
   const assignByPhone = useCallback(async () => {
     const vehicleOnly = assignMode === "vehicle";
     const nextVehiclePlate = formatIndianVehicleNumber(
@@ -912,8 +914,6 @@ export function TripAssignmentBlock({
       setOtpRegenerating(false);
     }
   }, [trip?.id, otpRegenerating, canGenerateOtpNow, otpLockedByTripProgress]);
-
-  const [tripDriverPhone, setTripDriverPhone] = useState<string | null>(null);
 
   useEffect(() => {
     const driverId = (trip.driver_id ?? "").trim();

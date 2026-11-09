@@ -12,6 +12,10 @@
  * lives in lib/authEngine.
  */
 import { useMobileKeepSignedInSignOut } from "@/features/auth/hooks/useMobileKeepSignedInSignOut";
+import {
+  bindDriverPartyAvatarUser,
+  clearDriverPartyAvatarCache,
+} from "@/features/drivers/utils/driverPartyAvatarCache.util";
 import { useWebKeepSignedInSignOut } from "@/features/auth/hooks/useWebKeepSignedInSignOut";
 import type { AuthUser } from "@/features/auth/services/auth.service";
 import * as authService from "@/features/auth/services/auth.service";
@@ -293,6 +297,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // hard refresh discards the module. See lib/indexBootRedirect.util.ts.
     resetIndexBootRedirect();
     resetDriverPerfMetrics();
+    clearDriverPartyAvatarCache();
+    bindDriverPartyAvatarUser(null);
     setUser(null);
     setProfile(null);
     setRoleVerified(false);
@@ -393,6 +399,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     ) => {
       const trustRole =
         sessionProfile.role === "driver" || sessionProfile.role === "user";
+      bindDriverPartyAvatarUser(nextUser.uid);
       setUser(nextUser);
       setProfile(freezeInDev(authProfileToUserProfile(sessionProfile)));
       setRoleVerified(trustRole);

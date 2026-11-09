@@ -1,4 +1,6 @@
 # Additive supplier / payout columns. Do not apply to production until backup,
 # disposable rehearsal, recovery verification, and explicit authorization.
-20271014184500
+# The beneficiary/branch column file shares its version with the frozen Godrej
+# payable rewrite, so it cannot be selected here. Replay it under a new timestamp
+# before it belongs in a release set.
 20271014184600

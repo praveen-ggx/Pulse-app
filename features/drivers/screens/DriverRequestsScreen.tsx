@@ -18,7 +18,6 @@ import {
   tripEarningsForDriver,
 } from '@/features/drivers/utils/driverUtils.util';
 import { phonePeMetaDate } from '@/features/driver/utils/driverGpayTransactions.util';
-import { deriveDriverPaymentMode } from '@/features/driver/tripSettlement/driverTripSettlement.util';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDriverTheme, useDriverThemeColors } from '@/contexts/DriverThemeContext';
 import * as driversService from '@/features/drivers/services/drivers.service';

@@ -1,0 +1,4 @@
+# Production release 2026-11-07: Praveen RBAC trip-action gates.
+# Excluded: every version named in FROZEN.versions.
+# sha256 7989a5969f041bd974c0ff94ad8efdff9eace117b8b09690c5d4b537117d2ea4  20261106121132_tripops_simulate_cancel_owner_admin_only.sql
+20261106121132

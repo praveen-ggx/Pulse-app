@@ -290,22 +290,20 @@ describe("TC-05..08 — role presets do not leak across domains", () => {
     ]);
   });
 
-  it("TC-08f: Cancel trip and Simulate / Revoke Last are owner/admin only", () => {
+  it("TC-08f: Cancel trip is owner/admin only; Simulate is available to Trip Ops", () => {
     const tripops = defaultSurfacesForRole("tripops", HYBRID);
-    expect(tripops["tripops.trips.simulate"]).not.toBe(true);
+    expect(tripops["tripops.trips.simulate"]).toBe(true);
     expect(tripops["tripops.trips.cancel"]).not.toBe(true);
-    // Even a stored grant is ignored without the owner/admin bypass.
+    // Cancel is still blocked without the owner/admin bypass.
     const forced: MemberSurfaceMap = {
       ...tripops,
-      "tripops.trips.simulate": true,
       "tripops.trips.cancel": true,
       "tripops.trips.detail": true,
       "tripops.trips.view": true,
       "tripops.tab": true,
     };
-    expect(memberHasSurface(HYBRID, forced, "tripops.trips.simulate", false)).toBe(false);
+    expect(memberHasSurface(HYBRID, forced, "tripops.trips.simulate", false)).toBe(true);
     expect(memberHasSurface(HYBRID, forced, "tripops.trips.cancel", false)).toBe(false);
-    expect(memberHasSurface(HYBRID, forced, "tripops.trips.simulate", true)).toBe(true);
     expect(memberHasSurface(HYBRID, forced, "tripops.trips.cancel", true)).toBe(true);
   });
 

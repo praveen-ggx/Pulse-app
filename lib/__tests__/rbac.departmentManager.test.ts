@@ -21,9 +21,9 @@ import {
 } from "@/features/organization/utils/teamInviteRoles.util";
 
 const FILE = "20261029171316_department_manager_allowlist_and_scope.sql";
-/** Latest rewrite of manager_department_surfaces (owner/admin-only trip actions). */
+/** Latest rewrite of manager_department_surfaces (simulate restored for Trip Ops). */
 const ALLOWLIST_FILE =
-  "20261106121132_tripops_simulate_cancel_owner_admin_only.sql";
+  "20261109144113_tripops_simulate_ungate_owneradmin.sql";
 const raw = readFileSync(join(process.cwd(), "supabase/migrations", FILE), "utf8");
 const sql = raw
   .split("\n")
@@ -120,10 +120,10 @@ describe("migration 20261029171316 — server mirror", () => {
     }
   });
 
-  it("TripOps manager allowlist omits owner/admin-only simulate and cancel", () => {
-    expect(managerEditableSurfaceIds("tripops")).not.toContain("tripops.trips.simulate");
+  it("TripOps manager allowlist omits owner/admin-only cancel but includes simulate", () => {
+    expect(managerEditableSurfaceIds("tripops")).toContain("tripops.trips.simulate");
     expect(managerEditableSurfaceIds("tripops")).not.toContain("tripops.trips.cancel");
-    expect(sqlAllowlists().tripops).not.toContain("tripops.trips.simulate");
+    expect(sqlAllowlists().tripops).toContain("tripops.trips.simulate");
     expect(sqlAllowlists().tripops).not.toContain("tripops.trips.cancel");
   });
 

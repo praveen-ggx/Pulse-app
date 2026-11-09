@@ -805,7 +805,7 @@ export default function TripDetailScreen({
     ],
   );
 
-  const { can: canSurface } = useMemberAccess();
+  const { can: canSurface, bypass: isOwnerOrAdmin } = useMemberAccess();
   const { data: workspaceProducts } = useWorkspaceProductsQuery();
   const complianceEnabled = (workspaceProducts ?? []).some(
     (p) => p.product_id === "pulse_compliance" && (p.status === "active" || p.status === "trial"),
@@ -4629,6 +4629,8 @@ export default function TripDetailScreen({
     !!lastSimulatedTransition?.toStatus &&
     currentTripStatusLower === lastSimulatedTransition.toStatus &&
     !!lastSimulatedTransition.fromStatus &&
+    // Revoking from delivered is restricted to owner / admin only.
+    (currentTripStatusLower !== "delivered" || isOwnerOrAdmin) &&
     (canTripSimulate ||
       (canGroundOpsPickupSimulate &&
         ["in_progress", "in_transit"].includes(lastSimulatedTransition.toStatus) &&

@@ -9,6 +9,10 @@
 #   npm run db:push-set -- v1.0.1 --dry-run
 #   MIGRATION_APPLY_CONFIRM=v1.0.1 npm run db:push-set -- v1.0.1
 #
+# SUPABASE_DB_URL, when set, is an existing Postgres URL used for the list
+# and the push. It does not change supabase/.temp or the linked project.
+# Leave it unset to keep the --linked connection.
+#
 # Without --dry-run this applies SQL on the linked database. Apply stays
 # behind MIGRATION_APPLY_CONFIRM so a dry-run command cannot be reused as an apply.
 #
@@ -99,16 +103,21 @@ SUPABASE_BIN="$(resolve_supabase_bin)"
 echo "── Supabase CLI ──"
 echo "bin $SUPABASE_BIN"
 "$SUPABASE_BIN" --version | head -n 1
-require_supabase_auth "$SUPABASE_BIN"
+if [[ -n "${SUPABASE_DB_URL:-}" ]]; then
+  echo "connection: explicit database URL (project linkage unchanged)"
+else
+  echo "connection: linked project"
+  require_supabase_auth "$SUPABASE_BIN"
+fi
 echo
 
-echo "── Linked migration list (canonical tree) ──"
-list_out="$("$SUPABASE_BIN" migration list --linked 2>&1)" || {
-  printf '%s\n' "$list_out" >&2
-  echo "ERROR: could not list linked migrations." >&2
+echo "── Migration list (canonical tree) ──"
+list_out="$(run_migration_list "$SUPABASE_BIN" 2>&1)" || {
+  printf '%s\n' "$list_out" | redact_db_url >&2
+  echo "ERROR: could not list migrations." >&2
   exit 1
 }
-printf '%s\n' "$list_out"
+printf '%s\n' "$list_out" | redact_db_url
 echo
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/pulse-db-push-set.XXXXXX")"
@@ -159,13 +168,13 @@ echo "── Snapshot migration list ──"
 # cd keeps project files (config.toml / .temp) without changing HOME/keychain.
 snap_list="$(
   cd "$apply_root" || exit 1
-  "$SUPABASE_BIN" migration list --linked 2>&1
+  run_migration_list "$SUPABASE_BIN" 2>&1
 )" || {
-  printf '%s\n' "$snap_list" >&2
+  printf '%s\n' "$snap_list" | redact_db_url >&2
   echo "ERROR: could not list migrations for the snapshot." >&2
   exit 1
 }
-printf '%s\n' "$snap_list"
+printf '%s\n' "$snap_list" | redact_db_url
 echo
 
 parse_migration_list "$work/snap_remote" "$work/snap_local_only" <<<"$snap_list"
@@ -186,10 +195,10 @@ echo
 echo "── Dry-run ──"
 dry_out="$(
   cd "$apply_root" || exit 1
-  "$SUPABASE_BIN" db push --linked --include-all --dry-run --yes 2>&1
+  run_db_push "$SUPABASE_BIN" --include-all --dry-run --skip-vault --yes 2>&1
 )" || dry_rc=$?
 dry_rc="${dry_rc:-0}"
-printf '%s\n' "$dry_out"
+printf '%s\n' "$dry_out" | redact_db_url
 echo
 
 while IFS= read -r ver; do
@@ -228,5 +237,5 @@ echo "── Apply set $set_name ──"
 require_supabase_auth "$SUPABASE_BIN"
 (
   cd "$apply_root" || exit 1
-  "$SUPABASE_BIN" db push --linked --include-all --yes
+  run_db_push "$SUPABASE_BIN" --include-all --yes
 )

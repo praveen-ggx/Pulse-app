@@ -152,4 +152,71 @@ assert_eq "$repo_dco" "20271005120000" "repo dco set"
 [[ -f "$ROOT/supabase/migrations/20271005120000_dco_operating_model_boundary.sql" ]] || fail "DCO boundary file missing from tree"
 [[ -f "$ROOT/supabase/migrations/20271005130000_dco_single_owner_operator_concept.sql" ]] || fail "frozen concept file missing from tree"
 
+# CLI 2.121 wraps every cell in backticks. A blank remote cell is "` `".
+parse_migration_list "$tmp/bt-remote" "$tmp/bt-local" <<'EOF'
+   Local            | Remote           | Time (UTC)
+  ------------------|------------------|-----------------------
+   `20261106121132` | `20261106121132` | `2026-11-06 12:11:32`
+   `20261109144113` | ` `              | `2026-11-09 14:41:13`
+   `20271014184500` | ` `              | `2027-10-14 18:45:00`
+   `20271014184500` | ` `              | `2027-10-14 18:45:00`
+EOF
+assert_eq "$(cat "$tmp/bt-remote")" "20261106121132" "backtick remote"
+assert_eq "$(cat "$tmp/bt-local")" "$(printf '%s\n' 20261109144113 20271014184500)" "backtick local-only, duplicate collapsed"
+
+# A local-only duplicate prefix is not copied and does not stop another set.
+dup="$tmp/dup-repo"
+mkdir -p "$dup/supabase/migrations" "$dup/supabase/release-sets"
+printf '%s\n' 'project_id = "pulse"' >"$dup/supabase/config.toml"
+printf '%s\n' 'select 1;' >"$dup/supabase/migrations/20271107190000_already_remote.sql"
+printf '%s\n' 'godrej' >"$dup/supabase/migrations/20271014184500_godrej.sql"
+printf '%s\n' 'bank' >"$dup/supabase/migrations/20271014184500_bank.sql"
+printf '%s\n' 'select 4;' >"$dup/supabase/migrations/20261109144113_one.sql"
+printf '%s\n' 'select 5;' >"$dup/supabase/migrations/20261110023000_two.sql"
+printf '%s\n' 'select 6;' >"$dup/supabase/migrations/20261110083407_three.sql"
+printf '%s\n' 'select 7;' >"$dup/supabase/migrations/20271108094500_four.sql"
+printf '%s\n' '20271005130000' >"$dup/supabase/release-sets/FROZEN.versions"
+cat >"$tmp/dup.versions" <<'EOF'
+20261109144113
+20261110023000
+20261110083407
+20271108094500
+EOF
+cat >"$tmp/dup-list.txt" <<'EOF'
+   `20271107190000` | `20271107190000` | `2027-11-07 19:00:00`
+   `20271014184500` | ` `              | `2027-10-14 18:45:00`
+   `20271014184500` | ` `              | `2027-10-14 18:45:00`
+   `20261109144113` | ` `              | `2026-11-09 14:41:13`
+   `20261110023000` | ` `              | `2026-11-10 02:30:00`
+   `20261110083407` | ` `              | `2026-11-10 08:34:07`
+   `20271108094500` | ` `              | `2027-11-08 09:45:00`
+   `20271005130000` | ` `              | `2027-10-05 13:00:00`
+EOF
+dup_snap="$tmp/dup-snap"
+build_release_snapshot "$dup" "$tmp/dup-list.txt" "$tmp/dup.versions" \
+  "$dup/supabase/release-sets/FROZEN.versions" "$dup_snap"
+assert_eq "$(cat "$dup_snap/snapshot-local-only.txt")" "$(printf '%s\n' \
+  20261109144113_one.sql \
+  20261110023000_two.sql \
+  20261110083407_three.sql \
+  20271108094500_four.sql)" "duplicate prefix stays out of the four-file snapshot"
+[[ ! -e "$dup_snap/supabase/migrations/20271014184500_godrej.sql" ]] || fail "godrej duplicate copied"
+[[ ! -e "$dup_snap/supabase/migrations/20271014184500_bank.sql" ]] || fail "bank duplicate copied"
+count="$(find "$dup_snap/supabase/migrations" -maxdepth 1 -type f -name '*.sql' | wc -l | tr -d ' ')"
+assert_eq "$count" "5" "remote history plus four local-only files"
+
+# The same prefix on Remote cannot be copied: the builder refuses to choose a file.
+cat >"$tmp/dup-remote-list.txt" <<'EOF'
+   `20271014184500` | `20271014184500` | `2027-10-14 18:45:00`
+   `20261109144113` | ` `              | `2026-11-09 14:41:13`
+   `20261110023000` | ` `              | `2026-11-10 02:30:00`
+   `20261110083407` | ` `              | `2026-11-10 08:34:07`
+   `20271108094500` | ` `              | `2027-11-08 09:45:00`
+EOF
+if build_release_snapshot "$dup" "$tmp/dup-remote-list.txt" "$tmp/dup.versions" \
+  "$dup/supabase/release-sets/FROZEN.versions" "$tmp/dup-remote-snap" 2>"$tmp/dup-remote.err"; then
+  fail "remote duplicate prefix was accepted"
+fi
+grep -q "2 migration files for 20271014184500" "$tmp/dup-remote.err" || fail "missing duplicate-file rejection"
+
 echo "migration-release-set tests passed"

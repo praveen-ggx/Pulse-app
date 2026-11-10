@@ -19,6 +19,25 @@ import {
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { resolvePartyAvatarIdentityFromClient } from "@/lib/entityIdentity";
 import { pickPartyOrganizationImageUrl } from "@/lib/media/partyOrganizationImage.util";
+import {
+  memoDriverClientDetails,
+  memoDriverLinkedOrgProfile,
+} from "@/features/drivers/utils/driverPartyAvatarCache.util";
+
+function cachedClientDetails(clientId: string): ReturnType<typeof getClientDetails> {
+  return memoDriverClientDetails(clientId, () => getClientDetails(clientId));
+}
+
+function cachedLinkedOrgProfile(orgId: string): ReturnType<typeof getLinkedOrgProfile> {
+  return memoDriverLinkedOrgProfile(orgId, () => getLinkedOrgProfile(orgId));
+}
+
+export {
+  bindDriverPartyAvatarUser,
+  bindDriverPartyAvatarWorkspace,
+  clearDriverPartyAvatarCache,
+  clearDriverPartyAvatarCacheForTests,
+} from "@/features/drivers/utils/driverPartyAvatarCache.util";
 
 export type DriverPartyAvatarFields = {
   avatarUrl: string | null;
@@ -87,7 +106,7 @@ async function fieldsFromOrgId(
   if (!orgId) return EMPTY_DRIVER_PARTY_AVATAR;
   const fromBatch = fieldsFromOrgProfile(orgById[orgId]);
   if (fromBatch) return fromBatch;
-  const { profile } = await getLinkedOrgProfile(orgId);
+  const { profile } = await cachedLinkedOrgProfile(orgId);
   if (!profile) return EMPTY_DRIVER_PARTY_AVATAR;
   return {
     avatarUrl: null,
@@ -129,14 +148,14 @@ export async function resolveDriverPartyAvatar(
   const orgById = seedOrgIds.length ? await getLinkedOrgProfilesBatch(seedOrgIds) : {};
 
   if (clientId) {
-    const { client } = await getClientDetails(clientId);
+    const { client } = await cachedClientDetails(clientId);
     if (client) {
       const linkedOrgId = (client.linked_organization_id ?? "").trim();
       if (linkedOrgId && !orgById[linkedOrgId]) {
         Object.assign(orgById, await getLinkedOrgProfilesBatch([linkedOrgId]));
       }
       if (linkedOrgId && !orgById[linkedOrgId]) {
-        const { profile } = await getLinkedOrgProfile(linkedOrgId);
+        const { profile } = await cachedLinkedOrgProfile(linkedOrgId);
         if (profile) {
           return {
             ...fieldsFromClient(client, {}),
@@ -178,7 +197,7 @@ export async function resolveDriverPartyAvatarMap(
   ];
   const clients = await Promise.all(
     clientIds.map(async (clientId) => {
-      const { client } = await getClientDetails(clientId);
+      const { client } = await cachedClientDetails(clientId);
       return [clientId, client] as const;
     }),
   );
@@ -228,7 +247,7 @@ export async function resolveDriverTripCounterpartyAvatarMap(
   ];
   const clients = await Promise.all(
     clientIds.map(async (clientId) => {
-      const { client } = await getClientDetails(clientId);
+      const { client } = await cachedClientDetails(clientId);
       return [clientId, client] as const;
     }),
   );

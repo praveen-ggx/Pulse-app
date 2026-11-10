@@ -16,6 +16,7 @@ import {
   resolveSimulateStageCoordinate,
   resolveSimulateStageMinAt,
   resolveTripAssignedAtIso,
+  revokeLastFromDeliveredRequiresOwner,
   showsSimCompletionPicker,
   simulateStageStopTarget,
   unrevokedBisimEntries,
@@ -207,5 +208,19 @@ describe("simulateTripStage", () => {
     );
     expect(fixed).toContain("2026-11-03T12:10:00.000Z");
     expect(fixed).not.toContain("2026-11-02T06:55:00.000Z");
+  });
+});
+
+describe("revokeLastFromDeliveredRequiresOwner", () => {
+  it("requires an owner or admin only after delivery", () => {
+    for (const status of ["completed", "delivered", "done", " Completed "]) {
+      expect(revokeLastFromDeliveredRequiresOwner(status)).toBe(true);
+    }
+  });
+
+  it("leaves earlier simulate stages with Trip Ops", () => {
+    for (const status of ["in_transit", "at_drop", "in_progress", "assigned", "", null]) {
+      expect(revokeLastFromDeliveredRequiresOwner(status)).toBe(false);
+    }
   });
 });

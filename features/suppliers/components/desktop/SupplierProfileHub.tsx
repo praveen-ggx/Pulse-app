@@ -280,8 +280,6 @@ export function SupplierProfileHub({
     staleTime: 60_000,
   });
   const totalTripCount = exactTripCount ?? trips.length;
-  const displayName =
-    (supplier.name || supplier.company_name || supplier.contact_person || "Supplier").trim();
   const isIntegrated =
     supplier.supplier_type === "integrated" || Boolean(supplier.linked_organization_id);
   const kycTotal = kyc_documents.length;

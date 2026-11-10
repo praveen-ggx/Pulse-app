@@ -31,6 +31,7 @@ import { PAYMENT_MODES } from "@/lib/paymentModes";
 import { queryKeys } from "@/lib/queryKeys";
 import { ROUTES } from "@/lib/routes";
 import { showAppAlert } from "@/lib/appAlert";
+import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import { useSafeBack } from "@/lib/useSafeBack";
 import { Banknote, Hash } from "lucide-react-native";
 import { useQueryClient } from "@tanstack/react-query";

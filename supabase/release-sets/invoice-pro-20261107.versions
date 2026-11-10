@@ -1,6 +1,6 @@
 # Invoice Pro production release set.
 # Apply only with db:push-set after an isolated replay. Already-applied history is not in this set.
-# Excluded: frozen 20271005130000, 20271005190000, 20271014184500 and every non-invoice local-only version.
+# Excluded: frozen 20271005130000, 20271005190000, the frozen Godrej payable rewrite, and every non-invoice local-only version.
 # 20261028103400 and 20271005164900 are already on production. They are not applied again.
 # Order creates invoice_payment_summaries(uuid, uuid[]) before 20271103231500 drops and replaces it.
 # sha256 35582fa4d9c80b78fe0b0e93aa632d886ba4b0b11280fdd0860ffc4f4bd09a5b  20271103101500_invoice_style_templates.sql

@@ -23,13 +23,20 @@ read_version_file() {
 
 # Stdin: `supabase migration list` text.
 # Args: remote_out local_only_out
+# Accepts bare versions and the backticked cells emitted by CLI 2.121
+# (`20261109144113`). Duplicate rows collapse to one version: history is
+# keyed by the 14-digit prefix, not by filename.
 parse_migration_list() {
   local remote_out="$1"
   local local_only_out="$2"
-  : >"$remote_out"
-  : >"$local_only_out"
+  local work
+  work="$(mktemp -d "${TMPDIR:-/tmp}/pulse-migration-list.XXXXXX")"
+  : >"$work/remote"
+  : >"$work/local"
   awk -F'|' '
     {
+      gsub(/`/, "", $1)
+      gsub(/`/, "", $2)
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1)
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
       local_ok = ($1 ~ /^[0-9]{14}$/)
@@ -37,7 +44,46 @@ parse_migration_list() {
       if (remote_ok) print $2
       if (local_ok && !remote_ok) print $1 > local_only
     }
-  ' local_only="$local_only_out" >"$remote_out"
+  ' local_only="$work/local" >"$work/remote"
+  sort -u "$work/remote" >"$remote_out"
+  sort -u "$work/local" >"$local_only_out"
+  rm -rf "$work"
+}
+
+# Remove a supplied database URL from stdin so command logs cannot echo it.
+redact_db_url() {
+  SUPABASE_DB_URL="${SUPABASE_DB_URL:-}" python3 -c '
+import os, sys
+url = os.environ.get("SUPABASE_DB_URL", "")
+data = sys.stdin.read()
+if url:
+    data = data.replace(url, "[redacted-db-url]")
+sys.stdout.write(data)
+'
+}
+
+# Args: supabase-bin [extra args...]
+# SUPABASE_DB_URL, when set, is an existing Postgres URL. It is passed only
+# to this process. It is not written to supabase/.temp or config.toml.
+run_migration_list() {
+  local bin="$1"
+  shift
+  if [[ -n "${SUPABASE_DB_URL:-}" ]]; then
+    "$bin" migration list --db-url "$SUPABASE_DB_URL" --output-format text "$@"
+  else
+    "$bin" migration list --linked --output-format text "$@"
+  fi
+}
+
+# Args: supabase-bin [db push args...]
+run_db_push() {
+  local bin="$1"
+  shift
+  if [[ -n "${SUPABASE_DB_URL:-}" ]]; then
+    "$bin" db push --db-url "$SUPABASE_DB_URL" "$@"
+  else
+    "$bin" db push --linked "$@"
+  fi
 }
 
 version_in_file() {
@@ -178,7 +224,7 @@ build_release_snapshot() {
       rm -rf "$work"
       return 1
     fi
-    migration_file_for_version "$mig_dir" "$ver" >/dev/null
+    migration_file_for_version "$mig_dir" "$ver" >/dev/null || { rm -rf "$work"; return 1; }
   done <"$allow_versions"
 
   mkdir -p "$dest_root/supabase/migrations" "$dest_root/supabase/.temp"
@@ -195,7 +241,7 @@ build_release_snapshot() {
   while IFS= read -r ver; do
     [[ -n "$ver" ]] || continue
     if [[ -n "$(find "$mig_dir" -maxdepth 1 -type f -name "${ver}_*.sql" -print -quit)" ]]; then
-      allow_file="$(migration_file_for_version "$mig_dir" "$ver")"
+      allow_file="$(migration_file_for_version "$mig_dir" "$ver")" || { rm -rf "$work"; return 1; }
       cp "$allow_file" "$dest_root/supabase/migrations/"
     else
       # Sibling-repo history is already on Remote and has no file in this checkout.
@@ -213,7 +259,7 @@ EOF
 
   while IFS= read -r ver; do
     [[ -n "$ver" ]] || continue
-    allow_file="$(migration_file_for_version "$mig_dir" "$ver")"
+    allow_file="$(migration_file_for_version "$mig_dir" "$ver")" || { rm -rf "$work"; return 1; }
     cp "$allow_file" "$dest_root/supabase/migrations/"
   done <"$allow_versions"
 
@@ -250,7 +296,8 @@ EOF
   : >"$expected"
   while IFS= read -r ver; do
     [[ -n "$ver" ]] || continue
-    basename "$(migration_file_for_version "$mig_dir" "$ver")" >>"$expected"
+    allow_file="$(migration_file_for_version "$mig_dir" "$ver")" || { rm -rf "$work"; return 1; }
+    basename "$allow_file" >>"$expected"
   done <"$allow_versions"
   sort -o "$expected" "$expected"
 

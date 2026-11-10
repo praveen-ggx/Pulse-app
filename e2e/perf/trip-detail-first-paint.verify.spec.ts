@@ -176,13 +176,6 @@ test.describe("Trip detail first-paint verification", () => {
     const urlMs = Date.now() - coreT0.t0;
     await spinnerWatch;
 
-    const bundleHits = coreNet.filter((h) => h.kind.includes("get_trip_detail_bundle"));
-    const firstBundleReq = bundleHits.find((h) => !h.kind.includes("response"));
-    const firstBundleRes = coreNet.find(
-      (h) =>
-        h.kind === "get_trip_detail_bundle" && h.status != null ||
-        h.kind === "get_trip_detail_bundle:response",
-    );
     // Wait until spinner is gone or bundle returned, then snapshot UI.
     await page.waitForTimeout(200);
     const loadingVisibleAfterChunk = await page

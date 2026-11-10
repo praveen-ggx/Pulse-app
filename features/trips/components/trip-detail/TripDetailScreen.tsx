@@ -233,6 +233,7 @@ import {
     resolveSimulateStageCoordinate,
     resolveSimulateStageMinAt,
     resolveTripAssignedAtIso,
+    revokeLastFromDeliveredRequiresOwner,
     showsSimCompletionPicker,
     toSimCompletionPickerValue,
     unrevokedBisimEntries,
@@ -4629,8 +4630,8 @@ export default function TripDetailScreen({
     !!lastSimulatedTransition?.toStatus &&
     currentTripStatusLower === lastSimulatedTransition.toStatus &&
     !!lastSimulatedTransition.fromStatus &&
-    // Revoking from delivered is restricted to owner / admin only.
-    (currentTripStatusLower !== "delivered" || isOwnerOrAdmin) &&
+    // Revoke Last after delivery (completed, delivered, or done) is owner / admin only.
+    (!revokeLastFromDeliveredRequiresOwner(currentTripStatusLower) || isOwnerOrAdmin) &&
     (canTripSimulate ||
       (canGroundOpsPickupSimulate &&
         ["in_progress", "in_transit"].includes(lastSimulatedTransition.toStatus) &&

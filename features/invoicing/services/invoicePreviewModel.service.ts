@@ -16,6 +16,9 @@ import {
 import type { AdditionalCharge, InvoiceConfig, InvoicingTripView } from '@/features/invoicing/services/invoicing.service';
 import type { InvoiceDraftClientRow } from '@/features/invoicing/services/invoicePreviewClients.service';
 import { formatInvoiceAmountInWords } from '@/features/invoicing/utils/invoiceAmountInWords.util';
+import { parsePaymentTermDays } from '@/features/invoicing/utils/paymentTermDays.util';
+
+export { parsePaymentTermDays };
 
 function normTripId(id: string | null | undefined): string {
   return id == null ? '' : String(id).trim().toLowerCase();
@@ -279,16 +282,6 @@ export function displayInvoicePreviewDate(isoDate: string): string {
   const d = new Date(`${isoDate}T00:00:00`);
   if (Number.isNaN(d.getTime())) return isoDate;
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-}
-
-export function parsePaymentTermDays(paymentTerms: string | null | undefined): number | null {
-  const raw = trimOrNull(paymentTerms);
-  if (!raw) return null;
-  if (/due on receipt/i.test(raw)) return 0;
-  const match = /(?:net\s*)?(\d+)/i.exec(raw);
-  if (!match) return null;
-  const days = Number.parseInt(match[1], 10);
-  return Number.isFinite(days) ? days : null;
 }
 
 export function indicativeDueDateFromPreview(

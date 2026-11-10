@@ -53,6 +53,7 @@ type Props = {
   canUploadEwayBill: boolean;
   canEditEwayBill: boolean;
   onSaveEwayBill: (values: EwayFieldValues[]) => Promise<boolean>;
+  onRemoveEwayBill?: (row: EwayBillStripRow) => void;
   columns?: 2 | 3 | 4;
   compact?: boolean;
   sign?: VaultPreviewSignContext;
@@ -180,6 +181,7 @@ export function TripVaultCardGrid({
   canUploadEwayBill,
   canEditEwayBill,
   onSaveEwayBill,
+  onRemoveEwayBill,
   sign,
   resolveUploadAttribution,
 }: Props) {
@@ -222,6 +224,7 @@ export function TripVaultCardGrid({
           canUpload={canUploadEwayBill}
           canEdit={canEditEwayBill}
           onSave={onSaveEwayBill}
+          onRemoveDocument={onRemoveEwayBill}
         />
       </View>
     </View>

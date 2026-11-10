@@ -1,0 +1,5 @@
+# Production release 2026-11-10: restore Trip Ops simulate.
+# Excluded: every version named in FROZEN.versions.
+# The 2026-11-07 TripOps migration is already on production and is not in this set.
+# sha256 f31f9d637bc602b2753b0fcff2ea515096712a50f500f397643560c986ed7678  20261109144113_tripops_simulate_ungate_owneradmin.sql
+20261109144113

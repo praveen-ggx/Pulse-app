@@ -20,13 +20,18 @@ if [[ ! -f "$SETS/FROZEN.versions" ]]; then
   exit 1
 fi
 
-echo "── Linked migration list ──"
-list_out="$(supabase migration list --linked 2>&1)" || {
-  printf '%s\n' "$list_out" >&2
-  echo "ERROR: could not list linked migrations." >&2
+echo "── Migration list ──"
+if [[ -n "${SUPABASE_DB_URL:-}" ]]; then
+  echo "connection: explicit database URL (project linkage unchanged)"
+else
+  echo "connection: linked project"
+fi
+list_out="$(run_migration_list "$(command -v supabase)" 2>&1)" || {
+  printf '%s\n' "$list_out" | redact_db_url >&2
+  echo "ERROR: could not list migrations." >&2
   exit 1
 }
-printf '%s\n' "$list_out"
+printf '%s\n' "$list_out" | redact_db_url
 echo
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/pulse-db-push.XXXXXX")"
@@ -45,5 +50,5 @@ if [[ -s "$work/local_only" ]]; then
   fi
 fi
 
-echo "No frozen or unapproved Local-only versions. Running supabase db push --linked."
-exec supabase db push --linked
+echo "No frozen or unapproved Local-only versions. Running supabase db push."
+run_db_push "$(command -v supabase)"

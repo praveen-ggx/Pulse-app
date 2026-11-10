@@ -705,11 +705,10 @@ export const MEMBER_SURFACE_CATALOG: readonly MemberSurfaceDef[] = [
     id: "tripops.trips.simulate",
     group: "Trip execution",
     label: "Simulate trip status",
-    hint: "Business-simulated status advances and Revoke Last — owner / admin only",
+    hint: "Business-simulated status advances (Revoke Last from delivered is owner / admin only)",
     domain: "tripops",
     anyOfCaps: DISP,
     requires: "tripops.trips.detail",
-    ownerAdminOnly: true,
   },
   {
     id: "tripops.trips.cancel",

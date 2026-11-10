@@ -233,6 +233,7 @@ import {
     resolveSimulateStageCoordinate,
     resolveSimulateStageMinAt,
     resolveTripAssignedAtIso,
+    revokeLastFromDeliveredRequiresOwner,
     showsSimCompletionPicker,
     toSimCompletionPickerValue,
     unrevokedBisimEntries,
@@ -805,7 +806,7 @@ export default function TripDetailScreen({
     ],
   );
 
-  const { can: canSurface } = useMemberAccess();
+  const { can: canSurface, bypass: isOwnerOrAdmin } = useMemberAccess();
   const { data: workspaceProducts } = useWorkspaceProductsQuery();
   const complianceEnabled = (workspaceProducts ?? []).some(
     (p) => p.product_id === "pulse_compliance" && (p.status === "active" || p.status === "trial"),
@@ -4629,6 +4630,8 @@ export default function TripDetailScreen({
     !!lastSimulatedTransition?.toStatus &&
     currentTripStatusLower === lastSimulatedTransition.toStatus &&
     !!lastSimulatedTransition.fromStatus &&
+    // Revoke Last after delivery (completed, delivered, or done) is owner / admin only.
+    (!revokeLastFromDeliveredRequiresOwner(currentTripStatusLower) || isOwnerOrAdmin) &&
     (canTripSimulate ||
       (canGroundOpsPickupSimulate &&
         ["in_progress", "in_transit"].includes(lastSimulatedTransition.toStatus) &&

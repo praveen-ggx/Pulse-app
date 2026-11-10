@@ -173,15 +173,6 @@ function AttachmentStrip({ attachments }: { attachments: SupportTicketAttachment
   );
 }
 
-const PRIORITY_BADGE: Record<SupportTicketPriority, 'secondary' | 'info' | 'warning' | 'destructive'> = {
-  low: 'secondary',
-  medium: 'info',
-  high: 'warning',
-  critical: 'destructive',
-};
-
-
-
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString('en-IN', {
     day: '2-digit',

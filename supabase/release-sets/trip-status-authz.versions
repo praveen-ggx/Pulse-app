@@ -1,0 +1,9 @@
+# Trip status authorization. Separate from prod-2026-11-10.
+# sha256 f31f9d637bc602b2753b0fcff2ea515096712a50f500f397643560c986ed7678  20261109144113_tripops_simulate_ungate_owneradmin.sql
+20261109144113
+# sha256 ec39fdb8d8e4dfeccb30cdcca3e58e29707c0ed8e0f1b8f0dfd9c55fb9dca4ac  20261110023000_trip_owner_status_action_guard.sql
+20261110023000
+# sha256 cbb06e7349d49e2c5443046d4c8b9d6632246e8a61fec5b0023ac58df8d389c8  20261110083407_trip_chat_status_rpc_owner_guard.sql
+20261110083407
+# sha256 82fef24ed8799823527d8056505af81a7dcab1497f17809be813fddf3a3a1b29  20271108094500_trip_status_transition_guard_final.sql
+20271108094500

@@ -34,7 +34,7 @@ import {
   round2,
   type InvoiceTaxEngineInput,
 } from "@/features/invoicing/services/invoiceTax.service";
-import { parsePaymentTermDays } from "@/features/invoicing/services/invoicePreviewModel.service";
+import { parsePaymentTermDays } from "@/features/invoicing/utils/paymentTermDays.util";
 import {
   INVOICE_POD_HARD_COPY_REQUIRED,
   INVOICE_POD_LEGACY_REQUIRED,

@@ -458,6 +458,17 @@ export function showsSimCompletionPicker(
   );
 }
 
+/** Statuses that mean the trip is delivered. Revoke Last from these is owner/admin only. */
+const DELIVERED_STAGE_STATUSES = new Set(["completed", "delivered", "done"]);
+
+export function revokeLastFromDeliveredRequiresOwner(
+  status: string | null | undefined,
+): boolean {
+  const s = String(status ?? "").trim().toLowerCase();
+  return DELIVERED_STAGE_STATUSES.has(s);
+}
+
+
 /** @deprecated Use isUnrestrictedPickupSimStage / showsSimCompletionPicker. */
 export function isManualSimCompletionStage(
   targetStatus: string | null | undefined,

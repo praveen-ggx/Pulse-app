@@ -80,7 +80,7 @@ export function setupViewportHeightBootstrap() {
     if (/Mobi|Android|iPhone|iPad|iPod/i.test(ua)) return false;
     try {
       return window.matchMedia('(hover: hover) and (pointer: fine)').matches;
-    } catch (e) {
+    } catch {
       return false;
     }
   }

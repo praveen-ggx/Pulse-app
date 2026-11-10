@@ -26,7 +26,6 @@ const GIVE_LOAD_LOTTIE = require("@/assets/Animated folder/signals.json");
 const INK = Theme.loadAddButtonText;
 const MUTED = Theme.loadStatusTabTextMuted;
 const SKY = Theme.loadAddButtonBg;
-const SKY_TRAY = Theme.loadStatusTabTrayBg;
 
 export type IndentBidsAwaitingPanelProps = {
   compact?: boolean;

@@ -113,7 +113,7 @@ describe("data fetch concurrency gate", () => {
     ).toBe(false);
   });
 
-  it("does not queue compliance approve and verify writes", () => {
+  it("does not queue compliance approve, verify, reject, or resubmit writes", () => {
     expect(
       shouldQueueDataFetch("https://x.supabase.co/rest/v1/rpc/verify_trip_document", {
         method: "POST",
@@ -121,6 +121,16 @@ describe("data fetch concurrency gate", () => {
     ).toBe(false);
     expect(
       shouldQueueDataFetch("https://x.supabase.co/rest/v1/rpc/mark_trip_compliance_verified", {
+        method: "POST",
+      }),
+    ).toBe(false);
+    expect(
+      shouldQueueDataFetch("https://x.supabase.co/rest/v1/rpc/reject_trip_compliance", {
+        method: "POST",
+      }),
+    ).toBe(false);
+    expect(
+      shouldQueueDataFetch("https://x.supabase.co/rest/v1/rpc/resubmit_trip_compliance", {
         method: "POST",
       }),
     ).toBe(false);

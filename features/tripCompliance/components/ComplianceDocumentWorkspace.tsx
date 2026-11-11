@@ -3679,7 +3679,7 @@ export function ComplianceDocumentWorkspace({
   const rows = useMemo(() => (summary ? rowsForTab(summary, tab) : []), [summary, tab]);
   const entityUnassigned =
     !showAllDocs &&
-    ((tab === "vehicle" && !summary?.trip.vehicle_id) ||
+    ((tab === "vehicle" && !summary?.trip.vehicle_id && !summary?.vehicleDocuments.length) ||
       (tab === "driver" && !summary?.trip.driver_id));
   /** Same dual-pane shell (tabs + upload pill + list | preview) on every tab and stage. */
   const showDocumentShell = Boolean(summary);
@@ -3829,12 +3829,13 @@ export function ComplianceDocumentWorkspace({
   const allDocumentRows = useMemo(() => {
     if (!summary) return [];
     const trip = deriveTripVaultReviewRows(summary.documents);
-    const vehicle = summary.trip.vehicle_id
-      ? deriveEntityComplianceRows(
-          COMPLIANCE_VEHICLE_DOCUMENT_TYPES,
-          summary.vehicleDocuments,
-        )
-      : [];
+    const vehicle =
+      summary.trip.vehicle_id || summary.vehicleDocuments.length > 0
+        ? deriveEntityComplianceRows(
+            COMPLIANCE_VEHICLE_DOCUMENT_TYPES,
+            summary.vehicleDocuments,
+          )
+        : [];
     const driver = summary.trip.driver_id
       ? deriveEntityComplianceRows(
           COMPLIANCE_DRIVER_DOCUMENT_TYPES,
@@ -4871,12 +4872,13 @@ export function ComplianceDocumentWorkspace({
     return {
       finance: false,
       trip: complianceTabMarkedApproved(overlay(deriveTripVaultReviewRows(summary.documents), "trip"), "trip"),
-      vehicle: summary.trip.vehicle_id
-        ? complianceTabMarkedApproved(
-            overlay(deriveEntityComplianceRows(COMPLIANCE_VEHICLE_DOCUMENT_TYPES, summary.vehicleDocuments), "vehicle"),
-            "vehicle",
-          )
-        : false,
+      vehicle:
+        summary.trip.vehicle_id || summary.vehicleDocuments.length > 0
+          ? complianceTabMarkedApproved(
+              overlay(deriveEntityComplianceRows(COMPLIANCE_VEHICLE_DOCUMENT_TYPES, summary.vehicleDocuments), "vehicle"),
+              "vehicle",
+            )
+          : false,
       driver: summary.trip.driver_id
         ? complianceTabMarkedApproved(
             overlay(deriveEntityComplianceRows(COMPLIANCE_DRIVER_DOCUMENT_TYPES, summary.driverDocuments), "driver"),
@@ -5487,11 +5489,12 @@ export function ComplianceDocumentWorkspace({
     if (!summary) return { all: 0, trip: 0, vehicle: 0, driver: 0, finance: 0 };
     const finance = financeRowsFor(summary, hideCommercials);
     const trip = deriveTripVaultReviewRows(summary.documents).filter((row) => row.status === "missing").length;
-    const vehicle = summary.trip.vehicle_id
+    const vehicle =
+      summary.trip.vehicle_id || summary.vehicleDocuments.length > 0
         ? deriveEntityComplianceRows(COMPLIANCE_VEHICLE_DOCUMENT_TYPES, summary.vehicleDocuments).filter(
             (row) => row.status === "missing",
           ).length
-      : 0;
+        : 0;
     const driver = summary.trip.driver_id
         ? deriveEntityComplianceRows(COMPLIANCE_DRIVER_DOCUMENT_TYPES, summary.driverDocuments).filter(
             (row) => row.status === "missing",

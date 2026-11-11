@@ -1,5 +1,6 @@
 import {
   alignSimCompletionIsoToMin,
+  alignUnrevokedBisimTimestamps,
   appendBisimNote,
   clampSimCompletionPickerValue,
   ensureBisimTimestampForStatus,
@@ -12,6 +13,7 @@ import {
   hour24To12,
   parseSimCompletionPickerValue,
   resolveAutoSimCompletionIso,
+  resolvePickupReferenceIso,
   toSimCompletionPickerValue,
   resolveSimulateStageCoordinate,
   resolveSimulateStageMinAt,
@@ -195,6 +197,70 @@ describe("simulateTripStage", () => {
     expect(
       isSimCompletionAtOrAfterMin("2026-11-07T11:05:59.000Z", minAt),
     ).toBe(false);
+  });
+
+  it("uses the updated Pickup after In Transit is revoked, not the old timeline", () => {
+    const notes = [
+      "[BISIM|in_progress|2026-11-10T08:00:00.000Z|1|2|Ops|assigned|Pickup]",
+      "[BISIM|in_transit|2026-11-12T09:30:00.000Z|1|2|Ops|in_progress|Route]",
+      "[BISIM_REVOKE|in_transit|in_progress|2026-11-12T10:00:00.000Z|1|2|Ops]",
+    ].join("\n");
+    const revised = {
+      driver_id: "d1",
+      created_at: "2026-11-01T00:00:00.000Z",
+      updated_at: "2026-11-12T10:00:00.000Z",
+      // New Pickup is earlier than both the old Pickup BISIM and the revoked In Transit.
+      started_at: "2026-11-01T06:00:00.000Z",
+      completed_at: null,
+      notes,
+    };
+    expect(resolvePickupReferenceIso(revised)).toBe("2026-11-01T06:00:00.000Z");
+    const transitMin = resolveSimulateStageMinAt({
+      targetStatus: "in_transit",
+      trip: revised,
+      assignmentChangedAt: "2026-11-02T09:22:00.000Z",
+      driverAcceptedAt: "2026-11-02T09:22:00.000Z",
+    });
+    expect(transitMin?.toISOString()).toBe("2026-11-01T06:01:00.000Z");
+    // The revoked In Transit instant must not remain selectable as a floor.
+    expect(
+      isSimCompletionAtOrAfterMin("2026-11-12T09:30:00.000Z", transitMin),
+    ).toBe(true);
+    expect(
+      isSimCompletionAtOrAfterMin("2026-11-01T06:00:00.000Z", transitMin),
+    ).toBe(false);
+
+    const movedLater = {
+      ...revised,
+      started_at: "2026-11-20T04:00:00.000Z",
+    };
+    const laterMin = resolveSimulateStageMinAt({
+      targetStatus: "in_transit",
+      trip: movedLater,
+    });
+    expect(laterMin?.toISOString()).toBe("2026-11-20T04:01:00.000Z");
+    expect(
+      isSimCompletionAtOrAfterMin("2026-11-12T09:30:00.000Z", laterMin),
+    ).toBe(false);
+  });
+
+  it("rewrites active Pickup lines to the new instant and leaves revoked lines", () => {
+    const notes = [
+      "[BISIM|in_progress|2026-11-10T08:00:00.000Z|1|2|Ops|assigned|Pickup]",
+      "[BISIM|in_transit|2026-11-12T09:30:00.000Z|1|2|Ops|in_progress|Route]",
+      "[BISIM_REVOKE|in_transit|in_progress|2026-11-12T10:00:00.000Z|1|2|Ops]",
+      "[BISIM|in_progress|2026-11-01T06:00:00.000Z|1|2|Ops|assigned|Pickup]",
+    ].join("\n");
+    const aligned = alignUnrevokedBisimTimestamps(
+      notes,
+      ["in_progress", "picked_up", "pickup"],
+      "2026-11-01T06:00:00.000Z",
+    );
+    expect(aligned).not.toContain("2026-11-10T08:00:00.000Z");
+    expect(aligned).toContain("2026-11-12T09:30:00.000Z");
+    expect(
+      unrevokedBisimEntries(aligned).map((row) => row.timestamp),
+    ).toEqual(["2026-11-01T06:00:00.000Z", "2026-11-01T06:00:00.000Z"]);
   });
 
   it("rewrites the last BISIM timestamp for a status to the picker instant", () => {

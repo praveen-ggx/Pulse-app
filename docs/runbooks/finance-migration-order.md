@@ -14,7 +14,7 @@ Inventory taken 2026-11-03 from **all 98 git worktrees** of this repository (wor
 
 ## Deterministic order (finance and invoicing only)
 
-Base: the deployed line (`67490624` / `vasanth/invoice-desk-prod`). Apply each set with `db:push-set` (CLI 2.95.4) in this order; stop if any rehearsal step fails.
+Base: the deployed line (`67490624` / `vasanth/invoice-desk-prod`). Apply each set with `db:push-set` (CLI 2.121.0; 2.95.4 no longer works with the list parser) in this order; stop if any rehearsal step fails.
 
 | Step | Set | Versions (in order) | Gate |
 |---|---|---|---|

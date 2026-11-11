@@ -1,4 +1,0 @@
-# Prod hotfix 2026-11-10: get_trip_detail_bundle failed on every call (54023, 104-arg jsonb_build_object from 20271104142208).
-# Apply only via: npm run db:push-set -- prod-2026-11-10-trip-detail-hotfix   (dry-run first)
-# sha256 27238b492324706b77bb627725c767b303383b829cacc09372ba40f5fdf48615  20261110113008_fix_trip_detail_bundle_arg_limit.sql
-20261110113008

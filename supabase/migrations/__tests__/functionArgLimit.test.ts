@@ -3,7 +3,7 @@
  * Inside PL/pgSQL the statement is only parsed when it runs, so CREATE
  * FUNCTION succeeds and the failure shows up on every call in production.
  * 20271104142208 shipped a 104-argument jsonb_build_object this way and broke
- * get_trip_detail_bundle until 20261110113008 split it.
+ * get_trip_detail_bundle until 20271111104500 split it.
  */
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
@@ -68,7 +68,7 @@ describe("migration function-call argument limit", () => {
     const before = keys(
       readFileSync(join(MIGRATIONS_DIR, "20271104142208_get_trip_detail_bundle_operational_codes.sql"), "utf8"),
     );
-    const after = keys(readFileSync(join(MIGRATIONS_DIR, "20261110113008_fix_trip_detail_bundle_arg_limit.sql"), "utf8"));
+    const after = keys(readFileSync(join(MIGRATIONS_DIR, "20271111104500_trip_detail_bundle_json_arg_limit.sql"), "utf8"));
     expect([...before].filter((k) => !after.has(k))).toEqual([]);
   });
 });

@@ -1,13 +1,11 @@
-# Prod release 2026-11-11 (nihas release/2026-11-11 93388c06 + trip detail hotfix).
+# Prod release 2026-11-11 (nihas release/2026-11-11 93388c06).
 # 20261109144113 (simulate manager allowlist) is already applied in prod; not repeated here.
-# 20261110113008: get_trip_detail_bundle 54023 hotfix (live P0 since 2026-11-06).
+# The trip detail 54023 fix is already live as 20271111104500 (PR #99); never reapply it.
 # 20271110133819: Ground Ops e-way bill update/delete policies.
 #   It also creates fn_trip_documents_storage_allowed, which prod does not reference yet
 #   (20271012203000 trip-documents-storage-party is NOT applied). Applying 20271012203000
 #   later replaces that function without the eway_bill delete branch; re-apply this
 #   function definition after it.
 # Apply only via: npm run db:push-set -- prod-2026-11-11-release   (dry-run first)
-# sha256 27238b492324706b77bb627725c767b303383b829cacc09372ba40f5fdf48615  20261110113008_fix_trip_detail_bundle_arg_limit.sql
 # sha256 8c6c4377116d606a1128ae7c3086f6abfb47813e6b4959a13f911254589541d6  20271110133819_ground_ops_eway_bill_correct.sql
-20261110113008
 20271110133819

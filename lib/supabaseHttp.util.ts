@@ -568,9 +568,9 @@ export function shouldQueueDataFetch(
   if (url.includes("/auth/v1/")) return false;
   if (isLoadCenterCatalogRpc(input)) return false;
   // User-initiated compliance writes must not wait behind preview/list GETs.
-  // Sitting in that queue is what turns Approve/Verify into a 20s timeout.
+  // Sitting in that queue is what turns Approve/Verify/Resubmit into a 20s timeout.
   if (
-    /\/rest\/v1\/rpc\/(verify_trip_document|mark_trip_compliance_verified|decline_trip_compliance|approve_trip_compliance_with_exception|reject_trip_compliance)\b/i.test(
+    /\/rest\/v1\/rpc\/(verify_trip_document|mark_trip_compliance_verified|decline_trip_compliance|approve_trip_compliance_with_exception|reject_trip_compliance|resubmit_trip_compliance)\b/i.test(
       url,
     )
   ) {

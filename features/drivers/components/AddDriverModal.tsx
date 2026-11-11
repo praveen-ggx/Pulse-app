@@ -97,7 +97,7 @@ const validateDrivingLicenseNumber = (licenseNumber: string): string | null => {
   const trimmed = licenseNumber.trim();
   if (!trimmed) return null;
   if (isIndianDrivingLicenseFormatValid(trimmed)) return null;
-  return 'Enter a valid DL number (e.g. MH12 20180001234).';
+  return 'Enter the licence number exactly as printed on the card.';
 };
 
 export function AddDriverModal(props: AddDriverModalProps) {
@@ -608,10 +608,11 @@ function AddDriverWizardModal({ onClose, onComplete, onAddDriver, visible }: Add
             <Text style={labelStyle}>License Number</Text>
             <TextInput
               style={[inputStyle, { fontFamily: 'monospace' }]}
-              placeholder="DL-XXXXXXXXXX"
+              placeholder="As printed on card, e.g. TN01 20200001234"
               placeholderTextColor={Theme.placeholder}
               value={formData.licenseNumber}
-              onChangeText={(v) => setFormData((p) => ({ ...p, licenseNumber: v }))}
+              onChangeText={(v) => setFormData((p) => ({ ...p, licenseNumber: v.toUpperCase() }))}
+              autoCapitalize="characters"
               autoCorrect={false}
               spellCheck={false}
               autoComplete="off"

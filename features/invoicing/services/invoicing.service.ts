@@ -5,6 +5,7 @@
 import {
   getTripsWhereOrgIsSupplier,
   supplierRowToTripRow,
+  type SupplierTripRow,
   type TripRow,
 } from "@/features/trips/services/trips.service";
 import { getTripOperationalDisplay } from "@/features/operations/display";
@@ -591,7 +592,7 @@ export async function fetchInvoicingTrips(
     const [ownerRes, supRes] = await Promise.all([
       ownerQuery,
       opts?.cursor
-        ? Promise.resolve({ error: null, trips: [] as TripRow[] })
+        ? Promise.resolve({ error: null, trips: [] as SupplierTripRow[] })
         : getTripsWhereOrgIsSupplier(orgId),
     ]);
 

@@ -7,6 +7,7 @@ import {
     getTripsWhereOrgIsSupplier,
     getShipperDisplayNamesForSupplierTrips,
     supplierRowToTripRow,
+    type SupplierTripRow,
     type TripRow,
 } from "@/features/trips/services/trips.service";
 import { getTripOperationalDisplay } from "@/features/operations/display";
@@ -343,7 +344,7 @@ export async function fetchTripsForLogPods(
     const [ownerRes, supRes, cliRes, shipperNamesRes] = await Promise.all([
       ownerQuery,
       laterPage
-        ? Promise.resolve({ error: null, trips: [] as TripRow[] })
+        ? Promise.resolve({ error: null, trips: [] as SupplierTripRow[] })
         : getTripsWhereOrgIsSupplier(orgId),
       laterPage
         ? Promise.resolve({ error: null, trips: [] as TripRow[] })

@@ -736,9 +736,7 @@ export default function TripsScreen() {
           : "exact";
   const hubCountsPartial = hubTripCompleteness !== "exact";
   const useRangeList =
-    hubTripCompleteness === "exact" ||
-    hubTripCompleteness === "paged" ||
-    hubTripCompleteness === "capped";
+    hubTripCompleteness === "exact" || hubTripCompleteness === "paged";
   // Full-width toolbar warning (HubPartialWarning). dateRangeLabel only renders for custom ranges.
   const hubCompletenessNote = hubTripCompletenessNote(hubTripCompleteness);
   const hubDateRangeLabel = hubCustomDateRangeLabel;

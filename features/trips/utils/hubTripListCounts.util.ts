@@ -1,7 +1,6 @@
 import type { TripRow } from "@/features/trips/services/trips.service";
 import {
   GET_TRIPS_FOR_ORG_DATED_SAFETY_CAP,
-  GET_TRIPS_FOR_ORG_DEFAULT_CAP,
   isDatedGetTripsForOrgCapped,
 } from "@/features/trips/utils/tripOrgFetch.util";
 import {
@@ -116,7 +115,7 @@ export function hubActiveAllTripCount(
  * - capped: dated mode hit 2000, so older matching trips are missing.
  * - loading / error: only the newest-400 list is on screen.
  */
-export type HubTripCompleteness = "exact" | "capped" | "loading" | "error";
+export type HubTripCompleteness = "exact" | "capped" | "paged" | "loading" | "error";
 
 export function resolveHubTripDataset<T>(opts: {
   rangeRows: readonly T[];
@@ -140,10 +139,12 @@ export function hubTripCompletenessNote(
       return null;
     case "capped":
       return `Partial: newest ${GET_TRIPS_FOR_ORG_DATED_SAFETY_CAP} matching trips loaded`;
+    case "paged":
+      return "More trips are on the server. Open the next page to load them.";
     case "loading":
-      return `Partial: loading all trips (newest ${GET_TRIPS_FOR_ORG_DEFAULT_CAP} shown)`;
+      return null;
     case "error":
-      return `Partial: couldn't load all trips (newest ${GET_TRIPS_FOR_ORG_DEFAULT_CAP} shown)`;
+      return "Couldn't load trips.";
   }
 }
 

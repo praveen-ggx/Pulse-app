@@ -183,7 +183,7 @@ describe("Showing X of Y", () => {
   it("appends the Partial warning so every list view shows it", () => {
     const note = hubTripCompletenessNote("error");
     expect(hubShowingCountLabel({ shown: 7, total: 7, partial: true, note })).toBe(
-      "Showing 7 of 7+ · Partial: couldn't load all trips (newest 400 shown)",
+      "Showing 7 of 7+ · Couldn't load trips.",
     );
     expect(
       hubShowingCountLabel({ shown: 7, total: 7, partial: false, note: hubTripCompletenessNote("exact") }),
@@ -250,7 +250,9 @@ describe("dataset beyond the 400-row default list", () => {
       });
       expect(ds.completeness).toBe(state.expected);
       expect(ds.trips).toBe(newest400);
-      expect(hubTripCompletenessNote(ds.completeness)).toMatch(/^Partial:/);
+      const note = hubTripCompletenessNote(ds.completeness);
+      if (state.expected === "loading") expect(note).toBeNull();
+      else expect(note).toBe("Couldn't load trips.");
       const { history } = hubTabTripCounts(ds.trips);
       expect(hubShowingCountLabel({ shown: history, total: history, partial: true })).toBe(
         "Showing 312 of 312+",

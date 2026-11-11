@@ -16,11 +16,13 @@ import {
   MarketplaceSpecChips,
   titleCaseWord,
 } from "@/features/network/components/MarketplaceLoadCardChrome";
+import { MarketplaceBidPoolCard } from "@/features/network/components/pooled/MarketplaceBidPoolCard";
 import {
   type FeePaymentStatus,
   type MyOrgMarketBidRow,
   type MyOrgMarketBidStatus,
 } from "@/features/network/services/findLoadsForOrg.service";
+import { buildMarketplaceBidPools } from "@/features/network/utils/marketplaceBidPools.util";
 import { formatStoryDate } from "@/features/network/utils/storyDisplay";
 import {
   createMarketplaceFeeOrder,
@@ -164,6 +166,16 @@ export function OrgMyBidsList({
     return { pending, awarded, closed };
   }, [bids]);
 
+  /** Pending / closed stay anonymous pool cards (Network Loads chrome). */
+  const pendingPools = useMemo(
+    () => buildMarketplaceBidPools(groups.pending),
+    [groups.pending],
+  );
+  const closedPools = useMemo(
+    () => buildMarketplaceBidPools(groups.closed),
+    [groups.closed],
+  );
+
   if (isLoading) {
     return (
       <View style={styles.centered}>
@@ -184,7 +196,7 @@ export function OrgMyBidsList({
     );
   }
 
-    return (
+  return (
     <View style={styles.listContent}>
       {groups.awarded.length > 0 ? (
         <Section title="Awarded" count={groups.awarded.length}>
@@ -198,27 +210,17 @@ export function OrgMyBidsList({
           ))}
         </Section>
       ) : null}
-      {groups.pending.length > 0 ? (
+      {pendingPools.length > 0 ? (
         <Section title="Pending" count={groups.pending.length}>
-          {groups.pending.map((b) => (
-            <BidCard
-              key={b.id}
-              bid={b}
-              orgId={orgId}
-              onPaymentUpdated={onPaymentUpdated}
-            />
+          {pendingPools.map((pool) => (
+            <MarketplaceBidPoolCard key={pool.id} pool={pool} />
           ))}
         </Section>
       ) : null}
-      {groups.closed.length > 0 ? (
+      {closedPools.length > 0 ? (
         <Section title="Not selected" count={groups.closed.length}>
-          {groups.closed.map((b) => (
-            <BidCard
-              key={b.id}
-              bid={b}
-              orgId={orgId}
-              onPaymentUpdated={onPaymentUpdated}
-            />
+          {closedPools.map((pool) => (
+            <MarketplaceBidPoolCard key={pool.id} pool={pool} />
           ))}
         </Section>
       ) : null}

@@ -21,7 +21,7 @@
 ## Tested
 - Contract test, 8 passed: disabled trigger sorts last among trips AFTER triggers, 16 md5 stripes, reconciliation keeps each trip's stripe and upserts, `P0H01` is the only application exception swallowed, cancellation and shutdown are re-raised, the unread RPC does not scan trips.
 - Disposable PostgreSQL 17 only: contribution parity (draft, supplier visibility, mover suppression, soft-delete, cancelled, history), a linked supplier that owns no trips, a zero-trip organization, oracle equality, 128 rows per organization, disabled trigger does not write, missing-counter `P0H01` commits the trip without a partial delta, `n >= 0` does the same, generic `P0001` and `query_canceled` abort the trip. The throwaway script enabled the trigger only inside that database. The container was removed.
-- Not applied to preproduction or production. Not clicked through.
+- Preproduction `xbisiveavvbifbzyfhgy`, migration `20271111164000`, trigger left disabled. Backfill of 173 organizations took 32.4 seconds and wrote 22,144 counter rows. Shadow comparison against `hub_org_metric_oracle` had 0 mismatches and 0 faults. Default execute grants to `anon` and `authenticated` were revoked after the first apply; the migration file now does that revoke itself.
 - `count_org_hub_metrics` and `fn_sync_mover_asset_trip_status` are unchanged. No client file is changed.
 - The existing mover trip-row deadlock is not addressed.
-- Boundary B (preproduction apply, backfill, shadow), trigger enablement, and client cutover remain separate approvals.
+- Trigger enablement and client cutover remain separate approvals.

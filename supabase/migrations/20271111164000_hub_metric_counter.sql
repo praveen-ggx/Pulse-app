@@ -400,14 +400,14 @@ $$;
 COMMENT ON FUNCTION public.get_org_hub_metrics_counter(uuid) IS
   'Sum of the 16 Hub stripes for an all-time member. Returns NULL for non-members, ground_ops, and sourcing. Does not scan trips.';
 
-REVOKE ALL ON FUNCTION public.hub_metric_stripe(uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.hub_metric_contrib(public.trips) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.hub_metric_transition_deltas(public.trips, public.trips) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.hub_project_metric_counters() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.hub_reconcile_org_metric_counters(uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.hub_reconcile_metric_counters() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.hub_org_metric_oracle(uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.get_org_hub_metrics_counter(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.hub_metric_stripe(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.hub_metric_contrib(public.trips) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.hub_metric_transition_deltas(public.trips, public.trips) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.hub_project_metric_counters() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.hub_reconcile_org_metric_counters(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.hub_reconcile_metric_counters() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.hub_org_metric_oracle(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.get_org_hub_metrics_counter(uuid) FROM PUBLIC, anon;
 
 GRANT EXECUTE ON FUNCTION public.hub_reconcile_org_metric_counters(uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.hub_reconcile_metric_counters() TO service_role;

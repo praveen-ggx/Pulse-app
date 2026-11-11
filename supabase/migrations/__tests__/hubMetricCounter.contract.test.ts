@@ -84,6 +84,9 @@ describe("hub metric counter migration", () => {
     expect(sql).toMatch(
       /GRANT EXECUTE ON FUNCTION public\.get_org_hub_metrics_counter\(uuid\) TO authenticated, service_role/,
     );
+    expect(sql).toMatch(/get_org_hub_metrics_counter\(uuid\) FROM PUBLIC, anon/);
+    expect(sql).toMatch(/hub_reconcile_metric_counters\(\) FROM PUBLIC, anon, authenticated/);
+    expect(sql).toMatch(/hub_org_metric_oracle\(uuid\) FROM PUBLIC, anon, authenticated/);
     expect(sql).not.toMatch(/get_org_hub_metrics_counter\(uuid\) TO anon/);
     const rpc = sql.split("CREATE FUNCTION public.get_org_hub_metrics_counter")[1] ?? "";
     expect(rpc).toMatch(/FROM public\.hub_metric_counter/);

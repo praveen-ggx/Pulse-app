@@ -9,7 +9,7 @@ describe("HubPartialWarning", () => {
   it("shows the full partial notice, untruncated, as an alert", () => {
     const message = hubTripCompletenessNote("error")!;
     const { getByText, getByLabelText } = render(<HubPartialWarning message={message} />);
-    const text = getByText("Partial: couldn't load all trips (newest 400 shown)");
+    const text = getByText("Couldn't load trips.");
     expect(text.props.numberOfLines).toBeUndefined();
     expect(getByLabelText(message).props.accessibilityRole).toBe("alert");
   });

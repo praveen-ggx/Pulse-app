@@ -47,6 +47,7 @@ type Props = {
   canUploadEwayBill?: boolean;
   canEditEwayBill?: boolean;
   onSaveEwayBill?: (values: EwayFieldValues[]) => Promise<boolean>;
+  onRemoveEwayBill?: (row: EwayBillStripRow) => void;
   tripIdLabel: string;
   createdAtLabel: string;
   sign?: VaultPreviewSignContext;
@@ -93,6 +94,7 @@ export const TripMobileVaultPanel = memo(function TripMobileVaultPanel({
   canUploadEwayBill = false,
   canEditEwayBill = false,
   onSaveEwayBill,
+  onRemoveEwayBill,
   tripIdLabel,
   createdAtLabel,
   sign,
@@ -139,6 +141,7 @@ export const TripMobileVaultPanel = memo(function TripMobileVaultPanel({
           canUpload={canUploadEwayBill}
           canEdit={canEditEwayBill}
           onSave={onSaveEwayBill ?? (async () => false)}
+          onRemoveDocument={onRemoveEwayBill}
           variant="feed"
         />
       </View>

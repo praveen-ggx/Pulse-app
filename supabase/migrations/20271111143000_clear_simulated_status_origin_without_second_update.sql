@@ -37,6 +37,25 @@ COMMENT ON FUNCTION public.trips_consume_business_simulated_origin() IS
 REVOKE ALL ON FUNCTION public.trips_consume_business_simulated_origin() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.trips_consume_business_simulated_origin() TO authenticated, service_role;
 
+CREATE OR REPLACE FUNCTION public.trips_release_simulated_status_marker(p_trip_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  IF p_trip_id IS NOT NULL
+     AND current_setting('pulse.trip_status_simulated_id', true) = p_trip_id::text THEN
+    PERFORM set_config('pulse.trip_status_simulated_id', '', true);
+  END IF;
+END;
+$$;
+
+COMMENT ON FUNCTION public.trips_release_simulated_status_marker(uuid) IS
+  'Clears the transaction-local simulated marker when it belongs to this trip. A different trip id is left in place.';
+
+REVOKE ALL ON FUNCTION public.trips_release_simulated_status_marker(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.trips_release_simulated_status_marker(uuid) TO authenticated, service_role;
+
 DROP TRIGGER IF EXISTS b_trips_consume_business_simulated_origin ON public.trips;
 CREATE TRIGGER b_trips_consume_business_simulated_origin
   BEFORE INSERT OR UPDATE OF status ON public.trips
@@ -55,11 +74,13 @@ DECLARE
   v_simulated boolean;
 BEGIN
   IF TG_OP = 'UPDATE' AND NEW.status IS NOT DISTINCT FROM OLD.status THEN
+    PERFORM public.trips_release_simulated_status_marker(NEW.id);
     RETURN NEW;
   END IF;
 
   v_msg := public.fn_trip_status_chat_message_body(NEW);
   IF v_msg IS NULL THEN
+    PERFORM public.trips_release_simulated_status_marker(NEW.id);
     RETURN NEW;
   END IF;
 
@@ -88,11 +109,12 @@ BEGIN
     PERFORM public.fn_post_trip_feedback_prompt_to_chats(NEW.id);
   END IF;
 
-  IF current_setting('pulse.trip_status_simulated_id', true) = NEW.id::text THEN
-    PERFORM set_config('pulse.trip_status_simulated_id', '', true);
-  END IF;
-
+  PERFORM public.trips_release_simulated_status_marker(NEW.id);
   RETURN NEW;
+EXCEPTION
+  WHEN OTHERS THEN
+    PERFORM public.trips_release_simulated_status_marker(NEW.id);
+    RAISE;
 END;
 $$;
 

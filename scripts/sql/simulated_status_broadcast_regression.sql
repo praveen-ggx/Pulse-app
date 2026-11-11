@@ -316,3 +316,218 @@ BEGIN
     RAISE EXCEPTION 'a later trip in the same transaction inherited the simulated marker';
   END IF;
 END $$;
+
+-- A broadcast error must not leave the marker for the next statement.
+CREATE OR REPLACE FUNCTION fn_post_system_message_to_trip_chats(
+  p_trip_id uuid, p_content text, p_dedupe_status text, p_simulated boolean
+) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  IF p_trip_id = '12121212-1212-4121-8121-121212121212' THEN
+    RAISE EXCEPTION 'broadcast failed';
+  END IF;
+  INSERT INTO broadcast_log VALUES (p_trip_id, p_content, p_simulated);
+END;
+$$;
+
+INSERT INTO trips (id, status, trip_number)
+VALUES
+  ('12121212-1212-4121-8121-121212121212', 'assigned', 'TRP-ERR'),
+  ('13131313-1313-4131-8131-131313131313', 'assigned', 'TRP-NEXT');
+
+DO $$
+BEGIN
+  UPDATE trips
+  SET status = 'in_progress', status_change_origin = 'business_simulated'
+  WHERE id = '12121212-1212-4121-8121-121212121212';
+  RAISE EXCEPTION 'broadcast should have failed';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM NOT LIKE '%broadcast failed%' THEN
+    RAISE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF coalesce(current_setting('pulse.trip_status_simulated_id', true), '') <> '' THEN
+    RAISE EXCEPTION 'marker survived a failed broadcast: %', current_setting('pulse.trip_status_simulated_id', true);
+  END IF;
+
+  IF (SELECT status FROM trips WHERE id = '12121212-1212-4121-8121-121212121212') IS DISTINCT FROM 'assigned'
+     OR (SELECT status_change_origin FROM trips WHERE id = '12121212-1212-4121-8121-121212121212') IS NOT NULL THEN
+    RAISE EXCEPTION 'failed broadcast persisted the status write';
+  END IF;
+
+  UPDATE trips
+  SET status = 'in_progress'
+  WHERE id = '13131313-1313-4131-8131-131313131313';
+
+  IF EXISTS (
+    SELECT 1 FROM broadcast_log
+    WHERE trip_id = '13131313-1313-4131-8131-131313131313' AND coalesce(simulated, false)
+  ) THEN
+    RAISE EXCEPTION 'the trip after a failed broadcast was tagged simulated';
+  END IF;
+END $$;
+
+DO $$
+DECLARE
+  i int;
+  v_id uuid;
+  v_writes int;
+  v_start pg_lsn;
+  v_wal bigint;
+BEGIN
+  FOR i IN 1..5 LOOP
+    v_id := ('14141414-1414-4141-8141-' || lpad(i::text, 12, '0'))::uuid;
+    INSERT INTO trips (id, status, trip_number) VALUES (v_id, 'assigned', 'R' || i);
+    v_start := pg_current_wal_lsn();
+    UPDATE trips
+    SET status = 'in_progress', status_change_origin = 'business_simulated'
+    WHERE id = v_id;
+    v_wal := pg_wal_lsn_diff(pg_current_wal_lsn(), v_start);
+    SELECT count(*) INTO v_writes FROM trip_write_log WHERE trip_id = v_id;
+    IF v_writes <> 1 THEN
+      RAISE EXCEPTION 'repeat % wrote % versions', i, v_writes;
+    END IF;
+    IF (SELECT status_change_origin FROM trips WHERE id = v_id) IS NOT NULL THEN
+      RAISE EXCEPTION 'repeat % stored an origin', i;
+    END IF;
+    RAISE NOTICE 'repeat % wal_bytes %', i, v_wal;
+  END LOOP;
+END $$;
+
+-- An early return after the marker was consumed must not leave it for the next
+-- statement on the same trip. The body function agrees in production; this
+-- forces the two calls in the status update to disagree.
+INSERT INTO trips (id, status, trip_number)
+VALUES ('17171717-1717-4171-8171-171717171717', 'assigned', 'TRP-EARLY');
+
+CREATE TABLE body_calls (n int);
+INSERT INTO body_calls VALUES (0);
+
+CREATE OR REPLACE FUNCTION fn_trip_status_chat_message_body(p trips)
+RETURNS text LANGUAGE plpgsql AS $$
+DECLARE
+  v_n int;
+BEGIN
+  IF p.id = '17171717-1717-4171-8171-171717171717' AND p.status = 'in_progress' THEN
+    SELECT n INTO v_n FROM body_calls;
+    UPDATE body_calls SET n = n + 1;
+    IF v_n = 0 THEN
+      RETURN 'heading to pickup';
+    END IF;
+    RETURN NULL;
+  END IF;
+  RETURN CASE p.status
+    WHEN 'in_progress' THEN 'heading to pickup'
+    WHEN 'in_transit' THEN 'in transit'
+    ELSE NULL
+  END;
+END;
+$$;
+
+UPDATE trips
+SET status = 'in_progress', status_change_origin = 'business_simulated'
+WHERE id = '17171717-1717-4171-8171-171717171717';
+
+DO $$
+BEGIN
+  IF coalesce(current_setting('pulse.trip_status_simulated_id', true), '') <> '' THEN
+    RAISE EXCEPTION 'marker survived an early broadcast return: %',
+      current_setting('pulse.trip_status_simulated_id', true);
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM broadcast_log WHERE trip_id = '17171717-1717-4171-8171-171717171717'
+  ) THEN
+    RAISE EXCEPTION 'the empty chat body still posted a line';
+  END IF;
+  IF (SELECT n FROM body_calls) IS DISTINCT FROM 2 THEN
+    RAISE EXCEPTION 'expected the body function twice during the update, saw %', (SELECT n FROM body_calls);
+  END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION fn_trip_status_chat_message_body(p trips)
+RETURNS text LANGUAGE sql STABLE AS $$
+  SELECT CASE p.status
+    WHEN 'in_progress' THEN 'heading to pickup'
+    WHEN 'in_transit' THEN 'in transit'
+    WHEN 'completed' THEN 'completed'
+    ELSE NULL
+  END;
+$$;
+
+UPDATE trips
+SET status = 'in_transit'
+WHERE id = '17171717-1717-4171-8171-171717171717';
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM broadcast_log
+    WHERE trip_id = '17171717-1717-4171-8171-171717171717'
+      AND content LIKE '%(simulated)%'
+  ) THEN
+    RAISE EXCEPTION 'the same trip inherited a simulated marker after an early return';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM broadcast_log
+    WHERE trip_id = '17171717-1717-4171-8171-171717171717'
+      AND content = 'in transit'
+  ) THEN
+    RAISE EXCEPTION 'the follow-up status did not post its own chat line';
+  END IF;
+END $$;
+
+-- A nested status update that runs while the outer marker is still set must
+-- not adopt it, and must not clear it before the outer broadcast reads it.
+CREATE OR REPLACE FUNCTION fn_nested_status()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.id = '15151515-1515-4151-8151-151515151515' AND NEW.status = 'in_progress' THEN
+    UPDATE trips SET status = 'in_transit' WHERE id = '16161616-1616-4161-8161-161616161616';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER a_nested_status
+  AFTER UPDATE OF status ON trips
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_nested_status();
+
+INSERT INTO trips (id, status, trip_number) VALUES
+  ('15151515-1515-4151-8151-151515151515', 'assigned', 'TRP-OUTER'),
+  ('16161616-1616-4161-8161-161616161616', 'assigned', 'TRP-NESTED');
+
+UPDATE trips
+SET status = 'in_progress', status_change_origin = 'business_simulated'
+WHERE id = '15151515-1515-4151-8151-151515151515';
+
+DO $$
+BEGIN
+  IF coalesce(current_setting('pulse.trip_status_simulated_id', true), '') <> '' THEN
+    RAISE EXCEPTION 'marker survived the outer broadcast: %',
+      current_setting('pulse.trip_status_simulated_id', true);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM broadcast_log
+    WHERE trip_id = '15151515-1515-4151-8151-151515151515'
+      AND content = 'heading to pickup (simulated)' AND simulated
+  ) THEN
+    RAISE EXCEPTION 'nested work cleared the outer simulated marker before the chat line';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM broadcast_log
+    WHERE trip_id = '16161616-1616-4161-8161-161616161616'
+      AND content LIKE '%(simulated)%'
+  ) THEN
+    RAISE EXCEPTION 'the nested trip adopted the outer simulated marker';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM broadcast_log
+    WHERE trip_id = '16161616-1616-4161-8161-161616161616'
+      AND content = 'in transit'
+  ) THEN
+    RAISE EXCEPTION 'the nested trip did not post its own chat line';
+  END IF;
+END $$;

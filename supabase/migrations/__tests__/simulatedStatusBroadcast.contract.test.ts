@@ -34,8 +34,10 @@ describe("simulated status chat broadcast", () => {
   });
 
   it("keeps the simulated marker transaction-local and clears it before return", () => {
+    const broadcast = sql.slice(sql.indexOf("FUNCTION public.fn_broadcast_trip_status_to_chat"));
     expect(sql).toMatch(/set_config\('pulse\.trip_status_simulated_id', NEW\.id::text, true\)/);
     expect(sql).toMatch(/set_config\('pulse\.trip_status_simulated_id', '', true\)/);
     expect(sql).not.toMatch(/set_config\([^)]*,\s*false\)/);
+    expect(broadcast.match(/trips_release_simulated_status_marker\(NEW\.id\)/g)).toHaveLength(4);
   });
 });

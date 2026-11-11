@@ -264,8 +264,8 @@ export function diffSnapshots(previous: Snapshot, current: Snapshot): SnapshotDe
 
   const baseline = <T>(
     label: string,
-    before: T | null,
-    after: T | null,
+    before: T[] | null,
+    after: T[] | null,
     fields: (row: T) => Record<string, number>,
     identity: (row: T) => string,
   ): Array<{ key: string; deltas: CounterDelta[] }> => {
@@ -274,11 +274,9 @@ export function diffSnapshots(previous: Snapshot, current: Snapshot): SnapshotDe
       return [];
     }
     const prior = new Map<string, T>();
-    const rows = Array.isArray(before) ? before : [before];
-    const next = Array.isArray(after) ? after : [after];
-    for (const row of rows) prior.set(identity(row), row);
+    for (const row of before) prior.set(identity(row), row);
     const result: Array<{ key: string; deltas: CounterDelta[] }> = [];
-    for (const row of next) {
+    for (const row of after) {
       const key = identity(row);
       const old = prior.get(key);
       if (!old) {
@@ -331,7 +329,7 @@ export function diffSnapshots(previous: Snapshot, current: Snapshot): SnapshotDe
       current.statements,
       statementFields,
       (row) => row.queryid,
-    ),
+    ).map((row) => ({ queryid: row.key, deltas: row.deltas })),
   };
 }
 

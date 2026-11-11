@@ -430,6 +430,9 @@ export function InvoicingExecuteScreen({
     error,
     refetch,
     isRefetching,
+    hasNextPage: invoiceHasNextPage,
+    isFetchingNextPage: invoiceFetchingNextPage,
+    fetchNextPage: fetchInvoiceNextPage,
   } = useInvoicingExecuteTripsQuery(tripScopeId);
 
   const bootLoading = (workspaceLoading || orgLoading) && !tripScopeId;
@@ -2130,6 +2133,21 @@ export function InvoicingExecuteScreen({
         paddingBottom: isLargeScreen ? 0 : mobileBottomPad,
       }}
       ListEmptyComponent={null}
+      ListFooterComponent={
+        invoiceHasNextPage ? (
+          <Pressable
+            style={styles.blockedBtn}
+            disabled={invoiceFetchingNextPage}
+            onPress={() => {
+              void fetchInvoiceNextPage();
+            }}
+          >
+            <Text style={styles.blockedBtnText}>
+              {invoiceFetchingNextPage ? "Loading older trips…" : "Load older trips"}
+            </Text>
+          </Pressable>
+        ) : null
+      }
       renderItem={({ item: client }) => (
         <Pressable
           style={[

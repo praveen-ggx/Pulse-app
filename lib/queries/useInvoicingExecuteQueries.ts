@@ -1,5 +1,5 @@
 import type { InvoicePayload } from '@/features/invoicing/services/invoicing.service';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchClientInvoicePodPolicies } from '@/features/clients/services/clients.service';
 import {
   fetchDigitalPodTripIdsForInvoice,
@@ -14,6 +14,7 @@ import {
   fetchIssuedInvoicesForOrg,
 } from '@/features/invoicing/services/invoiceList.service';
 import { queryKeys } from '@/lib/queryKeys';
+import type { TripKeysetCursor } from '@/features/trips/utils/tripKeysetCursor.util';
 import { useMemo } from 'react';
 
 export function useIssuedInvoicesQuery(orgId: string | null) {
@@ -43,16 +44,22 @@ export function useDraftInvoicesQuery(orgId: string | null) {
 }
 
 export function useInvoicingExecuteTripsQuery(orgId: string | null) {
-  return useQuery({
-    queryKey: orgId ? queryKeys.invoicing.trips(orgId) : ['q', 'invoicing', 'trips', 'none'],
-    queryFn: async () => {
-      const { error, trips } = await fetchInvoicingTrips(orgId!);
+  const query = useInfiniteQuery({
+    queryKey: orgId ? [...queryKeys.invoicing.trips(orgId), 'page'] : ['q', 'invoicing', 'trips', 'none'],
+    queryFn: async ({ pageParam }: { pageParam: TripKeysetCursor | null }) => {
+      const { error, trips, nextCursor } = await fetchInvoicingTrips(orgId!, { cursor: pageParam });
       if (error) throw error;
-      return trips;
+      return { trips, nextCursor };
     },
+    initialPageParam: null as TripKeysetCursor | null,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: !!orgId,
     staleTime: 300_000,
   });
+  return {
+    ...query,
+    data: query.data?.pages.flatMap((page) => page.trips),
+  };
 }
 
 export function usePodReconciliationSummaryQuery(orgId: string | null) {

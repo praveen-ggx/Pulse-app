@@ -10,6 +10,12 @@ import {
     type TripRow,
 } from "@/features/trips/services/trips.service";
 import { getTripOperationalDisplay } from "@/features/operations/display";
+import {
+  nextTripKeysetCursor,
+  tripKeysetBeforeFilter,
+  TRIP_LIST_PAGE_SIZE,
+  type TripKeysetCursor,
+} from "@/features/trips/utils/tripKeysetCursor.util";
 import { syncDomainRows } from "@/lib/cache/domainSync";
 import { mergeDeltaRows } from "@/lib/cache/mergeDelta";
 import { supabase } from "@/lib/supabase";
@@ -320,29 +326,40 @@ export async function markSelectedTripsHardCopyPodReceived(
 
 export async function fetchTripsForLogPods(
   orgId: string,
-  options?: { includeReceived?: boolean },
-): Promise<{ error: Error | null; trips: LogPodsTripView[] }> {
+  options?: { includeReceived?: boolean; cursor?: TripKeysetCursor | null },
+): Promise<{ error: Error | null; trips: LogPodsTripView[]; nextCursor: TripKeysetCursor | null }> {
   try {
+    let ownerQuery = supabase()
+      .from("trips")
+      .select(
+        "id, organization_id, trip_operational_code, trip_code, display_trip_id, trip_number, supplier_id, driver_id, driver_display_name, trip_payout_mode, client_name, client_price, status, pickup_date, pickup_area, drop_location, created_at, pod_received_at, pod_required, notes, booking_ref",
+      )
+      .eq("organization_id", orgId)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(TRIP_LIST_PAGE_SIZE);
+    if (options?.cursor) ownerQuery = ownerQuery.or(tripKeysetBeforeFilter(options.cursor));
+    const laterPage = Boolean(options?.cursor);
     const [ownerRes, supRes, cliRes, shipperNamesRes] = await Promise.all([
-      supabase()
-        .from("trips")
-        .select(
-          "id, organization_id, trip_operational_code, trip_code, display_trip_id, trip_number, supplier_id, driver_id, driver_display_name, trip_payout_mode, client_name, client_price, status, pickup_date, pickup_area, drop_location, created_at, pod_received_at, pod_required, notes, booking_ref",
-        )
-        .eq("organization_id", orgId)
-        .order("created_at", { ascending: false })
-        .limit(3000),
-      getTripsWhereOrgIsSupplier(orgId),
-      getTripsWhereOrgIsClient(orgId),
-      getShipperDisplayNamesForSupplierTrips(orgId),
+      ownerQuery,
+      laterPage
+        ? Promise.resolve({ error: null, trips: [] as TripRow[] })
+        : getTripsWhereOrgIsSupplier(orgId),
+      laterPage
+        ? Promise.resolve({ error: null, trips: [] as TripRow[] })
+        : getTripsWhereOrgIsClient(orgId),
+      laterPage
+        ? Promise.resolve({ error: null, shipperNameByTripId: {} as Record<string, string> })
+        : getShipperDisplayNamesForSupplierTrips(orgId),
     ]);
 
     if (ownerRes.error)
-      return { error: new Error(ownerRes.error.message), trips: [] };
-    if (supRes.error) return { error: supRes.error, trips: [] };
-    if (cliRes.error) return { error: cliRes.error, trips: [] };
+      return { error: new Error(ownerRes.error.message), trips: [], nextCursor: null };
+    if (supRes.error) return { error: supRes.error, trips: [], nextCursor: null };
+    if (cliRes.error) return { error: cliRes.error, trips: [], nextCursor: null };
 
     const ownerRows = (ownerRes.data ?? []) as TripRecord[];
+    const nextCursor = nextTripKeysetCursor(ownerRows, TRIP_LIST_PAGE_SIZE);
     const supRows = (supRes.trips ?? []).map(supplierRowToTripRow) as TripRecord[];
     const cliRows = (cliRes.trips ?? []) as TripRecord[];
     const shipperNameByTripId = shipperNamesRes.shipperNameByTripId ?? {};
@@ -398,9 +415,9 @@ export async function fetchTripsForLogPods(
     const views = merged.map((t) =>
       mapRowToView(t, lrByTripId, shipperNameByTripId, supplierNameById, driverNameById),
     );
-    return { error: null, trips: views };
+    return { error: null, trips: views, nextCursor };
   } catch (e) {
-    return { error: e instanceof Error ? e : new Error(String(e)), trips: [] };
+    return { error: e instanceof Error ? e : new Error(String(e)), trips: [], nextCursor: null };
   }
 }
 

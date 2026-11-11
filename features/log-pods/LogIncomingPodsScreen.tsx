@@ -97,6 +97,9 @@ export function LogIncomingPodsScreen({ embedded = false }: LogIncomingPodsScree
     isError,
     error,
     refetch,
+    hasNextPage: podHasNextPage,
+    isFetchingNextPage: podFetchingNextPage,
+    fetchNextPage: fetchPodNextPage,
   } = useLogIncomingPodsTripsQuery(orgId);
   const { data: dbCourierPartners = [], isLoading: loadingCouriers } =
     useCourierPartnersQuery();
@@ -500,6 +503,19 @@ export function LogIncomingPodsScreen({ embedded = false }: LogIncomingPodsScree
 
   const renderSidebarContent = () => (
     <>
+      {podHasNextPage ? (
+        <Pressable
+          style={styles.blockedBtn}
+          disabled={podFetchingNextPage}
+          onPress={() => {
+            void fetchPodNextPage();
+          }}
+        >
+          <Text style={styles.blockedBtnText}>
+            {podFetchingNextPage ? "Loading older trips…" : "Load older trips"}
+          </Text>
+        </Pressable>
+      ) : null}
       <Text style={styles.sectionTitle}>Courier Information</Text>
       <Text style={styles.sectionLabel}>Supplier / Transporter</Text>
       <Pressable

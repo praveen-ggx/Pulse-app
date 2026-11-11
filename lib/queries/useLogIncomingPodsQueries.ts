@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   executeLogIncomingPods,
   fetchCourierPartners,
@@ -13,6 +13,7 @@ import {
   type MarkHardCopyPodsReceivedInput,
 } from '@/features/log-pods/services/logPods.service';
 import { queryKeys } from '@/lib/queryKeys';
+import type { TripKeysetCursor } from '@/features/trips/utils/tripKeysetCursor.util';
 import { syncHardCopyPodRecord } from '@/lib/queries/invalidateHardCopyPodCaches';
 import { STALE } from '@/lib/queryClient';
 
@@ -21,22 +22,29 @@ export function useLogIncomingPodsTripsQuery(
   options?: { includeReceived?: boolean },
 ) {
   const includeReceived = Boolean(options?.includeReceived);
-  return useQuery({
+  const query = useInfiniteQuery({
     queryKey: orgId
-      ? includeReceived
-        ? queryKeys.logPods.tripsIncludingReceived(orgId)
-        : queryKeys.logPods.trips(orgId)
+      ? [...(includeReceived
+          ? queryKeys.logPods.tripsIncludingReceived(orgId)
+          : queryKeys.logPods.trips(orgId)), 'page']
       : ['q', 'log-pods', 'trips', 'none'],
-    queryFn: async () => {
-      const { error, trips } = await fetchTripsForLogPods(orgId!, {
+    queryFn: async ({ pageParam }: { pageParam: TripKeysetCursor | null }) => {
+      const { error, trips, nextCursor } = await fetchTripsForLogPods(orgId!, {
         includeReceived,
+        cursor: pageParam,
       });
       if (error) throw error;
-      return trips;
+      return { trips, nextCursor };
     },
+    initialPageParam: null as TripKeysetCursor | null,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: !!orgId,
     staleTime: STALE.moderate,
   });
+  return {
+    ...query,
+    data: query.data?.pages.flatMap((page) => page.trips),
+  };
 }
 
 export function useLogIncomingPodsSuppliersQuery(orgId: string | null) {

@@ -143,7 +143,6 @@ import {
     hubShowingCountLabel,
     hubTabTripCounts,
     hubTripCompletenessNote,
-    resolveHubTripDataset,
 } from "@/features/trips/utils/hubTripListCounts.util";
 import { HUB_ALL_TIME_BOUNDS } from "@/features/trips/utils/tripOrgFetch.util";
 import {
@@ -688,11 +687,10 @@ export default function TripsScreen() {
 
   const {
     data: tripsDataRaw = EMPTY_TRIP_ROWS,
-    isPending: tripsLoading,
-    isError: tripsLoadFailed,
+    isError: tripsCatalogFailed,
     error: tripsLoadError,
     refetch: refetchTrips,
-  } = useTripsQuery(orgId);
+  } = useTripsQuery(null);
   const tripsData = useMemo(
     () => sourcingScope.filterTrips(tripsDataRaw as TripRow[]),
     [sourcingScope, tripsDataRaw],
@@ -714,21 +712,33 @@ export default function TripsScreen() {
   // included. The undated newest-400 list is only a first paint / error fallback.
   const {
     trips: hubDateRangeTripsRaw,
+    isFetching: hubDateRangeFetching,
     isFetched: hubDateRangeFetched,
     isError: hubDateRangeFailed,
+    hasNextPage: hubHasNextPage,
+    isFetchingNextPage: hubFetchingNextPage,
+    fetchNextPage: fetchHubNextPage,
   } = useTripsHubDateRange(orgId, hubDateBounds ?? HUB_ALL_TIME_BOUNDS);
+  const tripsLoading = Boolean(orgId) && hubDateRangeFetching && !hubDateRangeFetched;
+  const tripsLoadFailed = hubDateRangeFailed || tripsCatalogFailed;
   const hubDateRangeTrips = useMemo(
     () => sourcingScope.filterTrips(hubDateRangeTripsRaw),
     [sourcingScope, hubDateRangeTripsRaw],
   );
-  const hubTripCompleteness = resolveHubTripDataset({
-    rangeRows: hubDateRangeTrips,
-    rangeFetched: hubDateRangeFetched,
-    rangeError: hubDateRangeFailed,
-    newestRows: tripsData,
-  }).completeness;
+  const hubTripCompleteness = !orgId
+    ? "exact"
+    : hubDateRangeFailed
+      ? "error"
+      : !hubDateRangeFetched
+        ? "loading"
+        : hubHasNextPage
+          ? "paged"
+          : "exact";
   const hubCountsPartial = hubTripCompleteness !== "exact";
-  const useRangeList = hubTripCompleteness === "exact" || hubTripCompleteness === "capped";
+  const useRangeList =
+    hubTripCompleteness === "exact" ||
+    hubTripCompleteness === "paged" ||
+    hubTripCompleteness === "capped";
   // Full-width toolbar warning (HubPartialWarning). dateRangeLabel only renders for custom ranges.
   const hubCompletenessNote = hubTripCompletenessNote(hubTripCompleteness);
   const hubDateRangeLabel = hubCustomDateRangeLabel;
@@ -2512,13 +2522,23 @@ export default function TripsScreen() {
       const nearBottom =
         contentOffset.y + layoutMeasurement.height >= contentSize.height - 360;
       if (!nearBottom) return;
+      if (hubHasNextPage && !hubFetchingNextPage) {
+        fetchHubNextPage();
+      }
       setMobileVisibleCount((prev) => {
         const total = tripsHubPaginationTotal;
         if (prev >= total) return prev;
         return Math.min(total, prev + MOBILE_HUB_BATCH_STEP);
       });
     },
-    [tabBarScrollProps, isMobileViewport, tripsHubPaginationTotal],
+    [
+      tabBarScrollProps,
+      isMobileViewport,
+      tripsHubPaginationTotal,
+      hubHasNextPage,
+      hubFetchingNextPage,
+      fetchHubNextPage,
+    ],
   );
 
   const loadTypeOptions = useMemo(() => {
@@ -3577,11 +3597,16 @@ export default function TripsScreen() {
     () => setTripsTablePage((p) => Math.max(0, p - 1)),
     [],
   );
-  const handleTripsPageNext = useCallback(
-    () =>
-      setTripsTablePage((p) => Math.min(tripsTableTotalPages - 1, p + 1)),
-    [tripsTableTotalPages],
-  );
+  const handleTripsPageNext = useCallback(() => {
+    setTripsTablePage((p) => {
+      const last = Math.max(0, tripsTableTotalPages - 1);
+      if (p >= last && hubHasNextPage && !hubFetchingNextPage) {
+        fetchHubNextPage();
+        return p;
+      }
+      return Math.min(last, p + 1);
+    });
+  }, [tripsTableTotalPages, hubHasNextPage, hubFetchingNextPage, fetchHubNextPage]);
 
   const showTripsPaginationFooter =
     Platform.OS === "web" &&

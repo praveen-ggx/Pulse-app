@@ -185,6 +185,11 @@ export type MyOrgMarketBidRow = {
   drop_location: string | null;
   pickup_date: string | null;
   load_type: string | null;
+  /** Pool key field (pickup × drop × vehicle). Absent on servers before 2026-11-11 RPC update. */
+  vehicle_type?: string | null;
+  /** Indent weight in kg. Absent on servers before 2026-11-11 RPC update. */
+  weight?: number | null;
+  /** Null until awarded AND fee settled (server-masked from 2026-11-11 RPC update). */
   owner_organization_id: string | null;
   owner_organization_name: string | null;
   /** Always populated (last-4 masked). */

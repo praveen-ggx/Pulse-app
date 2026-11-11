@@ -2756,6 +2756,11 @@ export function InvoicingExecuteScreen({
                     void handleCreateInvoice();
                   }}
                   createBlockedReason={createInvoiceBlockedReason}
+                  hasOlderTrips={invoiceHasNextPage}
+                  olderTripsLoading={invoiceFetchingNextPage}
+                  onLoadOlderTrips={() => {
+                    void fetchInvoiceNextPage();
+                  }}
                 />
                 </View>
               )}
@@ -3119,6 +3124,11 @@ export function InvoicingExecuteScreen({
                 notCompletedTripCount={completionCounts.notCompleted}
                 onCreateInvoice={handleCreateInvoice}
                 createBlockedReason={createInvoiceBlockedReason}
+                hasOlderTrips={invoiceHasNextPage}
+                olderTripsLoading={invoiceFetchingNextPage}
+                onLoadOlderTrips={() => {
+                  void fetchInvoiceNextPage();
+                }}
               />
             </View>
             {isLargeScreen && (
@@ -3377,6 +3387,11 @@ export function InvoicingExecuteScreen({
                     notCompletedTripCount={completionCounts.notCompleted}
                     onCreateInvoice={handleCreateInvoice}
                     createBlockedReason={createInvoiceBlockedReason}
+                    hasOlderTrips={invoiceHasNextPage}
+                    olderTripsLoading={invoiceFetchingNextPage}
+                    onLoadOlderTrips={() => {
+                      void fetchInvoiceNextPage();
+                    }}
                   />
                 </View>
                 )}
@@ -3760,6 +3775,9 @@ type TripListContentProps = {
   invoiceableSelectedCount?: number;
   selectedBlockedCount?: number;
   selectedFreight?: number;
+  hasOlderTrips?: boolean;
+  olderTripsLoading?: boolean;
+  onLoadOlderTrips?: () => void;
 };
 
 function TripListContent({
@@ -3802,6 +3820,9 @@ function TripListContent({
   invoiceableSelectedCount = 0,
   selectedBlockedCount = 0,
   selectedFreight = 0,
+  hasOlderTrips = false,
+  olderTripsLoading = false,
+  onLoadOlderTrips,
 }: TripListContentProps) {
   const [sheetFilters, setSheetFilters] = useState<TripSheetFilters>({});
   const [sheetSort, setSheetSort] = useState<TripSheetSort>(null);
@@ -4155,6 +4176,21 @@ function TripListContent({
               : Layout.modalBottomPadding + 24
             : mobileBottomPad + 84,
         }}
+        ListFooterComponent={
+          hasOlderTrips ? (
+            <Pressable
+              style={styles.blockedBtn}
+              disabled={olderTripsLoading || !onLoadOlderTrips}
+              onPress={() => {
+                onLoadOlderTrips?.();
+              }}
+            >
+              <Text style={styles.blockedBtnText}>
+                {olderTripsLoading ? "Loading older trips…" : "Load older trips"}
+              </Text>
+            </Pressable>
+          ) : null
+        }
         ListEmptyComponent={
           <View style={styles.empty}>
             <FontAwesome
@@ -4164,12 +4200,18 @@ function TripListContent({
             />
             <>
               <Text style={styles.emptyTitle}>
-                {sheetFilterCount > 0 ? "No trips match these filters" : "No Active Transactions"}
+                {hasOlderTrips
+                  ? "Older trips are still on the server"
+                  : sheetFilterCount > 0
+                    ? "No trips match these filters"
+                    : "No Active Transactions"}
               </Text>
               <Text style={styles.emptySubTitle}>
-                {sheetFilterCount > 0
-                  ? "Clear a column filter to see more trips."
-                  : "Select any trips to include on the invoice."}
+                {hasOlderTrips
+                  ? "Load the next page before treating this list as empty."
+                  : sheetFilterCount > 0
+                    ? "Clear a column filter to see more trips."
+                    : "Select any trips to include on the invoice."}
               </Text>
             </>
           </View>

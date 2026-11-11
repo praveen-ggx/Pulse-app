@@ -737,9 +737,13 @@ export function LogIncomingPodsScreen({ embedded = false }: LogIncomingPodsScree
       {supplierTrips.length === 0 ? (
         <View style={styles.empty}>
           <FontAwesome name="truck" size={48} color={Theme.borderMedium} />
-          <Text style={styles.emptyTitle}>No trips found</Text>
+          <Text style={styles.emptyTitle}>
+            {podHasNextPage ? "Older trips are still on the server" : "No trips found"}
+          </Text>
           <Text style={styles.emptySub}>
-            Try adjusting your supplier or search filters.
+            {podHasNextPage
+              ? "Load the next page. This page had no trips left to log."
+              : "Try adjusting your supplier or search filters."}
           </Text>
         </View>
       ) : (

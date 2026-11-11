@@ -13,7 +13,11 @@ import {
   type MarkHardCopyPodsReceivedInput,
 } from '@/features/log-pods/services/logPods.service';
 import { queryKeys } from '@/lib/queryKeys';
-import type { TripKeysetCursor } from '@/features/trips/utils/tripKeysetCursor.util';
+import {
+  readUntilVisibleTripPage,
+  TRIP_LIST_EMPTY_PAGE_HOPS,
+  type TripKeysetCursor,
+} from '@/features/trips/utils/tripKeysetCursor.util';
 import { syncHardCopyPodRecord } from '@/lib/queries/invalidateHardCopyPodCaches';
 import { STALE } from '@/lib/queryClient';
 
@@ -29,12 +33,19 @@ export function useLogIncomingPodsTripsQuery(
           : queryKeys.logPods.trips(orgId)), 'page']
       : ['q', 'log-pods', 'trips', 'none'],
     queryFn: async ({ pageParam }: { pageParam: TripKeysetCursor | null }) => {
-      const { error, trips, nextCursor } = await fetchTripsForLogPods(orgId!, {
-        includeReceived,
-        cursor: pageParam,
+      const page = await readUntilVisibleTripPage({
+        initialCursor: pageParam,
+        maxPages: includeReceived ? 1 : TRIP_LIST_EMPTY_PAGE_HOPS,
+        fetchPage: async (cursor) => {
+          const { error, trips, nextCursor } = await fetchTripsForLogPods(orgId!, {
+            includeReceived,
+            cursor,
+          });
+          return { error, visible: trips, nextCursor };
+        },
       });
-      if (error) throw error;
-      return { trips, nextCursor };
+      if (page.error) throw page.error;
+      return { trips: page.trips, nextCursor: page.nextCursor };
     },
     initialPageParam: null as TripKeysetCursor | null,
     getNextPageParam: (last) => last.nextCursor ?? undefined,

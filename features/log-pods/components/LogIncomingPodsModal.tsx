@@ -43,8 +43,9 @@ import {
   countTripsByCompletion,
   tripIsDeliveredStatus,
 } from "@/features/trips/services/tripDocumentLrPod.service";
+import { shouldAutoLoadOlderPodPage } from "@/features/trips/utils/tripKeysetCursor.util";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -215,6 +216,43 @@ export function LogIncomingPodsModal({
     () => filterLogPodTripsForTab(partyTrips, tab),
     [partyTrips, tab],
   );
+  const podPageHops = useRef(0);
+  const partyKey = selectedParty?.id ?? "";
+  const podHasNextPage = Boolean(tripsQuery.hasNextPage);
+  const podFetching = tripsQuery.isFetching;
+  const podFetchingNextPage = tripsQuery.isFetchingNextPage;
+  const podPageFailed = tripsQuery.isError || tripsQuery.isFetchNextPageError;
+  const fetchPodNextPage = tripsQuery.fetchNextPage;
+  useEffect(() => {
+    podPageHops.current = 0;
+  }, [orgId, tab, partyKey, partyKind]);
+  useEffect(() => {
+    if (
+      !shouldAutoLoadOlderPodPage({
+        hasParty: selectedParty != null,
+        visibleCount: visibleTrips.length,
+        hasNextPage: podHasNextPage,
+        busy: podFetching || podFetchingNextPage,
+        failed: podPageFailed,
+        hops: podPageHops.current,
+      })
+    ) {
+      return;
+    }
+    podPageHops.current += 1;
+    void fetchPodNextPage();
+  }, [
+    fetchPodNextPage,
+    partyKey,
+    partyKind,
+    podFetching,
+    podFetchingNextPage,
+    podHasNextPage,
+    podPageFailed,
+    selectedParty,
+    tab,
+    visibleTrips.length,
+  ]);
 
   const countForTab = (id: LogIncomingPodsListTab) => {
     if (id === "pending") return pendingTrips.length;
@@ -961,6 +999,23 @@ export function LogIncomingPodsModal({
                             ? styles.tripListEmpty
                             : styles.tripListContent
                         }
+                        ListFooterComponent={
+                          tripsQuery.hasNextPage ? (
+                            <Pressable
+                              onPress={() => {
+                                void tripsQuery.fetchNextPage();
+                              }}
+                              disabled={tripsQuery.isFetchingNextPage}
+                              style={styles.centeredState}
+                            >
+                              <Text style={styles.emptyTitle}>
+                                {tripsQuery.isFetchingNextPage
+                                  ? "Loading older trips…"
+                                  : "Load older trips"}
+                              </Text>
+                            </Pressable>
+                          ) : null
+                        }
                         ListEmptyComponent={
                           <View style={styles.centeredState}>
                             <View style={styles.emptyGlyph}>
@@ -971,22 +1026,26 @@ export function LogIncomingPodsModal({
                               />
                             </View>
                             <Text style={styles.emptyTitle}>
-                              {tab === "pending"
-                                ? "No pending PODs"
-                                : tab === "completed"
-                                  ? "No completed trips"
-                                  : tab === "not_completed"
-                                    ? "No trips in progress"
-                                    : `No trips for this ${partyNoun}`}
+                              {tripsQuery.hasNextPage
+                                ? "Older trips are still on the server"
+                                : tab === "pending"
+                                  ? "No pending PODs"
+                                  : tab === "completed"
+                                    ? "No completed trips"
+                                    : tab === "not_completed"
+                                      ? "No trips in progress"
+                                      : `No trips for this ${partyNoun}`}
                             </Text>
                             <Text style={styles.emptySub}>
-                              {tab === "pending"
-                                ? "Everything from this party is already marked received."
-                                : tab === "completed"
-                                  ? "None of this party's trips are marked completed yet."
-                                  : tab === "not_completed"
-                                    ? "All trips for this party are completed."
-                                    : `No trips were operated by this ${partyNoun}.`}
+                              {tripsQuery.hasNextPage
+                                ? "This page has nothing for the current filter. The next page is still available."
+                                : tab === "pending"
+                                  ? "Everything from this party is already marked received."
+                                  : tab === "completed"
+                                    ? "None of this party's trips are marked completed yet."
+                                    : tab === "not_completed"
+                                      ? "All trips for this party are completed."
+                                      : `No trips were operated by this ${partyNoun}.`}
                             </Text>
                           </View>
                         }

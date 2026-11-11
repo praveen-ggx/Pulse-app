@@ -139,6 +139,7 @@ describe("buildEwayBillStripRows", () => {
         previewUri: null,
         previewFileName: null,
         previewMime: null,
+        documentId: null,
         reviewStatus: null,
         rejectionReason: null,
       },
@@ -297,6 +298,7 @@ describe("buildEwayBillStripRows", () => {
             type: "PDF",
             storagePath: "trip-1/eway_bill/bill.pdf",
             fileName: "bill.pdf",
+            documentId: "doc-bill",
           },
         ],
       },
@@ -306,6 +308,7 @@ describe("buildEwayBillStripRows", () => {
       previewPath: "trip-1/eway_bill/bill.pdf",
       previewFileName: "bill.pdf",
       previewMime: "PDF",
+      documentId: "doc-bill",
     });
   });
 });

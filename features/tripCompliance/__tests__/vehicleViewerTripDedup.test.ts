@@ -136,13 +136,13 @@ describe("fetchVehicleDocumentsForTrips — vault RPC", () => {
     expect(byTrip.get("t1")?.vehicleDocuments).toEqual([]);
   });
 
-  it("plate fallback: one vehicles read scoped to the viewer org, only for vehicle-less trips", async () => {
+  it("plate fallback: one vehicles read by plate number, only for vehicle-less trips", async () => {
     mockOrgVehicles = [{ id: "own-1", organization_id: "viewer-org", vehicle_number: "KA05ZZ9999", documents: RC }];
     const trips = [trip("t1", { vehicle_display_number: "KA05ZZ9999", owner_vehicle_id: "ov-1" })];
     const byTrip = await fetchVehicleDocumentsForTrips(trips, "viewer-org");
     expect(ops("get_compliance_vehicle_vault_for_trips")).toHaveLength(0);
     expect(ops("vehicles")).toHaveLength(1);
-    expect(ops("vehicles")[0].filters).toEqual(["organization_id=viewer-org"]);
+    expect(ops("vehicles")[0].filters).toEqual(["vehicle_number in 1"]);
     expect(mockOps.some((op) => op.filters.some((f) => f.includes("ov-1")))).toBe(false);
     expect(byTrip.get("t1")?.vaultVehicleId).toBe("own-1");
   });

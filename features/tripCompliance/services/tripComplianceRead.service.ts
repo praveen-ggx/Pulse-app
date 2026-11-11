@@ -736,10 +736,13 @@ async function fetchVehicleVaultDocumentsForTrips(
 
   const missingByNumber = tripsNeedingVaultPlateFallback(trips, resolvedKeys);
   if (missingByNumber.length > 0) {
+    const plateNumbers = missingByNumber
+      .map((t) => t.vehicle_display_number?.trim())
+      .filter((n): n is string => Boolean(n));
     const { data, error } = await supabase()
       .from("vehicles")
       .select("id, vehicle_number, documents")
-      .eq("organization_id", viewerOrgId);
+      .in("vehicle_number", plateNumbers);
     if (error && !isMissingColumnOrRelation(error)) throw new Error(error.message);
     const byNumber = new Map<string, { id: string; documents: VehicleDocuments | null }>();
     for (const row of data ?? []) {

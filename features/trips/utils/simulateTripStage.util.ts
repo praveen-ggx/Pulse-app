@@ -468,6 +468,7 @@ export function revokeLastFromDeliveredRequiresOwner(
   return DELIVERED_STAGE_STATUSES.has(s);
 }
 
+
 /** @deprecated Use isUnrestrictedPickupSimStage / showsSimCompletionPicker. */
 export function isManualSimCompletionStage(
   targetStatus: string | null | undefined,

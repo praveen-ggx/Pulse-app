@@ -34,6 +34,8 @@ export type EwayBillStripRow = {
   previewUri?: string | null;
   previewFileName?: string | null;
   previewMime?: string | null;
+  /** trip_documents id of the uploaded file this row shows. */
+  documentId?: string | null;
   /** Compliance review state of the e-way bill document: pending / verified / rejected. */
   reviewStatus?: string | null;
   rejectionReason?: string | null;
@@ -60,6 +62,7 @@ const EMPTY_STRIP_ROW: EwayBillStripRow = {
   previewUri: null,
   previewFileName: null,
   previewMime: null,
+  documentId: null,
 };
 
 export function ewayBillFieldsStoragePath(tripId: string): string {
@@ -296,6 +299,7 @@ export function buildEwayBillStripRows(params: {
       previewUri?: string | null;
       fileName?: string | null;
       type?: string | null;
+      documentId?: string | null;
     },
   ): EwayBillStripRow => ({
     id,
@@ -313,18 +317,19 @@ export function buildEwayBillStripRows(params: {
     previewUri: fileLog?.previewUri ?? null,
     previewFileName: fileLog?.fileName ?? null,
     previewMime: fileLog?.type ?? null,
+    documentId: fileLog?.documentId ?? null,
     ...review,
   });
 
   if (entries.length > 0) {
     const entryRows = entries.map((fields, index) =>
-      toRow(
-        fields,
-        index,
-        files[index]?.id ?? `${baseId}-entry-${index}`,
-        !!files[index] || slotPreviewable,
-        files[index],
-      ),
+        toRow(
+          fields,
+          index,
+          files[index]?.id ?? `${baseId}-entry-${index}`,
+          !!files[index] || slotPreviewable,
+          files[index],
+        ),
     );
     // Files uploaded beyond the saved entries still get their own row.
     const extraRows = files

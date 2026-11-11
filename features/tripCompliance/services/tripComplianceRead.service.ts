@@ -736,9 +736,16 @@ async function fetchVehicleVaultDocumentsForTrips(
 
   const missingByNumber = tripsNeedingVaultPlateFallback(trips, resolvedKeys);
   if (missingByNumber.length > 0) {
-    const plateNumbers = missingByNumber
-      .map((t) => t.vehicle_display_number?.trim())
-      .filter((n): n is string => Boolean(n));
+    // Exact-match filter: send the typed plate and its canonical form, so
+    // "KA 05 AB 1234" still finds a vehicle stored as "KA05AB1234".
+    const plateNumbers = [
+      ...new Set(
+        missingByNumber.flatMap((t) => [
+          t.vehicle_display_number?.trim() ?? "",
+          normalizeVaultVehicleNumber(t.vehicle_display_number),
+        ]),
+      ),
+    ].filter(Boolean);
     const { data, error } = await supabase()
       .from("vehicles")
       .select("id, vehicle_number, documents")

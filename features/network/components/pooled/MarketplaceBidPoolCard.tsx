@@ -1,7 +1,8 @@
 /**
- * Marketplace Loads → My Bids pooled card. Same chrome as NetworkBidPoolCard /
- * NetworkLoadPoolCard: anonymous lane, status pill, your rate — no shipper
- * name, avatar, or indent id (those stay on Awarded after fee unlock).
+ * Marketplace Loads → My Bids pooled card. Same chrome as NetworkBidPoolCard:
+ * anonymous lane, Vehicle / Tonnage / Pickup facts, your rate, footer CTA.
+ * No shipper name, avatar, or indent id — those appear only on the awarded
+ * card once the Marketplace fee is settled (allocation).
  */
 import Theme from "@/constants/Theme";
 import {
@@ -13,11 +14,12 @@ import {
   pickupWindow,
   plural,
   rateRange,
+  vehicleTonnage,
 } from "@/features/network/components/pooled/NetworkLoadPoolCard";
 import type { MarketplaceBidPool } from "@/features/network/utils/marketplaceBidPools.util";
 import type { MyOrgMarketBidStatus } from "@/features/network/services/findLoadsForOrg.service";
 import { Layers } from "lucide-react-native";
-import { Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 
 const STATUS_TONE: Record<
   MyOrgMarketBidStatus,
@@ -30,12 +32,18 @@ const STATUS_TONE: Record<
   superseded: { bg: Theme.surface, fg: Theme.textMuted, label: "SUPERSEDED" },
 };
 
-export function MarketplaceBidPoolCard({ pool }: { pool: MarketplaceBidPool }) {
+export function MarketplaceBidPoolCard({
+  pool,
+  onReviseBid,
+}: {
+  pool: MarketplaceBidPool;
+  /** Shown only for an all-pending pool whose Marketplace pool is known. */
+  onReviseBid?: () => void;
+}) {
   const { width } = useWindowDimensions();
   const isDesktop = Platform.OS === "web" && width >= 1024;
   const count = pool.members.length;
   const loadsLabel = plural(count, "load");
-  const commodity = titleCaseWord(pool.loadType) || "—";
   const window = pickupWindow(pool.earliestPickup, pool.latestPickup);
   const rate = rateRange(
     pool.rateMin > 0 ? pool.rateMin : null,
@@ -44,16 +52,26 @@ export function MarketplaceBidPoolCard({ pool }: { pool: MarketplaceBidPool }) {
   const tone = pool.uniformStatus
     ? STATUS_TONE[pool.uniformStatus]
     : { bg: Theme.surface, fg: Theme.textSecondary, label: "MIXED" };
-  const facts = [
-    { label: "Commodity", value: commodity },
-    { label: "Loads", value: String(count) },
-    { label: "Pickup", value: window ?? "—" },
-  ];
+  const vehicle = titleCaseWord(pool.vehicleType);
+  const commodity = titleCaseWord(pool.loadType);
+  const tonnage = vehicleTonnage(pool.weightKgMin, pool.weightKgMax);
+  const facts = vehicle
+    ? [
+        { label: "Vehicle", value: vehicle },
+        { label: "Tonnage", value: tonnage ?? "—" },
+        { label: "Pickup", value: window ?? "—" },
+      ]
+    : [
+        { label: "Commodity", value: commodity || "—" },
+        { label: "Tonnage", value: tonnage ?? "—" },
+        { label: "Pickup", value: window ?? "—" },
+      ];
   const pendingCount = pool.members.filter((m) => m.status === "pending").length;
   const footerLine =
     pool.uniformStatus === "pending"
       ? plural(pendingCount, "pending")
       : tone.label.toLowerCase();
+  const canRevise = Boolean(onReviseBid) && pool.uniformStatus === "pending";
 
   return (
     <View
@@ -64,7 +82,7 @@ export function MarketplaceBidPoolCard({ pool }: { pool: MarketplaceBidPool }) {
       <View style={styles.top}>
         <View style={styles.tag}>
           <Layers size={12} color={Theme.primary} strokeWidth={2.4} />
-          <Text style={styles.tagText}>POOLED</Text>
+          <Text style={styles.tagText}>MARKETPLACE POOL</Text>
           <View style={styles.countPill}>
             <Text style={styles.countPillText}>{loadsLabel.toUpperCase()}</Text>
           </View>
@@ -114,6 +132,16 @@ export function MarketplaceBidPoolCard({ pool }: { pool: MarketplaceBidPool }) {
             {footerLine}
           </Text>
         </View>
+        {canRevise ? (
+          <Pressable
+            onPress={onReviseBid}
+            style={styles.cta}
+            accessibilityRole="button"
+            accessibilityLabel={`Revise bid, ${loadsLabel}`}
+          >
+            <Text style={styles.ctaText}>Revise bid</Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );

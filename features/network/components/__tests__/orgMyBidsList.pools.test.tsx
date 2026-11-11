@@ -1,9 +1,10 @@
 import { OrgMyBidsList } from "@/features/network/components/OrgMyBidsList";
 import type { MyOrgMarketBidRow } from "@/features/network/services/findLoadsForOrg.service";
-import { render, screen } from "@testing-library/react-native";
+import { fireEvent, render, screen } from "@testing-library/react-native";
 
+const mockPush = jest.fn();
 jest.mock("react-native", () => jest.requireActual("react-native"));
-jest.mock("expo-router", () => ({ useRouter: () => ({ push: jest.fn() }) }));
+jest.mock("expo-router", () => ({ useRouter: () => ({ push: mockPush }) }));
 jest.mock("@/features/network/utils/storyDisplay", () => ({
   ...jest.requireActual("@/features/network/utils/storyDisplay"),
   formatStoryDate: (iso: string) => iso.slice(0, 10),
@@ -89,7 +90,7 @@ describe("OrgMyBidsList pooled Pending / Not selected", () => {
     expect(screen.queryByText("****1234")).toBeNull();
   });
 
-  it("keeps awarded bids on the identified card with Pay / Assign", () => {
+  it("hides the shipper on awarded bids until the fee is paid (allocation)", () => {
     render(
       <OrgMyBidsList
         isLoading={false}
@@ -103,15 +104,47 @@ describe("OrgMyBidsList pooled Pending / Not selected", () => {
     );
 
     expect(screen.getByText("AWARDED · 2")).toBeTruthy();
-    expect(screen.getByText("Shipper A1")).toBeTruthy();
-    expect(screen.getByText("IND-A1")).toBeTruthy();
-    expect(screen.getByText("Shipper A2")).toBeTruthy();
+    // Awarded but unpaid: lane only + Pay fee, no identity.
+    expect(screen.queryByText("Shipper A1")).toBeNull();
+    expect(screen.queryByText("IND-A1")).toBeNull();
+    expect(screen.getAllByTestId("marketplace-bid-lane-tag")).toHaveLength(1);
     expect(screen.getByText("Pay fee")).toBeTruthy();
+    // Awarded and paid: identity revealed + Assign.
+    expect(screen.getByText("Shipper A2")).toBeTruthy();
+    expect(screen.getByText("IND-A2")).toBeTruthy();
     expect(screen.getByLabelText("Assign vehicle")).toBeTruthy();
+    // Masked phone shows only on the paid card.
+    expect(screen.getAllByText("****1234")).toHaveLength(1);
 
     // Pending bid alongside still stays anonymous.
     expect(screen.queryByText("Shipper P1")).toBeNull();
     expect(screen.queryByText("IND-P1")).toBeNull();
     expect(screen.getAllByTestId(/^marketplace-bid-pool-/)).toHaveLength(1);
+  });
+
+  it("pools by vehicle type and opens the Marketplace pool to revise", () => {
+    mockPush.mockClear();
+    render(
+      <OrgMyBidsList
+        isLoading={false}
+        bids={[
+          bid({ id: "p1", vehicle_type: "Taurus 17ft", weight: 9000 }),
+          bid({ id: "p2", vehicle_type: "Taurus 17ft", weight: 9000 }),
+          bid({ id: "p3", vehicle_type: "Pickup", weight: 1000 }),
+        ]}
+      />,
+    );
+    expect(screen.getAllByTestId(/^marketplace-bid-pool-/)).toHaveLength(2);
+    expect(screen.getByText("Taurus 17ft")).toBeTruthy();
+    const revise = screen.getAllByLabelText(/^Revise bid/);
+    expect(revise).toHaveLength(2);
+    fireEvent.press(revise[0]!);
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    expect(String(mockPush.mock.calls[0]![0])).toContain("Taurus");
+  });
+
+  it("omits Revise bid when the server has not sent vehicle_type yet", () => {
+    render(<OrgMyBidsList isLoading={false} bids={[bid({ id: "p1" })]} />);
+    expect(screen.queryByLabelText(/^Revise bid/)).toBeNull();
   });
 });

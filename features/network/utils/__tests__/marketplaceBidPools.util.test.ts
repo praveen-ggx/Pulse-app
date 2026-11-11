@@ -58,4 +58,27 @@ describe("buildMarketplaceBidPools", () => {
     expect(pool).not.toHaveProperty("owner_organization_name");
     expect(pool).not.toHaveProperty("indent_number");
   });
+
+  it("keys on vehicle type when present and tracks tonnage + revise key", () => {
+    const pools = buildMarketplaceBidPools([
+      bid({ id: "a", vehicle_type: "Taurus 17ft", weight: 9000, load_type: "Steel" }),
+      bid({ id: "b", vehicle_type: "taurus 17ft ", weight: 12000, load_type: "Cement" }),
+    ]);
+    expect(pools).toHaveLength(1);
+    expect(pools[0]).toMatchObject({
+      vehicleType: "Taurus 17ft",
+      weightKgMin: 9000,
+      weightKgMax: 12000,
+      reviseKey: {
+        pickup: "Periyapalayam, Tamil Nadu",
+        drop: "Poonamallee, Tamil Nadu",
+        vehicleType: "Taurus 17ft",
+      },
+    });
+  });
+
+  it("has no revise key without vehicle type", () => {
+    const [pool] = buildMarketplaceBidPools([bid({ id: "a" })]);
+    expect(pool!.reviseKey).toBeNull();
+  });
 });

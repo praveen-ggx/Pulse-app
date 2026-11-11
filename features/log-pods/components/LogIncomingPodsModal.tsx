@@ -43,9 +43,12 @@ import {
   countTripsByCompletion,
   tripIsDeliveredStatus,
 } from "@/features/trips/services/tripDocumentLrPod.service";
-import { shouldAutoLoadOlderPodPage } from "@/features/trips/utils/tripKeysetCursor.util";
+import {
+  shouldAutoLoadOlderPodPage,
+  TRIP_LIST_EMPTY_PAGE_HOPS,
+} from "@/features/trips/utils/tripKeysetCursor.util";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -216,37 +219,50 @@ export function LogIncomingPodsModal({
     () => filterLogPodTripsForTab(partyTrips, tab),
     [partyTrips, tab],
   );
-  const podPageHops = useRef(0);
   const partyKey = selectedParty?.id ?? "";
   const podHasNextPage = Boolean(tripsQuery.hasNextPage);
-  const podFetching = tripsQuery.isFetching;
-  const podFetchingNextPage = tripsQuery.isFetchingNextPage;
   const podPageFailed = tripsQuery.isError || tripsQuery.isFetchNextPageError;
   const fetchPodNextPage = tripsQuery.fetchNextPage;
-  useEffect(() => {
-    podPageHops.current = 0;
-  }, [orgId, tab, partyKey, partyKind]);
   useEffect(() => {
     if (
       !shouldAutoLoadOlderPodPage({
         hasParty: selectedParty != null,
         visibleCount: visibleTrips.length,
         hasNextPage: podHasNextPage,
-        busy: podFetching || podFetchingNextPage,
+        busy: false,
         failed: podPageFailed,
-        hops: podPageHops.current,
+        hops: 0,
       })
     ) {
       return;
     }
-    podPageHops.current += 1;
-    void fetchPodNextPage();
+    const party = selectedParty;
+    if (party == null) return;
+    let cancelled = false;
+    const run = async () => {
+      let hops = 0;
+      let hasNext = true;
+      while (!cancelled && hasNext && hops < TRIP_LIST_EMPTY_PAGE_HOPS) {
+        hops += 1;
+        const result = await fetchPodNextPage();
+        if (cancelled || result.isError) return;
+        hasNext = Boolean(result.hasNextPage);
+        const loaded = (result.data?.pages ?? []).flatMap((page) => page.trips);
+        const partyRows =
+          partyKind === "driver"
+            ? driverOperatedLogPodTrips(loaded, party)
+            : supplierOperatedLogPodTrips(loaded, party);
+        if (filterLogPodTripsForTab(partyRows, tab).length > 0 || !hasNext) return;
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
   }, [
     fetchPodNextPage,
     partyKey,
     partyKind,
-    podFetching,
-    podFetchingNextPage,
     podHasNextPage,
     podPageFailed,
     selectedParty,

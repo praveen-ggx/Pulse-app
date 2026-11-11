@@ -3780,7 +3780,7 @@ type TripListContentProps = {
   onLoadOlderTrips?: () => void;
 };
 
-function TripListContent({
+export function TripListContent({
   tabBarScrollProps,
   isDesktopTripTable,
   clientTrips,

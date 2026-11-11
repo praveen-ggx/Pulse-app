@@ -34,7 +34,7 @@ A full replay of the repository's migrations from an empty schema **fails at mig
 
 ## Rollout order
 
-1. Rehearse on a disposable copy of the target schema with `db:push-set` (CLI 2.95.4): apply the six files in order, then run
+1. Rehearse on a disposable copy of the target schema with `db:push-set` (CLI 2.121.0; 2.95.4 no longer works with the list parser): apply the six files in order, then run
    `supabase/tests/invoice_payment_tracking.sql`, `invoice_finance_controls.sql`, `invoice_credit_refunds.sql`,
    `invoice_delivery_dashboard.sql`, `invoice_finance_concurrency.sh`, `invoice_finance_legacy_audit.sh`. All must pass.
 2. Run the legacy audit read-only on the target (see "Historical receipts" below) and keep its output.

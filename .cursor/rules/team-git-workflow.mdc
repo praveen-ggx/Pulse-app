@@ -137,7 +137,7 @@ Nothing is deleted before it is saved. Stop and report on any error.
    - Create `supabase/release-sets/prod-YYYY-MM-DD.versions`: exact versions in apply order, each preceded by `# sha256 <hash>  <file>`. Excluded or frozen files are named by file name only.
    - Add a pinning Jest test like `supabase/migrations/__tests__/prodCatchupReleaseSet.test.ts` (list, order, checksums, exclusions).
 6. Run every check from step (B) on the release branch.
-7. Read-only prod dry-run of the release set (Claude, separate worktree, CLI 2.95.4, never `supabase link` prod). Save the output.
+7. Read-only prod dry-run of the release set (Claude, separate worktree, CLI 2.121.0 — 2.95.4 lacks `migration list --output-format` — never `supabase link` prod). Save the output.
 8. Commit (with changes file), then `git push vasanth release/YYYY-MM-DD` and
    `gh pr create --repo Vasanthgogox/Pulse-app --base V1.0.1 --head release/YYYY-MM-DD`.
    The PR body holds: release notes, the migration list and release-set name, the dry-run result, checks, and what was not tested.

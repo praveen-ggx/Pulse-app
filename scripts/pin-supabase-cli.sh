@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Print the absolute path of a pinned supabase CLI from the user npm cache.
-# Usage: SUPABASE_CLI="$(bash scripts/pin-supabase-cli.sh 2.95.4)"
+# Usage: SUPABASE_CLI="$(bash scripts/pin-supabase-cli.sh 2.121.0)"
+# db-push-set needs >= the version that supports `migration list --output-format`
+# (scripts/lib/migration-release-set.sh, since 076e585b); 2.95.4 fails with
+# "unknown flag: --output-format".
 # Does not print tokens. Forces $HOME/.npm so the path matches `npx supabase@<ver> login`.
 
 set -euo pipefail
 
-ver="${1:-2.95.4}"
+ver="${1:-2.121.0}"
 if [[ ! "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "ERROR: invalid supabase CLI version: $ver" >&2
   exit 2

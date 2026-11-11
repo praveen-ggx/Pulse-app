@@ -1,0 +1,5 @@
+# Marketplace org My Bids: load-owner identity masked until allocation
+# (accepted AND fee paid/not_required); adds vehicle_type/weight; revokes anon.
+# PR #102. One version only. Applied to prod 2026-11-11 ~11:10 UTC via db:push-set (CLI 2.121.0).
+# sha256 47100e9a2fd57e305f33b1b51db6ce048fb29ea17bee0b1887a3742230ba2524  20261111105431_my_org_market_bids_identity_until_allocation.sql
+20261111105431

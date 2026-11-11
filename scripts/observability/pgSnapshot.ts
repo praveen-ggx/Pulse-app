@@ -7,13 +7,30 @@
  * pg_stat_statements scan has already stalled this project
  * (ops.capture_slow_queries, September 2026); each section is limited to
  * sectionTimeoutMs on a dedicated connection, statements are read last, and
- * a second collect() while one is running is skipped.
+ * a second collect() while one is running is skipped. The session timeout is
+ * restored only after the previous value was read and the connection is idle.
+ * A section that is still running is not followed by another query.
  */
 import fs from "fs";
 import path from "path";
 
-/** Per-section server and client bound. Not a cluster configuration change. */
+/** Per-section server bound. Not a cluster configuration change. */
 export const DEFAULT_SECTION_TIMEOUT_MS = 2000;
+
+/**
+ * The client waits slightly longer than statement_timeout so a cancelled
+ * query returns its error and frees the connection before the next section.
+ */
+const CLIENT_GRACE_MS = 250;
+
+/** Values PostgreSQL 17 actually returns from current_setting('statement_timeout'). */
+const TIMEOUT_VALUE = /^[0-9]+(?:\.[0-9]+)?(?:us|ms|s|min|h|d)?$/;
+
+export type Db = {
+  query<T extends Record<string, unknown>>(sql: string): Promise<T[]>;
+  /** Drop a session that still has a query in flight or could not be restored. */
+  discard?: () => Promise<void>;
+};
 
 export const SNAPSHOT_SQL = {
   postmaster: "SELECT pg_postmaster_start_time() AS postmaster_start",
@@ -88,10 +105,6 @@ const COUNTER_KEYS = [
   "total_exec_time",
 ] as const;
 
-export type Db = {
-  query<T extends Record<string, unknown>>(sql: string): Promise<T[]>;
-};
-
 export type TableStats = {
   schemaname: string;
   relname: string;
@@ -131,6 +144,8 @@ export type Snapshot = {
   activity: ActivityGroup[];
   missing: string[];
   errors: string[];
+  /** True when a query was still running, so later sections were not sent. */
+  connectionBusy?: boolean;
 };
 
 export type CounterDelta = {
@@ -151,7 +166,22 @@ export type SnapshotDelta = {
   statements: Array<{ queryid: string; deltas: CounterDelta[] }>;
 };
 
-type Section<T> = { value: T; error: string | null };
+type Section<T> = { value: T; error: string | null; abandoned: boolean };
+
+class AbandonedQuery extends Error {
+  constructor(timeoutMs: number) {
+    super(`timed out after ${timeoutMs}ms`);
+    this.name = "AbandonedQuery";
+  }
+}
+
+function redactError(message: string): string {
+  const oneLine = message.replace(/\s+/g, " ").slice(0, 180);
+  if (/postgres(ql)?:\/\//i.test(oneLine) || /password|secret|credential/i.test(oneLine) || /\b(select|insert|update|delete)\b/i.test(oneLine)) {
+    return "database error (details omitted)";
+  }
+  return oneLine;
+}
 
 function num(value: unknown): number {
   const n = typeof value === "number" ? value : Number(value);
@@ -305,10 +335,10 @@ export function diffSnapshots(previous: Snapshot, current: Snapshot): SnapshotDe
   };
 }
 
-function withTimeout<T>(work: Promise<T>, timeoutMs: number, name: string): Promise<T> {
+function withTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
   if (timeoutMs <= 0) return work;
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${name}: timed out after ${timeoutMs}ms`)), timeoutMs);
+    const timer = setTimeout(() => reject(new AbandonedQuery(timeoutMs)), timeoutMs);
     work.then(
       (value) => {
         clearTimeout(timer);
@@ -330,11 +360,11 @@ async function section<T>(
   timeoutMs: number,
 ): Promise<Section<T | null>> {
   try {
-    const rows = await withTimeout(db.query<Record<string, unknown>>(sql), timeoutMs, name);
-    return { value: map(rows), error: null };
+    const rows = await withTimeout(db.query<Record<string, unknown>>(sql), timeoutMs);
+    return { value: map(rows), error: null, abandoned: false };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return { value: null, error: `${name}: ${message}` };
+    return { value: null, error: `${name}: ${redactError(message)}`, abandoned: error instanceof AbandonedQuery };
   }
 }
 
@@ -390,17 +420,39 @@ export async function collectOnce(
   if (!Number.isInteger(timeoutMs) || timeoutMs < 0) {
     throw new Error("section timeout must be a non-negative integer");
   }
-  // Sequential, statements last. A slow statements view cannot start before
-  // the cheap counters are collected, and it cannot run beside them.
-  const postmaster = await section(db, "postmaster", SNAPSHOT_SQL.postmaster, (rows) => stamp(rows[0]?.postmaster_start), timeoutMs);
-  const tables = await section(db, "tables", SNAPSHOT_SQL.tables, (rows) => rows.map(mapTable), timeoutMs);
-  const bgwriter = await section(db, "bgwriter", SNAPSHOT_SQL.bgwriter, (rows) => mapView(rows[0]), timeoutMs);
-  const checkpointer = await section(db, "checkpointer", SNAPSHOT_SQL.checkpointer, (rows) => mapView(rows[0]), timeoutMs);
-  const database = await section(db, "database", SNAPSHOT_SQL.database, (rows) => mapView(rows[0]), timeoutMs);
-  const activity = await section(db, "activity", SNAPSHOT_SQL.activity, (rows) => rows.map(mapActivity), timeoutMs);
-  const statements = await section(db, "statements", SNAPSHOT_SQL.statements, (rows) => rows.map(mapStatement), timeoutMs);
-
-  const parts = { postmaster, tables, bgwriter, checkpointer, database, statements, activity };
+  // Sequential, statements last. If one query is still running, do not send
+  // the next one on the same connection.
+  const steps: Array<[string, string, (rows: Record<string, unknown>[]) => unknown]> = [
+    ["postmaster", SNAPSHOT_SQL.postmaster, (rows) => stamp(rows[0]?.postmaster_start)],
+    ["tables", SNAPSHOT_SQL.tables, (rows) => rows.map(mapTable)],
+    ["bgwriter", SNAPSHOT_SQL.bgwriter, (rows) => mapView(rows[0])],
+    ["checkpointer", SNAPSHOT_SQL.checkpointer, (rows) => mapView(rows[0])],
+    ["database", SNAPSHOT_SQL.database, (rows) => mapView(rows[0])],
+    ["activity", SNAPSHOT_SQL.activity, (rows) => rows.map(mapActivity)],
+    ["statements", SNAPSHOT_SQL.statements, (rows) => rows.map(mapStatement)],
+  ];
+  const parts: Record<string, Section<unknown>> = {};
+  let connectionBusy = false;
+  for (const [name, sql, map] of steps) {
+    if (connectionBusy) {
+      parts[name] = {
+        value: null,
+        error: `${name}: not attempted because the connection was still busy`,
+        abandoned: false,
+      };
+      continue;
+    }
+    const part = await section(db, name, sql, map, timeoutMs);
+    parts[name] = part;
+    connectionBusy = part.abandoned;
+  }
+  const postmaster = parts.postmaster;
+  const tables = parts.tables;
+  const bgwriter = parts.bgwriter;
+  const checkpointer = parts.checkpointer;
+  const database = parts.database;
+  const activity = parts.activity;
+  const statements = parts.statements;
   const errors = Object.values(parts)
     .map((part) => part.error)
     .filter((error): error is string => error != null);
@@ -410,15 +462,16 @@ export async function collectOnce(
 
   return {
     collectedAt,
-    postmasterStart: postmaster.value,
-    tables: tables.value ?? [],
-    bgwriter: bgwriter.value,
-    checkpointer: checkpointer.value,
-    database: database.value,
-    statements: statements.value ?? [],
-    activity: activity.value ?? [],
+    postmasterStart: (postmaster.value as string | null) ?? null,
+    tables: (tables.value as TableStats[] | null) ?? [],
+    bgwriter: bgwriter.value as Snapshot["bgwriter"],
+    checkpointer: checkpointer.value as Snapshot["checkpointer"],
+    database: database.value as Snapshot["database"],
+    statements: (statements.value as StatementStats[] | null) ?? [],
+    activity: (activity.value as ActivityGroup[] | null) ?? [],
     missing,
     errors,
+    connectionBusy,
   };
 }
 
@@ -429,46 +482,131 @@ export function serializeSnapshot(snapshot: Snapshot, previous: Snapshot | null)
 
 /** Append one JSON line to a file outside PostgreSQL. The path must be absolute. */
 export function appendSnapshotFile(filePath: string, snapshot: Snapshot, previous: Snapshot | null): void {
-  if (!path.isAbsolute(filePath)) {
-    throw new Error("snapshot file path must be absolute so it is not stored in the database");
+  if (filePath.includes("\0") || filePath.split(/[\\/]/).includes("..") || !path.isAbsolute(filePath)) {
+    throw new Error("snapshot file path must be an absolute path without ..");
   }
-  fs.appendFileSync(filePath, serializeSnapshot(snapshot, previous), "utf8");
+  const fd = fs.openSync(filePath, "a", 0o600);
+  try {
+    fs.writeSync(fd, serializeSnapshot(snapshot, previous));
+    fs.fchmodSync(fd, 0o600);
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 export type SampleResult =
-  | { skipped: false; snapshot: Snapshot }
+  | { skipped: false; snapshot: Snapshot; sessionUsable: boolean }
   | { skipped: true; reason: "overlap" };
+
+const TIMEOUT_SQL = "SELECT current_setting('statement_timeout') AS statement_timeout";
+
+function timeoutSql(value: string): string {
+  return `SELECT set_config('statement_timeout', '${value}', false) AS statement_timeout`;
+}
+
+function blankSnapshot(collectedAt: string, error: string, connectionBusy: boolean): Snapshot {
+  return {
+    collectedAt,
+    postmasterStart: null,
+    tables: [],
+    bgwriter: null,
+    checkpointer: null,
+    database: null,
+    statements: [],
+    activity: [],
+    missing: ["postmaster", "tables", "bgwriter", "checkpointer", "database", "activity", "statements"],
+    errors: [error],
+    connectionBusy,
+  };
+}
 
 /**
  * One dedicated connection, one collect at a time. Sets statement_timeout
- * for that session only and restores the previous value. Does not start a timer.
+ * for that session only and restores the previous value when the connection
+ * is idle. Does not start a timer. Discard the session when sessionUsable
+ * is false; the role needs pg_monitor, not the anon or authenticated API role.
  */
 export function createSnapshotSampler(db: Db, options?: { timeoutMs?: number }) {
   const timeoutMs = options?.timeoutMs ?? DEFAULT_SECTION_TIMEOUT_MS;
   if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
     throw new Error("section timeout must be a positive integer");
   }
+  const clientTimeoutMs = timeoutMs + CLIENT_GRACE_MS;
   let running = false;
   return {
-    async collect(collectedAt?: string): Promise<SampleResult> {
+    async collect(collectedAt = new Date().toISOString()): Promise<SampleResult> {
       if (running) return { skipped: true, reason: "overlap" };
       running = true;
-      let previousTimeout = "0";
+      let armed = false;
+      let previousTimeout: string | null = null;
+      const result: { skipped: false; snapshot: Snapshot; sessionUsable: boolean } = {
+        skipped: false,
+        snapshot: blankSnapshot(collectedAt, "statement_timeout: not started", false),
+        sessionUsable: true,
+      };
       try {
-        const current = await db.query<{ statement_timeout: string }>(
-          "SELECT current_setting('statement_timeout') AS statement_timeout",
+        let reported = "";
+        try {
+          const current = await withTimeout(db.query<{ statement_timeout: string }>(TIMEOUT_SQL), clientTimeoutMs);
+          reported = String(current[0]?.statement_timeout ?? "");
+        } catch (error) {
+          const abandoned = error instanceof AbandonedQuery;
+          result.snapshot = blankSnapshot(
+            collectedAt,
+            `statement_timeout: ${redactError(error instanceof Error ? error.message : String(error))}`,
+            abandoned,
+          );
+          result.sessionUsable = !abandoned;
+          return result;
+        }
+        if (!TIMEOUT_VALUE.test(reported)) {
+          const snapshot = await collectOnce(db, collectedAt, clientTimeoutMs);
+          snapshot.errors.push("statement_timeout: left unchanged because the current value cannot be restored safely");
+          result.snapshot = snapshot;
+          result.sessionUsable = !snapshot.connectionBusy;
+          return result;
+        }
+        previousTimeout = reported;
+        await withTimeout(db.query(timeoutSql(`${timeoutMs}ms`)), clientTimeoutMs);
+        armed = true;
+        const snapshot = await collectOnce(db, collectedAt, clientTimeoutMs);
+        result.snapshot = snapshot;
+        result.sessionUsable = !snapshot.connectionBusy;
+        return result;
+      } catch (error) {
+        const abandoned = error instanceof AbandonedQuery;
+        result.snapshot = blankSnapshot(
+          collectedAt,
+          `statement_timeout: ${redactError(error instanceof Error ? error.message : String(error))}`,
+          abandoned || armed,
         );
-        const reported = String(current[0]?.statement_timeout ?? "0");
-        previousTimeout = /^[0-9]+(?:ms|s|min|h)?$/.test(reported) ? reported : "0";
-        await db.query(`SELECT set_config('statement_timeout', '${timeoutMs}ms', false) AS statement_timeout`);
-        const snapshot = await collectOnce(db, collectedAt ?? new Date().toISOString(), timeoutMs);
-        return { skipped: false, snapshot };
+        result.sessionUsable = false;
+        return result;
       } finally {
         try {
-          const restored = previousTimeout.replace(/'/g, "''");
-          await db.query(`SELECT set_config('statement_timeout', '${restored}', false) AS statement_timeout`);
-        } catch {
-          // The session is already unusable. Do not start another collect to retry it.
+          if (result.snapshot.connectionBusy || !result.sessionUsable) {
+            result.sessionUsable = false;
+            if (db.discard) {
+              try {
+                await withTimeout(db.discard(), clientTimeoutMs);
+              } catch {
+                // The session is already being dropped.
+              }
+            }
+          } else if (armed && previousTimeout) {
+            try {
+              await withTimeout(db.query(timeoutSql(previousTimeout)), clientTimeoutMs);
+            } catch {
+              result.sessionUsable = false;
+              if (db.discard) {
+                try {
+                  await withTimeout(db.discard(), clientTimeoutMs);
+                } catch {
+                  // The session is already being dropped.
+                }
+              }
+            }
+          }
         } finally {
           running = false;
         }

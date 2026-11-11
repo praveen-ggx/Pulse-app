@@ -113,4 +113,8 @@ not schedule itself. A previous in-database `pg_stat_statements` scan took
 `statement_timeout` on its own connection, and skips a second collect while
 one is running. Snapshots append to an absolute file outside PostgreSQL.
 Quiet-database timing is recorded with the pull request. It is not a
-production measurement.
+production measurement. The sampler restores `statement_timeout` only when
+it successfully read the previous value and the connection is idle. A section
+that does not return is not followed by another query; the caller discards
+that session. The role needs `pg_monitor`. The anon and authenticated API
+roles cannot read these views, and this pull request does not grant them.

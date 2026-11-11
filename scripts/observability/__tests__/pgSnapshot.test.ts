@@ -239,10 +239,121 @@ describe("pg snapshot collection", () => {
     const snap = snapshot();
     appendSnapshotFile(file, snap, null);
     const stored = fs.readFileSync(file, "utf8");
+    const mode = fs.statSync(file).mode & 0o777;
     fs.rmSync(file, { force: true });
     expect(stored).toContain("\"relname\":\"trips\"");
     expect(stored).not.toContain("document_number");
+    expect(mode).toBe(0o600);
     expect(() => appendSnapshotFile("relative.jsonl", snap, null)).toThrow(/absolute/);
+    expect(() => appendSnapshotFile("/tmp/../etc/passwd", snap, null)).toThrow(/\.\./);
+  });
+
+  it("restores the previous statement_timeout and then accepts another collect", async () => {
+    const sqls: string[] = [];
+    const db: Db = {
+      async query(sql) {
+        sqls.push(sql);
+        if (sql.includes("current_setting")) return [{ statement_timeout: "20s" }];
+        if (sql.includes("set_config")) return [{ statement_timeout: "20s" }];
+        if (sql === SNAPSHOT_SQL.postmaster) return [{ postmaster_start: "2026-10-28T08:00:00.000Z" }];
+        if (sql === SNAPSHOT_SQL.tables) return [];
+        if (sql === SNAPSHOT_SQL.bgwriter) return [{ buffers_clean: 1, maxwritten_clean: 0, buffers_alloc: 1, stats_reset: null }];
+        if (sql === SNAPSHOT_SQL.checkpointer) return [{ num_timed: 1, num_requested: 0, buffers_written: 1, stats_reset: null }];
+        if (sql === SNAPSHOT_SQL.database) return [{ xact_commit: 1, xact_rollback: 0, tup_returned: 0, tup_fetched: 0, tup_inserted: 0, tup_updated: 0, tup_deleted: 0, conflicts: 0, temp_files: 0, temp_bytes: 0, deadlocks: 0, stats_reset: null }];
+        if (sql === SNAPSHOT_SQL.activity) return [];
+        if (sql === SNAPSHOT_SQL.statements) return [];
+        throw new Error(`unexpected sql: ${sql}`);
+      },
+    };
+    const sampler = createSnapshotSampler(db, { timeoutMs: 50 });
+    const first = await sampler.collect("2026-10-28T09:16:00.000Z");
+    const second = await sampler.collect("2026-10-28T09:17:00.000Z");
+    expect(first).toMatchObject({ skipped: false, sessionUsable: true });
+    expect(second).toMatchObject({ skipped: false, sessionUsable: true });
+    const changes = sqls.filter((sql) => sql.includes("set_config"));
+    expect(changes).toEqual([
+      "SELECT set_config('statement_timeout', '50ms', false) AS statement_timeout",
+      "SELECT set_config('statement_timeout', '20s', false) AS statement_timeout",
+      "SELECT set_config('statement_timeout', '50ms', false) AS statement_timeout",
+      "SELECT set_config('statement_timeout', '20s', false) AS statement_timeout",
+    ]);
+  });
+
+  it("does not set statement_timeout to unlimited when the current value cannot be read", async () => {
+    const sqls: string[] = [];
+    const db: Db = {
+      async query(sql) {
+        sqls.push(sql);
+        throw new Error("postgres://role:secret@db.example/postgres password");
+      },
+    };
+    const result = await createSnapshotSampler(db, { timeoutMs: 50 }).collect("2026-10-28T09:16:00.000Z");
+    expect(result).toMatchObject({ skipped: false, sessionUsable: true });
+    if (!result.skipped) {
+      expect(result.snapshot.errors.join("\n")).toBe("statement_timeout: database error (details omitted)");
+      expect(JSON.stringify(result)).not.toMatch(/secret|postgres:\/\//);
+    }
+    expect(sqls.some((sql) => sql.includes("set_config"))).toBe(false);
+  });
+
+  it("discards a busy connection and does not send the restore query", async () => {
+    let discarded = 0;
+    let statementCalls = 0;
+    const sqls: string[] = [];
+    const db: Db = {
+      async query(sql) {
+        sqls.push(sql);
+        if (sql === SNAPSHOT_SQL.statements) {
+          statementCalls += 1;
+          if (statementCalls === 1) return new Promise(() => {});
+          return [];
+        }
+        if (sql.includes("current_setting")) return [{ statement_timeout: "20s" }];
+        if (sql.includes("set_config")) return [{ statement_timeout: "20s" }];
+        if (sql === SNAPSHOT_SQL.postmaster) return [{ postmaster_start: "2026-10-28T08:00:00.000Z" }];
+        if (sql === SNAPSHOT_SQL.tables) return [{ schemaname: "public", relname: "trips", n_tup_ins: 1, n_tup_upd: 1, n_tup_hot_upd: 1, n_tup_del: 0 }];
+        if (sql === SNAPSHOT_SQL.bgwriter) return [{ buffers_clean: 1, maxwritten_clean: 0, buffers_alloc: 1, stats_reset: null }];
+        if (sql === SNAPSHOT_SQL.checkpointer) return [{ num_timed: 1, num_requested: 0, buffers_written: 4, stats_reset: null }];
+        if (sql === SNAPSHOT_SQL.database) return [{ xact_commit: 1, xact_rollback: 0, tup_returned: 0, tup_fetched: 0, tup_inserted: 0, tup_updated: 0, tup_deleted: 0, conflicts: 0, temp_files: 0, temp_bytes: 0, deadlocks: 0, stats_reset: null }];
+        if (sql === SNAPSHOT_SQL.activity) return [];
+        throw new Error(`unexpected sql: ${sql}`);
+      },
+      async discard() {
+        discarded += 1;
+      },
+    };
+    const sampler = createSnapshotSampler(db, { timeoutMs: 40 });
+    const first = await sampler.collect("2026-10-28T09:16:00.000Z");
+    expect(first).toMatchObject({ skipped: false, sessionUsable: false });
+    if (!first.skipped) {
+      expect(first.snapshot.connectionBusy).toBe(true);
+      expect(first.snapshot.tables).toHaveLength(1);
+      expect(first.snapshot.checkpointer?.buffers_written).toBe(4);
+      expect(first.snapshot.missing).toContain("statements");
+    }
+    expect(discarded).toBe(1);
+    expect(sqls.filter((sql) => sql.includes("set_config"))).toEqual([
+      "SELECT set_config('statement_timeout', '40ms', false) AS statement_timeout",
+    ]);
+    const second = await sampler.collect("2026-10-28T09:18:00.000Z");
+    expect(second).toMatchObject({ skipped: false, sessionUsable: true });
+  });
+
+  it("does not query later sections after a section leaves the connection busy", async () => {
+    const seen: string[] = [];
+    const db: Db = {
+      async query(sql) {
+        seen.push(sql);
+        if (sql === SNAPSHOT_SQL.postmaster) return [{ postmaster_start: "2026-10-28T08:00:00.000Z" }];
+        if (sql === SNAPSHOT_SQL.tables) return new Promise(() => {});
+        throw new Error(`should not run: ${sql}`);
+      },
+    };
+    const snap = await collectOnce(db, "2026-10-28T09:16:00.000Z", 20);
+    expect(snap.connectionBusy).toBe(true);
+    expect(snap.postmasterStart).toBe("2026-10-28T08:00:00.000Z");
+    expect(snap.missing).toEqual(["tables", "bgwriter", "checkpointer", "database", "activity", "statements"]);
+    expect(seen).toHaveLength(2);
   });
 
   it("does not schedule itself", () => {

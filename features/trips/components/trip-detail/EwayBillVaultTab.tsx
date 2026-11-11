@@ -22,6 +22,7 @@ import {
   EWAY_BILL_NUMBER_MAX_DIGITS,
   ewayExpiryLabel,
   ewayExpiryTone,
+  isEwayBillMetaPath,
   type EwayBillStripRow,
   type EwayFieldValues,
 } from "@/features/trips/services/ewayBillFields.util";
@@ -77,6 +78,8 @@ type Props = {
   canUpload?: boolean;
   canEdit?: boolean;
   onSave?: (values: EwayFieldValues[]) => Promise<boolean>;
+  /** Delete the uploaded file for this row so a correct bill can be added. */
+  onRemoveDocument?: (row: EwayBillStripRow) => void;
   /** Same notification card on phone and desktop. Pass `table` only for the old grid. */
   variant?: "table" | "feed";
   compact?: boolean;
@@ -392,6 +395,7 @@ export function EwayBillLrStrip({
   canUpload,
   canEdit,
   onSave,
+  onRemoveDocument,
   variant = "feed",
 }: Props) {
   const insets = useSafeAreaInsets();
@@ -530,6 +534,13 @@ export function EwayBillLrStrip({
               expiry ||
               (row.validTill !== "—" ? `Valid till ${row.validTill}` : null) ||
               "Add the e-way number to continue";
+            const canRemoveFile =
+              showEdit &&
+              !!onRemoveDocument &&
+              Boolean(
+                row.documentId ||
+                  (row.previewPath && !isEwayBillMetaPath(row.previewPath)),
+              );
             const helperBlocked = expiryTone === "expired" || expiryTone === "soon";
             return (
               <View key={row.id} style={styles.feedCell}>
@@ -626,6 +637,17 @@ export function EwayBillLrStrip({
                     >
                       <Feather name="edit-2" size={13} color={SHOP.ink} />
                       <Text style={[styles.actionChipLabel, WEB_COPY]}>Edit</Text>
+                    </Pressable>
+                  ) : null}
+                  {canRemoveFile ? (
+                    <Pressable
+                      onPress={() => onRemoveDocument?.(row)}
+                      style={[styles.actionChip, WEB_POINTER]}
+                      accessibilityRole="button"
+                      accessibilityLabel="Remove e-way bill"
+                    >
+                      <Feather name="trash-2" size={13} color={SHOP.ink} />
+                      <Text style={[styles.actionChipLabel, WEB_COPY]}>Remove</Text>
                     </Pressable>
                   ) : null}
                   {showUpload ? (

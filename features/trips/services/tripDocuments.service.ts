@@ -1100,9 +1100,14 @@ export async function updateTripDocumentNumber(
   return error ? new Error(error.message) : null;
 }
 
+const EWAY_NUMBER_NOT_SAVED =
+  "The e-way bill number was not saved. This document cannot be changed right now.";
+
 /**
  * Persist e-way bill fields typed in the strip (one or more numbers).
  * Reuses an existing e-way file row when present; otherwise stores a metadata-only row.
+ * Writes document_number only. Touching uploaded_at is rejected for anyone who
+ * is not a trip-org manager, so the number looked saved and then came back blank.
  */
 export async function upsertEwayBillFields(input: {
   tripId: string;
@@ -1110,6 +1115,17 @@ export async function upsertEwayBillFields(input: {
   values: EwayFieldValues[];
 }): Promise<{ error: Error | null }> {
   const serialized = serializeEwayFieldEntries(input.values);
+  const writeNumber = async (
+    documentId: string,
+  ): Promise<{ error: Error | null; saved: boolean }> => {
+    const { data, error } = await supabase()
+      .from("trip_documents")
+      .update({ document_number: serialized })
+      .eq("id", documentId)
+      .select("id");
+    if (error) return { error: new Error(error.message), saved: false };
+    return { error: null, saved: (data ?? []).length > 0 };
+  };
   const { data, error: listError } = await supabase()
     .from("trip_documents")
     .select("id, storage_path, file_name")
@@ -1142,15 +1158,10 @@ export async function upsertEwayBillFields(input: {
     );
 
   if (target) {
-    const { error: updateError } = await supabase()
-      .from("trip_documents")
-      .update({
-        document_number: serialized,
-        uploaded_by: input.uploadedBy,
-        uploaded_at: new Date().toISOString(),
-      })
-      .eq("id", target.id);
-    return { error: updateError ? new Error(updateError.message) : null };
+    const written = await writeNumber(target.id);
+    if (written.error) return { error: written.error };
+    if (!written.saved) return { error: new Error(EWAY_NUMBER_NOT_SAVED) };
+    return { error: null };
   }
 
   const path = ewayBillFieldsStoragePath(input.tripId);
@@ -1169,15 +1180,14 @@ export async function upsertEwayBillFields(input: {
 
   if (!insertError) return { error: null };
   if (insertError.code === "23505") {
-    const { error: updateError } = await supabase()
+    const { data, error: updateError } = await supabase()
       .from("trip_documents")
-      .update({
-        document_number: serialized,
-        uploaded_by: input.uploadedBy,
-        uploaded_at: new Date().toISOString(),
-      })
-      .eq("storage_path", path);
-    return { error: updateError ? new Error(updateError.message) : null };
+      .update({ document_number: serialized })
+      .eq("storage_path", path)
+      .select("id");
+    if (updateError) return { error: new Error(updateError.message) };
+    if ((data ?? []).length === 0) return { error: new Error(EWAY_NUMBER_NOT_SAVED) };
+    return { error: null };
   }
   return { error: new Error(insertError.message) };
 }

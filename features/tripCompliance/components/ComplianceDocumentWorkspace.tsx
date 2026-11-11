@@ -3679,7 +3679,7 @@ export function ComplianceDocumentWorkspace({
   const rows = useMemo(() => (summary ? rowsForTab(summary, tab) : []), [summary, tab]);
   const entityUnassigned =
     !showAllDocs &&
-    ((tab === "vehicle" && !summary?.trip.vehicle_id) ||
+    ((tab === "vehicle" && !summary?.trip.vehicle_id && !summary?.vehicleDocuments.length) ||
       (tab === "driver" && !summary?.trip.driver_id));
   /** Same dual-pane shell (tabs + upload pill + list | preview) on every tab and stage. */
   const showDocumentShell = Boolean(summary);
@@ -3829,12 +3829,13 @@ export function ComplianceDocumentWorkspace({
   const allDocumentRows = useMemo(() => {
     if (!summary) return [];
     const trip = deriveTripVaultReviewRows(summary.documents);
-    const vehicle = summary.trip.vehicle_id
-      ? deriveEntityComplianceRows(
-          COMPLIANCE_VEHICLE_DOCUMENT_TYPES,
-          summary.vehicleDocuments,
-        )
-      : [];
+    const vehicle =
+      summary.trip.vehicle_id || summary.vehicleDocuments.length > 0
+        ? deriveEntityComplianceRows(
+            COMPLIANCE_VEHICLE_DOCUMENT_TYPES,
+            summary.vehicleDocuments,
+          )
+        : [];
     const driver = summary.trip.driver_id
       ? deriveEntityComplianceRows(
           COMPLIANCE_DRIVER_DOCUMENT_TYPES,
@@ -4871,12 +4872,13 @@ export function ComplianceDocumentWorkspace({
     return {
       finance: false,
       trip: complianceTabMarkedApproved(overlay(deriveTripVaultReviewRows(summary.documents), "trip"), "trip"),
-      vehicle: summary.trip.vehicle_id
-        ? complianceTabMarkedApproved(
-            overlay(deriveEntityComplianceRows(COMPLIANCE_VEHICLE_DOCUMENT_TYPES, summary.vehicleDocuments), "vehicle"),
-            "vehicle",
-          )
-        : false,
+      vehicle:
+        summary.trip.vehicle_id || summary.vehicleDocuments.length > 0
+          ? complianceTabMarkedApproved(
+              overlay(deriveEntityComplianceRows(COMPLIANCE_VEHICLE_DOCUMENT_TYPES, summary.vehicleDocuments), "vehicle"),
+              "vehicle",
+            )
+          : false,
       driver: summary.trip.driver_id
         ? complianceTabMarkedApproved(
             overlay(deriveEntityComplianceRows(COMPLIANCE_DRIVER_DOCUMENT_TYPES, summary.driverDocuments), "driver"),
@@ -4955,6 +4957,73 @@ export function ComplianceDocumentWorkspace({
   const resubmitBlockedByMissingDocs = Boolean(
     summary && isResubmitBlockedByMissingDocs(summary),
   );
+
+  /**
+   * Resubmit used to live only in the document-list (start) pane. Desktop shop
+   * chrome sets that pane to null (`commerceLayout && !mobileExclusive`), so
+   * Ground Ops could see a rejected trip but had no Resubmit control. Render
+   * the same block from both the list pane (mobile) and the preview chrome
+   * (desktop shop).
+   */
+  const renderResubmitAction = (opts?: { shop?: boolean }) => {
+    if (!showResubmit || !summary || !onResubmitCompliance) return null;
+    return (
+      <View
+        style={[styles.resubmitActionBlock, opts?.shop ? styles.resubmitActionBlockShop : null]}
+        testID="compliance-resubmit-action"
+      >
+        {resubmitBlockedExplain ? (
+          <View
+            style={styles.resubmitBlockedBanner}
+            accessibilityRole="text"
+            accessibilityLabel={`Resubmit disabled. ${resubmitBlockedExplain.why}. ${resubmitBlockedExplain.action}`}
+          >
+            <Text style={styles.resubmitBlockedWhy}>
+              Resubmit disabled — {resubmitBlockedExplain.why}
+            </Text>
+            <Text style={styles.resubmitBlockedAction}>
+              Action required: {resubmitBlockedExplain.action}
+            </Text>
+          </View>
+        ) : null}
+        <View style={styles.checklistPreviewTripActions}>
+          <TouchableOpacity
+            style={[
+              styles.verifyTripBtn,
+              (resubmitting || resubmitBlockedByMissingDocs) && styles.btnDisabled,
+            ]}
+            activeOpacity={0.85}
+            disabled={resubmitting}
+            onPress={() => {
+              if (resubmitBlockedExplain) {
+                alertMessage(
+                  "Resubmit disabled",
+                  `${resubmitBlockedExplain.why}.\n\nAction required: ${resubmitBlockedExplain.action}`,
+                );
+                return;
+              }
+              setResubmitOpen(true);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={
+              resubmitBlockedExplain
+                ? `Resubmit disabled. ${resubmitBlockedExplain.why}. ${resubmitBlockedExplain.action}`
+                : "Resubmit trip for review"
+            }
+            accessibilityState={{
+              disabled: resubmitting || resubmitBlockedByMissingDocs,
+            }}
+          >
+            {resubmitting ? (
+              <ActivityIndicator size="small" color={Theme.cardWhite} />
+            ) : (
+              <Text style={styles.verifyTripBtnText}>Resubmit</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
 
   const resubmitSinceIso = summary?.complianceDeclinedAt?.trim() || "";
   const resubmitTripId = summary?.trip.id ?? "";
@@ -5487,11 +5556,12 @@ export function ComplianceDocumentWorkspace({
     if (!summary) return { all: 0, trip: 0, vehicle: 0, driver: 0, finance: 0 };
     const finance = financeRowsFor(summary, hideCommercials);
     const trip = deriveTripVaultReviewRows(summary.documents).filter((row) => row.status === "missing").length;
-    const vehicle = summary.trip.vehicle_id
+    const vehicle =
+      summary.trip.vehicle_id || summary.vehicleDocuments.length > 0
         ? deriveEntityComplianceRows(COMPLIANCE_VEHICLE_DOCUMENT_TYPES, summary.vehicleDocuments).filter(
             (row) => row.status === "missing",
           ).length
-      : 0;
+        : 0;
     const driver = summary.trip.driver_id
         ? deriveEntityComplianceRows(COMPLIANCE_DRIVER_DOCUMENT_TYPES, summary.driverDocuments).filter(
             (row) => row.status === "missing",
@@ -6578,60 +6648,7 @@ export function ComplianceDocumentWorkspace({
                           ) : null}
                         </View>
                       ) : null}
-                      {showResubmit && summary && onResubmitCompliance ? (
-                        <View style={styles.resubmitActionBlock}>
-                          {resubmitBlockedExplain ? (
-                            <View
-                              style={styles.resubmitBlockedBanner}
-                              accessibilityRole="text"
-                              accessibilityLabel={`Resubmit disabled. ${resubmitBlockedExplain.why}. ${resubmitBlockedExplain.action}`}
-                            >
-                              <Text style={styles.resubmitBlockedWhy}>
-                                Resubmit disabled — {resubmitBlockedExplain.why}
-                              </Text>
-                              <Text style={styles.resubmitBlockedAction}>
-                                Action required: {resubmitBlockedExplain.action}
-                              </Text>
-                            </View>
-                          ) : null}
-                        <View style={styles.checklistPreviewTripActions}>
-                          <TouchableOpacity
-                            style={[
-                              styles.verifyTripBtn,
-                                (resubmitting || resubmitBlockedByMissingDocs) &&
-                                  styles.btnDisabled,
-                            ]}
-                            activeOpacity={0.85}
-                            disabled={resubmitting}
-                            onPress={() => {
-                                if (resubmitBlockedExplain) {
-                                alertMessage(
-                                    "Resubmit disabled",
-                                    `${resubmitBlockedExplain.why}.\n\nAction required: ${resubmitBlockedExplain.action}`,
-                                );
-                                return;
-                              }
-                              setResubmitOpen(true);
-                            }}
-                            accessibilityRole="button"
-                              accessibilityLabel={
-                                resubmitBlockedExplain
-                                  ? `Resubmit disabled. ${resubmitBlockedExplain.why}. ${resubmitBlockedExplain.action}`
-                                  : "Resubmit trip for review"
-                              }
-                              accessibilityState={{
-                                disabled: resubmitting || resubmitBlockedByMissingDocs,
-                              }}
-                          >
-                            {resubmitting ? (
-                              <ActivityIndicator size="small" color={Theme.cardWhite} />
-                            ) : (
-                              <Text style={styles.verifyTripBtnText}>Resubmit</Text>
-                            )}
-                          </TouchableOpacity>
-                          </View>
-                        </View>
-                      ) : null}
+                      {renderResubmitAction()}
                     </View>
                   </>
                 )}
@@ -7043,6 +7060,11 @@ export function ComplianceDocumentWorkspace({
                       </View>
                     ) : null}
                   </View>
+                  {/* List pane is null on desktop shop and on mobile preview — mount Resubmit here. */}
+                  {(commerceLayout && !mobileExclusive) ||
+                  (mobileExclusive && mobileDocPane === "preview")
+                    ? renderResubmitAction({ shop: true })
+                    : null}
                 <View
                   style={[
                     styles.checklistPreviewBody,
@@ -11384,6 +11406,15 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
     width: "100%",
     gap: 8,
+  },
+  /** Desktop shop: list pane is null, so Resubmit sits under the trip strip. */
+  resubmitActionBlockShop: {
+    paddingHorizontal: 10,
+    paddingTop: 4,
+    paddingBottom: 8,
+    backgroundColor: Theme.cardWhite,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.border,
   },
   resubmitBlockedBanner: {
     alignSelf: "stretch",

@@ -1,13 +1,19 @@
 /**
  * Batch-load soft-copy (POD) uploader display names for a set of trip IDs.
  * Returns Record<lowercase trip_id, uploader full_name>.
+ *
+ * Names are resolved via get_org_members_with_profiles (SECURITY DEFINER) so
+ * org teammates can see each other's uploader names. Direct `profiles` SELECT
+ * is own-row RLS only — that made Asik see only himself and Rithvik only himself.
  */
+import { getOrganizationMembers } from "@/features/organization/services/members.service";
 import { supabase } from "@/lib/supabase";
 
 const CHUNK = 80;
 
 export async function loadSoftCopyUploadersByTripId(
   tripIds: string[],
+  orgId?: string | null,
 ): Promise<Record<string, string>> {
   const ids = [...new Set(tripIds.map((id) => id.trim()).filter(Boolean))];
   if (ids.length === 0) return {};
@@ -43,8 +49,27 @@ export async function loadSoftCopyUploadersByTripId(
   if (userIds.length === 0) return {};
 
   const nameById: Record<string, string> = {};
-  for (let i = 0; i < userIds.length; i += CHUNK) {
-    const chunk = userIds.slice(i, i + CHUNK);
+
+  // Prefer org-member RPC so teammate names are visible under profiles RLS.
+  const trimmedOrgId = (orgId ?? "").trim();
+  if (trimmedOrgId) {
+    const { members, error } = await getOrganizationMembers(trimmedOrgId);
+    if (error) {
+      console.warn("[tripSoftCopyUploader] org members:", error.message);
+    } else {
+      for (const member of members) {
+        const uid = String(member.user_id ?? "").trim();
+        if (!uid || !userIdSet.has(uid)) continue;
+        const name = (member.full_name ?? "").trim();
+        if (name) nameById[uid] = name;
+      }
+    }
+  }
+
+  // Fill any remaining ids (e.g. missing orgId) — own profile still resolves.
+  const missing = userIds.filter((id) => !nameById[id]);
+  for (let i = 0; i < missing.length; i += CHUNK) {
+    const chunk = missing.slice(i, i + CHUNK);
     const { data, error } = await supabase()
       .from("profiles")
       .select("id, full_name")

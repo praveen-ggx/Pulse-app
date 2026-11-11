@@ -123,6 +123,7 @@ import {
     type HubPodReceiptFlags,
 } from "@/features/trips/services/tripDocumentLrPod.service";
 import { loadSoftCopyUploadersByTripId } from "@/features/trips/services/tripSoftCopyUploader.service";
+import { loadTripOpsReportKmByTripId } from "@/features/trips/services/tripOpsReportKm.service";
 import { getTripStatusTimes } from "@/features/trips/services/tripStatusTimes.service";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { isAttributedFleetTrip } from "@/features/trips/utils/attributedFleetTrip.util";
@@ -2628,10 +2629,10 @@ export default function TripsScreen() {
    * Trip Report Excel — same date bounds as the hub pills (All time →
    * HUB_ALL_TIME_BOUNDS) and Asset/Aggregate scope.
    * - Sales → Sales indent report (Indent ID + costs when finance).
-   * - TripOps-only → classic ops sheet (TRIP ID / LR NO / stage times).
+   * - TripOps-only → All Trips ops sheet (20 columns + stage times).
    */
   const handleDownloadTripReport = useCallback(async (exportFrom: string, exportTo: string) => {
-    if (!orgId || tripReportDownloading) return;
+    if (!orgId || tripReportDownloading || isGroundOpsMember || isSourcingMember) return;
     setTripReportDownloading(true);
     try {
       const audience = resolveTripIndentReportAudience(memberDomains);
@@ -2657,10 +2658,31 @@ export default function TripsScreen() {
 
       if (audience === "tripops") {
         const tripIds = scopedTrips.map((t) => t.id);
-        const [statusResult, docFlags, softCopyUploaderByTripId] = await Promise.all([
+        const indentCreatedAtByIndentId: Record<string, string> = {};
+        for (const indent of catalog.indents) {
+          const id = (indent.id ?? "").trim();
+          const created = (indent.created_at ?? "").trim();
+          if (id && created) indentCreatedAtByIndentId[id] = created;
+        }
+        for (const indent of allIndents) {
+          const id = (indent.id ?? "").trim();
+          const created = (indent.created_at ?? "").trim();
+          if (id && created && !indentCreatedAtByIndentId[id]) {
+            indentCreatedAtByIndentId[id] = created;
+          }
+        }
+        const [
+          statusResult,
+          docFlags,
+          softCopyUploaderByTripId,
+          driverPhoneByTripId,
+          kmByTripId,
+        ] = await Promise.all([
           getTripStatusTimes(tripIds),
           loadHubPodReceiptFlags(tripIds),
-          loadSoftCopyUploadersByTripId(tripIds),
+          loadSoftCopyUploadersByTripId(tripIds, orgId),
+          loadDriverPhonesByTripId(scopedTrips),
+          loadTripOpsReportKmByTripId(tripIds),
         ]);
         if (statusResult.error) {
           showAppAlert(
@@ -2675,10 +2697,14 @@ export default function TripsScreen() {
             ...lrNumbersByTripId,
             ...(docFlags.lrNumbersByTripId ?? {}),
           },
+          driverPhoneByTripId,
+          driverPhoneByDriverId: driverPhoneById,
           partyMetaByTripId: tripHubPartyMetaByTripId,
           clientNameForTrip: tripCardClientName,
           stageLabelForTrip: getStageLabelForTrip,
           softCopyUploaderByTripId,
+          indentCreatedAtByIndentId,
+          kmByTripId,
         });
         const notes: string[] = [...catalog.notes];
         await downloadTripOpsReportExcel(rows, {
@@ -2735,6 +2761,9 @@ export default function TripsScreen() {
     memberDomains,
     lrNumbersByTripId,
     tripCardClientName,
+    driverPhoneById,
+    isGroundOpsMember,
+    isSourcingMember,
   ]);
 
   const { data: inTransitPingByTripId = {} } = useTripHubInTransitPings(
@@ -2920,13 +2949,32 @@ export default function TripsScreen() {
     staleTime: 60_000,
     queryFn: () => loadHubPodReceiptFlags(opsExportTripIds),
   });
+  const opsExportDriverPhonesQuery = useQuery({
+    queryKey: queryKeys.trips.hubDriverPhones(orgId ?? "", opsExportIdsKey),
+    enabled: opsExportQueriesEnabled,
+    staleTime: 5 * 60_000,
+    queryFn: () => loadDriverPhonesByTripId(filtered),
+  });
+  const opsExportSoftCopyQuery = useQuery({
+    queryKey: ["q", "trips", "ops-export-soft-copy", orgId ?? "", opsExportIdsKey],
+    enabled: opsExportQueriesEnabled,
+    staleTime: 60_000,
+    queryFn: () => loadSoftCopyUploadersByTripId(opsExportTripIds, orgId),
+  });
   const opsExportLrByTripId = opsExportDocFlagsQuery.data?.lrNumbersByTripId;
+  const opsExportPhoneByTripId = opsExportDriverPhonesQuery.data;
+  const opsExportSoftCopyByTripId = opsExportSoftCopyQuery.data;
   const opsExportLoading =
     opsStatusTimesQuery.isLoading ||
-    opsExportDocFlagsQuery.isLoading;
-  const opsExportFailed = [opsStatusTimesQuery, opsExportDocFlagsQuery].some(
-    (q) => q.isError && !q.isFetching,
-  );
+    opsExportDocFlagsQuery.isLoading ||
+    opsExportDriverPhonesQuery.isLoading ||
+    opsExportSoftCopyQuery.isLoading;
+  const opsExportFailed = [
+    opsStatusTimesQuery,
+    opsExportDocFlagsQuery,
+    opsExportDriverPhonesQuery,
+    opsExportSoftCopyQuery,
+  ].some((q) => q.isError && !q.isFetching);
   // Don't open the sheet with blank columns; close it and say so instead.
   useEffect(() => {
     if (!opsExportFailed || !tripLedgerExportOpen || !useOpsTripExport) return;
@@ -2944,15 +2992,25 @@ export default function TripsScreen() {
     }));
     // Only Trip Ops members see this sheet, and only once Export is open.
     if (!useOpsTripExport || !tripLedgerExportOpen) return { columns, rows: [] };
+    const indentCreatedAtByIndentId: Record<string, string> = {};
+    for (const indent of allIndents) {
+      const id = (indent.id ?? "").trim();
+      const created = (indent.created_at ?? "").trim();
+      if (id && created) indentCreatedAtByIndentId[id] = created;
+    }
     const rows = buildTripOpsReportRows(filtered, {
       statusTimesByTripId: opsStatusTimes,
       lrNumberByTripId: {
         ...lrNumbersByTripId,
         ...(opsExportLrByTripId ?? {}),
       },
+      driverPhoneByTripId: opsExportPhoneByTripId,
+      driverPhoneByDriverId: driverPhoneById,
       partyMetaByTripId: tripHubPartyMetaByTripId,
       clientNameForTrip: tripCardClientName,
       stageLabelForTrip: getStageLabelForTrip,
+      softCopyUploaderByTripId: opsExportSoftCopyByTripId,
+      indentCreatedAtByIndentId,
     });
     return { columns, rows };
   }, [
@@ -2965,6 +3023,10 @@ export default function TripsScreen() {
     lrNumbersByTripId,
     tripCardClientName,
     getStageLabelForTrip,
+    opsExportPhoneByTripId,
+    driverPhoneById,
+    opsExportSoftCopyByTripId,
+    allIndents,
   ]);
 
   const historyMetricCards = useMemo(() => {
@@ -3674,11 +3736,13 @@ export default function TripsScreen() {
     return <SceneLoadingSplash variant="preparing" message={tr("loading")} />;
   }
 
-  // Trip report and ledger export carry freight / cost columns — not for Sourcing.
-  const openTripLedgerExport = isSourcingMember
-    ? undefined
-    : () => setTripLedgerExportOpen(true);
-  const tripsReportButton = canAccess && !isSourcingMember ? (
+  // Trip report / ledger export: not for Sourcing or Ground Ops (ops-only tool).
+  const openTripLedgerExport =
+    isSourcingMember || isGroundOpsMember
+      ? undefined
+      : () => setTripLedgerExportOpen(true);
+  const tripsReportButton =
+    canAccess && !isSourcingMember && !isGroundOpsMember ? (
     <View
       {...(Platform.OS === "web"
         ? ({ title: "Download Trip Report" } as object)

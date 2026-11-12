@@ -16,6 +16,13 @@
 Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" — OK?
 
 ## What
+- Odometer / Pulse Scan web fingerprint: `sha256File` now reads `blob:` and web URIs via `fetch` so OCR enqueue no longer crashes with `expo-file-system.readAsStringAsync is not available on web` (native FileSystem path unchanged).
+- Odometer OCR auto-fill: when the Start/End field is empty, a detected KM is written into the keypad immediately so Trip distance (End − Start) can calculate; confirm only if the field already has a different value. Monthly Pulse Scan quota hard-block / SCAN NOTICE soft-disabled via `OCR_QUOTA_ENFORCEMENT_ENABLED` (off) — flip on later to restore.
+- Driver tab bar (Android APK): dock now sits above the 3-button system nav bar — bottom padding uses the full safe-area inset + 8dp gap (was 35%), shared via `components/driver/driverTabBarInsets.ts` so Home / Dashboard / Salary / Chat clearance matches the dock.
+- Driver map (APK / MapLibre): map host no longer overrides the caller's `absoluteFill`, which collapsed the dashboard preview and full-screen map to 0 height (grey box).
+- Map tiles (all platforms): Carto keyless basemaps now return "API KEY REQUIRED" watermark tiles to apps/WebViews, so every driver map — native MapLibre (APK / dev client), Expo Go WebView (Leaflet) and web (maplibre-gl) — uses Mapbox Light raster tiles with the existing `EXPO_PUBLIC_MAPBOX_TOKEN` (`lib/maps/nativeBasemapStyle.ts`); plain light background if the token is missing.
+- Odometer photo slot (web): Remove/Retake are no longer nested inside the preview `Pressable` (fixes `<button>` inside `<button>` hydration warning).
+- Migration `20271111134500_ocr_jobs_insert_allow_trip_access`: restore trip-linked INSERT on `ocr_jobs` so assigned drivers (not only `organization_members`) can create OCR jobs — fixes RLS 403 / “new row violates row-level security policy for table ocr_jobs”.
 - Driver app operating-mode / DCO Self batch: tab bar and driver home routes, trip flow / completed modal, multi-order job card, trip history, control / profile / party receivable / level screens, and related tests.
 - Operating-mode helpers and query wiring so Self / DCO / fleet surfaces pick the right book and gates.
 - DCO Self offline + receivable issue paths (clearer errors, sync/offline util tweaks) and exchange payment test coverage for DCO Self book routing.
@@ -34,6 +41,10 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" �
 - Drivers were leaving fleets without a pending-pay warning or owner notification, and could request DCO while still employed; approval must follow disconnect + admin.
 
 ## Areas
+- `lib/crypto/sha256File.util.ts` (+ unit test) — web odometer / Pulse Scan fingerprint
+- `features/trips/verification/hooks/useOdometerPhotoOcr.ts`, `features/ocr/services/ocrQuota.service.ts`
+- `features/trips/operations/shared/OpsEntryBodyPhotoSlot.tsx`
+- `supabase/migrations/20271111134500_ocr_jobs_insert_allow_trip_access.sql`
 - `app/(driver)/**`, `components/driver/DriverTabBar.tsx`
 - `features/driver/**`, `features/drivers/**`, `features/dco-self/**`
 - `features/marketplace/services/exchangePayments.service.ts` (+ tests)
@@ -54,6 +65,7 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" �
 - `20271110101500_dco_allow_offline_market_hire_trip.sql`
 - `20271110103000_fleet_disconnect_notify_and_dco_request_gate.sql`
 - `20271110104500_dco_require_verified_kyc.sql`
+- `20271111134500_ocr_jobs_insert_allow_trip_access.sql`
 - Not applied from this branch. Nihas applies to preprod after merge; Vasanth applies to prod on release.
 
 ## Tested

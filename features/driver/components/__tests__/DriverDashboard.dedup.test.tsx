@@ -5,14 +5,14 @@
  * listener, with no in-flight guard. Full-mount test following
  * features/drivers/screens/__tests__/DriverRequestsScreen.dedup.test.tsx.
  */
-import React from 'react';
-import { render, waitFor, act } from '@testing-library/react-native';
-import { AppState } from 'react-native';
-import DriverDashboard from '../DriverDashboard';
 import { useAuth } from '@/contexts/AuthContext';
 import * as driversService from '@/features/drivers/services/drivers.service';
-import * as tripsService from '@/features/trips/services/trips.service';
 import * as tripOtpService from '@/features/trips/services/tripOtp.service';
+import * as tripsService from '@/features/trips/services/trips.service';
+import { act, render, waitFor } from '@testing-library/react-native';
+import React from 'react';
+import { AppState } from 'react-native';
+import DriverDashboard from '../DriverDashboard';
 
 jest.mock('react-native', () => jest.requireActual('react-native'));
 

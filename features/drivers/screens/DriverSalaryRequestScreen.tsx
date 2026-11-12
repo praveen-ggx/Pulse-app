@@ -66,6 +66,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { driverTabBarBottomPad } from '@/components/driver/driverTabBarInsets';
 
 function tripEarnings(t: tripsService.TripRow): number {
   return tripEarningsForDriver(t);
@@ -126,7 +127,7 @@ export default function SalaryRequestScreen() {
    * Reserve space so NEXT / SUBMIT never sit under the glass dock (web + iOS + Android).
    */
   const footerPadTop = 4;
-  const footerPadBottom = Math.max(Math.round(insets.bottom * 0.35), 10);
+  const footerPadBottom = driverTabBarBottomPad(insets.bottom);
   const tabBarClearance =
     Layout.tabBarDockHeight + footerPadTop + footerPadBottom;
 

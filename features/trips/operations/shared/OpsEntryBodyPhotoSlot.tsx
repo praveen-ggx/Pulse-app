@@ -97,22 +97,34 @@ export function OpsEntryBodyPhotoSlot({
       </View>
 
       {hasPhoto ? (
-        <Pressable
+        <View
           style={[
             compact ? styles.previewWrapCompactFilled : styles.previewWrap,
             scanning && styles.previewWrapScanning,
           ]}
-          onPress={onPress ?? onAttach}
-          disabled={busy}
-          accessibilityRole="button"
-          accessibilityLabel={onPress ? "View attached bill full screen" : "Retake bill photo"}
         >
-          <Image
-            source={{ uri: uri! }}
-            style={styles.previewImage}
-            resizeMode="cover"
-          />
-          <ExpenseBillScanOverlay visible={scanning} scanTravel={108} label={scanLabel} />
+          <Pressable
+            style={styles.previewPressable}
+            onPress={onPress ?? onAttach}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel={onPress ? "View attached bill full screen" : "Retake bill photo"}
+          >
+            <Image
+              source={{ uri: uri! }}
+              style={styles.previewImage}
+              resizeMode="cover"
+            />
+            <ExpenseBillScanOverlay visible={scanning} scanTravel={108} label={scanLabel} />
+            {compact ? (
+              <View style={styles.compactPreviewHintWrap} pointerEvents="none">
+                <View style={styles.compactPreviewHint}>
+                  <Feather name="maximize-2" size={10} color="#fff" />
+                  <Text style={styles.compactPreviewHintText}>Preview</Text>
+                </View>
+              </View>
+            ) : null}
+          </Pressable>
           {compact ? (
             <View style={styles.compactOverlay} pointerEvents="box-none">
               <View style={styles.compactOverlayTop}>
@@ -141,13 +153,9 @@ export function OpsEntryBodyPhotoSlot({
                   </Pressable>
                 ) : null}
               </View>
-              <View style={styles.compactPreviewHint}>
-                <Feather name="maximize-2" size={10} color="#fff" />
-                <Text style={styles.compactPreviewHintText}>Preview</Text>
-              </View>
             </View>
           ) : null}
-        </Pressable>
+        </View>
       ) : (
         <Pressable
           style={[
@@ -310,6 +318,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 8,
   },
+  previewPressable: {
+    ...StyleSheet.absoluteFillObject,
+  },
   previewImage: {
     ...StyleSheet.absoluteFillObject,
     width: "100%",
@@ -317,7 +328,7 @@ const styles = StyleSheet.create({
   },
   compactOverlay: {
     ...StyleSheet.absoluteFillObject,
-    justifyContent: "space-between",
+    justifyContent: "flex-start",
     padding: 6,
   },
   compactOverlayTop: {
@@ -339,8 +350,13 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(254,226,226,0.95)",
     borderColor: "rgba(239,68,68,0.28)",
   },
+  compactPreviewHintWrap: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "flex-end",
+    alignItems: "center",
+    paddingBottom: 6,
+  },
   compactPreviewHint: {
-    alignSelf: "center",
     flexDirection: "row",
     alignItems: "center",
     gap: 4,

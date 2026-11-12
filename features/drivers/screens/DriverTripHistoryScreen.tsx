@@ -1,6 +1,6 @@
 import { DriverBrandMark } from "@/components/driver/DriverBrandMark";
+import { DriverSelfAvatar } from "@/components/driver/DriverSelfAvatar";
 import { TripListAssignerRow } from "@/components/driver/TripListAssignerRow";
-import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
 import {
     driverBodyPrimary,
     driverBodySecondary,
@@ -17,7 +17,7 @@ import {
     buildDriverTripNumberMap,
     getDriverTripDisplayNumber,
 } from "@/features/driver/utils/driverTripSequence.util";
-import * as driversService from "@/features/drivers/services/drivers.service";
+import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
 import {
     driverHistoryLane,
     driverHistoryLaneLabel,
@@ -25,6 +25,7 @@ import {
     isClientSupplierTaggedTrip,
     type DriverHistoryTabId,
 } from "@/features/drivers/domain/driverOperatingMode";
+import * as driversService from "@/features/drivers/services/drivers.service";
 import {
     isTripTaggedToParty,
     tripNeedsPartyTag,
@@ -36,7 +37,6 @@ import {
     isRosterTrip,
     resolveDriverTripPayoutTerms,
 } from "@/features/drivers/utils/driverUtils.util";
-import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import { getLatestAssignmentAuditByTripIds } from "@/features/trips/services/trip-assignment-audit.service";
 import * as tripsService from "@/features/trips/services/trips.service";
 import {
@@ -47,14 +47,14 @@ import {
     resolveAssignerUserId,
     type JobCardAssignerPayload,
 } from "@/features/trips/utils/driverAssignerDisplay.util";
-import { DriverSelfAvatar } from "@/components/driver/DriverSelfAvatar";
 import { useDriverAvatarUri } from "@/lib/avatarUpload";
 import { fetchOrgBrandingByIds } from "@/lib/orgBrandingFetch";
+import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import { supabase } from "@/lib/supabase";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useFocusEffect } from "@react-navigation/native";
 import { FlashList } from "@shopify/flash-list";
-import { useRouter, useLocalSearchParams, type Href } from "expo-router";
+import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import {
     MapPinned,
     Search as SearchIcon,
@@ -1280,89 +1280,76 @@ export default function DriverTripsScreen() {
               {tripView === "history" ? (
                 <View
                   style={[
-                    styles.tripsSubTabRow,
+                    styles.segmentOuter,
+                    styles.tripsSubTabOuter,
                     {
-                      backgroundColor: isDark ? colors.surfaceElevated : "rgba(248,250,252,0.9)",
-                      borderColor: isDark ? colors.borderSubtle : "rgba(226,232,240,0.9)",
+                      backgroundColor: isDark ? colors.surfaceElevated : "rgba(241, 245, 249, 0.65)",
+                      borderColor: isDark ? colors.borderSubtle : "#ffffff",
                     },
                   ]}
                 >
                   {(
                     [
-                      {
-                        id: "fleet" as const,
-                        label: "Fleet",
-                        icon: "building" as const,
-                        count: fleetTripsCount,
-                      },
-                      {
-                        id: "offline" as const,
-                        label: "Offline",
-                        icon: "phone" as const,
-                        count: offlineTripsCount,
-                      },
+                      { id: "fleet" as const, label: "Fleet", count: fleetTripsCount },
+                      { id: "offline" as const, label: "Offline", count: offlineTripsCount },
                       {
                         id: "marketplace" as const,
                         label: "Marketplace",
-                        icon: "shopping-bag" as const,
                         count: marketplaceTripsCount,
                       },
                     ] as const
                   )
                     .filter((tab) => historyTabs.includes(tab.id))
                     .map((tab) => {
-                    const active = tripsSubTab === tab.id;
-                    const accent =
-                      tab.id === "offline"
-                        ? Theme.textPrimaryDark
-                        : colors.emerald;
-                    return (
-                      <TouchableOpacity
-                        key={tab.id}
-                        style={[
-                          styles.tripsSubTabBtn,
-                          active && [
-                            styles.tripsSubTabBtnActive,
-                            {
-                              backgroundColor:
-                                tab.id === "offline"
-                                  ? isDark
-                                    ? "rgba(15,23,42,0.16)"
-                                    : "rgba(15,23,42,0.06)"
-                                  : isDark
-                                    ? "rgba(4,120,87,0.18)"
-                                    : Theme.driverEmeraldMuted,
-                              borderColor:
-                                tab.id === "offline"
-                                  ? isDark
-                                    ? "rgba(148,163,184,0.35)"
-                                    : "rgba(148,163,184,0.45)"
-                                  : isDark
-                                    ? "rgba(4,120,87,0.35)"
-                                    : Theme.driverEmeraldBorderSoft,
-                            },
-                          ],
-                        ]}
-                        onPress={() => setTripsSubTab(tab.id)}
-                        activeOpacity={0.85}
-                      >
-                        <FontAwesome
-                          name={tab.icon}
-                          size={10}
-                          color={active ? accent : colors.textMuted}
-                        />
-                        <Text
+                      const active = tripsSubTab === tab.id;
+                      return (
+                        <TouchableOpacity
+                          key={tab.id}
                           style={[
-                            styles.tripsSubTabText,
-                            { color: active ? accent : colors.textMuted },
+                            styles.segmentBtn,
+                            active && [
+                              styles.segmentBtnActive,
+                              {
+                                backgroundColor: colors.surface,
+                                borderColor: isDark ? colors.borderSubtle : colors.border,
+                              },
+                            ],
                           ]}
-                          numberOfLines={1}
+                          onPress={() => setTripsSubTab(tab.id)}
+                          activeOpacity={0.8}
                         >
-                          {tab.label}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
+                          <View style={styles.segmentLabelRow}>
+                            <Text
+                              style={[
+                                styles.segmentLabel,
+                                { color: active ? colors.emerald : colors.textMuted },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {tab.label}
+                            </Text>
+                            <View
+                              style={[
+                                styles.segmentCountBadge,
+                                {
+                                  backgroundColor: active ? colors.emerald : colors.surface,
+                                  borderColor: active ? colors.emerald : colors.border,
+                                },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.segmentCountBadgeText,
+                                  { color: active ? colors.textOnPrimary : colors.textMuted },
+                                ]}
+                              >
+                                {tab.count}
+                              </Text>
+                            </View>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
                 </View>
               ) : null}
 
@@ -1569,36 +1556,10 @@ const styles = StyleSheet.create({
     alignItems: "stretch",
     gap: 8,
   },
-  tripsSubTabRow: {
+  // History lanes reuse the Active / History pill; full width, own row.
+  tripsSubTabOuter: {
+    width: "100%",
     marginTop: 10,
-    flexDirection: "row",
-    alignItems: "stretch",
-    gap: 6,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 4,
-  },
-  tripsSubTabBtn: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: 44,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "transparent",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    paddingHorizontal: 4,
-  },
-  tripsSubTabBtnActive: {
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  tripsSubTabText: {
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.2,
-    flexShrink: 1,
   },
   searchWrap: {
     flex: 1,

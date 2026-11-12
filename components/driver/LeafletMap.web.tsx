@@ -1,5 +1,6 @@
 import Theme from "@/constants/Theme";
 import { withAlpha } from "@/lib/color";
+import { NATIVE_BASEMAP_STYLE } from "@/lib/maps/nativeBasemapStyle";
 import { LeafletMapZoomControls } from "@/components/driver/LeafletMapZoomControls";
 import { boundsFromCoordinates } from "@/features/trips/utils/mapRouteViewport.util";
 import {
@@ -25,13 +26,12 @@ const OSM_USEFUL_MAX_ZOOM = 16;
 const DEFAULT_FIT_MAX_ZOOM = 14;
 
 /**
- * Same Carto Positron style as native LeafletMap.maplibre.
- * Raw OSM raster + MapLibre leaves a black WebGL clear-color when tiles
- * fail/overzoom (exact "black map" symptom). Positron paints a light land
- * background immediately and serves reliable India tiles.
+ * Same Mapbox Light basemap as native LeafletMap.maplibre (see
+ * lib/maps/nativeBasemapStyle). Its background layer paints a light land
+ * colour immediately, so failed/overzoomed tiles never show the black WebGL
+ * clear-colour.
  */
-const MAP_STYLE =
-  "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
+const MAP_STYLE = NATIVE_BASEMAP_STYLE as unknown as Record<string, unknown>;
 
 /** Critical layout rules if CDN CSS is slow/blocked — without these the
  *  canvas often stays 0×0 (blank white) inside RN Web absolute hosts. */

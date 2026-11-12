@@ -1,6 +1,6 @@
+import { canAddDcoShippers } from "@/features/drivers/domain/driverOperatingMode";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { canAddDcoShippers } from "@/features/drivers/domain/driverOperatingMode";
 
 describe("useDriverOperatingModeQuery source", () => {
   it("returns canAddDcoShippers derived from operatingMode", () => {

@@ -15,6 +15,7 @@ import {
 } from '@maplibre/maplibre-react-native';
 import React, { useCallback, useImperativeHandle, useMemo, useRef } from 'react';
 import { withWebSafeShadows } from '@/lib/platformViewStyle.util';
+import { NATIVE_BASEMAP_STYLE } from '@/lib/maps/nativeBasemapStyle';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type {
@@ -43,7 +44,7 @@ function toLngLat(c: LeafletLatLng): [number, number] {
 }
 
 // Free, reliable OSM-based vector style (works well for India coverage).
-const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
+const MAP_STYLE = NATIVE_BASEMAP_STYLE;
 
 function MarkerContent({
   markerId,
@@ -184,7 +185,10 @@ export const LeafletMapMapLibre = React.forwardRef<
     const showZoom = showZoomControls && !interactionLocked;
 
     return (
-      <View style={[style, styles.mapHost]}>
+      // Caller style last: callers pass absoluteFill, and mapHost's
+      // position:'relative' must not override it (that collapsed the map to
+      // 0 height on the dashboard preview and full-screen map).
+      <View style={[styles.mapHost, style]}>
         <Map
           style={StyleSheet.absoluteFill}
           mapStyle={MAP_STYLE}

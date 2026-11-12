@@ -190,6 +190,7 @@ import {
   useKeyboardVisible,
 } from "@/lib/hooks/useKeyboardVisible";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { driverTabBarBottomPad } from "@/components/driver/driverTabBarInsets";
 import { fetchRouteExtraStopsForTrips } from "@/features/trips/services/routeExtraStops.service";
 
 /** Default map region when driver location is not yet available (India center). */
@@ -270,7 +271,7 @@ export default function DriverRadarScreen() {
   const colors = useDriverThemeColors();
   // Match DriverTabBar (footerPadTop 6) so clearance math agrees with the dock.
   const footerPadTop = 6;
-  const footerPadBottom = Math.max(Math.round(insets.bottom * 0.35), 10);
+  const footerPadBottom = driverTabBarBottomPad(insets.bottom);
   /** Space reserved under floating dock (includes air above the glass pill). */
   const driverTabBarClearance =
     Layout.tabBarDockHeight + footerPadTop + footerPadBottom;

@@ -12,12 +12,20 @@ function base64ToBytes(base64: string): Uint8Array {
   return bytes;
 }
 
-function isRemoteUri(uri: string): boolean {
-  return /^https?:\/\//i.test(uri) || uri.startsWith("data:");
+/**
+ * URIs that must use fetch — native FileSystem.readAsStringAsync is unavailable on web
+ * and does not support blob:/data:/http(s) schemes.
+ */
+function shouldFetchUri(uri: string): boolean {
+  return (
+    /^https?:\/\//i.test(uri) ||
+    uri.startsWith("data:") ||
+    uri.startsWith("blob:")
+  );
 }
 
 async function readUriBytes(uri: string): Promise<Uint8Array> {
-  if (isRemoteUri(uri)) {
+  if (shouldFetchUri(uri)) {
     const response = await fetch(uri);
     if (!response.ok) {
       throw new Error(`Could not read file for fingerprint (${response.status})`);

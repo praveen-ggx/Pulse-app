@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Text, TouchableOpacity, View } from "react-native";
 import { MessageSquare } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { driverTabBarBottomPad } from "@/components/driver/driverTabBarInsets";
 
 export default function DriverChatScreen() {
   const insets = useSafeAreaInsets();
@@ -45,7 +46,7 @@ export default function DriverChatScreen() {
   const driverTabBarClearance = useMemo(() => {
     if (isDriverChatRoute) return 0;
     const footerPadTop = 4;
-    const footerPadBottom = Math.max(Math.round(insets.bottom * 0.35), 10);
+    const footerPadBottom = driverTabBarBottomPad(insets.bottom);
     return Layout.tabBarDockHeight + footerPadTop + footerPadBottom;
   }, [insets.bottom, isDriverChatRoute]);
 

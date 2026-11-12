@@ -15,8 +15,7 @@ Two bugs:
 - `features/tripCompliance/tripCompliance.types.ts` — added `vaultVehicleId` to `ComplianceTripSummary`
 - `features/tripCompliance/components/ComplianceDocumentWorkspace.tsx` — 4 guard sites now check `vaultVehicleId`
 
-## CI baseline
-Bumped `typecheck` 345→346: one pre-existing error from merged V1 PRs (#102/#104/#105).
+- `features/tripCompliance/components/ComplianceSection.tsx` — payment-only summary sets `vaultVehicleId: null` (new required field)
 
 ## Migrations
 None.

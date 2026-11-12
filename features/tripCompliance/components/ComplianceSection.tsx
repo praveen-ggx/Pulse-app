@@ -225,6 +225,7 @@ export function ComplianceSection({
       documents,
       vehicleDocuments: [],
       driverDocuments: [],
+      vaultVehicleId: null,
       documentCounts: { total: documents.length, verified: 0, rejected: 0, pending: 0 },
       checklist: emptyComplianceChecklist(),
       complianceVerifiedAt,

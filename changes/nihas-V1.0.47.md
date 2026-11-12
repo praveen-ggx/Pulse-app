@@ -18,7 +18,9 @@ Two bugs:
 - `features/tripCompliance/components/ComplianceSection.tsx` — payment-only summary sets `vaultVehicleId: null` (new required field)
 
 ## Migrations
-None.
+No new migration files. Release-set prep for the 3 migrations on V1 that prod does not have yet (prod code was rolled back to Vasanth #103 `afc74f58`):
+- `supabase/release-sets/prod-2026-11-12-release.versions` — 20261112061609, 20271111143000 (had no set), 20271111164000, each SHA-256 pinned; Jest test `prod20261112ReleaseSet.test.ts`.
+- `hub-metric-counter.versions` — added the missing SHA-256 line.
 
 ## Tested
 - 795 compliance unit tests pass

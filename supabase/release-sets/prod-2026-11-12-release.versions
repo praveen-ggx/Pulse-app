@@ -1,0 +1,11 @@
+# Prod release 2026-11-12. Prod code was rolled back to Vasanth #103 (afc74f58); none of these are applied in prod.
+# 20261112061609: cross-org vehicle vault lookup by normalized plate (Compliance vehicle tab for supplier trucks).
+# 20271111143000: clear the simulated trip-status marker without a second trips UPDATE (Vasanth #105).
+# 20271111164000: Hub metric counter. Trigger is created disabled.
+# Apply only via: npm run db:push-set -- prod-2026-11-12-release   (dry-run first)
+# sha256 07518c2f53a49d8079e562c0fd40c76e3e452f48de432e08a8416fe00e62f63e  20261112061609_compliance_vehicle_vault_by_plate.sql
+20261112061609
+# sha256 8f06f5ca4ad9e4381ede6d0fa82e6c758d1e4d3a0fd513f3b42565c8a8b5e9b6  20271111143000_clear_simulated_status_origin_without_second_update.sql
+20271111143000
+# sha256 27360ceffec728664e0bf0cfadf5a996fce846cc0d4b8fc11abd8e3f03552896  20271111164000_hub_metric_counter.sql
+20271111164000

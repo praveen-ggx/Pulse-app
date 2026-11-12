@@ -874,7 +874,7 @@ export async function fetchComplianceTripInputs(
 
 /** Pure: one trip's summary from its inputs. No I/O. */
 export function summarizeComplianceTrip(inputs: ComplianceTripInputs): ComplianceTripSummary {
-  const { trip, documents, flags, taggedAdvance, balance, vehicleDocuments, driverDocuments } = inputs;
+  const { trip, documents, flags, taggedAdvance, balance, vehicleDocuments, driverDocuments, vaultVehicleId } = inputs;
   // Finance posts compliance_advance (not Compliance). Once the trip is verified,
   // any tagged advance counts — posting before/after verified_at does not matter.
   // Finance client receipts (trips.amount_paid) never count as the advance.
@@ -957,6 +957,7 @@ export function summarizeComplianceTrip(inputs: ComplianceTripInputs): Complianc
     documents,
     vehicleDocuments,
     driverDocuments,
+    vaultVehicleId,
     documentCounts,
     checklist,
     complianceVerifiedAt: flags?.compliance_verified_at ?? null,

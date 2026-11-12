@@ -684,9 +684,10 @@ function indexVehicleVaultDocs(
   entry: VaultEntry,
   ...keys: Array<string | null | undefined>
 ) {
-  if (entry.docs.length === 0) return;
   for (const key of keys) {
-    if (key) byKey.set(key, entry);
+    if (!key) continue;
+    if (entry.docs.length === 0 && byKey.has(key)) continue;
+    byKey.set(key, entry);
   }
 }
 

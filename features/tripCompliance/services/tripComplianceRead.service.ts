@@ -684,9 +684,10 @@ function indexVehicleVaultDocs(
   entry: VaultEntry,
   ...keys: Array<string | null | undefined>
 ) {
-  if (entry.docs.length === 0) return;
   for (const key of keys) {
-    if (key) byKey.set(key, entry);
+    if (!key) continue;
+    if (entry.docs.length === 0 && byKey.has(key)) continue;
+    byKey.set(key, entry);
   }
 }
 
@@ -874,7 +875,7 @@ export async function fetchComplianceTripInputs(
 
 /** Pure: one trip's summary from its inputs. No I/O. */
 export function summarizeComplianceTrip(inputs: ComplianceTripInputs): ComplianceTripSummary {
-  const { trip, documents, flags, taggedAdvance, balance, vehicleDocuments, driverDocuments } = inputs;
+  const { trip, documents, flags, taggedAdvance, balance, vehicleDocuments, driverDocuments, vaultVehicleId } = inputs;
   // Finance posts compliance_advance (not Compliance). Once the trip is verified,
   // any tagged advance counts — posting before/after verified_at does not matter.
   // Finance client receipts (trips.amount_paid) never count as the advance.
@@ -957,6 +958,7 @@ export function summarizeComplianceTrip(inputs: ComplianceTripInputs): Complianc
     documents,
     vehicleDocuments,
     driverDocuments,
+    vaultVehicleId,
     documentCounts,
     checklist,
     complianceVerifiedAt: flags?.compliance_verified_at ?? null,

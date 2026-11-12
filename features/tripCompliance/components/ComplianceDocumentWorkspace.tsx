@@ -3679,7 +3679,7 @@ export function ComplianceDocumentWorkspace({
   const rows = useMemo(() => (summary ? rowsForTab(summary, tab) : []), [summary, tab]);
   const entityUnassigned =
     !showAllDocs &&
-    ((tab === "vehicle" && !summary?.trip.vehicle_id && !summary?.vehicleDocuments.length) ||
+    ((tab === "vehicle" && !summary?.trip.vehicle_id && !summary?.vaultVehicleId && !summary?.vehicleDocuments.length) ||
       (tab === "driver" && !summary?.trip.driver_id));
   /** Same dual-pane shell (tabs + upload pill + list | preview) on every tab and stage. */
   const showDocumentShell = Boolean(summary);
@@ -3830,7 +3830,7 @@ export function ComplianceDocumentWorkspace({
     if (!summary) return [];
     const trip = deriveTripVaultReviewRows(summary.documents);
     const vehicle =
-      summary.trip.vehicle_id || summary.vehicleDocuments.length > 0
+      summary.trip.vehicle_id || summary.vaultVehicleId || summary.vehicleDocuments.length > 0
         ? deriveEntityComplianceRows(
             COMPLIANCE_VEHICLE_DOCUMENT_TYPES,
             summary.vehicleDocuments,
@@ -4873,7 +4873,7 @@ export function ComplianceDocumentWorkspace({
       finance: false,
       trip: complianceTabMarkedApproved(overlay(deriveTripVaultReviewRows(summary.documents), "trip"), "trip"),
       vehicle:
-        summary.trip.vehicle_id || summary.vehicleDocuments.length > 0
+        summary.trip.vehicle_id || summary.vaultVehicleId || summary.vehicleDocuments.length > 0
           ? complianceTabMarkedApproved(
               overlay(deriveEntityComplianceRows(COMPLIANCE_VEHICLE_DOCUMENT_TYPES, summary.vehicleDocuments), "vehicle"),
               "vehicle",
@@ -5557,7 +5557,7 @@ export function ComplianceDocumentWorkspace({
     const finance = financeRowsFor(summary, hideCommercials);
     const trip = deriveTripVaultReviewRows(summary.documents).filter((row) => row.status === "missing").length;
     const vehicle =
-      summary.trip.vehicle_id || summary.vehicleDocuments.length > 0
+      summary.trip.vehicle_id || summary.vaultVehicleId || summary.vehicleDocuments.length > 0
         ? deriveEntityComplianceRows(COMPLIANCE_VEHICLE_DOCUMENT_TYPES, summary.vehicleDocuments).filter(
             (row) => row.status === "missing",
           ).length

@@ -26,3 +26,30 @@
 ## Tested
 - `npx jest features/trips/utils/__tests__/tripOpsReport.model.test.ts --ci --silent`
 - UI: not clicked through
+
+---
+
+## Driving licence number — accept every Indian layout (Add Driver)
+
+### What
+- Licence field no longer silently drops characters. If what's typed doesn't fit the picked layout, it switches to RTO letter or "Other / old card" and keeps the number exactly as typed.
+- "Other / old card" accepts any licence as printed: 7–21 letters/digits, optional single `/` separators, at least 5 digits (e.g. `MH04/12345/2005`, `P03042000123456`, `R/TN/22/001234/2009`, `DLFAP029126912005OD`).
+- Standard (`TN01 20200001234`) and RTO letter (`TN29 Z19940001713`) unchanged, still auto-spaced.
+- Clearer error / placeholder text in Add Driver, driver registration and the old Add Driver modal (also uppercases input there).
+
+### Why
+- A Telangana card prints only a 9-digit number; it could not be entered in any layout (Standard wiped it, Old card rejected it), so the driver could not be added.
+
+### Areas
+- `lib/indianDrivingLicenseInput.util.ts`
+- `features/finance/components/PartyRegistrationPortal.tsx`
+- `features/drivers/components/AddDriverModal.tsx`
+- `features/drivers/components/DriverRegistrationPortalFlow.tsx`
+- `lib/__tests__/indianInputFormats.test.ts`, `lib/__tests__/indianDrivingLicenseLength.test.ts`
+
+### Migrations
+- None (`license_number` is free text)
+
+### Tested
+- `npx jest lib/__tests__/indianInputFormats.test.ts lib/__tests__/indianDrivingLicenseLength.test.ts` — 40 passed
+- UI: not clicked through

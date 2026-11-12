@@ -96,7 +96,7 @@ describe("Indian DL — Telangana smart card with letter suffix", () => {
     expect(isIndianDrivingLicenseComplete("DLFAP12810371208")).toBe(true);
   });
 
-  it("still rejects more than 3 trailing letters", () => {
-    expect(isIndianDrivingLicenseComplete("DLFAP029126912005ODXY")).toBe(false);
+  it("still rejects anything longer than 21 characters", () => {
+    expect(isIndianDrivingLicenseComplete("DLFAP029126912005ODXYZ")).toBe(false);
   });
 });

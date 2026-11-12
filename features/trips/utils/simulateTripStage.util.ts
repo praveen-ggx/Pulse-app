@@ -262,6 +262,81 @@ function latestSimTimestamp(
   return best;
 }
 
+type ActiveBisimLine = { index: number; status: string };
+
+/** BISIM lines still in effect, in file order, after BISIM_REVOKE. */
+function activeBisimLines(notes: string): ActiveBisimLine[] {
+  const stack: ActiveBisimLine[] = [];
+  const lines = notes.split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]?.trim() ?? "";
+    if (line.startsWith("[BISIM_REVOKE|") && line.endsWith("]")) {
+      const fromStatus = line.slice(14, -1).split("|")[0]?.trim().toLowerCase();
+      for (let i = stack.length - 1; i >= 0; i -= 1) {
+        if (stack[i]?.status === fromStatus) {
+          stack.splice(i, 1);
+          break;
+        }
+      }
+      continue;
+    }
+    if (!line.startsWith("[BISIM|") || !line.endsWith("]")) continue;
+    const status = line.slice(7, -1).split("|")[0]?.trim().toLowerCase();
+    if (!status) continue;
+    stack.push({ index, status });
+  }
+  return stack;
+}
+
+function rewriteBisimLineTimestamp(line: string, atIso: string): string {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("[BISIM|") || !trimmed.endsWith("]")) return line;
+  const parts = trimmed.slice(7, -1).split("|");
+  parts[1] = atIso;
+  return line.replace(trimmed, `[BISIM|${parts.join("|")}]`);
+}
+
+/**
+ * Point every still-active BISIM line for these statuses at `at`.
+ * Revoked lines keep their original timestamps.
+ * Used when Pickup is chosen again so an older, later line cannot outrank it.
+ */
+export function alignUnrevokedBisimTimestamps(
+  notes: string,
+  statuses: readonly string[],
+  at: string,
+): string {
+  const atIso = String(at ?? "").trim();
+  if (!atIso || !notes.trim()) return notes;
+  const want = new Set(statuses.map((status) => status.toLowerCase()));
+  const indexes = new Set(
+    activeBisimLines(notes)
+      .filter((line) => want.has(line.status))
+      .map((line) => line.index),
+  );
+  if (indexes.size === 0) return notes;
+  const lines = notes.split("\n");
+  for (const index of indexes) {
+    const current = lines[index];
+    if (current == null) continue;
+    lines[index] = rewriteBisimLineTimestamp(current, atIso);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Pickup instant the Journey Log shows.
+ * `started_at` wins even when it is earlier than an older BISIM line — a revoke
+ * followed by a new Pickup must replace the previous timeline, not sit under it.
+ */
+export function resolvePickupReferenceIso(
+  trip: Pick<TripRow, "started_at" | "notes">,
+): string | null {
+  const started = trip.started_at?.trim();
+  if (started && Number.isFinite(new Date(started).getTime())) return started;
+  return latestSimTimestamp(trip.notes, ["in_progress", "picked_up", "pickup"]);
+}
+
 /**
  * Assignment instant for the Journey Log "Assigned" step.
  * Uses assignment / reassignment audit only — never `updated_at` (revoke / simulate
@@ -314,8 +389,10 @@ export function bumpIsoToNextPickerMinute(
  * Same minute as the floor is allowed; earlier is not.
  *
  * Pickup is unrestricted (past or future) — returns null.
- * In-transit and later floor to the selected Pickup instant only (not Assigned /
- * Driver Accepted), so a past pickup is not blocked by a later accept time.
+ * In-transit floors to the current Pickup instant only (`started_at` when set).
+ * A revoked In Transit time, or an older Pickup BISIM that is later on the clock,
+ * is not a reference. Later stages chain from the active previous stage, and
+ * never earlier than that Pickup instant.
  */
 export function resolveSimulateStageMinAt(opts: {
   targetStatus: string;
@@ -334,10 +411,7 @@ export function resolveSimulateStageMinAt(opts: {
     opts.trip.created_at,
   );
   const notes = opts.trip.notes;
-  const pickupAt = latestIso(
-    opts.trip.started_at,
-    latestSimTimestamp(notes, ["in_progress", "picked_up", "pickup"]),
-  );
+  const pickupAt = resolvePickupReferenceIso(opts.trip);
 
   let minIso: string | null = null;
   if (target === "assigned") {

@@ -23,6 +23,6 @@ No new migration files. Release-set prep for the 3 migrations on V1 that prod do
 - `hub-metric-counter.versions` — added the missing SHA-256 line.
 
 ## Tested
-- 795 compliance unit tests pass
+- 797 compliance unit tests pass, incl. 3 new regression tests in `vehicleViewerTripDedup.test.ts` (fail on the old indexing code, pass on the fix)
 - Preprod runtime: TRP002015 (TN52AF9048, SMK LOGISTICS) now shows vehicle checklist with 6 doc slots instead of "No vehicle assigned"
 - Verified vehicle `5221b5bd` has `documents = {}` on both preprod and prod — the fix handles this correctly

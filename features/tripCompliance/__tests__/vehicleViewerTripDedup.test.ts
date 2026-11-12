@@ -140,10 +140,37 @@ describe("fetchVehicleDocumentsForTrips — vault RPC", () => {
     expect(rpcNames).toEqual(["get_compliance_vehicle_vault_for_trips"]);
     expect(ops("vehicles")).toHaveLength(0);
     expect(byTrip.get("t1")?.vehicleDocuments).toEqual([]);
+    expect(byTrip.get("t1")?.vaultVehicleId).toBe("00000000-0000-4000-8000-000000000009");
+    expect(byTrip.get("t2")?.vaultVehicleId).toBe("00000000-0000-4000-8000-000000000009");
+  });
+
+  it("an empty-vault vehicle never replaces a docs-having vehicle under the same plate", async () => {
+    mockVaultRows = [
+      { trip_id: "t1", vehicle_id: "with-docs", vehicle_number: "KA01AB1234", documents: RC },
+      { trip_id: "t2", vehicle_id: "empty", vehicle_number: "KA01AB1234", documents: {} },
+    ];
+    const trips = [
+      trip("t1", { vehicle_id: "with-docs" }),
+      trip("t2", { vehicle_id: "empty" }),
+      trip("t3", { vehicle_display_number: "KA01AB1234" }),
+    ];
+    const byTrip = await fetchVehicleDocumentsForTrips(trips, "viewer-org");
+    expect(byTrip.get("t2")?.vaultVehicleId).toBe("empty");
+    expect(byTrip.get("t3")?.vaultVehicleId).toBe("with-docs");
   });
 });
 
 describe("fetchVehicleDocumentsForTrips — plate fallback via RPC", () => {
+  it("cross-org vehicle with an empty vault still resolves its vehicle id (TRP002015 / TN52AF9048)", async () => {
+    mockPlateVaultRows = [
+      { trip_id: "t1", vehicle_id: "5221b5bd-e85d-4e36-90f7-a01fcd0ab1f4", vehicle_number: "TN52AF9048", documents: {} },
+    ];
+    const trips = [trip("t1", { vehicle_display_number: "TN52AF9048", supplier_id: "sup-1" })];
+    const byTrip = await fetchVehicleDocumentsForTrips(trips, "viewer-org");
+    expect(byTrip.get("t1")?.vehicleDocuments).toEqual([]);
+    expect(byTrip.get("t1")?.vaultVehicleId).toBe("5221b5bd-e85d-4e36-90f7-a01fcd0ab1f4");
+  });
+
   it("calls get_compliance_vehicle_vault_by_plate for vehicle-less trips with a plate", async () => {
     mockPlateVaultRows = [{ trip_id: "t1", vehicle_id: "cross-v1", vehicle_number: "KA05ZZ9999", documents: RC }];
     const trips = [trip("t1", { vehicle_display_number: "KA05ZZ9999", owner_vehicle_id: "ov-1" })];

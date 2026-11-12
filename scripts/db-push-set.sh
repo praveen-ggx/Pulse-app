@@ -21,7 +21,8 @@
 # binary. On macOS the login token lives in the keychain ACL for the binary
 # that ran `supabase login`, so a later extract prints
 # "Access token not provided" even though list/dry-run just succeeded.
-# Set SUPABASE_CLI to the pinned binary (e.g. 2.95.4 from the user npm cache).
+# Set SUPABASE_CLI to the pinned binary (2.121.0; 2.95.4 lacks the
+# `migration list --output-format` flag the list parser uses since 076e585b).
 # This script never prints token values.
 
 set -euo pipefail
@@ -52,8 +53,8 @@ require_supabase_auth() {
   probe="$("$bin" projects list 2>&1)" || rc=$?
   if printf '%s\n' "$probe" | grep -Fq 'Access token not provided'; then
     echo "ERROR: $bin has no access token (login/keychain mismatch)." >&2
-    echo "Run: npx supabase@2.95.4 login" >&2
-    echo "Then: SUPABASE_CLI=\$(npx --yes --package supabase@2.95.4 -c 'command -v supabase')" >&2
+    echo "Run: npx supabase@2.121.0 login" >&2
+    echo "Then: SUPABASE_CLI=\$(npx --yes --package supabase@2.121.0 -c 'command -v supabase')" >&2
     exit 1
   fi
   if [[ "$rc" -ne 0 ]]; then
@@ -162,7 +163,7 @@ if [[ "$mode" == "prepare" ]]; then
 fi
 
 echo "── Snapshot migration list ──"
-# Do not pass --workdir. CLI 2.95.4 remaps credential lookup to that
+# Do not pass --workdir. CLI 2.95.4 (and possibly later) remaps credential lookup to that
 # directory; the ephemeral snapshot has no login, so apply printed
 # "Access token not provided" after a successful list from the real tree.
 # cd keeps project files (config.toml / .temp) without changing HOME/keychain.

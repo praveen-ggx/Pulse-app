@@ -97,6 +97,9 @@ export function LogIncomingPodsScreen({ embedded = false }: LogIncomingPodsScree
     isError,
     error,
     refetch,
+    hasNextPage: podHasNextPage,
+    isFetchingNextPage: podFetchingNextPage,
+    fetchNextPage: fetchPodNextPage,
   } = useLogIncomingPodsTripsQuery(orgId);
   const { data: dbCourierPartners = [], isLoading: loadingCouriers } =
     useCourierPartnersQuery();
@@ -500,6 +503,19 @@ export function LogIncomingPodsScreen({ embedded = false }: LogIncomingPodsScree
 
   const renderSidebarContent = () => (
     <>
+      {podHasNextPage ? (
+        <Pressable
+          style={styles.blockedBtn}
+          disabled={podFetchingNextPage}
+          onPress={() => {
+            void fetchPodNextPage();
+          }}
+        >
+          <Text style={styles.blockedBtnText}>
+            {podFetchingNextPage ? "Loading older trips…" : "Load older trips"}
+          </Text>
+        </Pressable>
+      ) : null}
       <Text style={styles.sectionTitle}>Courier Information</Text>
       <Text style={styles.sectionLabel}>Supplier / Transporter</Text>
       <Pressable
@@ -721,9 +737,13 @@ export function LogIncomingPodsScreen({ embedded = false }: LogIncomingPodsScree
       {supplierTrips.length === 0 ? (
         <View style={styles.empty}>
           <FontAwesome name="truck" size={48} color={Theme.borderMedium} />
-          <Text style={styles.emptyTitle}>No trips found</Text>
+          <Text style={styles.emptyTitle}>
+            {podHasNextPage ? "Older trips are still on the server" : "No trips found"}
+          </Text>
           <Text style={styles.emptySub}>
-            Try adjusting your supplier or search filters.
+            {podHasNextPage
+              ? "Load the next page. This page had no trips left to log."
+              : "Try adjusting your supplier or search filters."}
           </Text>
         </View>
       ) : (

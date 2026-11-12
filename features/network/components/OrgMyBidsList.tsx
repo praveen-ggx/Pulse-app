@@ -16,11 +16,13 @@ import {
   MarketplaceSpecChips,
   titleCaseWord,
 } from "@/features/network/components/MarketplaceLoadCardChrome";
+import { MarketplaceBidPoolCard } from "@/features/network/components/pooled/MarketplaceBidPoolCard";
 import {
   type FeePaymentStatus,
   type MyOrgMarketBidRow,
   type MyOrgMarketBidStatus,
 } from "@/features/network/services/findLoadsForOrg.service";
+import { buildMarketplaceBidPools } from "@/features/network/utils/marketplaceBidPools.util";
 import { formatStoryDate } from "@/features/network/utils/storyDisplay";
 import {
   createMarketplaceFeeOrder,
@@ -45,7 +47,7 @@ import { showAppAlert } from "@/lib/appAlert";
 import { confirmDialog } from "@/lib/confirmDialog";
 import { ROUTES } from "@/lib/routes";
 import { useRouter } from "expo-router";
-import { ChevronRight, Inbox } from "lucide-react-native";
+import { ChevronRight, Inbox, Layers } from "lucide-react-native";
 import { useMemo, useState, type ReactNode } from "react";
 import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 
@@ -164,6 +166,17 @@ export function OrgMyBidsList({
     return { pending, awarded, closed };
   }, [bids]);
 
+  const router = useRouter();
+  /** Pending / closed stay anonymous pool cards (Network Loads chrome). */
+  const pendingPools = useMemo(
+    () => buildMarketplaceBidPools(groups.pending),
+    [groups.pending],
+  );
+  const closedPools = useMemo(
+    () => buildMarketplaceBidPools(groups.closed),
+    [groups.closed],
+  );
+
   if (isLoading) {
     return (
       <View style={styles.centered}>
@@ -184,7 +197,7 @@ export function OrgMyBidsList({
     );
   }
 
-    return (
+  return (
     <View style={styles.listContent}>
       {groups.awarded.length > 0 ? (
         <Section title="Awarded" count={groups.awarded.length}>
@@ -198,27 +211,25 @@ export function OrgMyBidsList({
           ))}
         </Section>
       ) : null}
-      {groups.pending.length > 0 ? (
+      {pendingPools.length > 0 ? (
         <Section title="Pending" count={groups.pending.length}>
-          {groups.pending.map((b) => (
-            <BidCard
-              key={b.id}
-              bid={b}
-              orgId={orgId}
-              onPaymentUpdated={onPaymentUpdated}
+          {pendingPools.map((pool) => (
+            <MarketplaceBidPoolCard
+              key={pool.id}
+              pool={pool}
+              onReviseBid={
+                pool.reviseKey
+                  ? () => router.push(ROUTES.findLoadsPool(pool.reviseKey!) as never)
+                  : undefined
+              }
             />
           ))}
         </Section>
       ) : null}
-      {groups.closed.length > 0 ? (
+      {closedPools.length > 0 ? (
         <Section title="Not selected" count={groups.closed.length}>
-          {groups.closed.map((b) => (
-            <BidCard
-              key={b.id}
-              bid={b}
-              orgId={orgId}
-              onPaymentUpdated={onPaymentUpdated}
-            />
+          {closedPools.map((pool) => (
+            <MarketplaceBidPoolCard key={pool.id} pool={pool} />
           ))}
         </Section>
       ) : null}
@@ -266,6 +277,12 @@ function BidCard({
   const isRejected = bid.status === "rejected";
   const phoneDisplay = bid.owner_phone ?? bid.owner_masked_phone;
   const feeGateSatisfied = marketplaceFeeGateSatisfied(bid.fee_payment_status);
+  /**
+   * Shipper identity (name, avatar, indent number, phone) is revealed only at
+   * allocation: awarded AND the Marketplace fee settled. Before that the card
+   * shows the lane only — same rule as Network pooled bids.
+   */
+  const identityRevealed = isAccepted && feeGateSatisfied;
   const [isStartingPayment, setIsStartingPayment] = useState(false);
   const [checkoutOrder, setCheckoutOrder] = useState<{
     orderId: string;
@@ -428,20 +445,31 @@ function BidCard({
       ]}
     >
       <View style={styles.cardTop}>
-        <PartyAvatar
-          name={shipper}
-          initialsColorSeed={bid.owner_organization_id ?? shipper}
-          entityType="client"
-          size={32}
-        />
-        <View style={styles.cardTopText}>
-          <Text style={styles.orgName} numberOfLines={1}>
-            {shipper}
-          </Text>
-          <Text style={styles.metaLine} numberOfLines={1}>
-            {(bid.indent_number ?? "").trim() || bid.indent_id.slice(0, 8).toUpperCase()}
-          </Text>
-        </View>
+        {identityRevealed ? (
+          <>
+            <PartyAvatar
+              name={shipper}
+              initialsColorSeed={bid.owner_organization_id ?? shipper}
+              entityType="client"
+              size={32}
+            />
+            <View style={styles.cardTopText}>
+              <Text style={styles.orgName} numberOfLines={1}>
+                {shipper}
+              </Text>
+              <Text style={styles.metaLine} numberOfLines={1}>
+                {(bid.indent_number ?? "").trim() || bid.indent_id.slice(0, 8).toUpperCase()}
+              </Text>
+            </View>
+          </>
+        ) : (
+          <View style={[styles.cardTopText, styles.laneTag]} testID="marketplace-bid-lane-tag">
+            <Layers size={12} color={Theme.primary} strokeWidth={2.4} />
+            <Text style={styles.laneTagText} numberOfLines={1}>
+              MARKETPLACE
+            </Text>
+          </View>
+        )}
         <View
           style={[
             styles.statusPill,
@@ -468,7 +496,7 @@ function BidCard({
         <View style={styles.rateBlock}>
           <Text style={styles.rateLabel}>Your bid</Text>
           <Text style={styles.amount}>{formatAmount(bid.amount)}</Text>
-          {isAccepted && phoneDisplay ? (
+          {identityRevealed && phoneDisplay ? (
             <Text style={styles.contact} numberOfLines={1}>
               {phoneDisplay}
             </Text>
@@ -631,6 +659,17 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
   },
   cardRejected: { opacity: 0.8 },
+  laneTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  laneTagText: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    color: Theme.primaryText,
+  },
   cardTop: {
     flexDirection: "row",
     alignItems: "center",

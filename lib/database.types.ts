@@ -19696,6 +19696,8 @@ export type Database = {
           pickup_date: string
           platform_fee_amount: number
           status: string
+          vehicle_type: string
+          weight: number
         }[]
       }
       list_network_pool_lanes_for_org: {

@@ -5,9 +5,16 @@
 import {
   getTripsWhereOrgIsSupplier,
   supplierRowToTripRow,
+  type SupplierTripRow,
   type TripRow,
 } from "@/features/trips/services/trips.service";
 import { getTripOperationalDisplay } from "@/features/operations/display";
+import {
+  nextTripKeysetCursor,
+  tripKeysetBeforeFilter,
+  TRIP_LIST_PAGE_SIZE,
+  type TripKeysetCursor,
+} from "@/features/trips/utils/tripKeysetCursor.util";
 import {
   computePodReconciliationSummaryFromTrips,
   mergeTripsForPodOrg,
@@ -571,22 +578,29 @@ async function fetchVehicleNumbersByIds(
 
 export async function fetchInvoicingTrips(
   orgId: string,
-): Promise<{ error: Error | null; trips: InvoicingTripView[] }> {
+  opts?: { cursor?: TripKeysetCursor | null },
+): Promise<{ error: Error | null; trips: InvoicingTripView[]; nextCursor: TripKeysetCursor | null }> {
   try {
+    let ownerQuery = supabase()
+      .from("trips")
+      .select(LIVE_TRIP_SELECT)
+      .eq("organization_id", orgId)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(TRIP_LIST_PAGE_SIZE);
+    if (opts?.cursor) ownerQuery = ownerQuery.or(tripKeysetBeforeFilter(opts.cursor));
     const [ownerRes, supRes] = await Promise.all([
-      supabase()
-        .from("trips")
-        .select(LIVE_TRIP_SELECT)
-        .eq("organization_id", orgId)
-        .order("created_at", { ascending: false })
-        .limit(3000),
-      getTripsWhereOrgIsSupplier(orgId),
+      ownerQuery,
+      opts?.cursor
+        ? Promise.resolve({ error: null, trips: [] as SupplierTripRow[] })
+        : getTripsWhereOrgIsSupplier(orgId),
     ]);
 
-    if (ownerRes.error) return { error: toAppError(ownerRes.error), trips: [] };
-    if (supRes.error) return { error: supRes.error, trips: [] };
+    if (ownerRes.error) return { error: toAppError(ownerRes.error), trips: [], nextCursor: null };
+    if (supRes.error) return { error: supRes.error, trips: [], nextCursor: null };
 
     const ownerRows = (ownerRes.data ?? []) as TripRecord[];
+    const nextCursor = nextTripKeysetCursor(ownerRows, TRIP_LIST_PAGE_SIZE);
     const supRows = (supRes.trips ?? []).map(supplierRowToTripRow) as TripRecord[];
 
     const map = new Map<string, TripRecord>();
@@ -710,9 +724,9 @@ export async function fetchInvoicingTrips(
         },
       );
     });
-    return { error: null, trips: views };
+    return { error: null, trips: views, nextCursor };
   } catch (e) {
-    return { error: toAppError(e), trips: [] };
+    return { error: toAppError(e), trips: [], nextCursor: null };
   }
 }
 

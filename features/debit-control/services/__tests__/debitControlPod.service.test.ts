@@ -13,10 +13,13 @@ jest.mock("@/lib/supabase", () => ({
           eq: () => Promise.resolve({ data: mockDraftSelectData, error: null }),
         }),
       }),
+      // Update-first upsert: no existing row matches, so the insert path runs.
       update: () => ({
         eq: () => ({
           eq: () => ({
-            eq: () => Promise.resolve({ error: null }),
+            eq: () => ({
+              select: () => Promise.resolve({ data: [], error: null }),
+            }),
           }),
         }),
       }),

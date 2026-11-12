@@ -280,11 +280,26 @@ export async function createVehicle(
 ): Promise<{ error: Error | null; vehicle: VehicleRow | null }> {
   // DB: vehicles.type = 'owned' | 'adhoc'; vehicles.supplier_id optional for partner
   const type = payload.vehicleSource === 'partner' ? 'adhoc' : 'owned';
+  const vehicleNumber = (payload.vehicle_number ?? '').trim();
+  const duplicateMessage =
+    'A vehicle with this registration number is already added for your organization. Use a different number.';
+  // Exact-match pre-check on the idx_vehicles_org_number key, so a repeat number
+  // is rejected here instead of as a 23505 in the Postgres log.
+  if (vehicleNumber) {
+    const { data: existing } = await supabase()
+      .from('vehicles')
+      .select('id')
+      .eq('organization_id', orgId)
+      .eq('vehicle_number', vehicleNumber)
+      .limit(1)
+      .maybeSingle();
+    if (existing) return { error: new Error(duplicateMessage), vehicle: null };
+  }
   const { data, error } = await supabase()
     .from('vehicles')
     .insert({
       organization_id: orgId,
-      vehicle_number: (payload.vehicle_number ?? '').trim(),
+      vehicle_number: vehicleNumber,
       vehicle_type: (payload.vehicle_type ?? '').trim() || null,
       capacity: (payload.capacity ?? '').trim() || null,
       vehicle_brand: (payload.vehicle_brand ?? '').trim() || null,
@@ -303,7 +318,7 @@ export async function createVehicle(
     const message =
       error.message?.includes('idx_vehicles_org_number') ||
       error.message?.includes('duplicate key')
-        ? 'A vehicle with this registration number is already added for your organization. Use a different number.'
+        ? duplicateMessage
         : error.message;
     return { error: new Error(message), vehicle: null };
   }

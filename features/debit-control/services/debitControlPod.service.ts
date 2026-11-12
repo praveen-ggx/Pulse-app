@@ -191,6 +191,21 @@ async function upsertWorkflowValidationEvent(input: {
   idempotencyKey: string;
   payload: Record<string, unknown>;
 }): Promise<{ ok: boolean; message?: string }> {
+  // Update-first: re-saves are the common case, and insert-then-catch-23505 logs a
+  // Postgres error on every repeat. The unique index is partial (idempotency_key IS
+  // NOT NULL), so PostgREST on_conflict can't target it.
+  const updateExisting = () =>
+    supabase()
+      .from("trip_workflow_events")
+      .update({ actor_id: input.actorId, payload: input.payload })
+      .eq("trip_id", input.tripId)
+      .eq("event_type", input.eventType)
+      .eq("idempotency_key", input.idempotencyKey)
+      .select("id");
+  const { data: updatedRows, error: firstUpdateError } = await updateExisting();
+  if (firstUpdateError) return { ok: false, message: firstUpdateError.message };
+  if ((updatedRows ?? []).length > 0) return { ok: true };
+
   const { error } = await supabase()
     .from("trip_workflow_events")
     .insert({
@@ -204,12 +219,8 @@ async function upsertWorkflowValidationEvent(input: {
   if (!error) return { ok: true };
   const code = String((error as { code?: string }).code ?? "");
   if (code !== "23505") return { ok: false, message: error.message };
-  const { error: updateError } = await supabase()
-    .from("trip_workflow_events")
-    .update({ actor_id: input.actorId, payload: input.payload })
-    .eq("trip_id", input.tripId)
-    .eq("event_type", input.eventType)
-    .eq("idempotency_key", input.idempotencyKey);
+  // Lost a concurrent-insert race: the row exists now, so update it.
+  const { error: updateError } = await updateExisting();
   if (updateError) return { ok: false, message: updateError.message };
   return { ok: true };
 }
@@ -330,6 +341,15 @@ export async function recordAdvanceDocumentCostSnapshot(
     .maybeSingle();
   const orgId = text(data?.organization_id) || text(fallback?.organizationId);
   if (!orgId) return;
+  const idempotencyKey = `${tripId}:${ADVANCE_DOCUMENT_COST_EVENT}`;
+  // Check first so repeat calls don't log a 23505 in Postgres each time.
+  const { data: existing } = await supabase()
+    .from("trip_workflow_events")
+    .select("id")
+    .eq("idempotency_key", idempotencyKey)
+    .limit(1)
+    .maybeSingle();
+  if (existing) return;
   const { error } = await supabase()
     .from("trip_workflow_events")
     .insert({
@@ -337,7 +357,7 @@ export async function recordAdvanceDocumentCostSnapshot(
       org_id: orgId,
       event_type: ADVANCE_DOCUMENT_COST_EVENT,
       payload: { amount },
-      idempotency_key: `${tripId}:${ADVANCE_DOCUMENT_COST_EVENT}`,
+      idempotency_key: idempotencyKey,
     });
   if (error && error.code !== "23505") return;
 }

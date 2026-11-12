@@ -19,6 +19,7 @@ import { useOptionalOrganization } from "@/contexts/OrganizationContext";
 import { MarketplaceLaneFilters } from "@/features/network/components/MarketplaceLaneFilters";
 import { MarketplaceSearchSheet } from "@/features/network/components/MarketplaceSearchSheet";
 import { OrgMyBidsList } from "@/features/network/components/OrgMyBidsList";
+import { LaneBidInvitesCard } from "@/features/network/components/laneOffers/LaneBidInvitesCard";
 import { PooledOpportunityCard } from "@/features/network/components/pooled/PooledOpportunityCard";
 import {
   listMarketplaceSearchLanes,
@@ -420,6 +421,7 @@ export default function FindLoadsScreen() {
           contentContainerStyle={styles.pageScrollContent}
         >
           {pageChrome()}
+          <LaneBidInvitesCard onResponded={() => void myBidsQ.refetch()} />
           <OrgMyBidsList
             bids={myBids}
             isLoading={myBidsQ.isLoading}

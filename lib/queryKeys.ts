@@ -383,6 +383,15 @@ export const queryKeys = {
       ["q", "bids", "market-indent", indentId] as const,
   },
 
+  /** Offers on an indent's lane (list_lane_offers_for_indent) and carrier rate requests. */
+  laneOffers: {
+    all: () => ["q", "lane-offers"] as const,
+    forIndent: (indentId: string, pageSize: number) =>
+      ["q", "lane-offers", "indent", indentId, pageSize] as const,
+    forIndentAll: (indentId: string) => ["q", "lane-offers", "indent", indentId] as const,
+    myInvites: (pageSize: number) => ["q", "lane-offers", "my-invites", pageSize] as const,
+  },
+
   storyViews: {
     forPost: (postId: string) => ["q", "story-views", postId] as const,
   },

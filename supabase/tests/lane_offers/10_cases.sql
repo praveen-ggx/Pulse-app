@@ -114,9 +114,12 @@ BEGIN
   SELECT * INTO nn FROM public.network_notifications WHERE dedupe_key = 'lane_invite:' || (a ->> 'invite_id');
   PERFORM t_ok('Invite: Network invite created once, repeat returns the same pending invite',
     (a ->> 'created')::boolean AND NOT (b ->> 'created')::boolean AND a ->> 'invite_id' = b ->> 'invite_id', a::text || b::text);
-  PERFORM t_ok('Invite: carrier org gets a quote_requested notification at the rate',
+  PERFORM t_ok('Invite: Network carrier gets a rate-request notification naming the shipper and load',
     nn.organization_id = t_id('B1') AND nn.actor_org_id = t_id('SHIP1') AND nn.event_type = 'quote_requested'
-      AND nn.amount_meta = 30000 AND nn.indent_id = t_lo('n1'), coalesce(row_to_json(nn)::text, 'none'));
+      AND nn.amount_meta = 30000 AND nn.indent_id = t_lo('n1')
+      AND nn.payload_json ->> 'kind' = 'lane_bid_invite' AND nn.payload_json ->> 'channel' = 'network'
+      AND (nn.payload_json ->> 'lane_invite_id')::uuid = (a ->> 'invite_id')::uuid
+      AND nn.payload_json ? 'indent_code', coalesce(row_to_json(nn)::text, 'none'));
   PERFORM t_ok('Invite: no bid exists on the new load until the carrier accepts',
     NOT EXISTS (SELECT 1 FROM public.direct_quotes WHERE indent_id = t_lo('n1') AND bidder_organization_id = t_id('B1')), '');
   PERFORM t_ok('Invite: lane list shows the pending invite',
@@ -141,6 +144,44 @@ BEGIN
     (t_my_invites(t_id('u_bid1')) -> 'items' -> 0 ->> 'shipper_name') = 'Shipper One', '');
   PERFORM t_ok('Invite: other carriers see nothing',
     (t_my_invites(t_id('u_other')) ->> 'total_count')::int = 0, '');
+END $$;
+
+-- Marketplace anonymity: the bidder learns the lane and rate, never the shipper
+-- or the load, in the notification row, the inbox RPC, or the table itself.
+SELECT t_lo_put('inv_b2', (t_invite(t_id('u_ship'), t_lo('n1'), 'market_bid', t_lo('bid_b2')) ->> 'invite_id')::uuid);
+DO $$
+DECLARE
+  nn public.network_notifications;
+  mine jsonb := t_my_invites(t_id('u_other'));
+  item jsonb := mine -> 'items' -> 0;
+  b1_item jsonb := t_my_invites(t_id('u_bid1')) -> 'items' -> 0;
+  code text := (SELECT coalesce(to_jsonb(i) ->> 'indent_operational_code', i.indent_number)
+                FROM public.indents i WHERE i.id = t_lo('n1'));
+BEGIN
+  SELECT * INTO nn FROM public.network_notifications WHERE dedupe_key = 'lane_invite:' || t_lo('inv_b2');
+  PERFORM t_ok('Privacy: Marketplace notification has no shipper org, no load id, no load code',
+    nn.organization_id = t_id('B2') AND nn.actor_org_id IS NULL AND nn.indent_id IS NULL
+      AND nn.title = 'Marketplace rate request' AND nn.amount_meta = 32000
+      AND nn.payload_json ->> 'kind' = 'lane_bid_invite' AND nn.payload_json ->> 'channel' = 'marketplace'
+      AND NOT nn.payload_json ? 'indent_code' AND NOT nn.payload_json ? 'indent_id'
+      AND position(code IN row_to_json(nn)::text) = 0
+      AND position('Shipper One' IN row_to_json(nn)::text) = 0
+      AND position(t_id('SHIP1')::text IN row_to_json(nn)::text) = 0,
+    coalesce(row_to_json(nn)::text, 'none'));
+  PERFORM t_ok('Privacy: Marketplace inbox RPC returns no shipper name and no load code',
+    (mine ->> 'total_count')::int = 1 AND item ->> 'channel' = 'marketplace'
+      AND item ->> 'shipper_name' IS NULL AND item ->> 'indent_number' IS NULL
+      AND position(code IN mine::text) = 0 AND position('Shipper One' IN mine::text) = 0
+      AND position(t_id('SHIP1')::text IN mine::text) = 0, mine::text);
+  PERFORM t_ok('Privacy: Network inbox keeps the shipper name and load code',
+    b1_item ->> 'channel' = 'network' AND b1_item ->> 'shipper_name' = 'Shipper One'
+      AND b1_item ->> 'indent_number' = code, coalesce(b1_item::text, 'none'));
+  PERFORM t_ok('Privacy: Marketplace bidders cannot read invite rows directly (org and DCO)',
+    (t_exec_as(t_id('u_other'), 'SELECT to_jsonb(count(*)) FROM public.lane_bid_invites'))::text::int = 0
+      AND (t_exec_as(t_id('u_dco'), 'SELECT to_jsonb(count(*)) FROM public.lane_bid_invites'))::text::int = 0, '');
+  PERFORM t_ok('Privacy: Network bidder and shipper still read their invite rows',
+    (t_exec_as(t_id('u_bid1'), 'SELECT to_jsonb(count(*)) FROM public.lane_bid_invites'))::text::int = 1
+      AND (t_exec_as(t_id('u_ship'), 'SELECT to_jsonb(count(*)) FROM public.lane_bid_invites'))::text::int = 3, '');
 END $$;
 
 SELECT t_err_as('Respond: another carrier cannot accept', t_id('u_other'),
@@ -171,8 +212,18 @@ BEGIN
     (t_my_invites(t_id('u_dco')) ->> 'total_count')::int = 0 AND (t_my_invites(t_id('u_bid1')) ->> 'total_count')::int = 0, '');
 END $$;
 
-SELECT t_err_as('Respond: an answered invite cannot be answered again', t_id('u_dco'),
-  format('SELECT public.respond_lane_bid_invite(%L, true)', t_lo('inv_dco')), 'invite_not_pending');
+DO $$
+DECLARE
+  again jsonb := t_respond(t_id('u_dco'), t_lo('inv_dco'), true);
+BEGIN
+  PERFORM t_ok('Respond: a repeated accept returns the first outcome and writes nothing new',
+    again ->> 'status' = 'accepted' AND (again ->> 'already_responded')::boolean
+      AND (again ->> 'market_bid_id')::uuid = (SELECT result_market_bid_id FROM public.lane_bid_invites WHERE id = t_lo('inv_dco'))
+      AND (SELECT count(*) FROM public.market_bids WHERE indent_id = t_lo('n1') AND bidder_user_id = t_id('u_dco')) = 1,
+    again::text);
+END $$;
+SELECT t_err_as('Respond: an accepted invite cannot be declined afterwards', t_id('u_dco'),
+  format('SELECT public.respond_lane_bid_invite(%L, false)', t_lo('inv_dco')), 'invite_not_pending');
 SELECT t_err_as('Invite: carrier already on the load cannot be invited', t_id('u_ship'),
   format('SELECT public.invite_lane_bidder(%L, %L, %L)', t_lo('n1'), 'market_bid', t_lo('bid_dco')), 'already_bid');
 
@@ -201,6 +252,160 @@ DECLARE
 BEGIN
   PERFORM t_ok('Respond: Network accept writes a pending quote at the rate, not awarded',
     x ->> 'status' = 'accepted' AND q.amount = 30000 AND q.status = 'pending' AND q.pool_commit_id IS NULL, x::text);
+END $$;
+
+-- ── G. Accepting never overwrites an offer the carrier already has ─────────
+SELECT t_lo_put('g1', t_indent(t_id('SHIP1'), 'LO Periya', 'LO Coimbatore', '32FT', 'both'));
+SELECT t_lo_put('g1_inv_b1', (t_invite(t_id('u_ship'), t_lo('g1'), 'network_quote', t_lo('q_b1')) ->> 'invite_id')::uuid);
+SELECT t_lo_put('g1_inv_dco', (t_invite(t_id('u_ship'), t_lo('g1'), 'market_bid', t_lo('bid_dco')) ->> 'invite_id')::uuid);
+-- After being invited, both carriers offer on the load themselves.
+SELECT t_exec_as(t_id('u_bid2'), t_quote_sql(t_lo('g1'), t_id('B1'), 30500));
+SELECT t_bid(t_id('u_dco'), t_lo('g1'), 31000, NULL, t_id('V1'));
+
+DO $$
+DECLARE
+  a jsonb := t_respond(t_id('u_bid1'), t_lo('g1_inv_b1'), true);
+  d jsonb := t_respond(t_id('u_dco'), t_lo('g1_inv_dco'), true);
+  again jsonb;
+BEGIN
+  PERFORM t_ok('Protect: a direct quote placed after the invite is kept; the invite is superseded',
+    a ->> 'status' = 'superseded' AND a ->> 'reason' = 'already_offered'
+      AND (t_pool_quote(t_lo('g1'), t_id('B1'))).amount = 30500
+      AND (SELECT count(*) FROM public.direct_quotes WHERE indent_id = t_lo('g1') AND bidder_organization_id = t_id('B1')) = 1
+      AND (SELECT status FROM public.lane_bid_invites WHERE id = t_lo('g1_inv_b1')) = 'superseded', a::text);
+  PERFORM t_ok('Protect: a Marketplace bid placed after the invite is kept; the invite is superseded',
+    d ->> 'status' = 'superseded'
+      AND (SELECT amount FROM public.market_bids WHERE indent_id = t_lo('g1') AND bidder_user_id = t_id('u_dco')) = 31000
+      AND (SELECT count(*) FROM public.market_bids WHERE indent_id = t_lo('g1') AND bidder_user_id = t_id('u_dco')) = 1, d::text);
+  again := t_respond(t_id('u_bid2'), t_lo('g1_inv_b1'), true);
+  PERFORM t_ok('Protect: retrying a superseded invite returns the same outcome',
+    again ->> 'status' = 'superseded' AND (again ->> 'already_responded')::boolean
+      AND (t_pool_quote(t_lo('g1'), t_id('B1'))).amount = 30500, again::text);
+END $$;
+
+-- A lane rate attached after the invite: the pool quote and its commitment are untouched.
+SELECT t_lo_put('g2', t_indent(t_id('SHIP1'), 'LO Periya', 'LO Coimbatore', '32FT', 'both'));
+SELECT t_lo_put('g2_inv', (t_invite(t_id('u_ship'), t_lo('g2'), 'network_quote', t_lo('q_b1')) ->> 'invite_id')::uuid);
+SELECT t_lo_put('c_g', t_commit(t_id('B1'), 'lo periya|lo coimbatore|32ft', 28000, 2));
+SELECT t_exec_as(t_id('u_ship'), format('SELECT public.attach_lane_commitments_for_indent(%L)', t_lo('g2')));
+DO $$
+DECLARE
+  x jsonb := t_respond(t_id('u_bid1'), t_lo('g2_inv'), true);
+  q public.direct_quotes := t_pool_quote(t_lo('g2'), t_id('B1'));
+  c public.network_pool_bid_commits;
+BEGIN
+  SELECT * INTO c FROM public.network_pool_bid_commits WHERE id = t_lo('c_g');
+  PERFORM t_ok('Protect: a lane rate attached after the invite keeps its rate and pool_commit_id',
+    x ->> 'status' = 'superseded' AND q.amount = 28000 AND q.pool_commit_id = t_lo('c_g') AND q.status = 'pending'
+      AND q.notes IS NULL, x::text || coalesce(row_to_json(q)::text, 'none'));
+  PERFORM t_ok('Protect: the commitment is not consumed and has exactly one attached quote',
+    c.awarded_count = 0 AND c.status = 'active'
+      AND (SELECT count(*) FROM public.direct_quotes WHERE pool_commit_id = t_lo('c_g')) = 1, row_to_json(c)::text);
+END $$;
+UPDATE public.network_pool_bid_commits SET status = 'superseded' WHERE id = t_lo('c_g');
+
+-- Concurrency, with real separate sessions (dblink inside this disposable container).
+CREATE EXTENSION IF NOT EXISTS dblink;
+CREATE FUNCTION t_session(p_name text, p_uid uuid) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM dblink_connect(p_name, 'dbname=postgres user=postgres');
+  PERFORM dblink_exec(p_name, format('SET request.jwt.claim.sub TO %L', p_uid));
+  PERFORM dblink_exec(p_name, 'SET role authenticated');
+END $$;
+-- True once a session other than this one is blocked on a lock running p_like.
+CREATE FUNCTION t_wait_blocked(p_like text) RETURNS boolean LANGUAGE plpgsql AS $$
+BEGIN
+  FOR i IN 1..200 LOOP
+    PERFORM pg_stat_clear_snapshot();
+    IF EXISTS (
+      SELECT 1 FROM pg_stat_activity
+      WHERE pid <> pg_backend_pid() AND wait_event_type = 'Lock' AND query LIKE p_like
+    ) THEN
+      RETURN true;
+    END IF;
+    PERFORM pg_sleep(0.05);
+  END LOOP;
+  RETURN false;
+END $$;
+CREATE FUNCTION t_session_result(p_name text) RETURNS text LANGUAGE plpgsql AS $$
+DECLARE v text;
+BEGIN
+  SELECT x INTO v FROM dblink_get_result(p_name) AS t(x text);
+  PERFORM 1 FROM dblink_get_result(p_name) AS t(x text);
+  RETURN v;
+END $$;
+
+SELECT t_lo_put('g3', t_indent(t_id('SHIP1'), 'LO Periya', 'LO Coimbatore', '32FT', 'both'));
+SELECT t_lo_put('g3_inv', (t_invite(t_id('u_ship'), t_lo('g3'), 'network_quote', t_lo('q_b1')) ->> 'invite_id')::uuid);
+DO $$
+DECLARE
+  r1 jsonb;
+  r2 jsonb;
+  v_blocked boolean;
+BEGIN
+  PERFORM t_session('c1', t_id('u_bid1'));
+  PERFORM t_session('c2', t_id('u_bid2'));
+  PERFORM dblink_exec('c1', 'BEGIN');
+  SELECT x::jsonb INTO r1 FROM dblink('c1',
+    format('SELECT public.respond_lane_bid_invite(%L, true)::text', t_lo('g3_inv'))) AS t(x text);
+  PERFORM dblink_send_query('c2', format('SELECT public.respond_lane_bid_invite(%L, true)::text', t_lo('g3_inv')));
+  v_blocked := t_wait_blocked('%respond_lane_bid_invite%');
+  PERFORM dblink_exec('c1', 'COMMIT');
+  r2 := t_session_result('c2')::jsonb;
+  PERFORM dblink_disconnect('c1');
+  PERFORM dblink_disconnect('c2');
+  PERFORM t_ok('Concurrency: two staff accept one invite at once; the second waits, gets the first outcome, one quote',
+    v_blocked AND r1 ->> 'status' = 'accepted' AND r2 ->> 'status' = 'accepted' AND (r2 ->> 'already_responded')::boolean
+      AND (SELECT count(*) FROM public.direct_quotes WHERE indent_id = t_lo('g3') AND bidder_organization_id = t_id('B1')) = 1,
+    format('blocked=%s r1=%s r2=%s', v_blocked, r1, r2));
+END $$;
+
+-- An offer committed while the accept is in flight is restored, not overwritten.
+SELECT t_lo_put('g4', t_indent(t_id('SHIP1'), 'LO Periya', 'LO Coimbatore', '32FT', 'both'));
+SELECT t_lo_put('g4_inv', (t_invite(t_id('u_ship'), t_lo('g4'), 'network_quote', t_lo('q_b1')) ->> 'invite_id')::uuid);
+SELECT t_lo_put('g4_inv_dco', (t_invite(t_id('u_ship'), t_lo('g4'), 'market_bid', t_lo('bid_dco')) ->> 'invite_id')::uuid);
+DO $$
+DECLARE
+  r jsonb;
+  v_blocked boolean;
+BEGIN
+  PERFORM t_session('c1', t_id('u_bid2'));
+  PERFORM t_session('c2', t_id('u_bid1'));
+  PERFORM dblink_exec('c1', 'BEGIN');
+  PERFORM x FROM dblink('c1', t_quote_sql(t_lo('g4'), t_id('B1'), 29500) || '::text') AS t(x text);
+  PERFORM dblink_send_query('c2', format('SELECT public.respond_lane_bid_invite(%L, true)::text', t_lo('g4_inv')));
+  v_blocked := t_wait_blocked('%respond_lane_bid_invite%');
+  PERFORM dblink_exec('c1', 'COMMIT');
+  r := t_session_result('c2')::jsonb;
+  PERFORM dblink_disconnect('c1');
+  PERFORM dblink_disconnect('c2');
+  PERFORM t_ok('Concurrency: a Network quote committed during the accept keeps its amount; the invite is superseded',
+    v_blocked AND r ->> 'status' = 'superseded' AND (t_pool_quote(t_lo('g4'), t_id('B1'))).amount = 29500
+      AND (t_pool_quote(t_lo('g4'), t_id('B1'))).notes IS NULL
+      AND (SELECT status FROM public.lane_bid_invites WHERE id = t_lo('g4_inv')) = 'superseded',
+    format('blocked=%s r=%s quote=%s', v_blocked, r, row_to_json(t_pool_quote(t_lo('g4'), t_id('B1')))));
+END $$;
+
+DO $$
+DECLARE
+  r jsonb;
+  v_blocked boolean;
+BEGIN
+  PERFORM t_session('c1', t_id('u_dco'));
+  PERFORM t_session('c2', t_id('u_dco'));
+  PERFORM dblink_exec('c1', 'BEGIN');
+  PERFORM x FROM dblink('c1', t_bid_sql(t_lo('g4'), 31200, NULL, t_id('V1')) || '::text') AS t(x text);
+  PERFORM dblink_send_query('c2', format('SELECT public.respond_lane_bid_invite(%L, true)::text', t_lo('g4_inv_dco')));
+  v_blocked := t_wait_blocked('%respond_lane_bid_invite%');
+  PERFORM dblink_exec('c1', 'COMMIT');
+  r := t_session_result('c2')::jsonb;
+  PERFORM dblink_disconnect('c1');
+  PERFORM dblink_disconnect('c2');
+  PERFORM t_ok('Concurrency: a Marketplace bid committed during the accept keeps its amount; the invite is superseded',
+    v_blocked AND r ->> 'status' = 'superseded'
+      AND (SELECT amount FROM public.market_bids WHERE indent_id = t_lo('g4') AND bidder_user_id = t_id('u_dco')) = 31200
+      AND (SELECT count(*) FROM public.market_bids WHERE indent_id = t_lo('g4') AND bidder_user_id = t_id('u_dco')) = 1,
+    format('blocked=%s r=%s', v_blocked, r));
 END $$;
 
 -- ── C. Lane commitments attach automatically ────────────────────────────────

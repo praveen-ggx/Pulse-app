@@ -11,7 +11,11 @@ import {
   respondLaneBidInvite,
   type LaneBidInvite,
 } from "@/features/network/services/laneOffers.service";
-import { laneOfferErrorMessage } from "@/features/network/utils/laneOffers.util";
+import {
+  laneBidInviteMeta,
+  laneInviteResponseNotice,
+  laneOfferErrorMessage,
+} from "@/features/network/utils/laneOffers.util";
 import { showAppAlert } from "@/lib/appAlert";
 import { confirmDialog } from "@/lib/confirmDialog";
 import { formatINR } from "@/lib/format";
@@ -60,16 +64,11 @@ export function LaneBidInvitesCard({ onResponded }: LaneBidInvitesCardProps) {
           showAppAlert(accept ? "Could not place bid" : "Could not decline", laneOfferErrorMessage(error));
           return;
         }
-        if (result?.status === "expired") {
-          showAppAlert("Load closed", "This load is no longer open for offers.");
-          return;
+        const notice = laneInviteResponseNotice(result, accept, formatINR(invite.amount));
+        if (notice) {
+          showAppAlert(notice.title, notice.message, notice.tone ? { tone: notice.tone } : undefined);
         }
-        if (accept) {
-          showAppAlert("Bid placed", `Your bid of ${formatINR(invite.amount)} is with the shipper.`, {
-            tone: "success",
-          });
-          onResponded?.();
-        }
+        if (accept && result?.status === "accepted") onResponded?.();
       } finally {
         setBusy(null);
       }
@@ -95,13 +94,7 @@ export function LaneBidInvitesCard({ onResponded }: LaneBidInvitesCardProps) {
               {routeLabel(invite)}
             </Text>
             <Text style={styles.meta} numberOfLines={1}>
-              {[
-                invite.vehicle_type,
-                invite.shipper_name ?? (invite.channel === "marketplace" ? "Marketplace load" : null),
-                invite.indent_number,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
+              {laneBidInviteMeta(invite)}
             </Text>
           </View>
           <View style={styles.actions}>

@@ -7,7 +7,7 @@ import { supabase } from '@/lib/supabase';
 
 export type LaneOfferKind = 'market_bid' | 'network_quote' | 'pool_commitment';
 export type LaneOfferChannel = 'marketplace' | 'network';
-export type LaneInviteStatus = 'pending' | 'accepted' | 'declined' | 'expired';
+export type LaneInviteStatus = 'pending' | 'accepted' | 'declined' | 'expired' | 'superseded';
 export type LaneInviteBlocker = 'needs_marketplace' | 'needs_network' | 'not_in_network';
 
 export type LaneOffer = {
@@ -49,6 +49,7 @@ export type LaneOffersPage = {
 export type LaneBidInvite = {
   invite_id: string;
   indent_id: string;
+  /** Marketplace invites: null until allocation (the shipper and load stay anonymous). */
   indent_number: string | null;
   pickup_area: string | null;
   drop_location: string | null;
@@ -83,6 +84,10 @@ export type InviteLaneBidderResult = {
 export type RespondLaneBidInviteResult = {
   invite_id: string;
   status: LaneInviteStatus;
+  /** superseded: the carrier already had an offer on the load; it was kept unchanged. */
+  reason?: 'already_offered';
+  /** The invite was answered before; this call changed nothing. */
+  already_responded?: boolean;
 };
 
 export const LANE_OFFERS_PAGE_SIZE = 50;

@@ -1,6 +1,8 @@
 import type {
+  LaneBidInvite,
   LaneOffer,
   LaneOffersPage,
+  RespondLaneBidInviteResult,
 } from "@/features/network/services/laneOffers.service";
 
 export type LaneOffersDialogMode = "offers" | "recommend_marketplace" | "none";
@@ -52,6 +54,7 @@ export function laneOfferAction(offer: LaneOffer, amountLabel: string): LaneOffe
   }
   if (offer.invite_status === "pending") return { kind: "status", label: "Invited" };
   if (offer.invite_status === "accepted") return { kind: "status", label: "Accepted" };
+  if (offer.invite_status === "superseded") return { kind: "status", label: "Already offered" };
   return {
     kind: "invite",
     label: offer.invite_status === "declined" || offer.invite_status === "expired"
@@ -68,6 +71,48 @@ export function laneOfferSourceLabel(offer: LaneOffer): string {
   return offer.source_indent_number ? `Bid on ${offer.source_indent_number}` : "Bid on this lane";
 }
 
+/**
+ * Secondary line of a carrier's rate request. Marketplace bidders never see the
+ * shipper or the load code before allocation, even if a row carries them.
+ */
+export function laneBidInviteMeta(
+  invite: Pick<LaneBidInvite, "channel" | "vehicle_type" | "shipper_name" | "indent_number">,
+): string {
+  const parts =
+    invite.channel === "marketplace"
+      ? [invite.vehicle_type, "Marketplace load"]
+      : [invite.vehicle_type, invite.shipper_name, invite.indent_number];
+  return parts.filter(Boolean).join(" · ");
+}
+
+export type LaneInviteNotice = {
+  title: string;
+  message: string;
+  tone?: "success";
+};
+
+/** What to tell the carrier after answering a rate request. Null: nothing to say. */
+export function laneInviteResponseNotice(
+  result: Pick<RespondLaneBidInviteResult, "status" | "already_responded"> | null,
+  accept: boolean,
+  amountLabel: string,
+): LaneInviteNotice | null {
+  if (result?.status === "expired") {
+    return { title: "Load closed", message: "This load is no longer open for offers." };
+  }
+  if (result?.status === "superseded") {
+    return {
+      title: "Already offered",
+      message: "You already have an offer on this load. It was kept unchanged; no new bid was placed.",
+    };
+  }
+  if (!accept) return null;
+  if (result?.already_responded) {
+    return { title: "Already accepted", message: "You accepted this request earlier. Your bid is with the shipper." };
+  }
+  return { title: "Bid placed", message: `Your bid of ${amountLabel} is with the shipper.`, tone: "success" };
+}
+
 const LANE_ERRORS: Array<[string, string]> = [
   ["needs_marketplace", "Post this load to Marketplace first to invite Marketplace bidders."],
   ["needs_network", "Share this load with your Network first."],
@@ -82,6 +127,7 @@ const LANE_ERRORS: Array<[string, string]> = [
   ["not_marketplace_circulated", "This load is no longer on Marketplace."],
   ["indent_not_visible", "This load is no longer shared with your organization."],
   ["quote_locked", "Your quote on this load can no longer be changed."],
+  ["bid_locked", "Your bid on this load can no longer be changed."],
 ];
 
 export function laneOfferErrorMessage(error: Error | null | undefined): string {

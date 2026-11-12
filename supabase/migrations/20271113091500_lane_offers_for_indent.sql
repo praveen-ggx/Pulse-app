@@ -14,6 +14,11 @@
 -- 4. lane_bid_invites ("Invite at Rs X"): the carrier accepts or declines. The
 --    accept path writes through submit_market_bid / submit_network_quote as the
 --    carrier, so no bid exists and nothing is awarded without the carrier.
+--    Marketplace invites follow the 20261111105431 masking: the bidder sees the
+--    lane and rate, never the shipper or the indent number, in the
+--    notification, in list_my_lane_bid_invites, or by reading the table.
+--    Accept never overwrites an offer the carrier already has (direct quote,
+--    Marketplace bid, attached lane rate): the invite becomes 'superseded'.
 
 SET LOCAL lock_timeout = '5s';
 
@@ -99,6 +104,43 @@ AS $$
 $$;
 
 REVOKE ALL ON FUNCTION public._indent_marketplace_open(uuid) FROM PUBLIC, anon, authenticated;
+
+-- An offer the carrier still stands behind on the load: a pending or accepted
+-- direct quote (own or an attached lane rate) or Marketplace bid.
+CREATE OR REPLACE FUNCTION public._lane_bidder_has_active_offer(
+  p_indent_id uuid,
+  p_bidder_type text,
+  p_bidder_org uuid,
+  p_bidder_user uuid
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO ''
+AS $$
+  SELECT CASE
+    WHEN p_bidder_type = 'dco' THEN EXISTS (
+      SELECT 1 FROM public.market_bids mb
+      WHERE mb.indent_id = p_indent_id
+        AND mb.bidder_user_id = p_bidder_user
+        AND mb.status IN ('pending', 'accepted')
+    )
+    ELSE EXISTS (
+      SELECT 1 FROM public.direct_quotes dq
+      WHERE dq.indent_id = p_indent_id
+        AND dq.bidder_organization_id = p_bidder_org
+        AND dq.status IN ('pending', 'accepted')
+    ) OR EXISTS (
+      SELECT 1 FROM public.market_bids mb
+      WHERE mb.indent_id = p_indent_id
+        AND mb.bidder_organization_id = p_bidder_org
+        AND mb.status IN ('pending', 'accepted')
+    )
+  END;
+$$;
+
+REVOKE ALL ON FUNCTION public._lane_bidder_has_active_offer(uuid, text, uuid, uuid) FROM PUBLIC, anon, authenticated;
 
 -- ── 2. Indexes ──────────────────────────────────────────────────────────────
 
@@ -266,7 +308,7 @@ CREATE TABLE IF NOT EXISTS public.lane_bid_invites (
   owner_vehicle_id uuid,
   amount numeric NOT NULL CHECK (amount > 0),
   status text NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending', 'accepted', 'declined', 'expired')),
+    CHECK (status IN ('pending', 'accepted', 'declined', 'expired', 'superseded')),
   invited_by uuid NOT NULL,
   responded_by uuid,
   responded_at timestamptz,
@@ -304,6 +346,10 @@ CREATE INDEX IF NOT EXISTS lane_bid_invites_bidder_user_pending_idx
 
 ALTER TABLE public.lane_bid_invites ENABLE ROW LEVEL SECURITY;
 
+-- Marketplace bidders do not read rows directly: a row carries the shipper org,
+-- the inviting user and the indent ids, and Marketplace hides the load owner
+-- until allocation (20261111105431). They use list_my_lane_bid_invites, which
+-- masks those fields. Network bidders already see the shipper.
 DROP POLICY IF EXISTS lane_bid_invites_select ON public.lane_bid_invites;
 CREATE POLICY lane_bid_invites_select
   ON public.lane_bid_invites
@@ -311,8 +357,11 @@ CREATE POLICY lane_bid_invites_select
   TO authenticated
   USING (
     public.is_org_staff(shipper_organization_id)
-    OR (bidder_organization_id IS NOT NULL AND public.is_org_staff(bidder_organization_id))
-    OR (bidder_type = 'dco' AND bidder_user_id = (SELECT auth.uid()))
+    OR (
+      channel = 'network'
+      AND bidder_organization_id IS NOT NULL
+      AND public.is_org_staff(bidder_organization_id)
+    )
   );
 
 REVOKE ALL ON TABLE public.lane_bid_invites FROM PUBLIC, anon, authenticated;
@@ -710,7 +759,11 @@ BEGIN
   )
   RETURNING * INTO v_invite;
 
-  IF v_bidder_org IS NOT NULL THEN
+  -- payload kind 'lane_bid_invite' routes the tap to My Bids -> Rate requests,
+  -- not to the Network quote flow. A Marketplace invite names neither the
+  -- shipper (actor org) nor the load (indent id, indent code): the lane is
+  -- visible, the party is not, until allocation (20261111105431).
+  IF v_bidder_org IS NOT NULL AND v_channel = 'network' THEN
     PERFORM public.emit_network_notification(
       v_bidder_org,
       v_org,
@@ -720,7 +773,25 @@ BEGIN
       v_amount,
       p_indent_id, NULL, NULL,
       concat('lane_invite:', v_invite.id),
-      jsonb_build_object('lane_invite_id', v_invite.id, 'channel', v_channel, 'indent_code', v_code, 'route', v_route)
+      jsonb_build_object(
+        'kind', 'lane_bid_invite', 'lane_invite_id', v_invite.id, 'channel', 'network',
+        'indent_code', v_code, 'route', v_route
+      )
+    );
+  ELSIF v_bidder_org IS NOT NULL THEN
+    PERFORM public.emit_network_notification(
+      v_bidder_org,
+      NULL,
+      'quote_requested',
+      'Marketplace rate request',
+      v_route,
+      v_amount,
+      NULL, NULL, NULL,
+      concat('lane_invite:', v_invite.id),
+      jsonb_build_object(
+        'kind', 'lane_bid_invite', 'lane_invite_id', v_invite.id, 'channel', 'marketplace',
+        'route', v_route
+      )
     );
   END IF;
 
@@ -745,11 +816,14 @@ DECLARE
   v_uid uuid := auth.uid();
   v_invite public.lane_bid_invites%ROWTYPE;
   v_result jsonb;
+  v_offer_id uuid;
+  v_conflict boolean := false;
 BEGIN
   IF v_uid IS NULL THEN
     RAISE EXCEPTION 'Not authenticated';
   END IF;
 
+  -- Serializes concurrent responses to the same invite.
   SELECT * INTO v_invite FROM public.lane_bid_invites li WHERE li.id = p_invite_id FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'not_found: invite %', p_invite_id;
@@ -762,6 +836,20 @@ BEGIN
     RAISE EXCEPTION 'unauthorized: this invite is addressed to another carrier';
   END IF;
 
+  -- A repeated accept (double tap, retry after a timeout) returns the first outcome.
+  IF v_invite.status = 'accepted' AND coalesce(p_accept, false) THEN
+    RETURN jsonb_build_object(
+      'invite_id', v_invite.id, 'status', 'accepted', 'already_responded', true,
+      'market_bid_id', v_invite.result_market_bid_id,
+      'direct_quote_id', v_invite.result_direct_quote_id
+    );
+  END IF;
+  IF v_invite.status = 'superseded' THEN
+    RETURN jsonb_build_object(
+      'invite_id', v_invite.id, 'status', 'superseded', 'reason', 'already_offered',
+      'already_responded', true
+    );
+  END IF;
   IF v_invite.status <> 'pending' THEN
     RAISE EXCEPTION 'invite_not_pending: this invite is already %', v_invite.status;
   END IF;
@@ -780,23 +868,94 @@ BEGIN
     RETURN jsonb_build_object('invite_id', v_invite.id, 'status', 'declined');
   END IF;
 
-  -- Same write path as a bid the carrier places itself, with its own checks.
-  IF v_invite.channel = 'marketplace' THEN
-    v_result := public.submit_market_bid(
-      v_invite.indent_id, v_invite.amount, 'Accepted rate request',
-      v_invite.bidder_organization_id, v_invite.owner_vehicle_id
+  -- The invite never replaces an offer the carrier already has on this load: a
+  -- quote or bid it placed itself, or a lane rate attached after the invite.
+  -- submit_market_bid / submit_network_quote upsert a pending row, so accepting
+  -- would silently overwrite its amount (and, for a lane rate, consume the
+  -- commitment at the invite's price). One lock per (load, carrier) serializes
+  -- different invites to the same carrier on the same load.
+  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
+    concat('lane_offer:', v_invite.indent_id, ':',
+           coalesce(v_invite.bidder_organization_id, v_invite.bidder_user_id)), 0));
+
+  IF public._lane_bidder_has_active_offer(
+       v_invite.indent_id, v_invite.bidder_type, v_invite.bidder_organization_id, v_invite.bidder_user_id
+     ) THEN
+    v_conflict := true;
+  ELSE
+    -- Same write path as a bid the carrier places itself, with its own checks.
+    -- A concurrent offer committed between the check above and the upsert is
+    -- detected below (the row predates this transaction, or a second active
+    -- offer exists) and this block is rolled back, restoring that offer.
+    BEGIN
+      IF v_invite.channel = 'marketplace' THEN
+        v_result := public.submit_market_bid(
+          v_invite.indent_id, v_invite.amount, 'Accepted rate request',
+          v_invite.bidder_organization_id, v_invite.owner_vehicle_id
+        );
+        v_offer_id := (v_result ->> 'bid_id')::uuid;
+        IF NOT EXISTS (
+          SELECT 1 FROM public.market_bids mb
+          WHERE mb.id = v_offer_id AND mb.created_at = pg_catalog.now()
+        ) OR (v_invite.bidder_organization_id IS NOT NULL AND (
+          EXISTS (
+            SELECT 1 FROM public.market_bids mb
+            WHERE mb.indent_id = v_invite.indent_id
+              AND mb.bidder_organization_id = v_invite.bidder_organization_id
+              AND mb.status IN ('pending', 'accepted')
+              AND mb.id <> v_offer_id
+          ) OR EXISTS (
+            SELECT 1 FROM public.direct_quotes dq
+            WHERE dq.indent_id = v_invite.indent_id
+              AND dq.bidder_organization_id = v_invite.bidder_organization_id
+              AND dq.status IN ('pending', 'accepted')
+          )
+        )) THEN
+          RAISE EXCEPTION 'lane_invite_conflict';
+        END IF;
+      ELSE
+        v_result := public.submit_network_quote(
+          v_invite.indent_id, v_invite.bidder_organization_id, v_invite.amount, 'Accepted rate request'
+        );
+        v_offer_id := (v_result ->> 'quote_id')::uuid;
+        IF NOT EXISTS (
+          SELECT 1 FROM public.direct_quotes dq
+          WHERE dq.id = v_offer_id AND dq.created_at = pg_catalog.now() AND dq.pool_commit_id IS NULL
+        ) OR EXISTS (
+          SELECT 1 FROM public.market_bids mb
+          WHERE mb.indent_id = v_invite.indent_id
+            AND mb.bidder_organization_id = v_invite.bidder_organization_id
+            AND mb.status IN ('pending', 'accepted')
+        ) THEN
+          RAISE EXCEPTION 'lane_invite_conflict';
+        END IF;
+      END IF;
+    EXCEPTION WHEN raise_exception THEN
+      IF SQLERRM <> 'lane_invite_conflict' THEN
+        RAISE;
+      END IF;
+      v_conflict := true;
+    END;
+  END IF;
+
+  IF v_conflict THEN
+    UPDATE public.lane_bid_invites
+    SET status = 'superseded', responded_by = v_uid, responded_at = now(), updated_at = now()
+    WHERE id = v_invite.id;
+    RETURN jsonb_build_object(
+      'invite_id', v_invite.id, 'status', 'superseded', 'reason', 'already_offered'
     );
+  END IF;
+
+  IF v_invite.channel = 'marketplace' THEN
     UPDATE public.lane_bid_invites
     SET status = 'accepted', responded_by = v_uid, responded_at = now(), updated_at = now(),
-        result_market_bid_id = (v_result ->> 'bid_id')::uuid
+        result_market_bid_id = v_offer_id
     WHERE id = v_invite.id;
   ELSE
-    v_result := public.submit_network_quote(
-      v_invite.indent_id, v_invite.bidder_organization_id, v_invite.amount, 'Accepted rate request'
-    );
     UPDATE public.lane_bid_invites
     SET status = 'accepted', responded_by = v_uid, responded_at = now(), updated_at = now(),
-        result_direct_quote_id = (v_result ->> 'quote_id')::uuid
+        result_direct_quote_id = v_offer_id
     WHERE id = v_invite.id;
   END IF;
 
@@ -869,7 +1028,8 @@ BEGIN
       SELECT jsonb_agg(jsonb_build_object(
         'invite_id', p.id,
         'indent_id', p.indent_id,
-        'indent_number', coalesce(to_jsonb(i) ->> 'indent_operational_code', i.indent_number),
+        'indent_number', CASE WHEN p.channel = 'network'
+          THEN coalesce(to_jsonb(i) ->> 'indent_operational_code', i.indent_number) END,
         'pickup_area', i.pickup_area,
         'drop_location', i.drop_location,
         'vehicle_type', i.vehicle_type,

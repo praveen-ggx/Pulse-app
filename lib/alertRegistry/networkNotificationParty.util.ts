@@ -1,3 +1,20 @@
+import type { NetworkNotificationRow } from "@/features/network/services/networkNotifications.service";
+
+export type LaneInviteChannel = "network" | "marketplace";
+
+/**
+ * Rate requests ("Invite at Rs X") are `quote_requested` rows tagged
+ * `payload_json.kind = 'lane_bid_invite'`. A missing channel is treated as
+ * Marketplace, the anonymous one.
+ */
+export function laneBidInviteChannel(
+  item: Pick<NetworkNotificationRow, "payload_json">,
+): LaneInviteChannel | null {
+  const payload = item.payload_json;
+  if (!payload || payload.kind !== "lane_bid_invite") return null;
+  return payload.channel === "network" ? "network" : "marketplace";
+}
+
 const LEGAL_SUFFIX =
   /^(pvt|pvt\.|ltd|ltd\.|limited|private|llp|llc|inc|inc\.|co|company)$/i;
 

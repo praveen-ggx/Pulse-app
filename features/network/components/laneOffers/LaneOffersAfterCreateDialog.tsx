@@ -28,17 +28,22 @@ import {
 
 export type LaneOffersDialogResult = "review" | "close";
 
+/** The load is already created; the lane check never holds up navigation longer than this. */
+export const LANE_OFFERS_DIALOG_TIMEOUT_MS = 8000;
+
 export interface LaneOffersAfterCreateDialogProps {
   indentId: string | null;
   onDone: (result: LaneOffersDialogResult) => void;
   /** Switches the load to Network + Marketplace. Resolves true on success. */
   onPostToMarketplace: (indentId: string) => Promise<boolean>;
+  loadingTimeoutMs?: number;
 }
 
 export function LaneOffersAfterCreateDialog({
   indentId,
   onDone,
   onPostToMarketplace,
+  loadingTimeoutMs = LANE_OFFERS_DIALOG_TIMEOUT_MS,
 }: LaneOffersAfterCreateDialogProps) {
   const insets = useSafeAreaInsets();
   const invalidate = useInvalidateLaneOffers();
@@ -53,9 +58,12 @@ export function LaneOffersAfterCreateDialog({
     setPosted(false);
     if (!indentId) return;
     let cancelled = false;
-    void attachLaneCommitmentsForIndent(indentId).then(({ attached: n }) => {
-      if (!cancelled) setAttached(n);
-    });
+    void attachLaneCommitmentsForIndent(indentId)
+      .then(({ attached: n }) => n)
+      .catch(() => 0)
+      .then((n) => {
+        if (!cancelled) setAttached(n);
+      });
     return () => {
       cancelled = true;
     };
@@ -78,6 +86,12 @@ export function LaneOffersAfterCreateDialog({
   useEffect(() => {
     if (indentId && ready && mode === "none" && !posted) finish("close");
   }, [indentId, ready, mode, posted, finish]);
+
+  useEffect(() => {
+    if (!indentId || ready) return;
+    const timer = setTimeout(() => finish("close"), loadingTimeoutMs);
+    return () => clearTimeout(timer);
+  }, [indentId, ready, loadingTimeoutMs, finish]);
 
   const postToMarketplace = useCallback(async (): Promise<boolean> => {
     if (!indentId) return false;
@@ -143,6 +157,14 @@ export function LaneOffersAfterCreateDialog({
             <View style={styles.loading}>
               <LoadingIndicator size="small" color={Theme.primary} />
               <Text style={styles.body}>Checking offers on this lane…</Text>
+              <TouchableOpacity
+                style={[styles.btn, styles.btnSecondary]}
+                onPress={() => finish("close")}
+                accessibilityRole="button"
+                accessibilityLabel="Skip offer check"
+              >
+                <Text style={styles.btnSecondaryText}>Skip</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             <>

@@ -45,7 +45,7 @@ import { useMemberAccess } from "@/lib/useMemberAccess";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { Award, SlidersHorizontal, X } from "lucide-react-native";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   FlatList,
   Pressable,
@@ -75,6 +75,9 @@ export default function FindLoadsScreen() {
   const [segment, setSegment] = useState<Segment>(
     params.segment === "my-bids" ? "myBids" : "discover",
   );
+  useEffect(() => {
+    if (params.segment === "my-bids") setSegment("myBids");
+  }, [params.segment]);
   const [appliedSearch, setAppliedSearch] = useState<MarketplaceLoadSearch | null>(
     null,
   );

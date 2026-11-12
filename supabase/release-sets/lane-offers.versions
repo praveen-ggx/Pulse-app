@@ -3,5 +3,5 @@
 # auto-attaches live commitments to new indents, and invites lane bidders with
 # carrier consent (no award without the carrier). Additive only.
 # Branch vasanth/V1.0.22. One version only. Not applied anywhere yet.
-# sha256 c01e292da54e061502b078cd9167892a68cebb6afb3e88d2e1d69efb0dea4e89  20271113091500_lane_offers_for_indent.sql
+# sha256 fb845f2faa47b0cb49f2ed013f53e7970d71dfdd13eb1fcbdcfb61dfdaade620  20271113091500_lane_offers_for_indent.sql
 20271113091500

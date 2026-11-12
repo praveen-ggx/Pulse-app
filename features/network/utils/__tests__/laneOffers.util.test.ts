@@ -1,5 +1,7 @@
 import type { LaneOffer } from '@/features/network/services/laneOffers.service';
 import {
+  laneBidInviteMeta,
+  laneInviteResponseNotice,
   laneOfferAction,
   laneOfferErrorMessage,
   laneOfferSourceLabel,
@@ -88,6 +90,63 @@ describe('laneOfferAction', () => {
     expect(laneOfferAction(offer({ invite_status: 'accepted' }), '₹1').label).toBe('Accepted');
     expect(laneOfferAction(offer({ invite_status: 'declined' }), '₹2').label).toBe('Invite again at ₹2');
     expect(laneOfferAction(offer({ invite_status: 'expired' }), '₹2').label).toBe('Invite again at ₹2');
+    expect(laneOfferAction(offer({ invite_status: 'superseded' }), '₹2')).toEqual({
+      kind: 'status',
+      label: 'Already offered',
+    });
+  });
+});
+
+describe('laneBidInviteMeta', () => {
+  it('never names the shipper or the load on a Marketplace invite, even if the row carries them', () => {
+    const meta = laneBidInviteMeta({
+      channel: 'marketplace',
+      vehicle_type: '32FT',
+      shipper_name: 'Shipper One',
+      indent_number: 'SAT812GOGIND003892',
+    });
+    expect(meta).toBe('32FT · Marketplace load');
+    expect(meta).not.toContain('Shipper One');
+    expect(meta).not.toContain('SAT812GOGIND003892');
+  });
+
+  it('shows the shipper and load code on a Network invite', () => {
+    expect(
+      laneBidInviteMeta({
+        channel: 'network',
+        vehicle_type: '32FT',
+        shipper_name: 'Shipper One',
+        indent_number: 'SAT812GOGIND003892',
+      }),
+    ).toBe('32FT · Shipper One · SAT812GOGIND003892');
+  });
+});
+
+describe('laneInviteResponseNotice', () => {
+  it('reports a placed bid on a fresh accept', () => {
+    expect(laneInviteResponseNotice({ status: 'accepted' }, true, '₹30,000')).toEqual({
+      title: 'Bid placed',
+      message: 'Your bid of ₹30,000 is with the shipper.',
+      tone: 'success',
+    });
+  });
+
+  it('says the existing offer was kept when the invite was superseded', () => {
+    expect(laneInviteResponseNotice({ status: 'superseded' }, true, '₹1')?.title).toBe('Already offered');
+    expect(
+      laneInviteResponseNotice({ status: 'superseded', already_responded: true }, true, '₹1')?.message,
+    ).toContain('kept unchanged');
+  });
+
+  it('does not claim a new bid on a repeated accept', () => {
+    expect(
+      laneInviteResponseNotice({ status: 'accepted', already_responded: true }, true, '₹1')?.title,
+    ).toBe('Already accepted');
+  });
+
+  it('reports closed loads and stays quiet on a decline', () => {
+    expect(laneInviteResponseNotice({ status: 'expired' }, true, '₹1')?.title).toBe('Load closed');
+    expect(laneInviteResponseNotice({ status: 'declined' }, false, '₹1')).toBeNull();
   });
 });
 
@@ -111,6 +170,9 @@ describe('laneOfferErrorMessage', () => {
     );
     expect(laneOfferErrorMessage(new Error('invite_not_pending'))).toBe(
       'This request was already answered.',
+    );
+    expect(laneOfferErrorMessage(new Error('bid_locked: bid can no longer be changed'))).toBe(
+      'Your bid on this load can no longer be changed.',
     );
     expect(laneOfferErrorMessage(new Error('boom'))).toBe('boom');
     expect(laneOfferErrorMessage(null)).toBe('Something went wrong. Please try again.');

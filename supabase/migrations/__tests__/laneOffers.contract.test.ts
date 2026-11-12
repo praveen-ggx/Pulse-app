@@ -112,4 +112,31 @@ describe("20271113091500 lane offers contract", () => {
   it("only attaches live commitments", () => {
     expect(fnBody("_attach_lane_commitments")).toContain("public.network_pool_commit_is_live(");
   });
+
+  it("Marketplace invites never reveal the shipper or the indent number", () => {
+    const invite = fnBody("invite_lane_bidder");
+    expect(invite).toContain("'Marketplace rate request'");
+    expect(invite).toContain("'kind', 'lane_bid_invite'");
+    const mine = fnBody("list_my_lane_bid_invites");
+    expect(mine).toMatch(/'indent_number', CASE WHEN p\.channel = 'network'/);
+    expect(mine).toMatch(/'shipper_name', CASE WHEN p\.channel = 'network'/);
+    expect(sql).toMatch(
+      /CREATE POLICY lane_bid_invites_select[\s\S]*?channel = 'network'\s+AND bidder_organization_id IS NOT NULL\s+AND public\.is_org_staff\(bidder_organization_id\)/,
+    );
+  });
+
+  it("accept re-checks for an existing offer under a lock and supersedes instead of overwriting", () => {
+    expect(sql).toContain(
+      "REVOKE ALL ON FUNCTION public._lane_bidder_has_active_offer(uuid, text, uuid, uuid) FROM PUBLIC, anon, authenticated;",
+    );
+    const respond = fnBody("respond_lane_bid_invite");
+    expect(respond).toContain("FOR UPDATE");
+    expect(respond).toContain("pg_catalog.pg_advisory_xact_lock(");
+    expect(respond).toContain("public._lane_bidder_has_active_offer(");
+    expect(respond).toContain("created_at = pg_catalog.now()");
+    expect(respond).toContain("pool_commit_id IS NULL");
+    expect(respond).toContain("'lane_invite_conflict'");
+    expect(respond).toContain("'superseded'");
+    expect(respond).toContain("'already_responded', true");
+  });
 });

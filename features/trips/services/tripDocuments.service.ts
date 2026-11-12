@@ -1000,8 +1000,11 @@ export async function deleteTripDocument(doc: TripDocumentRow): Promise<{ error:
   // Row first: when the database refuses (approved / locked document), the file
   // must stay, or the row would point at a file that no longer exists.
   const synthetic = doc.id.startsWith("storage-") || doc.id.startsWith("storage-meta-");
-  // Snapshot audit before the row disappears so Activity keeps who deleted / when.
-  await recordTripDocumentDeletedAudit(doc);
+  // Approved documents are locked by guard_trip_document_delete. Refuse here so the
+  // attempt doesn't log a 42501 in Postgres or write a false 'deleted' audit row.
+  if (!synthetic && String(doc.status ?? "").toLowerCase() === "verified") {
+    return { error: new Error("Approved documents can't be deleted.") };
+  }
   if (!synthetic) {
     const { data: deleted, error: dbErr } = await supabase()
       .from("trip_documents")
@@ -1014,6 +1017,7 @@ export async function deleteTripDocument(doc: TripDocumentRow): Promise<{ error:
         const { error: storageErr } = await supabase().storage.from(BUCKET).remove([doc.storage_path]);
         if (storageErr) return { error: new Error(storageErr.message) };
         tripDocSignedUrls.invalidate(doc.storage_path);
+        await recordTripDocumentDeletedAudit(doc);
         return { error: null };
       }
       return { error: new Error(dbErr.message) };
@@ -1022,6 +1026,9 @@ export async function deleteTripDocument(doc: TripDocumentRow): Promise<{ error:
       return { error: new Error("This document could not be deleted. Refresh and try again.") };
     }
   }
+  // Audit only once the row is really gone (the doc snapshot carries every field),
+  // so a refused delete doesn't show up as "deleted" in Trip Activity.
+  await recordTripDocumentDeletedAudit(doc);
 
   const { error: storageErr } = await supabase().storage.from(BUCKET).remove([doc.storage_path]);
   if (storageErr) {

@@ -156,6 +156,20 @@ export async function recordTripWorkflowEvent(params: {
     ? `${params.tripId}:${params.eventType}`
     : null;
 
+  // Check first: insert-then-catch-23505 logs a Postgres error on every repeat
+  // (pages re-record trip.completed / pod.uploaded on each visit). The unique
+  // index is partial, so PostgREST on_conflict can't target it. The insert
+  // below still treats 23505 as a no-op for the rare concurrent race.
+  if (idempotencyKey) {
+    const { data: existing } = await supabase()
+      .from('trip_workflow_events')
+      .select('id')
+      .eq('idempotency_key', idempotencyKey)
+      .limit(1)
+      .maybeSingle();
+    if (existing) return { error: null, event: null, alreadyExists: true };
+  }
+
   const { data, error } = await supabase()
     .from('trip_workflow_events')
     .insert({

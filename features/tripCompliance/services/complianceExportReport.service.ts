@@ -16,6 +16,10 @@ import { getSupplierById, getSupplierDetails } from "@/features/suppliers/servic
 import { resolveBankBranch } from "@/features/suppliers/utils/ifscDirectory.util";
 import { buildComplianceTripSummaries } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import { isComplianceVerifiedQueue } from "@/features/tripCompliance/utils/complianceReadiness.util";
+import {
+  advanceVerificationExportSummaries,
+  type AdvanceVerificationExportFilter,
+} from "@/features/tripCompliance/utils/complianceExportReport.util";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
 import {
   fetchAdvancePayeeBanks,
@@ -127,6 +131,16 @@ async function fetchVerifiedStageSummaries(orgId: string): Promise<ComplianceTri
   if (error) throw error;
   const summaries = await buildComplianceTripSummaries(selectCompliancePipelineTrips(trips), orgId);
   return summaries.filter(isComplianceVerifiedQueue);
+}
+
+async function fetchAdvanceVerificationSummaries(
+  orgId: string,
+  filter: AdvanceVerificationExportFilter,
+): Promise<ComplianceTripSummary[]> {
+  const { error, trips } = await getTripsForOrg(orgId, { includeComplianceBacklog: true });
+  if (error) throw error;
+  const summaries = await buildComplianceTripSummaries(selectCompliancePipelineTrips(trips), orgId);
+  return advanceVerificationExportSummaries(summaries, filter);
 }
 
 function supplierLabelFromRow(row: {
@@ -309,8 +323,13 @@ export async function buildVerifiedExportEnrichment(
 }
 
 /** Download Verified-stage Excel report (.xlsx). Returns trip row count exported. */
-export async function exportVerifiedStageComplianceReport(orgId: string): Promise<number> {
-  const summaries = await fetchVerifiedStageSummaries(orgId);
+export async function exportVerifiedStageComplianceReport(
+  orgId: string,
+  filter?: AdvanceVerificationExportFilter,
+): Promise<number> {
+  const summaries = filter
+    ? await fetchAdvanceVerificationSummaries(orgId, filter)
+    : await fetchVerifiedStageSummaries(orgId);
   if (summaries.length === 0) return 0;
 
   const enrichmentByTrip = await withQueueRetry(() =>

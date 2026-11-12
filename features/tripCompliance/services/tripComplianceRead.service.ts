@@ -27,6 +27,7 @@ import {
 } from "@/features/tripCompliance/utils/complianceVaultDocuments.util";
 import {
   fetchComplianceDriverDocsForTrips,
+  fetchComplianceVehicleVaultByPlate,
   fetchComplianceVehicleVaultForTrips,
 } from "@/features/tripCompliance/services/complianceListFacts.service";
 import {
@@ -53,7 +54,6 @@ import {
   isOperationsDeliveredTrip,
 } from "@/features/trips/utils/tripHubMetrics";
 import type { TripRow } from "@/features/trips/services/trips.service";
-import type { VehicleDocuments } from "@/features/vehicles/utils/vehicleDocuments.util";
 import { chunkIdsForRead, readAllPages } from "@/lib/pagination";
 import { supabase } from "@/lib/supabase";
 
@@ -736,32 +736,14 @@ async function fetchVehicleVaultDocumentsForTrips(
 
   const missingByNumber = tripsNeedingVaultPlateFallback(trips, resolvedKeys);
   if (missingByNumber.length > 0) {
-    // Exact-match filter: send the typed plate and its canonical form, so
-    // "KA 05 AB 1234" still finds a vehicle stored as "KA05AB1234".
-    const plateNumbers = [
-      ...new Set(
-        missingByNumber.flatMap((t) => [
-          t.vehicle_display_number?.trim() ?? "",
-          normalizeVaultVehicleNumber(t.vehicle_display_number),
-        ]),
-      ),
-    ].filter(Boolean);
-    const { data, error } = await supabase()
-      .from("vehicles")
-      .select("id, vehicle_number, documents")
-      .in("vehicle_number", plateNumbers);
-    if (error && !isMissingColumnOrRelation(error)) throw new Error(error.message);
-    const byNumber = new Map<string, { id: string; documents: VehicleDocuments | null }>();
-    for (const row of data ?? []) {
+    const tripIds = missingByNumber.map((t) => t.id);
+    const rows = await fetchComplianceVehicleVaultByPlate(viewerOrgId, tripIds);
+    for (const row of rows) {
       const number = normalizeVaultVehicleNumber(row.vehicle_number);
-      if (number) byNumber.set(number, { id: row.id, documents: (row.documents ?? null) as VehicleDocuments | null });
-    }
-    for (const trip of missingByNumber) {
-      const number = normalizeVaultVehicleNumber(trip.vehicle_display_number);
-      const match = number ? byNumber.get(number) : undefined;
-      if (!match) continue;
-      const docs = vehicleVaultDocumentsToEntityDocs(match.id, match.documents);
-      indexVehicleVaultDocs(byKey, { vehicleId: match.id, docs }, match.id, number);
+      resolvedKeys.add(row.vehicle_id);
+      if (number) resolvedKeys.add(number);
+      const docs = vehicleVaultDocumentsToEntityDocs(row.vehicle_id, row.documents ?? null);
+      indexVehicleVaultDocs(byKey, { vehicleId: row.vehicle_id, docs }, row.vehicle_id, number);
     }
   }
 

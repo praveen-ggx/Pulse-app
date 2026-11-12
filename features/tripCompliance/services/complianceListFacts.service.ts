@@ -67,6 +67,7 @@ async function callBatchRpc<Row>(
   rpc:
     | "get_compliance_list_trip_facts"
     | "get_compliance_vehicle_vault_for_trips"
+    | "get_compliance_vehicle_vault_by_plate"
     | "get_compliance_driver_docs_for_trips",
   viewerOrgId: string,
   tripIds: readonly string[],
@@ -94,6 +95,13 @@ export function fetchComplianceVehicleVaultForTrips(
   tripIds: readonly string[],
 ): Promise<ComplianceVehicleVaultRow[]> {
   return callBatchRpc<ComplianceVehicleVaultRow>("get_compliance_vehicle_vault_for_trips", viewerOrgId, tripIds);
+}
+
+export function fetchComplianceVehicleVaultByPlate(
+  viewerOrgId: string,
+  tripIds: readonly string[],
+): Promise<ComplianceVehicleVaultRow[]> {
+  return callBatchRpc<ComplianceVehicleVaultRow>("get_compliance_vehicle_vault_by_plate", viewerOrgId, tripIds);
 }
 
 export function fetchComplianceDriverDocsForTrips(

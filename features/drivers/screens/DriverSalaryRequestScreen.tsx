@@ -559,6 +559,7 @@ export default function SalaryRequestScreen() {
   }, [salaryRequestType, salaryRequestAmount, neededByDate, salaryRequestReason]);
 
   const submitSalaryRequest = useCallback(async () => {
+    if (salaryRequestSubmitting) return;
     if (!isOnline) {
       showAppAlert('Offline', 'You are offline. Save as draft and submit when connected.');
       return;
@@ -620,6 +621,26 @@ export default function SalaryRequestScreen() {
           )
         : undefined;
 
+    if (salaryRequestType === 'monthly' && monthForDb) {
+      // One salary request per fleet per month: a second one gets paid twice.
+      const sameMonth = salaryRequests.find(
+        (r) =>
+          r.request_type === 'monthly' &&
+          String(r.organization_id) === String(org.orgId) &&
+          (r.salary_month ?? '').slice(0, 7) === monthForDb.slice(0, 7) &&
+          (r.status === 'pending' || r.status === 'approved' || r.status === 'paid'),
+      );
+      if (sameMonth) {
+        showAppAlert(
+          sameMonth.status === 'paid' ? 'Salary already paid' : 'Already requested',
+          sameMonth.status === 'paid'
+            ? `Your salary for this month was already paid by ${org.orgName}.`
+            : `You already have a salary request for this month with ${org.orgName}. Wait for the fleet to pay or reject it.`,
+        );
+        return;
+      }
+    }
+
     setSalaryRequestSubmitting(true);
     const { error, request } = await salaryRequestsService.createSalaryRequest(
       org.driverId,
@@ -646,6 +667,8 @@ export default function SalaryRequestScreen() {
     setIsSuccess(true);
     load();
   }, [
+    salaryRequestSubmitting,
+    salaryRequests,
     isOnline,
     salaryRequestOrg,
     salaryRequestOrgOptions,

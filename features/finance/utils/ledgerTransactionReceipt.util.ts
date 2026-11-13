@@ -75,10 +75,13 @@ export function buildLedgerReceiptDetails(
       value: tx.payment_reference?.trim() || "—",
     },
   );
-  if (tx.description?.trim()) {
+  // Never show the machine `[[QMETA:{…}]]` tag, even if a caller passes a raw row.
+  const metaIdx = (tx.description ?? "").lastIndexOf("[[QMETA:");
+  const note = (metaIdx >= 0 ? (tx.description ?? "").slice(0, metaIdx) : tx.description ?? "").trim();
+  if (note) {
     details.push({
       label: "Note",
-      value: tx.description.trim(),
+      value: note,
       multiline: true,
     });
   }

@@ -184,3 +184,56 @@ export async function updateSalaryRequestStatus(
   if (error) return { error: new Error(error.message) };
   return { error: null };
 }
+
+/**
+ * Mark a request paid only if it is still open (pending/approved). Returns
+ * `alreadyClosed: true` when another payment already closed it, so the same
+ * request can never be paid twice.
+ */
+export async function markSalaryRequestPaidOnce(
+  requestId: string,
+): Promise<{ error: Error | null; alreadyClosed: boolean }> {
+  const { data, error } = await supabase()
+    .from('driver_salary_requests')
+    .update({ status: 'paid' })
+    .eq('id', requestId)
+    .in('status', ['pending', 'approved'])
+    .select('id');
+  if (error) return { error: new Error(error.message), alreadyClosed: false };
+  return { error: null, alreadyClosed: (data ?? []).length === 0 };
+}
+
+/** Current status of one request (org side). Null when not found / not visible. */
+export async function getSalaryRequestStatus(
+  requestId: string,
+): Promise<{ error: Error | null; status: string | null }> {
+  const { data, error } = await supabase()
+    .from('driver_salary_requests')
+    .select('status')
+    .eq('id', requestId)
+    .maybeSingle();
+  if (error) return { error: new Error(error.message), status: null };
+  return { error: null, status: (data as { status: string } | null)?.status ?? null };
+}
+
+/** Fleet → driver cash-out rows on or after `sinceDate` (YYYY-MM-DD), for duplicate checks. */
+export async function getDriverPayoutsSince(
+  organizationId: string,
+  driverId: string,
+  sinceDate: string,
+): Promise<{
+  error: Error | null;
+  rows: { amount_out: number | null; description: string | null; transaction_date: string | null }[];
+}> {
+  const { data, error } = await supabase()
+    .from('transactions')
+    .select('amount_out, description, transaction_date')
+    .eq('organization_id', organizationId)
+    .eq('contact_id', driverId)
+    .eq('contact_type', 'driver')
+    .gt('amount_out', 0)
+    .gte('transaction_date', sinceDate)
+    .limit(200);
+  if (error) return { error: new Error(error.message), rows: [] };
+  return { error: null, rows: data ?? [] };
+}

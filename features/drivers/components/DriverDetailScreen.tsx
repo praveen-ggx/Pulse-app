@@ -68,6 +68,8 @@ import {
     formatTripTableDate,
 } from "@/lib/format";
 import type { SalaryRequestRow } from "@/features/drivers/services/salaryRequests.service";
+import { confirmDialog } from "@/lib/confirmDialog";
+import { toLedgerRow } from "@/features/finance/services/finance.service";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useFocusEffect } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -586,7 +588,14 @@ export default function DriverDetailScreen({
                   description: e.description ?? null,
                 })),
           );
-          setDriverTransactions(bundleRes.transactions ?? []);
+          // Bundle RPC returns raw transactions rows: run them through the same
+          // mapper as Finance so the hidden [[QMETA:{…}]] tag is stripped from the
+          // note and "Mode: Cash" / "UTR: …" fill Payment mode / Reference.
+          setDriverTransactions(
+            (bundleRes.transactions ?? []).map((r) =>
+              toLedgerRow(r as unknown as Parameters<typeof toLedgerRow>[0]),
+            ),
+          );
           setSignupMatch(
             signupMatchRes.error ? null : (signupMatchRes.match ?? null),
           );
@@ -828,6 +837,66 @@ export default function DriverDetailScreen({
       }),
     [driverTransactions],
   );
+
+  /**
+   * Pay button on the driver page. When the driver has an open request, offer to
+   * pay that request (oldest first) so saving closes it — otherwise the request
+   * stays "pending", "To pay" keeps showing, and the fleet pays it again.
+   */
+  const openDriverPayment = useCallback(async () => {
+    if (!driverId) return;
+    const params = new URLSearchParams();
+    params.set("entityType", "DRIVER");
+    params.set("entityId", driverId);
+    params.set("partyName", (driver?.name || t("driver")).trim() || t("driver"));
+    const oldest = [...driverRequests].sort((a, b) =>
+      (a.created_at ?? "").localeCompare(b.created_at ?? ""),
+    )[0];
+    if (oldest) {
+      const kindLabel =
+        oldest.request_type === "monthly"
+          ? "Salary"
+          : oldest.request_type === "trip_based"
+            ? "Trip commission"
+            : oldest.request_type === "advance"
+              ? "Advance"
+              : "Payment";
+      const more =
+        driverRequests.length > 1
+          ? `\n\n${driverRequests.length - 1} more request(s) after this one.`
+          : "";
+      const payRequest = await confirmDialog({
+        title: "Pay driver's request?",
+        message: `${kindLabel} request of ${formatINR(Number(oldest.amount ?? 0))} on ${(oldest.created_at ?? "").slice(0, 10)} is pending.${more}`,
+        confirmLabel: "Pay this request",
+        cancelLabel: "Other payment",
+      });
+      if (payRequest) {
+        const isTripBased =
+          oldest.request_type === "trip_based" &&
+          Array.isArray(oldest.trip_ids) &&
+          oldest.trip_ids.length > 0;
+        params.set("partyId", driverId);
+        params.set("defaultType", "out");
+        params.set("salaryAmount", String(oldest.amount));
+        params.set(
+          "defaultDriverPaymentType",
+          oldest.request_type === "monthly"
+            ? "salary"
+            : isTripBased
+              ? "settlement"
+              : oldest.request_type === "reward"
+                ? "bonus"
+                : "advance",
+        );
+        params.set("salaryRequestId", oldest.id);
+        if (isTripBased && oldest.trip_ids[0]) params.set("tripId", oldest.trip_ids[0]);
+      }
+      // "Other payment": no request link and no pre-filled due amount, so the
+      // pending request's amount is not paid again by accident.
+    }
+    router.push(`/(modals)/ledger-sync?${params.toString()}` as const);
+  }, [driverId, driver?.name, t, driverRequests, router]);
 
   // Pending salary requests shown as list items in Cash Flow so header total == list total.
   const cashFlowRows = useMemo<LedgerRow[]>(() => {
@@ -1544,16 +1613,7 @@ export default function DriverDetailScreen({
           >
             <FinanceFAB
               onPress={() => {
-                const params = new URLSearchParams();
-                params.set("entityType", "DRIVER");
-                params.set("entityId", driverId);
-                params.set("partyName", lockedPartyName);
-                if (entityPending > 0) {
-                  params.set("dueAmountOut", String(entityPending));
-                }
-                router.push(
-                  `/(modals)/ledger-sync?${params.toString()}` as const,
-                );
+                void openDriverPayment();
               }}
               accessibilityLabel={t("addTransaction")}
               icon="receipt-text"

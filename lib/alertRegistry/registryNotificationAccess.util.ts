@@ -1,6 +1,11 @@
 import type { RegistryFeedEntry } from "@/lib/globalSync/registryFeed.util";
 import type { RegistryFilterTab } from "@/lib/globalSync/registryFeed.util";
-import type { NetworkNotificationEventType } from "@/features/network/services/networkNotifications.service";
+import type {
+  NetworkNotificationEventType,
+  NetworkNotificationRow,
+} from "@/features/network/services/networkNotifications.service";
+import { laneBidInviteChannel } from "@/lib/alertRegistry/networkNotificationParty.util";
+import { ROUTES } from "@/lib/routes";
 
 /**
  * Notification lanes use existing member surfaces. No new surface.
@@ -14,6 +19,8 @@ export type RegistryNotificationAccess = {
   indents: boolean;
   indentBid: boolean;
   indentAward: boolean;
+  /** Find Loads (My Bids → Rate requests). */
+  findLoads: boolean;
   /** Client receipts (finance customers ledger or trip finance). */
   received: boolean;
   /** Payables the org initiates (suppliers, drivers, or trip finance). */
@@ -29,6 +36,7 @@ export const REGISTRY_ACCESS_NONE: RegistryNotificationAccess = {
   indents: false,
   indentBid: false,
   indentAward: false,
+  findLoads: false,
   received: false,
   paid: false,
   driverPay: false,
@@ -87,6 +95,30 @@ export function indentPrimaryAction(
   }
   if (eventType === "awarded") return { label: "Allocate", enabled: access.indents };
   return view;
+}
+
+export { laneBidInviteChannel };
+
+/**
+ * Primary action of a network notification card. Rate requests are answered in
+ * My Bids → Rate requests: a Marketplace invite has no visible indent, and the
+ * indent page's quote form would bypass the invite.
+ */
+export function networkNotificationAction(
+  item: Pick<NetworkNotificationRow, "event_type" | "indent_id" | "payload_json">,
+  access: RegistryNotificationAccess,
+): { label: string; enabled: boolean; href: string | null } {
+  if (laneBidInviteChannel(item)) {
+    return {
+      label: "Open rate requests",
+      enabled: access.indents && access.indentBid && access.findLoads,
+      href: ROUTES.FIND_LOADS_MY_BIDS,
+    };
+  }
+  return {
+    ...indentPrimaryAction(item.event_type, access),
+    href: item.indent_id ? ROUTES.indentDetail(item.indent_id) : null,
+  };
 }
 
 export function canOpenOpsAlert(

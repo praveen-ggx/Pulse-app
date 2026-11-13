@@ -22,6 +22,7 @@ import { CancelIndentReasonModal } from "@/features/indents/components/CancelInd
 import { IndentGiveLoadPartiesStrip } from "@/features/indents/components/IndentGiveLoadPartiesStrip";
 import { IndentLinkedTripCard } from "@/features/indents/components/IndentLinkedTripCard";
 import { IndentReviewHubCard } from "@/features/indents/components/IndentReviewHubCard";
+import { LaneOffersSection } from "@/features/network/components/laneOffers/LaneOffersSection";
 import {
   IndentGroundOpsBiddingHeader,
   IndentGroundOpsBiddingPanel,
@@ -238,6 +239,8 @@ const CANCEL_BLOCKED_STATUSES = new Set([
   "closed",
   "expired",
 ]);
+
+const LANE_OFFERS_CLOSED_STATUSES = new Set(["draft", "cancelled", "closed", "expired"]);
 
 const SUPPLIER_BID_ENABLED_STATUSES = new Set([
   "open",
@@ -1133,6 +1136,25 @@ export function IndentDetailScreen({
     ],
   );
 
+  const indentIdForLane = indent?.id ?? null;
+  const handleLaneOffersPostToMarketplace = useCallback(async () => {
+    if (!indentIdForLane) return false;
+    const confirmed = await confirmDialog({
+      title: "Share to Marketplace?",
+      message:
+        "This load will also become visible to verified DCO / fleet owners in the open Marketplace, alongside your integrated supplier network.",
+      confirmLabel: "Share",
+    });
+    if (!confirmed) return false;
+    const { error } = await updateIndent(indentIdForLane, { circulation_target: "both" });
+    if (error) {
+      showAppAlert("Could not update distribution", error.message);
+      return false;
+    }
+    if (orgId) invalidateIndents(orgId, { bustPartnerSupplierMarket: true });
+    return true;
+  }, [indentIdForLane, orgId, invalidateIndents]);
+
   const outsideSourcingScope =
     sourcingScope.active &&
     !!indent &&
@@ -1351,6 +1373,11 @@ export function IndentDetailScreen({
     isOwner &&
     (statusLower === "broadcast" || statusLower === "open") &&
     liveBidsCount === 0;
+  const showLaneOffers =
+    isOwner &&
+    !hideCommercials &&
+    canAward &&
+    !LANE_OFFERS_CLOSED_STATUSES.has(statusLower);
   const isIndentCompleted = statusLower === "completed";
   const supplierFooterStatus =
     myQuoteCounterState === "taken"
@@ -1833,6 +1860,15 @@ export function IndentDetailScreen({
                 compact={hubDense}
                 stacked={stackedHub}
               />
+            ) : null}
+
+            {showLaneOffers ? (
+              <View style={styles.laneOffersShell}>
+                <LaneOffersSection
+                  indentId={indent.id}
+                  onPostToMarketplace={handleLaneOffersPostToMarketplace}
+                />
+              </View>
             ) : null}
           </>
         }
@@ -2501,6 +2537,11 @@ const styles = StyleSheet.create({
   draftBannerMobile: {
     marginHorizontal: 14,
     borderRadius: 10,
+  },
+  laneOffersShell: {
+    width: "100%",
+    alignSelf: "stretch",
+    marginTop: 12,
   },
   mobileLiveBidsShell: {
     gap: 10,

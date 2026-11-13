@@ -39,6 +39,8 @@ export const READ_ONLY_FEATURE_RPCS = new Map<string, RequestLane>([
   ['list_driver_direct_bids_for_post', 'background'],
   ['is_driver_available', 'background'],
   ['list_market_bids_for_indent', 'background'],
+  ['list_lane_offers_for_indent', 'background'],
+  ['list_my_lane_bid_invites', 'background'],
   ['calculate_marketplace_platform_fee', 'background'],
   ['list_marketplace_search_lanes', 'background'],
   ['list_my_org_market_bids', 'background'],

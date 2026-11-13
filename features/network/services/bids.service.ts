@@ -628,9 +628,9 @@ export type OwnerIndentBid = {
 };
 
 /**
- * Pending offers on the owner's indents from direct quotes, Pulse story bids
- * and Pilot / FO driver_direct_bids. A Pulse story bid also upserts a direct
- * quote for the same bidder, so callers key by bidder.
+ * Pending offers on the owner's indents from direct quotes, Marketplace
+ * market_bids, Pulse story bids and Pilot / FO driver_direct_bids. A Pulse story
+ * bid also upserts a direct quote for the same bidder, so callers key by bidder.
  */
 async function collectPendingOwnerIndentBids(
   ownerOrgId: string,
@@ -665,7 +665,7 @@ async function collectPendingOwnerIndentBids(
   for (const chunk of indentChunks) {
     const { data, error: fallbackErr } = await supabase()
       .from('direct_quotes')
-      .select('indent_id, bidder_organization_id, amount, created_at')
+      .select('indent_id, bidder_organization_id, amount, created_at, pool_commit_id')
       .in('indent_id', chunk)
       .eq('status', 'pending');
 
@@ -709,6 +709,35 @@ async function collectPendingOwnerIndentBids(
         continue;
       }
       track(row.indent_id, row.bidder_organization_id, row.amount, row.created_at);
+    }
+
+    // Marketplace bids on the indent itself. A business bidder keys by org (same
+    // as its direct quote); a DCO keys by user (same as its driver_direct_bid).
+    const { data: marketRows, error: mErr } = await supabase()
+      .from('market_bids')
+      .select('indent_id, bidder_type, bidder_user_id, bidder_organization_id, amount, created_at')
+      .in('indent_id', chunk)
+      .eq('status', 'pending');
+
+    if (mErr) return { error: new Error(mErr.message), bids: [] };
+    for (const row of (marketRows ?? []) as Array<{
+      indent_id: string;
+      bidder_type: string;
+      bidder_user_id: string | null;
+      bidder_organization_id: string | null;
+      amount: number | null;
+      created_at: string | null;
+    }>) {
+      track(
+        row.indent_id,
+        row.bidder_type === 'organization'
+          ? row.bidder_organization_id
+          : row.bidder_user_id
+            ? `ddb:${row.bidder_user_id}`
+            : null,
+        row.amount,
+        row.created_at,
+      );
     }
   }
 

@@ -216,6 +216,9 @@ export const queryKeys = {
     market: (orgId: string) => ["q", "indents", orgId, "market"] as const,
     visible: (orgId: string, indentId: string) =>
       ["q", "indents", orgId, "visible", indentId] as const,
+    /** Shared indent_code for shipper + awarded supplier (allocation header). */
+    viewerReference: (orgId: string, indentId: string) =>
+      ["q", "indents", orgId, "viewer-reference", indentId] as const,
     /** Orgs already upstream in a load's custody chain (loop guard). */
     chainAncestors: (indentId: string) =>
       ["q", "indents", "chain-ancestors", indentId] as const,

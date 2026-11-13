@@ -1,0 +1,10 @@
+# Shared indent reference (indent_code) for shipper org + awarded supplier org
+# (Deploy load screen + Load Center Bids Won / Claimed cards).
+# Additive: two new read-only functions, no table or data changes.
+# Prod later only via this set after Vasanth's review. Preprod already has 20261112144350;
+# preprod used indent-reference-for-viewer-preprod for the second one.
+# Apply only via: npm run db:push-set -- indent-reference-for-viewer   (dry-run first)
+# sha256 cb34350a3a2c96dd4163cfa9935b8d18410756c354259938b9b7239188098390  20261112144350_indent_reference_for_awarded_supplier.sql
+20261112144350
+# sha256 ff4afbee9283f6a3467d0b508d8be6b88a49d023836ee8b6ae781bbfad017049  20261112150640_indent_references_for_viewer_batch.sql
+20261112150640

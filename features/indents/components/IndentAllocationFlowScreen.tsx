@@ -399,8 +399,32 @@ export function IndentAllocationFlowScreen({
   const shipperLabel = currentLoad
     ? resolveMarketIndentShipperLabel(currentLoad)
     : "Shipper";
+  /** Supplier rows lack indent_code (RLS + market RPCs); fetch the shared code once awarded. */
+  const viewerRefQ = useQuery({
+    queryKey: queryKeys.indents.viewerReference(orgId ?? "", indentId),
+    queryFn: async () => {
+      const { getIndentReferenceForViewer } = await import(
+        "@/features/indents/services/indents.service"
+      );
+      return getIndentReferenceForViewer(indentId);
+    },
+    enabled:
+      Boolean(orgId && indentId && currentLoad) && !currentLoad?.indent_code,
+    staleTime: STALE.frequent,
+  });
+
+  /** Indent reference both shipper and awarded supplier can quote (globally unique code first). */
+  const loadIndentRef = currentLoad
+    ? (
+        currentLoad.indent_code ??
+        viewerRefQ.data ??
+        currentLoad.display_indent_id ??
+        currentLoad.indent_number ??
+        ""
+      ).trim()
+    : "";
   const loadRouteSubtitle = currentLoad
-    ? `${currentLoad.pickup_area || "—"} → ${currentLoad.drop_location || "—"}`
+    ? `${loadIndentRef ? `${loadIndentRef} · ` : ""}${currentLoad.pickup_area || "—"} → ${currentLoad.drop_location || "—"}`
     : null;
 
   const priorSelections = useMemo((): WizardPriorSelectionItem[] => {

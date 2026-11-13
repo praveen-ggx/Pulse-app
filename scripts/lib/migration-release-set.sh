@@ -240,10 +240,14 @@ build_release_snapshot() {
 
   while IFS= read -r ver; do
     [[ -n "$ver" ]] || continue
-    if [[ -n "$(find "$mig_dir" -maxdepth 1 -type f -name "${ver}_*.sql" -print -quit)" ]]; then
+    local remote_matches
+    remote_matches="$(find "$mig_dir" -maxdepth 1 -type f -name "${ver}_*.sql" | grep -c . || true)"
+    if [[ "$remote_matches" -eq 1 ]]; then
       allow_file="$(migration_file_for_version "$mig_dir" "$ver")" || { rm -rf "$work"; return 1; }
       cp "$allow_file" "$dest_root/supabase/migrations/"
     else
+      # 0 files (sibling-repo history) or >1 files sharing an already-recorded
+      # version (e.g. 20271014184500): history only, use the placeholder.
       # Sibling-repo history is already on Remote and has no file in this checkout.
       # The CLI refuses db push unless every remote version exists locally.
       # The stand-in lives only in the ephemeral snapshot. The version is already

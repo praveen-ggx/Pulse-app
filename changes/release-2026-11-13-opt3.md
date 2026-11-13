@@ -39,10 +39,16 @@ None in prod history (read-only check 13 Nov).
 4. `20271111164000` Hub metric counter. On preprod, but `zzz_hub_project` is enabled there outside any recorded
    migration statement. Needs Vasanth GO after the explanation.
 
+The branch also deletes `20271014184500_entity_bank_accounts_beneficiary_branch.sql`, a redundant second file at
+version `20271014184500`. That version stays excluded from every database; the
+`20271014184500_godrej_dco_payable_classification.sql` file is unchanged.
+
 ## Tested
 - Release-set Jest tests (4 files, 17 tests).
-- Typecheck: 345 errors, same as V1 (no new error types). `.github/ci-baseline.json` on this branch reads 346
-  because the #107 revert restored the older value; the actual count is 345 (the gate only fails if the count rises).
+- Typecheck: 346 errors, equal to `.github/ci-baseline.json` (346), so the gate passes. Prod `V1.0.1` `4e2003c8`
+  has 345. The one extra is `ComplianceTripActivityLog.tsx` selecting `vehicle_number, driver_name` from
+  `transactions` (columns that don't exist): the #107 revert restores that file to live `afc74f58`, so prod
+  behaviour is unchanged. (Correction 2026-11-13: an earlier version of these notes said the actual count was 345.)
 - Full Jest: 5,639 passed; 4 suites timed out in the full parallel run and pass when run alone (52/52).
 
 ## Not tested

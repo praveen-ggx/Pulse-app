@@ -25,7 +25,7 @@ beforeEach(() => {
 
 describe("fetchUsableMultiStopRoute", () => {
   it("joins every leg into one road path without duplicating the shared stop", async () => {
-    mockGetOptimalRoute.mockImplementation(async (from, to) =>
+    mockGetOptimalRoute.mockImplementation(async (from) =>
       from === A ? leg(A, B, 20_000) : leg(B, C, 30_000),
     );
     const route = await fetchUsableMultiStopRoute([A, B, C]);
@@ -37,7 +37,7 @@ describe("fetchUsableMultiStopRoute", () => {
   });
 
   it("returns null when any leg cannot be routed, so the dotted fallback shows", async () => {
-    mockGetOptimalRoute.mockImplementation(async (from, to) =>
+    mockGetOptimalRoute.mockImplementation(async (from) =>
       from === A ? leg(A, B, 20_000) : null,
     );
     expect(await fetchUsableMultiStopRoute([A, B, C])).toBeNull();

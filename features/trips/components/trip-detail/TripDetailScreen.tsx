@@ -125,7 +125,10 @@ import { throwIfCancelled } from "@/lib/supabaseAbort.util";
 import { notifyTripChatMessagesChanged } from "@/lib/tripChatInvalidate";
 import { getOptimalRoute } from "@/lib/routingService";
 import * as tripDocumentsService from "@/features/trips/services/tripDocuments.service";
-import { downloadTripDocumentFile } from "@/features/trips/utils/tripDocumentDownload.util";
+import {
+  downloadTripDocumentFile,
+  downloadTripDocumentFiles,
+} from "@/features/trips/utils/tripDocumentDownload.util";
 import {
   acceptVaultFileConfirmation,
   vaultUploadOutcome,
@@ -5611,7 +5614,29 @@ export default function TripDetailScreen({
                       }
                     })();
                   }
-                : undefined
+                : slot.id === "invoice" &&
+                    onFile &&
+                    files.some((file) => file.storagePath?.trim())
+                  ? () => {
+                      void (async () => {
+                        const { error } = await downloadTripDocumentFiles({
+                          files: files
+                            .filter((file) => file.storagePath?.trim())
+                            .map((file) => ({
+                              storagePath: file.storagePath!,
+                              fileName:
+                                file.fileName?.trim() ||
+                                file.label?.trim() ||
+                                "Invoice",
+                            })),
+                          archiveName: "Invoices.zip",
+                        });
+                        if (error) {
+                          showAppAlert("Download failed", error.message);
+                        }
+                      })();
+                    }
+                  : undefined
             }
             onAdd={() => uploadTripDetailsSlot(slot.id)}
             appearance="shop"

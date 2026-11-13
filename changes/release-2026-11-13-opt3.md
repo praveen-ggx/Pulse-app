@@ -17,7 +17,6 @@ Replaces `release/2026-11-13` (75ea3823) for prod. That branch is not deleted.
 ## In this release (V1 PRs)
 - #101, #105 Gowtham V1.0.38: Trip Ops All Trips Excel + KM; every Indian DL layout in Add Driver.
 - #102 Praveen V1.0.37: In Transit dates use the Pickup chosen after revoke.
-- #104 Vasanth V1.0.20: stop 23505 logging (already in V1.0.1).
 - #106 Vasanth V1.0.21: Hub metric counter (trigger created disabled).
 - #107, #109 Nihas V1.0.46/47: Compliance vehicle vault by plate; empty-vault vehicles.
 - #110 Nihas V1.0.48: preprod-only set (bookkeeping).
@@ -26,6 +25,9 @@ Replaces `release/2026-11-13` (75ea3823) for prod. That branch is not deleted.
 
 ## Not included
 - Vasanth #100, #106, #107 (reverted), #105 migration (not in set).
+- V1 #104 Vasanth V1.0.20 (stop 23505 logging): **effectively excluded**. It is the same code as Vasanth repo #107,
+  so the #107 revert removes it too; its 3 code files equal live `afc74f58` on this branch.
+  (Correction 2026-11-13: an earlier version of these notes listed #104 as included.)
 - #112 lane offers (normal V1 → preprod → acceptance → prod path; set updated on `nihas/lane-offers-pool-dep`).
 - Gowtham #57, #63.
 
@@ -39,7 +41,9 @@ None in prod history (read-only check 13 Nov).
 
 ## Tested
 - Release-set Jest tests (4 files, 17 tests).
-- Typecheck and full Jest on this branch: see the report to Vasanth.
+- Typecheck: 345 errors, same as V1 (no new error types). `.github/ci-baseline.json` on this branch reads 346
+  because the #107 revert restored the older value; the actual count is 345 (the gate only fails if the count rises).
+- Full Jest: 5,639 passed; 4 suites timed out in the full parallel run and pass when run alone (52/52).
 
 ## Not tested
 - Prod dry-run. UI click-through of the reverted state.

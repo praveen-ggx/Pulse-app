@@ -62,7 +62,7 @@ function validateDrivingLicenseNumber(licenseNumber: string): string | null {
   const trimmed = licenseNumber.trim();
   if (!trimmed) return null;
   if (isIndianDrivingLicenseFormatValid(trimmed)) return null;
-  return 'Enter a valid DL number (e.g. MH12 20180001234).';
+  return 'Enter the licence number exactly as printed on the card.';
 }
 
 type Props = {

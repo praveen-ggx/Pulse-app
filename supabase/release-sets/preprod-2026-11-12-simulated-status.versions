@@ -1,0 +1,5 @@
+# Preprod only. Not a production set — prod ships 20271111143000 via prod-2026-11-12-release.
+# Preprod already has 20261112061609 and 20271111164000, so the prod set cannot run there.
+# Apply only via: npm run db:push-set -- preprod-2026-11-12-simulated-status   (dry-run first)
+# sha256 8f06f5ca4ad9e4381ede6d0fa82e6c758d1e4d3a0fd513f3b42565c8a8b5e9b6  20271111143000_clear_simulated_status_origin_without_second_update.sql
+20271111143000

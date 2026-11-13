@@ -58,16 +58,16 @@ export function SimCompletionTimeField({
     [minDateTime],
   );
 
-  // Keep parent value on/after the floor when minDateTime changes.
+  // When the floor moves (Pickup edited after a revoke), drop any previous
+  // stage selection and start from now, raised to the new floor. Keeping the
+  // old value would leave the last In Transit instant on screen.
   useEffect(() => {
-    const next = clampSimCompletionPickerValue(
-      value || toSimCompletionPickerValue(),
-      minAt,
-    );
+    const next = clampSimCompletionPickerValue(toSimCompletionPickerValue(), minAt);
     if (next !== value) onChange(next);
-    // Parent onChange must not be a render dependency.
+    // Parent onChange must not be a render dependency. User edits change
+    // `value` only; those must not be snapped back to now.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [minAt?.getTime() ?? null, value]);
+  }, [minAt?.getTime() ?? null]);
 
   const parts = splitPickerValue(value || toSimCompletionPickerValue());
   const minParts = minDateTime ? splitPickerValue(minDateTime) : null;

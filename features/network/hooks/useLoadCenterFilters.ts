@@ -7,6 +7,8 @@
 import { getIndentDisplayNumber, type DirectQuoteRow, type IndentRow } from "@/features/indents";
 import { getTripOperationalDisplay } from "@/features/operations/display";
 import type { TripRow } from "@/features/trips/services/trips.service";
+import { getQueryClient } from "@/lib/queryClient";
+import { queryKeys } from "@/lib/queryKeys";
 import { useCallback, useMemo } from "react";
 import {
   isGetLoadMarketCirculation,
@@ -212,6 +214,18 @@ export function useLoadCenterFilters({
       const route =
         `${(load.pickup_area || "").toLowerCase()} ${(load.drop_location || "").toLowerCase()}`.trim();
       const indentId = (getIndentDisplayNumber(load) || "").toLowerCase();
+      // Shared code (e.g. SAT812-IND-003827): on the row for shippers; for awarded
+      // suppliers it is fetched by the WON card into the query cache.
+      const sharedRef = (
+        load.indent_code ??
+        getQueryClient().getQueryData<string | null>(
+          queryKeys.indents.viewerReference(orgId ?? "", load.id),
+        ) ??
+        ""
+      ).toLowerCase();
+      // Code not cached yet: match its IND number part against the row's indent number.
+      const refTail = /^[a-z]{3}\d{3}-(ind-?\d+)$/.exec(trimmed)?.[1]?.replace("-", "");
+      const shortId = (load.display_indent_id ?? load.indent_number ?? "").toLowerCase();
       const tripId = getTripOperationalDisplay({
         trip_number: load["trip_number"] ?? null,
       }).toLowerCase();
@@ -228,12 +242,14 @@ export function useLoadCenterFilters({
       return (
         route.includes(trimmed) ||
         indentId.includes(trimmed) ||
+        sharedRef.includes(trimmed) ||
+        (!!refTail && shortId === refTail) ||
         tripId.includes(trimmed) ||
         client.includes(trimmed) ||
         creator.includes(trimmed)
       );
     },
-    [],
+    [orgId],
   );
 
   // Find Work Open Market: loads I haven't bid on yet, before text search.

@@ -152,6 +152,8 @@ export type ComplianceTripSummary = {
   documents: ComplianceDocumentRow[];
   vehicleDocuments: ComplianceEntityDocument[];
   driverDocuments: ComplianceEntityDocument[];
+  /** `vehicles.id` resolved via vault RPC (direct id, owner id, or plate match). Null when no vehicle found. */
+  vaultVehicleId: string | null;
   documentCounts: { total: number; verified: number; rejected: number; pending: number };
   checklist: ComplianceChecklist;
   complianceVerifiedAt: string | null;

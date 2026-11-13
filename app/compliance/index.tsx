@@ -93,7 +93,9 @@ import {
     supplierComplianceSearchLabels,
 } from "@/features/tripCompliance/utils/complianceCardVisual.util";
 import {
-    countVerifiedStageTrips,
+    advanceVerificationExportSummaries,
+    countAdvanceVerificationExport,
+    type AdvanceVerificationExportFilter,
 } from "@/features/tripCompliance/utils/complianceExportReport.util";
 import { formatMarkComplianceVerifiedError } from "@/features/tripCompliance/utils/complianceMarkVerifiedError.util";
 import {
@@ -852,6 +854,7 @@ export default function ComplianceScreen() {
     setActivityLogSummary(summary);
   }, [currentOrganization?.id]);
   const [exporting, setExporting] = useState(false);
+  const [exportFilter, setExportFilter] = useState<AdvanceVerificationExportFilter>("all");
   const routeFocus = useLocalSearchParams<{ trip?: string; tab?: string }>();
 
   const complianceHoldCount = useMemo(
@@ -1742,25 +1745,29 @@ export default function ComplianceScreen() {
   }, [apExport.exporting, apExport.preparing, apExport.rows]);
 
   const verifiedExportTripCounts = useMemo(
-    () => countVerifiedStageTrips(summaries),
+    () => countAdvanceVerificationExport(summaries),
     [summaries],
+  );
+  const verifiedExportIncluded = useMemo(
+    () => advanceVerificationExportSummaries(summaries, exportFilter).length,
+    [exportFilter, summaries],
   );
 
   const confirmExportReport = useCallback(async () => {
     if (!currentOrganization?.id || exporting) return;
     setExporting(true);
     try {
-      const exported = await exportVerifiedStageComplianceReport(currentOrganization.id);
+      const exported = await exportVerifiedStageComplianceReport(currentOrganization.id, exportFilter);
       setExportOpen(false);
       if (exported === 0) {
-        alertMessage("Nothing to export", "No verified-stage trips are ready to download yet.");
+        alertMessage("Nothing to export", "No trips match this filter yet.");
       }
     } catch (error) {
       alertMessage("Couldn't export report", error instanceof Error ? error.message : "Please try again.");
     } finally {
       setExporting(false);
     }
-  }, [currentOrganization?.id, exporting]);
+  }, [currentOrganization?.id, exportFilter, exporting]);
 
   useEffect(() => {
     if (!exportToast) return;
@@ -2475,8 +2482,32 @@ export default function ComplianceScreen() {
 
       <ComplianceExportConfirmModal
         visible={exportOpen && isVerifiedStage}
-        verifiedCount={verifiedExportTripCounts.verified}
-        rejectedCount={verifiedExportTripCounts.rejected}
+        eyebrow="Advance Verification"
+        verifiedCount={0}
+        rejectedCount={0}
+        stats={[
+          {
+            key: "verified",
+            label: "Verified",
+            value: verifiedExportTripCounts.verified,
+            tone: COMPLIANCE_STAGE_TONE.compliance_verified,
+          },
+          {
+            key: "balance_pending",
+            label: "Balance pending",
+            value: verifiedExportTripCounts.balance_pending,
+            tone: COMPLIANCE_STAGE_TONE.balance_pending,
+          },
+        ]}
+        includedCount={verifiedExportIncluded}
+        filterOptions={[
+          { key: "all", label: "All" },
+          { key: "verified", label: "Verified" },
+          { key: "balance_pending", label: "Balance pending" },
+        ]}
+        filterValue={exportFilter}
+        onFilterChange={(key) => setExportFilter(key as AdvanceVerificationExportFilter)}
+        emptyHint="No trips match this filter yet."
         exporting={exporting}
         onCancel={() => {
           if (!exporting) setExportOpen(false);

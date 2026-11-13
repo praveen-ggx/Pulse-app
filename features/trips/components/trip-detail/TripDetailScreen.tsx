@@ -223,6 +223,7 @@ import {
 } from "../../services/trips.service";
 import {
     alignSimCompletionIsoToMin,
+    alignUnrevokedBisimTimestamps,
     appendBisimNote,
     clampSimCompletionPickerValue,
     ensureBisimTimestampForStatus,
@@ -4804,18 +4805,27 @@ export default function TripDetailScreen({
         lng: simConfirmStep.driverLng,
       });
       const userName = detail.profile?.full_name?.trim() || "Business";
-      const notes = ensureBisimTimestampForStatus(
-        appendBisimNote({
-          existingNotes: trip.notes,
-          targetStatus: simConfirmStep.targetStatus,
-          fromStatus: String(trip.status ?? "").trim().toLowerCase(),
-          userName,
-          lat: pin.lat,
-          lng: pin.lng,
-          at: eventAt,
-          locationLabel: simConfirmStep.driverLocLabel,
-        }),
-        simConfirmStep.targetStatus,
+      const targetStatus = simConfirmStep.targetStatus;
+      const stageStatuses =
+        targetStatus === "in_progress" || targetStatus === "picked_up"
+          ? ["in_progress", "picked_up", "pickup"]
+          : [targetStatus];
+      const notes = alignUnrevokedBisimTimestamps(
+        ensureBisimTimestampForStatus(
+          appendBisimNote({
+            existingNotes: trip.notes,
+            targetStatus,
+            fromStatus: String(trip.status ?? "").trim().toLowerCase(),
+            userName,
+            lat: pin.lat,
+            lng: pin.lng,
+            at: eventAt,
+            locationLabel: simConfirmStep.driverLocLabel,
+          }),
+          targetStatus,
+          eventAt,
+        ),
+        stageStatuses,
         eventAt,
       );
       const { error, cancelled, trip: updatedTrip } = await simulateBusinessTripStage({

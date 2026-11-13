@@ -34,7 +34,13 @@ export type ComplianceExportConfirmModalProps = {
   preparing?: boolean;
   /** Rows in the report when the tiles are not a partition of it. Defaults to the tile sum. */
   includedCount?: number;
+  /** Optional filter chips above the tiles (e.g. All / Verified / Balance pending). */
+  filterOptions?: ExportFilterOption[];
+  filterValue?: string;
+  onFilterChange?: (key: string) => void;
 };
+
+export type ExportFilterOption = { key: string; label: string };
 
 export type ExportStat = { key: string; label: string; value: number; tone: { fg: string } };
 
@@ -54,6 +60,9 @@ export function ComplianceExportConfirmModal({
   confirmLabel = "Confirm",
   preparing = false,
   includedCount,
+  filterOptions,
+  filterValue,
+  onFilterChange,
 }: ComplianceExportConfirmModalProps) {
   const insets = useSafeAreaInsets();
   const verified = Math.max(0, Math.floor(verifiedCount));
@@ -99,6 +108,29 @@ export function ComplianceExportConfirmModal({
               <Text style={styles.eyebrow}>{eyebrow}</Text>
             </View>
           </View>
+
+          {filterOptions && filterOptions.length > 0 ? (
+            <View style={styles.filterRow} accessibilityRole="radiogroup">
+              {filterOptions.map((option) => {
+                const selected = option.key === filterValue;
+                return (
+                  <Pressable
+                    key={option.key}
+                    style={[styles.filterChip, selected && styles.filterChipSelected]}
+                    onPress={() => onFilterChange?.(option.key)}
+                    disabled={exporting}
+                    accessibilityRole="radio"
+                    accessibilityLabel={option.label}
+                    accessibilityState={{ selected, disabled: exporting }}
+                  >
+                    <Text style={[styles.filterChipText, selected && styles.filterChipTextSelected]}>
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
 
           <View style={[styles.stats, singleStat && styles.statsSingle]}>
             {stats.map((stat) => (
@@ -248,6 +280,33 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     letterSpacing: 0.4,
     color: Theme.textMuted,
+  },
+  filterRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  filterChip: {
+    minHeight: 32,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.cardWhite,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  filterChipSelected: {
+    backgroundColor: Theme.buttonDark,
+    borderColor: Theme.buttonDark,
+  },
+  filterChipText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Theme.textSecondary,
+  },
+  filterChipTextSelected: {
+    color: Theme.buttonDarkText,
   },
   stats: {
     flexDirection: "row",

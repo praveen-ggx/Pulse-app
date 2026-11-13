@@ -27,6 +27,7 @@ import {
 } from "@/features/tripCompliance/utils/complianceVaultDocuments.util";
 import {
   fetchComplianceDriverDocsForTrips,
+  fetchComplianceVehicleVaultByPlate,
   fetchComplianceVehicleVaultForTrips,
 } from "@/features/tripCompliance/services/complianceListFacts.service";
 import {
@@ -53,7 +54,6 @@ import {
   isOperationsDeliveredTrip,
 } from "@/features/trips/utils/tripHubMetrics";
 import type { TripRow } from "@/features/trips/services/trips.service";
-import type { VehicleDocuments } from "@/features/vehicles/utils/vehicleDocuments.util";
 import { chunkIdsForRead, readAllPages } from "@/lib/pagination";
 import { supabase } from "@/lib/supabase";
 
@@ -684,9 +684,10 @@ function indexVehicleVaultDocs(
   entry: VaultEntry,
   ...keys: Array<string | null | undefined>
 ) {
-  if (entry.docs.length === 0) return;
   for (const key of keys) {
-    if (key) byKey.set(key, entry);
+    if (!key) continue;
+    if (entry.docs.length === 0 && byKey.has(key)) continue;
+    byKey.set(key, entry);
   }
 }
 
@@ -736,32 +737,14 @@ async function fetchVehicleVaultDocumentsForTrips(
 
   const missingByNumber = tripsNeedingVaultPlateFallback(trips, resolvedKeys);
   if (missingByNumber.length > 0) {
-    // Exact-match filter: send the typed plate and its canonical form, so
-    // "KA 05 AB 1234" still finds a vehicle stored as "KA05AB1234".
-    const plateNumbers = [
-      ...new Set(
-        missingByNumber.flatMap((t) => [
-          t.vehicle_display_number?.trim() ?? "",
-          normalizeVaultVehicleNumber(t.vehicle_display_number),
-        ]),
-      ),
-    ].filter(Boolean);
-    const { data, error } = await supabase()
-      .from("vehicles")
-      .select("id, vehicle_number, documents")
-      .in("vehicle_number", plateNumbers);
-    if (error && !isMissingColumnOrRelation(error)) throw new Error(error.message);
-    const byNumber = new Map<string, { id: string; documents: VehicleDocuments | null }>();
-    for (const row of data ?? []) {
+    const tripIds = missingByNumber.map((t) => t.id);
+    const rows = await fetchComplianceVehicleVaultByPlate(viewerOrgId, tripIds);
+    for (const row of rows) {
       const number = normalizeVaultVehicleNumber(row.vehicle_number);
-      if (number) byNumber.set(number, { id: row.id, documents: (row.documents ?? null) as VehicleDocuments | null });
-    }
-    for (const trip of missingByNumber) {
-      const number = normalizeVaultVehicleNumber(trip.vehicle_display_number);
-      const match = number ? byNumber.get(number) : undefined;
-      if (!match) continue;
-      const docs = vehicleVaultDocumentsToEntityDocs(match.id, match.documents);
-      indexVehicleVaultDocs(byKey, { vehicleId: match.id, docs }, match.id, number);
+      resolvedKeys.add(row.vehicle_id);
+      if (number) resolvedKeys.add(number);
+      const docs = vehicleVaultDocumentsToEntityDocs(row.vehicle_id, row.documents ?? null);
+      indexVehicleVaultDocs(byKey, { vehicleId: row.vehicle_id, docs }, row.vehicle_id, number);
     }
   }
 
@@ -892,7 +875,7 @@ export async function fetchComplianceTripInputs(
 
 /** Pure: one trip's summary from its inputs. No I/O. */
 export function summarizeComplianceTrip(inputs: ComplianceTripInputs): ComplianceTripSummary {
-  const { trip, documents, flags, taggedAdvance, balance, vehicleDocuments, driverDocuments } = inputs;
+  const { trip, documents, flags, taggedAdvance, balance, vehicleDocuments, driverDocuments, vaultVehicleId } = inputs;
   // Finance posts compliance_advance (not Compliance). Once the trip is verified,
   // any tagged advance counts — posting before/after verified_at does not matter.
   // Finance client receipts (trips.amount_paid) never count as the advance.
@@ -975,6 +958,7 @@ export function summarizeComplianceTrip(inputs: ComplianceTripInputs): Complianc
     documents,
     vehicleDocuments,
     driverDocuments,
+    vaultVehicleId,
     documentCounts,
     checklist,
     complianceVerifiedAt: flags?.compliance_verified_at ?? null,

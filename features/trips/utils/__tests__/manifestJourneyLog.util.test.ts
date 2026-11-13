@@ -304,6 +304,52 @@ describe("manifest journey simulation flow", () => {
     );
   });
 
+  it("shows the revised Pickup time after In Transit is revoked", () => {
+    const revisedPickup = "2026-11-01T06:00:00.000Z";
+    const tripRow = {
+      ...trip,
+      status: "in_progress",
+      started_at: revisedPickup,
+      updated_at: "2026-11-12T10:00:00.000Z",
+      notes: [
+        "[BISIM|in_progress|2026-11-10T08:00:00.000Z|1|2|Ops|assigned|Pickup]",
+        "[BISIM|in_transit|2026-11-12T09:30:00.000Z|1|2|Ops|in_progress|Route]",
+        "[BISIM_REVOKE|in_transit|in_progress|2026-11-12T10:00:00.000Z|1|2|Ops]",
+      ].join("\n"),
+    } as TripRow;
+    const logs = buildManifestJourneyLogs({
+      trip: tripRow,
+      assignmentAuditRows: [],
+      simLogs: [
+        {
+          status: "in_progress",
+          timestamp: "2026-11-10T08:00:00.000Z",
+          lat: 19.07,
+          lng: 72.87,
+          userName: "Ops",
+          locationLabel: "Mumbai, Maharashtra",
+        },
+      ],
+    });
+    expect(logs.find((row) => row.stepKey === "pickup")?.atIso).toBe(revisedPickup);
+    expect(
+      logs
+        .find((row) => row.stepKey === "pickup")
+        ?.history?.every((line) => line.atIso === revisedPickup),
+    ).toBe(true);
+    expect(
+      logs.find((row) => row.stepKey === "in_transit")?.history?.some((line) =>
+        line.atIso === "2026-11-12T09:30:00.000Z",
+      ),
+    ).toBe(false);
+    const visible = getVisibleManifestJourneyLogs(
+      logs,
+      getManifestCurrentStepIndex(tripRow),
+    );
+    expect(visible.some((row) => row.stepKey === "in_transit")).toBe(false);
+    expect(visible[visible.length - 1]?.stepKey).toBe("pickup");
+  });
+
   it("does not treat Pickup started_at as Driver Accepted", () => {
     expect(
       resolveDriverAcceptanceAt({

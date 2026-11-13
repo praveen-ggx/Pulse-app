@@ -15,6 +15,7 @@ import {
 } from "@/constants/hoverSelection";
 import Theme from "@/constants/Theme";
 import { getIndentDisplayNumber, type IndentRow } from "@/features/indents";
+import { useIndentViewerReference } from "@/features/indents/hooks/useIndentViewerReference";
 import type {
   GetLoadSourceTag,
   LoadCenterTicketCommerce,
@@ -417,9 +418,24 @@ export function LoadCenterHubMobileIndentCard({
     !isGetLoadCard && awardedVendorName
       ? `Awarded to ${awardedVendorName}`
       : channelLabel;
-  const metaLine = metaDateLabel
+  /** Supplier list rows lack indent_code; WON cards fetch it (batched, shipper/awarded only). */
+  const viewerRef = useIndentViewerReference(
+    indent.id,
+    !anonymous && !indent.indent_code && statusChip.tone === "won",
+  );
+  /** Shared indent reference (not the operational code) so shipper + supplier quote the same ID. */
+  const sharedIndentRef = (
+    indent.indent_code ??
+    viewerRef ??
+    indent.display_indent_id ??
+    indent.indent_number ??
+    ""
+  ).trim();
+  const metaBase = metaDateLabel
     ? `${awardedChannelLabel} · ${metaDateLabel}`
     : awardedChannelLabel;
+  const metaLine =
+    !anonymous && sharedIndentRef ? `${sharedIndentRef} · ${metaBase}` : metaBase;
   const heroAmount =
     commerce?.amountInr != null && commerce.amountInr > 0
       ? formatINR(commerce.amountInr)

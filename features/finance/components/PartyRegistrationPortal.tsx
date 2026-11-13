@@ -57,6 +57,7 @@ import { validateEmail } from "@/lib/emailValidation";
 import { formatIndianVehicleNumberInput, formatMobileNumber } from "@/lib/format";
 import {
   applyIndianDlKeystroke,
+  applyIndianDlKeystrokeAutoFormat,
   detectIndianDlFormat,
   INDIAN_DL_FORMATS,
   isIndianDrivingLicenseFormatValid,
@@ -269,7 +270,7 @@ function dlError(raw: string): string | null {
   if (!raw.trim()) return null;
   return isIndianDrivingLicenseFormatValid(raw)
     ? null
-    : "Use a valid DL number (e.g. TN01 20200001234), or pick the matching format.";
+    : "Enter the licence number exactly as printed on the card.";
 }
 
 type SummaryIcon = ComponentType<{
@@ -738,7 +739,11 @@ function PartyRegistrationPortalInner(
   };
 
   const handleDriverDlChange = (text: string) => {
-    setDriverDl(applyIndianDlKeystroke(text, driverDlFormat));
+    // Never drop what was typed: if it doesn't fit the picked layout
+    // (e.g. a number-only card under Standard), switch layout instead.
+    const next = applyIndianDlKeystrokeAutoFormat(text, driverDlFormat);
+    if (next.format !== driverDlFormat) setDriverDlFormat(next.format);
+    setDriverDl(next.value);
   };
 
   const handleDriverDlFormatChange = (next: IndianDlFormat) => {

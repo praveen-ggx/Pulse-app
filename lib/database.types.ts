@@ -19329,6 +19329,17 @@ export type Database = {
         Args: { p_indent: Database["public"]["Tables"]["indents"]["Row"] }
         Returns: string
       }
+      indent_reference_for_viewer: {
+        Args: { p_indent_id: string }
+        Returns: string
+      }
+      indent_references_for_viewer: {
+        Args: { p_indent_ids: string[] }
+        Returns: {
+          indent_code: string
+          indent_id: string
+        }[]
+      }
       indent_target_for_broadcast: {
         Args: { indent_id: string }
         Returns: {

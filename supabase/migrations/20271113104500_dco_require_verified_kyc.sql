@@ -1,3 +1,5 @@
+SET LOCAL lock_timeout = '5s';
+
 -- DCO approval now requires driver identity proofs (KYC).
 --
 -- Before this, request_dco_status() and platform_approve_dco() never looked at
@@ -74,7 +76,10 @@ $$;
 
 ALTER TABLE public.driver_kyc_documents
   ADD CONSTRAINT driver_kyc_documents_doc_type_check
-  CHECK (doc_type IN ('license', 'aadhaar', 'pan', 'selfie', 'bank_proof', 'other'));
+  CHECK (doc_type IN ('license', 'aadhaar', 'pan', 'selfie', 'bank_proof', 'other'))
+  -- NOT VALID: enforce on new/updated rows only, so a legacy doc_type on an
+  -- existing row cannot fail the release.
+  NOT VALID;
 
 ALTER TABLE public.driver_kyc_doc_requirements
   ADD COLUMN IF NOT EXISTS required_for_dco boolean NOT NULL DEFAULT false;

@@ -1,3 +1,5 @@
+SET LOCAL lock_timeout = '5s';
+
 -- booking_ref_seq can fall behind refs already present on trips (preprod:
 -- seq at 1969 while refs up to 2109 existed). Every indent/market trip insert
 -- then hit trips_booking_ref_key, which surfaced in the driver app as

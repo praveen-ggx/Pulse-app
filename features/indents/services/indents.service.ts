@@ -654,6 +654,68 @@ async function prepareIndentForSupplierViewer(
   );
 }
 
+/**
+ * Shared indent reference (indent_code) for the shipper org and the awarded
+ * supplier org. Null for anyone else or when unavailable.
+ */
+export async function getIndentReferenceForViewer(
+  indentId: string,
+): Promise<string | null> {
+  const id = (indentId ?? "").trim();
+  if (!id) return null;
+  const { data, error } = await supabase().rpc("indent_reference_for_viewer", {
+    p_indent_id: id,
+  });
+  if (error || typeof data !== "string") return null;
+  return data.trim() || null;
+}
+
+/**
+ * Batched form for list cards: ids requested in the same tick go out as one
+ * `indent_references_for_viewer` call. Resolves null when hidden/unavailable.
+ */
+let referenceBatch: Map<string, ((code: string | null) => void)[]> | null = null;
+
+export function getIndentReferenceForViewerBatched(
+  indentId: string,
+): Promise<string | null> {
+  const id = (indentId ?? "").trim();
+  if (!id) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    if (!referenceBatch) {
+      const batch = new Map<string, ((code: string | null) => void)[]>();
+      referenceBatch = batch;
+      setTimeout(() => {
+        referenceBatch = null;
+        void flushIndentReferenceBatch(batch);
+      }, 0);
+    }
+    const waiters = referenceBatch.get(id) ?? [];
+    waiters.push(resolve);
+    referenceBatch.set(id, waiters);
+  });
+}
+
+async function flushIndentReferenceBatch(
+  batch: Map<string, ((code: string | null) => void)[]>,
+): Promise<void> {
+  const codes = new Map<string, string>();
+  const ids = [...batch.keys()];
+  for (let i = 0; i < ids.length; i += 500) {
+    const { data, error } = await supabase().rpc("indent_references_for_viewer", {
+      p_indent_ids: ids.slice(i, i + 500),
+    });
+    if (error || !Array.isArray(data)) continue;
+    for (const row of data as { indent_id: string; indent_code: string | null }[]) {
+      const code = (row.indent_code ?? "").trim();
+      if (code) codes.set(row.indent_id, code);
+    }
+  }
+  for (const [id, waiters] of batch) {
+    for (const resolve of waiters) resolve(codes.get(id) ?? null);
+  }
+}
+
 /** Fetch a single indent by id (for detail screen). */
 export async function getIndentById(
   indentId: string,

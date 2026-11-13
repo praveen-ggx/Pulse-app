@@ -15,6 +15,9 @@ jest.mock("@/features/network/utils/storyDisplay", () => ({
   formatStoryDate: (iso: string) => iso.slice(0, 10),
 }));
 jest.mock("@expo/vector-icons/FontAwesome", () => () => null);
+jest.mock("@/features/indents/hooks/useIndentViewerReference", () => ({
+  useIndentViewerReference: () => null,
+}));
 jest.mock("expo-router", () => ({ useRouter: () => ({ push: jest.fn() }) }));
 jest.mock("@/features/network/components/LoadIndentTripPlanPreview", () => ({
   LoadIndentTripPlanPreview: () => null,

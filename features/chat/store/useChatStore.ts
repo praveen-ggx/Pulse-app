@@ -43,6 +43,7 @@ import { isSupabaseCircuitOpen } from '@/lib/supabaseHttp.util';
 import { recordMarkMessagesSeen } from '@/lib/chatPerf';
 import {
   fetchChatBootstrapPayload,
+  fillIndentCreatorNamesInBackground,
   fetchConversationHistory,
   submitAtomicFeedback,
   submitTripChatFeedback,
@@ -1505,6 +1506,24 @@ export const useChatStore = create<ChatState>()(
         );
 
         void persistChatBootstrapSummaries(orgId, conversations);
+        fillIndentCreatorNamesInBackground(orgId, conversations, (enriched) => {
+          if (get().bootstrappedOrg !== orgId) return;
+          const named = ingestBootstrapConversations(
+            orgId,
+            enriched,
+            {
+              trips: get().trips,
+              convToTrip: get().convToTrip,
+              convToParty: get().convToParty,
+            },
+            { summariesOnly: true },
+          );
+          set({
+            trips: named.trips,
+            convToTrip: named.convToTrip,
+            convToParty: named.convToParty,
+          });
+        });
 
         set((s) => ({
           trips,
@@ -1565,6 +1584,15 @@ export const useChatStore = create<ChatState>()(
           chatBootstrapNextTripOffset: off + CHAT_BOOTSTRAP_TRIP_PAGE_MORE,
           isAppendingBootstrap: false,
         });
+        fillIndentCreatorNamesInBackground(orgId, conversations, (enriched) => {
+          if (get().bootstrappedOrg !== orgId) return;
+          const named = ingestBootstrapConversations(orgId, enriched, {
+            trips: get().trips,
+            convToTrip: get().convToTrip,
+            convToParty: get().convToParty,
+          }, { summariesOnly: true });
+          set({ trips: named.trips, convToTrip: named.convToTrip, convToParty: named.convToParty });
+        });
       } catch (err) {
         if (__DEV__) console.error("[useChatStore] appendBootstrapTripPage failed:", err);
         set({ isAppendingBootstrap: false });
@@ -1594,6 +1622,15 @@ export const useChatStore = create<ChatState>()(
           convToParty,
           chatLanes: mergedLanes,
           hubHistoryBootstrapDone: true,
+        });
+        fillIndentCreatorNamesInBackground(orgId, conversations, (enriched) => {
+          if (get().bootstrappedOrg !== orgId) return;
+          const named = ingestBootstrapConversations(orgId, enriched, {
+            trips: get().trips,
+            convToTrip: get().convToTrip,
+            convToParty: get().convToParty,
+          }, { summariesOnly: true });
+          set({ trips: named.trips, convToTrip: named.convToTrip, convToParty: named.convToParty });
         });
       } catch (err) {
         if (__DEV__) console.error("[useChatStore] ensureHubHistoryBootstrap failed:", err);

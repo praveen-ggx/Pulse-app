@@ -385,11 +385,28 @@ async function enrichIndentCreatorOrganizationNamesForViewer(
   if (tripNumbersNeeding.size === 0) return conversations;
 
   const tripNumberList = [...tripNumbersNeeding];
-  const { data, error } = await supabase().rpc("indent_creator_org_names_for_viewer", {
-    p_viewer_org: viewer,
-    p_trip_numbers: tripNumberList,
+  // One call with every trip number statement-timeouts (57014) and used to hold
+  // the chat list on "Loading chat…" until that failed. Small batches finish.
+  const data: { trip_number?: string; creator_org_name?: string }[] = [];
+  const batches: string[][] = [];
+  for (let i = 0; i < tripNumberList.length; i += 40) {
+    batches.push(tripNumberList.slice(i, i + 40));
+  }
+  let nextBatch = 0;
+  const workers = Array.from({ length: Math.min(3, batches.length) }, async () => {
+    while (nextBatch < batches.length) {
+      const batch = batches[nextBatch];
+      nextBatch += 1;
+      const { data: rows, error } = await supabase().rpc("indent_creator_org_names_for_viewer", {
+        p_viewer_org: viewer,
+        p_trip_numbers: batch,
+      });
+      if (error || !Array.isArray(rows)) continue;
+      data.push(...(rows as { trip_number?: string; creator_org_name?: string }[]));
+    }
   });
-  if (error || !Array.isArray(data) || data.length === 0) {
+  await Promise.all(workers);
+  if (data.length === 0) {
     return conversations;
   }
 
@@ -408,6 +425,21 @@ async function enrichIndentCreatorOrganizationNamesForViewer(
     if (!label) return c;
     return { ...c, indent_creator_organization_name: label };
   });
+}
+
+/** Applies shipper names when the lookup finishes. Never blocks the inbox. */
+export function fillIndentCreatorNamesInBackground(
+  viewerOrganizationId: string,
+  conversations: TripConversation[],
+  apply: (next: TripConversation[]) => void,
+): void {
+  void enrichIndentCreatorOrganizationNamesForViewer(viewerOrganizationId, conversations)
+    .then((next) => {
+      if (next !== conversations) apply(next);
+    })
+    .catch(() => {
+      // The list is already visible; missing shipper labels can arrive next open.
+    });
 }
 
 const TRIP_EMBED_FIELDS_FULL =
@@ -1817,10 +1849,8 @@ export async function fetchChatBootstrapPayload(
     const rows = (Array.isArray(rawConvs) ? rawConvs : []) as Array<Record<string, unknown>>;
     let conversations = rows.map(normalizeInitialStateRow);
     conversations = await resolveGenericPartyNamesForTrips(conversations);
-    conversations = await enrichIndentCreatorOrganizationNamesForViewer(
-      organizationId,
-      conversations,
-    );
+    // Shipper names fill in after the list is on screen. Awaiting this RPC
+    // kept the whole inbox on the loading spinner.
     const baseLanes =
       normalizeServerLanes(payload.lanes as Record<string, unknown> | undefined) ??
       buildChatLanesFromConversations(conversations);

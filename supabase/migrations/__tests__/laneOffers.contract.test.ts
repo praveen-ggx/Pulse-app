@@ -28,22 +28,44 @@ function parse() {
 }
 
 describe("lane-offers release set", () => {
-  it("lists only the lane offers migration, off-midnight and not frozen", () => {
+  const DEP_FILE = "20271025183000_network_pool_bid_commits.sql";
+
+  it("lists the pool-commit dependency then lane offers, off-midnight and not frozen", () => {
     const { versions } = parse();
-    expect(versions).toEqual(["20271113091500"]);
+    expect(versions).toEqual(["20271025183000", "20271113091500"]);
+    expect(versions.every((version) => !version.endsWith("000000"))).toBe(true);
     const frozen = fs
       .readFileSync(path.join(migrations, "../release-sets/FROZEN.versions"), "utf8")
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => /^\d{14}$/.test(line));
-    expect(frozen).not.toContain("20271113091500");
+    for (const version of versions) expect(frozen).not.toContain(version);
   });
 
-  it("pins the migration file by SHA-256", () => {
-    const pinned = parse().sums.get("20271113091500");
-    expect(pinned?.file).toBe(FILE);
-    const actual = crypto.createHash("sha256").update(fs.readFileSync(path.join(migrations, FILE))).digest("hex");
-    expect(actual).toBe(pinned?.sha);
+  it("pins both migration files by SHA-256", () => {
+    const { sums } = parse();
+    for (const [version, file] of [
+      ["20271025183000", DEP_FILE],
+      ["20271113091500", FILE],
+    ] as const) {
+      const pinned = sums.get(version);
+      expect(pinned?.file).toBe(file);
+      const actual = crypto.createHash("sha256").update(fs.readFileSync(path.join(migrations, file))).digest("hex");
+      expect(actual).toBe(pinned?.sha);
+    }
+  });
+
+  it("the dependency creates what lane offers needs", () => {
+    const dep = fs.readFileSync(path.join(migrations, DEP_FILE), "utf8");
+    expect(dep).toMatch(/CREATE TABLE IF NOT EXISTS public\.network_pool_bid_commits/);
+    expect(dep).toMatch(/ADD COLUMN IF NOT EXISTS pool_commit_id uuid/);
+    expect(dep).toMatch(/CREATE OR REPLACE FUNCTION public\.network_pool_commit_is_live\(/);
+  });
+
+  it("leaves withdraw-network-quotes unchanged (still excludes 20271025183000)", () => {
+    const body = fs.readFileSync(path.join(migrations, "../release-sets/withdraw-network-quotes.versions"), "utf8");
+    const versions = body.split("\n").map((line) => line.trim()).filter((line) => /^\d{14}$/.test(line));
+    expect(versions).toEqual(["20261025154609"]);
   });
 });
 

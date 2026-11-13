@@ -82,3 +82,22 @@ export function buildNominatimReverseUrl(
   });
   return `${NOMINATIM_REVERSE_URL}?${params.toString()}`;
 }
+
+/**
+ * OpenStreetMap tags Chennai (and other Indian municipal) corporation wards as
+ * the area's neighbourhood/suburb — e.g. "Ward 30", "Zone 10 Kodambakkam".
+ * Ward numbers are not place names, so they must never become a trip label.
+ * Returns the cleaned area name, or "" when the value is only a ward/zone number.
+ *   "Ward 185"              → ""
+ *   "Ward No. 30"           → ""
+ *   "Zone 3"                → ""
+ *   "Zone 10 Kodambakkam"   → "Kodambakkam"
+ *   "Velayudam Colony"      → "Velayudam Colony" (unchanged)
+ */
+export function cleanOsmAreaName(value: string | null | undefined): string {
+  let v = (value ?? "").trim().replace(/\s+/g, " ");
+  if (!v) return "";
+  if (/^ward\s*(?:no\.?\s*)?[-#:]?\s*\d+[a-z]?\b/i.test(v)) return "";
+  v = v.replace(/^zone\s*(?:no\.?\s*)?[-#:]?\s*\d+[a-z]?\b[\s,:-]*/i, "").trim();
+  return v;
+}

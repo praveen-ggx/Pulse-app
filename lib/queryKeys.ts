@@ -771,13 +771,27 @@ export function isSessionScopedLaneOfferQueryKey(queryKey: readonly unknown[]): 
   return queryKey[2] === "my-invites" || queryKey[2] === "my-network-quotes";
 }
 
-export function purgeSessionScopedLaneOfferQueries(qc: {
-  removeQueries: (filters: {
-    predicate: (query: { queryKey: readonly unknown[] }) => boolean;
-  }) => void;
-}): void {
+export function purgeSessionScopedLaneOfferQueries(
+  qc: {
+    removeQueries: (filters: {
+      predicate: (query: { queryKey: readonly unknown[] }) => boolean;
+    }) => void;
+  },
+  keepOrgId?: string | null,
+): void {
   qc.removeQueries({
-    predicate: (query) => isSessionScopedLaneOfferQueryKey(query.queryKey),
+    predicate: (query) => {
+      const key = query.queryKey;
+      if (!isSessionScopedLaneOfferQueryKey(key)) return false;
+      // Logout drops every inbox. Login drops only another workspace, or a
+      // legacy key that has no user and org, so a fetch for the current
+      // workspace is not cancelled as it completes.
+      if (!keepOrgId) return true;
+      const legacyInvite = key[2] === "my-invites" && key.length < 6;
+      const legacyQuotes = key[2] === "my-network-quotes" && key.length < 5;
+      if (legacyInvite || legacyQuotes) return true;
+      return !key.includes(keepOrgId);
+    },
   });
 }
 

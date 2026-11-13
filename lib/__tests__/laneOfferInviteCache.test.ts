@@ -66,4 +66,22 @@ describe("lane offer invite cache identity", () => {
     expect(client.getQueryData(legacyKey)).toBeUndefined();
     expect(client.getQueryData(tripsKey)).toEqual([{ id: "trip-1" }]);
   });
+
+  it("login keeps the current workspace fetch and drops the previous account", () => {
+    const client = new QueryClient();
+    const current = queryKeys.laneOffers.myInvites("user-godrej", "org-godrej", 50);
+    const previous = queryKeys.laneOffers.myInvites("user-sri", "org-sri", 50);
+    const legacy = ["q", "lane-offers", "my-invites", 50];
+    client.setQueryData(current, { pages: [{ items: [{ invite_id: "godrej" }] }] });
+    client.setQueryData(previous, { pages: [{ items: [{ invite_id: "sri" }] }] });
+    client.setQueryData(legacy, { leaked: true });
+
+    purgeSessionScopedLaneOfferQueries(client, "org-godrej");
+
+    expect(client.getQueryData(current)).toEqual({
+      pages: [{ items: [{ invite_id: "godrej" }] }],
+    });
+    expect(client.getQueryData(previous)).toBeUndefined();
+    expect(client.getQueryData(legacy)).toBeUndefined();
+  });
 });

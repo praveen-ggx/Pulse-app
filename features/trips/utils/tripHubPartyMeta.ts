@@ -98,6 +98,14 @@ function resolveSupplierName(
   return "";
 }
 
+function partyLabel(row: SupplierRow | undefined): string {
+  return (
+    (row?.name ?? "").trim() ||
+    (row?.company_name ?? "").trim() ||
+    (row?.contact_person ?? "").trim()
+  );
+}
+
 function isGenericDriverLabel(value: string): boolean {
   const v = value.trim().toLowerCase();
   return !v || v === "driver" || v === "—" || v === "-";
@@ -161,6 +169,13 @@ export function buildTripHubPartyMetaByTripId(
     }>;
     /** Signed/public URLs from `get_driver_profile_display_batch`. */
     driverImageById?: Record<string, string>;
+    /**
+     * Indent award: `assigned_supplier_id` is the winning organization, not a
+     * suppliers row. Used when the trip itself has no supplier name.
+     */
+    indentAwardOrgByIndentId?: Record<string, string>;
+    /** Display name for an organization id, from the linked-org profile cache. */
+    orgNameById?: Record<string, string>;
   },
 ): Map<string, TripHubPartyMeta> {
   const clientById = new Map(
@@ -169,6 +184,21 @@ export function buildTripHubPartyMetaByTripId(
   const supplierById = new Map(
     suppliers.map((s) => [String(s.id).trim().toLowerCase(), s] as const),
   );
+  const supplierByLinkedOrg = new Map<string, SupplierRow>();
+  for (const s of suppliers) {
+    const linked = (s.linked_organization_id ?? "").trim().toLowerCase();
+    if (linked && !supplierByLinkedOrg.has(linked)) {
+      supplierByLinkedOrg.set(linked, s);
+    }
+  }
+  const orgNameFor = (orgId: string): string =>
+    orgId
+      ? (
+          opts?.orgNameById?.[orgId] ??
+          opts?.orgNameById?.[orgId.toLowerCase()] ??
+          ""
+        ).trim()
+      : "";
   const driverById = new Map(
     drivers.map((d) => [String(d.id).trim().toLowerCase(), d] as const),
   );
@@ -230,6 +260,23 @@ export function buildTripHubPartyMetaByTripId(
       supplierById,
       supplierNameByIdFallback,
     );
+    const indentId = String(t.indent_id ?? "").trim();
+    const awardOrgId = (
+      indentId
+        ? opts?.indentAwardOrgByIndentId?.[indentId] ??
+          opts?.indentAwardOrgByIndentId?.[indentId.toLowerCase()] ??
+          ""
+        : ""
+    ).trim();
+    const awardIsAnotherOrg =
+      !!awardOrgId && awardOrgId.toLowerCase() !== viewerOrgId.toLowerCase();
+    let awardedSupplier: SupplierRow | undefined;
+    if (!displaySupplierName && awardIsAnotherOrg) {
+      awardedSupplier = supplierByLinkedOrg.get(awardOrgId.toLowerCase());
+      const awardedName =
+        partyLabel(awardedSupplier) || orgNameFor(awardOrgId);
+      if (awardedName) displaySupplierName = awardedName;
+    }
     if (viewerIsAwardedSupplier) {
       // Awarded carrier: never label themselves as the supplier (or "Awaiting
       // data") after they assigned a roster driver on the shipper trip.
@@ -244,11 +291,19 @@ export function buildTripHubPartyMetaByTripId(
     );
 
     const supplierIdKey = (t.supplier_id ?? "").trim().toLowerCase();
-    const supplierRow = findPartyByIdOrUniqueName(
-      supplierById,
-      supplierIdKey,
-      displaySupplierName || (t.supplier_name ?? ""),
-    );
+    const supplierRow =
+      findPartyByIdOrUniqueName(
+        supplierById,
+        supplierIdKey,
+        displaySupplierName || (t.supplier_name ?? ""),
+      ) ?? awardedSupplier;
+    if (!displaySupplierName && !viewerIsAwardedSupplier) {
+      const linkedOrgId =
+        (supplierRow?.linked_organization_id ?? "").trim() ||
+        (awardIsAnotherOrg ? awardOrgId : "");
+      const orgName = orgNameFor(linkedOrgId);
+      if (orgName) displaySupplierName = orgName;
+    }
 
     const driverIdKey = (t.driver_id ?? "").trim().toLowerCase();
     const driverRow = findPartyByIdOrUniqueName(
@@ -282,14 +337,18 @@ export function buildTripHubPartyMetaByTripId(
       clientFallbackSeed,
       supplierFallbackSeed,
       clientLinkedOrgId: (clientRow?.linked_organization_id ?? "").trim() || null,
-      supplierLinkedOrgId: (supplierRow?.linked_organization_id ?? "").trim() || null,
+      supplierLinkedOrgId:
+        (supplierRow?.linked_organization_id ?? "").trim() ||
+        (awardIsAnotherOrg ? awardOrgId : "") ||
+        null,
       clientIntegrated: Boolean(
         clientRow?.is_integrated || clientRow?.linked_organization_id,
       ),
       supplierIntegrated: Boolean(
         supplierRow?.is_integrated ||
           supplierRow?.linked_organization_id ||
-          supplierRow?.supplier_type === "integrated",
+          supplierRow?.supplier_type === "integrated" ||
+          awardIsAnotherOrg,
       ),
       driverAvatarUrl:
         driverImage || (driverRow?.avatar_url ?? "").trim() || null,

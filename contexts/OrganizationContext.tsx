@@ -20,6 +20,7 @@ import * as organizationService from '@/features/organization/services/organizat
 import { markStartupPhase, isStartupComplete } from '@/lib/startupMetrics';
 import type { CurrentOrganization } from '@/types/organization';
 import { getQueryClient } from '@/lib/queryClient';
+import { purgeSessionScopedLaneOfferQueries } from '@/lib/queryKeys';
 import {
   bindLinkedOrgDisplayViewerOrg,
   purgeLinkedOrgDisplayQueries,
@@ -250,6 +251,9 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
       // First org after cold start (prev === null) or logout (new === null):
       // drop any persisted/global linked-org-display map so it cannot be reused.
       purgeLinkedOrgDisplayQueries(qc);
+      // Login does not take the org-switch branch, so a hydrated invite list
+      // from the previous session has to be removed here.
+      purgeSessionScopedLaneOfferQueries(qc);
     }
     prevOrgIdRef.current = newOrgId;
   }, [currentOrganization?.id]);

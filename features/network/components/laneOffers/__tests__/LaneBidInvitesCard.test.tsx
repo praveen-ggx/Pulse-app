@@ -64,7 +64,7 @@ describe("LaneBidInvitesCard", () => {
       invite({ channel: "network", shipper_name: "Shipper One", indent_number: "SAT812GOGIND003892" }),
     ];
     render(<LaneBidInvitesCard />);
-    expect(screen.getByText("32FT · Shipper One · SAT812GOGIND003892")).toBeTruthy();
+    expect(screen.getByText("Network · 32FT · Shipper One · SAT812GOGIND003892")).toBeTruthy();
   });
 
   it("accept that hits an existing offer tells the carrier it was kept, not that a bid was placed", async () => {

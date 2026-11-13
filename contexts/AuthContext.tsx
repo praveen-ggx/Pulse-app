@@ -47,6 +47,8 @@ import { setCrashReporterUser, clearCrashReporterUser } from "@/lib/crashReporte
 import { resetIndexBootRedirect } from "@/lib/indexBootRedirect.util";
 import { getKeepSignedIn, setKeepSignedIn } from "@/lib/keepSignedInPreference";
 import { clearAllRealtimeChannels } from "@/lib/realtimeRegistry";
+import { getQueryClient } from "@/lib/queryClient";
+import { purgeSessionScopedLaneOfferQueries } from "@/lib/queryKeys";
 import {
   createContext,
   useCallback,
@@ -847,6 +849,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     signOutRequestedRef.current = true;
     clearAllRealtimeChannels();
+    // Remove the signed-in carrier's invite inbox before the next account
+    // can mount. Unrelated persisted state (theme, drafts) is left alone.
+    purgeSessionScopedLaneOfferQueries(getQueryClient());
     try {
       await withTimeout(() => authService.signOut(), AUTH_TIMEOUT_MS);
     } catch (e) {

@@ -37,7 +37,7 @@ export interface LaneOffersSectionProps {
 
 function channelPill(offer: LaneOffer): string {
   if (offer.kind === "pool_commitment") return "LANE RATE";
-  return offer.channel === "network" ? "NETWORK" : "MARKET";
+  return offer.channel === "network" ? "Network" : "Marketplace";
 }
 
 const LaneOfferRow = memo(function LaneOfferRow({

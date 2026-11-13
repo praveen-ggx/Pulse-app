@@ -183,6 +183,70 @@ export async function respondLaneBidInvite(
   return { error: null, result: data as RespondLaneBidInviteResult };
 }
 
+export type MyNetworkQuoteRow = {
+  id: string;
+  indent_id: string;
+  amount: number;
+  /** Server status. `pending` is a quote, not an award. */
+  status: string;
+  notes: string | null;
+  created_at: string;
+  indent_number: string | null;
+  pickup_area: string | null;
+  drop_location: string | null;
+  indent_status: string | null;
+};
+
+/**
+ * This carrier's network quotes. Accepting a rate request writes a pending
+ * direct_quotes row; it does not award the indent. Route fields are filled
+ * when the indent is visible to this account.
+ */
+export async function listMyNetworkQuotes(
+  orgId: string,
+): Promise<{ error: Error | null; quotes: MyNetworkQuoteRow[] }> {
+  if (!orgId) return { error: null, quotes: [] };
+  const { data, error } = await supabase()
+    .from('direct_quotes')
+    .select('id, indent_id, amount, status, notes, created_at')
+    .eq('bidder_organization_id', orgId)
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error) return { error: new Error(error.message), quotes: [] };
+  const rows = (data ?? []) as Record<string, unknown>[];
+  const indentIds = [...new Set(rows.map((row) => String(row.indent_id ?? '')).filter(Boolean))];
+  const indentById = new Map<string, Record<string, unknown>>();
+  if (indentIds.length > 0) {
+    const indents = await supabase()
+      .from('indents')
+      .select('id, indent_number, pickup_area, drop_location, status')
+      .in('id', indentIds);
+    if (!indents.error) {
+      for (const indent of indents.data ?? []) {
+        indentById.set(String(indent.id), indent as Record<string, unknown>);
+      }
+    }
+  }
+  return {
+    error: null,
+    quotes: rows.map((row) => {
+      const indent = indentById.get(String(row.indent_id ?? ''));
+      return {
+        id: String(row.id ?? ''),
+        indent_id: String(row.indent_id ?? ''),
+        amount: toNumber(row.amount),
+        status: String(row.status ?? 'pending'),
+        notes: (row.notes as string | null) ?? null,
+        created_at: String(row.created_at ?? ''),
+        indent_number: (indent?.indent_number as string | null) ?? null,
+        pickup_area: (indent?.pickup_area as string | null) ?? null,
+        drop_location: (indent?.drop_location as string | null) ?? null,
+        indent_status: (indent?.status as string | null) ?? null,
+      };
+    }),
+  };
+}
+
 export async function listMyLaneBidInvites(
   options: { limit?: number; cursor?: LaneBidInvitesCursor | null } = {},
 ): Promise<{ error: Error | null; page: LaneBidInvitesPage | null }> {

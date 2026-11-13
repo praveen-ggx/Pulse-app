@@ -118,7 +118,7 @@ describe('laneBidInviteMeta', () => {
         shipper_name: 'Shipper One',
         indent_number: 'SAT812GOGIND003892',
       }),
-    ).toBe('32FT · Shipper One · SAT812GOGIND003892');
+    ).toBe('Network · 32FT · Shipper One · SAT812GOGIND003892');
   });
 });
 
@@ -152,8 +152,13 @@ describe('laneInviteResponseNotice', () => {
 
 describe('laneOfferSourceLabel', () => {
   it('describes where the offer comes from', () => {
-    expect(laneOfferSourceLabel(offer({}))).toBe('Bid on SAT812GOGIND003892');
-    expect(laneOfferSourceLabel(offer({ source_indent_number: null }))).toBe('Bid on this lane');
+    expect(laneOfferSourceLabel(offer({}))).toBe('Marketplace bid on SAT812GOGIND003892');
+    expect(laneOfferSourceLabel(offer({ channel: 'network' }))).toBe(
+      'Network bid on SAT812GOGIND003892',
+    );
+    expect(laneOfferSourceLabel(offer({ source_indent_number: null }))).toBe(
+      'Marketplace bid on this lane',
+    );
     expect(laneOfferSourceLabel(offer({ kind: 'pool_commitment', vehicles_left: 1 }))).toBe(
       'Lane rate · 1 vehicle left',
     );

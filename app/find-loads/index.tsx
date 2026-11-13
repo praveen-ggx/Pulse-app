@@ -20,6 +20,7 @@ import { MarketplaceLaneFilters } from "@/features/network/components/Marketplac
 import { MarketplaceSearchSheet } from "@/features/network/components/MarketplaceSearchSheet";
 import { OrgMyBidsList } from "@/features/network/components/OrgMyBidsList";
 import { LaneBidInvitesCard } from "@/features/network/components/laneOffers/LaneBidInvitesCard";
+import { NetworkMyQuotesList } from "@/features/network/components/laneOffers/NetworkMyQuotesList";
 import { PooledOpportunityCard } from "@/features/network/components/pooled/PooledOpportunityCard";
 import {
   listMarketplaceSearchLanes,
@@ -425,6 +426,7 @@ export default function FindLoadsScreen() {
         >
           {pageChrome()}
           <LaneBidInvitesCard onResponded={() => void myBidsQ.refetch()} />
+          <NetworkMyQuotesList />
           <OrgMyBidsList
             bids={myBids}
             isLoading={myBidsQ.isLoading}

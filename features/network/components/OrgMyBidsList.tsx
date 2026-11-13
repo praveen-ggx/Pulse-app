@@ -189,9 +189,9 @@ export function OrgMyBidsList({
     return (
       <View style={styles.empty}>
         <Inbox size={22} color={Theme.primary} />
-        <Text style={styles.emptyTitle}>No bids yet</Text>
+        <Text style={styles.emptyTitle}>No Marketplace bids yet</Text>
         <Text style={styles.emptyBody}>
-          Bid on an open Marketplace load and it will show up here.
+          Bid on an open Marketplace load and it will show up here. Network quotes are listed separately and stay pending until the shipper awards them.
         </Text>
       </View>
     );
@@ -200,7 +200,7 @@ export function OrgMyBidsList({
   return (
     <View style={styles.listContent}>
       {groups.awarded.length > 0 ? (
-        <Section title="Awarded" count={groups.awarded.length}>
+        <Section title="Awarded · Marketplace" count={groups.awarded.length}>
           {groups.awarded.map((b) => (
             <BidCard
               key={b.id}
@@ -212,7 +212,7 @@ export function OrgMyBidsList({
         </Section>
       ) : null}
       {pendingPools.length > 0 ? (
-        <Section title="Pending" count={groups.pending.length}>
+        <Section title="Pending · Marketplace" count={groups.pending.length}>
           {pendingPools.map((pool) => (
             <MarketplaceBidPoolCard
               key={pool.id}
@@ -227,7 +227,7 @@ export function OrgMyBidsList({
         </Section>
       ) : null}
       {closedPools.length > 0 ? (
-        <Section title="Not selected" count={groups.closed.length}>
+        <Section title="Not selected · Marketplace" count={groups.closed.length}>
           {closedPools.map((pool) => (
             <MarketplaceBidPoolCard key={pool.id} pool={pool} />
           ))}

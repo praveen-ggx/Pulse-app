@@ -68,7 +68,10 @@ export function laneOfferSourceLabel(offer: LaneOffer): string {
     const left = offer.vehicles_left ?? 0;
     return `Lane rate · ${left} ${left === 1 ? "vehicle" : "vehicles"} left`;
   }
-  return offer.source_indent_number ? `Bid on ${offer.source_indent_number}` : "Bid on this lane";
+  const source = offer.channel === "network" ? "Network" : "Marketplace";
+  return offer.source_indent_number
+    ? `${source} bid on ${offer.source_indent_number}`
+    : `${source} bid on this lane`;
 }
 
 /**
@@ -81,7 +84,7 @@ export function laneBidInviteMeta(
   const parts =
     invite.channel === "marketplace"
       ? [invite.vehicle_type, "Marketplace load"]
-      : [invite.vehicle_type, invite.shipper_name, invite.indent_number];
+      : ["Network", invite.vehicle_type, invite.shipper_name, invite.indent_number];
   return parts.filter(Boolean).join(" · ");
 }
 

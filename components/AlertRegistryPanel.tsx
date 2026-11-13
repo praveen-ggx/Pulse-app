@@ -236,12 +236,15 @@ function RegistryFeedList({
   finance,
   feed,
   access,
+  onNavigateAway,
 }: {
   filterTab: RegistryFilterTab;
   visibleCount: number;
   finance: AlertRegistryFinanceHandlers;
   feed: RegistryFeedEntry[];
   access: RegistryNotificationAccess;
+  /** Hide the notification shell before a rate-request action changes route. */
+  onNavigateAway?: () => void;
 }) {
   const auth = useOptionalAuth();
   const org = useOptionalOrganization();
@@ -452,6 +455,7 @@ function RegistryFeedList({
             if (!access.indents || !indentAction.href) return;
             if (isLaneInvite && !indentAction.enabled) return;
             dismissLane();
+            onNavigateAway?.();
             router.push(indentAction.href as Parameters<typeof router.push>[0]);
           };
           const laneTags: RegistryTag[] = [];
@@ -964,6 +968,10 @@ export function AlertRegistryPanel({
           finance={panelFinance}
           feed={filteredFeed}
           access={notificationAccess}
+          onNavigateAway={() => {
+            onDetailNavigateAway?.();
+            if (layout !== "fullscreen") onClose();
+          }}
         />
         {showLoadMore ? (
           <Pressable

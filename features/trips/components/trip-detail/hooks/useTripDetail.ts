@@ -91,6 +91,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { invalidateTripFinanceNoteQueries } from "@/lib/queries/useTripFinanceAdjustmentsQuery";
 import { isServiceUnavailableError } from "@/lib/supabaseHttp.util";
 import * as driverLocationService from "@/features/driver/services/driverLocation.service";
+import { useCompletedTripPath } from "@/features/trips/hooks/useCompletedTripPath";
 import { getMoverAssetClientPaid } from "@/features/trips/services/moverAssetPayment.service";
 import * as tripDocumentsService from "@/features/trips/services/tripDocuments.service";
 import { parseLrFieldValues } from "@/features/trips/services/lrDocumentOcr.util";
@@ -801,6 +802,14 @@ export function useTripDetail({
     tripId: trip?.id ?? null,
     driverId: effectiveDriverIdForLocation,
     trackingEnabled: driverMapDataEnabled,
+  });
+
+  /** Completed trips: driven path read once for the map (live lanes stay off). */
+  const completedTripPath = useCompletedTripPath({
+    tripId: trip?.id,
+    startedAt: trip?.created_at,
+    completedAt: trip?.completed_at,
+    enabled: tripCompleted && trackingQueriesEnabled,
   });
 
   const driverPing = useRequestDriverPing({
@@ -4125,6 +4134,7 @@ export function useTripDetail({
     /** @deprecated Use useTrackingState(tripId, tripStatus).broadcastActive instead. */
     trackingActive: trackingBroadcastEnabled,
     trackingTrail: liveTracking.trail,
+    completedTripPath,
     lastSeenAt,
     requestDriverPing: driverPing.requestPing,
     /** @deprecated Use useTrackingState(tripId, tripStatus, overrides).isPinging instead. */

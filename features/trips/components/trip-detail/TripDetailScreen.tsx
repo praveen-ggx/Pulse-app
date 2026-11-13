@@ -4436,14 +4436,17 @@ export default function TripDetailScreen({
     String(tripExtra.vehicle_number ?? "").trim() ||
     "Pending";
 
-  const mapDbLocationTrail = mergeMapLocationTrail(
-    detail.tripLocationPoints ?? [],
-    (detail.trackingTrail ?? []).map((c) => ({
-      latitude: c.latitude,
-      longitude: c.longitude,
-      recorded_at: c.recorded_at,
-    })),
-  );
+  // Completed trip: cleaned driven path (read once). Open trip: live history + checkpoints.
+  const mapDbLocationTrail = detail.tripCompleted
+    ? detail.completedTripPath ?? []
+    : mergeMapLocationTrail(
+        detail.tripLocationPoints ?? [],
+        (detail.trackingTrail ?? []).map((c) => ({
+          latitude: c.latitude,
+          longitude: c.longitude,
+          recorded_at: c.recorded_at,
+        })),
+      );
   const mapTruckLocation = resolveMapTruckLocation({
     tripCompleted: detail.tripCompleted,
     currentPosition: trackingState?.currentPosition ?? null,

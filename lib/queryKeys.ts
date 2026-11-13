@@ -252,6 +252,9 @@ export const queryKeys = {
     /** Dispatcher trip detail: presence seed + checkpoint trail for one trip/driver pair. */
     tripLiveSeed: (tripId: string, driverId: string) =>
       ["q", "tracking", "trip-live-seed", tripId, driverId] as const,
+    /** Completed trip map: driven path (GPS history + checkpoints), read once. */
+    completedTripPath: (tripId: string) =>
+      ["q", "tracking", "completed-trip-path", tripId] as const,
   },
 
   /** Driver app home dashboard (linked drivers + pending OTP trips). */

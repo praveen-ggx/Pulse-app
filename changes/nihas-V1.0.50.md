@@ -22,3 +22,6 @@ Branched from V1 `74b1c3f6` on 2026-11-13.
 
 ## Not tested
 - Full Jest and typecheck locally (left to PR checks). Sub-assigned second supplier does not get the code.
+
+## Fix
+- Typecheck: added indent_reference_for_viewer / indent_references_for_viewer to lib/database.types.ts (CI typecheck +2).

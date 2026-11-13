@@ -1,6 +1,7 @@
 import { TRACKING_BROADCAST_EVENT } from '@/features/tracking/constants';
 import {
   TRACKING_BROADCAST_MIN_DISPLACEMENT_M,
+  TRACKING_BROADCAST_MIN_GAP_MS,
   TRACKING_BROADCAST_MIN_INTERVAL_MS,
 } from '@/features/tracking/constants';
 import { publishTrackingBroadcast } from '@/features/tracking/broadcast/publishTrackingBroadcast';
@@ -25,6 +26,7 @@ export class DriverTrackingSessionManager {
   private readonly broadcastFilter = new TrackingMovementFilter({
     minDisplacementM: TRACKING_BROADCAST_MIN_DISPLACEMENT_M,
     minIntervalMs: TRACKING_BROADCAST_MIN_INTERVAL_MS,
+    minGapMs: TRACKING_BROADCAST_MIN_GAP_MS,
   });
 
   get active(): ActiveTrackingSession | null {

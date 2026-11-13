@@ -67,6 +67,7 @@ import { markStartupPhase } from '@/lib/startupMetrics';
 import { prefetchCriticalWebImages } from '@/lib/media/prefetchCriticalWebImages';
 import { hasSupabaseConfig, SUPABASE_CONFIG_MISSING_MESSAGE } from '@/lib/supabase';
 import '@/lib/tracking/backgroundTasks';
+import '@/features/tracking/services/driverLiveLocationTask.service';
 import { useMemberAccess } from '@/lib/useMemberAccess';
 import { useMemberCapabilities } from '@/lib/useMemberCapabilities';
 import { useWebLayoutWidth } from '@/lib/useWebLayoutWidth';

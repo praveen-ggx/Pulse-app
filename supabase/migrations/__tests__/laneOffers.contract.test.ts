@@ -28,11 +28,13 @@ function parse() {
 }
 
 describe("lane-offers release set", () => {
-  const DEP_FILE = "20271025183000_network_pool_bid_commits.sql";
+  const DEP_FILE = "20261113104714_network_pool_bid_commits_reissue.sql";
+  const ORIGINAL_DEP = "20271025183000_network_pool_bid_commits.sql";
 
-  it("lists the pool-commit dependency then lane offers, off-midnight and not frozen", () => {
+  it("lists the pool-commit reissue then lane offers, off-midnight and not frozen", () => {
     const { versions } = parse();
-    expect(versions).toEqual(["20271025183000", "20271113091500"]);
+    expect(versions).toEqual(["20261113104714", "20271113091500"]);
+    expect(versions).not.toContain("20271025183000");
     expect(versions.every((version) => !version.endsWith("000000"))).toBe(true);
     const frozen = fs
       .readFileSync(path.join(migrations, "../release-sets/FROZEN.versions"), "utf8")
@@ -45,7 +47,7 @@ describe("lane-offers release set", () => {
   it("pins both migration files by SHA-256", () => {
     const { sums } = parse();
     for (const [version, file] of [
-      ["20271025183000", DEP_FILE],
+      ["20261113104714", DEP_FILE],
       ["20271113091500", FILE],
     ] as const) {
       const pinned = sums.get(version);
@@ -60,6 +62,14 @@ describe("lane-offers release set", () => {
     expect(dep).toMatch(/CREATE TABLE IF NOT EXISTS public\.network_pool_bid_commits/);
     expect(dep).toMatch(/ADD COLUMN IF NOT EXISTS pool_commit_id uuid/);
     expect(dep).toMatch(/CREATE OR REPLACE FUNCTION public\.network_pool_commit_is_live\(/);
+  });
+
+  it("the reissue runs the original 20271025183000 SQL byte-for-byte", () => {
+    const reissue = fs.readFileSync(path.join(migrations, DEP_FILE), "utf8");
+    const original = fs.readFileSync(path.join(migrations, ORIGINAL_DEP), "utf8");
+    const marker = "-- ---- original 20271025183000 SQL follows, unchanged ----\n";
+    expect(reissue.indexOf(marker)).toBeGreaterThan(0);
+    expect(reissue.slice(reissue.indexOf(marker) + marker.length)).toBe(original);
   });
 
   it("leaves withdraw-network-quotes unchanged (still excludes 20271025183000)", () => {

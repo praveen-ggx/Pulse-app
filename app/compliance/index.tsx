@@ -1803,7 +1803,11 @@ export default function ComplianceScreen() {
     setExportToast(message);
     if (rows.length === 0) return;
     try {
-      await downloadComplianceTableExport(rows, stage === "compliance_pending" || hideCommercials);
+      await downloadComplianceTableExport(
+        rows,
+        stage === "compliance_pending" || hideCommercials,
+        supplierNameByTripId,
+      );
     } catch (error) {
       alertMessage("Couldn't export", error instanceof Error ? error.message : "Please try again.");
     }
@@ -1818,6 +1822,7 @@ export default function ComplianceScreen() {
     search,
     searched,
     stage,
+    supplierNameByTripId,
     tableDateSort,
     verifiedSlice,
   ]);
@@ -2386,7 +2391,7 @@ export default function ComplianceScreen() {
           />
         </View>
         <View style={[styles.footerSide, styles.footerSideEnd]}>
-          {viewMode === "table" && !isAdvanceProcessedStage && !isVerifiedStage ? (
+          {!isAdvanceProcessedStage && !isVerifiedStage ? (
             <TouchableOpacity
               style={[styles.reportBtn, compactActions && styles.actionBtnCompact]}
               onPress={() => {
@@ -2394,7 +2399,7 @@ export default function ComplianceScreen() {
               }}
               hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
               accessibilityRole="button"
-              accessibilityLabel="Export table"
+              accessibilityLabel="Export"
             >
               <Download size={11} color={Theme.actionBtnInk} strokeWidth={2} />
               {!isNarrow ? <Text style={styles.reportBtnText}>Export</Text> : null}

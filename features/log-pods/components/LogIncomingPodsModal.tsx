@@ -43,10 +43,6 @@ import {
   countTripsByCompletion,
   tripIsDeliveredStatus,
 } from "@/features/trips/services/tripDocumentLrPod.service";
-import {
-  shouldAutoLoadOlderPodPage,
-  TRIP_LIST_EMPTY_PAGE_HOPS,
-} from "@/features/trips/utils/tripKeysetCursor.util";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -219,56 +215,6 @@ export function LogIncomingPodsModal({
     () => filterLogPodTripsForTab(partyTrips, tab),
     [partyTrips, tab],
   );
-  const partyKey = selectedParty?.id ?? "";
-  const podHasNextPage = Boolean(tripsQuery.hasNextPage);
-  const podPageFailed = tripsQuery.isError || tripsQuery.isFetchNextPageError;
-  const fetchPodNextPage = tripsQuery.fetchNextPage;
-  useEffect(() => {
-    if (
-      !shouldAutoLoadOlderPodPage({
-        hasParty: selectedParty != null,
-        visibleCount: visibleTrips.length,
-        hasNextPage: podHasNextPage,
-        busy: false,
-        failed: podPageFailed,
-        hops: 0,
-      })
-    ) {
-      return;
-    }
-    const party = selectedParty;
-    if (party == null) return;
-    let cancelled = false;
-    const run = async () => {
-      let hops = 0;
-      let hasNext = true;
-      while (!cancelled && hasNext && hops < TRIP_LIST_EMPTY_PAGE_HOPS) {
-        hops += 1;
-        const result = await fetchPodNextPage();
-        if (cancelled || result.isError) return;
-        hasNext = Boolean(result.hasNextPage);
-        const loaded = (result.data?.pages ?? []).flatMap((page) => page.trips);
-        const partyRows =
-          partyKind === "driver"
-            ? driverOperatedLogPodTrips(loaded, party)
-            : supplierOperatedLogPodTrips(loaded, party);
-        if (filterLogPodTripsForTab(partyRows, tab).length > 0 || !hasNext) return;
-      }
-    };
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    fetchPodNextPage,
-    partyKey,
-    partyKind,
-    podHasNextPage,
-    podPageFailed,
-    selectedParty,
-    tab,
-    visibleTrips.length,
-  ]);
 
   const countForTab = (id: LogIncomingPodsListTab) => {
     if (id === "pending") return pendingTrips.length;
@@ -1015,23 +961,6 @@ export function LogIncomingPodsModal({
                             ? styles.tripListEmpty
                             : styles.tripListContent
                         }
-                        ListFooterComponent={
-                          tripsQuery.hasNextPage ? (
-                            <Pressable
-                              onPress={() => {
-                                void tripsQuery.fetchNextPage();
-                              }}
-                              disabled={tripsQuery.isFetchingNextPage}
-                              style={styles.centeredState}
-                            >
-                              <Text style={styles.emptyTitle}>
-                                {tripsQuery.isFetchingNextPage
-                                  ? "Loading older trips…"
-                                  : "Load older trips"}
-                              </Text>
-                            </Pressable>
-                          ) : null
-                        }
                         ListEmptyComponent={
                           <View style={styles.centeredState}>
                             <View style={styles.emptyGlyph}>
@@ -1042,26 +971,22 @@ export function LogIncomingPodsModal({
                               />
                             </View>
                             <Text style={styles.emptyTitle}>
-                              {tripsQuery.hasNextPage
-                                ? "Older trips are still on the server"
-                                : tab === "pending"
-                                  ? "No pending PODs"
-                                  : tab === "completed"
-                                    ? "No completed trips"
-                                    : tab === "not_completed"
-                                      ? "No trips in progress"
-                                      : `No trips for this ${partyNoun}`}
+                              {tab === "pending"
+                                ? "No pending PODs"
+                                : tab === "completed"
+                                  ? "No completed trips"
+                                  : tab === "not_completed"
+                                    ? "No trips in progress"
+                                    : `No trips for this ${partyNoun}`}
                             </Text>
                             <Text style={styles.emptySub}>
-                              {tripsQuery.hasNextPage
-                                ? "This page has nothing for the current filter. The next page is still available."
-                                : tab === "pending"
-                                  ? "Everything from this party is already marked received."
-                                  : tab === "completed"
-                                    ? "None of this party's trips are marked completed yet."
-                                    : tab === "not_completed"
-                                      ? "All trips for this party are completed."
-                                      : `No trips were operated by this ${partyNoun}.`}
+                              {tab === "pending"
+                                ? "Everything from this party is already marked received."
+                                : tab === "completed"
+                                  ? "None of this party's trips are marked completed yet."
+                                  : tab === "not_completed"
+                                    ? "All trips for this party are completed."
+                                    : `No trips were operated by this ${partyNoun}.`}
                             </Text>
                           </View>
                         }

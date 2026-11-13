@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   executeLogIncomingPods,
   fetchCourierPartners,
@@ -13,11 +13,6 @@ import {
   type MarkHardCopyPodsReceivedInput,
 } from '@/features/log-pods/services/logPods.service';
 import { queryKeys } from '@/lib/queryKeys';
-import {
-  readUntilVisibleTripPage,
-  TRIP_LIST_EMPTY_PAGE_HOPS,
-  type TripKeysetCursor,
-} from '@/features/trips/utils/tripKeysetCursor.util';
 import { syncHardCopyPodRecord } from '@/lib/queries/invalidateHardCopyPodCaches';
 import { STALE } from '@/lib/queryClient';
 
@@ -26,36 +21,22 @@ export function useLogIncomingPodsTripsQuery(
   options?: { includeReceived?: boolean },
 ) {
   const includeReceived = Boolean(options?.includeReceived);
-  const query = useInfiniteQuery({
+  return useQuery({
     queryKey: orgId
-      ? [...(includeReceived
-          ? queryKeys.logPods.tripsIncludingReceived(orgId)
-          : queryKeys.logPods.trips(orgId)), 'page']
+      ? includeReceived
+        ? queryKeys.logPods.tripsIncludingReceived(orgId)
+        : queryKeys.logPods.trips(orgId)
       : ['q', 'log-pods', 'trips', 'none'],
-    queryFn: async ({ pageParam }: { pageParam: TripKeysetCursor | null }) => {
-      const page = await readUntilVisibleTripPage({
-        initialCursor: pageParam,
-        maxPages: includeReceived ? 1 : TRIP_LIST_EMPTY_PAGE_HOPS,
-        fetchPage: async (cursor) => {
-          const { error, trips, nextCursor } = await fetchTripsForLogPods(orgId!, {
-            includeReceived,
-            cursor,
-          });
-          return { error, visible: trips, nextCursor };
-        },
+    queryFn: async () => {
+      const { error, trips } = await fetchTripsForLogPods(orgId!, {
+        includeReceived,
       });
-      if (page.error) throw page.error;
-      return { trips: page.trips, nextCursor: page.nextCursor };
+      if (error) throw error;
+      return trips;
     },
-    initialPageParam: null as TripKeysetCursor | null,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: !!orgId,
     staleTime: STALE.moderate,
   });
-  return {
-    ...query,
-    data: query.data?.pages.flatMap((page) => page.trips),
-  };
 }
 
 export function useLogIncomingPodsSuppliersQuery(orgId: string | null) {

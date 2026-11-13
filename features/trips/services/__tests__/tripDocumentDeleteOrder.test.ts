@@ -3,9 +3,8 @@ import { deleteTripDocument, type TripDocumentRow } from "../tripDocuments.servi
 /**
  * The row is deleted before the stored file. When the database refuses the
  * delete (approved / Ground Ops-locked document), the file must stay.
- * The `document_audit_log` 'deleted' row (best-effort, from the in-memory doc
- * snapshot) is written only after the row is really gone, so a refused delete
- * never shows up as "deleted" in Trip Activity.
+ * A `document_audit_log` 'deleted' row is written first (best-effort) so Trip
+ * Activity can show who removed the document after the row is gone.
  */
 
 const calls: string[] = [];
@@ -84,10 +83,10 @@ beforeEach(() => {
 });
 
 describe("deleteTripDocument", () => {
-  it("deletes the row, audits, then removes the file", async () => {
+  it("audits, deletes the row, then the file", async () => {
     const { error } = await deleteTripDocument(DOC);
     expect(error).toBeNull();
-    expect(calls).toEqual(["db.delete", "audit.insert", "storage.remove"]);
+    expect(calls).toEqual(["audit.insert", "db.delete", "storage.remove"]);
     expect(mockAuditInsert).toHaveBeenCalledWith(
       expect.objectContaining({
         document_id: null,
@@ -112,7 +111,7 @@ describe("deleteTripDocument", () => {
     };
     const { error } = await deleteTripDocument(DOC);
     expect(error?.message).toMatch(/document_audit_log_document_id_fkey/);
-    expect(calls).toEqual(["db.delete"]);
+    expect(calls).toEqual(["audit.insert", "db.delete"]);
   });
 
   it("keeps the file when Ground Ops may not change the document", async () => {
@@ -122,7 +121,7 @@ describe("deleteTripDocument", () => {
     };
     const { error } = await deleteTripDocument(DOC);
     expect(error?.message).toMatch(/Ground Ops cannot change/);
-    expect(calls).toEqual(["db.delete"]);
+    expect(calls).toEqual(["audit.insert", "db.delete"]);
   });
 
   it("removes only the file for storage-fallback rows (still audits)", async () => {
@@ -135,7 +134,7 @@ describe("deleteTripDocument", () => {
     mockDeletedRows = [];
     const { error } = await deleteTripDocument(DOC);
     expect(error?.message).toMatch(/could not be deleted/);
-    expect(calls).toEqual(["db.delete"]);
+    expect(calls).toEqual(["audit.insert", "db.delete"]);
   });
 
   it("does not claim cleanup when storage fails after the row is gone", async () => {
@@ -144,6 +143,6 @@ describe("deleteTripDocument", () => {
     expect(error?.message).toMatch(
       /record was removed[\s\S]*file may still be in storage[\s\S]*Object not removed/,
     );
-    expect(calls).toEqual(["db.delete", "audit.insert", "storage.remove"]);
+    expect(calls).toEqual(["audit.insert", "db.delete", "storage.remove"]);
   });
 });

@@ -9,6 +9,7 @@ import {
   Camera,
   type CameraRef,
   GeoJSONSource,
+  Images,
   Layer,
   Map,
   Marker,
@@ -46,6 +47,13 @@ function toLngLat(c: LeafletLatLng): [number, number] {
 // Free, reliable OSM-based vector style (works well for India coverage).
 const MAP_STYLE = NATIVE_BASEMAP_STYLE;
 
+/** White chevron drawn along solid route lines to show travel direction. */
+const ROUTE_IMAGES = {
+  'route-arrow': require('@/assets/images/map/route-arrow.png'),
+};
+/** Solid lines at least this wide are "hero" routes and get direction arrows. */
+const ROUTE_ARROW_MIN_WIDTH = 6;
+
 function MarkerContent({
   markerId,
   color,
@@ -76,6 +84,7 @@ function MarkerContent({
         isOnline={isOnline ?? (role === 'truck' || role === 'live')}
         size={48}
         onPressStatus={onPress}
+        variant="truck"
       />
     );
   }
@@ -159,15 +168,15 @@ export const LeafletMapMapLibre = React.forwardRef<
         // Native MapLibre path rebuilds PointAnnotations from props; live bus
         // still updates shared values / React throttle on the home screen.
       },
-      fitBounds: (ne, sw, paddingPx = 80, _maxZoom) => {
+      fitBounds: (ne, sw, paddingPx = 80, _maxZoom, insets) => {
         cameraRef.current?.fitBounds?.(
           [sw.longitude, sw.latitude, ne.longitude, ne.latitude],
           {
             padding: {
-              top: paddingPx,
-              right: paddingPx,
-              bottom: paddingPx,
-              left: paddingPx,
+              top: insets?.top ?? paddingPx,
+              right: insets?.right ?? paddingPx,
+              bottom: insets?.bottom ?? paddingPx,
+              left: insets?.left ?? paddingPx,
             },
             duration: lowPower ? 0 : 600,
           },
@@ -206,6 +215,8 @@ export const LeafletMapMapLibre = React.forwardRef<
             }}
           />
 
+          <Images images={ROUTE_IMAGES} />
+
           {safePolylineLayers.map((layer) => (
             <GeoJSONSource
               key={layer.id}
@@ -219,6 +230,21 @@ export const LeafletMapMapLibre = React.forwardRef<
                 properties: {},
               }}
             >
+              {layer.glowWidth ? (
+                // White casing under the route so it stays readable over
+                // parks, water and busy streets.
+                <Layer
+                  id={`leaflet-polyline-casing-${layer.id}`}
+                  type="line"
+                  source={`leaflet-polyline-source-${layer.id}`}
+                  style={{
+                    lineColor: Theme.cardWhite,
+                    lineWidth: layer.glowWidth,
+                    lineCap: 'round',
+                    lineJoin: 'round',
+                  }}
+                />
+              ) : null}
               <Layer
                 id={`leaflet-polyline-layer-${layer.id}`}
                 type="line"
@@ -228,9 +254,25 @@ export const LeafletMapMapLibre = React.forwardRef<
                   lineWidth: layer.width ?? 5,
                   lineCap: 'round',
                   lineJoin: 'round',
-                  ...(layer.dashed ? { lineDasharray: [2, 2.5] } : {}),
+                  // Round dots (zero-length dash + round cap) for approx paths.
+                  ...(layer.dashed ? { lineDasharray: [0, 2] } : {}),
                 }}
               />
+              {!layer.dashed && (layer.width ?? 5) >= ROUTE_ARROW_MIN_WIDTH ? (
+                <Layer
+                  id={`leaflet-polyline-arrows-${layer.id}`}
+                  type="symbol"
+                  source={`leaflet-polyline-source-${layer.id}`}
+                  style={{
+                    symbolPlacement: 'line',
+                    symbolSpacing: 90,
+                    iconImage: 'route-arrow',
+                    iconSize: 0.32,
+                    iconAllowOverlap: true,
+                    iconIgnorePlacement: true,
+                  }}
+                />
+              ) : null}
             </GeoJSONSource>
           ))}
 

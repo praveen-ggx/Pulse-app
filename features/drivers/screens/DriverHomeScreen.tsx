@@ -115,6 +115,7 @@ import {
     type RouteResult,
 } from "@/lib/routingService";
 import {
+    fetchUsableMultiStopRoute,
     fetchUsableRouteForKey,
     routeMidpoint,
     shouldShowDriverApproachRoute,
@@ -2817,6 +2818,7 @@ export default function DriverRadarScreen() {
   const [optimalRoute, setOptimalRoute] = useState<RouteResult | null>(null);
   const [tripLegRoute, setTripLegRoute] = useState<RouteResult | null>(null);
   const [approachRoute, setApproachRoute] = useState<RouteResult | null>(null);
+  const [planRoute, setPlanRoute] = useState<RouteResult | null>(null);
   const [_optimalRouteLoading, setOptimalRouteLoading] = useState(false);
   const [tripLegRouteLoading, setTripLegRouteLoading] = useState(false);
   const [_approachRouteLoading, setApproachRouteLoading] = useState(false);
@@ -2949,6 +2951,34 @@ export default function DriverRadarScreen() {
       cancelled = true;
     };
   }, [tripLegRouteKey]);
+
+  // Road geometry through every plan stop, so the trip plan follows streets
+  // instead of joining stops with straight lines.
+  const planRouteKey = useMemo(() => {
+    const stops = routePlanMap?.stops ?? [];
+    if (stops.length < 2) return null;
+    return stops
+      .map((s) => `${s.latitude.toFixed(5)},${s.longitude.toFixed(5)}`)
+      .join(";");
+  }, [routePlanMap?.stops]);
+
+  useEffect(() => {
+    if (!planRouteKey) {
+      setPlanRoute(null);
+      return;
+    }
+    let cancelled = false;
+    const stops = planRouteKey.split(";").map((pair) => {
+      const [latitude, longitude] = pair.split(",").map(Number);
+      return { latitude, longitude };
+    });
+    void fetchUsableMultiStopRoute(stops).then((res) => {
+      if (!cancelled) setPlanRoute(res);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [planRouteKey]);
 
   useEffect(() => {
     if (!approachRouteKey) {
@@ -3372,11 +3402,20 @@ export default function DriverRadarScreen() {
               160,
               Math.round((topPadding + bottomPadding) * 0.45),
             );
+        // Per-side insets keep the route clear of the header and the job card
+        // (native MapLibre); other map backends ignore them and use leafPad.
+        const leafSide = isFullScreen ? 72 : 88;
         leafRef.current?.fitBounds(
           bounds.ne,
           bounds.sw,
           leafPad,
           isTightStopFit ? DRIVER_MAP_MY_LOCATION_ZOOM : DRIVER_MAP_OVERVIEW_MAX_ZOOM,
+          {
+            top: Math.max(topPadding + 36, Math.round(topPadding * 1.2)),
+            bottom: Math.max(160, bottomPadding + 40),
+            left: leafSide,
+            right: leafSide,
+          },
         );
         lastFitKeyRef.current = fitKey;
         return;
@@ -3953,14 +3992,28 @@ export default function DriverRadarScreen() {
     const mapPolylines: LeafletPolylineLayer[] = [];
     const planLine = routePlanPolyline(routePlanMap);
     if (planLine.length >= 2) {
-      mapPolylines.push({
-        id: "trip-plan",
-        coordinates: planLine,
-        color: Theme.driverEmerald,
-        dashed: true,
-        width: 5,
-        glowWidth: 9,
-      });
+      const planRoad =
+        planRoute?.coordinates && planRoute.coordinates.length >= 2
+          ? planRoute.coordinates
+          : null;
+      mapPolylines.push(
+        planRoad
+          ? {
+              id: "trip-plan",
+              coordinates: planRoad,
+              color: Theme.driverEmerald,
+              width: 6,
+              glowWidth: 10,
+            }
+          : {
+              // Approx. path until road geometry loads (or if routing is down).
+              id: "trip-plan",
+              coordinates: planLine,
+              color: Theme.driverEmerald,
+              dashed: true,
+              width: 5,
+            },
+      );
     }
     const pickupDropSpanM =
       pickup && drop
@@ -4546,21 +4599,22 @@ export default function DriverRadarScreen() {
                   const glowWidth = layer.glowWidth ?? mainWidth + 5;
                   return (
                     <Fragment key={layer.id}>
-                      <MapPolyline
-                        coordinates={layer.coordinates}
-                        strokeColor={`${color}40`}
-                        strokeWidth={glowWidth}
-                        lineCap="round"
-                        lineJoin="round"
-                        lineDashPattern={layer.dashed ? [6, 8] : undefined}
-                      />
+                      {layer.dashed ? null : (
+                        <MapPolyline
+                          coordinates={layer.coordinates}
+                          strokeColor={Theme.cardWhite}
+                          strokeWidth={glowWidth}
+                          lineCap="round"
+                          lineJoin="round"
+                        />
+                      )}
                       <MapPolyline
                         coordinates={layer.coordinates}
                         strokeColor={color}
                         strokeWidth={mainWidth}
                         lineCap="round"
                         lineJoin="round"
-                        lineDashPattern={layer.dashed ? [6, 8] : undefined}
+                        lineDashPattern={layer.dashed ? [1, 9] : undefined}
                       />
                     </Fragment>
                   );

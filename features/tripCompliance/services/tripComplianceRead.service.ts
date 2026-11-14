@@ -802,16 +802,38 @@ function assembleVehicleDocuments(
   entityDocsById: Map<string, DocumentRow[]>,
   vault: Map<string, VaultEntry>,
 ): { vehicleDocuments: ComplianceEntityDocument[]; vaultVehicleId: string | null } {
-  const entityVehicleDocs = trip.vehicle_id
-    ? (entityDocsById.get(trip.vehicle_id) ?? []).filter((d) => d.entity_type === "vehicle").map(toEntityDocument)
-    : [];
   const vaultEntry =
     (trip.vehicle_id ? vault.get(trip.vehicle_id) : undefined) ??
     vault.get(normalizeVaultVehicleNumber(trip.vehicle_display_number));
+  const vehicleId = trip.vehicle_id ?? vaultEntry?.vehicleId ?? null;
+  const entityVehicleDocs = vehicleId
+    ? (entityDocsById.get(vehicleId) ?? []).filter((d) => d.entity_type === "vehicle").map(toEntityDocument)
+    : [];
   return {
     vehicleDocuments: mergeComplianceEntityDocs(entityVehicleDocs, vaultEntry?.docs ?? []),
     vaultVehicleId: vaultEntry?.vehicleId ?? null,
   };
+}
+
+/**
+ * Trucks found only by plate (trip has no vehicle_id) keep Compliance uploads in
+ * the viewer org's entity_documents under that truck's id. Read those too.
+ */
+async function withPlateResolvedEntityDocs(
+  trips: TripRow[],
+  viewerOrgId: string,
+  vault: Map<string, VaultEntry>,
+  entityDocsById: Map<string, DocumentRow[]>,
+): Promise<Map<string, DocumentRow[]>> {
+  const ids = new Set<string>();
+  for (const trip of trips) {
+    if (trip.vehicle_id) continue;
+    const id = vault.get(normalizeVaultVehicleNumber(trip.vehicle_display_number))?.vehicleId;
+    if (id && !entityDocsById.has(id)) ids.add(id);
+  }
+  if (ids.size === 0) return entityDocsById;
+  const extra = await fetchEntityDocumentsByIds(viewerOrgId, [...ids], ["vehicle"]);
+  return new Map([...entityDocsById, ...extra]);
 }
 
 function assembleDriverDocuments(
@@ -863,12 +885,13 @@ export async function fetchComplianceTripInputs(
     attachIbondFlags(attachReceivedLrNumbers(flagsByTrip, receivedLrsByTrip), ibondTripIds),
     chargeWorkflow,
   );
+  const vehicleEntityDocs = await withPlateResolvedEntityDocs(trips, viewerOrgId, vault, entityDocsById);
   return trips.map((trip) => ({
     trip,
     documents: docsByTrip.get(trip.id) ?? [],
     flags: flagsWithLrs.get(trip.id) ?? null,
     ...paymentInputs(txnsByTrip.get(trip.id)),
-    ...assembleVehicleDocuments(trip, entityDocsById, vault),
+    ...assembleVehicleDocuments(trip, vehicleEntityDocs, vault),
     driverDocuments: assembleDriverDocuments(trip, entityDocsById, authorizedDriverDocs),
   }));
 }
@@ -1022,7 +1045,8 @@ export async function fetchVehicleDocumentsForTrips(
     fetchEntityDocumentsByIds(viewerOrgId, vehicleIds, ["vehicle"]),
     fetchVehicleVaultDocumentsForTrips(trips, viewerOrgId),
   ]);
-  for (const trip of trips) byTrip.set(trip.id, assembleVehicleDocuments(trip, entityDocsById, vault));
+  const vehicleEntityDocs = await withPlateResolvedEntityDocs(trips, viewerOrgId, vault, entityDocsById);
+  for (const trip of trips) byTrip.set(trip.id, assembleVehicleDocuments(trip, vehicleEntityDocs, vault));
   return byTrip;
 }
 
